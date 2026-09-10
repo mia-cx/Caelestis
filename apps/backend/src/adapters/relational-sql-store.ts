@@ -135,6 +135,7 @@ import { RelationalWorkStore } from '../work/relational-store.js'
 import { RelationalRegionStore } from '../work/relational-region-store.js'
 import { changedRows, relationalDatabase } from './relational-database.js'
 import type { SqlConnection, SqlStatement } from './sql-connection.js'
+import { sqlDialect } from './sql-dialect.js'
 
 const storedAlarmState = (row: typeof templateAlarmStates.$inferSelect): TemplateAlarmState => {
   if (row.alarmId === null) {
@@ -260,6 +261,23 @@ const mentions = (error: unknown, text: string): boolean => {
   let current: unknown = error
   for (let depth = 0; depth < MAX_CAUSE_DEPTH && current instanceof Error; depth += 1) {
     if (current.message.includes(text)) return true
+    if ('code' in current) {
+      if (current.code === '23503' && text === 'FOREIGN KEY constraint failed') return true
+      if (
+        (current.code === '23505' || current.code === '23514') &&
+        'constraint' in current &&
+        typeof current.constraint === 'string' &&
+        text.includes(current.constraint)
+      )
+        return true
+      if (
+        current.code === '23505' &&
+        'table' in current &&
+        current.table === 'tags' &&
+        text === 'UNIQUE constraint failed: tags.'
+      )
+        return true
+    }
     current = current.cause
   }
   return false
@@ -306,10 +324,12 @@ const toTileBlobObject = (row: typeof tileBlobObjects.$inferSelect): TileBlobObj
 export class RelationalSqlStore implements SqlStore {
   readonly work: RelationalWorkStore
   readonly regions: RelationalRegionStore
+  private readonly syntax: ReturnType<typeof sqlDialect>
   private readonly database: ReturnType<typeof relationalDatabase>
   private readonly client: SqlConnection
 
   constructor(database: SqlConnection) {
+    this.syntax = sqlDialect(database.dialect)
     this.work = new RelationalWorkStore(database)
     this.regions = new RelationalRegionStore(database)
     this.client = database
@@ -333,9 +353,9 @@ export class RelationalSqlStore implements SqlStore {
 
   async listManifestTags(scope: TemplateManifestScope, includeUnpublished: boolean) {
     const result = await this.client
-      .prepare(`SELECT tt.template_id AS templateId, tags.id, tags.name
+      .prepare(`SELECT tt.template_id AS "templateId", tags.id, tags.name
       FROM template_tags tt JOIN tags ON tags.id = tt.tag_id JOIN templates t ON t.id = tt.template_id
-      WHERE t.season = ? AND t.surface_kind = ? AND t.alliance_id IS ? AND (? OR t.published_at IS NOT NULL)
+      WHERE t.season = ? AND t.surface_kind = ? AND t.alliance_id ${this.syntax.nullEqual} ? AND (? = 1 OR t.published_at IS NOT NULL)
       ORDER BY tags.id`)
       .bind(scope.season, scope.surface.kind, scope.surface.allianceId, includeUnpublished ? 1 : 0)
       .all<{ templateId: string; id: string; name: string }>()
@@ -352,9 +372,9 @@ export class RelationalSqlStore implements SqlStore {
 
   async listManifestNodeTags(scope: TemplateManifestScope) {
     const result = await this.client
-      .prepare(`SELECT nt.node_id AS nodeId, tags.id, tags.name
+      .prepare(`SELECT nt.node_id AS "nodeId", tags.id, tags.name
       FROM node_tags nt JOIN tags ON tags.id = nt.tag_id JOIN nodes n ON n.id = nt.node_id
-      WHERE n.season = ? AND n.surface_kind = ? AND n.alliance_id IS ? ORDER BY tags.id`)
+      WHERE n.season = ? AND n.surface_kind = ? AND n.alliance_id ${this.syntax.nullEqual} ? ORDER BY tags.id`)
       .bind(scope.season, scope.surface.kind, scope.surface.allianceId)
       .all<{ nodeId: string; id: string; name: string }>()
     return result.results.map(({ nodeId, id, name }) => ({ nodeId, tag: { id, name } }))
@@ -363,7 +383,7 @@ export class RelationalSqlStore implements SqlStore {
   async listTagScopes(): Promise<readonly TemplateManifestScope[]> {
     const result = await this.client
       .prepare(
-        'SELECT season, surface_kind AS kind, alliance_id AS allianceId FROM templates UNION SELECT season, surface_kind AS kind, alliance_id AS allianceId FROM nodes',
+        'SELECT season, surface_kind AS kind, alliance_id AS "allianceId" FROM templates UNION SELECT season, surface_kind AS kind, alliance_id AS "allianceId" FROM nodes',
       )
       .all<{ season: number; kind: TemplateSurface['kind']; allianceId: number | null }>()
     return result.results.map((row) => ({
@@ -427,7 +447,7 @@ export class RelationalSqlStore implements SqlStore {
         const results = await this.client.batch([
           write,
           prepare(
-            `UPDATE templates SET updated_at_ms = max(updated_at_ms + 1, ?) WHERE id = ? AND ${guard}`,
+            `UPDATE templates SET updated_at_ms = ${this.syntax.greatest}(updated_at_ms + 1, ?) WHERE id = ? AND ${guard}`,
             now,
             mutation.templateId,
             mutation.id,
@@ -437,7 +457,7 @@ export class RelationalSqlStore implements SqlStore {
         return (results[1]?.meta.changes ?? 0) > 0
       }
       const updateRevisions = prepare(
-        'UPDATE templates SET updated_at_ms = max(updated_at_ms + 1, ?) WHERE id IN (SELECT template_id FROM template_tags WHERE tag_id = ?)',
+        `UPDATE templates SET updated_at_ms = ${this.syntax.greatest}(updated_at_ms + 1, ?) WHERE id IN (SELECT template_id FROM template_tags WHERE tag_id = ?)`,
         now,
         mutation.id,
       )
@@ -453,7 +473,7 @@ export class RelationalSqlStore implements SqlStore {
       const results = await this.client.batch([updateRevisions, write])
       return (results[1]?.meta.changes ?? 0) > 0
     } catch (error) {
-      if (String(error).includes('UNIQUE constraint failed: tags.'))
+      if (mentions(error, 'UNIQUE constraint failed: tags.'))
         throw new TagConflictError('A tag with that name already exists.')
       throw error
     }
@@ -942,7 +962,9 @@ export class RelationalSqlStore implements SqlStore {
         createdAtMs: version.createdAt,
         updatedAtMs: version.createdAt,
       })
-      .onConflictDoNothing({ target: templates.id })
+      .onConflictDoNothing({
+        target: [templates.id].map((column) => sql`${sql.identifier(column.name)}`),
+      })
     const statements = [
       ...(options.requireExisting === true ? [] : [createTemplate]),
       this.database.insert(templateVersions).values({
@@ -1077,7 +1099,10 @@ export class RelationalSqlStore implements SqlStore {
         name: patch.name ?? null,
         description: patch.description ?? null,
       })
-      .onConflictDoUpdate({ target: serverSettings.id, set: next })
+      .onConflictDoUpdate({
+        target: [serverSettings.id].map((column) => sql`${sql.identifier(column.name)}`),
+        set: next,
+      })
   }
 
   async readTemplate(templateId: string): Promise<TemplateRecord | null> {
@@ -1497,7 +1522,7 @@ export class RelationalSqlStore implements SqlStore {
         ) AS vote_rank FROM votes
       ), frames AS (
         SELECT *, CASE WHEN ?4 = 0 THEN bucket_start_s
-          ELSE CAST(bucket_start_s / ?4 AS INTEGER) * ?4 END AS target_start
+          ELSE CAST(bucket_start_s / ?4 AS BIGINT) * ?4 END AS target_start
         FROM ranked WHERE vote_rank = 1
       ), selected AS (
         SELECT *, ROW_NUMBER() OVER (
@@ -1505,7 +1530,7 @@ export class RelationalSqlStore implements SqlStore {
           ORDER BY bucket_start_s DESC, resolution_s ASC
         ) AS frame_rank FROM frames WHERE target_start >= ?2
       )
-      SELECT frame.tile_x AS tileX, frame.tile_y AS tileY, frame.target_start AS bucketStart,
+      SELECT frame.tile_x AS "tileX", frame.tile_y AS "tileY", frame.target_start AS "bucketStart",
         frame.sha256 AS hash, measurement.correct, measurement.wrong
       FROM selected AS frame LEFT JOIN template_tile_measurements AS measurement
         ON measurement.version_id = ?1 AND measurement.tile_x = frame.tile_x
@@ -1563,7 +1588,9 @@ export class RelationalSqlStore implements SqlStore {
         commitOrder: 1,
       })
       .onConflictDoUpdate({
-        target: [canvasTiles.season, canvasTiles.tileX, canvasTiles.tileY],
+        target: [canvasTiles.season, canvasTiles.tileX, canvasTiles.tileY].map(
+          (column) => sql`${sql.identifier(column.name)}`,
+        ),
         set: {
           sha256: observation.hash,
           observedAtMs: observation.observedAt,
@@ -1617,7 +1644,7 @@ export class RelationalSqlStore implements SqlStore {
               templateTileStatuses.versionId,
               templateTileStatuses.tileX,
               templateTileStatuses.tileY,
-            ],
+            ].map((column) => sql`${sql.identifier(column.name)}`),
             set: {
               correct: status.correct,
               wrong: status.wrong,
@@ -1656,7 +1683,7 @@ export class RelationalSqlStore implements SqlStore {
                     templateAlarmTileStatuses.versionId,
                     templateAlarmTileStatuses.tileX,
                     templateAlarmTileStatuses.tileY,
-                  ],
+                  ].map((column) => sql`${sql.identifier(column.name)}`),
                   set: {
                     correct: status.correct,
                     wrong: status.wrong,
@@ -1896,16 +1923,16 @@ export class RelationalSqlStore implements SqlStore {
       })),
     )
     const incomingStatuses = `SELECT
-      json_extract(value, '$.templateId') AS template_id,
-      json_extract(value, '$.versionId') AS version_id,
-      json_extract(value, '$.tileX') AS tile_x,
-      json_extract(value, '$.tileY') AS tile_y,
-      json_extract(value, '$.correct') AS correct,
-      json_extract(value, '$.wrong') AS wrong,
-      json_extract(value, '$.blank') AS blank,
-      json_extract(value, '$.colours') AS colours_json,
-      json_extract(value, '$.observedAt') AS observed_at_ms
-      FROM json_each(?)`
+      ${this.syntax.jsonField('templateId', 'text')} AS template_id,
+      ${this.syntax.jsonField('versionId', 'text')} AS version_id,
+      ${this.syntax.jsonField('tileX')} AS tile_x,
+      ${this.syntax.jsonField('tileY')} AS tile_y,
+      ${this.syntax.jsonField('correct')} AS correct,
+      ${this.syntax.jsonField('wrong')} AS wrong,
+      ${this.syntax.jsonField('blank')} AS blank,
+      ${this.syntax.jsonField('colours', 'json')} AS colours_json,
+      ${this.syntax.jsonField('observedAt')} AS observed_at_ms
+      FROM ${this.syntax.jsonEach}`
     const statusReadResult =
       statuses.length === 0
         ? null
@@ -2397,7 +2424,7 @@ export class RelationalSqlStore implements SqlStore {
       .insert(tileBlobGcState)
       .values({ id: 1, cursor: cursor ?? null, completedSweeps: cursor === undefined ? 1 : 0 })
       .onConflictDoUpdate({
-        target: tileBlobGcState.id,
+        target: [tileBlobGcState.id].map((column) => sql`${sql.identifier(column.name)}`),
         set: {
           cursor: cursor ?? null,
           completedSweeps: sql`${tileBlobGcState.completedSweeps} + ${cursor === undefined ? 1 : 0}`,
@@ -2445,7 +2472,7 @@ export class RelationalSqlStore implements SqlStore {
     )
 
     for (const edge of TILE_HISTORY_DECAY_EDGES) {
-      const targetStart = `CAST(history.bucket_start_s / ${edge.target} AS INTEGER) * ${edge.target}`
+      const targetStart = `CAST(history.bucket_start_s / ${edge.target} AS BIGINT) * ${edge.target}`
       const chosen = `
         SELECT ${targetStart} AS target_start
         FROM tile_history AS history
@@ -2472,7 +2499,7 @@ export class RelationalSqlStore implements SqlStore {
           history.reported_with_token, history.reported_by_user_id
         FROM tile_history AS history
         INNER JOIN chosen
-          ON chosen.target_start = CAST(history.bucket_start_s / ${edge.target} AS INTEGER) * ${edge.target}
+          ON chosen.target_start = CAST(history.bucket_start_s / ${edge.target} AS BIGINT) * ${edge.target}
         WHERE history.season = ? AND history.tile_x = ? AND history.tile_y = ?
           AND history.resolution_s = ${edge.source}
         ORDER BY history.bucket_start_s, history.sha256, history.reported_by_user_id`
@@ -2579,7 +2606,7 @@ export class RelationalSqlStore implements SqlStore {
         blank: sql<number>`sum(${statusTable.blank})`,
         total: templateVersions.totalPixels,
         colourTotalsJson: templateVersions.colourTotalsJson,
-        colourRowsJson: sql<string>`json_group_array(${statusTable.coloursJson})`,
+        colourRowsJson: this.syntax.jsonAggregate(statusTable.coloursJson),
         observedAt: sql<number>`max(${statusTable.observedAtMs})`,
       })
       .from(templates)
@@ -2724,7 +2751,7 @@ export class RelationalSqlStore implements SqlStore {
         INNER JOIN template_alarm_tile_statuses AS status
           ON status.template_id = template.id AND status.version_id = version.id
         WHERE template.season = ?
-        GROUP BY template.id, version.total_pixels
+        GROUP BY template.id, version.id, version.total_pixels
         HAVING sum(status.correct) = (
           SELECT sum(current.correct) FROM template_tile_statuses AS current
           WHERE current.template_id = template.id AND current.version_id = version.id
@@ -2825,7 +2852,11 @@ export class RelationalSqlStore implements SqlStore {
           ? await this.database
               .insert(templateAlarmStates)
               .values(values)
-              .onConflictDoNothing({ target: templateAlarmStates.templateId })
+              .onConflictDoNothing({
+                target: [templateAlarmStates.templateId].map(
+                  (column) => sql`${sql.identifier(column.name)}`,
+                ),
+              })
           : await this.database
               .update(templateAlarmStates)
               .set(values)
@@ -2852,7 +2883,7 @@ export class RelationalSqlStore implements SqlStore {
         lastSeenMs: null,
         probeDueAtMs: null,
         probePixelsLost: null,
-        evaluatedAtMs: sql`max(${templateAlarmStates.evaluatedAtMs}, ${now}) + 1`,
+        evaluatedAtMs: sql`${sql.raw(this.syntax.greatest)}(${templateAlarmStates.evaluatedAtMs}, ${now}) + 1`,
         revision: sql`${templateAlarmStates.revision} + 1`,
       })
       .where(
@@ -3001,16 +3032,16 @@ export class RelationalSqlStore implements SqlStore {
                placed, correct, repairs
              )
              SELECT
-               json_extract(value, '$.wplaceUserId'),
-               json_extract(value, '$.templateId'),
-               json_extract(value, '$.day'),
-               json_extract(value, '$.reportedWithToken'),
-               json_extract(value, '$.reportedByUserId'),
-               json_extract(value, '$.placed'),
-               json_extract(value, '$.correct'),
-               json_extract(value, '$.repairs')
-             FROM json_each(?)
-             WHERE changes() > 0
+               ${this.syntax.jsonField('wplaceUserId')},
+               ${this.syntax.jsonField('templateId', 'text')},
+               ${this.syntax.jsonField('day')},
+               ${this.syntax.jsonField('reportedWithToken', 'text')},
+               ${this.syntax.jsonField('reportedByUserId')},
+               ${this.syntax.jsonField('placed')},
+               ${this.syntax.jsonField('correct')},
+               ${this.syntax.jsonField('repairs')}
+             FROM ${this.syntax.jsonEach}
+             WHERE ${this.syntax.previousChanged}
              ON CONFLICT(wplace_user_id, template_id, day_s, reported_by_user_id) DO UPDATE SET
                reported_with_token = excluded.reported_with_token,
                placed = contributions.placed + excluded.placed,
@@ -3032,15 +3063,15 @@ export class RelationalSqlStore implements SqlStore {
                template_id, wplace_user_id, resolution, bucket_start_s, placed, correct, repairs
              )
              SELECT
-               json_extract(value, '$.templateId'),
-               json_extract(value, '$.wplaceUserId'),
-               json_extract(value, '$.resolution'),
-               json_extract(value, '$.bucketStart'),
-               json_extract(value, '$.placed'),
-               json_extract(value, '$.correct'),
-               json_extract(value, '$.repairs')
-             FROM json_each(?)
-             WHERE changes() > 0
+               ${this.syntax.jsonField('templateId', 'text')},
+               ${this.syntax.jsonField('wplaceUserId')},
+               ${this.syntax.jsonField('resolution')},
+               ${this.syntax.jsonField('bucketStart')},
+               ${this.syntax.jsonField('placed')},
+               ${this.syntax.jsonField('correct')},
+               ${this.syntax.jsonField('repairs')}
+             FROM ${this.syntax.jsonEach}
+             WHERE ${this.syntax.previousChanged}
              ON CONFLICT(template_id, wplace_user_id, resolution, bucket_start_s) DO UPDATE SET
                placed = painter_telemetry_buckets.placed + excluded.placed,
                correct = painter_telemetry_buckets.correct + excluded.correct,
@@ -3054,7 +3085,7 @@ export class RelationalSqlStore implements SqlStore {
         .prepare(
           `INSERT INTO painters (wplace_user_id, display_name, seen_at_ms)
            SELECT ?, ?, ?
-           WHERE changes() > 0
+           WHERE ${this.syntax.previousChanged}
            ON CONFLICT(wplace_user_id) DO UPDATE SET
              display_name = excluded.display_name,
              seen_at_ms = excluded.seen_at_ms
@@ -3084,7 +3115,7 @@ export class RelationalSqlStore implements SqlStore {
       .insert(painters)
       .values({ wplaceUserId, displayName, seenAtMs: seenAt })
       .onConflictDoUpdate({
-        target: painters.wplaceUserId,
+        target: [painters.wplaceUserId].map((column) => sql`${sql.identifier(column.name)}`),
         set: { displayName, seenAtMs: seenAt },
         setWhere: lte(painters.seenAtMs, seenAt),
       })
@@ -3111,7 +3142,7 @@ export class RelationalSqlStore implements SqlStore {
               contributions.templateId,
               contributions.dayS,
               contributions.reportedByUserId,
-            ],
+            ].map((column) => sql`${sql.identifier(column.name)}`),
             set: {
               reportedWithToken: delta.reportedWithToken,
               placed: sql`${contributions.placed} + excluded.placed`,
@@ -3150,7 +3181,7 @@ export class RelationalSqlStore implements SqlStore {
             telemetryBuckets.templateId,
             telemetryBuckets.resolution,
             telemetryBuckets.bucketStartS,
-          ],
+          ].map((column) => sql`${sql.identifier(column.name)}`),
           set: {
             placed: sql`excluded.placed`,
             correct: sql`excluded.correct`,
@@ -3169,7 +3200,7 @@ export class RelationalSqlStore implements SqlStore {
     if (ids.length === 0) return
     const idBindings = ids.map(() => '?').join(', ')
     for (const edge of TELEMETRY_DECAY_EDGES) {
-      const targetStart = `CAST(source.bucket_start_s / ${edge.target} AS INTEGER) * ${edge.target}`
+      const targetStart = `CAST(source.bucket_start_s / ${edge.target} AS BIGINT) * ${edge.target}`
       const chosen = `
         SELECT source.template_id, ${targetStart} AS target_start
         FROM telemetry_buckets AS source
@@ -3196,7 +3227,7 @@ export class RelationalSqlStore implements SqlStore {
         FROM telemetry_buckets AS source
         INNER JOIN chosen
           ON chosen.template_id = source.template_id
-          AND chosen.target_start = CAST(source.bucket_start_s / ${edge.target} AS INTEGER) * ${edge.target}
+          AND chosen.target_start = CAST(source.bucket_start_s / ${edge.target} AS BIGINT) * ${edge.target}
         WHERE source.resolution = ${edge.source}
         GROUP BY source.template_id, chosen.target_start
         ON CONFLICT(template_id, resolution, bucket_start_s) DO UPDATE SET
@@ -3210,7 +3241,7 @@ export class RelationalSqlStore implements SqlStore {
           AND EXISTS (
             SELECT 1 FROM chosen
             WHERE chosen.template_id = source.template_id
-              AND chosen.target_start = CAST(source.bucket_start_s / ${edge.target} AS INTEGER) * ${edge.target}
+              AND chosen.target_start = CAST(source.bucket_start_s / ${edge.target} AS BIGINT) * ${edge.target}
           )`
       const cutoff = now - edge.retainSeconds
       const bindings = [...ids, cutoff, DECAY_FOLD_GROUP_LIMIT]
@@ -3279,7 +3310,7 @@ export class RelationalSqlStore implements SqlStore {
     if (ids.length === 0) return
     const idBindings = ids.map(() => '?').join(', ')
     for (const edge of TELEMETRY_DECAY_EDGES) {
-      const targetStart = `CAST(source.bucket_start_s / ${edge.target} AS INTEGER) * ${edge.target}`
+      const targetStart = `CAST(source.bucket_start_s / ${edge.target} AS BIGINT) * ${edge.target}`
       // One group per template and target window across all its painters, so the group limit
       // bounds windows rather than painters and a window never half-folds.
       const chosen = `
@@ -3310,7 +3341,7 @@ export class RelationalSqlStore implements SqlStore {
         FROM painter_telemetry_buckets AS source
         INNER JOIN chosen
           ON chosen.template_id = source.template_id
-          AND chosen.target_start = CAST(source.bucket_start_s / ${edge.target} AS INTEGER) * ${edge.target}
+          AND chosen.target_start = CAST(source.bucket_start_s / ${edge.target} AS BIGINT) * ${edge.target}
         WHERE source.resolution = ${edge.source}
         GROUP BY source.template_id, source.wplace_user_id, chosen.target_start
         ON CONFLICT(template_id, wplace_user_id, resolution, bucket_start_s) DO UPDATE SET
@@ -3324,7 +3355,7 @@ export class RelationalSqlStore implements SqlStore {
           AND EXISTS (
             SELECT 1 FROM chosen
             WHERE chosen.template_id = source.template_id
-              AND chosen.target_start = CAST(source.bucket_start_s / ${edge.target} AS INTEGER) * ${edge.target}
+              AND chosen.target_start = CAST(source.bucket_start_s / ${edge.target} AS BIGINT) * ${edge.target}
           )`
       const cutoff = now - edge.retainSeconds
       const bindings = [...ids, cutoff, DECAY_FOLD_GROUP_LIMIT]
