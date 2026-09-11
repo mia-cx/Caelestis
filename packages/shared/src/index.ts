@@ -39,6 +39,7 @@ export {
   sliceTemplateForSurface,
   type TemplateChunk,
 } from './slice.js'
+export * from './shortcuts.js'
 export * from './slug.js'
 export * from './tags.js'
 export * from './telemetry.js'
