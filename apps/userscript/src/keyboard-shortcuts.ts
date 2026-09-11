@@ -1,9 +1,10 @@
-import { WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
+import { keyBindingReleasedBy, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { activeAllianceEditorStage, activeAllianceSurface } from './alliance-surface.js'
 import { isClaimModeActive } from './claim-editor.js'
 import { getMap } from './map-handle.js'
 import { setOverlayPeekActive } from './overlay-peek.js'
 import { cycleFocusedColour, navigateFocusedSelectedColour } from './paint-palette.js'
+import { activeShortcutBindings } from './shortcut-bindings.js'
 import { currentShortcutPlatform, type ShortcutPlatform, shortcutFor } from './shortcuts.js'
 import {
   getState,
@@ -138,7 +139,11 @@ export const installKeyboardShortcuts = (
   }
 
   const onKeyup = (event: KeyboardEvent): void => {
-    if (!peeking || event.key.toLowerCase() !== 'g') return
+    if (!peeking) return
+    const releases = activeShortcutBindings()['peek-overlays'].some((binding) =>
+      keyBindingReleasedBy(binding, event),
+    )
+    if (!releases) return
     claimShortcut(event)
     endPeek()
   }
@@ -151,7 +156,7 @@ export const installKeyboardShortcuts = (
     if (isMoving() && (event.key === 'Escape' || event.key === 'Enter')) return
     // Claim mode is its own keyboard world: tool letters, confirm, cancel, delete all belong to it.
     if (isClaimModeActive()) return
-    const shortcut = shortcutFor(event, platform)
+    const shortcut = shortcutFor(event, platform, activeShortcutBindings())
     if (shortcut === null) return
     const alliance = activeAllianceSurface()
     const allianceEditorStage = activeAllianceEditorStage()

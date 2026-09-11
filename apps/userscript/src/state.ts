@@ -3,11 +3,13 @@ import {
   EMPTY_TEMPLATE_FILTERS,
   isTemplateSortField,
   isWorkIdentity,
+  normaliseShortcutOverrides,
   PALETTE_SIZE,
   type PainterIdentity,
   parseTemplateFilters,
   parseTemplateTags,
   type ReconciliationReason,
+  type ShortcutOverrides,
   type SyncTransport,
   type TemplateFilters,
   type TemplateSurface,
@@ -238,6 +240,8 @@ export interface State {
   readonly notifyGriefing: boolean
   readonly notifyUpdates: boolean
   readonly notifyActivity: boolean
+  /** Keyboard actions the user rebound. Absent actions keep their default chords. */
+  readonly shortcutOverrides: ShortcutOverrides
 }
 
 const DEFAULT_STATE: State = {
@@ -267,6 +271,7 @@ const DEFAULT_STATE: State = {
   notifyGriefing: false,
   notifyUpdates: true,
   notifyActivity: false,
+  shortcutOverrides: {},
 }
 
 const UUID_V7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
@@ -604,6 +609,7 @@ export const loadState = (): State => {
       notifyGriefing: stored.notifyGriefing === true,
       notifyUpdates: stored.notifyUpdates !== false,
       notifyActivity: stored.notifyActivity === true,
+      shortcutOverrides: normaliseShortcutOverrides(stored.shortcutOverrides),
     }
     log('install', 'state loaded', { servers: state.servers.length })
     if (storedRaw.legacyPalette || scopesMigrated) writeRaw(JSON.stringify(state))
