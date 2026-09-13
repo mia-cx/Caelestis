@@ -262,6 +262,42 @@ describe('regionPixelComponents', () => {
   })
 })
 
+describe('document clipping', () => {
+  it('rasterises each item only within the document rect, so huge subtractors stay cheap', () => {
+    const items = [
+      {
+        id: 'a',
+        op: 'add' as const,
+        shape: { kind: 'rectangle' as const, x: 0, y: 0, w: 1, h: 1 },
+      },
+      ...Array.from({ length: 63 }, (_, i) => ({
+        id: `s${i}`,
+        op: 'subtract' as const,
+        shape: { kind: 'ellipse' as const, x: 5, y: 5, w: 2_000, h: 2_000 },
+      })),
+    ]
+    const started = performance.now()
+    const pixels = regionDocumentPixels({ items })
+    expect(performance.now() - started).toBeLessThan(200)
+    expect(pixels?.count).toBe(1)
+    // A subtractor that does overlap still cuts exactly.
+    const cut = regionDocumentPixels({
+      items: [
+        { id: 'a', op: 'add', shape: { kind: 'rectangle', x: 10, y: 10, w: 10, h: 10 } },
+        { id: 'b', op: 'subtract', shape: { kind: 'ellipse', x: 0, y: 0, w: 30, h: 30 } },
+      ],
+    })
+    expect(cut?.count).toBe(0)
+    const partial = regionDocumentPixels({
+      items: [
+        { id: 'a', op: 'add', shape: { kind: 'rectangle', x: 10, y: 10, w: 10, h: 10 } },
+        { id: 'b', op: 'subtract', shape: { kind: 'rectangle', x: 15, y: 0, w: 100, h: 100 } },
+      ],
+    })
+    expect(partial?.count).toBe(50)
+  })
+})
+
 describe('raster shapes', () => {
   it('round-trips a pixel set through a trimmed raster shape', () => {
     const mask = new Uint8Array(6 * 4)

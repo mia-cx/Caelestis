@@ -1,5 +1,5 @@
 import { isPackedBits, packBits, unpackBits } from './bitmask.js'
-import type { PresenceRect } from './presence.js'
+import { type PresenceRect, rectIntersection } from './presence.js'
 
 /**
  * The vector model behind a region claim.
@@ -502,26 +502,40 @@ const strokePolyline = (
   }
 }
 
-/** The whole pixels one shape covers. Callers should cache this per shape; it is O(area). */
-export const regionShapePixels = (shape: RegionShape): RegionShapePixels => {
-  const rect = regionShapeBounds(shape)
+/**
+ * Rasterise a shape into `rect` only: pixels of the shape outside it are never visited. The work
+ * is bounded by `rect`, which is what lets a document clip every item to its own area.
+ */
+const rasterShapeWithin = (shape: RegionShape, rect: PresenceRect): RegionShapePixels => {
   const mask = new Uint8Array(rect.w * rect.h)
   if (shape.kind === 'rectangle') {
     mask.fill(1)
     return { rect, mask, count: mask.length }
   }
   if (shape.kind === 'pixels') {
-    const bits = unpackBits(shape.mask, rect.w * rect.h)
-    if (bits !== null) mask.set(bits)
+    const bits = unpackBits(shape.mask, shape.w * shape.h)
+    if (bits !== null) {
+      for (let row = 0; row < rect.h; row++) {
+        const sy = rect.y + row - shape.y
+        if (sy < 0 || sy >= shape.h) continue
+        for (let column = 0; column < rect.w; column++) {
+          const sx = rect.x + column - shape.x
+          if (sx >= 0 && sx < shape.w && bits[sy * shape.w + sx] === 1)
+            mask[row * rect.w + column] = 1
+        }
+      }
+    }
   } else if (shape.kind === 'ellipse') {
     const rx = shape.w / 2
     const ry = shape.h / 2
-    for (let row = 0; row < shape.h; row++) {
-      const dy = (row + 0.5 - ry) / ry
+    for (let row = 0; row < rect.h; row++) {
+      const sy = rect.y + row - shape.y
+      if (sy < 0 || sy >= shape.h) continue
+      const dy = (sy + 0.5 - ry) / ry
       const half = rx * Math.sqrt(Math.max(0, 1 - dy * dy))
-      const from = Math.max(0, Math.ceil(rx - half - 0.5))
-      const to = Math.min(shape.w - 1, Math.floor(rx + half - 0.5))
-      for (let x = from; x <= to; x++) mask[row * shape.w + x] = 1
+      const from = Math.max(rect.x, shape.x + Math.ceil(rx - half - 0.5))
+      const to = Math.min(rect.x + rect.w - 1, shape.x + Math.floor(rx + half - 0.5))
+      for (let x = from; x <= to; x++) mask[row * rect.w + (x - rect.x)] = 1
     }
   } else if (shape.kind === 'path') {
     const line = flattenPath(shape.nodes, shape.closed)
@@ -533,6 +547,10 @@ export const regionShapePixels = (shape: RegionShape): RegionShapePixels => {
   for (const bit of mask) if (bit !== 0) count++
   return { rect, mask, count }
 }
+
+/** The whole pixels one shape covers. Callers should cache this per shape; it is O(area). */
+export const regionShapePixels = (shape: RegionShape): RegionShapePixels =>
+  rasterShapeWithin(shape, regionShapeBounds(shape))
 
 /**
  * A raster shape from a pixel set, trimmed to the box its set pixels occupy. Null when nothing is
@@ -585,16 +603,17 @@ export const regionDocumentPixels = (document: RegionDocument): RegionShapePixel
   if (rect === null || rect.w * rect.h > MAX_REGION_DOCUMENT_PIXELS) return null
   const mask = new Uint8Array(rect.w * rect.h)
   for (const item of document.items) {
-    const pixels = regionShapePixels(item.shape)
+    // Only the part of the item inside the document's rect can matter, so only that part is
+    // rasterised: a subtractor far larger than the claim costs no more than the claim itself.
+    const clip = rectIntersection(rect, regionShapeBounds(item.shape))
+    if (clip === null) continue
+    const pixels = rasterShapeWithin(item.shape, clip)
     const value = item.op === 'add' ? 1 : 0
-    for (let row = 0; row < pixels.rect.h; row++) {
-      const y = pixels.rect.y + row - rect.y
-      if (y < 0 || y >= rect.h) continue
-      for (let column = 0; column < pixels.rect.w; column++) {
-        if (pixels.mask[row * pixels.rect.w + column] !== 1) continue
-        const x = pixels.rect.x + column - rect.x
-        if (x < 0 || x >= rect.w) continue
-        mask[y * rect.w + x] = value
+    for (let row = 0; row < clip.h; row++) {
+      const y = clip.y + row - rect.y
+      for (let column = 0; column < clip.w; column++) {
+        if (pixels.mask[row * clip.w + column] !== 1) continue
+        mask[y * rect.w + (clip.x + column - rect.x)] = value
       }
     }
   }
