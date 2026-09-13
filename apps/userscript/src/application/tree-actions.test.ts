@@ -317,7 +317,7 @@ describe('server template context menu', () => {
     templateId: 'template',
   }
 
-  it('offers Claim and export without template administration to an ordinary member', () => {
+  it('offers Favourite and export without template administration to an ordinary member', () => {
     const memberTarget: TreeTarget = {
       server: { ...server, isAdmin: false },
       nodeId: 'root',
@@ -328,7 +328,7 @@ describe('server template context menu', () => {
 
     openContextMenu(memberTarget, new MouseEvent('contextmenu'), vi.fn())
 
-    expect(menuText()).toBe('Go toClaimExport .wplace')
+    expect(menuText()).toBe('Go toFavouriteExport .wplace')
   })
 
   it('groups admin actions in one order with Delete apart from the rest', () => {
@@ -342,7 +342,7 @@ describe('server template context menu', () => {
     const items = treeActionPresentation().contextMenu?.items ?? []
     expect(items.map(({ label, group }) => `${group}:${label}`)).toEqual([
       'navigate:Go to',
-      'work:Claim',
+      'work:Favourite',
       'organise:Move to folder',
       'organise:Export .wplace',
       'publish:Unpublish',

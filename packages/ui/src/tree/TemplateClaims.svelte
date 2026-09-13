@@ -113,7 +113,7 @@
       {#if model.canClaim}
         <button type="button" class="action caelestis-menu-item" onclick={() => onChange(model.mine)}>
           <Icon name={model.mine ? 'close' : 'check'} />
-          <span>{model.mine ? 'Release claim' : 'Claim'}</span>
+          <span>{model.mine ? 'Unfavourite' : 'Favourite'}</span>
         </button>
       {/if}
       {#if model.canAssign}

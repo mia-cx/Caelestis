@@ -106,21 +106,25 @@ export interface PanelModel {
   readonly settings?: SettingsModel
 }
 
-/** One persisted region claim as the Painters drawer lists it. */
-export interface RegionClaimRowModel {
-  readonly id: string
-  readonly label: string
-  readonly claimant: string
-  readonly mine: boolean
-  /** Human size, such as "120 × 80". */
-  readonly size: string
+/** One painter near the viewport, as the Painters drawer lists them. */
+export interface PainterRowModel {
+  /** Their presence session; stable across renders. */
+  readonly key: string
+  readonly name: string
+  readonly userId: number
+  /** The painter's presence colour, as CSS. */
+  readonly colour: string
+  /** What they are up to: "painting 120 px", "browsing", or "online" without a viewport. */
+  readonly activity: string
+  /** Whether Fly to has somewhere to go: their drafted pixels or their viewport. */
+  readonly canFly: boolean
 }
 
-/** Live painter headcount and region claims for the current drawing surface. */
+/** The server's painter headcount, and the painters it sends for the current viewport. */
 export interface PresenceSummaryModel {
   readonly online: number
   readonly connected: boolean
-  readonly regions: readonly RegionClaimRowModel[]
+  readonly players: readonly PainterRowModel[]
   /** Whether the claim tool can start: signed in, connected, and not already open. */
   readonly canClaim: boolean
   readonly pending?: boolean
@@ -215,7 +219,7 @@ export type PanelIntent =
   | { readonly type: 'work-retry' }
   | { readonly type: 'work-visibility'; readonly showOtherClaims: boolean }
   | { readonly type: 'region-claim' }
-  | { readonly type: 'region-edit'; readonly id: string }
+  | { readonly type: 'presence-fly'; readonly key: string }
   | { readonly type: 'work-tree'; readonly intent: TemplateTreeIntent }
   | { readonly type: 'navigate'; readonly view: PanelView }
   | { readonly type: 'close' }

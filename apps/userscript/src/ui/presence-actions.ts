@@ -1,4 +1,5 @@
 import {
+  type PresencePeer,
   type PresenceRect,
   type RegionClaim,
   type RegionDocument,
@@ -10,7 +11,7 @@ import {
   uuidV7,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
-import type { ClaimTool, PresenceSummaryModel } from '@caelestis/ui/elements'
+import type { ClaimTool, PainterRowModel, PresenceSummaryModel } from '@caelestis/ui/elements'
 import {
   type ClaimEditorHost,
   installClaimEditor,
@@ -19,22 +20,26 @@ import {
 } from '../claim-editor.js'
 import {
   claimRegion,
+  type PresenceView,
   presenceLiveServer,
   presenceRegionServer,
   presenceServers,
   presenceView,
   releaseRegion,
 } from '../presence-client.js'
+import { presenceCss } from '../presence-colour.js'
 import { activeServerToken, type ConnectedServer } from '../state.js'
 import { isServerTemplate, localTemplates, type PlacedTemplate } from '../templates/local-store.js'
+import { navigateTo } from '../templates/navigate.js'
 import { accountIdentity } from '../wplace-account.js'
 import { toast } from './toast.js'
 
 /**
- * Region claims, from the drawer, the rail, and the keyboard.
+ * The Painters drawer and region claims, from the drawer, the rail, and the keyboard.
  *
- * The editor owns drawing; this module owns what a claim means: which server it is saved to,
- * which template it happens to overlap, and how a saved claim comes back for editing.
+ * The drawer lists everyone presence knows about, with a Fly to that goes to where they were last
+ * seen. The editor owns drawing; this module owns what a claim means: which server it is saved
+ * to, which template it happens to overlap, and how a saved claim comes back for editing.
  */
 
 interface ClaimTarget {
@@ -83,17 +88,7 @@ const serverFor = (region: RegionClaim): ConnectedServer | undefined =>
  * The one server claim mode edits: the one carrying the presence socket, else the first that
  * supports claims. Your regions there load together and are saved back as one claim.
  */
-const claimServer = (): ConnectedServer | undefined => {
-  // Editing a claim from another server edits that server's set, while it is still connected.
-  if (claimServerUrl !== null) {
-    const chosen = presenceServers().find((server) => server.url === claimServerUrl)
-    if (chosen !== undefined) return chosen
-  }
-  return presenceLiveServer() ?? presenceServers()[0]
-}
-
-/** The server whose claims claim mode edits, when the drawer's Edit picked one. */
-let claimServerUrl: string | null = null
+const claimServer = (): ConnectedServer | undefined => presenceLiveServer() ?? presenceServers()[0]
 
 /** Pixel counts per document, so a list never rasterises a claim just to label it. */
 const pixelCounts = new WeakMap<RegionDocument, number>()
@@ -111,32 +106,72 @@ export const documentName = (document: RegionDocument): string => {
   return `${kind} · ${pixels.toLocaleString()} px`
 }
 
-/** What the drawer shows: headcount, claims on this surface, and whether the tool can open. */
+/**
+ * Where a painter is right now, for Fly to: their drafted pixels, else their viewport. Null when
+ * they have left or have not shared a viewport.
+ */
+export const painterLocation = (view: PresenceView, sessionId: string): PresenceRect | null => {
+  const peer = view.peers.find((held) => held.sessionId === sessionId)
+  return peer === undefined ? null : (peer.draft?.rect ?? peer.viewport)
+}
+
+/** Painting first, then browsing, then those who have not shared a viewport. */
+const rank = (peer: PresencePeer): number =>
+  peer.draft !== null ? 0 : peer.viewport !== null ? 1 : 2
+
+/**
+ * Everyone the server sent for this viewport, as the drawer lists them. That is the nearby set
+ * (see the traffic budget in shared `presence.ts`), not the whole headcount in the header.
+ */
+const painterRows = (view: PresenceView): PainterRowModel[] =>
+  [...view.peers]
+    .sort(
+      (left, right) =>
+        rank(left) - rank(right) ||
+        left.painter.displayName.localeCompare(right.painter.displayName),
+    )
+    .map((peer) => ({
+      key: peer.sessionId,
+      name: peer.painter.displayName,
+      userId: peer.painter.wplaceUserId,
+      colour: presenceCss(peer.painter.wplaceUserId),
+      activity:
+        peer.draft !== null
+          ? `painting ${peer.draft.pixels.toLocaleString()} px`
+          : peer.viewport !== null
+            ? 'browsing'
+            : 'online',
+      canFly: peer.draft !== null || peer.viewport !== null,
+    }))
+
+/** What the drawer shows: headcount, the painters, and whether the claim tool can open. */
 export const presenceSummaryModel = (): PresenceSummaryModel | undefined => {
   const view = presenceView()
-  if (!view.connected && view.regions.length === 0) return undefined
+  // Without the socket there is nobody to list and nothing to claim, so the drawer stays away.
+  if (!view.connected) return undefined
   const me = view.me
-  const regions = [...view.regions]
-    .sort((left, right) => {
-      const mineLeft = left.claimant.wplaceUserId === me?.wplaceUserId ? 0 : 1
-      const mineRight = right.claimant.wplaceUserId === me?.wplaceUserId ? 0 : 1
-      return mineLeft - mineRight || right.createdAt - left.createdAt
-    })
-    .map((region: RegionClaim) => ({
-      id: region.id,
-      label: region.label,
-      claimant: region.claimant.displayName,
-      mine: region.claimant.wplaceUserId === me?.wplaceUserId,
-      size: documentName(region.document),
-    }))
   return {
     online: view.online,
     connected: view.connected,
-    regions,
+    players: painterRows(view),
     canClaim: me !== null && view.connected && !isClaimModeActive(),
     ...(pending ? { pending: true } : {}),
     ...(message === undefined ? {} : { message }),
   }
+}
+
+/**
+ * Take the map to where a painter is. Presence is read again here, not from the rendered row,
+ * so someone who left between render and click gets a toast, not a stale flight.
+ */
+export const flyToPainter = (sessionId: string): boolean => {
+  const rect = painterLocation(presenceView(), sessionId)
+  if (rect === null) {
+    toast('That painter is no longer here.', 'error')
+    return false
+  }
+  navigateTo({ x: rect.x + rect.w / 2, y: rect.y + rect.h / 2, width: rect.w, height: rect.h })
+  return true
 }
 
 const host = (): ClaimEditorHost => ({
@@ -215,32 +250,8 @@ const ready = (): boolean => {
 export const openClaimTool = (tool?: ClaimTool, rerender?: () => void): boolean => {
   if (rerender !== undefined) rerenderPanel = rerender
   if (!ready()) return false
-  claimServerUrl = null
   message = undefined
   installClaimEditor(host())
   startClaimMode(tool)
-  return true
-}
-
-/** Enter claim mode from the drawer's Edit, on the server that holds the chosen claim. */
-export const openClaimEditor = (id: string, rerender?: () => void): boolean => {
-  if (rerender !== undefined) rerenderPanel = rerender
-  const region = presenceView().regions.find((held) => held.id === id)
-  const server = region === undefined ? undefined : serverFor(region)
-  if (server === undefined) {
-    message = 'The server holding that claim is not connected.'
-    toast(message, 'error')
-    rerenderPanel?.()
-    return false
-  }
-  // The claim's server is the one whose readiness and token matter, so it is chosen first.
-  claimServerUrl = server.url
-  if (!ready()) {
-    claimServerUrl = null
-    return false
-  }
-  message = undefined
-  installClaimEditor(host())
-  startClaimMode('select')
   return true
 }

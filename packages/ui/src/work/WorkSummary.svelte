@@ -12,7 +12,7 @@
     showOtherClaims = false,
     onshowothers,
     onclaimregion,
-    oneditregion,
+    onflyto,
   }: {
     model: NonNullable<PanelModel['work']>
     onIntent: (intent: TemplateTreeIntent) => void
@@ -20,7 +20,7 @@
     showOtherClaims?: boolean
     onshowothers: (show: boolean) => void
     onclaimregion?: () => void
-    oneditregion?: (id: string) => void
+    onflyto?: (key: string) => void
   } = $props()
   const count = $derived(model.tree.entries.length)
   const presence = $derived(model.presence)
@@ -36,9 +36,9 @@
       <div class="list">
         {#if model.canShowOthers}
           <div class="options">
-            <SettingRow label="Show other claims" compact>
+            <SettingRow label="Show everyone's favourites" compact>
               <Toggle
-                label="Show other claims"
+                label="Show everyone's favourites"
                 compact
                 checked={showOtherClaims}
                 onChange={onshowothers}
@@ -53,7 +53,7 @@
           </div>
         {/if}
         {#if count === 0}
-          <p class="empty">Right-click a template and choose Claim to keep it here.</p>
+          <p class="empty">No favourites yet. Right-click a template and choose Favourite to keep it here.</p>
         {:else}
           <TemplateTree model={model.tree} toolbar={false} {onIntent} />
         {/if}
@@ -91,22 +91,31 @@
           {#if presence.message}
             <p class="notice" role="alert">{presence.message}</p>
           {/if}
-          {#if presence.regions.length === 0}
-            <p class="empty">No region claims yet. Press M on the map, or use the button above.</p>
+          {#if presence.players.length === 0}
+            <p class="empty">Nobody else is nearby. Painters show up here as you pan towards them.</p>
+          {:else}
+            <ul class="players" aria-label="Painters nearby">
+              {#each presence.players as player (player.key)}
+                <li class="player">
+                  <span class="swatch" style:background={player.colour} aria-hidden="true"></span>
+                  <span class="player-text">
+                    <span class="player-name">
+                      <strong>{player.name}</strong>
+                      <small>#{player.userId}</small>
+                    </span>
+                    <span class="player-activity">{player.activity}</span>
+                  </span>
+                  <span class="player-actions">
+                    {#if player.canFly}
+                      <Button label={`Fly to ${player.name}`} title={`Fly to ${player.name}`} size="compact" kind="ghost" iconOnly onclick={() => onflyto?.(player.key)}>
+                        <Icon name="flyTo" size="1rem" />
+                      </Button>
+                    {/if}
+                  </span>
+                </li>
+              {/each}
+            </ul>
           {/if}
-          {#each presence.regions as region (region.id)}
-            <div class="region" data-mine={String(region.mine)}>
-              <span class="region-text">
-                <strong>{region.claimant}</strong>
-                {region.label === '' ? 'claimed' : region.label} · {region.size}
-              </span>
-              {#if region.mine}
-                <span class="region-actions">
-                  <Button label="Edit" size="compact" kind="ghost" disabled={presence.pending === true || !presence.canClaim} onclick={() => oneditregion?.(region.id)} />
-                </span>
-              {/if}
-            </div>
-          {/each}
         </div>
       </div>
     </div>
@@ -174,30 +183,63 @@
     gap: 0.35rem;
     margin-block-end: 0.35rem;
   }
-  .region {
+  .players {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .player {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: 0.5rem;
     min-block-size: 1.75rem;
     font-size: 0.75rem;
   }
-  .region-actions {
-    display: flex;
-    gap: 0.15rem;
+  .swatch {
     flex: 0 0 auto;
+    inline-size: 0.625rem;
+    block-size: 0.625rem;
+    border-radius: 50%;
+    outline: 1px solid color-mix(in oklab, currentColor 25%, transparent);
   }
-  .region-text {
+  .player-text {
+    display: flex;
+    flex: 1 1 auto;
+    min-inline-size: 0;
+    align-items: baseline;
+    gap: 0.375rem;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  .player-name {
+    display: flex;
+    min-inline-size: 0;
+    align-items: baseline;
+    gap: 0.25rem;
+  }
+  .player-name strong {
     min-inline-size: 0;
     overflow: hidden;
     text-overflow: ellipsis;
-    white-space: nowrap;
   }
-  .region[data-mine='true'] .region-text {
-    color: var(--caelestis-text);
-  }
-  .region[data-mine='false'] .region-text {
+  .player-name small {
+    flex: 0 0 auto;
+    font-size: 0.6875rem;
+    font-variant-numeric: tabular-nums;
     color: var(--caelestis-muted-text);
+  }
+  .player-activity {
+    flex: 0 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--caelestis-muted-text);
+  }
+  .player-actions {
+    display: flex;
+    gap: 0.15rem;
+    flex: 0 0 auto;
   }
   button {
     width: 100%;
