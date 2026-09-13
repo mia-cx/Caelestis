@@ -12,7 +12,6 @@
     showOtherClaims = false,
     onshowothers,
     onclaimregion,
-    oneditregion,
     onflyto,
   }: {
     model: NonNullable<PanelModel['work']>
@@ -21,7 +20,6 @@
     showOtherClaims?: boolean
     onshowothers: (show: boolean) => void
     onclaimregion?: () => void
-    oneditregion?: (id: string) => void
     onflyto?: (key: string) => void
   } = $props()
   const count = $derived(model.tree.entries.length)
@@ -98,21 +96,18 @@
           {:else}
             <ul class="players" aria-label="Painters">
               {#each presence.players as player (player.key)}
-                <li class="player" data-mine={String(player.mine)} data-online={String(player.online)}>
+                <li class="player">
                   <span class="swatch" style:background={player.colour} aria-hidden="true"></span>
                   <span class="player-text">
                     <span class="player-name">
-                      <strong>{player.mine ? 'You' : player.name}</strong>
+                      <strong>{player.name}</strong>
                       <small>#{player.userId}</small>
                     </span>
                     <span class="player-activity">{player.activity}</span>
                   </span>
                   <span class="player-actions">
-                    {#if player.editRegionId !== undefined}
-                      <Button label="Edit" title="Edit your regions" size="compact" kind="ghost" disabled={presence.pending === true || !presence.canClaim} onclick={() => oneditregion?.(player.editRegionId ?? '')} />
-                    {/if}
                     {#if player.canFly}
-                      <Button label={`Fly to ${player.mine ? 'your regions' : player.name}`} title={`Fly to ${player.mine ? 'your regions' : player.name}`} size="compact" kind="ghost" iconOnly onclick={() => onflyto?.(player.key)}>
+                      <Button label={`Fly to ${player.name}`} title={`Fly to ${player.name}`} size="compact" kind="ghost" iconOnly onclick={() => onflyto?.(player.key)}>
                         <Icon name="flyTo" size="1rem" />
                       </Button>
                     {/if}
@@ -239,9 +234,6 @@
     flex: 0 1 auto;
     overflow: hidden;
     text-overflow: ellipsis;
-    color: var(--caelestis-muted-text);
-  }
-  .player[data-online='false'] .player-name strong {
     color: var(--caelestis-muted-text);
   }
   .player-actions {

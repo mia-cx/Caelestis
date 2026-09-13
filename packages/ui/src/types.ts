@@ -106,25 +106,21 @@ export interface PanelModel {
   readonly settings?: SettingsModel
 }
 
-/** One painter as the Painters drawer lists them: a live session, or the holder of a claim. */
+/** One painter online right now, as the Painters drawer lists them. */
 export interface PainterRowModel {
-  /** Stable across renders: the presence session, or the painter's id when only a claim is known. */
+  /** Their presence session; stable across renders. */
   readonly key: string
   readonly name: string
   readonly userId: number
   /** The painter's presence colour, as CSS. */
   readonly colour: string
-  readonly mine: boolean
-  readonly online: boolean
-  /** What they are up to, such as "painting 120 px", "browsing", "2 claims", or "offline". */
+  /** What they are up to: "painting 120 px", "browsing", or "online" without a viewport. */
   readonly activity: string
-  /** Whether Fly to has somewhere to go: drafted pixels, a viewport, or a claim. */
+  /** Whether Fly to has somewhere to go: their drafted pixels or their viewport. */
   readonly canFly: boolean
-  /** One of your own claims, so Edit can open the set it belongs to. */
-  readonly editRegionId?: string
 }
 
-/** Live painter headcount and the painters themselves, for the current drawing surface. */
+/** Live painter headcount and who is online, for the current drawing surface. */
 export interface PresenceSummaryModel {
   readonly online: number
   readonly connected: boolean
@@ -223,7 +219,6 @@ export type PanelIntent =
   | { readonly type: 'work-retry' }
   | { readonly type: 'work-visibility'; readonly showOtherClaims: boolean }
   | { readonly type: 'region-claim' }
-  | { readonly type: 'region-edit'; readonly id: string }
   | { readonly type: 'presence-fly'; readonly key: string }
   | { readonly type: 'work-tree'; readonly intent: TemplateTreeIntent }
   | { readonly type: 'navigate'; readonly view: PanelView }

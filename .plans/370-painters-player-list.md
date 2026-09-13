@@ -2,7 +2,7 @@
 
 ## Summary
 
-The Painters drawer lists region claims. Replace that with a compact player list built from live presence, each row with a Fly to button that takes the map to that player's latest known activity.
+The Painters drawer lists region claims. Replace that with a compact list of who is online, built from live presence, each row with a Fly to button that takes the map to that player's viewport.
 
 ## Acceptance criteria
 
@@ -14,15 +14,16 @@ The Painters drawer lists region claims. Replace that with a compact player list
 ## TODOs
 
 - [x] Add `PainterRowModel` and a `players` list to `PresenceSummaryModel`; add a `presence-fly` panel intent.
-- [x] Build the player list in `presence-actions.ts`: live peers, then claimants who are offline, you first; add `flyToPainter`.
-- [x] Render the list in `WorkSummary.svelte` with a colour swatch, name, id, activity, and a Fly to button; keep "Claim a region" and an Edit for your own regions.
-- [x] Wire the intent in `Panel.svelte` and `panel.ts`.
+- [x] Build the player list in `presence-actions.ts` from live peers; add `flyToPainter`.
+- [x] Render the list in `WorkSummary.svelte` with a colour swatch, name, id, activity, and a Fly to button; keep "Claim a region".
+- [x] Wire the intent in `Panel.svelte` and `panel.ts`; drop the claim list's Edit path.
 - [x] Unit tests for the model and for flyTo; add a Changeset.
 
 ## Notes
 
 - The drawer already rerenders on every presence change (`onPresenceChange(rerenderTree)` in `panel.ts`), so join, move, and leave are covered without new plumbing.
-- Latest known activity, in order: drafted pixels, viewport, newest region claim. A player with none of those has no Fly to button.
+- Fly to goes to drafted pixels, else the viewport. Claims are never a destination: Mia opened the issue to get rid of the claim list, and a claim is not where someone is.
+- Only live peers are listed. Painters known only by a claim, and your own session, are left out.
 - `flyToPainter` re-reads presence at click time, so a player who left between render and click gets a toast instead of a stale flight.
-- Offline claimants are kept in the list so a claim can still be found from the drawer; their Fly to goes to the claim.
+- The drawer's Edit button went with the claim list, and `openClaimEditor` with it. M and the select tool edit your regions on the live server.
 - Peers include only sessions the server sends for this viewport's interest area, so the list is what presence knows, not the whole headcount.
