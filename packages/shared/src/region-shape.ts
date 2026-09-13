@@ -287,7 +287,15 @@ export const regionDocumentWork = (document: RegionDocument): number => {
   let work = 0
   for (const item of document.items) {
     const clip = rectIntersection(rect, regionShapeBounds(item.shape))
-    if (clip !== null) work += clip.w * clip.h
+    if (clip === null) continue
+    work += clip.w * clip.h
+    // A path is also scanned once per row for every straight piece it flattens into, for the
+    // fill and again for the stroke, so that is charged too.
+    if (item.shape.kind === 'path') {
+      const pieces = flattenedSegments(item.shape.nodes, item.shape.closed)
+      const passes = (item.shape.closed ? 1 : 0) + (item.shape.width > 0 ? 1 : 0)
+      work += pieces * clip.h * passes
+    }
   }
   return work
 }
@@ -303,6 +311,43 @@ const cubicAt = (a: number, b: number, c: number, d: number, t: number): number 
  * A path as a polyline, beziers subdivided finely enough that no chord strays more than a pixel
  * from the curve at any reasonable size.
  */
+/** Distance of a point from the line through `a` and `b`; from `a` when the two coincide. */
+const distanceToChord = (point: Point, a: Point, b: Point): number => {
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  const length = Math.hypot(dx, dy)
+  if (length === 0) return Math.hypot(point.x - a.x, point.y - a.y)
+  return Math.abs((point.x - a.x) * dy - (point.y - a.y) * dx) / length
+}
+
+/**
+ * How many straight pieces a cubic segment needs: enough that the pieces stay within a quarter
+ * pixel of the curve, which grows with the square root of how far the handles bow away from the
+ * chord. Handles lying on the chord, including ones sitting on their anchors, make a straight
+ * segment that needs exactly one piece, so a path with idle handles costs no more than one with
+ * none. Capped so a single segment can never flatten into more than 96 pieces.
+ */
+const flattenSteps = (from: Point, c1: Point, c2: Point, to: Point): number => {
+  const bow = Math.max(distanceToChord(c1, from, to), distanceToChord(c2, from, to))
+  if (bow < 0.05) return 1
+  return Math.max(2, Math.min(96, Math.ceil(2 * Math.sqrt(bow))))
+}
+
+/** The straight pieces a path flattens into, without materialising them. */
+const flattenedSegments = (nodes: readonly PathNode[], closed: boolean): number => {
+  const count = closed ? nodes.length : nodes.length - 1
+  let pieces = 0
+  for (let index = 0; index < count; index++) {
+    const from = nodes[index] as PathNode
+    const to = nodes[(index + 1) % nodes.length] as PathNode
+    pieces +=
+      from.out === undefined && to.in === undefined
+        ? 1
+        : flattenSteps(from, from.out ?? from, to.in ?? to, to)
+  }
+  return pieces
+}
+
 export const flattenPath = (nodes: readonly PathNode[], closed: boolean): readonly Point[] => {
   const out: Point[] = []
   const count = closed ? nodes.length : nodes.length - 1
@@ -313,11 +358,7 @@ export const flattenPath = (nodes: readonly PathNode[], closed: boolean): readon
     if (from.out === undefined && to.in === undefined) continue
     const c1 = from.out ?? { x: from.x, y: from.y }
     const c2 = to.in ?? { x: to.x, y: to.y }
-    const rough =
-      Math.hypot(c1.x - from.x, c1.y - from.y) +
-      Math.hypot(c2.x - c1.x, c2.y - c1.y) +
-      Math.hypot(to.x - c2.x, to.y - c2.y)
-    const steps = Math.max(4, Math.min(96, Math.ceil(rough / 3)))
+    const steps = flattenSteps(from, c1, c2, to)
     for (let step = 1; step < steps; step++) {
       const t = step / steps
       out.push({

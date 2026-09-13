@@ -401,6 +401,44 @@ describe('path limits', () => {
   })
 })
 
+describe('flattening', () => {
+  it('flattens idle handles into a single straight piece', () => {
+    // 256 anchors in a row, each with an out handle sitting on itself: geometrically straight.
+    const nodes = Array.from({ length: 256 }, (_, i) => ({
+      x: 100 + i * 6,
+      y: 100,
+      out: { x: 100 + i * 6, y: 100 },
+    }))
+    expect(flattenPath(nodes, false)).toHaveLength(256)
+    const shape: RegionShape = { kind: 'path', closed: false, width: 200, nodes }
+    expect(regionDocumentWork({ items: [{ id: 'p', op: 'add', shape }] })).toBeLessThan(2_000_000)
+    const started = performance.now()
+    regionDocumentPixels({ items: [{ id: 'p', op: 'add', shape }] })
+    expect(performance.now() - started).toBeLessThan(300)
+    // A real curve still gets pieces, more the further its handles bow out.
+    const bowed = flattenPath(
+      [
+        { x: 0, y: 0, out: { x: 0, y: 400 } },
+        { x: 400, y: 0, in: { x: 400, y: 400 } },
+      ],
+      false,
+    )
+    expect(bowed.length).toBeGreaterThan(20)
+  })
+
+  it('charges the row scans of a path with many curved pieces to the work budget', () => {
+    // 256 tall S-curves, each flattened into many pieces spanning the whole height.
+    const nodes = Array.from({ length: 256 }, (_, i) => ({
+      x: 100 + i * 6,
+      y: i % 2 === 0 ? 100 : 1_900,
+      in: { x: 100 + i * 6 - 600, y: i % 2 === 0 ? 1_900 : 100 },
+      out: { x: 100 + i * 6 + 600, y: i % 2 === 0 ? 1_900 : 100 },
+    }))
+    const shape: RegionShape = { kind: 'path', closed: false, width: 200, nodes }
+    expect(isRegionDocument({ items: [{ id: 'p', op: 'add', shape }] })).toBe(false)
+  })
+})
+
 describe('stroke rasterising', () => {
   const brute = (line: { x: number; y: number }[], width: number) => {
     // The definition itself: a pixel is in the stroke when its centre is within half the width
