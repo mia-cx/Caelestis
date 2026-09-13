@@ -1,5 +1,15 @@
 # @caelestis/backend
 
+## 0.5.0
+
+### Minor Changes
+
+- 3053415: Add the live painter presence socket at `/telemetry/presence`, its headcount at `/telemetry/presence/online`, and persisted region claims with raster shapes under `/work/regions`.
+
+### Patch Changes
+
+- 116a65d: Report large paint batches completely without losing activity or double-counting retries.
+
 ## 0.4.3
 
 ### Patch Changes
