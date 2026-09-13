@@ -168,7 +168,12 @@ try {
         repeat,
         scenario,
         profile,
-        labels,
+        labels: labels
+          .map(({ text, transform }) => ({
+            textSha256: createHash('sha256').update(text).digest('hex'),
+            transform,
+          }))
+          .sort((a, b) => a.textSha256.localeCompare(b.textSha256)),
         external: {
           seconds: after.Timestamp - before.Timestamp,
           taskSeconds: after.TaskDuration - before.TaskDuration,
