@@ -11,6 +11,12 @@ import { presenceView } from './presence-client.js'
 import { presenceCss } from './presence-colour.js'
 import { canvasPixelAt, rectOnScreen } from './presence-geometry.js'
 import { setHoveredPresenceRegions } from './presence-hover.js'
+import {
+  measureProfileDetail,
+  recordProfileCounter,
+  recordProfileWorkload,
+  registerProfileMemorySource,
+} from './profile.js'
 import { getState } from './state.js'
 import { isDrawingTiles, type TileFrame } from './tile-transform.js'
 
@@ -60,6 +66,10 @@ const pieces = new Map<
   { document: RegionDocument; pixels: RegionShapePixels; components: RegionPixelComponents }
 >()
 
+registerProfileMemorySource('Presence component labels', () =>
+  [...pieces.values()].reduce((bytes, entry) => bytes + entry.components.labels.byteLength, 0),
+)
+
 const piecesFor = (
   id: string,
   document: RegionDocument,
@@ -71,7 +81,13 @@ const piecesFor = (
     pieces.delete(id)
     return null
   }
-  const entry = { document, pixels, components: regionPixelComponents(pixels) }
+  const entry = {
+    document,
+    pixels,
+    components: measureProfileDetail('Presence components', () => regionPixelComponents(pixels)),
+  }
+  recordProfileCounter('Presence component builds')
+  recordProfileWorkload('Presence claim components', entry.components.boxes.length)
   pieces.set(id, entry)
   return entry
 }
@@ -262,7 +278,9 @@ export const presenceTagsAt = (
     const label = held.components.labels[index] ?? 0
     if (label === 0) continue
     const text = regionText(region.claimant.displayName, region.label)
-    const rect = clusterWith(frame, held.components.boxes, label - 1, measure(text), ratio)
+    const rect = measureProfileDetail('Presence label clustering', () =>
+      clusterWith(frame, held.components.boxes, label - 1, measure(text), ratio),
+    )
     tags.push({
       key: `region:${region.id}`,
       text,
@@ -309,6 +327,7 @@ const measureWith =
     probe.textContent = text
     container.appendChild(probe)
     const width = probe.offsetWidth
+    recordProfileCounter('Presence label measurements')
     probe.remove()
     return width > 0 ? width : estimateWidth(text)
   }
@@ -341,6 +360,7 @@ export const renderPresenceLabels = (frame: TileFrame): void => {
   }
   const container = ensureHost(document)
   const wanted = presenceTagsAt(frame, at, measureWith(document, container), ratioX)
+  recordProfileWorkload('Presence hover labels', wanted.length)
   setHoveredPresenceRegions(
     new Set(
       wanted

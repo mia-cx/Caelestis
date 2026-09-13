@@ -62,8 +62,10 @@ import { MARKER_BUDGET_OPTIONS } from '../marker-budget.js'
 import { onPresenceChange } from '../presence-client.js'
 import {
   isProfileEnabled,
+  measureProfile,
   profileReport,
   profileSnapshot,
+  recordProfileCounter,
   resetProfile,
   setProfileEnabled,
 } from '../profile.js'
@@ -1542,7 +1544,12 @@ export const installPanel = (): void => {
   onClaimEditorChange(syncClaimToolState)
   onPresenceChange(syncClaimToolState)
   // Headcounts and claims arrive over the socket; the Painters drawer has to follow them.
-  onPresenceChange(rerenderTree)
+  onPresenceChange(() =>
+    measureProfile('Presence drawer', () => {
+      recordProfileCounter('Presence drawer notifications')
+      rerenderTree()
+    }),
+  )
   installRailStateSync()
   positionRail()
   log('install', 'rail installed beside wplace’s')

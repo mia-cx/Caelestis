@@ -21,6 +21,12 @@ import {
   uuidV7,
 } from '@caelestis/shared'
 import { userscriptVersion } from './client-metrics.js'
+import {
+  isProfileEnabled,
+  measureProfile,
+  recordProfileMessage,
+  recordProfileWorkload,
+} from './profile.js'
 import { canonicalServerUrl, serverEndpoint } from './server-url.js'
 import {
   type ConnectedServer,
@@ -1206,24 +1212,39 @@ const sendLivePaint = async (
     result: 'duplicate',
     error,
   })
-  const encoded = JSON.stringify({ type: 'paint-report', requestId: transferId, event })
+  if (isProfileEnabled())
+    recordProfileWorkload(
+      'Live paint pixels',
+      event.tiles.reduce((sum, tile) => sum + tile.pixels.x.length, 0),
+    )
+  const encoded = measureProfile('Live paint encode', () =>
+    JSON.stringify({ type: 'paint-report', requestId: transferId, event }),
+  )
   if (new TextEncoder().encode(encoded).byteLength <= MAX_LIVE_MESSAGE_BYTES) {
     const response = await requestLiveCommand(server, (socket, requestId) =>
-      socket.send(JSON.stringify({ type: 'paint-report', requestId, event })),
+      measureProfile('Live paint send', () => {
+        const payload = JSON.stringify({ type: 'paint-report', requestId, event })
+        socket.send(payload)
+        recordProfileMessage('Live paint sent', payload)
+      }),
     )
     return response?.type === 'paint-result' && response.eventId === event.eventId ? response : null
   }
   if (server.info?.livePaintParts !== 1) return invalid('unsupported')
   let parts: ReturnType<typeof encodeLivePaintParts>
   try {
-    parts = encodeLivePaintParts(event, transferId)
+    parts = measureProfile('Live paint split', () => encodeLivePaintParts(event, transferId))
   } catch (error) {
     if (error instanceof RangeError) return invalid('too-large')
     throw error
   }
   for (const part of parts) {
     const response = await requestLiveCommand(server, (socket, requestId) =>
-      socket.send(JSON.stringify({ type: 'paint-part', requestId, ...part })),
+      measureProfile('Live paint send', () => {
+        const payload = JSON.stringify({ type: 'paint-part', requestId, ...part })
+        socket.send(payload)
+        recordProfileMessage('Live paint sent', payload)
+      }),
     )
     if (response === null) return null
     if (response.type !== 'paint-part-result' && response.type !== 'paint-result') return invalid()

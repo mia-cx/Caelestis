@@ -1,6 +1,8 @@
 import { activeAllianceSurface } from './alliance-surface.js'
 import { userscriptVersion } from './client-metrics.js'
 import { getMap } from './map-handle.js'
+import { presenceView } from './presence-client.js'
+import { getState } from './state.js'
 import { isTemplateVisible, localTemplates } from './templates/local-store.js'
 import { isPaintOpen, selectedColour } from './wplace-paint.js'
 
@@ -15,6 +17,8 @@ export const readProfileContext = () => {
   const map = getMap()
   const center = map?.getCenter()
   const templates = localTemplates()
+  const presence = presenceView()
+  const state = getState()
   const navigator = globalThis.navigator as
     | (Navigator & { readonly deviceMemory?: number })
     | undefined
@@ -45,6 +49,23 @@ export const readProfileContext = () => {
       drawing: templates.filter(isTemplateVisible).length,
     },
     paint: { open: isPaintOpen(), selectedColour: selectedColour() },
+    collaboration: {
+      connected: presence.connected,
+      online: presence.online,
+      peers: presence.peers.length,
+      paintingPeers: presence.peers.filter((peer) => peer.draft !== null).length,
+      draftPixels: presence.peers.reduce((sum, peer) => sum + (peer.draft?.pixels ?? 0), 0),
+      regions: presence.regions.length,
+      regionShapes: presence.regions.reduce((sum, region) => sum + region.document.items.length, 0),
+      regionBoundingPixels: presence.regions.reduce(
+        (sum, region) => sum + region.rect.w * region.rect.h,
+        0,
+      ),
+      sharing: state.sharePresence,
+      shown: state.showPresence,
+      viewportsShown: state.showPresenceViewports,
+      claimsShown: state.showPresenceClaims,
+    },
   }
 }
 

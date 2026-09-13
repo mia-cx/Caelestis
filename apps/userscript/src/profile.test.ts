@@ -8,6 +8,7 @@ import {
   recordProfileAction,
   recordProfileCounter,
   recordProfileDuration,
+  recordProfileMessage,
   recordProfileWorkload,
   registerProfileContextSource,
   registerProfileMemorySource,
@@ -33,6 +34,19 @@ afterEach(() => {
 })
 
 describe('performance profile', () => {
+  it('counts UTF-8 payload bytes without encoding messages while disabled', () => {
+    const encode = vi.spyOn(TextEncoder.prototype, 'encode')
+    recordProfileMessage('Presence received', 'é')
+    expect(encode).not.toHaveBeenCalled()
+    setProfileEnabled(true)
+    recordProfileMessage('Presence received', 'é')
+    expect(profileSnapshot().counters).toEqual({
+      'Presence received messages': 1,
+      'Presence received bytes': 2,
+    })
+    resetProfile()
+    expect(profileSnapshot().counters).toEqual({})
+  })
   it('omits run annotations from disabled reports', () => {
     setProfileEnabled(true)
     configureProfileRun({ label: 'previous run', browserZoomPercent: 25 })
@@ -73,6 +87,20 @@ describe('performance profile', () => {
       surface: 'world',
       templates: { loaded: 10, enabled: 8, drawing: 7 },
       paint: { open: false, selectedColour: null },
+      collaboration: {
+        connected: false,
+        online: 0,
+        peers: 0,
+        paintingPeers: 0,
+        draftPixels: 0,
+        regions: 0,
+        regionShapes: 0,
+        regionBoundingPixels: 0,
+        sharing: false,
+        shown: false,
+        viewportsShown: false,
+        claimsShown: false,
+      },
     }
     const read = vi.fn(() => context)
     const unregister = registerProfileContextSource(read)

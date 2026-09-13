@@ -15,6 +15,13 @@ import { getMap } from '../map-handle.js'
 import { presenceView } from '../presence-client.js'
 import { presenceRgb } from '../presence-colour.js'
 import { hoveredPresenceRegions } from '../presence-hover.js'
+import {
+  measureProfile,
+  measureProfileDetail,
+  recordProfileCounter,
+  recordProfileWorkload,
+  registerProfileMemorySource,
+} from '../profile.js'
 import { getState } from '../state.js'
 import { currentQuads, isDrawingTiles, type TileQuad } from '../tile-transform.js'
 import { ramps } from './fade.js'
@@ -230,7 +237,10 @@ const documentPixels = new Map<string, { document: RegionDocument; pixels: Regio
 export const regionPixelsFor = (id: string, document: RegionDocument): RegionShapePixels | null => {
   const held = documentPixels.get(id)
   if (held?.document === document) return held.pixels
-  const pixels = regionDocumentPixels(document)
+  const pixels = measureProfileDetail('Presence region rasterize', () =>
+    regionDocumentPixels(document),
+  )
+  recordProfileCounter('Presence region rasterizations')
   if (pixels === null) {
     documentPixels.delete(id)
     return null
@@ -329,6 +339,18 @@ class PresenceLayer {
   private readonly motions = new Map<string, Motion>()
   private readonly corners = new Float32Array(4 * 6)
 
+  constructor() {
+    registerProfileMemorySource('Presence GPU masks', () =>
+      [...this.masks.values()].reduce((bytes, mask) => bytes + mask.width * mask.height, 0),
+    )
+    registerProfileMemorySource('Presence region masks', () =>
+      [...documentPixels.values()].reduce(
+        (bytes, entry) => bytes + entry.pixels.mask.byteLength,
+        0,
+      ),
+    )
+  }
+
   /**
    * Where a rect is drawn this frame. A viewport that moved glides from where it was to where it
    * is over `PRESENCE_MOTION_MS`, so peers are seen moving rather than jumping; anything with a
@@ -403,6 +425,8 @@ class PresenceLayer {
     gl.bindTexture(gl.TEXTURE_2D, texture)
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1)
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, width, height, 0, gl.RED, gl.UNSIGNED_BYTE, texels)
+    recordProfileCounter('Presence mask uploads')
+    recordProfileCounter('Presence mask upload bytes', texels.byteLength)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
@@ -454,6 +478,7 @@ class PresenceLayer {
       writeClipCorner(screenRight, screenBottom, bufferWidth, bufferHeight, u1, v1, corners, 18)
       gl.bufferSubData(gl.ARRAY_BUFFER, 0, corners)
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
+      recordProfileCounter('Presence draw calls')
     }
   }
 
@@ -499,7 +524,7 @@ class PresenceLayer {
   render(gl: WebGL2RenderingContext, _args: unknown): void {
     // A throw from a custom layer freezes MapLibre's whole render loop, so it never escapes.
     try {
-      this.draw(gl)
+      measureProfile('Presence overlay', () => this.draw(gl))
     } catch (error) {
       warn('install', 'presence layer render failed; skipping this frame', String(error))
     }
@@ -519,6 +544,7 @@ class PresenceLayer {
           (item.kind === 'region' ? state.showPresenceClaims : state.showPresenceViewports)),
     )
     const hovered = hoveredPresenceRegions()
+    recordProfileWorkload('Presence overlay items', items.length)
     const keys = new Set<string>()
     for (const item of items) {
       keys.add(item.key)

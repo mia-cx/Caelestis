@@ -186,6 +186,30 @@ const connect = async () => {
 }
 
 describe('presence client', () => {
+  it('profiles received state and payload size without retaining player identities', async () => {
+    const { socket } = await connect()
+    const profile = await import('./profile.js')
+    profile.setProfileEnabled(true)
+    profile.resetProfile()
+    const event = { type: 'presence-ready', sessionId: 'self', online: 1, peers: [], regions: [] }
+    socket.receive(event)
+    const snapshot = profile.profileSnapshot()
+    expect(snapshot.counters['Presence received messages']).toBe(1)
+    expect(snapshot.counters['Presence received bytes']).toBe(
+      new TextEncoder().encode(JSON.stringify(event)).byteLength,
+    )
+    expect(snapshot.tasks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'Presence parse', kind: 'main', count: 1 }),
+        expect.objectContaining({ name: 'Presence state update', kind: 'main', count: 1 }),
+        expect.objectContaining({ name: 'Presence notify', kind: 'detail', count: 1 }),
+      ]),
+    )
+    expect(snapshot.workload).toContainEqual(
+      expect.objectContaining({ name: 'Presence peers', current: 0 }),
+    )
+    profile.setProfileEnabled(false)
+  })
   it('opens one socket with the painter identity and credential protocol', async () => {
     const { socket } = await connect()
     const url = new URL(socket.url)
