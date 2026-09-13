@@ -13,8 +13,8 @@ and optimize costs established by matched measurements.
 ## TODOs
 - [x] Add collaboration instrumentation with focused validation.
 - [x] Capture a repeatable baseline in the actual userscript on Wplace.
-- [~] Optimize measured collaboration bottlenecks with focused behavior tests.
-- [ ] Publish matched measurements and complete project validation before filing the PR.
+- [x] Optimize measured collaboration bottlenecks with focused behavior tests.
+- [~] Publish matched measurements and complete project validation before filing the PR.
 
 ## Notes
 - Worktree remains supplied; the harness renamed the branch to `t3code/profile-optimize-live-collaboration` during work.
@@ -25,3 +25,4 @@ and optimize costs established by matched measurements.
 - Baseline completed in one real Wplace tab: idle, native drafting, map movement, and 64 replayed peers. Native draft notifications and received peer updates appear in the exported profile. No public paint submitted.
 - Idle baseline: 536 ms label CPU over 7.2 seconds, including 351 ms clustering; 436 DOM width probes. At 110% browser zoom, 92 templates loaded, 19 claim shapes with 2,413,620 bounding pixels. Raw probe is `/tmp/372-one-tab-before.json`; matched repetitions follow in final validation.
 - Mia requires one browser tab. Peer replay enters the actual WebSocket handler; do not reopen multiple Wplace tabs.
+- Both focused regressions failed before the fix (2 clustering passes instead of 1; 4 layout reads instead of 1). All 13 label tests now pass, as do userscript typecheck and build. The cache keeps one cluster per claim and at most 128 measured strings; resize and font loading clear text widths.

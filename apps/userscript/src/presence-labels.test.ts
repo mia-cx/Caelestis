@@ -89,6 +89,39 @@ afterEach(async () => {
 })
 
 describe('presence tags', () => {
+  it('reuses clustering until its component, text width, projection or document changes', async () => {
+    harness.regions = [twoPieces]
+    const { presenceTagsAt } = await import('./presence-labels.js')
+    const profile = await import('./profile.js')
+    profile.setProfileEnabled(true)
+    profile.resetProfile()
+    const count = () =>
+      profile.profileSnapshot().tasks.find((task) => task.name === 'Presence label clustering')
+        ?.count
+    const narrow = () => 100
+    const first = presenceTagsAt(frameAt(4), { x: 5, y: 5 }, narrow)
+    expect(presenceTagsAt(frameAt(4), { x: 6, y: 6 }, narrow)).toEqual(first)
+    expect(count()).toBe(1)
+    expect(presenceTagsAt(frameAt(4), { x: 65, y: 5 }, narrow)[0]?.rect.x).toBe(60)
+    expect(count()).toBe(2)
+    expect(presenceTagsAt(frameAt(4), { x: 65, y: 5 }, () => 1000)[0]?.rect.w).toBe(70)
+    expect(count()).toBe(3)
+    presenceTagsAt(frameAt(2), { x: 65, y: 5 }, () => 1000)
+    expect(count()).toBe(4)
+    const panned = frameAt(2)
+    presenceTagsAt(
+      { ...panned, quads: panned.quads.map((quad) => ({ ...quad, x: -100 })) },
+      { x: 65, y: 5 },
+      () => 1000,
+    )
+    expect(count()).toBe(5)
+    harness.regions = [
+      { ...twoPieces, document: { items: [{ id: 'a', op: 'add', shape: rect(60, 0, 20, 10) }] } },
+    ]
+    expect(presenceTagsAt(frameAt(4), { x: 65, y: 5 }, narrow)[0]?.rect.w).toBe(20)
+    expect(count()).toBe(6)
+    profile.setProfileEnabled(false)
+  })
   it('tags the hovered piece of a claim and nothing when the pointer is in the gap', async () => {
     harness.regions = [twoPieces]
     // At 4 px per canvas px the two tags, 100 px wide, are 240 px apart: each piece has its own.
@@ -223,6 +256,29 @@ describe('renderPresenceLabels', () => {
   const hover = (canvas: HTMLCanvasElement, x: number, y: number): void => {
     canvas.dispatchEvent(new PointerEvent('pointermove', { clientX: x, clientY: y, bubbles: true }))
   }
+
+  it('measures unchanged text once and refreshes it after text or viewport changes', async () => {
+    harness.regions = [twoPieces]
+    const { renderPresenceLabels } = await import('./presence-labels.js')
+    const width = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(100)
+    const canvas = canvasAt()
+    const frame = frameAt(1, canvas)
+    renderPresenceLabels(frame)
+    hover(canvas, 5, 5)
+    renderPresenceLabels(frame)
+    renderPresenceLabels(frame)
+    expect(width).toHaveBeenCalledTimes(1)
+    harness.regions = [{ ...twoPieces, label: 'new label' }]
+    renderPresenceLabels(frame)
+    expect(width).toHaveBeenCalledTimes(2)
+    expect(document.querySelector('#caelestis-presence-labels span')?.textContent).toBe(
+      'Sam · new label',
+    )
+    window.dispatchEvent(new Event('resize'))
+    renderPresenceLabels(frame)
+    expect(width).toHaveBeenCalledTimes(3)
+    width.mockRestore()
+  })
 
   it('shows a chip above the hovered claim only while the pointer is on it', async () => {
     harness.regions = [

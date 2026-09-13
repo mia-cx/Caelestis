@@ -59,21 +59,24 @@ let host: HTMLElement | null = null
 const nodes = new Map<string, HTMLElement>()
 let pointer: { x: number; y: number } | null = null
 let pointerWatched = false
+const MAX_MEASURED_LABELS = 128
+const widths = new Map<string, number>()
+
+interface ClaimPieces {
+  readonly document: RegionDocument
+  readonly pixels: RegionShapePixels
+  readonly components: RegionPixelComponents
+  cluster: { readonly inputs: readonly number[]; readonly rect: PresenceRect } | null
+}
 
 /** Rasterised pieces of each claim, per document identity, so hovering costs a lookup. */
-const pieces = new Map<
-  string,
-  { document: RegionDocument; pixels: RegionShapePixels; components: RegionPixelComponents }
->()
+const pieces = new Map<string, ClaimPieces>()
 
 registerProfileMemorySource('Presence component labels', () =>
   [...pieces.values()].reduce((bytes, entry) => bytes + entry.components.labels.byteLength, 0),
 )
 
-const piecesFor = (
-  id: string,
-  document: RegionDocument,
-): { pixels: RegionShapePixels; components: RegionPixelComponents } | null => {
+const piecesFor = (id: string, document: RegionDocument): ClaimPieces | null => {
   const held = pieces.get(id)
   if (held?.document === document) return held
   const pixels = regionPixelsFor(id, document)
@@ -81,10 +84,11 @@ const piecesFor = (
     pieces.delete(id)
     return null
   }
-  const entry = {
+  const entry: ClaimPieces = {
     document,
     pixels,
     components: measureProfileDetail('Presence components', () => regionPixelComponents(pixels)),
+    cluster: null,
   }
   recordProfileCounter('Presence component builds')
   recordProfileWorkload('Presence claim components', entry.components.boxes.length)
@@ -116,10 +120,13 @@ const watchPointer = (window: Window): void => {
   window.addEventListener('pointerleave', clear, { capture: true, passive: true })
   window.addEventListener('blur', clear)
   window.document.addEventListener('pointercancel', clear, { capture: true, passive: true })
+  window.addEventListener('resize', () => widths.clear())
+  window.document.fonts?.addEventListener('loadingdone', () => widths.clear())
 }
 
 const ensureHost = (document: Document): HTMLElement => {
   if (host?.isConnected) return host
+  widths.clear()
   host = document.getElementById(HOST_ID)
   if (host !== null) return host
   host = document.createElement('div')
@@ -236,6 +243,40 @@ const clusterWith = (
 const regionText = (displayName: string, label: string): string =>
   label === '' ? `${displayName} · claimed` : `${displayName} · ${label}`
 
+/** Keep the last hovered cluster per claim; clipping makes camera position part of its inputs. */
+const clusterFor = (
+  frame: TileFrame,
+  held: ClaimPieces,
+  index: number,
+  width: number,
+  ratio: number,
+): PresenceRect => {
+  const reference = frame.quads[0]
+  const inputs = [
+    index,
+    width,
+    ratio,
+    frame.canvas.width,
+    frame.canvas.height,
+    reference?.x ?? 0,
+    reference?.y ?? 0,
+    reference?.width ?? 0,
+    reference?.height ?? 0,
+    reference?.tile.x ?? 0,
+    reference?.tile.y ?? 0,
+  ]
+  const cached = held.cluster
+  if (cached !== null && inputs.every((value, i) => value === cached.inputs[i])) {
+    recordProfileCounter('Presence cluster cache hits')
+    return cached.rect
+  }
+  const rect = measureProfileDetail('Presence label clustering', () =>
+    clusterWith(frame, held.components.boxes, index, width, ratio),
+  )
+  held.cluster = { inputs, rect }
+  return rect
+}
+
 /**
  * The tags to show for a pointer at a canvas pixel: one per hovered peer, and one for the hovered
  * piece of each hovered claim (or the cluster of pieces it shares a tag with at this zoom).
@@ -278,9 +319,7 @@ export const presenceTagsAt = (
     const label = held.components.labels[index] ?? 0
     if (label === 0) continue
     const text = regionText(region.claimant.displayName, region.label)
-    const rect = measureProfileDetail('Presence label clustering', () =>
-      clusterWith(frame, held.components.boxes, label - 1, measure(text), ratio),
-    )
+    const rect = clusterFor(frame, held, label - 1, measure(text), ratio)
     tags.push({
       key: `region:${region.id}`,
       text,
@@ -317,6 +356,8 @@ const removeAll = (): void => {
 const measureWith =
   (document: Document, container: HTMLElement) =>
   (text: string): number => {
+    const cached = widths.get(text)
+    if (cached !== undefined) return cached
     const probe = document.createElement('span')
     Object.assign(probe.style, {
       position: 'absolute',
@@ -329,7 +370,13 @@ const measureWith =
     const width = probe.offsetWidth
     recordProfileCounter('Presence label measurements')
     probe.remove()
-    return width > 0 ? width : estimateWidth(text)
+    const measured = width > 0 ? width : estimateWidth(text)
+    if (widths.size >= MAX_MEASURED_LABELS) {
+      const oldest = widths.keys().next().value
+      if (oldest !== undefined) widths.delete(oldest)
+    }
+    widths.set(text, measured)
+    return measured
   }
 
 /** Place the tags for this frame. Cheap when the pointer is off the map. */
@@ -359,7 +406,8 @@ export const renderPresenceLabels = (frame: TileFrame): void => {
     return
   }
   const container = ensureHost(document)
-  const wanted = presenceTagsAt(frame, at, measureWith(document, container), ratioX)
+  const measure = measureWith(document, container)
+  const wanted = presenceTagsAt(frame, at, measure, ratioX)
   recordProfileWorkload('Presence hover labels', wanted.length)
   setHoveredPresenceRegions(
     new Set(
@@ -392,7 +440,7 @@ export const renderPresenceLabels = (frame: TileFrame): void => {
     }
     if (node.textContent !== tag.text) node.textContent = tag.text
     if (node.style.background !== tag.colour) node.style.background = tag.colour
-    const width = node.offsetWidth || estimateWidth(tag.text)
+    const width = measure(tag.text)
     const centre = box.left + (screen.x + screen.width / 2) / ratioX
     const top = box.top + screen.y / ratioY
     let x = Math.round(centre - width / 2)
@@ -461,5 +509,6 @@ export const renderPresenceLabels = (frame: TileFrame): void => {
 export const resetPresenceLabels = (): void => {
   removeAll()
   pieces.clear()
+  widths.clear()
   pointer = null
 }
