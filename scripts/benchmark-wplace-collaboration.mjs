@@ -109,101 +109,108 @@ try {
   const runs = []
   for (let repeat = 0; repeat < repeats; repeat++)
     for (const scenario of ['idle', 'painting', 'movement', 'players']) {
-      await evaluate(`void __caelestis.map().jumpTo(${JSON.stringify(camera)})`)
-      if (scenario === 'painting') {
-        await click(
-          `[...document.querySelectorAll('button')].find(b=>b.textContent.trim().startsWith('Paint'))`,
-        )
-        await sleep(600)
-        await click(`document.querySelector('button[aria-label^="Black"]')`)
-      }
-      await evaluate(
-        `collaborationReplay.peers=Array.from({length:${scenario === 'players' ? 64 : 1}},(_,i)=>({sessionId:'benchmark-'+i,painter:{wplaceUserId:900000+i,displayName:'Benchmark '+i},viewport:{x:325380+i%8*8,y:1782020+Math.floor(i/8)*8,w:90,h:70},draft:null}));collaborationReplay.socket.dispatchEvent(new MessageEvent('message',{data:JSON.stringify({type:'presence-delta',online:collaborationReplay.peers.length+1,upsert:collaborationReplay.peers,remove:Array.from({length:64},(_,i)=>'benchmark-'+i)})}))`,
-      )
-      await sleep(1500)
-      const pointer = await evaluate(
-        `(()=>{const l=__caelestis.map().getLayer('caelestis-presence').implementation;const i=[...l.retained.values()].find(i=>i.kind==='region');const n=i.mask.mask.indexOf(1);const x=i.rect.x+n%i.rect.w+.5,y=i.rect.y+Math.floor(n/i.rect.w)+.5;return __caelestis.map().project([x/2048000*360-180,Math.atan(Math.sinh(Math.PI*(1-2*y/2048000)))*180/Math.PI])})()`,
-      )
-      await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x: pointer.x, y: pointer.y })
-      await evaluate(
-        `__caelestis.profileReset();__caelestis.profileConfigure({label:${JSON.stringify(scenario)},browserZoomPercent:110})`,
-      )
-      const before = await metrics()
-      for (let tick = 0; tick < 24; tick++) {
+      try {
+        await evaluate(`void __caelestis.map().jumpTo(${JSON.stringify(camera)})`)
         if (scenario === 'painting') {
-          await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 900 + tick * 4, y: 500 })
-          await call('Input.dispatchMouseEvent', {
-            type: 'mousePressed',
-            button: 'left',
-            buttons: 1,
-            clickCount: 1,
-            x: 900 + tick * 4,
-            y: 500,
-          })
-          await call('Input.dispatchMouseEvent', {
-            type: 'mouseReleased',
-            button: 'left',
-            buttons: 0,
-            clickCount: 1,
-            x: 900 + tick * 4,
-            y: 500,
-          })
+          await click(
+            `[...document.querySelectorAll('button')].find(b=>b.textContent.trim().startsWith('Paint'))`,
+          )
+          await sleep(600)
+          await click(`document.querySelector('button[aria-label^="Black"]')`)
         }
-        if (scenario === 'movement')
-          await evaluate(
-            `void __caelestis.map().jumpTo({center:[${camera.center[0] + Math.sin(tick / 3) * 0.002},${camera.center[1]}]})`,
-          )
-        if (scenario !== 'idle')
-          await evaluate(
-            `collaborationReplay.socket.dispatchEvent(new MessageEvent('message',{data:JSON.stringify({type:'presence-delta',online:collaborationReplay.peers.length+1,remove:[],upsert:collaborationReplay.peers.map(p=>({...p,viewport:{...p.viewport,x:p.viewport.x+${tick % 8}},draft:{rect:{x:325410,y:1782050,w:8,h:8},pixels:64,mask:'//////////8='}}))})}))`,
-          )
-        await sleep(300)
-      }
-      const after = await metrics()
-      const profile = await evaluate('__caelestis.profile()')
-      const labels = await evaluate(
-        `[...document.querySelectorAll('#caelestis-presence-labels span')].map(n=>({text:n.textContent,transform:n.style.transform}))`,
-      )
-      runs.push({
-        repeat,
-        scenario,
-        profile,
-        labels: labels
-          .map(({ text, transform }) => ({
-            textSha256: createHash('sha256').update(text).digest('hex'),
-            transform,
-          }))
-          .sort((a, b) => a.textSha256.localeCompare(b.textSha256)),
-        external: {
-          seconds: after.Timestamp - before.Timestamp,
-          taskSeconds: after.TaskDuration - before.TaskDuration,
-          scriptSeconds: after.ScriptDuration - before.ScriptDuration,
-          layoutSeconds: after.LayoutDuration - before.LayoutDuration,
-          heapBytes: after.JSHeapUsedSize,
-        },
-      })
-      await mkdir(dirname(output), { recursive: true })
-      await writeFile(
-        output,
-        JSON.stringify(
-          {
-            bundleSha256: createHash('sha256').update(bundle).digest('hex'),
-            browser: info.Browser,
-            camera,
-            runs,
+        await evaluate(
+          `collaborationReplay.peers=Array.from({length:${scenario === 'players' ? 64 : 1}},(_,i)=>({sessionId:'benchmark-'+i,painter:{wplaceUserId:900000+i,displayName:'Benchmark '+i},viewport:{x:325380+i%8*8,y:1782020+Math.floor(i/8)*8,w:90,h:70},draft:null}));collaborationReplay.socket.dispatchEvent(new MessageEvent('message',{data:JSON.stringify({type:'presence-delta',online:collaborationReplay.peers.length+1,upsert:collaborationReplay.peers,remove:Array.from({length:64},(_,i)=>'benchmark-'+i)})}))`,
+        )
+        await sleep(1500)
+        const pointer = await evaluate(
+          `(()=>{const l=__caelestis.map().getLayer('caelestis-presence').implementation;const i=[...l.retained.values()].find(i=>i.kind==='region');const n=i.mask.mask.indexOf(1);const x=i.rect.x+n%i.rect.w+.5,y=i.rect.y+Math.floor(n/i.rect.w)+.5;return __caelestis.map().project([x/2048000*360-180,Math.atan(Math.sinh(Math.PI*(1-2*y/2048000)))*180/Math.PI])})()`,
+        )
+        await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x: pointer.x, y: pointer.y })
+        await evaluate(
+          `__caelestis.profileReset();__caelestis.profileConfigure({label:${JSON.stringify(scenario)},browserZoomPercent:110})`,
+        )
+        const before = await metrics()
+        for (let tick = 0; tick < 24; tick++) {
+          if (scenario === 'painting') {
+            await call('Input.dispatchMouseEvent', {
+              type: 'mouseMoved',
+              x: 900 + tick * 4,
+              y: 500,
+            })
+            await call('Input.dispatchMouseEvent', {
+              type: 'mousePressed',
+              button: 'left',
+              buttons: 1,
+              clickCount: 1,
+              x: 900 + tick * 4,
+              y: 500,
+            })
+            await call('Input.dispatchMouseEvent', {
+              type: 'mouseReleased',
+              button: 'left',
+              buttons: 0,
+              clickCount: 1,
+              x: 900 + tick * 4,
+              y: 500,
+            })
+          }
+          if (scenario === 'movement')
+            await evaluate(
+              `void __caelestis.map().jumpTo({center:[${camera.center[0] + Math.sin(tick / 3) * 0.002},${camera.center[1]}]})`,
+            )
+          if (scenario !== 'idle')
+            await evaluate(
+              `collaborationReplay.socket.dispatchEvent(new MessageEvent('message',{data:JSON.stringify({type:'presence-delta',online:collaborationReplay.peers.length+1,remove:[],upsert:collaborationReplay.peers.map(p=>({...p,viewport:{...p.viewport,x:p.viewport.x+${tick % 8}},draft:{rect:{x:325410,y:1782050,w:8,h:8},pixels:64,mask:'//////////8='}}))})}))`,
+            )
+          await sleep(300)
+        }
+        const after = await metrics()
+        const profile = await evaluate('__caelestis.profile()')
+        const labels = await evaluate(
+          `[...document.querySelectorAll('#caelestis-presence-labels span')].map(n=>({text:n.textContent,transform:n.style.transform}))`,
+        )
+        runs.push({
+          repeat,
+          scenario,
+          profile,
+          labels: labels
+            .map(({ text, transform }) => ({
+              textSha256: createHash('sha256').update(text).digest('hex'),
+              transform,
+            }))
+            .sort((a, b) => a.textSha256.localeCompare(b.textSha256)),
+          external: {
+            seconds: after.Timestamp - before.Timestamp,
+            taskSeconds: after.TaskDuration - before.TaskDuration,
+            scriptSeconds: after.ScriptDuration - before.ScriptDuration,
+            layoutSeconds: after.LayoutDuration - before.LayoutDuration,
+            heapBytes: after.JSHeapUsedSize,
           },
-          null,
-          2,
-        ),
-      )
-      console.log(
-        `${repeat + 1}/${repeats} ${scenario}: ${runs.at(-1).external.taskSeconds.toFixed(3)} CPU seconds; peers=${profile.context.current.collaboration.peers}; labels=${labels.length}`,
-      )
-      const shot = await call('Page.captureScreenshot', { format: 'png' })
-      await writeFile(`${output}.${repeat}-${scenario}.png`, Buffer.from(shot.data, 'base64'))
-      if (scenario === 'painting') {
-        await click(`document.querySelector('button[aria-label="Close"]')`)
-        await sleep(500)
+        })
+        await mkdir(dirname(output), { recursive: true })
+        await writeFile(
+          output,
+          JSON.stringify(
+            {
+              bundleSha256: createHash('sha256').update(bundle).digest('hex'),
+              browser: info.Browser,
+              camera,
+              runs,
+            },
+            null,
+            2,
+          ),
+        )
+        console.log(
+          `${repeat + 1}/${repeats} ${scenario}: ${runs.at(-1).external.taskSeconds.toFixed(3)} CPU seconds; peers=${profile.context.current.collaboration.peers}; labels=${labels.length}`,
+        )
+        const shot = await call('Page.captureScreenshot', { format: 'png' })
+        await writeFile(`${output}.${repeat}-${scenario}.png`, Buffer.from(shot.data, 'base64'))
+      } finally {
+        if (scenario === 'painting') {
+          await click(`document.querySelector('button[aria-label="Close"]')`)
+          await sleep(500)
+        }
       }
     }
   await evaluate(

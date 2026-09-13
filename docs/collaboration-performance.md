@@ -109,3 +109,9 @@ builds, userscript typecheck/build, and 53 focused tests pass after rebase. Earl
 tests passed 239 shared tests, 145 UI tests, and 1,477 userscript tests; the remaining watcher
 test timed out under parallel load and passed in isolation. Lint and 37 release checks pass.
 Native drafts were cancelled after every scenario; no public paint was submitted.
+
+Review follow-up verified the runner's failure path on Wplace. An injected screenshot-write error
+left 12 native draft pixels active before the fix. With scenario cleanup in `finally`, the same
+error leaves paint closed and zero drafted pixels. Exports now hash labels in the runner itself;
+the generated hashes and positions match the previously captured text, which is absent from JSON.
+All 1,893 package tests, dependency builds/typechecks, lint, and 37 release checks pass after these fixes.
