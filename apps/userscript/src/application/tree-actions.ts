@@ -1272,7 +1272,7 @@ export const openContextMenu = (
         ? [
             {
               icon: 'check',
-              label: claimed ? 'Release claim' : 'Claim',
+              label: claimed ? 'Unfavourite' : 'Favourite',
               run: () => void claimTemplate(target, rerender, claimed),
             },
           ]

@@ -53,7 +53,7 @@
           </div>
         {/if}
         {#if count === 0}
-          <p class="empty">No favourites yet. Open a template's icon in the tree and choose Claim to keep it here.</p>
+          <p class="empty">No favourites yet. Right-click a template and choose Favourite to keep it here.</p>
         {:else}
           <TemplateTree model={model.tree} toolbar={false} {onIntent} />
         {/if}

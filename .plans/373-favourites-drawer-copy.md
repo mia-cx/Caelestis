@@ -2,7 +2,7 @@
 
 ## Summary
 
-The Favourites drawer still says "claims" in its toggle and its empty state. Rename the visible copy and accessible labels to favourites, and point the empty state at the control that actually adds one.
+The Favourites drawer still says "claims" in its toggle and its empty state. Rename the visible copy and accessible labels to favourites, and make the actions that add one say the same.
 
 ## Acceptance criteria
 
@@ -13,9 +13,10 @@ The Favourites drawer still says "claims" in its toggle and its empty state. Ren
 ## TODOs
 
 - [x] Rename the toggle and empty state in `WorkSummary.svelte`; add a userscript Changeset.
+- [x] Rename the context menu item in `tree-actions.ts` and the popover action in `TemplateClaims.svelte` to Favourite / Unfavourite.
 
 ## Notes
 
-- There is no right-click "Claim" item. The real control is the claim marker on a template row's icon, whose popover offers "Claim" and "Release claim". The empty state now names that.
-- The marker itself keeps "Claim" wording: it is shared with admin assignment and the tree's Claims filter, and the issue scopes the rename to the drawer.
-- Follow-up, not in scope: the marker only renders when a template already has claimants or the viewer can assign, so a plain painter cannot favourite a fresh template from the tree.
+- The template context menu's personal action is built in `application/tree-actions.ts`, with a dynamic label; the claim popover on a row's icon has the same action. Both now say Favourite / Unfavourite.
+- The popover's header, "Claims for X", the claimant count, and the admin "Remove X's claim" stay as claims: they describe every painter's record, not your favourite.
+- The frontend's work board keeps "Release claim"; it is the server-side work view, not the userscript.

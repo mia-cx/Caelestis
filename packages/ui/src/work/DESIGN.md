@@ -2,7 +2,7 @@
 
 Work belongs to the existing folder and template hierarchy. The frontend exposes a Work destination and scoped sections. The userscript has a collapsed In progress drawer at the bottom of the template panel, listing only the current painter's active claims. Its persistent bar remains visible when empty and opens the list upward. The bounded list scrolls independently so painting controls remain reachable. Clicking a row opens its details.
 
-Right-click Claim uses the current Wplace identity and atomically creates the template's shared work record when absent. Painters need no planning form. The template ID also identifies this record, so concurrent claims cannot create duplicates. Existing work details retain release, planning and history actions.
+Right-click Favourite uses the current Wplace identity and atomically creates the template's shared work record when absent. Painters need no planning form. The template ID also identifies this record, so concurrent claims cannot create duplicates. Existing work details retain release, planning and history actions.
 
 Admins can enable Show everyone's favourites inside the drawer. Each server's planning permission controls whether its other painters appear; non-admin connections remain personal even when the toggle is on for another server. Unclaimed and completed work stay outside this drawer.
 
