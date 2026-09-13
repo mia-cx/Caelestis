@@ -106,21 +106,29 @@ export interface PanelModel {
   readonly settings?: SettingsModel
 }
 
-/** One persisted region claim as the Painters drawer lists it. */
-export interface RegionClaimRowModel {
-  readonly id: string
-  readonly label: string
-  readonly claimant: string
+/** One painter as the Painters drawer lists them: a live session, or the holder of a claim. */
+export interface PainterRowModel {
+  /** Stable across renders: the presence session, or the painter's id when only a claim is known. */
+  readonly key: string
+  readonly name: string
+  readonly userId: number
+  /** The painter's presence colour, as CSS. */
+  readonly colour: string
   readonly mine: boolean
-  /** Human size, such as "120 × 80". */
-  readonly size: string
+  readonly online: boolean
+  /** What they are up to, such as "painting 120 px", "browsing", "2 claims", or "offline". */
+  readonly activity: string
+  /** Whether Fly to has somewhere to go: drafted pixels, a viewport, or a claim. */
+  readonly canFly: boolean
+  /** One of your own claims, so Edit can open the set it belongs to. */
+  readonly editRegionId?: string
 }
 
-/** Live painter headcount and region claims for the current drawing surface. */
+/** Live painter headcount and the painters themselves, for the current drawing surface. */
 export interface PresenceSummaryModel {
   readonly online: number
   readonly connected: boolean
-  readonly regions: readonly RegionClaimRowModel[]
+  readonly players: readonly PainterRowModel[]
   /** Whether the claim tool can start: signed in, connected, and not already open. */
   readonly canClaim: boolean
   readonly pending?: boolean
@@ -216,6 +224,7 @@ export type PanelIntent =
   | { readonly type: 'work-visibility'; readonly showOtherClaims: boolean }
   | { readonly type: 'region-claim' }
   | { readonly type: 'region-edit'; readonly id: string }
+  | { readonly type: 'presence-fly'; readonly key: string }
   | { readonly type: 'work-tree'; readonly intent: TemplateTreeIntent }
   | { readonly type: 'navigate'; readonly view: PanelView }
   | { readonly type: 'close' }

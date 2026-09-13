@@ -10,7 +10,7 @@ import {
   uuidV7,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
-import type { ClaimTool, PresenceSummaryModel } from '@caelestis/ui/elements'
+import type { ClaimTool, PainterRowModel, PresenceSummaryModel } from '@caelestis/ui/elements'
 import {
   type ClaimEditorHost,
   installClaimEditor,
@@ -19,22 +19,26 @@ import {
 } from '../claim-editor.js'
 import {
   claimRegion,
+  type PresenceView,
   presenceLiveServer,
   presenceRegionServer,
   presenceServers,
   presenceView,
   releaseRegion,
 } from '../presence-client.js'
+import { presenceCss } from '../presence-colour.js'
 import { activeServerToken, type ConnectedServer } from '../state.js'
 import { isServerTemplate, localTemplates, type PlacedTemplate } from '../templates/local-store.js'
+import { navigateTo } from '../templates/navigate.js'
 import { accountIdentity } from '../wplace-account.js'
 import { toast } from './toast.js'
 
 /**
- * Region claims, from the drawer, the rail, and the keyboard.
+ * The Painters drawer and region claims, from the drawer, the rail, and the keyboard.
  *
- * The editor owns drawing; this module owns what a claim means: which server it is saved to,
- * which template it happens to overlap, and how a saved claim comes back for editing.
+ * The drawer lists everyone presence knows about, with a Fly to that goes to where they were last
+ * seen. The editor owns drawing; this module owns what a claim means: which server it is saved
+ * to, which template it happens to overlap, and how a saved claim comes back for editing.
  */
 
 interface ClaimTarget {
@@ -111,32 +115,155 @@ export const documentName = (document: RegionDocument): string => {
   return `${kind} · ${pixels.toLocaleString()} px`
 }
 
-/** What the drawer shows: headcount, claims on this surface, and whether the tool can open. */
+/** One painter's claims, newest first. */
+const claimsOf = (view: PresenceView, wplaceUserId: number): RegionClaim[] =>
+  view.regions
+    .filter((region) => region.claimant.wplaceUserId === wplaceUserId)
+    .sort((left, right) => right.createdAt - left.createdAt)
+
+/** "2 claims", or the one claim's shape and size. */
+const claimsSummary = (claims: readonly RegionClaim[]): string | null => {
+  const first = claims[0]
+  if (first === undefined) return null
+  return claims.length === 1 ? documentName(first.document) : `${claims.length} claims`
+}
+
+/**
+ * Where a painter was last seen, for Fly to: their drafted pixels, else their viewport, else
+ * their newest claim. Null when presence knows nothing about their location.
+ */
+export const painterLocation = (view: PresenceView, key: string): PresenceRect | null => {
+  const peer = view.peers.find((held) => held.sessionId === key)
+  if (peer !== undefined) {
+    const seen = peer.draft?.rect ?? peer.viewport
+    if (seen !== null) return seen
+    return claimsOf(view, peer.painter.wplaceUserId)[0]?.rect ?? null
+  }
+  if (!key.startsWith('user:')) return null
+  return claimsOf(view, Number(key.slice('user:'.length)))[0]?.rect ?? null
+}
+
+/** Ordered for finding people: you, then painting, browsing, online elsewhere, offline. */
+const rank = (row: PainterRowModel): number => {
+  if (row.mine) return 0
+  if (!row.online) return 4
+  if (row.activity.startsWith('painting')) return 1
+  return row.activity === 'browsing' ? 2 : 3
+}
+
+/** Everyone presence knows about: live sessions first, then painters known only by a claim. */
+const painterRows = (view: PresenceView): PainterRowModel[] => {
+  const me = view.me
+  const rows: PainterRowModel[] = []
+  const seen = new Set<number>()
+  const withClaims = (
+    row: Omit<PainterRowModel, 'activity' | 'canFly'>,
+    activity: string | null,
+    located: boolean,
+  ): PainterRowModel => {
+    const claims = claimsOf(view, row.userId)
+    const summary = claimsSummary(claims)
+    const editable = row.mine ? claims[0] : undefined
+    return {
+      ...row,
+      activity: activity ?? summary ?? (row.online ? 'online' : 'offline'),
+      canFly: located || claims.length > 0,
+      ...(editable === undefined ? {} : { editRegionId: editable.id }),
+    }
+  }
+  if (me !== null) {
+    seen.add(me.wplaceUserId)
+    rows.push(
+      withClaims(
+        {
+          key: `user:${me.wplaceUserId}`,
+          name: me.displayName,
+          userId: me.wplaceUserId,
+          colour: presenceCss(me.wplaceUserId),
+          mine: true,
+          online: view.connected,
+        },
+        null,
+        false,
+      ),
+    )
+  }
+  for (const peer of view.peers) {
+    const id = peer.painter.wplaceUserId
+    seen.add(id)
+    const activity =
+      peer.draft !== null
+        ? `painting ${peer.draft.pixels.toLocaleString()} px`
+        : peer.viewport !== null
+          ? 'browsing'
+          : null
+    rows.push(
+      withClaims(
+        {
+          key: peer.sessionId,
+          name: peer.painter.displayName,
+          userId: id,
+          colour: presenceCss(id),
+          mine: false,
+          online: true,
+        },
+        activity,
+        activity !== null,
+      ),
+    )
+  }
+  const claimants = new Map<number, RegionClaim>()
+  for (const region of view.regions) {
+    const id = region.claimant.wplaceUserId
+    if (!seen.has(id) && !claimants.has(id)) claimants.set(id, region)
+  }
+  for (const [id, region] of claimants) {
+    rows.push(
+      withClaims(
+        {
+          key: `user:${id}`,
+          name: region.claimant.displayName,
+          userId: id,
+          colour: presenceCss(id),
+          mine: false,
+          online: false,
+        },
+        null,
+        false,
+      ),
+    )
+  }
+  return rows.sort((left, right) => rank(left) - rank(right) || left.name.localeCompare(right.name))
+}
+
+/** What the drawer shows: headcount, the painters, and whether the claim tool can open. */
 export const presenceSummaryModel = (): PresenceSummaryModel | undefined => {
   const view = presenceView()
   if (!view.connected && view.regions.length === 0) return undefined
   const me = view.me
-  const regions = [...view.regions]
-    .sort((left, right) => {
-      const mineLeft = left.claimant.wplaceUserId === me?.wplaceUserId ? 0 : 1
-      const mineRight = right.claimant.wplaceUserId === me?.wplaceUserId ? 0 : 1
-      return mineLeft - mineRight || right.createdAt - left.createdAt
-    })
-    .map((region: RegionClaim) => ({
-      id: region.id,
-      label: region.label,
-      claimant: region.claimant.displayName,
-      mine: region.claimant.wplaceUserId === me?.wplaceUserId,
-      size: documentName(region.document),
-    }))
   return {
     online: view.online,
     connected: view.connected,
-    regions,
+    players: painterRows(view),
     canClaim: me !== null && view.connected && !isClaimModeActive(),
     ...(pending ? { pending: true } : {}),
     ...(message === undefined ? {} : { message }),
   }
+}
+
+/**
+ * Take the map to a painter's latest known activity. Presence is read again here, not from the
+ * rendered row, so someone who left between render and click gets a toast, not a stale flight.
+ */
+export const flyToPainter = (key: string): boolean => {
+  const view = presenceView()
+  const rect = painterLocation(view, key)
+  if (rect === null) {
+    toast('That painter’s location is no longer known.', 'error')
+    return false
+  }
+  navigateTo({ x: rect.x + rect.w / 2, y: rect.y + rect.h / 2, width: rect.w, height: rect.h })
+  return true
 }
 
 const host = (): ClaimEditorHost => ({

@@ -107,6 +107,7 @@ export const ICONS = define({
   painters: groups,
   eyeOff: visibilityOff,
   filter: filterAltOutline,
+  flyTo: nearMe,
   fitScreen,
   flag,
   folder,
