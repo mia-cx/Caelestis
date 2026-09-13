@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const harness = vi.hoisted(() => ({
   appearance: { markMismatch: false },
+  overrides: {} as import('@caelestis/shared').ShortcutOverrides,
+  stateListeners: [] as (() => void)[],
   redraw: vi.fn(),
   toolActive: false,
   connected: false,
@@ -28,14 +30,18 @@ vi.mock('../presence-client.js', () => ({
 }))
 vi.mock('./presence-actions.js', () => ({ openClaimTool: harness.openClaimTool }))
 vi.mock('../state.js', () => ({
-  getState: () => ({ appearance: harness.appearance }),
+  getState: () => ({ appearance: harness.appearance, shortcutOverrides: harness.overrides }),
   setState: (patch: { appearance: { markMismatch: boolean } }) => {
     harness.appearance = patch.appearance
+  },
+  onStateChange: (listener: () => void) => {
+    harness.stateListeners.push(listener)
   },
 }))
 
 import {
   claimToolButton,
+  installRailStateSync,
   MISMATCH_MODE_ID,
   mismatchModeButton,
   syncClaimToolState,
@@ -46,6 +52,8 @@ beforeEach(() => {
   registerCaelestisUi()
   document.body.replaceChildren()
   harness.appearance = { markMismatch: false }
+  harness.overrides = {}
+  harness.stateListeners = []
   harness.redraw.mockClear()
   harness.toolActive = false
   harness.connected = false
@@ -67,6 +75,32 @@ describe('region claim rail control', () => {
     harness.me = { wplaceUserId: 7, displayName: 'Mia' }
     syncClaimToolState()
     expect(button.model.disabled).toBeUndefined()
+  })
+
+  it('follows a rebind or reset from Settings through the installed state sync', async () => {
+    installRailStateSync()
+    const button = claimToolButton()
+    document.body.appendChild(button)
+    syncClaimToolState()
+    await Promise.resolve()
+    expect(button.model.label).toBe('Claim a region (M)')
+
+    // Recreating the control, as the rail recovery path does, must not add observers.
+    button.remove()
+    const recreated = claimToolButton()
+    document.body.appendChild(recreated)
+    expect(recreated).not.toBe(button)
+    expect(harness.stateListeners).toHaveLength(3)
+
+    harness.overrides = {
+      'claim-mode': [{ key: 'k', code: 'KeyK', command: false, shift: true, alt: false }],
+    }
+    for (const listener of harness.stateListeners) listener()
+    expect(recreated.model.label).toBe('Claim a region (Shift+K)')
+
+    harness.overrides = { 'claim-mode': [] }
+    for (const listener of harness.stateListeners) listener()
+    expect(recreated.model.label).toBe('Claim a region')
   })
 
   it('opens the tool on click and closes it when pressed again', async () => {
@@ -116,6 +150,24 @@ describe('global mismatch-marker rail control', () => {
       'Hide global mismatch markers (W)',
     )
     expect(button.model.pressed).toBe(true)
+  })
+
+  it('names the rebound key in its tooltip and drops the hint once the key is gone', async () => {
+    const button = mismatchModeButton()
+    document.body.appendChild(button)
+    harness.overrides = {
+      'toggle-markers': [{ key: 'm', code: 'KeyM', command: false, shift: false, alt: false }],
+    }
+    syncMismatchModeState()
+    await Promise.resolve()
+    expect(button.shadowRoot?.querySelector('button')?.title).toBe(
+      'Show global mismatch markers (M)',
+    )
+
+    harness.overrides = { 'toggle-markers': [] }
+    syncMismatchModeState()
+    await Promise.resolve()
+    expect(button.shadowRoot?.querySelector('button')?.title).toBe('Show global mismatch markers')
   })
 
   it('reuses the mounted control after a rail sync', () => {

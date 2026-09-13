@@ -37,6 +37,7 @@ import image from '@iconify-icons/material-symbols/image'
 import info from '@iconify-icons/material-symbols/info'
 import inkEraser from '@iconify-icons/material-symbols/ink-eraser'
 import inkPen from '@iconify-icons/material-symbols/ink-pen'
+import keyboard from '@iconify-icons/material-symbols/keyboard'
 import keyboardArrowDown from '@iconify-icons/material-symbols/keyboard-arrow-down'
 import keyboardArrowUp from '@iconify-icons/material-symbols/keyboard-arrow-up'
 import labelOutline from '@iconify-icons/material-symbols/label-outline'
@@ -114,6 +115,7 @@ export const ICONS = define({
   image,
   info,
   kebab: moreVert,
+  keyboard,
   lightMode,
   move: openWith,
   shapes: shapesGlyph,

@@ -1,4 +1,5 @@
 import {
+  assignShortcutBinding,
   sameTemplateSurface,
   type TemplateSurface,
   TRANSPARENT_INDEX,
@@ -67,6 +68,8 @@ import {
   setProfileEnabled,
 } from '../profile.js'
 import { forgetServer } from '../server-cache.js'
+import { activeShortcutBindings, shortcutHint } from '../shortcut-bindings.js'
+import { currentShortcutPlatform } from '../shortcuts.js'
 import {
   type ConnectedServer,
   cancelServerProbe,
@@ -127,6 +130,7 @@ import {
 import { openClaimEditor, openClaimTool, presenceSummaryModel } from './presence-actions.js'
 import {
   claimToolButton,
+  installRailStateSync,
   mismatchModeButton,
   presenceModeButton,
   syncClaimToolState,
@@ -207,7 +211,7 @@ const panelWidthForViewport = (wanted: number): number =>
  */
 const APP_NAME = 'Caelestis'
 const PANEL_TITLE = APP_NAME
-const BUTTON_TOOLTIP = `${APP_NAME} — shared templates (C)`
+const buttonTooltip = (): string => `${APP_NAME} — shared templates${shortcutHint('toggle-panel')}`
 
 const panelSessions = new PanelSessions()
 let alarmBadge = 0
@@ -233,7 +237,7 @@ const currentPanelId = (): string =>
  */
 const panelRailModel = (scope: PanelScope): RailControlModel => ({
   id: scope === 'alliance' ? 'alliance-panel' : 'panel',
-  label: BUTTON_TOOLTIP,
+  label: buttonTooltip(),
   pressed: panelSessions.isOpen(scope),
   expanded: panelSessions.isOpen(scope),
   controls: scope === 'alliance' ? ALLIANCE_PANEL_ID : PANEL_ID,
@@ -255,7 +259,7 @@ const syncAllianceModeState = (active = activeAllianceSurface()): void => {
   const on = getSurfaceAppearance(active.surface).markMismatch
   mismatch.model = {
     id: 'mismatch',
-    label: `${on ? 'Hide' : 'Show'} mismatch markers on this canvas (W)`,
+    label: `${on ? 'Hide' : 'Show'} mismatch markers on this canvas${shortcutHint('toggle-markers')}`,
     pressed: on,
   }
 }
@@ -532,6 +536,8 @@ let claimedTreeSource: TemplateTreeAdapter | null = null
 let claimedTreeKeys: readonly string[] = []
 
 const settingsMessages = new Map<string, string>()
+/** The last recorded chord and the actions it displaced, shown until the next change. */
+let shortcutChange: NonNullable<SettingsModel['shortcuts']['lastChange']> | undefined
 const pendingServers = new Set<string>()
 let addServerPending = false
 let addServerMessage: string | undefined
@@ -593,6 +599,12 @@ const settingsModel = (): SettingsModel => {
     notifyGriefing: state.notifyGriefing,
     notifyUpdates: state.notifyUpdates,
     notifyActivity: state.notifyActivity,
+    shortcuts: {
+      platform: currentShortcutPlatform(),
+      bindings: activeShortcutBindings(),
+      customised: Object.keys(state.shortcutOverrides).length > 0,
+      ...(shortcutChange === undefined ? {} : { lastChange: shortcutChange }),
+    },
     debugLogging: isDebugEnabled(),
     performanceProfiling: isProfileEnabled(),
     ...(snapshot === null
@@ -789,6 +801,24 @@ const handleSettingsIntent = (intent: SettingsIntent): void => {
       if (intent.key === 'debugLogging') setDebugEnabled(intent.value)
       else if (intent.key === 'performanceProfiling') setProfileEnabled(intent.value)
       else setState({ [intent.key]: intent.value })
+      refreshSettings()
+      break
+    case 'set-shortcut-binding': {
+      const { overrides, displaced } = assignShortcutBinding(
+        getState().shortcutOverrides,
+        intent.id,
+        intent.binding,
+      )
+      shortcutChange = intent.binding === null ? undefined : { id: intent.id, displaced }
+      setState({ shortcutOverrides: overrides })
+      syncRailButtonState()
+      refreshSettings()
+      break
+    }
+    case 'reset-shortcut-bindings':
+      shortcutChange = undefined
+      setState({ shortcutOverrides: {} })
+      syncRailButtonState()
       refreshSettings()
       break
     case 'reset-profile':
@@ -1451,7 +1481,7 @@ const colourRailModel = (surface: TemplateSurface = WORLD_TEMPLATE_SURFACE): Rai
   const label = on ? 'Showing only the selected colour' : 'Show only the selected colour'
   return {
     id: 'colour',
-    label: isPaintOpen() ? `${label} (S)` : `${label} — open wplace's paint drawer to pick one (S)`,
+    label: `${isPaintOpen() ? label : `${label} — open wplace's paint drawer to pick one`}${shortcutHint('toggle-colour')}`,
     pressed: on,
   }
 }
@@ -1513,7 +1543,7 @@ export const installPanel = (): void => {
   onPresenceChange(syncClaimToolState)
   // Headcounts and claims arrive over the socket; the Painters drawer has to follow them.
   onPresenceChange(rerenderTree)
-  onStateChange(syncPresenceModeState)
+  installRailStateSync()
   positionRail()
   log('install', 'rail installed beside wplace’s')
 
@@ -1559,7 +1589,6 @@ export const installPanel = (): void => {
     redraw()
   })
   onStateChange(syncColourModeState)
-  onStateChange(syncMismatchModeState)
   onStateChange(() => syncAllianceModeState())
   // Once, here, rather than each time a view is built: subscribing from inside `treeView` added a
   // fresh listener on every switch back to it, so the tenth visit redrew the panel ten times per

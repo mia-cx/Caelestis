@@ -3,7 +3,8 @@ import { activeAllianceSurface } from '../alliance-surface.js'
 import { isClaimModeActive, stopClaimMode } from '../claim-editor.js'
 import { redraw } from '../main.js'
 import { presenceView } from '../presence-client.js'
-import { getState, setState } from '../state.js'
+import { shortcutHint } from '../shortcut-bindings.js'
+import { getState, onStateChange, setState } from '../state.js'
 import { openClaimTool } from './presence-actions.js'
 import { applyWplaceTheme } from './theme.js'
 
@@ -11,13 +12,24 @@ export const MISMATCH_MODE_ID = 'caelestis-mismatch-mode'
 export const CLAIM_TOOL_ID = 'caelestis-claim-tool-mode'
 export const PRESENCE_MODE_ID = 'caelestis-presence-mode'
 
+/**
+ * Keep the rail's stateful buttons current with persisted state: their pressed states and the key
+ * hints read from stored bindings. Called once at install; the button factories are also the
+ * recovery path after Wplace drops a control, so they must not subscribe themselves.
+ */
+export const installRailStateSync = (): void => {
+  onStateChange(syncMismatchModeState)
+  onStateChange(syncPresenceModeState)
+  onStateChange(syncClaimToolState)
+}
+
 export const syncPresenceModeState = (): void => {
   const button = document.getElementById(PRESENCE_MODE_ID) as CaelestisRailControl | null
   if (button === null) return
   const on = getState().showPresence
   button.model = {
     id: 'presence',
-    label: on ? 'Hide other painters and claims (Q)' : 'Show other painters and claims (Q)',
+    label: `${on ? 'Hide' : 'Show'} other painters and claims${shortcutHint('toggle-presence')}`,
     pressed: on,
   }
 }
@@ -49,12 +61,12 @@ export const syncClaimToolState = (): void => {
   const ready = view.connected && view.me !== null && activeAllianceSurface() === null
   button.model = {
     id: 'claim',
-    label: active ? 'Leave claim mode (Esc)' : 'Claim a region (M)',
+    label: active ? 'Leave claim mode (Esc)' : `Claim a region${shortcutHint('claim-mode')}`,
     title:
       ready || active
         ? active
           ? 'Leave claim mode without saving (Esc)'
-          : 'Claim a region: draw shapes, paths, and strokes over the map (M)'
+          : `Claim a region: draw shapes, paths, and strokes over the map${shortcutHint('claim-mode')}`
         : 'Claim a region. Needs a connected server with painter presence and a Wplace sign-in.',
     pressed: active,
     ...(ready || active ? {} : { disabled: true }),
@@ -89,7 +101,7 @@ export const syncMismatchModeState = (): void => {
   if (button === null) return
   const on = getState().appearance.markMismatch
   const label = on ? 'Hide global mismatch markers' : 'Show global mismatch markers'
-  button.model = { id: 'mismatch', label: `${label} (W)`, pressed: on }
+  button.model = { id: 'mismatch', label: `${label}${shortcutHint('toggle-markers')}`, pressed: on }
 }
 
 /** The always-reachable switch for the global marker default. */
