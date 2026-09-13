@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const harness = vi.hoisted(() => ({
   appearance: { markMismatch: false },
   overrides: {} as import('@caelestis/shared').ShortcutOverrides,
+  stateListeners: [] as (() => void)[],
   redraw: vi.fn(),
   toolActive: false,
   connected: false,
@@ -33,6 +34,9 @@ vi.mock('../state.js', () => ({
   setState: (patch: { appearance: { markMismatch: boolean } }) => {
     harness.appearance = patch.appearance
   },
+  onStateChange: (listener: () => void) => {
+    harness.stateListeners.push(listener)
+  },
 }))
 
 import {
@@ -48,6 +52,7 @@ beforeEach(() => {
   document.body.replaceChildren()
   harness.appearance = { markMismatch: false }
   harness.overrides = {}
+  harness.stateListeners = []
   harness.redraw.mockClear()
   harness.toolActive = false
   harness.connected = false
@@ -69,6 +74,24 @@ describe('region claim rail control', () => {
     harness.me = { wplaceUserId: 7, displayName: 'Mia' }
     syncClaimToolState()
     expect(button.model.disabled).toBeUndefined()
+  })
+
+  it('follows a rebind or reset from Settings through the state change it causes', async () => {
+    const button = claimToolButton()
+    document.body.appendChild(button)
+    syncClaimToolState()
+    await Promise.resolve()
+    expect(button.model.label).toBe('Claim a region (M)')
+
+    harness.overrides = {
+      'claim-mode': [{ key: 'k', code: 'KeyK', command: false, shift: true, alt: false }],
+    }
+    for (const listener of harness.stateListeners) listener()
+    expect(button.model.label).toBe('Claim a region (Shift+K)')
+
+    harness.overrides = { 'claim-mode': [] }
+    for (const listener of harness.stateListeners) listener()
+    expect(button.model.label).toBe('Claim a region')
   })
 
   it('opens the tool on click and closes it when pressed again', async () => {

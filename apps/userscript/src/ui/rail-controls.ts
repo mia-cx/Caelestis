@@ -4,7 +4,7 @@ import { isClaimModeActive, stopClaimMode } from '../claim-editor.js'
 import { redraw } from '../main.js'
 import { presenceView } from '../presence-client.js'
 import { shortcutHint } from '../shortcut-bindings.js'
-import { getState, setState } from '../state.js'
+import { getState, onStateChange, setState } from '../state.js'
 import { openClaimTool } from './presence-actions.js'
 import { applyWplaceTheme } from './theme.js'
 
@@ -82,6 +82,8 @@ export const claimToolButton = (): CaelestisRailControl => {
     syncClaimToolState()
   })
   syncClaimToolState()
+  // Its key hint comes from stored bindings, so a rebind in Settings must reach it too.
+  onStateChange(syncClaimToolState)
   return button
 }
 
