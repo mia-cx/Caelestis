@@ -915,6 +915,15 @@ describe('claim editor', () => {
     expect(again.claimModeModel().message).toMatch(/remove 5/)
   })
 
+  it('refuses shapes that would make the claim too costly to rasterise', async () => {
+    const editor = await setup('ellipse')
+    for (let i = 0; i < 4; i++) drag(0, 0, 1_999, 1_999)
+    expect(editor.claimModeModel().items).toBe(4)
+    drag(0, 0, 1_999, 1_999)
+    expect(editor.claimModeModel().items).toBe(4)
+    expect(editor.claimModeModel().message).toMatch(/too complex/)
+  })
+
   it('cancels without saving', async () => {
     const editor = await setup('rectangle')
     drag(0, 0, 3, 3)

@@ -2,6 +2,7 @@ import {
   flattenPath,
   MAX_PATH_NODES,
   MAX_RASTER_BITS,
+  MAX_REGION_DOCUMENT_WORK,
   MAX_REGION_ITEMS,
   MAX_REGION_SHAPE_CORNERS,
   MAX_REGION_SHAPE_EXTENT,
@@ -16,6 +17,7 @@ import {
   type RegionShapePixels,
   rasterShapeFrom,
   regionDocumentPixels,
+  regionDocumentWork,
   regionShapeBounds,
   regionShapeCentre,
   regionShapeContainsPixel,
@@ -472,6 +474,11 @@ const addItem = (shape: RegionShape): void => {
     return
   }
   const item: RegionItem = { id: nextItemId(), shape, op: subtract ? 'subtract' : 'add' }
+  if (regionDocumentWork({ items: [...items, item] }) > MAX_REGION_DOCUMENT_WORK) {
+    message =
+      'That shape would make the claim too complex to draw; make it smaller or remove others.'
+    return
+  }
   items = [...items, item]
   select([item.id])
   touch()
@@ -1733,6 +1740,11 @@ const confirm = async (): Promise<void> => {
   }
   if (items.length > MAX_REGION_ITEMS) {
     message = `A claim holds at most ${MAX_REGION_ITEMS} shapes; remove ${items.length - MAX_REGION_ITEMS} before saving.`
+    notify()
+    return
+  }
+  if (regionDocumentWork({ items }) > MAX_REGION_DOCUMENT_WORK) {
+    message = 'This claim is too complex to draw; shrink or remove some shapes before saving.'
     notify()
     return
   }
