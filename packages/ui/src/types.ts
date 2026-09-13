@@ -106,7 +106,7 @@ export interface PanelModel {
   readonly settings?: SettingsModel
 }
 
-/** One painter online right now, as the Painters drawer lists them. */
+/** One painter near the viewport, as the Painters drawer lists them. */
 export interface PainterRowModel {
   /** Their presence session; stable across renders. */
   readonly key: string
@@ -120,7 +120,7 @@ export interface PainterRowModel {
   readonly canFly: boolean
 }
 
-/** Live painter headcount and who is online, for the current drawing surface. */
+/** The server's painter headcount, and the painters it sends for the current viewport. */
 export interface PresenceSummaryModel {
   readonly online: number
   readonly connected: boolean

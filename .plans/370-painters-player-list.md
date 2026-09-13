@@ -2,7 +2,7 @@
 
 ## Summary
 
-The Painters drawer lists region claims. Replace that with a compact list of who is online, built from live presence, each row with a Fly to button that takes the map to that player's viewport.
+The Painters drawer lists region claims. Replace that with a compact list of the painters the server sends for your viewport, each row with a Fly to button that takes the map to that player's viewport.
 
 ## Acceptance criteria
 

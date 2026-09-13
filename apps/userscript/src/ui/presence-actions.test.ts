@@ -62,7 +62,7 @@ beforeEach(() => {
 })
 
 describe('presenceSummaryModel players', () => {
-  it('lists who is online: painters first, then browsers, then the unlocated', () => {
+  it('lists the nearby peers: painters first, then browsers, then the unlocated', () => {
     harness.view.peers = [
       { sessionId: 'b', painter: painter(2, 'Bo'), viewport: rect(0, 0), draft: null },
       { sessionId: 'c', painter: painter(3, 'Cy'), viewport: null, draft: null },
