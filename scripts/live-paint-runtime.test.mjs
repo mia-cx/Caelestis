@@ -17,7 +17,7 @@ import {
 // Exercise the runtime shipped with our installed Wrangler, using only ephemeral local bindings.
 const backendRequire = createRequire(new URL('../apps/backend/package.json', import.meta.url))
 const wranglerRequire = createRequire(backendRequire.resolve('wrangler/package.json'))
-const { Miniflare } = wranglerRequire('miniflare')
+const { Miniflare, convertV4MiniflareOptions } = wranglerRequire('miniflare')
 const { build } = createRequire(new URL('../apps/userscript/package.json', import.meta.url))(
   'esbuild',
 )
@@ -35,38 +35,40 @@ test('100k paint pixels survive live framing and acknowledgement replay in worke
     external: ['cloudflare:*', 'node:*'],
   })
   const token = 'local-paint-diagnostic-only'
-  const mf = new Miniflare({
-    name: 'paint-runtime-test',
-    modules: true,
-    script: bundle.outputFiles[0].text,
-    compatibilityDate: '2026-08-03',
-    compatibilityFlags: ['nodejs_compat'],
-    inspectorPort: 0,
-    d1Databases: ['DB'],
-    r2Buckets: ['BLOBS'],
-    d1Persist: false,
-    r2Persist: false,
-    durableObjectsPersist: false,
-    durableObjects: Object.fromEntries(
-      [
-        ['STATUS_READ_MODEL', 'StatusReadModelObject'],
-        ['TELEMETRY', 'TelemetryShard'],
-        ['ALARM_WATCHER', 'AlarmWatcher'],
-        ['TEMPLATE_BACKFILL', 'TemplateBackfillObject'],
-      ].map(([binding, className]) => [binding, { className, useSQLite: true }]),
-    ),
-    bindings: {
-      ADMIN_TOKEN: token,
-      SERVER_ID: uuidV7(),
-      SERVER_NAME: 'Paint runtime test',
-      SEASON: '0',
-      SHARD_STRATEGY: 'single',
-      OPEN_ACCESS: 'false',
-    },
-    outboundService: () => {
-      throw new Error('Runtime test must not access external services')
-    },
-  })
+  const mf = new Miniflare(
+    convertV4MiniflareOptions({
+      name: 'paint-runtime-test',
+      modules: true,
+      script: bundle.outputFiles[0].text,
+      compatibilityDate: '2026-08-03',
+      compatibilityFlags: ['nodejs_compat'],
+      inspectorPort: 0,
+      d1Databases: ['DB'],
+      r2Buckets: ['BLOBS'],
+      d1Persist: false,
+      r2Persist: false,
+      durableObjectsPersist: false,
+      durableObjects: Object.fromEntries(
+        [
+          ['STATUS_READ_MODEL', 'StatusReadModelObject'],
+          ['TELEMETRY', 'TelemetryShard'],
+          ['ALARM_WATCHER', 'AlarmWatcher'],
+          ['TEMPLATE_BACKFILL', 'TemplateBackfillObject'],
+        ].map(([binding, className]) => [binding, { className, useSQLite: true }]),
+      ),
+      bindings: {
+        ADMIN_TOKEN: token,
+        SERVER_ID: uuidV7(),
+        SERVER_NAME: 'Paint runtime test',
+        SEASON: '0',
+        SHARD_STRATEGY: 'single',
+        OPEN_ACCESS: 'false',
+      },
+      outboundService: () => {
+        throw new Error('Runtime test must not access external services')
+      },
+    }),
+  )
   t.after(() => mf.dispose())
   await mf.ready
   const database = await mf.getD1Database('DB')

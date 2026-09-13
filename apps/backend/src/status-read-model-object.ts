@@ -37,7 +37,10 @@ export class StatusReadModelObject extends DurableObject<Env> {
         ...(env.SERVER_DESCRIPTION === undefined ? {} : { description: env.SERVER_DESCRIPTION }),
       },
       () => env.ALARM_WATCHER.getByName('global').schedule(),
-      (season, tokenHash, surface) => env.PRESENCE.getByName(`${season}:${templateSurfaceKey(surface)}`).closeCredential(tokenHash),
+      (season, tokenHash, surface) =>
+        env.PRESENCE.getByName(`${season}:${templateSurfaceKey(surface)}`).closeCredential(
+          tokenHash,
+        ),
       env.REQUEST_METRICS,
     )
   }
@@ -106,7 +109,9 @@ export class StatusReadModelObject extends DurableObject<Env> {
   closeCredential(...args: Parameters<StatusCoordinator<WebSocket>['closeCredential']>) {
     return this.coordinator.closeCredential(...args)
   }
-  registerPresenceSurface(...args: Parameters<StatusCoordinator<WebSocket>['registerPresenceSurface']>) {
+  registerPresenceSurface(
+    ...args: Parameters<StatusCoordinator<WebSocket>['registerPresenceSurface']>
+  ) {
     return this.coordinator.registerPresenceSurface(...args)
   }
   override fetch(...args: Parameters<StatusCoordinator<WebSocket>['fetch']>) {

@@ -5,7 +5,6 @@ import {
   type LiveHost,
   type LiveSocket,
   MAX_LIVE_CLIENT_BINARY_BYTES,
-  type StatusCoordinator,
 } from '../status-coordinator.js'
 
 const MAX_BUFFERED_BYTES = 8 * 1024 * 1024
@@ -17,6 +16,9 @@ export const liveRequestContext = new AsyncLocalStorage<LiveUpgradeContext>()
 
 /** Bound the initial handshake buffer and slow-client output before handing messages to ws. */
 class NodeLiveSocket implements LiveSocket {
+  get readyState(): number {
+    return this.closed ? 3 : (this.socket?.readyState ?? 1)
+  }
   private attachment: unknown = null
   private socket: WebSocket | undefined
   private buffered: (string | ArrayBuffer | ArrayBufferView)[] = []
@@ -80,8 +82,21 @@ export class NodeLiveHost implements LiveHost<NodeLiveSocket> {
   private stopping = false
   constructor(
     readonly storage: CoordinatorStorage,
-    private readonly coordinator: () => StatusCoordinator<NodeLiveSocket>,
+    private readonly coordinator: () => {
+      webSocketMessage(socket: LiveSocket, message: string | ArrayBuffer): void | Promise<void>
+      webSocketClose(socket: LiveSocket, code: number, reason: string, wasClean: boolean): void
+    },
   ) {}
+  waitUntil(work: Promise<unknown>): void {
+    const pending = work.then(
+      () => {},
+      (error: unknown) => {
+        console.error('Live background work failed', error)
+      },
+    )
+    this.pending.add(pending)
+    void pending.finally(() => this.pending.delete(pending))
+  }
   getWebSockets(): readonly LiveSocket[] {
     return [...this.sockets]
   }
@@ -126,7 +141,10 @@ export class NodeLiveHost implements LiveHost<NodeLiveSocket> {
         this.pending.add(work)
         void work.finally(() => this.pending.delete(work))
       })
-      ws.on('close', () => socket.close())
+      ws.on('close', (code, reason) => {
+        this.coordinator().webSocketClose(socket, code, reason.toString(), true)
+        socket.close()
+      })
       ws.on('error', (error) => {
         console.error('Live socket failed', error)
         socket.close(1011, 'live socket failed')

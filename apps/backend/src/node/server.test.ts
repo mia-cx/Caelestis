@@ -88,6 +88,37 @@ it.each(adapters)(
       headers: { authorization: `Bearer ${token}` },
     })
     expect(await response.json()).toMatchObject({ server: { id, liveSyncMax: 2 } })
+    const issued = await fetch(`http://127.0.0.1:${server.port}/backend/v1/admin/tokens`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer test-admin', 'content-type': 'application/json' },
+      body: JSON.stringify({ label: 'Presence test', scope: 'report' }),
+    })
+    expect(issued.status).toBe(201)
+    const credential = (await issued.json()) as { token: string; tokenHash: string }
+    const presence = new WebSocket(
+      `ws://127.0.0.1:${server.port}/backend/v1/telemetry/presence?season=0&painterId=42&painterName=Mia&clientId=01890f3e-7b2c-7abc-8def-000000000005`,
+      [
+        'caelestis.presence.v1',
+        `caelestis.auth.b64.${Buffer.from(credential.token).toString('base64url')}`,
+      ],
+    )
+    const ready = once(presence, 'message')
+    await once(presence, 'open')
+    expect(JSON.parse(String((await ready)[0]))).toMatchObject({
+      type: 'presence-ready',
+      online: 1,
+      regions: [],
+    })
+    const revoked = once(presence, 'close')
+    const removed = await fetch(
+      `http://127.0.0.1:${server.port}/backend/v1/admin/tokens/${credential.tokenHash}`,
+      {
+        method: 'DELETE',
+        headers: { authorization: 'Bearer test-admin' },
+      },
+    )
+    expect(removed.status).toBe(204)
+    expect((await revoked)[0]).toBe(1008)
     if (frontend) {
       const page = await fetch(`http://127.0.0.1:${server.port}/`)
       expect(page.status).toBe(200)

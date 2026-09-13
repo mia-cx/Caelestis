@@ -87,6 +87,7 @@ import {
 import { readAlarms, readContributions, readLeaderboard } from './telemetry/queries.js'
 
 export interface LiveSocket {
+  readonly readyState?: number
   send(message: string | ArrayBuffer | ArrayBufferView): void
   close(code?: number, reason?: string): void
   serializeAttachment(attachment: unknown): void
@@ -506,7 +507,11 @@ export class StatusCoordinator<Client> {
     private readonly counters: () => CounterStore,
     private readonly server: ServerInfo,
     private readonly scheduleAlarms: () => Promise<void>,
-    private readonly closePresence: (season: number, tokenHash: string, surface: TemplateSurface) => Promise<void>,
+    private readonly closePresence: (
+      season: number,
+      tokenHash: string,
+      surface: TemplateSurface,
+    ) => Promise<void>,
     private readonly requestMetrics?: Pick<AnalyticsEngineDataset, 'writeDataPoint'>,
   ) {}
 
@@ -617,7 +622,14 @@ export class StatusCoordinator<Client> {
   }
 
   private configuredServer(): ServerInfo {
-    return { ...this.server, liveSync: 1, liveSyncMax: 2, liveTileOffers: 1, presence: 1, livePaintParts: 1 }
+    return {
+      ...this.server,
+      liveSync: 1,
+      liveSyncMax: 2,
+      liveTileOffers: 1,
+      presence: 1,
+      livePaintParts: 1,
+    }
   }
 
   private projectionSurface(projection: LiveProjectionState): TemplateSurface | null {

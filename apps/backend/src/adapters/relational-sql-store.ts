@@ -131,8 +131,8 @@ import {
   ALARM_FOLLOW_UP_DELAY_MILLISECONDS,
   evaluateAlarmSnapshot,
 } from '../telemetry/alarm-policy.js'
-import { RelationalWorkStore } from '../work/relational-store.js'
 import { RelationalRegionStore } from '../work/relational-region-store.js'
+import { RelationalWorkStore } from '../work/relational-store.js'
 import { changedRows, relationalDatabase } from './relational-database.js'
 import type { SqlConnection, SqlStatement } from './sql-connection.js'
 import { sqlDialect } from './sql-dialect.js'

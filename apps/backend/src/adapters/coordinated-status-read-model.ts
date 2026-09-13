@@ -56,6 +56,9 @@ const mergeLiveMeasurement = (response: Response): Response => {
 }
 
 export class CoordinatedStatusReadModel implements StatusReadModelPort {
+  registerPresenceSurface(season: number, tokenHash: string, surface: TemplateSurface) {
+    return this.shard(season).registerPresenceSurface(season, tokenHash, surface)
+  }
   constructor(
     private readonly resolve: (
       season: number,

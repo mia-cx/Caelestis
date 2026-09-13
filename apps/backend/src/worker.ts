@@ -4,6 +4,7 @@ import { DurableObjectStatusReadModel } from './adapters/cloudflare/do-status-re
 import { R2BlobStore } from './adapters/cloudflare/r2-blob-store.js'
 import { type App, createApp } from './app.js'
 import { instrumentD1, measureRequest } from './metrics/request-metrics.js'
+import { presenceRequest } from './presence/port.js'
 import { makeBackendContext } from './runtime/backend-runtime.js'
 import { fetchCanvasTiles } from './telemetry/fetcher.js'
 import { runTileBlobGc, type TileBlobGcMode } from './telemetry/tile-blobs.js'
@@ -104,30 +105,15 @@ const appFor = (env: Env): App => {
     presenceOnline: (season, surface) =>
       env.PRESENCE.getByName(`${season}:${templateSurfaceKey(surface)}`).online(),
     connectPresence: async (request, connection) => {
-      const { season, surface, painter } = connection
+      const { season, surface } = connection
       if (connection.revocable)
         await env.STATUS_READ_MODEL.getByName(`season:${season}`).registerPresenceSurface(
           season,
           connection.tokenHash,
           surface,
         )
-      const headers = new Headers(request.headers)
-      headers.set('x-caelestis-season', String(season))
-      headers.set('x-caelestis-surface-kind', surface.kind)
-      headers.delete('x-caelestis-alliance-id')
-      if (surface.allianceId !== null)
-        headers.set('x-caelestis-alliance-id', String(surface.allianceId))
-      headers.set('x-caelestis-painter-id', String(painter.wplaceUserId))
-      headers.set('x-caelestis-painter-name', encodeURIComponent(painter.displayName))
-      headers.set('x-caelestis-token-hash', connection.tokenHash)
-      headers.set('x-caelestis-client-hash', connection.clientHash)
-      headers.set('x-caelestis-credential-scope', connection.credentialScope)
-      headers.set('x-caelestis-anonymous', connection.anonymous ? '1' : '0')
-      headers.set('x-caelestis-revocable', connection.revocable ? '1' : '0')
-      headers.set('x-caelestis-metric-client', connection.metricClient)
-      headers.set('x-caelestis-metric-client-version', connection.metricClientVersion)
       return env.PRESENCE.getByName(`${season}:${templateSurfaceKey(surface)}`).fetch(
-        new Request(request, { headers }),
+        presenceRequest(request, connection),
       )
     },
   })

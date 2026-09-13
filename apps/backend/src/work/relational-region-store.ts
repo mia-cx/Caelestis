@@ -9,8 +9,9 @@ import {
   templateSurface,
 } from '@caelestis/shared'
 import { and, asc, eq, isNull, or, sql } from 'drizzle-orm'
-import { relationalDatabase } from '../adapters/relational-database.js'
+import { changedRows, relationalDatabase } from '../adapters/relational-database.js'
 import type { SqlConnection } from '../adapters/sql-connection.js'
+import { sqlDialect } from '../adapters/sql-dialect.js'
 import { workRegions } from '../db/schema.js'
 import type { RegionStore, RegionWriter } from './region-store.js'
 
@@ -100,7 +101,7 @@ export class RelationalRegionStore implements RegionStore {
       .prepare(`INSERT INTO work_regions
       (id, season, surface_kind, alliance_id, template_id, claimant_user_id, claimant_name, x, y, w, h, label, created_at, shape, token_hash)
       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-      WHERE (SELECT COUNT(*) FROM work_regions WHERE season = ? AND surface_kind = ? AND alliance_id IS ?) < ?
+      WHERE (SELECT COUNT(*) FROM work_regions WHERE season = ? AND surface_kind = ? AND alliance_id ${sqlDialect(this.client.dialect).nullEqual} ?) < ?
       ON CONFLICT(id) DO NOTHING`)
       .bind(
         region.id,
@@ -128,11 +129,11 @@ export class RelationalRegionStore implements RegionStore {
   }
 
   async deleteRegion(id: string, writer: RegionWriter): Promise<boolean> {
-    const rows = await this.db
+    const result = await this.db
       .delete(workRegions)
       .where(and(eq(workRegions.id, id), ownedBy(writer)))
-      .returning({ id: workRegions.id })
-    return rows.length === 1
+      .run()
+    return changedRows(result) === 1
   }
 
   async updateRegion(
@@ -144,7 +145,7 @@ export class RelationalRegionStore implements RegionStore {
   ): Promise<RegionClaim | null> {
     const rect = regionDocumentBounds(document)
     if (rect === null) throw new Error('Region document must contain an added shape')
-    const [row] = await this.db
+    const update = this.db
       .update(workRegions)
       .set({
         shape: JSON.stringify(document),
@@ -154,7 +155,18 @@ export class RelationalRegionStore implements RegionStore {
         tokenHash: sql`coalesce(${workRegions.tokenHash}, ${writer.tokenHash})`,
       })
       .where(and(eq(workRegions.id, id), ownedBy(writer)))
-      .returning()
+    if (this.client.dialect === 'mariadb') {
+      const [, read] = await this.db.batch([
+        update,
+        this.db
+          .select()
+          .from(workRegions)
+          .where(and(eq(workRegions.id, id), ownedBy(writer)))
+          .limit(1),
+      ])
+      return read[0] === undefined ? null : fromRow(read[0])
+    }
+    const [row] = await update.returning()
     return row === undefined ? null : fromRow(row)
   }
 }

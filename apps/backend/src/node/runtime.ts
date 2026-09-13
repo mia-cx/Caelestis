@@ -1,6 +1,12 @@
 import { mkdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { millis, uuidV7 } from '@caelestis/shared'
+import {
+  millis,
+  type TemplateSurface,
+  templateSurface,
+  templateSurfaceKey,
+  uuidV7,
+} from '@caelestis/shared'
 import type { ObjectStorage } from '@caelestis/storage'
 import { CoordinatedStatusReadModel } from '../adapters/coordinated-status-read-model.js'
 import { coordinatorDatabase } from '../adapters/node/coordinator-database.js'
@@ -19,6 +25,8 @@ import { TemplateBackfill } from '../backfill/import.js'
 import { backfillReply } from '../backfill/port.js'
 import { DurableScheduler } from '../coordination/scheduler.js'
 import { TelemetryCoordinator } from '../coordination/telemetry.js'
+import { presenceRequest } from '../presence/port.js'
+import { PresenceCoordinator } from '../presence-coordinator.js'
 import { createBackendRuntime, makeBackendContext } from '../runtime/backend-runtime.js'
 import { StatusCoordinator } from '../status-coordinator.js'
 import { fetchCanvasTiles } from '../telemetry/fetcher.js'
@@ -118,6 +126,22 @@ export const openNodeRuntime = async (
         host: NodeLiveHost
       }
     >()
+    const rooms = new Map<
+      string,
+      {
+        coordinator: PresenceCoordinator<ReturnType<NodeLiveHost['connect']>['client']>
+        host: NodeLiveHost
+      }
+    >()
+    const presenceRoom = (season: number, surface: TemplateSurface) => {
+      const key = `${season}:${templateSurfaceKey(surface)}`
+      const existing = rooms.get(key)
+      if (existing) return existing.coordinator
+      const host: NodeLiveHost = new NodeLiveHost(state(`presence:${key}`), () => coordinator)
+      const coordinator = new PresenceCoordinator(host, sql)
+      rooms.set(key, { coordinator, host })
+      return coordinator
+    }
     const status = new CoordinatedStatusReadModel((season) => {
       const existing = seasons.get(season)
       if (existing) return existing.coordinator
@@ -136,12 +160,16 @@ export const openNodeRuntime = async (
             : { description: config.serverDescription }),
         },
         scheduleAlarms,
+        (season, tokenHash, surface) => presenceRoom(season, surface).closeCredential(tokenHash),
       )
       seasons.set(season, { coordinator, host })
       return coordinator
     }, scheduleAlarms)
     const stores = { sql, blobs, counters, statusReadModel: status }
-    const context = makeBackendContext(blobs, sql, counters, status)
+    const context = makeBackendContext(blobs, sql, counters, status, {
+      publishRegions: (season, surface) =>
+        presenceRoom(season, surface).publishRegions(season, surface),
+    })
     const backendRuntime = createBackendRuntime(context)
     const imports = new Map<
       string,
@@ -173,6 +201,18 @@ export const openNodeRuntime = async (
       serverName: config.serverName,
       serverDescription: config.serverDescription,
       connectStatusLive: (request, connection) => status.connectLive(request, connection),
+      presenceOnline: (season, surface) => presenceRoom(season, surface).online(),
+      connectPresence: async (request, connection) => {
+        if (connection.revocable)
+          await status.registerPresenceSurface(
+            connection.season,
+            connection.tokenHash,
+            connection.surface,
+          )
+        return presenceRoom(connection.season, connection.surface).fetch(
+          presenceRequest(request, connection),
+        )
+      },
       backfillClients: (id) => {
         const held = importer(id)
         return {
@@ -189,6 +229,12 @@ export const openNodeRuntime = async (
     })
     const scheduler = new DurableScheduler(database, async (actor) => {
       if (actor === 'telemetry') return counters.alarm()
+      if (actor.startsWith('presence:')) {
+        const [season, kind, alliance] = actor.slice('presence:'.length).split(':')
+        const surface = templateSurface(kind, alliance === undefined ? null : Number(alliance))
+        if (surface === null) throw new Error(`Invalid presence room: ${actor}`)
+        return presenceRoom(Number(season), surface).alarm()
+      }
       if (actor === 'alarms')
         return runAlarmWatcherCycle(
           backendRuntime,
@@ -244,6 +290,10 @@ export const openNodeRuntime = async (
         closed = true
         await scheduler.stop()
         for (const { host } of seasons.values()) await host.close()
+        for (const { coordinator, host } of rooms.values()) {
+          await host.close()
+          coordinator.stop()
+        }
         await connection.close()
         releaseSqlite?.()
       },

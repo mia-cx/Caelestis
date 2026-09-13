@@ -20,6 +20,7 @@ import { SqliteD1Database } from '../adapters/cloudflare/sqlite-d1.test-helper.j
 import { MemoryBlobStore } from '../adapters/memory/memory-blob-store.js'
 import { MemoryCounterStore } from '../adapters/memory/memory-counter-store.js'
 import { MemorySqlStore } from '../adapters/memory/memory-sql-store.js'
+import { type SqlStoreHarness, sqlStoreAdapters } from '../adapters/sql-store.test-helper.js'
 import { createApp } from '../app.js'
 import { hashToken } from '../auth/tokens.js'
 import { makeBackendContext } from '../runtime/backend-runtime.js'
@@ -55,17 +56,26 @@ const document: RegionDocument = {
   ],
 }
 let database: SqliteD1Database | undefined
-afterEach(() => {
+let portable: SqlStoreHarness | undefined
+afterEach(async () => {
+  await portable?.close()
+  portable = undefined
   database?.close()
   database = undefined
 })
 
-const setup = async (adapter: 'memory' | 'd1') => {
+const setup = async (adapter: string) => {
   if (adapter === 'd1') database = new SqliteD1Database()
+  if (adapter !== 'memory' && adapter !== 'd1') {
+    const harness = sqlStoreAdapters.find((candidate) => candidate.name === adapter)
+    if (!harness) throw new Error(`Unknown adapter ${adapter}`)
+    portable = await harness.make()
+  }
   const sql =
-    database === undefined
+    portable?.store ??
+    (database === undefined
       ? new MemorySqlStore()
-      : new D1SqlStore(database as unknown as D1Database)
+      : new D1SqlStore(database as unknown as D1Database))
   const publishRegions = vi.fn(async () => {})
   const app = createApp(
     makeBackendContext(
@@ -122,7 +132,13 @@ const setup = async (adapter: 'memory' | 'd1') => {
   return { app, sql, publishRegions, body, call }
 }
 
-describe.each(['memory', 'd1'] as const)('region routes on %s', (adapter) => {
+describe.each([
+  'memory',
+  'd1',
+  ...sqlStoreAdapters
+    .filter(({ name }) => name !== 'memory' && name !== 'D1')
+    .map(({ name }) => name),
+])('region routes on %s', (adapter) => {
   it('creates, lists, replays identical requests, rejects conflicts, and publishes mutations', async () => {
     const h = await setup(adapter)
     const id = uuidV7()
