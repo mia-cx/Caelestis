@@ -5,6 +5,7 @@ import {
   type RegionClaim,
   type RegionClaimRequest,
   regionDocumentBounds,
+  regionDocumentPixels,
   sameTemplateSurface,
   type TemplateSurface,
 } from '@caelestis/shared'
@@ -61,6 +62,9 @@ export const putRegion = (
       return yield* Effect.fail(
         new RequestValidationError({ message: 'Region area exceeds limit' }),
       )
+    const pixels = regionDocumentPixels(request.document)
+    if (pixels === null || pixels.count === 0)
+      return yield* Effect.fail(new RequestValidationError({ message: 'Region claims no pixels' }))
     const templateId = request.templateId ?? null
     if (typeof templateId === 'string') {
       const template = yield* storage(() => sql.readTemplate(templateId))

@@ -149,6 +149,23 @@ export class PresenceObject extends DurableObject<Env> {
     }, PRESENCE_TICK_MS)
   }
 
+  private async armAlarm(): Promise<void> {
+    const alarm = await this.state.storage.getAlarm()
+    const sockets = this.sockets()
+    if (sockets.length === 0) {
+      if (alarm !== null) await this.state.storage.deleteAlarm()
+      return
+    }
+    const expiresAt =
+      Math.min(...sockets.map((socket) => this.attachment(socket).lastSeenAt)) + PRESENCE_STALE_MS
+    if (alarm === null || expiresAt < alarm) await this.state.storage.setAlarm(expiresAt)
+  }
+
+  /** Expire idle sessions after hibernation and schedule the next stale sweep. */
+  override async alarm(): Promise<void> {
+    await this.tick()
+  }
+
   private async tick(): Promise<void> {
     await this.sessions.revoke(async () => {
       const recovering = this.sockets().find(
@@ -161,7 +178,7 @@ export class PresenceObject extends DurableObject<Env> {
           : await this.sql.regions.listRegions(attachment.season, attachment.surface)
       const now = Date.now()
       for (const socket of this.sockets()) {
-        if (now - this.attachment(socket).lastSeenAt > PRESENCE_STALE_MS)
+        if (now - this.attachment(socket).lastSeenAt >= PRESENCE_STALE_MS)
           this.close(socket, 1000, 'presence stale')
       }
       const sockets = this.sockets()
@@ -194,6 +211,7 @@ export class PresenceObject extends DurableObject<Env> {
         if (upsert.length || remove.length || onlineChanged)
           this.send(socket, { type: 'presence-delta', online: sockets.length, upsert, remove })
       }
+      await this.armAlarm()
     })
   }
 
@@ -276,7 +294,7 @@ export class PresenceObject extends DurableObject<Env> {
         regions = await this.sql.regions.listRegions(season, surface)
         return true
       },
-      () => {
+      async () => {
         const pair = new WebSocketPair()
         const sessionId = Array.from(crypto.getRandomValues(new Uint8Array(8)), (byte) =>
           byte.toString(16).padStart(2, '0'),
@@ -316,6 +334,7 @@ export class PresenceObject extends DurableObject<Env> {
         })
         this.dirty.add(sessionId)
         this.armTick()
+        await this.armAlarm()
         return pair
       },
     )

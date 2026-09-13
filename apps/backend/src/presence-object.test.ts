@@ -116,7 +116,17 @@ beforeEach(() => {
   )
   database = new SqliteD1Database()
   sockets = []
+  let alarm: number | null = null
   state = {
+    storage: {
+      getAlarm: vi.fn(async () => alarm),
+      setAlarm: vi.fn(async (at: number) => {
+        alarm = at
+      }),
+      deleteAlarm: vi.fn(async () => {
+        alarm = null
+      }),
+    },
     setWebSocketAutoResponse: vi.fn(),
     getWebSockets: () => sockets,
     acceptWebSocket: (socket: Socket) => sockets.push(socket),
@@ -267,6 +277,52 @@ describe('presence room', () => {
       remove: [],
     })
     expect(publisher.close).not.toHaveBeenCalled()
+  })
+
+  it.each([0, 1])(
+    'expires an idle room from its alarm %i ms after the stale deadline',
+    async (delay) => {
+      const expiresAt = Date.now() + PRESENCE_STALE_MS
+      const stale = await attach()
+      expect(await state.storage.getAlarm()).toBe(expiresAt)
+      await tick()
+      vi.clearAllTimers()
+      object = new PresenceObject(state, { DB: database } as unknown as Env)
+      vi.setSystemTime(expiresAt + delay)
+      // The runtime clears the scheduled alarm before invoking its handler.
+      await state.storage.deleteAlarm()
+      await object.alarm()
+      expect(stale.close).toHaveBeenCalledWith(1000, 'presence stale')
+      expect(await object.online()).toBe(0)
+      expect(await state.storage.getAlarm()).toBeNull()
+    },
+  )
+
+  it('keeps an earlier alarm and re-arms for the oldest remaining session', async () => {
+    const expiresAt = Date.now() + PRESENCE_STALE_MS
+    const stale = await attach()
+    await tick()
+    const active = await attach()
+    object.webSocketMessage(asWebSocket(stale), JSON.stringify({ type: 'presence-heartbeat' }))
+    const nextExpiry = Date.now() + PRESENCE_STALE_MS
+    await tick()
+    expect(await state.storage.getAlarm()).toBe(expiresAt)
+    vi.setSystemTime(expiresAt)
+    await state.storage.deleteAlarm()
+    await object.alarm()
+    expect(stale.close).not.toHaveBeenCalled()
+    expect(await state.storage.getAlarm()).toBe(nextExpiry)
+    object.webSocketMessage(asWebSocket(active), JSON.stringify({ type: 'presence-heartbeat' }))
+    const activeExpiry = Date.now() + PRESENCE_STALE_MS
+    vi.setSystemTime(nextExpiry)
+    await state.storage.deleteAlarm()
+    await object.alarm()
+    expect(stale.close).toHaveBeenCalledWith(1000, 'presence stale')
+    expect(await object.online()).toBe(1)
+    expect(await state.storage.getAlarm()).toBe(activeExpiry)
+    object.webSocketClose(asWebSocket(active), 1000, 'closed', true)
+    await tick()
+    expect(await state.storage.getAlarm()).toBeNull()
   })
 
   it('drops stale sessions on a heartbeat tick and delivers their removal', async () => {

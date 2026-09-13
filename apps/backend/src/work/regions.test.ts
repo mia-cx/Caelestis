@@ -557,6 +557,32 @@ describe.each(['memory', 'd1'] as const)('region routes on %s', (adapter) => {
     expect(h.publishRegions).toHaveBeenCalledTimes(1)
   })
 
+  it.each([
+    {
+      items: [
+        { id: 'rectangle', shape: rectangle, op: 'add' },
+        { id: 'cutout', shape: rectangle, op: 'subtract' },
+      ],
+    },
+    documentOf({ kind: 'pixels', x: 0, y: 0, w: 8, h: 8, mask: packBits(new Uint8Array(64)) }),
+  ] satisfies RegionDocument[])(
+    'rejects an empty claim without saving or replacing a region: %j',
+    async (document) => {
+      const h = await setup(adapter)
+      const id = uuidV7()
+      const saved = await h.call('PUT', id, h.body)
+      expect(saved.status).toBe(200)
+      const original = Schema.decodeUnknownSync(RegionClaimSchema)(await saved.json())
+      for (const target of [id, uuidV7()]) {
+        const response = await h.call('PUT', target, { ...h.body, document })
+        expect(response.status).toBe(400)
+        expect(await response.json()).toEqual({ error: 'Region claims no pixels' })
+      }
+      expect(await h.sql.regions.listRegions(0, WORLD_TEMPLATE_SURFACE)).toEqual([original])
+      expect(h.publishRegions).toHaveBeenCalledTimes(1)
+    },
+  )
+
   it('rejects a document whose added shapes span more than the region area limit', async () => {
     const h = await setup(adapter)
     const response = await h.call('PUT', uuidV7(), {
