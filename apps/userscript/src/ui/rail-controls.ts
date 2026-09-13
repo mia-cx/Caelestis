@@ -4,13 +4,24 @@ import { isClaimModeActive, stopClaimMode } from '../claim-editor.js'
 import { redraw } from '../main.js'
 import { presenceView } from '../presence-client.js'
 import { shortcutHint } from '../shortcut-bindings.js'
-import { getState, setState } from '../state.js'
+import { getState, onStateChange, setState } from '../state.js'
 import { openClaimTool } from './presence-actions.js'
 import { applyWplaceTheme } from './theme.js'
 
 export const MISMATCH_MODE_ID = 'caelestis-mismatch-mode'
 export const CLAIM_TOOL_ID = 'caelestis-claim-tool-mode'
 export const PRESENCE_MODE_ID = 'caelestis-presence-mode'
+
+/**
+ * Keep the rail's stateful buttons current with persisted state: their pressed states and the key
+ * hints read from stored bindings. Called once at install; the button factories are also the
+ * recovery path after Wplace drops a control, so they must not subscribe themselves.
+ */
+export const installRailStateSync = (): void => {
+  onStateChange(syncMismatchModeState)
+  onStateChange(syncPresenceModeState)
+  onStateChange(syncClaimToolState)
+}
 
 export const syncPresenceModeState = (): void => {
   const button = document.getElementById(PRESENCE_MODE_ID) as CaelestisRailControl | null

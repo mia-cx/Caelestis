@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const harness = vi.hoisted(() => ({
   appearance: { markMismatch: false },
   overrides: {} as import('@caelestis/shared').ShortcutOverrides,
+  stateListeners: [] as (() => void)[],
   redraw: vi.fn(),
   toolActive: false,
   connected: false,
@@ -33,10 +34,14 @@ vi.mock('../state.js', () => ({
   setState: (patch: { appearance: { markMismatch: boolean } }) => {
     harness.appearance = patch.appearance
   },
+  onStateChange: (listener: () => void) => {
+    harness.stateListeners.push(listener)
+  },
 }))
 
 import {
   claimToolButton,
+  installRailStateSync,
   MISMATCH_MODE_ID,
   mismatchModeButton,
   syncClaimToolState,
@@ -48,6 +53,7 @@ beforeEach(() => {
   document.body.replaceChildren()
   harness.appearance = { markMismatch: false }
   harness.overrides = {}
+  harness.stateListeners = []
   harness.redraw.mockClear()
   harness.toolActive = false
   harness.connected = false
@@ -71,24 +77,30 @@ describe('region claim rail control', () => {
     expect(button.model.disabled).toBeUndefined()
   })
 
-  it('names the rebound claim key on the next state sync, and no key once cleared', async () => {
-    // The panel subscribes this sync to state changes once at install, beside the other rail
-    // controls, so a rebind or Reset in Settings reaches a mounted button through it.
+  it('follows a rebind or reset from Settings through the installed state sync', async () => {
+    installRailStateSync()
     const button = claimToolButton()
     document.body.appendChild(button)
     syncClaimToolState()
     await Promise.resolve()
     expect(button.model.label).toBe('Claim a region (M)')
 
+    // Recreating the control, as the rail recovery path does, must not add observers.
+    button.remove()
+    const recreated = claimToolButton()
+    document.body.appendChild(recreated)
+    expect(recreated).not.toBe(button)
+    expect(harness.stateListeners).toHaveLength(3)
+
     harness.overrides = {
       'claim-mode': [{ key: 'k', code: 'KeyK', command: false, shift: true, alt: false }],
     }
-    syncClaimToolState()
-    expect(button.model.label).toBe('Claim a region (Shift+K)')
+    for (const listener of harness.stateListeners) listener()
+    expect(recreated.model.label).toBe('Claim a region (Shift+K)')
 
     harness.overrides = { 'claim-mode': [] }
-    syncClaimToolState()
-    expect(button.model.label).toBe('Claim a region')
+    for (const listener of harness.stateListeners) listener()
+    expect(recreated.model.label).toBe('Claim a region')
   })
 
   it('opens the tool on click and closes it when pressed again', async () => {

@@ -130,6 +130,7 @@ import {
 import { openClaimEditor, openClaimTool, presenceSummaryModel } from './presence-actions.js'
 import {
   claimToolButton,
+  installRailStateSync,
   mismatchModeButton,
   presenceModeButton,
   syncClaimToolState,
@@ -1542,9 +1543,7 @@ export const installPanel = (): void => {
   onPresenceChange(syncClaimToolState)
   // Headcounts and claims arrive over the socket; the Painters drawer has to follow them.
   onPresenceChange(rerenderTree)
-  onStateChange(syncPresenceModeState)
-  // The claim button's key hint comes from stored bindings; a rebind in Settings changes state.
-  onStateChange(syncClaimToolState)
+  installRailStateSync()
   positionRail()
   log('install', 'rail installed beside wplace’s')
 
@@ -1590,7 +1589,6 @@ export const installPanel = (): void => {
     redraw()
   })
   onStateChange(syncColourModeState)
-  onStateChange(syncMismatchModeState)
   onStateChange(() => syncAllianceModeState())
   // Once, here, rather than each time a view is built: subscribing from inside `treeView` added a
   // fresh listener on every switch back to it, so the tenth visit redrew the panel ten times per
