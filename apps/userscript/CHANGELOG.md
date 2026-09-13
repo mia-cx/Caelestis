@@ -1,5 +1,29 @@
 # @caelestis/userscript
 
+## 0.12.0
+
+### Minor Changes
+
+- ae7e021: Rebind any keyboard shortcut from Settings › Keyboard shortcuts.
+  
+  - Bindings persist across reloads, and Reset restores the defaults.
+  - The shortcut reference, tooltips, and palette hints show the keys in force.
+  - A key already used by another action moves to the one you chose, and the panel says which action lost it.
+- 74cb7e7: The Painters drawer lists the painters near your viewport instead of region claims, each with a Fly to button that takes the map to them.
+  
+  - Painters come first, then browsers, and someone who has not shared a viewport has no Fly to.
+  - Fly to reads presence again on click, so someone who just left gets a message instead of a stale flight.
+  - The header still counts everyone online on the server, while the list is who the server sends for where you are looking.
+  - The drawer's Edit button is gone with the claim list, so press M and use the select tool to edit your regions.
+
+### Patch Changes
+
+- 1d7913e: Reuse unchanged claim label layout and text measurements while hovering over other painters and claims.
+- 8904332: The template context menu and claim popover say "Favourite" and "Unfavourite", and the Favourites drawer's empty state points at that right-click action.
+- afb2aa4: The Favourites drawer calls its items favourites: the toggle reads "Show everyone's favourites" and the empty state points at the template icon's Claim action.
+- 1a5accb: Presence patterns are coarser so they read over template artwork: stripes are a 6px line every 24px and the browsing grid is a 4px dot every 14px.
+- d320a09: Include live collaboration timings, workload sizes, message bytes, and mask memory in exported profiles.
+
 ## 0.11.0
 
 ### Minor Changes
