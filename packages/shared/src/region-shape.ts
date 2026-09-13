@@ -491,7 +491,14 @@ const fillRing = (ring: readonly Point[], rect: PresenceRect, mask: Uint8Array):
   }
 }
 
-/** Mark every pixel whose centre lies within `width / 2` of the polyline: round caps and joins. */
+/**
+ * Mark every pixel whose centre lies within `width / 2` of the polyline: round caps and joins.
+ *
+ * Scanline, not per-segment boxes: a segment's stroke is a capsule, which is convex, so each
+ * pixel row meets it in one interval whose ends come from the capsule's rectangle and its two
+ * end discs. The cost is rows times segments plus the pixels filled, so a path of many long
+ * segments crossing the same rows costs its area, never a box per segment.
+ */
 const strokePolyline = (
   line: readonly Point[],
   width: number,
@@ -500,26 +507,56 @@ const strokePolyline = (
 ): void => {
   const radius = width / 2
   const radiusSquared = radius * radius
+  const rowFrom = rect.y
+  const rowTo = rect.y + rect.h - 1
   for (let i = 0; i + 1 < line.length; i++) {
     const a = line[i] as Point
     const b = line[i + 1] as Point
     const dx = b.x - a.x
     const dy = b.y - a.y
-    const lengthSquared = dx * dx + dy * dy
-    const left = Math.max(rect.x, Math.floor(Math.min(a.x, b.x) - radius))
-    const right = Math.min(rect.x + rect.w - 1, Math.ceil(Math.max(a.x, b.x) + radius))
-    const top = Math.max(rect.y, Math.floor(Math.min(a.y, b.y) - radius))
-    const bottom = Math.min(rect.y + rect.h - 1, Math.ceil(Math.max(a.y, b.y) + radius))
+    const length = Math.hypot(dx, dy)
+    const top = Math.max(rowFrom, Math.floor(Math.min(a.y, b.y) - radius))
+    const bottom = Math.min(rowTo, Math.ceil(Math.max(a.y, b.y) + radius))
     for (let y = top; y <= bottom; y++) {
       const cy = y + 0.5
-      for (let x = left; x <= right; x++) {
-        const cx = x + 0.5
-        let t = lengthSquared === 0 ? 0 : ((cx - a.x) * dx + (cy - a.y) * dy) / lengthSquared
-        t = Math.max(0, Math.min(1, t))
-        const px = a.x + t * dx - cx
-        const py = a.y + t * dy - cy
-        if (px * px + py * py <= radiusSquared) mask[(y - rect.y) * rect.w + (x - rect.x)] = 1
+      let low = Number.POSITIVE_INFINITY
+      let high = Number.NEGATIVE_INFINITY
+      // The end discs.
+      for (const end of [a, b]) {
+        const reach = radiusSquared - (cy - end.y) * (cy - end.y)
+        if (reach < 0) continue
+        const half = Math.sqrt(reach)
+        low = Math.min(low, end.x - half)
+        high = Math.max(high, end.x + half)
       }
+      // The rectangle between them: points a + t*d + s*n with 0 <= t <= 1 and |s| <= radius,
+      // both linear in x along the row, so each bound clips the row to a half-line.
+      if (length > 0) {
+        const ux = dx / length
+        const uy = dy / length
+        // t(x) = ((x - a.x) * ux + (cy - a.y) * uy) / length ; s(x) = (x - a.x) * -uy + (cy - a.y) * ux
+        let lo = Number.NEGATIVE_INFINITY
+        let hi = Number.POSITIVE_INFINITY
+        const clip = (slope: number, offset: number, min: number, max: number): boolean => {
+          // min <= slope * x + offset <= max
+          if (slope === 0) return offset >= min && offset <= max
+          const p = (min - offset) / slope
+          const q = (max - offset) / slope
+          lo = Math.max(lo, Math.min(p, q))
+          hi = Math.min(hi, Math.max(p, q))
+          return lo <= hi
+        }
+        const tOffset = (-a.x * ux + (cy - a.y) * uy) / length
+        const sOffset = a.x * uy + (cy - a.y) * ux
+        if (clip(ux / length, tOffset, 0, 1) && clip(-uy, sOffset, -radius, radius)) {
+          low = Math.min(low, lo)
+          high = Math.max(high, hi)
+        }
+      }
+      if (low > high) continue
+      const from = Math.max(rect.x, Math.ceil(low - 0.5))
+      const to = Math.min(rect.x + rect.w - 1, Math.floor(high - 0.5))
+      for (let x = from; x <= to; x++) mask[(y - rect.y) * rect.w + (x - rect.x)] = 1
     }
   }
 }

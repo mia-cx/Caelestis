@@ -400,3 +400,55 @@ describe('path limits', () => {
     ).toEqual({ x: 0, y: 0, w: 10, h: 10 })
   })
 })
+
+describe('stroke rasterising', () => {
+  const brute = (line: { x: number; y: number }[], width: number) => {
+    // The definition itself: a pixel is in the stroke when its centre is within half the width
+    // of some segment.
+    const r = width / 2
+    const inside = (cx: number, cy: number): boolean => {
+      for (let i = 0; i + 1 < line.length; i++) {
+        const a = line[i] as { x: number; y: number }
+        const b = line[i + 1] as { x: number; y: number }
+        const dx = b.x - a.x
+        const dy = b.y - a.y
+        const l = dx * dx + dy * dy
+        const t = l === 0 ? 0 : Math.max(0, Math.min(1, ((cx - a.x) * dx + (cy - a.y) * dy) / l))
+        const px = a.x + t * dx - cx
+        const py = a.y + t * dy - cy
+        if (px * px + py * py <= r * r) return true
+      }
+      return false
+    }
+    return inside
+  }
+
+  it('matches the distance definition exactly for a bent, wide stroke', () => {
+    const nodes = [
+      { x: 3, y: 4 },
+      { x: 30, y: 9 },
+      { x: 12, y: 27 },
+      { x: 40, y: 33 },
+    ]
+    const shape: RegionShape = { kind: 'path', closed: false, width: 7, nodes }
+    const { rect, mask } = regionShapePixels(shape)
+    const inside = brute(nodes, 7)
+    for (let row = 0; row < rect.h; row++) {
+      for (let column = 0; column < rect.w; column++) {
+        const expected = inside(rect.x + column + 0.5, rect.y + row + 0.5) ? 1 : 0
+        expect(mask[row * rect.w + column]).toBe(expected)
+      }
+    }
+  })
+
+  it('costs its area, not a box per segment, for a long zigzag of many segments', () => {
+    const nodes = Array.from({ length: 256 }, (_, i) =>
+      i % 2 === 0 ? { x: 100, y: 100 } : { x: 1_800, y: 1_800 },
+    )
+    const shape: RegionShape = { kind: 'path', closed: false, width: 200, nodes }
+    const started = performance.now()
+    const pixels = regionDocumentPixels({ items: [{ id: 'z', op: 'add', shape }] })
+    expect(performance.now() - started).toBeLessThan(500)
+    expect(pixels?.count ?? 0).toBeGreaterThan(300_000)
+  })
+})
