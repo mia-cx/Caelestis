@@ -36,9 +36,9 @@
       <div class="list">
         {#if model.canShowOthers}
           <div class="options">
-            <SettingRow label="Show other claims" compact>
+            <SettingRow label="Show everyone's favourites" compact>
               <Toggle
-                label="Show other claims"
+                label="Show everyone's favourites"
                 compact
                 checked={showOtherClaims}
                 onChange={onshowothers}
@@ -53,7 +53,7 @@
           </div>
         {/if}
         {#if count === 0}
-          <p class="empty">Right-click a template and choose Claim to keep it here.</p>
+          <p class="empty">No favourites yet. Open a template's icon in the tree and choose Claim to keep it here.</p>
         {:else}
           <TemplateTree model={model.tree} toolbar={false} {onIntent} />
         {/if}

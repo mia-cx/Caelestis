@@ -4,7 +4,7 @@ Work belongs to the existing folder and template hierarchy. The frontend exposes
 
 Right-click Claim uses the current Wplace identity and atomically creates the template's shared work record when absent. Painters need no planning form. The template ID also identifies this record, so concurrent claims cannot create duplicates. Existing work details retain release, planning and history actions.
 
-Admins can enable Show other claims inside the drawer. Each server's planning permission controls whether its other painters appear; non-admin connections remain personal even when the toggle is on for another server. Unclaimed and completed work stay outside this drawer.
+Admins can enable Show everyone's favourites inside the drawer. Each server's planning permission controls whether its other painters appear; non-admin connections remain personal even when the toggle is on for another server. Unclaimed and completed work stay outside this drawer.
 
 Use the shared Caelestis theme tokens, system typeface, compact native controls, and aligned list rows. A selectable work list sits beside its details on wide screens and above them on narrow screens. Status, title, and painter identity carry the hierarchy. Tags and priority remain secondary.
 
