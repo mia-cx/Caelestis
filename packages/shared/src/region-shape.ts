@@ -122,7 +122,7 @@ export const MAX_REGION_DOCUMENT_PIXELS = 4_000_000
  * overlap with the document rect. Clipping bounds one item; this bounds all of them together,
  * so a valid claim can never make every viewer and the server spend seconds on it.
  */
-export const MAX_REGION_DOCUMENT_WORK = 16_000_000
+export const MAX_REGION_DOCUMENT_WORK = 6_000_000
 /** Widest a canvas coordinate may be; the world is 2,048,000 pixels a side. */
 const MAX_COORDINATE = 4_000_000
 const MAX_ITEM_ID = 64
@@ -584,9 +584,10 @@ const capsuleRow = (a: Point, b: Point, radius: number, cy: number): [number, nu
  * Mark every pixel whose centre lies within `width / 2` of the polyline: round caps and joins.
  *
  * Scanline over the rows, all segments at once: a segment's stroke is a capsule, which is
- * convex, so each row meets it in one interval; the row's intervals from every segment crossing
- * it are merged and each pixel written once. The cost is rows times segments for the setup plus
- * the pixels actually covered, so overlapping segments never repaint the same pixels.
+ * convex, so each row meets it in one interval. The row's intervals are merged through a
+ * coverage difference array (an increment at each start, a decrement past each end, one prefix
+ * pass), so there is no sorting and no per-row allocation: the cost is rows times segments plus
+ * rows times width, both charged by the work budget, and each pixel is written once.
  */
 const strokePolyline = (
   line: readonly Point[],
@@ -595,37 +596,40 @@ const strokePolyline = (
   mask: Uint8Array,
 ): void => {
   const radius = width / 2
-  const rows: number[][] = Array.from({ length: rect.h }, () => [])
-  for (let i = 0; i + 1 < line.length; i++) {
+  const segments = line.length - 1
+  if (segments < 1) return
+  const tops = new Float64Array(segments)
+  const bottoms = new Float64Array(segments)
+  for (let i = 0; i < segments; i++) {
     const a = line[i] as Point
     const b = line[i + 1] as Point
-    const top = Math.max(0, Math.floor(Math.min(a.y, b.y) - radius) - rect.y)
-    const bottom = Math.min(rect.h - 1, Math.ceil(Math.max(a.y, b.y) + radius) - rect.y)
-    for (let row = top; row <= bottom; row++) (rows[row] as number[]).push(i)
+    tops[i] = Math.min(a.y, b.y) - radius
+    bottoms[i] = Math.max(a.y, b.y) + radius
   }
-  const spans: [number, number][] = []
+  const coverage = new Int32Array(rect.w + 1)
   for (let row = 0; row < rect.h; row++) {
-    const segments = rows[row] as number[]
-    if (segments.length === 0) continue
     const cy = rect.y + row + 0.5
-    spans.length = 0
-    for (const i of segments) {
+    let any = false
+    for (let i = 0; i < segments; i++) {
+      if (cy < (tops[i] as number) || cy > (bottoms[i] as number)) continue
       const span = capsuleRow(line[i] as Point, line[i + 1] as Point, radius, cy)
-      if (span !== null) spans.push(span)
+      if (span === null) continue
+      const from = Math.max(rect.x, Math.ceil(span[0] - 0.5)) - rect.x
+      const to = Math.min(rect.x + rect.w - 1, Math.floor(span[1] - 0.5)) - rect.x
+      if (from > to) continue
+      coverage[from] = (coverage[from] as number) + 1
+      coverage[to + 1] = (coverage[to + 1] as number) - 1
+      any = true
     }
-    spans.sort((left, right) => left[0] - right[0])
-    let index = 0
-    while (index < spans.length) {
-      let [low, high] = spans[index] as [number, number]
-      index++
-      while (index < spans.length && (spans[index] as [number, number])[0] <= high) {
-        high = Math.max(high, (spans[index] as [number, number])[1])
-        index++
-      }
-      const from = Math.max(rect.x, Math.ceil(low - 0.5))
-      const to = Math.min(rect.x + rect.w - 1, Math.floor(high - 0.5))
-      for (let x = from; x <= to; x++) mask[row * rect.w + (x - rect.x)] = 1
+    if (!any) continue
+    let depth = 0
+    const base = row * rect.w
+    for (let x = 0; x < rect.w; x++) {
+      depth += coverage[x] as number
+      coverage[x] = 0
+      if (depth > 0) mask[base + x] = 1
     }
+    coverage[rect.w] = 0
   }
 }
 

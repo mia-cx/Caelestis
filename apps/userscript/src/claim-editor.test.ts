@@ -917,10 +917,11 @@ describe('claim editor', () => {
 
   it('refuses shapes that would make the claim too costly to rasterise', async () => {
     const editor = await setup('ellipse')
-    for (let i = 0; i < 4; i++) drag(0, 0, 1_999, 1_999)
-    expect(editor.claimModeModel().items).toBe(4)
     drag(0, 0, 1_999, 1_999)
-    expect(editor.claimModeModel().items).toBe(4)
+    expect(editor.claimModeModel().items).toBe(1)
+    // A second full-size ellipse over the first would double the raster work past the budget.
+    drag(0, 0, 1_999, 1_999)
+    expect(editor.claimModeModel().items).toBe(1)
     expect(editor.claimModeModel().message).toMatch(/too complex/)
   })
 

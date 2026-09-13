@@ -306,11 +306,11 @@ describe('document work budget', () => {
       op: 'add' as const,
       shape: { kind: 'ellipse' as const, x: 0, y: 0, w: 2_000, h: 2_000 },
     })
-    const four = { items: Array.from({ length: 4 }, (_, i) => big(i)) }
-    const five = { items: Array.from({ length: 5 }, (_, i) => big(i)) }
-    expect(regionDocumentWork(four)).toBe(16_000_000)
-    expect(isRegionDocument(four)).toBe(true)
-    expect(isRegionDocument(five)).toBe(false)
+    const one = { items: [big(0)] }
+    const two = { items: [big(0), big(1)] }
+    expect(regionDocumentWork(one)).toBe(4_000_000)
+    expect(isRegionDocument(one)).toBe(true)
+    expect(isRegionDocument(two)).toBe(false)
     // Disjoint items cost only their own area.
     const spread = {
       items: Array.from({ length: 64 }, (_, i) => ({
@@ -503,15 +503,18 @@ describe('stroke rasterising', () => {
 
   it('writes overlapping segments once per row, so many identical paths cost their area', () => {
     const nodes = Array.from({ length: 256 }, (_, i) => ({ x: 100 + i * 6, y: 400 }))
-    const items = Array.from({ length: 32 }, (_, i) => ({
+    const items = Array.from({ length: 14 }, (_, i) => ({
       id: `h${i}`,
       op: 'add' as const,
       shape: { kind: 'path' as const, closed: false, width: 200, nodes },
     }))
+    // Near the top of the budget, and still well under a frame's worth of a few hundred ms.
+    expect(regionDocumentWork({ items })).toBeLessThan(6_000_000)
+    expect(regionDocumentWork({ items })).toBeGreaterThan(4_000_000)
     expect(isRegionDocument({ items })).toBe(true)
     const started = performance.now()
     const pixels = regionDocumentPixels({ items })
-    expect(performance.now() - started).toBeLessThan(600)
+    expect(performance.now() - started).toBeLessThan(400)
     expect(pixels?.count ?? 0).toBeGreaterThan(300_000)
   })
 
