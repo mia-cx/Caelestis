@@ -9,6 +9,7 @@ import {
   regionDocumentBounds,
   regionDocumentContainsPixel,
   regionDocumentPixels,
+  regionDocumentWork,
   regionPixelComponents,
   regionShapeBounds,
   regionShapeContainsPixel,
@@ -295,6 +296,31 @@ describe('document clipping', () => {
       ],
     })
     expect(partial?.count).toBe(50)
+  })
+})
+
+describe('document work budget', () => {
+  it('rejects a document whose items together cost more passes than the budget', () => {
+    const big = (i: number) => ({
+      id: `e${i}`,
+      op: 'add' as const,
+      shape: { kind: 'ellipse' as const, x: 0, y: 0, w: 2_000, h: 2_000 },
+    })
+    const four = { items: Array.from({ length: 4 }, (_, i) => big(i)) }
+    const five = { items: Array.from({ length: 5 }, (_, i) => big(i)) }
+    expect(regionDocumentWork(four)).toBe(16_000_000)
+    expect(isRegionDocument(four)).toBe(true)
+    expect(isRegionDocument(five)).toBe(false)
+    // Disjoint items cost only their own area.
+    const spread = {
+      items: Array.from({ length: 64 }, (_, i) => ({
+        id: `r${i}`,
+        op: 'add' as const,
+        shape: { kind: 'rectangle' as const, x: i * 30, y: 0, w: 20, h: 20 },
+      })),
+    }
+    expect(regionDocumentWork(spread)).toBe(64 * 400)
+    expect(isRegionDocument(spread)).toBe(true)
   })
 })
 

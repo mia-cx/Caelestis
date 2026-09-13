@@ -117,6 +117,12 @@ export const MAX_RASTER_BITS = 262_144
 export const MAX_STROKE_WIDTH = 200
 /** Pixels a whole document may span; matches the presence region area limit. */
 export const MAX_REGION_DOCUMENT_PIXELS = 4_000_000
+/**
+ * Pixel passes rasterising a document may cost in total: the sum over items of each item's
+ * overlap with the document rect. Clipping bounds one item; this bounds all of them together,
+ * so a valid claim can never make every viewer and the server spend seconds on it.
+ */
+export const MAX_REGION_DOCUMENT_WORK = 16_000_000
 /** Widest a canvas coordinate may be; the world is 2,048,000 pixels a side. */
 const MAX_COORDINATE = 4_000_000
 const MAX_ITEM_ID = 64
@@ -266,8 +272,24 @@ export const isRegionDocument = (value: unknown): value is RegionDocument => {
     items.length >= 1 &&
     items.length <= MAX_REGION_ITEMS &&
     items.every(isRegionItem) &&
-    new Set(items.map((item) => item.id)).size === items.length
+    new Set(items.map((item) => item.id)).size === items.length &&
+    regionDocumentWork({ items }) <= MAX_REGION_DOCUMENT_WORK
   )
+}
+
+/**
+ * The pixel passes rasterising a document costs: each item's bounding box clipped to the
+ * document rect, summed. Cheap to compute, and what `MAX_REGION_DOCUMENT_WORK` bounds.
+ */
+export const regionDocumentWork = (document: RegionDocument): number => {
+  const rect = regionDocumentBounds(document)
+  if (rect === null) return 0
+  let work = 0
+  for (const item of document.items) {
+    const clip = rectIntersection(rect, regionShapeBounds(item.shape))
+    if (clip !== null) work += clip.w * clip.h
+  }
+  return work
 }
 
 const radians = (value: number): number => (value * Math.PI) / 180
