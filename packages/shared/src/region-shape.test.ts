@@ -439,6 +439,28 @@ describe('flattening', () => {
   })
 })
 
+describe('overshooting handles', () => {
+  it('keeps the curve a collinear handle beyond an endpoint bends out', () => {
+    const shape: RegionShape = {
+      kind: 'path',
+      closed: false,
+      width: 2,
+      nodes: [
+        { x: 1_000, y: 500, out: { x: 1_900, y: 500 } },
+        { x: 1_100, y: 500, in: { x: 100, y: 500 } },
+      ],
+    }
+    const flat = flattenPath(shape.nodes, false)
+    expect(flat.length).toBeGreaterThan(10)
+    const xs = flat.map((point) => point.x)
+    expect(Math.max(...xs)).toBeGreaterThan(1_250)
+    expect(Math.min(...xs)).toBeLessThan(800)
+    const { rect } = regionShapePixels(shape)
+    expect(rect.x).toBeLessThan(800)
+    expect(rect.x + rect.w).toBeGreaterThan(1_250)
+  })
+})
+
 describe('stroke rasterising', () => {
   const brute = (line: { x: number; y: number }[], width: number) => {
     // The definition itself: a pixel is in the stroke when its centre is within half the width
@@ -477,6 +499,20 @@ describe('stroke rasterising', () => {
         expect(mask[row * rect.w + column]).toBe(expected)
       }
     }
+  })
+
+  it('writes overlapping segments once per row, so many identical paths cost their area', () => {
+    const nodes = Array.from({ length: 256 }, (_, i) => ({ x: 100 + i * 6, y: 400 }))
+    const items = Array.from({ length: 32 }, (_, i) => ({
+      id: `h${i}`,
+      op: 'add' as const,
+      shape: { kind: 'path' as const, closed: false, width: 200, nodes },
+    }))
+    expect(isRegionDocument({ items })).toBe(true)
+    const started = performance.now()
+    const pixels = regionDocumentPixels({ items })
+    expect(performance.now() - started).toBeLessThan(600)
+    expect(pixels?.count ?? 0).toBeGreaterThan(300_000)
   })
 
   it('costs its area, not a box per segment, for a long zigzag of many segments', () => {
