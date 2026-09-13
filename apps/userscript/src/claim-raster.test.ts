@@ -35,6 +35,11 @@ describe('pixel sets', () => {
     diagonal.add(1_000, 1_000)
     expect(diagonal.pixels()).toBeNull()
     expect(diagonal.shape()).toBeNull()
+    // Along the world's edge a wide tip is half off the canvas, and only the kept half counts.
+    const along = new PixelSet()
+    along.line({ x: 0, y: 0 }, { x: 0, y: 2_000 }, 200)
+    expect(along.tooLarge).toBe(false)
+    expect(along.shape()).toMatchObject({ kind: 'pixels', x: 0, w: 101 })
     // A wide tip along a long line stops stamping as soon as the box would not fit.
     const wide = new PixelSet()
     const started = performance.now()

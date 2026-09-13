@@ -37,10 +37,17 @@ export class PixelSet {
 
   /** Whether stamping a tip at a pixel keeps the bounding box within the raster limit. */
   private fits(x: number, y: number, reach: number): boolean {
-    const left = Math.min(this.left, x - reach)
-    const top = Math.min(this.top, y - reach)
-    const right = Math.max(this.right, x + reach)
-    const bottom = Math.max(this.bottom, y + reach)
+    return this.fitsBox(x, y, x, y, reach)
+  }
+
+  /** Whether a tip swept between two pixels keeps the bounding box within the raster limit. */
+  private fitsBox(x0: number, y0: number, x1: number, y1: number, reach: number): boolean {
+    // The tip is clamped to the world first: pixels past the edge are never kept, so they must
+    // not count against the box either.
+    const left = Math.min(this.left, Math.max(0, Math.min(x0, x1) - reach))
+    const top = Math.min(this.top, Math.max(0, Math.min(y0, y1) - reach))
+    const right = Math.max(this.right, Math.min(WORLD_PIXELS - 1, Math.max(x0, x1) + reach))
+    const bottom = Math.max(this.bottom, Math.min(WORLD_PIXELS - 1, Math.max(y0, y1) + reach))
     return (right - left + 1) * (bottom - top + 1) <= MAX_RASTER_BITS
   }
 
@@ -82,17 +89,47 @@ export class PixelSet {
     }
   }
 
-  /** Stamp along the straight line between two pixels, every pixel of the way. */
+  /**
+   * Stamp along the straight line between two pixels. A one-pixel tip walks the line; a wider
+   * tip fills every pixel whose centre lies within half the width of the segment, visiting only
+   * the segment's box, so the work is the stroke's area rather than a disc per step.
+   */
   line(from: Point, to: Point, width: number): void {
     if (this.tooLarge) return
     const x0 = Math.floor(from.x)
     const y0 = Math.floor(from.y)
     const x1 = Math.floor(to.x)
     const y1 = Math.floor(to.y)
-    const steps = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0))
-    for (let step = 0; step <= steps; step++) {
-      const t = steps === 0 ? 0 : step / steps
-      this.stamp(Math.round(x0 + (x1 - x0) * t), Math.round(y0 + (y1 - y0) * t), width)
+    if (width <= 1) {
+      const steps = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0))
+      for (let step = 0; step <= steps; step++) {
+        const t = steps === 0 ? 0 : step / steps
+        this.stamp(Math.round(x0 + (x1 - x0) * t), Math.round(y0 + (y1 - y0) * t), width)
+      }
+      return
+    }
+    const radius = width / 2
+    const reach = Math.ceil(radius)
+    if (!this.fitsBox(x0, y0, x1, y1, reach)) {
+      this.tooLarge = true
+      return
+    }
+    const left = Math.max(0, Math.min(x0, x1) - reach)
+    const right = Math.min(WORLD_PIXELS - 1, Math.max(x0, x1) + reach)
+    const top = Math.max(0, Math.min(y0, y1) - reach)
+    const bottom = Math.min(WORLD_PIXELS - 1, Math.max(y0, y1) + reach)
+    const dx = x1 - x0
+    const dy = y1 - y0
+    const length = dx * dx + dy * dy
+    const limit = radius * radius
+    for (let y = top; y <= bottom; y++) {
+      for (let x = left; x <= right; x++) {
+        const t =
+          length === 0 ? 0 : Math.max(0, Math.min(1, ((x - x0) * dx + (y - y0) * dy) / length))
+        const px = x0 + t * dx - x
+        const py = y0 + t * dy - y
+        if (px * px + py * py <= limit) this.add(x, y)
+      }
     }
   }
 

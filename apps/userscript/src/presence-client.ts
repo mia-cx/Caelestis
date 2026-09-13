@@ -781,6 +781,9 @@ export const installPresence = (): void => {
   })
   if (typeof document !== 'undefined') {
     document.addEventListener('visibilitychange', onVisibility)
+    // A tab that installs while hidden gets no visibility event; read the state now so a hidden
+    // tab never publishes before it is looked at.
+    hiddenTab = document.visibilityState === 'hidden'
   }
   if (typeof window !== 'undefined') {
     window.addEventListener('online', reconcile)
