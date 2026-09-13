@@ -21,6 +21,14 @@ import {
 import { userscriptVersion } from './client-metrics.js'
 import { log, warn } from './debug.js'
 import { draftIn, viewportRectIn } from './presence-geometry.js'
+import {
+  isProfileEnabled,
+  measureProfile,
+  measureProfileDetail,
+  recordProfileCounter,
+  recordProfileMessage,
+  recordProfileWorkload,
+} from './profile.js'
 import { liveClientId, liveCredentialProtocol } from './server-sync-coordinator.js'
 import { requestServerMetadata, requestServerMutation } from './server-transport.js'
 import { serverEndpoint } from './server-url.js'
@@ -178,7 +186,11 @@ const send = (connection: Connection, event: PresenceClientEvent): boolean => {
   const socket = connection.socket
   if (socket === null || socket.readyState !== WebSocket.OPEN) return false
   try {
-    socket.send(JSON.stringify(event))
+    measureProfile('Presence send', () => {
+      const payload = JSON.stringify(event)
+      socket.send(payload)
+      recordProfileMessage('Presence sent', payload)
+    })
   } catch (error) {
     warn('install', 'presence send failed', String(error))
     return false
@@ -551,19 +563,33 @@ const open = (connection: Connection): void => {
   })
   socket.addEventListener('message', (message) => {
     if (connection.socket !== socket || typeof message.data !== 'string') return
+    recordProfileMessage('Presence received', message.data)
     if (message.data === 'pong') return
     let parsed: unknown
     try {
-      parsed = JSON.parse(message.data)
+      parsed = measureProfile('Presence parse', () => JSON.parse(message.data))
     } catch {
       socket.close(4002, 'invalid presence event')
       return
     }
-    if (!applyServerEvent(connection, parsed)) {
+    if (!measureProfile('Presence state update', () => applyServerEvent(connection, parsed))) {
+      recordProfileCounter('Presence invalid messages')
       socket.close(4002, 'invalid presence event')
       return
     }
-    notify()
+    measureProfileDetail('Presence notify', notify)
+    if (isProfileEnabled()) {
+      recordProfileWorkload('Presence peers', connection.peers.size)
+      recordProfileWorkload('Presence regions', connection.regions.length)
+      recordProfileWorkload(
+        'Presence region shapes',
+        connection.regions.reduce((sum, region) => sum + region.document.items.length, 0),
+      )
+      recordProfileWorkload(
+        'Presence region bounding pixels',
+        connection.regions.reduce((sum, region) => sum + region.rect.w * region.rect.h, 0),
+      )
+    }
   })
   socket.addEventListener('error', () => socket.close())
   socket.addEventListener('close', () => {
@@ -647,7 +673,12 @@ export const observePresenceFrame = (frame: TileFrame): void => {
   if (at - draftCheckedAt >= PRESENCE_DRAFT_MIN_MS) {
     draftCheckedAt = at
     const tiles = draftedTiles()
-    const draft = tiles.length === 0 ? null : draftIn(tiles, draftedPixelOffsets)
+    const draft =
+      tiles.length === 0
+        ? null
+        : measureProfileDetail('Presence draft scan', () => draftIn(tiles, draftedPixelOffsets))
+    recordProfileWorkload('Presence local draft tiles', tiles.length)
+    recordProfileWorkload('Presence local draft pixels', draft?.pixels ?? 0)
     if (!sameDraft(draft, pendingDraft)) {
       pendingDraft = draft
       changed = true

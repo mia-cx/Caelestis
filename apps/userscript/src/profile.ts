@@ -187,6 +187,13 @@ export const recordProfileCounter = (name: string, by = 1): void => {
   counters.set(name, (counters.get(name) ?? 0) + by)
 }
 
+/** Count application payload bytes, excluding WebSocket framing and compression, only when enabled. */
+export const recordProfileMessage = (name: string, payload: string): void => {
+  if (!enabled) return
+  recordProfileCounter(`${name} messages`)
+  recordProfileCounter(`${name} bytes`, new TextEncoder().encode(payload).byteLength)
+}
+
 const recordInput = (event: Event): void => {
   if (!event.isTrusted) return
   if (event.type === 'keydown') {
@@ -671,13 +678,14 @@ export const profileSnapshot = (): ProfileSnapshot => {
       memory: 'Known Caelestis pixel and GPU buffers. Object overhead is not included.',
       pageSignals:
         'Whole-tab frame cadence, not input latency. Frame p95 uses the last 600 intervals.',
-      workload: 'Per-frame Caelestis render inputs and retained work while profiling is enabled.',
+      workload:
+        'Caelestis render inputs and collaboration state sampled at frames or events while profiling is enabled.',
       context:
         'Start and current metadata. Drawing is effective visibility; onscreen counts are render workload gauges. Browser zoom is supplied externally, never inferred from DPR or pinch scale.',
       actions:
         'Last 200 action markers in recording order, in milliseconds since reset. Trusted pointer events mark dispatch, not presentation or input latency.',
       counters:
-        'Event and byte totals since reset; absent counters recorded no events. Canvas writes include all observed page canvases; tile-sized canvas uploads are draft candidates. Readback bytes count RGBA data returned, not texture traffic.',
+        'Event and byte totals since reset; divide by elapsedMs / 1000 for rates. Presence and live paint bytes count UTF-8 application payloads, excluding WebSocket framing and compression. Absent counters recorded no events. Canvas writes include all observed page canvases; tile-sized canvas uploads are draft candidates. Readback bytes count RGBA data returned, not texture traffic.',
     },
   }
 }
