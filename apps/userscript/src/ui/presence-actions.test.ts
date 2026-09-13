@@ -81,6 +81,12 @@ describe('presenceSummaryModel players', () => {
     ])
   })
 
+  it('hides the drawer without the socket, even with cached claims', () => {
+    harness.view.connected = false
+    harness.view.regions = [claim('r1', painter(9, 'Zed'))]
+    expect(presenceSummaryModel()).toBeUndefined()
+  })
+
   it('leaves out anyone known only by a claim, and you', () => {
     harness.view.me = painter(7, 'Mia')
     harness.view.regions = [claim('r1', painter(9, 'Zed')), claim('mine', painter(7, 'Mia'))]

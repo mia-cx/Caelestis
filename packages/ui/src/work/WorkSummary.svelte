@@ -92,9 +92,9 @@
             <p class="notice" role="alert">{presence.message}</p>
           {/if}
           {#if presence.players.length === 0}
-            <p class="empty">Nobody else is here right now.</p>
+            <p class="empty">Nobody else is nearby. Painters show up here as you pan towards them.</p>
           {:else}
-            <ul class="players" aria-label="Painters">
+            <ul class="players" aria-label="Painters nearby">
               {#each presence.players as player (player.key)}
                 <li class="player">
                   <span class="swatch" style:background={player.colour} aria-hidden="true"></span>

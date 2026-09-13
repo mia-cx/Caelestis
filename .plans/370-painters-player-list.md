@@ -26,4 +26,5 @@ The Painters drawer lists region claims. Replace that with a compact list of who
 - Only live peers are listed. Painters known only by a claim, and your own session, are left out.
 - `flyToPainter` re-reads presence at click time, so a player who left between render and click gets a toast instead of a stale flight.
 - The drawer's Edit button went with the claim list, and `openClaimEditor` with it. M and the select tool edit your regions on the live server.
-- Peers include only sessions the server sends for this viewport's interest area, so the list is what presence knows, not the whole headcount.
+- Peers include only sessions the server sends for this viewport's interest area (viewport plus padding, nearest 64), so the list is who is nearby, not the whole headcount in the header. The copy says so. A full roster needs a backend change and is a follow-up.
+- The drawer is hidden without the socket: there is nobody to list and the claim button is disabled anyway. Cached claims stay drawn on the map.

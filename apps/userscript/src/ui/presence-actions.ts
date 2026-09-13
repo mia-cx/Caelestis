@@ -119,7 +119,10 @@ export const painterLocation = (view: PresenceView, sessionId: string): Presence
 const rank = (peer: PresencePeer): number =>
   peer.draft !== null ? 0 : peer.viewport !== null ? 1 : 2
 
-/** Everyone online right now, as the drawer lists them. */
+/**
+ * Everyone the server sent for this viewport, as the drawer lists them. That is the nearby set
+ * (see the traffic budget in shared `presence.ts`), not the whole headcount in the header.
+ */
 const painterRows = (view: PresenceView): PainterRowModel[] =>
   [...view.peers]
     .sort(
@@ -144,7 +147,8 @@ const painterRows = (view: PresenceView): PainterRowModel[] =>
 /** What the drawer shows: headcount, the painters, and whether the claim tool can open. */
 export const presenceSummaryModel = (): PresenceSummaryModel | undefined => {
   const view = presenceView()
-  if (!view.connected && view.regions.length === 0) return undefined
+  // Without the socket there is nobody to list and nothing to claim, so the drawer stays away.
+  if (!view.connected) return undefined
   const me = view.me
   return {
     online: view.online,
