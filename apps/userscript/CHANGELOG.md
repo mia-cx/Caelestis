@@ -1,5 +1,51 @@
 # @caelestis/userscript
 
+## 0.11.0
+
+### Minor Changes
+
+- 5e0089d: Edit any claim shape as a vector in claim mode, with anchors, bezier handles, rotation, and scaling.
+  
+  - The pen shows anchors, handles, and a rubber band as you draw, and on a selected path continues from an end, adds an anchor on a segment, or deletes one.
+  - Add-anchor, delete-anchor, and anchor-point tools sit beside the pen with Illustrator's keys.
+  - Direct selection edits the anchors of every shape; a rectangle, ellipse, polygon, or star becomes a path when you drag one.
+  - The selection tool scales from bounding-box corners and rotates from a grip above the shape or from just outside a corner, Shift snapping to 15°.
+- 5e0089d: Claim a region in claim mode, an Illustrator-style vector editor over the map with a grouped tool drawer.
+  
+  - Tools and keys follow Illustrator: V selection, A direct selection, Q lasso, P pen, N pencil, B paintbrush, E eraser, M rectangle, L ellipse, H hand, Space to pan.
+  - Hold or right-click a drawer button for the tools behind it; the wheel pans, Shift+wheel pans sideways, Alt or Ctrl+wheel zooms.
+  - Select several shapes with Shift-click, a marquee, or the lasso, and move or delete them together.
+  - Every shape rasterises to whole pixels with no anti-aliasing and needs no template underneath.
+  - Enter from the rail's shapes button or M; the top bar shows the tool's options, then Cancel and Save claims.
+- 5e0089d: Draw actual pixels with the pencil in claim mode, and rub them out or cut vector shapes apart with the eraser.
+  
+  - Consecutive pencil strokes join the selected drawing.
+  - The eraser removes pixels from drawings and cuts vector shapes it crosses into separately editable pieces.
+- 5e0089d: Claim mode edits all your regions on a server as one set, with Save writing the changes and Cancel discarding them.
+  
+  - Removing a region is a matter of selecting it and pressing Delete.
+  - Editing a claim from the Painters drawer opens claim mode on the server that holds it.
+- 5e0089d: Show other online painters over the artwork in the colour Wplace gives them: viewports, drafted pixels, and region claims.
+  
+  - A browsing painter is a dashed, dotted viewport; a painting one is solid and striped with their drafted pixels inside; a claim is solid and striped.
+  - Viewports are sent only while you pan or zoom, at most every 300 ms, and glide to each new position instead of jumping.
+  - Name tags appear only under the pointer, above what they name, one per separate piece of a claim, merging when they would collide.
+  - A painters button on the rail, or Q, hides other painters and claims; settings can hide only viewports or only claims.
+  - Your own claim's fill fades out while the pointer is inside it, so you can paint there in true colours.
+- 5e0089d: Open one presence socket per tab, on the connected server with the fewest painters online.
+  
+  - Busy servers carry fewer collaboration sockets, and painters who share several servers are not shown twice.
+  - Claims saved on the other servers still show, fetched over HTTP.
+  - A setting shares where you are, or keeps it to yourself.
+
+### Patch Changes
+
+- 5e0089d: Rename the "In progress" drawer to "Favourites" and move the Wplace theme toggle from L to N.
+  
+  - A separate "Painters" drawer shows who is online and the region claims.
+  - The theme key works again: it calls Wplace's own theme setter, with fallbacks that drive the settings control unseen or set the theme directly.
+- 116a65d: Report large paint batches completely without losing activity or double-counting retries.
+
 ## 0.10.0
 
 ### Minor Changes
