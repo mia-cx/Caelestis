@@ -1543,6 +1543,8 @@ export const installPanel = (): void => {
   // Headcounts and claims arrive over the socket; the Painters drawer has to follow them.
   onPresenceChange(rerenderTree)
   onStateChange(syncPresenceModeState)
+  // The claim button's key hint comes from stored bindings; a rebind in Settings changes state.
+  onStateChange(syncClaimToolState)
   positionRail()
   log('install', 'rail installed beside wplace’s')
 
