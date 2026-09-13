@@ -104,12 +104,13 @@ void main() {
     }
   }
   if (inside && u_pattern == 1) {
-    // Diagonal stripes, in device pixels so they read the same at every zoom.
-    if (mod((px.x + px.y) / u_scale, 12.0) < 4.0) alpha = max(alpha, u_patternAlpha);
+    // Diagonal stripes, in CSS pixels so they read the same at every zoom and pixel ratio: a
+    // 6px line every 24px, wide enough to stay visible over detailed artwork.
+    if (mod((px.x + px.y) / u_scale, 24.0) < 6.0) alpha = max(alpha, u_patternAlpha);
   } else if (inside && u_pattern == 2) {
-    // A dotted grid.
-    vec2 cell = mod(px / u_scale, 8.0);
-    if (cell.x < 2.0 && cell.y < 2.0) alpha = max(alpha, u_patternAlpha);
+    // A dotted grid: a 4px dot every 14px, coarse enough to tell from the stripes at a glance.
+    vec2 cell = mod(px / u_scale, 14.0);
+    if (cell.x < 4.0 && cell.y < 4.0) alpha = max(alpha, u_patternAlpha);
   }
   if (edge) alpha = max(alpha, u_border);
   fragColor = vec4(u_colour * alpha, alpha);
