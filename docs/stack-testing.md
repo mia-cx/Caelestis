@@ -101,6 +101,9 @@ Build the two images first. If no registry is available, the image helper loads 
 temporary pods with access to the k3s binary and containerd socket. This requires cluster administrator access.
 The helper reuses existing references only when their digests match the recorded local images.
 It refuses unverified replacements. Choose unique image tags for each run.
+The helper records each node's containerd target after import and checks it again before removal.
+Cleanup leaves retagged references untouched and reports them instead of claiming completion.
+Older inventories without per-node targets require manual ownership verification before image cleanup.
 
 ```sh
 node scripts/stack-tests/k3s-images.mjs import CONTEXT test-results/k3s-images BACKEND_IMAGE FRONTEND_IMAGE

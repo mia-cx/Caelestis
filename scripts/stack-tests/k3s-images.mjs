@@ -4,6 +4,7 @@ import { once } from 'node:events'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { pipeline } from 'node:stream/promises'
+import { imageTargets, removeImageReferences } from './image-references.mjs'
 import { kubernetesRun } from './kubernetes-run.mjs'
 
 const [mode, context, output, ...images] = process.argv.slice(2)
@@ -25,6 +26,7 @@ const record =
         context,
         nodes: JSON.parse(kubectl('get', 'nodes', '-o', 'json')).items.map((n) => n.metadata.name),
         images: images.map((image) => (image.includes('/') ? image : `docker.io/library/${image}`)),
+        targets: {},
         identities: images
           .map(
             (image) =>
@@ -37,6 +39,11 @@ const record =
     : JSON.parse(readFileSync(file, 'utf8'))
 assert.equal(record.context, context)
 assert.ok(record.images.length > 0)
+if (mode === 'remove')
+  assert.ok(
+    record.targets,
+    'No per-node image targets recorded; manual ownership verification required',
+  )
 let cleaning
 const cleanup = () => (cleaning ??= Promise.resolve().then(() => cluster.cleanup()))
 for (const signal of ['SIGINT', 'SIGTERM'])
@@ -104,16 +111,21 @@ try {
       '--namespace',
       'k8s.io',
     ]
-    if (mode === 'import') {
-      const before = new Map(
-        kubectl(...ctr, 'images', 'list')
-          .split('\n')
-          .slice(1)
-          .map((line) => {
-            const [reference, , digest] = line.trim().split(/\s+/)
-            return [reference, digest]
-          }),
+    const runCtr = (...args) => kubectl(...ctr, ...args)
+    const captureTargets = () => {
+      const current = imageTargets(runCtr)
+      const targets = Object.fromEntries(
+        record.images.map((image) => {
+          const digest = current.get(image)
+          assert.ok(digest, `Imported image missing on ${node}: ${image}`)
+          return [image, digest]
+        }),
       )
+      record.targets[node] = targets
+      writeFileSync(file, JSON.stringify(record, null, 2))
+    }
+    if (mode === 'import') {
+      const before = imageTargets(runCtr)
       for (const [index, image] of record.images.entries()) {
         const digest = before.get(image)
         if (!digest) continue
@@ -124,6 +136,7 @@ try {
         )
       }
       if (record.images.every((image) => before.has(image))) {
+        captureTargets()
         console.log(`Test image digests already match on ${node}`)
         kubectl('delete', 'pod', pod, '--wait=true', '--timeout=60s')
         continue
@@ -169,13 +182,16 @@ try {
         if (source.exitCode === null) source.kill('SIGTERM')
         if (target.exitCode === null) target.kill('SIGTERM')
       }
-      const after = kubectl(...ctr, 'images', 'list', '-q').split('\n')
-      assert.ok(record.images.every((image) => after.includes(image)))
+      captureTargets()
       console.log(`Imported test images on ${node}`)
     } else {
-      kubectl(...ctr, 'images', 'remove', ...record.images)
-      const after = kubectl(...ctr, 'images', 'list', '-q').split('\n')
-      assert.ok(record.images.every((image) => !after.includes(image)))
+      const targets = record.targets[node]
+      assert.ok(
+        targets,
+        `No image targets recorded on ${node}; manual ownership verification required`,
+      )
+      const replaced = removeImageReferences(runCtr, targets)
+      assert.deepEqual(replaced, [], `Left replaced references untouched on ${node}`)
       console.log(`Removed test image references on ${node}`)
     }
     kubectl('delete', 'pod', pod, '--wait=true', '--timeout=60s')

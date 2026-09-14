@@ -92,6 +92,7 @@ jobs:
           pnpm --filter @caelestis/backend --filter @caelestis/frontend --filter @caelestis/storage exec vitest run --maxWorkers=1 --testTimeout=30000 --hookTimeout=30000
           pnpm test:social
           pnpm test:release
+          node --test scripts/stack-tests/*.test.mjs
       - name: Build the Cloudflare deployment
         run: |
           pnpm --filter @caelestis/frontend build
