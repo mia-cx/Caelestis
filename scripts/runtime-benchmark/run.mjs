@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { execFileSync, spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { createWriteStream } from 'node:fs'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { cpus, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
@@ -20,13 +20,15 @@ const repeats = Number(process.env.BENCH_REPEATS ?? 3)
 const warmupMs = Number(process.env.BENCH_WARMUP_MS ?? 35000)
 const measuredMs = Number(process.env.BENCH_MEASURE_MS ?? 60000)
 const durationMs = warmupMs + measuredMs
+const users = Number(process.env.BENCH_USERS ?? 10)
+assert.ok([10, 100, 1000].includes(users), 'BENCH_USERS must be 10, 100, or 1000')
 const variants = (process.env.BENCH_VARIANTS ?? 'node,bun-compat,bun-native').split(',')
 const serverCpus = process.env.BENCH_SERVER_CPUS ?? '2,3'
 const databaseCpus = process.env.BENCH_DATABASE_CPUS ?? '4,5'
 const container = `caelestis-runtime-benchmark-${randomUUID().slice(0, 8)}`
 const directory = await mkdtemp(join(tmpdir(), 'caelestis-runtime-benchmark-'))
-const fixture = await fixtures(durationMs)
-const trace = schedule(durationMs)
+const fixture = await fixtures(durationMs, users)
+const trace = schedule(durationMs, fixture)
 const traceJson = JSON.stringify(trace)
 await writeFile(join(output, 'trace.json'), traceJson)
 const sourceHashes = Object.fromEntries(
@@ -45,10 +47,11 @@ const report = {
   pr: 351,
   commit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
   startedAt: new Date().toISOString(),
-  description,
+  description: { ...description, users, explorers: fixture.explorers, painters: fixture.painters },
   warmupMs,
   measuredMs,
   repeats,
+  diagnosticCpuProfile: process.env.BENCH_CPU_PROFILE === '1',
   transport:
     'production NodeLiveHost and shared coordinators; Bun-native uses a benchmark-only native socket bridge',
   database: 'isolated local PostgreSQL 18, fresh database per run, TLS disabled',
@@ -71,7 +74,12 @@ const report = {
   traceSha256: createHash('sha256').update(traceJson).digest('hex'),
   fixtures: {
     templateSha256: createHash('sha256').update(fixture.template).digest('hex'),
-    tiles: fixture.tiles.map(({ bytes, sha256 }) => ({ bytes: bytes.length, sha256 })),
+    width: fixture.width,
+    height: fixture.height,
+    origin: fixture.origin,
+    frames: fixture.frames.map((tiles) =>
+      tiles.map(({ tile, bytes, sha256 }) => ({ tile, bytes: bytes.length, sha256 })),
+    ),
   },
   runs: [],
 }
@@ -97,18 +105,48 @@ async function stopChild(child) {
   }
 }
 process.once('SIGTERM', () => {
-  void stopChild(active).finally(() => {
+  void stopChild(active).finally(async () => {
     if (databaseCreated) docker('rm', '-fv', container)
+    await rm(directory, { recursive: true, force: true })
     process.exit(143)
   })
 })
 process.once('SIGINT', () => {
-  void stopChild(active).finally(() => {
+  void stopChild(active).finally(async () => {
     if (databaseCreated) docker('rm', '-fv', container)
+    await rm(directory, { recursive: true, force: true })
     process.exit(130)
   })
 })
 try {
+  let backendDirectory = resolve('apps/backend/dist')
+  const statusSource = await readFile(join(backendDirectory, 'status-coordinator.js'), 'utf8')
+  const currentLimit = Number(statusSource.match(/export const MAX_LIVE_SUBSCRIBERS = (\d+);/)[1])
+  report.capacity = {
+    productionLimit: currentLimit,
+    benchmarkLimit: Math.max(currentLimit, users),
+    productionAdmitsRequestedUsers: users <= currentLimit,
+  }
+  if (users > currentLimit) {
+    // Only the disposable compiled copy changes. Production source and build stay untouched.
+    const snapshot = join(directory, 'backend')
+    backendDirectory = join(snapshot, 'dist')
+    await cp(resolve('apps/backend/dist'), backendDirectory, { recursive: true })
+    for (const name of [
+      'node_modules',
+      'package.json',
+      'migrations',
+      'migrations-postgres',
+      'migrations-mariadb',
+    ])
+      await symlink(resolve('apps/backend', name), join(snapshot, name))
+    const modified = statusSource.replace(
+      `export const MAX_LIVE_SUBSCRIBERS = ${currentLimit};`,
+      `export const MAX_LIVE_SUBSCRIBERS = ${users};`,
+    )
+    await writeFile(join(backendDirectory, 'status-coordinator.js'), modified)
+    report.capacity.compiledStatusSha256 = createHash('sha256').update(modified).digest('hex')
+  }
   docker(
     'run',
     '-d',
@@ -159,7 +197,15 @@ try {
         messages = new Map()
       const child = spawn(
         'taskset',
-        ['-c', serverCpus, variant === 'node' ? node : bun, 'scripts/runtime-benchmark/server.mjs'],
+        [
+          '-c',
+          serverCpus,
+          variant === 'node' ? node : bun,
+          ...(variant === 'node' && process.env.BENCH_CPU_PROFILE === '1'
+            ? ['--cpu-prof', `--cpu-prof-dir=${output}`]
+            : []),
+          'scripts/runtime-benchmark/server.mjs',
+        ],
         {
           env: {
             ...process.env,
@@ -173,6 +219,7 @@ try {
             PG_TLS_MODE: 'disable',
             DATABASE_URL: `postgres://postgres:benchmark-local-only@127.0.0.1:${pgPort}/${database}`,
             BENCH_TRANSPORT: variant === 'bun-native' ? 'native' : 'node',
+            BENCH_BACKEND_DIRECTORY: backendDirectory,
           },
           stdio: ['pipe', 'pipe', 'pipe'],
         },
@@ -228,10 +275,12 @@ try {
       let sampler
       try {
         const ready = await next('ready')
+        assert.equal(ready.liveSubscriberLimit, report.capacity.benchmarkLimit)
         console.log(`${label}: ${warmupMs / 1000}s warmup + ${measuredMs / 1000}s measured`)
         const rss = []
         const memoryErrors = []
         let databaseCpuStart, databaseCpuUsec
+        let driverCpuStart, driverCpu
         let sampling = Promise.resolve()
         const result = await traffic({
           site: `http://127.0.0.1:${ready.port}`,
@@ -241,6 +290,8 @@ try {
           warmupMs,
           durationMs,
           async begin() {
+            rss.length = 0
+            driverCpuStart = process.cpuUsage()
             databaseCpuStart = await dbCpu()
             child.stdin.write('begin\n')
             await next('begin')
@@ -256,11 +307,15 @@ try {
           async end() {
             child.stdin.write('end\n')
             const metrics = await next('end')
+            driverCpu = process.cpuUsage(driverCpuStart)
             databaseCpuUsec = (await dbCpu()) - databaseCpuStart
             clearInterval(sampler)
             await sampling
             return metrics
           },
+        }).catch((error) => {
+          if (!error.benchmarkResult?.serverMetrics) throw error
+          return error.benchmarkResult
         })
         assert.deepEqual(memoryErrors, [])
         const { raw, serverMetrics, ...measurements } = result
@@ -274,6 +329,7 @@ try {
           backendCpuSeconds: cpuSeconds,
           backendCpuPercentOfOneCore: (cpuSeconds / (serverMetrics.elapsedMs / 1000)) * 100,
           databaseCpuSeconds: databaseCpuUsec / 1e6,
+          driverCpuSeconds: (driverCpu.user + driverCpu.system) / 1e6,
           rssMiB: {
             mean: rss.reduce((a, b) => a + b, 0) / rss.length / 2 ** 20,
             peak: Math.max(...rss) / 2 ** 20,
@@ -287,7 +343,7 @@ try {
         )
         await save()
         console.log(
-          `${label}: CPU ${run.backendCpuSeconds.toFixed(3)}s, RSS ${run.rssMiB.mean.toFixed(1)}MiB, presence p95 ${run.presenceDeliveryMs.p95?.toFixed(1)}ms, paint p95 ${run.latencies['paint-report']?.p95?.toFixed(1)}ms; correctness passed`,
+          `${label}: CPU ${run.backendCpuSeconds.toFixed(3)}s, RSS ${run.rssMiB.mean.toFixed(1)}MiB, presence p95 ${run.presenceDeliveryMs.p95?.toFixed(1)}ms, paint p95 ${run.latencies['paint-report']?.p95?.toFixed(1)}ms; ${run.correctness.finalPeerSetsAndDrafts ? 'correctness passed' : `FAILED: ${run.correctness.errors[0]}`}`,
         )
       } finally {
         clearInterval(sampler)

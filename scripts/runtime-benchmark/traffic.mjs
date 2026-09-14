@@ -1,25 +1,28 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
 import {
+  decodePng,
   decodePresenceDraftMask,
   encodeIndexedPng,
   encodeLiveTileUpload,
   encodePresenceDraft,
+  latLngToCanvasPixel,
+  MAX_PRESENCE_PEERS,
   PRESENCE_DRAFT_MIN_MS,
   PRESENCE_HEARTBEAT_MS,
   PRESENCE_INTEREST_PADDING,
   PRESENCE_VIEWPORT_MIN_MS,
   padRect,
   quantiseRect,
+  quantiseToPalette,
+  rectCentreDistance,
   rectsIntersect,
   sameRect,
   uuidV7,
 } from '../../packages/shared/dist/index.js'
 
 export const description = {
-  users: 10,
-  explorers: 7,
-  painters: 3,
   socketsPerUser: 2,
   explorerCycleMs: 9000,
   explorerMovingMs: 5400,
@@ -31,8 +34,8 @@ export const description = {
   paintBatchPixels: 30,
   paintBatchMs: 30000,
   tileObservationMs: 9000,
-  fixture:
-    '256x128 published template at 100,100; one 1000x1000 canvas tile with deterministic palette pattern',
+  canvasSnapshotMs: 5000,
+  fixture: 'Box Art 1612x2584 at its original canvas coordinates; eight full canvas tiles',
 }
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)))
 export const distribution = (values) => {
@@ -47,37 +50,45 @@ export const distribution = (values) => {
   }
 }
 const key = (rect) => JSON.stringify(rect)
-export function schedule(durationMs) {
+export function schedule(durationMs, model) {
   const events = []
-  for (let user = 0; user < 10; user++) {
-    const offset = user * 37
-    events.push({ at: offset, user, kind: 'viewport', rect: viewport(user, 0) })
-    if (user < 7) {
+  for (let user = 0; user < model.users; user++) {
+    const offset = (user * 37) % 300
+    events.push({ at: offset, user, kind: 'viewport', rect: viewport(user, 0, model) })
+    if (user < model.explorers) {
       for (
         let at = PRESENCE_VIEWPORT_MIN_MS + offset;
         at < durationMs;
         at += PRESENCE_VIEWPORT_MIN_MS
       ) {
         const phase = (at + user * 900) % 9000
-        if (phase <= 5400) events.push({ at, user, kind: 'viewport', rect: viewport(user, at) })
+        if (phase <= 5400)
+          events.push({ at, user, kind: 'viewport', rect: viewport(user, at, model) })
       }
-      for (let at = 1700 + user * 181; at < durationMs; at += 9000) {
+      for (let at = 1700 + ((user * 181) % 7000); at < durationMs; at += 9000) {
         // Only observations in template coverage reach Caelestis; distant Wplace tiles stay on Wplace.
-        if (rectsIntersect(padRect(viewport(user, at), 200), { x: 0, y: 0, w: 1000, h: 1000 }))
-          events.push({ at, user, kind: 'tile' })
+        const tiles = model.frames[0]
+          .filter((tile) => rectsIntersect(padRect(viewport(user, at, model), 200), tile.rect))
+          .map((tile) => tile.tile)
+        if (tiles.length) events.push({ at, user, kind: 'tile', tiles })
       }
     } else {
-      for (let at = 12000 + offset; at < durationMs; at += 12000)
-        events.push({ at, user, kind: 'viewport', rect: viewport(user, at) })
-      for (let at = 1000 + offset; at < durationMs; at += PRESENCE_DRAFT_MIN_MS) {
-        const second = Math.floor((at - offset) / 1000)
+      for (
+        let at = 12000 + (((user - model.explorers) * 1543) % 12000);
+        at < durationMs;
+        at += 12000
+      )
+        events.push({ at, user, kind: 'viewport', rect: viewport(user, at, model) })
+      const phase = paintPhase(user, model)
+      for (let at = 1000 - (phase % 1000); at < durationMs; at += PRESENCE_DRAFT_MIN_MS) {
+        const second = Math.floor((at + phase) / 1000)
         const count = second % 30
         const cycle = Math.floor(second / 30)
         events.push({
           at,
           user,
           kind: 'draft',
-          draft: encodePresenceDraft(pixels(user, cycle, count)),
+          draft: encodePresenceDraft(pixels(user, cycle, count, model)),
         })
         if (count === 0) events.push({ at: at + 10, user, kind: 'paint', cycle: cycle - 1 })
       }
@@ -87,37 +98,113 @@ export function schedule(durationMs) {
     .filter((event) => event.at < durationMs)
     .sort((a, b) => a.at - b.at || a.user - b.user)
 }
-function viewport(user, at) {
-  if (user >= 7)
-    return { x: 96 + (user - 7) * 64 + (Math.floor(at / 12000) % 3) * 8, y: 96, w: 96, h: 80 }
-  const angle = at / 11000 + user * 0.65
-  const radius = [350, 600, 1100, 1800, 3000, 500, 2500][user]
+function viewport(user, at, model) {
+  if (user >= model.explorers) {
+    const area = areaFor(user, model)
+    return quantiseRect({
+      x: area.x - 16 + (Math.floor(at / 12000) % 3) * 8,
+      y: area.y - 16,
+      w: 96,
+      h: 80,
+    })
+  }
+  const shifted = at + user * 900
+  const moving = Math.floor(shifted / 9000) * 5400 + Math.min(shifted % 9000, 5400)
+  const angle = moving / 11000 + user * 0.65
+  const radius = [350, 600, 1100, 1800, 3000, 500, 2500][user % 7]
   const zoom = Math.floor(at / 18000 + user) % 2
   return quantiseRect({
-    x: Math.max(0, 300 + radius * (1 + Math.cos(angle))),
-    y: Math.max(0, 200 + radius * (1 + Math.sin(angle))),
+    x: Math.max(0, model.origin.x + 800 + radius * Math.cos(angle)),
+    y: Math.max(0, model.origin.y + 900 + radius * Math.sin(angle)),
     w: zoom ? 800 : 400,
     h: zoom ? 600 : 320,
   })
 }
-const pixels = (user, cycle, count = 30) =>
-  Array.from({ length: count }, (_, i) => ({ x: 112 + (user - 7) * 64 + i, y: 112 + cycle }))
-
-export async function fixtures(durationMs) {
-  const template = await encodeIndexedPng(256, 128, new Uint8Array(256 * 128).fill(31))
-  const canvas = new Uint8Array(1000 * 1000)
-  for (let y = 0; y < 1000; y++)
-    for (let x = 0; x < 1000; x++)
-      canvas[y * 1000 + x] = (Math.floor(x / 7) * 13 + Math.floor(y / 11) * 17) % 31
-  const tiles = []
-  for (let cycle = 0; cycle <= Math.ceil(durationMs / 30000); cycle++) {
-    if (cycle)
-      for (let user = 7; user < 10; user++)
-        for (const { x, y } of pixels(user, cycle - 1)) canvas[y * 1000 + x] = 31
-    const bytes = await encodeIndexedPng(1000, 1000, canvas)
-    tiles.push({ bytes, sha256: createHash('sha256').update(bytes).digest('hex') })
+const areaFor = (user, model) => ({
+  x: model.origin.x + 320 + ((user - model.explorers) % 15) * 64,
+  y: model.origin.y + 400 + Math.floor((user - model.explorers) / 15) * 32,
+  w: 32,
+  h: 16,
+})
+const paintPhase = (user, model) => ((user - model.explorers) * 7919) % 30000
+const pixels = (user, cycle, count, model) => {
+  const area = areaFor(user, model)
+  return Array.from({ length: count }, (_, i) => {
+    const x = area.x + i,
+      y = area.y + cycle
+    const color = model.indices[(y - model.origin.y) * model.width + x - model.origin.x]
+    assert.ok(color < 63, 'paint must overlap opaque artwork')
+    return { x, y, color }
+  })
+}
+export async function fixtures(durationMs, users) {
+  const source = JSON.parse(
+    await readFile(new URL('../../fixtures/stack-tests/box-art.wplace', import.meta.url), 'utf8'),
+  )
+  const template = Buffer.from(source.image.dataUrl.split(',')[1], 'base64')
+  const image = await decodePng(template)
+  const originFloat = latLngToCanvasPixel({ lat: source.bounds.north, lng: source.bounds.west })
+  const origin = { x: Math.round(originFloat.x), y: Math.round(originFloat.y) }
+  const { indices } = quantiseToPalette(image.pixels)
+  const model = {
+    users,
+    explorers: users * 0.7,
+    painters: users * 0.3,
+    origin,
+    width: image.width,
+    height: image.height,
+    indices,
   }
-  return { template, tiles }
+  const canvases = new Map()
+  for (let y = 0; y < image.height; y++)
+    for (let x = 0; x < image.width; x++) {
+      const worldX = origin.x + x,
+        worldY = origin.y + y
+      const tile = `${Math.floor(worldX / 1000)}/${Math.floor(worldY / 1000)}`
+      if (!canvases.has(tile)) canvases.set(tile, new Uint8Array(1000000))
+      const color = indices[y * image.width + x]
+      canvases.get(tile)[(worldY % 1000) * 1000 + (worldX % 1000)] = color === 63 ? 0 : color
+    }
+  const setPixel = (pixel, color) =>
+    (canvases.get(`${Math.floor(pixel.x / 1000)}/${Math.floor(pixel.y / 1000)}`)[
+      (pixel.y % 1000) * 1000 + (pixel.x % 1000)
+    ] = color)
+  for (let cycle = 0; cycle <= Math.ceil(durationMs / 30000); cycle++)
+    for (let user = model.explorers; user < users; user++)
+      for (const pixel of pixels(user, cycle, 30, model)) setPixel(pixel, (pixel.color + 1) % 63)
+  const paints = []
+  for (let user = model.explorers; user < users; user++)
+    for (let cycle = 0; cycle <= Math.ceil(durationMs / 30000); cycle++)
+      paints.push({ at: (cycle + 1) * 30000 - paintPhase(user, model) + 10, user, cycle })
+  paints.sort((a, b) => a.at - b.at)
+  let paintIndex = 0
+  const encoded = new Map()
+  const frames = []
+  for (let at = 0; at <= durationMs; at += description.canvasSnapshotMs) {
+    const dirty = new Set()
+    while (paintIndex < paints.length && paints[paintIndex].at <= at) {
+      const paint = paints[paintIndex++]
+      for (const pixel of pixels(paint.user, paint.cycle, 30, model)) {
+        setPixel(pixel, pixel.color)
+        dirty.add(`${Math.floor(pixel.x / 1000)}/${Math.floor(pixel.y / 1000)}`)
+      }
+    }
+    const frame = []
+    for (const [tile, canvas] of canvases) {
+      if (!encoded.has(tile) || dirty.has(tile)) {
+        const bytes = await encodeIndexedPng(1000, 1000, canvas)
+        encoded.set(tile, { bytes, sha256: createHash('sha256').update(bytes).digest('hex') })
+      }
+      const [x, y] = tile.split('/').map(Number)
+      frame.push({
+        tile,
+        rect: { x: x * 1000, y: y * 1000, w: 1000, h: 1000 },
+        ...encoded.get(tile),
+      })
+    }
+    frames.push(frame)
+  }
+  return { ...model, template, frames }
 }
 
 /** Replay a fixed arrival schedule against real authenticated application endpoints. */
@@ -137,6 +224,8 @@ export async function traffic({
   const jobs = new Set()
   const errors = []
   let measuring = false
+  let serverMetrics
+  let phase = 'warmup'
   let closing = false
   let sentBytes = 0
   let receivedBytes = 0
@@ -147,6 +236,21 @@ export async function traffic({
   const dispatchDelay = [],
     presenceLatency = []
   const expectedPaints = []
+  const heartbeat = setInterval(() => {
+    for (const client of clients) {
+      const state = client.presence
+      if (
+        state.socket.readyState !== WebSocket.OPEN ||
+        performance.now() - state.lastSend < PRESENCE_HEARTBEAT_MS
+      )
+        continue
+      state.send(
+        state.draft
+          ? { type: 'presence-update', viewport: state.viewport, draft: state.draft }
+          : { type: 'presence-heartbeat' },
+      )
+    }
+  }, 1000)
   const timestamp = () => Math.floor(Date.now() / 1000)
   const record = (kind, ms) => {
     if (!measuring) return
@@ -211,9 +315,16 @@ export async function traffic({
           state.online = message.online
           for (const id of message.remove ?? []) state.peers.delete(id)
           for (const peer of message.upsert ?? message.peers) {
+            const previousPeer = state.peers.get(peer.sessionId)
             state.peers.set(peer.sessionId, peer)
             const sample = viewportTimes.get(`${peer.sessionId}:${key(peer.viewport)}`)
-            if (measuring && sample?.measured && !sample.seen.has(user)) {
+            if (
+              measuring &&
+              previousPeer &&
+              !sameRect(previousPeer.viewport, peer.viewport) &&
+              sample?.measured &&
+              !sample.seen.has(user)
+            ) {
               sample.seen.add(user)
               presenceLatency.push(performance.now() - sample.at)
             }
@@ -243,13 +354,13 @@ export async function traffic({
       socket.send(payload)
       state.lastSend = performance.now()
     }
-    const timeout = async (promise, label) => {
+    const timeout = async (promise, label, deadlineMs = 10000) => {
       let timer
       try {
         return await Promise.race([
           promise,
           new Promise((_, reject) => {
-            timer = setTimeout(() => reject(new Error(`${label} timed out`)), 10000)
+            timer = setTimeout(() => reject(new Error(`${label} timed out`)), deadlineMs)
           }),
         ])
       } finally {
@@ -264,6 +375,7 @@ export async function traffic({
     state.command = async (message, binary) => {
       const requestId = uuidV7()
       const started = performance.now()
+      const sentInPhase = phase
       try {
         const result = new Promise((resolve) => pending.set(requestId, { resolve }))
         state.send(
@@ -272,9 +384,9 @@ export async function traffic({
             : { ...message, requestId },
           !!binary,
         )
-        const reply = await timeout(result, message.type)
+        const reply = await timeout(result, message.type, 5000)
         assert.equal(reply.error, undefined, JSON.stringify(reply))
-        record(message.type, performance.now() - started)
+        if (sentInPhase === phase) record(message.type, performance.now() - started)
         return reply
       } finally {
         pending.delete(requestId)
@@ -289,16 +401,26 @@ export async function traffic({
     )
     return state
   }
-  const offer = async (client, tile) => {
-    const observation = { deliveryId: uuidV7(), tile: '0/0', sha256: tile.sha256, ts: timestamp() }
+  const offer = async (client, tiles) => {
+    const observations = tiles.map((tile) => ({
+      deliveryId: uuidV7(),
+      tile: tile.tile,
+      sha256: tile.sha256,
+      ts: timestamp(),
+    }))
     const identity = { wplaceUserId: client.id, displayName: client.name, season: 0 }
     const reply = await client.live.command({
       type: 'tile-offer',
-      batch: { ...identity, offers: [observation] },
+      batch: { ...identity, offers: observations },
     })
     assert.deepEqual(reply.response.rejectedDeliveryIds, [])
-    assert.equal(reply.response.acknowledgedDeliveryIds.length + reply.response.wanted.length, 1)
+    assert.equal(
+      reply.response.acknowledgedDeliveryIds.length + reply.response.wanted.length,
+      observations.length,
+    )
     for (const wanted of reply.response.wanted) {
+      const observation = observations.find((item) => item.deliveryId === wanted.deliveryId)
+      const tile = tiles.find((item) => item.tile === observation.tile)
       const upload = await client.live.command(
         { type: 'tile-upload', ...identity, ...observation, ...wanted },
         tile.bytes,
@@ -326,46 +448,33 @@ export async function traffic({
     for (const [field, value] of Object.entries({
       name: 'Runtime benchmark',
       season: '0',
-      originX: '100',
-      originY: '100',
+      originX: String(fixture.origin.x),
+      originY: String(fixture.origin.y),
     }))
       form.set(field, value)
     const template = await request('/admin/templates', form, 'POST')
+    assert.equal(template.chunks.length, fixture.frames[0].length)
     await request(`/admin/templates/${template.templateId}`, { published: true }, 'PATCH')
-    for (let user = 0; user < 10; user++) {
+    const credentials = []
+    for (let user = 0; user < fixture.users; user++) {
       const { token } = await request(
         '/admin/tokens',
         { label: `Benchmark ${user}`, scope: 'report' },
         'POST',
       )
-      const client = {
-        id: 800000 + user,
-        name: `Benchmark ${user}`,
-        token,
-        presence: await connect(user, 'presence', token),
-        live: await connect(user, 'live', token),
-      }
-      clients.push(client)
-      await client.presence.next('presence-ready')
-      client.live.send({
-        type: 'state-vector',
-        requestId: uuidV7(),
-        revision: null,
-        projections: [{ resource: 'world-manifest', scope: 'world', version: null }],
-      })
-      await client.live.next('status-snapshot')
-      if (user >= 7)
+      credentials.push(token)
+      if (user >= fixture.explorers)
         await request(
           `/work/regions/${uuidV7()}?season=0`,
           {
-            actor: { wplaceUserId: client.id, displayName: client.name },
-            label: client.name,
+            actor: { wplaceUserId: 800000 + user, displayName: `Benchmark ${user}` },
+            label: `Benchmark ${user}`,
             document: {
               items: [
                 {
                   id: 'area',
                   op: 'add',
-                  shape: { kind: 'rectangle', x: 112 + (user - 7) * 64, y: 112, w: 32, h: 16 },
+                  shape: { kind: 'rectangle', ...areaFor(user, fixture) },
                 },
               ],
             },
@@ -374,19 +483,49 @@ export async function traffic({
           token,
         )
     }
-    await offer(clients[0], fixture.tiles[0])
+    for (let user = 0; user < fixture.users; user++) {
+      const token = credentials[user]
+      const client = {
+        id: 800000 + user,
+        name: `Benchmark ${user}`,
+        token,
+        presence: await connect(user, 'presence', token),
+        live: await connect(user, 'live', token),
+      }
+      clients.push(client)
+      const ready = await client.presence.next('presence-ready')
+      assert.equal(ready.regions.length, fixture.painters)
+      client.live.send({
+        type: 'state-vector',
+        requestId: uuidV7(),
+        revision: null,
+        projections: [{ resource: 'world-manifest', scope: 'world', version: null }],
+      })
+      await client.live.next('status-snapshot')
+    }
+    await offer(clients[0], fixture.frames[0])
+    await begin()
+    measuring = true
     const start = performance.now()
     const fullTrace = [
       ...trace,
       { at: warmupMs, kind: 'begin' },
       { at: durationMs, kind: 'end' },
     ].sort((a, b) => a.at - b.at)
-    let serverMetrics
     for (const event of fullTrace) {
-      await sleep(start + event.at - performance.now())
+      const remaining = start + event.at - performance.now()
+      if (remaining > 0) await sleep(remaining)
       if (event.kind === 'begin') {
+        await end()
+        for (const counter of [sent, received, latencies])
+          for (const key of Object.keys(counter)) delete counter[key]
+        sentBytes = 0
+        receivedBytes = 0
+        dispatchDelay.length = 0
+        presenceLatency.length = 0
+        viewportTimes.clear()
         await begin()
-        measuring = true
+        phase = 'measured'
         continue
       }
       if (event.kind === 'end') {
@@ -402,9 +541,21 @@ export async function traffic({
         client.presence.draft = event.draft
         client.presence.send({ type: 'presence-update', draft: event.draft })
       }
-      if (event.kind === 'tile') launch(offer(client, fixture.tiles[Math.floor(event.at / 30000)]))
+      if (event.kind === 'tile')
+        launch(
+          offer(
+            client,
+            fixture.frames[Math.floor(event.at / description.canvasSnapshotMs)].filter((tile) =>
+              event.tiles.includes(tile.tile),
+            ),
+          ),
+        )
       if (event.kind === 'paint') {
-        const batch = pixels(event.user, event.cycle)
+        const batch = pixels(event.user, event.cycle, 30, fixture)
+        const grouped = Map.groupBy(
+          batch,
+          (pixel) => `${Math.floor(pixel.x / 1000)}/${Math.floor(pixel.y / 1000)}`,
+        )
         const paint = {
           eventId: uuidV7(),
           wplaceUserId: client.id,
@@ -412,17 +563,18 @@ export async function traffic({
           season: 0,
           ts: timestamp(),
           painted: batch.length,
-          tiles: [
-            {
-              x: 0,
-              y: 0,
+          tiles: [...grouped].map(([tile, entries]) => {
+            const [x, y] = tile.split('/').map(Number)
+            return {
+              x,
+              y,
               pixels: {
-                x: batch.map((p) => p.x),
-                y: batch.map((p) => p.y),
-                colors: batch.map(() => 31),
+                x: entries.map((p) => p.x % 1000),
+                y: entries.map((p) => p.y % 1000),
+                colors: entries.map((p) => p.color),
               },
-            },
-          ],
+            }
+          }),
         }
         expectedPaints.push(paint)
         launch(
@@ -431,35 +583,37 @@ export async function traffic({
             .then((reply) => assert.equal(reply.result, 'recorded')),
         )
       }
-      for (const quiet of clients)
-        if (performance.now() - quiet.presence.lastSend >= PRESENCE_HEARTBEAT_MS)
-          quiet.presence.send(
-            quiet.presence.draft
-              ? {
-                  type: 'presence-update',
-                  viewport: quiet.presence.viewport,
-                  draft: quiet.presence.draft,
-                }
-              : { type: 'presence-heartbeat' },
-          )
       if (errors.length) throw new Error(errors.join('\n'))
     }
     // Let the final batch settle, then compare every client's peer set and state with the interest rules.
     await sleep(1000)
     for (const client of clients) {
-      assert.equal(client.presence.online, 10)
-      const expected = clients.filter(
-        (other) =>
-          other !== client &&
-          [other.presence.viewport, other.presence.draft?.rect].some(
-            (rect) =>
-              rect &&
-              rectsIntersect(
-                padRect(client.presence.viewport, PRESENCE_INTEREST_PADDING),
-                quantiseRect(rect),
-              ),
-          ),
-      )
+      assert.equal(client.presence.online, fixture.users)
+      const expected = clients
+        .filter(
+          (other) =>
+            other !== client &&
+            [other.presence.viewport, other.presence.draft?.rect].some(
+              (rect) =>
+                rect &&
+                rectsIntersect(
+                  padRect(client.presence.viewport, PRESENCE_INTEREST_PADDING),
+                  quantiseRect(rect),
+                ),
+            ),
+        )
+        .sort((a, b) => {
+          const distance = (other) =>
+            Math.min(
+              ...[other.presence.viewport, other.presence.draft?.rect]
+                .filter(Boolean)
+                .map((rect) => rectCentreDistance(client.presence.viewport, quantiseRect(rect))),
+            )
+          return (
+            distance(a) - distance(b) || a.presence.sessionId.localeCompare(b.presence.sessionId)
+          )
+        })
+        .slice(0, MAX_PRESENCE_PEERS)
       assert.deepEqual(
         [...client.presence.peers.keys()].sort(),
         expected.map((other) => other.presence.sessionId).sort(),
@@ -476,18 +630,20 @@ export async function traffic({
       const totals = await request(
         `/telemetry/painters?templateIds=${template.templateId}&from=${first.ts - 120}&to=${last.ts + 120}`,
       )
-      for (const client of clients.slice(7))
+      for (const client of clients.slice(fixture.explorers))
         assert.equal(
           totals.painters.find((p) => p.wplaceUserId === client.id)?.placed,
           expectedPaints.filter((paint) => paint.wplaceUserId === client.id).length * 30,
         )
       assert.equal(
-        (await clients[7].live.command({ type: 'paint-report', event: first })).result,
+        (await clients[fixture.explorers].live.command({ type: 'paint-report', event: first }))
+          .result,
         'duplicate',
       )
     }
     assert.deepEqual(errors, [])
     return {
+      phase,
       serverMetrics,
       sent,
       received,
@@ -499,7 +655,7 @@ export async function traffic({
       presenceDeliveryMs: distribution(presenceLatency),
       dispatchDelayMs: distribution(dispatchDelay),
       correctness: {
-        online: 10,
+        online: fixture.users,
         sockets: allSockets.length,
         finalPeerSetsAndDrafts: true,
         paintEvents: expectedPaints.length,
@@ -509,7 +665,35 @@ export async function traffic({
       },
       raw: { latencies, presenceLatency, dispatchDelay },
     }
+  } catch (error) {
+    if (measuring) {
+      serverMetrics = await end()
+      measuring = false
+    }
+    error.benchmarkResult = {
+      phase,
+      serverMetrics,
+      sent,
+      received,
+      sentBytes,
+      receivedBytes,
+      latencies: Object.fromEntries(
+        Object.entries(latencies).map(([kind, values]) => [kind, distribution(values)]),
+      ),
+      presenceDeliveryMs: distribution(presenceLatency),
+      dispatchDelayMs: distribution(dispatchDelay),
+      correctness: {
+        online: clients.filter((client) => client.presence.socket.readyState === WebSocket.OPEN)
+          .length,
+        sockets: allSockets.filter((socket) => socket.readyState === WebSocket.OPEN).length,
+        finalPeerSetsAndDrafts: false,
+        errors: [...errors, String(error)],
+      },
+      raw: { latencies, presenceLatency, dispatchDelay },
+    }
+    throw error
   } finally {
+    clearInterval(heartbeat)
     closing = true
     for (const socket of allSockets) socket.close()
     await Promise.all(jobs)

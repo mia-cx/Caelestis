@@ -1,12 +1,27 @@
 // biome-ignore-all lint/suspicious/noUndeclaredEnvVars: standalone benchmark, never a cached Turbo task.
 import { EventEmitter } from 'node:events'
+import { resolve } from 'node:path'
 import { createInterface } from 'node:readline'
-import { readNodeConfig } from '../../apps/backend/dist/node/config.js'
-import { liveRequestContext } from '../../apps/backend/dist/node/live.js'
-import { openNodeRuntime } from '../../apps/backend/dist/node/runtime.js'
-import { listenNodeServer } from '../../apps/backend/dist/node/server.js'
-import { MAX_LIVE_CLIENT_BINARY_BYTES } from '../../apps/backend/dist/status-coordinator.js'
+import { pathToFileURL } from 'node:url'
 import { FilesystemObjectStorage } from '../../packages/storage/dist/filesystem.js'
+
+const backend = pathToFileURL(
+  `${process.env.BENCH_BACKEND_DIRECTORY ?? resolve('apps/backend/dist')}/`,
+)
+const [configModule, liveModule, runtimeModule, serverModule, statusModule] = await Promise.all(
+  [
+    'node/config.js',
+    'node/live.js',
+    'node/runtime.js',
+    'node/server.js',
+    'status-coordinator.js',
+  ].map((file) => import(new URL(file, backend))),
+)
+const { readNodeConfig } = configModule
+const { liveRequestContext } = liveModule
+const { openNodeRuntime } = runtimeModule
+const { listenNodeServer } = serverModule
+const { MAX_LIVE_CLIENT_BINARY_BYTES, MAX_LIVE_SUBSCRIBERS } = statusModule
 
 // Benchmark-only bridge: retain the production host's queues, limits and coordinator callbacks.
 // This exercises Bun's native network transport without changing production runtime wiring.
@@ -105,7 +120,7 @@ const timer = setInterval(() => {
   previous = now
 }, 20)
 const reply = (data) => console.log(JSON.stringify({ benchmark: true, ...data }))
-reply({ type: 'ready', port, runtime: process.versions })
+reply({ type: 'ready', port, runtime: process.versions, liveSubscriberLimit: MAX_LIVE_SUBSCRIBERS })
 for await (const line of createInterface({ input: process.stdin })) {
   if (line === 'begin') {
     delaySamples = []
