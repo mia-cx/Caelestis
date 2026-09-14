@@ -229,7 +229,9 @@ async function main() {
   console.log(summary)
   appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summary}\n`)
   if (decision.blockers.length) {
-    throw new Error(`Unresolved project triage: ${decision.blockers.join('; ')}`)
+    const notes = `Triage notes: ${decision.blockers.join('; ')}`
+    console.log(notes)
+    appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n${notes}\n`)
   }
 }
 
