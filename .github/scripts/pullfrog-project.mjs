@@ -154,13 +154,29 @@ export async function applyTriage(context, decision, api = graphql) {
     )
     itemId = data.addProjectV2ItemById.item.id
   }
+  const applied = []
   for (const update of updates) {
+    const fresh = await api(
+      `query($id:ID!) { node(id:$id) { ... on ProjectV2Item { ${itemFields} } } }`,
+      { id: itemId },
+    )
+    if (
+      fresh.node?.project.id !== context.project.id ||
+      fresh.node.fieldValues.pageInfo?.hasNextPage
+    ) {
+      throw new Error('Cannot safely re-read the project item before updating.')
+    }
+    const current = fresh.node?.fieldValues.nodes.find(
+      (entry) => entry.field?.id === update.fieldId,
+    )
+    if (current && (current.name != null || current.number != null)) continue
     await api(
       `mutation($project:ID!,$item:ID!,$field:ID!,$value:ProjectV2FieldValue!) {
       updateProjectV2ItemFieldValue(input:{projectId:$project,itemId:$item,fieldId:$field,value:$value}) { projectV2Item { id } }
     }`,
       { project: context.project.id, item: itemId, field: update.fieldId, value: update.value },
     )
+    applied.push(update)
   }
   const verified = await api(
     `query($id:ID!) { node(id:$id) { ... on ProjectV2Item { ${itemFields} content { ... on Issue { id } } } } }`,
@@ -172,14 +188,14 @@ export async function applyTriage(context, decision, api = graphql) {
   ) {
     throw new Error('Project membership verification failed.')
   }
-  for (const update of updates) {
+  for (const update of applied) {
     const actual = verified.node.fieldValues.nodes.find(
       (entry) => entry.field?.id === update.fieldId,
     )
     if ((actual?.name ?? actual?.number) !== update.expected)
       throw new Error('Project field verification failed.')
   }
-  return `Verified ${context.issue.url} in ${context.project.url}; updated ${updates.length} empty fields.`
+  return `Verified ${context.issue.url} in ${context.project.url}; updated ${applied.length} empty fields.`
 }
 
 async function main() {

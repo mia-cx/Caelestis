@@ -88,7 +88,7 @@ test('adds membership, writes decisions and verifies actual returned fields', as
     }
   }
   assert.match(await applyTriage(context, decision, api), /updated 2 empty fields/)
-  assert.equal(calls.length, 4)
+  assert.equal(calls.length, 6)
   assert.deepEqual(calls[0].variables, { project: 'project', issue: 'issue' })
   calls.length = 0
   await applyTriage(
@@ -122,4 +122,24 @@ test('a skipped issue causes no project mutations', async () => {
     calls++
   })
   assert.equal(calls, 0)
+})
+
+test('preserves a maintainer edit made after the initial context read', async () => {
+  let writes = 0
+  const api = async (query) => {
+    if (query.includes('mutation')) writes++
+    return {
+      node: {
+        project: { id: 'project' },
+        content: { id: 'issue' },
+        fieldValues: { nodes: [{ field: { id: 'status' }, name: 'In Progress' }] },
+      },
+    }
+  }
+  await applyTriage(
+    { ...context, item: { id: 'item', fieldValues: { nodes: [] } } },
+    { ...decision, priority: null },
+    api,
+  )
+  assert.equal(writes, 0)
 })

@@ -79,6 +79,7 @@ jobs:
           # OPENAI_COMPATIBLE_CONTEXT: "128000"
           # OPENAI_COMPATIBLE_MAX_OUTPUT: "16384"
       - name: Checkout trusted project writer
+        id: project-writer
         if: ${{ !cancelled() && steps.route.outputs.triage == 'true' }}
         uses: actions/checkout@v6
         with:
@@ -86,7 +87,7 @@ jobs:
           path: .pullfrog-project-bridge
           persist-credentials: false
       - name: Apply and verify project triage
-        if: ${{ !cancelled() && steps.route.outputs.triage == 'true' }}
+        if: ${{ !cancelled() && steps.route.outputs.triage == 'true' && steps.project-writer.outcome == 'success' }}
         run: node .pullfrog-project-bridge/.github/scripts/pullfrog-project.mjs apply
         env:
           GH_TOKEN: ${{ secrets.PULLFROG_PROJECTS_TOKEN }}
