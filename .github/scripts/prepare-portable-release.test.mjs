@@ -6,9 +6,13 @@ it('changes artifact versions when either app changes', () => {
   const initial = portableVersion('1.2.3', '4.5.6')
   assert.equal(initial.chartVersion, '1.2.3+frontend.4.5.6')
   assert.equal(initial.tag, 'server-backend-1.2.3-frontend-4.5.6')
+  assert.equal(initial.nodeImageTag, `${initial.imageTag}-node`)
+  assert.equal(initial.bunImageTag, `${initial.imageTag}-bun`)
   for (const next of [portableVersion('1.2.4', '4.5.6'), portableVersion('1.2.3', '4.5.7')]) {
     assert.notEqual(initial.imageTag, next.imageTag)
     assert.notEqual(initial.chartVersion, next.chartVersion)
+    assert.notEqual(initial.nodeImageTag, next.nodeImageTag)
+    assert.notEqual(initial.bunImageTag, next.bunImageTag)
   }
 })
 

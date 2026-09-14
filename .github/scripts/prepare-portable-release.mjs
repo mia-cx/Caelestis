@@ -14,6 +14,8 @@ export const portableVersion = (backend, frontend) => {
     backend,
     frontend,
     imageTag,
+    nodeImageTag: `${imageTag}-node`,
+    bunImageTag: `${imageTag}-bun`,
     chartVersion: `${backend}+frontend.${frontend}`,
     tag: `server-${imageTag}`,
   }
@@ -49,7 +51,7 @@ if (process.argv[1] && resolve(process.argv[1]) === import.meta.filename) {
   )
   writeFileSync(
     resolve(values['output-dir'], 'notes.md'),
-    `Caelestis server with backend ${identity.backend} and frontend ${identity.frontend}.\n\nImage tag: \`${identity.imageTag}\`. Chart version: \`${identity.chartVersion}\`.\n\nSee [self-hosting instructions](https://github.com/mia-riezebos/Caelestis/blob/${sha}/docs/self-hosting.md) for configuration, migrations, and backups.\n`,
+    `Caelestis server with backend ${identity.backend} and frontend ${identity.frontend}.\n\nBackend tags: \`${identity.nodeImageTag}\` (Node, also the default \`${identity.imageTag}\`) and \`${identity.bunImageTag}\` (Bun). The frontend uses Node with tag \`${identity.imageTag}\`. Runtime versions are recorded in versions.json and each image's labels.\n\nChart version: \`${identity.chartVersion}\`. The chart defaults to Node.\n\nSee [self-hosting instructions](https://github.com/mia-riezebos/Caelestis/blob/${sha}/docs/self-hosting.md) for runtime selection, migrations, and backups.\n`,
   )
   if (values['github-output'])
     appendFileSync(

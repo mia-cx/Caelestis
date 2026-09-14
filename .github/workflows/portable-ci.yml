@@ -93,6 +93,15 @@ jobs:
           pnpm test:social
           pnpm test:release
           node --test scripts/stack-tests/*.test.mjs
+      - name: Test backend and storage contracts under the pinned Bun runtime
+        run: |
+          docker create --name bun-runtime oven/bun:1.4.2-debian@sha256:4f6e31d1a54d6a3dd312daef655fc998101b5043d52e12592ac293ef04b9bc73
+          docker cp bun-runtime:/usr/local/bin/bun "$RUNNER_TEMP/bun"
+          docker rm bun-runtime
+          chmod +x "$RUNNER_TEMP/bun"
+          export PATH="$RUNNER_TEMP:$PATH"
+          test "$(bun --version)" = 1.4.2
+          pnpm --filter @caelestis/backend --filter @caelestis/storage exec bun --bun node_modules/vitest/vitest.mjs run --maxWorkers=1 --testTimeout=30000 --hookTimeout=30000
       - name: Build the Cloudflare deployment
         run: |
           pnpm --filter @caelestis/frontend build
@@ -117,16 +126,19 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
-      - name: Build the two release images once
+      - name: Build each release image once
         env:
           ARCH: ${{ matrix.arch }}
         run: |
-          for component in backend frontend; do
+          for component in backend backend-bun frontend; do
             docker buildx build --target "$component" --platform "linux/$ARCH" \
               --build-arg CAELESTIS_BUILD_ID="$GITHUB_SHA" \
               --cache-from "type=gha,scope=$component-$ARCH" \
               --cache-to "type=gha,scope=$component-$ARCH,mode=max" \
               --tag "caelestis-$component:test" --load .
+            runtime="$(docker inspect "caelestis-$component:test" --format '{{index .Config.Labels "cx.mia.caelestis.runtime"}}')"
+            version="$(docker inspect "caelestis-$component:test" --format '{{index .Config.Labels "cx.mia.caelestis.runtime.version"}}')"
+            test "$(docker run --rm --entrypoint node "caelestis-$component:test" -p "process.versions['$runtime']")" = "$version"
           done
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
@@ -146,6 +158,12 @@ jobs:
           syft-version: v1.51.1
       - uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
+          image: caelestis-backend-bun:test
+          output-file: images/backend-bun-sbom.spdx.json
+          upload-artifact: false
+          syft-version: v1.51.1
+      - uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
           image: caelestis-frontend:test
           output-file: images/frontend-sbom.spdx.json
           upload-artifact: false
@@ -155,10 +173,10 @@ jobs:
           EXTENDED: ${{ needs.matrix.outputs.extended }}
         run: |
           mkdir -p images
-          images=(caelestis-backend:test caelestis-frontend:test)
+          images=(caelestis-backend:test caelestis-backend-bun:test caelestis-frontend:test)
           if [ "$EXTENDED" = true ]; then images+=(caelestis-backend:baseline caelestis-frontend:baseline); fi
           docker save "${images[@]}" -o images/images.tar
-          docker inspect caelestis-backend:test caelestis-frontend:test > images/image-configs.json
+          docker inspect caelestis-backend:test caelestis-backend-bun:test caelestis-frontend:test > images/image-configs.json
           (cd images && sha256sum images.tar *.json > SHA256SUMS)
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -181,6 +199,7 @@ jobs:
         arch: ${{ fromJSON(needs.matrix.outputs.architectures) }}
         database: [sqlite, postgres, mariadb]
         storage: [filesystem, s3]
+        runtime: [node, bun]
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 20
     env:
@@ -204,11 +223,12 @@ jobs:
         env:
           DATABASE: ${{ matrix.database }}
           STORAGE: ${{ matrix.storage }}
-        run: node scripts/test-portable-compose.mjs caelestis-backend:test caelestis-frontend:test "$DATABASE" "$STORAGE"
+          BACKEND: ${{ matrix.runtime == 'bun' && 'caelestis-backend-bun:test' || 'caelestis-backend:test' }}
+        run: node scripts/test-portable-compose.mjs "$BACKEND" caelestis-frontend:test "$DATABASE" "$STORAGE"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
-          name: compose-${{ matrix.arch }}-${{ matrix.database }}-${{ matrix.storage }}
+          name: compose-${{ matrix.arch }}-${{ matrix.runtime }}-${{ matrix.database }}-${{ matrix.storage }}
           path: test-results/
           retention-days: 7
 
@@ -218,6 +238,7 @@ jobs:
       fail-fast: false
       matrix:
         stack: [sqlite, cnpg, mariadb]
+        runtime: [node, bun]
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
@@ -247,11 +268,12 @@ jobs:
       - name: Install and exercise the shipped Helm chart
         env:
           STACK: ${{ matrix.stack }}
-        run: node scripts/test-helm-stack.mjs caelestis-backend:test caelestis-frontend:test "$STACK"
+          BACKEND: ${{ matrix.runtime == 'bun' && 'caelestis-backend-bun:test' || 'caelestis-backend:test' }}
+        run: node scripts/test-helm-stack.mjs "$BACKEND" caelestis-frontend:test "$STACK"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
-          name: helm-${{ matrix.stack }}
+          name: helm-${{ matrix.runtime }}-${{ matrix.stack }}
           path: test-results/
           retention-days: 7
 
@@ -261,7 +283,7 @@ jobs:
       fail-fast: false
       matrix:
         arch: ${{ fromJSON(needs.matrix.outputs.architectures) }}
-        component: [backend, frontend]
+        component: [backend, backend-bun, frontend]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
