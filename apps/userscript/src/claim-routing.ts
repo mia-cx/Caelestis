@@ -148,7 +148,10 @@ export class ClaimRouter {
 
   private prune(): void {
     for (const [id, entry] of this.entries)
-      if ((entry.region.expiresAt ?? entry.region.createdAt + REGION_CLAIM_TTL_MS) <= Date.now())
+      if (
+        (entry.region.expiresAt ?? entry.region.createdAt + REGION_CLAIM_TTL_MS) <= Date.now() &&
+        (!entry.deleted || entry.copies.length === 0)
+      )
         this.entries.delete(id)
   }
 
@@ -189,7 +192,10 @@ export class ClaimRouter {
       claimant: actor,
       label: '',
       createdAt: existing?.region.createdAt ?? Date.now(),
-      expiresAt: Date.now() + REGION_CLAIM_TTL_MS,
+      expiresAt:
+        existing === undefined
+          ? Date.now() + REGION_CLAIM_TTL_MS
+          : (existing.region.expiresAt ?? existing.region.createdAt + REGION_CLAIM_TTL_MS),
     }
     if (id === null) this.draftId = region.id
     const previous = this.entries.get(region.id)
@@ -207,7 +213,7 @@ export class ClaimRouter {
     return error
   }
 
-  /** Keep a tombstone until old copies can be removed or their TTL expires. */
+  /** Keep deletion intent until every known copy is removed, even if a server renews its TTL. */
   async remove(id: string): Promise<string | null> {
     const entry = this.entries.get(id)
     if (
@@ -294,11 +300,7 @@ export class ClaimRouter {
           this.entries.set(region.id, entry)
         }
         this.rememberCopy(entry, server)
-        if (
-          !entry.deleted &&
-          region.expiresAt !== undefined &&
-          region.expiresAt > (entry.region.expiresAt ?? 0)
-        )
+        if (region.expiresAt !== undefined && region.expiresAt > (entry.region.expiresAt ?? 0))
           entry.region = { ...entry.region, expiresAt: region.expiresAt }
       }
     }

@@ -5,7 +5,7 @@ import {
   type RegionDocument,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, assert, describe, expect, it, vi } from 'vitest'
 import type { ServerTemplate } from './server-cache.js'
 import type { ConnectedServer } from './state.js'
 
@@ -152,6 +152,48 @@ describe('claim recipients', () => {
 })
 
 describe('claim replication', () => {
+  it('keeps the original expiry when editing without a renewing presence socket', async () => {
+    vi.useFakeTimers()
+    const h = setup([x])
+    await h.router.save(null, document())
+    const original = h.router.mine()[0]
+    assert(original !== undefined && original.expiresAt !== undefined)
+    vi.setSystemTime(Date.now() + REGION_CLAIM_TTL_MS - 1_000)
+    await h.router.save(original.id, document(20))
+    expect(h.router.mine()[0]?.expiresAt).toBe(original.expiresAt)
+    vi.setSystemTime(original.expiresAt + 1)
+    h.mutations.length = 0
+    h.revisions.set(x.url, 1)
+    await h.router.reconcile()
+    expect(h.router.mine()).toEqual([])
+    expect(h.mutations).toEqual([])
+  })
+
+  it('retains deletion retries across expiry and reload while a renewed copy survives', async () => {
+    vi.useFakeTimers()
+    const h = setup([x])
+    await h.router.save(null, document())
+    const original = h.router.mine()[0]
+    assert(original !== undefined && original.expiresAt !== undefined)
+    h.fail(x.url)
+    await h.router.remove(original.id)
+    const saved = structuredClone(h.persist.mock.calls.at(-1)?.[0])
+    vi.setSystemTime(original.expiresAt + 1)
+    h.remote.set(x.url, [{ ...original, expiresAt: Date.now() + REGION_CLAIM_TTL_MS }])
+    h.ownership.set(x.url, [original.id])
+    h.revisions.set(x.url, 1)
+    const resumed = new ClaimRouter(h.host, saved)
+    h.mutations.length = 0
+    await resumed.reconcile()
+    expect(resumed.mine()).toEqual([])
+    expect(h.mutations.map((mutation) => mutation.method)).toEqual(['DELETE'])
+    h.fail(null)
+    h.mutations.length = 0
+    await resumed.reconcile()
+    expect(h.mutations.map((mutation) => mutation.method)).toEqual(['DELETE'])
+    expect(h.persist.mock.calls.at(-1)?.[0][0].copies).toEqual([])
+  })
+
   it('replays a missing copy after a new authoritative server snapshot', async () => {
     const h = setup([x, y])
     await h.router.save(null, document())
