@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { acceptance, waitFor } from './stack-tests/acceptance.mjs'
+import { importWplace, verifyWplace } from './stack-tests/wplace.mjs'
 
 const [backend, frontend, database, storage] = process.argv.slice(2)
 if (
@@ -71,6 +72,23 @@ try {
     readToken: env.CAELESTIS_READ_TOKEN,
   })
   const state = await suite.seed()
+  const imported = process.env.CAELESTIS_TEST_WPLACE
+    ? await importWplace({
+        api: `${site}/backend/v1`,
+        adminToken: env.ADMIN_TOKEN,
+        filename: process.env.CAELESTIS_TEST_WPLACE,
+      })
+    : undefined
+  const verify = async () => {
+    await suite.verify(state)
+    if (imported) {
+      await verifyWplace({
+        api: `${site}/backend/v1`,
+        readToken: env.CAELESTIS_READ_TOKEN,
+        template: imported,
+      })
+    }
+  }
   if (baseline) {
     // Keep the public address stable when Compose replaces the older frontend image.
     env.CAELESTIS_HTTP_PORT = new URL(site).port
@@ -88,7 +106,7 @@ try {
     )
     compose('up', '-d', '--no-build', '--wait', '--wait-timeout', '180')
   }
-  await suite.verify(state)
+  await verify()
   const variables = JSON.parse(
     execFileSync(
       'docker',
@@ -117,7 +135,7 @@ try {
   // SIGKILL proves persistence without relying on a graceful shutdown flush.
   compose('kill', '-s', 'SIGKILL', 'backend')
   compose('up', '-d', '--no-build', '--wait', '--wait-timeout', '180')
-  await suite.verify(state)
+  await verify()
   if (process.env.CAELESTIS_TEST_EXTENDED === 'true' && database !== 'sqlite') {
     const owner = compose('ps', '-q', 'backend')
     const before = Number(
@@ -140,7 +158,7 @@ try {
         (await fetch(`${site}/api/v1/manifest`, { signal: AbortSignal.timeout(3000) })).ok,
       'database recovery',
     )
-    await suite.verify(state)
+    await verify()
   }
   compose('stop', 'backend')
   env.CAELESTIS_BACKEND_IMAGE = backend
@@ -155,11 +173,18 @@ try {
     'migrate',
   )
   compose('up', '-d', '--no-build', '--wait', '--wait-timeout', '180')
-  await suite.verify(state)
+  await verify()
   await suite.remove(state)
   writeFileSync(
     `${logs}/result.json`,
-    JSON.stringify({ database, storage, upgrade: Boolean(baseline), passed: true }),
+    JSON.stringify({
+      database,
+      storage,
+      upgrade: Boolean(baseline),
+      importedTemplate: imported?.name,
+      importedChunks: imported?.chunks.length,
+      passed: true,
+    }),
   )
   console.log(`${database}/${storage}: acceptance, ownership, crash recovery and migration passed`)
 } catch (error) {
