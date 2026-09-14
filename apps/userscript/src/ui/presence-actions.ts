@@ -1,14 +1,12 @@
 import {
   type PresencePeer,
   type PresenceRect,
-  type RegionClaim,
   type RegionDocument,
   rectCentreDistance,
   rectIntersection,
   regionDocumentBounds,
   regionDocumentPixels,
   sameTemplateSurface,
-  uuidV7,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import type { ClaimTool, PainterRowModel, PresenceSummaryModel } from '@caelestis/ui/elements'
@@ -18,28 +16,19 @@ import {
   isClaimModeActive,
   startClaimMode,
 } from '../claim-editor.js'
-import {
-  claimRegion,
-  type PresenceView,
-  presenceLiveServer,
-  presenceRegionServer,
-  presenceServers,
-  presenceView,
-  releaseRegion,
-} from '../presence-client.js'
+import { claimRouter } from '../claim-routing.js'
+import { type PresenceView, presenceServers, presenceView } from '../presence-client.js'
 import { presenceCss } from '../presence-colour.js'
 import { activeServerToken, type ConnectedServer } from '../state.js'
 import { isServerTemplate, localTemplates, type PlacedTemplate } from '../templates/local-store.js'
 import { navigateTo } from '../templates/navigate.js'
-import { accountIdentity } from '../wplace-account.js'
 import { toast } from './toast.js'
 
 /**
  * The Painters drawer and region claims, from the drawer, the rail, and the keyboard.
  *
  * The drawer lists everyone presence knows about, with a Fly to that goes to where they were last
- * seen. The editor owns drawing; this module owns what a claim means: which server it is saved
- * to, which template it happens to overlap, and how a saved claim comes back for editing.
+ * seen. The editor owns drawing; the claim router owns persistence and server recipients.
  */
 
 interface ClaimTarget {
@@ -81,15 +70,6 @@ const targetFor = (rect: PresenceRect | null): ClaimTarget | null => {
   return best
 }
 
-const serverFor = (region: RegionClaim): ConnectedServer | undefined =>
-  presenceRegionServer(region.id) ?? undefined
-
-/**
- * The one server claim mode edits: the one carrying the presence socket, else the first that
- * supports claims. Your regions there load together and are saved back as one claim.
- */
-const claimServer = (): ConnectedServer | undefined => presenceLiveServer() ?? presenceServers()[0]
-
 /** Pixel counts per document, so a list never rasterises a claim just to label it. */
 const pixelCounts = new WeakMap<RegionDocument, number>()
 
@@ -120,8 +100,7 @@ const rank = (peer: PresencePeer): number =>
   peer.draft !== null ? 0 : peer.viewport !== null ? 1 : 2
 
 /**
- * Everyone the server sent for this viewport, as the drawer lists them. That is the nearby set
- * (see the traffic budget in shared `presence.ts`), not the whole headcount in the header.
+ * The unique nearby sessions received across all connected servers, ordered for the drawer.
  */
 const painterRows = (view: PresenceView): PainterRowModel[] =>
   [...view.peers]
@@ -176,52 +155,21 @@ export const flyToPainter = (sessionId: string): boolean => {
 
 const host = (): ClaimEditorHost => ({
   templateFor: (document) => targetFor(regionDocumentBounds(document))?.template.name ?? null,
-  myRegions: () => {
-    const view = presenceView()
-    const server = claimServer()
-    return view.regions
+  myRegions: () =>
+    claimRouter()
+      .mine()
       .filter(
         (region) =>
-          region.claimant.wplaceUserId === view.me?.wplaceUserId &&
-          server !== undefined &&
-          serverFor(region)?.url === server.url,
+          sameTemplateSurface(region.surface, WORLD_TEMPLATE_SURFACE) &&
+          presenceServers().some((server) => server.season === region.season),
       )
-      .map((region) => ({ id: region.id, document: region.document }))
-  },
+      .map((region) => ({ id: region.id, document: region.document })),
   save: async (id, document) => {
-    const me = accountIdentity()
-    if (me === null) return 'Wplace identity unavailable. Sign in, then retry.'
-    // Your regions live on the claim server. An overlapping template is only a hint, and only
-    // when it lives on that same server.
-    // An existing claim stays on its own server; it is never written elsewhere.
-    const server = id === null ? claimServer() : (presenceRegionServer(id) ?? undefined)
-    if (server === undefined)
-      return id === null
-        ? 'Presence is not connected to any server.'
-        : 'The server holding that claim is not connected.'
-    const target = targetFor(regionDocumentBounds(document))
-    const hint =
-      target !== null && target.server.url === server.url
-        ? (target.template.serverTemplateId ?? null)
-        : null
-    const error = await claimRegion(server, id ?? uuidV7(), {
-      templateId: hint,
-      document,
-      label: '',
-      actor: me,
-    })
+    const error = await claimRouter().save(id, document)
     if (error === null) toast(`Saved your regions: ${documentName(document)}.`)
     return error
   },
-  remove: async (id) => {
-    const me = accountIdentity()
-    if (me === null) return 'Wplace identity unavailable. Sign in, then retry.'
-    const region = presenceView().regions.find((held) => held.id === id)
-    if (region === undefined) return 'That claim is gone already.'
-    const server = serverFor(region)
-    if (server === undefined) return 'That claim belongs to a server that is no longer connected.'
-    return releaseRegion(server, id, me)
-  },
+  remove: (id) => claimRouter().remove(id),
   changed: () => rerenderPanel?.(),
 })
 
@@ -232,15 +180,22 @@ export const installClaimToolHost = (): void => {
 
 const ready = (): boolean => {
   const view = presenceView()
-  const server = claimServer()
+  const servers = presenceServers()
+  const seasonsAgree =
+    new Set(
+      servers.filter((server) => activeServerToken(server) !== null).map((server) => server.season),
+    ).size === 1
+  const server = servers.find((server) => activeServerToken(server) !== null) ?? servers[0]
   const token = server === undefined ? null : activeServerToken(server)
-  if (view.connected && view.me !== null && token !== null) return true
+  if (view.connected && view.me !== null && token !== null && seasonsAgree) return true
   message =
     view.me === null
       ? 'Sign in to Wplace to claim regions.'
       : !view.connected || server === undefined
         ? 'Connect to a server that supports painter presence to claim regions.'
-        : `Add your access token for ${server.info?.name ?? server.url} to claim regions.`
+        : !seasonsAgree
+          ? 'Connect servers for the same season, then retry.'
+          : `Add your access token for ${server.info?.name ?? server.url} to claim regions.`
   toast(message, 'error')
   rerenderPanel?.()
   return false

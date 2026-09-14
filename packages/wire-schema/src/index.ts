@@ -200,6 +200,7 @@ export const PresenceClientEvent = Schema.Union([
 ])
 
 export const PresencePeer = Schema.Struct({
+  publisherId: Schema.optionalKey(Identifier),
   sessionId: PresenceSessionId,
   painter: PresenceIdentity,
   viewport: Schema.NullOr(PresenceRect),
@@ -286,6 +287,7 @@ export const RegionDocument = Schema.Struct({
 }).check(booleanFilter(isRegionDocument, 'invalid region document'))
 
 export const RegionClaim = Schema.Struct({
+  expiresAt: Schema.optionalKey(integerBetween(0, Number.MAX_SAFE_INTEGER)),
   id: Identifier,
   season: Season,
   surface: TemplateSurface,
@@ -309,11 +311,18 @@ export const PresenceOnline = Schema.Struct({ online: NonNegativeInteger })
 
 export const PresenceServerEvent = Schema.Union([
   Schema.Struct({
+    type: Schema.Literal('claims-renewed'),
+    expiresAt: integerBetween(0, Number.MAX_SAFE_INTEGER),
+    ids: boundedArray(Identifier, MAX_PRESENCE_REGIONS),
+  }),
+  Schema.Struct({
     type: Schema.Literal('presence-ready'),
     sessionId: PresenceSessionId,
     online: integerBetween(0, MAX_PRESENCE_SUBSCRIBERS),
     peers: boundedArray(PresencePeer, MAX_PRESENCE_PEERS),
     regions: boundedArray(RegionClaim, MAX_PRESENCE_REGIONS),
+    ownedRegionIds: Schema.optionalKey(boundedArray(Identifier, MAX_PRESENCE_REGIONS)),
+    canWrite: Schema.optionalKey(Schema.Boolean),
   }),
   Schema.Struct({
     type: Schema.Literal('presence-delta'),
@@ -324,6 +333,7 @@ export const PresenceServerEvent = Schema.Union([
   Schema.Struct({
     type: Schema.Literal('regions'),
     regions: boundedArray(RegionClaim, MAX_PRESENCE_REGIONS),
+    ownedRegionIds: Schema.optionalKey(boundedArray(Identifier, MAX_PRESENCE_REGIONS)),
   }),
 ])
 

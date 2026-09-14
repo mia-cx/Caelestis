@@ -17,6 +17,7 @@ import {
   type PresenceServerEvent,
   padRect,
   quantiseRect,
+  REGION_CLAIM_TTL_MS,
   type RegionClaim,
   rectCentreDistance,
   rectsIntersect,
@@ -40,6 +41,14 @@ interface Attachment extends PresenceConnection {
   readonly draftPixels: number
   readonly lastSeenAt: number
   readonly closed?: boolean
+  readonly renewedAt?: number
+}
+
+const CLAIM_RENEW_INTERVAL_MS = 60 * 60 * 1_000
+interface RegionExpiry {
+  readonly season: number
+  readonly surface: TemplateSurface
+  readonly at: number | null
 }
 
 const natural = (text: string | null): number | null => {
@@ -108,6 +117,7 @@ export class PresenceCoordinator<Client> {
     const mask = this.masks.get(attachment.sessionId)
     return {
       sessionId: attachment.sessionId,
+      ...(attachment.publisherId === undefined ? {} : { publisherId: attachment.publisherId }),
       painter: attachment.painter,
       viewport: attachment.viewport,
       draft:
@@ -158,17 +168,24 @@ export class PresenceCoordinator<Client> {
   private async armAlarm(): Promise<void> {
     const alarm = await this.state.storage.getAlarm()
     const sockets = this.sockets()
-    if (sockets.length === 0) {
+    const regionExpiry = await this.state.storage.get<RegionExpiry>('region-expiry')
+    const expiresAt = Math.min(
+      ...sockets.map((socket) => this.attachment(socket).lastSeenAt + PRESENCE_STALE_MS),
+      regionExpiry?.at ?? Number.POSITIVE_INFINITY,
+    )
+    if (!Number.isFinite(expiresAt)) {
       if (alarm !== null) await this.state.storage.deleteAlarm()
       return
     }
-    const expiresAt =
-      Math.min(...sockets.map((socket) => this.attachment(socket).lastSeenAt)) + PRESENCE_STALE_MS
-    if (alarm === null || expiresAt < alarm) await this.state.storage.setAlarm(expiresAt)
+    if (alarm === null || alarm <= Date.now() || expiresAt < alarm)
+      await this.state.storage.setAlarm(expiresAt)
   }
 
   /** Expire idle sessions after hibernation and schedule the next stale sweep. */
   async alarm(): Promise<void> {
+    const expiry = await this.state.storage.get<RegionExpiry>('region-expiry')
+    if (expiry?.at != null && expiry.at <= Date.now())
+      await this.publishRegions(expiry.season, expiry.surface)
     await this.tick()
   }
 
@@ -188,6 +205,24 @@ export class PresenceCoordinator<Client> {
           this.close(socket, 1000, 'presence stale')
       }
       const sockets = this.sockets()
+      for (const socket of sockets) {
+        const held = this.attachment(socket)
+        if (held.anonymous || now - (held.renewedAt ?? 0) < CLAIM_RENEW_INTERVAL_MS) continue
+        // A valid heartbeat/update has kept this session alive. Ownership always uses both keys,
+        // including for administrators; connecting must never renew another painter's claims.
+        const renewed = await this.sql.regions.renewRegions(
+          held.tokenHash,
+          held.painter.wplaceUserId,
+          now,
+        )
+        socket.serializeAttachment({ ...held, renewedAt: now } satisfies Attachment)
+        if (renewed)
+          this.send(socket, {
+            type: 'claims-renewed',
+            expiresAt: now + REGION_CLAIM_TTL_MS,
+            ids: await this.ownedRegionIds(held),
+          })
+      }
       const peers = sockets.map((socket) => this.peer(this.attachment(socket)))
       const dirty = new Set(this.dirty)
       this.dirty.clear()
@@ -205,6 +240,8 @@ export class PresenceCoordinator<Client> {
             online: sockets.length,
             peers: relevant,
             regions,
+            ownedRegionIds: await this.ownedRegionIds(subscriber),
+            canWrite: subscriber.credentialScope !== 'read' && !subscriber.anonymous,
           })
           continue
         }
@@ -261,6 +298,7 @@ export class PresenceCoordinator<Client> {
     const painter = { wplaceUserId: natural(headers.get('x-caelestis-painter-id')), displayName }
     const tokenHash = headers.get('x-caelestis-token-hash')
     const clientHash = headers.get('x-caelestis-client-hash')
+    const publisherId = headers.get('x-caelestis-publisher-id')
     const credentialScope = headers.get('x-caelestis-credential-scope')
     const anonymous = headers.get('x-caelestis-anonymous')
     const revocable = headers.get('x-caelestis-revocable')
@@ -273,6 +311,10 @@ export class PresenceCoordinator<Client> {
       !/^[0-9a-f]{64}$/.test(tokenHash) ||
       clientHash === null ||
       !/^[0-9a-f]{64}$/.test(clientHash) ||
+      (publisherId !== null &&
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+          publisherId,
+        )) ||
       (credentialScope !== 'read' && credentialScope !== 'report' && credentialScope !== 'admin') ||
       (anonymous !== '0' && anonymous !== '1') ||
       (revocable !== '0' && revocable !== '1')
@@ -296,8 +338,11 @@ export class PresenceCoordinator<Client> {
           const token = await this.sql.readAccessToken(tokenHash)
           if (token === null || token.scope !== credentialScope) return false
         }
+        if (anonymous === '0')
+          await this.sql.regions.renewRegions(tokenHash, painter.wplaceUserId, Date.now())
         // Share the fence with region publication so ready cannot arrive after a newer regions event.
         regions = await this.sql.regions.listRegions(season, surface)
+        await this.rememberRegionExpiry(season, surface, regions)
         return true
       },
       async () => {
@@ -311,6 +356,7 @@ export class PresenceCoordinator<Client> {
           painter,
           tokenHash,
           clientHash,
+          ...(publisherId === null ? {} : { publisherId }),
           credentialScope,
           anonymous: anonymous === '1',
           revocable: revocable === '1',
@@ -320,6 +366,7 @@ export class PresenceCoordinator<Client> {
           draftRect: null,
           draftPixels: 0,
           lastSeenAt: Date.now(),
+          renewedAt: Date.now(),
         }
         const pair = this.state.connect(attachment)
         const sockets = this.sockets()
@@ -335,6 +382,8 @@ export class PresenceCoordinator<Client> {
           online: sockets.length,
           peers,
           regions,
+          ownedRegionIds: await this.ownedRegionIds(attachment),
+          canWrite: credentialScope !== 'read' && anonymous === '0',
         })
         this.dirty.add(sessionId)
         this.armTick()
@@ -444,8 +493,46 @@ export class PresenceCoordinator<Client> {
   async publishRegions(season: number, surface: TemplateSurface): Promise<void> {
     await this.sessions.revoke(async () => {
       const regions = await this.sql.regions.listRegions(season, surface)
-      for (const socket of this.sockets()) this.send(socket, { type: 'regions', regions })
+      await this.rememberRegionExpiry(season, surface, regions)
+      const owners = await this.sql.regions.regionOwners(season, surface)
+      for (const socket of this.sockets()) {
+        const attachment = this.attachment(socket)
+        const ownedRegionIds = attachment.anonymous
+          ? []
+          : owners
+              .filter(
+                ({ tokenHash, actorId }) =>
+                  tokenHash === attachment.tokenHash && actorId === attachment.painter.wplaceUserId,
+              )
+              .map(({ id }) => id)
+        this.send(socket, { type: 'regions', regions, ownedRegionIds })
+      }
+      await this.armAlarm()
     })
+  }
+
+  private async ownedRegionIds(attachment: Attachment): Promise<readonly string[]> {
+    if (attachment.anonymous) return []
+    const owners = await this.sql.regions.regionOwners(attachment.season, attachment.surface)
+    return owners
+      .filter(
+        ({ tokenHash, actorId }) =>
+          tokenHash === attachment.tokenHash && actorId === attachment.painter.wplaceUserId,
+      )
+      .map(({ id }) => id)
+  }
+
+  private async rememberRegionExpiry(
+    season: number,
+    surface: TemplateSurface,
+    regions: readonly RegionClaim[],
+  ): Promise<void> {
+    const at = Math.min(...regions.map((region) => region.expiresAt ?? Number.POSITIVE_INFINITY))
+    await this.state.storage.put('region-expiry', {
+      season,
+      surface,
+      at: Number.isFinite(at) ? at : null,
+    } satisfies RegionExpiry)
   }
 
   /** Fence revocation against the second D1 credential check and socket acceptance. */

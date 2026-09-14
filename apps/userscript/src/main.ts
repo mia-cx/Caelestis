@@ -11,6 +11,7 @@ import {
   stopClaimMode,
   syncClaimEditorFrame,
 } from './claim-editor.js'
+import { installClaimRouting } from './claim-routing.js'
 import {
   canvasPixelAtIn,
   createScreenProjectionCache,
@@ -412,6 +413,7 @@ const main = (): void => {
   // socket itself is throttled inside, so feeding it every frame costs a rect comparison.
   step('presence', () => {
     installPresence()
+    installClaimRouting()
     onPresenceChange(() => {
       repaintPresence()
       repaint()

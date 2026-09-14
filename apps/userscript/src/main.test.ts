@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('./templates/personal-sync.js', () => ({ installPersonalTemplates: vi.fn() }))
+vi.mock('./claim-routing.js', () => ({ installClaimRouting: vi.fn() }))
 
 const harness = vi.hoisted(() => ({
   tileFrame: null as ((frame: unknown) => void) | null,

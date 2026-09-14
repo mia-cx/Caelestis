@@ -255,6 +255,7 @@ export const openNodeRuntime = async (
         return
       }
       if (actor === 'gc') {
+        await sql.regions.expireRegions(Date.now())
         await runTileBlobGc(stores, { mode: config.tileGc })
         await state(actor).setAlarm(Date.now() + MIRROR_INTERVAL_MS)
         return

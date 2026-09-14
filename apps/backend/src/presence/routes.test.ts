@@ -118,6 +118,14 @@ describe('presence online route', () => {
 })
 
 describe('presence upgrade route', () => {
+  it('rejects malformed publisher IDs without changing client admission', async () => {
+    const h = await setup()
+    expect(
+      (await h.request(`season=0&painterId=1&painterName=Mia&clientId=${uuidV7()}&publisherId=bad`))
+        .status,
+    ).toBe(400)
+  })
+
   it('authenticates the protocol token, forwards identity and metrics, and advertises presence', async () => {
     const h = await setup()
     expect(

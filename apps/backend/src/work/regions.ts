@@ -2,6 +2,7 @@ import {
   isRegionDocument,
   MAX_PRESENCE_REGION_PIXELS,
   type PainterIdentity,
+  REGION_CLAIM_TTL_MS,
   type RegionClaim,
   type RegionClaimRequest,
   regionDocumentBounds,
@@ -28,10 +29,24 @@ const storage = <A>(run: () => Promise<A>) =>
   })
 
 /** List a bounded surface or template's region claims. */
-export const listRegions = (season: number, surface: TemplateSurface, templateId?: string) =>
+export const listRegions = (
+  season: number,
+  surface: TemplateSurface,
+  templateId?: string,
+  owner?: { caller: Caller; actorId: number },
+) =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
-    return yield* storage(() => sql.regions.listRegions(season, surface, templateId))
+    const regions = yield* storage(() => sql.regions.listRegions(season, surface, templateId))
+    if (owner === undefined) return { regions }
+    const owners = yield* storage(() => sql.regions.regionOwners(season, surface))
+    const ownedRegionIds = owners
+      .filter(
+        ({ tokenHash, actorId }) =>
+          tokenHash === owner.caller.tokenHash && actorId === owner.actorId,
+      )
+      .map(({ id }) => id)
+    return { regions, ownedRegionIds, canWrite: owner.caller.scope !== 'read' }
   })
 
 /** Create a credential-owned claim or update its content and template hint as its owner or an administrator. */
@@ -92,6 +107,7 @@ export const putRegion = (
         rect,
         label: request.label,
         createdAt: Date.now(),
+        expiresAt: Date.now() + REGION_CLAIM_TTL_MS,
       }
       inserted = yield* storage(() => sql.regions.createRegion(created, caller.tokenHash))
       region = inserted ? created : yield* storage(() => sql.regions.readRegion(id))

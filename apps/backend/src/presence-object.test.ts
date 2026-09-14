@@ -10,6 +10,7 @@ import {
   PRESENCE_STALE_MS,
   PRESENCE_TICK_MS,
   type PresenceServerEvent,
+  REGION_CLAIM_TTL_MS,
   type RegionClaim,
   type RegionDocument,
   type RegionShape,
@@ -117,8 +118,13 @@ beforeEach(() => {
   database = new SqliteD1Database()
   sockets = []
   let alarm: number | null = null
+  const records = new Map<string, unknown>()
   state = {
     storage: {
+      get: vi.fn(async (key: string) => records.get(key)),
+      put: vi.fn(async (key: string, value: unknown) => {
+        records.set(key, value)
+      }),
       getAlarm: vi.fn(async () => alarm),
       setAlarm: vi.fn(async (at: number) => {
         alarm = at
@@ -141,6 +147,90 @@ afterEach(() => {
 })
 
 describe('presence room', () => {
+  it('sends hourly claim renewal only to its owner without broadcasting documents', async () => {
+    const a = await attach()
+    const b = await attach({ 'x-caelestis-painter-id': '2' })
+    const store = new D1SqlStore(database as unknown as D1Database)
+    const id = uuidV7()
+    await store.regions.createRegion(
+      {
+        id,
+        season: 0,
+        surface: WORLD_TEMPLATE_SURFACE,
+        templateId: null,
+        claimant: { wplaceUserId: 1, displayName: 'Mia' },
+        document: { items: [{ id: 'shape', op: 'add', shape: { kind: 'rectangle', ...rect(0) } }] },
+        rect: rect(0),
+        label: '',
+        createdAt: Date.now(),
+        expiresAt: Date.now() + REGION_CLAIM_TTL_MS,
+      },
+      'a'.repeat(64),
+    )
+    await tick()
+    a.send.mockClear()
+    b.send.mockClear()
+    vi.setSystemTime(Date.now() + 60 * 60 * 1000)
+    object.webSocketMessage(asWebSocket(a), JSON.stringify({ type: 'presence-heartbeat' }))
+    object.webSocketMessage(asWebSocket(b), JSON.stringify({ type: 'presence-heartbeat' }))
+    await tick()
+    expect(a.events()).toEqual([
+      { type: 'claims-renewed', expiresAt: Date.now() + REGION_CLAIM_TTL_MS, ids: [id] },
+    ])
+    expect(b.events()).toEqual([])
+  })
+
+  it('expires claims from a persisted alarm with no connected sockets', async () => {
+    const store = new D1SqlStore(database as unknown as D1Database)
+    const id = uuidV7()
+    await store.regions.createRegion(
+      {
+        id,
+        season: 0,
+        surface: WORLD_TEMPLATE_SURFACE,
+        templateId: null,
+        claimant: { wplaceUserId: 1, displayName: 'Mia' },
+        document: { items: [{ id: 'shape', op: 'add', shape: { kind: 'rectangle', ...rect(0) } }] },
+        rect: rect(0),
+        label: '',
+        createdAt: Date.now(),
+        expiresAt: Date.now() + 1000,
+      },
+      'a'.repeat(64),
+    )
+    const first = await store.regions.readRegion(id)
+    if (first === null) throw new Error('Expected claim')
+    const secondId = uuidV7()
+    await store.regions.createRegion(
+      { ...first, id: secondId, expiresAt: Date.now() + 2000 },
+      'a'.repeat(64),
+    )
+    await object.publishRegions(0, WORLD_TEMPLATE_SURFACE)
+    expect(await state.storage.getAlarm()).toBe(Date.now() + 1000)
+    object = new PresenceObject(state, { DB: database } as unknown as Env)
+    await vi.advanceTimersByTimeAsync(1000)
+    await object.alarm()
+    expect(await store.regions.readRegion(id)).toBeNull()
+    expect(await state.storage.getAlarm()).toBe(Date.now() + 1000)
+    await vi.advanceTimersByTimeAsync(1000)
+    await object.alarm()
+    expect(await store.regions.readRegion(secondId)).toBeNull()
+    expect(await state.storage.getAlarm()).toBeNull()
+  })
+
+  it('relays publisher identity while retaining separate server session IDs', async () => {
+    const publisherId = uuidV7()
+    const a = await attach({ 'x-caelestis-publisher-id': publisherId })
+    const b = await attach({ 'x-caelestis-painter-id': '2' })
+    await update(a, { viewport: rect(0) })
+    await update(b, { viewport: rect(0) })
+    await tick()
+    const event = b.events().at(-1)
+    expect(event).toMatchObject({ type: 'presence-delta', upsert: [{ publisherId }] })
+    if (event?.type !== 'presence-delta') throw new Error('Expected delta')
+    expect(event.upsert[0]?.sessionId).not.toBe(publisherId)
+  })
+
   it('counts open sockets after hibernation without scheduling, sending, or reading D1', async () => {
     expect(await object.online()).toBe(0)
     const observer = await attach({ 'x-caelestis-credential-scope': 'read' })
@@ -441,8 +531,18 @@ describe('presence room', () => {
       { tokenHash: 'a'.repeat(64), actorId: 1, admin: false },
     )
     await object.publishRegions(0, WORLD_TEMPLATE_SURFACE)
-    expect(b.events().at(-1)).toEqual({ type: 'regions', regions: [updated] })
-    expect(updated).toEqual({ ...region, document: nextDocument, rect: rect(0), label: 'Updated' })
+    expect(b.events().at(-1)).toEqual({
+      type: 'regions',
+      regions: [updated],
+      ownedRegionIds: [region.id],
+    })
+    expect(updated).toEqual({
+      ...region,
+      expiresAt: expect.any(Number),
+      document: nextDocument,
+      rect: rect(0),
+      label: 'Updated',
+    })
     object.webSocketError(asWebSocket(a))
     await tick()
     expect(b.events().at(-1)).toMatchObject({ online: 1, remove: [expect.any(String)] })

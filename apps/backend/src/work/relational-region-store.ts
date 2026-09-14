@@ -2,18 +2,19 @@ import {
   isRegionDocument,
   isRegionShape,
   MAX_PRESENCE_REGIONS,
+  REGION_CLAIM_TTL_MS,
   type RegionClaim,
   type RegionDocument,
   regionDocumentBounds,
   type TemplateSurface,
   templateSurface,
 } from '@caelestis/shared'
-import { and, asc, eq, isNull, or, sql } from 'drizzle-orm'
+import { and, asc, eq, gt, isNotNull, isNull, lte, or, sql } from 'drizzle-orm'
 import { changedRows, relationalDatabase } from '../adapters/relational-database.js'
 import type { SqlConnection } from '../adapters/sql-connection.js'
 import { sqlDialect } from '../adapters/sql-dialect.js'
 import { workRegions } from '../db/schema.js'
-import type { RegionStore, RegionWriter } from './region-store.js'
+import type { RegionOwner, RegionStore, RegionWriter } from './region-store.js'
 
 const ownedBy = (writer: RegionWriter) =>
   writer.admin
@@ -55,6 +56,7 @@ const fromRow = (row: typeof workRegions.$inferSelect): RegionClaim => {
     rect,
     label: row.label,
     createdAt: row.createdAt,
+    expiresAt: row.expiresAt ?? row.createdAt + REGION_CLAIM_TTL_MS,
   }
 }
 
@@ -65,11 +67,62 @@ export class RelationalRegionStore implements RegionStore {
     this.db = relationalDatabase(client)
   }
 
+  async expireRegions(now: number): Promise<void> {
+    // Older binaries can still insert without expiry between migration and replacement.
+    await this.db
+      .update(workRegions)
+      .set({ expiresAt: sql`${workRegions.createdAt} + ${REGION_CLAIM_TTL_MS}` })
+      .where(isNull(workRegions.expiresAt))
+      .run()
+    await this.db.delete(workRegions).where(lte(workRegions.expiresAt, now)).run()
+  }
+
+  async regionOwners(season: number, surface: TemplateSurface): Promise<readonly RegionOwner[]> {
+    const rows = await this.db
+      .select({
+        id: workRegions.id,
+        tokenHash: workRegions.tokenHash,
+        actorId: workRegions.claimantUserId,
+      })
+      .from(workRegions)
+      .where(
+        and(
+          eq(workRegions.season, season),
+          eq(workRegions.surfaceKind, surface.kind),
+          surface.allianceId === null
+            ? isNull(workRegions.allianceId)
+            : eq(workRegions.allianceId, surface.allianceId),
+          isNotNull(workRegions.tokenHash),
+        ),
+      )
+      .limit(MAX_PRESENCE_REGIONS)
+    return rows.flatMap((row) =>
+      row.tokenHash === null ? [] : [{ ...row, tokenHash: row.tokenHash }],
+    )
+  }
+
+  async renewRegions(tokenHash: string, actorId: number, now: number): Promise<boolean> {
+    await this.expireRegions(now)
+    const result = await this.db
+      .update(workRegions)
+      .set({ expiresAt: now + REGION_CLAIM_TTL_MS })
+      .where(
+        and(
+          eq(workRegions.tokenHash, tokenHash),
+          eq(workRegions.claimantUserId, actorId),
+          gt(workRegions.expiresAt, now),
+        ),
+      )
+      .run()
+    return changedRows(result) > 0
+  }
+
   async listRegions(
     season: number,
     surface: TemplateSurface,
     templateId?: string,
   ): Promise<readonly RegionClaim[]> {
+    await this.expireRegions(Date.now())
     const rows = await this.db
       .select()
       .from(workRegions)
@@ -89,18 +142,20 @@ export class RelationalRegionStore implements RegionStore {
   }
 
   async readRegion(id: string): Promise<RegionClaim | null> {
+    await this.expireRegions(Date.now())
     const [row] = await this.db.select().from(workRegions).where(eq(workRegions.id, id)).limit(1)
     return row === undefined ? null : fromRow(row)
   }
 
   async createRegion(region: RegionClaim, tokenHash: string | null): Promise<boolean> {
+    await this.expireRegions(Date.now())
     const { surface, document, claimant } = region
     const rect = regionDocumentBounds(document)
     if (rect === null) throw new Error('Region document must contain an added shape')
     const result = await this.client
       .prepare(`INSERT INTO work_regions
-      (id, season, surface_kind, alliance_id, template_id, claimant_user_id, claimant_name, x, y, w, h, label, created_at, shape, token_hash)
-      SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+      (id, season, surface_kind, alliance_id, template_id, claimant_user_id, claimant_name, x, y, w, h, label, created_at, shape, token_hash, expires_at)
+      SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
       WHERE (SELECT COUNT(*) FROM work_regions WHERE season = ? AND surface_kind = ? AND alliance_id ${sqlDialect(this.client.dialect).nullEqual} ?) < ?
       ON CONFLICT(id) DO NOTHING`)
       .bind(
@@ -119,6 +174,7 @@ export class RelationalRegionStore implements RegionStore {
         region.createdAt,
         JSON.stringify(document),
         tokenHash,
+        region.expiresAt ?? Date.now() + REGION_CLAIM_TTL_MS,
         region.season,
         surface.kind,
         surface.allianceId,
@@ -145,6 +201,7 @@ export class RelationalRegionStore implements RegionStore {
   ): Promise<RegionClaim | null> {
     const rect = regionDocumentBounds(document)
     if (rect === null) throw new Error('Region document must contain an added shape')
+    await this.expireRegions(Date.now())
     const update = this.db
       .update(workRegions)
       .set({

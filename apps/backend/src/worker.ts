@@ -162,6 +162,7 @@ export default {
       }),
     )
     ctx.waitUntil(runTileBlobGc(stores, { mode: gcMode }).then(() => undefined))
+    ctx.waitUntil(stores.sql.regions.expireRegions(Date.now()))
   },
 } satisfies ExportedHandler<Env>
 
