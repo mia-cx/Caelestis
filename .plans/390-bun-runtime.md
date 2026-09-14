@@ -19,7 +19,7 @@ Keep Node as the default image and frontend runtime.
 - [x] Add the pinned Bun production image and validate packaged runtime compatibility.
 - [x] Extend tested-image CI and release publication with versioned Node/Bun variants.
 - [x] Implement native Bun HTTP and WebSocket transport with shared contract tests.
-- [ ] Use native Bun data APIs where they satisfy database and object-storage contracts.
+- [x] Use native Bun data APIs where they satisfy database and object-storage contracts.
 - [ ] Document runtime selection and verify Compose and Helm recovery across adapters.
 - [ ] Add matched production-image benchmarking and record k3s acceptance and 256-user results.
 - [ ] Complete repository checks and prepare the pull request.
@@ -37,3 +37,6 @@ Keep Node as the default image and frontend runtime.
 - TODO 2: CI builds/scans/archives three images, runs both backend runtimes through Compose and Helm, and verifies executable versions against labels. Publication retains tested image identities and adds Node/Bun tags, SBOMs, digests, and runtime metadata. Release-version tests (2) and actionlint 1.7.12 passed.
 - TODO 3: Bun.serve now handles HTTP and native WebSockets. Both transports share HTTP routing and bounded coordinator queues. The Bun backend suite passed 827 tests (10 service-dependent skips), Node/native Bun transport tests passed, and backend check/build passed. The native image passed SQLite/filesystem Compose acceptance. SQLite/S3 did not start because Quay returned 504 twice; retry during storage validation. Pinned dependency pulls now reuse cached digests.
 - Bun types compile separately because their ambient fetch/Request declarations conflict with Cloudflare types. The separate Node frontend remains the supported Bun deployment pairing.
+- TODO 4: Native bun:sqlite uses cached statements through the same SQLite migration/transaction adapter. Bun passed all 1,036 backend tests with PostgreSQL and MariaDB enabled. Node's focused SQLite/server tests and separate TypeScript checks also pass.
+- Mia requires runtime differences behind adapters with one canonical server implementation. An isolated Bun.SQL trial passed its 12 narrow driver tests but failed 16/432 full contracts: JSON parameters double-encoded, DECIMAL/NUMERIC results became strings, and error identifiers differed. The API exposes no result-column type metadata for safe generic normalization. Keep pg/mariadb drivers; trial evidence is in test-results/bun-sql-exploration. See https://bun.com/docs/runtime/sql and https://github.com/oven-sh/bun/issues/28819.
+- Bun 1.4.2 S3 options lack custom metadata and conditional PUT headers. Keep the shared AWS SDK adapter so ifAbsent remains atomic and object metadata survives Node/Bun switches. Filesystem atomic rename/link/fsync and worker_threads use Bun's implementations of the existing APIs. See https://bun.com/docs/runtime/s3 and the pinned bun-types/s3.d.ts.

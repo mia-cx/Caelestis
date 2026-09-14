@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
-import { SqliteConnection } from './sqlite-connection.js'
+import { sqliteConnection } from '../../node/database.js'
 
 const directories: string[] = []
 afterEach(() => {
@@ -13,7 +13,7 @@ it('persists committed batches across reopen and rolls back failed batches', asy
   const directory = mkdtempSync(join(tmpdir(), 'caelestis-sqlite-'))
   directories.push(directory)
   const filename = join(directory, 'db.sqlite')
-  const first = new SqliteConnection(filename)
+  const first = sqliteConnection(filename)
   await first.prepare('CREATE TABLE items (id TEXT PRIMARY KEY)').run()
   await first.batch([first.prepare('INSERT INTO items VALUES (?)').bind('accepted')])
   await expect(
@@ -23,7 +23,7 @@ it('persists committed batches across reopen and rolls back failed batches', asy
     ]),
   ).rejects.toThrow()
   first.close()
-  const second = new SqliteConnection(filename)
+  const second = sqliteConnection(filename)
   try {
     expect((await second.prepare('SELECT * FROM items').all()).results).toEqual([
       { id: 'accepted' },
@@ -36,7 +36,7 @@ it('persists committed batches across reopen and rolls back failed batches', asy
 it('rejects changed migrations and leaves failed migrations unapplied', () => {
   const directory = mkdtempSync(join(tmpdir(), 'caelestis-migrations-'))
   directories.push(directory)
-  const database = new SqliteConnection(':memory:')
+  const database = sqliteConnection(':memory:')
   try {
     writeFileSync(join(directory, '0001.sql'), 'CREATE TABLE items (id TEXT PRIMARY KEY);')
     database.migrate(directory)
@@ -54,7 +54,7 @@ it('rejects changed migrations and leaves failed migrations unapplied', () => {
 })
 
 it('keeps unrelated requests outside a transaction that yields and rolls back', async () => {
-  const database = new SqliteConnection(':memory:')
+  const database = sqliteConnection(':memory:')
   try {
     await database.prepare('CREATE TABLE items (id TEXT PRIMARY KEY)').run()
     let entered: () => void = () => {}

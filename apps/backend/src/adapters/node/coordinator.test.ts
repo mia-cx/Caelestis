@@ -6,6 +6,7 @@ import { millis, seconds } from '@caelestis/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DurableScheduler } from '../../coordination/scheduler.js'
 import { TelemetryCoordinator } from '../../coordination/telemetry.js'
+import { sqliteConnection } from '../../node/database.js'
 import type { SqlStore } from '../../ports/index.js'
 import { createChunkedStatusPersistence } from '../../status-coordinator.js'
 import { MemorySqlStore } from '../memory/memory-sql-store.js'
@@ -14,7 +15,6 @@ import { coordinatorDatabase } from './coordinator-database.js'
 import { SqlCoordinatorStorage } from './coordinator-storage.js'
 import { mariaTestDatabase } from './mariadb.test-helper.js'
 import { PostgresConnection } from './postgres-connection.js'
-import { SqliteConnection } from './sqlite-connection.js'
 
 type Harness = {
   connection: TransactionalSqlConnection
@@ -26,12 +26,12 @@ const adapters: { name: string; make(): Promise<Harness> }[] = [
     name: 'SQLite',
     async make() {
       const directory = await mkdtemp(join(tmpdir(), 'caelestis-coordinator-'))
-      let connection = new SqliteConnection(join(directory, 'db.sqlite'))
+      let connection = sqliteConnection(join(directory, 'db.sqlite'))
       return {
         connection,
         async reopen() {
           connection.close()
-          connection = new SqliteConnection(join(directory, 'db.sqlite'))
+          connection = sqliteConnection(join(directory, 'db.sqlite'))
           return connection
         },
         async close() {

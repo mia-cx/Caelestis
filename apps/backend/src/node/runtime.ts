@@ -13,7 +13,7 @@ import { coordinatorDatabase } from '../adapters/node/coordinator-database.js'
 import { SqlCoordinatorStorage } from '../adapters/node/coordinator-storage.js'
 import { MariaConnection } from '../adapters/node/mariadb-connection.js'
 import { PostgresConnection } from '../adapters/node/postgres-connection.js'
-import { SqliteConnection } from '../adapters/node/sqlite-connection.js'
+import type { SqliteConnection } from '../adapters/node/sqlite-connection.js'
 import { claimSqliteOwnership } from '../adapters/node/sqlite-ownership.js'
 import { ObjectBlobStore } from '../adapters/object-blob-store.js'
 import { RelationalSqlStore } from '../adapters/relational-sql-store.js'
@@ -32,6 +32,7 @@ import { StatusCoordinator } from '../status-coordinator.js'
 import { fetchCanvasTiles } from '../telemetry/fetcher.js'
 import { runTileBlobGc } from '../telemetry/tile-blobs.js'
 import type { NodeConfig } from './config.js'
+import { sqliteConnection } from './database.js'
 import { NodeLiveHost } from './live.js'
 
 const MIRROR_INTERVAL_MS = 6 * 60 * 60 * 1000
@@ -55,7 +56,7 @@ export const openNodeRuntime = async (
         ? new MariaConnection(config.maria)
         : config.adapter === 'postgres'
           ? new PostgresConnection(config.pg)
-          : new SqliteConnection(config.databaseFile)
+          : sqliteConnection(config.databaseFile)
   } catch (error) {
     releaseSqlite?.()
     throw error

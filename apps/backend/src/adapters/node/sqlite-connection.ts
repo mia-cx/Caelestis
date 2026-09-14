@@ -1,17 +1,16 @@
 import { createHash } from 'node:crypto'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
+import type { SqliteDatabase, SqliteValue } from '../database-driver.js'
 import type {
   SqlConnection,
   SqlResult,
   SqlStatement,
   TransactionalSqlConnection,
 } from '../sql-connection.js'
+import { nodeSqliteDatabase } from './sqlite-driver.js'
 
-type Value = null | number | bigint | string | NodeJS.ArrayBufferView
-
-const binding = (value: unknown): Value => {
+const binding = (value: unknown): SqliteValue => {
   if (
     value === null ||
     typeof value === 'string' ||
@@ -28,7 +27,7 @@ class Statement implements SqlStatement {
   constructor(
     readonly owner: SqliteConnection,
     readonly query: string,
-    readonly values: Value[] = [],
+    readonly values: SqliteValue[] = [],
     readonly direct = false,
   ) {}
 
@@ -56,20 +55,18 @@ class Statement implements SqlStatement {
   }
   async raw<T>(): Promise<T[]> {
     return this.owner.exclusive(() => {
-      const statement = this.owner.sqlite.prepare(this.query)
-      statement.setReturnArrays(true)
-      return statement.all(...this.values) as T[]
+      return this.owner.sqlite.prepare(this.query).raw(...this.values) as T[]
     }, this.direct)
   }
 }
 
 /** Persistent SQLite connection with serialized access across asynchronous transaction callbacks. */
 export class SqliteConnection implements TransactionalSqlConnection {
-  readonly sqlite: DatabaseSync
+  readonly sqlite: SqliteDatabase
   private tail: Promise<unknown> = Promise.resolve()
 
-  constructor(filename: string) {
-    this.sqlite = new DatabaseSync(filename)
+  constructor(filename: string, sqlite: SqliteDatabase = nodeSqliteDatabase(filename)) {
+    this.sqlite = sqlite
     this.sqlite.exec(
       'PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000',
     )
