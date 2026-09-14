@@ -108,6 +108,7 @@ export class PresenceCoordinator<Client> {
     const mask = this.masks.get(attachment.sessionId)
     return {
       sessionId: attachment.sessionId,
+      ...(attachment.publisherId === undefined ? {} : { publisherId: attachment.publisherId }),
       painter: attachment.painter,
       viewport: attachment.viewport,
       draft:
@@ -261,6 +262,7 @@ export class PresenceCoordinator<Client> {
     const painter = { wplaceUserId: natural(headers.get('x-caelestis-painter-id')), displayName }
     const tokenHash = headers.get('x-caelestis-token-hash')
     const clientHash = headers.get('x-caelestis-client-hash')
+    const publisherId = headers.get('x-caelestis-publisher-id')
     const credentialScope = headers.get('x-caelestis-credential-scope')
     const anonymous = headers.get('x-caelestis-anonymous')
     const revocable = headers.get('x-caelestis-revocable')
@@ -273,6 +275,10 @@ export class PresenceCoordinator<Client> {
       !/^[0-9a-f]{64}$/.test(tokenHash) ||
       clientHash === null ||
       !/^[0-9a-f]{64}$/.test(clientHash) ||
+      (publisherId !== null &&
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+          publisherId,
+        )) ||
       (credentialScope !== 'read' && credentialScope !== 'report' && credentialScope !== 'admin') ||
       (anonymous !== '0' && anonymous !== '1') ||
       (revocable !== '0' && revocable !== '1')
@@ -311,6 +317,7 @@ export class PresenceCoordinator<Client> {
           painter,
           tokenHash,
           clientHash,
+          ...(publisherId === null ? {} : { publisherId }),
           credentialScope,
           anonymous: anonymous === '1',
           revocable: revocable === '1',

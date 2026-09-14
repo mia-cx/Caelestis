@@ -200,6 +200,7 @@ export const PresenceClientEvent = Schema.Union([
 ])
 
 export const PresencePeer = Schema.Struct({
+  publisherId: Schema.optionalKey(Identifier),
   sessionId: PresenceSessionId,
   painter: PresenceIdentity,
   viewport: Schema.NullOr(PresenceRect),

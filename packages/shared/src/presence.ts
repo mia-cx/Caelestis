@@ -79,6 +79,8 @@ export type PresenceClientEvent = PresenceUpdate | { readonly type: 'presence-he
 /** One online painter session as every peer sees it. */
 export interface PresencePeer {
   readonly sessionId: string
+  /** Random per-tab identity shared across servers; absent on older servers. */
+  readonly publisherId?: string
   readonly painter: PainterIdentity
   readonly viewport: PresenceRect | null
   readonly draft: PresenceDraft | null

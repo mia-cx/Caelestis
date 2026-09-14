@@ -309,6 +309,9 @@ export const createTelemetryRoutes = (
       if (clientId === undefined || !UUID_V7.test(clientId))
         return c.json({ error: 'clientId must be a UUID' }, 400)
       const clientHash = await hashToken(`${caller.tokenHash}\u0000${clientId}`)
+      const publisherId = c.req.query('publisherId')
+      if (publisherId !== undefined && !UUID_V7.test(publisherId))
+        return c.json({ error: 'publisherId must be a UUID' }, 400)
       const metricClient = normalizeMetricClientIdentity(
         c.req.query('client') ?? 'unknown',
         c.req.query('clientVersion') ?? 'unknown',
@@ -320,6 +323,7 @@ export const createTelemetryRoutes = (
         credentialScope: caller.scope,
         tokenHash: caller.tokenHash,
         clientHash,
+        ...(publisherId === undefined ? {} : { publisherId }),
         anonymous,
         revocable: caller.token !== null,
         metricClient: metricClient.client,

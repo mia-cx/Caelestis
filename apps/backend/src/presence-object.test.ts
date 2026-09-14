@@ -141,6 +141,19 @@ afterEach(() => {
 })
 
 describe('presence room', () => {
+  it('relays publisher identity while retaining separate server session IDs', async () => {
+    const publisherId = uuidV7()
+    const a = await attach({ 'x-caelestis-publisher-id': publisherId })
+    const b = await attach({ 'x-caelestis-painter-id': '2' })
+    await update(a, { viewport: rect(0) })
+    await update(b, { viewport: rect(0) })
+    await tick()
+    const event = b.events().at(-1)
+    expect(event).toMatchObject({ type: 'presence-delta', upsert: [{ publisherId }] })
+    if (event?.type !== 'presence-delta') throw new Error('Expected delta')
+    expect(event.upsert[0]?.sessionId).not.toBe(publisherId)
+  })
+
   it('counts open sockets after hibernation without scheduling, sending, or reading D1', async () => {
     expect(await object.online()).toBe(0)
     const observer = await attach({ 'x-caelestis-credential-scope': 'read' })

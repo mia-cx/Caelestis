@@ -8,6 +8,7 @@ export interface PresencePort {
 
 /** Authenticated metadata passed from the HTTP boundary to a presence transport. */
 export interface PresenceConnection {
+  readonly publisherId?: string
   readonly season: number
   readonly surface: TemplateSurface
   readonly painter: PainterIdentity
@@ -41,6 +42,9 @@ export const presenceRequest = (request: Request, connection: PresenceConnection
   headers.set('x-caelestis-painter-name', encodeURIComponent(painter.displayName))
   headers.set('x-caelestis-token-hash', connection.tokenHash)
   headers.set('x-caelestis-client-hash', connection.clientHash)
+  headers.delete('x-caelestis-publisher-id')
+  if (connection.publisherId !== undefined)
+    headers.set('x-caelestis-publisher-id', connection.publisherId)
   headers.set('x-caelestis-credential-scope', connection.credentialScope)
   headers.set('x-caelestis-anonymous', connection.anonymous ? '1' : '0')
   headers.set('x-caelestis-revocable', connection.revocable ? '1' : '0')

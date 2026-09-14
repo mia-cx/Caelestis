@@ -234,96 +234,68 @@ describe('presence client', () => {
     expect(harness.reads).toHaveLength(0)
   })
 
-  it('opens a single socket on the server with the fewest painters online', async () => {
-    const busy = {
-      ...server,
-      url: 'https://busy.test',
-      info: { ...server.info, id: 'a-busy' },
-    }
-    const quiet = {
-      ...server,
-      url: 'https://quiet.test',
-      info: { ...server.info, id: 'b-quiet' },
-    }
-    harness.state.servers = [busy, quiet]
-    harness.online = new Map([
-      [busy.url, 40],
-      [quiet.url, 3],
-    ])
-    const claim = {
-      id: 'r-busy',
-      season: 3,
-      surface: { kind: 'world', allianceId: null },
-      templateId: null,
-      claimant: { wplaceUserId: 9, displayName: 'Sam' },
-      document: {
-        items: [
-          {
-            id: 'a',
-            op: 'add' as const,
-            shape: { kind: 'rectangle' as const, x: 5, y: 5, w: 10, h: 10 },
-          },
-        ],
-      },
-      rect: { x: 5, y: 5, w: 10, h: 10 },
-      label: '',
-      createdAt: 1,
-    }
-    harness.regions.set(busy.url, [claim])
-    const client = await import('./presence-client.js')
-    client.installPresence()
-    await settle()
-    // Both were asked, once each, with the bearer token; only the quiet one got the socket.
-    const probes = harness.reads.filter((read) => read.url.includes('/telemetry/presence/online'))
-    expect(probes.map((read) => new URL(read.url).origin).sort()).toEqual([busy.url, quiet.url])
-    expect(new Headers(probes[0]?.init.headers).get('authorization')).toBe('Bearer secret-token')
-    expect(FakeWebSocket.instances).toHaveLength(1)
-    expect(FakeWebSocket.instances[0]?.url.startsWith('wss://quiet.test')).toBe(true)
-    FakeWebSocket.instances[0]?.open()
-    // The busy server still contributes its claims, fetched over HTTP.
-    await settle()
-    expect(client.presenceView().regions).toEqual([claim])
-    expect(client.presenceServers().map((held) => held.url)).toEqual([quiet.url, busy.url])
-    expect(client.presenceLiveServer()?.url).toBe(quiet.url)
-    // Claims on the busy server are saved over HTTP and its list is fetched again straight away.
-    const before = harness.reads.length
-    await client.claimRegion(busy, '0192e7c0-0000-7000-8000-000000000002', {
-      templateId: null,
-      document: claim.document,
-      label: '',
-      actor: { wplaceUserId: 7, displayName: 'Mia' },
-    })
-    await settle()
-    expect(harness.reads.slice(before).some((read) => read.url.includes('/work/regions'))).toBe(
-      true,
-    )
-  })
-
-  it('breaks a headcount tie by server id and treats an unanswered probe as the busiest', async () => {
-    const zed = { ...server, url: 'https://zed.test', info: { ...server.info, id: 'z' } }
-    const amy = { ...server, url: 'https://amy.test', info: { ...server.info, id: 'a' } }
-    const mute = { ...server, url: 'https://mute.test', info: { ...server.info, id: '0' } }
-    harness.state.servers = [zed, amy, mute]
-    harness.online = new Map([
-      [zed.url, 5],
-      [amy.url, 5],
-    ])
-    const client = await import('./presence-client.js')
-    client.installPresence()
-    await settle()
-    expect(FakeWebSocket.instances).toHaveLength(1)
-    expect(FakeWebSocket.instances[0]?.url.startsWith('wss://amy.test')).toBe(true)
-  })
-
-  it('keeps the open socket where it is when a quieter server appears', async () => {
-    const { socket } = await connect()
-    const quiet = { ...server, url: 'https://quiet.test', info: { ...server.info, id: 'b' } }
-    harness.online.set(quiet.url, 0)
-    harness.state.servers = [server, quiet]
+  it('opens every audience without headcount probes and adds servers without moving existing sockets', async () => {
+    const { client, socket } = await connect()
+    const other = { ...server, url: 'https://other.test' }
+    harness.state.servers = [server, other]
     harness.listener?.()
     await settle()
-    expect(FakeWebSocket.instances).toHaveLength(1)
-    expect(socket.readyState).toBe(1)
+    expect(FakeWebSocket.instances).toHaveLength(2)
+    expect(harness.reads).toHaveLength(0)
+    const second = FakeWebSocket.instances[1] as FakeWebSocket
+    second.open()
+    expect(new URL(socket.url).searchParams.get('publisherId')).toBe(
+      new URL(second.url).searchParams.get('publisherId'),
+    )
+    harness.draftedTiles = [{ x: 1, y: 1 }]
+    harness.draftedOffsets.set('1/1', [0, 1])
+    client.observePresenceFrame(frame([tileAt(1, 1)]))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(socket.events()).toEqual(second.events())
+    expect(socket.events()[0]).toMatchObject({ viewport: expect.any(Object), draft: { pixels: 2 } })
+    socket.close()
+    client.observePresenceFrame(frame([tileAt(2, 2)]))
+    await vi.advanceTimersByTimeAsync(PRESENCE_VIEWPORT_MIN_MS)
+    expect(second.events()).toHaveLength(2)
+    expect(second.readyState).toBe(1)
+  })
+
+  it('deduplicates replicated sessions without merging distinct tabs of one painter', async () => {
+    const other = { ...server, url: 'https://other.test' }
+    harness.state.servers = [server, other]
+    const { client, socket } = await connect()
+    const second = FakeWebSocket.instances[1] as FakeWebSocket
+    second.open()
+    const peer = {
+      sessionId: 'remote-x',
+      publisherId: '0192e7c0-0000-7000-8000-000000000002',
+      painter: { wplaceUserId: 9, displayName: 'Sam' },
+      viewport: { x: 0, y: 0, w: 8, h: 8 },
+      draft: null,
+    }
+    socket.receive({
+      type: 'presence-ready',
+      sessionId: 'self-x',
+      online: 5,
+      peers: [peer],
+      regions: [],
+    })
+    second.receive({
+      type: 'presence-ready',
+      sessionId: 'self-y',
+      online: 7,
+      peers: [
+        { ...peer, sessionId: 'remote-y' },
+        { ...peer, sessionId: 'other-tab', publisherId: '0192e7c0-0000-7000-8000-000000000003' },
+      ],
+      regions: [],
+    })
+    expect(client.presenceView().peers).toHaveLength(2)
+    expect(client.presenceView().online).toBe(2)
+    socket.receive({ type: 'presence-delta', online: 4, upsert: [], remove: ['remote-x'] })
+    expect(client.presenceView().peers).toHaveLength(2)
+    second.close()
+    expect(client.presenceView().peers).toHaveLength(0)
   })
 
   it('publishes the first viewport at once, then at most every 300 ms while moving, and the last one after', async () => {
@@ -417,10 +389,14 @@ describe('presence client', () => {
       peers: [{ ...peer, sessionId: 'a' }, peer],
       regions: [],
     })
-    expect(client.presenceView()).toMatchObject({ online: 2, connected: true, peers: [peer] })
+    expect(client.presenceView()).toMatchObject({
+      online: 1,
+      connected: true,
+      peers: [{ ...peer, sessionId: `${server.url}:b` }],
+    })
     socket.receive({ type: 'presence-delta', online: 3, upsert: [], remove: ['b'] })
     expect(client.presenceView().peers).toEqual([])
-    expect(client.presenceView().online).toBe(3)
+    expect(client.presenceView().online).toBe(0)
     const region = {
       id: 'r1',
       season: 3,
@@ -464,100 +440,6 @@ describe('presence client', () => {
     await vi.advanceTimersByTimeAsync(1_500)
     await settle()
     expect(FakeWebSocket.instances).toHaveLength(3)
-  })
-
-  it('ignores a claims read that lands after a newer one', async () => {
-    const busy = { ...server, url: 'https://busy.test', info: { ...server.info, id: 'a-busy' } }
-    const quiet = { ...server, url: 'https://quiet.test', info: { ...server.info, id: 'b-quiet' } }
-    harness.state.servers = [busy, quiet]
-    harness.online = new Map([
-      [busy.url, 40],
-      [quiet.url, 3],
-    ])
-    const claim = {
-      id: 'r-busy',
-      season: 3,
-      surface: { kind: 'world', allianceId: null },
-      templateId: null,
-      claimant: { wplaceUserId: 9, displayName: 'Sam' },
-      document: {
-        items: [
-          {
-            id: 'a',
-            op: 'add' as const,
-            shape: { kind: 'rectangle' as const, x: 5, y: 5, w: 10, h: 10 },
-          },
-        ],
-      },
-      rect: { x: 5, y: 5, w: 10, h: 10 },
-      label: '',
-      createdAt: 1,
-    }
-    // The first read is held back and saw no claims; a later read sees the new claim.
-    let release: () => void = () => undefined
-    harness.regionsGate = new Promise((resolve) => {
-      release = resolve
-    })
-    const client = await import('./presence-client.js')
-    client.installPresence()
-    await settle()
-    FakeWebSocket.instances[0]?.open()
-    await settle()
-    harness.regions.set(busy.url, [claim])
-    await client.claimRegion(busy, '0192e7c0-0000-7000-8000-000000000002', {
-      templateId: null,
-      document: claim.document,
-      label: '',
-      actor: { wplaceUserId: 7, displayName: 'Mia' },
-    })
-    await settle()
-    expect(client.presenceView().regions).toEqual([claim])
-    release()
-    await settle()
-    expect(client.presenceView().regions).toEqual([claim])
-  })
-
-  it('runs the election again when the servers change while probes are out', async () => {
-    let release: () => void = () => undefined
-    harness.onlineGate = new Promise((resolve) => {
-      release = resolve
-    })
-    const client = await import('./presence-client.js')
-    client.installPresence()
-    await settle()
-    // Reconciliation swaps the only candidate out for another before the probe answers.
-    const other = { ...server, url: 'https://other.test', info: { ...server.info, id: 'other' } }
-    harness.online.set(other.url, 0)
-    harness.state.servers = [other]
-    harness.listener?.()
-    harness.onlineGate = null
-    release()
-    await settle()
-    await settle()
-    expect(FakeWebSocket.instances).toHaveLength(1)
-    expect(FakeWebSocket.instances[0]?.url.startsWith('wss://other.test')).toBe(true)
-  })
-
-  it('probes a server added while an election is out before choosing', async () => {
-    let release: () => void = () => undefined
-    harness.onlineGate = new Promise((resolve) => {
-      release = resolve
-    })
-    harness.online = new Map([[server.url, 30]])
-    const client = await import('./presence-client.js')
-    client.installPresence()
-    await settle()
-    // A quieter server joins while the first probe is pending.
-    const quiet = { ...server, url: 'https://quiet.test', info: { ...server.info, id: 'quiet' } }
-    harness.online.set(quiet.url, 0)
-    harness.state.servers = [server, quiet]
-    harness.listener?.()
-    harness.onlineGate = null
-    release()
-    await settle()
-    await settle()
-    expect(FakeWebSocket.instances).toHaveLength(1)
-    expect(FakeWebSocket.instances[0]?.url.startsWith('wss://quiet.test')).toBe(true)
   })
 
   it('sends region claims over HTTP with the bearer token', async () => {
