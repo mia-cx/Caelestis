@@ -8,9 +8,7 @@
     "images": [
       {
         "id": "sha256:94dda07ac956764357b1181cc92784cb2ce8858ad479c14b0966ecf0f8c99591",
-        "tags": [
-          "caelestis-backend:node-390-final"
-        ],
+        "tags": ["caelestis-backend:node-390-final"],
         "architecture": "amd64",
         "labels": {
           "cx.mia.caelestis.runtime": "node",
@@ -21,9 +19,7 @@
       },
       {
         "id": "sha256:6ef87473158c3c00dbf79daa918b14a066f89f1f650d04fd4c2e0a5df7bf8c9c",
-        "tags": [
-          "caelestis-backend:bun-390-final"
-        ],
+        "tags": ["caelestis-backend:bun-390-final"],
         "architecture": "amd64",
         "labels": {
           "cx.mia.caelestis.runtime": "bun",
@@ -34,9 +30,7 @@
       },
       {
         "id": "sha256:b708654c7774598bba82ae2208ff845dbe7496ee875a99968de7287da642d232",
-        "tags": [
-          "caelestis-frontend:390-final"
-        ],
+        "tags": ["caelestis-frontend:390-final"],
         "architecture": "amd64",
         "labels": {
           "cx.mia.caelestis.runtime": "node",
@@ -353,9 +347,7 @@
         "online": 256,
         "sockets": 512,
         "finalPeerSetsAndDrafts": false,
-        "errorKinds": [
-          "tile-upload timed out"
-        ]
+        "errorKinds": ["tile-upload timed out"]
       },
       "serverMetrics": null,
       "rawEvidenceSha256": {
@@ -571,9 +563,7 @@
         "online": 256,
         "sockets": 512,
         "finalPeerSetsAndDrafts": false,
-        "errorKinds": [
-          "tile-upload timed out"
-        ]
+        "errorKinds": ["tile-upload timed out"]
       },
       "serverMetrics": null,
       "rawEvidenceSha256": {
@@ -798,11 +788,7 @@
           "warmup": 254,
           "measured": 0
         },
-        "errorKinds": [
-          "tile-offer timed out",
-          "paint-report timed out",
-          "tile-upload timed out"
-        ]
+        "errorKinds": ["tile-offer timed out", "paint-report timed out", "tile-upload timed out"]
       },
       "serverMetrics": {
         "startAt": 1789415768355,
@@ -1131,11 +1117,7 @@
           "warmup": 399,
           "measured": 0
         },
-        "errorKinds": [
-          "tile-offer timed out",
-          "paint-report timed out",
-          "tile-upload timed out"
-        ]
+        "errorKinds": ["tile-offer timed out", "paint-report timed out", "tile-upload timed out"]
       },
       "serverMetrics": {
         "startAt": 1789416115998,

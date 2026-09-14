@@ -22,7 +22,7 @@ Keep Node as the default image and frontend runtime.
 - [x] Use native Bun data APIs where they satisfy database and object-storage contracts.
 - [x] Document runtime selection and verify Compose and Helm recovery across adapters.
 - [x] Add matched production-image benchmarking and record k3s acceptance and 256-user results.
-- [ ] Complete repository checks and prepare the pull request.
+- [x] Complete repository checks and prepare the pull request.
 
 ## Notes
 
@@ -51,3 +51,5 @@ Keep Node as the default image and frontend runtime.
 - Strict final-image Node and Bun runs both exceed the userscript's five-second tile-upload deadline at 256 users on CNPG/S3. All 512 sockets remain connected, but neither reaches final correctness checks. Separate 30-second observation runs retain deadline failures and measure failed warmup resources; they do not establish production capacity or a latency winner.
 - Shared capacity work is tracked in https://github.com/mia-riezebos/Caelestis/issues/397. A separate, excluded Node profile attributes 35.5% of samples to classifyTarget and 10.2% to encodeMismatchMask. Repeated successful comparisons are deferred until that failure is fixed; no shared business-logic changes or relaxed production deadlines are included here.
 - TODO 6: The final unprofiled Node/Bun observation pair also fails during warmup. Backend CPU is 106.58%/98.62% of one core; median RSS is 210.69/287.48 MiB. Full-stack CPU is 136.69%/133.39%, with median RSS 563.57/731.24 MiB. Different completed work and drain durations prevent an efficiency ranking. Report and compact provenance/results are in docs/bun-runtime-validation-2026-09-14.md and docs/benchmarks/bun-cnpg-s3-2026-09-14.json. All load-test namespaces and backing volumes are cleaned. Eight benchmark/cleanup tests, actionlint, lint, check, and build pass.
+- Final cleanup removed both sets of imported image references from both k3s nodes. Image inventories record completion at 20:04:41 and 20:05:31 UTC. No caelestis-test namespaces remain. Rebase onto origin/main 04707a67 was conflict-free; intervening changes only affect Pullfrog triage tooling.
+- TODO 7: Reviewed the full branch diff and prepared the non-draft PR description with the failed capacity result. After rebase, all 54 script tests, actionlint, and full Biome checks pass. Application, package, Dockerfile, and lockfile content matches the fully tested c5b3c4d5 revision. The final JSON formatting check was fixed before filing. All seven implementation TODOs are complete; the shared capacity follow-up remains separate.
