@@ -32,6 +32,13 @@ Here, `<version>` includes both app versions, for example `backend-1.2.3-fronten
 Use the actual version from your server release. The frontend always uses the unsuffixed tag.
 Release `versions.json` and image labels record runtime versions; the Dockerfile pins their source images by digest.
 
+Each release publishes the same tested tags to both registries:
+
+| Registry | Backend | Frontend |
+| --- | --- | --- |
+| Docker Hub | `docker.io/miacx/caelestis-backend` | `docker.io/miacx/caelestis-frontend` |
+| GHCR | `ghcr.io/mia-riezebos/caelestis-backend` | `ghcr.io/mia-riezebos/caelestis-frontend` |
+
 Bun uses native HTTP, WebSockets, and SQLite statements behind the portable adapters.
 Routes, authentication, claims, coordination, migrations, and transaction rules have one shared implementation.
 PostgreSQL, MariaDB, and S3 use the existing drivers under Bun. Bun.SQL does not preserve our JSON/numeric contracts,
@@ -61,6 +68,8 @@ helm upgrade --install caelestis oci://ghcr.io/mia-riezebos/caelestis/charts/cae
   --wait --timeout 10m
 ```
 
+The chart defaults to Docker Hub. To use GHCR, override `image.repository` and `frontend.image.repository`.
+Also set their matching digests from the release's `backend-ghcr-image.txt` and `frontend-ghcr-image.txt` files.
 Keep the chart's matching frontend image. The database, object storage, and existing secrets are shared across runtimes.
 Switching runtimes at the same app version requires a backend restart and WebSocket reconnect, with no data conversion.
 To switch back, select the matching `-node` image or its digest. For an app-version downgrade, follow the backup/restore procedure below.
@@ -299,17 +308,19 @@ Portable admin export/import across providers is tracked separately and is not p
 
 ## Versions and development checks
 
-Approved app releases publish `linux/amd64` and `linux/arm64` images at `miacx/caelestis-backend` and `miacx/caelestis-frontend`.
+Approved app releases publish `linux/amd64` and `linux/arm64` images to Docker Hub and GHCR.
 Both use the tested app-version pair as their immutable tag, for example `backend-1.2.3-frontend-4.5.6`.
 Its Helm version is `1.2.3+frontend.4.5.6`, stored at `oci://ghcr.io/mia-riezebos/caelestis/charts/caelestis`.
 OCI represents the chart version's `+` as `_`. Pass the original version to Helm.
 Published charts pin both image digests. Pin chart versions when upgrading.
-Server GitHub Releases contain the chart, Node/Bun backend and frontend digests, runtime and app versions,
+Server GitHub Releases contain the chart, registry-specific Node/Bun backend and frontend digests, runtime and app versions,
 migration checksums, image configurations, SBOMs, commit, and `SHA256SUMS`.
+The `*-dockerhub-image.txt` and `*-ghcr-image.txt` assets contain immutable references for each registry.
+The legacy `*-image.txt` assets continue to identify the Docker Hub images.
 The workflow refuses to replace an existing artifact with different content.
 Before the first release, create the public `miacx/caelestis-backend` and `miacx/caelestis-frontend` repositories on Docker Hub.
 Add a Docker Hub access token with write access as the GitHub repository secret `DOCKERHUB_TOKEN`.
-The image workflow signs in as `miacx`. Helm chart archives stay in GHCR and use the workflow's GitHub token.
+The image workflow signs in as `miacx`. It publishes the linked GHCR packages and Helm chart with the workflow's GitHub token.
 Chart or shared-package changes that affect the server need a Changeset for the affected backend/frontend app.
 
 From source, use Node 24.20.0 and the repository's pinned pnpm:

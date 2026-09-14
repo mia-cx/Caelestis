@@ -56,6 +56,9 @@ if (process.argv[1] && resolve(process.argv[1]) === import.meta.filename) {
   if (!/^[a-f0-9]{40}$/.test(sha ?? ''))
     throw new Error('GITHUB_SHA must identify the release commit')
   mkdirSync(values['output-dir'], { recursive: true })
+  // biome-ignore lint/suspicious/noUndeclaredEnvVars: This release CLI does not run through Turbo.
+  const githubRepository = process.env.GITHUB_REPOSITORY ?? 'mia-riezebos/Caelestis'
+  const images = portableImages(identity.imageTag, githubRepository)
   const migrations = (directory) =>
     readdirSync(resolve(root, directory))
       .filter((name) => name.endsWith('.sql'))
@@ -72,12 +75,13 @@ if (process.argv[1] && resolve(process.argv[1]) === import.meta.filename) {
   )
   writeFileSync(
     resolve(values['output-dir'], 'images.json'),
-    // biome-ignore lint/suspicious/noUndeclaredEnvVars: This release CLI does not run through Turbo.
-    `${JSON.stringify(portableImages(identity.imageTag, process.env.GITHUB_REPOSITORY ?? 'mia-riezebos/Caelestis'), null, 2)}\n`,
+    `${JSON.stringify(images, null, 2)}\n`,
   )
+  const backendRepositories = images[0].registries
+  const frontendRepositories = images.at(-1).registries
   writeFileSync(
     resolve(values['output-dir'], 'notes.md'),
-    `Caelestis server with backend ${identity.backend} and frontend ${identity.frontend}.\n\nBackend tags: \`${identity.nodeImageTag}\` (Node, also the default \`${identity.imageTag}\`) and \`${identity.bunImageTag}\` (Bun). The frontend uses Node with tag \`${identity.imageTag}\`. Runtime versions are recorded in versions.json and each image's labels.\n\nChart version: \`${identity.chartVersion}\`. The chart defaults to Node.\n\nSee [self-hosting instructions](https://github.com/mia-riezebos/Caelestis/blob/${sha}/docs/self-hosting.md) for runtime selection, migrations, and backups.\n`,
+    `Caelestis server with backend ${identity.backend} and frontend ${identity.frontend}.\n\nBackend tags: \`${identity.nodeImageTag}\` (Node, also the default \`${identity.imageTag}\`) and \`${identity.bunImageTag}\` (Bun). The frontend uses Node with tag \`${identity.imageTag}\`. Runtime versions are recorded in versions.json and each image's labels.\n\nImages are published to Docker Hub (\`${backendRepositories.dockerhub}\`, \`${frontendRepositories.dockerhub}\`) and GHCR (\`${backendRepositories.ghcr}\`, \`${frontendRepositories.ghcr}\`). Registry-specific digest references are attached as \`*-dockerhub-image.txt\` and \`*-ghcr-image.txt\`.\n\nChart version: \`${identity.chartVersion}\`. The chart defaults to Node images from Docker Hub.\n\nSee [self-hosting instructions](https://github.com/mia-riezebos/Caelestis/blob/${sha}/docs/self-hosting.md) for runtime selection, migrations, and backups.\n`,
   )
   if (values['github-output'])
     appendFileSync(
