@@ -23,6 +23,11 @@ const durationMs = warmupMs + measuredMs
 const users = Number(process.env.BENCH_USERS ?? 10)
 assert.ok([10, 100, 256, 1000].includes(users), 'BENCH_USERS must be 10, 100, 256, or 1000')
 const variants = (process.env.BENCH_VARIANTS ?? 'node,bun-compat,bun-native').split(',')
+const miniflareOnly = variants.length === 1 && variants[0] === 'miniflare'
+assert.ok(
+  miniflareOnly || !variants.includes('miniflare'),
+  'Run Miniflare separately: its storage and process metrics differ',
+)
 const serverCpus = process.env.BENCH_SERVER_CPUS ?? '2,3'
 const databaseCpus = process.env.BENCH_DATABASE_CPUS ?? '4,5'
 const container = `caelestis-runtime-benchmark-${randomUUID().slice(0, 8)}`
@@ -33,7 +38,12 @@ const traceJson = JSON.stringify(trace)
 await writeFile(join(output, 'trace.json'), traceJson)
 const sourceHashes = Object.fromEntries(
   await Promise.all(
-    ['run.mjs', 'server.mjs', 'traffic.mjs'].map(async (name) => [
+    [
+      'run.mjs',
+      'server.mjs',
+      'traffic.mjs',
+      ...(miniflareOnly ? ['miniflare-server.mjs'] : []),
+    ].map(async (name) => [
       name,
       createHash('sha256')
         .update(await readFile(new URL(name, import.meta.url)))
@@ -56,6 +66,15 @@ const report = {
     'production NodeLiveHost and shared coordinators; Bun-native uses a benchmark-only native socket bridge',
   database: 'isolated local PostgreSQL 18, fresh database per run, TLS disabled',
   objects: 'local filesystem; no S3, Traefik, frontend rendering or Wplace HTTP traffic',
+  ...(miniflareOnly
+    ? {
+        transport: 'production Worker and Durable Object adapters in Miniflare/workerd',
+        database: 'ephemeral local D1 and SQLite-backed Durable Object emulation inside workerd',
+        objects: 'ephemeral local R2 emulation; no remote Cloudflare services',
+        metricScope:
+          'aggregate workerd and Miniflare controller CPU/RSS; local storage emulation included; no isolate event-loop measurement',
+      }
+    : {}),
   host: {
     platform: process.platform,
     arch: process.arch,
@@ -128,6 +147,7 @@ try {
     productionAdmitsRequestedUsers: users <= currentLimit,
   }
   if (users > currentLimit) {
+    assert.ok(!miniflareOnly, 'Miniflare comparison uses the unchanged production subscriber limit')
     // Only the disposable compiled copy changes. Production source and build stay untouched.
     const snapshot = join(directory, 'backend')
     backendDirectory = join(snapshot, 'dist')
@@ -147,31 +167,38 @@ try {
     await writeFile(join(backendDirectory, 'status-coordinator.js'), modified)
     report.capacity.compiledStatusSha256 = createHash('sha256').update(modified).digest('hex')
   }
-  docker(
-    'run',
-    '-d',
-    '--name',
-    container,
-    '--cpuset-cpus',
-    databaseCpus,
-    '-p',
-    '127.0.0.1::5432',
-    '-e',
-    'POSTGRES_PASSWORD=benchmark-local-only',
-    'postgres:18',
-  )
-  databaseCreated = true
-  const inspect = JSON.parse(docker('inspect', container))[0]
-  const pgPort = inspect.NetworkSettings.Ports['5432/tcp'][0].HostPort
-  const group = (await readFile(`/proc/${inspect.State.Pid}/cgroup`, 'utf8'))
-    .trim()
-    .split('\n')
-    .find((line) => line.startsWith('0::'))
-    .slice(3)
+  if (!miniflareOnly)
+    docker(
+      'run',
+      '-d',
+      '--name',
+      container,
+      '--cpuset-cpus',
+      databaseCpus,
+      '-p',
+      '127.0.0.1::5432',
+      '-e',
+      'POSTGRES_PASSWORD=benchmark-local-only',
+      'postgres:18',
+    )
+  databaseCreated = !miniflareOnly
+  const inspect = miniflareOnly ? null : JSON.parse(docker('inspect', container))[0]
+  const pgPort = inspect?.NetworkSettings.Ports['5432/tcp'][0].HostPort
+  const group = miniflareOnly
+    ? null
+    : (await readFile(`/proc/${inspect.State.Pid}/cgroup`, 'utf8'))
+        .trim()
+        .split('\n')
+        .find((line) => line.startsWith('0::'))
+        .slice(3)
   const dbCpu = async () =>
-    Number((await readFile(`/sys/fs/cgroup${group}/cpu.stat`, 'utf8')).match(/usage_usec (\d+)/)[1])
-  report.databaseImage = inspect.Image
-  for (let attempt = 0; ; attempt++) {
+    miniflareOnly
+      ? 0
+      : Number(
+          (await readFile(`/sys/fs/cgroup${group}/cpu.stat`, 'utf8')).match(/usage_usec (\d+)/)[1],
+        )
+  report.databaseImage = inspect?.Image ?? null
+  for (let attempt = 0; !miniflareOnly; attempt++) {
     try {
       docker('exec', container, 'pg_isready', '-U', 'postgres')
       break
@@ -186,10 +213,10 @@ try {
       ...variants.slice(0, repeat % variants.length),
     ]
     for (const variant of order) {
-      assert.ok(['node', 'bun-compat', 'bun-native'].includes(variant))
+      assert.ok(['node', 'bun-compat', 'bun-native', 'miniflare'].includes(variant))
       const label = `${repeat + 1}-${variant}`
       const database = `run_${repeat}_${variant.replaceAll('-', '_')}`
-      docker('exec', container, 'createdb', '-U', 'postgres', database)
+      if (!miniflareOnly) docker('exec', container, 'createdb', '-U', 'postgres', database)
       const runDirectory = join(directory, label)
       await mkdir(runDirectory)
       const log = createWriteStream(join(output, `${label}.log`))
@@ -200,11 +227,13 @@ try {
         [
           '-c',
           serverCpus,
-          variant === 'node' ? node : bun,
+          variant === 'node' || miniflareOnly ? node : bun,
           ...(variant === 'node' && process.env.BENCH_CPU_PROFILE === '1'
             ? ['--cpu-prof', `--cpu-prof-dir=${output}`]
             : []),
-          'scripts/runtime-benchmark/server.mjs',
+          miniflareOnly
+            ? 'scripts/runtime-benchmark/miniflare-server.mjs'
+            : 'scripts/runtime-benchmark/server.mjs',
         ],
         {
           env: {
@@ -278,6 +307,9 @@ try {
         assert.equal(ready.liveSubscriberLimit, report.capacity.benchmarkLimit)
         console.log(`${label}: ${warmupMs / 1000}s warmup + ${measuredMs / 1000}s measured`)
         const rss = []
+        const processRss = Object.fromEntries(
+          (ready.metricsProcessRoles ?? []).map((role) => [role, []]),
+        )
         const memoryErrors = []
         let databaseCpuStart, databaseCpuUsec
         let driverCpuStart, driverCpu
@@ -291,6 +323,7 @@ try {
           durationMs,
           async begin() {
             rss.length = 0
+            for (const samples of Object.values(processRss)) samples.length = 0
             driverCpuStart = process.cpuUsage()
             databaseCpuStart = await dbCpu()
             child.stdin.write('begin\n')
@@ -298,8 +331,16 @@ try {
             sampler = setInterval(() => {
               sampling = sampling
                 .then(async () => {
-                  const status = await readFile(`/proc/${child.pid}/status`, 'utf8')
-                  rss.push(Number(status.match(/VmRSS:\s+(\d+)/)[1]) * 1024)
+                  const values = await Promise.all(
+                    (ready.metricsPids ?? [child.pid]).map(async (pid) => {
+                      const status = await readFile(`/proc/${pid}/status`, 'utf8')
+                      return Number(status.match(/VmRSS:\s+(\d+)/)[1]) * 1024
+                    }),
+                  )
+                  rss.push(values.reduce((a, b) => a + b, 0))
+                  ready.metricsProcessRoles?.forEach((role, index) =>
+                    processRss[role].push(values[index]),
+                  )
                 })
                 .catch((error) => memoryErrors.push(String(error)))
             }, 250)
@@ -327,19 +368,35 @@ try {
           ...measurements,
           durationMs: serverMetrics.elapsedMs,
           backendCpuSeconds: cpuSeconds,
+          ...(serverMetrics.processCpuSeconds
+            ? { processCpuSeconds: serverMetrics.processCpuSeconds }
+            : {}),
           backendCpuPercentOfOneCore: (cpuSeconds / (serverMetrics.elapsedMs / 1000)) * 100,
-          databaseCpuSeconds: databaseCpuUsec / 1e6,
+          databaseCpuSeconds: miniflareOnly ? null : databaseCpuUsec / 1e6,
           driverCpuSeconds: (driverCpu.user + driverCpu.system) / 1e6,
           rssMiB: {
             mean: rss.reduce((a, b) => a + b, 0) / rss.length / 2 ** 20,
             peak: Math.max(...rss) / 2 ** 20,
           },
+          ...(miniflareOnly
+            ? {
+                processRssMiB: Object.fromEntries(
+                  Object.entries(processRss).map(([role, samples]) => [
+                    role,
+                    {
+                      mean: samples.reduce((a, b) => a + b, 0) / samples.length / 2 ** 20,
+                      peak: Math.max(...samples) / 2 ** 20,
+                    },
+                  ]),
+                ),
+              }
+            : {}),
           eventLoopDelayMs: distribution(serverMetrics.delaySamples),
         }
         report.runs.push(run)
         await writeFile(
           join(output, `${label}-samples.json`),
-          JSON.stringify({ ...raw, rss, serverMetrics }),
+          JSON.stringify({ ...raw, rss, processRss, serverMetrics }),
         )
         await save()
         console.log(
@@ -351,7 +408,7 @@ try {
         active = undefined
         log.end()
       }
-      docker('exec', container, 'dropdb', '-U', 'postgres', database)
+      if (!miniflareOnly) docker('exec', container, 'dropdb', '-U', 'postgres', database)
       await rm(runDirectory, { recursive: true, force: true })
     }
   }
