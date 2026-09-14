@@ -10,7 +10,7 @@ NODE_BINARY=/absolute/path/to/node BUN_BINARY=/absolute/path/to/bun \
   BENCH_USERS=10 taskset -c 0,1 node scripts/runtime-benchmark/run.mjs
 ```
 
-Repeat with `BENCH_USERS=100` and `BENCH_USERS=1000`. Use the Node version pinned in the Dockerfile. The driver records both runtime versions, CPU affinity, application commit, benchmark source hashes, trace hash and fixture hashes. Override CPU assignments on machines with fewer than six available logical CPUs. `run.mjs` lists the available environment overrides.
+Repeat with `BENCH_USERS=100`, `BENCH_USERS=256` and `BENCH_USERS=1000`. The 256-user case uses 179 explorers and 77 painters, rounding the 70/30 split to whole users. It exercises the production admission limit without an override. Use the Node version pinned in the Dockerfile. The driver records both runtime versions, CPU affinity, application commit, benchmark source hashes, trace hash and fixture hashes. Override CPU assignments on machines with fewer than six available logical CPUs. `run.mjs` lists the available environment overrides.
 
 Each successful user-count comparison takes about 15 minutes. Each of three repetitions rotates the order of Node, Bun with the existing Node adapter, and Bun with native HTTP/WebSockets. Each case gets a fresh PostgreSQL database, 35 seconds of warmup and 60 measured seconds. Warmup failures retain their partial measurements and phase. The load generator and database use different CPU cores from the backend. All cases use the same compiled application and fixtures.
 

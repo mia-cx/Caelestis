@@ -21,7 +21,7 @@ const warmupMs = Number(process.env.BENCH_WARMUP_MS ?? 35000)
 const measuredMs = Number(process.env.BENCH_MEASURE_MS ?? 60000)
 const durationMs = warmupMs + measuredMs
 const users = Number(process.env.BENCH_USERS ?? 10)
-assert.ok([10, 100, 1000].includes(users), 'BENCH_USERS must be 10, 100, or 1000')
+assert.ok([10, 100, 256, 1000].includes(users), 'BENCH_USERS must be 10, 100, 256, or 1000')
 const variants = (process.env.BENCH_VARIANTS ?? 'node,bun-compat,bun-native').split(',')
 const serverCpus = process.env.BENCH_SERVER_CPUS ?? '2,3'
 const databaseCpus = process.env.BENCH_DATABASE_CPUS ?? '4,5'

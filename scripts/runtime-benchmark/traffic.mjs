@@ -146,10 +146,11 @@ export async function fixtures(durationMs, users) {
   const originFloat = latLngToCanvasPixel({ lat: source.bounds.north, lng: source.bounds.west })
   const origin = { x: Math.round(originFloat.x), y: Math.round(originFloat.y) }
   const { indices } = quantiseToPalette(image.pixels)
+  const explorers = Math.round(users * 0.7)
   const model = {
     users,
-    explorers: users * 0.7,
-    painters: users * 0.3,
+    explorers,
+    painters: users - explorers,
     origin,
     width: image.width,
     height: image.height,
