@@ -1,0 +1,15 @@
+# Apply in the Helm release namespace. Set server.origin to this HTTPS origin.
+# This example uses Traefik's existing default TLS certificate.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: caelestis
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`caelestis.example.com`)
+      services:
+        - name: test-caelestis # <Helm release name>-caelestis
+          port: 80
+  tls: {}

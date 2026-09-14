@@ -90,3 +90,47 @@ node scripts/test-cloudflare-stack.mjs
 ```
 
 Set `CAELESTIS_TEST_EXTENDED=true` for database-recovery checks. For local upgrade tests, run `node scripts/stack-tests/prepare-baseline.mjs arm64` (or `amd64`), then set `CAELESTIS_BASELINE_BACKEND_IMAGE=caelestis-backend:baseline` and `CAELESTIS_BASELINE_FRONTEND_IMAGE=caelestis-frontend:baseline` when running the Compose test. Each driver removes only its own temporary resources.
+
+### Existing k3s cluster
+
+Set `CAELESTIS_KUBE_CONTEXT` explicitly to use an existing cluster. The driver creates a unique test namespace,
+reuses the installed CNPG operator, and uses the existing `longhorn-single` storage class with `Delete` reclamation.
+It never creates or deletes the cluster, operators, CRDs, or storage classes.
+
+Build the two images first. If no registry is available, the image helper loads them onto each node through
+temporary pods with access to the k3s binary and containerd socket. This requires cluster administrator access.
+The helper refuses to overwrite an existing image reference. Choose unique image tags for each run.
+
+```sh
+node scripts/stack-tests/k3s-images.mjs import CONTEXT test-results/k3s-images BACKEND_IMAGE FRONTEND_IMAGE
+CAELESTIS_KUBE_CONTEXT=CONTEXT CAELESTIS_TEST_STORAGE=filesystem \
+  CAELESTIS_TEST_EXTENDED=true CAELESTIS_TEST_WPLACE=fixtures/stack-tests/box-art.wplace \
+  node scripts/test-helm-stack.mjs BACKEND_IMAGE FRONTEND_IMAGE sqlite
+```
+
+Repeat with `sqlite`, `cnpg`, and `mariadb`, each with `filesystem` and `s3` storage.
+The fixture checks compare Box Art's geometry and chunk hashes after pod replacement, migration,
+and database recovery. Extended CNPG tests switch the primary of the dedicated test Cluster.
+Extended MariaDB tests disconnect the application's own database sessions and verify backend recovery.
+
+Each run saves results, redacted logs, and an ownership inventory under `test-results/caelestis-test-*`.
+Cleanup removes the namespace, including retained Helm PVCs, and verifies PV and Longhorn volume deletion.
+SIGINT and SIGTERM invoke the same cleanup. After an abrupt termination, resume cleanup with:
+
+```sh
+node scripts/stack-tests/kubernetes-run.mjs test-results/RUN/inventory.json
+```
+
+For manual browser testing, set `CAELESTIS_TEST_KEEP=true` and `CAELESTIS_TEST_ORIGIN=https://HOST`.
+Only a passing stack is retained. The driver creates a Traefik IngressRoute using the existing default TLS
+certificate and saves a bootstrap admin token and a separate reporting token in a private `credentials.json`.
+DNS and certificate coverage must already exist for the hostname. The reusable manifest is
+[`traefik-ingressroute.example.yaml`](../deploy/helm/traefik-ingressroute.example.yaml).
+
+When browser testing finishes, run the namespace cleanup command above. Then remove the test image references:
+
+```sh
+node scripts/stack-tests/k3s-images.mjs remove CONTEXT test-results/k3s-images
+```
+
+Namespace cleanup also deletes the retained run's private `credentials.json`. Keep the redacted results and inventories.
