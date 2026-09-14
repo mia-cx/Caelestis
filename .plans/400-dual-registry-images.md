@@ -16,8 +16,8 @@ Keep Docker Hub as the Helm default and expose immutable references for both reg
 
 ## TODOs
 
-- [~] Define and test canonical image variants and registry locations.
-- [ ] Publish tested image artifacts to both registries with retry-safe verification.
+- [x] Define and test canonical image variants and registry locations.
+- [~] Publish tested image artifacts to both registries with retry-safe verification.
 - [ ] Document both registries and add release notes for the new distribution option.
 - [ ] Complete repository checks and file the pull request.
 
@@ -27,3 +27,4 @@ Keep Docker Hub as the Helm default and expose immutable references for both reg
 - Keep `docker.io/miacx/caelestis-backend` and `docker.io/miacx/caelestis-frontend` as chart defaults.
 - Mirror them at `ghcr.io/mia-riezebos/caelestis-backend` and `ghcr.io/mia-riezebos/caelestis-frontend`.
 - Preserve the existing `*-image.txt` Docker Hub release assets for compatibility. Add explicit Docker Hub and GHCR assets beside them.
+- TODO 1: `portableImages` defines the four tags once and maps them to matching Docker Hub and GHCR packages. The release preparation command writes this as `images.json`. Three release helper tests and Biome pass.

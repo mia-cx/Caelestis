@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { it } from 'node:test'
-import { portableVersion } from './prepare-portable-release.mjs'
+import { portableImages, portableVersion } from './prepare-portable-release.mjs'
 
 it('changes artifact versions when either app changes', () => {
   const initial = portableVersion('1.2.3', '4.5.6')
@@ -19,4 +19,42 @@ it('changes artifact versions when either app changes', () => {
 it('rejects prerelease, malformed, and shell-active version strings', () => {
   for (const invalid of ['1.0', 'v1.0.0', '01.0.0', '1.0.0-beta.1', '1.0.0+build', '$(command)'])
     assert.throws(() => portableVersion(invalid, '1.0.0'))
+})
+
+it('maps every image variant to Docker Hub and GHCR', () => {
+  const images = portableImages('backend-1.2.3-frontend-4.5.6', 'mia-riezebos/Caelestis')
+  assert.deepEqual(
+    images.map(({ component, source, tag }) => ({ component, source, tag })),
+    [
+      {
+        component: 'backend',
+        source: 'backend',
+        tag: 'backend-1.2.3-frontend-4.5.6',
+      },
+      {
+        component: 'backend-node',
+        source: 'backend',
+        tag: 'backend-1.2.3-frontend-4.5.6-node',
+      },
+      {
+        component: 'backend-bun',
+        source: 'backend-bun',
+        tag: 'backend-1.2.3-frontend-4.5.6-bun',
+      },
+      {
+        component: 'frontend',
+        source: 'frontend',
+        tag: 'backend-1.2.3-frontend-4.5.6',
+      },
+    ],
+  )
+  assert.deepEqual(images[0].registries, {
+    dockerhub: 'docker.io/miacx/caelestis-backend',
+    ghcr: 'ghcr.io/mia-riezebos/caelestis-backend',
+  })
+  assert.deepEqual(images[3].registries, {
+    dockerhub: 'docker.io/miacx/caelestis-frontend',
+    ghcr: 'ghcr.io/mia-riezebos/caelestis-frontend',
+  })
+  assert.throws(() => portableImages('tag', 'missing-owner'))
 })

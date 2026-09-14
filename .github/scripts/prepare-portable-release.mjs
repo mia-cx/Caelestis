@@ -21,6 +21,27 @@ export const portableVersion = (backend, frontend) => {
   }
 }
 
+/** Map every published variant to the same package name in both registries. */
+export const portableImages = (imageTag, githubRepository) => {
+  const match = /^([A-Za-z0-9_.-]+)\/[A-Za-z0-9_.-]+$/.exec(githubRepository)
+  if (!match) throw new Error('GITHUB_REPOSITORY must contain an owner and repository')
+  const registries = (repository) => ({
+    dockerhub: `docker.io/miacx/${repository}`,
+    ghcr: `ghcr.io/${match[1].toLowerCase()}/${repository}`,
+  })
+  return [
+    { component: 'backend', source: 'backend', tag: imageTag },
+    { component: 'backend-node', source: 'backend', tag: `${imageTag}-node` },
+    { component: 'backend-bun', source: 'backend-bun', tag: `${imageTag}-bun` },
+    { component: 'frontend', source: 'frontend', tag: imageTag },
+  ].map((image) => ({
+    ...image,
+    registries: registries(
+      `caelestis-${image.component.startsWith('backend') ? 'backend' : 'frontend'}`,
+    ),
+  }))
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === import.meta.filename) {
   const { values } = parseArgs({
     options: { 'output-dir': { type: 'string' }, 'github-output': { type: 'string' } },
@@ -48,6 +69,11 @@ if (process.argv[1] && resolve(process.argv[1]) === import.meta.filename) {
   writeFileSync(
     resolve(values['output-dir'], 'versions.json'),
     `${JSON.stringify({ ...identity, commit: sha, postgresMigrations: migrations('apps/backend/migrations-postgres'), mariaMigrations: migrations('apps/backend/migrations-mariadb'), sqliteMigrations: migrations('apps/backend/migrations'), runtimeSchema: 1 }, null, 2)}\n`,
+  )
+  writeFileSync(
+    resolve(values['output-dir'], 'images.json'),
+    // biome-ignore lint/suspicious/noUndeclaredEnvVars: This release CLI does not run through Turbo.
+    `${JSON.stringify(portableImages(identity.imageTag, process.env.GITHUB_REPOSITORY ?? 'mia-riezebos/Caelestis'), null, 2)}\n`,
   )
   writeFileSync(
     resolve(values['output-dir'], 'notes.md'),
