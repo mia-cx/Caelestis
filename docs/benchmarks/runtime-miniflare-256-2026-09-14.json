@@ -1,0 +1,376 @@
+{
+  "sourceHashes": {
+    "run.mjs": "0871fb0694a16be3233b40e5982a7471b8859fc850a25f192ad49288b5d06341",
+    "server.mjs": "cefa4d57819cb68a9d3a4726a13eb91fad72b67acb3660efc0051ed96783909b",
+    "traffic.mjs": "c5588921628b47505156cf73deb072c43783c978d6a278b5ffd9386130a982e7",
+    "miniflare-server.mjs": "96c0fd9fb237283e423a1b329f3486800bc2e8eeaa41d68a80404d46e121b0c4"
+  },
+  "issue": 385,
+  "pr": 351,
+  "commit": "09ddcc17294576510c10c522699b6a356a1ff603",
+  "startedAt": "2026-09-14T15:43:03.479Z",
+  "description": {
+    "socketsPerUser": 2,
+    "explorerCycleMs": 9000,
+    "explorerMovingMs": 5400,
+    "viewportMinimumMs": 300,
+    "draftMinimumMs": 1000,
+    "presenceHeartbeatMs": 30000,
+    "painterViewportMs": 12000,
+    "painterNudgePixels": 8,
+    "paintBatchPixels": 30,
+    "paintBatchMs": 30000,
+    "tileObservationMs": 9000,
+    "canvasSnapshotMs": 5000,
+    "fixture": "Box Art 1612x2584 at its original canvas coordinates; eight full canvas tiles",
+    "users": 256,
+    "explorers": 179,
+    "painters": 77
+  },
+  "warmupMs": 35000,
+  "measuredMs": 60000,
+  "repeats": 3,
+  "diagnosticCpuProfile": false,
+  "transport": "production Worker and Durable Object adapters in Miniflare/workerd",
+  "database": "ephemeral local D1 and SQLite-backed Durable Object emulation inside workerd",
+  "objects": "ephemeral local R2 emulation; no remote Cloudflare services",
+  "metricScope": "aggregate workerd and Miniflare controller CPU/RSS; local storage emulation included; no isolate event-loop measurement",
+  "host": {
+    "platform": "linux",
+    "arch": "x64",
+    "cpu": "AMD Ryzen 9 7950X 16-Core Processor",
+    "logicalCpus": 24,
+    "serverCpus": "2,3",
+    "databaseCpus": "4,5",
+    "driverAffinity": "pid 1156284's current affinity list: 0,1"
+  },
+  "versions": {
+    "node": "v24.20.0",
+    "bun": "1.4.2"
+  },
+  "traceSha256": "fb8e6ee2e54794364967e91c473b4c3608053e9ff97948400397d54d44646837",
+  "fixtures": {
+    "templateSha256": "d92cb369c18af78bc0980bb24f9b856918c28082bfd2116e6cf7705b63b54c94",
+    "width": 1612,
+    "height": 2584,
+    "origin": {
+      "x": 325051,
+      "y": 1781650
+    },
+    "framesSha256": "970cc91df23f2877f477848b58be5448d30f4e1ce104fafb448f59a7967f6a21"
+  },
+  "runs": [
+    {
+      "repeat": 1,
+      "variant": "miniflare",
+      "phase": "measured",
+      "sent": {
+        "presence-update": 26466,
+        "tile-offer": 835,
+        "tile-upload": 48,
+        "paint-report": 154
+      },
+      "received": {
+        "presence-delta": 44795,
+        "tile-offer-result": 835,
+        "status-delta": 6400,
+        "alarms-reconcile": 6144,
+        "alarms-snapshot": 6144,
+        "tile-upload-result": 48,
+        "paint-result": 154
+      },
+      "sentBytes": 8547716,
+      "receivedBytes": 262579954,
+      "latencies": {
+        "tile-offer": {
+          "count": 835,
+          "p50": 0.4704399999900488,
+          "p95": 128.3025159999961,
+          "p99": 195.66596300000674,
+          "max": 242.46428600000218
+        },
+        "tile-upload": {
+          "count": 48,
+          "p50": 199.16369399998803,
+          "p95": 268.317959,
+          "p99": 269.17942700000276,
+          "max": 269.17942700000276
+        },
+        "paint-report": {
+          "count": 154,
+          "p50": 3.383642000000691,
+          "p95": 77.2758320000139,
+          "p99": 173.12247599999682,
+          "max": 174.29199199999857
+        }
+      },
+      "presenceDeliveryMs": {
+        "count": 794416,
+        "p50": 188.6092520000093,
+        "p95": 328.59366799999407,
+        "p99": 432.5590729999967,
+        "max": 573.3071469999995
+      },
+      "dispatchDelayMs": {
+        "count": 27475,
+        "p50": 0,
+        "p95": 0.7277000000030966,
+        "p99": 1.065048000004026,
+        "max": 8.951345000008587
+      },
+      "correctness": {
+        "online": 256,
+        "sockets": 512,
+        "finalPeerSetsAndDrafts": true,
+        "paintEvents": 243,
+        "paintPixels": 7290,
+        "duplicateRejected": true,
+        "errors": []
+      },
+      "durationMs": 59998.073210999995,
+      "backendCpuSeconds": 14.121304000000002,
+      "processCpuSeconds": {
+        "workerd": 14.120000000000001,
+        "miniflareController": 0.001304
+      },
+      "backendCpuPercentOfOneCore": 23.536262490194456,
+      "databaseCpuSeconds": null,
+      "driverCpuSeconds": 10.544425,
+      "rssMiB": {
+        "mean": 975.1880883891214,
+        "peak": 1012.19140625
+      },
+      "processRssMiB": {
+        "miniflareController": {
+          "mean": 208.77734375,
+          "peak": 208.77734375
+        },
+        "workerd": {
+          "mean": 766.4107446391214,
+          "peak": 803.4140625
+        }
+      },
+      "eventLoopDelayMs": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "max": null
+      },
+      "bundleSha256": "35492c002c12633aa3b1704711962fa7a3fa54a38ee71ac5778a09f17d4f7145"
+    },
+    {
+      "repeat": 2,
+      "variant": "miniflare",
+      "phase": "measured",
+      "sent": {
+        "presence-update": 26466,
+        "tile-offer": 835,
+        "tile-upload": 47,
+        "paint-report": 154
+      },
+      "received": {
+        "tile-offer-result": 835,
+        "status-delta": 6144,
+        "alarms-reconcile": 6144,
+        "alarms-snapshot": 6144,
+        "tile-upload-result": 47,
+        "presence-delta": 44288,
+        "paint-result": 154
+      },
+      "sentBytes": 8441615,
+      "receivedBytes": 260035338,
+      "latencies": {
+        "tile-offer": {
+          "count": 835,
+          "p50": 0.4711589999787975,
+          "p95": 123.13937799999258,
+          "p99": 201.83254000000306,
+          "max": 259.3487660000101
+        },
+        "tile-upload": {
+          "count": 47,
+          "p50": 194.48861000000034,
+          "p95": 259.3733749999956,
+          "p99": 284.67468200001167,
+          "max": 284.67468200001167
+        },
+        "paint-report": {
+          "count": 154,
+          "p50": 3.452538999990793,
+          "p95": 75.89382800000021,
+          "p99": 182.72119100001873,
+          "max": 191.40910600000643
+        }
+      },
+      "presenceDeliveryMs": {
+        "count": 793711,
+        "p50": 190.12048199999845,
+        "p95": 332.1615499999898,
+        "p99": 440.4325949999911,
+        "max": 580.4650879999972
+      },
+      "dispatchDelayMs": {
+        "count": 27475,
+        "p50": 0,
+        "p95": 0.6592890000029001,
+        "p99": 1.0543500000203494,
+        "max": 19.029750000016065
+      },
+      "correctness": {
+        "online": 256,
+        "sockets": 512,
+        "finalPeerSetsAndDrafts": true,
+        "paintEvents": 243,
+        "paintPixels": 7290,
+        "duplicateRejected": true,
+        "errors": []
+      },
+      "durationMs": 59979.376545,
+      "backendCpuSeconds": 14.061418,
+      "processCpuSeconds": {
+        "workerd": 14.06,
+        "miniflareController": 0.001418
+      },
+      "backendCpuPercentOfOneCore": 23.443754853720943,
+      "databaseCpuSeconds": null,
+      "driverCpuSeconds": 10.346655,
+      "rssMiB": {
+        "mean": 963.9660859048117,
+        "peak": 1000.2578125
+      },
+      "processRssMiB": {
+        "miniflareController": {
+          "mean": 208.52734375,
+          "peak": 208.52734375
+        },
+        "workerd": {
+          "mean": 755.4387421548117,
+          "peak": 791.73046875
+        }
+      },
+      "eventLoopDelayMs": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "max": null
+      },
+      "bundleSha256": "35492c002c12633aa3b1704711962fa7a3fa54a38ee71ac5778a09f17d4f7145"
+    },
+    {
+      "repeat": 3,
+      "variant": "miniflare",
+      "phase": "measured",
+      "sent": {
+        "presence-update": 26466,
+        "tile-offer": 835,
+        "tile-upload": 52,
+        "paint-report": 154
+      },
+      "received": {
+        "tile-offer-result": 835,
+        "status-delta": 6144,
+        "alarms-reconcile": 6144,
+        "alarms-snapshot": 6144,
+        "tile-upload-result": 52,
+        "presence-delta": 44539,
+        "paint-result": 154
+      },
+      "sentBytes": 9022935,
+      "receivedBytes": 260014274,
+      "latencies": {
+        "tile-offer": {
+          "count": 835,
+          "p50": 0.4858680000179447,
+          "p95": 122.92856400000164,
+          "p99": 204.6097239999799,
+          "max": 250.38690700000734
+        },
+        "tile-upload": {
+          "count": 52,
+          "p50": 205.79647900001146,
+          "p95": 277.39536500000395,
+          "p99": 283.5253739999607,
+          "max": 283.5253739999607
+        },
+        "paint-report": {
+          "count": 154,
+          "p50": 3.4430069999943953,
+          "p95": 91.51418900000863,
+          "p99": 175.2464209999889,
+          "max": 186.35494000004837
+        }
+      },
+      "presenceDeliveryMs": {
+        "count": 793274,
+        "p50": 189.19902200001525,
+        "p95": 329.0132539999904,
+        "p99": 442.2012659999891,
+        "max": 582.7410190000082
+      },
+      "dispatchDelayMs": {
+        "count": 27475,
+        "p50": 0,
+        "p95": 0.6887640000204556,
+        "p99": 1.4058139999979176,
+        "max": 19.633532000007108
+      },
+      "correctness": {
+        "online": 256,
+        "sockets": 512,
+        "finalPeerSetsAndDrafts": true,
+        "paintEvents": 243,
+        "paintPixels": 7290,
+        "duplicateRejected": true,
+        "errors": []
+      },
+      "durationMs": 59998.275830000006,
+      "backendCpuSeconds": 14.291234000000001,
+      "processCpuSeconds": {
+        "workerd": 14.290000000000001,
+        "miniflareController": 0.001234
+      },
+      "backendCpuPercentOfOneCore": 23.819407811806116,
+      "databaseCpuSeconds": null,
+      "driverCpuSeconds": 10.53415,
+      "rssMiB": {
+        "mean": 973.1614474372385,
+        "peak": 1012.1171875
+      },
+      "processRssMiB": {
+        "miniflareController": {
+          "mean": 208.48046875,
+          "peak": 208.48046875
+        },
+        "workerd": {
+          "mean": 764.6809786872385,
+          "peak": 803.63671875
+        }
+      },
+      "eventLoopDelayMs": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "max": null
+      },
+      "bundleSha256": "35492c002c12633aa3b1704711962fa7a3fa54a38ee71ac5778a09f17d4f7145"
+    }
+  ],
+  "capacity": {
+    "productionLimit": 256,
+    "benchmarkLimit": 256,
+    "productionAdmitsRequestedUsers": true
+  },
+  "databaseImage": null,
+  "finishedAt": "2026-09-14T15:48:11.287Z",
+  "applicationBaseline": "55804bd2",
+  "runtimeDetails": {
+    "controllerNode": "24.20.0",
+    "miniflare": "5.20260910.0-alpha",
+    "workerd": "1.20260910.1",
+    "compatibilityDate": "2026-08-03",
+    "bundleSha256": "35492c002c12633aa3b1704711962fa7a3fa54a38ee71ac5778a09f17d4f7145"
+  }
+}

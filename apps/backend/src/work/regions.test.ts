@@ -4,6 +4,7 @@ import {
   MAX_REGION_ITEMS,
   millis,
   packBits,
+  REGION_CLAIM_TTL_MS,
   type RegionClaim,
   type RegionDocument,
   type RegionShape,
@@ -20,6 +21,7 @@ import { SqliteD1Database } from '../adapters/cloudflare/sqlite-d1.test-helper.j
 import { MemoryBlobStore } from '../adapters/memory/memory-blob-store.js'
 import { MemoryCounterStore } from '../adapters/memory/memory-counter-store.js'
 import { MemorySqlStore } from '../adapters/memory/memory-sql-store.js'
+import { type SqlStoreHarness, sqlStoreAdapters } from '../adapters/sql-store.test-helper.js'
 import { createApp } from '../app.js'
 import { hashToken } from '../auth/tokens.js'
 import { makeBackendContext } from '../runtime/backend-runtime.js'
@@ -55,17 +57,26 @@ const document: RegionDocument = {
   ],
 }
 let database: SqliteD1Database | undefined
-afterEach(() => {
+let portable: SqlStoreHarness | undefined
+afterEach(async () => {
+  await portable?.close()
+  portable = undefined
   database?.close()
   database = undefined
 })
 
-const setup = async (adapter: 'memory' | 'd1') => {
+const setup = async (adapter: string) => {
   if (adapter === 'd1') database = new SqliteD1Database()
+  if (adapter !== 'memory' && adapter !== 'd1') {
+    const harness = sqlStoreAdapters.find((candidate) => candidate.name === adapter)
+    if (!harness) throw new Error(`Unknown adapter ${adapter}`)
+    portable = await harness.make()
+  }
   const sql =
-    database === undefined
+    portable?.store ??
+    (database === undefined
       ? new MemorySqlStore()
-      : new D1SqlStore(database as unknown as D1Database)
+      : new D1SqlStore(database as unknown as D1Database))
   const publishRegions = vi.fn(async () => {})
   const app = createApp(
     makeBackendContext(
@@ -122,7 +133,53 @@ const setup = async (adapter: 'memory' | 'd1') => {
   return { app, sql, publishRegions, body, call }
 }
 
-describe.each(['memory', 'd1'] as const)('region routes on %s', (adapter) => {
+describe.each([
+  'memory',
+  'd1',
+  ...sqlStoreAdapters
+    .filter(({ name }) => name !== 'memory' && name !== 'D1')
+    .map(({ name }) => name),
+])('region routes on %s', (adapter) => {
+  it('reports ownership by credential and painter, with read-only mutation capability', async () => {
+    const h = await setup(adapter)
+    const owned = uuidV7(),
+      foreign = uuidV7()
+    await h.call('PUT', owned, h.body)
+    await h.call('PUT', foreign, h.body, 'second-report')
+    const response = await h.app.request(
+      `/v1/work/regions?season=0&painterId=${actor.wplaceUserId}`,
+      {
+        headers: { authorization: 'Bearer report' },
+      },
+    )
+    expect(await response.json()).toMatchObject({ ownedRegionIds: [owned], canWrite: true })
+    const read = await h.app.request(`/v1/work/regions?season=0&painterId=${actor.wplaceUserId}`, {
+      headers: { authorization: 'Bearer read' },
+    })
+    expect(await read.json()).toMatchObject({ ownedRegionIds: [], canWrite: false })
+  })
+
+  it('renews only the credential and painter owner and never revives expired claims', async () => {
+    const h = await setup(adapter)
+    const id = uuidV7()
+    const response = await h.call('PUT', id, h.body)
+    const region = (await response.json()) as RegionClaim
+    const at = region.expiresAt as number
+    const hash = await hashToken('report')
+    await h.sql.regions.renewRegions(hash, other.wplaceUserId, at - 1000)
+    await h.sql.regions.renewRegions(
+      await hashToken('second-report'),
+      actor.wplaceUserId,
+      at - 1000,
+    )
+    expect((await h.sql.regions.readRegion(id))?.expiresAt).toBe(at)
+    await h.sql.regions.renewRegions(hash, actor.wplaceUserId, at - 1000)
+    const renewed = at - 1000 + REGION_CLAIM_TTL_MS
+    expect((await h.sql.regions.readRegion(id))?.expiresAt).toBe(renewed)
+    await h.sql.regions.renewRegions(hash, actor.wplaceUserId, renewed)
+    expect(await h.sql.regions.readRegion(id)).toBeNull()
+  })
+
   it('creates, lists, replays identical requests, rejects conflicts, and publishes mutations', async () => {
     const h = await setup(adapter)
     const id = uuidV7()
@@ -617,6 +674,30 @@ it.each([null, '{', 'null', JSON.stringify({ ...star, inner: star.r }), '{"items
     expect(await h.sql.regions.listRegions(0, WORLD_TEMPLATE_SURFACE)).toEqual([region])
   },
 )
+
+it('assigns finite expiry to rows an old binary writes after migration', async () => {
+  const h = await setup('d1')
+  const id = uuidV7()
+  const original = Schema.decodeUnknownSync(RegionClaimSchema)(
+    await (await h.call('PUT', id, h.body)).json(),
+  )
+  database?.sqlite.prepare('UPDATE work_regions SET expires_at = NULL WHERE id = ?').run(id)
+  expect((await h.sql.regions.readRegion(id))?.expiresAt).toBe(
+    original.createdAt + REGION_CLAIM_TTL_MS,
+  )
+  database?.sqlite.prepare('UPDATE work_regions SET expires_at = NULL WHERE id = ?').run(id)
+  await h.sql.regions.renewRegions(
+    await hashToken('report'),
+    actor.wplaceUserId,
+    original.createdAt + 1_000,
+  )
+  expect((await h.sql.regions.readRegion(id))?.expiresAt).toBe(
+    original.createdAt + 1_000 + REGION_CLAIM_TTL_MS,
+  )
+  database?.sqlite.prepare('UPDATE work_regions SET expires_at = NULL WHERE id = ?').run(id)
+  await h.sql.regions.expireRegions(original.createdAt + REGION_CLAIM_TTL_MS)
+  expect(await h.sql.regions.readRegion(id)).toBeNull()
+})
 
 it('wraps a legacy single-shape row in a document', async () => {
   const h = await setup('d1')

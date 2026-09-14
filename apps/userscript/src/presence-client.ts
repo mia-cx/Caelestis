@@ -16,6 +16,9 @@ import {
   type RegionClaim,
   type RegionClaimRequest,
   sameRect,
+  sameTemplateSurface,
+  templateSurface,
+  uuidV7,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { userscriptVersion } from './client-metrics.js'
@@ -30,7 +33,7 @@ import {
   recordProfileWorkload,
 } from './profile.js'
 import { liveClientId, liveCredentialProtocol } from './server-sync-coordinator.js'
-import { requestServerMetadata, requestServerMutation } from './server-transport.js'
+import { requestServerMutation, requestServerTree } from './server-transport.js'
 import { serverEndpoint } from './server-url.js'
 import {
   activeServerToken,
@@ -44,48 +47,26 @@ import { draftedPixelOffsets, draftedTiles, type TileFrame } from './tile-transf
 import { accountIdentity, loadAccount } from './wplace-account.js'
 
 /**
- * The painter presence channel: one socket per tab, on the least crowded server.
- *
- * A painter connected to several servers that advertise presence still opens a single socket.
- * Before opening it, every candidate is asked over plain HTTP how many painters it has online,
- * and the emptiest one wins (ties go to the smaller server id, so two painters sharing the same
- * servers make the same choice). Busy servers therefore get fewer collaboration sockets, and
- * painters who share several servers are not seen twice. The choice only happens when no socket
- * is open: an open socket is never moved, so nobody flaps between servers as headcounts shift.
- *
- * Region claims are persistent and belong to whichever server they were saved on, so the servers
- * without the socket still contribute their claims, fetched over HTTP on connection and refreshed
- * every few minutes. Saving and releasing a claim is HTTP on every server.
- *
- * Everything that leaves this module is throttled, because the socket's cost on the server is
- * counted per incoming message. Nothing is sent on a schedule but the heartbeat: a viewport goes
- * only when a pan or zoom changed it, at most every 300 ms while moving and once more
- * when the movement stops; a draft at most once a second; a quiet tab one heartbeat every thirty. What arrives is already
- * filtered to the peers near this viewport, so the layer only has to draw what it is given.
- *
- * Nothing here touches the map or the DOM. `observePresenceFrame` is fed each tile frame by the
- * main loop, and the GL layer and the panel read `presenceView()`.
+ * One throttled socket per compatible server. Each may have a distinct audience.
+ * Viewports and drafts retain their existing cadence and server-side nearby filtering.
+ * A random tab publisher ID identifies copies without sharing credential admission IDs.
  */
 
 const MAX_RECONNECT_MS = 30_000
 const INITIAL_RECONNECT_MS = 1_000
-/** How often a server without the socket is asked again for its region claims. */
-export const PRESENCE_REGION_REFRESH_MS = 5 * 60_000
+const CLAIM_SNAPSHOT_MS = 30_000
 
 interface Connection {
   readonly server: ConnectedServer
-  /** Whether this is the server that carries the socket. At most one connection is live. */
-  live: boolean
   socket: WebSocket | null
-  regionsTimer: ReturnType<typeof setTimeout> | null
-  /** When the claims were last fetched over HTTP; never, for the live connection. */
-  regionsAt: number
-  /** The latest HTTP refresh started; an older one that lands later is ignored. */
-  regionsSequence: number
   sessionId: string | null
   peers: Map<string, PresencePeer>
   regions: readonly RegionClaim[]
-  online: number
+  claimsRevision: number
+  ownedRegionIds: readonly string[]
+  canWriteClaims: boolean
+  snapshotTimer: ReturnType<typeof setTimeout> | null
+  snapshotRequest: AbortController | null
   attempts: number
   reconnectTimer: ReturnType<typeof setTimeout> | null
   heartbeatTimer: ReturnType<typeof setTimeout> | null
@@ -107,13 +88,12 @@ export interface PresenceView {
 
 const connections = new Map<object, Connection>()
 const listeners: (() => void)[] = []
+const claimListeners: (() => void)[] = []
+const receivedOrder = new WeakMap<PresencePeer, number>()
+let receivedSequence = 0
 let installed = false
 let identityRequested = false
-/** The election in flight, if any; its sequence number lets a reset discard a late result. */
-let electing = false
-let electionSequence = 0
-/** Reconciliation asked for an election while one was running; run again when it ends. */
-let electionWanted = false
+let publisherId = uuidV7()
 let hiddenTab = false
 let pendingViewport: PresenceRect | null = null
 let pendingDraft: PresenceDraft | null = null
@@ -134,6 +114,11 @@ const notify = (): void => {
 /** Runs after any peer, region, or connection change. */
 export const onPresenceChange = (listener: () => void): void => {
   listeners.push(listener)
+}
+
+/** Observe claim snapshots without reconciling claims for every viewport update. */
+export const onPresenceClaimsChange = (listener: () => void): void => {
+  claimListeners.push(listener)
 }
 
 const eligible = (server: ConnectedServer): boolean =>
@@ -159,16 +144,26 @@ const isPeer = (value: unknown): value is PresencePeer => {
     typeof peer.sessionId === 'string' &&
     peer.sessionId.length > 0 &&
     peer.sessionId.length <= 64 &&
+    (peer.publisherId === undefined ||
+      /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+        peer.publisherId,
+      )) &&
     isWorkIdentity(peer.painter) &&
     (peer.viewport === null || isPresenceRect(peer.viewport)) &&
     (peer.draft === null || isPresenceDraft(peer.draft))
   )
 }
 
-const isRegion = (value: unknown): value is RegionClaim => {
+/** Validate remote and persisted claims before they enter routing or rendering. */
+export const isPresenceRegion = (value: unknown): value is RegionClaim => {
   if (typeof value !== 'object' || value === null) return false
   const region = value as RegionClaim
   return (
+    Number.isSafeInteger(region.season) &&
+    region.season >= 0 &&
+    region.surface != null &&
+    templateSurface(region.surface.kind, region.surface.allianceId) !== null &&
+    (region.expiresAt === undefined || Number.isSafeInteger(region.expiresAt)) &&
     typeof region.id === 'string' &&
     region.id.length <= 64 &&
     (region.templateId === null ||
@@ -300,11 +295,25 @@ const applyServerEvent = (connection: Connection, value: unknown): boolean => {
     // A server that completes the handshake and then misbehaves keeps its backoff; only a
     // healthy exchange resets it.
     connection.attempts = 0
-    connection.online = Number(event.online)
     connection.peers = new Map(
-      event.peers.filter(isPeer).map((peer) => [peer.sessionId, peer] as const),
+      event.peers.filter(isPeer).map((peer) => {
+        receivedOrder.set(peer, ++receivedSequence)
+        return [peer.sessionId, peer] as const
+      }),
     )
-    connection.regions = event.regions.filter(isRegion).slice(0, MAX_PRESENCE_REGIONS)
+    connection.regions = event.regions
+      .filter(isPresenceRegion)
+      .filter(
+        (region) =>
+          region.season === connection.server.season &&
+          sameTemplateSurface(region.surface, WORLD_TEMPLATE_SURFACE),
+      )
+      .slice(0, MAX_PRESENCE_REGIONS)
+    connection.claimsRevision++
+    connection.ownedRegionIds = regionIds(event.ownedRegionIds)
+    connection.canWriteClaims = event.canWrite === true
+    stopSnapshots(connection)
+    for (const listener of claimListeners) listener()
     return true
   }
   if (event.type === 'presence-delta') {
@@ -314,14 +323,37 @@ const applyServerEvent = (connection: Connection, value: unknown): boolean => {
       !Array.isArray(event.remove)
     )
       return false
-    connection.online = Number(event.online)
     for (const id of event.remove) if (typeof id === 'string') connection.peers.delete(id)
-    for (const peer of event.upsert) if (isPeer(peer)) connection.peers.set(peer.sessionId, peer)
+    for (const peer of event.upsert)
+      if (isPeer(peer)) {
+        receivedOrder.set(peer, ++receivedSequence)
+        connection.peers.set(peer.sessionId, peer)
+      }
     return true
   }
   if (event.type === 'regions') {
     if (!Array.isArray(event.regions)) return false
-    connection.regions = event.regions.filter(isRegion).slice(0, MAX_PRESENCE_REGIONS)
+    connection.regions = event.regions
+      .filter(isPresenceRegion)
+      .filter(
+        (region) =>
+          region.season === connection.server.season &&
+          sameTemplateSurface(region.surface, WORLD_TEMPLATE_SURFACE),
+      )
+      .slice(0, MAX_PRESENCE_REGIONS)
+    connection.claimsRevision++
+    connection.ownedRegionIds = regionIds(event.ownedRegionIds)
+    for (const listener of claimListeners) listener()
+    return true
+  }
+  if (event.type === 'claims-renewed') {
+    if (!Number.isSafeInteger(event.expiresAt)) return false
+    const expiresAt = Number(event.expiresAt)
+    const ids = new Set(regionIds(event.ids))
+    connection.regions = connection.regions.map((region) =>
+      ids.has(region.id) ? { ...region, expiresAt } : region,
+    )
+    for (const listener of claimListeners) listener()
     return true
   }
   // Unknown events belong to a newer server; they are not a reason to drop the socket.
@@ -337,14 +369,67 @@ const clearTimers = (connection: Connection): void => {
   connection.flushTimer = null
 }
 
-const clearRegionsTimer = (connection: Connection): void => {
-  if (connection.regionsTimer !== null) clearTimeout(connection.regionsTimer)
-  connection.regionsTimer = null
+const regionIds = (value: unknown): string[] =>
+  Array.isArray(value)
+    ? value.filter((id): id is string => typeof id === 'string').slice(0, MAX_PRESENCE_REGIONS)
+    : []
+
+const stopSnapshots = (connection: Connection): void => {
+  if (connection.snapshotTimer !== null) clearTimeout(connection.snapshotTimer)
+  connection.snapshotTimer = null
+  connection.snapshotRequest?.abort()
+  connection.snapshotRequest = null
 }
 
-const readHeaders = (server: ConnectedServer): HeadersInit => {
+/** Keep persisted claims readable when admission limits or network failures prevent a socket. */
+const startSnapshots = (connection: Connection): void => {
+  if (
+    connection.sessionId !== null ||
+    connection.snapshotRequest !== null ||
+    connection.snapshotTimer !== null
+  )
+    return
+  const controller = new AbortController()
+  connection.snapshotRequest = controller
+  const { server } = connection
+  const endpoint = scopedEndpoint(server, '/work/regions')
+  const actor = accountIdentity()
+  if (actor !== null) endpoint.searchParams.set('painterId', String(actor.wplaceUserId))
   const token = activeServerToken(server)
-  return token === null ? {} : { authorization: `Bearer ${token}` }
+  void requestServerTree(endpoint.toString(), {
+    signal: controller.signal,
+    headers: token === null ? {} : { authorization: `Bearer ${token}` },
+  })
+    .then(({ response, body }) => {
+      if (
+        controller.signal.aborted ||
+        !isCurrentServerConnection(server) ||
+        connection.sessionId !== null
+      )
+        return
+      if (!response.ok || typeof body !== 'object' || body === null || !('regions' in body)) return
+      if (!applyServerEvent(connection, { ...body, type: 'regions' })) return
+      connection.canWriteClaims = 'canWrite' in body && body.canWrite === true
+      for (const listener of claimListeners) listener()
+      notify()
+    })
+    .catch((error: unknown) => {
+      if (!controller.signal.aborted) warn('install', 'claim snapshot failed', String(error))
+    })
+    .finally(() => {
+      if (connection.snapshotRequest !== controller) return
+      connection.snapshotRequest = null
+      if (
+        controller.signal.aborted ||
+        !isCurrentServerConnection(server) ||
+        connection.sessionId !== null
+      )
+        return
+      connection.snapshotTimer = setTimeout(() => {
+        connection.snapshotTimer = null
+        startSnapshots(connection)
+      }, CLAIM_SNAPSHOT_MS)
+    })
 }
 
 const scopedEndpoint = (server: ConnectedServer, path: string): URL => {
@@ -354,131 +439,12 @@ const scopedEndpoint = (server: ConnectedServer, path: string): URL => {
   return endpoint
 }
 
-/** How many painters a server has online, or infinity when it cannot say: it is picked last. */
-const probeOnline = async (server: ConnectedServer): Promise<number> => {
-  try {
-    const { response, body } = await requestServerMetadata(
-      scopedEndpoint(server, '/telemetry/presence/online').toString(),
-      { headers: readHeaders(server) },
-    )
-    const online = (body as { online?: unknown } | null)?.online
-    if (!response.ok || !Number.isSafeInteger(online) || (online as number) < 0)
-      return Number.POSITIVE_INFINITY
-    return online as number
-  } catch {
-    return Number.POSITIVE_INFINITY
-  }
-}
-
-/** A server without the socket wants its claims fetched when it has none recent enough. */
-const regionsDue = (connection: Connection): boolean =>
-  !connection.live &&
-  connection.regionsTimer === null &&
-  now() - connection.regionsAt >= PRESENCE_REGION_REFRESH_MS
-
-/** Region claims of a server that does not carry the socket, over HTTP. */
-const refreshRegions = async (connection: Connection): Promise<void> => {
-  clearRegionsTimer(connection)
-  if (connection.live || connection.server.season === null) return
-  connection.regionsAt = now()
-  const sequence = ++connection.regionsSequence
-  try {
-    const { response, body } = await requestServerMetadata(
-      scopedEndpoint(connection.server, '/work/regions').toString(),
-      { headers: readHeaders(connection.server) },
-    )
-    const regions = (body as { regions?: unknown } | null)?.regions
-    // Only the newest read counts, and never once the socket carries this server's claims.
-    if (sequence !== connection.regionsSequence || connection.live) return
-    if (response.ok && Array.isArray(regions)) {
-      connection.regions = regions.filter(isRegion).slice(0, MAX_PRESENCE_REGIONS)
-      notify()
-    }
-  } catch (error) {
-    warn('install', 'presence regions could not be fetched', String(error))
-  }
-  if (
-    connection.live ||
-    connections.get(serverConnectionIdentity(connection.server)) !== connection
-  )
-    return
-  clearRegionsTimer(connection)
-  connection.regionsTimer = setTimeout(() => {
-    connection.regionsTimer = null
-    void refreshRegions(connection)
-  }, PRESENCE_REGION_REFRESH_MS)
-}
-
-const liveConnection = (): Connection | null => {
-  for (const connection of connections.values()) if (connection.live) return connection
-  return null
-}
-
-/** Stable tie-break so painters who share the same servers land on the same one. */
-const serverRank = (server: ConnectedServer): string => server.info?.id ?? server.url
-
-/**
- * Pick the server for the socket: the one with the fewest painters online. Runs only while no
- * socket is open or pending, so an established connection is never moved.
- */
-const elect = (): void => {
-  if (electing) {
-    electionWanted = true
-    return
-  }
-  if (accountIdentity() === null) return
-  const current = liveConnection()
-  if (current !== null && (current.socket !== null || current.reconnectTimer !== null)) return
-  const candidates = [...connections.values()]
-  if (candidates.length === 0) return
-  electing = true
-  const sequence = electionSequence
-  void Promise.all(
-    candidates.map(async (connection) => ({
-      connection,
-      online: await probeOnline(connection.server),
-    })),
-  ).then((probed) => {
-    electing = false
-    if (sequence !== electionSequence) return
-    const alive = probed.filter(
-      ({ connection }) =>
-        connections.get(serverConnectionIdentity(connection.server)) === connection,
-    )
-    // Servers came or went while the probes were out: this snapshot is stale, so run again
-    // over the current candidates rather than electing from it.
-    if (electionWanted || alive.length !== probed.length || connections.size !== probed.length) {
-      electionWanted = false
-      elect()
-      return
-    }
-    alive.sort(
-      (left, right) =>
-        left.online - right.online ||
-        serverRank(left.connection.server).localeCompare(serverRank(right.connection.server)),
-    )
-    const winner = alive[0]?.connection
-    if (winner === undefined) return
-    for (const connection of connections.values()) {
-      connection.live = connection === winner
-      if (connection.live) clearRegionsTimer(connection)
-      else if (regionsDue(connection)) void refreshRegions(connection)
-    }
-    log('install', 'presence server chosen', {
-      server: winner.server.url,
-      online: alive[0]?.online,
-      candidates: alive.length,
-    })
-    open(winner)
-  })
-}
-
 const closeConnection = (connection: Connection): void => {
+  stopSnapshots(connection)
   clearTimers(connection)
-  clearRegionsTimer(connection)
-  connection.live = false
   const socket = connection.socket
   connection.socket = null
+  connection.sessionId = null
   if (socket !== null && socket.readyState < WebSocket.CLOSING) {
     try {
       socket.close(1000, 'presence retired')
@@ -486,24 +452,21 @@ const closeConnection = (connection: Connection): void => {
       // Already gone.
     }
   }
-  if (connection.peers.size > 0 || connection.online > 0) {
+  if (connection.peers.size > 0) {
     connection.peers = new Map()
-    connection.online = 0
     notify()
   }
 }
 
 const scheduleReconnect = (connection: Connection): void => {
+  startSnapshots(connection)
   if (connection.reconnectTimer !== null) return
   const delay = Math.min(MAX_RECONNECT_MS, INITIAL_RECONNECT_MS * 2 ** connection.attempts)
   connection.attempts = Math.min(connection.attempts + 1, 10)
   connection.reconnectTimer = setTimeout(
     () => {
       connection.reconnectTimer = null
-      // A lost socket is a fresh choice: the server may be down, or may have filled up meanwhile.
-      // The backoff stays on this connection, so a server that keeps failing keeps waiting longer.
-      connection.live = false
-      elect()
+      open(connection)
     },
     delay + Math.random() * 500,
   )
@@ -513,7 +476,6 @@ const open = (connection: Connection): void => {
   const { server } = connection
   const identity = accountIdentity()
   if (
-    !connection.live ||
     connection.socket !== null ||
     connection.reconnectTimer !== null ||
     !isCurrentServerConnection(server) ||
@@ -534,6 +496,7 @@ const open = (connection: Connection): void => {
   // Every connection carries this browser's id, so painters sharing one token are not counted
   // as one client against the per-client socket cap.
   endpoint.searchParams.set('clientId', liveClientId(server.url))
+  endpoint.searchParams.set('publisherId', publisherId)
   const protocols = [PRESENCE_PROTOCOL_V1]
   if (token !== null) protocols.push(liveCredentialProtocol(token))
   let socket: WebSocket
@@ -598,7 +561,6 @@ const open = (connection: Connection): void => {
     connection.sessionId = null
     clearTimers(connection)
     connection.peers = new Map()
-    connection.online = 0
     notify()
     if (isCurrentServerConnection(server) && eligible(server)) scheduleReconnect(connection)
   })
@@ -624,15 +586,15 @@ const reconcile = (): void => {
     if (connection === undefined) {
       connection = {
         server,
-        live: false,
         socket: null,
-        regionsTimer: null,
-        regionsAt: Number.NEGATIVE_INFINITY,
-        regionsSequence: 0,
         sessionId: null,
         peers: new Map(),
         regions: [],
-        online: 0,
+        claimsRevision: 0,
+        ownedRegionIds: [],
+        canWriteClaims: false,
+        snapshotTimer: null,
+        snapshotRequest: null,
         attempts: 0,
         reconnectTimer: null,
         heartbeatTimer: null,
@@ -650,13 +612,9 @@ const reconcile = (): void => {
     closeConnection(connection)
     connections.delete(owner)
   }
-  elect()
-  // Once a socket is chosen the other servers only need their claims; a server added while the
-  // socket is already open joins as one of those straight away.
-  if (liveConnection() !== null) {
-    for (const connection of connections.values()) {
-      if (regionsDue(connection)) void refreshRegions(connection)
-    }
+  for (const connection of connections.values()) {
+    open(connection)
+    startSnapshots(connection)
   }
 }
 
@@ -687,77 +645,98 @@ export const observePresenceFrame = (frame: TileFrame): void => {
   if (changed) scheduleAll()
 }
 
-/**
- * Peers and headcount from the server carrying the socket, without this tab's own session, plus
- * the claims of every presence server.
- */
+/** Unique nearby sessions and logical claims across all connected servers. */
 export const presenceView = (): PresenceView => {
-  const peers: PresencePeer[] = []
-  const regions: RegionClaim[] = []
-  let online = 0
+  const peers = new Map<string, PresencePeer>()
+  const regions = new Map<string, RegionClaim>()
   let connected = false
   for (const connection of connections.values()) {
-    if (connection.live && connection.socket?.readyState === WebSocket.OPEN) {
+    if (connection.socket?.readyState === WebSocket.OPEN) {
       connected = true
-      online = connection.online
       for (const peer of connection.peers.values()) {
-        if (peer.sessionId !== connection.sessionId) peers.push(peer)
+        if (peer.sessionId === connection.sessionId || peer.publisherId === publisherId) continue
+        const key =
+          peer.publisherId === undefined
+            ? `${connection.server.url}:${peer.sessionId}`
+            : `${peer.painter.wplaceUserId}:${peer.publisherId}`
+        const previous = peers.get(key)
+        if (
+          previous === undefined ||
+          (receivedOrder.get(peer) ?? 0) > (receivedOrder.get(previous) ?? 0)
+        )
+          peers.set(key, peer)
       }
     }
-    regions.push(...connection.regions)
+    for (const region of connection.regions) {
+      const key = `${region.season}:${region.surface.kind}:${region.surface.allianceId}:${region.claimant.wplaceUserId}:${region.id}`
+      regions.set(key, region)
+    }
   }
-  return { peers, regions, online, connected, me: accountIdentity() }
+  return {
+    peers: [...peers].map(([key, peer]) => ({ ...peer, sessionId: key })),
+    regions: [...regions.values()],
+    online: peers.size,
+    connected,
+    me: accountIdentity(),
+  }
 }
 
-/** Presence servers that can take a claim: the one with the open socket first, then the rest. */
-export const presenceServers = (): readonly ConnectedServer[] => {
-  const servers: ConnectedServer[] = []
-  const live = presenceLiveServer()
-  if (live !== null) servers.push(live)
-  for (const connection of connections.values()) {
-    if (!connection.live) servers.push(connection.server)
-  }
-  return servers
-}
-
-/** The server carrying this tab's presence socket, when it is open. */
-export const presenceLiveServer = (): ConnectedServer | null => {
-  const live = liveConnection()
-  return live !== null && live.socket?.readyState === WebSocket.OPEN ? live.server : null
-}
-
-/** The server a region claim came from, or null once that connection is gone. */
-export const presenceRegionServer = (id: string): ConnectedServer | null => {
-  for (const connection of connections.values()) {
-    if (connection.regions.some((region) => region.id === id)) return connection.server
-  }
-  return null
-}
+/** Every connected server supporting presence, including sockets currently reconnecting. */
+export const presenceServers = (): readonly ConnectedServer[] =>
+  [...connections.values()].map((connection) => connection.server)
 
 /** The presence connection of a server, live or not, when the server supports presence. */
 const connectionFor = (server: ConnectedServer): Connection | null =>
   connections.get(serverConnectionIdentity(server)) ?? null
+
+/** Raw copies and handshake state for claim reconciliation. */
+export const presenceServerClaims = (
+  server: ConnectedServer,
+): {
+  readonly ready: boolean
+  readonly regions: readonly RegionClaim[]
+  readonly revision: number
+  readonly ownedRegionIds: readonly string[]
+} => {
+  const connection = connectionFor(server)
+  return {
+    ready: (connection?.claimsRevision ?? 0) > 0,
+    regions: connection?.regions ?? [],
+    revision: connection?.claimsRevision ?? 0,
+    ownedRegionIds: connection?.ownedRegionIds ?? [],
+  }
+}
+
+/** Claims require report/admin capability from an authenticated server snapshot. */
+export const presenceCanWriteClaims = (server: ConnectedServer): boolean =>
+  activeServerToken(server) !== null && connectionFor(server)?.canWriteClaims === true
 
 const regionRequest = async (
   server: ConnectedServer,
   method: 'PUT' | 'DELETE',
   id: string,
   body: unknown,
+  scope?: Pick<RegionClaim, 'season' | 'surface'>,
+  signal?: AbortSignal,
 ): Promise<string | null> => {
   if (server.season === null) return 'Server season unknown.'
   const token = activeServerToken(server)
   if (token === null) return 'Sign in to this server to claim regions.'
   const endpoint = scopedEndpoint(server, `/work/regions/${id}`)
+  if (scope !== undefined) {
+    endpoint.searchParams.set('season', String(scope.season))
+    endpoint.searchParams.set('surface', scope.surface.kind)
+    if (scope.surface.allianceId !== null)
+      endpoint.searchParams.set('allianceId', String(scope.surface.allianceId))
+  }
   try {
     const { response, body: answer } = await requestServerMutation(endpoint.toString(), {
       method,
       headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
       body: JSON.stringify(body),
+      ...(signal === undefined ? {} : { signal }),
     })
-    if (response.ok) {
-      // The live server pushes the new list over the socket; the others are asked for it.
-      const connection = connectionFor(server)
-      if (connection !== null && !connection.live) void refreshRegions(connection)
+    if (response.ok || (method === 'DELETE' && response.status === 404)) {
       return null
     }
     const error =
@@ -777,9 +756,11 @@ export const claimRegion = async (
   server: ConnectedServer,
   id: string,
   request: RegionClaimRequest,
+  scope?: Pick<RegionClaim, 'season' | 'surface'>,
+  signal?: AbortSignal,
 ): Promise<string | null> => {
   if (connectionFor(server) === null) return 'This server does not support region claims.'
-  return regionRequest(server, 'PUT', id, request)
+  return regionRequest(server, 'PUT', id, request, scope, signal)
 }
 
 /** Release one region claim. Resolves to an error message, or null on success. */
@@ -787,7 +768,9 @@ export const releaseRegion = async (
   server: ConnectedServer,
   id: string,
   actor: PainterIdentity,
-): Promise<string | null> => regionRequest(server, 'DELETE', id, { actor })
+  scope?: Pick<RegionClaim, 'season' | 'surface'>,
+  signal?: AbortSignal,
+): Promise<string | null> => regionRequest(server, 'DELETE', id, { actor }, scope, signal)
 
 /** The current viewport and draft as last observed, for claiming what is on screen. */
 export const presencePending = (): {
@@ -830,11 +813,10 @@ export const resetPresence = (): void => {
   for (const connection of connections.values()) closeConnection(connection)
   connections.clear()
   listeners.length = 0
+  claimListeners.length = 0
   installed = false
   identityRequested = false
-  electing = false
-  electionWanted = false
-  electionSequence += 1
+  publisherId = uuidV7()
   hiddenTab = false
   pendingViewport = null
   pendingDraft = null

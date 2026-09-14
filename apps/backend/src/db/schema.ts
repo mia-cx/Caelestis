@@ -27,6 +27,7 @@ export const workRegions = sqliteTable(
     claimantUserId: integer('claimant_user_id').notNull(),
     claimantName: text('claimant_name').notNull(),
     tokenHash: text('token_hash'),
+    expiresAt: integer('expires_at'),
     shape: text('shape'),
     x: integer('x').notNull(),
     y: integer('y').notNull(),
@@ -36,6 +37,7 @@ export const workRegions = sqliteTable(
     createdAt: integer('created_at').notNull(),
   },
   (table) => [
+    index('work_regions_expiry_idx').on(table.expiresAt),
     index('work_regions_scope_idx').on(
       table.season,
       table.surfaceKind,

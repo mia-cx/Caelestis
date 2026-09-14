@@ -7,8 +7,21 @@ export interface RegionWriter {
   readonly admin: boolean
 }
 
+/** Internal ownership keys. Never include credential hashes in a public claim snapshot. */
+export interface RegionOwner {
+  readonly id: string
+  readonly tokenHash: string
+  readonly actorId: number
+}
+
 /** Persisted claims; creation never overwrites an existing identity. */
 export interface RegionStore {
+  /** Remove expired rows before reads, capacity checks, or renewal. */
+  expireRegions(now: number): Promise<void>
+  /** Renew only unexpired claims owned by both this credential and painter. */
+  renewRegions(tokenHash: string, actorId: number, now: number): Promise<boolean>
+  /** Read all ownership keys once per drawing snapshot, regardless of subscriber count. */
+  regionOwners(season: number, surface: TemplateSurface): Promise<readonly RegionOwner[]>
   listRegions(
     season: number,
     surface: TemplateSurface,

@@ -130,7 +130,7 @@
       <span>
         Painters
         <span class="count">
-          {#if presence.connected}{presence.online} online{:else}offline{/if}
+          {#if presence.connected}{presence.online} nearby{:else}offline{/if}
         </span>
       </span>
       <span class="t-acc-chevron" aria-hidden="true"><Icon name="expandLess" /></span>

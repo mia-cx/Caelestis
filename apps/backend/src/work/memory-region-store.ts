@@ -1,12 +1,13 @@
 import {
   MAX_PRESENCE_REGIONS,
+  REGION_CLAIM_TTL_MS,
   type RegionClaim,
   type RegionDocument,
   regionDocumentBounds,
   sameTemplateSurface,
   type TemplateSurface,
 } from '@caelestis/shared'
-import type { RegionStore, RegionWriter } from './region-store.js'
+import type { RegionOwner, RegionStore, RegionWriter } from './region-store.js'
 
 /** In-memory equivalent of D1's bounded region records. */
 export class MemoryRegionStore implements RegionStore {
@@ -22,11 +23,40 @@ export class MemoryRegionStore implements RegionStore {
     )
   }
 
+  async expireRegions(now: number): Promise<void> {
+    for (const [id, region] of this.records) {
+      if (region.expiresAt === undefined || region.expiresAt > now) continue
+      this.records.delete(id)
+      this.owners.delete(id)
+    }
+  }
+
+  async renewRegions(tokenHash: string, actorId: number, now: number): Promise<boolean> {
+    await this.expireRegions(now)
+    let changed = false
+    for (const [id, region] of this.records) {
+      if (this.owners.get(id) !== tokenHash || region.claimant.wplaceUserId !== actorId) continue
+      this.records.set(id, { ...region, expiresAt: now + REGION_CLAIM_TTL_MS })
+      changed = true
+    }
+    return changed
+  }
+
+  async regionOwners(season: number, surface: TemplateSurface): Promise<readonly RegionOwner[]> {
+    return [...this.records.values()]
+      .filter((region) => region.season === season && sameTemplateSurface(region.surface, surface))
+      .flatMap(({ id, claimant }) => {
+        const tokenHash = this.owners.get(id)
+        return tokenHash == null ? [] : [{ id, tokenHash, actorId: claimant.wplaceUserId }]
+      })
+  }
+
   async listRegions(
     season: number,
     surface: TemplateSurface,
     templateId?: string,
   ): Promise<readonly RegionClaim[]> {
+    await this.expireRegions(Date.now())
     return [...this.records.values()]
       .filter(
         (region) =>
@@ -38,9 +68,11 @@ export class MemoryRegionStore implements RegionStore {
       .slice(0, MAX_PRESENCE_REGIONS)
   }
   async readRegion(id: string): Promise<RegionClaim | null> {
+    await this.expireRegions(Date.now())
     return this.records.get(id) ?? null
   }
   async createRegion(region: RegionClaim, tokenHash: string | null): Promise<boolean> {
+    await this.expireRegions(Date.now())
     const rect = regionDocumentBounds(region.document)
     if (rect === null) throw new Error('Region document must contain an added shape')
     const count = [...this.records.values()].filter(
@@ -51,6 +83,7 @@ export class MemoryRegionStore implements RegionStore {
       region.id,
       structuredClone({
         ...region,
+        expiresAt: region.expiresAt ?? Date.now() + REGION_CLAIM_TTL_MS,
         templateId: region.templateId ?? null,
         rect,
       }),
@@ -65,6 +98,7 @@ export class MemoryRegionStore implements RegionStore {
     templateId: string | null,
     writer: RegionWriter,
   ): Promise<RegionClaim | null> {
+    await this.expireRegions(Date.now())
     const current = this.records.get(id)
     if (current === undefined || !this.canWrite(current, writer)) return null
     const rect = regionDocumentBounds(document)
