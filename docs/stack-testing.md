@@ -5,8 +5,8 @@ GitHub provides the runners. Each Kubernetes test creates its own kind cluster a
 
 | Run | Coverage |
 | --- | --- |
-| Every PR and main push | Local Cloudflare Workers; six amd64 Compose combinations; Helm with SQLite/filesystem, CNPG/S3, and MariaDB/S3; adapter contracts; image scans; chart schemas |
-| Nightly and extended manual runs | The same checks, plus all six ARM64 Compose combinations, previous-version upgrades, database connection-loss recovery, and CNPG primary switchover |
+| Every PR and main push | Local Cloudflare Workers; six amd64 Compose combinations per backend runtime; Node/Bun Helm with SQLite/filesystem, CNPG/S3, and MariaDB/S3; adapter contracts; image scans; chart schemas |
+| Nightly and extended manual runs | The same checks, plus all six ARM64 Compose combinations per runtime, previous-version upgrades, database connection-loss recovery, and CNPG primary switchover |
 | Nightly Cloudflare run | A real, isolated D1/R2/Durable Object deployment, shared acceptance tests, backend redeployment, and cleanup |
 | Portable release | Extended checks and live Cloudflare must pass before publishing the tested images |
 
@@ -62,7 +62,7 @@ All live runs share one concurrency group. Cleanup runs before provisioning and 
 
 Extended runs select the latest earlier portable release and verify its image-manifest checksums. Until one exists, they build commit `6884c40704b63c75e8ed0549860df348db325600`, the initial portable baseline. They seed the old application, stop it, run candidate migrations, then verify the candidate against the preserved data. Cross-adapter export/import tests belong to the future portability feature.
 
-Each architecture builds both candidate images once. Jobs consume checksummed archives. Publication loads those same archives, verifies image IDs, architecture and source revision, then pushes them without rebuilding. The release includes per-architecture image configurations, SBOMs, image digests, and the chart pinned to both image digests.
+Each architecture builds the Node backend, Bun backend, and Node frontend once. Jobs consume checksummed archives. Publication loads those same archives, verifies image IDs, architecture and source revision, then pushes them without rebuilding. The release includes per-architecture image configurations, SBOMs, image digests, runtime versions, and the chart pinned to the default Node images.
 
 ## Run locally
 
@@ -74,6 +74,9 @@ docker build --target frontend -t caelestis-frontend:test .
 node scripts/test-portable-compose.mjs caelestis-backend:test caelestis-frontend:test postgres s3
 node scripts/test-portable-image.mjs caelestis-backend:test caelestis-frontend:test
 ```
+
+Build `--target backend-bun -t caelestis-backend-bun:test` and repeat with that backend image to test Bun.
+The frontend remains the matching Node image. The populated social renderer runs after candidate migration during upgrades.
 
 For Kubernetes, install kind, kubectl and Helm, then run:
 
@@ -130,6 +133,9 @@ Only a passing stack is retained. The driver creates a Traefik IngressRoute usin
 certificate and saves a bootstrap admin token and a separate reporting token in a private `credentials.json`.
 DNS and certificate coverage must already exist for the hostname. The reusable manifest is
 [`traefik-ingressroute.example.yaml`](../deploy/helm/traefik-ingressroute.example.yaml).
+
+Setting only `CAELESTIS_TEST_ORIGIN` exercises HTTPS/WSS through Traefik after each recovery step and cleans up afterward.
+For matched 256-user production-image measurements, see the [runtime benchmark instructions](../scripts/runtime-benchmark/README.md).
 
 When browser testing finishes, run the namespace cleanup command above. Then remove the test image references:
 

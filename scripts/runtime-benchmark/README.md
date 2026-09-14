@@ -1,5 +1,47 @@
 # Runtime comparison with exploring and painting users
 
+## Production Node/Bun images on k3s
+
+Issue [#390](https://github.com/mia-riezebos/Caelestis/issues/390) uses the same corrected 256-user trace against production images.
+Import matching Node/Bun backend images and the Node frontend with `scripts/stack-tests/k3s-images.mjs` first.
+Use an explicitly authorized test cluster with CNPG, Longhorn, Traefik, and a dedicated HTTPS hostname.
+
+```sh
+CAELESTIS_KUBE_CONTEXT=YOUR_CONTEXT CAELESTIS_TEST_ORIGIN=https://YOUR_TEST_HOST \
+  CAELESTIS_TEST_NODE=YOUR_APPLICATION_NODE \
+  CAELESTIS_TEST_EXTENDED=true CAELESTIS_TEST_STORAGE=s3 CAELESTIS_TEST_BENCHMARK=true \
+  node scripts/test-helm-stack.mjs YOUR_BACKEND_IMAGE YOUR_FRONTEND_IMAGE cnpg
+```
+
+The driver creates a fresh namespace and storage, verifies pod replacement, CNPG switchover, TLS, and migrations,
+then replays 179 explorers and 77 painters through Traefik HTTPS/WSS. It retains the 256-subscriber limit.
+Every successful run has 35 seconds of warmup and 60 measured seconds. For a passing comparison, repeat three times per runtime, alternating order.
+Use identical application revisions, frontend images, fixtures, and pod placement. Record any shared-cluster noise.
+This verifies load after recovery; the workload does not retry connections during a fault or represent a long soak test.
+The [September 14 production-image report](../../docs/bun-runtime-validation-2026-09-14.md) records failures during warmup on both runtimes.
+
+Strict runs stop at the userscript's five-second command deadline. To investigate an existing timeout,
+set `CAELESTIS_TEST_BENCHMARK_OBSERVE=true`. This diagnostic mode waits at most 30 seconds for replies,
+counts every reply exceeding the original deadline, and marks the benchmark failed if any deadline is missed.
+It can finish collecting resources and eventual correctness without claiming a production-capacity pass.
+Observation mode exits successfully when collection completes; inspect `benchmark.json` and `result.json` for the pass/fail verdict.
+
+`benchmark.json` records image IDs, pod placement, runtime versions, driver/source/trace/fixture hashes,
+traffic correctness, latency, and resource measurements. Raw traces and samples remain beside it.
+The backend and full application stack have separate CPU, cgroup RSS, and working-set results.
+The latter includes the backend, frontend, two CNPG instances, and MinIO. It excludes shared Traefik,
+operators, Longhorn engines, node services, and the load generator. Browser rendering and Wplace downloads remain outside the workload.
+
+CPU is cumulative core time divided by elapsed time; 100% means one core.
+The kubelet caches snapshots, so only counter timestamps inside the measured phase contribute.
+Each container's actual CPU interval is recorded. Cached warmup data is excluded, and missing counters or restarts invalidate the comparison.
+See Kubernetes' [node metrics documentation](https://kubernetes.io/docs/reference/instrumentation/node-metrics/).
+
+The existing cleanup inventory removes the namespace, PVs, and Longhorn backing storage on success or failure.
+Remove imported image references afterward with `k3s-images.mjs remove` and their recorded inventory.
+
+## Historical local exploration
+
 Tracks [#385](https://github.com/mia-riezebos/Caelestis/issues/385), with code and findings in PR #351.
 
 Run from the repository root on Linux with Docker, cgroup v2 and `taskset` available:

@@ -93,6 +93,7 @@ jobs:
           pnpm test:social
           pnpm test:release
           node --test scripts/stack-tests/*.test.mjs
+          node --test scripts/runtime-benchmark/kubernetes.test.mjs
       - name: Test backend and storage contracts under the pinned Bun runtime
         run: |
           docker create --name bun-runtime oven/bun:1.4.2-debian@sha256:4f6e31d1a54d6a3dd312daef655fc998101b5043d52e12592ac293ef04b9bc73

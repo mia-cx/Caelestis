@@ -7,12 +7,12 @@ Keep Node as the default image and frontend runtime.
 
 ## Acceptance criteria
 
-- [ ] Bun starts the production backend and preserves HTTP, WebSocket, ownership, health, and shutdown contracts.
-- [ ] Tested amd64 and arm64 Node/Bun variants retain revision checks, SBOMs, scans, and the default Node tag.
-- [ ] Both runtimes pass all database/storage combinations, migrations, persistence, and recovery checks.
-- [ ] Compose and Helm select runtimes by image, with installation, upgrade, and rollback documentation.
-- [ ] Bun passes isolated k3s CNPG/S3 acceptance through Traefik, including frontend interoperability.
-- [ ] Corrected 256-user benchmarks compare Node/Bun on CNPG/S3 and separate backend/full-stack resources.
+- [x] Bun starts the production backend and preserves HTTP, WebSocket, ownership, health, and shutdown contracts.
+- [x] Tested amd64 and arm64 Node/Bun variants retain revision checks, SBOMs, scans, and the default Node tag.
+- [x] Both runtimes pass all database/storage combinations, migrations, persistence, and recovery checks.
+- [x] Compose and Helm select runtimes by image, with installation, upgrade, and rollback documentation.
+- [x] Bun passes isolated k3s CNPG/S3 acceptance through Traefik, including frontend interoperability.
+- [x] Corrected 256-user benchmarks compare Node/Bun on CNPG/S3 and separate backend/full-stack resources, recording failed capacity honestly.
 
 ## TODOs
 
@@ -21,7 +21,7 @@ Keep Node as the default image and frontend runtime.
 - [x] Implement native Bun HTTP and WebSocket transport with shared contract tests.
 - [x] Use native Bun data APIs where they satisfy database and object-storage contracts.
 - [x] Document runtime selection and verify Compose and Helm recovery across adapters.
-- [ ] Add matched production-image benchmarking and record k3s acceptance and 256-user results.
+- [x] Add matched production-image benchmarking and record k3s acceptance and 256-user results.
 - [ ] Complete repository checks and prepare the pull request.
 
 ## Notes
@@ -45,3 +45,9 @@ Keep Node as the default image and frontend runtime.
 - Runtime selection, matching frontend images, pinned digests, installation, and rollback are documented. Startup scripts use the repository root so packaged social rendering resolves correctly. Helm lint/render, stack helper tests (5), lint, check, and build passed. Both runtimes passed all 1,036 backend and 16 storage contracts. The userscript suite passed 1,509 tests with two workers after six parallel-run timeouts.
 - Extended native amd64/arm64 CI started at 795cde0e: https://github.com/mia-riezebos/Caelestis/actions/runs/34885313474. Publication is configured but no release is published during this task.
 - Populating the packaged social-worker smoke test exposed different CommonJS default exports in Node and Bun. Selecting gifenc's ESM build fixes both without a runtime branch. Both runtimes pass all 13 real social-image tests; three mocked frontend tests also pass. CI now runs the real tests under Bun, and the container test renders after seeding/upgrading. Rebuild final images for the benchmark and repeat the populated container check.
+- Final application revision c5b3c4d5 passed extended CI: https://github.com/mia-riezebos/Caelestis/actions/runs/34885853405. Native amd64/arm64 builds, 24 Compose cases, six Helm cases, scans/SBOMs, runtime contracts, and local Workers checks passed. The earlier run was cancelled after the social fix to test the final revision.
+- Final local images at c5b3c4d5 passed all six populated Node-to-Bun upgrades. Backend and renderer file manifests match exactly across the Node/Bun images (SHA256 92cb7097363200f5ef7cfb46df1192b993031c62bbbcfea8ad4f70d84549a155). All 172 frontend tests, lint, check, and the Cloudflare frontend build pass after the ESM import change.
+- The first k3s benchmark attempt lacked two fresh kubelet snapshots and masked the underlying workload failure. Cleanup completed; that run is excluded. The collector now saves raw diagnostics before validation, preserves workload errors, and rejects missing/reset counters. Failed warmup resources are reported separately when sufficient samples exist.
+- Strict final-image Node and Bun runs both exceed the userscript's five-second tile-upload deadline at 256 users on CNPG/S3. All 512 sockets remain connected, but neither reaches final correctness checks. Separate 30-second observation runs retain deadline failures and measure failed warmup resources; they do not establish production capacity or a latency winner.
+- Shared capacity work is tracked in https://github.com/mia-riezebos/Caelestis/issues/397. A separate, excluded Node profile attributes 35.5% of samples to classifyTarget and 10.2% to encodeMismatchMask. Repeated successful comparisons are deferred until that failure is fixed; no shared business-logic changes or relaxed production deadlines are included here.
+- TODO 6: The final unprofiled Node/Bun observation pair also fails during warmup. Backend CPU is 106.58%/98.62% of one core; median RSS is 210.69/287.48 MiB. Full-stack CPU is 136.69%/133.39%, with median RSS 563.57/731.24 MiB. Different completed work and drain durations prevent an efficiency ranking. Report and compact provenance/results are in docs/bun-runtime-validation-2026-09-14.md and docs/benchmarks/bun-cnpg-s3-2026-09-14.json. All load-test namespaces and backing volumes are cleaned. Eight benchmark/cleanup tests, actionlint, lint, check, and build pass.

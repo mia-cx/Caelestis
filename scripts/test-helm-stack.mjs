@@ -22,6 +22,14 @@ assert.ok(!keep || context, 'Keeping a stack requires an explicit existing clust
 const origin = process.env.CAELESTIS_TEST_ORIGIN
   ? new URL(process.env.CAELESTIS_TEST_ORIGIN)
   : undefined
+const benchmark = process.env.CAELESTIS_TEST_BENCHMARK === 'true'
+if (benchmark) {
+  assert.ok(
+    context && origin && !keep,
+    'Benchmark requires an isolated stack with Traefik and cleanup',
+  )
+  assert.ok(stack === 'cnpg' && storage === 's3' && process.env.CAELESTIS_TEST_EXTENDED === 'true')
+}
 assert.ok(!keep || origin, 'Keeping a stack requires CAELESTIS_TEST_ORIGIN')
 if (origin) {
   assert.ok(context, 'Traefik acceptance requires an explicit existing cluster context')
@@ -40,6 +48,9 @@ const env = context ? { ...process.env } : { ...process.env, KUBECONFIG: `${dire
 const cluster = context ? kubernetesRun({ context, namespace: name, output }) : undefined
 const kubeArgs = context ? ['--context', context, '--namespace', name] : []
 const namespace = context ? name : 'default'
+const nodeSelector = process.env.CAELESTIS_TEST_NODE
+  ? { 'kubernetes.io/hostname': process.env.CAELESTIS_TEST_NODE }
+  : {}
 const adminToken = randomBytes(32).toString('hex')
 const readToken = randomBytes(32).toString('hex')
 const s3Password = randomBytes(32).toString('hex')
@@ -90,6 +101,7 @@ const workload = (name, image, port, variables, args = [], volumes = []) => ({
       metadata: { labels: { app: name } },
       spec: {
         automountServiceAccountToken: false,
+        nodeSelector,
         containers: [
           {
             name,
@@ -128,6 +140,7 @@ const imageValues = (image) => {
 let forward
 let created = false
 let passed = false
+let benchmarkResult
 let cleanupPromise
 const cleanup = () =>
   (cleanupPromise ??= (async () => {
@@ -214,6 +227,7 @@ try {
     }),
   )
   const values = {
+    nodeSelector,
     image: imageValues(backend),
     frontend: { image: imageValues(frontend) },
     server: { origin: process.env.CAELESTIS_TEST_ORIGIN ?? '', name: 'Caelestis k3s test' },
@@ -472,7 +486,8 @@ try {
     await suite.verify(state)
     if (publicSuite) {
       await waitFor(
-        async () => (await fetch(`${origin.origin}/health/ready`)).ok,
+        async () =>
+          (await fetch(`${origin.origin}/health/ready`, { signal: AbortSignal.timeout(3000) })).ok,
         'Traefik frontend',
       )
       await publicSuite.verify(state)
@@ -572,6 +587,17 @@ try {
   await connect()
   await verify()
   await suite.remove(state)
+  if (benchmark) {
+    const { benchmarkKubernetes } = await import('./runtime-benchmark/kubernetes.mjs')
+    benchmarkResult = await benchmarkKubernetes({
+      context,
+      namespace,
+      site: origin.origin,
+      adminToken,
+      output,
+      observe: process.env.CAELESTIS_TEST_BENCHMARK_OBSERVE === 'true',
+    })
+  }
   if (keep && origin) {
     const response = await fetch(`${api}/admin/tokens`, {
       method: 'POST',
@@ -601,7 +627,8 @@ try {
     JSON.stringify({
       stack,
       storage,
-      passed: true,
+      passed: benchmarkResult?.passed ?? true,
+      benchmark: benchmarkResult ?? null,
       backend,
       frontend,
       template: template

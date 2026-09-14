@@ -37,6 +37,7 @@ export const description = {
   canvasSnapshotMs: 5000,
   fixture: 'Box Art 1612x2584 at its original canvas coordinates; eight full canvas tiles',
 }
+export const CLIENT_COMMAND_TIMEOUT_MS = 5000
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)))
 export const distribution = (values) => {
   const sorted = [...values].sort((a, b) => a - b)
@@ -218,6 +219,7 @@ export async function traffic({
   durationMs,
   begin,
   end,
+  commandTimeoutMs = CLIENT_COMMAND_TIMEOUT_MS,
 }) {
   const api = `${site}/backend/v1`
   const clients = []
@@ -227,6 +229,7 @@ export async function traffic({
   let measuring = false
   let serverMetrics
   let phase = 'warmup'
+  const clientDeadlineMisses = { warmup: 0, measured: 0 }
   let warmupJobsDrained = null
   let closing = false
   let sentBytes = 0
@@ -274,7 +277,7 @@ export async function traffic({
   }
   const connect = async (user, channel, token) => {
     const url = new URL(`${api}/telemetry/${channel}`)
-    url.protocol = 'ws:'
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
     url.search = new URLSearchParams({
       season: '0',
       scope: 'public',
@@ -386,9 +389,11 @@ export async function traffic({
             : { ...message, requestId },
           !!binary,
         )
-        const reply = await timeout(result, message.type, 5000)
+        const reply = await timeout(result, message.type, commandTimeoutMs)
         assert.equal(reply.error, undefined, JSON.stringify(reply))
-        if (sentInPhase === phase) record(message.type, performance.now() - started)
+        const elapsed = performance.now() - started
+        if (elapsed > CLIENT_COMMAND_TIMEOUT_MS) clientDeadlineMisses[sentInPhase]++
+        if (sentInPhase === phase) record(message.type, elapsed)
         return reply
       } finally {
         pending.delete(requestId)
@@ -670,13 +675,19 @@ export async function traffic({
         paintEvents: expectedPaints.length,
         paintPixels: expectedPaints.length * 30,
         duplicateRejected: expectedPaints.length > 0,
+        clientDeadlineMs: CLIENT_COMMAND_TIMEOUT_MS,
+        clientDeadlineMisses,
         errors,
       },
       raw: { latencies, presenceLatency, dispatchDelay },
     }
   } catch (error) {
     if (measuring) {
-      serverMetrics = await end()
+      try {
+        serverMetrics = await end()
+      } catch (metricsError) {
+        errors.push(`Resource collection failed: ${String(metricsError)}`)
+      }
       measuring = false
     }
     error.benchmarkResult = {
@@ -697,6 +708,8 @@ export async function traffic({
           .length,
         sockets: allSockets.filter((socket) => socket.readyState === WebSocket.OPEN).length,
         finalPeerSetsAndDrafts: false,
+        clientDeadlineMs: CLIENT_COMMAND_TIMEOUT_MS,
+        clientDeadlineMisses,
         errors: [...errors, String(error)],
       },
       raw: { latencies, presenceLatency, dispatchDelay },
