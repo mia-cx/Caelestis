@@ -102,6 +102,7 @@ jobs:
           export PATH="$RUNNER_TEMP:$PATH"
           test "$(bun --version)" = 1.4.2
           pnpm --filter @caelestis/backend --filter @caelestis/storage exec bun --bun node_modules/vitest/vitest.mjs run --maxWorkers=1 --testTimeout=30000 --hookTimeout=30000
+          bun test ./scripts/social-images.test.mjs
       - name: Build the Cloudflare deployment
         run: |
           pnpm --filter @caelestis/frontend build

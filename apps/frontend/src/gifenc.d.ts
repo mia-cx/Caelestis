@@ -1,4 +1,4 @@
-declare module 'gifenc/dist/gifenc.js' {
+declare module 'gifenc/dist/gifenc.esm.js' {
   export function quantize(rgba: Uint8Array, maxColors: number): number[][]
   export function applyPalette(rgba: Uint8Array, palette: number[][]): Uint8Array
   export function GIFEncoder(): {
@@ -18,10 +18,4 @@ declare module 'gifenc/dist/gifenc.js' {
     finish(): void
     bytes(): Uint8Array
   }
-  const gifenc: {
-    quantize: typeof quantize
-    applyPalette: typeof applyPalette
-    GIFEncoder: typeof GIFEncoder
-  }
-  export default gifenc
 }

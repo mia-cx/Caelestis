@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json && tsc -p tsconfig.bun.json",
-    "start:node": "node dist/node/main.js",
-    "start:bun": "bun dist/node/main.js",
+    "start:node": "cd ../.. && node apps/backend/dist/node/main.js",
+    "start:bun": "cd ../.. && bun apps/backend/dist/node/main.js",
     "check": "tsc -p tsconfig.check.json && tsc -p tsconfig.bun.json --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",

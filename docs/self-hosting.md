@@ -1,6 +1,7 @@
 # Self-hosting Caelestis
 
-Separate Node containers serve the backend and SvelteKit frontend. The frontend forwards backend HTTP and WebSocket requests.
+Separate containers serve the backend and SvelteKit frontend. Choose Node or Bun for the backend; the frontend uses Node.
+The frontend forwards backend HTTP and WebSocket requests.
 It supports these independent adapter choices:
 
 | Data | Cloudflare | Self-hosted |
@@ -17,6 +18,53 @@ Use a direct connection or session pooling. Transaction-pooling proxies cannot r
 SQLite holds a kernel-managed lock in a sibling `.owner` file. Process exit releases the lock, including a crash.
 Use a local filesystem or block-backed persistent volume with working POSIX locks. Network filesystems are unsupported for SQLite.
 The chart rejects multiple replicas and uses `Recreate` updates. Horizontal application scaling requires a future coordination adapter.
+
+## Choose Node or Bun
+
+Each server release publishes matching backend variants for `linux/amd64` and `linux/arm64`:
+
+| Backend tag suffix | Runtime | Default |
+| --- | --- | --- |
+| `<version>-node` | Node 24.20.0 | The unsuffixed `<version>` tag has the same image digest |
+| `<version>-bun` | Bun 1.4.2 | Select explicitly |
+
+Here, `<version>` includes both app versions, for example `backend-1.2.3-frontend-4.5.6`.
+Use the actual version from your server release. The frontend always uses the unsuffixed tag.
+Release `versions.json` and image labels record runtime versions; the Dockerfile pins their source images by digest.
+
+Bun uses native HTTP, WebSockets, and SQLite statements behind the portable adapters.
+Routes, authentication, claims, coordination, migrations, and transaction rules have one shared implementation.
+PostgreSQL, MariaDB, and S3 use the existing drivers under Bun. Bun.SQL does not preserve our JSON/numeric contracts,
+and Bun's S3 API lacks the conditional writes and custom metadata required by the object-storage contract.
+Filesystem atomic writes and the social renderer use Bun's implementations of the existing filesystem and worker APIs.
+Cloudflare Workers remain a separate deployment target. Miniflare is development and test tooling.
+
+To select a published Bun backend in Compose, set these references in `.env`:
+
+```dotenv
+CAELESTIS_BACKEND_IMAGE=miacx/caelestis-backend:backend-1.2.3-frontend-4.5.6-bun
+CAELESTIS_FRONTEND_IMAGE=miacx/caelestis-frontend:backend-1.2.3-frontend-4.5.6
+```
+
+Run `docker compose pull`, then `docker compose up -d --no-build --wait` with your usual stack files.
+For a local Bun build, use `docker build --target backend-bun -t miacx/caelestis-backend:local .`,
+then start Compose with `--no-build`. The existing `backend` Docker target builds Node.
+The Bun image aliases `node` to Bun, so existing migration, health-check, and S3 initialization commands use the selected runtime.
+
+Published Helm charts pin Node image digests. To select Bun, override `image.digest` with the release's
+`backend-bun-image.txt` digest. To select by tag instead, clear that default digest:
+
+```sh
+helm upgrade --install caelestis oci://ghcr.io/mia-riezebos/caelestis/charts/caelestis \
+  --version YOUR_CHART_VERSION -f your-values.yaml \
+  --set-string image.tag=YOUR_IMAGE_TAG-bun --set-string image.digest= \
+  --wait --timeout 10m
+```
+
+Keep the chart's matching frontend image. The database, object storage, and existing secrets are shared across runtimes.
+Switching runtimes at the same app version requires a backend restart and WebSocket reconnect, with no data conversion.
+To switch back, select the matching `-node` image or its digest. For an app-version downgrade, follow the backup/restore procedure below.
+The Bun backend requires the separate Node frontend; the optional combined `FRONTEND_HANDLER` mode is Node-only.
 
 ## Run with Docker
 
@@ -256,7 +304,8 @@ Both use the tested app-version pair as their immutable tag, for example `backen
 Its Helm version is `1.2.3+frontend.4.5.6`, stored at `oci://ghcr.io/mia-riezebos/caelestis/charts/caelestis`.
 OCI represents the chart version's `+` as `_`. Pass the original version to Helm.
 Published charts pin both image digests. Pin chart versions when upgrading.
-Server GitHub Releases contain the chart, both image digests, migration checksums, app versions, commit, and `SHA256SUMS`.
+Server GitHub Releases contain the chart, Node/Bun backend and frontend digests, runtime and app versions,
+migration checksums, image configurations, SBOMs, commit, and `SHA256SUMS`.
 The workflow refuses to replace an existing artifact with different content.
 Before the first release, create the public `miacx/caelestis-backend` and `miacx/caelestis-frontend` repositories on Docker Hub.
 Add a Docker Hub access token with write access as the GitHub repository secret `DOCKERHUB_TOKEN`.
@@ -273,6 +322,10 @@ node apps/backend/dist/node/main.js
 node apps/frontend/node/main.mjs
 node scripts/test-portable-image.mjs miacx/caelestis-backend:local miacx/caelestis-frontend:local
 ```
+
+For Bun, build the same sources and run `bun apps/backend/dist/node/main.js` instead.
+Use the Bun version pinned in the Dockerfile. `pnpm --filter @caelestis/backend start:node` and `start:bun`
+provide equivalent startup commands from the backend package.
 
 See [stack testing](stack-testing.md) for the CI matrix, isolated CNPG tests, upgrade checks, and one-time account setup.
 

@@ -1,10 +1,9 @@
-import gifenc from 'gifenc/dist/gifenc.js'
+import { applyPalette, GIFEncoder, quantize } from 'gifenc/dist/gifenc.esm.js'
 
 export const HISTORY_PLAYBACK_SECONDS = 10
 const GIF_TICK_MS = 10
 const LIVE_PAUSE_MS = 5000
 const MAX_GIF_BYTES = 4_500_000
-const { applyPalette, GIFEncoder, quantize } = gifenc
 
 function encodeFrames(frames: readonly Uint8Array[], width: number, height: number) {
   const gif = GIFEncoder()

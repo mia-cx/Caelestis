@@ -4,12 +4,10 @@ const { writes, bytes } = vi.hoisted(() => ({
   writes: vi.fn(),
   bytes: vi.fn(),
 }))
-vi.mock('gifenc/dist/gifenc.js', () => ({
-  default: {
-    quantize: () => [[0, 0, 0]],
-    applyPalette: (frame: Uint8Array) => frame.slice(0, 1),
-    GIFEncoder: () => ({ writeFrame: writes, finish: () => {}, bytes }),
-  },
+vi.mock('gifenc/dist/gifenc.esm.js', () => ({
+  quantize: () => [[0, 0, 0]],
+  applyPalette: (frame: Uint8Array) => frame.slice(0, 1),
+  GIFEncoder: () => ({ writeFrame: writes, finish: () => {}, bytes }),
 }))
 
 import { encodeTimelapseGif } from './social-gif.js'

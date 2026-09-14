@@ -20,7 +20,7 @@ Keep Node as the default image and frontend runtime.
 - [x] Extend tested-image CI and release publication with versioned Node/Bun variants.
 - [x] Implement native Bun HTTP and WebSocket transport with shared contract tests.
 - [x] Use native Bun data APIs where they satisfy database and object-storage contracts.
-- [ ] Document runtime selection and verify Compose and Helm recovery across adapters.
+- [x] Document runtime selection and verify Compose and Helm recovery across adapters.
 - [ ] Add matched production-image benchmarking and record k3s acceptance and 256-user results.
 - [ ] Complete repository checks and prepare the pull request.
 
@@ -40,3 +40,8 @@ Keep Node as the default image and frontend runtime.
 - TODO 4: Native bun:sqlite uses cached statements through the same SQLite migration/transaction adapter. Bun passed all 1,036 backend tests with PostgreSQL and MariaDB enabled. Node's focused SQLite/server tests and separate TypeScript checks also pass.
 - Mia requires runtime differences behind adapters with one canonical server implementation. An isolated Bun.SQL trial passed its 12 narrow driver tests but failed 16/432 full contracts: JSON parameters double-encoded, DECIMAL/NUMERIC results became strings, and error identifiers differed. The API exposes no result-column type metadata for safe generic normalization. Keep pg/mariadb drivers; trial evidence is in test-results/bun-sql-exploration. See https://bun.com/docs/runtime/sql and https://github.com/oven-sh/bun/issues/28819.
 - Bun 1.4.2 S3 options lack custom metadata and conditional PUT headers. Keep the shared AWS SDK adapter so ifAbsent remains atomic and object metadata survives Node/Bun switches. Filesystem atomic rename/link/fsync and worker_threads use Bun's implementations of the existing APIs. See https://bun.com/docs/runtime/s3 and the pinned bun-types/s3.d.ts.
+- TODO 5: Node passed all six extended Compose combinations. All six Node-to-Bun upgrades preserved Box Art, data, and object metadata, with crash/database recovery and migrations. Evidence is under test-results/issue390-{node,bun}-compose. The packaged worker check now runs after an upgrade so it exercises the selected runtime.
+- Bun passed SQLite/filesystem, CNPG/S3, and MariaDB/S3 on k3s through Traefik HTTPS/WSS. Each covered pod replacement and standalone migrations; CNPG primary switchover and MariaDB connection loss recovered ownership. Cleanup inventories verify namespace, PV, and Longhorn deletion.
+- Runtime selection, matching frontend images, pinned digests, installation, and rollback are documented. Startup scripts use the repository root so packaged social rendering resolves correctly. Helm lint/render, stack helper tests (5), lint, check, and build passed. Both runtimes passed all 1,036 backend and 16 storage contracts. The userscript suite passed 1,509 tests with two workers after six parallel-run timeouts.
+- Extended native amd64/arm64 CI started at 795cde0e: https://github.com/mia-riezebos/Caelestis/actions/runs/34885313474. Publication is configured but no release is published during this task.
+- Populating the packaged social-worker smoke test exposed different CommonJS default exports in Node and Bun. Selecting gifenc's ESM build fixes both without a runtime branch. Both runtimes pass all 13 real social-image tests; three mocked frontend tests also pass. CI now runs the real tests under Bun, and the container test renders after seeding/upgrading. Rebuild final images for the benchmark and repeat the populated container check.
