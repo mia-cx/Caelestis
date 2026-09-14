@@ -1,4 +1,4 @@
-# Node and Bun with Box Art traffic
+# Node, Bun and Miniflare with Box Art traffic
 
 Tracks [#385](https://github.com/mia-riezebos/Caelestis/issues/385) in [PR #351](https://github.com/mia-riezebos/Caelestis/pull/351).
 
@@ -61,3 +61,25 @@ The initial benchmark source is pinned at `c737aedb`; the 256-user follow-up use
 The retained k3s laptop-testing stack remains running. These experiments use disposable local processes, databases and files.
 
 [Issue #386](https://github.com/mia-riezebos/Caelestis/issues/386) tracks peer sharding and k3s autoscaling separately. It uses all-shards upper/lower thresholds, forecasts scale-up batches from influx and observed startup time, and drains only for scale-down. Its k3s example proposes a custom policy controller because a standard HPA averages pod metrics. Sharding remains future work; this benchmark measures one application process.
+
+The Miniflare follow-up uses the production Worker with all five Durable Object bindings, local D1, and local R2. Miniflare 5.20260910.0-alpha launches workerd 1.20260910.1 through Node 24.20.0. The compatibility date is 2026-08-03 with `nodejs_compat`, matching the Worker configuration. Miniflare runs the Worker in workerd's V8 isolates; Node also uses V8. [Cloudflare local development](https://developers.cloudflare.com/workers/local-development/), [Workers runtime](https://developers.cloudflare.com/workers/reference/how-workers-works/)
+
+All three 256-user Miniflare repetitions pass the same correctness checks, with the identical traffic trace and fixture as the Node/Bun follow-up. Each has 35 seconds of warmup and 60 measured seconds. They run as a later separate batch, not interleaved with Node/Bun. These measurements compare local runtime-and-adapter combinations, not JavaScript engines alone or Cloudflare production performance.
+
+| 256 users | Node + PostgreSQL/filesystem | Bun compatibility + PostgreSQL/filesystem | Bun native + PostgreSQL/filesystem | Miniflare + local D1/R2/DO |
+| --- | ---: | ---: | ---: | ---: |
+| Paint acknowledgement p95 | 113.0 ms | 51.6 ms | 54.8 ms | 77.3 ms |
+| Tile upload p95 | 376.3 ms | 294.5 ms | 303.8 ms | 268.3 ms |
+| Viewport delivery p95 | 298.9 ms | 301.4 ms | 301.7 ms | 329.0 ms |
+
+Miniflare's median paint p50 is 3.44 ms. Its per-run paint p95 ranges from 75.9 to 91.5 ms. Requested tile uploads range from 47 to 52, versus 49–62 for Node/Bun. The highest per-run generator p99 dispatch delay is 1.41 ms. Miniflare logs `presence socket close failed` during client teardown after correctness checks; all processes still dispose successfully. The underlying close-error cause is not investigated in this comparison.
+
+Miniflare uses a median 23.54% of one core across workerd and its controller. Summed mean RSS is 973 MiB, comprising about 765 MiB for workerd and 209 MiB for the controller. Workerd includes local D1/R2/DO emulation. CPU is split by process in the results; no isolate event-loop measurements are claimed. Summed RSS can count shared pages twice.
+
+The Node/Bun memory figures above cover only the application process. Their PostgreSQL CPU is measured separately, and database memory is not captured. Do not compare those application-only figures with Miniflare's combined footprint as complete hosting-stack totals.
+
+A read-only snapshot of the retained k3s stack reports 425 MiB across its Node backend (97), frontend (59), two CNPG database pods (61 and 89), and MinIO (119). The test-assets pod adds 24 MiB. Shared Traefik, operators and node services are excluded. This is Kubernetes-reported container memory at the stack's current low load, not RSS or a matched 256-user Bun/CNPG measurement. No full-stack memory winner is established.
+
+[The three Miniflare summaries](benchmarks/runtime-miniflare-256-2026-09-14.json) retain source, fixture and bundle hashes. All three use the same bundle. The application baseline is `55804bd2`, before the later remote collaboration changes. Benchmark commit `09ddcc17` was subsequently rebased as `b56b9dd1`; the measurements retain their original provenance. Reproduce that historical case with application source from `55804bd2` and benchmark scripts from `b56b9dd1`. Raw logs and samples remain under `test-results/runtime-benchmark/final-miniflare-256/`.
+
+Issue #385 also tracks version-matched Node and Bun image tags so operators can choose a runtime. Publishing those variants still requires compatibility and recovery validation.
