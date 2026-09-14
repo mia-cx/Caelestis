@@ -11,6 +11,13 @@ import { readNodeConfig } from './config.js'
 import { openNodeRuntime } from './runtime.js'
 import { type FrontendHandler, listenNodeServer } from './server.js'
 
+type Listener = (
+  ...args: Parameters<typeof listenNodeServer>
+) => Promise<Pick<Awaited<ReturnType<typeof listenNodeServer>>, 'port' | 'close'>>
+const listen: Listener = process.versions.bun
+  ? (await import(new URL('../bun/server.ts', import.meta.url).href)).listenBunServer
+  : listenNodeServer
+
 const cleanup: (() => Promise<void>)[] = []
 afterEach(async () => {
   for (const close of cleanup.splice(0).reverse()) await close()
@@ -68,7 +75,7 @@ it.each(adapters)(
       })
     }
     let frontend: FrontendHandler | undefined
-    if (process.env.CAELESTIS_TEST_FRONTEND_HANDLER) {
+    if (process.env.CAELESTIS_TEST_FRONTEND_HANDLER && !process.versions.bun) {
       const loaded: { handler: FrontendHandler } = await import(
         pathToFileURL(process.env.CAELESTIS_TEST_FRONTEND_HANDLER).href
       )
@@ -78,7 +85,7 @@ it.each(adapters)(
     const ownershipLost = vi.fn()
     vi.spyOn(console, 'info').mockImplementation(() => {})
     let runtime = await openNodeRuntime(config, storage, { onOwnershipLost: ownershipLost })
-    let server = await listenNodeServer(runtime, config, frontend)
+    let server = await listen(runtime, config, frontend)
     cleanup.push(() => server.close())
     const id = runtime.serverId
     const token = runtime.readToken
@@ -156,9 +163,17 @@ it.each(adapters)(
     await closed
     await server.close()
     runtime = await openNodeRuntime(config, storage, { onOwnershipLost: ownershipLost })
-    server = await listenNodeServer(runtime, config, frontend)
+    server = await listen(runtime, config, frontend)
     expect(runtime.serverId).toBe(id)
     expect(runtime.readToken).toBe(token)
     expect(ownershipLost).not.toHaveBeenCalled()
+    const reconnected = new WebSocket(
+      `ws://127.0.0.1:${server.port}/api/v1/telemetry/live?season=0&scope=public&stateVector=1`,
+      ['caelestis.live.v2'],
+    )
+    await once(reconnected, 'open')
+    const stopped = once(reconnected, 'close')
+    await server.close()
+    expect((await stopped)[0]).toBe(1001)
   },
 )

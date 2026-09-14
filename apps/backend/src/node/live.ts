@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { type WebSocket, WebSocketServer } from 'ws'
+import { WebSocketServer } from 'ws'
 import type { CoordinatorStorage } from '../coordination/database.js'
 import {
   type LiveHost,
@@ -7,10 +7,23 @@ import {
   MAX_LIVE_CLIENT_BINARY_BYTES,
 } from '../status-coordinator.js'
 
-const MAX_BUFFERED_BYTES = 8 * 1024 * 1024
+export const MAX_BUFFERED_BYTES = 8 * 1024 * 1024
 const HANDSHAKE_TIMEOUT_MS = 10000
+/** Socket operations shared by ws and Bun's native WebSocket transport. */
+export interface LiveTransportSocket {
+  readonly readyState: number
+  readonly bufferedAmount: number
+  send(message: string | ArrayBuffer | ArrayBufferView): void
+  close(code: number, reason: string): void
+  on(
+    event: 'message',
+    listener: (data: Buffer | ArrayBuffer | Buffer[], binary: boolean) => void,
+  ): void
+  on(event: 'close', listener: (code: number, reason: Buffer) => void): void
+  on(event: 'error', listener: (error: Error) => void): void
+}
 export interface LiveUpgradeContext {
-  accept?: (socket: WebSocket) => void
+  accept?: (socket: LiveTransportSocket) => void
 }
 export const liveRequestContext = new AsyncLocalStorage<LiveUpgradeContext>()
 
@@ -20,7 +33,7 @@ class NodeLiveSocket implements LiveSocket {
     return this.closed ? 3 : (this.socket?.readyState ?? 1)
   }
   private attachment: unknown = null
-  private socket: WebSocket | undefined
+  private socket: LiveTransportSocket | undefined
   private buffered: (string | ArrayBuffer | ArrayBufferView)[] = []
   private bufferedBytes = 0
   private closed: { code: number; reason: string } | undefined
@@ -29,7 +42,7 @@ class NodeLiveSocket implements LiveSocket {
     this.timeout = setTimeout(() => this.close(1013, 'handshake timeout'), HANDSHAKE_TIMEOUT_MS)
     this.timeout.unref()
   }
-  attach(socket: WebSocket): void {
+  attach(socket: LiveTransportSocket): void {
     clearTimeout(this.timeout)
     this.socket = socket
     if (this.closed) {

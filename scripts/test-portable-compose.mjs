@@ -45,8 +45,8 @@ rmSync(logs, { recursive: true, force: true })
 mkdirSync(logs, { recursive: true })
 try {
   compose('config', '--quiet')
-  if (database !== 'sqlite') compose('pull', database)
-  if (storage === 's3') compose('pull', 's3')
+  if (database !== 'sqlite') compose('pull', '--policy', 'missing', database)
+  if (storage === 's3') compose('pull', '--policy', 'missing', 's3')
   compose('up', '-d', '--no-build', '--pull', 'never', '--wait', '--wait-timeout', '180')
   compose(
     'exec',

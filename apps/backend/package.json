@@ -4,10 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.bun.json",
     "start:node": "node dist/node/main.js",
     "start:bun": "bun dist/node/main.js",
-    "check": "tsc -p tsconfig.check.json",
+    "check": "tsc -p tsconfig.check.json && tsc -p tsconfig.bun.json --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "dev": "pnpm db:migrate:local && node dev.mjs",
@@ -29,6 +29,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260722.1",
+    "@types/bun": "1.4.2",
     "@types/node": "^26.1.2",
     "@types/pg": "^8.23.1",
     "@types/ws": "^8.18.1",
