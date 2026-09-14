@@ -1,0 +1,49 @@
+name: Feature request
+description: Propose a change that solves a concrete problem.
+labels:
+  - enhancement
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected part
+      options:
+        - Userscript on Wplace
+        - Web dashboard
+        - Backend or self-hosting
+        - Installation or release
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Describe what is difficult or impossible today.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired behavior
+      description: Describe what should happen from the user perspective.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Include current workarounds if any exist.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      placeholder: Add examples, sketches, screenshots, or related issues.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Existing requests
+      options:
+        - label: I searched open and closed issues for the same request.
+          required: true
