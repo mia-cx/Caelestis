@@ -87,6 +87,48 @@ The S3 example provisions a dedicated local MinIO bucket. It uses its root crede
 For an existing S3 service, omit `s3.yaml`. Set `OBJECT_STORAGE=s3`, `S3_BUCKET`, endpoint, and credentials in `.env`.
 This works with every database override, including CNPG. Both application containers must use the same object provider and bucket.
 
+### Temporary HTTPS tunnel for Docker testing
+
+Add `-f deploy/compose/cloudflared.yaml` to any Compose stack to expose its frontend through a Cloudflare Quick Tunnel.
+The official `cloudflare/cloudflared` container connects to `http://frontend:3000` on the Compose network.
+It needs no account, tunnel token, host networking, or router port forwarding. Backend HTTP and WebSockets use the same public origin.
+
+For PostgreSQL and local S3, add these lines to your private `.env` so subsequent commands use the same stack:
+
+```dotenv
+COMPOSE_PROJECT_NAME=caelestis-local
+COMPOSE_FILE=compose.yaml:deploy/compose/postgres.yaml:deploy/compose/s3.yaml:deploy/compose/cloudflared.yaml
+```
+
+1. Run `docker compose up --build -d --wait`.
+2. Run `docker compose logs cloudflared` and copy the `https://….trycloudflare.com` URL.
+3. Set `ORIGIN` to that URL in `.env`, then run `docker compose up -d --no-deps frontend`.
+4. Open that URL. Connect the userscript to the same URL with `/backend` appended, using a token from this test server.
+
+The URL changes when the tunnel restarts. Repeat steps 2 and 3 after that happens.
+Run `docker compose stop cloudflared` to close public access while keeping the stack available at localhost.
+Run `docker compose down` to stop the stack and preserve its data.
+
+To validate all six database/storage combinations with disposable Docker stacks:
+
+```sh
+CAELESTIS_TEST_EXTENDED=true node scripts/test-portable-image.mjs miacx/caelestis-backend:local miacx/caelestis-frontend:local
+```
+
+These checks use separate project names and volumes. They cover acceptance, ownership, crash recovery, migrations,
+and PostgreSQL/MariaDB connection-loss recovery. They leave the manual test stack running.
+
+To include a real native `.wplace` import in every combination, set `CAELESTIS_TEST_WPLACE` to its local path:
+
+```sh
+CAELESTIS_TEST_WPLACE="$HOME/Downloads/Box art.wplace" CAELESTIS_TEST_EXTENDED=true \
+  node scripts/test-portable-image.mjs miacx/caelestis-backend:local miacx/caelestis-frontend:local
+```
+
+Each stack imports and publishes the embedded PNG at its geographic coordinates through the normal admin API.
+Checks compare its manifest geometry and every stored chunk hash after startup, crash recovery, and migration.
+The source file stays local. Test results record the imported template name and chunk count.
+
 CNPG runs in Kubernetes. The Compose example connects to an existing primary reachable from the Docker network.
 A cluster-only `.svc` hostname usually cannot resolve outside Kubernetes. Use a reachable hostname covered by the database certificate.
 `PG_TLS_CA_FILE` names a local certificate file mounted read-only into the backend; the example keeps hostname verification enabled.
