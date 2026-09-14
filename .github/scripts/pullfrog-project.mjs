@@ -142,8 +142,8 @@ export function fieldUpdates(context, decision) {
 
 /** Add the issue idempotently, apply empty-field decisions, and read every write back. */
 export async function applyTriage(context, decision, api = graphql) {
+  if (decision.track === false) return 'No project changes requested.'
   const updates = fieldUpdates(context, decision)
-  if (!decision.track) return 'No project changes requested.'
   let itemId = context.item?.id
   if (!itemId) {
     const data = await api(

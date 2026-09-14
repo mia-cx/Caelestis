@@ -116,11 +116,15 @@ test('fails when GitHub does not retain the requested field value', async () => 
   )
 })
 
-test('a skipped issue causes no project mutations', async () => {
+test('a skipped issue ignores unused field choices and causes no project mutations', async () => {
   let calls = 0
-  await applyTriage(context, { ...decision, track: false }, async () => {
-    calls++
-  })
+  await applyTriage(
+    context,
+    { ...decision, track: false, status: 'not a project option' },
+    async () => {
+      calls++
+    },
+  )
   assert.equal(calls, 0)
 })
 
