@@ -16,6 +16,8 @@ import {
   type RegionClaim,
   type RegionClaimRequest,
   sameRect,
+  sameTemplateSurface,
+  templateSurface,
   uuidV7,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
@@ -81,6 +83,7 @@ export interface PresenceView {
 
 const connections = new Map<object, Connection>()
 const listeners: (() => void)[] = []
+const claimListeners: (() => void)[] = []
 let installed = false
 let identityRequested = false
 let publisherId = uuidV7()
@@ -104,6 +107,11 @@ const notify = (): void => {
 /** Runs after any peer, region, or connection change. */
 export const onPresenceChange = (listener: () => void): void => {
   listeners.push(listener)
+}
+
+/** Observe claim snapshots without reconciling claims for every viewport update. */
+export const onPresenceClaimsChange = (listener: () => void): void => {
+  claimListeners.push(listener)
 }
 
 const eligible = (server: ConnectedServer): boolean =>
@@ -139,10 +147,16 @@ const isPeer = (value: unknown): value is PresencePeer => {
   )
 }
 
-const isRegion = (value: unknown): value is RegionClaim => {
+/** Validate remote and persisted claims before they enter routing or rendering. */
+export const isPresenceRegion = (value: unknown): value is RegionClaim => {
   if (typeof value !== 'object' || value === null) return false
   const region = value as RegionClaim
   return (
+    Number.isSafeInteger(region.season) &&
+    region.season >= 0 &&
+    region.surface != null &&
+    templateSurface(region.surface.kind, region.surface.allianceId) !== null &&
+    (region.expiresAt === undefined || Number.isSafeInteger(region.expiresAt)) &&
     typeof region.id === 'string' &&
     region.id.length <= 64 &&
     (region.templateId === null ||
@@ -278,7 +292,15 @@ const applyServerEvent = (connection: Connection, value: unknown): boolean => {
     connection.peers = new Map(
       event.peers.filter(isPeer).map((peer) => [peer.sessionId, peer] as const),
     )
-    connection.regions = event.regions.filter(isRegion).slice(0, MAX_PRESENCE_REGIONS)
+    connection.regions = event.regions
+      .filter(isPresenceRegion)
+      .filter(
+        (region) =>
+          region.season === connection.server.season &&
+          sameTemplateSurface(region.surface, WORLD_TEMPLATE_SURFACE),
+      )
+      .slice(0, MAX_PRESENCE_REGIONS)
+    for (const listener of claimListeners) listener()
     return true
   }
   if (event.type === 'presence-delta') {
@@ -295,7 +317,15 @@ const applyServerEvent = (connection: Connection, value: unknown): boolean => {
   }
   if (event.type === 'regions') {
     if (!Array.isArray(event.regions)) return false
-    connection.regions = event.regions.filter(isRegion).slice(0, MAX_PRESENCE_REGIONS)
+    connection.regions = event.regions
+      .filter(isPresenceRegion)
+      .filter(
+        (region) =>
+          region.season === connection.server.season &&
+          sameTemplateSurface(region.surface, WORLD_TEMPLATE_SURFACE),
+      )
+      .slice(0, MAX_PRESENCE_REGIONS)
+    for (const listener of claimListeners) listener()
     return true
   }
   // Unknown events belong to a newer server; they are not a reason to drop the socket.
@@ -568,23 +598,43 @@ export const presenceRegionServer = (id: string): ConnectedServer | null => {
 const connectionFor = (server: ConnectedServer): Connection | null =>
   connections.get(serverConnectionIdentity(server)) ?? null
 
+/** Raw copies and handshake state for claim reconciliation. */
+export const presenceServerClaims = (
+  server: ConnectedServer,
+): { readonly ready: boolean; readonly regions: readonly RegionClaim[] } => {
+  const connection = connectionFor(server)
+  return {
+    ready: connection?.socket?.readyState === WebSocket.OPEN && connection.sessionId !== null,
+    regions: connection?.regions ?? [],
+  }
+}
+
 const regionRequest = async (
   server: ConnectedServer,
   method: 'PUT' | 'DELETE',
   id: string,
   body: unknown,
+  scope?: Pick<RegionClaim, 'season' | 'surface'>,
+  signal?: AbortSignal,
 ): Promise<string | null> => {
   if (server.season === null) return 'Server season unknown.'
   const token = activeServerToken(server)
   if (token === null) return 'Sign in to this server to claim regions.'
   const endpoint = scopedEndpoint(server, `/work/regions/${id}`)
+  if (scope !== undefined) {
+    endpoint.searchParams.set('season', String(scope.season))
+    endpoint.searchParams.set('surface', scope.surface.kind)
+    if (scope.surface.allianceId !== null)
+      endpoint.searchParams.set('allianceId', String(scope.surface.allianceId))
+  }
   try {
     const { response, body: answer } = await requestServerMutation(endpoint.toString(), {
       method,
       headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
       body: JSON.stringify(body),
+      ...(signal === undefined ? {} : { signal }),
     })
-    if (response.ok) {
+    if (response.ok || (method === 'DELETE' && response.status === 404)) {
       return null
     }
     const error =
@@ -604,9 +654,11 @@ export const claimRegion = async (
   server: ConnectedServer,
   id: string,
   request: RegionClaimRequest,
+  scope?: Pick<RegionClaim, 'season' | 'surface'>,
+  signal?: AbortSignal,
 ): Promise<string | null> => {
   if (connectionFor(server) === null) return 'This server does not support region claims.'
-  return regionRequest(server, 'PUT', id, request)
+  return regionRequest(server, 'PUT', id, request, scope, signal)
 }
 
 /** Release one region claim. Resolves to an error message, or null on success. */
@@ -614,7 +666,9 @@ export const releaseRegion = async (
   server: ConnectedServer,
   id: string,
   actor: PainterIdentity,
-): Promise<string | null> => regionRequest(server, 'DELETE', id, { actor })
+  scope?: Pick<RegionClaim, 'season' | 'surface'>,
+  signal?: AbortSignal,
+): Promise<string | null> => regionRequest(server, 'DELETE', id, { actor }, scope, signal)
 
 /** The current viewport and draft as last observed, for claiming what is on screen. */
 export const presencePending = (): {
@@ -657,6 +711,7 @@ export const resetPresence = (): void => {
   for (const connection of connections.values()) closeConnection(connection)
   connections.clear()
   listeners.length = 0
+  claimListeners.length = 0
   installed = false
   identityRequested = false
   publisherId = uuidV7()

@@ -16,7 +16,7 @@ Stack on PR #351. Publish presence to every compatible server and reconcile one 
 
 - [x] Deliver and deduplicate presence across servers, with protocol and client tests.
 - [x] Expire claims after 30 days and renew authenticated owners without reviving expired claims, with store and connection tests.
-- [ ] Persist claim intent and reconcile routing, edits, deletes, replay, and disconnect cleanup, with focused tests.
+- [x] Persist claim intent and reconcile routing, edits, deletes, replay, and disconnect cleanup, with focused tests.
 - [ ] Wire the claim editor to logical claims, add release notes, and run final validation.
 
 ## Notes
@@ -28,3 +28,6 @@ Stack on PR #351. Publish presence to every compatible server and reconcile one 
 - Nearby filtering cannot establish a deduplicated global online total. Count the unique received nearby sessions in the drawer.
 - TTL validation: 94 region/presence tests pass; backend typecheck passes. SQL migrations cover SQLite/D1, PostgreSQL, and MariaDB. Existing claims receive 30 days from migration.
 - Renewal runs at authenticated connection and hourly while valid messages keep the socket alive. Durable room alarms remove expired claims even without sockets.
+- Routing uses complete admitted catalogs and rasterized claim pixels, including subtractors and world-wrapping template bounds. Missing catalogs delay routing instead of triggering a false fallback.
+- Local intent and known copies persist before requests. Per-connection acknowledgements skip unchanged writes; failures retry. Old recipients remain until replacements succeed. Disconnect aborts and waits for in-flight writes before bounded best-effort deletes.
+- Focused validation: 20 client/routing tests, 16 presence coordinator tests, and userscript typecheck pass.
