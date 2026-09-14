@@ -26,7 +26,9 @@ RUN cp -R apps/frontend/build /output/apps/frontend/build
 FROM node:24.20.0-bookworm-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e AS runtime
 ARG CAELESTIS_BUILD_ID=development
 LABEL org.opencontainers.image.source="https://github.com/mia-riezebos/Caelestis" \
-      org.opencontainers.image.revision=$CAELESTIS_BUILD_ID
+      org.opencontainers.image.revision=$CAELESTIS_BUILD_ID \
+      cx.mia.caelestis.runtime="node" \
+      cx.mia.caelestis.runtime.version="24.20.0"
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000 DATA_DIRECTORY=/data
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends --only-upgrade libpcre2-8-0 \
@@ -45,6 +47,17 @@ COPY apps/frontend/package.json ./apps/frontend/package.json
 COPY apps/frontend/src/lib/social-*.ts apps/frontend/src/lib/archive-history.ts apps/frontend/src/lib/osm-geometry.ts ./apps/frontend/src/lib/
 COPY scripts/social-images.mjs scripts/osm-tiles.mjs ./scripts/
 CMD ["node", "apps/backend/dist/node/main.js"]
+
+FROM oven/bun:1.4.2-debian@sha256:4f6e31d1a54d6a3dd312daef655fc998101b5043d52e12592ac293ef04b9bc73 AS bun
+
+FROM backend AS backend-bun
+USER root
+COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
+# Existing operator commands and health checks use the image's selected runtime.
+RUN ln -sf /usr/local/bin/bun /usr/local/bin/node
+LABEL cx.mia.caelestis.runtime="bun" cx.mia.caelestis.runtime.version="1.4.2"
+USER node
+CMD ["bun", "apps/backend/dist/node/main.js"]
 
 FROM runtime AS frontend
 COPY --from=build /output/apps/frontend ./apps/frontend

@@ -16,7 +16,7 @@ Keep Node as the default image and frontend runtime.
 
 ## TODOs
 
-- [~] Add the pinned Bun production image and validate packaged runtime compatibility.
+- [x] Add the pinned Bun production image and validate packaged runtime compatibility.
 - [ ] Extend tested-image CI and release publication with versioned Node/Bun variants.
 - [ ] Document runtime selection and verify Compose and Helm recovery across adapters.
 - [ ] Add matched production-image benchmarking and record k3s acceptance and 256-user results.
@@ -29,3 +29,6 @@ Keep Node as the default image and frontend runtime.
 - Use the existing Node-compatible host. Native Bun transport, frontend migration, Miniflare production images, and sharding are outside scope.
 - All live tests use fresh isolated resources and the existing cleanup inventory. PR351's test stack is already removed.
 - Benchmark warmup must drain pending commands before sampling. Historical results are approximate and do not establish production parity.
+- TODO 1: Built Bun and Node frontend images. Bun SQLite/filesystem Compose acceptance passed with Box Art, packaged social worker, competing owner rejection, crash restart, and migrations. Existing SQLite/HTTP/WebSocket unit contracts passed on Bun.
+- Bun backend suite passed 826 tests, with ten external-service tests skipped; the remaining ownership test discarded its lock handle. Retaining its release callback matches production ownership and fixes the test on Bun. The focused ownership test then passed.
+- Bun replaces the Node executable with a Bun symlink inside the backend variant, so existing chart/Compose migration and S3 helper commands select Bun too. The frontend retains Node. Both variants share the same Debian/application layers.
