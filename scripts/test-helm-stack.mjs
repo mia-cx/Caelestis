@@ -120,7 +120,7 @@ try {
       service('s3', 9000),
       workload(
         's3',
-        'minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e',
+        'quay.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e',
         9000,
         { MINIO_ROOT_USER: 'stack-test', MINIO_ROOT_PASSWORD: 'stack-test-password' },
         ['server', '/data'],

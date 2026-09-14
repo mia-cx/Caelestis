@@ -75,7 +75,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Start disposable S3 service
         run: |
-          docker run -d --name portable-s3 -p 127.0.0.1:9000:9000 -e MINIO_ROOT_USER=caelestis-test -e MINIO_ROOT_PASSWORD=caelestis-test-password minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e server /data
+          docker run -d --name portable-s3 -p 127.0.0.1:9000:9000 -e MINIO_ROOT_USER=caelestis-test -e MINIO_ROOT_PASSWORD=caelestis-test-password quay.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e server /data
           curl --retry 30 --retry-delay 1 --retry-all-errors --retry-max-time 60 --fail http://127.0.0.1:9000/minio/health/ready
       - name: Build and check the Node backend and frontend
         env:
