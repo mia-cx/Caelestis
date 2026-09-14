@@ -127,6 +127,14 @@ jobs:
           cmp release/backend-image.txt release/backend-node-image.txt
           cmp release/backend-dockerhub-image.txt release/backend-node-dockerhub-image.txt
           cmp release/backend-ghcr-image.txt release/backend-node-ghcr-image.txt
+          docker logout ghcr.io
+          while IFS=$'\t' read -r variant_tag ghcr_repository; do
+            if ! docker manifest inspect "$ghcr_repository:$variant_tag" > /dev/null 2>/tmp/ghcr-public-error; then
+              cat /tmp/ghcr-public-error
+              echo '::error title=GHCR packages are private::Set caelestis-backend and caelestis-frontend package visibility to Public, then rerun this release.'
+              exit 1
+            fi
+          done < <(jq -r '.[] | [.tag, .registries.ghcr] | @tsv' release/images.json)
           jq --slurpfile images release/amd64-image-configs.json '. + {runtimes: ($images[0] | map({key: .Config.Labels["cx.mia.caelestis.runtime"], value: .Config.Labels["cx.mia.caelestis.runtime.version"]}) | from_entries)}' release/versions.json > release/versions.tmp
           mv release/versions.tmp release/versions.json
           helm package deploy/helm/caelestis --version "$CHART_VERSION" --app-version "$IMAGE_TAG" --destination release
