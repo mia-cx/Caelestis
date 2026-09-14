@@ -227,6 +227,7 @@ export async function traffic({
   let measuring = false
   let serverMetrics
   let phase = 'warmup'
+  let warmupJobsDrained = null
   let closing = false
   let sentBytes = 0
   let receivedBytes = 0
@@ -507,7 +508,7 @@ export async function traffic({
     await offer(clients[0], fixture.frames[0])
     await begin()
     measuring = true
-    const start = performance.now()
+    let start = performance.now()
     const fullTrace = [
       ...trace,
       { at: warmupMs, kind: 'begin' },
@@ -517,6 +518,10 @@ export async function traffic({
       const remaining = start + event.at - performance.now()
       if (remaining > 0) await sleep(remaining)
       if (event.kind === 'begin') {
+        // Offers include their follow-up uploads; settle the whole warmup command chain.
+        warmupJobsDrained = jobs.size
+        await Promise.all(jobs)
+        if (errors.length) throw new Error(errors.join('\n'))
         await end()
         for (const counter of [sent, received, latencies])
           for (const key of Object.keys(counter)) delete counter[key]
@@ -527,6 +532,8 @@ export async function traffic({
         viewportTimes.clear()
         await begin()
         phase = 'measured'
+        // Draining must not shorten the measured trace or cause a catch-up burst.
+        start = performance.now() - warmupMs
         continue
       }
       if (event.kind === 'end') {
@@ -645,6 +652,7 @@ export async function traffic({
     assert.deepEqual(errors, [])
     return {
       phase,
+      warmupJobsDrained,
       serverMetrics,
       sent,
       received,
@@ -673,6 +681,7 @@ export async function traffic({
     }
     error.benchmarkResult = {
       phase,
+      warmupJobsDrained,
       serverMetrics,
       sent,
       received,

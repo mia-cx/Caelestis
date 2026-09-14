@@ -12,6 +12,8 @@ The simulation offers covered canvas tiles and uploads the versions requested by
 
 Every successful case has 35 seconds of warmup followed by 60 measured seconds. Three repetitions rotate the order of Node, Bun with the existing Node adapter, and Bun with an experimental native HTTP/WebSocket bridge. The application, database driver, coordinators and socket queues stay the same. The native bridge does not use Bun-specific SQL or pub/sub optimizations.
 
+All archived Node, Bun and Miniflare results below predate the warmup-drain fix. Pending warmup commands could finish during measurement, including follow-up tile uploads and their CPU, replies and traffic counts. The size of this overlap was not recorded. These are approximate comparisons with an unquantified phase-boundary bias, not isolated measurements. The corrected driver drains command chains and shifts the measured schedule before resetting sampling; these historical results have not been rerun. Coalesced presence/status notifications and periodic server work can still cross the boundary, as expected for continuously connected sessions.
+
 Numbers below are medians of three runs. CPU is average utilization as a percentage of one core. Memory is sampled process RSS. Each latency column is the median of the three per-run p95 values.
 
 | Users | Runtime | CPU | Mean RSS | Paint acknowledgement p95 | Tile upload p95 | Viewport delivery p95 |
