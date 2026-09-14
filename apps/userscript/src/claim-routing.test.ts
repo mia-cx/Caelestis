@@ -15,7 +15,11 @@ vi.mock('./application/tree-server-state.js', () => ({
 }))
 vi.mock('./presence-client.js', () => ({}))
 vi.mock('./wplace-account.js', () => ({}))
-vi.mock('./state.js', () => ({ serverConnectionIdentity: (server: object) => server }))
+vi.mock('./state.js', () => ({
+  serverConnectionIdentity: (server: object) => server,
+  activeServerToken: (server: ConnectedServer) =>
+    server.tokenUsable === false ? null : server.token,
+}))
 
 import { ClaimRouter, claimRecipients } from './claim-routing.js'
 
@@ -61,6 +65,7 @@ const setup = (initial: ConnectedServer[] = [x, y, z]) => {
   let servers = initial
   const catalogs = new Map(initial.map((server) => [server.url, [] as ServerTemplate[]]))
   const remote = new Map(initial.map((server) => [server.url, [] as RegionClaim[]]))
+  const revisions = new Map(initial.map((server) => [server.url, 0]))
   const mutations: { method: string; server: string; region: RegionClaim }[] = []
   const persist = vi.fn()
   let fail: string | null = null
@@ -68,7 +73,11 @@ const setup = (initial: ConnectedServer[] = [x, y, z]) => {
     servers: () => servers,
     actor: () => actor,
     templates: (server: ConnectedServer) => catalogs.get(server.url),
-    claims: (server: ConnectedServer) => ({ ready: true, regions: remote.get(server.url) ?? [] }),
+    claims: (server: ConnectedServer) => ({
+      ready: true,
+      regions: remote.get(server.url) ?? [],
+      revision: revisions.get(server.url) ?? 0,
+    }),
     persist,
     put: vi.fn(async (server: ConnectedServer, region: RegionClaim, _signal: AbortSignal) => {
       mutations.push({ method: 'PUT', server: server.url, region })
@@ -84,6 +93,7 @@ const setup = (initial: ConnectedServer[] = [x, y, z]) => {
     host,
     catalogs,
     remote,
+    revisions,
     mutations,
     persist,
     servers: (next: ConnectedServer[]) => {
@@ -131,6 +141,26 @@ describe('claim recipients', () => {
 })
 
 describe('claim replication', () => {
+  it('replays a missing copy after a new authoritative server snapshot', async () => {
+    const h = setup([x, y])
+    await h.router.save(null, document())
+    h.mutations.length = 0
+    h.revisions.set(x.url, 1)
+    await h.router.reconcile()
+    expect(h.mutations.map((mutation) => [mutation.method, mutation.server])).toEqual([
+      ['PUT', x.url],
+    ])
+    expect(h.router.mine()).toHaveLength(1)
+  })
+
+  it('routes claims only to compatible writable connections', async () => {
+    const anonymous = { ...y, token: null, season: 1 }
+    const rejected = { ...z, tokenUsable: false }
+    const h = setup([x, anonymous, rejected])
+    expect(await h.router.save(null, document())).toBeNull()
+    expect(h.mutations.map((mutation) => mutation.server)).toEqual([x.url])
+  })
+
   it('refreshes shared intent before an older tab can replay a stale edit or deletion', async () => {
     const h = setup([x])
     await h.router.save(null, document())

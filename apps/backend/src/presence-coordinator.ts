@@ -17,6 +17,7 @@ import {
   type PresenceServerEvent,
   padRect,
   quantiseRect,
+  REGION_CLAIM_TTL_MS,
   type RegionClaim,
   rectCentreDistance,
   rectsIntersect,
@@ -204,20 +205,19 @@ export class PresenceCoordinator<Client> {
           this.close(socket, 1000, 'presence stale')
       }
       const sockets = this.sockets()
-      let renewed: Attachment | undefined
       for (const socket of sockets) {
         const held = this.attachment(socket)
         if (held.anonymous || now - (held.renewedAt ?? 0) < CLAIM_RENEW_INTERVAL_MS) continue
         // A valid heartbeat/update has kept this session alive. Ownership always uses both keys,
         // including for administrators; connecting must never renew another painter's claims.
-        await this.sql.regions.renewRegions(held.tokenHash, held.painter.wplaceUserId, now)
+        const renewed = await this.sql.regions.renewRegions(
+          held.tokenHash,
+          held.painter.wplaceUserId,
+          now,
+        )
         socket.serializeAttachment({ ...held, renewedAt: now } satisfies Attachment)
-        renewed = held
-      }
-      if (renewed !== undefined) {
-        const regions = await this.sql.regions.listRegions(renewed.season, renewed.surface)
-        await this.rememberRegionExpiry(renewed.season, renewed.surface, regions)
-        for (const socket of sockets) this.send(socket, { type: 'regions', regions })
+        if (renewed)
+          this.send(socket, { type: 'claims-renewed', expiresAt: now + REGION_CLAIM_TTL_MS })
       }
       const peers = sockets.map((socket) => this.peer(this.attachment(socket)))
       const dirty = new Set(this.dirty)

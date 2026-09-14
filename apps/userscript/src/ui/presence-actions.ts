@@ -181,21 +181,19 @@ export const installClaimToolHost = (): void => {
 const ready = (): boolean => {
   const view = presenceView()
   const servers = presenceServers()
+  const seasonsAgree =
+    new Set(
+      servers.filter((server) => activeServerToken(server) !== null).map((server) => server.season),
+    ).size === 1
   const server = servers.find((server) => activeServerToken(server) !== null) ?? servers[0]
   const token = server === undefined ? null : activeServerToken(server)
-  if (
-    view.connected &&
-    view.me !== null &&
-    token !== null &&
-    new Set(servers.map((server) => server.season)).size === 1
-  )
-    return true
+  if (view.connected && view.me !== null && token !== null && seasonsAgree) return true
   message =
     view.me === null
       ? 'Sign in to Wplace to claim regions.'
       : !view.connected || server === undefined
         ? 'Connect to a server that supports painter presence to claim regions.'
-        : new Set(servers.map((server) => server.season)).size !== 1
+        : !seasonsAgree
           ? 'Connect servers for the same season, then retry.'
           : `Add your access token for ${server.info?.name ?? server.url} to claim regions.`
   toast(message, 'error')

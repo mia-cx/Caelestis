@@ -10,7 +10,7 @@ Publisher IDs are separate from credential-scoped client admission IDs. Older se
 
 Claims keep one ID across server copies. The client compares actual claimed pixels with template bounds in the same season and drawing surface. Subtracted pixels and gaps between shapes do not count as overlap. World-wrapping bounds are split at the world edge.
 
-If any templates overlap, only their servers receive the claim. Otherwise every compatible connected server in that season receives it. A catalog still loading delays reconciliation. Hidden and unloaded artwork in the admitted catalog still participates.
+If any templates overlap, only their servers receive the claim. Otherwise every compatible connected server in that season receives it. Claim recipients require a usable credential; anonymous connections still receive presence. A catalog still loading delays reconciliation. Hidden and unloaded artwork in the admitted catalog still participates.
 
 Adding a server, changing a catalog, or editing a claim recalculates recipients. The client writes replacements before removing old copies. It persists intent and known destinations before sending, then retries failures. Browser tabs share that journal under a Web Lock so an older tab cannot replay stale saved intent. Deletion retains local intent until its copies can be removed or expire.
 
@@ -18,7 +18,7 @@ Removing a connection stops new claim writes, aborts in-flight requests, and att
 
 ## Expiry
 
-Claims expire after 30 days without renewal. An authenticated presence connection renews unexpired claims owned by both its credential and painter ID. Valid heartbeats and updates keep the connection active; renewal writes are coalesced to once an hour. Anonymous connections do not renew claims. Administrator connections renew only their own credential/painter pair.
+Claims expire after 30 days without renewal. An authenticated presence connection renews unexpired claims owned by both its credential and painter ID. Valid heartbeats and updates keep the connection active; renewal writes are coalesced to once an hour. The renewing session receives a small expiry acknowledgement. Anonymous connections do not renew claims. Administrator connections renew only their own credential/painter pair.
 
 Expiry is checked before reads, inserts, and renewal. Durable presence alarms remove expired claims even after the last socket closes. Periodic maintenance also purges abandoned rows. Migration gives existing claims a fresh 30-day period.
 

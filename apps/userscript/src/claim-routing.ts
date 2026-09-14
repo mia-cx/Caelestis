@@ -22,7 +22,12 @@ import {
   releaseRegion,
 } from './presence-client.js'
 import type { ServerTemplate } from './server-cache.js'
-import { type ConnectedServer, onStateChange, serverConnectionIdentity } from './state.js'
+import {
+  activeServerToken,
+  type ConnectedServer,
+  onStateChange,
+  serverConnectionIdentity,
+} from './state.js'
 import { accountIdentity } from './wplace-account.js'
 
 const pixelCache = new WeakMap<RegionDocument, RegionShapePixels | null>()
@@ -75,7 +80,9 @@ export const claimRecipients = (
     region: RegionClaim,
   ) => readonly ServerTemplate[] | undefined,
 ): Map<ConnectedServer, string | null> | null => {
-  const candidates = servers.filter((server) => server.season === region.season)
+  const candidates = servers.filter(
+    (server) => server.season === region.season && activeServerToken(server) !== null,
+  )
   let pixels = pixelCache.get(region.document)
   if (pixels === undefined) {
     pixels = regionDocumentPixels(region.document)
@@ -102,6 +109,7 @@ interface RoutingHost {
   claims(server: ConnectedServer): {
     readonly ready: boolean
     readonly regions: readonly RegionClaim[]
+    readonly revision?: number
   }
   actor(): ReturnType<typeof accountIdentity>
   persist(entries: readonly Entry[]): void
@@ -113,6 +121,7 @@ interface RoutingHost {
 export class ClaimRouter {
   private readonly entries = new Map<string, Entry>()
   private readonly receipts = new WeakMap<object, Map<string, string>>()
+  private readonly snapshots = new WeakMap<object, number>()
   private readonly retiring = new Set<object>()
   private readonly inFlight = new Map<object, Promise<string | null>>()
   private draftId: string | null = null
@@ -165,7 +174,7 @@ export class ClaimRouter {
       (existing === undefined || existing.region.claimant.wplaceUserId !== actor.wplaceUserId)
     )
       return 'That claim is no longer available.'
-    const seasons = new Set(this.host.servers().map((server) => server.season))
+    const seasons = new Set(this.servers().map((server) => server.season))
     const season = existing?.region.season ?? (seasons.size === 1 ? [...seasons][0] : null)
     if (season == null) return 'Connect servers for the same season, then retry.'
     const rect = regionDocumentBounds(document)
@@ -223,7 +232,11 @@ export class ClaimRouter {
   private servers(): readonly ConnectedServer[] {
     return this.host
       .servers()
-      .filter((server) => !this.retiring.has(serverConnectionIdentity(server)))
+      .filter(
+        (server) =>
+          activeServerToken(server) !== null &&
+          !this.retiring.has(serverConnectionIdentity(server)),
+      )
   }
 
   /** Coalesce changes while writes run; retries use the latest saved document. */
@@ -252,6 +265,21 @@ export class ClaimRouter {
     for (const server of servers) {
       const received = this.host.claims(server)
       if (!received.ready) continue
+      const owner = serverConnectionIdentity(server)
+      if (received.revision !== undefined && this.snapshots.get(owner) !== received.revision) {
+        this.snapshots.set(owner, received.revision)
+        const receipts = this.receipts.get(owner)
+        for (const [id, signature] of receipts ?? []) {
+          const region = received.regions.find((region) => region.id === id)
+          if (
+            signature === 'deleted'
+              ? region !== undefined
+              : region === undefined ||
+                JSON.stringify([region.document, region.label, region.templateId]) !== signature
+          )
+            receipts?.delete(id)
+        }
+      }
       for (const region of received.regions) {
         if (
           region.claimant.wplaceUserId !== actor.wplaceUserId ||
@@ -476,11 +504,11 @@ const withClaims = <T>(operation: (router: ClaimRouter) => Promise<T>): Promise<
     router.restore(load())
     return operation(router)
   }
-  const next = pendingOperation.then(() =>
-    typeof navigator !== 'undefined' && navigator.locks !== undefined
-      ? navigator.locks.request(STORAGE_KEY, run)
-      : run(),
-  )
+  const next = pendingOperation.then(async (): Promise<T> => {
+    const locks = typeof navigator === 'undefined' ? null : navigator.locks
+    if (locks == null) return run()
+    return await locks.request<Promise<T>>(STORAGE_KEY, run)
+  })
   pendingOperation = next.catch(() => undefined)
   return next
 }
@@ -512,7 +540,9 @@ export const claimRouter = () => operations
 /** Reconcile on catalog/connection changes and retry partial failures while the page remains open. */
 export const installClaimRouting = (): void => {
   const reconcile = () => {
-    void claimRouter().reconcile()
+    void claimRouter()
+      .reconcile()
+      .catch((error: unknown) => warn('install', 'claim routing failed', String(error)))
   }
   onPresenceClaimsChange(reconcile)
   onStateChange(reconcile)

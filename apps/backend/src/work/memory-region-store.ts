@@ -31,12 +31,15 @@ export class MemoryRegionStore implements RegionStore {
     }
   }
 
-  async renewRegions(tokenHash: string, actorId: number, now: number): Promise<void> {
+  async renewRegions(tokenHash: string, actorId: number, now: number): Promise<boolean> {
     await this.expireRegions(now)
+    let changed = false
     for (const [id, region] of this.records) {
       if (this.owners.get(id) !== tokenHash || region.claimant.wplaceUserId !== actorId) continue
       this.records.set(id, { ...region, expiresAt: now + REGION_CLAIM_TTL_MS })
+      changed = true
     }
+    return changed
   }
 
   async listRegions(

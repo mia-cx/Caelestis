@@ -71,9 +71,9 @@ export class RelationalRegionStore implements RegionStore {
     await this.db.delete(workRegions).where(lte(workRegions.expiresAt, now)).run()
   }
 
-  async renewRegions(tokenHash: string, actorId: number, now: number): Promise<void> {
+  async renewRegions(tokenHash: string, actorId: number, now: number): Promise<boolean> {
     await this.expireRegions(now)
-    await this.db
+    const result = await this.db
       .update(workRegions)
       .set({ expiresAt: now + REGION_CLAIM_TTL_MS })
       .where(
@@ -84,6 +84,7 @@ export class RelationalRegionStore implements RegionStore {
         ),
       )
       .run()
+    return changedRows(result) > 0
   }
 
   async listRegions(

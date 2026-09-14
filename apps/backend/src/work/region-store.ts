@@ -12,7 +12,7 @@ export interface RegionStore {
   /** Remove expired rows before reads, capacity checks, or renewal. */
   expireRegions(now: number): Promise<void>
   /** Renew only unexpired claims owned by both this credential and painter. */
-  renewRegions(tokenHash: string, actorId: number, now: number): Promise<void>
+  renewRegions(tokenHash: string, actorId: number, now: number): Promise<boolean>
   listRegions(
     season: number,
     surface: TemplateSurface,

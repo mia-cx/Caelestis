@@ -6,11 +6,11 @@ Stack on PR #351. Publish presence to every compatible server and reconcile one 
 
 ## Acceptance criteria
 
-- [ ] Viewports and drafts reach every connected presence server with existing throttles and nearby filtering.
-- [ ] Replicated sessions and claims appear once.
-- [ ] Claims route by overlapping templates within their season and drawing surface; no overlap falls back to all compatible servers.
-- [ ] Adding servers and changing templates re-evaluates existing claims, including fallback transitions.
-- [ ] Editing/deleting reconciles copies; disconnect attempts bounded cleanup before credentials are removed.
+- [x] Viewports and drafts reach every connected presence server with existing throttles and nearby filtering.
+- [x] Replicated sessions and claims appear once.
+- [x] Claims route by overlapping templates within their season and drawing surface; no overlap falls back to all compatible servers.
+- [x] Adding servers and changing templates re-evaluates existing claims, including fallback transitions.
+- [x] Editing/deleting reconciles copies; disconnect attempts bounded cleanup before credentials are removed.
 
 ## TODOs
 
@@ -19,7 +19,7 @@ Stack on PR #351. Publish presence to every compatible server and reconcile one 
 - [x] Persist claim intent and reconcile routing, edits, deletes, replay, and disconnect cleanup, with focused tests.
 - [x] Wire the claim editor to logical claims, add release notes, and run final validation.
 - [x] Share claim intent safely between browser tabs and bound retry work for failed servers.
-- [~] Address independent review findings and verify the final stacked diff.
+- [x] Address independent review findings and verify the final stacked diff.
 
 ## Notes
 
@@ -38,3 +38,4 @@ Stack on PR #351. Publish presence to every compatible server and reconcile one 
 - Final inspection fixed expiry-alarm rearming for the portable scheduler and added abandoned-row cleanup to periodic maintenance. The focused coordinator/worker/Node suites pass 37 tests afterward.
 - Cross-tab writes acquire a browser-wide lock and reload the shared journal before mutation. A stale-tab edit/delete replay test passes. Background reconciliations coalesce; each failed server is attempted once per pass.
 - The root parallel suite hit the unchanged raster performance test at 415 ms against 400 ms. All 254 shared tests pass in isolation; all 11 Turbo test tasks pass with package concurrency 1. Fixture/capacity/social/progress/live-paint prerequisites also passed.
+- Independent Codex review found five defects, all addressed: Web Locks promise/null handling; targeted renewal acknowledgements instead of room-wide documents; receipt invalidation when authoritative snapshots lose/change copies; writable-recipient filtering; and Drizzle snapshot/journal metadata. Focused rerun passes 30 client tests and 149 backend tests with both external databases. `drizzle-kit generate` confirms no schema changes.

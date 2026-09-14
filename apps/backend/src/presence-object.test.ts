@@ -10,6 +10,7 @@ import {
   PRESENCE_STALE_MS,
   PRESENCE_TICK_MS,
   type PresenceServerEvent,
+  REGION_CLAIM_TTL_MS,
   type RegionClaim,
   type RegionDocument,
   type RegionShape,
@@ -146,6 +147,38 @@ afterEach(() => {
 })
 
 describe('presence room', () => {
+  it('sends hourly claim renewal only to its owner without broadcasting documents', async () => {
+    const a = await attach()
+    const b = await attach({ 'x-caelestis-painter-id': '2' })
+    const store = new D1SqlStore(database as unknown as D1Database)
+    await store.regions.createRegion(
+      {
+        id: uuidV7(),
+        season: 0,
+        surface: WORLD_TEMPLATE_SURFACE,
+        templateId: null,
+        claimant: { wplaceUserId: 1, displayName: 'Mia' },
+        document: { items: [{ id: 'shape', op: 'add', shape: { kind: 'rectangle', ...rect(0) } }] },
+        rect: rect(0),
+        label: '',
+        createdAt: Date.now(),
+        expiresAt: Date.now() + REGION_CLAIM_TTL_MS,
+      },
+      'a'.repeat(64),
+    )
+    await tick()
+    a.send.mockClear()
+    b.send.mockClear()
+    vi.setSystemTime(Date.now() + 60 * 60 * 1000)
+    object.webSocketMessage(asWebSocket(a), JSON.stringify({ type: 'presence-heartbeat' }))
+    object.webSocketMessage(asWebSocket(b), JSON.stringify({ type: 'presence-heartbeat' }))
+    await tick()
+    expect(a.events()).toEqual([
+      { type: 'claims-renewed', expiresAt: Date.now() + REGION_CLAIM_TTL_MS },
+    ])
+    expect(b.events()).toEqual([])
+  })
+
   it('expires claims from a persisted alarm with no connected sockets', async () => {
     const store = new D1SqlStore(database as unknown as D1Database)
     const id = uuidV7()

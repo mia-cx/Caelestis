@@ -311,6 +311,10 @@ export const PresenceOnline = Schema.Struct({ online: NonNegativeInteger })
 
 export const PresenceServerEvent = Schema.Union([
   Schema.Struct({
+    type: Schema.Literal('claims-renewed'),
+    expiresAt: integerBetween(0, Number.MAX_SAFE_INTEGER),
+  }),
+  Schema.Struct({
     type: Schema.Literal('presence-ready'),
     sessionId: PresenceSessionId,
     online: integerBetween(0, MAX_PRESENCE_SUBSCRIBERS),

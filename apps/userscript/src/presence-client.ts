@@ -61,6 +61,7 @@ interface Connection {
   sessionId: string | null
   peers: Map<string, PresencePeer>
   regions: readonly RegionClaim[]
+  claimsRevision: number
   attempts: number
   reconnectTimer: ReturnType<typeof setTimeout> | null
   heartbeatTimer: ReturnType<typeof setTimeout> | null
@@ -303,6 +304,7 @@ const applyServerEvent = (connection: Connection, value: unknown): boolean => {
           sameTemplateSurface(region.surface, WORLD_TEMPLATE_SURFACE),
       )
       .slice(0, MAX_PRESENCE_REGIONS)
+    connection.claimsRevision++
     for (const listener of claimListeners) listener()
     return true
   }
@@ -331,6 +333,17 @@ const applyServerEvent = (connection: Connection, value: unknown): boolean => {
           sameTemplateSurface(region.surface, WORLD_TEMPLATE_SURFACE),
       )
       .slice(0, MAX_PRESENCE_REGIONS)
+    connection.claimsRevision++
+    for (const listener of claimListeners) listener()
+    return true
+  }
+  if (event.type === 'claims-renewed') {
+    if (!Number.isSafeInteger(event.expiresAt)) return false
+    const expiresAt = Number(event.expiresAt)
+    const me = accountIdentity()
+    connection.regions = connection.regions.map((region) =>
+      region.claimant.wplaceUserId === me?.wplaceUserId ? { ...region, expiresAt } : region,
+    )
     for (const listener of claimListeners) listener()
     return true
   }
@@ -502,6 +515,7 @@ const reconcile = (): void => {
         sessionId: null,
         peers: new Map(),
         regions: [],
+        claimsRevision: 0,
         attempts: 0,
         reconnectTimer: null,
         heartbeatTimer: null,
@@ -596,11 +610,16 @@ const connectionFor = (server: ConnectedServer): Connection | null =>
 /** Raw copies and handshake state for claim reconciliation. */
 export const presenceServerClaims = (
   server: ConnectedServer,
-): { readonly ready: boolean; readonly regions: readonly RegionClaim[] } => {
+): {
+  readonly ready: boolean
+  readonly regions: readonly RegionClaim[]
+  readonly revision: number
+} => {
   const connection = connectionFor(server)
   return {
     ready: connection?.socket?.readyState === WebSocket.OPEN && connection.sessionId !== null,
     regions: connection?.regions ?? [],
+    revision: connection?.claimsRevision ?? 0,
   }
 }
 

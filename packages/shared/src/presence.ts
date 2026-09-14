@@ -111,6 +111,7 @@ export interface RegionClaim {
 }
 
 export type PresenceServerEvent =
+  | { readonly type: 'claims-renewed'; readonly expiresAt: number }
   | {
       readonly type: 'presence-ready'
       readonly sessionId: string

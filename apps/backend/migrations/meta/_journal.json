@@ -176,6 +176,13 @@
       "when": 1789253210891,
       "tag": "0024_region-credential-ownership",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1789388815721,
+      "tag": "0025_region-expiry",
+      "breakpoints": true
     }
   ]
 }
