@@ -25,10 +25,23 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 1
+          persist-credentials: false
+      - name: Detect issue triage
+        id: route
+        run: node .github/scripts/pullfrog-project.mjs route
+      - name: Read primary project
+        if: steps.route.outputs.triage == 'true'
+        continue-on-error: true
+        run: node .github/scripts/pullfrog-project.mjs prepare
+        env:
+          GH_TOKEN: ${{ secrets.PULLFROG_PROJECTS_TOKEN }}
+          PULLFROG_PRIMARY_PROJECT_URL: ${{ vars.PULLFROG_PRIMARY_PROJECT_URL }}
       - name: Run agent
+        id: agent
         uses: pullfrog/pullfrog@fbed9ad5c88a46639ebe199dd91f8b67633b8fad # v0
         with:
           prompt: ${{ inputs.prompt }}
+          output_schema: ${{ steps.route.outputs.schema }}
         env:
           # add at least one provider API key
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -65,3 +78,17 @@ jobs:
           # both limits are required — set them to the real limits of that model
           # OPENAI_COMPATIBLE_CONTEXT: "128000"
           # OPENAI_COMPATIBLE_MAX_OUTPUT: "16384"
+      - name: Checkout trusted project writer
+        if: ${{ !cancelled() && steps.route.outputs.triage == 'true' }}
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          path: .pullfrog-project-bridge
+          persist-credentials: false
+      - name: Apply and verify project triage
+        if: ${{ !cancelled() && steps.route.outputs.triage == 'true' }}
+        run: node .pullfrog-project-bridge/.github/scripts/pullfrog-project.mjs apply
+        env:
+          GH_TOKEN: ${{ secrets.PULLFROG_PROJECTS_TOKEN }}
+          PULLFROG_PRIMARY_PROJECT_URL: ${{ vars.PULLFROG_PRIMARY_PROJECT_URL }}
+          TRIAGE_RESULT: ${{ steps.agent.outputs.result }}
