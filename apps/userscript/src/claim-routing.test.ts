@@ -13,7 +13,10 @@ vi.mock('./application/tree-server-state.js', () => ({
   onServerSnapshot: vi.fn(),
   rowsForSurface: vi.fn(),
 }))
-vi.mock('./presence-client.js', () => ({}))
+vi.mock('./presence-client.js', () => ({
+  presenceCanWriteClaims: (server: ConnectedServer) =>
+    server.token !== null && server.tokenUsable !== false && server.token !== 'read',
+}))
 vi.mock('./wplace-account.js', () => ({}))
 vi.mock('./state.js', () => ({
   serverConnectionIdentity: (server: object) => server,
@@ -68,6 +71,8 @@ const setup = (initial: ConnectedServer[] = [x, y, z]) => {
   const revisions = new Map(initial.map((server) => [server.url, 0]))
   const mutations: { method: string; server: string; region: RegionClaim }[] = []
   const persist = vi.fn()
+  const retired = new Set<string>()
+  const ownership = new Map(initial.map((server) => [server.url, [] as string[]]))
   let fail: string | null = null
   const host = {
     servers: () => servers,
@@ -77,8 +82,13 @@ const setup = (initial: ConnectedServer[] = [x, y, z]) => {
       ready: true,
       regions: remote.get(server.url) ?? [],
       revision: revisions.get(server.url) ?? 0,
+      ownedRegionIds: ownership.get(server.url) ?? [],
     }),
     persist,
+    retired: (server: ConnectedServer) => retired.has(server.url),
+    retire: (server: ConnectedServer) => {
+      retired.add(server.url)
+    },
     put: vi.fn(async (server: ConnectedServer, region: RegionClaim, _signal: AbortSignal) => {
       mutations.push({ method: 'PUT', server: server.url, region })
       return fail === server.url ? 'unreachable' : null
@@ -94,6 +104,7 @@ const setup = (initial: ConnectedServer[] = [x, y, z]) => {
     catalogs,
     remote,
     revisions,
+    ownership,
     mutations,
     persist,
     servers: (next: ConnectedServer[]) => {
@@ -156,7 +167,8 @@ describe('claim replication', () => {
   it('routes claims only to compatible writable connections', async () => {
     const anonymous = { ...y, token: null, season: 1 }
     const rejected = { ...z, tokenUsable: false }
-    const h = setup([x, anonymous, rejected])
+    const read = { ...server('read'), token: 'read' }
+    const h = setup([x, anonymous, rejected, read])
     expect(await h.router.save(null, document())).toBeNull()
     expect(h.mutations.map((mutation) => mutation.server)).toEqual([x.url])
   })
@@ -249,6 +261,8 @@ describe('claim replication', () => {
       { ...claim('someone-else'), claimant: { wplaceUserId: 9, displayName: 'Sam' } },
     ])
     h.remote.set(y.url, [own])
+    h.ownership.set(x.url, [own.id])
+    h.ownership.set(y.url, [own.id])
     await h.router.reconcile()
     expect(h.router.mine()).toHaveLength(1)
     h.fail(y.url)
@@ -288,5 +302,38 @@ describe('claim replication', () => {
     h.servers([y])
     await h.router.reconcile()
     expect(h.router.mine()).toHaveLength(1)
+  })
+
+  it('never adopts a foreign credential claim naming the current painter', async () => {
+    const h = setup([x, y])
+    h.remote.set(x.url, [claim('spoofed')])
+    await h.router.reconcile()
+    expect(h.router.mine()).toEqual([])
+    expect(h.mutations).toEqual([])
+  })
+
+  it('removes a late PUT from another tab and fences its subsequent writes after disconnect', async () => {
+    const h = setup([x])
+    let complete: (() => void) | undefined
+    const gate = new Promise<void>((resolve) => {
+      complete = resolve
+    })
+    h.host.put.mockImplementation(async () => {
+      await gate
+      return null
+    })
+    const saving = h.router.save(null, document())
+    await vi.waitFor(() => expect(h.host.put).toHaveBeenCalledOnce())
+    const disconnecting = new ClaimRouter({
+      ...h.host,
+      saved: () => h.persist.mock.calls.at(-1)?.[0] ?? [],
+    })
+    await disconnecting.disconnect(x)
+    expect(h.host.remove).toHaveBeenCalledOnce()
+    complete?.()
+    await saving
+    expect(h.host.remove).toHaveBeenCalledTimes(2)
+    await h.router.reconcile()
+    expect(h.host.put).toHaveBeenCalledOnce()
   })
 })

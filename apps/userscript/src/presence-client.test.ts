@@ -58,7 +58,7 @@ vi.mock('./server-transport.js', () => ({
     harness.mutations.push({ url, init })
     return Promise.resolve({ response: new Response(null, { status: 200 }), body: {} })
   },
-  requestServerMetadata: async (url: string, init: RequestInit) => {
+  requestServerTree: async (url: string, init: RequestInit) => {
     harness.reads.push({ url, init })
     const { origin, pathname } = new URL(url)
     if (pathname.endsWith('/telemetry/presence/online')) {
@@ -69,7 +69,11 @@ vi.mock('./server-transport.js', () => ({
         : { response: new Response(null, { status: 200 }), body: { online } }
     }
     // A read may be held back to land after a later one; it answers with what it saw at start.
-    const answer = { regions: harness.regions.get(origin) ?? [] }
+    const answer = {
+      regions: harness.regions.get(origin) ?? [],
+      ownedRegionIds: [],
+      canWrite: new Headers(init.headers).has('authorization'),
+    }
     const gate = harness.regionsGate
     if (gate !== null) {
       harness.regionsGate = null
@@ -241,7 +245,9 @@ describe('presence client', () => {
     harness.listener?.()
     await settle()
     expect(FakeWebSocket.instances).toHaveLength(2)
-    expect(harness.reads).toHaveLength(0)
+    expect(harness.reads.every(({ url }) => new URL(url).pathname.endsWith('/work/regions'))).toBe(
+      true,
+    )
     const second = FakeWebSocket.instances[1] as FakeWebSocket
     second.open()
     expect(new URL(socket.url).searchParams.get('publisherId')).toBe(
@@ -423,6 +429,82 @@ describe('presence client', () => {
     socket.receive({ type: 'regions', regions: [region, { bogus: true }] })
     expect(client.presenceView().regions).toEqual([region])
     expect(changes).toHaveBeenCalled()
+  })
+
+  it('renews only the credential-owned IDs and keeps HTTP snapshots until a socket is ready', async () => {
+    const { client, socket } = await connect()
+    socket.receive({ type: 'presence-ready', sessionId: 'self', online: 1, peers: [], regions: [] })
+    const region = {
+      id: 'ours',
+      season: 3,
+      surface: { kind: 'world', allianceId: null },
+      templateId: null,
+      claimant: { wplaceUserId: 7, displayName: 'Mia' },
+      document: {
+        items: [{ id: 'a', op: 'add', shape: { kind: 'rectangle', x: 5, y: 5, w: 10, h: 10 } }],
+      },
+      rect: { x: 5, y: 5, w: 10, h: 10 },
+      label: '',
+      createdAt: 1,
+      expiresAt: 100,
+    }
+    socket.receive({
+      type: 'regions',
+      regions: [region, { ...region, id: 'other-token' }],
+      ownedRegionIds: ['ours'],
+    })
+    socket.receive({ type: 'claims-renewed', expiresAt: 200, ids: ['ours'] })
+    expect(client.presenceView().regions.map(({ id, expiresAt }) => [id, expiresAt])).toEqual([
+      ['ours', 200],
+      ['other-token', 100],
+    ])
+    harness.regions.set(new URL(server.url).origin, [region])
+    socket.close()
+    await settle()
+    expect(client.presenceServerClaims(server)).toMatchObject({ ready: true, regions: [region] })
+    const reads = harness.reads.length
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(harness.reads.length).toBeGreaterThan(reads)
+    const reconnect = FakeWebSocket.instances.at(-1) as FakeWebSocket
+    reconnect.open()
+    reconnect.receive({
+      type: 'presence-ready',
+      sessionId: 'new',
+      online: 1,
+      peers: [],
+      regions: [],
+      canWrite: false,
+      ownedRegionIds: [],
+    })
+    expect(client.presenceCanWriteClaims(server)).toBe(false)
+    const afterReady = harness.reads.length
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(harness.reads).toHaveLength(afterReady)
+  })
+
+  it('discards an HTTP snapshot that finishes after the socket snapshot', async () => {
+    let finish: (() => void) | undefined
+    harness.regionsGate = new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    harness.state.servers = [server]
+    const client = await import('./presence-client.js')
+    client.installPresence()
+    const socket = FakeWebSocket.instances[0] as FakeWebSocket
+    socket.open()
+    socket.receive({
+      type: 'presence-ready',
+      sessionId: 'self',
+      online: 1,
+      peers: [],
+      regions: [],
+      canWrite: false,
+      ownedRegionIds: [],
+    })
+    finish?.()
+    await settle()
+    expect(client.presenceCanWriteClaims(server)).toBe(false)
+    expect(client.presenceServerClaims(server).revision).toBe(1)
   })
 
   it('drops the socket on a malformed event and reconnects', async () => {

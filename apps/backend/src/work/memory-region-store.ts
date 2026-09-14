@@ -7,7 +7,7 @@ import {
   sameTemplateSurface,
   type TemplateSurface,
 } from '@caelestis/shared'
-import type { RegionStore, RegionWriter } from './region-store.js'
+import type { RegionOwner, RegionStore, RegionWriter } from './region-store.js'
 
 /** In-memory equivalent of D1's bounded region records. */
 export class MemoryRegionStore implements RegionStore {
@@ -40,6 +40,15 @@ export class MemoryRegionStore implements RegionStore {
       changed = true
     }
     return changed
+  }
+
+  async regionOwners(season: number, surface: TemplateSurface): Promise<readonly RegionOwner[]> {
+    return [...this.records.values()]
+      .filter((region) => region.season === season && sameTemplateSurface(region.surface, surface))
+      .flatMap(({ id, claimant }) => {
+        const tokenHash = this.owners.get(id)
+        return tokenHash == null ? [] : [{ id, tokenHash, actorId: claimant.wplaceUserId }]
+      })
   }
 
   async listRegions(

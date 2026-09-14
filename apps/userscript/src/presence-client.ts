@@ -33,7 +33,7 @@ import {
   recordProfileWorkload,
 } from './profile.js'
 import { liveClientId, liveCredentialProtocol } from './server-sync-coordinator.js'
-import { requestServerMutation } from './server-transport.js'
+import { requestServerMutation, requestServerTree } from './server-transport.js'
 import { serverEndpoint } from './server-url.js'
 import {
   activeServerToken,
@@ -54,6 +54,7 @@ import { accountIdentity, loadAccount } from './wplace-account.js'
 
 const MAX_RECONNECT_MS = 30_000
 const INITIAL_RECONNECT_MS = 1_000
+const CLAIM_SNAPSHOT_MS = 30_000
 
 interface Connection {
   readonly server: ConnectedServer
@@ -62,6 +63,10 @@ interface Connection {
   peers: Map<string, PresencePeer>
   regions: readonly RegionClaim[]
   claimsRevision: number
+  ownedRegionIds: readonly string[]
+  canWriteClaims: boolean
+  snapshotTimer: ReturnType<typeof setTimeout> | null
+  snapshotRequest: AbortController | null
   attempts: number
   reconnectTimer: ReturnType<typeof setTimeout> | null
   heartbeatTimer: ReturnType<typeof setTimeout> | null
@@ -305,6 +310,12 @@ const applyServerEvent = (connection: Connection, value: unknown): boolean => {
       )
       .slice(0, MAX_PRESENCE_REGIONS)
     connection.claimsRevision++
+    connection.ownedRegionIds = regionIds(event.ownedRegionIds)
+    connection.canWriteClaims =
+      typeof event.canWrite === 'boolean'
+        ? event.canWrite
+        : activeServerToken(connection.server) !== null
+    stopSnapshots(connection)
     for (const listener of claimListeners) listener()
     return true
   }
@@ -334,15 +345,16 @@ const applyServerEvent = (connection: Connection, value: unknown): boolean => {
       )
       .slice(0, MAX_PRESENCE_REGIONS)
     connection.claimsRevision++
+    connection.ownedRegionIds = regionIds(event.ownedRegionIds)
     for (const listener of claimListeners) listener()
     return true
   }
   if (event.type === 'claims-renewed') {
     if (!Number.isSafeInteger(event.expiresAt)) return false
     const expiresAt = Number(event.expiresAt)
-    const me = accountIdentity()
+    const ids = new Set(regionIds(event.ids))
     connection.regions = connection.regions.map((region) =>
-      region.claimant.wplaceUserId === me?.wplaceUserId ? { ...region, expiresAt } : region,
+      ids.has(region.id) ? { ...region, expiresAt } : region,
     )
     for (const listener of claimListeners) listener()
     return true
@@ -360,6 +372,70 @@ const clearTimers = (connection: Connection): void => {
   connection.flushTimer = null
 }
 
+const regionIds = (value: unknown): string[] =>
+  Array.isArray(value)
+    ? value.filter((id): id is string => typeof id === 'string').slice(0, MAX_PRESENCE_REGIONS)
+    : []
+
+const stopSnapshots = (connection: Connection): void => {
+  if (connection.snapshotTimer !== null) clearTimeout(connection.snapshotTimer)
+  connection.snapshotTimer = null
+  connection.snapshotRequest?.abort()
+  connection.snapshotRequest = null
+}
+
+/** Keep persisted claims readable when admission limits or network failures prevent a socket. */
+const startSnapshots = (connection: Connection): void => {
+  if (
+    connection.sessionId !== null ||
+    connection.snapshotRequest !== null ||
+    connection.snapshotTimer !== null
+  )
+    return
+  const controller = new AbortController()
+  connection.snapshotRequest = controller
+  const { server } = connection
+  const endpoint = scopedEndpoint(server, '/work/regions')
+  const actor = accountIdentity()
+  if (actor !== null) endpoint.searchParams.set('painterId', String(actor.wplaceUserId))
+  const token = activeServerToken(server)
+  void requestServerTree(endpoint.toString(), {
+    signal: controller.signal,
+    headers: token === null ? {} : { authorization: `Bearer ${token}` },
+  })
+    .then(({ response, body }) => {
+      if (
+        controller.signal.aborted ||
+        !isCurrentServerConnection(server) ||
+        connection.sessionId !== null
+      )
+        return
+      if (!response.ok || typeof body !== 'object' || body === null || !('regions' in body)) return
+      if (!applyServerEvent(connection, { ...body, type: 'regions' })) return
+      connection.canWriteClaims =
+        'canWrite' in body && typeof body.canWrite === 'boolean' ? body.canWrite : token !== null
+      for (const listener of claimListeners) listener()
+      notify()
+    })
+    .catch((error: unknown) => {
+      if (!controller.signal.aborted) warn('install', 'claim snapshot failed', String(error))
+    })
+    .finally(() => {
+      if (connection.snapshotRequest !== controller) return
+      connection.snapshotRequest = null
+      if (
+        controller.signal.aborted ||
+        !isCurrentServerConnection(server) ||
+        connection.sessionId !== null
+      )
+        return
+      connection.snapshotTimer = setTimeout(() => {
+        connection.snapshotTimer = null
+        startSnapshots(connection)
+      }, CLAIM_SNAPSHOT_MS)
+    })
+}
+
 const scopedEndpoint = (server: ConnectedServer, path: string): URL => {
   const endpoint = new URL(serverEndpoint(server.url, path))
   endpoint.searchParams.set('season', String(server.season))
@@ -368,9 +444,11 @@ const scopedEndpoint = (server: ConnectedServer, path: string): URL => {
 }
 
 const closeConnection = (connection: Connection): void => {
+  stopSnapshots(connection)
   clearTimers(connection)
   const socket = connection.socket
   connection.socket = null
+  connection.sessionId = null
   if (socket !== null && socket.readyState < WebSocket.CLOSING) {
     try {
       socket.close(1000, 'presence retired')
@@ -385,6 +463,7 @@ const closeConnection = (connection: Connection): void => {
 }
 
 const scheduleReconnect = (connection: Connection): void => {
+  startSnapshots(connection)
   if (connection.reconnectTimer !== null) return
   const delay = Math.min(MAX_RECONNECT_MS, INITIAL_RECONNECT_MS * 2 ** connection.attempts)
   connection.attempts = Math.min(connection.attempts + 1, 10)
@@ -516,6 +595,10 @@ const reconcile = (): void => {
         peers: new Map(),
         regions: [],
         claimsRevision: 0,
+        ownedRegionIds: [],
+        canWriteClaims: false,
+        snapshotTimer: null,
+        snapshotRequest: null,
         attempts: 0,
         reconnectTimer: null,
         heartbeatTimer: null,
@@ -533,7 +616,10 @@ const reconcile = (): void => {
     closeConnection(connection)
     connections.delete(owner)
   }
-  for (const connection of connections.values()) open(connection)
+  for (const connection of connections.values()) {
+    open(connection)
+    startSnapshots(connection)
+  }
 }
 
 /** Feed one tile frame. Cheap on every frame; the draft scan runs at most once a second. */
@@ -614,14 +700,20 @@ export const presenceServerClaims = (
   readonly ready: boolean
   readonly regions: readonly RegionClaim[]
   readonly revision: number
+  readonly ownedRegionIds: readonly string[]
 } => {
   const connection = connectionFor(server)
   return {
-    ready: connection?.socket?.readyState === WebSocket.OPEN && connection.sessionId !== null,
+    ready: (connection?.claimsRevision ?? 0) > 0,
     regions: connection?.regions ?? [],
     revision: connection?.claimsRevision ?? 0,
+    ownedRegionIds: connection?.ownedRegionIds ?? [],
   }
 }
+
+/** Claims require report/admin capability from an authenticated server snapshot. */
+export const presenceCanWriteClaims = (server: ConnectedServer): boolean =>
+  activeServerToken(server) !== null && connectionFor(server)?.canWriteClaims === true
 
 const regionRequest = async (
   server: ConnectedServer,

@@ -111,13 +111,15 @@ export interface RegionClaim {
 }
 
 export type PresenceServerEvent =
-  | { readonly type: 'claims-renewed'; readonly expiresAt: number }
+  | { readonly type: 'claims-renewed'; readonly expiresAt: number; readonly ids: readonly string[] }
   | {
       readonly type: 'presence-ready'
       readonly sessionId: string
       readonly online: number
       readonly peers: readonly PresencePeer[]
       readonly regions: readonly RegionClaim[]
+      readonly ownedRegionIds?: readonly string[]
+      readonly canWrite?: boolean
     }
   | {
       readonly type: 'presence-delta'
@@ -125,7 +127,11 @@ export type PresenceServerEvent =
       readonly upsert: readonly PresencePeer[]
       readonly remove: readonly string[]
     }
-  | { readonly type: 'regions'; readonly regions: readonly RegionClaim[] }
+  | {
+      readonly type: 'regions'
+      readonly regions: readonly RegionClaim[]
+      readonly ownedRegionIds?: readonly string[]
+    }
 
 export interface RegionClaimRequest {
   /** The template the shape was drawn over, if any. Optional and unenforced. */

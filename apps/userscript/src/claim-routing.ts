@@ -17,17 +17,13 @@ import {
   claimRegion,
   isPresenceRegion,
   onPresenceClaimsChange,
+  presenceCanWriteClaims,
   presenceServerClaims,
   presenceServers,
   releaseRegion,
 } from './presence-client.js'
 import type { ServerTemplate } from './server-cache.js'
-import {
-  activeServerToken,
-  type ConnectedServer,
-  onStateChange,
-  serverConnectionIdentity,
-} from './state.js'
+import { type ConnectedServer, onStateChange, serverConnectionIdentity } from './state.js'
 import { accountIdentity } from './wplace-account.js'
 
 const pixelCache = new WeakMap<RegionDocument, RegionShapePixels | null>()
@@ -81,7 +77,7 @@ export const claimRecipients = (
   ) => readonly ServerTemplate[] | undefined,
 ): Map<ConnectedServer, string | null> | null => {
   const candidates = servers.filter(
-    (server) => server.season === region.season && activeServerToken(server) !== null,
+    (server) => server.season === region.season && presenceCanWriteClaims(server),
   )
   let pixels = pixelCache.get(region.document)
   if (pixels === undefined) {
@@ -110,9 +106,13 @@ interface RoutingHost {
     readonly ready: boolean
     readonly regions: readonly RegionClaim[]
     readonly revision?: number
+    readonly ownedRegionIds?: readonly string[]
   }
   actor(): ReturnType<typeof accountIdentity>
   persist(entries: readonly Entry[]): void
+  saved?(): readonly Entry[]
+  retired(server: ConnectedServer): boolean
+  retire(server: ConnectedServer): void
   put(server: ConnectedServer, region: RegionClaim, signal: AbortSignal): Promise<string | null>
   remove(server: ConnectedServer, region: RegionClaim, signal: AbortSignal): Promise<string | null>
 }
@@ -234,7 +234,8 @@ export class ClaimRouter {
       .servers()
       .filter(
         (server) =>
-          activeServerToken(server) !== null &&
+          presenceCanWriteClaims(server) &&
+          !this.host.retired(server) &&
           !this.retiring.has(serverConnectionIdentity(server)),
       )
   }
@@ -283,6 +284,7 @@ export class ClaimRouter {
       for (const region of received.regions) {
         if (
           region.claimant.wplaceUserId !== actor.wplaceUserId ||
+          !received.ownedRegionIds?.includes(region.id) ||
           (region.expiresAt ?? region.createdAt + REGION_CLAIM_TTL_MS) <= Date.now()
         )
           continue
@@ -348,7 +350,7 @@ export class ClaimRouter {
     region: RegionClaim | null,
   ): Promise<boolean> {
     const owner = serverConnectionIdentity(server)
-    if (this.retiring.has(owner)) return false
+    if (this.retiring.has(owner) || this.host.retired(server)) return false
     const previousFailure = this.failedServers.get(owner)
     if (previousFailure !== undefined) {
       this.errors.set(entry.region.id, previousFailure)
@@ -378,6 +380,13 @@ export class ClaimRouter {
     const error = await work
     this.inFlight.delete(owner)
     this.requests.delete(owner)
+    // A disconnect in another tab can race an already dispatched PUT. Its creator still has
+    // the credential and removes that late copy, even after the disconnect deadline elapsed.
+    if (region !== null && this.host.retired(server)) {
+      const cleanup = await this.host.remove(server, region, new AbortController().signal)
+      if (cleanup !== null) warn('install', 'late claim disconnect cleanup failed', cleanup)
+      return false
+    }
     if (error !== null) {
       const message = `${server.info?.name ?? server.url}: ${error}`
       this.errors.set(entry.region.id, message)
@@ -394,6 +403,7 @@ export class ClaimRouter {
 
   /** Stop new writes and attempt only this painter's cleanup within a fixed disconnect deadline. */
   async disconnect(server: ConnectedServer): Promise<void> {
+    this.host.retire(server)
     const owner = serverConnectionIdentity(server)
     this.retiring.add(owner)
     this.requests.get(owner)?.abort()
@@ -401,10 +411,14 @@ export class ClaimRouter {
     const regions = new Map(
       this.host
         .claims(server)
-        .regions.filter((region) => region.claimant.wplaceUserId === actor?.wplaceUserId)
+        .regions.filter(
+          (region) =>
+            region.claimant.wplaceUserId === actor?.wplaceUserId &&
+            this.host.claims(server).ownedRegionIds?.includes(region.id),
+        )
         .map((region) => [region.id, region]),
     )
-    for (const entry of this.entries.values())
+    for (const entry of [...this.entries.values(), ...(this.host.saved?.() ?? [])])
       if (entry.region.claimant.wplaceUserId === actor?.wplaceUserId && this.hasCopy(entry, server))
         regions.set(entry.region.id, entry.region)
     const controller = new AbortController()
@@ -435,6 +449,14 @@ export class ClaimRouter {
 const manager = globalThis as typeof globalThis & {
   GM_getValue?: (key: string, fallback: string) => string
   GM_setValue?: (key: string, value: string) => void
+}
+const retirementKey = (server: ConnectedServer): string =>
+  `${STORAGE_KEY}.retired:${encodeURIComponent(server.url)}`
+const setRetired = (server: ConnectedServer, retired: boolean): void => {
+  const key = retirementKey(server)
+  const raw = JSON.stringify(retired)
+  if (manager.GM_setValue !== undefined) manager.GM_setValue(key, raw)
+  else localStorage.setItem(key, raw)
 }
 const load = (): Entry[] => {
   try {
@@ -478,6 +500,11 @@ const localRouter = (): ClaimRouter =>
         if (manager.GM_setValue !== undefined) manager.GM_setValue(STORAGE_KEY, raw)
         else localStorage.setItem(STORAGE_KEY, raw)
       },
+      saved: load,
+      retired: (server) =>
+        (manager.GM_getValue?.(retirementKey(server), 'false') ??
+          localStorage.getItem(retirementKey(server))) === 'true',
+      retire: (server) => setRetired(server, true),
       put: (server, region, signal) =>
         claimRegion(
           server,
@@ -532,6 +559,8 @@ const operations = {
     })),
   // Disconnection must retain its deadline even if another tab holds the mutation lock.
   disconnect: (server: ConnectedServer) => localRouter().disconnect(server),
+  /** An explicit reconnect authorizes claim delivery to this server again. */
+  connect: (server: ConnectedServer) => setRetired(server, false),
 }
 
 /** Share claim intent across tabs; one browser-wide writer reconciles it at a time. */

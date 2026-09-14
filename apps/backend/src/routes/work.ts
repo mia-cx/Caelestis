@@ -89,15 +89,25 @@ export const createWorkRoutes = (runtime: BackendRuntime, auth: AuthOptions) => 
       allianceId === undefined ? null : natural(allianceId),
     )
     const templateId = c.req.query('templateId')
+    const actorId = c.req.query('painterId')
     if (
       season === null ||
       surface === null ||
+      (actorId !== undefined && natural(actorId) === null) ||
       (allianceId !== undefined && natural(allianceId) === null) ||
       (templateId !== undefined && !uuid.test(templateId))
     )
       return c.json({ error: 'Invalid drawing scope or template ID' }, 400)
-    return runBackendHttp(c, runtime, listRegions(season, surface, templateId), (regions) =>
-      c.json({ regions }),
+    return runBackendHttp(
+      c,
+      runtime,
+      listRegions(
+        season,
+        surface,
+        templateId,
+        actorId === undefined ? undefined : { caller: c.get('caller'), actorId: Number(actorId) },
+      ),
+      (snapshot) => c.json(snapshot),
     )
   })
   routes.put('/regions/:id', requireScopeEffect(runtime, auth, 'report'), async (c) => {

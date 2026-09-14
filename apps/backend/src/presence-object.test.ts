@@ -151,9 +151,10 @@ describe('presence room', () => {
     const a = await attach()
     const b = await attach({ 'x-caelestis-painter-id': '2' })
     const store = new D1SqlStore(database as unknown as D1Database)
+    const id = uuidV7()
     await store.regions.createRegion(
       {
-        id: uuidV7(),
+        id,
         season: 0,
         surface: WORLD_TEMPLATE_SURFACE,
         templateId: null,
@@ -174,7 +175,7 @@ describe('presence room', () => {
     object.webSocketMessage(asWebSocket(b), JSON.stringify({ type: 'presence-heartbeat' }))
     await tick()
     expect(a.events()).toEqual([
-      { type: 'claims-renewed', expiresAt: Date.now() + REGION_CLAIM_TTL_MS },
+      { type: 'claims-renewed', expiresAt: Date.now() + REGION_CLAIM_TTL_MS, ids: [id] },
     ])
     expect(b.events()).toEqual([])
   })
@@ -530,7 +531,11 @@ describe('presence room', () => {
       { tokenHash: 'a'.repeat(64), actorId: 1, admin: false },
     )
     await object.publishRegions(0, WORLD_TEMPLATE_SURFACE)
-    expect(b.events().at(-1)).toEqual({ type: 'regions', regions: [updated] })
+    expect(b.events().at(-1)).toEqual({
+      type: 'regions',
+      regions: [updated],
+      ownedRegionIds: [region.id],
+    })
     expect(updated).toEqual({
       ...region,
       expiresAt: expect.any(Number),

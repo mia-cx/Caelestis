@@ -217,7 +217,11 @@ export class PresenceCoordinator<Client> {
         )
         socket.serializeAttachment({ ...held, renewedAt: now } satisfies Attachment)
         if (renewed)
-          this.send(socket, { type: 'claims-renewed', expiresAt: now + REGION_CLAIM_TTL_MS })
+          this.send(socket, {
+            type: 'claims-renewed',
+            expiresAt: now + REGION_CLAIM_TTL_MS,
+            ids: await this.ownedRegionIds(held),
+          })
       }
       const peers = sockets.map((socket) => this.peer(this.attachment(socket)))
       const dirty = new Set(this.dirty)
@@ -236,6 +240,8 @@ export class PresenceCoordinator<Client> {
             online: sockets.length,
             peers: relevant,
             regions,
+            ownedRegionIds: await this.ownedRegionIds(subscriber),
+            canWrite: subscriber.credentialScope !== 'read' && !subscriber.anonymous,
           })
           continue
         }
@@ -376,6 +382,8 @@ export class PresenceCoordinator<Client> {
           online: sockets.length,
           peers,
           regions,
+          ownedRegionIds: await this.ownedRegionIds(attachment),
+          canWrite: credentialScope !== 'read' && anonymous === '0',
         })
         this.dirty.add(sessionId)
         this.armTick()
@@ -486,9 +494,32 @@ export class PresenceCoordinator<Client> {
     await this.sessions.revoke(async () => {
       const regions = await this.sql.regions.listRegions(season, surface)
       await this.rememberRegionExpiry(season, surface, regions)
-      for (const socket of this.sockets()) this.send(socket, { type: 'regions', regions })
+      const owners = await this.sql.regions.regionOwners(season, surface)
+      for (const socket of this.sockets()) {
+        const attachment = this.attachment(socket)
+        const ownedRegionIds = attachment.anonymous
+          ? []
+          : owners
+              .filter(
+                ({ tokenHash, actorId }) =>
+                  tokenHash === attachment.tokenHash && actorId === attachment.painter.wplaceUserId,
+              )
+              .map(({ id }) => id)
+        this.send(socket, { type: 'regions', regions, ownedRegionIds })
+      }
       await this.armAlarm()
     })
+  }
+
+  private async ownedRegionIds(attachment: Attachment): Promise<readonly string[]> {
+    if (attachment.anonymous) return []
+    const owners = await this.sql.regions.regionOwners(attachment.season, attachment.surface)
+    return owners
+      .filter(
+        ({ tokenHash, actorId }) =>
+          tokenHash === attachment.tokenHash && actorId === attachment.painter.wplaceUserId,
+      )
+      .map(({ id }) => id)
   }
 
   private async rememberRegionExpiry(

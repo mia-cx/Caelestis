@@ -313,6 +313,7 @@ export const PresenceServerEvent = Schema.Union([
   Schema.Struct({
     type: Schema.Literal('claims-renewed'),
     expiresAt: integerBetween(0, Number.MAX_SAFE_INTEGER),
+    ids: boundedArray(Identifier, MAX_PRESENCE_REGIONS),
   }),
   Schema.Struct({
     type: Schema.Literal('presence-ready'),
@@ -320,6 +321,8 @@ export const PresenceServerEvent = Schema.Union([
     online: integerBetween(0, MAX_PRESENCE_SUBSCRIBERS),
     peers: boundedArray(PresencePeer, MAX_PRESENCE_PEERS),
     regions: boundedArray(RegionClaim, MAX_PRESENCE_REGIONS),
+    ownedRegionIds: Schema.optionalKey(boundedArray(Identifier, MAX_PRESENCE_REGIONS)),
+    canWrite: Schema.optionalKey(Schema.Boolean),
   }),
   Schema.Struct({
     type: Schema.Literal('presence-delta'),
@@ -330,6 +333,7 @@ export const PresenceServerEvent = Schema.Union([
   Schema.Struct({
     type: Schema.Literal('regions'),
     regions: boundedArray(RegionClaim, MAX_PRESENCE_REGIONS),
+    ownedRegionIds: Schema.optionalKey(boundedArray(Identifier, MAX_PRESENCE_REGIONS)),
   }),
 ])
 
