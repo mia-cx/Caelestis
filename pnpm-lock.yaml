@@ -141,7 +141,7 @@ importers:
         version: 2.1.1(hono@4.12.33)
       drizzle-orm:
         specifier: 0.45.2
-        version: 0.45.2(@cloudflare/workers-types@5.20260801.1)(@types/pg@8.23.1)(pg@8.23.0)
+        version: 0.45.2(@cloudflare/workers-types@5.20260801.1)(@types/pg@8.23.1)(bun-types@1.4.2)(pg@8.23.0)
       effect:
         specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
@@ -164,6 +164,9 @@ importers:
       '@cloudflare/workers-types':
         specifier: ^5.20260722.1
         version: 5.20260801.1
+      '@types/bun':
+        specifier: 1.4.2
+        version: 1.4.2
       '@types/node':
         specifier: ^26.1.2
         version: 26.1.2
@@ -2383,6 +2386,9 @@ packages:
   '@tybys/wasm-util@0.10.3':
     resolution: {integrity: sha512-F3fo1MYrRJYL3zER0OUOmkutjr1Vp23m7OsSgp7nq4SP6OqX6C/56XFIPAl5bt3zaBRjmW7SGz3u/6LwFpYcOg==}
 
+  '@types/bun@1.4.2':
+    resolution: {integrity: sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ==}
+
   '@types/chai@5.2.3':
     resolution: {integrity: sha512-Mw558oeA9fFbv65/y4mHtXDs9bPnFMZAL/jxdPFUpOHHIXX91mcgEHbS5Lahr+pwZFR8A7GQleRWeI6cGFC2UA==}
 
@@ -2484,6 +2490,9 @@ packages:
   buffer-image-size@0.6.4:
     resolution: {integrity: sha512-nEh+kZOPY1w+gcCMobZ6ETUp9WfibndnosbpwB1iJk/8Gt5ZF2bhS6+B6bPYz424KtwsR6Rflc3tCz1/ghX2dQ==}
     engines: {node: '>=4.0'}
+
+  bun-types@1.4.2:
+    resolution: {integrity: sha512-bxV1FgK7yBIzjRe5zBozIM4Bem11ZJcCXSrjWRG3YWLt8yFDePu4cLjpebO8OvPeIE9trbyPF4fuj3Cia4Fj3w==}
 
   cac@7.0.0:
     resolution: {integrity: sha512-tixWYgm5ZoOD+3g6UTea91eow5z6AAHaho3g0V9CNSNb45gM8SmflpAc+GRd1InC4AqN/07Unrgp56Y94N9hJQ==}
@@ -3130,13 +3139,13 @@ packages:
   resolve-pkg-maps@1.0.0:
     resolution: {integrity: sha512-seS2Tj26TBVOC2NIc2rOe2y2ZO7efxITtLZcGSOnHHNOQ7CkiUBfw0Iw2ck6xkIhPwLhKNLS8BO+hEpngQlqzw==}
 
-  robust-predicates@3.0.3:
-    resolution: {integrity: sha512-NS3levdsRIUOmiJ8FZWCP7LG3QpJyrs/TE0Zpf1yvZu8cAJJ6QMW92H1c7kWpdIHo8RvmLxN/o2JXTKHp74lUA==}
-
   resolve@1.22.12:
     resolution: {integrity: sha512-TyeJ1zif53BPfHootBGwPRYT1RUt6oGWsaQr8UyZW/eAm9bKoijtvruSDEmZHm92CwS9nj7/fWttqPCgzep8CA==}
     engines: {node: '>= 0.4'}
     hasBin: true
+
+  robust-predicates@3.0.3:
+    resolution: {integrity: sha512-NS3levdsRIUOmiJ8FZWCP7LG3QpJyrs/TE0Zpf1yvZu8cAJJ6QMW92H1c7kWpdIHo8RvmLxN/o2JXTKHp74lUA==}
 
   rolldown@1.2.1:
     resolution: {integrity: sha512-4FKJhg8d3OiyQOA6Q1Q0hoFFpW9/OoX+VsHzpECsdsIZoOArrAK90gl59YK/Z+gnDel45bgJZK03ozH/9bCqEw==}
@@ -4981,6 +4990,10 @@ snapshots:
       tslib: 2.8.1
     optional: true
 
+  '@types/bun@1.4.2':
+    dependencies:
+      bun-types: 1.4.2
+
   '@types/chai@5.2.3':
     dependencies:
       '@types/deep-eql': 4.0.2
@@ -5096,6 +5109,10 @@ snapshots:
     dependencies:
       '@types/node': 26.1.2
 
+  bun-types@1.4.2:
+    dependencies:
+      '@types/node': 26.1.2
+
   cac@7.0.0: {}
 
   chai@6.2.2: {}
@@ -5139,10 +5156,11 @@ snapshots:
       esbuild: 0.25.12
       tsx: 4.21.0
 
-  drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260801.1)(@types/pg@8.23.1)(pg@8.23.0):
+  drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260801.1)(@types/pg@8.23.1)(bun-types@1.4.2)(pg@8.23.0):
     optionalDependencies:
       '@cloudflare/workers-types': 5.20260801.1
       '@types/pg': 8.23.1
+      bun-types: 1.4.2
       pg: 8.23.0
 
   effect@4.0.0-beta.102:
@@ -5685,14 +5703,14 @@ snapshots:
 
   resolve-pkg-maps@1.0.0: {}
 
-  robust-predicates@3.0.3: {}
-
   resolve@1.22.12:
     dependencies:
       es-errors: 1.3.0
       is-core-module: 2.16.2
       path-parse: 1.0.7
       supports-preserve-symlinks-flag: 1.0.0
+
+  robust-predicates@3.0.3: {}
 
   rolldown@1.2.1:
     dependencies:

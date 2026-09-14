@@ -78,9 +78,16 @@ jobs:
             (cd "$directory" && sha256sum --check SHA256SUMS)
             docker load -i "$directory/images.tar"
             cp "$directory/image-configs.json" "release/$arch-image-configs.json"
-            for component in backend frontend; do
-              local_image="caelestis-$component:test"
-              image="docker.io/miacx/caelestis-$component:$IMAGE_TAG-$arch"
+            for component in backend backend-node backend-bun frontend; do
+              source="$component"
+              repository="$component"
+              variant_tag="$IMAGE_TAG"
+              case "$component" in
+                backend-node) source=backend; repository=backend; variant_tag="$IMAGE_TAG-node" ;;
+                backend-bun) repository=backend; variant_tag="$IMAGE_TAG-bun" ;;
+              esac
+              local_image="caelestis-$source:test"
+              image="docker.io/miacx/caelestis-$repository:$variant_tag-$arch"
               test "$(docker inspect "$local_image" --format '{{.Architecture}}')" = "$arch"
               test "$(docker inspect "$local_image" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$GITHUB_SHA"
               local_id="$(docker inspect "$local_image" --format '{{.Id}}')"
@@ -92,12 +99,18 @@ jobs:
                 docker tag "$local_image" "$image"
                 docker push "$image"
               fi
-              cp "$directory/$component-sbom.spdx.json" "release/$component-$arch-sbom.spdx.json"
+              cp "$directory/$source-sbom.spdx.json" "release/$component-$arch-sbom.spdx.json"
             done
           done
-          for component in backend frontend; do
-            image_repository="docker.io/miacx/caelestis-$component"
-            image="$image_repository:$IMAGE_TAG"
+          for component in backend backend-node backend-bun frontend; do
+            repository="$component"
+            variant_tag="$IMAGE_TAG"
+            case "$component" in
+              backend-node) repository=backend; variant_tag="$IMAGE_TAG-node" ;;
+              backend-bun) repository=backend; variant_tag="$IMAGE_TAG-bun" ;;
+            esac
+            image_repository="docker.io/miacx/caelestis-$repository"
+            image="$image_repository:$variant_tag"
             if docker manifest inspect "$image" > /tmp/manifest.json 2>/tmp/manifest-error; then
               for arch in amd64 arm64; do
                 digest="$(docker buildx imagetools inspect "$image-$arch" --format '{{.Manifest.Digest}}')"
@@ -109,8 +122,13 @@ jobs:
             fi
             digest="$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')"
             printf '%s@%s\n' "$image_repository" "$digest" > "release/$component-image.txt"
-            IMAGE_COMPONENT="$component" IMAGE_DIGEST="$digest" node --input-type=module -e "import {readFileSync,writeFileSync} from 'node:fs'; const file='deploy/helm/caelestis/values.yaml'; const indent=process.env.IMAGE_COMPONENT==='frontend'?'    ':'  '; writeFileSync(file,readFileSync(file,'utf8').replace(new RegExp('^'+indent+\"digest: ''\", 'm'), indent+'digest: '+process.env.IMAGE_DIGEST));"
+            if [ "$component" = backend ] || [ "$component" = frontend ]; then
+              IMAGE_COMPONENT="$component" IMAGE_DIGEST="$digest" node --input-type=module -e "import {readFileSync,writeFileSync} from 'node:fs'; const file='deploy/helm/caelestis/values.yaml'; const indent=process.env.IMAGE_COMPONENT==='frontend'?'    ':'  '; writeFileSync(file,readFileSync(file,'utf8').replace(new RegExp('^'+indent+\"digest: ''\", 'm'), indent+'digest: '+process.env.IMAGE_DIGEST));"
+            fi
           done
+          cmp release/backend-image.txt release/backend-node-image.txt
+          jq --slurpfile images release/amd64-image-configs.json '. + {runtimes: ($images[0] | map({key: .Config.Labels["cx.mia.caelestis.runtime"], value: .Config.Labels["cx.mia.caelestis.runtime.version"]}) | from_entries)}' release/versions.json > release/versions.tmp
+          mv release/versions.tmp release/versions.json
           helm package deploy/helm/caelestis --version "$CHART_VERSION" --app-version "$IMAGE_TAG" --destination release
           chart="release/caelestis-$CHART_VERSION.tgz"
           if helm pull "oci://$chart_registry/caelestis" --version "$CHART_VERSION" --destination /tmp 2>/tmp/chart-error; then

@@ -2,8 +2,8 @@ import { copyFile, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { sqliteConnection } from '../../node/database.js'
 import { PostgresConnection, postgresParameters } from './postgres-connection.js'
-import { SqliteConnection } from './sqlite-connection.js'
 
 it('preserves quoted markers and repeated numbered parameters', () => {
   expect(postgresParameters(`SELECT '?', "?", ?1, ?1, ?, 'it''s ?'`)).toBe(
@@ -65,7 +65,7 @@ describe.skipIf(!process.env.CAELESTIS_TEST_POSTGRES_URL)('PostgreSQL persistenc
       options: `-c search_path=${schema}`,
     }
     const first = new PostgresConnection(config)
-    const sqlite = new SqliteConnection(':memory:')
+    const sqlite = sqliteConnection(':memory:')
     await first.pool.query(`CREATE SCHEMA ${schema}`)
     try {
       sqlite.migrate(join(import.meta.dirname, '../../../migrations'))

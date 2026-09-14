@@ -16,7 +16,10 @@ it('refuses a second SQLite owner and releases ownership when its process dies',
     [
       '--input-type=module',
       '-e',
-      `import { claimSqliteOwnership } from ${JSON.stringify(moduleUrl)}; claimSqliteOwnership(process.argv[1]); process.stdout.write('ready'); setInterval(() => {}, 1000)`,
+      `import { claimSqliteOwnership } from ${JSON.stringify(moduleUrl)};
+      const release = claimSqliteOwnership(process.argv[1]);
+      process.once('SIGTERM', () => { release(); process.exit(0) });
+      process.stdout.write('ready'); setInterval(() => {}, 1000)`,
       filename,
     ],
     { stdio: ['ignore', 'pipe', 'pipe'] },

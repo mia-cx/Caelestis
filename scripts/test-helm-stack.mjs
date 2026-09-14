@@ -19,6 +19,23 @@ const storage = process.env.CAELESTIS_TEST_STORAGE ?? (stack === 'sqlite' ? 'fil
 assert.ok(['filesystem', 's3'].includes(storage))
 const keep = process.env.CAELESTIS_TEST_KEEP === 'true'
 assert.ok(!keep || context, 'Keeping a stack requires an explicit existing cluster context')
+const origin = process.env.CAELESTIS_TEST_ORIGIN
+  ? new URL(process.env.CAELESTIS_TEST_ORIGIN)
+  : undefined
+const benchmark = process.env.CAELESTIS_TEST_BENCHMARK === 'true'
+if (benchmark) {
+  assert.ok(
+    context && origin && !keep,
+    'Benchmark requires an isolated stack with Traefik and cleanup',
+  )
+  assert.ok(stack === 'cnpg' && storage === 's3' && process.env.CAELESTIS_TEST_EXTENDED === 'true')
+}
+assert.ok(!keep || origin, 'Keeping a stack requires CAELESTIS_TEST_ORIGIN')
+if (origin) {
+  assert.ok(context, 'Traefik acceptance requires an explicit existing cluster context')
+  assert.equal(origin.protocol, 'https:')
+  assert.match(origin.hostname, /^[a-z0-9.-]+$/)
+}
 const name = context
   ? `caelestis-test-${stack}-${storage}-${Date.now().toString(36)}`
   : `caelestis-ci-${process.pid}`
@@ -31,6 +48,9 @@ const env = context ? { ...process.env } : { ...process.env, KUBECONFIG: `${dire
 const cluster = context ? kubernetesRun({ context, namespace: name, output }) : undefined
 const kubeArgs = context ? ['--context', context, '--namespace', name] : []
 const namespace = context ? name : 'default'
+const nodeSelector = process.env.CAELESTIS_TEST_NODE
+  ? { 'kubernetes.io/hostname': process.env.CAELESTIS_TEST_NODE }
+  : {}
 const adminToken = randomBytes(32).toString('hex')
 const readToken = randomBytes(32).toString('hex')
 const s3Password = randomBytes(32).toString('hex')
@@ -81,6 +101,7 @@ const workload = (name, image, port, variables, args = [], volumes = []) => ({
       metadata: { labels: { app: name } },
       spec: {
         automountServiceAccountToken: false,
+        nodeSelector,
         containers: [
           {
             name,
@@ -119,6 +140,7 @@ const imageValues = (image) => {
 let forward
 let created = false
 let passed = false
+let benchmarkResult
 let cleanupPromise
 const cleanup = () =>
   (cleanupPromise ??= (async () => {
@@ -205,6 +227,7 @@ try {
     }),
   )
   const values = {
+    nodeSelector,
     image: imageValues(backend),
     frontend: { image: imageValues(frontend) },
     server: { origin: process.env.CAELESTIS_TEST_ORIGIN ?? '', name: 'Caelestis k3s test' },
@@ -432,15 +455,43 @@ try {
       'Helm frontend',
     )
   }
+  if (origin)
+    apply({
+      apiVersion: 'traefik.io/v1alpha1',
+      kind: 'IngressRoute',
+      metadata: { name: 'caelestis' },
+      spec: {
+        entryPoints: ['websecure'],
+        routes: [
+          {
+            kind: 'Rule',
+            match: `Host(\`${origin.hostname}\`)`,
+            services: [{ name: 'test-caelestis', port: 80 }],
+          },
+        ],
+        tls: {},
+      },
+    })
   await connect()
   const suite = acceptance({ site, adminToken, readToken })
   const state = await suite.seed()
+  const publicSuite = origin
+    ? acceptance({ site: origin.origin, adminToken, readToken })
+    : undefined
   const api = `${site}/backend/v1`
   const template = process.env.CAELESTIS_TEST_WPLACE
     ? await importWplace({ api, adminToken, filename: process.env.CAELESTIS_TEST_WPLACE })
     : undefined
   const verify = async () => {
     await suite.verify(state)
+    if (publicSuite) {
+      await waitFor(
+        async () =>
+          (await fetch(`${origin.origin}/health/ready`, { signal: AbortSignal.timeout(3000) })).ok,
+        'Traefik frontend',
+      )
+      await publicSuite.verify(state)
+    }
     if (template) await verifyWplace({ api, readToken, template })
   }
   await verify()
@@ -536,26 +587,18 @@ try {
   await connect()
   await verify()
   await suite.remove(state)
-  if (keep) {
-    const origin = new URL(process.env.CAELESTIS_TEST_ORIGIN)
-    assert.equal(origin.protocol, 'https:')
-    assert.match(origin.hostname, /^[a-z0-9.-]+$/)
-    apply({
-      apiVersion: 'traefik.io/v1alpha1',
-      kind: 'IngressRoute',
-      metadata: { name: 'caelestis' },
-      spec: {
-        entryPoints: ['websecure'],
-        routes: [
-          {
-            kind: 'Rule',
-            match: `Host(\`${origin.hostname}\`)`,
-            services: [{ name: 'test-caelestis', port: 80 }],
-          },
-        ],
-        tls: {},
-      },
+  if (benchmark) {
+    const { benchmarkKubernetes } = await import('./runtime-benchmark/kubernetes.mjs')
+    benchmarkResult = await benchmarkKubernetes({
+      context,
+      namespace,
+      site: origin.origin,
+      adminToken,
+      output,
+      observe: process.env.CAELESTIS_TEST_BENCHMARK_OBSERVE === 'true',
     })
+  }
+  if (keep && origin) {
     const response = await fetch(`${api}/admin/tokens`, {
       method: 'POST',
       headers: { authorization: `Bearer ${adminToken}`, 'content-type': 'application/json' },
@@ -584,13 +627,15 @@ try {
     JSON.stringify({
       stack,
       storage,
-      passed: true,
+      passed: benchmarkResult?.passed ?? true,
+      benchmark: benchmarkResult ?? null,
       backend,
       frontend,
       template: template
         ? { name: template.name, chunks: template.chunks.length, bbox: template.bbox }
         : null,
       retained: keep,
+      traefik: origin?.origin ?? null,
     }),
   )
   passed = true

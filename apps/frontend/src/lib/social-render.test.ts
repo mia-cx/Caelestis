@@ -9,12 +9,10 @@ vi.mock('@caelestis/shared', async (importOriginal) => ({
     pixels: new Uint8Array(TILE_SIZE * TILE_SIZE * 4),
   }),
 }))
-vi.mock('gifenc/dist/gifenc.js', () => ({
-  default: {
-    quantize: () => [],
-    applyPalette: () => new Uint8Array(),
-    GIFEncoder: () => ({ writeFrame: () => {}, finish: () => {}, bytes: () => new Uint8Array() }),
-  },
+vi.mock('gifenc/dist/gifenc.esm.js', () => ({
+  quantize: () => [],
+  applyPalette: () => new Uint8Array(),
+  GIFEncoder: () => ({ writeFrame: () => {}, finish: () => {}, bytes: () => new Uint8Array() }),
 }))
 
 import { captureSamples, renderTimelapse } from './social-render.js'

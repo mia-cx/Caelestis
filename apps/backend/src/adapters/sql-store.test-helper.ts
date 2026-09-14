@@ -1,11 +1,11 @@
 import { join } from 'node:path'
+import { sqliteConnection } from '../node/database.js'
 import type { SqlStore } from '../ports/index.js'
 import { D1SqlStore } from './cloudflare/d1-sql-store.js'
 import { SqliteD1Database } from './cloudflare/sqlite-d1.test-helper.js'
 import { MemorySqlStore } from './memory/memory-sql-store.js'
 import { mariaTestDatabase } from './node/mariadb.test-helper.js'
 import { PostgresConnection } from './node/postgres-connection.js'
-import { SqliteConnection } from './node/sqlite-connection.js'
 import { RelationalSqlStore } from './relational-sql-store.js'
 
 export type SqlStoreHarness = { store: SqlStore; close(): void | Promise<void> }
@@ -39,7 +39,7 @@ export const sqlStoreAdapters: {
   {
     name: 'SQLite',
     make: () => {
-      const database = new SqliteConnection(':memory:')
+      const database = sqliteConnection(':memory:')
       database.migrate(join(import.meta.dirname, '../../migrations'))
       return { store: new RelationalSqlStore(database), close: () => database.close() }
     },

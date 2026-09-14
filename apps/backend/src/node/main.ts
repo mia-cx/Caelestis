@@ -67,7 +67,22 @@ try {
     const module: { handler: FrontendHandler } | undefined = process.env.FRONTEND_HANDLER
       ? await import(pathToFileURL(resolve(process.env.FRONTEND_HANDLER)).href)
       : undefined
-    const server = await listenNodeServer(runtime, config, module?.handler)
+    if (process.versions.bun && module)
+      throw new Error('The Bun backend requires the separate Node frontend image')
+    // A URL import keeps Bun's ambient types out of the Node/Cloudflare compilation.
+    const bun:
+      | {
+          listenBunServer: (
+            instance: typeof runtime,
+            settings: typeof config,
+          ) => Promise<{ port: number; close(): Promise<void> }>
+        }
+      | undefined = process.versions.bun
+      ? await import(new URL('../bun/server.js', import.meta.url).href)
+      : undefined
+    const server = bun
+      ? await bun.listenBunServer(runtime, config)
+      : await listenNodeServer(runtime, config, module?.handler)
     if (ownershipFailure) {
       await server.close()
       throw ownershipFailure

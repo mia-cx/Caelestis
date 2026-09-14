@@ -1,0 +1,1247 @@
+{
+  "issue": 390,
+  "capacityFollowup": "https://github.com/mia-riezebos/Caelestis/issues/397",
+  "verdict": "Both strict and observation runs fail during warmup. No 256-user capacity or successful latency ranking is established.",
+  "provenance": {
+    "applicationRevision": "c5b3c4d502aba42c0fd1b45ba877baae1012af68",
+    "backendAndRendererSourcesSha256": "92cb7097363200f5ef7cfb46df1192b993031c62bbbcfea8ad4f70d84549a155",
+    "images": [
+      {
+        "id": "sha256:94dda07ac956764357b1181cc92784cb2ce8858ad479c14b0966ecf0f8c99591",
+        "tags": ["caelestis-backend:node-390-final"],
+        "architecture": "amd64",
+        "labels": {
+          "cx.mia.caelestis.runtime": "node",
+          "cx.mia.caelestis.runtime.version": "24.20.0",
+          "org.opencontainers.image.revision": "c5b3c4d502aba42c0fd1b45ba877baae1012af68",
+          "org.opencontainers.image.source": "https://github.com/mia-riezebos/Caelestis"
+        }
+      },
+      {
+        "id": "sha256:6ef87473158c3c00dbf79daa918b14a066f89f1f650d04fd4c2e0a5df7bf8c9c",
+        "tags": ["caelestis-backend:bun-390-final"],
+        "architecture": "amd64",
+        "labels": {
+          "cx.mia.caelestis.runtime": "bun",
+          "cx.mia.caelestis.runtime.version": "1.4.2",
+          "org.opencontainers.image.revision": "c5b3c4d502aba42c0fd1b45ba877baae1012af68",
+          "org.opencontainers.image.source": "https://github.com/mia-riezebos/Caelestis"
+        }
+      },
+      {
+        "id": "sha256:b708654c7774598bba82ae2208ff845dbe7496ee875a99968de7287da642d232",
+        "tags": ["caelestis-frontend:390-final"],
+        "architecture": "amd64",
+        "labels": {
+          "cx.mia.caelestis.runtime": "node",
+          "cx.mia.caelestis.runtime.version": "24.20.0",
+          "org.opencontainers.image.revision": "c5b3c4d502aba42c0fd1b45ba877baae1012af68",
+          "org.opencontainers.image.source": "https://github.com/mia-riezebos/Caelestis"
+        }
+      }
+    ]
+  },
+  "ci": "https://github.com/mia-riezebos/Caelestis/actions/runs/34885853405",
+  "workload": {
+    "socketsPerUser": 2,
+    "explorerCycleMs": 9000,
+    "explorerMovingMs": 5400,
+    "viewportMinimumMs": 300,
+    "draftMinimumMs": 1000,
+    "presenceHeartbeatMs": 30000,
+    "painterViewportMs": 12000,
+    "painterNudgePixels": 8,
+    "paintBatchPixels": 30,
+    "paintBatchMs": 30000,
+    "tileObservationMs": 9000,
+    "canvasSnapshotMs": 5000,
+    "fixture": "Box Art 1612x2584 at its original canvas coordinates; eight full canvas tiles",
+    "users": 256,
+    "explorers": 179,
+    "painters": 77
+  },
+  "intendedWarmupMs": 35000,
+  "intendedMeasuredMs": 60000,
+  "metricScope": "Kubelet cumulative CPU and cgroup RSS/working set for the five application containers; shared Traefik, operators, storage engines, node services, and driver excluded",
+  "metricWindows": "Kubelet caches snapshots. Only timestamps inside the measured phase contribute; each CPU interval is recorded and can be shorter than the traffic window.",
+  "qualifications": [
+    "One paired strict failure and one paired unprofiled observation failure; repeated successful comparisons are deferred.",
+    "Observation raises the diagnostic command timeout to 30 seconds but still counts replies exceeding the five-second user deadline.",
+    "Resource results cover failed warmup and its drain. The intended measured phase and final correctness assertions are not reached.",
+    "Completed reply latencies are censored by timeouts. CPU and memory are not normalized by equal completed work.",
+    "Shared cluster noise is uncontrolled. Full-stack CPU sums per-container averages over the recorded, differing cached-kubelet intervals."
+  ],
+  "nodes": [
+    {
+      "name": "hydra-olympus-2",
+      "capacity": {
+        "cpu": "10",
+        "ephemeral-storage": "93427296Ki",
+        "hugepages-1Gi": "0",
+        "hugepages-2Mi": "0",
+        "memory": "16381636Ki",
+        "pods": "110"
+      },
+      "architecture": "amd64",
+      "kernelVersion": "6.12.69+deb13-amd64",
+      "osImage": "Debian GNU/Linux 13 (trixie)",
+      "kubeletVersion": "v1.34.4+k3s1",
+      "containerRuntimeVersion": "containerd://2.1.5-k3s1"
+    },
+    {
+      "name": "hydra-olympus-1",
+      "capacity": {
+        "cpu": "12",
+        "ephemeral-storage": "242049580Ki",
+        "hugepages-1Gi": "0",
+        "hugepages-2Mi": "0",
+        "memory": "32871556Ki",
+        "pods": "110"
+      },
+      "architecture": "amd64",
+      "kernelVersion": "6.12.63+deb13-amd64",
+      "osImage": "Debian GNU/Linux 13 (trixie)",
+      "kubeletVersion": "v1.34.3+k3s1",
+      "containerRuntimeVersion": "containerd://2.1.5-k3s1"
+    }
+  ],
+  "driver": {
+    "node": "24.20.0",
+    "acorn": "8.18.0",
+    "ada": "4.0.0",
+    "amaro": "1.1.11",
+    "ares": "1.34.8",
+    "brotli": "1.2.0",
+    "cldr": "48.0",
+    "icu": "78.3",
+    "llhttp": "9.4.3",
+    "merve": "1.2.2",
+    "modules": "137",
+    "napi": "10",
+    "nbytes": "0.1.4",
+    "ncrypto": "0.0.1",
+    "nghttp2": "1.70.0",
+    "nghttp3": "",
+    "ngtcp2": "",
+    "openssl": "3.5.7",
+    "simdjson": "4.6.6",
+    "simdutf": "6.4.0",
+    "sqlite": "3.53.4",
+    "tz": "2026c",
+    "undici": "7.29.0",
+    "unicode": "17.0",
+    "uv": "1.52.1",
+    "uvwasi": "0.0.23",
+    "v8": "13.6.233.17-node.53",
+    "zlib": "1.3.2.1-motley-42c2f19",
+    "zstd": "1.5.7"
+  },
+  "runs": [
+    {
+      "name": "node-strict",
+      "evidenceDirectory": "test-results/caelestis-test-cnpg-s3-mu1n3efe",
+      "startedAt": "2026-09-14T19:35:48.910Z",
+      "cleanedAt": "2026-09-14T19:37:03.519Z",
+      "passed": false,
+      "completed": false,
+      "commandTimeoutMs": 5000,
+      "runtime": {
+        "node": "24.20.0",
+        "acorn": "8.18.0",
+        "ada": "4.0.0",
+        "amaro": "1.1.11",
+        "ares": "1.34.8",
+        "brotli": "1.2.0",
+        "cldr": "48.0",
+        "icu": "78.3",
+        "llhttp": "9.4.3",
+        "merve": "1.2.2",
+        "modules": "137",
+        "napi": "10",
+        "nbytes": "0.1.4",
+        "ncrypto": "0.0.1",
+        "nghttp2": "1.70.0",
+        "nghttp3": "",
+        "ngtcp2": "",
+        "openssl": "3.5.7",
+        "simdjson": "4.6.6",
+        "simdutf": "6.4.0",
+        "sqlite": "3.53.4",
+        "tz": "2026c",
+        "undici": "7.29.0",
+        "unicode": "17.0",
+        "uv": "1.52.1",
+        "uvwasi": "0.0.23",
+        "v8": "13.6.233.17-node.53",
+        "zlib": "1.3.2.1-motley-42c2f19",
+        "zstd": "1.5.7"
+      },
+      "sourceHashes": {
+        "kubernetes.mjs": "a9699c14528e1cc758adc111eb1e8b1fb6bd0ea1b0838b7f255bd2248017bc8b",
+        "traffic.mjs": "c353c7c1a30f02d54055a589c60229c65c671c19542aa5fa5194a164ee5e2d89"
+      },
+      "traceSha256": "fb8e6ee2e54794364967e91c473b4c3608053e9ff97948400397d54d44646837",
+      "fixture": {
+        "templateSha256": "d92cb369c18af78bc0980bb24f9b856918c28082bfd2116e6cf7705b63b54c94",
+        "framesSha256": "fa3755548ee2246bae5ac5e8bec1b7964ab2790db1e725a9313b2341ad042184"
+      },
+      "containers": [
+        {
+          "key": "207d34f3-f7fc-40fe-b6f6-c44e46c67816/backend",
+          "pod": "test-caelestis-589b6746cb-wtsv7",
+          "uid": "207d34f3-f7fc-40fe-b6f6-c44e46c67816",
+          "node": "hydra-olympus-2",
+          "name": "backend",
+          "image": "docker.io/library/caelestis-backend:node-390-final",
+          "imageID": "sha256:ce2d277e39b36a3d950fb3ec6dc2a14740032484422f871d0539328ad6a9d77f",
+          "resources": {
+            "limits": {
+              "cpu": "2",
+              "memory": "1Gi"
+            },
+            "requests": {
+              "cpu": "100m",
+              "memory": "256Mi"
+            }
+          },
+          "restartCount": 0
+        },
+        {
+          "key": "207d34f3-f7fc-40fe-b6f6-c44e46c67816/frontend",
+          "pod": "test-caelestis-589b6746cb-wtsv7",
+          "uid": "207d34f3-f7fc-40fe-b6f6-c44e46c67816",
+          "node": "hydra-olympus-2",
+          "name": "frontend",
+          "image": "docker.io/library/caelestis-frontend:390-final",
+          "imageID": "sha256:ea0a4f438e0a455d8fa7bd5c5fb77208e7e27f44697651065e2e5a9595f7ed7a",
+          "resources": {
+            "limits": {
+              "cpu": "2",
+              "memory": "1Gi"
+            },
+            "requests": {
+              "cpu": "100m",
+              "memory": "256Mi"
+            }
+          },
+          "restartCount": 0
+        },
+        {
+          "key": "3f1a6580-cef7-4801-b0aa-69fc7f0ba51f/s3",
+          "pod": "s3-7d4c675d58-pd4mv",
+          "uid": "3f1a6580-cef7-4801-b0aa-69fc7f0ba51f",
+          "node": "hydra-olympus-2",
+          "name": "s3",
+          "image": "sha256:69b2ec208575b69597784255eec6fa6a2985ee9e1a47f4411a51f7f5fdd193a9",
+          "imageID": "quay.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e",
+          "resources": {
+            "limits": {
+              "cpu": "1",
+              "memory": "1Gi"
+            },
+            "requests": {
+              "cpu": "100m",
+              "memory": "128Mi"
+            }
+          },
+          "restartCount": 0
+        },
+        {
+          "key": "521f8dce-d027-401d-80ab-6ec801b7332b/postgres",
+          "pod": "caelestis-db-1",
+          "uid": "521f8dce-d027-401d-80ab-6ec801b7332b",
+          "node": "hydra-olympus-2",
+          "name": "postgres",
+          "image": "sha256:5afe65ddcca9f28c2a701386ed2fc75469006593a379d29d08f1482114aa4e49",
+          "imageID": "ghcr.io/cloudnative-pg/postgresql@sha256:30b304a2e300ed80b6d1b740e4369e9b0f25599fb518de78c01fd9f25531791b",
+          "resources": {
+            "limits": {
+              "cpu": "1",
+              "memory": "1Gi"
+            },
+            "requests": {
+              "cpu": "100m",
+              "memory": "256Mi"
+            }
+          },
+          "restartCount": 1
+        },
+        {
+          "key": "c9da5b59-61c4-41e9-ae33-3118bf806455/postgres",
+          "pod": "caelestis-db-2",
+          "uid": "c9da5b59-61c4-41e9-ae33-3118bf806455",
+          "node": "hydra-olympus-1",
+          "name": "postgres",
+          "image": "sha256:5afe65ddcca9f28c2a701386ed2fc75469006593a379d29d08f1482114aa4e49",
+          "imageID": "ghcr.io/cloudnative-pg/postgresql@sha256:30b304a2e300ed80b6d1b740e4369e9b0f25599fb518de78c01fd9f25531791b",
+          "resources": {
+            "limits": {
+              "cpu": "1",
+              "memory": "1Gi"
+            },
+            "requests": {
+              "cpu": "100m",
+              "memory": "256Mi"
+            }
+          },
+          "restartCount": 0
+        }
+      ],
+      "phase": "warmup",
+      "warmupJobsDrained": null,
+      "sent": {
+        "presence-update": 4510,
+        "paint-report": 25,
+        "tile-offer": 125,
+        "tile-upload": 20
+      },
+      "received": {
+        "presence-delta": 4352,
+        "paint-result": 14,
+        "tile-offer-result": 95,
+        "status-delta": 512,
+        "alarms-reconcile": 512,
+        "alarms-snapshot": 256,
+        "tile-upload-result": 4
+      },
+      "sentBytes": 3252910,
+      "receivedBytes": 30541280,
+      "latencies": {
+        "paint-report": {
+          "count": 14,
+          "p50": 39.44705499999691,
+          "p95": 3904.5694949999743,
+          "p99": 3904.5694949999743,
+          "max": 3904.5694949999743
+        },
+        "tile-offer": {
+          "count": 95,
+          "p50": 10.149147999996785,
+          "p95": 1466.1646839999885,
+          "p99": 1684.5871990000014,
+          "max": 1684.5871990000014
+        },
+        "tile-upload": {
+          "count": 4,
+          "p50": 3882.1367849999806,
+          "p95": 4028.77949299998,
+          "p99": 4028.77949299998,
+          "max": 4028.77949299998
+        }
+      },
+      "presenceDeliveryMs": {
+        "count": 73317,
+        "p50": 251.81719599998905,
+        "p95": 470.7456780000066,
+        "p99": 911.0444819999975,
+        "max": 1339.6740839999984
+      },
+      "dispatchDelayMs": {
+        "count": 4672,
+        "p50": 0,
+        "p95": 0.723907000006875,
+        "p99": 1.6603900000045542,
+        "max": 10.780985999997938
+      },
+      "correctness": {
+        "online": 256,
+        "sockets": 512,
+        "finalPeerSetsAndDrafts": false,
+        "errorKinds": ["tile-upload timed out"]
+      },
+      "serverMetrics": null,
+      "rawEvidenceSha256": {
+        "benchmark.json": "5be6d319da54b2dc2d64aa304b2a489aa7f0ab20b657c505c516350e4f66c29d",
+        "benchmark-resource-samples-1.json": "4370cf205f15cbacff9d243e0b662236be5a3928369aa1c75dba1ebb5eb1b985",
+        "inventory.json": "e149d758e2fca54ee9497c039feafdea09f174491e2463a5075a01e9342a91f3"
+      }
+    },
+    {
+      "name": "bun-strict",
+      "evidenceDirectory": "test-results/caelestis-test-cnpg-s3-mu1nayc7",
+      "startedAt": "2026-09-14T19:41:50.032Z",
+      "cleanedAt": "2026-09-14T19:43:00.275Z",
+      "passed": false,
+      "completed": false,
+      "commandTimeoutMs": 5000,
+      "runtime": {
+        "node": "26.3.0",
+        "bun": "1.4.2",
+        "boringssl": "41bf9b59c2ebf277a7aa427e1ecad5cc80dd4d4f",
+        "openssl": "1.1.0",
+        "llhttp": "9.3.0",
+        "libarchive": "ded82291ab41d5e355831b96b0e1ff49e24d8939",
+        "mimalloc": "6a64e1ba7f5b2130d4efccb67ec87fd0003f0f6a",
+        "picohttpparser": "066d2b1e9ab820703db0837a7255d92d30f0c9f5",
+        "uwebsockets": "744846f844374847c902b5e7fd59b4342a51ef99",
+        "webkit": "2e2aa2290fac856d6f451ceacb58f7f5b44dd057",
+        "zig": "04e7f6ac1e009525bc00934f20199c68f04e0a24",
+        "zlib": "12731092979c6d07f42da27da673a9f6c7b13586",
+        "tinycc": "05f0fafaa3be31e31d7b4b5c17dc60f62c991171",
+        "lolhtml": "725ce499aa9b71e38b7a2d0a9fbb6d7294a4079e",
+        "ares": "c7a3138dcfe3bb0eaaf10c0c24c36dc66dc790ab",
+        "libdeflate": "c8c56a20f8f621e6a966b716b31f1dedab6a41e3",
+        "usockets": "744846f844374847c902b5e7fd59b4342a51ef99",
+        "lshpack": "8905c024b6d052f083a3d11d0a169b3c2735c8a1",
+        "zstd": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+        "v8": "14.6.202.34-node.20",
+        "uv": "1.48.0",
+        "napi": "10",
+        "icu": "78.3",
+        "unicode": "17.0",
+        "sqlite": "3.53.2",
+        "modules": "147"
+      },
+      "sourceHashes": {
+        "kubernetes.mjs": "a9699c14528e1cc758adc111eb1e8b1fb6bd0ea1b0838b7f255bd2248017bc8b",
+        "traffic.mjs": "c353c7c1a30f02d54055a589c60229c65c671c19542aa5fa5194a164ee5e2d89"
+      },
+      "traceSha256": "fb8e6ee2e54794364967e91c473b4c3608053e9ff97948400397d54d44646837",
+      "fixture": {
+        "templateSha256": "d92cb369c18af78bc0980bb24f9b856918c28082bfd2116e6cf7705b63b54c94",
+        "framesSha256": "fa3755548ee2246bae5ac5e8bec1b7964ab2790db1e725a9313b2341ad042184"
+      },
+      "containers": [
+        {
+          "key": "120e725a-8345-4b03-96a0-afa95f54672c/backend",
+          "pod": "test-caelestis-f8c555cc9-mgqws",
+          "uid": "120e725a-8345-4b03-96a0-afa95f54672c",
+          "node": "hydra-olympus-2",
+          "name": "backend",
+          "image": "docker.io/library/caelestis-backend:bun-390-final",
+          "imageID": "sha256:ab4e1fff877be6b27c20a0025bf28ea63afb6ea9f2b25f56bbe92dad4b7cf4fb",
+          "resources": {
+            "limits": {
+              "cpu": "2",
+              "memory": "1Gi"
+            },
+            "requests": {
+              "cpu": "100m",
+              "memory": "256Mi"
+            }
+          },
+          "restartCount": 0
+        },
+        {
+          "key": "120e725a-8345-4b03-96a0-afa95f54672c/frontend",
+          "pod": "test-caelestis-f8c555cc9-mgqws",
+          "uid": "120e725a-8345-4b03-96a0-afa95f54672c",
+          "node": "hydra-olympus-2",
+          "name": "frontend",
+          "image": "docker.io/library/caelestis-frontend:390-final",
+          "imageID": "sha256:ea0a4f438e0a455d8fa7bd5c5fb77208e7e27f44697651065e2e5a9595f7ed7a",
+          "resources": {
+            "limits": {
+              "cpu": "2",
+              "memory": "1Gi"
+            },
+            "requests": {
+              "cpu": "100m",
+              "memory": "256Mi"
+            }
+          },
+          "restartCount": 0
+        },
+        {
+          "key": "2261f89c-25c8-4d2e-a755-6875e43d0ac3/s3",
+          "pod": "s3-5b774584bb-8skdk",
+          "uid": "2261f89c-25c8-4d2e-a755-6875e43d0ac3",
+          "node": "hydra-olympus-2",
+          "name": "s3",
+          "image": "sha256:69b2ec208575b69597784255eec6fa6a2985ee9e1a47f4411a51f7f5fdd193a9",
+          "imageID": "quay.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e",
+          "resources": {
+            "limits": {
+              "cpu": "1",
+              "memory": "1Gi"
+            },
+            "requests": {
+              "cpu": "100m",
+              "memory": "128Mi"
+            }
+          },
+          "restartCount": 0
+        },
+        {
+          "key": "232f0d25-1c3e-4f05-8154-43bebf8604af/postgres",
+          "pod": "caelestis-db-2",
+          "uid": "232f0d25-1c3e-4f05-8154-43bebf8604af",
+          "node": "hydra-olympus-1",
+          "name": "postgres",
+          "image": "sha256:5afe65ddcca9f28c2a701386ed2fc75469006593a379d29d08f1482114aa4e49",
+          "imageID": "ghcr.io/cloudnative-pg/postgresql@sha256:30b304a2e300ed80b6d1b740e4369e9b0f25599fb518de78c01fd9f25531791b",
+          "resources": {
+            "limits": {
+              "cpu": "1",
+              "memory": "1Gi"
+            },
+            "requests": {
+              "cpu": "100m",
+              "memory": "256Mi"
+            }
+          },
+          "restartCount": 0
+        },
+        {
+          "key": "a99f3182-6dc6-418c-937f-384dae1d1376/postgres",
+          "pod": "caelestis-db-1",
+          "uid": "a99f3182-6dc6-418c-937f-384dae1d1376",
+          "node": "hydra-olympus-2",
+          "name": "postgres",
+          "image": "sha256:5afe65ddcca9f28c2a701386ed2fc75469006593a379d29d08f1482114aa4e49",
+          "imageID": "ghcr.io/cloudnative-pg/postgresql@sha256:30b304a2e300ed80b6d1b740e4369e9b0f25599fb518de78c01fd9f25531791b",
+          "resources": {
+            "limits": {
+              "cpu": "1",
+              "memory": "1Gi"
+            },
+            "requests": {
+              "cpu": "100m",
+              "memory": "256Mi"
+            }
+          },
+          "restartCount": 1
+        }
+      ],
+      "phase": "warmup",
+      "warmupJobsDrained": null,
+      "sent": {
+        "presence-update": 4563,
+        "paint-report": 25,
+        "tile-offer": 125,
+        "tile-upload": 11
+      },
+      "received": {
+        "presence-delta": 4756,
+        "paint-result": 14,
+        "tile-offer-result": 87,
+        "status-delta": 512,
+        "alarms-reconcile": 512,
+        "alarms-snapshot": 512,
+        "tile-upload-result": 6
+      },
+      "sentBytes": 1892598,
+      "receivedBytes": 32585125,
+      "latencies": {
+        "paint-report": {
+          "count": 14,
+          "p50": 137.00378400000045,
+          "p95": 3441.3486219999904,
+          "p99": 3441.3486219999904,
+          "max": 3441.3486219999904
+        },
+        "tile-offer": {
+          "count": 87,
+          "p50": 2.93879799998831,
+          "p95": 146.73791999998502,
+          "p99": 464.63179699998,
+          "max": 464.63179699998
+        },
+        "tile-upload": {
+          "count": 5,
+          "p50": 3790.1170430000057,
+          "p95": 4287.975187000004,
+          "p99": 4287.975187000004,
+          "max": 4287.975187000004
+        }
+      },
+      "presenceDeliveryMs": {
+        "count": 80272,
+        "p50": 239.17961600000854,
+        "p95": 409.07754999998724,
+        "p99": 555.3251790000068,
+        "max": 1440.7052729999996
+      },
+      "dispatchDelayMs": {
+        "count": 4725,
+        "p50": 0,
+        "p95": 0.7518550000095274,
+        "p99": 1.7183080000104383,
+        "max": 12.47039699999732
+      },
+      "correctness": {
+        "online": 256,
+        "sockets": 512,
+        "finalPeerSetsAndDrafts": false,
+        "errorKinds": ["tile-upload timed out"]
+      },
+      "serverMetrics": null,
+      "rawEvidenceSha256": {
+        "benchmark.json": "cc235da63567e883d9046c4b8d28c926352a5e0f4417937adc332faae0716c84",
+        "benchmark-resource-samples-1.json": "a30d01e47de17ff409256637a3c45b581b48f3e80425c5b01bd269fbb8761c24",
+        "inventory.json": "4f12ed59d80cd8e350eebb1a414547d3aa510a5bea47b89e6f04a8155e6c59ad"
+      }
+    },
+    {
+      "name": "node-observation",
+      "evidenceDirectory": "test-results/caelestis-test-cnpg-s3-mu1nsnlm",
+      "startedAt": "2026-09-14T19:55:35.390Z",
+      "cleanedAt": "2026-09-14T19:57:56.546Z",
+      "passed": false,
+      "completed": false,
+      "commandTimeoutMs": 30000,
+      "runtime": {
+        "node": "24.20.0",
+        "acorn": "8.18.0",
+        "ada": "4.0.0",
+        "amaro": "1.1.11",
+        "ares": "1.34.8",
+        "brotli": "1.2.0",
+        "cldr": "48.0",
+        "icu": "78.3",
+        "llhttp": "9.4.3",
+        "merve": "1.2.2",
+        "modules": "137",
+        "napi": "10",
+        "nbytes": "0.1.4",
+        "ncrypto": "0.0.1",
+        "nghttp2": "1.70.0",
+        "nghttp3": "",
+        "ngtcp2": "",
+        "openssl": "3.5.7",
+        "simdjson": "4.6.6",
+        "simdutf": "6.4.0",
+        "sqlite": "3.53.4",
+        "tz": "2026c",
+        "undici": "7.29.0",
+        "unicode": "17.0",
+        "uv": "1.52.1",
+        "uvwasi": "0.0.23",
+        "v8": "13.6.233.17-node.53",
+        "zlib": "1.3.2.1-motley-42c2f19",
+        "zstd": "1.5.7"
+      },
+      "sourceHashes": {
+        "kubernetes.mjs": "65f7fdd54c8f52b983b01a12d59de7554c54c1f338dcc48c78ea55fa30145152",
+        "traffic.mjs": "e408dd58e90680080d46c84d6a0cfe38801297d32524445bb79182b1994f89cb"
+      },
+      "traceSha256": "fb8e6ee2e54794364967e91c473b4c3608053e9ff97948400397d54d44646837",
+      "fixture": {
+        "templateSha256": "d92cb369c18af78bc0980bb24f9b856918c28082bfd2116e6cf7705b63b54c94",
+        "framesSha256": "fa3755548ee2246bae5ac5e8bec1b7964ab2790db1e725a9313b2341ad042184"
+      },
+      "containers": [
+        {
+          "key": "02c27ba0-e981-4941-8112-a74ce1f07ccc/backend",
+          "pod": "test-caelestis-6f564f55c-hldd5",
+          "uid": "02c27ba0-e981-4941-8112-a74ce1f07ccc",
+          "node": "hydra-olympus-2",
+          "name": "backend",
+          "image": "docker.io/library/caelestis-backend:node-390-final",
+          "imageID": "sha256:ce2d277e39b36a3d950fb3ec6dc2a14740032484422f871d0539328ad6a9d77f",
+          "resources": {
+            "limits": {
+              "cpu": "2",
+              "memory": "1Gi"
+            },
+            "requests": {
+              "cpu": "100m",
+              "memory": "256Mi"
+            }
+          },
+          "restartCount": 0
+        },
+        {
+          "key": "02c27ba0-e981-4941-8112-a74ce1f07ccc/frontend",
+          "pod": "test-caelestis-6f564f55c-hldd5",
+          "uid": "02c27ba0-e981-4941-8112-a74ce1f07ccc",
+          "node": "hydra-olympus-2",
+          "name": "frontend",
+          "image": "docker.io/library/caelestis-frontend:390-final",
+          "imageID": "sha256:ea0a4f438e0a455d8fa7bd5c5fb77208e7e27f44697651065e2e5a9595f7ed7a",
+          "resources": {
+            "limits": {
+              "cpu": "2",
+              "memory": "1Gi"
+            },
+            "requests": {
+              "cpu": "100m",
+              "memory": "256Mi"
+            }
+          },
+          "restartCount": 0
+        },
+        {
+          "key": "a7b4b436-df6c-44f4-8624-9ea248d5fd97/postgres",
+          "pod": "caelestis-db-1",
+          "uid": "a7b4b436-df6c-44f4-8624-9ea248d5fd97",
+          "node": "hydra-olympus-2",
+          "name": "postgres",
+          "image": "sha256:5afe65ddcca9f28c2a701386ed2fc75469006593a379d29d08f1482114aa4e49",
+          "imageID": "ghcr.io/cloudnative-pg/postgresql@sha256:30b304a2e300ed80b6d1b740e4369e9b0f25599fb518de78c01fd9f25531791b",
+          "resources": {
+            "limits": {
+              "cpu": "1",
+              "memory": "1Gi"
+            },
+            "requests": {
+              "cpu": "100m",
+              "memory": "256Mi"
+            }
+          },
+          "restartCount": 1
+        },
+        {
+          "key": "ab608d7f-38f6-4c1d-bd66-e26325911185/postgres",
+          "pod": "caelestis-db-2",
+          "uid": "ab608d7f-38f6-4c1d-bd66-e26325911185",
+          "node": "hydra-olympus-1",
+          "name": "postgres",
+          "image": "sha256:5afe65ddcca9f28c2a701386ed2fc75469006593a379d29d08f1482114aa4e49",
+          "imageID": "ghcr.io/cloudnative-pg/postgresql@sha256:30b304a2e300ed80b6d1b740e4369e9b0f25599fb518de78c01fd9f25531791b",
+          "resources": {
+            "limits": {
+              "cpu": "1",
+              "memory": "1Gi"
+            },
+            "requests": {
+              "cpu": "100m",
+              "memory": "256Mi"
+            }
+          },
+          "restartCount": 0
+        },
+        {
+          "key": "c7b66ecc-8434-4462-a560-14fc05c1d8b5/s3",
+          "pod": "s3-756ff8666-ctvw5",
+          "uid": "c7b66ecc-8434-4462-a560-14fc05c1d8b5",
+          "node": "hydra-olympus-2",
+          "name": "s3",
+          "image": "sha256:69b2ec208575b69597784255eec6fa6a2985ee9e1a47f4411a51f7f5fdd193a9",
+          "imageID": "quay.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e",
+          "resources": {
+            "limits": {
+              "cpu": "1",
+              "memory": "1Gi"
+            },
+            "requests": {
+              "cpu": "100m",
+              "memory": "128Mi"
+            }
+          },
+          "restartCount": 0
+        }
+      ],
+      "phase": "warmup",
+      "warmupJobsDrained": 332,
+      "sent": {
+        "presence-update": 15580,
+        "paint-report": 89,
+        "tile-offer": 494,
+        "tile-upload": 175,
+        "presence-heartbeat": 182
+      },
+      "received": {
+        "presence-delta": 7729,
+        "paint-result": 42,
+        "tile-offer-result": 491,
+        "status-delta": 10752,
+        "alarms-reconcile": 3072,
+        "alarms-snapshot": 3072,
+        "tile-upload-result": 175
+      },
+      "sentBytes": 24470695,
+      "receivedBytes": 81680565,
+      "latencies": {
+        "paint-report": {
+          "count": 21,
+          "p50": 218.51705700001912,
+          "p95": 23528.06326200001,
+          "p99": 26623.17053200002,
+          "max": 26623.17053200002
+        },
+        "tile-offer": {
+          "count": 352,
+          "p50": 1617.310673,
+          "p95": 26400.804079999973,
+          "p99": 29743.55970699998,
+          "max": 29947.210473000014
+        },
+        "tile-upload": {
+          "count": 138,
+          "p50": 14638.814765000017,
+          "p95": 27932.43985700002,
+          "p99": 29684.228874000022,
+          "max": 29690.080558000016
+        }
+      },
+      "presenceDeliveryMs": {
+        "count": 148856,
+        "p50": 280.8576250000042,
+        "p95": 2162.129595000006,
+        "p99": 3329.4613490000484,
+        "max": 3563.9724250000436
+      },
+      "dispatchDelayMs": {
+        "count": 16108,
+        "p50": 0,
+        "p95": 0.7316499999724329,
+        "p99": 2.0752559999818914,
+        "max": 16.149309000000358
+      },
+      "correctness": {
+        "online": 256,
+        "sockets": 512,
+        "finalPeerSetsAndDrafts": false,
+        "clientDeadlineMs": 5000,
+        "clientDeadlineMisses": {
+          "warmup": 254,
+          "measured": 0
+        },
+        "errorKinds": ["tile-offer timed out", "paint-report timed out", "tile-upload timed out"]
+      },
+      "serverMetrics": {
+        "startAt": 1789415768355,
+        "endAt": 1789415844823,
+        "durationMs": 76468,
+        "containers": [
+          {
+            "name": "backend",
+            "pod": "test-caelestis-6f564f55c-hldd5",
+            "node": "hydra-olympus-2",
+            "cpuPercent": 106.5774947368421,
+            "cpuWindow": {
+              "startAt": 1789415781000,
+              "endAt": 1789415838000,
+              "durationMs": 57000
+            }
+          },
+          {
+            "name": "frontend",
+            "pod": "test-caelestis-6f564f55c-hldd5",
+            "node": "hydra-olympus-2",
+            "cpuPercent": 8.50983125,
+            "cpuWindow": {
+              "startAt": 1789415774000,
+              "endAt": 1789415838000,
+              "durationMs": 64000
+            }
+          },
+          {
+            "name": "postgres",
+            "pod": "caelestis-db-1",
+            "node": "hydra-olympus-2",
+            "cpuPercent": 3.0465017857142858,
+            "cpuWindow": {
+              "startAt": 1789415775000,
+              "endAt": 1789415831000,
+              "durationMs": 56000
+            }
+          },
+          {
+            "name": "postgres",
+            "pod": "caelestis-db-2",
+            "node": "hydra-olympus-1",
+            "cpuPercent": 5.527934848484849,
+            "cpuWindow": {
+              "startAt": 1789415777000,
+              "endAt": 1789415843000,
+              "durationMs": 66000
+            }
+          },
+          {
+            "name": "s3",
+            "pod": "s3-756ff8666-ctvw5",
+            "node": "hydra-olympus-2",
+            "cpuPercent": 13.031175000000001,
+            "cpuWindow": {
+              "startAt": 1789415777000,
+              "endAt": 1789415837000,
+              "durationMs": 60000
+            }
+          }
+        ],
+        "backend": {
+          "cpuPercent": 106.5774947368421,
+          "rssMiB": {
+            "count": 65,
+            "p50": 210.69140625,
+            "p95": 231.1328125,
+            "p99": 231.1328125,
+            "max": 231.1328125
+          },
+          "workingSetMiB": {
+            "count": 65,
+            "p50": 219.8046875,
+            "p95": 240.4296875,
+            "p99": 240.4296875,
+            "max": 240.4296875
+          }
+        },
+        "fullStack": {
+          "cpuPercent": 136.69293762104124,
+          "rssMiB": {
+            "count": 65,
+            "p50": 563.5703125,
+            "p95": 606.7109375,
+            "p99": 606.7265625,
+            "max": 606.7265625
+          },
+          "workingSetMiB": {
+            "count": 65,
+            "p50": 631.90234375,
+            "p95": 675.07421875,
+            "p99": 675.07421875,
+            "max": 675.07421875
+          }
+        },
+        "phase": "warmup",
+        "driver": {
+          "cpuPercent": 6.749962075639483,
+          "rssMiB": {
+            "count": 78,
+            "p50": 316.45703125,
+            "p95": 387.60546875,
+            "p99": 388.50390625,
+            "max": 388.50390625
+          },
+          "scope": "Load-generator process; kubectl subprocesses excluded"
+        }
+      },
+      "rawEvidenceSha256": {
+        "benchmark.json": "a85d61dc1d7012eb1f21202ce0e8bf981515b0e575408728a7c9f23da482d0be",
+        "benchmark-resource-samples-1.json": "043df231825096c2ae6ccb1a6747404644909e37f8208e7508d7c25d60162ff1",
+        "inventory.json": "8ea3cc04b64725f842d058082fd63be92622171c7407b3a8826e1500f2ad0bf2"
+      }
+    },
+    {
+      "name": "bun-observation",
+      "evidenceDirectory": "test-results/caelestis-test-cnpg-s3-mu1o0f11",
+      "startedAt": "2026-09-14T20:01:26.087Z",
+      "cleanedAt": "2026-09-14T20:03:25.973Z",
+      "passed": false,
+      "completed": false,
+      "commandTimeoutMs": 30000,
+      "runtime": {
+        "node": "26.3.0",
+        "bun": "1.4.2",
+        "boringssl": "41bf9b59c2ebf277a7aa427e1ecad5cc80dd4d4f",
+        "openssl": "1.1.0",
+        "llhttp": "9.3.0",
+        "libarchive": "ded82291ab41d5e355831b96b0e1ff49e24d8939",
+        "mimalloc": "6a64e1ba7f5b2130d4efccb67ec87fd0003f0f6a",
+        "picohttpparser": "066d2b1e9ab820703db0837a7255d92d30f0c9f5",
+        "uwebsockets": "744846f844374847c902b5e7fd59b4342a51ef99",
+        "webkit": "2e2aa2290fac856d6f451ceacb58f7f5b44dd057",
+        "zig": "04e7f6ac1e009525bc00934f20199c68f04e0a24",
+        "zlib": "12731092979c6d07f42da27da673a9f6c7b13586",
+        "tinycc": "05f0fafaa3be31e31d7b4b5c17dc60f62c991171",
+        "lolhtml": "725ce499aa9b71e38b7a2d0a9fbb6d7294a4079e",
+        "ares": "c7a3138dcfe3bb0eaaf10c0c24c36dc66dc790ab",
+        "libdeflate": "c8c56a20f8f621e6a966b716b31f1dedab6a41e3",
+        "usockets": "744846f844374847c902b5e7fd59b4342a51ef99",
+        "lshpack": "8905c024b6d052f083a3d11d0a169b3c2735c8a1",
+        "zstd": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+        "v8": "14.6.202.34-node.20",
+        "uv": "1.48.0",
+        "napi": "10",
+        "icu": "78.3",
+        "unicode": "17.0",
+        "sqlite": "3.53.2",
+        "modules": "147"
+      },
+      "sourceHashes": {
+        "kubernetes.mjs": "65f7fdd54c8f52b983b01a12d59de7554c54c1f338dcc48c78ea55fa30145152",
+        "traffic.mjs": "e408dd58e90680080d46c84d6a0cfe38801297d32524445bb79182b1994f89cb"
+      },
+      "traceSha256": "fb8e6ee2e54794364967e91c473b4c3608053e9ff97948400397d54d44646837",
+      "fixture": {
+        "templateSha256": "d92cb369c18af78bc0980bb24f9b856918c28082bfd2116e6cf7705b63b54c94",
+        "framesSha256": "fa3755548ee2246bae5ac5e8bec1b7964ab2790db1e725a9313b2341ad042184"
+      },
+      "containers": [
+        {
+          "key": "1ec8b761-4baf-48a8-834b-33c89cd171f6/backend",
+          "pod": "test-caelestis-7b89bf9594-6kdwn",
+          "uid": "1ec8b761-4baf-48a8-834b-33c89cd171f6",
+          "node": "hydra-olympus-2",
+          "name": "backend",
+          "image": "docker.io/library/caelestis-backend:bun-390-final",
+          "imageID": "sha256:ab4e1fff877be6b27c20a0025bf28ea63afb6ea9f2b25f56bbe92dad4b7cf4fb",
+          "resources": {
+            "limits": {
+              "cpu": "2",
+              "memory": "1Gi"
+            },
+            "requests": {
+              "cpu": "100m",
+              "memory": "256Mi"
+            }
+          },
+          "restartCount": 0
+        },
+        {
+          "key": "1ec8b761-4baf-48a8-834b-33c89cd171f6/frontend",
+          "pod": "test-caelestis-7b89bf9594-6kdwn",
+          "uid": "1ec8b761-4baf-48a8-834b-33c89cd171f6",
+          "node": "hydra-olympus-2",
+          "name": "frontend",
+          "image": "docker.io/library/caelestis-frontend:390-final",
+          "imageID": "sha256:ea0a4f438e0a455d8fa7bd5c5fb77208e7e27f44697651065e2e5a9595f7ed7a",
+          "resources": {
+            "limits": {
+              "cpu": "2",
+              "memory": "1Gi"
+            },
+            "requests": {
+              "cpu": "100m",
+              "memory": "256Mi"
+            }
+          },
+          "restartCount": 0
+        },
+        {
+          "key": "72235dc7-0d53-4a4b-90c3-d3dfa8c59d98/postgres",
+          "pod": "caelestis-db-2",
+          "uid": "72235dc7-0d53-4a4b-90c3-d3dfa8c59d98",
+          "node": "hydra-olympus-1",
+          "name": "postgres",
+          "image": "sha256:5afe65ddcca9f28c2a701386ed2fc75469006593a379d29d08f1482114aa4e49",
+          "imageID": "ghcr.io/cloudnative-pg/postgresql@sha256:30b304a2e300ed80b6d1b740e4369e9b0f25599fb518de78c01fd9f25531791b",
+          "resources": {
+            "limits": {
+              "cpu": "1",
+              "memory": "1Gi"
+            },
+            "requests": {
+              "cpu": "100m",
+              "memory": "256Mi"
+            }
+          },
+          "restartCount": 0
+        },
+        {
+          "key": "84156c90-0aac-43d8-a14b-8494134c93cc/postgres",
+          "pod": "caelestis-db-1",
+          "uid": "84156c90-0aac-43d8-a14b-8494134c93cc",
+          "node": "hydra-olympus-2",
+          "name": "postgres",
+          "image": "sha256:5afe65ddcca9f28c2a701386ed2fc75469006593a379d29d08f1482114aa4e49",
+          "imageID": "ghcr.io/cloudnative-pg/postgresql@sha256:30b304a2e300ed80b6d1b740e4369e9b0f25599fb518de78c01fd9f25531791b",
+          "resources": {
+            "limits": {
+              "cpu": "1",
+              "memory": "1Gi"
+            },
+            "requests": {
+              "cpu": "100m",
+              "memory": "256Mi"
+            }
+          },
+          "restartCount": 1
+        },
+        {
+          "key": "df9f64ed-8695-48fb-8c41-cdc2049d1d53/s3",
+          "pod": "s3-7f9fbc4d8b-x6l9x",
+          "uid": "df9f64ed-8695-48fb-8c41-cdc2049d1d53",
+          "node": "hydra-olympus-2",
+          "name": "s3",
+          "image": "sha256:69b2ec208575b69597784255eec6fa6a2985ee9e1a47f4411a51f7f5fdd193a9",
+          "imageID": "quay.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e",
+          "resources": {
+            "limits": {
+              "cpu": "1",
+              "memory": "1Gi"
+            },
+            "requests": {
+              "cpu": "100m",
+              "memory": "128Mi"
+            }
+          },
+          "restartCount": 0
+        }
+      ],
+      "phase": "warmup",
+      "warmupJobsDrained": 316,
+      "sent": {
+        "presence-update": 15513,
+        "paint-report": 89,
+        "tile-offer": 494,
+        "tile-upload": 197,
+        "presence-heartbeat": 67
+      },
+      "received": {
+        "presence-delta": 9364,
+        "paint-result": 58,
+        "tile-offer-result": 494,
+        "status-delta": 10752,
+        "alarms-reconcile": 3584,
+        "alarms-snapshot": 3584,
+        "tile-upload-result": 197
+      },
+      "sentBytes": 28223496,
+      "receivedBytes": 86401683,
+      "latencies": {
+        "paint-report": {
+          "count": 27,
+          "p50": 3057.7387750000053,
+          "p95": 25845.30501499999,
+          "p99": 28705.70695099997,
+          "max": 28705.70695099997
+        },
+        "tile-offer": {
+          "count": 469,
+          "p50": 2651.0427979999804,
+          "p95": 28162.155787000025,
+          "p99": 29611.722254000022,
+          "max": 29957.222807999962
+        },
+        "tile-upload": {
+          "count": 195,
+          "p50": 12082.541324999998,
+          "p95": 26538.440765999956,
+          "p99": 29593.759861999977,
+          "max": 29835.367690999992
+        }
+      },
+      "presenceDeliveryMs": {
+        "count": 181556,
+        "p50": 264.0212380000157,
+        "p95": 1477.0711280000105,
+        "p99": 1988.6497159999853,
+        "max": 2573.5049809999764
+      },
+      "dispatchDelayMs": {
+        "count": 16108,
+        "p50": 0,
+        "p95": 0.698731999960728,
+        "p99": 1.7304730000032578,
+        "max": 14.124959999986459
+      },
+      "correctness": {
+        "online": 256,
+        "sockets": 512,
+        "finalPeerSetsAndDrafts": false,
+        "clientDeadlineMs": 5000,
+        "clientDeadlineMisses": {
+          "warmup": 399,
+          "measured": 0
+        },
+        "errorKinds": ["tile-offer timed out", "paint-report timed out", "tile-upload timed out"]
+      },
+      "serverMetrics": {
+        "startAt": 1789416115998,
+        "endAt": 1789416181022,
+        "durationMs": 65024,
+        "containers": [
+          {
+            "name": "backend",
+            "pod": "test-caelestis-7b89bf9594-6kdwn",
+            "node": "hydra-olympus-2",
+            "cpuPercent": 98.6186,
+            "cpuWindow": {
+              "startAt": 1789416118000,
+              "endAt": 1789416174000,
+              "durationMs": 56000
+            }
+          },
+          {
+            "name": "frontend",
+            "pod": "test-caelestis-7b89bf9594-6kdwn",
+            "node": "hydra-olympus-2",
+            "cpuPercent": 11.321761904761905,
+            "cpuWindow": {
+              "startAt": 1789416127000,
+              "endAt": 1789416169000,
+              "durationMs": 42000
+            }
+          },
+          {
+            "name": "postgres",
+            "pod": "caelestis-db-2",
+            "node": "hydra-olympus-1",
+            "cpuPercent": 6.717024390243903,
+            "cpuWindow": {
+              "startAt": 1789416130000,
+              "endAt": 1789416171000,
+              "durationMs": 41000
+            }
+          },
+          {
+            "name": "postgres",
+            "pod": "caelestis-db-1",
+            "node": "hydra-olympus-2",
+            "cpuPercent": 2.9958909090909094,
+            "cpuWindow": {
+              "startAt": 1789416126000,
+              "endAt": 1789416170000,
+              "durationMs": 44000
+            }
+          },
+          {
+            "name": "s3",
+            "pod": "s3-7f9fbc4d8b-x6l9x",
+            "node": "hydra-olympus-2",
+            "cpuPercent": 13.739375,
+            "cpuWindow": {
+              "startAt": 1789416117000,
+              "endAt": 1789416165000,
+              "durationMs": 48000
+            }
+          }
+        ],
+        "backend": {
+          "cpuPercent": 98.6186,
+          "rssMiB": {
+            "count": 64,
+            "p50": 287.4765625,
+            "p95": 381.171875,
+            "p99": 381.171875,
+            "max": 381.171875
+          },
+          "workingSetMiB": {
+            "count": 64,
+            "p50": 291.734375,
+            "p95": 385.95703125,
+            "p99": 385.95703125,
+            "max": 385.95703125
+          }
+        },
+        "fullStack": {
+          "cpuPercent": 133.39265220409672,
+          "rssMiB": {
+            "count": 51,
+            "p50": 731.2421875,
+            "p95": 787.33984375,
+            "p99": 787.33984375,
+            "max": 787.33984375
+          },
+          "workingSetMiB": {
+            "count": 51,
+            "p50": 797.609375,
+            "p95": 853.52734375,
+            "p99": 853.6328125,
+            "max": 853.6328125
+          }
+        },
+        "phase": "warmup",
+        "driver": {
+          "cpuPercent": 7.9676750123031495,
+          "rssMiB": {
+            "count": 66,
+            "p50": 369.51171875,
+            "p95": 392.9609375,
+            "p99": 394.25390625,
+            "max": 394.25390625
+          },
+          "scope": "Load-generator process; kubectl subprocesses excluded"
+        }
+      },
+      "rawEvidenceSha256": {
+        "benchmark.json": "2cd9df5121f6962e6b5cfdcf5feca6f449d8f692caa9777302d9e5dfa4841ad3",
+        "benchmark-resource-samples-1.json": "488409925924dd8517c043d0022b4fd1cb884e46d77036049ff69b1928dbcd3f",
+        "inventory.json": "4f135dfc51311a5e838c06d13ae05ffac7548730e5abaeef02636cfbe4cc1afb"
+      }
+    }
+  ],
+  "profile": {
+    "evidenceDirectory": "test-results/caelestis-test-cnpg-s3-mu1nixfm",
+    "excludedFromComparison": true,
+    "durationSeconds": 20,
+    "selfSamplePercent": {
+      "classifyTarget": 35.5,
+      "encodeMismatchMask": 10.2
+    },
+    "sha256": "fea53fa662d90ba326e2695eb139466578adffc8ea8f4d929562419240917219"
+  }
+}

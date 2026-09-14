@@ -45,26 +45,9 @@ rmSync(logs, { recursive: true, force: true })
 mkdirSync(logs, { recursive: true })
 try {
   compose('config', '--quiet')
-  if (database !== 'sqlite') compose('pull', database)
-  if (storage === 's3') compose('pull', 's3')
+  if (database !== 'sqlite') compose('pull', '--policy', 'missing', database)
+  if (storage === 's3') compose('pull', '--policy', 'missing', 's3')
   compose('up', '-d', '--no-build', '--pull', 'never', '--wait', '--wait-timeout', '180')
-  compose(
-    'exec',
-    '-T',
-    'backend',
-    'node',
-    '--input-type=module',
-    '-e',
-    `
-    import { Worker } from 'node:worker_threads';
-    import { once } from 'node:events';
-    const worker = new Worker('/app/apps/backend/dist/node/social-worker.js', { execArgv: [], workerData: {
-      site: 'http://127.0.0.1:3000', apiPath: '/backend/v1/', readToken: process.env.CAELESTIS_READ_TOKEN, output: '/data/social-smoke'
-    } });
-    const [code] = await once(worker, 'exit');
-    if (code !== 0) throw new Error('Packaged social worker failed');
-  `,
-  )
   const site = `http://${compose('port', 'frontend', '3000')}`
   const suite = acceptance({
     site,
@@ -106,6 +89,23 @@ try {
     )
     compose('up', '-d', '--no-build', '--wait', '--wait-timeout', '180')
   }
+  compose(
+    'exec',
+    '-T',
+    'backend',
+    'node',
+    '--input-type=module',
+    '-e',
+    `
+    import { Worker } from 'node:worker_threads';
+    import { once } from 'node:events';
+    const worker = new Worker('/app/apps/backend/dist/node/social-worker.js', { execArgv: [], workerData: {
+      site: 'http://127.0.0.1:3000', apiPath: '/backend/v1/', readToken: process.env.CAELESTIS_READ_TOKEN, output: '/data/social-smoke'
+    } });
+    const [code] = await once(worker, 'exit');
+    if (code !== 0) throw new Error('Packaged social worker failed');
+  `,
+  )
   await verify()
   const variables = JSON.parse(
     execFileSync(
@@ -183,6 +183,16 @@ try {
       upgrade: Boolean(baseline),
       importedTemplate: imported?.name,
       importedChunks: imported?.chunks.length,
+      images: Object.fromEntries(
+        ['backend', 'frontend'].map((component) => [
+          component,
+          execFileSync(
+            'docker',
+            ['inspect', '--format', '{{.Image}}', compose('ps', '-q', component)],
+            { encoding: 'utf8' },
+          ).trim(),
+        ]),
+      ),
       passed: true,
     }),
   )
