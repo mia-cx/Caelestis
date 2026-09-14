@@ -1,0 +1,914 @@
+{
+  "sourceHashes": {
+    "run.mjs": "447c36d1a2ad92410aeeffae9bb4a5b05f712f3cb5d393355c3e34e329082705",
+    "server.mjs": "cefa4d57819cb68a9d3a4726a13eb91fad72b67acb3660efc0051ed96783909b",
+    "traffic.mjs": "c5588921628b47505156cf73deb072c43783c978d6a278b5ffd9386130a982e7"
+  },
+  "issue": 385,
+  "pr": 351,
+  "commit": "7318e3410145a07dafd5bac9c8b8aa43a159804f",
+  "startedAt": "2026-09-14T15:19:48.966Z",
+  "description": {
+    "socketsPerUser": 2,
+    "explorerCycleMs": 9000,
+    "explorerMovingMs": 5400,
+    "viewportMinimumMs": 300,
+    "draftMinimumMs": 1000,
+    "presenceHeartbeatMs": 30000,
+    "painterViewportMs": 12000,
+    "painterNudgePixels": 8,
+    "paintBatchPixels": 30,
+    "paintBatchMs": 30000,
+    "tileObservationMs": 9000,
+    "canvasSnapshotMs": 5000,
+    "fixture": "Box Art 1612x2584 at its original canvas coordinates; eight full canvas tiles",
+    "users": 256,
+    "explorers": 179,
+    "painters": 77
+  },
+  "warmupMs": 35000,
+  "measuredMs": 60000,
+  "repeats": 3,
+  "diagnosticCpuProfile": false,
+  "transport": "production NodeLiveHost and shared coordinators; Bun-native uses a benchmark-only native socket bridge",
+  "database": "isolated local PostgreSQL 18, fresh database per run, TLS disabled",
+  "objects": "local filesystem; no S3, Traefik, frontend rendering or Wplace HTTP traffic",
+  "host": {
+    "platform": "linux",
+    "arch": "x64",
+    "cpu": "AMD Ryzen 9 7950X 16-Core Processor",
+    "logicalCpus": 24,
+    "serverCpus": "2,3",
+    "databaseCpus": "4,5",
+    "driverAffinity": "pid 1135958's current affinity list: 0,1"
+  },
+  "versions": {
+    "node": "v24.20.0",
+    "bun": "1.4.2"
+  },
+  "traceSha256": "fb8e6ee2e54794364967e91c473b4c3608053e9ff97948400397d54d44646837",
+  "fixtures": {
+    "templateSha256": "d92cb369c18af78bc0980bb24f9b856918c28082bfd2116e6cf7705b63b54c94",
+    "width": 1612,
+    "height": 2584,
+    "origin": {
+      "x": 325051,
+      "y": 1781650
+    },
+    "framesSha256": "970cc91df23f2877f477848b58be5448d30f4e1ce104fafb448f59a7967f6a21"
+  },
+  "runs": [
+    {
+      "repeat": 1,
+      "variant": "node",
+      "phase": "measured",
+      "sent": {
+        "presence-update": 26466,
+        "tile-offer": 835,
+        "tile-upload": 62,
+        "paint-report": 154
+      },
+      "received": {
+        "tile-offer-result": 835,
+        "status-delta": 6400,
+        "alarms-reconcile": 6144,
+        "alarms-snapshot": 6144,
+        "tile-upload-result": 62,
+        "presence-delta": 48123,
+        "paint-result": 154
+      },
+      "sentBytes": 10083270,
+      "receivedBytes": 272460608,
+      "latencies": {
+        "tile-offer": {
+          "count": 835,
+          "p50": 0.3208560000057332,
+          "p95": 86.72857400000066,
+          "p99": 383.7200230000017,
+          "max": 629.2378299999982
+        },
+        "tile-upload": {
+          "count": 62,
+          "p50": 253.03252300000167,
+          "p95": 376.28003300000273,
+          "p99": 495.1843349999981,
+          "max": 495.1843349999981
+        },
+        "paint-report": {
+          "count": 154,
+          "p50": 18.678436000001966,
+          "p95": 148.31926699999894,
+          "p99": 222.65227900000173,
+          "max": 258.26859500000137
+        }
+      },
+      "presenceDeliveryMs": {
+        "count": 859550,
+        "p50": 162.3724829999992,
+        "p95": 298.4989970000024,
+        "p99": 314.7250369999965,
+        "max": 388.9396720000004
+      },
+      "dispatchDelayMs": {
+        "count": 27475,
+        "p50": 0,
+        "p95": 0.6958819999999832,
+        "p99": 1.0726220000069588,
+        "max": 14.374488000001293
+      },
+      "correctness": {
+        "online": 256,
+        "sockets": 512,
+        "finalPeerSetsAndDrafts": true,
+        "paintEvents": 243,
+        "paintPixels": 7290,
+        "duplicateRejected": true,
+        "errors": []
+      },
+      "durationMs": 59998.141326,
+      "backendCpuSeconds": 10.819037,
+      "backendCpuPercentOfOneCore": 18.0322869357148,
+      "databaseCpuSeconds": 1.782692,
+      "driverCpuSeconds": 6.11373,
+      "rssMiB": {
+        "mean": 367.0112284257322,
+        "peak": 379.30078125
+      },
+      "eventLoopDelayMs": {
+        "count": 2769,
+        "p50": 0.034568000002764165,
+        "p95": 18.316718000001856,
+        "p99": 21.441032999995514,
+        "max": 30.86503200000152
+      }
+    },
+    {
+      "repeat": 1,
+      "variant": "bun-compat",
+      "phase": "measured",
+      "sent": {
+        "presence-update": 26466,
+        "tile-offer": 835,
+        "tile-upload": 55,
+        "paint-report": 154
+      },
+      "received": {
+        "tile-offer-result": 835,
+        "status-delta": 6656,
+        "alarms-reconcile": 6144,
+        "alarms-snapshot": 6144,
+        "tile-upload-result": 55,
+        "presence-delta": 47597,
+        "paint-result": 154
+      },
+      "sentBytes": 9392057,
+      "receivedBytes": 271789424,
+      "latencies": {
+        "tile-offer": {
+          "count": 835,
+          "p50": 0.3082040000008419,
+          "p95": 23.510376999998698,
+          "p99": 191.54630600000382,
+          "max": 322.400083000015
+        },
+        "tile-upload": {
+          "count": 55,
+          "p50": 212.2783970000164,
+          "p95": 290.06861099999514,
+          "p99": 365.8484279999975,
+          "max": 365.8484279999975
+        },
+        "paint-report": {
+          "count": 154,
+          "p50": 19.977756000007503,
+          "p95": 48.25305299999309,
+          "p99": 185.61052899999777,
+          "max": 204.2872769999958
+        }
+      },
+      "presenceDeliveryMs": {
+        "count": 851652,
+        "p50": 165.19622100002016,
+        "p95": 301.3194010000152,
+        "p99": 317.06002800000715,
+        "max": 358.85244099999545
+      },
+      "dispatchDelayMs": {
+        "count": 27475,
+        "p50": 0,
+        "p95": 0.6738130000012461,
+        "p99": 1.1268550000095274,
+        "max": 7.488527000008617
+      },
+      "correctness": {
+        "online": 256,
+        "sockets": 512,
+        "finalPeerSetsAndDrafts": true,
+        "paintEvents": 243,
+        "paintPixels": 7290,
+        "duplicateRejected": true,
+        "errors": []
+      },
+      "durationMs": 59998.029051,
+      "backendCpuSeconds": 12.343699,
+      "backendCpuPercentOfOneCore": 20.573507488900198,
+      "databaseCpuSeconds": 1.640368,
+      "driverCpuSeconds": 5.892914,
+      "rssMiB": {
+        "mean": 250.23077928870293,
+        "peak": 284.16796875
+      },
+      "eventLoopDelayMs": {
+        "count": 2767,
+        "p50": 0.06499600000097416,
+        "p95": 20.631399999998393,
+        "p99": 23.835447999997996,
+        "max": 31.56011099999887
+      }
+    },
+    {
+      "repeat": 1,
+      "variant": "bun-native",
+      "phase": "measured",
+      "sent": {
+        "presence-update": 26466,
+        "tile-offer": 835,
+        "tile-upload": 57,
+        "paint-report": 154
+      },
+      "received": {
+        "tile-offer-result": 835,
+        "status-delta": 6656,
+        "alarms-reconcile": 6144,
+        "alarms-snapshot": 6144,
+        "presence-delta": 47871,
+        "tile-upload-result": 57,
+        "paint-result": 154
+      },
+      "sentBytes": 9553177,
+      "receivedBytes": 272919553,
+      "latencies": {
+        "tile-offer": {
+          "count": 835,
+          "p50": 0.295484000002034,
+          "p95": 37.43423199999961,
+          "p99": 165.49357900000177,
+          "max": 316.4036640000122
+        },
+        "tile-upload": {
+          "count": 57,
+          "p50": 202.3849320000154,
+          "p95": 303.78328600001987,
+          "p99": 350.35985900001833,
+          "max": 350.35985900001833
+        },
+        "paint-report": {
+          "count": 154,
+          "p50": 19.84080299999914,
+          "p95": 60.18935699999565,
+          "p99": 200.31021899997722,
+          "max": 202.5382550000213
+        }
+      },
+      "presenceDeliveryMs": {
+        "count": 854815,
+        "p50": 164.84227900000405,
+        "p95": 301.0918579999998,
+        "p99": 316.1892480000388,
+        "max": 351.1895069999737
+      },
+      "dispatchDelayMs": {
+        "count": 27475,
+        "p50": 0,
+        "p95": 0.7431280000018887,
+        "p99": 1.303423000004841,
+        "max": 43.615274000010686
+      },
+      "correctness": {
+        "online": 256,
+        "sockets": 512,
+        "finalPeerSetsAndDrafts": true,
+        "paintEvents": 243,
+        "paintPixels": 7290,
+        "duplicateRejected": true,
+        "errors": []
+      },
+      "durationMs": 59997.96618799999,
+      "backendCpuSeconds": 12.1099,
+      "backendCpuPercentOfOneCore": 20.183850835967277,
+      "databaseCpuSeconds": 1.642882,
+      "driverCpuSeconds": 5.464045,
+      "rssMiB": {
+        "mean": 237.9020985878661,
+        "peak": 270.35546875
+      },
+      "eventLoopDelayMs": {
+        "count": 2768,
+        "p50": 0.06483599999046419,
+        "p95": 19.75500399999146,
+        "p99": 23.405109000006632,
+        "max": 38.22614800000156
+      }
+    },
+    {
+      "repeat": 2,
+      "variant": "bun-compat",
+      "phase": "measured",
+      "sent": {
+        "presence-update": 26466,
+        "tile-offer": 835,
+        "tile-upload": 54,
+        "paint-report": 154
+      },
+      "received": {
+        "presence-delta": 47866,
+        "tile-offer-result": 835,
+        "status-delta": 6656,
+        "alarms-reconcile": 6144,
+        "alarms-snapshot": 6144,
+        "tile-upload-result": 54,
+        "paint-result": 154
+      },
+      "sentBytes": 9286030,
+      "receivedBytes": 273168911,
+      "latencies": {
+        "tile-offer": {
+          "count": 835,
+          "p50": 0.31009400001494214,
+          "p95": 32.26302399998531,
+          "p99": 206.17063199996483,
+          "max": 257.62266799999634
+        },
+        "tile-upload": {
+          "count": 54,
+          "p50": 200.1444050000282,
+          "p95": 294.46163099998375,
+          "p99": 324.7742379999836,
+          "max": 324.7742379999836
+        },
+        "paint-report": {
+          "count": 154,
+          "p50": 19.514016999979503,
+          "p95": 51.64470999996411,
+          "p99": 148.1729710000218,
+          "max": 157.08125099999597
+        }
+      },
+      "presenceDeliveryMs": {
+        "count": 852468,
+        "p50": 165.23311000003014,
+        "p95": 301.45505499996943,
+        "p99": 317.03862299997127,
+        "max": 356.2614799999865
+      },
+      "dispatchDelayMs": {
+        "count": 27475,
+        "p50": 0,
+        "p95": 0.6808319999836385,
+        "p99": 1.1876789999660105,
+        "max": 9.231098999967799
+      },
+      "correctness": {
+        "online": 256,
+        "sockets": 512,
+        "finalPeerSetsAndDrafts": true,
+        "paintEvents": 243,
+        "paintPixels": 7290,
+        "duplicateRejected": true,
+        "errors": []
+      },
+      "durationMs": 59998.31357699999,
+      "backendCpuSeconds": 12.648125,
+      "backendCpuPercentOfOneCore": 21.08080085245694,
+      "databaseCpuSeconds": 1.669456,
+      "driverCpuSeconds": 5.586332,
+      "rssMiB": {
+        "mean": 249.02288179916317,
+        "peak": 283.84375
+      },
+      "eventLoopDelayMs": {
+        "count": 2760,
+        "p50": 0.06519599999592174,
+        "p95": 20.578527000005124,
+        "p99": 24.530025000000023,
+        "max": 35.54991699999664
+      }
+    },
+    {
+      "repeat": 2,
+      "variant": "bun-native",
+      "phase": "measured",
+      "sent": {
+        "presence-update": 26466,
+        "tile-offer": 835,
+        "tile-upload": 54,
+        "paint-report": 154
+      },
+      "received": {
+        "tile-offer-result": 835,
+        "status-delta": 6400,
+        "alarms-reconcile": 6144,
+        "alarms-snapshot": 6144,
+        "tile-upload-result": 54,
+        "presence-delta": 47615,
+        "paint-result": 154
+      },
+      "sentBytes": 9285954,
+      "receivedBytes": 270920775,
+      "latencies": {
+        "tile-offer": {
+          "count": 835,
+          "p50": 0.32037500001024455,
+          "p95": 36.31136300001526,
+          "p99": 217.35923299996648,
+          "max": 441.77078700001584
+        },
+        "tile-upload": {
+          "count": 54,
+          "p50": 213.39190400001826,
+          "p95": 318.5407299999497,
+          "p99": 355.9295370000182,
+          "max": 355.9295370000182
+        },
+        "paint-report": {
+          "count": 154,
+          "p50": 19.88673100003507,
+          "p95": 49.15995100000873,
+          "p99": 175.6679089999525,
+          "max": 202.70479800004978
+        }
+      },
+      "presenceDeliveryMs": {
+        "count": 852361,
+        "p50": 165.11940600001253,
+        "p95": 301.7126209999551,
+        "p99": 316.9603350000107,
+        "max": 364.4818629999645
+      },
+      "dispatchDelayMs": {
+        "count": 27475,
+        "p50": 0,
+        "p95": 0.7130619999952614,
+        "p99": 1.1081359999952838,
+        "max": 12.71029900002759
+      },
+      "correctness": {
+        "online": 256,
+        "sockets": 512,
+        "finalPeerSetsAndDrafts": true,
+        "paintEvents": 243,
+        "paintPixels": 7290,
+        "duplicateRejected": true,
+        "errors": []
+      },
+      "durationMs": 59989.557054000004,
+      "backendCpuSeconds": 12.576139,
+      "backendCpuPercentOfOneCore": 20.96388041118474,
+      "databaseCpuSeconds": 1.67226,
+      "driverCpuSeconds": 5.576124,
+      "rssMiB": {
+        "mean": 239.91548444037656,
+        "peak": 269.421875
+      },
+      "eventLoopDelayMs": {
+        "count": 2762,
+        "p50": 0.06486500000028173,
+        "p95": 20.327731999990647,
+        "p99": 24.223189000003913,
+        "max": 32.01197500000126
+      }
+    },
+    {
+      "repeat": 2,
+      "variant": "node",
+      "phase": "measured",
+      "sent": {
+        "presence-update": 26466,
+        "tile-offer": 835,
+        "tile-upload": 57,
+        "paint-report": 154
+      },
+      "received": {
+        "tile-offer-result": 835,
+        "presence-delta": 48107,
+        "status-delta": 6400,
+        "alarms-reconcile": 6144,
+        "alarms-snapshot": 6144,
+        "tile-upload-result": 57,
+        "paint-result": 154
+      },
+      "sentBytes": 9553094,
+      "receivedBytes": 272664894,
+      "latencies": {
+        "tile-offer": {
+          "count": 835,
+          "p50": 0.33794499991927296,
+          "p95": 55.556205999921076,
+          "p99": 282.9832419999875,
+          "max": 535.1900649999734
+        },
+        "tile-upload": {
+          "count": 57,
+          "p50": 235.6974100000225,
+          "p95": 351.6441079999786,
+          "p99": 416.9228979999898,
+          "max": 416.9228979999898
+        },
+        "paint-report": {
+          "count": 154,
+          "p50": 8.876509999972768,
+          "p95": 84.42309900000691,
+          "p99": 214.26916500006337,
+          "max": 214.9272930000443
+        }
+      },
+      "presenceDeliveryMs": {
+        "count": 857134,
+        "p50": 163.99390499992296,
+        "p95": 299.32436299999245,
+        "p99": 315.42115900001954,
+        "max": 370.4227050000336
+      },
+      "dispatchDelayMs": {
+        "count": 27475,
+        "p50": 0,
+        "p95": 0.6972220000461675,
+        "p99": 1.1062289999681525,
+        "max": 12.565527999948245
+      },
+      "correctness": {
+        "online": 256,
+        "sockets": 512,
+        "finalPeerSetsAndDrafts": true,
+        "paintEvents": 243,
+        "paintPixels": 7290,
+        "duplicateRejected": true,
+        "errors": []
+      },
+      "durationMs": 59994.932247,
+      "backendCpuSeconds": 10.601949,
+      "backendCpuPercentOfOneCore": 17.671407572145633,
+      "databaseCpuSeconds": 1.693801,
+      "driverCpuSeconds": 5.596035,
+      "rssMiB": {
+        "mean": 384.38348260983264,
+        "peak": 406.9296875
+      },
+      "eventLoopDelayMs": {
+        "count": 2765,
+        "p50": 0.029274000000441447,
+        "p95": 18.68928700000106,
+        "p99": 21.5224589999998,
+        "max": 33.51694499999576
+      }
+    },
+    {
+      "repeat": 3,
+      "variant": "bun-native",
+      "phase": "measured",
+      "sent": {
+        "presence-update": 26466,
+        "tile-offer": 835,
+        "tile-upload": 49,
+        "paint-report": 154
+      },
+      "received": {
+        "tile-offer-result": 835,
+        "status-delta": 6912,
+        "alarms-reconcile": 6144,
+        "alarms-snapshot": 6144,
+        "tile-upload-result": 49,
+        "presence-delta": 47567,
+        "paint-result": 154
+      },
+      "sentBytes": 8755657,
+      "receivedBytes": 272727690,
+      "latencies": {
+        "tile-offer": {
+          "count": 835,
+          "p50": 0.3151940000243485,
+          "p95": 33.72087499999907,
+          "p99": 215.5954619999975,
+          "max": 370.7636859999038
+        },
+        "tile-upload": {
+          "count": 49,
+          "p50": 196.62121099990327,
+          "p95": 291.5799839999527,
+          "p99": 342.1869050000096,
+          "max": 342.1869050000096
+        },
+        "paint-report": {
+          "count": 154,
+          "p50": 19.669668000075035,
+          "p95": 54.783333000028506,
+          "p99": 155.70874100003857,
+          "max": 196.1205750000663
+        }
+      },
+      "presenceDeliveryMs": {
+        "count": 852084,
+        "p50": 165.68206899997313,
+        "p95": 301.85432299994864,
+        "p99": 317.66718500002753,
+        "max": 360.34256100002676
+      },
+      "dispatchDelayMs": {
+        "count": 27475,
+        "p50": 0,
+        "p95": 0.6914799999212846,
+        "p99": 1.0686320000095293,
+        "max": 13.282863999949768
+      },
+      "correctness": {
+        "online": 256,
+        "sockets": 512,
+        "finalPeerSetsAndDrafts": true,
+        "paintEvents": 243,
+        "paintPixels": 7290,
+        "duplicateRejected": true,
+        "errors": []
+      },
+      "durationMs": 59984.790368999995,
+      "backendCpuSeconds": 12.415838,
+      "backendCpuPercentOfOneCore": 20.698310227681446,
+      "databaseCpuSeconds": 1.674044,
+      "driverCpuSeconds": 5.695039,
+      "rssMiB": {
+        "mean": 231.48383564330544,
+        "peak": 267.41796875
+      },
+      "eventLoopDelayMs": {
+        "count": 2767,
+        "p50": 0.06519300000218209,
+        "p95": 19.89341499999864,
+        "p99": 24.081146999997145,
+        "max": 33.04083699999319
+      }
+    },
+    {
+      "repeat": 3,
+      "variant": "node",
+      "phase": "measured",
+      "sent": {
+        "presence-update": 26466,
+        "tile-offer": 835,
+        "tile-upload": 55,
+        "paint-report": 154
+      },
+      "received": {
+        "tile-offer-result": 835,
+        "presence-delta": 48127,
+        "status-delta": 7168,
+        "alarms-reconcile": 6144,
+        "alarms-snapshot": 6144,
+        "tile-upload-result": 55,
+        "paint-result": 154
+      },
+      "sentBytes": 9340835,
+      "receivedBytes": 274734461,
+      "latencies": {
+        "tile-offer": {
+          "count": 835,
+          "p50": 0.34515599999576807,
+          "p95": 121.46140899998136,
+          "p99": 390.21078600001056,
+          "max": 575.9623869999778
+        },
+        "tile-upload": {
+          "count": 55,
+          "p50": 262.1594599999953,
+          "p95": 404.0307980000507,
+          "p99": 495.51809699996375,
+          "max": 495.51809699996375
+        },
+        "paint-report": {
+          "count": 154,
+          "p50": 18.750254000071436,
+          "p95": 112.99611499998719,
+          "p99": 229.2099369999487,
+          "max": 242.6474950000411
+        }
+      },
+      "presenceDeliveryMs": {
+        "count": 857075,
+        "p50": 162.36852799996268,
+        "p95": 298.89108900004067,
+        "p99": 314.5042560000438,
+        "max": 387.5081149999751
+      },
+      "dispatchDelayMs": {
+        "count": 27475,
+        "p50": 0,
+        "p95": 0.7022330000763759,
+        "p99": 1.2173160000238568,
+        "max": 13.085659000091255
+      },
+      "correctness": {
+        "online": 256,
+        "sockets": 512,
+        "finalPeerSetsAndDrafts": true,
+        "paintEvents": 243,
+        "paintPixels": 7290,
+        "duplicateRejected": true,
+        "errors": []
+      },
+      "durationMs": 59998.958264999994,
+      "backendCpuSeconds": 11.280853,
+      "backendCpuPercentOfOneCore": 18.801748107317746,
+      "databaseCpuSeconds": 1.79316,
+      "driverCpuSeconds": 5.569714,
+      "rssMiB": {
+        "mean": 391.8755230125523,
+        "peak": 396.49609375
+      },
+      "eventLoopDelayMs": {
+        "count": 2770,
+        "p50": 0.04695399999036454,
+        "p95": 18.584715000004508,
+        "p99": 21.193193999999494,
+        "max": 41.94015699999727
+      }
+    },
+    {
+      "repeat": 3,
+      "variant": "bun-compat",
+      "phase": "measured",
+      "sent": {
+        "presence-update": 26466,
+        "tile-offer": 835,
+        "tile-upload": 55,
+        "paint-report": 154
+      },
+      "received": {
+        "tile-offer-result": 835,
+        "status-delta": 7168,
+        "alarms-reconcile": 6144,
+        "presence-delta": 47584,
+        "alarms-snapshot": 6144,
+        "tile-upload-result": 55,
+        "paint-result": 154
+      },
+      "sentBytes": 9290149,
+      "receivedBytes": 273952862,
+      "latencies": {
+        "tile-offer": {
+          "count": 835,
+          "p50": 0.31423400004860014,
+          "p95": 30.98835300002247,
+          "p99": 175.04916199995205,
+          "max": 240.18590499996208
+        },
+        "tile-upload": {
+          "count": 55,
+          "p50": 210.0477940000128,
+          "p95": 332.32167400000617,
+          "p99": 376.7534840001026,
+          "max": 376.7534840001026
+        },
+        "paint-report": {
+          "count": 154,
+          "p50": 19.68721700005699,
+          "p95": 84.50681699998677,
+          "p99": 170.68275700008962,
+          "max": 206.21731800003909
+        }
+      },
+      "presenceDeliveryMs": {
+        "count": 848562,
+        "p50": 165.89510800002608,
+        "p95": 301.4185919999145,
+        "p99": 316.4417409999296,
+        "max": 365.48730000003707
+      },
+      "dispatchDelayMs": {
+        "count": 27475,
+        "p50": 0,
+        "p95": 0.715682000038214,
+        "p99": 1.1804589999374002,
+        "max": 7.060886999941431
+      },
+      "correctness": {
+        "online": 256,
+        "sockets": 512,
+        "finalPeerSetsAndDrafts": true,
+        "paintEvents": 243,
+        "paintPixels": 7290,
+        "duplicateRejected": true,
+        "errors": []
+      },
+      "durationMs": 59998.804315999994,
+      "backendCpuSeconds": 12.798611,
+      "backendCpuPercentOfOneCore": 21.331443427760057,
+      "databaseCpuSeconds": 1.631047,
+      "driverCpuSeconds": 5.540701,
+      "rssMiB": {
+        "mean": 253.2177530073222,
+        "peak": 281.8203125
+      },
+      "eventLoopDelayMs": {
+        "count": 2757,
+        "p50": 0.06488199999876088,
+        "p95": 21.01907100000244,
+        "p99": 25.181291000000783,
+        "max": 32.46549799999775
+      }
+    }
+  ],
+  "capacity": {
+    "productionLimit": 256,
+    "benchmarkLimit": 256,
+    "productionAdmitsRequestedUsers": true
+  },
+  "databaseImage": "sha256:4ef4dbc939d61acea57712655ddb4b4ab27419c913f94cca0cd57cb3ea3c2280",
+  "finishedAt": "2026-09-14T15:35:05.348Z",
+  "runtimeDetails": {
+    "node": {
+      "node": "24.20.0",
+      "acorn": "8.18.0",
+      "ada": "4.0.0",
+      "amaro": "1.1.11",
+      "ares": "1.34.8",
+      "brotli": "1.2.0",
+      "cldr": "48.0",
+      "icu": "78.3",
+      "llhttp": "9.4.3",
+      "merve": "1.2.2",
+      "modules": "137",
+      "napi": "10",
+      "nbytes": "0.1.4",
+      "ncrypto": "0.0.1",
+      "nghttp2": "1.70.0",
+      "nghttp3": "",
+      "ngtcp2": "",
+      "openssl": "3.5.7",
+      "simdjson": "4.6.6",
+      "simdutf": "6.4.0",
+      "sqlite": "3.53.4",
+      "tz": "2026c",
+      "undici": "7.29.0",
+      "unicode": "17.0",
+      "uv": "1.52.1",
+      "uvwasi": "0.0.23",
+      "v8": "13.6.233.17-node.53",
+      "zlib": "1.3.2.1-motley-42c2f19",
+      "zstd": "1.5.7"
+    },
+    "bun-compat": {
+      "node": "26.3.0",
+      "bun": "1.4.2",
+      "boringssl": "41bf9b59c2ebf277a7aa427e1ecad5cc80dd4d4f",
+      "openssl": "1.1.0",
+      "llhttp": "9.3.0",
+      "libarchive": "ded82291ab41d5e355831b96b0e1ff49e24d8939",
+      "mimalloc": "6a64e1ba7f5b2130d4efccb67ec87fd0003f0f6a",
+      "picohttpparser": "066d2b1e9ab820703db0837a7255d92d30f0c9f5",
+      "uwebsockets": "744846f844374847c902b5e7fd59b4342a51ef99",
+      "webkit": "2e2aa2290fac856d6f451ceacb58f7f5b44dd057",
+      "zig": "04e7f6ac1e009525bc00934f20199c68f04e0a24",
+      "zlib": "12731092979c6d07f42da27da673a9f6c7b13586",
+      "tinycc": "05f0fafaa3be31e31d7b4b5c17dc60f62c991171",
+      "lolhtml": "725ce499aa9b71e38b7a2d0a9fbb6d7294a4079e",
+      "ares": "c7a3138dcfe3bb0eaaf10c0c24c36dc66dc790ab",
+      "libdeflate": "c8c56a20f8f621e6a966b716b31f1dedab6a41e3",
+      "usockets": "744846f844374847c902b5e7fd59b4342a51ef99",
+      "lshpack": "8905c024b6d052f083a3d11d0a169b3c2735c8a1",
+      "zstd": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+      "v8": "14.6.202.34-node.20",
+      "uv": "1.48.0",
+      "napi": "10",
+      "icu": "78.3",
+      "unicode": "17.0",
+      "sqlite": "3.53.2",
+      "modules": "147"
+    },
+    "bun-native": {
+      "node": "26.3.0",
+      "bun": "1.4.2",
+      "boringssl": "41bf9b59c2ebf277a7aa427e1ecad5cc80dd4d4f",
+      "openssl": "1.1.0",
+      "llhttp": "9.3.0",
+      "libarchive": "ded82291ab41d5e355831b96b0e1ff49e24d8939",
+      "mimalloc": "6a64e1ba7f5b2130d4efccb67ec87fd0003f0f6a",
+      "picohttpparser": "066d2b1e9ab820703db0837a7255d92d30f0c9f5",
+      "uwebsockets": "744846f844374847c902b5e7fd59b4342a51ef99",
+      "webkit": "2e2aa2290fac856d6f451ceacb58f7f5b44dd057",
+      "zig": "04e7f6ac1e009525bc00934f20199c68f04e0a24",
+      "zlib": "12731092979c6d07f42da27da673a9f6c7b13586",
+      "tinycc": "05f0fafaa3be31e31d7b4b5c17dc60f62c991171",
+      "lolhtml": "725ce499aa9b71e38b7a2d0a9fbb6d7294a4079e",
+      "ares": "c7a3138dcfe3bb0eaaf10c0c24c36dc66dc790ab",
+      "libdeflate": "c8c56a20f8f621e6a966b716b31f1dedab6a41e3",
+      "usockets": "744846f844374847c902b5e7fd59b4342a51ef99",
+      "lshpack": "8905c024b6d052f083a3d11d0a169b3c2735c8a1",
+      "zstd": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+      "v8": "14.6.202.34-node.20",
+      "uv": "1.48.0",
+      "napi": "10",
+      "icu": "78.3",
+      "unicode": "17.0",
+      "sqlite": "3.53.2",
+      "modules": "147"
+    }
+  }
+}
