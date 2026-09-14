@@ -22,6 +22,7 @@ dashboard, server, and contributor guidance in a navigable GitHub wiki.
 - [x] Link the README and wiki to canonical project and maintainer references.
 - [x] Capture and add focused visual highlights for every documented feature, plus step images for each guide flow.
 - [x] Embed the current visual captures, then verify every link, command, and rendered page.
+- [x] Correct clipped visual crops, document import and placement, and show overlay and marker behavior at map scale.
 
 ## Notes
 
@@ -35,3 +36,7 @@ dashboard, server, and contributor guidance in a navigable GitHub wiki.
 - Wiki commit `3b34797` adds 21 cropped product images and 37 guide placements. Commit `c66d6c8` records the three copies used by the source README under `docs/assets/readme/`.
 - Checked 18 Markdown files, 40 image references, 86 page links, and 26 external links. GitHub rendered all 16 public wiki pages with all 37 placed images, and all 21 wiki image assets loaded as PNG files.
 - Background Chromium checks confirmed the image-heavy overlay and dashboard guides, plus all three README image files on branch `t3code/build-wiki`. `pnpm lint` passed with two existing informational D1 constructor advisories.
+- The first panel-crop pass clipped visible controls at the host boundary. This correction replaces those assets with full visible-panel crops and adds real overlay, marker, import, and placement states.
+- Wiki commit `16e57a2` renames `Sidebar.md` to GitHub's special `_Sidebar.md`, replaces the clipped panel captures, and adds import, placement, pixel-style, and two-zoom marker states.
+- Local validation checked 17 Markdown files, 46 image references, and 42 local page links across 28 PNG assets. Background Chromium rendered Home, Getting started, Overlay and painting, and Settings and shortcuts from GitHub. The sidebar appears as navigation, and all checked changed images loaded at their expected dimensions.
+- `pnpm lint` passed with the two existing informational D1 constructor advisories.
