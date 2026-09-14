@@ -1,5 +1,23 @@
 # @caelestis/backend
 
+## 0.6.0
+
+### Minor Changes
+
+- d3aba73: Run Caelestis outside Cloudflare with PostgreSQL/CNPG or SQLite, S3 or local files, persistent live coordination, and Docker/Helm deployment.
+
+### Patch Changes
+
+- 2a24e1e: Expire region claims after 30 days without an authenticated owner connection and prevent expired local claims from replaying.
+- 72fd83a: Start the portable server with Docker Compose using persistent local storage and an example environment file.
+- f963558: Add an optional Cloudflare Tunnel container for testing Docker stacks over HTTPS without port forwarding.
+- 0a17f5d: Restore fresh S3 test stack installs by fetching the pinned MinIO image from its official Quay registry.
+- 48ce024: Store backend data and durable jobs in MariaDB with verified migrations, TLS connections, and one active server owner.
+- 3098139: Preserve region claims, live presence, and multipart paint reports on self-hosted servers.
+- 2f917dd: Keep published template progress visible in PostgreSQL live updates.
+- 2e51d02: Share viewports and drafts with every connected server and show each nearby painter session once.
+- 57ba6c0: Deploy the backend and frontend as separate containers with Compose examples for PostgreSQL, CNPG, and S3 storage.
+
 ## 0.5.0
 
 ### Minor Changes
