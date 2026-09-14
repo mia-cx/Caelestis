@@ -63,7 +63,8 @@ contributions, pace and progress charts, and timelapses.
 
 ## Development
 
-Caelestis is a pnpm monorepo. It requires Node.js 22.13 or newer and pnpm 11.13.0.
+Caelestis is a pnpm monorepo. It requires Node.js 22.13 or newer and the pnpm version pinned in
+`package.json`.
 
 ```sh
 pnpm install
@@ -153,6 +154,7 @@ internal package.
 
 See [App releases](docs/app-releases.md) for release-note ownership and publishing details.
 
-## Issues
+## Contributing
 
-Report bugs and request features in the [GitHub issue tracker](https://github.com/mia-riezebos/Caelestis/issues).
+Read the [contribution guide](CONTRIBUTING.md) before opening a pull request. Report bugs and request
+features through the [GitHub issue forms](https://github.com/mia-riezebos/Caelestis/issues/new/choose).

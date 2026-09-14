@@ -1,0 +1,70 @@
+name: Bug report
+description: Report behavior that does not work as expected.
+labels:
+  - bug
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected part
+      options:
+        - Userscript on Wplace
+        - Web dashboard
+        - Backend or self-hosting
+        - Installation or release
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Enter the userscript version, release tag, or commit SHA.
+      placeholder: 0.12.0
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      placeholder: Describe the behavior and its effect.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open ...
+        2. Select ...
+        3. See ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Include the browser and operating system, or the server runtime and platform.
+      placeholder: Chromium 140 on macOS 26, or Node.js 22 on Linux
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs, screenshots, or recordings
+      description: Remove tokens and other private data before posting.
+      placeholder: Drag files here or paste relevant logs.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Existing reports
+      options:
+        - label: I searched open and closed issues for the same problem.
+          required: true
