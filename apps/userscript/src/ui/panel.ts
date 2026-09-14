@@ -55,6 +55,7 @@ import {
 } from '../application/tree-server-state.js'
 import { onCanvasWrite } from '../canvas-write.js'
 import { onClaimEditorChange } from '../claim-editor.js'
+import { claimRouter } from '../claim-routing.js'
 import { isEnabled as isDebugEnabled, log, setEnabled as setDebugEnabled } from '../debug.js'
 import { onArtboardPixelsChange } from '../gl/artboard-pixels.js'
 import { redraw } from '../main.js'
@@ -494,6 +495,7 @@ const disconnectServer = async (server: ConnectedServer): Promise<void> => {
   if (disconnectingServerUrls.has(server.url)) return
   disconnectingServerUrls.add(server.url)
   try {
+    await claimRouter().disconnect(server)
     if (treeActionUsesServer(server.url)) {
       cancelTreeActionSetup(new Error('copy destination disconnected'))
     }

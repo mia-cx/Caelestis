@@ -61,7 +61,6 @@ interface Connection {
   sessionId: string | null
   peers: Map<string, PresencePeer>
   regions: readonly RegionClaim[]
-  online: number
   attempts: number
   reconnectTimer: ReturnType<typeof setTimeout> | null
   heartbeatTimer: ReturnType<typeof setTimeout> | null
@@ -84,6 +83,8 @@ export interface PresenceView {
 const connections = new Map<object, Connection>()
 const listeners: (() => void)[] = []
 const claimListeners: (() => void)[] = []
+const receivedOrder = new WeakMap<PresencePeer, number>()
+let receivedSequence = 0
 let installed = false
 let identityRequested = false
 let publisherId = uuidV7()
@@ -288,9 +289,11 @@ const applyServerEvent = (connection: Connection, value: unknown): boolean => {
     // A server that completes the handshake and then misbehaves keeps its backoff; only a
     // healthy exchange resets it.
     connection.attempts = 0
-    connection.online = Number(event.online)
     connection.peers = new Map(
-      event.peers.filter(isPeer).map((peer) => [peer.sessionId, peer] as const),
+      event.peers.filter(isPeer).map((peer) => {
+        receivedOrder.set(peer, ++receivedSequence)
+        return [peer.sessionId, peer] as const
+      }),
     )
     connection.regions = event.regions
       .filter(isPresenceRegion)
@@ -310,9 +313,12 @@ const applyServerEvent = (connection: Connection, value: unknown): boolean => {
       !Array.isArray(event.remove)
     )
       return false
-    connection.online = Number(event.online)
     for (const id of event.remove) if (typeof id === 'string') connection.peers.delete(id)
-    for (const peer of event.upsert) if (isPeer(peer)) connection.peers.set(peer.sessionId, peer)
+    for (const peer of event.upsert)
+      if (isPeer(peer)) {
+        receivedOrder.set(peer, ++receivedSequence)
+        connection.peers.set(peer.sessionId, peer)
+      }
     return true
   }
   if (event.type === 'regions') {
@@ -359,9 +365,8 @@ const closeConnection = (connection: Connection): void => {
       // Already gone.
     }
   }
-  if (connection.peers.size > 0 || connection.online > 0) {
+  if (connection.peers.size > 0) {
     connection.peers = new Map()
-    connection.online = 0
     notify()
   }
 }
@@ -468,7 +473,6 @@ const open = (connection: Connection): void => {
     connection.sessionId = null
     clearTimers(connection)
     connection.peers = new Map()
-    connection.online = 0
     notify()
     if (isCurrentServerConnection(server) && eligible(server)) scheduleReconnect(connection)
   })
@@ -498,7 +502,6 @@ const reconcile = (): void => {
         sessionId: null,
         peers: new Map(),
         regions: [],
-        online: 0,
         attempts: 0,
         reconnectTimer: null,
         heartbeatTimer: null,
@@ -560,7 +563,12 @@ export const presenceView = (): PresenceView => {
           peer.publisherId === undefined
             ? `${connection.server.url}:${peer.sessionId}`
             : `${peer.painter.wplaceUserId}:${peer.publisherId}`
-        peers.set(key, { ...peer, sessionId: key })
+        const previous = peers.get(key)
+        if (
+          previous === undefined ||
+          (receivedOrder.get(peer) ?? 0) > (receivedOrder.get(previous) ?? 0)
+        )
+          peers.set(key, peer)
       }
     }
     for (const region of connection.regions) {
@@ -569,7 +577,7 @@ export const presenceView = (): PresenceView => {
     }
   }
   return {
-    peers: [...peers.values()],
+    peers: [...peers].map(([key, peer]) => ({ ...peer, sessionId: key })),
     regions: [...regions.values()],
     online: peers.size,
     connected,
@@ -580,19 +588,6 @@ export const presenceView = (): PresenceView => {
 /** Every connected server supporting presence, including sockets currently reconnecting. */
 export const presenceServers = (): readonly ConnectedServer[] =>
   [...connections.values()].map((connection) => connection.server)
-
-/** First server with an open presence socket. */
-export const presenceLiveServer = (): ConnectedServer | null =>
-  [...connections.values()].find((connection) => connection.socket?.readyState === WebSocket.OPEN)
-    ?.server ?? null
-
-/** The server a region claim came from, or null once that connection is gone. */
-export const presenceRegionServer = (id: string): ConnectedServer | null => {
-  for (const connection of connections.values()) {
-    if (connection.regions.some((region) => region.id === id)) return connection.server
-  }
-  return null
-}
 
 /** The presence connection of a server, live or not, when the server supports presence. */
 const connectionFor = (server: ConnectedServer): Connection | null =>

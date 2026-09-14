@@ -164,12 +164,23 @@ describe('presence room', () => {
       },
       'a'.repeat(64),
     )
+    const first = await store.regions.readRegion(id)
+    if (first === null) throw new Error('Expected claim')
+    const secondId = uuidV7()
+    await store.regions.createRegion(
+      { ...first, id: secondId, expiresAt: Date.now() + 2000 },
+      'a'.repeat(64),
+    )
     await object.publishRegions(0, WORLD_TEMPLATE_SURFACE)
     expect(await state.storage.getAlarm()).toBe(Date.now() + 1000)
     object = new PresenceObject(state, { DB: database } as unknown as Env)
     await vi.advanceTimersByTimeAsync(1000)
     await object.alarm()
     expect(await store.regions.readRegion(id)).toBeNull()
+    expect(await state.storage.getAlarm()).toBe(Date.now() + 1000)
+    await vi.advanceTimersByTimeAsync(1000)
+    await object.alarm()
+    expect(await store.regions.readRegion(secondId)).toBeNull()
     expect(await state.storage.getAlarm()).toBeNull()
   })
 

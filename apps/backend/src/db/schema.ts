@@ -37,6 +37,7 @@ export const workRegions = sqliteTable(
     createdAt: integer('created_at').notNull(),
   },
   (table) => [
+    index('work_regions_expiry_idx').on(table.expiresAt),
     index('work_regions_scope_idx').on(
       table.season,
       table.surfaceKind,

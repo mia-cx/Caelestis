@@ -1,5 +1,8 @@
 // @vitest-environment happy-dom
+
+import type { RegionClaim } from '@caelestis/shared'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ClaimEditorHost } from '../claim-editor.js'
 
 const harness = vi.hoisted(() => ({
   view: {
@@ -11,18 +14,31 @@ const harness = vi.hoisted(() => ({
   },
   navigateTo: vi.fn(),
   toast: vi.fn(),
+  editor: null as ClaimEditorHost | null,
+  save: vi.fn(async () => null),
+  remove: vi.fn(async () => null),
+}))
+
+vi.mock('../claim-routing.js', () => ({
+  claimRouter: () => ({
+    mine: () => harness.view.regions,
+    save: harness.save,
+    remove: harness.remove,
+  }),
 }))
 
 vi.mock('../presence-client.js', () => ({
   presenceView: () => harness.view,
   presenceLiveServer: () => null,
   presenceRegionServer: () => null,
-  presenceServers: () => [],
+  presenceServers: () => [{ season: 1 }],
   claimRegion: vi.fn(),
   releaseRegion: vi.fn(),
 }))
 vi.mock('../claim-editor.js', () => ({
-  installClaimEditor: vi.fn(),
+  installClaimEditor: (host: ClaimEditorHost) => {
+    harness.editor = host
+  },
   isClaimModeActive: () => false,
   startClaimMode: vi.fn(),
 }))
@@ -35,11 +51,11 @@ vi.mock('../templates/navigate.js', () => ({ navigateTo: harness.navigateTo }))
 vi.mock('../wplace-account.js', () => ({ accountIdentity: () => harness.view.me }))
 vi.mock('./toast.js', () => ({ toast: harness.toast }))
 
-import { flyToPainter, presenceSummaryModel } from './presence-actions.js'
+import { flyToPainter, installClaimToolHost, presenceSummaryModel } from './presence-actions.js'
 
 const rect = (x: number, y: number, w = 10, h = 10) => ({ x, y, w, h })
 const painter = (wplaceUserId: number, displayName: string) => ({ wplaceUserId, displayName })
-const claim = (id: string, who: ReturnType<typeof painter>, r = rect(500, 500)) => ({
+const claim = (id: string, who: ReturnType<typeof painter>, r = rect(500, 500)): RegionClaim => ({
   id,
   season: 1,
   surface: { kind: 'world', allianceId: null },
@@ -62,6 +78,17 @@ beforeEach(() => {
 })
 
 describe('presenceSummaryModel players', () => {
+  it('loads all logical claims once and routes editor writes through the claim owner', async () => {
+    const region = claim('mine', painter(7, 'Mia'))
+    harness.view.regions = [region, claim('other-server', painter(7, 'Mia'))]
+    installClaimToolHost()
+    expect(harness.editor?.myRegions().map((region) => region.id)).toEqual(['mine', 'other-server'])
+    await harness.editor?.save(region.id, region.document)
+    expect(harness.save).toHaveBeenCalledWith(region.id, region.document)
+    await harness.editor?.remove(region.id)
+    expect(harness.remove).toHaveBeenCalledWith(region.id)
+  })
+
   it('lists the nearby peers: painters first, then browsers, then the unlocated', () => {
     harness.view.peers = [
       { sessionId: 'b', painter: painter(2, 'Bo'), viewport: rect(0, 0), draft: null },

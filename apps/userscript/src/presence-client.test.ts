@@ -292,6 +292,16 @@ describe('presence client', () => {
     })
     expect(client.presenceView().peers).toHaveLength(2)
     expect(client.presenceView().online).toBe(2)
+    socket.receive({
+      type: 'presence-delta',
+      online: 5,
+      upsert: [{ ...peer, viewport: { x: 40, y: 0, w: 8, h: 8 } }],
+      remove: [],
+    })
+    expect(
+      client.presenceView().peers.find((held) => held.publisherId === peer.publisherId)?.viewport
+        ?.x,
+    ).toBe(40)
     socket.receive({ type: 'presence-delta', online: 4, upsert: [], remove: ['remote-x'] })
     expect(client.presenceView().peers).toHaveLength(2)
     second.close()

@@ -176,7 +176,8 @@ export class PresenceCoordinator<Client> {
       if (alarm !== null) await this.state.storage.deleteAlarm()
       return
     }
-    if (alarm === null || expiresAt < alarm) await this.state.storage.setAlarm(expiresAt)
+    if (alarm === null || alarm <= Date.now() || expiresAt < alarm)
+      await this.state.storage.setAlarm(expiresAt)
   }
 
   /** Expire idle sessions after hibernation and schedule the next stale sweep. */

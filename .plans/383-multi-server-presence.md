@@ -17,7 +17,8 @@ Stack on PR #351. Publish presence to every compatible server and reconcile one 
 - [x] Deliver and deduplicate presence across servers, with protocol and client tests.
 - [x] Expire claims after 30 days and renew authenticated owners without reviving expired claims, with store and connection tests.
 - [x] Persist claim intent and reconcile routing, edits, deletes, replay, and disconnect cleanup, with focused tests.
-- [ ] Wire the claim editor to logical claims, add release notes, and run final validation.
+- [x] Wire the claim editor to logical claims, add release notes, and run final validation.
+- [~] Address independent review findings and verify the final stacked diff.
 
 ## Notes
 
@@ -31,3 +32,6 @@ Stack on PR #351. Publish presence to every compatible server and reconcile one 
 - Routing uses complete admitted catalogs and rasterized claim pixels, including subtractors and world-wrapping template bounds. Missing catalogs delay routing instead of triggering a false fallback.
 - Local intent and known copies persist before requests. Per-connection acknowledgements skip unchanged writes; failures retry. Old recipients remain until replacements succeed. Disconnect aborts and waits for in-flight writes before bounded best-effort deletes.
 - Focused validation: 20 client/routing tests, 16 presence coordinator tests, and userscript typecheck pass.
+- Integration validation: 1,499 userscript tests and 822 backend tests pass (10 external-service tests skipped in this pass). Real PostgreSQL/MariaDB migration and region suites pass 136 tests.
+- Workspace build/check, Biome, and 39 release tests pass. A local Chromium CDP render shows Bob and Carol once with "2 nearby" and no overflow; screenshot `/tmp/caelestis-383-qa/painters.png`.
+- Final inspection fixed expiry-alarm rearming for the portable scheduler and added abandoned-row cleanup to periodic maintenance. The focused coordinator/worker/Node suites pass 37 tests afterward.
