@@ -1,5 +1,14 @@
 # @caelestis/userscript
 
+## 0.12.1
+
+### Patch Changes
+
+- 2a24e1e: Expire region claims after 30 days without an authenticated owner connection and prevent expired local claims from replaying.
+- 4176d0d: Keep region claims synchronized across overlapping servers, replay eligible claims on connection, and clean up copies on disconnection.
+- 2e51d02: Share viewports and drafts with every connected server and show each nearby painter session once.
+- c842558: Preserve claim expiry during edits and keep deletion retries for surviving server copies.
+
 ## 0.12.0
 
 ### Minor Changes

@@ -1,5 +1,18 @@
 # @caelestis/frontend
 
+## 0.6.0
+
+### Minor Changes
+
+- d3aba73: Run Caelestis outside Cloudflare with PostgreSQL/CNPG or SQLite, S3 or local files, persistent live coordination, and Docker/Helm deployment.
+
+### Patch Changes
+
+- 72fd83a: Start the portable server with Docker Compose using persistent local storage and an example environment file.
+- f963558: Add an optional Cloudflare Tunnel container for testing Docker stacks over HTTPS without port forwarding.
+- 2e51d02: Share viewports and drafts with every connected server and show each nearby painter session once.
+- 57ba6c0: Deploy the backend and frontend as separate containers with Compose examples for PostgreSQL, CNPG, and S3 storage.
+
 ## 0.5.8
 
 ### Patch Changes
