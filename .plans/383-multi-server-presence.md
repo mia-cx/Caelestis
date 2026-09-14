@@ -18,6 +18,7 @@ Stack on PR #351. Publish presence to every compatible server and reconcile one 
 - [x] Expire claims after 30 days and renew authenticated owners without reviving expired claims, with store and connection tests.
 - [x] Persist claim intent and reconcile routing, edits, deletes, replay, and disconnect cleanup, with focused tests.
 - [x] Wire the claim editor to logical claims, add release notes, and run final validation.
+- [x] Share claim intent safely between browser tabs and bound retry work for failed servers.
 - [~] Address independent review findings and verify the final stacked diff.
 
 ## Notes
@@ -35,3 +36,5 @@ Stack on PR #351. Publish presence to every compatible server and reconcile one 
 - Integration validation: 1,499 userscript tests and 822 backend tests pass (10 external-service tests skipped in this pass). Real PostgreSQL/MariaDB migration and region suites pass 136 tests.
 - Workspace build/check, Biome, and 39 release tests pass. A local Chromium CDP render shows Bob and Carol once with "2 nearby" and no overflow; screenshot `/tmp/caelestis-383-qa/painters.png`.
 - Final inspection fixed expiry-alarm rearming for the portable scheduler and added abandoned-row cleanup to periodic maintenance. The focused coordinator/worker/Node suites pass 37 tests afterward.
+- Cross-tab writes acquire a browser-wide lock and reload the shared journal before mutation. A stale-tab edit/delete replay test passes. Background reconciliations coalesce; each failed server is attempted once per pass.
+- The root parallel suite hit the unchanged raster performance test at 415 ms against 400 ms. All 254 shared tests pass in isolation; all 11 Turbo test tasks pass with package concurrency 1. Fixture/capacity/social/progress/live-paint prerequisites also passed.

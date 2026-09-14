@@ -12,7 +12,7 @@ Claims keep one ID across server copies. The client compares actual claimed pixe
 
 If any templates overlap, only their servers receive the claim. Otherwise every compatible connected server in that season receives it. A catalog still loading delays reconciliation. Hidden and unloaded artwork in the admitted catalog still participates.
 
-Adding a server, changing a catalog, or editing a claim recalculates recipients. The client writes replacements before removing old copies. It persists intent and known destinations before sending, then retries failures. Deletion retains local intent until its copies can be removed or expire.
+Adding a server, changing a catalog, or editing a claim recalculates recipients. The client writes replacements before removing old copies. It persists intent and known destinations before sending, then retries failures. Browser tabs share that journal under a Web Lock so an older tab cannot replay stale saved intent. Deletion retains local intent until its copies can be removed or expire.
 
 Removing a connection stops new claim writes, aborts in-flight requests, and attempts to delete only the current painter's claims. Cleanup has a three-second deadline and runs before credentials are discarded. Unreachable copies remain subject to expiry.
 

@@ -131,6 +131,31 @@ describe('claim recipients', () => {
 })
 
 describe('claim replication', () => {
+  it('refreshes shared intent before an older tab can replay a stale edit or deletion', async () => {
+    const h = setup([x])
+    await h.router.save(null, document())
+    const id = h.router.mine()[0]?.id ?? 'missing'
+    const older = new ClaimRouter(h.host, structuredClone(h.persist.mock.calls.at(-1)?.[0]))
+    await older.reconcile()
+    await h.router.save(id, document(100))
+    older.restore(structuredClone(h.persist.mock.calls.at(-1)?.[0]))
+    h.mutations.length = 0
+    await older.reconcile()
+    expect(
+      h.mutations.every(
+        (mutation) =>
+          mutation.region.document.items[0]?.shape.kind === 'rectangle' &&
+          mutation.region.document.items[0].shape.x === 100,
+      ),
+    ).toBe(true)
+    await h.router.remove(id)
+    older.restore(structuredClone(h.persist.mock.calls.at(-1)?.[0]))
+    h.mutations.length = 0
+    await older.reconcile()
+    expect(h.mutations.some((mutation) => mutation.method === 'PUT')).toBe(false)
+    expect(older.mine()).toEqual([])
+  })
+
   it('keeps one ID across overlap recipients, edits, fallback transitions and deletion', async () => {
     const h = setup()
     h.catalogs.set(x.url, [template('tx')])

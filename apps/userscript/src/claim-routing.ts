@@ -120,11 +120,19 @@ export class ClaimRouter {
   private pending: Promise<void> = Promise.resolve()
   private wanted = false
   private readonly errors = new Map<string, string>()
+  private readonly failedServers = new Map<object, string>()
 
   constructor(
     private readonly host: RoutingHost,
     saved: readonly Entry[] = [],
   ) {
+    for (const entry of saved) this.entries.set(entry.region.id, entry)
+    this.prune()
+  }
+
+  /** Refresh shared intent while the browser-wide mutation lock is held. */
+  restore(saved: readonly Entry[]): void {
+    this.entries.clear()
     for (const entry of saved) this.entries.set(entry.region.id, entry)
     this.prune()
   }
@@ -236,6 +244,7 @@ export class ClaimRouter {
   }
 
   private async sync(): Promise<void> {
+    this.failedServers.clear()
     this.prune()
     const actor = this.host.actor()
     if (actor === null) return
@@ -312,6 +321,11 @@ export class ClaimRouter {
   ): Promise<boolean> {
     const owner = serverConnectionIdentity(server)
     if (this.retiring.has(owner)) return false
+    const previousFailure = this.failedServers.get(owner)
+    if (previousFailure !== undefined) {
+      this.errors.set(entry.region.id, previousFailure)
+      return false
+    }
     const signature =
       region === null
         ? 'deleted'
@@ -337,7 +351,9 @@ export class ClaimRouter {
     this.inFlight.delete(owner)
     this.requests.delete(owner)
     if (error !== null) {
-      this.errors.set(entry.region.id, `${server.info?.name ?? server.url}: ${error}`)
+      const message = `${server.info?.name ?? server.url}: ${error}`
+      this.errors.set(entry.region.id, message)
+      this.failedServers.set(owner, message)
       return false
     }
     receipts.set(entry.region.id, signature)
@@ -422,8 +438,7 @@ const load = (): Entry[] => {
 }
 
 let router: ClaimRouter | undefined
-/** Shared claim owner for the editor, presence snapshots, and server disconnection. */
-export const claimRouter = (): ClaimRouter =>
+const localRouter = (): ClaimRouter =>
   (router ??= new ClaimRouter(
     {
       servers: presenceServers,
@@ -453,6 +468,46 @@ export const claimRouter = (): ClaimRouter =>
     },
     load(),
   ))
+
+let pendingOperation: Promise<unknown> = Promise.resolve()
+const withClaims = <T>(operation: (router: ClaimRouter) => Promise<T>): Promise<T> => {
+  const run = () => {
+    const router = localRouter()
+    router.restore(load())
+    return operation(router)
+  }
+  const next = pendingOperation.then(() =>
+    typeof navigator !== 'undefined' && navigator.locks !== undefined
+      ? navigator.locks.request(STORAGE_KEY, run)
+      : run(),
+  )
+  pendingOperation = next.catch(() => undefined)
+  return next
+}
+let pendingReconciliation: Promise<void> | null = null
+const operations = {
+  mine: () =>
+    load()
+      .filter(
+        (entry) =>
+          !entry.deleted &&
+          entry.region.claimant.wplaceUserId === accountIdentity()?.wplaceUserId &&
+          (entry.region.expiresAt ?? entry.region.createdAt + REGION_CLAIM_TTL_MS) > Date.now(),
+      )
+      .map((entry) => entry.region),
+  save: (id: string | null, document: RegionDocument) =>
+    withClaims((router) => router.save(id, document)),
+  remove: (id: string) => withClaims((router) => router.remove(id)),
+  reconcile: () =>
+    (pendingReconciliation ??= withClaims((router) => router.reconcile()).finally(() => {
+      pendingReconciliation = null
+    })),
+  // Disconnection must retain its deadline even if another tab holds the mutation lock.
+  disconnect: (server: ConnectedServer) => localRouter().disconnect(server),
+}
+
+/** Share claim intent across tabs; one browser-wide writer reconciles it at a time. */
+export const claimRouter = () => operations
 
 /** Reconcile on catalog/connection changes and retry partial failures while the page remains open. */
 export const installClaimRouting = (): void => {
