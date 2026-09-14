@@ -311,10 +311,7 @@ const applyServerEvent = (connection: Connection, value: unknown): boolean => {
       .slice(0, MAX_PRESENCE_REGIONS)
     connection.claimsRevision++
     connection.ownedRegionIds = regionIds(event.ownedRegionIds)
-    connection.canWriteClaims =
-      typeof event.canWrite === 'boolean'
-        ? event.canWrite
-        : activeServerToken(connection.server) !== null
+    connection.canWriteClaims = event.canWrite === true
     stopSnapshots(connection)
     for (const listener of claimListeners) listener()
     return true
@@ -412,8 +409,7 @@ const startSnapshots = (connection: Connection): void => {
         return
       if (!response.ok || typeof body !== 'object' || body === null || !('regions' in body)) return
       if (!applyServerEvent(connection, { ...body, type: 'regions' })) return
-      connection.canWriteClaims =
-        'canWrite' in body && typeof body.canWrite === 'boolean' ? body.canWrite : token !== null
+      connection.canWriteClaims = 'canWrite' in body && body.canWrite === true
       for (const listener of claimListeners) listener()
       notify()
     })

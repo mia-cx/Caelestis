@@ -29,6 +29,7 @@ const harness = vi.hoisted(() => ({
   online: new Map<string, number>(),
   /** Region claims per server origin, served to servers without the socket. */
   regions: new Map<string, unknown[]>(),
+  canWrite: true as boolean | undefined,
   /** When set, the next claims read waits on it before answering. */
   regionsGate: null as Promise<void> | null,
   /** When set, every headcount probe waits on it. */
@@ -72,7 +73,10 @@ vi.mock('./server-transport.js', () => ({
     const answer = {
       regions: harness.regions.get(origin) ?? [],
       ownedRegionIds: [],
-      canWrite: new Headers(init.headers).has('authorization'),
+      canWrite:
+        harness.canWrite === undefined
+          ? undefined
+          : harness.canWrite && new Headers(init.headers).has('authorization'),
     }
     const gate = harness.regionsGate
     if (gate !== null) {
@@ -162,6 +166,7 @@ beforeEach(() => {
   harness.reads = []
   harness.online = new Map([[server.url, 1]])
   harness.regions = new Map()
+  harness.canWrite = true
   harness.regionsGate = null
   harness.onlineGate = null
 })
@@ -480,6 +485,16 @@ describe('presence client', () => {
     const afterReady = harness.reads.length
     await vi.advanceTimersByTimeAsync(30_000)
     expect(harness.reads).toHaveLength(afterReady)
+  })
+
+  it('keeps older snapshots readable without inferring write scope from a token', async () => {
+    harness.canWrite = undefined
+    const { client, socket } = await connect()
+    expect(client.presenceServerClaims(server).ready).toBe(true)
+    expect(client.presenceCanWriteClaims(server)).toBe(false)
+    socket.receive({ type: 'presence-ready', sessionId: 'self', online: 1, peers: [], regions: [] })
+    expect(client.presenceServerClaims(server).ready).toBe(true)
+    expect(client.presenceCanWriteClaims(server)).toBe(false)
   })
 
   it('discards an HTTP snapshot that finishes after the socket snapshot', async () => {

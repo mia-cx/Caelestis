@@ -716,11 +716,11 @@ const connectServer = async (value: string): Promise<void> => {
       addServerMessage = `${server.url} is already connected.`
       return
     }
-    claimRouter().connect(server)
     if (!upsertServer(server)) {
       addServerMessage = `Already connected to ${MAX_CONNECTED_SERVERS} servers. Disconnect one first.`
       return
     }
+    claimRouter().connect(server)
     addServerMessage = undefined
   } finally {
     addServerPending = false
@@ -739,8 +739,7 @@ const updateServerToken = async (url: string, token: string): Promise<void> => {
     if (next.superseded === true || !stillConnected(server)) return
     if (next.status === 'connected') {
       cancelDestinationAdmissions(url)
-      claimRouter().connect(next)
-      upsertServer(next)
+      if (upsertServer(next)) claimRouter().connect(next)
       expandedServers.delete(url)
       settingsMessages.delete(url)
       return
