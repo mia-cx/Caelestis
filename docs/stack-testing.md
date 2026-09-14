@@ -99,7 +99,8 @@ It never creates or deletes the cluster, operators, CRDs, or storage classes.
 
 Build the two images first. If no registry is available, the image helper loads them onto each node through
 temporary pods with access to the k3s binary and containerd socket. This requires cluster administrator access.
-The helper refuses to overwrite an existing image reference. Choose unique image tags for each run.
+The helper reuses existing references only when their digests match the recorded local images.
+It refuses unverified replacements. Choose unique image tags for each run.
 
 ```sh
 node scripts/stack-tests/k3s-images.mjs import CONTEXT test-results/k3s-images BACKEND_IMAGE FRONTEND_IMAGE

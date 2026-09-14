@@ -1,6 +1,7 @@
 # k3s validation, 14 September 2026
 
-All six database/storage combinations passed on Mia's existing two-node amd64 k3s cluster.
+All six database/storage combinations passed on Mia's existing two-node amd64 k3s cluster,
+using the original PR application sources at `58b9e59d`.
 Each run used an isolated namespace, the existing CNPG operator, and dedicated Longhorn volumes.
 
 | Database | Storage | Acceptance | Recovery and migration | Cleanup |
@@ -56,13 +57,13 @@ After Mia finishes browser testing:
 
 ```sh
 node scripts/stack-tests/kubernetes-run.mjs test-results/caelestis-test-cnpg-s3-mu15pdnl/inventory.json
-node scripts/stack-tests/k3s-images.mjs remove default test-results/k3s-images
+node scripts/stack-tests/k3s-images.mjs remove default test-results/k3s-images-restack-1444f512
 ```
 
 The first command verifies namespace and storage deletion and removes the private credentials file.
 The second removes only the recorded test image references from both nodes, then removes its temporary pods.
 
-Application sources are from PR #351 at `58b9e59d`. Image identities are recorded in `test-results/k3s-images/images.json`:
+The original image identities are recorded in `test-results/k3s-images/images.json`:
 
 - Backend: `sha256:8e9420297fd556ddfaed06ac0e0575ea1a663ada425a781f75d2e97f3b81653b`
 - Frontend: `sha256:e5c7656e4a816afb7269f6b1606833a8dab3fbbd100995bafdb17c38a82586fe`
@@ -71,3 +72,34 @@ The driver now supports explicit existing-cluster contexts, six storage/database
 Box Art lifecycle checks, fresh credentials, optional Traefik access, and resumable cleanup.
 Four focused tests cover cluster/namespace ownership guards and already-completed cleanup.
 Biome, JavaScript syntax checks, and those four tests pass.
+
+## Restack onto main
+
+PR #351 was rebased onto `main` at `eb92ef84` without conflicts and pushed at `1444f512`.
+This includes userscript v0.12.0, the newer Painters drawer, viewport navigation, collaboration
+rendering changes, and shortcut rebinding.
+
+Workspace typechecks passed. Backend, frontend, and userscript suites passed 2,484 tests;
+10 database-specific backend tests were skipped without their local service configuration.
+
+The retained CNPG/S3 stack was upgraded in place using images built from `1444f512`.
+Its server identity, existing Box Art template and chunks, and both delivered tokens survived.
+The userscript download at the same URL now serves v0.12.0 from the rebased checkout.
+
+After upgrading, the shared acceptance suite passed through public Traefik HTTPS again.
+A separate two-client WSS probe passed remote viewport delivery, draft masks, claim creation/deletion
+broadcasts, credential ownership, interest-area removal, and claim recovery on client reconnection.
+This validates one server. Cross-server routing remains tracked separately in
+[#383](https://github.com/mia-riezebos/Caelestis/issues/383).
+
+The six-stack matrix above belongs to the original image build. The post-rebase validation covers
+the retained CNPG/S3 stack, the public proxy, and the local application suites.
+
+Current image identities, recorded in `test-results/k3s-images-restack-1444f512/images.json`:
+
+- Backend: `sha256:30d4ae09e7466b860f1296a0961c9cb2e3c5b66fadc100381045743b9c9d6702`
+- Frontend: `sha256:865f871fa7f7e82d5b0510bafda36c5bacc91b215d46c145181182d1a393ab13`
+
+The image loader needed more than its original 256 MiB limit on the second node.
+Its limit is now 512 MiB, and retries verify existing image digests before reusing them.
+Transfers have a bounded deadline and close both subprocesses on failure.

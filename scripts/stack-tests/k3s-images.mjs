@@ -3,6 +3,7 @@ import { execFileSync, spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { pipeline } from 'node:stream/promises'
 import { kubernetesRun } from './kubernetes-run.mjs'
 
 const [mode, context, output, ...images] = process.argv.slice(2)
@@ -61,6 +62,7 @@ try {
         spec: {
           nodeName: node,
           restartPolicy: 'Never',
+          terminationGracePeriodSeconds: 1,
           automountServiceAccountToken: false,
           containers: [
             {
@@ -69,7 +71,7 @@ try {
               command: ['sleep', '3600'],
               resources: {
                 requests: { cpu: '10m', memory: '32Mi' },
-                limits: { cpu: '1', memory: '256Mi' },
+                limits: { cpu: '1', memory: '512Mi' },
               },
               securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: ['ALL'] } },
               volumeMounts: [
@@ -103,11 +105,29 @@ try {
       'k8s.io',
     ]
     if (mode === 'import') {
-      const before = kubectl(...ctr, 'images', 'list', '-q').split('\n')
-      assert.ok(
-        record.images.every((image) => !before.includes(image)),
-        'Refusing to overwrite existing image references',
+      const before = new Map(
+        kubectl(...ctr, 'images', 'list')
+          .split('\n')
+          .slice(1)
+          .map((line) => {
+            const [reference, , digest] = line.trim().split(/\s+/)
+            return [reference, digest]
+          }),
       )
+      for (const [index, image] of record.images.entries()) {
+        const digest = before.get(image)
+        if (!digest) continue
+        const identity = record.identities[index]
+        assert.ok(
+          identity.id === digest || identity.digests.some((ref) => ref.endsWith(`@${digest}`)),
+          `Refusing to overwrite unverified image reference: ${image}`,
+        )
+      }
+      if (record.images.every((image) => before.has(image))) {
+        console.log(`Test image digests already match on ${node}`)
+        kubectl('delete', 'pod', pod, '--wait=true', '--timeout=60s')
+        continue
+      }
       const source = spawn('docker', ['save', ...images], { stdio: ['ignore', 'pipe', 'inherit'] })
       const target = spawn(
         'kubectl',
@@ -133,9 +153,22 @@ try {
         ],
         { stdio: ['pipe', 'inherit', 'inherit'] },
       )
-      source.stdout.pipe(target.stdin)
-      const results = await Promise.all([once(source, 'close'), once(target, 'close')])
-      for (const [code] of results) assert.equal(code, 0)
+      const deadline = setTimeout(() => {
+        source.kill('SIGTERM')
+        target.kill('SIGTERM')
+      }, 180_000)
+      try {
+        const [sourceResult, targetResult] = await Promise.all([
+          once(source, 'close'),
+          once(target, 'close'),
+          pipeline(source.stdout, target.stdin),
+        ])
+        for (const [code] of [sourceResult, targetResult]) assert.equal(code, 0)
+      } finally {
+        clearTimeout(deadline)
+        if (source.exitCode === null) source.kill('SIGTERM')
+        if (target.exitCode === null) target.kill('SIGTERM')
+      }
       const after = kubectl(...ctr, 'images', 'list', '-q').split('\n')
       assert.ok(record.images.every((image) => after.includes(image)))
       console.log(`Imported test images on ${node}`)
