@@ -338,9 +338,9 @@ try {
                     }),
                   )
                   rss.push(values.reduce((a, b) => a + b, 0))
-                  ready.metricsProcessRoles?.forEach((role, index) =>
-                    processRss[role].push(values[index]),
-                  )
+                  ready.metricsProcessRoles?.forEach((role, index) => {
+                    processRss[role].push(values[index])
+                  })
                 })
                 .catch((error) => memoryErrors.push(String(error)))
             }, 250)
