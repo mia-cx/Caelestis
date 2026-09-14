@@ -24,16 +24,22 @@ Import, place, move, rotate, and adjust templates without changing the source im
 tree supports folders, tags, search, filters, and custom order. It also reads Wplace personal and
 alliance templates.
 
+![The Caelestis template tree beside a placed Wplace overlay.](docs/assets/readme/templates-and-overlay.png)
+
 ### Painting
 
 Show missing pixels, mismatches, or the selected Wplace colour. Jump to remaining pixels, pick a
 colour from the template, and change the overlay settings for the map underneath it.
+
+![The Wplace colour palette with Caelestis remaining-work markers.](docs/assets/readme/colour-work.png)
 
 ### Shared projects
 
 Server templates track folder and template progress by colour. The dashboard shows contributions,
 pace, history, and timelapses. Connected painters can share their viewport, drafts, favourites, and
 region claims.
+
+![A server template with timelapse and progress controls.](docs/assets/readme/dashboard-timelapse.png)
 
 ## Documentation
 

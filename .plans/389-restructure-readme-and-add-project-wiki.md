@@ -20,6 +20,7 @@ dashboard, server, and contributor guidance in a navigable GitHub wiki.
 - [x] Enable and seed the GitHub wiki with landing, installation, template, overlay, painting, progress, collaboration, and settings pages.
 - [x] Add dashboard, self-hosting, authentication, deployment, storage, upgrade, backup, troubleshooting, and contributor pages.
 - [x] Link the README and wiki to canonical project and maintainer references.
+- [x] Capture and add focused visual highlights for every documented feature, plus step images for each guide flow.
 - [ ] Embed the current visual captures, then verify every link, command, and rendered page.
 
 ## Notes
@@ -31,3 +32,5 @@ dashboard, server, and contributor guidance in a navigable GitHub wiki.
 - The wiki now has a committed capture brief for the template tree and overlay, colour-work flow, and dashboard progress view.
 - Wiki commits `53df2ab` and `6c93570` add the user, operator, troubleshooting, contributor, and sidebar paths. All internal and external links, plus seven shell snippets, passed local checks before publishing.
 - Wiki commit `cba8e2d` rewrites the README and wiki introductions and task headings to describe the userscript, server, and dashboard directly.
+- Visual documentation now needs a full capture pass from the injected userscript. Each image must frame one action and omit browser chrome, account details, and unrelated map space.
+- Wiki commit `3b34797` adds 21 cropped product images and 37 guide placements. Commit `c66d6c8` records the three copies used by the source README under `docs/assets/readme/`.
