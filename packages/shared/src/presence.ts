@@ -51,6 +51,8 @@ export const MAX_PRESENCE_MESSAGES_PER_SECOND = 8
 export const MAX_PRESENCE_REGIONS = 500
 export const MAX_PRESENCE_REGION_PIXELS = 4_000_000
 export const MAX_PRESENCE_REGION_LABEL = 64
+/** Claims expire after thirty days without an authenticated owner connection. */
+export const REGION_CLAIM_TTL_MS = 30 * 24 * 60 * 60 * 1_000
 
 /** Axis-aligned rect in canvas pixels. `x`/`y` are the top-left corner, sizes are exclusive. */
 export interface PresenceRect {
@@ -104,6 +106,8 @@ export interface RegionClaim {
   readonly rect: PresenceRect
   readonly label: string
   readonly createdAt: number
+  /** Absent on servers predating claim expiry. */
+  readonly expiresAt?: number
 }
 
 export type PresenceServerEvent =

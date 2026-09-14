@@ -4,6 +4,7 @@ import {
   MAX_REGION_ITEMS,
   millis,
   packBits,
+  REGION_CLAIM_TTL_MS,
   type RegionClaim,
   type RegionDocument,
   type RegionShape,
@@ -139,6 +140,27 @@ describe.each([
     .filter(({ name }) => name !== 'memory' && name !== 'D1')
     .map(({ name }) => name),
 ])('region routes on %s', (adapter) => {
+  it('renews only the credential and painter owner and never revives expired claims', async () => {
+    const h = await setup(adapter)
+    const id = uuidV7()
+    const response = await h.call('PUT', id, h.body)
+    const region = (await response.json()) as RegionClaim
+    const at = region.expiresAt as number
+    const hash = await hashToken('report')
+    await h.sql.regions.renewRegions(hash, other.wplaceUserId, at - 1000)
+    await h.sql.regions.renewRegions(
+      await hashToken('second-report'),
+      actor.wplaceUserId,
+      at - 1000,
+    )
+    expect((await h.sql.regions.readRegion(id))?.expiresAt).toBe(at)
+    await h.sql.regions.renewRegions(hash, actor.wplaceUserId, at - 1000)
+    const renewed = at - 1000 + REGION_CLAIM_TTL_MS
+    expect((await h.sql.regions.readRegion(id))?.expiresAt).toBe(renewed)
+    await h.sql.regions.renewRegions(hash, actor.wplaceUserId, renewed)
+    expect(await h.sql.regions.readRegion(id)).toBeNull()
+  })
+
   it('creates, lists, replays identical requests, rejects conflicts, and publishes mutations', async () => {
     const h = await setup(adapter)
     const id = uuidV7()

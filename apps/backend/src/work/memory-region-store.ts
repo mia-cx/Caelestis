@@ -1,5 +1,6 @@
 import {
   MAX_PRESENCE_REGIONS,
+  REGION_CLAIM_TTL_MS,
   type RegionClaim,
   type RegionDocument,
   regionDocumentBounds,
@@ -22,11 +23,28 @@ export class MemoryRegionStore implements RegionStore {
     )
   }
 
+  async expireRegions(now: number): Promise<void> {
+    for (const [id, region] of this.records) {
+      if (region.expiresAt === undefined || region.expiresAt > now) continue
+      this.records.delete(id)
+      this.owners.delete(id)
+    }
+  }
+
+  async renewRegions(tokenHash: string, actorId: number, now: number): Promise<void> {
+    await this.expireRegions(now)
+    for (const [id, region] of this.records) {
+      if (this.owners.get(id) !== tokenHash || region.claimant.wplaceUserId !== actorId) continue
+      this.records.set(id, { ...region, expiresAt: now + REGION_CLAIM_TTL_MS })
+    }
+  }
+
   async listRegions(
     season: number,
     surface: TemplateSurface,
     templateId?: string,
   ): Promise<readonly RegionClaim[]> {
+    await this.expireRegions(Date.now())
     return [...this.records.values()]
       .filter(
         (region) =>
@@ -38,9 +56,11 @@ export class MemoryRegionStore implements RegionStore {
       .slice(0, MAX_PRESENCE_REGIONS)
   }
   async readRegion(id: string): Promise<RegionClaim | null> {
+    await this.expireRegions(Date.now())
     return this.records.get(id) ?? null
   }
   async createRegion(region: RegionClaim, tokenHash: string | null): Promise<boolean> {
+    await this.expireRegions(Date.now())
     const rect = regionDocumentBounds(region.document)
     if (rect === null) throw new Error('Region document must contain an added shape')
     const count = [...this.records.values()].filter(
@@ -51,6 +71,7 @@ export class MemoryRegionStore implements RegionStore {
       region.id,
       structuredClone({
         ...region,
+        expiresAt: region.expiresAt ?? Date.now() + REGION_CLAIM_TTL_MS,
         templateId: region.templateId ?? null,
         rect,
       }),
@@ -65,6 +86,7 @@ export class MemoryRegionStore implements RegionStore {
     templateId: string | null,
     writer: RegionWriter,
   ): Promise<RegionClaim | null> {
+    await this.expireRegions(Date.now())
     const current = this.records.get(id)
     if (current === undefined || !this.canWrite(current, writer)) return null
     const rect = regionDocumentBounds(document)

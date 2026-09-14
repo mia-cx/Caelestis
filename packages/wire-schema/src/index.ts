@@ -287,6 +287,7 @@ export const RegionDocument = Schema.Struct({
 }).check(booleanFilter(isRegionDocument, 'invalid region document'))
 
 export const RegionClaim = Schema.Struct({
+  expiresAt: Schema.optionalKey(integerBetween(0, Number.MAX_SAFE_INTEGER)),
   id: Identifier,
   season: Season,
   surface: TemplateSurface,

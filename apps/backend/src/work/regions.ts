@@ -2,6 +2,7 @@ import {
   isRegionDocument,
   MAX_PRESENCE_REGION_PIXELS,
   type PainterIdentity,
+  REGION_CLAIM_TTL_MS,
   type RegionClaim,
   type RegionClaimRequest,
   regionDocumentBounds,
@@ -92,6 +93,7 @@ export const putRegion = (
         rect,
         label: request.label,
         createdAt: Date.now(),
+        expiresAt: Date.now() + REGION_CLAIM_TTL_MS,
       }
       inserted = yield* storage(() => sql.regions.createRegion(created, caller.tokenHash))
       region = inserted ? created : yield* storage(() => sql.regions.readRegion(id))

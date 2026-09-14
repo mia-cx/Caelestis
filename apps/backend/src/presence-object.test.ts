@@ -117,8 +117,13 @@ beforeEach(() => {
   database = new SqliteD1Database()
   sockets = []
   let alarm: number | null = null
+  const records = new Map<string, unknown>()
   state = {
     storage: {
+      get: vi.fn(async (key: string) => records.get(key)),
+      put: vi.fn(async (key: string, value: unknown) => {
+        records.set(key, value)
+      }),
       getAlarm: vi.fn(async () => alarm),
       setAlarm: vi.fn(async (at: number) => {
         alarm = at
@@ -141,6 +146,33 @@ afterEach(() => {
 })
 
 describe('presence room', () => {
+  it('expires claims from a persisted alarm with no connected sockets', async () => {
+    const store = new D1SqlStore(database as unknown as D1Database)
+    const id = uuidV7()
+    await store.regions.createRegion(
+      {
+        id,
+        season: 0,
+        surface: WORLD_TEMPLATE_SURFACE,
+        templateId: null,
+        claimant: { wplaceUserId: 1, displayName: 'Mia' },
+        document: { items: [{ id: 'shape', op: 'add', shape: { kind: 'rectangle', ...rect(0) } }] },
+        rect: rect(0),
+        label: '',
+        createdAt: Date.now(),
+        expiresAt: Date.now() + 1000,
+      },
+      'a'.repeat(64),
+    )
+    await object.publishRegions(0, WORLD_TEMPLATE_SURFACE)
+    expect(await state.storage.getAlarm()).toBe(Date.now() + 1000)
+    object = new PresenceObject(state, { DB: database } as unknown as Env)
+    await vi.advanceTimersByTimeAsync(1000)
+    await object.alarm()
+    expect(await store.regions.readRegion(id)).toBeNull()
+    expect(await state.storage.getAlarm()).toBeNull()
+  })
+
   it('relays publisher identity while retaining separate server session IDs', async () => {
     const publisherId = uuidV7()
     const a = await attach({ 'x-caelestis-publisher-id': publisherId })
@@ -455,7 +487,13 @@ describe('presence room', () => {
     )
     await object.publishRegions(0, WORLD_TEMPLATE_SURFACE)
     expect(b.events().at(-1)).toEqual({ type: 'regions', regions: [updated] })
-    expect(updated).toEqual({ ...region, document: nextDocument, rect: rect(0), label: 'Updated' })
+    expect(updated).toEqual({
+      ...region,
+      expiresAt: expect.any(Number),
+      document: nextDocument,
+      rect: rect(0),
+      label: 'Updated',
+    })
     object.webSocketError(asWebSocket(a))
     await tick()
     expect(b.events().at(-1)).toMatchObject({ online: 1, remove: [expect.any(String)] })
