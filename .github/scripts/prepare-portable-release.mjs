@@ -21,8 +21,17 @@ export const portableVersion = (backend, frontend) => {
   }
 }
 
+/** Build immutable patch and moving semantic aliases for one runtime variant. */
+export const semanticImageTags = (version, suffix = '') => {
+  const [major, minor] = version.split('.')
+  return {
+    immutable: [`${version}${suffix}`],
+    moving: [`${major}.${minor}${suffix}`, `${major}${suffix}`, `latest${suffix}`],
+  }
+}
+
 /** Map every published variant to the same package name in both registries. */
-export const portableImages = (imageTag, githubRepository) => {
+export const portableImages = (identity, githubRepository) => {
   const match = /^([A-Za-z0-9_.-]+)\/[A-Za-z0-9_.-]+$/.exec(githubRepository)
   if (!match) throw new Error('GITHUB_REPOSITORY must contain an owner and repository')
   const registries = (repository) => ({
@@ -30,10 +39,34 @@ export const portableImages = (imageTag, githubRepository) => {
     ghcr: `ghcr.io/${match[1].toLowerCase()}/${repository}`,
   })
   return [
-    { component: 'backend', source: 'backend', tag: imageTag },
-    { component: 'backend-node', source: 'backend', tag: `${imageTag}-node` },
-    { component: 'backend-bun', source: 'backend-bun', tag: `${imageTag}-bun` },
-    { component: 'frontend', source: 'frontend', tag: imageTag },
+    {
+      app: 'backend',
+      component: 'backend',
+      source: 'backend-bun',
+      tag: identity.imageTag,
+      aliases: semanticImageTags(identity.backend),
+    },
+    {
+      app: 'backend',
+      component: 'backend-node',
+      source: 'backend',
+      tag: identity.nodeImageTag,
+      aliases: semanticImageTags(identity.backend, '-node'),
+    },
+    {
+      app: 'backend',
+      component: 'backend-bun',
+      source: 'backend-bun',
+      tag: identity.bunImageTag,
+      aliases: semanticImageTags(identity.backend, '-bun'),
+    },
+    {
+      app: 'frontend',
+      component: 'frontend',
+      source: 'frontend',
+      tag: identity.imageTag,
+      aliases: semanticImageTags(identity.frontend),
+    },
   ].map((image) => ({
     ...image,
     registries: registries(
@@ -58,7 +91,7 @@ if (process.argv[1] && resolve(process.argv[1]) === import.meta.filename) {
   mkdirSync(values['output-dir'], { recursive: true })
   // biome-ignore lint/suspicious/noUndeclaredEnvVars: This release CLI does not run through Turbo.
   const githubRepository = process.env.GITHUB_REPOSITORY ?? 'mia-riezebos/Caelestis'
-  const images = portableImages(identity.imageTag, githubRepository)
+  const images = portableImages(identity, githubRepository)
   const migrations = (directory) =>
     readdirSync(resolve(root, directory))
       .filter((name) => name.endsWith('.sql'))
