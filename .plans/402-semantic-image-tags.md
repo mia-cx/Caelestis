@@ -8,18 +8,18 @@ tags.
 
 ## Acceptance criteria
 
-- [ ] Backend Bun images use unsuffixed and `-bun` latest, major, minor, patch, and paired tags.
-- [ ] Backend Node images use `-node` latest, major, minor, patch, and paired tags.
-- [ ] Frontend images use unsuffixed latest, major, minor, patch, and paired tags.
-- [ ] Patch and paired tags stay immutable. Moving aliases update only when their app version changes.
-- [ ] Published Helm charts pin the Bun backend image by default.
-- [ ] Both registries receive the same tested image manifests.
+- [x] Backend Bun images use unsuffixed and `-bun` latest, major, minor, patch, and paired tags.
+- [x] Backend Node images use `-node` latest, major, minor, patch, and paired tags.
+- [x] Frontend images use unsuffixed latest, major, minor, patch, and paired tags.
+- [x] Patch and paired tags stay immutable. Moving aliases update only when their app version changes.
+- [x] Published Helm charts pin the Bun backend image by default.
+- [x] Both registries receive the same tested image manifests.
 
 ## TODOs
 
 - [x] Define the tag matrix, Bun default mapping, and release tests.
 - [x] Publish immutable and moving aliases only for apps released by the Changesets merge.
-- [ ] Update self-hosting docs and release notes, then run all validation.
+- [x] Update self-hosting docs and release notes, then run all validation.
 
 ## Notes
 
@@ -27,3 +27,5 @@ tags.
 - `node --test .github/scripts/prepare-portable-release.test.mjs` passes with four tests.
 - `pnpm test:release` passes all 50 tests.
 - `actionlint -shellcheck=''` passes both changed workflows.
+- The generated `images.json` and release notes contain the expected 0.6.0 aliases and Bun chart default.
+- Full `pnpm lint`, `pnpm check`, `pnpm test`, and `pnpm build` pass.
