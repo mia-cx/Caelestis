@@ -1,5 +1,12 @@
 # @caelestis/frontend
 
+## 0.6.1
+
+### Patch Changes
+
+- 84f0ece: Publish semantic container tags with Bun as the default backend image.
+- ecaffd2: Publish portable container images to Docker Hub and GHCR.
+
 ## 0.6.0
 
 ### Minor Changes
