@@ -6,6 +6,10 @@ import { describe, it } from 'node:test'
 const root = resolve(import.meta.dirname, '../..')
 const workflow = readFileSync(resolve(root, '.github/workflows/app-release.yml'), 'utf8')
 const deployWorkflow = readFileSync(resolve(root, '.github/workflows/deploy.yml'), 'utf8')
+const portableWorkflow = readFileSync(
+  resolve(root, '.github/workflows/portable-release.yml'),
+  'utf8',
+)
 const changesets = JSON.parse(readFileSync(resolve(root, '.changeset/config.json'), 'utf8'))
 
 describe('app release workflow', () => {
@@ -64,6 +68,41 @@ describe('app release workflow', () => {
     assert.match(
       workflow,
       /commits\/\$GITHUB_SHA\/pulls" --paginate --slurp \| node \.github\/scripts\/release-merge\.mjs/,
+    )
+  })
+
+  it('reports which app versions changed to portable publication', () => {
+    for (const app of ['frontend', 'backend']) {
+      assert.match(
+        workflow,
+        new RegExp(`${app}_released: \\$\\{\\{ steps\\.released\\.outputs\\.${app} \\}\\}`),
+      )
+      assert.match(workflow, /git diff --quiet .* -- "apps\/\$app\/package\.json"/)
+      assert.match(
+        workflow,
+        new RegExp(
+          `${app}_released: \\$\\{\\{ needs\\.version\\.outputs\\.${app}_released == 'true' \\}\\}`,
+        ),
+      )
+      assert.match(portableWorkflow, new RegExp(`${app.toUpperCase()}_RELEASED:`))
+    }
+  })
+
+  it('keeps patch aliases immutable and moves aliases only for released apps', () => {
+    assert.match(portableWorkflow, /if \[ "\$released" != true \]; then continue; fi/)
+    assert.match(portableWorkflow, /read -ra aliases <<< "\$immutable_aliases"/)
+    assert.match(
+      portableWorkflow,
+      /if docker manifest inspect "\$image"[\s\S]*?imagetools create --tag "\$image" "\$source_image"/,
+    )
+    assert.match(portableWorkflow, /read -ra aliases <<< "\$moving_aliases"/)
+    assert.match(
+      portableWorkflow,
+      /imagetools create --tag "\$image_repository:\$alias" "\$source_image"/,
+    )
+    assert.match(
+      portableWorkflow,
+      /cmp release\/backend-image\.txt release\/backend-bun-image\.txt/,
     )
   })
 

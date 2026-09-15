@@ -2,6 +2,15 @@ name: Release portable server
 
 on:
   workflow_call:
+    inputs:
+      frontend_released:
+        description: The release merge changed the frontend version
+        type: boolean
+        required: true
+      backend_released:
+        description: The release merge changed the backend version
+        type: boolean
+        required: true
     secrets:
       DOCKERHUB_TOKEN:
         description: Docker Hub access token with write access to both Caelestis image repositories
@@ -67,6 +76,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           IMAGE_TAG: ${{ steps.version.outputs.imageTag }}
           CHART_VERSION: ${{ steps.version.outputs.chartVersion }}
+          FRONTEND_RELEASED: ${{ inputs.frontend_released }}
+          BACKEND_RELEASED: ${{ inputs.backend_released }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
           chart_registry="ghcr.io/${GITHUB_REPOSITORY,,}/charts"
@@ -124,17 +135,57 @@ jobs:
               fi
             done
           done < <(jq -r '.[] | [.component, .tag, .registries.dockerhub, .registries.ghcr] | @tsv' release/images.json)
-          cmp release/backend-image.txt release/backend-node-image.txt
-          cmp release/backend-dockerhub-image.txt release/backend-node-dockerhub-image.txt
-          cmp release/backend-ghcr-image.txt release/backend-node-ghcr-image.txt
+          while IFS=$'\t' read -r app variant_tag immutable_aliases moving_aliases dockerhub_repository ghcr_repository; do
+            case "$app" in
+              frontend) released="$FRONTEND_RELEASED" ;;
+              backend) released="$BACKEND_RELEASED" ;;
+              *) echo "Unknown app: $app"; exit 1 ;;
+            esac
+            if [ "$released" != true ]; then continue; fi
+            for image_repository in "$dockerhub_repository" "$ghcr_repository"; do
+              source_image="$image_repository:$variant_tag"
+              IFS=',' read -ra aliases <<< "$immutable_aliases"
+              for alias in "${aliases[@]}"; do
+                image="$image_repository:$alias"
+                if docker manifest inspect "$image" > /tmp/manifest.json 2>/tmp/manifest-error; then
+                  for arch in amd64 arm64; do
+                    digest="$(docker buildx imagetools inspect "$source_image-$arch" --format '{{.Manifest.Digest}}')"
+                    jq -e --arg arch "$arch" --arg digest "$digest" 'any(.manifests[]; .platform.architecture == $arch and .digest == $digest)' /tmp/manifest.json
+                  done
+                else
+                  if ! grep -Eqi 'manifest unknown|no such manifest|not found' /tmp/manifest-error; then cat /tmp/manifest-error; exit 1; fi
+                  docker buildx imagetools create --tag "$image" "$source_image"
+                fi
+              done
+              IFS=',' read -ra aliases <<< "$moving_aliases"
+              for alias in "${aliases[@]}"; do
+                docker buildx imagetools create --tag "$image_repository:$alias" "$source_image"
+              done
+            done
+          done < <(jq -r '.[] | [.app, .tag, (.aliases.immutable | join(",")), (.aliases.moving | join(",")), .registries.dockerhub, .registries.ghcr] | @tsv' release/images.json)
+          cmp release/backend-image.txt release/backend-bun-image.txt
+          cmp release/backend-dockerhub-image.txt release/backend-bun-dockerhub-image.txt
+          cmp release/backend-ghcr-image.txt release/backend-bun-ghcr-image.txt
           docker logout ghcr.io
-          while IFS=$'\t' read -r variant_tag ghcr_repository; do
-            if ! docker manifest inspect "$ghcr_repository:$variant_tag" > /dev/null 2>/tmp/ghcr-public-error; then
-              cat /tmp/ghcr-public-error
-              echo '::error title=GHCR packages are private::Set caelestis-backend and caelestis-frontend package visibility to Public, then rerun this release.'
-              exit 1
+          while IFS=$'\t' read -r app variant_tag immutable_aliases moving_aliases ghcr_repository; do
+            tags=("$variant_tag")
+            case "$app" in
+              frontend) released="$FRONTEND_RELEASED" ;;
+              backend) released="$BACKEND_RELEASED" ;;
+              *) echo "Unknown app: $app"; exit 1 ;;
+            esac
+            if [ "$released" = true ]; then
+              IFS=',' read -ra aliases <<< "$immutable_aliases,$moving_aliases"
+              tags+=("${aliases[@]}")
             fi
-          done < <(jq -r '.[] | [.tag, .registries.ghcr] | @tsv' release/images.json)
+            for tag in "${tags[@]}"; do
+              if ! docker manifest inspect "$ghcr_repository:$tag" > /dev/null 2>/tmp/ghcr-public-error; then
+                cat /tmp/ghcr-public-error
+                echo '::error title=GHCR packages are private::Set caelestis-backend and caelestis-frontend package visibility to Public, then rerun this release.'
+                exit 1
+              fi
+            done
+          done < <(jq -r '.[] | [.app, .tag, (.aliases.immutable | join(",")), (.aliases.moving | join(",")), .registries.ghcr] | @tsv' release/images.json)
           jq --slurpfile images release/amd64-image-configs.json '. + {runtimes: ($images[0] | map({key: .Config.Labels["cx.mia.caelestis.runtime"], value: .Config.Labels["cx.mia.caelestis.runtime.version"]}) | from_entries)}' release/versions.json > release/versions.tmp
           mv release/versions.tmp release/versions.json
           helm package deploy/helm/caelestis --version "$CHART_VERSION" --app-version "$IMAGE_TAG" --destination release

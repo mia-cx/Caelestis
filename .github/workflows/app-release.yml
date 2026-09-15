@@ -29,6 +29,8 @@ jobs:
       pull-requests: write
     outputs:
       release: ${{ steps.release.outputs.release }}
+      frontend_released: ${{ steps.released.outputs.frontend }}
+      backend_released: ${{ steps.released.outputs.backend }}
       has_userscript_changesets: ${{ steps.pending.outputs.userscript }}
       has_frontend_changesets: ${{ steps.pending.outputs.frontend }}
       has_backend_changesets: ${{ steps.pending.outputs.backend }}
@@ -76,6 +78,18 @@ jobs:
             fi
           done
 
+      - name: Find apps changed by the merged release
+        id: released
+        if: steps.release.outputs.release == 'true'
+        run: |
+          for app in frontend backend; do
+            if git diff --quiet "$GITHUB_SHA^1" "$GITHUB_SHA" -- "apps/$app/package.json"; then
+              echo "$app=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "$app=true" >> "$GITHUB_OUTPUT"
+            fi
+          done
+
       - name: Open or update the app release pull request
         id: changesets
         uses: changesets/action@8488615a623b1b9c987934bb89eae8af6a946ac1 # v2
@@ -106,6 +120,9 @@ jobs:
       needs.version.outputs.has_frontend_changesets == 'false' &&
       needs.version.outputs.has_backend_changesets == 'false'
     uses: ./.github/workflows/portable-release.yml
+    with:
+      frontend_released: ${{ needs.version.outputs.frontend_released == 'true' }}
+      backend_released: ${{ needs.version.outputs.backend_released == 'true' }}
     secrets:
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     permissions:

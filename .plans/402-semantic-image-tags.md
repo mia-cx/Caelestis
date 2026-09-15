@@ -18,10 +18,12 @@ tags.
 ## TODOs
 
 - [x] Define the tag matrix, Bun default mapping, and release tests.
-- [ ] Publish immutable and moving aliases only for apps released by the Changesets merge.
+- [x] Publish immutable and moving aliases only for apps released by the Changesets merge.
 - [ ] Update self-hosting docs and release notes, then run all validation.
 
 ## Notes
 
 - Keep the paired `backend-X.Y.Z-frontend-X.Y.Z` tags and digest assets for server release provenance.
 - `node --test .github/scripts/prepare-portable-release.test.mjs` passes with four tests.
+- `pnpm test:release` passes all 50 tests.
+- `actionlint -shellcheck=''` passes both changed workflows.
