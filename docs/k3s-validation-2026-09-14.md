@@ -25,10 +25,10 @@ and administration checks remain with Mia. Previous-release upgrades were outsid
 
 ## Retained browser test stack
 
-- Website: <https://caelestis-test.yggdrasil.mia.cx>
-- Userscript server: `https://caelestis-test.yggdrasil.mia.cx/backend`
-- PR userscript: <https://caelestis-test.yggdrasil.mia.cx/test-assets/caelestis.user.js>
-- Import fixture: <https://caelestis-test.yggdrasil.mia.cx/test-assets/box-art.wplace>
+- Website: the stack's public Traefik HTTPS origin.
+- Userscript server: the same origin under `/backend`.
+- PR userscript: served from `/test-assets/caelestis.user.js` on that origin.
+- Import fixture: served from `/test-assets/box-art.wplace` on that origin.
 - Namespace: `caelestis-test-cnpg-s3-mu15pdnl`, context `default`.
 - Box Art is already published at canvas origin `(325051, 1781650)`, size `1612 × 2584`.
 
