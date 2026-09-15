@@ -1,5 +1,16 @@
 # @caelestis/backend
 
+## 0.7.0
+
+### Minor Changes
+
+- 7381490: Run the portable backend on Bun or Node with matching versioned container images.
+
+### Patch Changes
+
+- 84f0ece: Publish semantic container tags with Bun as the default backend image.
+- ecaffd2: Publish portable container images to Docker Hub and GHCR.
+
 ## 0.6.0
 
 ### Minor Changes
