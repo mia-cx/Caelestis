@@ -23,6 +23,7 @@ dashboard, server, and contributor guidance in a navigable GitHub wiki.
 - [x] Capture and add focused visual highlights for every documented feature, plus step images for each guide flow.
 - [x] Embed the current visual captures, then verify every link, command, and rendered page.
 - [x] Correct clipped visual crops, document import and placement, and show overlay and marker behavior at map scale.
+- [x] Correct the keyboard reference entry point after the final docs review.
 
 ## Notes
 
@@ -40,3 +41,4 @@ dashboard, server, and contributor guidance in a navigable GitHub wiki.
 - Wiki commit `16e57a2` renames `Sidebar.md` to GitHub's special `_Sidebar.md`, replaces the clipped panel captures, and adds import, placement, pixel-style, and two-zoom marker states.
 - Local validation checked 17 Markdown files, 46 image references, and 42 local page links across 28 PNG assets. Background Chromium rendered Home, Getting started, Overlay and painting, and Settings and shortcuts from GitHub. The sidebar appears as navigation, and all checked changed images loaded at their expected dimensions.
 - `pnpm lint` passed with the two existing informational D1 constructor advisories.
+- The keyboard reference is not in the rail. The wiki now directs keyboard users to `Shift+/`.
