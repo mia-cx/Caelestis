@@ -21,9 +21,3 @@ export const setHoveredPresenceItems = (keys: ReadonlySet<string>): void => {
 export const onPresenceHoverChange = (listener: () => void): void => {
   listeners.push(listener)
 }
-
-/** Test seam. */
-export const resetPresenceHover = (): void => {
-  hovered = new Set()
-  listeners.length = 0
-}

@@ -271,7 +271,8 @@ const step = (what: string, run: () => void): void => {
   }
 }
 
-const main = (): void => {
+/** Install the userscript once when its browser entrypoint runs. */
+export const startUserscript = (): void => {
   step('shared UI', registerCaelestisUi)
   registerProfileContextSource(readProfileContext)
   step('performance profile', installProfile)
@@ -482,5 +483,3 @@ const main = (): void => {
     // A replaced console is not part of the render path.
   }
 }
-
-main()
