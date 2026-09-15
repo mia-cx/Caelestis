@@ -72,61 +72,69 @@ jobs:
           chart_registry="ghcr.io/${GITHUB_REPOSITORY,,}/charts"
           test -n "${DOCKERHUB_TOKEN:?Configure the DOCKERHUB_TOKEN repository secret}"
           echo "$DOCKERHUB_TOKEN" | docker login docker.io --username miacx --password-stdin
+          echo "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
           echo "$GH_TOKEN" | helm registry login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
           for arch in amd64 arm64; do
             directory="tested-images/portable-images-$arch"
             (cd "$directory" && sha256sum --check SHA256SUMS)
             docker load -i "$directory/images.tar"
             cp "$directory/image-configs.json" "release/$arch-image-configs.json"
-            for component in backend backend-node backend-bun frontend; do
-              source="$component"
-              repository="$component"
-              variant_tag="$IMAGE_TAG"
-              case "$component" in
-                backend-node) source=backend; repository=backend; variant_tag="$IMAGE_TAG-node" ;;
-                backend-bun) repository=backend; variant_tag="$IMAGE_TAG-bun" ;;
-              esac
+            while IFS=$'\t' read -r component source variant_tag dockerhub_repository ghcr_repository; do
               local_image="caelestis-$source:test"
-              image="docker.io/miacx/caelestis-$repository:$variant_tag-$arch"
               test "$(docker inspect "$local_image" --format '{{.Architecture}}')" = "$arch"
               test "$(docker inspect "$local_image" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$GITHUB_SHA"
               local_id="$(docker inspect "$local_image" --format '{{.Id}}')"
               jq -e --arg id "$local_id" 'any(.[]; .Id == $id)' "$directory/image-configs.json"
+              for image_repository in "$dockerhub_repository" "$ghcr_repository"; do
+                image="$image_repository:$variant_tag-$arch"
+                if docker manifest inspect "$image" > /tmp/manifest.json 2>/tmp/manifest-error; then
+                  test "$(jq -r .config.digest /tmp/manifest.json)" = "$local_id"
+                else
+                  if ! grep -Eqi 'manifest unknown|no such manifest|not found' /tmp/manifest-error; then cat /tmp/manifest-error; exit 1; fi
+                  docker tag "$local_image" "$image"
+                  docker push "$image"
+                fi
+              done
+              cp "$directory/$source-sbom.spdx.json" "release/$component-$arch-sbom.spdx.json"
+            done < <(jq -r '.[] | [.component, .source, .tag, .registries.dockerhub, .registries.ghcr] | @tsv' release/images.json)
+          done
+          while IFS=$'\t' read -r component variant_tag dockerhub_repository ghcr_repository; do
+            for registry in dockerhub ghcr; do
+              case "$registry" in
+                dockerhub) image_repository="$dockerhub_repository" ;;
+                ghcr) image_repository="$ghcr_repository" ;;
+              esac
+              image="$image_repository:$variant_tag"
               if docker manifest inspect "$image" > /tmp/manifest.json 2>/tmp/manifest-error; then
-                test "$(jq -r .config.digest /tmp/manifest.json)" = "$local_id"
+                for arch in amd64 arm64; do
+                  digest="$(docker buildx imagetools inspect "$image-$arch" --format '{{.Manifest.Digest}}')"
+                  jq -e --arg arch "$arch" --arg digest "$digest" 'any(.manifests[]; .platform.architecture == $arch and .digest == $digest)' /tmp/manifest.json
+                done
               else
                 if ! grep -Eqi 'manifest unknown|no such manifest|not found' /tmp/manifest-error; then cat /tmp/manifest-error; exit 1; fi
-                docker tag "$local_image" "$image"
-                docker push "$image"
+                docker buildx imagetools create --tag "$image" "$image-amd64" "$image-arm64"
               fi
-              cp "$directory/$source-sbom.spdx.json" "release/$component-$arch-sbom.spdx.json"
+              digest="$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')"
+              printf '%s@%s\n' "$image_repository" "$digest" > "release/$component-$registry-image.txt"
+              if [ "$registry" = dockerhub ]; then
+                cp "release/$component-$registry-image.txt" "release/$component-image.txt"
+                if [ "$component" = backend ] || [ "$component" = frontend ]; then
+                  IMAGE_COMPONENT="$component" IMAGE_DIGEST="$digest" node --input-type=module -e "import {readFileSync,writeFileSync} from 'node:fs'; const file='deploy/helm/caelestis/values.yaml'; const indent=process.env.IMAGE_COMPONENT==='frontend'?'    ':'  '; writeFileSync(file,readFileSync(file,'utf8').replace(new RegExp('^'+indent+\"digest: ''\", 'm'), indent+'digest: '+process.env.IMAGE_DIGEST));"
+                fi
+              fi
             done
-          done
-          for component in backend backend-node backend-bun frontend; do
-            repository="$component"
-            variant_tag="$IMAGE_TAG"
-            case "$component" in
-              backend-node) repository=backend; variant_tag="$IMAGE_TAG-node" ;;
-              backend-bun) repository=backend; variant_tag="$IMAGE_TAG-bun" ;;
-            esac
-            image_repository="docker.io/miacx/caelestis-$repository"
-            image="$image_repository:$variant_tag"
-            if docker manifest inspect "$image" > /tmp/manifest.json 2>/tmp/manifest-error; then
-              for arch in amd64 arm64; do
-                digest="$(docker buildx imagetools inspect "$image-$arch" --format '{{.Manifest.Digest}}')"
-                jq -e --arg arch "$arch" --arg digest "$digest" 'any(.manifests[]; .platform.architecture == $arch and .digest == $digest)' /tmp/manifest.json
-              done
-            else
-              if ! grep -Eqi 'manifest unknown|no such manifest|not found' /tmp/manifest-error; then cat /tmp/manifest-error; exit 1; fi
-              docker buildx imagetools create --tag "$image" "$image-amd64" "$image-arm64"
-            fi
-            digest="$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')"
-            printf '%s@%s\n' "$image_repository" "$digest" > "release/$component-image.txt"
-            if [ "$component" = backend ] || [ "$component" = frontend ]; then
-              IMAGE_COMPONENT="$component" IMAGE_DIGEST="$digest" node --input-type=module -e "import {readFileSync,writeFileSync} from 'node:fs'; const file='deploy/helm/caelestis/values.yaml'; const indent=process.env.IMAGE_COMPONENT==='frontend'?'    ':'  '; writeFileSync(file,readFileSync(file,'utf8').replace(new RegExp('^'+indent+\"digest: ''\", 'm'), indent+'digest: '+process.env.IMAGE_DIGEST));"
-            fi
-          done
+          done < <(jq -r '.[] | [.component, .tag, .registries.dockerhub, .registries.ghcr] | @tsv' release/images.json)
           cmp release/backend-image.txt release/backend-node-image.txt
+          cmp release/backend-dockerhub-image.txt release/backend-node-dockerhub-image.txt
+          cmp release/backend-ghcr-image.txt release/backend-node-ghcr-image.txt
+          docker logout ghcr.io
+          while IFS=$'\t' read -r variant_tag ghcr_repository; do
+            if ! docker manifest inspect "$ghcr_repository:$variant_tag" > /dev/null 2>/tmp/ghcr-public-error; then
+              cat /tmp/ghcr-public-error
+              echo '::error title=GHCR packages are private::Set caelestis-backend and caelestis-frontend package visibility to Public, then rerun this release.'
+              exit 1
+            fi
+          done < <(jq -r '.[] | [.tag, .registries.ghcr] | @tsv' release/images.json)
           jq --slurpfile images release/amd64-image-configs.json '. + {runtimes: ($images[0] | map({key: .Config.Labels["cx.mia.caelestis.runtime"], value: .Config.Labels["cx.mia.caelestis.runtime.version"]}) | from_entries)}' release/versions.json > release/versions.tmp
           mv release/versions.tmp release/versions.json
           helm package deploy/helm/caelestis --version "$CHART_VERSION" --app-version "$IMAGE_TAG" --destination release

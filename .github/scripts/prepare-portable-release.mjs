@@ -21,6 +21,27 @@ export const portableVersion = (backend, frontend) => {
   }
 }
 
+/** Map every published variant to the same package name in both registries. */
+export const portableImages = (imageTag, githubRepository) => {
+  const match = /^([A-Za-z0-9_.-]+)\/[A-Za-z0-9_.-]+$/.exec(githubRepository)
+  if (!match) throw new Error('GITHUB_REPOSITORY must contain an owner and repository')
+  const registries = (repository) => ({
+    dockerhub: `docker.io/miacx/${repository}`,
+    ghcr: `ghcr.io/${match[1].toLowerCase()}/${repository}`,
+  })
+  return [
+    { component: 'backend', source: 'backend', tag: imageTag },
+    { component: 'backend-node', source: 'backend', tag: `${imageTag}-node` },
+    { component: 'backend-bun', source: 'backend-bun', tag: `${imageTag}-bun` },
+    { component: 'frontend', source: 'frontend', tag: imageTag },
+  ].map((image) => ({
+    ...image,
+    registries: registries(
+      `caelestis-${image.component.startsWith('backend') ? 'backend' : 'frontend'}`,
+    ),
+  }))
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === import.meta.filename) {
   const { values } = parseArgs({
     options: { 'output-dir': { type: 'string' }, 'github-output': { type: 'string' } },
@@ -35,6 +56,9 @@ if (process.argv[1] && resolve(process.argv[1]) === import.meta.filename) {
   if (!/^[a-f0-9]{40}$/.test(sha ?? ''))
     throw new Error('GITHUB_SHA must identify the release commit')
   mkdirSync(values['output-dir'], { recursive: true })
+  // biome-ignore lint/suspicious/noUndeclaredEnvVars: This release CLI does not run through Turbo.
+  const githubRepository = process.env.GITHUB_REPOSITORY ?? 'mia-riezebos/Caelestis'
+  const images = portableImages(identity.imageTag, githubRepository)
   const migrations = (directory) =>
     readdirSync(resolve(root, directory))
       .filter((name) => name.endsWith('.sql'))
@@ -50,8 +74,14 @@ if (process.argv[1] && resolve(process.argv[1]) === import.meta.filename) {
     `${JSON.stringify({ ...identity, commit: sha, postgresMigrations: migrations('apps/backend/migrations-postgres'), mariaMigrations: migrations('apps/backend/migrations-mariadb'), sqliteMigrations: migrations('apps/backend/migrations'), runtimeSchema: 1 }, null, 2)}\n`,
   )
   writeFileSync(
+    resolve(values['output-dir'], 'images.json'),
+    `${JSON.stringify(images, null, 2)}\n`,
+  )
+  const backendRepositories = images[0].registries
+  const frontendRepositories = images.at(-1).registries
+  writeFileSync(
     resolve(values['output-dir'], 'notes.md'),
-    `Caelestis server with backend ${identity.backend} and frontend ${identity.frontend}.\n\nBackend tags: \`${identity.nodeImageTag}\` (Node, also the default \`${identity.imageTag}\`) and \`${identity.bunImageTag}\` (Bun). The frontend uses Node with tag \`${identity.imageTag}\`. Runtime versions are recorded in versions.json and each image's labels.\n\nChart version: \`${identity.chartVersion}\`. The chart defaults to Node.\n\nSee [self-hosting instructions](https://github.com/mia-riezebos/Caelestis/blob/${sha}/docs/self-hosting.md) for runtime selection, migrations, and backups.\n`,
+    `Caelestis server with backend ${identity.backend} and frontend ${identity.frontend}.\n\nBackend tags: \`${identity.nodeImageTag}\` (Node, also the default \`${identity.imageTag}\`) and \`${identity.bunImageTag}\` (Bun). The frontend uses Node with tag \`${identity.imageTag}\`. Runtime versions are recorded in versions.json and each image's labels.\n\nImages are published to Docker Hub (\`${backendRepositories.dockerhub}\`, \`${frontendRepositories.dockerhub}\`) and GHCR (\`${backendRepositories.ghcr}\`, \`${frontendRepositories.ghcr}\`). Registry-specific digest references are attached as \`*-dockerhub-image.txt\` and \`*-ghcr-image.txt\`.\n\nChart version: \`${identity.chartVersion}\`. The chart defaults to Node images from Docker Hub.\n\nSee [self-hosting instructions](https://github.com/mia-riezebos/Caelestis/blob/${sha}/docs/self-hosting.md) for runtime selection, migrations, and backups.\n`,
   )
   if (values['github-output'])
     appendFileSync(
