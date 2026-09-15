@@ -24,6 +24,12 @@ dashboard, server, and contributor guidance in a navigable GitHub wiki.
 - [x] Embed the current visual captures, then verify every link, command, and rendered page.
 - [x] Correct clipped visual crops, document import and placement, and show overlay and marker behavior at map scale.
 - [x] Correct the keyboard reference entry point after the final docs review.
+- [x] Define the supported userscript, Cloudflare, and Docker install paths from the released artifacts and deployment configuration.
+- [x] Add account-specific Wrangler configuration examples for self-hosted Cloudflare deployments.
+- [ ] Write an illustrated userscript install guide, including the optional server connection flow.
+- [ ] Write an illustrated Cloudflare backend and frontend deployment guide, including the optional server connection flow.
+- [ ] Write an illustrated Docker backend and frontend deployment guide, including the optional server connection flow.
+- [ ] Capture a relevant screenshot for every install-guide step, then check all links, commands, and rendered pages.
 
 ## Notes
 
@@ -42,3 +48,6 @@ dashboard, server, and contributor guidance in a navigable GitHub wiki.
 - Local validation checked 17 Markdown files, 46 image references, and 42 local page links across 28 PNG assets. Background Chromium rendered Home, Getting started, Overlay and painting, and Settings and shortcuts from GitHub. The sidebar appears as navigation, and all checked changed images loaded at their expected dimensions.
 - `pnpm lint` passed with the two existing informational D1 constructor advisories.
 - The keyboard reference is not in the rail. The wiki now directs keyboard users to `Shift+/`.
+- The production Wrangler files bind Mia's account, routes, workers, D1 database, and R2 bucket. A self-deployer needs separate configuration with unique Worker, D1, and R2 names, then deploys the backend before the frontend service binding.
+- A Cloudflare frontend needs a real backend `read` token. The guide will mint it after the backend deploy, keep it in the frontend Worker secret store, and never put it in a config file or screenshot.
+- `apps/*/wrangler.self-hosted.example.toml` keeps official account IDs and routes out of a fork's first deployment. Built backend and frontend dry runs resolve their D1, R2, Durable Object, service, and assets bindings from the examples.

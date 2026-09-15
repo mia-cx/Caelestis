@@ -1,0 +1,21 @@
+# Copy this file to wrangler.self-hosted.toml. Use the same R2 bucket and the backend Worker name
+# from apps/backend/wrangler.self-hosted.toml.
+name = "caelestis-example-frontend"
+compatibility_date = "2026-08-25"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+preview_urls = false
+main = ".svelte-kit/cloudflare/_worker.js"
+
+[[services]]
+binding = "CAELESTIS_BACKEND"
+service = "caelestis-example-backend"
+
+[[r2_buckets]]
+binding = "SOCIAL_IMAGES"
+bucket_name = "caelestis-example-blobs"
+
+[assets]
+directory = ".svelte-kit/cloudflare"
+binding = "ASSETS"
+run_worker_first = true
