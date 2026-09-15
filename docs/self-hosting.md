@@ -23,13 +23,17 @@ The chart rejects multiple replicas and uses `Recreate` updates. Horizontal appl
 
 Each server release publishes matching backend variants for `linux/amd64` and `linux/arm64`:
 
-| Backend tag suffix | Runtime | Default |
+| Backend tags | Runtime | Use |
 | --- | --- | --- |
-| `<version>-node` | Node 24.20.0 | The unsuffixed `<version>` tag has the same image digest |
-| `<version>-bun` | Bun 1.4.2 | Select explicitly |
+| `latest`, `1`, `1.2`, `1.2.3` | Bun 1.4.2 | Default |
+| `latest-bun`, `1-bun`, `1.2-bun`, `1.2.3-bun` | Bun 1.4.2 | Explicit Bun |
+| `latest-node`, `1-node`, `1.2-node`, `1.2.3-node` | Node 24.20.0 | Explicit Node |
 
-Here, `<version>` includes both app versions, for example `backend-1.2.3-frontend-4.5.6`.
-Use the actual version from your server release. The frontend always uses the unsuffixed tag.
+The frontend publishes `latest`, major, minor, and patch tags for its own version.
+Patch tags stay immutable. Latest, major, and minor aliases move only when that app receives a release.
+Each server release also has a paired tag, for example `backend-1.2.3-frontend-4.5.6`.
+The paired backend tag uses Bun. Its `-bun` and `-node` forms select either runtime explicitly.
+The frontend uses the unsuffixed paired tag.
 Release `versions.json` and image labels record runtime versions; the Dockerfile pins their source images by digest.
 
 Each release publishes the same tested tags to both registries:
@@ -46,10 +50,10 @@ and Bun's S3 API lacks the conditional writes and custom metadata required by th
 Filesystem atomic writes and the social renderer use Bun's implementations of the existing filesystem and worker APIs.
 Cloudflare Workers remain a separate deployment target. Miniflare is development and test tooling.
 
-To select a published Bun backend in Compose, set these references in `.env`:
+To pin a published Bun backend in Compose, set these references in `.env`:
 
 ```dotenv
-CAELESTIS_BACKEND_IMAGE=miacx/caelestis-backend:backend-1.2.3-frontend-4.5.6-bun
+CAELESTIS_BACKEND_IMAGE=miacx/caelestis-backend:backend-1.2.3-frontend-4.5.6
 CAELESTIS_FRONTEND_IMAGE=miacx/caelestis-frontend:backend-1.2.3-frontend-4.5.6
 ```
 
@@ -58,13 +62,13 @@ For a local Bun build, use `docker build --target backend-bun -t miacx/caelestis
 then start Compose with `--no-build`. The existing `backend` Docker target builds Node.
 The Bun image aliases `node` to Bun, so existing migration, health-check, and S3 initialization commands use the selected runtime.
 
-Published Helm charts pin Node image digests. To select Bun, override `image.digest` with the release's
-`backend-bun-image.txt` digest. To select by tag instead, clear that default digest:
+Published Helm charts pin the default Bun backend and Node frontend digests. To select Node, override
+`image.digest` with the release's `backend-node-image.txt` digest. To select by tag instead, clear that digest:
 
 ```sh
 helm upgrade --install caelestis oci://ghcr.io/mia-riezebos/caelestis/charts/caelestis \
   --version YOUR_CHART_VERSION -f your-values.yaml \
-  --set-string image.tag=YOUR_IMAGE_TAG-bun --set-string image.digest= \
+  --set-string image.tag=YOUR_IMAGE_TAG-node --set-string image.digest= \
   --wait --timeout 10m
 ```
 
@@ -72,7 +76,7 @@ The chart defaults to Docker Hub. To use GHCR, override `image.repository` and `
 Also set their matching digests from the release's `backend-ghcr-image.txt` and `frontend-ghcr-image.txt` files.
 Keep the chart's matching frontend image. The database, object storage, and existing secrets are shared across runtimes.
 Switching runtimes at the same app version requires a backend restart and WebSocket reconnect, with no data conversion.
-To switch back, select the matching `-node` image or its digest. For an app-version downgrade, follow the backup/restore procedure below.
+Select the matching unsuffixed or `-bun` image to switch back. For an app-version downgrade, follow the backup/restore procedure below.
 The Bun backend requires the separate Node frontend; the optional combined `FRONTEND_HANDLER` mode is Node-only.
 
 ## Run with Docker
@@ -309,7 +313,8 @@ Portable admin export/import across providers is tracked separately and is not p
 ## Versions and development checks
 
 Approved app releases publish `linux/amd64` and `linux/arm64` images to Docker Hub and GHCR.
-Both use the tested app-version pair as their immutable tag, for example `backend-1.2.3-frontend-4.5.6`.
+They use immutable patch and tested app-version pair tags, for example `1.2.3` and `backend-1.2.3-frontend-4.5.6`.
+Latest, major, and minor aliases move when the corresponding app version changes.
 Its Helm version is `1.2.3+frontend.4.5.6`, stored at `oci://ghcr.io/mia-riezebos/caelestis/charts/caelestis`.
 OCI represents the chart version's `+` as `_`. Pass the original version to Helm.
 Published charts pin both image digests. Pin chart versions when upgrading.

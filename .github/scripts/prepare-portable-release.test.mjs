@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { it } from 'node:test'
-import { portableImages, portableVersion } from './prepare-portable-release.mjs'
+import { portableImages, portableVersion, semanticImageTags } from './prepare-portable-release.mjs'
 
 it('changes artifact versions when either app changes', () => {
   const initial = portableVersion('1.2.3', '4.5.6')
@@ -21,30 +21,67 @@ it('rejects prerelease, malformed, and shell-active version strings', () => {
     assert.throws(() => portableVersion(invalid, '1.0.0'))
 })
 
-it('maps every image variant to Docker Hub and GHCR', () => {
-  const images = portableImages('backend-1.2.3-frontend-4.5.6', 'mia-riezebos/Caelestis')
+it('builds immutable patch tags and moving semantic aliases', () => {
+  assert.deepEqual(semanticImageTags('1.2.3'), {
+    immutable: ['1.2.3'],
+    moving: ['1.2', '1', 'latest'],
+  })
+  assert.deepEqual(semanticImageTags('1.2.3', '-bun'), {
+    immutable: ['1.2.3-bun'],
+    moving: ['1.2-bun', '1-bun', 'latest-bun'],
+  })
+})
+
+it('maps Bun defaults and runtime choices to Docker Hub and GHCR', () => {
+  const images = portableImages(portableVersion('1.2.3', '4.5.6'), 'mia-riezebos/Caelestis')
   assert.deepEqual(
-    images.map(({ component, source, tag }) => ({ component, source, tag })),
+    images.map(({ app, component, source, tag, aliases }) => ({
+      app,
+      component,
+      source,
+      tag,
+      aliases,
+    })),
     [
       {
+        app: 'backend',
         component: 'backend',
-        source: 'backend',
+        source: 'backend-bun',
         tag: 'backend-1.2.3-frontend-4.5.6',
+        aliases: {
+          immutable: ['1.2.3'],
+          moving: ['1.2', '1', 'latest'],
+        },
       },
       {
+        app: 'backend',
         component: 'backend-node',
         source: 'backend',
         tag: 'backend-1.2.3-frontend-4.5.6-node',
+        aliases: {
+          immutable: ['1.2.3-node'],
+          moving: ['1.2-node', '1-node', 'latest-node'],
+        },
       },
       {
+        app: 'backend',
         component: 'backend-bun',
         source: 'backend-bun',
         tag: 'backend-1.2.3-frontend-4.5.6-bun',
+        aliases: {
+          immutable: ['1.2.3-bun'],
+          moving: ['1.2-bun', '1-bun', 'latest-bun'],
+        },
       },
       {
+        app: 'frontend',
         component: 'frontend',
         source: 'frontend',
         tag: 'backend-1.2.3-frontend-4.5.6',
+        aliases: {
+          immutable: ['4.5.6'],
+          moving: ['4.5', '4', 'latest'],
+        },
       },
     ],
   )
@@ -56,5 +93,5 @@ it('maps every image variant to Docker Hub and GHCR', () => {
     dockerhub: 'docker.io/miacx/caelestis-frontend',
     ghcr: 'ghcr.io/mia-riezebos/caelestis-frontend',
   })
-  assert.throws(() => portableImages('tag', 'missing-owner'))
+  assert.throws(() => portableImages(portableVersion('1.0.0', '1.0.0'), 'missing-owner'))
 })

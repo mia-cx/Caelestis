@@ -62,7 +62,7 @@ All live runs share one concurrency group. Cleanup runs before provisioning and 
 
 Extended runs select the latest earlier portable release and verify its image-manifest checksums. Until one exists, they build commit `6884c40704b63c75e8ed0549860df348db325600`, the initial portable baseline. They seed the old application, stop it, run candidate migrations, then verify the candidate against the preserved data. Cross-adapter export/import tests belong to the future portability feature.
 
-Each architecture builds the Node backend, Bun backend, and Node frontend once. Jobs consume checksummed archives. Publication loads those same archives, verifies image IDs, architecture and source revision, then pushes them without rebuilding. The release includes per-architecture image configurations, SBOMs, image digests, runtime versions, and the chart pinned to the default Node images.
+Each architecture builds the Node backend, Bun backend, and Node frontend once. Jobs consume checksummed archives. Publication loads those same archives, verifies image IDs, architecture and source revision, then pushes them without rebuilding. The release includes per-architecture image configurations, SBOMs, image digests, runtime versions, and the chart pinned to the default Bun backend and Node frontend.
 
 ## Run locally
 
