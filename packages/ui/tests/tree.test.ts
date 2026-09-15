@@ -930,6 +930,27 @@ describe('template tree', () => {
     void unmount(component)
   })
 
+  it('suppresses iOS text selection on touch rows but preserves rename input selection', () => {
+    const component = mount(TemplateTree, {
+      target: document.body,
+      props: { model: { ...model, renamingKey: 'local:city' } },
+    })
+    flushSync()
+    const row = document.querySelector<HTMLElement>('[data-caelestis-tree-key="local:city"]')
+    const input = row?.querySelector<HTMLInputElement>('[data-caelestis-rename]')
+    if (row === null || input === null || row === undefined || input === undefined) {
+      throw new Error('missing rename row')
+    }
+
+    const css = [...document.styleSheets]
+      .flatMap((sheet) => [...sheet.cssRules])
+      .map((rule) => rule.cssText)
+      .join('\n')
+    expect(css).toContain('-webkit-user-select: none')
+    expect(css).toContain('-webkit-user-select: text')
+    void unmount(component)
+  })
+
   it.each([
     ['contextmenu', 'click'],
     ['click', 'contextmenu'],

@@ -789,7 +789,8 @@
      only action surface in tree mode: the meter and the icon buttons go, and the name gets the row. */
   @media (hover: none) {
     .tree:not(.preview-grid) .row-tail, .tree:not(.preview-grid) .row-heading > .actions { display: none; }
-    .row { -webkit-touch-callout: none; user-select: none; }
+    .row { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+    .row input { -webkit-user-select: text; user-select: text; }
   }
   .tree.preview-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 13rem), 1fr)); align-content: start; align-items: start; gap: 0.5rem; padding: 0.5rem; }
   .preview-grid > :not(.preview-card) { grid-column: 1 / -1; min-inline-size: 0; margin-inline: 0; }
