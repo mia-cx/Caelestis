@@ -26,10 +26,10 @@ dashboard, server, and contributor guidance in a navigable GitHub wiki.
 - [x] Correct the keyboard reference entry point after the final docs review.
 - [x] Define the supported userscript, Cloudflare, and Docker install paths from the released artifacts and deployment configuration.
 - [x] Add account-specific Wrangler configuration examples for self-hosted Cloudflare deployments.
-- [ ] Write an illustrated userscript install guide, including the optional server connection flow.
-- [ ] Write an illustrated Cloudflare backend and frontend deployment guide, including the optional server connection flow.
-- [ ] Write an illustrated Docker backend and frontend deployment guide, including the optional server connection flow.
-- [ ] Capture a relevant screenshot for every install-guide step, then check all links, commands, and rendered pages.
+- [x] Write an illustrated userscript install guide, including the optional server connection flow.
+- [x] Write an illustrated Cloudflare backend and frontend deployment guide, including the optional server connection flow.
+- [x] Write an illustrated Docker backend and frontend deployment guide, including the optional server connection flow.
+- [x] Capture a relevant screenshot for every install-guide step, then check all links, commands, and rendered pages.
 
 ## Notes
 
@@ -51,3 +51,5 @@ dashboard, server, and contributor guidance in a navigable GitHub wiki.
 - The production Wrangler files bind Mia's account, routes, workers, D1 database, and R2 bucket. A self-deployer needs separate configuration with unique Worker, D1, and R2 names, then deploys the backend before the frontend service binding.
 - A Cloudflare frontend needs a real backend `read` token. The guide will mint it after the backend deploy, keep it in the frontend Worker secret store, and never put it in a config file or screenshot.
 - `apps/*/wrangler.self-hosted.example.toml` keeps official account IDs and routes out of a fork's first deployment. Built backend and frontend dry runs resolve their D1, R2, Durable Object, service, and assets bindings from the examples.
+- Wiki commit `b4875dc` adds illustrated userscript, Cloudflare, Docker, and server-connection guides. Each numbered install and connection step has an action-specific image.
+- Background Chromium rendered all four published guides after scrolling. Every referenced guide image loaded, and the `_Sidebar` navigation appeared on each page. The local wiki checker found 21 pages, 80 image references, and 60 internal page links.
