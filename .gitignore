@@ -24,6 +24,9 @@ test-results/
 .dev.vars
 .dev.vars.*
 
+# Per-account Cloudflare deployment configuration copied from the tracked examples.
+apps/*/wrangler.self-hosted.toml
+
 # Locally rendered share previews
 /.scratch/social-images/
 

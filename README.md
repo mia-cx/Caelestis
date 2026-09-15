@@ -2,159 +2,64 @@
 
 https://github.com/user-attachments/assets/3cf4473d-d0cc-4b05-a60d-8f0f7f8d8ab1
 
-Caelestis is a fast, customisable template overlay for [wplace.live](https://wplace.live). It gives
-groups a shared template server, keeps local and shared templates in one tree, and tracks painting
-progress without making the browser scan the whole template first.
+Caelestis is a userscript for Wplace. It displays image templates over the map and includes tools
+for placement, overlay appearance, and colour work. Connect a Caelestis server to share templates,
+progress, claims, and dashboard data.
 
-The project has three parts that work together:
+## Install
 
-- a userscript that renders templates and adds painting tools to Wplace;
-- a self-hostable server for shared templates, access control, and telemetry;
-- a web dashboard for progress, pace, contributions, and timelapses.
+1. Install a userscript manager, such as [Violentmonkey](https://violentmonkey.github.io/).
+2. **[Install Caelestis](https://github.com/mia-riezebos/Caelestis/releases/latest/download/caelestis.user.js).**
+3. Open [Wplace](https://wplace.live). Caelestis adds a button rail to the map. Open the template
+   panel, import your image, and place it where you want to paint.
 
-## Install the userscript
+Import a PNG, Blue Marble export, or native `.wplace` file. Local templates stay in this browser.
+Connect a template server when you want to share artwork and progress with other people.
 
-Install a userscript manager such as Violentmonkey, then open the stable installer:
+## Main features
 
-**[Install Caelestis](https://github.com/mia-riezebos/Caelestis/releases/latest/download/caelestis.user.js)**
+### Templates
 
-The installer follows the latest GitHub release. Once installed, open Wplace and use the Caelestis
-button rail to import a local template or connect to a template server.
+Import, place, move, rotate, and adjust templates without changing the source image. The template
+tree supports folders, tags, search, filters, and custom order. It also reads Wplace personal and
+alliance templates.
 
-The official dashboard is at [caelestis.mia.cx](https://caelestis.mia.cx). Private servers ask for
-the same access token used by the userscript.
+![The Caelestis template tree beside a placed Wplace overlay.](docs/assets/readme/templates-and-overlay.png)
 
-## What it does
+### Painting
 
-### Shared templates
+Show missing pixels, mismatches, or the selected Wplace colour. Jump to remaining pixels, pick a
+colour from the template, and change the overlay settings for the map underneath it.
 
-- Import PNG images, Blue Marble exports, and `.wplace` files, then export placed templates back to
-  native `.wplace` files.
-- Publish templates to a server so everyone connected to it sees the same artwork and organisation.
-- Organise local and server templates with nested folders, ordering, drag and drop, and search.
-- Connect to several template servers at once.
-- Move templates between folders or upload local templates to a server you administer.
+![The Wplace colour palette with Caelestis remaining-work markers.](docs/assets/readme/colour-work.png)
 
-### A configurable overlay
+### Shared projects
 
-- Render templates through WebGL without baking every appearance change into new image tiles.
-- Adjust pixel size, rounding, position, rotation, opacity, and colour visibility per template.
-- Switch between small-pixel, full-pixel, and corner pixel styles.
-- Mark mismatches, unpainted pixels, or every pixel of the selected paint colour.
-- Toggle the global mismatch-marker default directly from the map button rail.
-- Pick colours from the template itself, including when visible pixels do not fill their source cell.
-- Jump to the next missing pixel for a colour, then to mismatches once that colour is complete.
+Server templates track folder and template progress by colour. The dashboard shows contributions,
+pace, history, and timelapses. Connected painters can share their viewport, drafts, favourites, and
+region claims.
 
-### Shared progress
+![A server template with timelapse and progress controls.](docs/assets/readme/dashboard-timelapse.png)
 
-- Show progress for templates, folders, and whole servers.
-- Break progress down by colour and sort the palette by what still needs work.
-- Record contribution totals, painting pace, progress history, and timelapses.
-- Keep local counters responsive while the server remains the shared source of truth.
+## Documentation
 
-## Privacy and telemetry
+| You want to… | Start here |
+| --- | --- |
+| Install and paint | [Getting started](https://github.com/mia-riezebos/Caelestis/wiki/Getting-started) |
+| Manage templates and overlays | [Userscript guide](https://github.com/mia-riezebos/Caelestis/wiki/Userscript) |
+| Run a server for your group | [Self-hosting](https://github.com/mia-riezebos/Caelestis/wiki/Self-hosting) |
+| Read project history or help improve it | [Contributor guide](https://github.com/mia-riezebos/Caelestis/wiki/Contributing) |
 
-`Report my activity` and `Share tiles` are enabled by default and can be disabled independently in
-the userscript settings.
+## Project links
 
-Caelestis reports paint activity and fetched tiles only where a server template exists. It sends
-that data only to the server providing the template. The server uses it for progress bars,
-contributions, pace and progress charts, and timelapses.
+- [Wiki](https://github.com/mia-riezebos/Caelestis/wiki)
+- [Dashboard](https://caelestis.mia.cx)
+- [Releases](https://github.com/mia-riezebos/Caelestis/releases)
+- [The Quilt Discord](https://discord.gg/thequilt)
+- [Issue tracker](https://github.com/mia-riezebos/Caelestis/issues)
 
-## Development
+## Contribute
 
-Caelestis is a pnpm monorepo. It requires Node.js 22.13 or newer and the pnpm version pinned in
-`package.json`.
-
-```sh
-pnpm install
-pnpm dev
-```
-
-`pnpm dev` starts the backend, frontend, and userscript development tasks. The backend applies its
-local D1 migrations before Wrangler starts. The userscript task rebuilds and reinjects changes into
-the configured debug Chromium session.
-
-Both servers start named Cloudflare tunnels after their local health checks pass:
-
-- Frontend: https://caelestis-dev-frontend.mia.cx (local port 5173).
-- Backend: https://caelestis-dev.mia.cx (local port 8787).
-
-Install and authenticate `cloudflared` with credentials for these named tunnels. Without them,
-the servers still run locally. Stopping a dev task stops its server and tunnel together.
-Use `pnpm --filter @caelestis/frontend dev` to start only the frontend and its tunnel.
-`CAELESTIS_FRONTEND_TUNNEL` and `CAELESTIS_TUNNEL` override the respective tunnel names.
-
-Run the complete local checks with:
-
-```sh
-pnpm lint
-pnpm check
-pnpm test
-pnpm build
-```
-
-## Repository layout
-
-```text
-apps/
-  backend/       Hono API on Cloudflare Workers, D1, R2, and Durable Objects
-  frontend/      SvelteKit progress dashboard
-  userscript/    Wplace integration, WebGL renderer, template UI, and telemetry client
-packages/
-  shared/        Template, palette, PNG, tiling, hashing, and telemetry code
-  wire-schema/   Runtime validation for data crossing the network
-  ui/            Reserved package for future shared UI components
-```
-
-The backend Worker mounts under `/backend`, which lets the frontend and API share one domain. Its
-application API lives under `/backend/v1`. Existing root-relative routes remain compatibility
-aliases for installed clients. The health check stays at `/backend/health`, outside the application
-API. When a server is added by origin, the userscript uses `/backend` automatically. Supplying a URL
-with another path overrides that default. See [Backend API versioning](docs/backend-api-versioning.md)
-for the version and compatibility policy.
-
-## Self-hosting
-
-For Docker, Compose, and Kubernetes, see [Self-hosting](docs/self-hosting.md).
-For automated stack checks and the account setup wizard, see [Stack tests](docs/stack-testing.md).
-
-The included Wrangler files describe the deployment at `caelestis.mia.cx`. A fork must replace the
-Cloudflare account IDs, routes, D1 database, and R2 bucket with its own resources.
-
-After configuring those bindings, apply the database migrations and set a bootstrap admin token:
-
-```sh
-pnpm --dir apps/backend exec wrangler d1 migrations apply DB --remote
-pnpm --dir apps/backend exec wrangler secret put ADMIN_TOKEN
-pnpm --dir apps/backend exec wrangler deploy
-pnpm --dir apps/frontend deploy
-```
-
-The SSR frontend also needs a backend token with exactly `read` scope. Store it directly on the
-frontend Worker without writing it to disk:
-
-```sh
-./scripts/set-frontend-read-token.sh
-```
-
-Keep the bootstrap token somewhere safe. It can create normal admin and read tokens, but the server
-never returns its value through the API.
-
-Production deployments run only after the Changesets release PR merges. The App release workflow
-calls `.github/workflows/deploy.yml` for that exact commit before publishing. The workflow
-needs a `CLOUDFLARE_API_TOKEN` repository secret with access to the configured Workers, D1, and R2
-resources.
-
-## App releases
-
-The userscript, frontend, and backend use one Changesets release workflow with independent versions
-and changelogs. User-visible shared-package changes belong to every affected deployable app, not the
-internal package.
-
-See [App releases](docs/app-releases.md) for release-note ownership and publishing details.
-
-## Contributing
-
-Read the [contribution guide](CONTRIBUTING.md) before opening a pull request. Report bugs and request
-features through the [GitHub issue forms](https://github.com/mia-riezebos/Caelestis/issues/new/choose).
+Read the [contribution guide](CONTRIBUTING.md) before opening a pull request. Use the
+[issue forms](https://github.com/mia-riezebos/Caelestis/issues/new/choose) for bugs and feature
+ideas. Report vulnerabilities through the [security process](SECURITY.md), not a public issue.

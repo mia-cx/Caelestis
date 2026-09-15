@@ -1,0 +1,79 @@
+# Copy this file to wrangler.self-hosted.toml. Replace each caelestis-example value with a unique
+# name for your account, then replace database_id with the ID from `wrangler d1 create`.
+name = "caelestis-example-backend"
+main = "src/worker.ts"
+compatibility_date = "2026-08-03"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+preview_urls = false
+
+[[r2_buckets]]
+binding = "BLOBS"
+bucket_name = "caelestis-example-blobs"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "caelestis-example"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "./migrations"
+
+[[analytics_engine_datasets]]
+binding = "REQUEST_METRICS"
+dataset = "caelestis_example_metrics"
+
+[[durable_objects.bindings]]
+name = "TELEMETRY"
+class_name = "TelemetryShard"
+
+[[durable_objects.bindings]]
+name = "ALARM_WATCHER"
+class_name = "AlarmWatcher"
+
+[[durable_objects.bindings]]
+name = "STATUS_READ_MODEL"
+class_name = "StatusReadModelObject"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["TelemetryShard"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["AlarmWatcher"]
+
+[[migrations]]
+tag = "v3"
+new_sqlite_classes = ["StatusReadModelObject"]
+
+[[durable_objects.bindings]]
+name = "TEMPLATE_BACKFILL"
+class_name = "TemplateBackfillObject"
+
+[[migrations]]
+tag = "v4"
+new_sqlite_classes = ["TemplateBackfillObject"]
+
+[[durable_objects.bindings]]
+name = "PRESENCE"
+class_name = "PresenceObject"
+
+[[migrations]]
+tag = "v5"
+new_sqlite_classes = ["PresenceObject"]
+
+[vars]
+SHARD_STRATEGY = "single"
+# Use a new UUIDv7. The default only keeps this example syntactically complete.
+SERVER_ID = "00000000-0000-7000-8000-000000000001"
+SERVER_NAME = "My Caelestis server"
+SERVER_DESCRIPTION = ""
+SEASON = "0"
+OPEN_ACCESS = "false"
+BASE_PATH = "/backend"
+TILE_BLOB_GC_MODE = "dry-run"
+
+[observability]
+enabled = true
+
+[triggers]
+crons = ["0 */6 * * *"]
