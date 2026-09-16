@@ -15,9 +15,12 @@ Reject claim documents that cannot produce pixels before routing them, and repor
 ## TODOs
 
 - [x] Validate claim documents before persistence and retry routing, with focused coverage for each invalid form.
-- [~] Run the affected userscript tests, typecheck, lint, build, release check, and review the final diff.
+- [x] Run the affected userscript tests, typecheck, lint, build, release check, and review the final diff.
 
 ## Notes
 
 - The reported setup uses season 0 and bootstrap admin tokens. The screenshot shows `15 shapes · 0 px`; server compatibility is not the cause.
-- Focused validation: `pnpm exec vitest run src/claim-routing.test.ts` passed 17 tests.
+- Focused validation: `pnpm exec vitest run src/claim-routing.test.ts` passed 18 tests.
+- Userscript validation: 1,514 tests, typecheck, and production build passed.
+- Repository lint passed with two existing informational constructor notices outside this change.
+- Release validation passed 52 tests and accepted the pending userscript Changeset.
