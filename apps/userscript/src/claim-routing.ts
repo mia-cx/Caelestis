@@ -1,18 +1,17 @@
 import {
-  MAX_REGION_DOCUMENT_PIXELS,
   REGION_CLAIM_TTL_MS,
   type RegionClaim,
   type RegionDocument,
   type RegionShapePixels,
   rectIntersection,
   regionDocumentBounds,
-  regionDocumentPixels,
   sameTemplateSurface,
   uuidV7,
   WORLD_PIXELS,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { onServerSnapshot, rowsForSurface } from './application/tree-server-state.js'
+import { claimDocumentError, claimDocumentPixels } from './claim-document.js'
 import { warn } from './debug.js'
 import {
   claimRegion,
@@ -27,7 +26,6 @@ import type { ServerTemplate } from './server-cache.js'
 import { type ConnectedServer, onStateChange, serverConnectionIdentity } from './state.js'
 import { accountIdentity } from './wplace-account.js'
 
-const pixelCache = new WeakMap<RegionDocument, RegionShapePixels | null>()
 const STORAGE_KEY = 'caelestis.region-claims.v1'
 const RETRY_MS = 30_000
 const DISCONNECT_MS = 3_000
@@ -39,26 +37,6 @@ interface Entry {
   region: RegionClaim
   deleted: boolean
   copies: Copy[]
-}
-
-const documentPixels = (document: RegionDocument): RegionShapePixels | null => {
-  let pixels = pixelCache.get(document)
-  if (pixels === undefined) {
-    pixels = regionDocumentPixels(document)
-    pixelCache.set(document, pixels)
-  }
-  return pixels
-}
-
-/** Explain document failures before recipient selection can misreport them as connection failures. */
-const claimDocumentError = (document: RegionDocument): string | null => {
-  const bounds = regionDocumentBounds(document)
-  if (bounds === null) return 'Add a shape before saving this claim.'
-  if (bounds.w * bounds.h > MAX_REGION_DOCUMENT_PIXELS)
-    return 'This claim spans too much of the canvas. Move its shapes closer or split it.'
-  if (documentPixels(document)?.count === 0)
-    return 'This claim contains no pixels. Adjust or remove its subtracting shapes.'
-  return null
 }
 
 /** Raster overlap respects subtractors and gaps between shapes, plus world-wrapping templates. */
@@ -100,7 +78,7 @@ export const claimRecipients = (
   const candidates = servers.filter(
     (server) => server.season === region.season && presenceCanWriteClaims(server),
   )
-  const pixels = documentPixels(region.document)
+  const pixels = claimDocumentPixels(region.document)
   if (pixels === null) return new Map()
   const matching = new Map<ConnectedServer, string | null>()
   for (const server of candidates) {
