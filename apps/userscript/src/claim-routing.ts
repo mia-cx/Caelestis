@@ -5,13 +5,13 @@ import {
   type RegionShapePixels,
   rectIntersection,
   regionDocumentBounds,
-  regionDocumentPixels,
   sameTemplateSurface,
   uuidV7,
   WORLD_PIXELS,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { onServerSnapshot, rowsForSurface } from './application/tree-server-state.js'
+import { claimDocumentError, claimDocumentPixels } from './claim-document.js'
 import { warn } from './debug.js'
 import {
   claimRegion,
@@ -26,7 +26,6 @@ import type { ServerTemplate } from './server-cache.js'
 import { type ConnectedServer, onStateChange, serverConnectionIdentity } from './state.js'
 import { accountIdentity } from './wplace-account.js'
 
-const pixelCache = new WeakMap<RegionDocument, RegionShapePixels | null>()
 const STORAGE_KEY = 'caelestis.region-claims.v1'
 const RETRY_MS = 30_000
 const DISCONNECT_MS = 3_000
@@ -79,11 +78,7 @@ export const claimRecipients = (
   const candidates = servers.filter(
     (server) => server.season === region.season && presenceCanWriteClaims(server),
   )
-  let pixels = pixelCache.get(region.document)
-  if (pixels === undefined) {
-    pixels = regionDocumentPixels(region.document)
-    pixelCache.set(region.document, pixels)
-  }
+  const pixels = claimDocumentPixels(region.document)
   if (pixels === null) return new Map()
   const matching = new Map<ConnectedServer, string | null>()
   for (const server of candidates) {
@@ -177,11 +172,13 @@ export class ClaimRouter {
       (existing === undefined || existing.region.claimant.wplaceUserId !== actor.wplaceUserId)
     )
       return 'That claim is no longer available.'
+    const documentError = claimDocumentError(document)
+    if (documentError !== null) return documentError
     const seasons = new Set(this.servers().map((server) => server.season))
     const season = existing?.region.season ?? (seasons.size === 1 ? [...seasons][0] : null)
     if (season == null) return 'Connect servers for the same season, then retry.'
     const rect = regionDocumentBounds(document)
-    if (rect === null) return 'Draw a region first.'
+    if (rect === null) return 'Add a shape before saving this claim.'
     const region: RegionClaim = {
       id: id ?? uuidV7(),
       season,
@@ -308,6 +305,13 @@ export class ClaimRouter {
     for (const entry of this.entries.values()) {
       if (entry.region.claimant.wplaceUserId !== actor.wplaceUserId) continue
       this.errors.delete(entry.region.id)
+      if (!entry.deleted) {
+        const documentError = claimDocumentError(entry.region.document)
+        if (documentError !== null) {
+          this.errors.set(entry.region.id, documentError)
+          continue
+        }
+      }
       const recipients = entry.deleted
         ? new Map<ConnectedServer, string | null>()
         : claimRecipients(entry.region, servers, this.host.templates)

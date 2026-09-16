@@ -152,6 +152,96 @@ describe('claim recipients', () => {
 })
 
 describe('claim replication', () => {
+  it.each([
+    {
+      name: 'only subtracts',
+      document: {
+        items: [
+          {
+            id: 'cut',
+            op: 'subtract' as const,
+            shape: { kind: 'rectangle' as const, x: 0, y: 0, w: 10, h: 10 },
+          },
+        ],
+      },
+      message: 'Add a shape before saving this claim.',
+    },
+    {
+      name: 'spans more than the raster limit',
+      document: {
+        items: [
+          {
+            id: 'near',
+            op: 'add' as const,
+            shape: { kind: 'rectangle' as const, x: 0, y: 0, w: 1, h: 1 },
+          },
+          {
+            id: 'far',
+            op: 'add' as const,
+            shape: { kind: 'rectangle' as const, x: 2_000, y: 2_000, w: 1, h: 1 },
+          },
+        ],
+      },
+      message: 'This claim spans too much of the canvas. Move its shapes closer or split it.',
+    },
+    {
+      name: 'subtracts every added pixel',
+      document: {
+        items: [
+          {
+            id: 'area',
+            op: 'add' as const,
+            shape: { kind: 'rectangle' as const, x: 0, y: 0, w: 10, h: 10 },
+          },
+          {
+            id: 'cut',
+            op: 'subtract' as const,
+            shape: { kind: 'rectangle' as const, x: 0, y: 0, w: 10, h: 10 },
+          },
+        ],
+      },
+      message: 'This claim contains no pixels. Adjust or remove its subtracting shapes.',
+    },
+  ])(
+    'rejects a document that $name before persistence or routing',
+    async ({ document, message }) => {
+      const h = setup([x])
+      expect(await h.router.save(null, document)).toBe(message)
+      expect(h.persist).not.toHaveBeenCalled()
+      expect(h.mutations).toEqual([])
+    },
+  )
+
+  it('reserves the compatibility error for a valid pending claim with no writable server', async () => {
+    const region = claim()
+    const h = setup([])
+    const router = new ClaimRouter(h.host, [{ region, deleted: false, copies: [] }])
+    expect(await router.save(region.id, region.document)).toBe(
+      'No compatible server is connected. The claim will retry.',
+    )
+  })
+
+  it('still removes an invalid persisted claim after its deletion was requested', async () => {
+    const region = {
+      ...claim(),
+      document: {
+        items: [
+          {
+            id: 'cut',
+            op: 'subtract' as const,
+            shape: { kind: 'rectangle' as const, x: 0, y: 0, w: 10, h: 10 },
+          },
+        ],
+      },
+    }
+    const h = setup([x])
+    const router = new ClaimRouter(h.host, [
+      { region, deleted: true, copies: [{ url: x.url, serverId: x.info?.id ?? '' }] },
+    ])
+    await router.reconcile()
+    expect(h.mutations.map((mutation) => mutation.method)).toEqual(['DELETE'])
+  })
+
   it('keeps the original expiry when editing without a renewing presence socket', async () => {
     vi.useFakeTimers()
     const h = setup([x])

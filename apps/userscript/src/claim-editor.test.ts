@@ -925,6 +925,42 @@ describe('claim editor', () => {
     expect(editor.claimModeModel().message).toMatch(/too complex/)
   })
 
+  it.each([
+    'without an added shape',
+    'across oversized bounds',
+    'with every pixel subtracted',
+  ] as const)('explains an invalid document %s before saving', async (kind) => {
+    const editor = await setup('rectangle')
+    if (kind === 'without an added shape') {
+      editor.handleClaimModeIntent({ type: 'set-subtract', subtract: true })
+      drag(0, 0, 3, 3)
+    } else if (kind === 'across oversized bounds') {
+      drag(0, 0, 1, 1)
+      drag(4_000_000, 0, 4_000_001, 1)
+    } else {
+      drag(0, 0, 3, 3)
+      editor.handleClaimModeIntent({ type: 'set-tool', tool: 'select' })
+      click(100, 100)
+      editor.handleClaimModeIntent({ type: 'set-subtract', subtract: true })
+      editor.handleClaimModeIntent({ type: 'set-tool', tool: 'rectangle' })
+      drag(0, 0, 3, 3)
+    }
+
+    const expected =
+      kind === 'without an added shape'
+        ? 'Add a shape before saving this claim.'
+        : kind === 'across oversized bounds'
+          ? 'This claim spans too much of the canvas. Move its shapes closer or split it.'
+          : 'This claim contains no pixels. Adjust or remove its subtracting shapes.'
+    expect(editor.claimModeModel()).toMatchObject({ pixels: 0, message: expected })
+
+    key('Enter')
+    await Promise.resolve()
+    expect(harness.saved).toHaveLength(0)
+    expect(editor.isClaimModeActive()).toBe(true)
+    expect(editor.claimModeModel().message).toBe(expected)
+  })
+
   it('cancels without saving', async () => {
     const editor = await setup('rectangle')
     drag(0, 0, 3, 3)

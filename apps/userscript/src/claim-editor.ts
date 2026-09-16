@@ -16,7 +16,6 @@ import {
   type RegionShape,
   type RegionShapePixels,
   rasterShapeFrom,
-  regionDocumentPixels,
   regionDocumentWork,
   regionShapeBounds,
   regionShapeCentre,
@@ -34,6 +33,7 @@ import {
   type ClaimToolEntry,
   type ClaimToolGroupId,
 } from '@caelestis/ui/elements'
+import { claimDocumentError, claimDocumentPixels } from './claim-document.js'
 import {
   cornerAnchor,
   insertAnchor,
@@ -268,7 +268,11 @@ let cursor = ''
 let overlay: SVGSVGElement | null = null
 let mode: (HTMLElement & { model: ClaimModeModel }) | null = null
 let version = 0
-let pixelCache: { version: number; pixels: RegionShapePixels | null } | null = null
+let pixelCache: {
+  version: number
+  document: RegionDocument
+  pixels: RegionShapePixels | null
+} | null = null
 let itemSeq = 0
 const listeners: (() => void)[] = []
 
@@ -359,41 +363,50 @@ export const claimEditorPixels = (): RegionShapePixels | null => {
     const document = workingDocument()
     pixelCache = {
       version,
-      pixels: document.items.length === 0 ? null : regionDocumentPixels(document),
+      document,
+      pixels: document.items.length === 0 ? null : claimDocumentPixels(document),
     }
   }
   return pixelCache.pixels
 }
 
-export const claimModeModel = (): ClaimModeModel => ({
-  tool,
-  tools: CLAIM_TOOLS,
-  groups: GROUPS.map((group) => ({
-    id: group.id,
-    label: group.label,
-    tools: CLAIM_TOOLS.filter((entry) => entry.group === group.id),
-    shown: shown[group.id],
-  })),
-  options: {
-    ...(tool === 'polygon' ? { sides } : {}),
-    ...(tool === 'star' ? { points, inner } : {}),
-    ...(tool === 'pen' || tool === 'pencil' || tool === 'brush' || tool === 'eraser'
-      ? { width: tool === 'pencil' ? pencilWidth : tool === 'eraser' ? eraserWidth : width }
-      : {}),
-    minCorners: MIN_REGION_SHAPE_CORNERS,
-    maxCorners: MAX_REGION_SHAPE_CORNERS,
-    maxWidth: MAX_STROKE_WIDTH,
-  },
-  subtract,
-  items: items.length,
-  selected: selectedIds.length > 0,
-  selectedCount: selectedIds.length,
-  dirty,
-  template: items.length === 0 ? null : (host?.templateFor({ items }) ?? null),
-  pixels: claimEditorPixels()?.count ?? 0,
-  pending,
-  ...(message === undefined ? {} : { message }),
-})
+export const claimModeModel = (): ClaimModeModel => {
+  const pixels = claimEditorPixels()
+  const documentError =
+    !active || pixelCache === null || pixelCache.document.items.length === 0
+      ? null
+      : claimDocumentError(pixelCache.document)
+  const status = message ?? documentError
+  return {
+    tool,
+    tools: CLAIM_TOOLS,
+    groups: GROUPS.map((group) => ({
+      id: group.id,
+      label: group.label,
+      tools: CLAIM_TOOLS.filter((entry) => entry.group === group.id),
+      shown: shown[group.id],
+    })),
+    options: {
+      ...(tool === 'polygon' ? { sides } : {}),
+      ...(tool === 'star' ? { points, inner } : {}),
+      ...(tool === 'pen' || tool === 'pencil' || tool === 'brush' || tool === 'eraser'
+        ? { width: tool === 'pencil' ? pencilWidth : tool === 'eraser' ? eraserWidth : width }
+        : {}),
+      minCorners: MIN_REGION_SHAPE_CORNERS,
+      maxCorners: MAX_REGION_SHAPE_CORNERS,
+      maxWidth: MAX_STROKE_WIDTH,
+    },
+    subtract,
+    items: items.length,
+    selected: selectedIds.length > 0,
+    selectedCount: selectedIds.length,
+    dirty,
+    template: items.length === 0 ? null : (host?.templateFor({ items }) ?? null),
+    pixels: pixels?.count ?? 0,
+    pending,
+    ...(status === null || status === undefined ? {} : { message: status }),
+  }
+}
 
 const isSelected = (id: string): boolean => selectedIds.includes(id)
 
@@ -1749,6 +1762,14 @@ const confirm = async (): Promise<void> => {
     return
   }
   const document: RegionDocument = { items }
+  if (items.length > 0) {
+    const documentError = claimDocumentError(document)
+    if (documentError !== null) {
+      message = documentError
+      notify()
+      return
+    }
+  }
   const [primary, ...others] = editingIds
   const mine = session
   pending = true
