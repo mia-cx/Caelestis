@@ -1,4 +1,5 @@
 import {
+  MAX_REGION_DOCUMENT_PIXELS,
   REGION_CLAIM_TTL_MS,
   type RegionClaim,
   type RegionDocument,
@@ -40,6 +41,26 @@ interface Entry {
   copies: Copy[]
 }
 
+const documentPixels = (document: RegionDocument): RegionShapePixels | null => {
+  let pixels = pixelCache.get(document)
+  if (pixels === undefined) {
+    pixels = regionDocumentPixels(document)
+    pixelCache.set(document, pixels)
+  }
+  return pixels
+}
+
+/** Explain document failures before recipient selection can misreport them as connection failures. */
+const claimDocumentError = (document: RegionDocument): string | null => {
+  const bounds = regionDocumentBounds(document)
+  if (bounds === null) return 'Add a shape before saving this claim.'
+  if (bounds.w * bounds.h > MAX_REGION_DOCUMENT_PIXELS)
+    return 'This claim spans too much of the canvas. Move its shapes closer or split it.'
+  if (documentPixels(document)?.count === 0)
+    return 'This claim contains no pixels. Adjust or remove its subtracting shapes.'
+  return null
+}
+
 /** Raster overlap respects subtractors and gaps between shapes, plus world-wrapping templates. */
 const overlaps = (pixels: RegionShapePixels, template: ServerTemplate): boolean => {
   const { minX, minY, maxX, maxY } = template.bbox
@@ -79,11 +100,7 @@ export const claimRecipients = (
   const candidates = servers.filter(
     (server) => server.season === region.season && presenceCanWriteClaims(server),
   )
-  let pixels = pixelCache.get(region.document)
-  if (pixels === undefined) {
-    pixels = regionDocumentPixels(region.document)
-    pixelCache.set(region.document, pixels)
-  }
+  const pixels = documentPixels(region.document)
   if (pixels === null) return new Map()
   const matching = new Map<ConnectedServer, string | null>()
   for (const server of candidates) {
@@ -177,11 +194,13 @@ export class ClaimRouter {
       (existing === undefined || existing.region.claimant.wplaceUserId !== actor.wplaceUserId)
     )
       return 'That claim is no longer available.'
+    const documentError = claimDocumentError(document)
+    if (documentError !== null) return documentError
     const seasons = new Set(this.servers().map((server) => server.season))
     const season = existing?.region.season ?? (seasons.size === 1 ? [...seasons][0] : null)
     if (season == null) return 'Connect servers for the same season, then retry.'
     const rect = regionDocumentBounds(document)
-    if (rect === null) return 'Draw a region first.'
+    if (rect === null) return 'Add a shape before saving this claim.'
     const region: RegionClaim = {
       id: id ?? uuidV7(),
       season,
@@ -308,6 +327,11 @@ export class ClaimRouter {
     for (const entry of this.entries.values()) {
       if (entry.region.claimant.wplaceUserId !== actor.wplaceUserId) continue
       this.errors.delete(entry.region.id)
+      const documentError = claimDocumentError(entry.region.document)
+      if (documentError !== null) {
+        this.errors.set(entry.region.id, documentError)
+        continue
+      }
       const recipients = entry.deleted
         ? new Map<ConnectedServer, string | null>()
         : claimRecipients(entry.region, servers, this.host.templates)
