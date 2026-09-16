@@ -14,6 +14,10 @@ on:
         description: Retry the current frontend version's Discord announcement
         type: boolean
         default: false
+      retry_portable_release:
+        description: Retry publication for the current backend and frontend versions
+        type: boolean
+        default: false
 
 concurrency:
   group: app-release
@@ -116,13 +120,14 @@ jobs:
     name: Release approved portable server
     needs: version
     if: >-
-      needs.version.outputs.release == 'true' &&
+      (needs.version.outputs.release == 'true' &&
       needs.version.outputs.has_frontend_changesets == 'false' &&
-      needs.version.outputs.has_backend_changesets == 'false'
+      needs.version.outputs.has_backend_changesets == 'false') ||
+      inputs.retry_portable_release
     uses: ./.github/workflows/portable-release.yml
     with:
-      frontend_released: ${{ needs.version.outputs.frontend_released == 'true' }}
-      backend_released: ${{ needs.version.outputs.backend_released == 'true' }}
+      frontend_released: ${{ inputs.retry_portable_release || needs.version.outputs.frontend_released == 'true' }}
+      backend_released: ${{ inputs.retry_portable_release || needs.version.outputs.backend_released == 'true' }}
     secrets:
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     permissions:

@@ -81,7 +81,7 @@ describe('app release workflow', () => {
       assert.match(
         workflow,
         new RegExp(
-          `${app}_released: \\$\\{\\{ needs\\.version\\.outputs\\.${app}_released == 'true' \\}\\}`,
+          `${app}_released: \\$\\{\\{ inputs\\.retry_portable_release \\|\\| needs\\.version\\.outputs\\.${app}_released == 'true' \\}\\}`,
         ),
       )
       assert.match(portableWorkflow, new RegExp(`${app.toUpperCase()}_RELEASED:`))
@@ -95,6 +95,11 @@ describe('app release workflow', () => {
     )
     assert.match(portableWorkflow, /publish:\n(?: {4}#.*\n)* {4}needs: validate/)
     assert.doesNotMatch(portableWorkflow, /publish:\n {4}needs: \[[^\]]*cloudflare/)
+  })
+
+  it('can retry the current portable release with the current workflow', () => {
+    assert.match(workflow, /retry_portable_release:\n {8}description:/)
+    assert.match(workflow, /portable:\n[\s\S]*?if: >-\n[\s\S]*?inputs\.retry_portable_release/)
   })
 
   it('keeps patch aliases immutable and moves aliases only for released apps', () => {
