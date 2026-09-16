@@ -10,6 +10,11 @@ const portableWorkflow = readFileSync(
   resolve(root, '.github/workflows/portable-release.yml'),
   'utf8',
 )
+const portableCiWorkflow = readFileSync(resolve(root, '.github/workflows/portable-ci.yml'), 'utf8')
+const portableCloudflareWorkflow = readFileSync(
+  resolve(root, '.github/workflows/portable-cloudflare.yml'),
+  'utf8',
+)
 const changesets = JSON.parse(readFileSync(resolve(root, '.changeset/config.json'), 'utf8'))
 
 describe('app release workflow', () => {
@@ -81,7 +86,7 @@ describe('app release workflow', () => {
       assert.match(
         workflow,
         new RegExp(
-          `${app}_released: \\$\\{\\{ inputs\\.retry_portable_release \\|\\| needs\\.version\\.outputs\\.${app}_released == 'true' \\}\\}`,
+          `${app}_released: \\$\\{\\{ needs\\.version\\.outputs\\.portable_${app}_released == 'true' \\}\\}`,
         ),
       )
       assert.match(portableWorkflow, new RegExp(`${app.toUpperCase()}_RELEASED:`))
@@ -97,9 +102,31 @@ describe('app release workflow', () => {
     assert.doesNotMatch(portableWorkflow, /publish:\n {4}needs: \[[^\]]*cloudflare/)
   })
 
-  it('can retry the current portable release with the current workflow', () => {
-    assert.match(workflow, /retry_portable_release:\n {8}description:/)
-    assert.match(workflow, /portable:\n[\s\S]*?if: >-\n[\s\S]*?inputs\.retry_portable_release/)
+  it('binds a portable retry to its release merge and changed apps', () => {
+    assert.match(workflow, /retry_portable_release_commit:\n {8}description:/)
+    assert.match(workflow, /\^\[a-f0-9\]\{40\}\$/)
+    assert.match(workflow, /git merge-base --is-ancestor "\$RETRY_SHA" origin\/main/)
+    assert.match(workflow, /release-merge\.mjs "\$RETRY_SHA" "\$GITHUB_REPOSITORY"/)
+    assert.match(
+      workflow,
+      /git diff --quiet "\$RETRY_SHA\^1" "\$RETRY_SHA" -- "apps\/\$app\/package\.json"/,
+    )
+    assert.match(workflow, /release_sha: \$\{\{ needs\.version\.outputs\.portable_release_sha \}\}/)
+    assert.match(portableWorkflow, /release_sha: \$\{\{ inputs\.release_sha \}\}/)
+    assert.match(
+      portableCloudflareWorkflow,
+      /ref: \$\{\{ inputs\.release_sha \|\| github\.sha \}\}/,
+    )
+    assert.equal(
+      portableCiWorkflow.match(/ref: \$\{\{ inputs\.release_sha \|\| github\.sha \}\}/g)?.length,
+      5,
+    )
+    assert.match(
+      portableCiWorkflow,
+      /CAELESTIS_BUILD_ID: \$\{\{ inputs\.release_sha \|\| github\.sha \}\}/,
+    )
+    assert.match(portableCiWorkflow, /--build-arg CAELESTIS_BUILD_ID="\$RELEASE_SHA"/)
+    assert.match(portableWorkflow, /--target "\$RELEASE_SHA"/)
   })
 
   it('keeps patch aliases immutable and moves aliases only for released apps', () => {

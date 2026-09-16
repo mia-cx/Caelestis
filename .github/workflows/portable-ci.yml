@@ -11,6 +11,10 @@ on:
       extended:
         type: boolean
         default: false
+      release_sha:
+        description: Exact release merge commit to validate; defaults to the triggering commit
+        type: string
+        default: ''
   workflow_dispatch:
     inputs:
       extended:
@@ -67,6 +71,8 @@ jobs:
       CAELESTIS_TEST_FRONTEND_HANDLER: ${{ github.workspace }}/apps/frontend/build/handler.js
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.release_sha || github.sha }}
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
@@ -80,7 +86,7 @@ jobs:
       - name: Build and check the Node backend and frontend
         env:
           CAELESTIS_TARGET: node
-          CAELESTIS_BUILD_ID: ${{ github.sha }}
+          CAELESTIS_BUILD_ID: ${{ inputs.release_sha || github.sha }}
         run: |
           pnpm --filter @caelestis/backend... --filter @caelestis/frontend... build
           pnpm --filter @caelestis/backend... --filter @caelestis/frontend... check
@@ -127,14 +133,17 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.release_sha || github.sha }}
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - name: Build each release image once
         env:
           ARCH: ${{ matrix.arch }}
+          RELEASE_SHA: ${{ inputs.release_sha || github.sha }}
         run: |
           for component in backend backend-bun frontend; do
             docker buildx build --target "$component" --platform "linux/$ARCH" \
-              --build-arg CAELESTIS_BUILD_ID="$GITHUB_SHA" \
+              --build-arg CAELESTIS_BUILD_ID="$RELEASE_SHA" \
               --cache-from "type=gha,scope=$component-$ARCH" \
               --cache-to "type=gha,scope=$component-$ARCH,mode=max" \
               --tag "caelestis-$component:test" --load .
@@ -210,6 +219,8 @@ jobs:
       CAELESTIS_BASELINE_FRONTEND_IMAGE: ${{ needs.matrix.outputs.extended == 'true' && 'caelestis-frontend:baseline' || '' }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.release_sha || github.sha }}
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 24.20.0
@@ -247,6 +258,8 @@ jobs:
       CAELESTIS_TEST_EXTENDED: ${{ needs.matrix.outputs.extended }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.release_sha || github.sha }}
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 24.20.0
@@ -317,6 +330,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.release_sha || github.sha }}
       - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
         with:
           version: v4.2.3
