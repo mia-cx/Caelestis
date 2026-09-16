@@ -327,10 +327,12 @@ export class ClaimRouter {
     for (const entry of this.entries.values()) {
       if (entry.region.claimant.wplaceUserId !== actor.wplaceUserId) continue
       this.errors.delete(entry.region.id)
-      const documentError = claimDocumentError(entry.region.document)
-      if (documentError !== null) {
-        this.errors.set(entry.region.id, documentError)
-        continue
+      if (!entry.deleted) {
+        const documentError = claimDocumentError(entry.region.document)
+        if (documentError !== null) {
+          this.errors.set(entry.region.id, documentError)
+          continue
+        }
       }
       const recipients = entry.deleted
         ? new Map<ConnectedServer, string | null>()
