@@ -1,54 +1,75 @@
 # Caelestis
 
+[![Install userscript](https://img.shields.io/badge/Install-userscript-6d28d9)](https://github.com/mia-riezebos/Caelestis/releases/latest/download/caelestis.user.js)
+[![Userscript downloads](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/mia-riezebos/Caelestis/main/badges/userscript-downloads.json)](https://github.com/mia-riezebos/Caelestis/releases)
+[![Discord server](https://img.shields.io/discord/1157300973618872411?label=Discord&logo=discord&logoColor=white)](https://discord.gg/thequilt)
+[![Latest release](https://img.shields.io/github/v/release/mia-riezebos/Caelestis?label=latest%20release)](https://github.com/mia-riezebos/Caelestis/releases/latest)
+[![Userscript CI](https://github.com/mia-riezebos/Caelestis/actions/workflows/userscript-ci.yml/badge.svg)](https://github.com/mia-riezebos/Caelestis/actions/workflows/userscript-ci.yml)
+
 https://github.com/user-attachments/assets/3cf4473d-d0cc-4b05-a60d-8f0f7f8d8ab1
 
-Caelestis is a userscript for Wplace. It displays image templates over the map and includes tools
-for placement, overlay appearance, and colour work. Connect a Caelestis server to share templates,
-progress, claims, and dashboard data.
+Caelestis adds image templates and painting tools to [Wplace](https://wplace.live).
+Place your artwork on the map, adjust how the overlay looks, and find the pixels that still need painting.
+
+Local templates work without a server. Connect to a server to share artwork and progress with a group.
+Its web dashboard shows templates, contributions, and timelapses outside Wplace.
 
 ## Install
 
-1. Install a userscript manager, such as [Violentmonkey](https://violentmonkey.github.io/).
-2. **[Install Caelestis](https://github.com/mia-riezebos/Caelestis/releases/latest/download/caelestis.user.js).**
-3. Open [Wplace](https://wplace.live). Caelestis adds a button rail to the map. Open the template
-   panel, import your image, and place it where you want to paint.
+1. Install [Violentmonkey](https://violentmonkey.github.io/get-it/) or [Tampermonkey](https://www.tampermonkey.net/).
+2. Open [the Caelestis installer](https://github.com/mia-riezebos/Caelestis/releases/latest/download/caelestis.user.js) and confirm **Install** in your userscript manager.
+3. Open or reload [Wplace](https://wplace.live). Click the Caelestis map button to open the template panel.
 
-Import a PNG, Blue Marble export, or native `.wplace` file. Local templates stay in this browser.
-Connect a template server when you want to share artwork and progress with other people.
+The [installation guide](https://github.com/mia-riezebos/Caelestis/wiki/Install-the-userscript) includes browser settings and screenshots.
+Then follow [Getting started](https://github.com/mia-riezebos/Caelestis/wiki/Getting-started) to import and place your first template.
 
-## Main features
+## Templates
 
-### Templates
+Import PNG images, Blue Marble exports, or native `.wplace` files. Organise them with folders,
+tags, search, and filters. Caelestis also reads Wplace's personal and alliance templates.
 
-Import, place, move, rotate, and adjust templates without changing the source image. The template
-tree supports folders, tags, search, filters, and custom order. It also reads Wplace personal and
-alliance templates.
+Local artwork stays in this browser. Export a copy before clearing browser storage.
 
 ![The Caelestis template tree beside a placed Wplace overlay.](docs/assets/readme/templates-and-overlay.png)
 
-### Painting
+## Painting
 
-Show missing pixels, mismatches, or the selected Wplace colour. Jump to remaining pixels, pick a
-colour from the template, and change the overlay settings for the map underneath it.
+Choose full, corner, or small overlay pixels, then adjust their size, rounding, opacity, and outlines.
+These controls change how the overlay looks, not the stored artwork.
+
+Mark mismatches or work for the selected colour, and navigate to unfinished pixels.
+Press `Shift+/` for your current keyboard shortcuts.
 
 ![The Wplace colour palette with Caelestis remaining-work markers.](docs/assets/readme/colour-work.png)
 
-### Shared projects
+## Paint with a group
 
-Server templates track folder and template progress by colour. The dashboard shows contributions,
-pace, history, and timelapses. Connected painters can share their viewport, drafts, favourites, and
-region claims.
+Connect to a group's server to use its shared templates and per-colour progress.
+Painters can share their viewports and drafts, and draw claims around areas they plan to paint.
+Activity reports, tile sharing, and presence have separate settings.
+
+The dashboard shows recorded progress, painting pace, contributions, and timelapses.
 
 ![A server template with timelapse and progress controls.](docs/assets/readme/dashboard-timelapse.png)
 
-## Documentation
+## Run your own server
 
-| You want to… | Start here |
+The backend stores shared artwork and progress. The frontend serves the dashboard.
+Run both with [Docker](https://github.com/mia-riezebos/Caelestis/wiki/Run-with-Docker)
+or [Cloudflare](https://github.com/mia-riezebos/Caelestis/wiki/Deploy-on-Cloudflare).
+
+Docker uses SQLite and filesystem storage by default. The [self-hosting guides](https://github.com/mia-riezebos/Caelestis/wiki/Self-hosting)
+also cover PostgreSQL, MariaDB, CNPG, S3, and Kubernetes.
+
+## Guides
+
+| Task | Guide |
 | --- | --- |
-| Install and paint | [Getting started](https://github.com/mia-riezebos/Caelestis/wiki/Getting-started) |
-| Manage templates and overlays | [Userscript guide](https://github.com/mia-riezebos/Caelestis/wiki/Userscript) |
-| Run a server for your group | [Self-hosting](https://github.com/mia-riezebos/Caelestis/wiki/Self-hosting) |
-| Read project history or help improve it | [Contributor guide](https://github.com/mia-riezebos/Caelestis/wiki/Contributing) |
+| Import and organise artwork | [Templates](https://github.com/mia-riezebos/Caelestis/wiki/Templates) |
+| Adjust pixels, outlines, and markers | [Overlay and painting](https://github.com/mia-riezebos/Caelestis/wiki/Overlay-and-painting) |
+| Join a group's server | [Connect to a server](https://github.com/mia-riezebos/Caelestis/wiki/Connect-to-a-server) |
+| Change sharing or keyboard bindings | [Settings and shortcuts](https://github.com/mia-riezebos/Caelestis/wiki/Settings-and-shortcuts) |
+| Fix a problem | [Troubleshooting](https://github.com/mia-riezebos/Caelestis/wiki/Troubleshooting) |
 
 ## Project links
 
