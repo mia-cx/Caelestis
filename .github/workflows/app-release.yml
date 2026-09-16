@@ -14,6 +14,10 @@ on:
         description: Retry the current frontend version's Discord announcement
         type: boolean
         default: false
+      retry_portable_release_commit:
+        description: Retry portable publication for this 40-character release merge commit
+        type: string
+        default: ''
 
 concurrency:
   group: app-release
@@ -31,6 +35,9 @@ jobs:
       release: ${{ steps.release.outputs.release }}
       frontend_released: ${{ steps.released.outputs.frontend }}
       backend_released: ${{ steps.released.outputs.backend }}
+      portable_release_sha: ${{ steps.portable.outputs.release_sha }}
+      portable_frontend_released: ${{ steps.portable.outputs.frontend }}
+      portable_backend_released: ${{ steps.portable.outputs.backend }}
       has_userscript_changesets: ${{ steps.pending.outputs.userscript }}
       has_frontend_changesets: ${{ steps.pending.outputs.frontend }}
       has_backend_changesets: ${{ steps.pending.outputs.backend }}
@@ -90,6 +97,41 @@ jobs:
             fi
           done
 
+      - name: Resolve portable release commit
+        id: portable
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RETRY_SHA: ${{ inputs.retry_portable_release_commit }}
+          FRONTEND_RELEASED: ${{ steps.released.outputs.frontend }}
+          BACKEND_RELEASED: ${{ steps.released.outputs.backend }}
+        run: |
+          if [ -z "$RETRY_SHA" ]; then
+            echo "release_sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+            echo "frontend=${FRONTEND_RELEASED:-false}" >> "$GITHUB_OUTPUT"
+            echo "backend=${BACKEND_RELEASED:-false}" >> "$GITHUB_OUTPUT"
+            exit
+          fi
+          if ! [[ "$RETRY_SHA" =~ ^[a-f0-9]{40}$ ]]; then
+            echo 'retry_portable_release_commit must be a full commit SHA' >&2
+            exit 1
+          fi
+          git cat-file -e "$RETRY_SHA^{commit}"
+          git merge-base --is-ancestor "$RETRY_SHA" origin/main
+          release="$(gh api "repos/$GITHUB_REPOSITORY/commits/$RETRY_SHA/pulls" --paginate --slurp | node .github/scripts/release-merge.mjs "$RETRY_SHA" "$GITHUB_REPOSITORY")"
+          test "$release" = true
+          echo "release_sha=$RETRY_SHA" >> "$GITHUB_OUTPUT"
+          changed=false
+          for app in frontend backend; do
+            if git diff --quiet "$RETRY_SHA^1" "$RETRY_SHA" -- "apps/$app/package.json"; then
+              echo "$app=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "$app=true" >> "$GITHUB_OUTPUT"
+              changed=true
+            fi
+          done
+          test "$changed" = true
+
       - name: Open or update the app release pull request
         id: changesets
         uses: changesets/action@8488615a623b1b9c987934bb89eae8af6a946ac1 # v2
@@ -116,13 +158,15 @@ jobs:
     name: Release approved portable server
     needs: version
     if: >-
-      needs.version.outputs.release == 'true' &&
+      (needs.version.outputs.release == 'true' &&
       needs.version.outputs.has_frontend_changesets == 'false' &&
-      needs.version.outputs.has_backend_changesets == 'false'
+      needs.version.outputs.has_backend_changesets == 'false') ||
+      inputs.retry_portable_release_commit != ''
     uses: ./.github/workflows/portable-release.yml
     with:
-      frontend_released: ${{ needs.version.outputs.frontend_released == 'true' }}
-      backend_released: ${{ needs.version.outputs.backend_released == 'true' }}
+      release_sha: ${{ needs.version.outputs.portable_release_sha }}
+      frontend_released: ${{ needs.version.outputs.portable_frontend_released == 'true' }}
+      backend_released: ${{ needs.version.outputs.portable_backend_released == 'true' }}
     secrets:
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     permissions:
