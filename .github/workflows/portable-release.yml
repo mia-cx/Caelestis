@@ -33,7 +33,9 @@ jobs:
     uses: ./.github/workflows/portable-cloudflare.yml
 
   publish:
-    needs: [validate, cloudflare]
+    # Cloudflare acceptance is an independent release signal. It stays visible when it fails, but
+    # portable artifacts that passed their own matrix must still reach both registries.
+    needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:

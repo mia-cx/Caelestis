@@ -88,6 +88,15 @@ describe('app release workflow', () => {
     }
   })
 
+  it('does not let Cloudflare acceptance block portable publication', () => {
+    assert.match(
+      portableWorkflow,
+      /cloudflare:\n {4}uses: \.\/\.github\/workflows\/portable-cloudflare\.yml/,
+    )
+    assert.match(portableWorkflow, /publish:\n(?: {4}#.*\n)* {4}needs: validate/)
+    assert.doesNotMatch(portableWorkflow, /publish:\n {4}needs: \[[^\]]*cloudflare/)
+  })
+
   it('keeps patch aliases immutable and moves aliases only for released apps', () => {
     assert.match(portableWorkflow, /if \[ "\$released" != true \]; then continue; fi/)
     assert.match(portableWorkflow, /read -ra aliases <<< "\$immutable_aliases"/)
