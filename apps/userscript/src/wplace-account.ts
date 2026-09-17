@@ -1,6 +1,7 @@
 import { type PainterIdentity, TRANSPARENT_INDEX, WPLACE_PALETTE } from '@caelestis/shared'
 import { log, warn } from './debug.js'
 import { discardResponseBody } from './response.js'
+import { observeCharges } from './wplace-charges.js'
 
 /**
  * What wplace knows about the signed-in user.
@@ -116,6 +117,7 @@ const fetchAccount = async (): Promise<void> => {
       replaceIdentity(null)
       return
     }
+    observeCharges(body.charges)
     const id = body.id
     const name = body.name
     replaceIdentity(

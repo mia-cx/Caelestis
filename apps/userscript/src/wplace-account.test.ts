@@ -24,6 +24,25 @@ describe('wplace account state', () => {
     expect(accountIdentity()).toEqual({ wplaceUserId: 42, displayName: 'Mia' })
   })
 
+  it('records the charges the account reports', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ charges: { count: 12, max: 60, cooldownMs: 30_000 } }), {
+            status: 200,
+          }),
+        ),
+      ),
+    )
+    const { loadAccount } = await import('./wplace-account.js')
+    const { chargeForecast } = await import('./wplace-charges.js')
+
+    await loadAccount(0)
+
+    expect(chargeForecast()).toMatchObject({ max: 60, full: false })
+  })
+
   it('notifies an already-rendered consumer when owned colours arrive', async () => {
     vi.stubGlobal(
       'fetch',
