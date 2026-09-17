@@ -13,7 +13,7 @@ Our rail is a fixed column stacked under wplace's. On short viewports it runs in
 
 ## TODOs
 
-- [ ] Find the highest wplace button under the rail column, with a happy-dom test.
+- [x] Find the highest wplace button under the rail column, with a happy-dom test.
 - [ ] Cap the rail height above it and wrap buttons leftward; add the changeset.
 - [ ] Run userscript tests, typecheck, lint, build, and verify in Chromium at a small viewport.
 
