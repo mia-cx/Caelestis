@@ -115,7 +115,7 @@ import { isPaintOpen, onPaintSelectionChange, selectedColour } from '../wplace-p
 import { activeColourPreset, type ColourPresetId, hiddenForPreset } from './colours.js'
 import { setTemplateDisplayMode } from './display-mode.js'
 import { frameQueue } from './frame-queue.js'
-import { CLEAR_OF_RAIL, EDGE, GAP, SURFACE_RADIUS } from './metrics.js'
+import { CLEAR_OF_RAIL, EDGE, GAP, RAIL_BUTTON, SURFACE_RADIUS } from './metrics.js'
 import { mountNotificationsIn, syncToastPlacement } from './notification-host.js'
 import { refreshOverlayMenu } from './overlay-menu.js'
 import { panelWidthAfterMount } from './panel-geometry.js'
@@ -156,7 +156,7 @@ import {
   withTemplateClaims,
   workSectionModel,
 } from './work.js'
-import { findWplaceRail } from './wplace-rail.js'
+import { findWplaceRail, wplaceButtonBelow } from './wplace-rail.js'
 
 /**
  * Our button on wplace's right-hand rail, and the panel it opens.
@@ -1446,7 +1446,9 @@ const railContainer = (): HTMLElement => {
   const el = document.createElement('div')
   el.id = RAIL_ID
   el.className = 'flex flex-col items-center gap-3'
-  Object.assign(el.style, { position: 'fixed', zIndex: '30' })
+  // Anchored on the right and wrapping in reverse, so buttons that do not fit in the column start a
+  // second one to their left, over the map, instead of running under wplace's bottom controls.
+  Object.assign(el.style, { position: 'fixed', zIndex: '30', flexWrap: 'wrap-reverse' })
   document.body.appendChild(el)
   return el
 }
@@ -1458,20 +1460,24 @@ const railContainer = (): HTMLElement => {
  * layout and are free to change it, and a hardcoded corner would drift the moment they do. The
  * fallback matters more than it looks — it is the paint-drawer case, where their rail is gone and
  * there is nothing left to measure.
+ *
+ * The column is also capped above whatever wplace button sits below it — My location, the profile
+ * button, the paint drawer — so on a short viewport our buttons wrap left instead of overlapping
+ * theirs or leaving the screen.
  */
 const positionRail = (): void => {
   const rail = railContainer()
   const theirs = findWplaceRail()?.getBoundingClientRect()
-  if (theirs !== undefined && theirs.width > 0) {
-    rail.style.left = `${theirs.left}px`
-    rail.style.top = `${theirs.bottom + GAP}px`
-    rail.style.right = ''
-    return
-  }
-  rail.style.left = ''
+  const beside = theirs !== undefined && theirs.width > 0
   // Theirs is gone — the paint-drawer case — so ours takes its place at the same inset.
-  rail.style.right = `${EDGE}px`
-  rail.style.top = `${EDGE}px`
+  const top = beside ? theirs.bottom + GAP : EDGE
+  const right = beside ? window.innerWidth - theirs.right : EDGE
+  rail.style.top = `${top}px`
+  rail.style.right = `${right}px`
+  const columnRight = window.innerWidth - right
+  const below = wplaceButtonBelow({ left: columnRight - RAIL_BUTTON, right: columnRight, top })
+  const floor = below === null ? window.innerHeight - EDGE : below - GAP
+  rail.style.maxHeight = `${Math.max(RAIL_BUTTON, floor - top)}px`
 }
 
 /**
