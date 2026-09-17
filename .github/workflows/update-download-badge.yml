@@ -24,13 +24,13 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Check out Caelestis
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: caelestis
           ref: main
 
       - name: Check out github-statcards
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: asd880921/github-statcards
           ref: 15f8cdd1429eca02761463e5b3af34559acf980b
