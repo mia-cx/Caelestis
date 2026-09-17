@@ -1446,11 +1446,102 @@ const railContainer = (): HTMLElement => {
   const el = document.createElement('div')
   el.id = RAIL_ID
   el.className = 'flex flex-col items-center gap-3'
-  // Anchored on the right and wrapping in reverse, so buttons that do not fit in the column start a
-  // second one to their left, over the map, instead of running under wplace's bottom controls.
-  Object.assign(el.style, { position: 'fixed', zIndex: '30', flexWrap: 'wrap-reverse' })
+  Object.assign(el.style, { position: 'fixed', zIndex: '30' })
   document.body.appendChild(el)
   return el
+}
+
+const MORE_ID = 'caelestis-rail-more'
+const TRAY_ID = 'caelestis-rail-tray'
+let moreControl: CaelestisRailControl | null = null
+let tray: HTMLElement | null = null
+
+/** Every rail button in rail order; the first ones win the slots when the column is short. */
+const railButtons = (): CaelestisRailControl[] => [
+  railButton(),
+  colourModeButton(),
+  mismatchModeButton(),
+  presenceModeButton(),
+  claimToolButton(),
+]
+
+const trayOpen = (): boolean => tray !== null && !tray.hidden
+
+const syncMoreState = (): void => {
+  if (moreControl === null) return
+  moreControl.model = {
+    id: 'more',
+    label: 'More Caelestis controls',
+    popup: 'menu',
+    controls: TRAY_ID,
+    expanded: trayOpen(),
+  }
+}
+
+const setTrayOpen = (open: boolean): void => {
+  if (tray === null || trayOpen() === open) return
+  tray.hidden = !open
+  syncMoreState()
+  if (open) {
+    window.addEventListener('pointerdown', closeTrayOutside, true)
+    window.addEventListener('keydown', closeTrayOnEscape)
+  } else {
+    window.removeEventListener('pointerdown', closeTrayOutside, true)
+    window.removeEventListener('keydown', closeTrayOnEscape)
+  }
+}
+
+const closeTrayOutside = (event: PointerEvent): void => {
+  const target = event.target as Node
+  if (tray?.contains(target) === true || moreControl?.contains(target) === true) return
+  setTrayOpen(false)
+}
+
+const closeTrayOnEscape = (event: KeyboardEvent): void => {
+  if (event.key !== 'Escape') return
+  setTrayOpen(false)
+  moreControl?.focus()
+}
+
+/** The rail's last slot when the column is short: opens the buttons that did not fit. */
+const moreButton = (): CaelestisRailControl => {
+  if (moreControl !== null) return moreControl
+  moreControl = document.createElement('caelestis-rail-control')
+  moreControl.id = MORE_ID
+  applyWplaceTheme(moreControl)
+  moreControl.addEventListener('caelestis-rail-intent', (event) => {
+    if ((event as CustomEvent<RailControlIntent>).detail.id !== 'more') return
+    setTrayOpen(!trayOpen())
+  })
+  syncMoreState()
+  return moreControl
+}
+
+/**
+ * The popout beside More: a row of the overflowed rail buttons, the same elements the rail would
+ * have shown, so their state and handlers carry over untouched. A button in it does its job and
+ * the tray closes, like a menu.
+ */
+const trayContainer = (): HTMLElement => {
+  if (tray !== null) return tray
+  tray = document.createElement('div')
+  tray.id = TRAY_ID
+  tray.className = 'flex items-center gap-3'
+  tray.setAttribute('role', 'menu')
+  tray.setAttribute('aria-label', 'More Caelestis controls')
+  Object.assign(tray.style, { position: 'fixed', zIndex: '30' })
+  tray.hidden = true
+  tray.addEventListener('caelestis-rail-intent', () => setTrayOpen(false))
+  document.body.appendChild(tray)
+  return tray
+}
+
+/** Put exactly these children in this order, touching only the ones out of place. */
+const place = (host: HTMLElement, children: readonly HTMLElement[]): void => {
+  children.forEach((child, index) => {
+    if (host.children[index] !== child) host.insertBefore(child, host.children[index] ?? null)
+  })
+  while (host.children.length > children.length) host.lastElementChild?.remove()
 }
 
 /**
@@ -1461,9 +1552,9 @@ const railContainer = (): HTMLElement => {
  * fallback matters more than it looks — it is the paint-drawer case, where their rail is gone and
  * there is nothing left to measure.
  *
- * The column is also capped above whatever wplace button sits below it — My location, the profile
- * button, the paint drawer — so on a short viewport our buttons wrap left instead of overlapping
- * theirs or leaving the screen.
+ * The column ends above whatever wplace button sits below it — My location, the profile button,
+ * the paint drawer. Buttons that do not fit move behind More rather than into a second column,
+ * because the space to the left belongs to each overlay's own controls.
  */
 const positionRail = (): void => {
   const rail = railContainer()
@@ -1477,7 +1568,15 @@ const positionRail = (): void => {
   const columnRight = window.innerWidth - right
   const below = wplaceButtonBelow({ left: columnRight - RAIL_BUTTON, right: columnRight, top })
   const floor = below === null ? window.innerHeight - EDGE : below - GAP
-  rail.style.maxHeight = `${Math.max(RAIL_BUTTON, floor - top)}px`
+  const slots = Math.max(1, Math.floor((floor - top + GAP) / (RAIL_BUTTON + GAP)))
+  const buttons = railButtons()
+  const fits = slots >= buttons.length
+  place(rail, fits ? buttons : [...buttons.slice(0, slots - 1), moreButton()])
+  place(trayContainer(), fits ? [] : buttons.slice(slots - 1))
+  if (fits) setTrayOpen(false)
+  const trayEl = trayContainer()
+  trayEl.style.top = `${top + (slots - 1) * (RAIL_BUTTON + GAP)}px`
+  trayEl.style.right = `${right + RAIL_BUTTON + GAP}px`
 }
 
 /**
@@ -1537,14 +1636,9 @@ export const installPanel = (): void => {
   panelHost = document.body
   void refreshStoredServers(refreshView)
   installServerConnectionRetry(refreshView)
-  const rail = railContainer()
-  rail.append(
-    railButton(),
-    colourModeButton(),
-    mismatchModeButton(),
-    presenceModeButton(),
-    claimToolButton(),
-  )
+  // Placed before the state syncs below: they find their buttons by id, so the buttons must be in
+  // the document first.
+  positionRail()
   syncRailButtonState()
   syncColourModeState()
   syncMismatchModeState()
@@ -1560,22 +1654,11 @@ export const installPanel = (): void => {
     }),
   )
   installRailStateSync()
-  positionRail()
   log('install', 'rail installed beside wplace’s')
 
-  const sync = (): void => {
-    // Their re-render may have taken our buttons if anything ever moves them; put them back cheaply.
-    for (const button of [
-      railButton(),
-      colourModeButton(),
-      mismatchModeButton(),
-      presenceModeButton(),
-      claimToolButton(),
-    ]) {
-      if (!rail.contains(button)) rail.appendChild(button)
-    }
-    positionRail()
-  }
+  // Their re-render may have taken our buttons if anything ever moves them; `positionRail` also
+  // puts every button back in its slot, so one call covers both.
+  const sync = positionRail
   // Once per frame, not once per mutation. `sync` walks every button in the document looking for
   // their rail and then measures it, and wplace is a live map that mutates its DOM continuously —
   // so the unbatched version ran a full-document scan and forced a layout on every one of them.

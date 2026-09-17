@@ -2,4 +2,4 @@
 '@caelestis/userscript': patch
 ---
 
-Keep rail buttons clear of wplace's bottom controls on small screens.
+Move rail buttons that do not fit above wplace's bottom controls behind a More button.
