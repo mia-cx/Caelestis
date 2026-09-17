@@ -1141,6 +1141,76 @@ describe('template tree', () => {
     void unmount(component)
   })
 
+  it('keeps the context menu inside the viewport and its submenu beside a scrolled trigger', async () => {
+    const size = { width: 200, height: 300 }
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(() => size.width)
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(() => size.height)
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(800)
+    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(600)
+    Object.assign(HTMLElement.prototype, { hidePopover: () => {} })
+    const contextMenu = {
+      id: 'menu-3',
+      rowKey: 'local:city',
+      x: 700,
+      y: 500,
+      items: [
+        { id: 'go', label: 'Go to', icon: 'search' },
+        {
+          id: 'mark',
+          label: 'Mark as…',
+          icon: 'taskAlt',
+          children: [{ id: 'finished', label: 'Finished', icon: 'flag' }],
+        },
+      ],
+    }
+    const component = mount(TemplateTree, {
+      target: document.body,
+      props: { model: { ...model, contextMenu } },
+    })
+    flushSync()
+    const menu = document.querySelector<HTMLElement>('.context-menu')
+    expect(menu?.style.left).toBe('592px')
+    expect(menu?.style.top).toBe('200px')
+    expect(menu?.style.maxBlockSize).toBe('584px')
+
+    size.height = 900
+    window.dispatchEvent(new Event('resize'))
+    expect(menu?.style.top).toBe('8px')
+
+    let triggerTop = 240
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      return {
+        left: 592,
+        right: 792,
+        top: triggerTop,
+        bottom: triggerTop + 32,
+        width: 200,
+        height: 32,
+        x: 592,
+        y: triggerTop,
+        toJSON: () => ({}),
+      }
+    })
+    document.querySelector<HTMLButtonElement>('.context-menu [aria-haspopup="menu"]')?.click()
+    flushSync()
+    await tick()
+    const submenu = document.querySelector<HTMLElement>('.submenu')
+    expect(submenu?.style.left).toBe('392px')
+    expect(submenu?.style.top).toBe('8px')
+
+    triggerTop = 120
+    menu?.dispatchEvent(new Event('scroll'))
+    expect(submenu?.style.top).toBe('8px')
+    size.height = 40
+    menu?.dispatchEvent(new Event('scroll'))
+    expect(submenu?.style.top).toBe('116px')
+    void unmount(component)
+    vi.restoreAllMocks()
+    Reflect.deleteProperty(HTMLElement.prototype, 'hidePopover')
+  })
+
   it('shows drag feedback and emits the resolved drop position', () => {
     const onIntent = vi.fn()
     const component = mount(TemplateTree, { target: document.body, props: { model, onIntent } })
