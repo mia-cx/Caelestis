@@ -1,5 +1,12 @@
 # @caelestis/userscript
 
+## 0.12.3
+
+### Patch Changes
+
+- 31515ba: Explain invalid claim documents in the editor before saving.
+- 7a94010: Explain empty or oversized claims before checking connected servers.
+
 ## 0.12.2
 
 ### Patch Changes
