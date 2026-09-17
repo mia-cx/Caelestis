@@ -112,6 +112,7 @@ import { endServerGeneration, forgetChunks, serverTemplateKey } from '../templat
 import { ensureLocalTags } from '../templates/tags.js'
 import { ownedColours, refreshAccount } from '../wplace-account.js'
 import { isPaintOpen, onPaintSelectionChange, selectedColour } from '../wplace-paint.js'
+import { positionChargeForecast } from './charge-forecast.js'
 import { activeColourPreset, type ColourPresetId, hiddenForPreset } from './colours.js'
 import { setTemplateDisplayMode } from './display-mode.js'
 import { frameQueue } from './frame-queue.js'
@@ -1654,11 +1655,15 @@ export const installPanel = (): void => {
     }),
   )
   installRailStateSync()
+  positionChargeForecast()
   log('install', 'rail installed beside wplace’s')
 
   // Their re-render may have taken our buttons if anything ever moves them; `positionRail` also
   // puts every button back in its slot, so one call covers both.
-  const sync = positionRail
+  const sync = (): void => {
+    positionRail()
+    positionChargeForecast()
+  }
   // Once per frame, not once per mutation. `sync` walks every button in the document looking for
   // their rail and then measures it, and wplace is a live map that mutates its DOM continuously —
   // so the unbatched version ran a full-document scan and forced a layout on every one of them.
@@ -1677,6 +1682,7 @@ export const installPanel = (): void => {
   })
   window.addEventListener('resize', () => {
     positionRail()
+    positionChargeForecast()
     const panel = document.getElementById(currentPanelId()) as CaelestisPanel | null
     if (panel !== null) {
       const width = panelWidthForViewport(getState().panelWidth)

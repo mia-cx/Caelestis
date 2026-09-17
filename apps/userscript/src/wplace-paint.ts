@@ -106,7 +106,8 @@ export const undoPaintDraft = (root: ParentNode = document): boolean =>
 export const redoPaintDraft = (root: ParentNode = document): boolean =>
   movePaintHistory('Redo', root)
 
-const paintDockButton = (root: ParentNode): HTMLButtonElement | null => {
+/** Wplace's bottom-centre Paint button, whichever height its dock currently sits at. */
+export const paintDockButton = (root: ParentNode = document): HTMLButtonElement | null => {
   let visiblePaint: HTMLButtonElement | null = null
   for (const button of root.querySelectorAll<HTMLButtonElement>('button.btn-primary')) {
     const dock = button.parentElement
