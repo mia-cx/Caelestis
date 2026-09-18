@@ -5,7 +5,9 @@ GitHub provides the runners. Each Kubernetes test creates its own kind cluster a
 
 | Run | Coverage |
 | --- | --- |
-| Every PR and main push | Local Cloudflare Workers; six amd64 Compose combinations per backend runtime; Node/Bun Helm with SQLite/filesystem, CNPG/S3, and MariaDB/S3; adapter contracts; image scans; chart schemas |
+| Every PR and main push that touches the server | Local Cloudflare Workers, adapter contracts under Node and Bun, chart schemas |
+| Changesets release PR with server changes | The above, plus six amd64 Compose combinations per backend runtime, Node/Bun Helm with SQLite/filesystem, CNPG/S3, and MariaDB/S3, and image scans. The bot opens the PR, so approve its workflow run when you are ready to prove the release |
+| PR or main push without server changes | Nothing. The `changes` job finds no backend, frontend, shared package, deploy, Dockerfile, root workspace, or stack-test file, so every job skips and `stack-tests` reports success |
 | Nightly and extended manual runs | The same checks, plus all six ARM64 Compose combinations per runtime, previous-version upgrades, database connection-loss recovery, and CNPG primary switchover |
 | Nightly Cloudflare run | A real, isolated D1/R2/Durable Object deployment, shared acceptance tests, backend redeployment, and cleanup |
 | Portable release | Extended checks and live Cloudflare must pass before publishing the tested images |
