@@ -31,6 +31,7 @@ import { createBackendRuntime, makeBackendContext } from '../runtime/backend-run
 import { StatusCoordinator } from '../status-coordinator.js'
 import { fetchCanvasTiles } from '../telemetry/fetcher.js'
 import { runTileBlobGc } from '../telemetry/tile-blobs.js'
+import { AdmissionCounters, EventLoopLag, snapshotCapacity } from './capacity.js'
 import type { NodeConfig } from './config.js'
 import { sqliteConnection } from './database.js'
 import { NodeLiveHost } from './live.js'
@@ -130,6 +131,7 @@ export const openNodeRuntime = async (
     const rooms = new Map<
       string,
       {
+        season: number
         coordinator: PresenceCoordinator<ReturnType<NodeLiveHost['connect']>['client']>
         host: NodeLiveHost
       }
@@ -140,7 +142,7 @@ export const openNodeRuntime = async (
       if (existing) return existing.coordinator
       const host: NodeLiveHost = new NodeLiveHost(state(`presence:${key}`), () => coordinator)
       const coordinator = new PresenceCoordinator(host, sql)
-      rooms.set(key, { coordinator, host })
+      rooms.set(key, { season, coordinator, host })
       return coordinator
     }
     const status = new CoordinatedStatusReadModel((season) => {
@@ -277,6 +279,7 @@ export const openNodeRuntime = async (
       const job = state(actor)
       if ((await job.getAlarm()) === null) await job.setAlarm(Date.now() + interval)
     }
+    const eventLoopLag = new EventLoopLag()
     let closed = false
     return {
       app,
@@ -287,9 +290,30 @@ export const openNodeRuntime = async (
       readToken,
       serverId,
       connection,
+      /** Pod-local capacity for `/metrics`; one process is one shard in the sharding roadmap. */
+      capacity: {
+        admissions: new AdmissionCounters(),
+        eventLoopLag,
+        snapshot: () =>
+          snapshotCapacity([
+            ...[...seasons].map(([season, { host }]) => ({
+              kind: 'live-sync' as const,
+              key: String(season),
+              host,
+            })),
+            // Rooms are keyed by caller-chosen surfaces, so they aggregate per season to keep the
+            // metric label domain bounded.
+            ...[...rooms.values()].map(({ season, host }) => ({
+              kind: 'presence' as const,
+              key: String(season),
+              host,
+            })),
+          ]),
+      },
       async close() {
         if (closed) return
         closed = true
+        eventLoopLag.stop()
         await scheduler.stop()
         for (const { host } of seasons.values()) await host.close()
         for (const { coordinator, host } of rooms.values()) {

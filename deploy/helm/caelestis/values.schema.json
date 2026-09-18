@@ -22,6 +22,20 @@
         "openAccess": { "type": "boolean" },
         "name": { "type": "string", "minLength": 1, "maxLength": 256 }
       }
+    },
+    "metrics": {
+      "type": "object",
+      "properties": {
+        "podMonitor": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "interval": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$" },
+            "scrapeTimeout": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$" },
+            "labels": { "type": "object", "additionalProperties": { "type": "string" } }
+          }
+        }
+      }
     }
   }
 }

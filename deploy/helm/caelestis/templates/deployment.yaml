@@ -10,6 +10,8 @@ spec:
     matchLabels: {{ include "caelestis.labels" . | nindent 6 }}
   template:
     metadata:
-      labels: {{ include "caelestis.labels" . | nindent 8 }}
+      labels:
+        {{- include "caelestis.labels" . | nindent 8 }}
+        app.kubernetes.io/component: server
       annotations: {{ toYaml .Values.podAnnotations | nindent 8 }}
     spec: {{ include "caelestis.pod" . | nindent 6 }}

@@ -70,6 +70,12 @@ podAnnotations:
   prometheus.io/scrape: 'true'
   prometheus.io/port: '3001'
   prometheus.io/path: /metrics
+metrics:
+  podMonitor:
+    enabled: false
+    interval: 15s
+    scrapeTimeout: 5s
+    labels: {}
 extraEnv: []
 nodeSelector: {}
 tolerations: []
