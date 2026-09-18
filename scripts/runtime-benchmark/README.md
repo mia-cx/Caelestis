@@ -19,6 +19,7 @@ Every successful run has 35 seconds of warmup and 60 measured seconds. For a pas
 Use identical application revisions, frontend images, fixtures, and pod placement. Record any shared-cluster noise.
 This verifies load after recovery; the workload does not retry connections during a fault or represent a long soak test.
 The [September 14 production-image report](../../docs/bun-runtime-validation-2026-09-14.md) records failures during warmup on both runtimes.
+The [September 18 tile-processing report](../../docs/tile-processing-latency-2026-09-18.md) records a passing Bun run, Node still failing in warmup, and traces the remaining wait to the serialized owner connection.
 
 Strict runs stop at the userscript's five-second command deadline. To investigate an existing timeout,
 set `CAELESTIS_TEST_BENCHMARK_OBSERVE=true`. This diagnostic mode waits at most 30 seconds for replies,
