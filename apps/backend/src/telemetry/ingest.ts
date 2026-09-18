@@ -1,9 +1,7 @@
 import {
-  BLANK,
   decodePng,
   decodeWplaceIndexedPng,
   encodeMismatchMask,
-  MATCH,
   millis,
   PALETTE_RGB,
   type PaintEvent,
@@ -17,7 +15,6 @@ import {
   tileKey,
   uuidV7,
   WORLD_PIXELS,
-  WRONG,
 } from '@caelestis/shared'
 import { Effect } from 'effect'
 import {
@@ -53,6 +50,7 @@ import {
   resolveCurrentTileOffers,
   type StatusReadModelPort,
 } from '../status-read-model/port.js'
+import { classifyChunk } from './classify-chunk.js'
 import { decodedPixelCache } from './decoded-pixel-cache.js'
 import {
   createDerivedArtifactWriteBatch,
@@ -248,45 +246,11 @@ const classifyTarget = async (
   const chunk = await readDecodedChunk(ports, target.hash)
   if (chunk === null || chunk.width !== rect.width || chunk.height !== rect.height) return null
 
-  let correct = 0
-  let wrong = 0
-  let blank = 0
-  const classifications = new Uint8Array(rect.width * rect.height)
-  const colours = new Map<
-    number,
-    { index: number; correct: number; wrong: number; blank: number; total: number }
-  >()
-  for (let y = 0; y < rect.height; y += 1) {
-    const chunkRow = y * rect.width
-    const canvasRow = (rect.top + y) * TILE_SIZE + rect.left
-    for (let x = 0; x < rect.width; x += 1) {
-      const wanted = chunk.indices[chunkRow + x] ?? TRANSPARENT_INDEX
-      if (wanted === TRANSPARENT_INDEX) continue
-      const actual = canvas[canvasRow + x] ?? TRANSPARENT_INDEX
-      const colour = colours.get(wanted) ?? {
-        index: wanted,
-        correct: 0,
-        wrong: 0,
-        blank: 0,
-        total: 0,
-      }
-      colour.total++
-      if (actual === TRANSPARENT_INDEX) {
-        blank++
-        colour.blank++
-        classifications[chunkRow + x] = BLANK
-      } else if (actual === wanted) {
-        correct++
-        colour.correct++
-        classifications[chunkRow + x] = MATCH
-      } else {
-        wrong++
-        colour.wrong++
-        classifications[chunkRow + x] = WRONG
-      }
-      colours.set(wanted, colour)
-    }
-  }
+  const { correct, wrong, blank, colours, classifications } = classifyChunk(
+    chunk.indices,
+    canvas,
+    rect,
+  )
   return {
     status: {
       templateId: target.templateId,
@@ -295,7 +259,7 @@ const classifyTarget = async (
       correct,
       wrong,
       blank,
-      colours: [...colours.values()].sort((left, right) => left.index - right.index),
+      colours,
       observedAt: millis(observedAt),
     },
     mask: encodeMismatchMask(rect, classifications),

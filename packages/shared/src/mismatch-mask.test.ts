@@ -24,6 +24,33 @@ describe('mismatch mask', () => {
     expect(mask && mismatchClassAt(mask, 11, 34)).toBeNull()
   })
 
+  it('packs every pixel of an odd-sized rectangle in order, with the last byte partially filled', () => {
+    const rect = { left: 1, top: 2, width: 5, height: 3 }
+    const classes = [MATCH, WRONG, BLANK] as const
+    const classifications = Uint8Array.from(
+      { length: 15 },
+      (_, index) => classes[index % 3] ?? MATCH,
+    )
+    const encoded = encodeMismatchMask(rect, classifications)
+    const mask = decodeMismatchMask(encoded)
+
+    expect(encoded.byteLength).toBe(12 + 4)
+    expect(mask).not.toBeNull()
+    for (let index = 0; index < 15; index += 1) {
+      const x = rect.left + (index % rect.width)
+      const y = rect.top + Math.floor(index / rect.width)
+      expect(mask && mismatchClassAt(mask, x, y)).toBe(classes[index % 3])
+    }
+    // The three unused slots of the final byte stay zero so the artifact is byte-stable.
+    expect((encoded[15] ?? 0) >> 6).toBe(0)
+    expect(() =>
+      encodeMismatchMask(
+        rect,
+        Uint8Array.from({ length: 15 }, (_, index) => (index === 14 ? 3 : 0)),
+      ),
+    ).toThrow(RangeError)
+  })
+
   it('rejects truncated and unknown mask formats', () => {
     const encoded = encodeMismatchMask(
       { left: 0, top: 0, width: 1, height: 1 },

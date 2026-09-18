@@ -20,7 +20,7 @@ scope and land in the same branch.
 
 ## TODOs
 
-- [ ] Replace the per-pixel Map and bit-packing loops in classification with typed-array kernels; prove byte-identical output.
+- [x] Replace the per-pixel Map and bit-packing loops in classification with typed-array kernels; prove byte-identical output.
 - [ ] Share classification results across reporters with a bounded cache keyed by every classification input (#413).
 - [ ] Skip the repeated S3 PUT for an already-active hash and load telemetry targets once per command.
 - [ ] Move derived mismatch-artifact writes to a bounded background writer that drains on shutdown (#414).
@@ -37,5 +37,11 @@ scope and land in the same branch.
   before its reply; classification is on the event loop; offers acknowledged only after commit so
   many reporters upload one fresh hash; commits serialize on the season revision row under
   SERIALIZABLE with up to five retries; pool is ten connections for 512 sockets.
-- The local kubeconfig has one context, `default`, at 10.0.128.1:6443. Reachability is checked
-  before the benchmark TODO.
+- The local kubeconfig has one context, `default`, at 10.0.128.1:6443. Neither it nor ssh to
+  hydra-olympus-1 (10.0.1.3) answers from this machine at 16:00 UTC. Retry before the benchmark TODO.
+- TODO 1: `classifyChunk` keeps per-colour counts in one Uint32Array and hoists imported constants
+  into locals; `encodeMismatchMask` builds each packed byte in a local. Under vitest a full
+  1000×1000 chunk classifies in 5.2 ms + 1.0 ms encode on Node 24 and 5.3 + 1.3 ms on Bun 1.3.14,
+  against 49 to 50 ms for the old Map loop in the same harness. Vitest's module transform turns
+  imported constants into property reads, which is why the first version measured 35 ms; plain
+  Node ran the same loop in 5 ms. 25 random rectangles match the old loop byte for byte.
