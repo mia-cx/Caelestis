@@ -23,6 +23,25 @@ describe('history fold throttle', () => {
     expect(sql.foldTileHistory).toHaveBeenCalledTimes(3)
   })
 
+  it('lets a same-tile burst join one in-flight fold instead of starting more', async () => {
+    let release = () => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const sql = { foldTileHistory: vi.fn(() => gate) } as unknown as SqlStore
+    const tile = { x: 1, y: 2 }
+    const first = foldTileHistoryThrottled(sql, 0, tile, seconds(60))
+    const overlapping = await Promise.all([
+      foldTileHistoryThrottled(sql, 0, tile, seconds(60)),
+      foldTileHistoryThrottled(sql, 0, tile, seconds(60)),
+    ])
+
+    expect(overlapping).toEqual(['skipped', 'skipped'])
+    expect(sql.foldTileHistory).toHaveBeenCalledTimes(1)
+    release()
+    expect(await first).toBe('folded')
+  })
+
   it('retries on the next observation when a fold fails, and keeps stores separate', async () => {
     const failing = store()
     vi.mocked(failing.foldTileHistory).mockRejectedValueOnce(new Error('fold unavailable'))

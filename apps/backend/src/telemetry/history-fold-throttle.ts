@@ -36,12 +36,19 @@ export const foldTileHistoryThrottled = async (
   const key = `${season}:${tile.x}/${tile.y}`
   const last = lastFolds.get(key)
   if (last !== undefined && at - last < intervalMs) return 'skipped'
-  await sql.foldTileHistory(season, tile, now)
+  // Reserve the key before awaiting, so a burst of same-tile observations joins this fold
+  // instead of each starting its own. A failure gives the key back for the next observation.
   lastFolds.delete(key)
   lastFolds.set(key, at)
   if (lastFolds.size > TRACKED_TILES_LIMIT) {
     const oldest = lastFolds.keys().next().value
     if (oldest !== undefined) lastFolds.delete(oldest)
+  }
+  try {
+    await sql.foldTileHistory(season, tile, now)
+  } catch (error) {
+    if (lastFolds.get(key) === at) lastFolds.delete(key)
+    throw error
   }
   return 'folded'
 }
