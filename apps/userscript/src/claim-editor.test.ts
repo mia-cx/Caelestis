@@ -7,9 +7,8 @@ const harness = vi.hoisted(() => ({
   scale: 1,
   regions: [] as { id: string; document: RegionDocument }[],
   saved: [] as { id: string | null; document: RegionDocument }[],
-  removed: [] as string[],
+  batches: [] as { ids: readonly string[]; documents: readonly RegionDocument[] }[],
   saveError: null as string | null,
-  removeError: null as string | null,
   template: 'Mural' as string | null,
   map: null as HTMLElement | null,
   panned: [] as [number, number][],
@@ -35,13 +34,14 @@ vi.mock('@caelestis/ui/elements', () => ({ CLAIM_MODE_TAG: 'caelestis-claim-mode
 const host = () => ({
   templateFor: () => harness.template,
   myRegions: () => harness.regions,
-  save: async (id: string | null, document: RegionDocument) => {
-    harness.saved.push({ id, document })
-    return harness.saveError
-  },
-  remove: async (id: string) => {
-    harness.removed.push(id)
-    return harness.removeError
+  save: async (ids: readonly string[], documents: readonly RegionDocument[]) => {
+    harness.batches.push({ ids, documents })
+    for (const [index, document] of documents.entries())
+      harness.saved.push({ id: ids[index] ?? null, document })
+    return {
+      ids: documents.map((_, index) => ids[index] ?? `saved-${index}`),
+      error: harness.saveError,
+    }
   },
   changed: vi.fn(),
 })
@@ -108,9 +108,8 @@ beforeEach(() => {
   harness.scale = 1
   harness.regions = []
   harness.saved = []
-  harness.removed = []
+  harness.batches = []
   harness.saveError = null
-  harness.removeError = null
   harness.template = 'Mural'
   harness.dismissCard.mockClear()
   document.body.innerHTML = ''
@@ -129,6 +128,25 @@ afterEach(async () => {
 })
 
 describe('claim editor', () => {
+  it('saves shapes too far apart for one raster as separate claims in one save', async () => {
+    const editor = await setup('rectangle')
+    click(0, 0)
+    click(2_000, 2_000)
+    expect(editor.claimModeModel()).toMatchObject({ items: 2, pixels: 2 })
+    expect(editor.claimModeModel().message).toBeUndefined()
+    const preview = editor.claimEditorPixels()
+    expect(preview?.parts).toHaveLength(2)
+    expect(preview?.parts.map((part) => part.rect)).toEqual([
+      { x: 0, y: 0, w: 1, h: 1 },
+      { x: 2_000, y: 2_000, w: 1, h: 1 },
+    ])
+    key('Enter')
+    await vi.waitFor(() => expect(harness.batches).toHaveLength(1))
+    expect(harness.batches[0]?.ids).toEqual([])
+    expect(harness.batches[0]?.documents).toHaveLength(2)
+    await vi.waitFor(() => expect(editor.isClaimModeActive()).toBe(false))
+  })
+
   it('draws a whole-pixel rectangle that becomes an editable item', async () => {
     const editor = await setup('rectangle')
     drag(10.6, 20.2, 14.9, 22.1)
@@ -302,11 +320,11 @@ describe('claim editor', () => {
   })
 
   it('lets a save from an abandoned session finish without touching the next one', async () => {
-    let finish: (value: string | null) => void = () => undefined
+    let finish: (value: { ids: readonly string[]; error: string | null }) => void = () => undefined
     const slow = {
       ...host(),
       save: () =>
-        new Promise<string | null>((resolve) => {
+        new Promise<{ ids: readonly string[]; error: string | null }>((resolve) => {
           finish = resolve
         }),
     }
@@ -320,7 +338,7 @@ describe('claim editor', () => {
     editor.stopClaimMode()
     editor.startClaimMode('rectangle')
     drag(20, 20, 29, 29)
-    finish(null)
+    finish({ ids: [], error: null })
     await Promise.resolve()
     await Promise.resolve()
     expect(editor.isClaimModeActive()).toBe(true)
@@ -642,8 +660,10 @@ describe('claim editor', () => {
     // The rectangle is now two paths; the drawing is untouched.
     expect(editor.claimModeModel().items).toBe(3)
     key('Enter')
-    await vi.waitFor(() => expect(harness.saved).toHaveLength(1))
-    const kinds = harness.saved[0]?.document.items.map((item) => item.shape.kind)
+    await vi.waitFor(() => expect(harness.saved).toHaveLength(3))
+    const kinds = (harness.batches.at(-1)?.documents ?? []).flatMap((document) =>
+      document.items.map((item) => item.shape.kind),
+    )
     expect(kinds).toEqual(['pixels', 'path', 'path'])
     const pixels = editor.claimEditorPixels
     expect(pixels).toBeDefined()
@@ -668,7 +688,7 @@ describe('claim editor', () => {
     expect(document.getElementById('caelestis-claim-mode')).toBeNull()
   })
 
-  it('loads every saved region together and saves them back as one claim', async () => {
+  it('loads every saved claim together and saves them back as separate documents', async () => {
     harness.regions = [
       {
         id: 'r1',
@@ -690,15 +710,75 @@ describe('claim editor', () => {
     editor.handleClaimModeIntent({ type: 'confirm' })
     await vi.waitFor(() => expect(editor.isClaimModeActive()).toBe(false))
     expect(harness.saved).toHaveLength(0)
-    // Add a shape: the whole set goes under the first id and the second is released.
+    // Add a distant shape: three documents go out in one save, naming the loaded ids.
     editor.startClaimMode('rectangle')
     drag(70, 70, 72, 72)
     expect(editor.claimModeModel()).toMatchObject({ items: 3, dirty: true })
+    const before = editor.claimEditorPixels()?.count ?? 0
     key('Enter')
-    await vi.waitFor(() => expect(harness.saved).toHaveLength(1))
-    expect(harness.saved[0]?.id).toBe('r1')
-    expect(harness.saved[0]?.document.items).toHaveLength(3)
-    expect(harness.removed).toEqual(['r2'])
+    await vi.waitFor(() => expect(harness.batches).toHaveLength(1))
+    const batch = harness.batches[0]
+    expect(batch?.ids).toEqual(['r1', 'r2'])
+    expect(batch?.documents).toHaveLength(3)
+    expect(batch?.documents.map((document) => document.items)).toHaveLength(3)
+    await vi.waitFor(() => expect(editor.isClaimModeActive()).toBe(false))
+    expect(harness.saved.map((record) => record.id)).toEqual(['r1', 'r2', null])
+    expect(harness.saved.map((record) => record.document.items[0]?.shape.kind)).toEqual([
+      'ellipse',
+      'rectangle',
+      'rectangle',
+    ])
+    // Reopened, the saved set is clean and covers the same pixels.
+    harness.regions = harness.saved.map((record, index) => ({
+      id: `kept-${index}`,
+      document: record.document,
+    }))
+    const again = await setup('select')
+    expect(again.claimModeModel()).toMatchObject({ items: 3, dirty: false })
+    expect(again.claimEditorPixels()?.count).toBe(before)
+    again.handleClaimModeIntent({ type: 'confirm' })
+    await vi.waitFor(() => expect(again.isClaimModeActive()).toBe(false))
+    expect(harness.batches).toHaveLength(1)
+  })
+
+  it('splits a saved claim whose shapes no longer touch on save, without an edit', async () => {
+    harness.regions = [
+      {
+        id: 'r1',
+        document: {
+          items: [
+            { id: 'a', op: 'add', shape: { kind: 'rectangle', x: 0, y: 0, w: 5, h: 5 } },
+            { id: 'b', op: 'add', shape: { kind: 'rectangle', x: 2_000, y: 2_000, w: 5, h: 5 } },
+          ],
+        },
+      },
+    ]
+    const editor = await setup('select')
+    expect(editor.claimModeModel().dirty).toBe(true)
+    expect(editor.claimEditorPixels()?.count).toBe(50)
+    key('Enter')
+    await vi.waitFor(() => expect(harness.batches).toHaveLength(1))
+    expect(harness.batches[0]?.ids).toEqual(['r1'])
+    expect(harness.batches[0]?.documents).toHaveLength(2)
+    await vi.waitFor(() => expect(editor.isClaimModeActive()).toBe(false))
+  })
+
+  it('omits a fully subtracted group from the preview and the save', async () => {
+    const editor = await setup('rectangle')
+    drag(0, 0, 9, 9)
+    key('Escape')
+    editor.handleClaimModeIntent({ type: 'set-subtract', subtract: true })
+    drag(0, 0, 9, 9)
+    key('Escape')
+    editor.handleClaimModeIntent({ type: 'set-subtract', subtract: false })
+    drag(2_000, 2_000, 2_009, 2_009)
+    expect(editor.claimModeModel()).toMatchObject({ items: 3, pixels: 100 })
+    expect(editor.claimModeModel().message).toBeUndefined()
+    key('Enter')
+    await vi.waitFor(() => expect(harness.batches).toHaveLength(1))
+    expect(harness.batches[0]?.documents).toHaveLength(1)
+    expect(harness.batches[0]?.documents[0]?.items).toHaveLength(1)
+    await vi.waitFor(() => expect(editor.isClaimModeActive()).toBe(false))
   })
 
   it('releases everything when the last region is deleted and saved', async () => {
@@ -715,8 +795,11 @@ describe('claim editor', () => {
     key('Delete')
     expect(editor.claimModeModel()).toMatchObject({ items: 0, dirty: true })
     key('Enter')
-    await vi.waitFor(() => expect(harness.removed).toEqual(['r1']))
+    await vi.waitFor(() => expect(harness.batches).toHaveLength(1))
+    expect(harness.batches[0]?.ids).toEqual(['r1'])
+    expect(harness.batches[0]?.documents).toEqual([])
     expect(harness.saved).toHaveLength(0)
+    await vi.waitFor(() => expect(editor.isClaimModeActive()).toBe(false))
   })
 
   it('restores what a cancelled pointer was changing and drops what it was drawing', async () => {
@@ -753,7 +836,7 @@ describe('claim editor', () => {
     expect(editor.claimEditorPixels()?.count ?? 0).toBeLessThan(full)
   })
 
-  it('keeps a continued path in its place in the order', async () => {
+  it('keeps a continued path in its place in the order of its own claim', async () => {
     const editor = await setup('pen')
     editor.handleClaimModeIntent({ type: 'set-option', option: 'width', value: 3 })
     click(0, 0)
@@ -763,10 +846,14 @@ describe('claim editor', () => {
     drag(50, 50, 59, 59)
     key('Enter')
     await Promise.resolve()
-    const kinds = () => (harness.saved.at(-1)?.document.items ?? []).map((item) => item.shape.kind)
+    const kinds = () =>
+      (harness.batches.at(-1)?.documents ?? []).map((document) => document.items[0]?.shape.kind)
     expect(kinds()).toEqual(['path', 'rectangle'])
-    // Continue the path, which sits first: after the edit it is still first.
-    harness.regions = [{ id: 'r1', document: harness.saved[0]?.document as RegionDocument }]
+    // Continue the path, which sits first in its document: after the edit it is still first.
+    harness.regions = harness.saved.map((record, index) => ({
+      id: `r${index}`,
+      document: record.document,
+    }))
     const again = await setup('select')
     click(10, 0)
     key('p')
@@ -780,18 +867,19 @@ describe('claim editor', () => {
     expect(kinds()).toEqual(['path', 'rectangle'])
   })
 
-  it('never lets the eraser leave more shapes than a claim may hold', async () => {
+  it("lets the eraser leave independent pieces beyond one claim's item limit", async () => {
     const editor = await setup('rectangle')
     for (let i = 0; i < 63; i++) drag(i * 20, 0, i * 20 + 9, 9)
     expect(editor.claimModeModel().items).toBe(63)
     key('e')
     editor.handleClaimModeIntent({ type: 'set-option', option: 'width', value: 2 })
-    // One stroke across every shape would double the count; the cuts that do not fit are skipped.
+    // One stroke across every shape doubles the count, but no two pieces touch, so each claim
+    // still fits on its own.
     pointer('pointerdown', 0, 5)
     pointer('pointermove', 1300, 5)
     pointer('pointerup', 1300, 5)
-    expect(editor.claimModeModel().items).toBeLessThanOrEqual(64)
-    expect(editor.claimModeModel().message).toMatch(/at most 64/)
+    expect(editor.claimModeModel().items).toBe(126)
+    expect(editor.claimModeModel().message).toBeUndefined()
   })
 
   it('catches a shape with the lasso when the loop only crosses its edge', async () => {
@@ -813,7 +901,7 @@ describe('claim editor', () => {
     expect(harness.dismissCard).toHaveBeenCalledTimes(2)
   })
 
-  it('keeps unreleased claims in the set when a merge only partly succeeds', async () => {
+  it('retries a failed save under the pending ids it returned', async () => {
     harness.regions = [
       {
         id: 'r1',
@@ -828,26 +916,29 @@ describe('claim editor', () => {
         },
       },
     ]
-    harness.removeError = 'Server answered 500.'
+    harness.saveError = 'Server answered 500.'
     const editor = await setup('rectangle')
     drag(40, 0, 44, 4)
     key('Enter')
-    await vi.waitFor(() => expect(editor.claimModeModel().message).toMatch(/Save again/))
+    await vi.waitFor(() => expect(editor.claimModeModel().message).toBe('Server answered 500.'))
     expect(editor.isClaimModeActive()).toBe(true)
-    expect(editor.claimEditorEditingIds()).toEqual(['r1', 'r2'])
+    // A failed save returns the ids the retry must name, pending new ones included.
+    expect(editor.claimEditorEditingIds()).toEqual(['r1', 'r2', 'saved-2'])
     expect(editor.claimModeModel().dirty).toBe(true)
-    harness.removeError = null
+    harness.saveError = null
     key('Enter')
     await vi.waitFor(() => expect(editor.isClaimModeActive()).toBe(false))
-    expect(harness.removed).toEqual(['r2', 'r2'])
+    const retry = harness.batches.at(-1)
+    expect(retry?.ids).toEqual(['r1', 'r2', 'saved-2'])
+    expect(retry?.documents).toHaveLength(3)
   })
 
   it('ignores keys while a save is in flight', async () => {
-    let finish: (value: string | null) => void = () => undefined
+    let finish: (value: { ids: readonly string[]; error: string | null }) => void = () => undefined
     const hostWithSlowSave = {
       ...host(),
       save: () =>
-        new Promise<string | null>((resolve) => {
+        new Promise<{ ids: readonly string[]; error: string | null }>((resolve) => {
           finish = resolve
         }),
     }
@@ -862,11 +953,11 @@ describe('claim editor', () => {
     key('v')
     expect(editor.claimModeModel().items).toBe(1)
     expect(editor.claimEditorTool()).toBe('rectangle')
-    finish(null)
+    finish({ ids: ['saved-0'], error: null })
     await vi.waitFor(() => expect(editor.isClaimModeActive()).toBe(false))
   })
 
-  it('renumbers duplicate item ids across loaded claims and refuses to save past the item cap', async () => {
+  it('renumbers duplicate item ids across loaded claims and saves independent claims past the old total cap', async () => {
     const box = (x: number) => ({ kind: 'rectangle' as const, x, y: 0, w: 4, h: 4 })
     harness.regions = [
       { id: 'r1', document: { items: [{ id: 'same', op: 'add', shape: box(0) }] } },
@@ -903,16 +994,58 @@ describe('claim editor', () => {
       },
     ]
     const again = await setup('select')
+    // Well past the old global cap, but every shape stays its own claim.
+    expect(again.claimModeModel().message).toBeUndefined()
+    key('Enter')
+    await vi.waitFor(() => expect(again.isClaimModeActive()).toBe(false))
+    const documents = harness.batches.at(-1)?.documents ?? []
+    expect(documents).toHaveLength(70)
+    expect(documents.every((document) => document.items.length <= 64)).toBe(true)
+  })
+
+  it('still blocks a connected group past the item cap, drawn or loaded', async () => {
+    const chain = (count: number) => ({
+      items: Array.from({ length: count }, (_, i) => ({
+        id: `item-${i}`,
+        op: 'add' as const,
+        shape: { kind: 'rectangle' as const, x: i, y: 0, w: 2, h: 2 },
+      })),
+    })
+    harness.regions = [{ id: 'r1', document: chain(64) }]
+    const editor = await setup('rectangle')
+    expect(editor.claimModeModel().items).toBe(64)
+    // A 65th shape touching the same group never lands.
+    drag(0, 0, 1, 1)
+    expect(editor.claimModeModel().items).toBe(64)
+    expect(editor.claimModeModel().message).toMatch(/at most 64/)
+    editor.handleClaimModeIntent({ type: 'cancel' })
+
+    // A loaded claim that holds 65 connected shapes cannot be saved until slimmed down.
+    harness.regions = [
+      { id: 'r1', document: chain(65) },
+      {
+        id: 'r2',
+        document: {
+          items: [
+            {
+              id: 'far',
+              op: 'add',
+              shape: { kind: 'rectangle', x: 2_000, y: 2_000, w: 4, h: 4 },
+            },
+          ],
+        },
+      },
+    ]
+    const again = await setup('select')
     expect(again.claimModeModel().message).toMatch(/at most 64/)
-    // Removing one shape leaves 69: still too many, so Save says how many more must go.
-    click(2, 2)
-    key('Delete')
-    expect(again.claimModeModel().items).toBe(69)
+    // An unrelated shape moves: the save now runs, and the oversized group still blocks it.
+    drag(2_001, 2_001, 2_010, 2_010)
+    expect(again.claimModeModel().dirty).toBe(true)
     key('Enter')
     await Promise.resolve()
-    expect(harness.saved).toHaveLength(0)
+    expect(harness.batches).toHaveLength(0)
     expect(again.isClaimModeActive()).toBe(true)
-    expect(again.claimModeModel().message).toMatch(/remove 5/)
+    expect(again.claimModeModel().message).toBe('A claim holds at most 64 shapes.')
   })
 
   it('refuses shapes that would make the claim too costly to rasterise', async () => {
@@ -925,41 +1058,35 @@ describe('claim editor', () => {
     expect(editor.claimModeModel().message).toMatch(/too complex/)
   })
 
-  it.each([
-    'without an added shape',
-    'across oversized bounds',
-    'with every pixel subtracted',
-  ] as const)('explains an invalid document %s before saving', async (kind) => {
-    const editor = await setup('rectangle')
-    if (kind === 'without an added shape') {
-      editor.handleClaimModeIntent({ type: 'set-subtract', subtract: true })
-      drag(0, 0, 3, 3)
-    } else if (kind === 'across oversized bounds') {
-      drag(0, 0, 1, 1)
-      drag(4_000_000, 0, 4_000_001, 1)
-    } else {
-      drag(0, 0, 3, 3)
-      editor.handleClaimModeIntent({ type: 'set-tool', tool: 'select' })
-      click(100, 100)
-      editor.handleClaimModeIntent({ type: 'set-subtract', subtract: true })
-      editor.handleClaimModeIntent({ type: 'set-tool', tool: 'rectangle' })
-      drag(0, 0, 3, 3)
-    }
+  it.each(['without an added shape', 'with every pixel subtracted'] as const)(
+    'explains an invalid document %s before saving',
+    async (kind) => {
+      const editor = await setup('rectangle')
+      if (kind === 'without an added shape') {
+        editor.handleClaimModeIntent({ type: 'set-subtract', subtract: true })
+        drag(0, 0, 3, 3)
+      } else {
+        drag(0, 0, 3, 3)
+        editor.handleClaimModeIntent({ type: 'set-tool', tool: 'select' })
+        click(100, 100)
+        editor.handleClaimModeIntent({ type: 'set-subtract', subtract: true })
+        editor.handleClaimModeIntent({ type: 'set-tool', tool: 'rectangle' })
+        drag(0, 0, 3, 3)
+      }
 
-    const expected =
-      kind === 'without an added shape'
-        ? 'Add a shape before saving this claim.'
-        : kind === 'across oversized bounds'
-          ? 'This claim spans too much of the canvas. Move its shapes closer or split it.'
+      const expected =
+        kind === 'without an added shape'
+          ? 'Add a shape before saving this claim.'
           : 'This claim contains no pixels. Adjust or remove its subtracting shapes.'
-    expect(editor.claimModeModel()).toMatchObject({ pixels: 0, message: expected })
+      expect(editor.claimModeModel()).toMatchObject({ pixels: 0, message: expected })
 
-    key('Enter')
-    await Promise.resolve()
-    expect(harness.saved).toHaveLength(0)
-    expect(editor.isClaimModeActive()).toBe(true)
-    expect(editor.claimModeModel().message).toBe(expected)
-  })
+      key('Enter')
+      await Promise.resolve()
+      expect(harness.saved).toHaveLength(0)
+      expect(editor.isClaimModeActive()).toBe(true)
+      expect(editor.claimModeModel().message).toBe(expected)
+    },
+  )
 
   it('cancels without saving', async () => {
     const editor = await setup('rectangle')
@@ -967,5 +1094,30 @@ describe('claim editor', () => {
     editor.handleClaimModeIntent({ type: 'cancel' })
     expect(editor.isClaimModeActive()).toBe(false)
     expect(harness.saved).toHaveLength(0)
+  })
+
+  it('recovers when the save promise rejects', async () => {
+    const rejecting = {
+      ...host(),
+      save: async (): Promise<{ ids: readonly string[]; error: string | null }> => {
+        throw new Error('offline')
+      },
+    }
+    const editor = await import('./claim-editor.js')
+    editor.installClaimEditor(rejecting)
+    editor.startClaimMode('rectangle')
+    drag(0, 0, 9, 9)
+    key('Enter')
+    await vi.waitFor(() => expect(editor.claimModeModel().pending).toBe(false))
+    expect(editor.isClaimModeActive()).toBe(true)
+    expect(editor.claimModeModel().dirty).toBe(true)
+    expect(editor.claimModeModel().message).toContain('offline')
+    expect(editor.claimModeModel().items).toBe(1)
+    expect(editor.claimEditorEditingIds()).toEqual([])
+    editor.installClaimEditor(host())
+    key('Enter')
+    await vi.waitFor(() => expect(editor.isClaimModeActive()).toBe(false))
+    expect(harness.batches).toHaveLength(1)
+    expect(harness.batches[0]?.documents).toHaveLength(1)
   })
 })

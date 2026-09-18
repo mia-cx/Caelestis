@@ -43,6 +43,7 @@ interface Entry {
   region: RegionClaim
   deleted: boolean
   copies: Copy[]
+  replaceAfter?: readonly string[]
 }
 
 export interface ClaimSaveResult {
@@ -156,7 +157,7 @@ export class ClaimRouter {
     for (const [id, entry] of this.entries)
       if (
         (entry.region.expiresAt ?? entry.region.createdAt + REGION_CLAIM_TTL_MS) <= Date.now() &&
-        (!entry.deleted || entry.copies.length === 0)
+        ((!entry.deleted && entry.replaceAfter === undefined) || entry.copies.length === 0)
       )
         this.entries.delete(id)
   }
@@ -167,7 +168,9 @@ export class ClaimRouter {
     return [...this.entries.values()]
       .filter(
         (entry) =>
-          !entry.deleted && entry.region.claimant.wplaceUserId === this.host.actor()?.wplaceUserId,
+          !entry.deleted &&
+          entry.replaceAfter === undefined &&
+          entry.region.claimant.wplaceUserId === this.host.actor()?.wplaceUserId,
       )
       .map((entry) => entry.region)
   }
@@ -254,7 +257,9 @@ export class ClaimRouter {
     const surface = previous[0]?.region.surface ?? WORLD_TEMPLATE_SURFACE
     if (previous.some(({ region }) => !sameTemplateSurface(region.surface, surface)))
       return fail('That claim is no longer available.')
-    const unused = new Set(previous.filter((entry) => !entry.deleted))
+    const unused = new Set(
+      previous.filter((entry) => !entry.deleted && entry.replaceAfter === undefined),
+    )
     const selected = documents.map((document) => {
       const exact = [...unused].find(
         ({ region }) => JSON.stringify(region.document) === JSON.stringify(document),
@@ -290,6 +295,10 @@ export class ClaimRouter {
     }
     const obsolete = previous.map(({ region }) => region.id).filter((id) => !nextIds.includes(id))
     const pendingIds = [...nextIds, ...obsolete]
+    for (const id of obsolete) {
+      const entry = this.entries.get(id) as Entry
+      this.entries.set(id, { ...entry, replaceAfter: nextIds })
+    }
     try {
       this.persist()
     } catch (error) {
@@ -298,13 +307,8 @@ export class ClaimRouter {
       return fail(`Could not save claims: ${String(error)}`)
     }
     await this.reconcile()
-    let error =
-      nextIds.map((id) => this.errors.get(id)).find((error) => error !== undefined) ?? null
-    if (error !== null) return { ids: pendingIds, error }
-    for (const id of obsolete) {
-      const failure = await this.remove(id)
-      error ??= failure
-    }
+    const error =
+      pendingIds.map((id) => this.errors.get(id)).find((error) => error !== undefined) ?? null
     return { ids: error === null ? nextIds : pendingIds, error }
   }
 
@@ -400,9 +404,22 @@ export class ClaimRouter {
       }
     }
     this.persist()
-    for (const entry of this.entries.values()) {
+    const entries = [...this.entries.values()].sort(
+      (a, b) =>
+        Number(a.deleted || a.replaceAfter !== undefined) -
+        Number(b.deleted || b.replaceAfter !== undefined),
+    )
+    for (const entry of entries) {
       if (entry.region.claimant.wplaceUserId !== actor.wplaceUserId) continue
       this.errors.delete(entry.region.id)
+      if (entry.replaceAfter !== undefined) {
+        const error = this.replacementError(entry)
+        if (error !== undefined) {
+          this.errors.set(entry.region.id, error)
+          continue
+        }
+        entry.deleted = true
+      }
       if (!entry.deleted) {
         const documentError = claimDocumentError(entry.region.document)
         if (documentError !== null) {
@@ -438,6 +455,21 @@ export class ClaimRouter {
       )
     }
     this.persist()
+  }
+
+  private replacementError(entry: Entry): string | undefined {
+    for (const id of entry.replaceAfter ?? []) {
+      const replacement = this.entries.get(id)
+      if (replacement === undefined) continue
+      const error =
+        replacement.replaceAfter !== undefined
+          ? this.replacementError(replacement)
+          : replacement.deleted
+            ? undefined
+            : this.errors.get(id)
+      if (error !== undefined) return error
+    }
+    return undefined
   }
 
   private hasCopy(entry: Entry, server: ConnectedServer): boolean {
@@ -574,6 +606,9 @@ const load = (): Entry[] => {
         entry !== null &&
         isPresenceRegion(entry.region) &&
         typeof entry.deleted === 'boolean' &&
+        (entry.replaceAfter === undefined ||
+          (Array.isArray(entry.replaceAfter) &&
+            entry.replaceAfter.every((id: unknown) => typeof id === 'string'))) &&
         Array.isArray(entry.copies) &&
         entry.copies.every(
           (copy: unknown) =>
@@ -650,6 +685,7 @@ const operations = {
       .filter(
         (entry) =>
           !entry.deleted &&
+          entry.replaceAfter === undefined &&
           entry.region.claimant.wplaceUserId === accountIdentity()?.wplaceUserId &&
           (entry.region.expiresAt ?? entry.region.createdAt + REGION_CLAIM_TTL_MS) > Date.now(),
       )

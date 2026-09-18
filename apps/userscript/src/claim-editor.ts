@@ -2,8 +2,6 @@ import {
   flattenPath,
   MAX_PATH_NODES,
   MAX_RASTER_BITS,
-  MAX_REGION_DOCUMENT_WORK,
-  MAX_REGION_ITEMS,
   MAX_REGION_SHAPE_CORNERS,
   MAX_REGION_SHAPE_EXTENT,
   MAX_STROKE_WIDTH,
@@ -16,7 +14,7 @@ import {
   type RegionShape,
   type RegionShapePixels,
   rasterShapeFrom,
-  regionDocumentWork,
+  regionDocumentBounds,
   regionShapeBounds,
   regionShapeCentre,
   regionShapeContainsPixel,
@@ -33,7 +31,12 @@ import {
   type ClaimToolEntry,
   type ClaimToolGroupId,
 } from '@caelestis/ui/elements'
-import { claimDocumentError, claimDocumentPixels } from './claim-document.js'
+import {
+  claimDocumentError,
+  claimDocumentPixels,
+  claimDocuments,
+  claimDocumentsLimitError,
+} from './claim-document.js'
 import {
   cornerAnchor,
   insertAnchor,
@@ -46,6 +49,7 @@ import {
   smoothAnchor,
 } from './claim-path.js'
 import { eraseFromRaster, mergeRasters, PixelSet, rasterTouches } from './claim-raster.js'
+import type { ClaimSaveResult } from './claim-routing.js'
 import { splitItem, strokeArea } from './claim-split.js'
 import { warn } from './debug.js'
 import { canvasPixelAt, isMapInteractionTarget, screenProjection } from './main.js'
@@ -196,10 +200,15 @@ export interface ClaimEditorHost {
    * mode is where every one of your regions is edited, and Save writes the whole set back.
    */
   readonly myRegions: () => readonly { readonly id: string; readonly document: RegionDocument }[]
-  /** Persist the set as one claim, new when `id` is null. Resolves to an error, or null. */
-  readonly save: (id: string | null, document: RegionDocument) => Promise<string | null>
-  /** Remove a saved claim. Resolves to an error message, or null on success. */
-  readonly remove: (id: string) => Promise<string | null>
+  /**
+   * Persist the whole set of independent claims at once: each document keeps the id of the
+   * record it came from where one survives, gets a fresh id otherwise, and loaded ids with no
+   * document left are released. The returned ids are what the next save must name.
+   */
+  readonly save: (
+    ids: readonly string[],
+    documents: readonly RegionDocument[],
+  ) => Promise<ClaimSaveResult>
   readonly changed: () => void
 }
 
@@ -227,7 +236,7 @@ let lasso: Point[] | null = null
 let baseSelection: readonly string[] = []
 /** The tool to return to when the space bar, held for a temporary hand, is released. */
 let handHeldFrom: ClaimTool | null = null
-/** The saved claims loaded into the editor; Save merges them into the first and releases the rest. */
+/** The saved claims loaded into the editor; Save writes the set back under these and new ids. */
 let editingIds: readonly string[] = []
 let drag: Drag | null = null
 /** The pen path under construction. */
@@ -268,10 +277,17 @@ let cursor = ''
 let overlay: SVGSVGElement | null = null
 let mode: (HTMLElement & { model: ClaimModeModel }) | null = null
 let version = 0
+interface ClaimEditorPixels {
+  readonly rect: PresenceRect
+  readonly count: number
+  readonly parts: readonly RegionShapePixels[]
+}
 let pixelCache: {
   version: number
   document: RegionDocument
-  pixels: RegionShapePixels | null
+  documents: readonly RegionDocument[]
+  pixels: ClaimEditorPixels | null
+  error: string | null
 } | null = null
 let itemSeq = 0
 const listeners: (() => void)[] = []
@@ -356,15 +372,51 @@ const workingDocument = (): RegionDocument => {
   return { items: preview === null ? items : [...items, preview] }
 }
 
-/** The claim as pixels, including whatever is mid-gesture. Cached per change. */
-export const claimEditorPixels = (): RegionShapePixels | null => {
+/**
+ * The claim as pixels, including whatever is mid-gesture: one bounded raster per independent
+ * group of touching shapes, so empty space between distant shapes is never rasterised. Cached
+ * per change.
+ */
+export const claimEditorPixels = (): ClaimEditorPixels | null => {
   if (!active) return null
   if (pixelCache?.version !== version) {
     const document = workingDocument()
+    const grouped = claimDocuments(document)
+    const limitError = claimDocumentsLimitError(grouped)
+    const documents =
+      limitError === null
+        ? grouped.filter((part) => claimDocumentPixels(part)?.count !== 0)
+        : grouped
+    const parts =
+      limitError === null
+        ? documents.flatMap((part) => {
+            const pixels = claimDocumentPixels(part)
+            return pixels === null ? [] : [pixels]
+          })
+        : []
+    const error =
+      limitError ??
+      (document.items.length === 0
+        ? null
+        : grouped.length === 0
+          ? 'Add a shape before saving this claim.'
+          : documents.length === 0
+            ? 'This claim contains no pixels. Adjust or remove its subtracting shapes.'
+            : (documents.map(claimDocumentError).find((error) => error !== null) ?? null))
+    const rect = regionDocumentBounds(document)
     pixelCache = {
       version,
       document,
-      pixels: document.items.length === 0 ? null : claimDocumentPixels(document),
+      documents,
+      error,
+      pixels:
+        rect === null
+          ? null
+          : {
+              rect,
+              parts,
+              count: parts.reduce((count, part) => count + part.count, 0),
+            },
     }
   }
   return pixelCache.pixels
@@ -372,11 +424,7 @@ export const claimEditorPixels = (): RegionShapePixels | null => {
 
 export const claimModeModel = (): ClaimModeModel => {
   const pixels = claimEditorPixels()
-  const documentError =
-    !active || pixelCache === null || pixelCache.document.items.length === 0
-      ? null
-      : claimDocumentError(pixelCache.document)
-  const status = message ?? documentError
+  const status = message ?? (!active || pixelCache === null ? null : pixelCache.error)
   return {
     tool,
     tools: CLAIM_TOOLS,
@@ -482,14 +530,10 @@ const replaceItem = (id: string, shape: RegionShape): void => {
 }
 
 const addItem = (shape: RegionShape): void => {
-  if (items.length >= MAX_REGION_ITEMS) {
-    message = `A claim holds at most ${MAX_REGION_ITEMS} shapes.`
-    return
-  }
   const item: RegionItem = { id: nextItemId(), shape, op: subtract ? 'subtract' : 'add' }
-  if (regionDocumentWork({ items: [...items, item] }) > MAX_REGION_DOCUMENT_WORK) {
-    message =
-      'That shape would make the claim too complex to draw; make it smaller or remove others.'
+  const error = claimDocumentsLimitError(claimDocuments({ items: [...items, item] }))
+  if (error !== null) {
+    message = error
     return
   }
   items = [...items, item]
@@ -733,7 +777,7 @@ const finishErase = (): void => {
   let area: ReturnType<typeof strokeArea> | null = null
   const next: RegionItem[] = []
   let changed = false
-  let overflow = false
+  let limitError: string | null = null
   for (const [index, item] of items.entries()) {
     if (item.shape.kind === 'pixels') {
       const left = eraseFromRaster(item.shape, set)
@@ -750,16 +794,19 @@ const finishErase = (): void => {
     }
     area ??= strokeArea(line, eraserWidth)
     const pieces = splitItem(item, area, nextItemId)
-    // What is kept so far, plus these pieces, plus every item still to come, must fit.
-    if (next.length + pieces.length + (items.length - index - 1) > MAX_REGION_ITEMS) {
-      overflow = true
+    // What is kept so far, plus these pieces, plus every item still to come, must fit per claim.
+    const error = claimDocumentsLimitError(
+      claimDocuments({ items: [...next, ...pieces, ...items.slice(index + 1)] }),
+    )
+    if (error !== null) {
+      limitError = error
       next.push(item)
       continue
     }
     changed = true
     next.push(...pieces)
   }
-  if (overflow) message = `A claim holds at most ${MAX_REGION_ITEMS} shapes; a cut was skipped.`
+  if (limitError !== null) message = limitError
   if (changed) {
     items = next
     select([])
@@ -1739,10 +1786,10 @@ const setTool = (next: ClaimTool): void => {
 }
 
 /**
- * Save writes your whole set of regions back: everything on screen becomes one claim, saved
- * under the first loaded id (or a new one), and any other loaded claims are released since
- * their shapes now live in that one. An empty set releases everything. Removed shapes are
- * simply absent from what is written.
+ * Save writes your whole set of regions back: every independent group of touching shapes
+ * becomes its own claim, saved under the id it came from where one survives, and loaded claims
+ * with no shapes left are released by the router once the new records are accepted. An empty
+ * set releases everything. Removed shapes are simply absent from what is written.
  */
 const confirm = async (): Promise<void> => {
   if (!active || pending || host === null) return
@@ -1751,57 +1798,34 @@ const confirm = async (): Promise<void> => {
     stopClaimMode()
     return
   }
-  if (items.length > MAX_REGION_ITEMS) {
-    message = `A claim holds at most ${MAX_REGION_ITEMS} shapes; remove ${items.length - MAX_REGION_ITEMS} before saving.`
+  claimEditorPixels()
+  if (pixelCache?.error != null) {
+    message = pixelCache.error
     notify()
     return
   }
-  if (regionDocumentWork({ items }) > MAX_REGION_DOCUMENT_WORK) {
-    message = 'This claim is too complex to draw; shrink or remove some shapes before saving.'
-    notify()
-    return
-  }
-  const document: RegionDocument = { items }
-  if (items.length > 0) {
-    const documentError = claimDocumentError(document)
-    if (documentError !== null) {
-      message = documentError
-      notify()
-      return
-    }
-  }
-  const [primary, ...others] = editingIds
+  const documents = pixelCache?.documents ?? []
   const mine = session
+  const target = host
+  const ids = editingIds
   pending = true
   message = undefined
   notify()
-  let error: string | null = null
-  if (items.length > 0) error = await host.save(primary ?? null, document)
-  else if (primary !== undefined) error = await host.remove(primary)
-  const written = error === null
-  const unreleased: string[] = []
-  if (written) {
-    // The primary now holds every shape. A source that fails to release is a duplicate of
-    // part of it, so it stays in the set and the next Save tries again.
-    for (const id of others) {
-      const failure = await host.remove(id)
-      if (failure !== null) {
-        error ??= failure
-        unreleased.push(id)
-      }
-    }
+  let result: ClaimSaveResult
+  try {
+    result = await target.save(ids, documents)
+  } catch (error) {
+    result = { ids, error: String(error) }
   }
   // Escape during the wait ends this session; whatever opened since is not this request's.
   if (session !== mine) return
   pending = false
   if (!isClaimModeActive()) return
-  if (error === null) stopClaimMode()
+  editingIds = result.ids
+  if (result.error === null) stopClaimMode()
   else {
-    if (written && primary !== undefined) {
-      editingIds = [primary, ...unreleased]
-      dirty = true
-      message = `${error} Save again to release the remaining ${unreleased.length === 1 ? 'claim' : 'claims'}.`
-    } else message = error
+    dirty = true
+    message = result.error
     notify()
   }
 }
@@ -2200,7 +2224,7 @@ export const startClaimMode = (initialTool?: ClaimTool): void => {
   dismissWplacePixelCard()
   const saved = host.myRegions()
   // Claims saved separately may reuse item ids; every item needs its own here, or a later
-  // edit could address the wrong one and the merged document would be refused.
+  // edit could address the wrong one and the written documents would be refused.
   const seen = new Set<string>()
   items = saved
     .flatMap((region) => region.document.items)
@@ -2222,15 +2246,13 @@ export const startClaimMode = (initialTool?: ClaimTool): void => {
   lastStamp = null
   penContinued = null
   hover = null
-  dirty = false
+  dirty = saved.some((region) => claimDocuments(region.document).length > 1)
   drag = null
   pen = null
   stroke = null
   drawing = null
   pending = false
-  message = undefined
-  if (items.length > MAX_REGION_ITEMS)
-    message = `Your claims hold ${items.length} shapes together; a claim holds at most ${MAX_REGION_ITEMS}. Remove some before saving.`
+  message = claimDocumentsLimitError(claimDocuments({ items })) ?? undefined
   bump()
   setCursor(toolCursor())
   notify()

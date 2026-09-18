@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import type { RegionClaim } from '@caelestis/shared'
+import type { RegionClaim, RegionDocument } from '@caelestis/shared'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ClaimEditorHost } from '../claim-editor.js'
 
@@ -15,15 +15,13 @@ const harness = vi.hoisted(() => ({
   navigateTo: vi.fn(),
   toast: vi.fn(),
   editor: null as ClaimEditorHost | null,
-  save: vi.fn(async () => null),
-  remove: vi.fn(async () => null),
+  saveAll: vi.fn(async (ids: readonly string[]) => ({ ids, error: null })),
 }))
 
 vi.mock('../claim-routing.js', () => ({
   claimRouter: () => ({
     mine: () => harness.view.regions,
-    save: harness.save,
-    remove: harness.remove,
+    saveAll: harness.saveAll,
   }),
 }))
 
@@ -75,6 +73,7 @@ beforeEach(() => {
   harness.view.me = null
   harness.navigateTo.mockClear()
   harness.toast.mockClear()
+  harness.saveAll.mockClear()
 })
 
 describe('presenceSummaryModel players', () => {
@@ -83,10 +82,23 @@ describe('presenceSummaryModel players', () => {
     harness.view.regions = [region, claim('other-server', painter(7, 'Mia'))]
     installClaimToolHost()
     expect(harness.editor?.myRegions().map((region) => region.id)).toEqual(['mine', 'other-server'])
-    await harness.editor?.save(region.id, region.document)
-    expect(harness.save).toHaveBeenCalledWith(region.id, region.document)
-    await harness.editor?.remove(region.id)
-    expect(harness.remove).toHaveBeenCalledWith(region.id)
+    await harness.editor?.save([region.id], [region.document])
+    expect(harness.saveAll).toHaveBeenCalledWith([region.id], [region.document])
+  })
+
+  it('names a saved batch by its real pixels and toasts once', async () => {
+    installClaimToolHost()
+    const near: RegionDocument = {
+      items: [{ id: 'n', op: 'add', shape: { kind: 'rectangle', x: 0, y: 0, w: 1, h: 1 } }],
+    }
+    const far: RegionDocument = {
+      items: [{ id: 'f', op: 'add', shape: { kind: 'rectangle', x: 2_000, y: 2_000, w: 1, h: 1 } }],
+    }
+    await harness.editor?.save([], [near, far])
+    expect(harness.saveAll).toHaveBeenCalledOnce()
+    expect(harness.saveAll).toHaveBeenCalledWith([], [near, far])
+    expect(harness.toast).toHaveBeenCalledTimes(1)
+    expect(harness.toast).toHaveBeenCalledWith(expect.stringContaining('2 px'))
   })
 
   it('lists the nearby peers: painters first, then browsers, then the unlocated', () => {

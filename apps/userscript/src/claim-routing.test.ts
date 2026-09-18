@@ -3,6 +3,7 @@ import {
   REGION_CLAIM_TTL_MS,
   type RegionClaim,
   type RegionDocument,
+  regionDocumentContainsPixel,
   regionDocumentPixels,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
@@ -555,23 +556,24 @@ describe('claim document batches', () => {
     expect(resumed.mine().map((region) => region.id)).toEqual([...failed.ids])
   })
 
-  it('keeps a replaced record until every new write lands, then deletes it', async () => {
+  it('keeps a replaced record out of sight until every new write lands, then deletes it', async () => {
     const legacy: RegionClaim = {
       ...claim('old'),
       document: {
         items: [
-          { id: 'old-a', op: 'add', shape: { kind: 'rectangle', x: 0, y: 0, w: 10, h: 10 } },
-          { id: 'old-b', op: 'add', shape: { kind: 'rectangle', x: 20, y: 0, w: 10, h: 10 } },
+          { id: 'old-shape', op: 'add', shape: { kind: 'rectangle', x: 0, y: 0, w: 10, h: 10 } },
         ],
       },
-      rect: { x: 0, y: 0, w: 30, h: 10 },
+      rect: { x: 0, y: 0, w: 10, h: 10 },
     }
     const h = setup([x])
     const router = new ClaimRouter(h.host, [
       { region: legacy, deleted: false, copies: [{ url: x.url, serverId: x.info?.id ?? '' }] },
     ])
-    const docs = [box('new-a', 100, 0, 10, 10), box('new-b', 200, 0, 10, 10)]
-    let failingItem = 'new-b'
+    const left = box('new-left', 0, 0, 4, 10)
+    const right = box('new-right', 6, 0, 4, 10)
+    const docs = [left, right]
+    let failingItem = 'new-right'
     h.host.put.mockImplementation(async (server, region) => {
       h.mutations.push({ method: 'PUT', server: server.url, region })
       return region.document.items[0]?.id === failingItem ? 'unreachable' : null
@@ -581,9 +583,18 @@ describe('claim document batches', () => {
     expect(failed.ids).toHaveLength(3)
     expect(failed.ids[2]).toBe('old')
     expect(h.mutations.some((m) => m.method === 'DELETE')).toBe(false)
-    expect(persistedDocuments(h)).toEqual(
-      expect.arrayContaining([legacy.document, docs[0], docs[1]]),
-    )
+    expect(persistedDocuments(h)).toEqual(expect.arrayContaining([legacy.document, left, right]))
+    expect(router.mine().map((region) => region.document)).toEqual([left, right])
+
+    const resumed = new ClaimRouter(h.host, structuredClone(h.persist.mock.calls.at(-1)?.[0]))
+    const loaded = resumed.mine()
+    expect(loaded.map((region) => region.document)).toEqual([left, right])
+    const flattened: RegionDocument = {
+      items: loaded.flatMap((region) => region.document.items),
+    }
+    expect(regionDocumentContainsPixel(flattened, 2, 5)).toBe(true)
+    expect(regionDocumentContainsPixel(flattened, 5, 5)).toBe(false)
+    expect(regionDocumentContainsPixel(flattened, 8, 5)).toBe(true)
 
     failingItem = ''
     h.host.remove.mockImplementationOnce(async (server, region) => {
@@ -591,19 +602,62 @@ describe('claim document batches', () => {
       return 'unreachable'
     })
     h.mutations.length = 0
-    const second = await router.saveAll(failed.ids, docs)
+    const second = await resumed.saveAll(failed.ids, docs)
     expect(second.error).toContain('unreachable')
     expect(second.ids).toEqual(failed.ids)
     expect(h.mutations.map((m) => [m.method, m.region.id])).toEqual([
+      ['PUT', failed.ids[0]],
       ['PUT', failed.ids[1]],
       ['DELETE', 'old'],
     ])
 
     h.mutations.length = 0
-    const third = await router.saveAll(second.ids, docs)
+    const third = await resumed.saveAll(
+      loaded.map((region) => region.id),
+      docs,
+    )
     expect(third).toEqual({ ids: failed.ids.slice(0, 2), error: null })
     expect(h.mutations.map((m) => [m.method, m.region.id])).toEqual([['DELETE', 'old']])
-    expect(router.mine().map((region) => region.id)).toEqual(failed.ids.slice(0, 2))
+    expect(resumed.mine().map((region) => region.id)).toEqual(failed.ids.slice(0, 2))
+  })
+
+  it('waits for the latest replacement before cleaning superseded records', async () => {
+    const h = setup([x])
+    const router = new ClaimRouter(h.host, [
+      {
+        region: claim('old'),
+        deleted: false,
+        copies: [{ url: x.url, serverId: x.info?.id ?? '' }],
+      },
+    ])
+    let failingItem = 'middle'
+    h.host.put.mockImplementation(async (server, region) => {
+      h.mutations.push({ method: 'PUT', server: server.url, region })
+      return region.document.items[0]?.id === failingItem ? 'unreachable' : null
+    })
+    const first = await router.saveAll(['old'], [box('middle', 0, 0, 10, 10)])
+    expect(first.error).toContain('unreachable')
+    const middleId = first.ids[0] ?? 'missing'
+    expect(router.mine().map((region) => region.id)).toEqual([middleId])
+
+    failingItem = 'latest'
+    const second = await router.saveAll(first.ids, [box('latest', 0, 0, 10, 10)])
+    expect(second.error).toContain('unreachable')
+    const latestId = second.ids[0] ?? 'missing'
+    expect(latestId).not.toBe(middleId)
+    expect(router.mine().map((region) => region.id)).toEqual([latestId])
+    expect(h.mutations.some((m) => m.method === 'DELETE')).toBe(false)
+
+    failingItem = ''
+    h.mutations.length = 0
+    const third = await router.saveAll(second.ids, [box('latest', 0, 0, 10, 10)])
+    expect(third).toEqual({ ids: [latestId], error: null })
+    expect(h.mutations.map((m) => [m.method, m.region.id])).toEqual([
+      ['PUT', latestId],
+      ['DELETE', 'old'],
+      ['DELETE', middleId],
+    ])
+    expect(router.mine().map((region) => region.id)).toEqual([latestId])
   })
 
   it('restores every local entry unchanged when persistence fails', async () => {
@@ -627,6 +681,30 @@ describe('claim document batches', () => {
     expect(batch.error).toBe('Could not save claims: Error: disk full')
     expect(batch.ids).toEqual([kept])
     expect(h.router.mine().map((region) => region.document)).toEqual([document()])
+  })
+
+  it('keeps the replaced record visible when persisting its supersession fails', async () => {
+    const h = setup([x])
+    const router = new ClaimRouter(h.host, [
+      {
+        region: claim('old'),
+        deleted: false,
+        copies: [{ url: x.url, serverId: x.info?.id ?? '' }],
+      },
+    ])
+    h.persist.mockImplementationOnce(() => {
+      throw new Error('disk full')
+    })
+    const result = await router.saveAll(
+      ['old'],
+      [box('new-a', 0, 0, 4, 10), box('new-b', 6, 0, 4, 10)],
+    )
+    expect(result.error).toBe('Could not save claims: Error: disk full')
+    expect(result.ids).toEqual(['old'])
+    expect(h.mutations).toEqual([])
+    const mine = router.mine()
+    expect(mine.map((region) => region.id)).toEqual(['old'])
+    expect(mine[0]?.document.items[0]?.id).toBe('shape')
   })
 
   it('rejects the whole batch when any document is invalid', async () => {

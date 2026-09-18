@@ -5,11 +5,11 @@ import {
   rectCentreDistance,
   rectIntersection,
   regionDocumentBounds,
-  regionDocumentPixels,
   sameTemplateSurface,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import type { ClaimTool, PainterRowModel, PresenceSummaryModel } from '@caelestis/ui/elements'
+import { claimDocumentPixels, claimDocuments } from '../claim-document.js'
 import {
   type ClaimEditorHost,
   installClaimEditor,
@@ -78,7 +78,10 @@ export const documentName = (document: RegionDocument): string => {
   const count = document.items.length
   let pixels = pixelCounts.get(document)
   if (pixels === undefined) {
-    pixels = regionDocumentPixels(document)?.count ?? 0
+    pixels = claimDocuments(document).reduce(
+      (total, part) => total + (claimDocumentPixels(part)?.count ?? 0),
+      0,
+    )
     pixelCounts.set(document, pixels)
   }
   const first = document.items[0]?.shape.kind ?? 'shape'
@@ -164,12 +167,14 @@ const host = (): ClaimEditorHost => ({
           presenceServers().some((server) => server.season === region.season),
       )
       .map((region) => ({ id: region.id, document: region.document })),
-  save: async (id, document) => {
-    const error = await claimRouter().save(id, document)
-    if (error === null) toast(`Saved your regions: ${documentName(document)}.`)
-    return error
+  save: async (ids, documents) => {
+    const result = await claimRouter().saveAll(ids, documents)
+    if (result.error === null && documents.length > 0)
+      toast(
+        `Saved your regions: ${documentName({ items: documents.flatMap((document) => document.items) })}.`,
+      )
+    return result
   },
-  remove: (id) => claimRouter().remove(id),
   changed: () => rerenderPanel?.(),
 })
 
