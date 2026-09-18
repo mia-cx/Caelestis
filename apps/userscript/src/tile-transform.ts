@@ -15,6 +15,7 @@ import { measureProfile } from './profile.js'
 import { buildExactRgbIndex, canvasRgbIndex } from './rgb-index.js'
 import { draftedPixelsIn } from './templates/drafted.js'
 import { tilePixelCacheLimit } from './tile-pixel-cache.js'
+import { forgetCharges, observeCharges } from './wplace-charges.js'
 import {
   captureFetchUrlGetters,
   isGetFetch,
@@ -727,6 +728,7 @@ const installFetchTap = (realm: Window & typeof globalThis): InstalledValueHook 
       let shouldNormalizeMissing = false
       let paintBody: Promise<unknown> | null = null
       let paintSubmission: PaintSubmission | null = null
+      let accountRead = false
       try {
         const url = urlForFetchInput(input, realm, urlGetters)
         if (url !== null) {
@@ -737,6 +739,10 @@ const installFetchTap = (realm: Window & typeof globalThis): InstalledValueHook 
             shouldNormalizeMissing = isGetFetch(input, args[1], realm, urlGetters)
           }
           const parsed = new URL(url, realm.location?.href)
+          // Wplace's own account reads carry the charges; the userscript's sandboxed fetch never sees them.
+          if (parsed.origin === 'https://backend.wplace.live' && parsed.pathname === '/me') {
+            accountRead = isGetFetch(input, args[1], realm, urlGetters)
+          }
           if (parsed.origin === 'https://backend.wplace.live' && parsed.pathname === '/paint') {
             const request = isPageInstance(
               input,
@@ -765,9 +771,21 @@ const installFetchTap = (realm: Window & typeof globalThis): InstalledValueHook 
         finishSubmission(paintSubmission)
         throw error
       }
-      if (tile === null && paintBody === null) return pendingResponse
+      if (tile === null && paintBody === null && !accountRead) return pendingResponse
       return pendingResponse.then(
         (response) => {
+          if (accountRead && response.ok) {
+            void response
+              .clone()
+              .json()
+              .then((body: unknown) => {
+                if (isRecord(body)) observeCharges(body.charges)
+              })
+              .catch(() => count('telemetry:account-response-unreadable'))
+          } else if (accountRead && (response.status === 401 || response.status === 403)) {
+            // Signed out: the last reading belongs to nobody now.
+            forgetCharges()
+          }
           if (paintBody !== null && paintSubmission !== null && response.ok) {
             const submission = paintSubmission
             const accepted = nextPixelObservation()

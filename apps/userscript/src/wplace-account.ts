@@ -1,6 +1,7 @@
 import { type PainterIdentity, TRANSPARENT_INDEX, WPLACE_PALETTE } from '@caelestis/shared'
 import { log, warn } from './debug.js'
 import { discardResponseBody } from './response.js'
+import { forgetCharges, observeCharges } from './wplace-charges.js'
 
 /**
  * What wplace knows about the signed-in user.
@@ -106,6 +107,7 @@ const fetchAccount = async (): Promise<void> => {
       if (response.status === 401 || response.status === 403) {
         replaceOwned(null)
         replaceIdentity(null)
+        forgetCharges()
       }
       log('install', `/me said ${response.status}; owned colours unavailable`)
       return
@@ -114,8 +116,10 @@ const fetchAccount = async (): Promise<void> => {
     if (!isRecord(body)) {
       replaceOwned(null)
       replaceIdentity(null)
+      forgetCharges()
       return
     }
+    if (!observeCharges(body.charges)) forgetCharges()
     const id = body.id
     const name = body.name
     replaceIdentity(

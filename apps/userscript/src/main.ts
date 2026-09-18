@@ -86,6 +86,7 @@ import {
   reconcileDrafts,
   type TileFrame,
 } from './tile-transform.js'
+import { installChargeForecast } from './ui/charge-forecast.js'
 import { renderOverlayControls } from './ui/overlay-menu.js'
 import { installPanel, refreshTemplateTreeFocus } from './ui/panel.js'
 import { installClaimToolHost } from './ui/presence-actions.js'
@@ -378,6 +379,7 @@ const main = (): void => {
   step('server sync coordinator', installServerSyncCoordinator)
   step('alarm notifications', installAlarmNotifications)
   step('wplace account', () => void loadAccount())
+  step('charge forecast', installChargeForecast)
   step('paint watcher', () => {
     watchPaintSelection()
     // The selected-colour marker lives in MapLibre's custom layer. Returning from Eraser to Pencil
