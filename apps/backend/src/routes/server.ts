@@ -11,6 +11,7 @@ import { BackendStorageError, SqlStoreReadError } from '../runtime/errors.js'
 import { runBackendHttp } from '../runtime/hono.js'
 import { mergeServerInfo } from '../server-info.js'
 import { publishManifestChange } from '../status-read-model/port.js'
+import { ingestTimings } from '../telemetry/ingest-timing.js'
 
 const MAX_NAME_LENGTH = 256
 const MAX_DESCRIPTION_LENGTH = 4096
@@ -120,6 +121,13 @@ export const createServerAdminRoutes = (
       ),
       () => c.json({ ok: true }),
     )
+  })
+
+  // Where live uploads, offers, and paints spend their time on this runtime since the last reset.
+  routes.get('/ingest-timings', (c) => {
+    const snapshot = ingestTimings.snapshot()
+    if (c.req.query('reset') === 'true') ingestTimings.reset()
+    return c.json(snapshot)
   })
 
   return routes

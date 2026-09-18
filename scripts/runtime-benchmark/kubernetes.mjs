@@ -281,7 +281,22 @@ export async function benchmarkKubernetes({
     }
     return result
   }
+  // Per-stage backend timings for uploads, offers, and paints, from the backend's own clock.
+  // They cover setup, warmup, and the measured phase together; the acceptance traffic before the
+  // benchmark is excluded by the reset.
+  const backendStages = async (query = '') => {
+    try {
+      const response = await fetch(`${site}/backend/v1/admin/server/ingest-timings${query}`, {
+        headers: { authorization: `Bearer ${adminToken}` },
+        signal: AbortSignal.timeout(30000),
+      })
+      return response.ok ? await response.json() : { unavailable: `HTTP ${response.status}` }
+    } catch (error) {
+      return { unavailable: String(error) }
+    }
+  }
   try {
+    await backendStages('?reset=true')
     console.log('Replaying 256 users: 35-second warmup, then 60 measured seconds')
     report.result = await traffic({
       site,
@@ -294,6 +309,7 @@ export async function benchmarkKubernetes({
       end,
       commandTimeoutMs: report.commandTimeoutMs,
     })
+    report.result.backendStages = await backendStages()
     assert.deepEqual(await inspect(), containers, 'Containers changed during the measured workload')
     report.completed = true
     report.passed = Object.values(report.result.correctness.clientDeadlineMisses).every(
@@ -303,6 +319,7 @@ export async function benchmarkKubernetes({
     report.passed = false
     report.error = String(error)
     report.result = error.benchmarkResult
+    if (report.result) report.result.backendStages = await backendStages()
     throw error
   } finally {
     clearInterval(timer)

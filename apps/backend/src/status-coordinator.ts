@@ -84,6 +84,7 @@ import {
   recordPaint,
   uploadTile,
 } from './telemetry/ingest.js'
+import { ingestTimings } from './telemetry/ingest-timing.js'
 import { readAlarms, readContributions, readLeaderboard } from './telemetry/queries.js'
 
 export interface LiveSocket {
@@ -1006,8 +1007,10 @@ export class StatusCoordinator<Client> {
       return
     }
     try {
-      const result = await this.backendRuntime().run(
-        recordPaint(event.event, attachment?.tokenHash ?? '', attachment?.scope === 'admin'),
+      const result = await ingestTimings.timed('paint', 'total', () =>
+        this.backendRuntime().run(
+          recordPaint(event.event, attachment?.tokenHash ?? '', attachment?.scope === 'admin'),
+        ),
       )
       this.send(socket, {
         type: 'paint-result',
@@ -1110,21 +1113,23 @@ export class StatusCoordinator<Client> {
     }
     const receivedAt = seconds(Math.floor(Date.now() / 1_000))
     try {
-      const result = await this.backendRuntime().run(
-        offerTilesWithOutcome(
-          parsed.map(({ offer, tile }) => ({
-            key: offer.tile,
-            metadata: {
-              wplaceUserId: event.batch.wplaceUserId,
-              displayName: event.batch.displayName,
-              tokenHash: attachment?.tokenHash ?? '',
-              season: event.batch.season,
-              tile: tile ?? { x: -1, y: -1 },
-              hash: offer.sha256,
-              observedAt: seconds(Math.min(offer.ts, receivedAt + MAX_TILE_FUTURE_SKEW_SECONDS)),
-              includeUnpublished: attachment?.scope === 'admin',
-            },
-          })),
+      const result = await ingestTimings.timed('offer', 'total', () =>
+        this.backendRuntime().run(
+          offerTilesWithOutcome(
+            parsed.map(({ offer, tile }) => ({
+              key: offer.tile,
+              metadata: {
+                wplaceUserId: event.batch.wplaceUserId,
+                displayName: event.batch.displayName,
+                tokenHash: attachment?.tokenHash ?? '',
+                season: event.batch.season,
+                tile: tile ?? { x: -1, y: -1 },
+                hash: offer.sha256,
+                observedAt: seconds(Math.min(offer.ts, receivedAt + MAX_TILE_FUTURE_SKEW_SECONDS)),
+                includeUnpublished: attachment?.scope === 'admin',
+              },
+            })),
+          ),
         ),
       )
       const byTile = new Map<string, string>(
@@ -1204,20 +1209,22 @@ export class StatusCoordinator<Client> {
     }
     const receivedAt = seconds(Math.floor(Date.now() / 1_000))
     try {
-      await this.backendRuntime().run(
-        uploadTile(
-          {
-            wplaceUserId: metadata.wplaceUserId,
-            displayName: metadata.displayName,
-            tokenHash: attachment?.tokenHash ?? '',
-            season: metadata.season,
-            tile,
-            hash: metadata.sha256,
-            observedAt: seconds(Math.min(metadata.ts, receivedAt + MAX_TILE_FUTURE_SKEW_SECONDS)),
-            includeUnpublished: attachment?.scope === 'admin',
-          },
-          frame.payload,
-          metadata.coverageToken === undefined ? {} : { coverageToken: metadata.coverageToken },
+      await ingestTimings.timed('upload', 'total', () =>
+        this.backendRuntime().run(
+          uploadTile(
+            {
+              wplaceUserId: metadata.wplaceUserId,
+              displayName: metadata.displayName,
+              tokenHash: attachment?.tokenHash ?? '',
+              season: metadata.season,
+              tile,
+              hash: metadata.sha256,
+              observedAt: seconds(Math.min(metadata.ts, receivedAt + MAX_TILE_FUTURE_SKEW_SECONDS)),
+              includeUnpublished: attachment?.scope === 'admin',
+            },
+            frame.payload,
+            metadata.coverageToken === undefined ? {} : { coverageToken: metadata.coverageToken },
+          ),
         ),
       )
       this.send(socket, {

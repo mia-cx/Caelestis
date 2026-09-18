@@ -59,6 +59,7 @@ import {
   readMismatchArtifact,
   writeMismatchArtifact,
 } from './derived-classification.js'
+import { type IngestCommand, type IngestStage, ingestTimings } from './ingest-timing.js'
 import { sharedClassifier } from './shared-classification.js'
 import { readTileBlob, reserveTileBlob, reserveTileBlobUpload } from './tile-blobs.js'
 
@@ -252,6 +253,7 @@ const classifyTarget = async (
 ): Promise<ClassifiedTarget | null> => {
   const rect = chunkRect(target)
   if (rect === null) return null
+  let computed = false
   const shared = await sharedClassifier.classify(
     {
       templateId: target.templateId,
@@ -261,6 +263,7 @@ const classifyTarget = async (
       canvasHash,
     },
     async () => {
+      computed = true
       const chunk = await readDecodedChunk(ports, target.hash)
       if (chunk === null || chunk.width !== rect.width || chunk.height !== rect.height) return null
       const { correct, wrong, blank, colours, classifications } = classifyChunk(
@@ -271,6 +274,7 @@ const classifyTarget = async (
       return { correct, wrong, blank, colours, mask: encodeMismatchMask(rect, classifications) }
     },
   )
+  ingestTimings.count(computed ? 'classification.computed' : 'classification.shared')
   if (shared === null) return null
   return {
     status: {
@@ -349,29 +353,36 @@ const recordObservationPromise = async (
     readonly artifactWriteBatch?: DerivedArtifactWriteBatch
     /** Targets the caller already loaded for this tile and scope, so they are not queried twice. */
     readonly targets?: readonly TelemetryTarget[]
+    /** Which live command this observation belongs to, for stage timings. */
+    readonly command?: IngestCommand
     readonly onCommitted?: (mutation: StatusProjectionMutation | null) => void | Promise<void>
   } = {},
 ): Promise<void> => {
-  const canvas = await decodeCanvasInput(metadata.hash, bytes)
-  const preparedCoverageToken = await prepareTileGenerationCommit(
-    ports.statusReadModel,
-    metadata.season,
-    metadata.tile,
+  const command = options.command ?? 'upload'
+  const timed = <Value>(stage: IngestStage, run: () => Promise<Value>) =>
+    ingestTimings.timed(command, stage, run)
+  const canvas = await timed('decode', () => decodeCanvasInput(metadata.hash, bytes))
+  const preparedCoverageToken = await timed('prepare', () =>
+    prepareTileGenerationCommit(ports.statusReadModel, metadata.season, metadata.tile),
   )
   const { targets, classified, committed } = await (async () => {
     try {
       const targets =
         options.targets ??
-        (await ports.sql.listTelemetryTargets(
-          metadata.season,
-          metadata.tile,
-          metadata.includeUnpublished,
+        (await timed('targets', () =>
+          ports.sql.listTelemetryTargets(
+            metadata.season,
+            metadata.tile,
+            metadata.includeUnpublished,
+          ),
         ))
       const observedAtMs = metadata.observedAt * 1_000
       const classified = (
-        await Promise.all(
-          targets.map((target) =>
-            classifyTarget(ports, target, canvas, metadata.hash, observedAtMs),
+        await timed('classify', () =>
+          Promise.all(
+            targets.map((target) =>
+              classifyTarget(ports, target, canvas, metadata.hash, observedAtMs),
+            ),
           ),
         )
       ).filter((result): result is ClassifiedTarget => result !== null)
@@ -385,22 +396,26 @@ const recordObservationPromise = async (
         reportedWithToken: metadata.tokenHash,
         reportedByUserId: metadata.wplaceUserId,
       }
-      await ports.sql.rememberPainter(
-        metadata.wplaceUserId,
-        metadata.displayName,
-        millis(observedAtMs),
+      await timed('painter', () =>
+        ports.sql.rememberPainter(
+          metadata.wplaceUserId,
+          metadata.displayName,
+          millis(observedAtMs),
+        ),
       )
       const recordHistory =
         options.recordHistory ??
         (targets.length === 0 || targets.some((target) => !target.finished))
-      const committed = await ports.sql.commitTileBlobReservation(
-        reservationId,
-        millis(Date.now()),
-        observation,
-        statuses,
-        recordHistory,
-        options.authoritative ?? false,
-        metadata.includeUnpublished,
+      const committed = await timed('commit', () =>
+        ports.sql.commitTileBlobReservation(
+          reservationId,
+          millis(Date.now()),
+          observation,
+          statuses,
+          recordHistory,
+          options.authoritative ?? false,
+          metadata.includeUnpublished,
+        ),
       )
       if (!committed) {
         throw new Error(`tile blob reservation expired before ${metadata.hash} could be recorded`)
@@ -421,6 +436,7 @@ const recordObservationPromise = async (
   // The server recomputed coverage after prepare. A client token only supports adapters that do not
   // implement prepare; it cannot invalidate the fresher server-owned result.
   const repairCoverageToken = preparedCoverageToken?.coverageToken ?? options.coverageToken
+  const projectionStartedAt = performance.now()
   if (committed.current !== null && repairCoverageToken !== undefined) {
     await repairCommittedTileGeneration(ports.statusReadModel, metadata.season, {
       ...committed.current,
@@ -470,12 +486,14 @@ const recordObservationPromise = async (
           ),
         }
   await options.onCommitted?.(mutation)
+  ingestTimings.record(command, 'projection', performance.now() - projectionStartedAt)
   // Evaluate only changed templates, before acknowledging this observation. Initial incomplete
   // work seeds a baseline; a newly lost correct pixel opens an episode immediately.
   const alarmChanges = committed.statusChanges.filter(
     ({ previous, current }) => previous === null || previous.correct !== current.correct,
   )
   // The fetcher evaluates its complete scan/follow-up after its authoritative tile batch.
+  const alarmsStartedAt = performance.now()
   if (options.authoritative !== true && committed.revision !== null && alarmChanges.length > 0) {
     for (const {
       previous,
@@ -502,6 +520,7 @@ const recordObservationPromise = async (
     }
     await publishAlarmChange(ports.statusReadModel, metadata.season)
   }
+  ingestTimings.record(command, 'alarms', performance.now() - alarmsStartedAt)
   // Publish the authoritative revision first. A caller processing many tiles owns one shared batch
   // and flushes it only after its coalesced projection; standalone calls flush their local batch.
   const ownsArtifactWriteBatch = options.artifactWriteBatch === undefined
@@ -519,11 +538,13 @@ const recordObservationPromise = async (
       mask,
     )
   }
-  if (ownsArtifactWriteBatch) await artifactWriteBatch.flush()
-  await ports.sql.foldTileHistory(
-    metadata.season,
-    metadata.tile,
-    seconds(Math.floor(Date.now() / 1_000)),
+  if (ownsArtifactWriteBatch) await timed('artifacts', () => artifactWriteBatch.flush())
+  await timed('historyFold', () =>
+    ports.sql.foldTileHistory(
+      metadata.season,
+      metadata.tile,
+      seconds(Math.floor(Date.now() / 1_000)),
+    ),
   )
 }
 
@@ -572,15 +593,16 @@ const offerTilePromise = async (
     readonly onCommitted?: (mutation: StatusProjectionMutation | null) => void | Promise<void>
   } = {},
 ): Promise<'ignored' | 'wanted' | 'recorded'> => {
-  const targets = await ports.sql.listTelemetryTargets(
-    metadata.season,
-    metadata.tile,
-    metadata.includeUnpublished,
+  const targets = await ingestTimings.timed('offer', 'targets', () =>
+    ports.sql.listTelemetryTargets(metadata.season, metadata.tile, metadata.includeUnpublished),
   )
   if (targets.length === 0) return 'ignored'
-  const held = await reserveTileBlob(ports, metadata.hash)
+  const held = await ingestTimings.timed('offer', 'reserve', () =>
+    reserveTileBlob(ports, metadata.hash),
+  )
   if (held === null) return 'wanted'
   await recordObservationPromise(ports, metadata, held.bytes, held.reservation.id, {
+    command: 'offer',
     targets,
     ...(options.coverageToken === undefined ? {} : { coverageToken: options.coverageToken }),
     ...(options.artifactWriteBatch === undefined
@@ -617,26 +639,31 @@ const uploadTilePromise = async (
   if (bytes.byteLength === 0 || bytes.byteLength > MAX_CANVAS_TILE_BYTES) {
     throw new RangeError(`tile must be 1..${MAX_CANVAS_TILE_BYTES} bytes`)
   }
-  const actualHash = await sha256Hex(bytes)
+  const actualHash = await ingestTimings.timed('upload', 'hash', () => sha256Hex(bytes))
   if (actualHash !== metadata.hash) throw new RangeError('tile bytes do not match their sha256')
-  const targets = await ports.sql.listTelemetryTargets(
-    metadata.season,
-    metadata.tile,
-    metadata.includeUnpublished,
+  const targets = await ingestTimings.timed('upload', 'targets', () =>
+    ports.sql.listTelemetryTargets(metadata.season, metadata.tile, metadata.includeUnpublished),
   )
   if (options.requireCoverage !== false && targets.length === 0) {
     throw new RangeError('tile is not covered by a visible template')
   }
-  const reservation = await reserveTileBlobUpload(ports, actualHash)
+  const reservation = await ingestTimings.timed('upload', 'reserve', () =>
+    reserveTileBlobUpload(ports, actualHash),
+  )
   let projection: StatusProjectionChange | null = null
   try {
     // Many reporters upload one fresh hash inside the same commit window. Once a generation of
     // these bytes is active, its object already holds them; the reservation keeps GC away, so
     // only the observation still needs recording.
-    if (!(await tileBytesAlreadyStored(ports, actualHash, reservation.blobKey))) {
+    await ingestTimings.timed('upload', 'blobPut', async () => {
+      if (await tileBytesAlreadyStored(ports, actualHash, reservation.blobKey)) {
+        ingestTimings.count('upload.blobPut.skipped')
+        return
+      }
       await ports.blobs.put('tiles', reservation.blobKey, bytes)
-    }
+    })
     await recordObservationPromise(ports, metadata, bytes, reservation.id, {
+      command: 'upload',
       targets,
       ...(options.coverageToken === undefined ? {} : { coverageToken: options.coverageToken }),
       ...(options.recordHistory === undefined ? {} : { recordHistory: options.recordHistory }),
@@ -691,11 +718,16 @@ const recordPaintPromise = async (
   const totals = new Map<string, { placed: number; correct: number; repairs: number }>()
   for (const paintedTile of event.tiles) {
     const tile = { x: paintedTile.x, y: paintedTile.y }
-    const targets = await ports.sql.listTelemetryTargets(event.season, tile, includeUnpublished)
+    const targets = await ingestTimings.timed('paint', 'targets', () =>
+      ports.sql.listTelemetryTargets(event.season, tile, includeUnpublished),
+    )
     if (targets.length === 0) continue
-    const latest = await ports.sql.readLatestTile(event.season, tile)
-    const previous = latest === null ? null : await readDecodedCanvas(ports, latest.hash)
+    const previous = await ingestTimings.timed('paint', 'latestTile', async () => {
+      const latest = await ports.sql.readLatestTile(event.season, tile)
+      return latest === null ? null : await readDecodedCanvas(ports, latest.hash)
+    })
 
+    const classifyStartedAt = performance.now()
     for (const target of targets) {
       if (target.finished) continue
       const rect = chunkRect(target)
@@ -725,6 +757,7 @@ const recordPaintPromise = async (
       }
       totals.set(target.templateId, total)
     }
+    ingestTimings.record('paint', 'classify', performance.now() - classifyStartedAt)
   }
 
   const counters: CounterDelta[] = []
@@ -751,15 +784,18 @@ const recordPaintPromise = async (
       ...total,
     })
   }
-  const application = await ports.sql.applyPaintEvent(
-    event.eventId,
-    event.wplaceUserId,
-    event.displayName,
-    seenAt,
-    { counters, contributions, painterBuckets },
+  const application = await ingestTimings.timed('paint', 'apply', () =>
+    ports.sql.applyPaintEvent(event.eventId, event.wplaceUserId, event.displayName, seenAt, {
+      counters,
+      contributions,
+      painterBuckets,
+    }),
   )
   if (application.accounting === null) return 'duplicate'
-  await ports.counters.record(application.accounting.counters, event.eventId)
+  const accounting = application.accounting
+  await ingestTimings.timed('paint', 'counters', () =>
+    ports.counters.record(accounting.counters, event.eventId),
+  )
   return application.applied ? 'recorded' : 'duplicate'
 }
 

@@ -24,7 +24,7 @@ scope and land in the same branch.
 - [x] Share classification results across reporters with a bounded cache keyed by every classification input (#413).
 - [x] Skip the repeated S3 PUT for an already-active hash and load telemetry targets once per command.
 - [x] Move derived mismatch-artifact writes to a bounded background writer that drains on shutdown (#414).
-- [ ] Record per-stage timings for live tile and paint commands in request metrics and the benchmark JSON.
+- [x] Record per-stage timings for live tile and paint commands in request metrics and the benchmark JSON.
 - [ ] Add Changesets and run lint, check, test, and build on Node and Bun.
 - [ ] Repeat the strict 256-user CNPG/S3 workload on Node and Bun and record the results under docs/.
 
@@ -63,3 +63,11 @@ scope and land in the same branch.
   awaiting its own batch. Node's runtime close drains for at most ten seconds; the Cloudflare
   Worker's `fetch` now takes its execution context and calls `waitUntil(drain())` so the isolate
   stays alive for queued writes. Durable Objects keep running pending promises without it.
+- TODO 5: `IngestTimings` keeps count, total, max, p50, and p99 (last 512 samples) per command
+  and stage in process. Uploads record queue wait (Node live host), hash, targets, reserve,
+  blobPut, decode, prepare, classify, painter, commit, projection, alarms, artifacts, historyFold,
+  and total; offers and paints their own stages. Counters record shared versus computed
+  classifications and skipped blob PUTs. `GET /admin/server/ingest-timings` returns the snapshot
+  and `?reset=true` clears it. The k3s benchmark driver resets before the trace and stores the
+  snapshot as `result.backendStages`. Node has no request-metrics dataset, so the snapshot is the
+  portable surface rather than a new Analytics Engine column.

@@ -28,6 +28,11 @@ Observation mode exits successfully when collection completes; inspect `benchmar
 
 `benchmark.json` records image IDs, pod placement, runtime versions, driver/source/trace/fixture hashes,
 traffic correctness, latency, and resource measurements. Raw traces and samples remain beside it.
+`result.backendStages` is the backend's own per-stage breakdown of uploads, offers, and paints
+(queue wait, hashing, target lookup, reservation, blob PUT, decode, classification, commit,
+projection, alarms, artifacts, history fold, total), read from `/admin/server/ingest-timings`
+after the run. Counters record shared versus computed classifications and skipped blob PUTs.
+The breakdown covers setup, warmup, and the measured phase together.
 The backend and full application stack have separate CPU, cgroup RSS, and working-set results.
 The latter includes the backend, frontend, two CNPG instances, and MinIO. It excludes shared Traefik,
 operators, Longhorn engines, node services, and the load generator. Browser rendering and Wplace downloads remain outside the workload.
