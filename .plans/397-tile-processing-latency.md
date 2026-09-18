@@ -140,11 +140,12 @@ scope and land in the same branch.
 - Fifth strict Node run (mu7ajfw4, 040579f9): 10,216 statements at 1.0 ms p50 (16 s total) and
   7,839 turn waits at 351 ms p50, 823 ms p99 (469 s total). Backend 70%, CNPG 2 and 5%. Paint
   counters 2.0 s p50 / 5.6 s p99. Results: docs/tile-processing-latency-2026-09-18.md and
-  docs/benchmarks/tile-processing-node-2026-09-18.json. TODO 7 stays open: the strict runs were
+  docs/benchmarks/tile-processing-cnpg-s3-2026-09-18.json. TODO 7 stays open: the strict runs were
   repeated on Node (five times) and Bun (once) with the -397e images.
 - Strict Bun run (mu7arbf3, 040579f9) PASSED: 35 s warmup drained, 60 measured seconds, all
   correctness checks, zero deadline misses. Upload p95 918 ms, offer p95 865 ms, paint p95
   946 ms; 30,547 statements at 0.9 ms p50; turn wait 85 ms p50 / 239 ms p99 (Node: 351 / 823).
-  Backend 72% of a core, CNPG 4 and 6%. Node still fails in warmup on the same images, so the
+  Backend 69.0% of a core in the collector's measured window (72% over the whole raw-sample
+  span including warmup), CNPG 3.9 and 5.8%. Node still fails in warmup on the same images, so the
   serialized owner connection remains the constraint and is Mia's decision (three options in the
   report). Test image references removed from both nodes; no test namespaces remain.

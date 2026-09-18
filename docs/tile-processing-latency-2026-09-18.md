@@ -11,7 +11,7 @@ One passing Bun run establishes that the workload can complete at this capacity;
 - Classification uses typed-array kernels and is shared across reporters per template chunk and canvas hash.
 - A canvas hash's bytes are stored once, even when reporters overlap before the first commit.
 - Derived mismatch artifacts are written after the reply by a bounded background writer.
-- The tiles of one offer batch are processed concurrently; history folds run at most every 30 seconds per tile.
+- The tiles of one offer batch are processed concurrently; a tile's history folds on its first observation and then at most every 30 seconds, with overlapping observations joining the fold in flight.
 - An alarm change reads and encodes one snapshot per scope for all subscribers; a status delta is encoded once.
 - The Node live host no longer clones a socket's attachment on every read.
 - Every live command records per-stage timings, and the Postgres adapter records connection turn wait and statement time.
