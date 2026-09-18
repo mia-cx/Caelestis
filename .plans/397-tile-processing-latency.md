@@ -21,7 +21,7 @@ scope and land in the same branch.
 ## TODOs
 
 - [x] Replace the per-pixel Map and bit-packing loops in classification with typed-array kernels; prove byte-identical output.
-- [ ] Share classification results across reporters with a bounded cache keyed by every classification input (#413).
+- [x] Share classification results across reporters with a bounded cache keyed by every classification input (#413).
 - [ ] Skip the repeated S3 PUT for an already-active hash and load telemetry targets once per command.
 - [ ] Move derived mismatch-artifact writes to a bounded background writer that drains on shutdown (#414).
 - [ ] Record per-stage timings for live tile and paint commands in request metrics and the benchmark JSON.
@@ -45,3 +45,9 @@ scope and land in the same branch.
   against 49 to 50 ms for the old Map loop in the same harness. Vitest's module transform turns
   imported constants into property reads, which is why the first version measured 35 ms; plain
   Node ran the same loop in 5 ms. 25 random rectangles match the old loop byte for byte.
+- TODO 2: `sharedClassifier` reuses `DecodedPixelCache` (pending-promise coalescing, TTL, LRU by
+  bytes) keyed by template, version, tile, chunk hash, and canvas hash. It holds counts, colours,
+  and the packed mask; `observedAt` is stamped per observation afterwards so reporter, timestamp,
+  history, alarms, and commit ordering are untouched. Null results are never retained and a
+  rejected load is retried by the next caller. Bound: 32 MiB / 128 entries / 3 minutes. Four unit
+  tests plus the 38 coordinator upload tests pass.

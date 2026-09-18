@@ -58,6 +58,7 @@ import {
   readMismatchArtifact,
   writeMismatchArtifact,
 } from './derived-classification.js'
+import { sharedClassifier } from './shared-classification.js'
 import { readTileBlob, reserveTileBlob, reserveTileBlobUpload } from './tile-blobs.js'
 
 export const MAX_CANVAS_TILE_BYTES = 8 * 1024 * 1024
@@ -235,34 +236,53 @@ const persistMismatchArtifact = async (
   }
 }
 
+/**
+ * Classify one target against a decoded canvas.
+ *
+ * The counts and mask depend only on the chunk and canvas content, so identical work from other
+ * reporters is shared; the observation timestamp is stamped per caller afterwards.
+ */
 const classifyTarget = async (
   ports: BlobStores,
   target: TelemetryTarget,
   canvas: Uint8Array,
+  canvasHash: string,
   observedAt: number,
 ): Promise<ClassifiedTarget | null> => {
   const rect = chunkRect(target)
   if (rect === null) return null
-  const chunk = await readDecodedChunk(ports, target.hash)
-  if (chunk === null || chunk.width !== rect.width || chunk.height !== rect.height) return null
-
-  const { correct, wrong, blank, colours, classifications } = classifyChunk(
-    chunk.indices,
-    canvas,
-    rect,
+  const shared = await sharedClassifier.classify(
+    {
+      templateId: target.templateId,
+      versionId: target.versionId,
+      tile: { x: target.tileX, y: target.tileY },
+      chunkHash: target.hash,
+      canvasHash,
+    },
+    async () => {
+      const chunk = await readDecodedChunk(ports, target.hash)
+      if (chunk === null || chunk.width !== rect.width || chunk.height !== rect.height) return null
+      const { correct, wrong, blank, colours, classifications } = classifyChunk(
+        chunk.indices,
+        canvas,
+        rect,
+      )
+      return { correct, wrong, blank, colours, mask: encodeMismatchMask(rect, classifications) }
+    },
   )
+  if (shared === null) return null
   return {
     status: {
       templateId: target.templateId,
       versionId: target.versionId,
       tile: { x: target.tileX, y: target.tileY },
-      correct,
-      wrong,
-      blank,
-      colours,
+      correct: shared.correct,
+      wrong: shared.wrong,
+      blank: shared.blank,
+      colours: shared.colours,
       observedAt: millis(observedAt),
     },
-    mask: encodeMismatchMask(rect, classifications),
+    mask: shared.mask,
   }
 }
 
@@ -301,7 +321,7 @@ const readMismatchMaskPromise = async (
   if (artifact !== null) return { kind: 'found', bytes: artifact }
   const canvas = await readDecodedCanvas(ports, latest.hash)
   if (canvas === null) return { kind: 'unobserved' }
-  const classified = await classifyTarget(ports, target, canvas, latest.observedAt)
+  const classified = await classifyTarget(ports, target, canvas, latest.hash, latest.observedAt)
   if (classified === null) return { kind: 'unobserved' }
   await persistMismatchArtifact(ports.blobs, identity, classified.mask)
   return { kind: 'found', bytes: classified.mask }
@@ -345,7 +365,9 @@ const recordObservationPromise = async (
       const observedAtMs = metadata.observedAt * 1_000
       const classified = (
         await Promise.all(
-          targets.map((target) => classifyTarget(ports, target, canvas, observedAtMs)),
+          targets.map((target) =>
+            classifyTarget(ports, target, canvas, metadata.hash, observedAtMs),
+          ),
         )
       ).filter((result): result is ClassifiedTarget => result !== null)
       const statuses = classified.map((result) => result.status)
