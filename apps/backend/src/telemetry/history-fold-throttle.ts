@@ -5,7 +5,14 @@ import type { SqlStore } from '../ports/index.js'
 export const HISTORY_FOLD_INTERVAL_MS = 30_000
 const TRACKED_TILES_LIMIT = 4_096
 
-const lastFoldsByStore = new WeakMap<object, Map<string, number>>()
+interface StoreFolds {
+  /** When each tile last folded successfully, insertion-ordered for bounded eviction. */
+  readonly last: Map<string, number>
+  /** Folds still running; a tile has at most one regardless of how long it takes. */
+  readonly inFlight: Map<string, Promise<void>>
+}
+
+const foldsByStore = new WeakMap<object, StoreFolds>()
 
 export type HistoryFoldOutcome = 'folded' | 'skipped'
 
@@ -28,27 +35,32 @@ export const foldTileHistoryThrottled = async (
 ): Promise<HistoryFoldOutcome> => {
   const intervalMs = options.intervalMs ?? HISTORY_FOLD_INTERVAL_MS
   const at = (options.clock ?? Date.now)()
-  let lastFolds = lastFoldsByStore.get(sql)
-  if (lastFolds === undefined) {
-    lastFolds = new Map()
-    lastFoldsByStore.set(sql, lastFolds)
+  let folds = foldsByStore.get(sql)
+  if (folds === undefined) {
+    folds = { last: new Map(), inFlight: new Map() }
+    foldsByStore.set(sql, folds)
   }
   const key = `${season}:${tile.x}/${tile.y}`
-  const last = lastFolds.get(key)
+  // A fold already running covers this observation however long it takes; a burst of same-tile
+  // observations joins it instead of each starting its own.
+  if (folds.inFlight.has(key)) return 'skipped'
+  const last = folds.last.get(key)
   if (last !== undefined && at - last < intervalMs) return 'skipped'
-  // Reserve the key before awaiting, so a burst of same-tile observations joins this fold
-  // instead of each starting its own. A failure gives the key back for the next observation.
-  lastFolds.delete(key)
-  lastFolds.set(key, at)
-  if (lastFolds.size > TRACKED_TILES_LIMIT) {
-    const oldest = lastFolds.keys().next().value
-    if (oldest !== undefined) lastFolds.delete(oldest)
-  }
+  const running = sql.foldTileHistory(season, tile, now)
+  folds.inFlight.set(key, running)
   try {
-    await sql.foldTileHistory(season, tile, now)
+    await running
   } catch (error) {
-    if (lastFolds.get(key) === at) lastFolds.delete(key)
+    // A failed fold is not remembered, so the next observation retries it.
+    folds.inFlight.delete(key)
     throw error
+  }
+  folds.inFlight.delete(key)
+  folds.last.delete(key)
+  folds.last.set(key, at)
+  if (folds.last.size > TRACKED_TILES_LIMIT) {
+    const oldest = folds.last.keys().next().value
+    if (oldest !== undefined) folds.last.delete(oldest)
   }
   return 'folded'
 }

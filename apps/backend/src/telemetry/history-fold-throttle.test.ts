@@ -30,16 +30,24 @@ describe('history fold throttle', () => {
     })
     const sql = { foldTileHistory: vi.fn(() => gate) } as unknown as SqlStore
     const tile = { x: 1, y: 2 }
-    const first = foldTileHistoryThrottled(sql, 0, tile, seconds(60))
+    let now = 1_000
+    const options = { intervalMs: 30_000, clock: () => now }
+    const first = foldTileHistoryThrottled(sql, 0, tile, seconds(60), options)
     const overlapping = await Promise.all([
-      foldTileHistoryThrottled(sql, 0, tile, seconds(60)),
-      foldTileHistoryThrottled(sql, 0, tile, seconds(60)),
+      foldTileHistoryThrottled(sql, 0, tile, seconds(60), options),
+      foldTileHistoryThrottled(sql, 0, tile, seconds(60), options),
     ])
+    // Still pending well past the interval: the running fold keeps its tile exclusive.
+    now += 60_000
+    expect(await foldTileHistoryThrottled(sql, 0, tile, seconds(60), options)).toBe('skipped')
 
     expect(overlapping).toEqual(['skipped', 'skipped'])
     expect(sql.foldTileHistory).toHaveBeenCalledTimes(1)
     release()
     expect(await first).toBe('folded')
+    // The completed fold is remembered from its start, so the next observation folds again.
+    expect(await foldTileHistoryThrottled(sql, 0, tile, seconds(60), options)).toBe('folded')
+    expect(sql.foldTileHistory).toHaveBeenCalledTimes(2)
   })
 
   it('retries on the next observation when a fold fails, and keeps stores separate', async () => {
