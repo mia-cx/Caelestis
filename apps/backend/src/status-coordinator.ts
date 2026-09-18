@@ -84,7 +84,7 @@ import {
   recordPaint,
   uploadTile,
 } from './telemetry/ingest.js'
-import { ingestTimings } from './telemetry/ingest-timing.js'
+import { type IngestTimingSnapshot, ingestTimings } from './telemetry/ingest-timing.js'
 import { readAlarms, readContributions, readLeaderboard } from './telemetry/queries.js'
 
 export interface LiveSocket {
@@ -908,6 +908,13 @@ export class StatusCoordinator<Client> {
     this.bindSeason(season)
     await this.loadTileGenerationCoverage(season)
     this.tileGenerations.finish(tile, commit)
+  }
+
+  /** Stage timings for the live commands this coordinator handled since the last reset. */
+  async readIngestTimings(reset: boolean): Promise<IngestTimingSnapshot> {
+    const snapshot = ingestTimings.snapshot()
+    if (reset) ingestTimings.reset()
+    return snapshot
   }
 
   async notifyAlarmChange(season: number): Promise<void> {
