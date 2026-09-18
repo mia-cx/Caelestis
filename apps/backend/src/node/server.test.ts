@@ -177,3 +177,91 @@ it.each(adapters)(
     expect((await stopped)[0]).toBe(1001)
   },
 )
+
+it('reports per-pod users, slots, and admission outcomes on /metrics', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'caelestis-capacity-'))
+  cleanup.push(() => rm(directory, { recursive: true, force: true }))
+  const config = readNodeConfig({
+    DATA_DIRECTORY: directory,
+    PORT: '0',
+    HOST: '127.0.0.1',
+    ADMIN_TOKEN: 'test-admin',
+  })
+  const storage = new FilesystemObjectStorage(join(directory, 'objects'))
+  vi.spyOn(console, 'info').mockImplementation(() => {})
+  const runtime = await openNodeRuntime(config, storage, { onOwnershipLost() {} })
+  const server = await listen(runtime, config)
+  cleanup.push(() => server.close())
+  const base = `127.0.0.1:${server.port}`
+  const metrics = async () => (await fetch(`http://${base}/metrics`)).text()
+  const empty = await metrics()
+  expect(empty).toContain('caelestis_connected_users 0\n')
+  expect(empty).toContain('caelestis_live_sync_connections 0\n')
+  expect(empty).toContain('caelestis_presence_connections 0\n')
+  expect(empty).toContain('caelestis_admissions_total{channel="live-sync"} 0\n')
+  expect(empty).toContain('caelestis_admission_rejections_total{channel="presence"} 0\n')
+  expect(empty).toMatch(/caelestis_event_loop_lag_seconds\{stat="max"\} \d/)
+  expect(empty).not.toContain('test-admin')
+
+  const issued = await fetch(`http://${base}/backend/v1/admin/tokens`, {
+    method: 'POST',
+    headers: { authorization: 'Bearer test-admin', 'content-type': 'application/json' },
+    body: JSON.stringify({ label: 'Capacity test', scope: 'report' }),
+  })
+  const credential = (await issued.json()) as { token: string; tokenHash: string }
+  const auth = `caelestis.auth.b64.${Buffer.from(credential.token).toString('base64url')}`
+  const sockets: WebSocket[] = []
+  const open = async (url: string, protocols: string[]) => {
+    const socket = new WebSocket(`ws://${base}${url}`, protocols)
+    sockets.push(socket)
+    await once(socket, 'open')
+    return socket
+  }
+  const liveUrl = '/backend/v1/telemetry/live?season=0&scope=public&stateVector=1'
+  await open(
+    '/backend/v1/telemetry/presence?season=0&painterId=42&painterName=Mia&clientId=01890f3e-7b2c-7abc-8def-000000000005',
+    ['caelestis.presence.v1', auth],
+  )
+  await open(liveUrl, ['caelestis.live.v2', auth])
+  await open(liveUrl, ['caelestis.live.v2', auth])
+  await open(
+    '/api/v1/telemetry/live?season=0&scope=public&stateVector=1&clientId=01890f3e-7b2c-7abc-8def-000000000006',
+    ['caelestis.live.v2'],
+  )
+  const busy = await metrics()
+  expect(busy).toContain('caelestis_connected_users 2\n')
+  expect(busy).toContain('caelestis_live_sync_connections 3\n')
+  expect(busy).toContain('caelestis_presence_connections 1\n')
+  expect(busy).toContain('caelestis_coordinator_connections{kind="live-sync",coordinator="0"} 3\n')
+  expect(busy).toMatch(
+    /caelestis_coordinator_connections\{kind="presence",coordinator="0:[a-z]+"\} 1\n/,
+  )
+  expect(busy).toContain(
+    'caelestis_coordinator_connection_limit{kind="live-sync",coordinator="0"} 256\n',
+  )
+  expect(busy).toContain('caelestis_admissions_total{channel="live-sync"} 3\n')
+  expect(busy).toContain('caelestis_admissions_total{channel="presence"} 1\n')
+  expect(busy).not.toContain(credential.tokenHash)
+
+  // The per-client live limit is 16; the seventeenth upgrade for this credential is refused.
+  for (let extra = 0; extra < 14; extra += 1) await open(liveUrl, ['caelestis.live.v2', auth])
+  const refused = new WebSocket(`ws://${base}${liveUrl}`, ['caelestis.live.v2', auth])
+  const [, response] = (await once(refused, 'unexpected-response')) as [
+    unknown,
+    { statusCode: number },
+  ]
+  expect(response.statusCode).toBe(503)
+  const saturated = await metrics()
+  expect(saturated).toContain('caelestis_live_sync_connections 17\n')
+  expect(saturated).toContain('caelestis_admissions_total{channel="live-sync"} 17\n')
+  expect(saturated).toContain('caelestis_admission_rejections_total{channel="live-sync"} 1\n')
+  expect(saturated).toContain('caelestis_connected_users 2\n')
+
+  for (const socket of sockets) socket.close()
+  await vi.waitFor(async () => {
+    const drained = await metrics()
+    expect(drained).toContain('caelestis_connected_users 0\n')
+    expect(drained).toContain('caelestis_live_sync_connections 0\n')
+    expect(drained).toContain('caelestis_presence_connections 0\n')
+  })
+})

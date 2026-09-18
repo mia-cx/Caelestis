@@ -113,6 +113,10 @@ export class NodeLiveHost implements LiveHost<NodeLiveSocket> {
   getWebSockets(): readonly LiveSocket[] {
     return [...this.sockets]
   }
+  /** Socket messages and background work still running; a queue signal for scaling. */
+  get pendingWork(): number {
+    return this.pending.size
+  }
   connect(attachment: unknown) {
     const socket = new NodeLiveSocket(() => this.sockets.delete(socket))
     socket.serializeAttachment(attachment)

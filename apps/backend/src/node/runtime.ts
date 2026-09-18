@@ -31,6 +31,7 @@ import { createBackendRuntime, makeBackendContext } from '../runtime/backend-run
 import { StatusCoordinator } from '../status-coordinator.js'
 import { fetchCanvasTiles } from '../telemetry/fetcher.js'
 import { runTileBlobGc } from '../telemetry/tile-blobs.js'
+import { AdmissionCounters, EventLoopLag, snapshotCapacity } from './capacity.js'
 import type { NodeConfig } from './config.js'
 import { sqliteConnection } from './database.js'
 import { NodeLiveHost } from './live.js'
@@ -277,6 +278,7 @@ export const openNodeRuntime = async (
       const job = state(actor)
       if ((await job.getAlarm()) === null) await job.setAlarm(Date.now() + interval)
     }
+    const eventLoopLag = new EventLoopLag()
     let closed = false
     return {
       app,
@@ -287,9 +289,24 @@ export const openNodeRuntime = async (
       readToken,
       serverId,
       connection,
+      /** Pod-local capacity for `/metrics`; one process is one shard in the sharding roadmap. */
+      capacity: {
+        admissions: new AdmissionCounters(),
+        eventLoopLag,
+        snapshot: () =>
+          snapshotCapacity([
+            ...[...seasons].map(([season, { host }]) => ({
+              kind: 'live-sync' as const,
+              key: String(season),
+              host,
+            })),
+            ...[...rooms].map(([key, { host }]) => ({ kind: 'presence' as const, key, host })),
+          ]),
+      },
       async close() {
         if (closed) return
         closed = true
+        eventLoopLag.stop()
         await scheduler.stop()
         for (const { host } of seasons.values()) await host.close()
         for (const { coordinator, host } of rooms.values()) {
