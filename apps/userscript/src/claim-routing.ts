@@ -1,4 +1,6 @@
 import {
+  isRegionDocument,
+  type PresenceRect,
   REGION_CLAIM_TTL_MS,
   type RegionClaim,
   type RegionDocument,
@@ -11,7 +13,11 @@ import {
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { onServerSnapshot, rowsForSurface } from './application/tree-server-state.js'
-import { claimDocumentError, claimDocumentPixels } from './claim-document.js'
+import {
+  claimDocumentError,
+  claimDocumentPixels,
+  claimDocumentsLimitError,
+} from './claim-document.js'
 import { warn } from './debug.js'
 import {
   claimRegion,
@@ -37,6 +43,12 @@ interface Entry {
   region: RegionClaim
   deleted: boolean
   copies: Copy[]
+  replaceAfter?: readonly string[]
+}
+
+export interface ClaimSaveResult {
+  readonly ids: readonly string[]
+  readonly error: string | null
 }
 
 /** Raster overlap respects subtractors and gaps between shapes, plus world-wrapping templates. */
@@ -145,7 +157,7 @@ export class ClaimRouter {
     for (const [id, entry] of this.entries)
       if (
         (entry.region.expiresAt ?? entry.region.createdAt + REGION_CLAIM_TTL_MS) <= Date.now() &&
-        (!entry.deleted || entry.copies.length === 0)
+        ((!entry.deleted && entry.replaceAfter === undefined) || entry.copies.length === 0)
       )
         this.entries.delete(id)
   }
@@ -156,7 +168,9 @@ export class ClaimRouter {
     return [...this.entries.values()]
       .filter(
         (entry) =>
-          !entry.deleted && entry.region.claimant.wplaceUserId === this.host.actor()?.wplaceUserId,
+          !entry.deleted &&
+          entry.replaceAfter === undefined &&
+          entry.region.claimant.wplaceUserId === this.host.actor()?.wplaceUserId,
       )
       .map((entry) => entry.region)
   }
@@ -208,6 +222,107 @@ export class ClaimRouter {
     const error = this.errors.get(region.id) ?? null
     if (error === null) this.draftId = null
     return error
+  }
+
+  async saveAll(
+    ids: readonly string[],
+    documents: readonly RegionDocument[],
+  ): Promise<ClaimSaveResult> {
+    const fail = (error: string): ClaimSaveResult => ({ ids, error })
+    const actor = this.host.actor()
+    if (actor === null) return fail('Sign in to Wplace to claim regions.')
+    const originals = [...new Set(ids)].map((id) => this.entries.get(id))
+    if (
+      originals.some(
+        (entry) => entry === undefined || entry.region.claimant.wplaceUserId !== actor.wplaceUserId,
+      )
+    )
+      return fail('That claim is no longer available.')
+    const previous = originals as Entry[]
+    const limitError = claimDocumentsLimitError(documents)
+    if (limitError !== null) return fail(limitError)
+    for (const document of documents) {
+      if (!isRegionDocument(document)) return fail('Invalid region document')
+      const error = claimDocumentError(document)
+      if (error !== null) return fail(error)
+    }
+    const seasons = new Set(
+      previous.length > 0
+        ? previous.map(({ region }) => region.season)
+        : this.servers().map((server) => server.season),
+    )
+    const season = seasons.size === 1 ? [...seasons][0] : undefined
+    if (documents.length > 0 && season === undefined)
+      return fail('Connect servers for the same season, then retry.')
+    const surface = previous[0]?.region.surface ?? WORLD_TEMPLATE_SURFACE
+    if (previous.some(({ region }) => !sameTemplateSurface(region.surface, surface)))
+      return fail('That claim is no longer available.')
+    const unused = new Set(
+      previous.filter((entry) => !entry.deleted && entry.replaceAfter === undefined),
+    )
+    const matched = documents.map((document) => {
+      const exact = [...unused].find(
+        ({ region }) => JSON.stringify(region.document) === JSON.stringify(document),
+      )
+      if (exact !== undefined) {
+        unused.delete(exact)
+        return { document, existing: exact }
+      }
+      const itemIds = new Set(document.items.map((item) => item.id))
+      const existing = [...unused].find(({ region }) =>
+        region.document.items.some((item) => itemIds.has(item.id)),
+      )
+      return { document, existing }
+    })
+    // A record that splits into several keeps its id for none of them: overwriting it with one
+    // piece before the others land would shrink the remote claim if a later write failed. The
+    // pieces take fresh ids and the source stays whole until they are all accepted.
+    const claims = new Map<Entry, number>()
+    for (const { existing } of matched)
+      if (existing !== undefined) claims.set(existing, (claims.get(existing) ?? 0) + 1)
+    const selected = matched.map(({ document, existing }) => ({
+      document,
+      existing: existing !== undefined && claims.get(existing) === 1 ? existing : undefined,
+    }))
+    const held = new Map(this.entries)
+    const nextIds: string[] = []
+    for (const { document, existing } of selected) {
+      const now = Date.now()
+      const region: RegionClaim = {
+        id: existing?.region.id ?? uuidV7(),
+        season: season as number,
+        surface,
+        templateId: null,
+        document,
+        rect: regionDocumentBounds(document) as PresenceRect,
+        claimant: actor,
+        label: existing?.region.label ?? '',
+        createdAt: existing?.region.createdAt ?? now,
+        expiresAt:
+          existing === undefined
+            ? now + REGION_CLAIM_TTL_MS
+            : (existing.region.expiresAt ?? existing.region.createdAt + REGION_CLAIM_TTL_MS),
+      }
+      nextIds.push(region.id)
+      this.entries.set(region.id, { region, deleted: false, copies: existing?.copies ?? [] })
+    }
+    const obsolete = previous.map(({ region }) => region.id).filter((id) => !nextIds.includes(id))
+    const pendingIds = [...nextIds, ...obsolete]
+    for (const id of obsolete) {
+      const entry = this.entries.get(id) as Entry
+      this.entries.set(id, { ...entry, replaceAfter: nextIds })
+    }
+    try {
+      this.persist()
+    } catch (error) {
+      this.entries.clear()
+      for (const [id, entry] of held) this.entries.set(id, entry)
+      return fail(`Could not save claims: ${String(error)}`)
+    }
+    await this.reconcile()
+    const error =
+      pendingIds.map((id) => this.errors.get(id)).find((error) => error !== undefined) ?? null
+    return { ids: error === null ? nextIds : pendingIds, error }
   }
 
   /** Keep deletion intent until every known copy is removed, even if a server renews its TTL. */
@@ -302,9 +417,22 @@ export class ClaimRouter {
       }
     }
     this.persist()
-    for (const entry of this.entries.values()) {
+    const entries = [...this.entries.values()].sort(
+      (a, b) =>
+        Number(a.deleted || a.replaceAfter !== undefined) -
+        Number(b.deleted || b.replaceAfter !== undefined),
+    )
+    for (const entry of entries) {
       if (entry.region.claimant.wplaceUserId !== actor.wplaceUserId) continue
       this.errors.delete(entry.region.id)
+      if (entry.replaceAfter !== undefined) {
+        const error = this.replacementError(entry)
+        if (error !== undefined) {
+          this.errors.set(entry.region.id, error)
+          continue
+        }
+        entry.deleted = true
+      }
       if (!entry.deleted) {
         const documentError = claimDocumentError(entry.region.document)
         if (documentError !== null) {
@@ -340,6 +468,21 @@ export class ClaimRouter {
       )
     }
     this.persist()
+  }
+
+  private replacementError(entry: Entry): string | undefined {
+    for (const id of entry.replaceAfter ?? []) {
+      const replacement = this.entries.get(id)
+      if (replacement === undefined) continue
+      const error =
+        replacement.replaceAfter !== undefined
+          ? this.replacementError(replacement)
+          : replacement.deleted
+            ? undefined
+            : this.errors.get(id)
+      if (error !== undefined) return error
+    }
+    return undefined
   }
 
   private hasCopy(entry: Entry, server: ConnectedServer): boolean {
@@ -476,6 +619,9 @@ const load = (): Entry[] => {
         entry !== null &&
         isPresenceRegion(entry.region) &&
         typeof entry.deleted === 'boolean' &&
+        (entry.replaceAfter === undefined ||
+          (Array.isArray(entry.replaceAfter) &&
+            entry.replaceAfter.every((id: unknown) => typeof id === 'string'))) &&
         Array.isArray(entry.copies) &&
         entry.copies.every(
           (copy: unknown) =>
@@ -552,12 +698,15 @@ const operations = {
       .filter(
         (entry) =>
           !entry.deleted &&
+          entry.replaceAfter === undefined &&
           entry.region.claimant.wplaceUserId === accountIdentity()?.wplaceUserId &&
           (entry.region.expiresAt ?? entry.region.createdAt + REGION_CLAIM_TTL_MS) > Date.now(),
       )
       .map((entry) => entry.region),
   save: (id: string | null, document: RegionDocument) =>
     withClaims((router) => router.save(id, document)),
+  saveAll: (ids: readonly string[], documents: readonly RegionDocument[]) =>
+    withClaims((router) => router.saveAll(ids, documents)),
   remove: (id: string) => withClaims((router) => router.remove(id)),
   reconcile: () =>
     (pendingReconciliation ??= withClaims((router) => router.reconcile()).finally(() => {

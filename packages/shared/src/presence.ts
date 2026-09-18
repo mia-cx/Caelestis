@@ -48,7 +48,6 @@ export const MAX_PRESENCE_SUBSCRIBERS_PER_CLIENT = 4
  * heartbeat landing in the same second.
  */
 export const MAX_PRESENCE_MESSAGES_PER_SECOND = 8
-export const MAX_PRESENCE_REGIONS = 500
 export const MAX_PRESENCE_REGION_PIXELS = 4_000_000
 export const MAX_PRESENCE_REGION_LABEL = 64
 /** Claims expire after thirty days without an authenticated owner connection. */

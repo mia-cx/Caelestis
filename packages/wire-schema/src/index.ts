@@ -12,7 +12,6 @@ import {
   MAX_PRESENCE_PEERS,
   MAX_PRESENCE_REGION_LABEL,
   MAX_PRESENCE_REGION_PIXELS,
-  MAX_PRESENCE_REGIONS,
   MAX_PRESENCE_SUBSCRIBERS,
   MAX_RASTER_BITS,
   MAX_REGION_ITEMS,
@@ -313,15 +312,15 @@ export const PresenceServerEvent = Schema.Union([
   Schema.Struct({
     type: Schema.Literal('claims-renewed'),
     expiresAt: integerBetween(0, Number.MAX_SAFE_INTEGER),
-    ids: boundedArray(Identifier, MAX_PRESENCE_REGIONS),
+    ids: Schema.Array(Identifier),
   }),
   Schema.Struct({
     type: Schema.Literal('presence-ready'),
     sessionId: PresenceSessionId,
     online: integerBetween(0, MAX_PRESENCE_SUBSCRIBERS),
     peers: boundedArray(PresencePeer, MAX_PRESENCE_PEERS),
-    regions: boundedArray(RegionClaim, MAX_PRESENCE_REGIONS),
-    ownedRegionIds: Schema.optionalKey(boundedArray(Identifier, MAX_PRESENCE_REGIONS)),
+    regions: Schema.Array(RegionClaim),
+    ownedRegionIds: Schema.optionalKey(Schema.Array(Identifier)),
     canWrite: Schema.optionalKey(Schema.Boolean),
   }),
   Schema.Struct({
@@ -332,8 +331,8 @@ export const PresenceServerEvent = Schema.Union([
   }),
   Schema.Struct({
     type: Schema.Literal('regions'),
-    regions: boundedArray(RegionClaim, MAX_PRESENCE_REGIONS),
-    ownedRegionIds: Schema.optionalKey(boundedArray(Identifier, MAX_PRESENCE_REGIONS)),
+    regions: Schema.Array(RegionClaim),
+    ownedRegionIds: Schema.optionalKey(Schema.Array(Identifier)),
   }),
 ])
 

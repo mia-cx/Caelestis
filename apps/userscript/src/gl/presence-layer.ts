@@ -303,14 +303,13 @@ const currentItems = (): Item[] => {
     })
   }
   for (const id of documentPixels.keys()) if (!seen.has(id)) documentPixels.delete(id)
-  const editorPixels = claimEditorPixels()
-  if (editorPixels !== null) {
+  for (const [index, pixels] of (claimEditorPixels()?.parts ?? []).entries()) {
     items.push({
-      key: TOOL_KEY,
+      key: `${TOOL_KEY}:${index}`,
       kind: 'tool',
-      rect: editorPixels.rect,
+      rect: pixels.rect,
       colour: view.me === null ? [1, 1, 1] : presenceRgb(view.me.wplaceUserId),
-      mask: editorPixels,
+      mask: pixels,
     })
   }
   return items
@@ -557,7 +556,7 @@ class PresenceLayer {
     let animating = false
     const drawn: { item: Item; fade: number }[] = []
     for (const [key, item] of this.retained) {
-      if (key === TOOL_KEY) {
+      if (item.kind === 'tool') {
         if (keys.has(key)) drawn.push({ item, fade: 1 })
         else this.retained.delete(key)
         continue

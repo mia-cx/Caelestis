@@ -3,7 +3,6 @@ import {
   isPresenceRect,
   isRegionDocument,
   isWorkIdentity,
-  MAX_PRESENCE_REGIONS,
   type PainterIdentity,
   PRESENCE_DRAFT_MIN_MS,
   PRESENCE_HEARTBEAT_MS,
@@ -308,7 +307,6 @@ const applyServerEvent = (connection: Connection, value: unknown): boolean => {
           region.season === connection.server.season &&
           sameTemplateSurface(region.surface, WORLD_TEMPLATE_SURFACE),
       )
-      .slice(0, MAX_PRESENCE_REGIONS)
     connection.claimsRevision++
     connection.ownedRegionIds = regionIds(event.ownedRegionIds)
     connection.canWriteClaims = event.canWrite === true
@@ -340,7 +338,6 @@ const applyServerEvent = (connection: Connection, value: unknown): boolean => {
           region.season === connection.server.season &&
           sameTemplateSurface(region.surface, WORLD_TEMPLATE_SURFACE),
       )
-      .slice(0, MAX_PRESENCE_REGIONS)
     connection.claimsRevision++
     connection.ownedRegionIds = regionIds(event.ownedRegionIds)
     for (const listener of claimListeners) listener()
@@ -370,9 +367,7 @@ const clearTimers = (connection: Connection): void => {
 }
 
 const regionIds = (value: unknown): string[] =>
-  Array.isArray(value)
-    ? value.filter((id): id is string => typeof id === 'string').slice(0, MAX_PRESENCE_REGIONS)
-    : []
+  Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : []
 
 const stopSnapshots = (connection: Connection): void => {
   if (connection.snapshotTimer !== null) clearTimeout(connection.snapshotTimer)

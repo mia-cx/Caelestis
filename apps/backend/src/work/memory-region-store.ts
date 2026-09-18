@@ -1,5 +1,4 @@
 import {
-  MAX_PRESENCE_REGIONS,
   REGION_CLAIM_TTL_MS,
   type RegionClaim,
   type RegionDocument,
@@ -9,7 +8,7 @@ import {
 } from '@caelestis/shared'
 import type { RegionOwner, RegionStore, RegionWriter } from './region-store.js'
 
-/** In-memory equivalent of D1's bounded region records. */
+/** In-memory equivalent of the relational region records. */
 export class MemoryRegionStore implements RegionStore {
   private readonly records = new Map<string, RegionClaim>()
   private readonly owners = new Map<string, string | null>()
@@ -65,7 +64,6 @@ export class MemoryRegionStore implements RegionStore {
           (templateId === undefined || region.templateId === templateId),
       )
       .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
-      .slice(0, MAX_PRESENCE_REGIONS)
   }
   async readRegion(id: string): Promise<RegionClaim | null> {
     await this.expireRegions(Date.now())
@@ -75,10 +73,7 @@ export class MemoryRegionStore implements RegionStore {
     await this.expireRegions(Date.now())
     const rect = regionDocumentBounds(region.document)
     if (rect === null) throw new Error('Region document must contain an added shape')
-    const count = [...this.records.values()].filter(
-      (held) => held.season === region.season && sameTemplateSurface(held.surface, region.surface),
-    ).length
-    if (this.records.has(region.id) || count >= MAX_PRESENCE_REGIONS) return false
+    if (this.records.has(region.id)) return false
     this.records.set(
       region.id,
       structuredClone({

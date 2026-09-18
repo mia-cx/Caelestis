@@ -1,5 +1,4 @@
 import {
-  MAX_PRESENCE_REGIONS,
   MAX_RASTER_BITS,
   MAX_REGION_ITEMS,
   millis,
@@ -572,7 +571,7 @@ describe.each([
     expect(h.publishRegions).not.toHaveBeenCalled()
   })
 
-  it('keeps conflicting concurrent IDs immutable and enforces the surface cap atomically', async () => {
+  it('keeps conflicting concurrent IDs immutable and lists every claim on a surface', async () => {
     const h = await setup(adapter)
     const id = uuidV7()
     const responses = await Promise.all(
@@ -581,17 +580,18 @@ describe.each([
     expect(responses.map((response) => response.status).sort()).toEqual([200, 403])
     const region = await h.sql.regions.readRegion(id)
     if (region === null) throw new Error('Missing region')
-    for (let i = 1; i < MAX_PRESENCE_REGIONS; i++)
+    // No cap on how many claims a surface holds: every one is stored and listed in order.
+    const extra = 600
+    for (let i = 1; i <= extra; i++)
       expect(
         await h.sql.regions.createRegion({ ...region, id: uuidV7(), createdAt: i }, null),
       ).toBe(true)
-    expect(await h.sql.regions.createRegion({ ...region, id: uuidV7() }, null)).toBe(false)
+    expect(await h.sql.regions.createRegion({ ...region, id }, null)).toBe(false)
     const list = await h.sql.regions.listRegions(0, WORLD_TEMPLATE_SURFACE)
-    expect(list).toHaveLength(MAX_PRESENCE_REGIONS)
+    expect(list).toHaveLength(extra + 1)
     expect(list[0]?.createdAt).toBe(1)
-    expect((await h.call('PUT', uuidV7(), h.body)).status).toBe(409)
-    expect((await h.call('DELETE', id, { actor: region.claimant })).status).toBe(200)
     expect((await h.call('PUT', uuidV7(), h.body)).status).toBe(200)
+    expect((await h.call('DELETE', id, { actor: region.claimant })).status).toBe(200)
   })
 
   it('rejects documents containing only subtractions without changing an existing claim', async () => {
