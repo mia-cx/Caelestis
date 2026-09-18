@@ -15,6 +15,9 @@ CAELESTIS_KUBE_CONTEXT=YOUR_CONTEXT CAELESTIS_TEST_ORIGIN=https://YOUR_TEST_HOST
 
 The driver creates a fresh namespace and storage, verifies pod replacement, CNPG switchover, TLS, and migrations,
 then replays 179 explorers and 77 painters through Traefik HTTPS/WSS. It retains the 256-subscriber limit.
+For a capacity ladder, set `CAELESTIS_TEST_BENCHMARK_USERS` to a larger trace and raise the backend's limit
+to match through `CAELESTIS_TEST_BACKEND_ENV='[{"name":"CAELESTIS_LIVE_SUBSCRIBER_LIMIT","value":"2048"}]'`;
+presence already allows 2,048 subscribers. Such runs measure capacity, not the production configuration.
 Every successful run has 35 seconds of warmup and 60 measured seconds. For a passing comparison, repeat three times per runtime, alternating order.
 Use identical application revisions, frontend images, fixtures, and pod placement. Record any shared-cluster noise.
 This verifies load after recovery; the workload does not retry connections during a fault or represent a long soak test.

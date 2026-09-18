@@ -47,6 +47,7 @@
     {
       "includes": [
         "scripts/stack-tests/**",
+        "scripts/runtime-benchmark/**",
         "scripts/test-portable-compose.mjs",
         "scripts/test-helm-stack.mjs",
         "scripts/test-cloudflare-stack.mjs",

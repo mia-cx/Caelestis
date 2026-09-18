@@ -154,7 +154,11 @@ export async function benchmarkKubernetes({
   const warmupMs = 35000
   const measuredMs = 60000
   const durationMs = warmupMs + measuredMs
-  const fixture = await fixtures(durationMs, 256)
+  // The corrected trace is 256 users; a capacity ladder raises it with the backend's live
+  // subscriber limit raised to match (CAELESTIS_LIVE_SUBSCRIBER_LIMIT through the backend env).
+  const users = Number(process.env.CAELESTIS_TEST_BENCHMARK_USERS ?? 256)
+  assert.ok(Number.isInteger(users) && users >= 2, 'CAELESTIS_TEST_BENCHMARK_USERS must be >= 2')
+  const fixture = await fixtures(durationMs, users)
   const trace = schedule(durationMs, fixture)
   const report = {
     issue: 390,
@@ -164,7 +168,7 @@ export async function benchmarkKubernetes({
     startedAt: new Date().toISOString(),
     description: {
       ...description,
-      users: 256,
+      users,
       explorers: fixture.explorers,
       painters: fixture.painters,
     },
@@ -297,7 +301,7 @@ export async function benchmarkKubernetes({
   }
   try {
     await backendStages('?reset=true')
-    console.log('Replaying 256 users: 35-second warmup, then 60 measured seconds')
+    console.log(`Replaying ${users} users: 35-second warmup, then 60 measured seconds`)
     report.result = await traffic({
       site,
       adminToken,
@@ -327,7 +331,7 @@ export async function benchmarkKubernetes({
     await writeFile(`${output}/benchmark.json`, JSON.stringify(report, null, 2))
   }
   console.log(
-    `256-user benchmark ${report.passed ? 'passed' : 'completed with client deadline misses'}; results: ${output}/benchmark.json`,
+    `${users}-user benchmark ${report.passed ? 'passed' : 'completed with client deadline misses'}; results: ${output}/benchmark.json`,
   )
   return {
     completed: report.completed,
