@@ -176,6 +176,20 @@ const cleanup = () =>
         ['events', ['get', 'events', '--sort-by=.lastTimestamp']],
         ['backend', ['logs', 'deployment/test-caelestis', '-c', 'backend', '--tail=300']],
         ['frontend', ['logs', 'deployment/test-caelestis', '-c', 'frontend', '--tail=300']],
+        // The operator lives outside the test namespace; keep its state when a rollout stalls.
+        ...(stack === 'cnpg' && !context
+          ? [
+              ['cnpg-operator-pods', ['get', 'pods', '-n', 'cnpg-system', '-o', 'wide']],
+              [
+                'cnpg-operator-events',
+                ['get', 'events', '-n', 'cnpg-system', '--sort-by=.lastTimestamp'],
+              ],
+              [
+                'cnpg-operator',
+                ['logs', 'deployment/cnpg-controller-manager', '-n', 'cnpg-system', '--tail=300'],
+              ],
+            ]
+          : []),
       ]) {
         const result = spawnSync('kubectl', [...kubeArgs, ...args], {
           env,
