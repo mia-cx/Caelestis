@@ -1,7 +1,11 @@
-export type IngestCommand = 'upload' | 'offer' | 'paint'
+/** Live commands, plus `sql` for the database adapter's own waits behind them. */
+export type IngestCommand = 'upload' | 'offer' | 'paint' | 'sql'
 
 export type IngestStage =
   | 'queue'
+  | 'poolWait'
+  | 'statement'
+  | 'transaction'
   | 'hash'
   | 'targets'
   | 'reserve'
@@ -128,6 +132,7 @@ export class IngestTimings {
       upload: {},
       offer: {},
       paint: {},
+      sql: {},
     }
     for (const [key, accumulator] of this.stages) {
       const [command, stage] = key.split('.') as [IngestCommand, IngestStage]

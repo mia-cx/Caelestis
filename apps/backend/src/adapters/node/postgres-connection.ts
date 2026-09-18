@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { Pool, type PoolClient, type PoolConfig, types } from 'pg'
+import { ingestTimings } from '../../telemetry/ingest-timing.js'
 import type {
   SqlConnection,
   SqlResult,
@@ -46,10 +47,13 @@ class Statement implements SqlStatement {
 
   async execute(client: PoolClient) {
     const text = postgresParameters(this.query)
+    const startedAt = performance.now()
     try {
       return await client.query<unknown[]>({ text, values: this.values, rowMode: 'array' })
     } catch (cause) {
       throw new Error(`PostgreSQL query failed: ${text}`, { cause })
+    } finally {
+      ingestTimings.record('sql', 'statement', performance.now() - startedAt)
     }
   }
 
@@ -128,9 +132,12 @@ export class PostgresConnection implements TransactionalSqlConnection {
 
   /** Owned deployments never reconnect behind a lost ownership lock. */
   async withClient<T>(operation: (client: PoolClient) => Promise<T>): Promise<T> {
+    const requestedAt = performance.now()
     const owner = this.owner
     if (owner) {
       const execute = () => {
+        // Every application query waits its turn on the one owned connection.
+        ingestTimings.record('sql', 'poolWait', performance.now() - requestedAt)
         if (this.closing) throw new Error('Database is closing')
         if (this.ownerFailure) throw this.ownerFailure
         return operation(owner)
@@ -143,6 +150,7 @@ export class PostgresConnection implements TransactionalSqlConnection {
       return running
     }
     const client = await this.pool.connect()
+    ingestTimings.record('sql', 'poolWait', performance.now() - requestedAt)
     try {
       return await operation(client)
     } finally {

@@ -125,3 +125,15 @@ scope and land in the same branch.
   reads all 512 attachments. Profile: test-results/node-diag.cpuprofile on the devbox.
 - TODO 11: `serializeAttachment` clones and deep-freezes once; `deserializeAttachment` returns
   that object. `broadcastStatus` also encodes its delta once for all subscribers.
+- Fourth strict Node run (mu79whnh, -397d): uploads 2.5 s p99, offers 3.1 s p99, paint counters
+  1.8 s p50 / 5.3 s p99, paint total 5.9 s p99; backend 88%, CNPG 3–4%. Second profile: idle
+  62.7%, `structuredClone` down to 0.3%, `writev` 5.8%, canvas decode 4%, nothing else above 1%.
+  The event loop is not the wall any more.
+- Root cause of the remaining waits, from `adapters/node/postgres-connection.ts`: after
+  `claimOwnership` (unconditional at Node runtime start on Postgres and MariaDB) every
+  application query runs on the single owner connection, chained through `ownerTail`. The
+  ten-connection pool is never used for application work; each transaction holds the queue for
+  all of its round trips. A 1 ms trivial select measures 150–800 ms because it waits its turn
+  behind every other command of 512 sockets. This is the ownership-fencing design, so changing
+  it is Mia's call; the adapter now records `sql.poolWait` (turn wait) and `sql.statement`
+  (execution) so the next run quantifies it.
