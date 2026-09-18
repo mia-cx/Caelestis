@@ -59,7 +59,7 @@ const fromRow = (row: typeof workRegions.$inferSelect): RegionClaim => {
   }
 }
 
-/** Enforce the per-surface cap and ID uniqueness in the same insert statement. */
+/** Enforce ID uniqueness in the insert statement itself; there is no cap on claims per surface. */
 export class RelationalRegionStore implements RegionStore {
   private readonly db
   constructor(private readonly client: SqlConnection) {

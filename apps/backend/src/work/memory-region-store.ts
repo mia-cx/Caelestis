@@ -8,7 +8,7 @@ import {
 } from '@caelestis/shared'
 import type { RegionOwner, RegionStore, RegionWriter } from './region-store.js'
 
-/** In-memory equivalent of D1's bounded region records. */
+/** In-memory equivalent of the relational region records. */
 export class MemoryRegionStore implements RegionStore {
   private readonly records = new Map<string, RegionClaim>()
   private readonly owners = new Map<string, string | null>()

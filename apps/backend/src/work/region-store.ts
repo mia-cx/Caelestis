@@ -16,7 +16,7 @@ export interface RegionOwner {
 
 /** Persisted claims; creation never overwrites an existing identity. */
 export interface RegionStore {
-  /** Remove expired rows before reads, capacity checks, or renewal. */
+  /** Remove expired rows before reads, inserts, or renewal. */
   expireRegions(now: number): Promise<void>
   /** Renew only unexpired claims owned by both this credential and painter. */
   renewRegions(tokenHash: string, actorId: number, now: number): Promise<boolean>
