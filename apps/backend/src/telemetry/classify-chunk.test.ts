@@ -151,8 +151,9 @@ describe('classifyChunk', () => {
     )
 
     expect(result.correct + result.wrong + result.blank).toBeGreaterThan(600_000)
-    // Around 6 ms locally on Node and Bun; the Map-based loop took about 50 ms here. The ceiling
-    // leaves room for slow CI runners while still catching a return to per-pixel allocation.
-    expect(elapsedMs).toBeLessThan(60)
+    // Around 6 ms locally on Node and Bun against about 50 ms for the Map-based loop. Comparing
+    // against the reference measured in the same run keeps this stable on loaded machines while
+    // still catching a return to per-pixel allocation.
+    expect(elapsedMs).toBeLessThan(referenceMs / 2)
   })
 })
