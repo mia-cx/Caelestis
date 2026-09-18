@@ -30,6 +30,16 @@ describe('charge forecast', () => {
     expect(changed).toHaveBeenCalledTimes(2)
   })
 
+  it('does not spend a paint that a newer reading already includes', () => {
+    observeCharges({ count: 10, max: 60, cooldownMs: 30_000 }, 5_000)
+    // Stamped in whole seconds just before the reading: still the painter's, so it counts.
+    spendCharges(1, 4_000)
+    expect(chargeForecast(5_000)?.count).toBe(9)
+    // Well before the reading: the reading was taken after the paint and already reflects it.
+    spendCharges(1, 3_000)
+    expect(chargeForecast(5_000)?.count).toBe(9)
+  })
+
   it('forgets the reading and tells listeners once', () => {
     const changed = vi.fn()
     onChargesChange(changed)

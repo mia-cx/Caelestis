@@ -72,10 +72,23 @@ export const forgetCharges = (): void => {
   notify()
 }
 
-/** Spend charges on an accepted paint, projecting first so regeneration since the reading counts. */
+/** Accepted paints are stamped in whole seconds, so a paint can look up to this much older than it is. */
+const PAINT_STAMP_GRANULARITY_MS = 1_000
+
+/**
+ * Spend charges on an accepted paint, projecting first so regeneration since the reading counts.
+ * A reading newer than the paint already includes it, so such a paint is not subtracted twice; the
+ * clock never rewinds either way.
+ */
 export const spendCharges = (painted: number, at = Date.now()): void => {
   if (snapshot === null || !(painted > 0)) return
-  snapshot = { ...snapshot, count: Math.max(0, projectedCount(snapshot, at) - painted), at }
+  if (at + PAINT_STAMP_GRANULARITY_MS < snapshot.at) return
+  const spentAt = Math.max(at, snapshot.at)
+  snapshot = {
+    ...snapshot,
+    count: Math.max(0, projectedCount(snapshot, spentAt) - painted),
+    at: spentAt,
+  }
   notify()
 }
 
