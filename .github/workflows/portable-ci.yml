@@ -30,6 +30,66 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  changes:
+    # Pull requests and main pushes that leave the server untouched (userscript-only work, docs)
+    # skip the image, Compose, Helm, and scan matrix. Scheduled, dispatched, and release runs
+    # always validate everything. The stack-tests check still reports, so a required check never
+    # blocks a userscript pull request.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      server: ${{ steps.changes.outputs.server }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Detect server changes
+        id: changes
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ "$EVENT" != pull_request ] && [ "$EVENT" != push ]; then
+            echo 'server=true' >> "$GITHUB_OUTPUT"
+            echo "$EVENT runs validate every stack"
+            exit
+          fi
+          if [ -z "$BASE_SHA" ] || ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            echo 'server=true' >> "$GITHUB_OUTPUT"
+            echo 'No reachable base commit; validating every stack'
+            exit
+          fi
+          if [ "$EVENT" = pull_request ]; then
+            base="$(git merge-base "$BASE_SHA" HEAD)"
+          else
+            base="$BASE_SHA"
+          fi
+          cat > "$RUNNER_TEMP/server-paths" <<'EOF'
+          ^apps/(backend|frontend)/
+          ^packages/(shared|storage|ui|wire-schema)/
+          ^deploy/
+          ^fixtures/stack-tests/
+          ^scripts/stack-tests/
+          ^scripts/runtime-benchmark/
+          ^scripts/(test-cloudflare-stack|test-helm-stack|test-portable-compose|test-portable-image|social-images|osm-tiles)\.
+          ^scripts/social-images\.test\.mjs$
+          ^Dockerfile$
+          ^\.dockerignore$
+          ^package\.json$
+          ^pnpm-lock\.yaml$
+          ^pnpm-workspace\.yaml$
+          ^tsconfig\.base\.json$
+          ^turbo\.json$
+          ^\.github/workflows/portable-
+          EOF
+          changed="$(git diff --name-only "$base" HEAD)"
+          if printf '%s\n' "$changed" | grep -E -f "$RUNNER_TEMP/server-paths"; then
+            echo 'server=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'server=false' >> "$GITHUB_OUTPUT"
+            echo "No server files changed between $base and $GITHUB_SHA; skipping stack validation"
+          fi
+
   matrix:
     runs-on: ubuntu-latest
     outputs:
@@ -48,6 +108,8 @@ jobs:
           echo "extended=$EXTENDED" >> "$GITHUB_OUTPUT"
 
   runtime:
+    needs: changes
+    if: needs.changes.outputs.server == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     services:
@@ -124,7 +186,8 @@ jobs:
           retention-days: 7
 
   image:
-    needs: matrix
+    needs: [changes, matrix]
+    if: needs.changes.outputs.server == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -203,7 +266,8 @@ jobs:
           retention-days: 7
 
   compose:
-    needs: [matrix, image]
+    needs: [changes, matrix, image]
+    if: needs.changes.outputs.server == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -246,7 +310,8 @@ jobs:
           retention-days: 7
 
   helm:
-    needs: [matrix, image]
+    needs: [changes, matrix, image]
+    if: needs.changes.outputs.server == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -293,7 +358,8 @@ jobs:
           retention-days: 7
 
   scan:
-    needs: [matrix, image]
+    needs: [changes, matrix, image]
+    if: needs.changes.outputs.server == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -326,6 +392,8 @@ jobs:
           retention-days: 7
 
   chart:
+    needs: changes
+    if: needs.changes.outputs.server == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -354,11 +422,20 @@ jobs:
 
   stack-tests:
     if: always()
-    needs: [matrix, runtime, image, compose, helm, scan, chart]
+    needs: [changes, matrix, runtime, image, compose, helm, scan, chart]
     runs-on: ubuntu-latest
     steps:
       - name: Require every expected stack
         env:
           RESULTS: ${{ toJSON(needs) }}
         run: |
-          node --input-type=module -e 'const results=JSON.parse(process.env.RESULTS); for(const [name,job] of Object.entries(results)) { if(job.result !== "success") throw new Error(name+": "+job.result) }'
+          node --input-type=module -e '
+            const results = JSON.parse(process.env.RESULTS);
+            const server = results.changes.outputs.server;
+            if (server !== "true" && server !== "false") throw new Error("changes: unknown server output " + JSON.stringify(server));
+            for (const [name, job] of Object.entries(results)) {
+              const expected = name === "changes" || name === "matrix" || server === "true" ? "success" : "skipped";
+              if (job.result !== expected) throw new Error(name + ": " + job.result + " (expected " + expected + ")");
+            }
+            console.log(server === "true" ? "Every stack passed" : "No server changes; every stack skipped as expected");
+          '
