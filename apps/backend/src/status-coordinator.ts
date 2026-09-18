@@ -613,8 +613,22 @@ export class StatusCoordinator<Client> {
   }
 
   private send(socket: LiveSocket, event: LiveSyncServerEvent): void {
+    let messages: readonly string[]
     try {
-      for (const message of encodeLiveServerEvent(event)) socket.send(message)
+      messages = encodeLiveServerEvent(event)
+    } catch {
+      try {
+        socket.close(1011, 'live sync send failed')
+      } catch {}
+      return
+    }
+    this.sendEncoded(socket, messages)
+  }
+
+  /** Deliver an already-encoded event, so one encoding can serve many subscribers. */
+  private sendEncoded(socket: LiveSocket, messages: readonly string[]): void {
+    try {
+      for (const message of messages) socket.send(message)
     } catch {
       try {
         socket.close(1011, 'live sync send failed')
@@ -925,15 +939,28 @@ export class StatusCoordinator<Client> {
   }
 
   private async broadcastAlarmSnapshots(): Promise<void> {
+    const subscribers = this.subscribers().flatMap((socket) => {
+      const attachment = socket.deserializeAttachment() as LiveSubscriberAttachment | null
+      return attachment?.protocol === 2 ? [{ socket, attachment }] : []
+    })
+    // One read and one encoding per season and scope, not one per subscriber. With hundreds of
+    // sockets, one alarm change used to fire hundreds of identical queries at the pool at once
+    // and starved every live command behind them.
+    const encoded = new Map<string, Promise<readonly string[]>>()
+    const snapshotFor = ({ season, scope }: LiveSubscriberAttachment) => {
+      const key = `${season}:${scope}`
+      let pending = encoded.get(key)
+      if (pending === undefined) {
+        pending = this.backendRuntime()
+          .run(readAlarms(season, scope === 'admin'))
+          .then((alarms) => encodeLiveServerEvent({ type: 'alarms-snapshot', alarms }))
+        encoded.set(key, pending)
+      }
+      return pending
+    }
     await Promise.all(
-      this.subscribers().map(async (socket) => {
-        const attachment = socket.deserializeAttachment() as LiveSubscriberAttachment | null
-        if (attachment?.protocol !== 2) return
-        await this.sendProjectionSnapshot(socket, attachment, {
-          resource: 'telemetry-alarms',
-          scope: 'world',
-          version: null,
-        })
+      subscribers.map(async ({ socket, attachment }) => {
+        this.sendEncoded(socket, await snapshotFor(attachment))
       }),
     )
   }

@@ -317,6 +317,52 @@ describe('status read-model Durable Object', () => {
     expect(send).toHaveBeenCalledWith(expect.stringContaining('"type":"alarms-snapshot"'))
   })
 
+  it('reads alarms once per scope when broadcasting a change to many subscribers', async () => {
+    database = new SqliteD1Database()
+    const subscriber = (scope: 'public' | 'admin') => {
+      const send = vi.fn()
+      return {
+        send,
+        socket: {
+          deserializeAttachment: () => ({
+            season: 8,
+            scope,
+            credentialScope: scope === 'admin' ? 'admin' : 'read',
+            tokenHash: 'a'.repeat(64),
+            revocable: true,
+            protocol: 2,
+            projections: [{ resource: 'telemetry-alarms', scope: 'world', version: null }],
+          }),
+          send,
+          close: vi.fn(),
+        } as unknown as WebSocket,
+      }
+    }
+    const subscribers = [subscriber('public'), subscriber('public'), subscriber('admin')]
+    const object = new StatusReadModelObject(
+      objectState(
+        new Map(),
+        Number.POSITIVE_INFINITY,
+        subscribers.map(({ socket }) => socket),
+      ),
+      {
+        DB: database,
+        BLOBS: {},
+        TELEMETRY: { getByName: () => ({}) },
+      } as unknown as Env,
+    )
+    const readActiveAlarms = vi.spyOn(D1SqlStore.prototype, 'readActiveAlarms')
+
+    await object.notifyAlarmChange(8)
+
+    // Two public subscribers share one read; the admin scope gets its own.
+    expect(readActiveAlarms).toHaveBeenCalledTimes(2)
+    for (const { send } of subscribers) {
+      expect(send).toHaveBeenCalledWith(expect.stringContaining('"type":"alarms-snapshot"'))
+    }
+    readActiveAlarms.mockRestore()
+  })
+
   it('accepts a paint once and acknowledges its retry as a duplicate', async () => {
     database = new SqliteD1Database()
     const send = vi.fn()

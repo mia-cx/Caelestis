@@ -28,6 +28,7 @@ scope and land in the same branch.
 - [x] Add Changesets and run lint, check, test, and build on Node and Bun.
 - [x] Process the tiles of one offer batch concurrently instead of one after another.
 - [x] Throttle history folds per tile so a fold runs at most once per interval, not on every reply.
+- [x] Broadcast one alarm snapshot per scope instead of one database read per subscriber.
 - [ ] Repeat the strict 256-user CNPG/S3 workload on Node and Bun and record the results under docs/.
 
 ## Notes
@@ -101,3 +102,16 @@ scope and land in the same branch.
   keeps the route test that expects a 500 on fold failure. Folds only move rows older than a day,
   so readers cannot observe the delay. The kernel timing test now compares against the reference
   loop measured in the same run because a loaded laptop tripped its fixed ceiling.
+- Second strict Node run (mu785ejk) with those two changes: history fold 0.03 ms p50 (78 skipped,
+  8 folded), offers 3.7 s p99 (from 5.9), uploads 3.6 s p99 (from 4.5), but a paint report timed
+  out. Resource samples: backend 80% of one core, both CNPG containers 2–4%, MinIO 2%. The
+  database is idle; the 150–600 ms "query" stages are backend event-loop delay. `received`
+  shows 512 `alarms-snapshot` messages: one alarm change fans out to every protocol-2 subscriber
+  with its own `readAlarms` query and its own encoding, so one upload fires 512 reads at the
+  ten-connection pool. Both runs before that failed on MinIO's Longhorn volume: both nodes had
+  fallen under Longhorn's 25% free-space floor (node 2 at 22.17 of 22.27 GiB) after the second
+  test-image import. Pruning unused container images on both nodes through `kubectl debug`
+  restored 93 and 48 GiB available; nothing else on the nodes was touched.
+- TODO 10: `broadcastAlarmSnapshots` reads and encodes once per season and scope and sends the
+  same messages to every subscriber; `send` now delegates to `sendEncoded`. A test with two
+  public and one admin subscriber asserts two `readActiveAlarms` calls and three snapshots.
