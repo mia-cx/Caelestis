@@ -16,7 +16,7 @@ import {
   uuidV7,
   WORLD_PIXELS,
 } from '@caelestis/shared'
-import { Effect } from 'effect'
+import { Effect, Result } from 'effect'
 import {
   type BlobStore,
   type ContributionDelta,
@@ -582,6 +582,8 @@ const refreshAuthoritativeTilePromise = async (
   return projection
 }
 
+type OfferTileOutcome = 'ignored' | 'wanted' | 'recorded'
+
 /** Process an offer immediately when the content-addressed bytes already exist. */
 const offerTilePromise = async (
   ports: IngestStores,
@@ -1009,31 +1011,41 @@ export const offerTilesWithOutcome = (
           }
           // Each tile in a batch is its own observation on its own rows. Processing them one
           // after another multiplied the database round trips of one tile by the batch size and
-          // pushed multi-tile offers past the client's deadline.
-          const outcomes = yield* Effect.forEach(
+          // pushed multi-tile offers past the client's deadline. Every started offer settles
+          // before the batch fails: an interrupted fiber cannot stop its storage promise, and the
+          // release below must see every commit so none misses projection repair or artifacts.
+          const settled = yield* Effect.forEach(
             offers,
-            (offer) => {
-              if (cached.has(offer.key)) return Effect.succeed('cached' as const)
+            (
+              offer,
+            ): Effect.Effect<Result.Result<OfferTileOutcome | 'cached', TelemetryStorageError>> => {
+              if (cached.has(offer.key)) return Effect.succeed(Result.succeed('cached' as const))
               const coverageToken = coverageTokens.get(
                 `${offer.metadata.season}:${offer.metadata.includeUnpublished ? 'admin' : 'public'}`,
               )
-              return storage('offerTile', () =>
-                offerTilePromise({ blobs, sql, statusReadModel }, offer.metadata, {
-                  ...(coverageToken === undefined ? {} : { coverageToken }),
-                  artifactWriteBatch,
-                  onCommitted: (mutation) => {
-                    if (mutation === null) return
-                    const seasonMutations = mutations.get(offer.metadata.season) ?? []
-                    seasonMutations.push(mutation)
-                    mutations.set(offer.metadata.season, seasonMutations)
-                  },
-                }),
+              return Effect.result(
+                storage('offerTile', () =>
+                  offerTilePromise({ blobs, sql, statusReadModel }, offer.metadata, {
+                    ...(coverageToken === undefined ? {} : { coverageToken }),
+                    artifactWriteBatch,
+                    onCommitted: (mutation) => {
+                      if (mutation === null) return
+                      const seasonMutations = mutations.get(offer.metadata.season) ?? []
+                      seasonMutations.push(mutation)
+                      mutations.set(offer.metadata.season, seasonMutations)
+                    },
+                  }),
+                ),
               )
             },
             { concurrency: OFFER_TILE_CONCURRENCY },
           )
+          const failed = settled.find(Result.isFailure)
+          if (failed !== undefined) return yield* Effect.fail(failed.failure)
           for (const [index, offer] of offers.entries()) {
-            const outcome = outcomes[index]
+            const entry = settled[index]
+            const outcome =
+              entry !== undefined && Result.isSuccess(entry) ? entry.success : undefined
             if (outcome === 'cached' || outcome === 'recorded') {
               acknowledged.push(offer.key)
               alreadyKnown++
