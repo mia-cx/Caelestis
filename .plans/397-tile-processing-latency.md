@@ -25,7 +25,7 @@ scope and land in the same branch.
 - [x] Skip the repeated S3 PUT for an already-active hash and load telemetry targets once per command.
 - [x] Move derived mismatch-artifact writes to a bounded background writer that drains on shutdown (#414).
 - [x] Record per-stage timings for live tile and paint commands in request metrics and the benchmark JSON.
-- [ ] Add Changesets and run lint, check, test, and build on Node and Bun.
+- [x] Add Changesets and run lint, check, test, and build on Node and Bun.
 - [ ] Repeat the strict 256-user CNPG/S3 workload on Node and Bun and record the results under docs/.
 
 ## Notes
@@ -71,3 +71,12 @@ scope and land in the same branch.
   and `?reset=true` clears it. The k3s benchmark driver resets before the trace and stores the
   snapshot as `result.backendStages`. Node has no request-metrics dataset, so the snapshot is the
   portable surface rather than a new Analytics Engine column.
+- TODO 6: Three backend patch Changesets (shared classification and upload dedupe, background
+  artifact writes, ingest-timings endpoint). `pnpm lint` passes with one pre-existing warning and
+  two infos in untouched files; `pnpm check` 11/11; `pnpm build` 7/7. Backend on Node: 845 tests
+  passed, 10 skipped (external services). Touched backend suites on Bun 1.3.14: 265 passed.
+  Shared: 255 passed.
+- TODO 7 is blocked from this machine: the k3s API at 10.0.128.1:6443 and ssh to hydra-olympus-1
+  (10.0.1.3) both time out at 14:00 and 14:19 UTC. The driver change that records
+  `backendStages` is in place, so the next run on the cluster produces the breakdown and the
+  strict pass/fail without further code. The pull request uses `Refs #397` until that run.
