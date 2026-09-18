@@ -15,10 +15,7 @@ export const installPersonalTemplates = async (): Promise<void> => {
   const restored = restoreLocalTemplates()
   try {
     await restored
-    if (document.readyState === 'loading')
-      await new Promise<void>((resolve) =>
-        document.addEventListener('DOMContentLoaded', () => resolve(), { once: true }),
-      )
+    // Waits for Wplace's map itself: evaluating Wplace's modules any earlier breaks its startup.
     const native = await connectNativeTemplates()
     installNativeAllianceTemplates(native)
     if (native.alliance === undefined) {
