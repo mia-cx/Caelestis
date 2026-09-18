@@ -71,9 +71,21 @@ export const positionChargeForecast = (): void => {
   el.style.bottom = `${window.innerHeight - anchor.top + GAP / 2}px`
 }
 
+/**
+ * Subscribe now; touch the DOM only once there is a body. The userscript runs at `document-start`,
+ * where `document.body` is still null, and a throw here would leave the chip uninstalled for good.
+ */
 export const installChargeForecast = (): void => {
-  onAcceptedPaint((paint) => spendCharges(paint.painted, paint.observedAt))
-  onChargesChange(renderChargeForecast)
-  setInterval(renderChargeForecast, TICK_MS)
-  renderChargeForecast()
+  // Accepted paints stamp Unix seconds; the charge clock runs on `Date.now()` milliseconds.
+  onAcceptedPaint((paint) => spendCharges(paint.painted, paint.observedAt * 1_000))
+  const mount = (): void => {
+    onChargesChange(renderChargeForecast)
+    setInterval(renderChargeForecast, TICK_MS)
+    renderChargeForecast()
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', mount, { once: true })
+  } else {
+    mount()
+  }
 }

@@ -1,7 +1,20 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { observeCharges, resetCharges } from '../wplace-charges.js'
-import { positionChargeForecast, renderChargeForecast } from './charge-forecast.js'
+import type { AcceptedPaint } from '../tile-transform.js'
+import { chargeForecast, observeCharges, resetCharges } from '../wplace-charges.js'
+import {
+  installChargeForecast,
+  positionChargeForecast,
+  renderChargeForecast,
+} from './charge-forecast.js'
+
+const acceptedPaintListeners: Array<(paint: AcceptedPaint) => void> = []
+vi.mock('../tile-transform.js', () => ({
+  onAcceptedPaint: (listener: (paint: AcceptedPaint) => void) => {
+    acceptedPaintListeners.push(listener)
+    return () => {}
+  },
+}))
 
 const chip = (): HTMLElement => document.getElementById('caelestis-charge-forecast') as HTMLElement
 
@@ -40,6 +53,21 @@ describe('charge forecast chip', () => {
     vi.setSystemTime(60_000)
     renderChargeForecast()
     expect(chip().textContent).toBe('Charges full')
+  })
+
+  it('spends accepted paints on the millisecond charge clock', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    installChargeForecast()
+    observeCharges({ count: 10, max: 60, cooldownMs: 30_000 }, 0)
+
+    vi.setSystemTime(30_000)
+    const listener = acceptedPaintListeners.at(-1)
+    expect(listener).toBeDefined()
+    listener?.({ painted: 4, observedAt: 30 } as AcceptedPaint)
+
+    expect(chargeForecast(30_000)?.count).toBe(7)
+    expect(chip().textContent).toBe('Full in 26:30')
   })
 
   it('sits centred above the Paint button and hides when there is none', () => {
