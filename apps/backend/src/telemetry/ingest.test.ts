@@ -16,6 +16,30 @@ import type { CounterStore } from '../ports/index.js'
 import { createBackendRuntime, makeBackendContext } from '../runtime/backend-runtime.js'
 import { type TileMetadata, uploadTile } from './ingest.js'
 
+/**
+ * The SQLite-backed D1 helper cannot interleave two transactions the way CNPG or D1 do, so the
+ * runtime under test sees a store that runs one call at a time. Blob calls stay concurrent,
+ * which is where the upload overlap under test happens.
+ */
+const serialized = <Store extends object>(store: Store): Store => {
+  let tail: Promise<unknown> = Promise.resolve()
+  return new Proxy(store, {
+    get(target, property, receiver) {
+      const value = Reflect.get(target, property, receiver)
+      if (typeof value !== 'function') return value
+      return (...args: unknown[]) => {
+        const run = () => value.apply(target, args)
+        const result = tail.then(run, run)
+        tail = result.then(
+          () => undefined,
+          () => undefined,
+        )
+        return result
+      }
+    },
+  })
+}
+
 const TILE = { x: 0, y: 0 }
 // Recent, so the raw-resolution history rows survive the fold that follows every upload.
 const AT = Math.floor(Date.now() / 1_000) - 10
@@ -30,7 +54,7 @@ describe('live tile uploads', () => {
     database = new SqliteD1Database()
     sql = new D1SqlStore(database as unknown as D1Database)
     blobs = new MemoryBlobStore()
-    runtime = createBackendRuntime(makeBackendContext(blobs, sql, {} as CounterStore))
+    runtime = createBackendRuntime(makeBackendContext(blobs, serialized(sql), {} as CounterStore))
     const chunk = await encodeIndexedPng(2, 1, new Uint8Array([0, 0]))
     const chunkHash = await sha256Hex(chunk)
     await blobs.put('chunks', chunkHash, chunk)
@@ -97,6 +121,39 @@ describe('live tile uploads', () => {
       { hash, reporters: 1 },
       { hash, reporters: 1 },
     ])
+  })
+
+  it('shares one PUT between reporters whose uploads overlap before either commits', async () => {
+    const { bytes, hash } = await canvas()
+    const originalPut = blobs.put.bind(blobs)
+    let releaseFirstPut = () => {}
+    const gate = new Promise<void>((resolve) => {
+      releaseFirstPut = resolve
+    })
+    const put = vi.spyOn(blobs, 'put').mockImplementation(async (namespace, key, value) => {
+      if (namespace === 'tiles') await gate
+      await originalPut(namespace, key, value)
+    })
+
+    const first = runtime.run(uploadTile(metadata(hash, 42, AT + 1), bytes))
+    const second = runtime.run(uploadTile(metadata(hash, 43, AT + 2), bytes))
+    // Let both uploads reserve the same uploading generation and reach the blob store.
+    await vi.waitFor(() =>
+      expect(put.mock.calls.filter(([namespace]) => namespace === 'tiles')).toHaveLength(1),
+    )
+    releaseFirstPut()
+    await Promise.all([first, second])
+
+    expect(put.mock.calls.filter(([namespace]) => namespace === 'tiles')).toHaveLength(1)
+    expect(await sql.readTileBlob(hash)).toMatchObject({ state: 'active' })
+    const frames = await sql.readTileHistory({
+      season: 0,
+      tile: TILE,
+      resolution: 0,
+      fromSeconds: seconds(AT),
+      toSeconds: seconds(AT + 10),
+    })
+    expect(frames).toHaveLength(2)
   })
 
   it('still uploads bytes that no active generation holds yet', async () => {

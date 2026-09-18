@@ -351,8 +351,6 @@ const recordObservationPromise = async (
     readonly authoritative?: boolean
     readonly coverageToken?: string
     readonly artifactWriteBatch?: DerivedArtifactWriteBatch
-    /** Targets the caller already loaded for this tile and scope, so they are not queried twice. */
-    readonly targets?: readonly TelemetryTarget[]
     /** Which live command this observation belongs to, for stage timings. */
     readonly command?: IngestCommand
     readonly onCommitted?: (mutation: StatusProjectionMutation | null) => void | Promise<void>
@@ -367,15 +365,11 @@ const recordObservationPromise = async (
   )
   const { targets, classified, committed } = await (async () => {
     try {
-      const targets =
-        options.targets ??
-        (await timed('targets', () =>
-          ports.sql.listTelemetryTargets(
-            metadata.season,
-            metadata.tile,
-            metadata.includeUnpublished,
-          ),
-        ))
+      // Coverage is read after the prepare above, so a template published, replaced, or removed
+      // while the caller reserved and stored bytes is classified against its current state.
+      const targets = await timed('targets', () =>
+        ports.sql.listTelemetryTargets(metadata.season, metadata.tile, metadata.includeUnpublished),
+      )
       const observedAtMs = metadata.observedAt * 1_000
       const classified = (
         await timed('classify', () =>
@@ -603,7 +597,6 @@ const offerTilePromise = async (
   if (held === null) return 'wanted'
   await recordObservationPromise(ports, metadata, held.bytes, held.reservation.id, {
     command: 'offer',
-    targets,
     ...(options.coverageToken === undefined ? {} : { coverageToken: options.coverageToken }),
     ...(options.artifactWriteBatch === undefined
       ? {}
@@ -621,6 +614,38 @@ const tileBytesAlreadyStored = async (
 ): Promise<boolean> => {
   const registered = await ports.sql.readTileBlob(hash)
   return registered !== null && registered.state === 'active' && registered.blobKey === blobKey
+}
+
+/** Tile-object PUTs in flight on this runtime, by blob key, so concurrent uploaders share one. */
+const inFlightTilePuts = new Map<string, Promise<void>>()
+
+/**
+ * Store one generation's bytes at most once at a time.
+ *
+ * Reporters that offer the same fresh hash inside one commit window all reserve the same
+ * `uploading` generation, and none of them sees it `active` yet. The first PUT for a key is
+ * shared with every concurrent caller; a failed PUT rejects them all so each retries its own.
+ */
+const storeTileBytesOnce = async (
+  ports: BlobSqlStores,
+  hash: string,
+  blobKey: string,
+  bytes: Uint8Array,
+): Promise<void> => {
+  const joined = inFlightTilePuts.get(blobKey)
+  if (joined !== undefined) {
+    ingestTimings.count('upload.blobPut.joined')
+    return joined
+  }
+  if (await tileBytesAlreadyStored(ports, hash, blobKey)) {
+    ingestTimings.count('upload.blobPut.skipped')
+    return
+  }
+  const put = ports.blobs.put('tiles', blobKey, bytes).finally(() => {
+    inFlightTilePuts.delete(blobKey)
+  })
+  inFlightTilePuts.set(blobKey, put)
+  return put
 }
 
 const uploadTilePromise = async (
@@ -652,19 +677,14 @@ const uploadTilePromise = async (
   )
   let projection: StatusProjectionChange | null = null
   try {
-    // Many reporters upload one fresh hash inside the same commit window. Once a generation of
-    // these bytes is active, its object already holds them; the reservation keeps GC away, so
-    // only the observation still needs recording.
-    await ingestTimings.timed('upload', 'blobPut', async () => {
-      if (await tileBytesAlreadyStored(ports, actualHash, reservation.blobKey)) {
-        ingestTimings.count('upload.blobPut.skipped')
-        return
-      }
-      await ports.blobs.put('tiles', reservation.blobKey, bytes)
-    })
+    // Many reporters upload one fresh hash inside the same commit window. The generation's object
+    // holds the bytes once; the reservation keeps GC away, so only the observation still needs
+    // recording for each of them.
+    await ingestTimings.timed('upload', 'blobPut', () =>
+      storeTileBytesOnce(ports, actualHash, reservation.blobKey, bytes),
+    )
     await recordObservationPromise(ports, metadata, bytes, reservation.id, {
       command: 'upload',
-      targets,
       ...(options.coverageToken === undefined ? {} : { coverageToken: options.coverageToken }),
       ...(options.recordHistory === undefined ? {} : { recordHistory: options.recordHistory }),
       ...(options.authoritative === undefined ? {} : { authoritative: options.authoritative }),
