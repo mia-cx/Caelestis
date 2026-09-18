@@ -27,7 +27,7 @@ import {
   takeBySizeForBitmap,
   UNPAINTED,
 } from './tile-transform.js'
-import { chargeForecast, resetCharges } from './wplace-charges.js'
+import { chargeForecast, observeCharges, resetCharges } from './wplace-charges.js'
 import {
   captureFetchUrlGetters,
   isGetFetch,
@@ -1464,6 +1464,34 @@ describe('transparent browser hooks', () => {
 
     // The page still gets an unread body of its own.
     await expect(response.json()).resolves.toMatchObject({ charges: { count: 5 } })
+    resetCharges()
+  })
+
+  it("forgets charges when wplace's own account request is unauthorised", async () => {
+    resetCharges()
+    observeCharges({ count: 5, max: 60, cooldownMs: 30_000 })
+    class FakeCanvas {
+      getContext(): null {
+        return null
+      }
+    }
+    const realm = {
+      ...globalThis,
+      Object,
+      Request,
+      URL,
+      Response,
+      fetch: vi.fn(async () => new Response(null, { status: 401 })),
+      Blob,
+      createImageBitmap: vi.fn(),
+      HTMLCanvasElement: FakeCanvas,
+      ArrayBuffer,
+    } as unknown as Window & typeof globalThis
+
+    install(realm, () => null)
+    await realm.fetch('https://backend.wplace.live/me')
+
+    expect(chargeForecast()).toBeNull()
     resetCharges()
   })
 

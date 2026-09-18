@@ -15,7 +15,7 @@ import { measureProfile } from './profile.js'
 import { buildExactRgbIndex, canvasRgbIndex } from './rgb-index.js'
 import { draftedPixelsIn } from './templates/drafted.js'
 import { tilePixelCacheLimit } from './tile-pixel-cache.js'
-import { observeCharges } from './wplace-charges.js'
+import { forgetCharges, observeCharges } from './wplace-charges.js'
 import {
   captureFetchUrlGetters,
   isGetFetch,
@@ -782,6 +782,9 @@ const installFetchTap = (realm: Window & typeof globalThis): InstalledValueHook 
                 if (isRecord(body)) observeCharges(body.charges)
               })
               .catch(() => count('telemetry:account-response-unreadable'))
+          } else if (accountRead && (response.status === 401 || response.status === 403)) {
+            // Signed out: the last reading belongs to nobody now.
+            forgetCharges()
           }
           if (paintBody !== null && paintSubmission !== null && response.ok) {
             const submission = paintSubmission
