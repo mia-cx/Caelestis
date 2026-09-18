@@ -31,13 +31,15 @@ concurrency:
 
 jobs:
   changes:
-    # Two gates. `server` is true when the diff touches the backend, frontend, shared packages,
+    # Three gates. `server` is true when the diff touches the backend, frontend, shared packages,
     # deploy files, or the stack tooling; it enables the unit and contract tests and chart
     # schema checks. `stacks` additionally enables the image build and the Compose, Helm, and
     # scan matrix. Ordinary pull requests and main pushes never run the stacks; the Changesets
-    # release pull request does, so deployment viability is proven once per release. Scheduled,
-    # dispatched, and release runs always validate everything. The stack-tests check still
-    # reports on every pull request, so a required check never blocks userscript work.
+    # release pull request does, so deployment viability is proven once per release. `tooling`
+    # is true when the inputs of `pnpm test:release` change (.github, .changeset, app manifests
+    # and changelogs, root manifests) and runs that suite whether or not the server changed.
+    # Scheduled, dispatched, and release runs always validate everything. The stack-tests check
+    # still reports on every pull request, so a required check never blocks userscript work.
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
