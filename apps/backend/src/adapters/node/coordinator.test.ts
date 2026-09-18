@@ -300,7 +300,8 @@ describe.each(adapters)('$name durable coordination', ({ make }) => {
         runs.push('long')
         await blocked
       },
-      { owner: 'long', claimTtlMs: 60 },
+      // Renewals run every 200 ms; the rival keeps probing well past the initial 600 ms lease.
+      { owner: 'long', claimTtlMs: 600 },
     )
     const rival = new DurableScheduler(
       storage.database,
@@ -312,8 +313,8 @@ describe.each(adapters)('$name durable coordination', ({ make }) => {
     await storage.setAlarm(1)
     const longTick = long.tick()
     await vi.waitFor(() => expect(runs).toEqual(['long']))
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      await delay(50)
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      await delay(150)
       // A rival whose wall clock runs a minute ahead still sees the lease as live.
       await rival.tick(Date.now() + 60_000)
     }
