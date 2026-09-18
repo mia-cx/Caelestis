@@ -135,7 +135,7 @@ No series uses a user ID, token, client hash, or painter as a label.
 | `caelestis_connected_users` | People connected to this process, counted once across presence, live sync, and extra tabs. Authenticated sockets count per credential; anonymous frontend sockets count per browser client. |
 | `caelestis_live_sync_connections` | Occupied live-sync slots. Every socket counts, so multi-tab users can exhaust the 256-slot coordinator limit before unique users show pressure. |
 | `caelestis_presence_connections` | Open presence sockets. |
-| `caelestis_coordinator_connections{kind,coordinator}` | Sockets per season live-sync host (`kind="live-sync"`, `coordinator="<season>"`) or presence room (`kind="presence"`, `coordinator="<season>:<surface>"`). |
+| `caelestis_coordinator_connections{kind,coordinator}` | Sockets on the season's live-sync host (`kind="live-sync"`) or on the fullest presence room in that season (`kind="presence"`). `coordinator` is the season; rooms are keyed by caller-chosen surfaces, so they never become labels. |
 | `caelestis_coordinator_connection_limit{kind,coordinator}` | The admission limit for that coordinator, so saturation is `connections / limit`. |
 | `caelestis_admissions_total{channel}` | Accepted WebSocket upgrades per channel (`live-sync`, `presence`). Counter deltas over 15 and 60 second windows give the gross influx. |
 | `caelestis_admission_rejections_total{channel}` | Upgrades refused because a limit was reached. Sustained growth means users are being turned away. |

@@ -47,7 +47,7 @@ describe('snapshotCapacity', () => {
       },
       {
         kind: 'presence',
-        key: '0:world',
+        key: '0',
         host: host([socket({ ...mia, sessionId: '1' }), socket({ ...browser, closed: true })], 1),
       },
     ])
@@ -58,15 +58,30 @@ describe('snapshotCapacity', () => {
       pendingWork: 4,
       coordinators: [
         { kind: 'live-sync', key: '0', connections: 4, limit: MAX_LIVE_SUBSCRIBERS },
-        { kind: 'presence', key: '0:world', connections: 1, limit: MAX_PRESENCE_SUBSCRIBERS },
+        { kind: 'presence', key: '0', connections: 1, limit: MAX_PRESENCE_SUBSCRIBERS },
       ],
     })
+  })
+
+  it('reports the fullest host when several rooms share a series key', () => {
+    const mia = { tokenHash: hash('a'), clientHash: hash('a'), anonymous: false }
+    const eve = { tokenHash: hash('e'), clientHash: hash('e'), anonymous: false }
+    const snapshot = snapshotCapacity([
+      { kind: 'presence', key: '0', host: host([socket(mia)]) },
+      { kind: 'presence', key: '0', host: host([socket(mia), socket(eve)]) },
+      { kind: 'presence', key: '0', host: host([]) },
+    ])
+    expect(snapshot.presenceSlots).toBe(3)
+    expect(snapshot.users).toBe(2)
+    expect(snapshot.coordinators).toEqual([
+      { kind: 'presence', key: '0', connections: 2, limit: MAX_PRESENCE_SUBSCRIBERS },
+    ])
   })
 
   it('excludes presence sockets that are not open, matching room admission', () => {
     const mia = { tokenHash: hash('a'), clientHash: hash('a'), anonymous: false }
     const snapshot = snapshotCapacity([
-      { kind: 'presence', key: '0:world', host: host([socket(mia, 3), socket(mia, 0)]) },
+      { kind: 'presence', key: '0', host: host([socket(mia, 3), socket(mia, 0)]) },
     ])
     expect(snapshot.presenceSlots).toBe(0)
     expect(snapshot.users).toBe(0)
@@ -124,7 +139,7 @@ describe('renderCapacityMetrics', () => {
     const counters = new AdmissionCounters()
     const text = renderCapacityMetrics(
       snapshotCapacity([
-        { kind: 'presence', key: '0:alliance:"7"', host: host([]) },
+        { kind: 'presence', key: 'quoted:"7"', host: host([]) },
         { kind: 'live-sync', key: '0', host: host([]) },
       ]),
       counters,
@@ -135,7 +150,7 @@ describe('renderCapacityMetrics', () => {
     expect(text).toContain('caelestis_presence_connections 0\n')
     expect(text).toContain('caelestis_live_pending_work 0\n')
     expect(text).toContain(
-      'caelestis_coordinator_connections{kind="presence",coordinator="0:alliance:\\"7\\""} 0\n',
+      'caelestis_coordinator_connections{kind="presence",coordinator="quoted:\\"7\\""} 0\n',
     )
     expect(text).toContain(
       `caelestis_coordinator_connection_limit{kind="live-sync",coordinator="0"} ${MAX_LIVE_SUBSCRIBERS}\n`,

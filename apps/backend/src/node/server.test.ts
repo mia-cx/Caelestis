@@ -233,9 +233,7 @@ it('reports per-pod users, slots, and admission outcomes on /metrics', async () 
   expect(busy).toContain('caelestis_live_sync_connections 3\n')
   expect(busy).toContain('caelestis_presence_connections 1\n')
   expect(busy).toContain('caelestis_coordinator_connections{kind="live-sync",coordinator="0"} 3\n')
-  expect(busy).toMatch(
-    /caelestis_coordinator_connections\{kind="presence",coordinator="0:[a-z]+"\} 1\n/,
-  )
+  expect(busy).toContain('caelestis_coordinator_connections{kind="presence",coordinator="0"} 1\n')
   expect(busy).toContain(
     'caelestis_coordinator_connection_limit{kind="live-sync",coordinator="0"} 256\n',
   )

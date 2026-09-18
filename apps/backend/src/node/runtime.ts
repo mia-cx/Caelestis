@@ -131,6 +131,7 @@ export const openNodeRuntime = async (
     const rooms = new Map<
       string,
       {
+        season: number
         coordinator: PresenceCoordinator<ReturnType<NodeLiveHost['connect']>['client']>
         host: NodeLiveHost
       }
@@ -141,7 +142,7 @@ export const openNodeRuntime = async (
       if (existing) return existing.coordinator
       const host: NodeLiveHost = new NodeLiveHost(state(`presence:${key}`), () => coordinator)
       const coordinator = new PresenceCoordinator(host, sql)
-      rooms.set(key, { coordinator, host })
+      rooms.set(key, { season, coordinator, host })
       return coordinator
     }
     const status = new CoordinatedStatusReadModel((season) => {
@@ -300,7 +301,13 @@ export const openNodeRuntime = async (
               key: String(season),
               host,
             })),
-            ...[...rooms].map(([key, { host }]) => ({ kind: 'presence' as const, key, host })),
+            // Rooms are keyed by caller-chosen surfaces, so they aggregate per season to keep the
+            // metric label domain bounded.
+            ...[...rooms.values()].map(({ season, host }) => ({
+              kind: 'presence' as const,
+              key: String(season),
+              host,
+            })),
           ]),
       },
       async close() {
