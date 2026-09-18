@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   chargeForecast,
+  forgetCharges,
   formatCountdown,
   observeCharges,
   onChargesChange,
@@ -26,6 +27,17 @@ describe('charge forecast', () => {
     spendCharges(4, 30_000)
 
     expect(chargeForecast(30_000)?.count).toBe(7)
+    expect(changed).toHaveBeenCalledTimes(2)
+  })
+
+  it('forgets the reading and tells listeners once', () => {
+    const changed = vi.fn()
+    onChargesChange(changed)
+    observeCharges({ count: 10, max: 60, cooldownMs: 30_000 }, 0)
+    forgetCharges()
+    forgetCharges()
+
+    expect(chargeForecast()).toBeNull()
     expect(changed).toHaveBeenCalledTimes(2)
   })
 

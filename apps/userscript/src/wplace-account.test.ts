@@ -43,6 +43,26 @@ describe('wplace account state', () => {
     expect(chargeForecast()).toMatchObject({ max: 60, full: false })
   })
 
+  it('forgets the charges when the session becomes unauthorised', async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ charges: { count: 12, max: 60, cooldownMs: 30_000 } }), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 401 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const { loadAccount } = await import('./wplace-account.js')
+    const { chargeForecast } = await import('./wplace-charges.js')
+
+    await loadAccount(0)
+    expect(chargeForecast()).not.toBeNull()
+    await loadAccount(0)
+
+    expect(chargeForecast()).toBeNull()
+  })
+
   it('notifies an already-rendered consumer when owned colours arrive', async () => {
     vi.stubGlobal(
       'fetch',

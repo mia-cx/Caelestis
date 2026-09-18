@@ -65,6 +65,13 @@ export const observeCharges = (value: unknown, at = Date.now()): boolean => {
   return true
 }
 
+/** Drop the reading when Wplace no longer vouches for it: signed out, or an unreadable account. */
+export const forgetCharges = (): void => {
+  if (snapshot === null) return
+  snapshot = null
+  notify()
+}
+
 /** Spend charges on an accepted paint, projecting first so regeneration since the reading counts. */
 export const spendCharges = (painted: number, at = Date.now()): void => {
   if (snapshot === null || !(painted > 0)) return
