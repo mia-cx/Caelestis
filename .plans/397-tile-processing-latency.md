@@ -26,6 +26,8 @@ scope and land in the same branch.
 - [x] Move derived mismatch-artifact writes to a bounded background writer that drains on shutdown (#414).
 - [x] Record per-stage timings for live tile and paint commands in request metrics and the benchmark JSON.
 - [x] Add Changesets and run lint, check, test, and build on Node and Bun.
+- [x] Process the tiles of one offer batch concurrently instead of one after another.
+- [x] Throttle history folds per tile so a fold runs at most once per interval, not on every reply.
 - [ ] Repeat the strict 256-user CNPG/S3 workload on Node and Bun and record the results under docs/.
 
 ## Notes
@@ -80,3 +82,22 @@ scope and land in the same branch.
   (10.0.1.3) both time out at 14:00 and 14:19 UTC. The driver change that records
   `backendStages` is in place, so the next run on the cluster produces the breakdown and the
   strict pass/fail without further code. The pull request uses `Refs #397` until that run.
+- Mia: the devbox (`ssh devbox`, athena-hephaestus, 24 cores, 7.8 GiB) reaches the k3s cluster
+  and has node, pnpm, bun, docker, helm. Clone lives at ~/Caelestis-397; images
+  caelestis-backend:node-397, caelestis-backend:bun-397, caelestis-frontend:397 built there from
+  a676921a and imported to both nodes. Test origin https://caelestis-test-397.yggdrasil.mia.cx
+  (wildcard cert and DNS). The image import needed `CAELESTIS_IMAGE_IMPORT_TIMEOUT_MS`.
+- First strict Node run (namespace caelestis-test-cnpg-s3-mu74lpku) still times out on tile
+  offers about eleven seconds into warmup. Backend stages, p50 ms: classify 0.04 (76 shared, 10
+  computed), decode 0.03, artifacts 0.3; but targets 100–200, reserve 425–470, painter 170–180,
+  commit 220–440, historyFold 770–920, paint counters 1086. Every SQL round trip waits on the
+  ten-connection pool. Offer batches process their tiles serially, so a four-tile offer reaches
+  5.9 s p99. Two more changes follow: concurrent offer tiles and throttled history folds.
+- TODO 8: `offerTilesWithOutcome` runs the per-tile work of one batch through `Effect.forEach`
+  with concurrency 4 and assembles the per-offer decisions in the original order. Tiles in one
+  batch are distinct by validation, so each observation still lands on its own rows.
+- TODO 9: `foldTileHistoryThrottled` folds a tile on its first observation and then at most every
+  30 s per store instance; a failed fold is not recorded so the next observation retries it, which
+  keeps the route test that expects a 500 on fold failure. Folds only move rows older than a day,
+  so readers cannot observe the delay. The kernel timing test now compares against the reference
+  loop measured in the same run because a loaded laptop tripped its fixed ceiling.

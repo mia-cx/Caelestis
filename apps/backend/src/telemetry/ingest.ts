@@ -59,11 +59,14 @@ import {
   readMismatchArtifact,
   writeMismatchArtifact,
 } from './derived-classification.js'
+import { foldTileHistoryThrottled } from './history-fold-throttle.js'
 import { type IngestCommand, type IngestStage, ingestTimings } from './ingest-timing.js'
 import { sharedClassifier } from './shared-classification.js'
 import { readTileBlob, reserveTileBlob, reserveTileBlobUpload } from './tile-blobs.js'
 
 export const MAX_CANVAS_TILE_BYTES = 8 * 1024 * 1024
+/** Tiles of one offer batch processed at the same time; a viewport rarely spans more. */
+export const OFFER_TILE_CONCURRENCY = 4
 
 interface BlobStores {
   readonly blobs: BlobStore
@@ -533,13 +536,15 @@ const recordObservationPromise = async (
     )
   }
   if (ownsArtifactWriteBatch) await timed('artifacts', () => artifactWriteBatch.flush())
-  await timed('historyFold', () =>
-    ports.sql.foldTileHistory(
+  await timed('historyFold', async () => {
+    const outcome = await foldTileHistoryThrottled(
+      ports.sql,
       metadata.season,
       metadata.tile,
       seconds(Math.floor(Date.now() / 1_000)),
-    ),
-  )
+    )
+    ingestTimings.count(`historyFold.${outcome}`)
+  })
 }
 
 /** Reclassify bytes already held by the current canvas hash without another R2 upload or history fold. */
@@ -1002,32 +1007,38 @@ export const offerTilesWithOutcome = (
             if (read.cacheOutcome === 'stale') cacheOutcome = 'stale'
             else if (read.cacheOutcome === 'miss' && cacheOutcome === 'hit') cacheOutcome = 'miss'
           }
-          for (const offer of offers) {
-            if (cached.has(offer.key)) {
+          // Each tile in a batch is its own observation on its own rows. Processing them one
+          // after another multiplied the database round trips of one tile by the batch size and
+          // pushed multi-tile offers past the client's deadline.
+          const outcomes = yield* Effect.forEach(
+            offers,
+            (offer) => {
+              if (cached.has(offer.key)) return Effect.succeed('cached' as const)
+              const coverageToken = coverageTokens.get(
+                `${offer.metadata.season}:${offer.metadata.includeUnpublished ? 'admin' : 'public'}`,
+              )
+              return storage('offerTile', () =>
+                offerTilePromise({ blobs, sql, statusReadModel }, offer.metadata, {
+                  ...(coverageToken === undefined ? {} : { coverageToken }),
+                  artifactWriteBatch,
+                  onCommitted: (mutation) => {
+                    if (mutation === null) return
+                    const seasonMutations = mutations.get(offer.metadata.season) ?? []
+                    seasonMutations.push(mutation)
+                    mutations.set(offer.metadata.season, seasonMutations)
+                  },
+                }),
+              )
+            },
+            { concurrency: OFFER_TILE_CONCURRENCY },
+          )
+          for (const [index, offer] of offers.entries()) {
+            const outcome = outcomes[index]
+            if (outcome === 'cached' || outcome === 'recorded') {
               acknowledged.push(offer.key)
               alreadyKnown++
-              continue
-            }
-            const coverageToken = coverageTokens.get(
-              `${offer.metadata.season}:${offer.metadata.includeUnpublished ? 'admin' : 'public'}`,
-            )
-            const outcome = yield* storage('offerTile', () =>
-              offerTilePromise({ blobs, sql, statusReadModel }, offer.metadata, {
-                ...(coverageToken === undefined ? {} : { coverageToken }),
-                artifactWriteBatch,
-                onCommitted: (mutation) => {
-                  if (mutation === null) return
-                  const seasonMutations = mutations.get(offer.metadata.season) ?? []
-                  seasonMutations.push(mutation)
-                  mutations.set(offer.metadata.season, seasonMutations)
-                },
-              }),
-            )
-            if (outcome === 'wanted') wanted.push(offer.key)
-            else if (outcome === 'recorded') {
-              acknowledged.push(offer.key)
-              alreadyKnown++
-            } else {
+            } else if (outcome === 'wanted') wanted.push(offer.key)
+            else {
               rejectedKeys.push(offer.key)
               rejected++
             }
