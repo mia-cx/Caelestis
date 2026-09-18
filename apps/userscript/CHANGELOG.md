@@ -1,5 +1,11 @@
 # @caelestis/userscript
 
+## 0.13.1
+
+### Patch Changes
+
+- 8c7dcd7: Stop occasionally preventing Wplace's map from loading by waiting for the map before reading Wplace's native template modules.
+
 ## 0.13.0
 
 ### Minor Changes
