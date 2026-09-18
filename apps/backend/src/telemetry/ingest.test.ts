@@ -284,6 +284,70 @@ describe('live tile uploads', () => {
     expect(frames.filter((frame) => frame.hash === older.hash)).toHaveLength(2)
   })
 
+  it('stops starting queued offers once one has failed, while in-flight offers finish', async () => {
+    // One template across six tiles so a batch is wider than the concurrency window.
+    const chunk = await encodeIndexedPng(2, 1, new Uint8Array([0, 0]))
+    const chunkHash = await sha256Hex(chunk)
+    const templateId = uuidV7()
+    await sql.insertTemplateVersion({
+      templateId,
+      versionId: uuidV7(),
+      surface: WORLD_TEMPLATE_SURFACE,
+      season: 0,
+      nodeId: null,
+      name: 'Six tiles',
+      createdWithToken: 'a'.repeat(64),
+      createdByUserId: null,
+      createdAt: millis(AT * 1_000),
+      bbox: { minX: 0, minY: 1, maxX: 5002, maxY: 2 },
+      totalPixels: 12,
+      chunks: Array.from({ length: 6 }, (_, x) => ({ tileX: x, tileY: 0, hash: chunkHash })),
+    })
+    await sql.setTemplatePublishedAt(templateId, millis(AT * 1_000), millis(AT * 1_000))
+    // Tile 0 gets a newer canvas so an offer of the older hash is not answered from the cache.
+    // Target lookups run unserialized so every started offer reaches the store at once.
+    runtime = buildRuntime(new Set(['readTileBlob', 'listTelemetryTargets']))
+    const older = await canvas(0)
+    const newer = await canvas(1)
+    await runtime.run(uploadTile(metadata(older.hash, 42, AT + 1), older.bytes))
+    await runtime.run(uploadTile(metadata(newer.hash, 42, AT + 2), newer.bytes))
+    const hash = older.hash
+
+    const started: number[] = []
+    let release = () => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const originalTargets = sql.listTelemetryTargets.bind(sql)
+    vi.spyOn(sql, 'listTelemetryTargets').mockImplementation(async (season, tile, admin) => {
+      started.push(tile.x)
+      if (tile.x === 0) throw new Error('targets unavailable')
+      await gate
+      return originalTargets(season, tile, admin)
+    })
+
+    const batch = runtime
+      .run(
+        offerTilesWithOutcome(
+          Array.from({ length: 6 }, (_, x) => ({
+            key: `${x}/0`,
+            metadata: { ...metadata(hash, 43, AT + 3), tile: { x, y: 0 } },
+          })),
+        ),
+      )
+      .then(
+        () => null,
+        (error: unknown) => error,
+      )
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    // The first four started together; tile 0 failed at once and nothing after tile 3 began.
+    // Offers that record look targets up twice, hence the set.
+    expect([...new Set(started)].sort()).toEqual([0, 1, 2, 3])
+    release()
+    expect(await batch).toMatchObject({ operation: 'offerTile' })
+    expect([...new Set(started)].sort()).toEqual([0, 1, 2, 3])
+  })
+
   it('still uploads bytes that no active generation holds yet', async () => {
     const { bytes, hash } = await canvas()
     const put = vi.spyOn(blobs, 'put')

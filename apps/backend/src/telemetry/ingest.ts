@@ -1014,28 +1014,38 @@ export const offerTilesWithOutcome = (
           // pushed multi-tile offers past the client's deadline. Every started offer settles
           // before the batch fails: an interrupted fiber cannot stop its storage promise, and the
           // release below must see every commit so none misses projection repair or artifacts.
+          // Once any offer has failed, offers still queued do not start; offers already in
+          // flight finish so the batch keeps the previous fail-fast shape without losing commits.
+          let firstFailure: TelemetryStorageError | undefined
           const settled = yield* Effect.forEach(
             offers,
             (
               offer,
             ): Effect.Effect<Result.Result<OfferTileOutcome | 'cached', TelemetryStorageError>> => {
+              if (firstFailure !== undefined) return Effect.succeed(Result.fail(firstFailure))
               if (cached.has(offer.key)) return Effect.succeed(Result.succeed('cached' as const))
               const coverageToken = coverageTokens.get(
                 `${offer.metadata.season}:${offer.metadata.includeUnpublished ? 'admin' : 'public'}`,
               )
-              return Effect.result(
-                storage('offerTile', () =>
-                  offerTilePromise({ blobs, sql, statusReadModel }, offer.metadata, {
-                    ...(coverageToken === undefined ? {} : { coverageToken }),
-                    artifactWriteBatch,
-                    onCommitted: (mutation) => {
-                      if (mutation === null) return
-                      const seasonMutations = mutations.get(offer.metadata.season) ?? []
-                      seasonMutations.push(mutation)
-                      mutations.set(offer.metadata.season, seasonMutations)
-                    },
-                  }),
+              return Effect.map(
+                Effect.result(
+                  storage('offerTile', () =>
+                    offerTilePromise({ blobs, sql, statusReadModel }, offer.metadata, {
+                      ...(coverageToken === undefined ? {} : { coverageToken }),
+                      artifactWriteBatch,
+                      onCommitted: (mutation) => {
+                        if (mutation === null) return
+                        const seasonMutations = mutations.get(offer.metadata.season) ?? []
+                        seasonMutations.push(mutation)
+                        mutations.set(offer.metadata.season, seasonMutations)
+                      },
+                    }),
+                  ),
                 ),
+                (result) => {
+                  if (Result.isFailure(result)) firstFailure ??= result.failure
+                  return result
+                },
               )
             },
             { concurrency: OFFER_TILE_CONCURRENCY },
