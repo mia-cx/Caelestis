@@ -18,15 +18,20 @@ import { type TileMetadata, uploadTile } from './ingest.js'
 
 /**
  * The SQLite-backed D1 helper cannot interleave two transactions the way CNPG or D1 do, so the
- * runtime under test sees a store that runs one call at a time. Blob calls stay concurrent,
- * which is where the upload overlap under test happens.
+ * runtime under test sees a store that runs one transactional call at a time. Plain reads named
+ * in `concurrent` and every blob call stay concurrent, which is where the upload overlap under
+ * test happens.
  */
-const serialized = <Store extends object>(store: Store): Store => {
+const serialized = <Store extends object>(
+  store: Store,
+  concurrent: ReadonlySet<PropertyKey> = new Set(),
+): Store => {
   let tail: Promise<unknown> = Promise.resolve()
   return new Proxy(store, {
     get(target, property, receiver) {
       const value = Reflect.get(target, property, receiver)
       if (typeof value !== 'function') return value
+      if (concurrent.has(property)) return value.bind(target)
       return (...args: unknown[]) => {
         const run = () => value.apply(target, args)
         const result = tail.then(run, run)
@@ -54,7 +59,9 @@ describe('live tile uploads', () => {
     database = new SqliteD1Database()
     sql = new D1SqlStore(database as unknown as D1Database)
     blobs = new MemoryBlobStore()
-    runtime = createBackendRuntime(makeBackendContext(blobs, serialized(sql), {} as CounterStore))
+    runtime = createBackendRuntime(
+      makeBackendContext(blobs, serialized(sql, new Set(['readTileBlob'])), {} as CounterStore),
+    )
     const chunk = await encodeIndexedPng(2, 1, new Uint8Array([0, 0]))
     const chunkHash = await sha256Hex(chunk)
     await blobs.put('chunks', chunkHash, chunk)
@@ -125,23 +132,27 @@ describe('live tile uploads', () => {
 
   it('shares one PUT between reporters whose uploads overlap before either commits', async () => {
     const { bytes, hash } = await canvas()
-    const originalPut = blobs.put.bind(blobs)
-    let releaseFirstPut = () => {}
+    const put = vi.spyOn(blobs, 'put')
+    const reserve = vi.spyOn(sql, 'reserveTileBlobUpload')
+    // Hold the active-state read that precedes a PUT, so the second upload reaches the
+    // coalescing point while the first is still deciding whether to store bytes.
+    const originalRead = sql.readTileBlob.bind(sql)
+    let releaseStateRead = () => {}
     const gate = new Promise<void>((resolve) => {
-      releaseFirstPut = resolve
+      releaseStateRead = resolve
     })
-    const put = vi.spyOn(blobs, 'put').mockImplementation(async (namespace, key, value) => {
-      if (namespace === 'tiles') await gate
-      await originalPut(namespace, key, value)
+    const stateRead = vi.spyOn(sql, 'readTileBlob').mockImplementation(async (lookup) => {
+      await gate
+      return originalRead(lookup)
     })
 
     const first = runtime.run(uploadTile(metadata(hash, 42, AT + 1), bytes))
     const second = runtime.run(uploadTile(metadata(hash, 43, AT + 2), bytes))
-    // Let both uploads reserve the same uploading generation and reach the blob store.
-    await vi.waitFor(() =>
-      expect(put.mock.calls.filter(([namespace]) => namespace === 'tiles')).toHaveLength(1),
-    )
-    releaseFirstPut()
+    await vi.waitFor(() => expect(reserve).toHaveBeenCalledTimes(2))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    // Only the owner performs the state read; the second caller joined before it.
+    expect(stateRead).toHaveBeenCalledTimes(1)
+    releaseStateRead()
     await Promise.all([first, second])
 
     expect(put.mock.calls.filter(([namespace]) => namespace === 'tiles')).toHaveLength(1)

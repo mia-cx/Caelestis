@@ -637,15 +637,19 @@ const storeTileBytesOnce = async (
     ingestTimings.count('upload.blobPut.joined')
     return joined
   }
-  if (await tileBytesAlreadyStored(ports, hash, blobKey)) {
-    ingestTimings.count('upload.blobPut.skipped')
-    return
-  }
-  const put = ports.blobs.put('tiles', blobKey, bytes).finally(() => {
+  // Register before any await: the active-state read and the PUT belong to one owner, so a
+  // caller arriving during either joins it instead of racing past the lookup.
+  const work = (async () => {
+    if (await tileBytesAlreadyStored(ports, hash, blobKey)) {
+      ingestTimings.count('upload.blobPut.skipped')
+      return
+    }
+    await ports.blobs.put('tiles', blobKey, bytes)
+  })().finally(() => {
     inFlightTilePuts.delete(blobKey)
   })
-  inFlightTilePuts.set(blobKey, put)
-  return put
+  inFlightTilePuts.set(blobKey, work)
+  return work
 }
 
 const uploadTilePromise = async (
