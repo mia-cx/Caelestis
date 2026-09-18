@@ -329,18 +329,56 @@
     else void openSubmenu(id, true)
   }
 
-  /** Keep a submenu beside its trigger and inside the viewport; fixed placement escapes the menu's scroll clip. */
-  const placeSubmenu = (node: HTMLElement): void => {
+  const viewportMargin = 8
+
+  /** Place the menu at the pointer from its rendered size: it opens upward when the viewport ends first, and scrolls when taller than the viewport. */
+  const placeContextMenu = (node: HTMLElement, anchor: { x: number; y: number }): { update: (next: { x: number; y: number }) => void; destroy: () => void } => {
+    let current = anchor
+    const place = (): void => {
+      node.style.maxBlockSize = `${window.innerHeight - viewportMargin * 2}px`
+      const maxLeft = window.innerWidth - viewportMargin - node.offsetWidth
+      const maxTop = window.innerHeight - viewportMargin - node.offsetHeight
+      const top = current.y > maxTop ? current.y - node.offsetHeight : current.y
+      node.style.left = `${Math.max(viewportMargin, Math.min(current.x, maxLeft))}px`
+      node.style.top = `${Math.max(viewportMargin, Math.min(top, maxTop))}px`
+    }
+    window.addEventListener('resize', place)
+    place()
+    return {
+      update(next) {
+        current = next
+        place()
+      },
+      destroy() {
+        window.removeEventListener('resize', place)
+      },
+    }
+  }
+
+  /** Keep a submenu beside its trigger and inside the viewport, following the trigger as the parent menu scrolls; fixed placement escapes the menu's scroll clip. */
+  const placeSubmenu = (node: HTMLElement): { destroy: () => void } | undefined => {
     const trigger = node.parentElement?.querySelector('button')
-    if (!trigger) return
-    const anchor = trigger.getBoundingClientRect()
-    const width = node.offsetWidth
-    const height = node.offsetHeight
-    const padding = 4
-    const left = anchor.right + width > window.innerWidth - 8 ? Math.max(8, anchor.left - width) : anchor.right
-    const top = Math.max(8, Math.min(anchor.top - padding, window.innerHeight - 8 - height))
-    node.style.left = `${left}px`
-    node.style.top = `${top}px`
+    const parent = contextMenuElement
+    if (!trigger || !parent) return
+    const place = (): void => {
+      const anchor = trigger.getBoundingClientRect()
+      const width = node.offsetWidth
+      const height = node.offsetHeight
+      const padding = 4
+      const left = anchor.right + width > window.innerWidth - viewportMargin ? Math.max(viewportMargin, anchor.left - width) : anchor.right
+      const top = Math.max(viewportMargin, Math.min(anchor.top - padding, window.innerHeight - viewportMargin - height))
+      node.style.left = `${left}px`
+      node.style.top = `${top}px`
+    }
+    parent.addEventListener('scroll', place)
+    window.addEventListener('resize', place)
+    place()
+    return {
+      destroy() {
+        parent.removeEventListener('scroll', place)
+        window.removeEventListener('resize', place)
+      },
+    }
   }
 
   const navigateContextMenu = (event: KeyboardEvent): void => {
@@ -441,8 +479,7 @@
     role="menu"
     tabindex="-1"
     onkeydown={navigateContextMenu}
-    style:left={`max(0.5rem, min(${model.contextMenu.x}px, calc(100vw - 13rem)))`}
-    style:top={`max(0.5rem, min(${model.contextMenu.y}px, calc(100vh - 18rem)))`}
+    use:placeContextMenu={{ x: model.contextMenu.x, y: model.contextMenu.y }}
   >
     {#each model.contextMenu.items as item, index (item.id)}
       {#if index > 0 && item.group !== model.contextMenu.items[index - 1]?.group}
@@ -774,7 +811,7 @@
   .operation button.primary { padding-inline: 0.75rem; background: var(--caelestis-primary); color: var(--caelestis-primary-text, white); }
   .operation button:disabled { cursor: wait; opacity: 0.55; }
   /* 12.5rem seats every current label on one line at 14px; wrapping stays as the fallback for long translations. */
-  .context-menu { position: fixed; z-index: 60; display: flex; inline-size: 12.5rem; max-inline-size: calc(100vw - 1rem); max-block-size: calc(100vh - 1rem); overflow: auto; flex-direction: column; }
+  .context-menu { position: fixed; z-index: 60; display: flex; inline-size: 12.5rem; max-inline-size: calc(100vw - 1rem); overflow: auto; flex-direction: column; }
   .context-menu button { inline-size: 100%; }
   .context-menu button.danger { color: var(--caelestis-danger); }
   .context-menu :global(.menu-trailing) { margin-inline-start: auto; opacity: 0.7; }
