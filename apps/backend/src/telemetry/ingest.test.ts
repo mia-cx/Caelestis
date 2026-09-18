@@ -54,14 +54,14 @@ describe('live tile uploads', () => {
   let sql: D1SqlStore
   let blobs: MemoryBlobStore
   let runtime: ReturnType<typeof createBackendRuntime>
+  const buildRuntime = (concurrent: ReadonlySet<PropertyKey>) =>
+    createBackendRuntime(makeBackendContext(blobs, serialized(sql, concurrent), {} as CounterStore))
 
   beforeEach(async () => {
     database = new SqliteD1Database()
     sql = new D1SqlStore(database as unknown as D1Database)
     blobs = new MemoryBlobStore()
-    runtime = createBackendRuntime(
-      makeBackendContext(blobs, serialized(sql, new Set(['readTileBlob'])), {} as CounterStore),
-    )
+    runtime = buildRuntime(new Set(['readTileBlob']))
     const chunk = await encodeIndexedPng(2, 1, new Uint8Array([0, 0]))
     const chunkHash = await sha256Hex(chunk)
     await blobs.put('chunks', chunkHash, chunk)
@@ -154,6 +154,50 @@ describe('live tile uploads', () => {
     expect(stateRead).toHaveBeenCalledTimes(1)
     releaseStateRead()
     await Promise.all([first, second])
+
+    expect(put.mock.calls.filter(([namespace]) => namespace === 'tiles')).toHaveLength(1)
+    expect(await sql.readTileBlob(hash)).toMatchObject({ state: 'active' })
+    const frames = await sql.readTileHistory({
+      season: 0,
+      tile: TILE,
+      resolution: 0,
+      fromSeconds: seconds(AT),
+      toSeconds: seconds(AT + 10),
+    })
+    expect(frames).toHaveLength(2)
+  })
+
+  it('skips the PUT for a reporter arriving after the bytes landed but before the owner commits', async () => {
+    const { bytes, hash } = await canvas()
+    const put = vi.spyOn(blobs, 'put')
+    // Park the owner's commit after its PUT. Reservation and commit run unserialized here so the
+    // second upload can complete its whole path while the owner is parked outside a transaction.
+    runtime = buildRuntime(
+      new Set(['readTileBlob', 'reserveTileBlobUpload', 'commitTileBlobReservation']),
+    )
+    const originalCommit = sql.commitTileBlobReservation.bind(sql)
+    let releaseOwnerCommit = () => {}
+    const gate = new Promise<void>((resolve) => {
+      releaseOwnerCommit = resolve
+    })
+    let commits = 0
+    vi.spyOn(sql, 'commitTileBlobReservation').mockImplementation(async (...args) => {
+      commits += 1
+      if (commits === 1) await gate
+      return originalCommit(...args)
+    })
+
+    const owner = runtime.run(uploadTile(metadata(hash, 42, AT + 1), bytes))
+    await vi.waitFor(() =>
+      expect(put.mock.calls.filter(([namespace]) => namespace === 'tiles')).toHaveLength(1),
+    )
+    await vi.waitFor(() => expect(commits).toBe(1))
+    // The generation is still uploading: nothing registered as active for this hash yet.
+    expect(await sql.readTileBlob(hash)).toBeNull()
+
+    await runtime.run(uploadTile(metadata(hash, 43, AT + 2), bytes))
+    releaseOwnerCommit()
+    await owner
 
     expect(put.mock.calls.filter(([namespace]) => namespace === 'tiles')).toHaveLength(1)
     expect(await sql.readTileBlob(hash)).toMatchObject({ state: 'active' })

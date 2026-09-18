@@ -632,6 +632,10 @@ const storeTileBytesOnce = async (
   blobKey: string,
   bytes: Uint8Array,
 ): Promise<void> => {
+  if (storedTileBlobKeys.has(blobKey)) {
+    ingestTimings.count('upload.blobPut.skipped')
+    return
+  }
   const joined = inFlightTilePuts.get(blobKey)
   if (joined !== undefined) {
     ingestTimings.count('upload.blobPut.joined')
@@ -640,16 +644,37 @@ const storeTileBytesOnce = async (
   // Register before any await: the active-state read and the PUT belong to one owner, so a
   // caller arriving during either joins it instead of racing past the lookup.
   const work = (async () => {
-    if (await tileBytesAlreadyStored(ports, hash, blobKey)) {
+    if (!(await tileBytesAlreadyStored(ports, hash, blobKey))) {
+      await ports.blobs.put('tiles', blobKey, bytes)
+    } else {
       ingestTimings.count('upload.blobPut.skipped')
-      return
     }
-    await ports.blobs.put('tiles', blobKey, bytes)
+    rememberStoredTileBlobKey(blobKey)
   })().finally(() => {
     inFlightTilePuts.delete(blobKey)
   })
   inFlightTilePuts.set(blobKey, work)
   return work
+}
+
+/**
+ * Blob keys whose bytes this runtime has stored or seen active.
+ *
+ * A generation stays `uploading` until its owner's observation commits, which is long after the
+ * PUT settled, and every reporter reserving it in that gap would PUT again. A restored generation
+ * always gets a fresh key, so remembering a key can never point at bytes that were reclaimed.
+ * Dropping an entry only costs one state read.
+ */
+const STORED_TILE_BLOB_KEYS_LIMIT = 512
+const storedTileBlobKeys = new Set<string>()
+
+const rememberStoredTileBlobKey = (blobKey: string): void => {
+  storedTileBlobKeys.delete(blobKey)
+  storedTileBlobKeys.add(blobKey)
+  if (storedTileBlobKeys.size > STORED_TILE_BLOB_KEYS_LIMIT) {
+    const oldest = storedTileBlobKeys.values().next().value
+    if (oldest !== undefined) storedTileBlobKeys.delete(oldest)
+  }
 }
 
 const uploadTilePromise = async (
