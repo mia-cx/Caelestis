@@ -6,6 +6,7 @@ import { type App, createApp } from './app.js'
 import { instrumentD1, measureRequest } from './metrics/request-metrics.js'
 import { presenceRequest } from './presence/port.js'
 import { makeBackendContext } from './runtime/backend-runtime.js'
+import { derivedArtifactWriter } from './telemetry/derived-artifact-writer.js'
 import { fetchCanvasTiles } from './telemetry/fetcher.js'
 import { runTileBlobGc, type TileBlobGcMode } from './telemetry/tile-blobs.js'
 
@@ -122,7 +123,8 @@ const appFor = (env: Env): App => {
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  // Workers always pass the execution context; unit tests call fetch without one.
+  async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
     if (env.SHARD_STRATEGY !== 'single') {
       throw new Error(`Unsupported telemetry shard strategy: ${env.SHARD_STRATEGY}`)
     }
@@ -137,12 +139,18 @@ export default {
       )
     }
 
-    return measureRequest(
-      env.REQUEST_METRICS,
-      mountedRequest,
-      new URL(mountedRequest.url).pathname,
-      async () => appFor(env).fetch(mountedRequest),
-    )
+    try {
+      return await measureRequest(
+        env.REQUEST_METRICS,
+        mountedRequest,
+        new URL(mountedRequest.url).pathname,
+        async () => appFor(env).fetch(mountedRequest),
+      )
+    } finally {
+      // Derived mismatch artifacts queued by this request finish after the reply; the Worker
+      // must keep the isolate alive for them, or they only become later cache misses.
+      ctx?.waitUntil(derivedArtifactWriter.drain())
+    }
   },
 
   // The 6-hour tile mirror — see [triggers] in wrangler.toml and telemetry/fetcher.ts.

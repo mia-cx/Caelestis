@@ -23,7 +23,7 @@ scope and land in the same branch.
 - [x] Replace the per-pixel Map and bit-packing loops in classification with typed-array kernels; prove byte-identical output.
 - [x] Share classification results across reporters with a bounded cache keyed by every classification input (#413).
 - [x] Skip the repeated S3 PUT for an already-active hash and load telemetry targets once per command.
-- [ ] Move derived mismatch-artifact writes to a bounded background writer that drains on shutdown (#414).
+- [x] Move derived mismatch-artifact writes to a bounded background writer that drains on shutdown (#414).
 - [ ] Record per-stage timings for live tile and paint commands in request metrics and the benchmark JSON.
 - [ ] Add Changesets and run lint, check, test, and build on Node and Bun.
 - [ ] Repeat the strict 256-user CNPG/S3 workload on Node and Bun and record the results under docs/.
@@ -56,3 +56,10 @@ scope and land in the same branch.
   Offers and uploads pass their loaded targets into `recordObservationPromise`, removing one
   `listTelemetryTargets` round trip per command. `ingest.test.ts` uploads one hash from three
   reporters through the real D1-over-SQLite store: one tile PUT, three raw history frames.
+- TODO 4: `derivedArtifactWriter` is one bounded queue per runtime (64 MiB, 256 entries, four
+  concurrent writes) that coalesces a key already queued or in flight, drops the newest write on
+  overflow with a counter, and reports failures without failing anything. Live paths create their
+  artifact batch with the writer so `flush()` returns once writes are queued; the fetcher keeps
+  awaiting its own batch. Node's runtime close drains for at most ten seconds; the Cloudflare
+  Worker's `fetch` now takes its execution context and calls `waitUntil(drain())` so the isolate
+  stays alive for queued writes. Durable Objects keep running pending promises without it.

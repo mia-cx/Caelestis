@@ -52,6 +52,7 @@ import {
 } from '../status-read-model/port.js'
 import { classifyChunk } from './classify-chunk.js'
 import { decodedPixelCache } from './decoded-pixel-cache.js'
+import { derivedArtifactWriter } from './derived-artifact-writer.js'
 import {
   createDerivedArtifactWriteBatch,
   type DerivedArtifactWriteBatch,
@@ -505,7 +506,8 @@ const recordObservationPromise = async (
   // and flushes it only after its coalesced projection; standalone calls flush their local batch.
   const ownsArtifactWriteBatch = options.artifactWriteBatch === undefined
   const artifactWriteBatch =
-    options.artifactWriteBatch ?? createDerivedArtifactWriteBatch(ports.blobs)
+    options.artifactWriteBatch ??
+    createDerivedArtifactWriteBatch(ports.blobs, { writer: derivedArtifactWriter })
   for (const { status, mask } of classified) {
     artifactWriteBatch.add(
       {
@@ -877,7 +879,9 @@ export const offerTilesWithOutcome = (
     let rejected = 0
     let cacheOutcome: 'hit' | 'miss' | 'stale' = 'hit'
     const coverageTokens = new Map<string, string>()
-    const artifactWriteBatch = createDerivedArtifactWriteBatch(blobs)
+    const artifactWriteBatch = createDerivedArtifactWriteBatch(blobs, {
+      writer: derivedArtifactWriter,
+    })
     yield* Effect.acquireUseRelease(
       Effect.void,
       () =>
