@@ -149,3 +149,12 @@ scope and land in the same branch.
   span including warmup), CNPG 3.9 and 5.8%. Node still fails in warmup on the same images, so the
   serialized owner connection remains the constraint and is Mia's decision (three options in the
   report). Test image references removed from both nodes; no test namespaces remain.
+- Mia asked what one server sustains now. `CAELESTIS_LIVE_SUBSCRIBER_LIMIT` (Node/Bun config,
+  default unchanged) and `CAELESTIS_TEST_BENCHMARK_USERS` (driver) enable a ladder; -397f images.
+  Strict Bun: 384, 320, and 288 fail in warmup on paint-report timeouts (turn wait p50 513, 228,
+  235 ms); 256 passes a second time (upload p95 1,026 ms, paint p95 1,001 ms, backend 70.2%).
+  Strict Node: 192 completes the traffic with zero misses (upload p95 868 ms, paint p95 738 ms,
+  turn wait 68 ms p50) but the resource collector rejected its CPU window, twice. Node 224 passes
+  fully (upload p95 1,312 ms, paint p95 1,514 ms, backend 79.1%). Ceiling on this branch: 256 on
+  Bun (288 fails), 224 on Node (256 fails), both set by the serialized owner connection. The
+  -397f image references are removed from both nodes; no test namespaces remain.

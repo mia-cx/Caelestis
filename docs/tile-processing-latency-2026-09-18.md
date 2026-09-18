@@ -4,7 +4,8 @@ On the final images, Bun passes the strict 256-user CNPG/S3 run and Node still m
 The shared processing named in [#397](https://github.com/mia-riezebos/Caelestis/issues/397) is fixed and no longer measurable on either runtime.
 The remaining wait on both is the Postgres adapter's single owned connection, which serializes every application query; Node spends four times longer in that queue than Bun.
 Changing that touches ownership fencing, so this report stops at the evidence and the options.
-One passing Bun run establishes that the workload can complete at this capacity; it is not the three alternating repetitions the benchmark README asks for before ranking runtimes.
+A capacity ladder on the same images puts one server at 256 users on Bun, passed twice, with 288 and above failing in warmup; Node passes at 224 and fails at 256.
+Two passing Bun runs establish that the workload completes at 256; they are not the three alternating repetitions the benchmark README asks for before ranking runtimes.
 
 ## What changed on the branch
 
@@ -53,6 +54,35 @@ rejected, final peer sets and drafts correct, and zero deadline misses in either
 
 Full-stack resources sum the backend, frontend, two CNPG instances, and MinIO, as in the September report.
 The Bun backend executed 30,547 statements at 0.9 ms p50 and waited 85 ms p50 and 239 ms p99 for its connection turn.
+
+## Capacity ladder
+
+With the shared processing fixed, the question was how many users one server sustains now.
+The trace size comes from `CAELESTIS_TEST_BENCHMARK_USERS` and the backend's 256-subscriber cap was raised to 2,048 through
+`CAELESTIS_LIVE_SUBSCRIBER_LIMIT` for these runs only; presence already admits 2,048. Explorers stay at 70 percent of users.
+Every rung is a strict run with the five-second deadline, on the same images, limits, and placement.
+
+| Runtime | Users | Sockets | Result | Upload p95 | Paint p95 | Turn wait p50 / p99 | Backend CPU |
+| --- | ---: | ---: | --- | ---: | ---: | ---: | ---: |
+| Bun | 256 | 512 | passed | 918 ms | 946 ms | 85 / 239 ms | 69.0% |
+| Bun | 256 (repeat) | 512 | passed | 1,026 ms | 1,001 ms | 69 / 254 ms | 70.2% |
+| Bun | 288 | 576 | paint-report timed out in warmup | 2,219 ms | 4,276 ms | 235 / 421 ms | — |
+| Bun | 320 | 640 | paint-report timed out in warmup | 2,204 ms | 4,495 ms | 228 / 448 ms | — |
+| Bun | 384 | 768 | paint-report timed out in warmup | 3,358 ms | 3,501 ms | 513 / 838 ms | — |
+| Node | 256 | 512 | paint-report timed out in warmup | 2,249 ms | 3,771 ms | 351 / 823 ms | — |
+| Node | 224 | 448 | passed | 1,312 ms | 1,514 ms | 81 / 276 ms | 79.1% |
+| Node | 192 | 384 | traffic completed, zero misses; collector rejected its CPU window | 868 ms | 738 ms | 68 / 324 ms | — |
+| Node | 192 (repeat) | 384 | traffic completed, zero misses; collector rejected its CPU window | 968 ms | 782 ms | 68 / 248 ms | 65.7% |
+
+Passing rows report the measured phase; failing rows report the warmup burst up to the timeout, where every client connects and offers within seconds.
+Statement execution stayed at 0.9 ms p50 and CNPG below 6 percent CPU on every rung, so each rung failed in the same queue.
+Both Node runs at 192 drained warmup and finished the measured phase with every command inside the deadline, but the resource
+collector then rejected a kubelet CPU window as insufficient and aborted before the final peer-set and draft checks, so they
+are recorded as traffic passes rather than full passes.
+
+The answer today is 256 users on Bun, twice, with paint p99 between 1.2 and 3.7 seconds against the 5-second deadline, and 224 users on Node,
+with every correctness check and paint p99 at 1.8 seconds. Bun fails at 288 and Node at 256, so each ceiling sits within one rung of its last pass.
+Both ceilings are set by the serialized owner connection described below, not by CPU, memory, storage, or the database.
 
 ## Where the time goes
 
