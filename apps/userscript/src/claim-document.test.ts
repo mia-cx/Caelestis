@@ -7,7 +7,12 @@ import {
   regionDocumentPixels,
 } from '@caelestis/shared'
 import { describe, expect, it } from 'vitest'
-import { claimDocumentPixels, claimDocuments, claimDocumentsLimitError } from './claim-document.js'
+import {
+  claimDocumentPixels,
+  claimDocuments,
+  claimDocumentsLimitError,
+  regionShapesOverlap,
+} from './claim-document.js'
 
 const rectangle = (x: number, y: number, w: number, h: number): RegionShape => ({
   kind: 'rectangle',
@@ -93,6 +98,28 @@ describe('claimDocuments', () => {
     const joined = claimDocuments(chain)
     expect(joined).toHaveLength(1)
     expect(joined[0]?.items.map((entry) => entry.id)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('groups by shared pixels, not by touching bounding boxes', () => {
+    // Two ellipses whose boxes overlap at a corner but whose pixels never meet.
+    const ellipse = (x: number, y: number): RegionShape => ({ kind: 'ellipse', x, y, w: 20, h: 20 })
+    const apart = { items: [item('a', ellipse(0, 0)), item('b', ellipse(18, 18))] }
+    expect(regionShapesOverlap(ellipse(0, 0), ellipse(18, 18))).toBe(false)
+    expect(claimDocuments(apart)).toHaveLength(2)
+
+    const touching = { items: [item('a', ellipse(0, 0)), item('b', ellipse(10, 0))] }
+    expect(claimDocuments(touching)).toHaveLength(1)
+  })
+
+  it('joins separate regions when one subtractor cuts across both', () => {
+    const left = item('left', rectangle(0, 0, 10, 10))
+    const right = item('right', rectangle(20, 0, 10, 10))
+    expect(claimDocuments({ items: [left, right] })).toHaveLength(2)
+    const bridge = item('bridge', rectangle(5, 4, 20, 2), 'subtract')
+    const joined = claimDocuments({ items: [left, right, bridge] })
+    expect(joined).toHaveLength(1)
+    expect(joined[0]?.items.map((entry) => entry.id)).toEqual(['left', 'right', 'bridge'])
+    expect(claimDocumentPixels(joined[0] as RegionDocument)?.count).toBe(180)
   })
 
   it('keeps subtraction before a later addition in its original order', () => {
