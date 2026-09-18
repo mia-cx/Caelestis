@@ -4,7 +4,7 @@
   import Icon from '../foundations/Icon.svelte'
   import SettingRow from '../foundations/SettingRow.svelte'
   import TemplateTree from '../tree/TemplateTree.svelte'
-  import type { PanelModel, TemplateTreeIntent } from '../types.js'
+  import type { ClaimRowModel, PanelModel, TemplateTreeIntent } from '../types.js'
   let {
     model,
     onIntent,
@@ -13,6 +13,7 @@
     onshowothers,
     onclaimregion,
     onflyto,
+    onflytoclaim,
   }: {
     model: NonNullable<PanelModel['work']>
     onIntent: (intent: TemplateTreeIntent) => void
@@ -21,11 +22,16 @@
     onshowothers: (show: boolean) => void
     onclaimregion?: () => void
     onflyto?: (key: string) => void
+    onflytoclaim?: (key: string) => void
   } = $props()
   const count = $derived(model.tree.entries.length)
   const presence = $derived(model.presence)
+  const claims = $derived(presence?.claims ?? [])
+  const myClaims = $derived(claims.filter((claim) => claim.mine))
+  const otherClaims = $derived(claims.filter((claim) => !claim.mine))
   const favouritesId = $props.id()
   const paintersId = `${favouritesId}-painters`
+  const claimsId = `${favouritesId}-claims`
   let open = $state(false)
   let paintersOpen = $state(false)
 </script>
@@ -116,6 +122,41 @@
               {/each}
             </ul>
           {/if}
+          {#if presence.claims !== undefined}
+            {#if claims.length === 0}
+              <p class="group-label" id={claimsId}>Claims</p>
+              <p class="empty">No claims yet. Claim a region to reserve part of the canvas.</p>
+            {:else}
+              {#snippet claimList(rows: readonly ClaimRowModel[], label: string, id: string)}
+                <p class="group-label" {id}>{label} <span class="count">{rows.length}</span></p>
+                <ul class="players" aria-labelledby={id}>
+                  {#each rows as claim (claim.key)}
+                    <li class="player">
+                      <span class="swatch" style:background={claim.colour} aria-hidden="true"></span>
+                      <span class="player-text">
+                        <span class="player-name">
+                          <strong>{claim.name}</strong>
+                          {#if !claim.mine}<small>#{claim.userId}</small>{/if}
+                        </span>
+                        <span class="player-activity">{claim.description}</span>
+                      </span>
+                      <span class="player-actions">
+                        <Button label={`Fly to ${claim.mine ? 'your' : `${claim.name}'s`} claim`} title={`Fly to ${claim.mine ? 'your' : `${claim.name}'s`} claim`} size="compact" kind="ghost" iconOnly onclick={() => onflytoclaim?.(claim.key)}>
+                          <Icon name="flyTo" size="1rem" />
+                        </Button>
+                      </span>
+                    </li>
+                  {/each}
+                </ul>
+              {/snippet}
+              {#if myClaims.length > 0}
+                {@render claimList(myClaims, 'Your claims', claimsId)}
+              {/if}
+              {#if otherClaims.length > 0}
+                {@render claimList(otherClaims, "Others' claims", `${claimsId}-others`)}
+              {/if}
+            {/if}
+          {/if}
         </div>
       </div>
     </div>
@@ -189,6 +230,21 @@
     margin: 0;
     padding: 0;
     list-style: none;
+  }
+  .group-label {
+    margin: 0.5rem 0 0.125rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    line-height: 1.5;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--caelestis-muted-text);
+  }
+  .group-label .count {
+    margin-inline-start: 0.25rem;
+    letter-spacing: 0;
+    text-transform: none;
+    font-variant-numeric: tabular-nums;
   }
   .player {
     display: flex;

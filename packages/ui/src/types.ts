@@ -120,11 +120,28 @@ export interface PainterRowModel {
   readonly canFly: boolean
 }
 
+/** One region claim, as the Painters drawer lists them. */
+export interface ClaimRowModel {
+  /** The claim's logical id; stable across renders. */
+  readonly key: string
+  /** The claimant's display name; "You" for the current painter. */
+  readonly name: string
+  readonly userId: number
+  /** The claimant's presence colour, as CSS. */
+  readonly colour: string
+  /** The shapes and pixel count: "rectangle · 1,200 px". */
+  readonly description: string
+  /** Whether this claim belongs to the current painter. */
+  readonly mine: boolean
+}
+
 /** The server's painter headcount, and the painters it sends for the current viewport. */
 export interface PresenceSummaryModel {
   readonly online: number
   readonly connected: boolean
   readonly players: readonly PainterRowModel[]
+  /** Every known region claim, the current painter's first. */
+  readonly claims?: readonly ClaimRowModel[]
   /** Whether the claim tool can start: signed in, connected, and not already open. */
   readonly canClaim: boolean
   readonly pending?: boolean
@@ -220,6 +237,7 @@ export type PanelIntent =
   | { readonly type: 'work-visibility'; readonly showOtherClaims: boolean }
   | { readonly type: 'region-claim' }
   | { readonly type: 'presence-fly'; readonly key: string }
+  | { readonly type: 'claim-fly'; readonly key: string }
   | { readonly type: 'work-tree'; readonly intent: TemplateTreeIntent }
   | { readonly type: 'navigate'; readonly view: PanelView }
   | { readonly type: 'close' }

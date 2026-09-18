@@ -335,6 +335,60 @@ describe('panel shell', () => {
     )
   })
 
+  it('lists region claims in the Painters drawer, yours first, and emits claim-fly', async () => {
+    const panel = new CaelestisPanel()
+    const intent = vi.fn()
+    panel.model = model({
+      tree,
+      work: {
+        tree,
+        error: '',
+        canShowOthers: false,
+        presence: {
+          online: 0,
+          connected: true,
+          players: [],
+          canClaim: true,
+          claims: [
+            {
+              key: 'theirs',
+              name: 'Zed',
+              userId: 9,
+              colour: 'rgb(1 2 3)',
+              description: 'ellipse · 40 px',
+              mine: false,
+            },
+            {
+              key: 'mine',
+              name: 'You',
+              userId: 7,
+              colour: 'rgb(4 5 6)',
+              description: 'rectangle · 100 px',
+              mine: true,
+            },
+          ],
+        },
+      },
+    })
+    panel.addEventListener('caelestis-panel-intent', intent)
+    document.body.append(panel)
+    await tick()
+    const root = panel.shadowRoot
+    const labels = [...(root?.querySelectorAll('.group-label') ?? [])].map((label) =>
+      label.textContent?.replace(/\s+/g, ' ').trim(),
+    )
+    expect(labels).toEqual(['Your claims 1', "Others' claims 1"])
+    const rows = [...(root?.querySelectorAll('.player-activity') ?? [])].map(
+      (row) => row.textContent,
+    )
+    expect(rows).toEqual(['rectangle · 100 px', 'ellipse · 40 px'])
+
+    root?.querySelector<HTMLButtonElement>('[aria-label="Fly to Zed\'s claim"]')?.click()
+    expect(intent).toHaveBeenCalledWith(
+      expect.objectContaining({ detail: { type: 'claim-fly', key: 'theirs' } }),
+    )
+  })
+
   it('previews keyboard resizing and commits once the key is released', async () => {
     const panel = new CaelestisPanel()
     const intent = vi.fn()
