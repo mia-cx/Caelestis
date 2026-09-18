@@ -514,6 +514,8 @@ export class StatusCoordinator<Client> {
       surface: TemplateSurface,
     ) => Promise<void>,
     private readonly requestMetrics?: Pick<AnalyticsEngineDataset, 'writeDataPoint'>,
+    /** Deployment overrides; the defaults are the production limits. */
+    private readonly limits: { readonly liveSubscribers?: number } = {},
   ) {}
 
   private backendRuntime(): BackendRuntime {
@@ -1392,7 +1394,7 @@ export class StatusCoordinator<Client> {
       const response = await this.liveSessions.attach(
         async () => {
           const sockets = this.objectState.getWebSockets('status')
-          if (sockets.length >= MAX_LIVE_SUBSCRIBERS) {
+          if (sockets.length >= (this.limits.liveSubscribers ?? MAX_LIVE_SUBSCRIBERS)) {
             capacityExceeded = true
             return false
           }

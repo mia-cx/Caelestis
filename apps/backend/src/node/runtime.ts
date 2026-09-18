@@ -165,6 +165,8 @@ export const openNodeRuntime = async (
         },
         scheduleAlarms,
         (season, tokenHash, surface) => presenceRoom(season, surface).closeCredential(tokenHash),
+        undefined,
+        { liveSubscribers: config.liveSubscriberLimit },
       )
       seasons.set(season, { coordinator, host })
       return coordinator
