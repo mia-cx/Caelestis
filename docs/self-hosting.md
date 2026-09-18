@@ -119,9 +119,33 @@ The image runs as UID/GID 1000. Bind-mounted directories must be writable by tha
 Put an HTTPS reverse proxy in front for remote access. Forward WebSocket upgrades and allow long-lived connections.
 Set `ORIGIN` to the public HTTPS origin so SvelteKit generates the correct public URLs.
 Both containers expose `/health/live` and `/health/ready`. Backend Prometheus metrics are at `/metrics` on its internal port.
+See [Capacity metrics](#capacity-metrics) for the per-pod connection gauges.
 Backend readiness checks database access; frontend readiness checks an authenticated backend read.
 Backend request logs use JSON and omit authorization values and query strings.
 SIGTERM stops admission, closes WebSockets, and drains active work. The process allows 30 seconds before forced exit.
+
+## Capacity metrics
+
+`/metrics` reports what one backend process holds. A healthy empty process reports zero for every gauge.
+A missing scrape means the telemetry is unavailable, not that the pod is empty.
+No series uses a user ID, token, client hash, or painter as a label.
+
+| Series | Meaning |
+| --- | --- |
+| `caelestis_connected_users` | People connected to this process, counted once across presence, live sync, and extra tabs. Authenticated sockets count per credential; anonymous frontend sockets count per browser client. |
+| `caelestis_live_sync_connections` | Occupied live-sync slots. Every socket counts, so multi-tab users can exhaust the 256-slot coordinator limit before unique users show pressure. |
+| `caelestis_presence_connections` | Open presence sockets. |
+| `caelestis_coordinator_connections{kind,coordinator}` | Sockets per season live-sync host (`kind="live-sync"`, `coordinator="<season>"`) or presence room (`kind="presence"`, `coordinator="<season>:<surface>"`). |
+| `caelestis_coordinator_connection_limit{kind,coordinator}` | The admission limit for that coordinator, so saturation is `connections / limit`. |
+| `caelestis_admissions_total{channel}` | Accepted WebSocket upgrades per channel (`live-sync`, `presence`). Counter deltas over 15 and 60 second windows give the gross influx. |
+| `caelestis_admission_rejections_total{channel}` | Upgrades refused because a limit was reached. Sustained growth means users are being turned away. |
+| `caelestis_live_pending_work` | Socket messages and background work not yet finished by any live host. |
+| `caelestis_event_loop_lag_seconds{stat}` | Event-loop delay since the previous scrape, `p99` and `max`. |
+
+These series are the per-shard input for the peer-sharding roadmap in issue #386. Today the application still runs one active replica.
+In Kubernetes, scrape each pod directly instead of the Service. With the Prometheus Operator installed, set
+`metrics.podMonitor.enabled=true` to render a `PodMonitor` for the `backend` port. Configure the operator's
+pod monitor selectors to include the release namespace and, if needed, `metrics.podMonitor.labels`.
 
 ## Compose stacks
 
