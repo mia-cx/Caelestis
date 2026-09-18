@@ -773,7 +773,15 @@ export class StatusCoordinator<Client> {
       new TextEncoder().encode(encoded).byteLength <= MAX_DELTA_MESSAGE_BYTES
         ? { type: 'status-delta', delta }
         : { type: 'status-reconcile', revision: delta.revision }
-    for (const socket of this.subscribers(scope)) this.send(socket, event)
+    // Encode once for every subscriber; with hundreds of sockets per commit the per-socket
+    // JSON work was a measurable share of the event loop.
+    let messages: readonly string[]
+    try {
+      messages = encodeLiveServerEvent(event)
+    } catch {
+      return
+    }
+    for (const socket of this.subscribers(scope)) this.sendEncoded(socket, messages)
   }
 
   async applyCommittedChange(
