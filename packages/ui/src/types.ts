@@ -352,6 +352,7 @@ export type SettingsIntent =
 
 export type RailControlId =
   | 'panel'
+  | 'more'
   | 'alliance-panel'
   | 'colour'
   | 'mismatch'
