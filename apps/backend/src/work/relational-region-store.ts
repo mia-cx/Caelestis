@@ -1,7 +1,6 @@
 import {
   isRegionDocument,
   isRegionShape,
-  MAX_PRESENCE_REGIONS,
   REGION_CLAIM_TTL_MS,
   type RegionClaim,
   type RegionDocument,
@@ -95,7 +94,6 @@ export class RelationalRegionStore implements RegionStore {
           isNotNull(workRegions.tokenHash),
         ),
       )
-      .limit(MAX_PRESENCE_REGIONS)
     return rows.flatMap((row) =>
       row.tokenHash === null ? [] : [{ ...row, tokenHash: row.tokenHash }],
     )
@@ -137,7 +135,6 @@ export class RelationalRegionStore implements RegionStore {
         ),
       )
       .orderBy(asc(workRegions.createdAt), asc(workRegions.id))
-      .limit(MAX_PRESENCE_REGIONS)
     return rows.map(fromRow)
   }
 
@@ -155,8 +152,7 @@ export class RelationalRegionStore implements RegionStore {
     const result = await this.client
       .prepare(`INSERT INTO work_regions
       (id, season, surface_kind, alliance_id, template_id, claimant_user_id, claimant_name, x, y, w, h, label, created_at, shape, token_hash, expires_at)
-      SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-      WHERE (SELECT COUNT(*) FROM work_regions WHERE season = ? AND surface_kind = ? AND alliance_id ${sqlDialect(this.client.dialect).nullEqual} ?) < ?
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO NOTHING`)
       .bind(
         region.id,
@@ -175,10 +171,6 @@ export class RelationalRegionStore implements RegionStore {
         JSON.stringify(document),
         tokenHash,
         region.expiresAt ?? Date.now() + REGION_CLAIM_TTL_MS,
-        region.season,
-        surface.kind,
-        surface.allianceId,
-        MAX_PRESENCE_REGIONS,
       )
       .run()
     return result.meta.changes === 1
