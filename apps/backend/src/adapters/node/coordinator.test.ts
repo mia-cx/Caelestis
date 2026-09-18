@@ -223,7 +223,7 @@ describe.each(adapters)('$name durable coordination', ({ make }) => {
     expect(delivered).toHaveLength(2)
   })
 
-  it('lets another owner take an expired claim and fences the stale owner out', async () => {
+  it('lets another owner take a claim its owner stopped renewing and fences the stale owner out', async () => {
     let releaseStale: () => void = () => {}
     const staleBlocked = new Promise<void>((resolve) => {
       releaseStale = resolve
@@ -231,14 +231,25 @@ describe.each(adapters)('$name durable coordination', ({ make }) => {
     const runs: string[] = []
     vi.spyOn(console, 'warn').mockImplementation(() => {})
     vi.spyOn(console, 'error').mockImplementation(() => {})
+    // The stale owner loses its database connection while its handler is still running, so its
+    // renewals fail and the claim expires on the database clock.
+    let partitioned = false
+    const partitionable: typeof storage.database = {
+      ...storage.database,
+      run: (query, ...values) => {
+        if (partitioned) return Promise.reject(new Error('connection lost'))
+        return storage.database.run(query, ...values)
+      },
+    }
     const stale = new DurableScheduler(
-      storage.database,
+      partitionable,
       async () => {
         runs.push('stale')
+        partitioned = true
         await staleBlocked
         throw new Error('stale owner failed late')
       },
-      { owner: 'stale', claimTtlMs: 50 },
+      { owner: 'stale', claimTtlMs: 400 },
     )
     const fresh = new DurableScheduler(
       storage.database,
@@ -257,11 +268,16 @@ describe.each(adapters)('$name durable coordination', ({ make }) => {
     ).toEqual([{ claimed_by: 'stale' }])
     await fresh.tick()
     expect(runs).toEqual(['stale'])
-    await delay(120)
-    await fresh.tick(Date.now() + 200)
-    expect(runs).toEqual(['stale', 'fresh'])
+    await vi.waitFor(
+      async () => {
+        await fresh.tick()
+        expect(runs).toEqual(['stale', 'fresh'])
+      },
+      { timeout: 3000, interval: 100 },
+    )
     expect(await storage.getAlarm()).toBeNull()
     await storage.setAlarm(7)
+    partitioned = false
     releaseStale()
     await staleTick
     expect(await storage.getAlarm()).toBe(7)
@@ -272,7 +288,7 @@ describe.each(adapters)('$name durable coordination', ({ make }) => {
     ).toEqual([{ claimed_by: null }])
   })
 
-  it('renews its claim while a long job runs', async () => {
+  it('renews its claim while a long job runs, even against a rival with a fast clock', async () => {
     let finish: () => void = () => {}
     const blocked = new Promise<void>((resolve) => {
       finish = resolve
@@ -298,7 +314,8 @@ describe.each(adapters)('$name durable coordination', ({ make }) => {
     await vi.waitFor(() => expect(runs).toEqual(['long']))
     for (let attempt = 0; attempt < 5; attempt += 1) {
       await delay(50)
-      await rival.tick()
+      // A rival whose wall clock runs a minute ahead still sees the lease as live.
+      await rival.tick(Date.now() + 60_000)
     }
     expect(runs).toEqual(['long'])
     finish()

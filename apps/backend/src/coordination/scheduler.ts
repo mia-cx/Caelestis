@@ -7,6 +7,17 @@ const DEFAULT_CLAIM_TTL_MS = 30_000
 type Alarm = { actor: string; due_at: number; generation: string }
 
 /**
+ * Milliseconds since the epoch on the database's clock. Leases are created, renewed, and expired
+ * on this one timeline so a process with a skewed wall clock cannot steal an active claim.
+ */
+const databaseNow = (dialect: CoordinatorDatabase['dialect']): string =>
+  dialect === 'postgres'
+    ? '(EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT'
+    : dialect === 'mariadb'
+      ? 'FLOOR(UNIX_TIMESTAMP(NOW(3)) * 1000)'
+      : "CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)"
+
+/**
  * At-least-once wakeups remain persisted until their handler succeeds or replaces the alarm.
  *
  * Each due row is claimed with a fenced, renewable lease before dispatch, so several processes
@@ -20,6 +31,7 @@ export class DurableScheduler {
   private readonly active = new Map<string, Promise<void>>()
   readonly owner: string
   private readonly claimTtlMs: number
+  private readonly now: string
 
   constructor(
     private readonly database: CoordinatorDatabase,
@@ -28,22 +40,24 @@ export class DurableScheduler {
   ) {
     this.owner = options.owner ?? crypto.randomUUID()
     this.claimTtlMs = options.claimTtlMs ?? DEFAULT_CLAIM_TTL_MS
+    this.now = databaseNow(database.dialect)
   }
 
+  /** `now` decides which alarms are due; lease expiry always follows the database clock. */
   async tick(now = Date.now()): Promise<void> {
     await Promise.all(await this.scan(now))
   }
 
   private async scan(now = Date.now()): Promise<Promise<void>[]> {
     const alarms = await this.database.all<Alarm>(
-      'SELECT actor, due_at, generation FROM runtime_alarms WHERE due_at <= ?1 AND (claimed_until IS NULL OR claimed_until <= ?1) ORDER BY due_at, actor LIMIT 32',
+      `SELECT actor, due_at, generation FROM runtime_alarms WHERE due_at <= ?1 AND (claimed_until IS NULL OR claimed_until <= ${this.now}) ORDER BY due_at, actor LIMIT 32`,
       now,
     )
     const started: Promise<void>[] = []
     for (const alarm of alarms) {
       if (this.active.size >= MAX_CONCURRENT_JOBS) break
       if (this.active.has(alarm.actor)) continue
-      if (!(await this.claim(alarm, now))) continue
+      if (!(await this.claim(alarm))) continue
       const task = this.deliver(alarm)
         .catch((error: unknown) => console.error('Durable job storage failed', error))
         .finally(() => this.active.delete(alarm.actor))
@@ -54,23 +68,22 @@ export class DurableScheduler {
   }
 
   /** Only an unclaimed or expired row can be taken, and only in the state the scan observed. */
-  private async claim(alarm: Alarm, now: number): Promise<boolean> {
+  private async claim(alarm: Alarm): Promise<boolean> {
     const claimed = await this.database.run(
-      'UPDATE runtime_alarms SET claimed_by = ?1, claimed_until = ?2 WHERE actor = ?3 AND generation = ?4 AND due_at = ?5 AND (claimed_until IS NULL OR claimed_until <= ?6)',
+      `UPDATE runtime_alarms SET claimed_by = ?1, claimed_until = ${this.now} + ?2 WHERE actor = ?3 AND generation = ?4 AND due_at = ?5 AND (claimed_until IS NULL OR claimed_until <= ${this.now})`,
       this.owner,
-      now + this.claimTtlMs,
+      this.claimTtlMs,
       alarm.actor,
       alarm.generation,
       alarm.due_at,
-      now,
     )
     return claimed.rowsWritten === 1
   }
 
   private async renew(actor: string): Promise<void> {
     const renewed = await this.database.run(
-      'UPDATE runtime_alarms SET claimed_until = ?1 WHERE actor = ?2 AND claimed_by = ?3',
-      Date.now() + this.claimTtlMs,
+      `UPDATE runtime_alarms SET claimed_until = ${this.now} + ?1 WHERE actor = ?2 AND claimed_by = ?3`,
+      this.claimTtlMs,
       actor,
       this.owner,
     )
