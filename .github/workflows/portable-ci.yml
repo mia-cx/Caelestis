@@ -31,14 +31,18 @@ concurrency:
 
 jobs:
   changes:
-    # Pull requests and main pushes that leave the server untouched (userscript-only work, docs)
-    # skip the image, Compose, Helm, and scan matrix. Scheduled, dispatched, and release runs
-    # always validate everything. The stack-tests check still reports, so a required check never
-    # blocks a userscript pull request.
+    # Two gates. `server` is true when the diff touches the backend, frontend, shared packages,
+    # deploy files, or the stack tooling; it enables the unit and contract tests and chart
+    # schema checks. `stacks` additionally enables the image build and the Compose, Helm, and
+    # scan matrix. Ordinary pull requests and main pushes never run the stacks; the Changesets
+    # release pull request does, so deployment viability is proven once per release. Scheduled,
+    # dispatched, and release runs always validate everything. The stack-tests check still
+    # reports on every pull request, so a required check never blocks userscript work.
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       server: ${{ steps.changes.outputs.server }}
+      stacks: ${{ steps.changes.outputs.stacks }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -48,15 +52,23 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_REF: ${{ github.head_ref }}
         run: |
           if [ "$EVENT" != pull_request ] && [ "$EVENT" != push ]; then
             echo 'server=true' >> "$GITHUB_OUTPUT"
+            echo 'stacks=true' >> "$GITHUB_OUTPUT"
             echo "$EVENT runs validate every stack"
             exit
           fi
+          if [ "$EVENT" = pull_request ] && [ "$HEAD_REF" = changeset-release/main ]; then
+            release_pr=true
+          else
+            release_pr=false
+          fi
           if [ -z "$BASE_SHA" ] || ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
             echo 'server=true' >> "$GITHUB_OUTPUT"
-            echo 'No reachable base commit; validating every stack'
+            echo "stacks=$release_pr" >> "$GITHUB_OUTPUT"
+            echo 'No reachable base commit; assuming server changes'
             exit
           fi
           if [ "$EVENT" = pull_request ]; then
@@ -85,8 +97,15 @@ jobs:
           changed="$(git diff --name-only "$base" HEAD)"
           if printf '%s\n' "$changed" | grep -E -f "$RUNNER_TEMP/server-paths"; then
             echo 'server=true' >> "$GITHUB_OUTPUT"
+            echo "stacks=$release_pr" >> "$GITHUB_OUTPUT"
+            if [ "$release_pr" = true ]; then
+              echo 'Release pull request with server changes; validating every stack'
+            else
+              echo 'Server changed; running unit, contract, and chart checks. Stacks run on the release pull request.'
+            fi
           else
             echo 'server=false' >> "$GITHUB_OUTPUT"
+            echo 'stacks=false' >> "$GITHUB_OUTPUT"
             echo "No server files changed between $base and $GITHUB_SHA; skipping stack validation"
           fi
 
@@ -187,7 +206,7 @@ jobs:
 
   image:
     needs: [changes, matrix]
-    if: needs.changes.outputs.server == 'true'
+    if: needs.changes.outputs.stacks == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -267,7 +286,7 @@ jobs:
 
   compose:
     needs: [changes, matrix, image]
-    if: needs.changes.outputs.server == 'true'
+    if: needs.changes.outputs.stacks == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -311,7 +330,7 @@ jobs:
 
   helm:
     needs: [changes, matrix, image]
-    if: needs.changes.outputs.server == 'true'
+    if: needs.changes.outputs.stacks == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -359,7 +378,7 @@ jobs:
 
   scan:
     needs: [changes, matrix, image]
-    if: needs.changes.outputs.server == 'true'
+    if: needs.changes.outputs.stacks == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -431,11 +450,16 @@ jobs:
         run: |
           node --input-type=module -e '
             const results = JSON.parse(process.env.RESULTS);
-            const server = results.changes.outputs.server;
-            if (server !== "true" && server !== "false") throw new Error("changes: unknown server output " + JSON.stringify(server));
+            const { server, stacks } = results.changes.outputs;
+            for (const [name, value] of [["server", server], ["stacks", stacks]]) {
+              if (value !== "true" && value !== "false") throw new Error("changes: unknown " + name + " output " + JSON.stringify(value));
+            }
+            if (stacks === "true" && server !== "true") throw new Error("changes: stacks require server changes");
+            const gate = { changes: "true", matrix: "true", runtime: server, chart: server, image: stacks, compose: stacks, helm: stacks, scan: stacks };
             for (const [name, job] of Object.entries(results)) {
-              const expected = name === "changes" || name === "matrix" || server === "true" ? "success" : "skipped";
+              if (!(name in gate)) throw new Error(name + ": no expectation defined");
+              const expected = gate[name] === "true" ? "success" : "skipped";
               if (job.result !== expected) throw new Error(name + ": " + job.result + " (expected " + expected + ")");
             }
-            console.log(server === "true" ? "Every stack passed" : "No server changes; every stack skipped as expected");
+            console.log(stacks === "true" ? "Every stack passed" : server === "true" ? "Unit, contract, and chart checks passed; stacks run on the release pull request" : "No server changes; everything skipped as expected");
           '
