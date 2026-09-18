@@ -38,8 +38,8 @@ it('establishes durable restoration synchronously before native discovery can yi
   const installing = installPersonalTemplates()
   expect(startup.restore).toHaveBeenCalledOnce()
   expect(startup.connect).not.toHaveBeenCalled()
-  document.dispatchEvent(new Event('DOMContentLoaded'))
   await installing
+  expect(startup.connect).toHaveBeenCalledOnce()
 })
 
 it('retries an already-open editor and a later module load without a surface change', async () => {

@@ -9,6 +9,7 @@ import {
 } from '@caelestis/shared'
 import { pageWindow } from '../page-world.js'
 import { loadAccount, ownedColours } from '../wplace-account.js'
+import { whenWplaceMapReady } from '../wplace-ready.js'
 import type { ImportedTemplate } from './import.js'
 
 /** Wplace owns these fields. Caelestis folders, appearance, and history stay in its own database. */
@@ -393,8 +394,16 @@ const nativeFunction = <T>(module: NativeModule, matches: (source: string) => bo
   return candidates[0] as T
 }
 
-/** Discover content-hashed native modules without pinning filenames or evaluating downloaded source. */
+/**
+ * Discover content-hashed native modules without pinning filenames or evaluating downloaded source.
+ *
+ * The `import()`s below evaluate Wplace's own chunks, which read Wplace's message catalog at module
+ * top level. Before Wplace's `init` hook has loaded that catalog the evaluation throws, the chunk is
+ * then failed for good, and Wplace's own import of it fails too: no map, ever (#416). So nothing
+ * here starts until Wplace has built its map, which only happens after `init` resolved.
+ */
 export const connectNativeTemplates = async (): Promise<NativeTemplates> => {
+  await whenWplaceMapReady()
   const page = pageWindow()
   const candidates = new Set(
     [...document.querySelectorAll<HTMLLinkElement>('link[rel="modulepreload"]')].map(
