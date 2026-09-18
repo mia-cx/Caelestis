@@ -117,9 +117,10 @@ describe('app release workflow', () => {
       portableCloudflareWorkflow,
       /ref: \$\{\{ inputs\.release_sha \|\| github\.sha \}\}/,
     )
+    // release-tooling, runtime, image, compose, helm, and chart all check out the release commit.
     assert.equal(
       portableCiWorkflow.match(/ref: \$\{\{ inputs\.release_sha \|\| github\.sha \}\}/g)?.length,
-      5,
+      6,
     )
     assert.match(
       portableCiWorkflow,
