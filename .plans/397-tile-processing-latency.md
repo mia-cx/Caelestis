@@ -22,7 +22,7 @@ scope and land in the same branch.
 
 - [x] Replace the per-pixel Map and bit-packing loops in classification with typed-array kernels; prove byte-identical output.
 - [x] Share classification results across reporters with a bounded cache keyed by every classification input (#413).
-- [ ] Skip the repeated S3 PUT for an already-active hash and load telemetry targets once per command.
+- [x] Skip the repeated S3 PUT for an already-active hash and load telemetry targets once per command.
 - [ ] Move derived mismatch-artifact writes to a bounded background writer that drains on shutdown (#414).
 - [ ] Record per-stage timings for live tile and paint commands in request metrics and the benchmark JSON.
 - [ ] Add Changesets and run lint, check, test, and build on Node and Bun.
@@ -51,3 +51,8 @@ scope and land in the same branch.
   history, alarms, and commit ordering are untouched. Null results are never retained and a
   rejected load is retried by the next caller. Bound: 32 MiB / 128 entries / 3 minutes. Four unit
   tests plus the 38 coordinator upload tests pass.
+- TODO 3: `uploadTilePromise` reads the registered blob object after reserving and skips the PUT
+  when that generation is already active under the reserved key; the reservation still fences GC.
+  Offers and uploads pass their loaded targets into `recordObservationPromise`, removing one
+  `listTelemetryTargets` round trip per command. `ingest.test.ts` uploads one hash from three
+  reporters through the real D1-over-SQLite store: one tile PUT, three raw history frames.

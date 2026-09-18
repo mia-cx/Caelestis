@@ -346,6 +346,8 @@ const recordObservationPromise = async (
     readonly authoritative?: boolean
     readonly coverageToken?: string
     readonly artifactWriteBatch?: DerivedArtifactWriteBatch
+    /** Targets the caller already loaded for this tile and scope, so they are not queried twice. */
+    readonly targets?: readonly TelemetryTarget[]
     readonly onCommitted?: (mutation: StatusProjectionMutation | null) => void | Promise<void>
   } = {},
 ): Promise<void> => {
@@ -357,11 +359,13 @@ const recordObservationPromise = async (
   )
   const { targets, classified, committed } = await (async () => {
     try {
-      const targets = await ports.sql.listTelemetryTargets(
-        metadata.season,
-        metadata.tile,
-        metadata.includeUnpublished,
-      )
+      const targets =
+        options.targets ??
+        (await ports.sql.listTelemetryTargets(
+          metadata.season,
+          metadata.tile,
+          metadata.includeUnpublished,
+        ))
       const observedAtMs = metadata.observedAt * 1_000
       const classified = (
         await Promise.all(
@@ -575,6 +579,7 @@ const offerTilePromise = async (
   const held = await reserveTileBlob(ports, metadata.hash)
   if (held === null) return 'wanted'
   await recordObservationPromise(ports, metadata, held.bytes, held.reservation.id, {
+    targets,
     ...(options.coverageToken === undefined ? {} : { coverageToken: options.coverageToken }),
     ...(options.artifactWriteBatch === undefined
       ? {}
@@ -582,6 +587,16 @@ const offerTilePromise = async (
     ...(options.onCommitted === undefined ? {} : { onCommitted: options.onCommitted }),
   })
   return 'recorded'
+}
+
+/** True when the registered generation for this hash is active under the reserved key. */
+const tileBytesAlreadyStored = async (
+  ports: BlobSqlStores,
+  hash: string,
+  blobKey: string,
+): Promise<boolean> => {
+  const registered = await ports.sql.readTileBlob(hash)
+  return registered !== null && registered.state === 'active' && registered.blobKey === blobKey
 }
 
 const uploadTilePromise = async (
@@ -613,8 +628,14 @@ const uploadTilePromise = async (
   const reservation = await reserveTileBlobUpload(ports, actualHash)
   let projection: StatusProjectionChange | null = null
   try {
-    await ports.blobs.put('tiles', reservation.blobKey, bytes)
+    // Many reporters upload one fresh hash inside the same commit window. Once a generation of
+    // these bytes is active, its object already holds them; the reservation keeps GC away, so
+    // only the observation still needs recording.
+    if (!(await tileBytesAlreadyStored(ports, actualHash, reservation.blobKey))) {
+      await ports.blobs.put('tiles', reservation.blobKey, bytes)
+    }
     await recordObservationPromise(ports, metadata, bytes, reservation.id, {
+      targets,
       ...(options.coverageToken === undefined ? {} : { coverageToken: options.coverageToken }),
       ...(options.recordHistory === undefined ? {} : { recordHistory: options.recordHistory }),
       ...(options.authoritative === undefined ? {} : { authoritative: options.authoritative }),
