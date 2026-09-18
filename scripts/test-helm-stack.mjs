@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
@@ -132,6 +132,31 @@ const workload = (name, image, port, variables, args = [], volumes = []) => ({
     },
   },
 })
+// The CloudNativePG release manifest, pinned by tag commit and checksum. The upstream
+// `artifacts` repository publishes nightly `cloudnative-pg-testing` images that GitHub prunes,
+// which left the operator unable to pull its image (#432). Release images stay published.
+const cnpgOperator = {
+  manifest:
+    'https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/4b5e244a7d031f67e025c83c1555e7726ecbbfa1/releases/cnpg-1.30.0.yaml',
+  sha256: 'f8bede43fe4ee0d478c2355b204a36876b2ae4faac60f2a9452280b293da3b88',
+  image: 'ghcr.io/cloudnative-pg/cloudnative-pg:1.30.0',
+  digest: 'sha256:a2701eb97cdd2a34b1fdb2cb51987f544b706e40bec72ae7146cd8580efefebb',
+}
+/** Download the pinned operator manifest, verify it, and pin its image by digest. */
+const cnpgOperatorManifest = async () => {
+  const response = await fetch(cnpgOperator.manifest, { signal: AbortSignal.timeout(60_000) })
+  assert.ok(response.ok, `CNPG manifest download failed: ${response.status}`)
+  const text = await response.text()
+  assert.equal(createHash('sha256').update(text).digest('hex'), cnpgOperator.sha256)
+  const references = text.split(cnpgOperator.image).length - 1
+  assert.equal(references, 2, `Unexpected CNPG operator image references: ${references}`)
+  const file = `${directory}/cnpg-operator.yaml`
+  writeFileSync(
+    file,
+    text.replaceAll(cnpgOperator.image, `${cnpgOperator.image}@${cnpgOperator.digest}`),
+  )
+  return file
+}
 const imageValues = (image) => {
   const colon = image.lastIndexOf(':')
   assert.ok(colon > image.lastIndexOf('/'), 'Test images must have an explicit tag')
@@ -151,6 +176,20 @@ const cleanup = () =>
         ['events', ['get', 'events', '--sort-by=.lastTimestamp']],
         ['backend', ['logs', 'deployment/test-caelestis', '-c', 'backend', '--tail=300']],
         ['frontend', ['logs', 'deployment/test-caelestis', '-c', 'frontend', '--tail=300']],
+        // The operator lives outside the test namespace; keep its state when a rollout stalls.
+        ...(stack === 'cnpg' && !context
+          ? [
+              ['cnpg-operator-pods', ['get', 'pods', '-n', 'cnpg-system', '-o', 'wide']],
+              [
+                'cnpg-operator-events',
+                ['get', 'events', '-n', 'cnpg-system', '--sort-by=.lastTimestamp'],
+              ],
+              [
+                'cnpg-operator',
+                ['logs', 'deployment/cnpg-controller-manager', '-n', 'cnpg-system', '--tail=300'],
+              ],
+            ]
+          : []),
       ]) {
         const result = spawnSync('kubectl', [...kubeArgs, ...args], {
           env,
@@ -314,16 +353,8 @@ try {
   }
   if (stack === 'cnpg') {
     if (!context) {
-      await run(
-        'kubectl',
-        [
-          'apply',
-          '--server-side',
-          '-f',
-          'https://raw.githubusercontent.com/cloudnative-pg/artifacts/0a96e6b4debcc6a0a01ea8e7e52dbacd9fe7fab2/manifests/operator-manifest.yaml',
-        ],
-        { env, log },
-      )
+      const manifest = await cnpgOperatorManifest()
+      await run('kubectl', ['apply', '--server-side', '-f', manifest], { env, log })
       kubectl(
         'rollout',
         'status',
