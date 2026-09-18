@@ -87,10 +87,33 @@ describe.each(adapters)('$name durable coordination', ({ make }) => {
 
   it('refuses to start against a newer coordinator data format', async () => {
     const database = coordinatorDatabase(harness.connection)
-    await database.run('UPDATE runtime_schema SET version = 2 WHERE id = 1')
+    await database.run('UPDATE runtime_schema SET version = 3 WHERE id = 1')
     await expect(SqlCoordinatorStorage.initialize(database)).rejects.toThrow(
-      'Unsupported coordinator schema version: 2',
+      'Unsupported coordinator schema version: 3',
     )
+  })
+
+  it('migrates a version 1 alarm table to fenced claims in place', async () => {
+    const database = coordinatorDatabase(harness.connection)
+    await database.run('DROP TABLE runtime_alarms')
+    await database.run(
+      'CREATE TABLE runtime_alarms (actor TEXT PRIMARY KEY, due_at BIGINT NOT NULL, generation TEXT NOT NULL)',
+    )
+    await database.run(
+      "INSERT INTO runtime_alarms (actor, due_at, generation) VALUES ('legacy', 1, 'g1')",
+    )
+    await database.run('UPDATE runtime_schema SET version = 1 WHERE id = 1')
+    await SqlCoordinatorStorage.initialize(database)
+    await SqlCoordinatorStorage.initialize(database)
+    expect(await database.one<{ version: number }>('SELECT version FROM runtime_schema')).toEqual({
+      version: 2,
+    })
+    const delivered: string[] = []
+    await new DurableScheduler(database, async (actor) => {
+      delivered.push(actor)
+    }).tick()
+    expect(delivered).toEqual(['legacy'])
+    expect(await database.all('SELECT actor FROM runtime_alarms')).toEqual([])
   })
 
   it('persists values and alarms across reconnect and rolls back failed state publication', async () => {
@@ -181,6 +204,106 @@ describe.each(adapters)('$name durable coordination', ({ make }) => {
       resume()
       await scheduler.stop()
     }
+  })
+
+  it('delivers a due job once when two schedulers share the database', async () => {
+    const delivered: string[] = []
+    const dispatch = (name: string) => async (actor: string) => {
+      delivered.push(`${name}:${actor}`)
+      await delay(20)
+    }
+    await storage.setAlarm(1)
+    await new SqlCoordinatorStorage(storage.database, 'other').setAlarm(1)
+    const first = new DurableScheduler(storage.database, dispatch('a'))
+    const second = new DurableScheduler(storage.database, dispatch('b'))
+    await Promise.all([first.tick(), second.tick()])
+    expect(delivered.map((entry) => entry.slice(2)).sort()).toEqual(['other', 'test'])
+    expect(await storage.getAlarm()).toBeNull()
+    expect(await new DurableScheduler(storage.database, dispatch('c')).tick()).toBeUndefined()
+    expect(delivered).toHaveLength(2)
+  })
+
+  it('lets another owner take an expired claim and fences the stale owner out', async () => {
+    let releaseStale: () => void = () => {}
+    const staleBlocked = new Promise<void>((resolve) => {
+      releaseStale = resolve
+    })
+    const runs: string[] = []
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const stale = new DurableScheduler(
+      storage.database,
+      async () => {
+        runs.push('stale')
+        await staleBlocked
+        throw new Error('stale owner failed late')
+      },
+      { owner: 'stale', claimTtlMs: 50 },
+    )
+    const fresh = new DurableScheduler(
+      storage.database,
+      async () => {
+        runs.push('fresh')
+      },
+      { owner: 'fresh' },
+    )
+    await storage.setAlarm(1)
+    const staleTick = stale.tick()
+    await vi.waitFor(() => expect(runs).toEqual(['stale']))
+    expect(
+      await storage.database.all<{ claimed_by: string }>(
+        "SELECT claimed_by FROM runtime_alarms WHERE actor = 'test'",
+      ),
+    ).toEqual([{ claimed_by: 'stale' }])
+    await fresh.tick()
+    expect(runs).toEqual(['stale'])
+    await delay(120)
+    await fresh.tick(Date.now() + 200)
+    expect(runs).toEqual(['stale', 'fresh'])
+    expect(await storage.getAlarm()).toBeNull()
+    await storage.setAlarm(7)
+    releaseStale()
+    await staleTick
+    expect(await storage.getAlarm()).toBe(7)
+    expect(
+      await storage.database.all<{ claimed_by: string | null }>(
+        "SELECT claimed_by FROM runtime_alarms WHERE actor = 'test'",
+      ),
+    ).toEqual([{ claimed_by: null }])
+  })
+
+  it('renews its claim while a long job runs', async () => {
+    let finish: () => void = () => {}
+    const blocked = new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    const runs: string[] = []
+    const long = new DurableScheduler(
+      storage.database,
+      async () => {
+        runs.push('long')
+        await blocked
+      },
+      { owner: 'long', claimTtlMs: 60 },
+    )
+    const rival = new DurableScheduler(
+      storage.database,
+      async () => {
+        runs.push('rival')
+      },
+      { owner: 'rival' },
+    )
+    await storage.setAlarm(1)
+    const longTick = long.tick()
+    await vi.waitFor(() => expect(runs).toEqual(['long']))
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await delay(50)
+      await rival.tick()
+    }
+    expect(runs).toEqual(['long'])
+    finish()
+    await longTick
+    expect(await storage.getAlarm()).toBeNull()
   })
 
   it('recovers accepted counters and retries an ambiguous flush without doubling history', async () => {
