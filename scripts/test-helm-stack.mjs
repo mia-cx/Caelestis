@@ -276,6 +276,11 @@ try {
       size: '1Gi',
       ...(context ? { storageClass: 'longhorn-single' } : {}),
     },
+    // Diagnostic runs add backend environment such as NODE_OPTIONS=--inspect; the JSON is the
+    // chart's extraEnv list of {name, value} entries.
+    ...(process.env.CAELESTIS_TEST_BACKEND_ENV
+      ? { extraEnv: JSON.parse(process.env.CAELESTIS_TEST_BACKEND_ENV) }
+      : {}),
   }
   const files = []
   if (stack !== 'sqlite') {
