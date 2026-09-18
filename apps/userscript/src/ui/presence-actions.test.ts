@@ -154,11 +154,27 @@ describe('presenceSummaryModel claims', () => {
     ]
     const claims = presenceSummaryModel()?.claims ?? []
     expect(claims.map((row) => [row.key, row.name, row.mine, row.description])).toEqual([
-      ['new-mine', 'You', true, 'rectangle · 100 px'],
-      ['old-mine', 'You', true, 'rectangle · 100 px'],
-      ['a1', 'Al', false, 'rectangle · 100 px'],
-      ['z1', 'Zed', false, 'rectangle · 100 px'],
+      ['new-mine', 'You', true, 'rectangle · 10×10'],
+      ['old-mine', 'You', true, 'rectangle · 10×10'],
+      ['a1', 'Al', false, 'rectangle · 10×10'],
+      ['z1', 'Zed', false, 'rectangle · 10×10'],
     ])
+  })
+
+  it('describes rows from the shape kinds and the server rect without rasterising', () => {
+    const region = claim('r', painter(9, 'Zed'), rect(0, 0, 640, 480))
+    harness.view.regions = [
+      {
+        ...region,
+        document: {
+          items: [
+            ...region.document.items,
+            { id: 'e', op: 'add', shape: { kind: 'ellipse', x: 0, y: 0, w: 4, h: 4 } },
+          ],
+        },
+      },
+    ]
+    expect(presenceSummaryModel()?.claims?.[0]?.description).toBe('2 shapes · 640×480')
   })
 
   it('lists your claims the server holds even before the local store adopts them', () => {

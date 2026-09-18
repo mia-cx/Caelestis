@@ -163,6 +163,18 @@ const knownClaims = (view: PresenceView): { mine: RegionClaim[]; others: RegionC
   return { mine, others }
 }
 
+/**
+ * A row's description from the shape kinds and the server's bounding rect alone. Rows are built
+ * for every claim on every panel render, and the snapshot replaces its documents each refresh, so
+ * nothing here may rasterise: that stays with `documentName` for the one document just saved.
+ */
+export const claimSummary = (region: RegionClaim): string => {
+  const count = region.document.items.length
+  const first = region.document.items[0]?.shape.kind ?? 'shape'
+  const kind = count === 1 ? first : `${count} shapes`
+  return `${kind} · ${region.rect.w}×${region.rect.h}`
+}
+
 const claimRows = (view: PresenceView): ClaimRowModel[] => {
   const { mine, others } = knownClaims(view)
   const row = (region: RegionClaim, isMine: boolean): ClaimRowModel => ({
@@ -170,7 +182,7 @@ const claimRows = (view: PresenceView): ClaimRowModel[] => {
     name: isMine ? 'You' : region.claimant.displayName,
     userId: region.claimant.wplaceUserId,
     colour: presenceCss(region.claimant.wplaceUserId),
-    description: documentName(region.document),
+    description: claimSummary(region),
     mine: isMine,
   })
   return [...mine.map((region) => row(region, true)), ...others.map((region) => row(region, false))]

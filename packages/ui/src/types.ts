@@ -129,7 +129,7 @@ export interface ClaimRowModel {
   readonly userId: number
   /** The claimant's presence colour, as CSS. */
   readonly colour: string
-  /** The shapes and pixel count: "rectangle · 1,200 px". */
+  /** The shapes and bounding size: "rectangle · 320×180". */
   readonly description: string
   /** Whether this claim belongs to the current painter. */
   readonly mine: boolean

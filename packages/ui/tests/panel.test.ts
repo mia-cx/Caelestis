@@ -355,7 +355,7 @@ describe('panel shell', () => {
               name: 'Zed',
               userId: 9,
               colour: 'rgb(1 2 3)',
-              description: 'ellipse · 40 px',
+              description: 'ellipse · 8×5',
               mine: false,
             },
             {
@@ -363,7 +363,7 @@ describe('panel shell', () => {
               name: 'You',
               userId: 7,
               colour: 'rgb(4 5 6)',
-              description: 'rectangle · 100 px',
+              description: 'rectangle · 10×10',
               mine: true,
             },
           ],
@@ -381,7 +381,7 @@ describe('panel shell', () => {
     const rows = [...(root?.querySelectorAll('.player-activity') ?? [])].map(
       (row) => row.textContent,
     )
-    expect(rows).toEqual(['rectangle · 100 px', 'ellipse · 40 px'])
+    expect(rows).toEqual(['rectangle · 10×10', 'ellipse · 8×5'])
 
     root?.querySelector<HTMLButtonElement>('[aria-label="Fly to Zed\'s claim"]')?.click()
     expect(intent).toHaveBeenCalledWith(
