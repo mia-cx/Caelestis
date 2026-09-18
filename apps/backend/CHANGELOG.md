@@ -1,5 +1,11 @@
 # @caelestis/backend
 
+## 0.7.1
+
+### Patch Changes
+
+- e61ddfe: Remove the 500-claim cap per season and surface: every region claim is stored, listed, sent to clients, and kept by the userscript.
+
 ## 0.7.0
 
 ### Minor Changes

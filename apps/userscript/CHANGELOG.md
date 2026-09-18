@@ -1,5 +1,19 @@
 # @caelestis/userscript
 
+## 0.13.0
+
+### Minor Changes
+
+- af14077: Show how long until pixel charges are full above Wplace's Paint button.
+
+### Patch Changes
+
+- b516eec: Allow `.wplace` templates to be selected from mobile file pickers.
+- b57abb5: Save independent regions as separate claims without counting the empty space between them against claim limits.
+- c8976bf: Move rail buttons that do not fit above wplace's bottom controls behind a More button.
+- 4353638: Keep template context menus inside the viewport: long menus open upward or scroll, and submenus follow their trigger.
+- e61ddfe: Remove the 500-claim cap per season and surface: every region claim is stored, listed, sent to clients, and kept by the userscript.
+
 ## 0.12.3
 
 ### Patch Changes
