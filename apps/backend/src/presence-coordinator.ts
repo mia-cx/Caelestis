@@ -527,7 +527,10 @@ export class PresenceCoordinator<Client> {
     surface: TemplateSurface,
     regions: readonly RegionClaim[],
   ): Promise<void> {
-    const at = Math.min(...regions.map((region) => region.expiresAt ?? Number.POSITIVE_INFINITY))
+    // A loop rather than a spread: the region list is unbounded and V8 caps call arguments.
+    let at = Number.POSITIVE_INFINITY
+    for (const region of regions)
+      if (region.expiresAt !== undefined && region.expiresAt < at) at = region.expiresAt
     await this.state.storage.put('region-expiry', {
       season,
       surface,
