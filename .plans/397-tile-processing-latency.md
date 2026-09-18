@@ -29,6 +29,7 @@ scope and land in the same branch.
 - [x] Process the tiles of one offer batch concurrently instead of one after another.
 - [x] Throttle history folds per tile so a fold runs at most once per interval, not on every reply.
 - [x] Broadcast one alarm snapshot per scope instead of one database read per subscriber.
+- [x] Stop cloning socket attachments on every read in the Node live host.
 - [ ] Repeat the strict 256-user CNPG/S3 workload on Node and Bun and record the results under docs/.
 
 ## Notes
@@ -115,3 +116,12 @@ scope and land in the same branch.
 - TODO 10: `broadcastAlarmSnapshots` reads and encodes once per season and scope and sends the
   same messages to every subscriber; `send` now delegates to `sendEncoded`. A test with two
   public and one admin subscriber asserts two `readActiveAlarms` calls and three snapshots.
+- Third strict Node run (mu79atuf): uploads 3.0 s p99, offers 2.6 s p99, alarms stage 0.9 s p99,
+  but paint reports still time out on their counters stage (1.6 s p50, 4.5 s p99). Backend 69%
+  of a core, CNPG 3%. A diagnostic observe run with `NODE_OPTIONS=--inspect` (new
+  `CAELESTIS_TEST_BACKEND_ENV` and `inspector-profile.mjs`) sampled 20 s during warmup: idle
+  55.3%, `structuredClone` 17.8% + 2.3%, `writev` 4.3%, everything else under 1.1%. The Node
+  live host cloned the socket attachment on every `deserializeAttachment`, and every broadcast
+  reads all 512 attachments. Profile: test-results/node-diag.cpuprofile on the devbox.
+- TODO 11: `serializeAttachment` clones and deep-freezes once; `deserializeAttachment` returns
+  that object. `broadcastStatus` also encodes its delta once for all subscribers.
