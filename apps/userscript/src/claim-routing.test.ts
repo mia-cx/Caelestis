@@ -621,6 +621,50 @@ describe('claim document batches', () => {
     expect(resumed.mine().map((region) => region.id)).toEqual(failed.ids.slice(0, 2))
   })
 
+  it('keeps a split source whole under its own id until every piece is accepted', async () => {
+    const legacy: RegionClaim = {
+      ...claim('old'),
+      document: {
+        items: [
+          { id: 'left', op: 'add', shape: { kind: 'rectangle', x: 0, y: 0, w: 4, h: 10 } },
+          { id: 'right', op: 'add', shape: { kind: 'rectangle', x: 6, y: 0, w: 4, h: 10 } },
+        ],
+      },
+      rect: { x: 0, y: 0, w: 10, h: 10 },
+    }
+    const h = setup([x])
+    const router = new ClaimRouter(h.host, [
+      { region: legacy, deleted: false, copies: [{ url: x.url, serverId: x.info?.id ?? '' }] },
+    ])
+    // The editor keeps item ids, so each piece still names a shape of the source record.
+    const docs = [box('left', 0, 0, 4, 10), box('right', 6, 0, 4, 10)]
+    h.host.put.mockImplementation(async (server, region) => {
+      h.mutations.push({ method: 'PUT', server: server.url, region })
+      return region.document.items[0]?.id === 'right' ? 'unreachable' : null
+    })
+    const failed = await router.saveAll(['old'], docs)
+    expect(failed.error).toContain('unreachable')
+    expect(failed.ids).toHaveLength(3)
+    expect(failed.ids.slice(0, 2)).not.toContain('old')
+    expect(failed.ids[2]).toBe('old')
+    expect(h.mutations.map((m) => m.region.id)).not.toContain('old')
+    expect(persistedDocuments(h)).toEqual(expect.arrayContaining([legacy.document]))
+
+    h.host.put.mockImplementation(async (server, region) => {
+      h.mutations.push({ method: 'PUT', server: server.url, region })
+      return null
+    })
+    h.mutations.length = 0
+    const retried = await router.saveAll(failed.ids, docs)
+    expect(retried).toEqual({ ids: failed.ids.slice(0, 2), error: null })
+    // The first piece already landed; only the failed one is written before the source goes.
+    expect(h.mutations.map((m) => [m.method, m.region.id])).toEqual([
+      ['PUT', failed.ids[1]],
+      ['DELETE', 'old'],
+    ])
+    expect(router.mine().map((region) => region.id)).toEqual(failed.ids.slice(0, 2))
+  })
+
   it('waits for the latest replacement before cleaning superseded records', async () => {
     const h = setup([x])
     const router = new ClaimRouter(h.host, [

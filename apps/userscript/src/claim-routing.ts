@@ -260,17 +260,30 @@ export class ClaimRouter {
     const unused = new Set(
       previous.filter((entry) => !entry.deleted && entry.replaceAfter === undefined),
     )
-    const selected = documents.map((document) => {
+    const matched = documents.map((document) => {
       const exact = [...unused].find(
         ({ region }) => JSON.stringify(region.document) === JSON.stringify(document),
       )
+      if (exact !== undefined) {
+        unused.delete(exact)
+        return { document, existing: exact }
+      }
       const itemIds = new Set(document.items.map((item) => item.id))
-      const existing =
-        exact ??
-        [...unused].find(({ region }) => region.document.items.some((item) => itemIds.has(item.id)))
-      if (existing !== undefined) unused.delete(existing)
+      const existing = [...unused].find(({ region }) =>
+        region.document.items.some((item) => itemIds.has(item.id)),
+      )
       return { document, existing }
     })
+    // A record that splits into several keeps its id for none of them: overwriting it with one
+    // piece before the others land would shrink the remote claim if a later write failed. The
+    // pieces take fresh ids and the source stays whole until they are all accepted.
+    const claims = new Map<Entry, number>()
+    for (const { existing } of matched)
+      if (existing !== undefined) claims.set(existing, (claims.get(existing) ?? 0) + 1)
+    const selected = matched.map(({ document, existing }) => ({
+      document,
+      existing: existing !== undefined && claims.get(existing) === 1 ? existing : undefined,
+    }))
     const held = new Map(this.entries)
     const nextIds: string[] = []
     for (const { document, existing } of selected) {
