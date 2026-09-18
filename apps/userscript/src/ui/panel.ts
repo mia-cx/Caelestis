@@ -131,7 +131,12 @@ import {
   PanelSessions,
   type PanelView,
 } from './panel-scope.js'
-import { flyToPainter, openClaimTool, presenceSummaryModel } from './presence-actions.js'
+import {
+  flyToClaim,
+  flyToPainter,
+  openClaimTool,
+  presenceSummaryModel,
+} from './presence-actions.js'
 import {
   claimToolButton,
   installRailStateSync,
@@ -1141,6 +1146,9 @@ const buildSveltePanel = (): CaelestisPanel => {
         break
       case 'presence-fly':
         flyToPainter(intent.key)
+        break
+      case 'claim-fly':
+        flyToClaim(intent.key)
         break
       case 'navigate':
         if (panelSurface.kind !== 'world' && intent.view === 'settings') break

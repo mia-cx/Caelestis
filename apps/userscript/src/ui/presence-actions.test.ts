@@ -12,6 +12,7 @@ const harness = vi.hoisted(() => ({
     connected: true,
     me: null as { wplaceUserId: number; displayName: string } | null,
   },
+  mine: [] as RegionClaim[],
   navigateTo: vi.fn(),
   toast: vi.fn(),
   editor: null as ClaimEditorHost | null,
@@ -20,7 +21,7 @@ const harness = vi.hoisted(() => ({
 
 vi.mock('../claim-routing.js', () => ({
   claimRouter: () => ({
-    mine: () => harness.view.regions,
+    mine: () => harness.mine,
     saveAll: harness.saveAll,
   }),
 }))
@@ -49,7 +50,12 @@ vi.mock('../templates/navigate.js', () => ({ navigateTo: harness.navigateTo }))
 vi.mock('../wplace-account.js', () => ({ accountIdentity: () => harness.view.me }))
 vi.mock('./toast.js', () => ({ toast: harness.toast }))
 
-import { flyToPainter, installClaimToolHost, presenceSummaryModel } from './presence-actions.js'
+import {
+  flyToClaim,
+  flyToPainter,
+  installClaimToolHost,
+  presenceSummaryModel,
+} from './presence-actions.js'
 
 const rect = (x: number, y: number, w = 10, h = 10) => ({ x, y, w, h })
 const painter = (wplaceUserId: number, displayName: string) => ({ wplaceUserId, displayName })
@@ -71,6 +77,7 @@ beforeEach(() => {
   harness.view.online = 0
   harness.view.connected = true
   harness.view.me = null
+  harness.mine = []
   harness.navigateTo.mockClear()
   harness.toast.mockClear()
   harness.saveAll.mockClear()
@@ -79,7 +86,7 @@ beforeEach(() => {
 describe('presenceSummaryModel players', () => {
   it('loads all logical claims once and routes editor writes through the claim owner', async () => {
     const region = claim('mine', painter(7, 'Mia'))
-    harness.view.regions = [region, claim('other-server', painter(7, 'Mia'))]
+    harness.mine = [region, claim('other-server', painter(7, 'Mia'))]
     installClaimToolHost()
     expect(harness.editor?.myRegions().map((region) => region.id)).toEqual(['mine', 'other-server'])
     await harness.editor?.save([region.id], [region.document])
@@ -130,6 +137,55 @@ describe('presenceSummaryModel players', () => {
     harness.view.me = painter(7, 'Mia')
     harness.view.regions = [claim('r1', painter(9, 'Zed')), claim('mine', painter(7, 'Mia'))]
     expect(presenceSummaryModel()?.players).toEqual([])
+  })
+})
+
+describe('presenceSummaryModel claims', () => {
+  it('lists your claims first, newest first, then everyone else by name', () => {
+    harness.view.me = painter(7, 'Mia')
+    harness.mine = [
+      { ...claim('old-mine', painter(7, 'Mia')), createdAt: 1 },
+      { ...claim('new-mine', painter(7, 'Mia')), createdAt: 5 },
+    ]
+    harness.view.regions = [
+      ...harness.mine,
+      claim('z1', painter(9, 'Zed')),
+      claim('a1', painter(2, 'Al')),
+    ]
+    const claims = presenceSummaryModel()?.claims ?? []
+    expect(claims.map((row) => [row.key, row.name, row.mine, row.description])).toEqual([
+      ['new-mine', 'You', true, 'rectangle · 100 px'],
+      ['old-mine', 'You', true, 'rectangle · 100 px'],
+      ['a1', 'Al', false, 'rectangle · 100 px'],
+      ['z1', 'Zed', false, 'rectangle · 100 px'],
+    ])
+  })
+
+  it('leaves out claims on other surfaces and seasons the map cannot show', () => {
+    harness.view.regions = [
+      { ...claim('alliance', painter(9, 'Zed')), surface: { kind: 'alliance', allianceId: 4 } },
+      { ...claim('season', painter(9, 'Zed')), season: 2 },
+      claim('world', painter(9, 'Zed')),
+    ]
+    expect(presenceSummaryModel()?.claims?.map((row) => row.key)).toEqual(['world'])
+  })
+})
+
+describe('flyToClaim', () => {
+  it('frames the claim rect, yours or theirs', () => {
+    harness.view.me = painter(7, 'Mia')
+    harness.mine = [claim('mine', painter(7, 'Mia'), rect(100, 200, 40, 20))]
+    harness.view.regions = [claim('theirs', painter(9, 'Zed'), rect(300, 300, 10, 10))]
+    expect(flyToClaim('mine')).toBe(true)
+    expect(harness.navigateTo).toHaveBeenLastCalledWith({ x: 120, y: 210, width: 40, height: 20 })
+    expect(flyToClaim('theirs')).toBe(true)
+    expect(harness.navigateTo).toHaveBeenLastCalledWith({ x: 305, y: 305, width: 10, height: 10 })
+  })
+
+  it('refuses once the claim is gone', () => {
+    expect(flyToClaim('gone')).toBe(false)
+    expect(harness.navigateTo).not.toHaveBeenCalled()
+    expect(harness.toast).toHaveBeenCalledWith('That claim is no longer here.', 'error')
   })
 })
 

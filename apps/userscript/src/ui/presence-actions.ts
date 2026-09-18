@@ -1,6 +1,7 @@
 import {
   type PresencePeer,
   type PresenceRect,
+  type RegionClaim,
   type RegionDocument,
   rectCentreDistance,
   rectIntersection,
@@ -8,7 +9,12 @@ import {
   sameTemplateSurface,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
-import type { ClaimTool, PainterRowModel, PresenceSummaryModel } from '@caelestis/ui/elements'
+import type {
+  ClaimRowModel,
+  ClaimTool,
+  PainterRowModel,
+  PresenceSummaryModel,
+} from '@caelestis/ui/elements'
 import { claimDocumentPixels, claimDocuments } from '../claim-document.js'
 import {
   type ClaimEditorHost,
@@ -28,7 +34,8 @@ import { toast } from './toast.js'
  * The Painters drawer and region claims, from the drawer, the rail, and the keyboard.
  *
  * The drawer lists everyone presence knows about, with a Fly to that goes to where they were last
- * seen. The editor owns drawing; the claim router owns persistence and server recipients.
+ * seen, and every region claim, with a Fly to that frames it. The editor owns drawing; the claim
+ * router owns persistence and server recipients.
  */
 
 interface ClaimTarget {
@@ -126,6 +133,44 @@ const painterRows = (view: PresenceView): PainterRowModel[] =>
       canFly: peer.draft !== null || peer.viewport !== null,
     }))
 
+/** A claim the map can fly to: on the world surface and for a season a connected server holds. */
+const flyable = (region: RegionClaim): boolean =>
+  sameTemplateSurface(region.surface, WORLD_TEMPLATE_SURFACE) &&
+  presenceServers().some((server) => server.season === region.season)
+
+/**
+ * Every claim worth listing, mine first. Mine come from the router so a claim still on its way to
+ * a server is already here; everyone else's come from the presence snapshot.
+ */
+const knownClaims = (view: PresenceView): { mine: RegionClaim[]; others: RegionClaim[] } => {
+  const me = view.me?.wplaceUserId
+  const mine = claimRouter()
+    .mine()
+    .filter(flyable)
+    .sort((left, right) => right.createdAt - left.createdAt)
+  const others = view.regions
+    .filter((region) => flyable(region) && region.claimant.wplaceUserId !== me)
+    .sort(
+      (left, right) =>
+        left.claimant.displayName.localeCompare(right.claimant.displayName) ||
+        right.createdAt - left.createdAt,
+    )
+  return { mine, others }
+}
+
+const claimRows = (view: PresenceView): ClaimRowModel[] => {
+  const { mine, others } = knownClaims(view)
+  const row = (region: RegionClaim, isMine: boolean): ClaimRowModel => ({
+    key: region.id,
+    name: isMine ? 'You' : region.claimant.displayName,
+    userId: region.claimant.wplaceUserId,
+    colour: presenceCss(region.claimant.wplaceUserId),
+    description: documentName(region.document),
+    mine: isMine,
+  })
+  return [...mine.map((region) => row(region, true)), ...others.map((region) => row(region, false))]
+}
+
 /** What the drawer shows: headcount, the painters, and whether the claim tool can open. */
 export const presenceSummaryModel = (): PresenceSummaryModel | undefined => {
   const view = presenceView()
@@ -136,6 +181,7 @@ export const presenceSummaryModel = (): PresenceSummaryModel | undefined => {
     online: view.online,
     connected: view.connected,
     players: painterRows(view),
+    claims: claimRows(view),
     canClaim: me !== null && view.connected && !isClaimModeActive(),
     ...(pending ? { pending: true } : {}),
     ...(message === undefined ? {} : { message }),
@@ -152,6 +198,22 @@ export const flyToPainter = (sessionId: string): boolean => {
     toast('That painter is no longer here.', 'error')
     return false
   }
+  navigateTo({ x: rect.x + rect.w / 2, y: rect.y + rect.h / 2, width: rect.w, height: rect.h })
+  return true
+}
+
+/**
+ * Take the map to a claim. Claims are read again here, not from the rendered row, so one that
+ * was released or expired between render and click gets a toast, not a flight to nothing.
+ */
+export const flyToClaim = (id: string): boolean => {
+  const { mine, others } = knownClaims(presenceView())
+  const region = [...mine, ...others].find((held) => held.id === id)
+  if (region === undefined) {
+    toast('That claim is no longer here.', 'error')
+    return false
+  }
+  const rect = region.rect
   navigateTo({ x: rect.x + rect.w / 2, y: rect.y + rect.h / 2, width: rect.w, height: rect.h })
   return true
 }
