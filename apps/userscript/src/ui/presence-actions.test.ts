@@ -161,6 +161,22 @@ describe('presenceSummaryModel claims', () => {
     ])
   })
 
+  it('lists your claims the server holds even before the local store adopts them', () => {
+    harness.view.me = painter(7, 'Mia')
+    harness.mine = [claim('local', painter(7, 'Mia'))]
+    harness.view.regions = [
+      claim('local', painter(7, 'Mia')),
+      claim('elsewhere', painter(7, 'Mia')),
+      claim('z1', painter(9, 'Zed')),
+    ]
+    const claims = presenceSummaryModel()?.claims ?? []
+    expect(claims.map((row) => [row.key, row.mine])).toEqual([
+      ['local', true],
+      ['elsewhere', true],
+      ['z1', false],
+    ])
+  })
+
   it('leaves out claims on other surfaces and seasons the map cannot show', () => {
     harness.view.regions = [
       { ...claim('alliance', painter(9, 'Zed')), surface: { kind: 'alliance', allianceId: 4 } },
