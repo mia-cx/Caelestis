@@ -1,5 +1,11 @@
 # @caelestis/userscript
 
+## 0.14.0
+
+### Minor Changes
+
+- 5aa1906: The Painters drawer lists region claims, yours first and then everyone else's, each with a Fly to that frames the claim on the map.
+
 ## 0.13.1
 
 ### Patch Changes

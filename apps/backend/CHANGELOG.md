@@ -1,5 +1,23 @@
 # @caelestis/backend
 
+## 0.8.0
+
+### Minor Changes
+
+- 75e824d: Expose per-pod capacity on `/metrics`: connected users counted once across channels and tabs, occupied live-sync and presence slots, per-coordinator saturation, admission and rejection counters, pending live work, and event-loop lag. The Helm chart can opt into a `PodMonitor` that scrapes every pod directly.
+
+### Patch Changes
+
+- 612e4d5: Broadcast alarm and status changes to live subscribers with one database read and one encoding per scope, and stop cloning each socket's attachment on every read in the Node live host.
+- 0d3ddb6: Add an admin endpoint that reports where live tile uploads, offers, and paint reports spend their time per stage, and record it in the 256-user benchmark results.
+- 612e4d5: Include the Postgres adapter's connection turn wait and statement execution time in the ingest-timings snapshot.
+- 0d3ddb6: Write derived mismatch masks after the live reply through a bounded background writer that drains on shutdown, so slow object storage no longer delays tile acknowledgements.
+- d2a9fce: Run PostgreSQL and CNPG application queries on the connection pool instead of one owned session, fenced by advisory locks so there is still exactly one writer at a time: a replacement owner cannot serve until every session of the previous owner has closed, and a lost owner session ends its pool at once.
+- 0d3ddb6: Reply to tile uploads and paint reports faster at high user counts by sharing one classification per canvas and template chunk across reporters, classifying with typed-array kernels, and storing each canvas hash's bytes once even when many reporters upload it at the same time.
+- 612e4d5: Answer multi-tile offer batches sooner by processing their tiles concurrently, and fold a tile's history on its first observation and then at most every 30 seconds instead of on every reply.
+- 54d0444: Let pooled PostgreSQL transactions on the tile tables take turns in one lane and the coordinator's callbacks in another while other transactions overlap, retry a serialization failure before answering a command as unavailable, verify the owner session from every fenced session, and report lane wait and retries in the ingest-timings snapshot.
+- 4567110: Let a Node or Bun deployment raise the live subscriber limit with `CAELESTIS_LIVE_SUBSCRIBER_LIMIT` for capacity measurements; the default stays 256.
+
 ## 0.7.1
 
 ### Patch Changes
