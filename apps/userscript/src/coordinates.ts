@@ -12,6 +12,7 @@ const wrappedXDelta = (x: number, reference: number): number => {
 }
 
 export interface ScreenProjection {
+  readonly canvasBox: CanvasBox
   pointFor(x: number, y: number): { x: number; y: number }
   readonly pixelsPerCanvasPixel: { x: number; y: number }
 }
@@ -46,6 +47,7 @@ export const screenProjectionIn = (
   const originX = reference.tile.x * TILE_SIZE
   const originY = reference.tile.y * TILE_SIZE
   return {
+    canvasBox: box,
     pointFor: (x, y) => ({
       x: box.left + (reference.x + wrappedXDelta(x, originX) * scaleX) / ratioX,
       y: box.top + (reference.y + (y - originY) * scaleY) / ratioY,
@@ -83,6 +85,7 @@ export const createScreenProjectionCache = (): ScreenProjectionCache => {
   const onScroll = (): void => {
     box = null
   }
+  const layout = typeof MutationObserver === 'function' ? new MutationObserver(onScroll) : null
   const observer =
     typeof ResizeObserver === 'function'
       ? new ResizeObserver(() => {
@@ -90,6 +93,11 @@ export const createScreenProjectionCache = (): ScreenProjectionCache => {
         })
       : null
   if (typeof window !== 'undefined') window.addEventListener('scroll', onScroll, true)
+  if (typeof document !== 'undefined') document.fonts?.addEventListener('loadingdone', onScroll)
+  if (typeof window !== 'undefined') {
+    window.visualViewport?.addEventListener('resize', onScroll)
+    window.visualViewport?.addEventListener('scroll', onScroll)
+  }
 
   const invalidate = (): void => {
     box = null
@@ -100,8 +108,18 @@ export const createScreenProjectionCache = (): ScreenProjectionCache => {
       if (frame === null) return null
       if (canvas !== frame.canvas) {
         observer?.disconnect()
+        layout?.disconnect()
         canvas = frame.canvas
-        observer?.observe(canvas)
+        // Ancestor transforms and sibling insertions can move a same-sized canvas. Observe the
+        // ancestor chain, not its subtrees, so moving label/control children do not invalidate it.
+        for (let element: Element | null = canvas; element; element = element.parentElement) {
+          observer?.observe(element)
+          layout?.observe(element, {
+            attributes: true,
+            attributeFilter: ['class', 'style'],
+            childList: true,
+          })
+        }
         box = null
       }
       const nextViewportWidth = typeof window === 'undefined' ? 0 : window.innerWidth
@@ -127,7 +145,14 @@ export const createScreenProjectionCache = (): ScreenProjectionCache => {
     invalidate,
     dispose() {
       observer?.disconnect()
+      layout?.disconnect()
       if (typeof window !== 'undefined') window.removeEventListener('scroll', onScroll, true)
+      if (typeof document !== 'undefined')
+        document.fonts?.removeEventListener('loadingdone', onScroll)
+      if (typeof window !== 'undefined') {
+        window.visualViewport?.removeEventListener('resize', onScroll)
+        window.visualViewport?.removeEventListener('scroll', onScroll)
+      }
       canvas = null
       box = null
     },

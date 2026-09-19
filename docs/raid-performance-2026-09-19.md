@@ -120,3 +120,16 @@ from 3.238/3.207/3.157 to 3.119/3.108/3.081 seconds, a 3.1% mean improvement in 
 Hover whole-page and rendering costs remain inconsistent. All samples have zero observed long tasks,
 and frame p95 remains 17.2–17.6 ms. Tests preserve next-frame fades, template replacement and host separation.
 [Raw profiles](benchmarks/raid-472-2026-09-19.json.gz) record the full workload and exact bundle hashes.
+
+## Shared label geometry (#473)
+
+Labels reuse the map projection's canvas bounds. The cache invalidates on scroll, resize, font loading,
+canvas replacement and ancestor layout changes. It ignores per-frame writes to label children.
+The baseline includes #472; the candidate includes these invalidation checks.
+
+Movement label task time falls from 309.2/310.1/330.2 to 146.6/147.5/142.9 ms across three alternating pairs,
+a 54.4% mean reduction. Idle falls from 186.0/160.3/170.9 to 101.2/90.7/96.5 ms.
+Movement layout and style time improve in each pair, but whole-page task time does not consistently improve.
+Frame p95 remains 17.2–17.5 ms. Focused tests cover ancestor movement, sibling insertion, label writes,
+projection replacement and label placement. All 25 tests pass, as does the userscript typecheck.
+[Raw profiles](benchmarks/raid-473-2026-09-20.json.gz) retain the noisy hover runs and exact build hashes.

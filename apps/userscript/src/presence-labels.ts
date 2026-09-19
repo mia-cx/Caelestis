@@ -6,6 +6,7 @@ import {
 } from '@caelestis/shared'
 import { claimDocumentPixels } from './claim-document.js'
 import { claimEditorEditingIds } from './claim-editor.js'
+import type { ScreenProjection } from './coordinates.js'
 import { displayedPresenceRect } from './gl/presence-layer.js'
 import { displayClaims } from './presence-claims.js'
 import { presenceView } from './presence-client.js'
@@ -371,7 +372,10 @@ const measureWith =
   }
 
 /** Place the tags for this frame. Cheap when the pointer is off the map. */
-export const renderPresenceLabels = (frame: TileFrame): void => {
+export const renderPresenceLabels = (
+  frame: TileFrame,
+  projection?: ScreenProjection | null,
+): void => {
   const document = frame.canvas.ownerDocument
   const window = document.defaultView
   if (window !== null) watchPointer(window)
@@ -384,8 +388,9 @@ export const renderPresenceLabels = (frame: TileFrame): void => {
     removeAll()
     return
   }
-  const box = frame.canvas.getBoundingClientRect()
-  if (box.width <= 0 || box.height <= 0) {
+  const box =
+    projection === undefined ? frame.canvas.getBoundingClientRect() : projection?.canvasBox
+  if (box === undefined || box.width <= 0 || box.height <= 0) {
     removeAll()
     return
   }
@@ -430,7 +435,7 @@ export const renderPresenceLabels = (frame: TileFrame): void => {
     const centre = box.left + (screen.x + screen.width / 2) / ratioX
     const top = box.top + screen.y / ratioY
     let x = Math.round(centre - width / 2)
-    x = Math.min(Math.max(x, box.left + INSET), box.right - width - INSET)
+    x = Math.min(Math.max(x, box.left + INSET), box.left + box.width - width - INSET)
     let y = Math.round(top - GAP - TAG_HEIGHT)
     // Other painters' claims are not obstacles: the chip is DOM above the GL layer, so it stays
     // anchored to its own claim and simply reads over whatever it covers.
@@ -445,7 +450,7 @@ export const renderPresenceLabels = (frame: TileFrame): void => {
       const before = y
       // Above the map's top edge there is nowhere to go but inside, just under the edge.
       if (y < box.top + INSET)
-        y = Math.round(Math.min(top + INSET, box.bottom - TAG_HEIGHT - INSET))
+        y = Math.round(Math.min(top + INSET, box.top + box.height - TAG_HEIGHT - INSET))
       // Tags for different things must not cover each other: stack upward on a collision.
       for (let guard = 0; guard < placed.length; guard++) {
         const other = placed.find(overlaps)

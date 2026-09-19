@@ -330,6 +330,23 @@ describe('renderPresenceLabels', () => {
     canvas.dispatchEvent(new PointerEvent('pointermove', { clientX: x, clientY: y, bubbles: true }))
   }
 
+  it('uses the shared projection bounds without another layout read', async () => {
+    harness.regions = [twoPieces]
+    const { renderPresenceLabels } = await import('./presence-labels.js')
+    const { screenProjectionIn } = await import('./coordinates.js')
+    const canvas = canvasAt()
+    const frame = frameAt(1, canvas)
+    const projection = screenProjectionIn(frame)
+    renderPresenceLabels(frame, projection)
+    hover(canvas, 5, 5)
+    const read = vi.spyOn(canvas, 'getBoundingClientRect')
+    renderPresenceLabels(frame, projection)
+    expect(read).not.toHaveBeenCalled()
+    expect(document.querySelector('#caelestis-presence-labels span')?.textContent).toBe(
+      'Sam · claimed',
+    )
+  })
+
   it('measures unchanged text once and refreshes it after text or viewport changes', async () => {
     harness.regions = [twoPieces]
     const { renderPresenceLabels } = await import('./presence-labels.js')

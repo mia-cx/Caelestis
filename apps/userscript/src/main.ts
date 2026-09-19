@@ -424,7 +424,8 @@ const main = (): void => {
     onFrame(observePresenceFrame, 'Presence viewport')
     onFrame(syncClaimEditorFrame, 'Claim editor overlay')
     onFrame((frame) => {
-      if (activeAllianceSurface() === null) renderPresenceLabels(frame)
+      if (activeAllianceSurface() === null)
+        renderPresenceLabels(frame, overlayProjection.project(frame))
     }, 'Presence labels')
   })
   /**
