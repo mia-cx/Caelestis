@@ -27,7 +27,15 @@ const integer = (value: string): number => {
   return number
 }
 
-const TRANSACTION_ATTEMPTS = 5
+const TRANSACTION_ATTEMPTS = 10
+/** Batches that write a season's status rows or its revision counter conflict with each other. */
+const STATUS_LANE_TABLES = /\b(template_tile_statuses|status_read_model_revisions)\b/
+const laneFor = (statements: readonly SqlStatement[]): string | undefined =>
+  statements.some(
+    (statement) => statement instanceof Statement && STATUS_LANE_TABLES.test(statement.query),
+  )
+    ? 'status'
+    : undefined
 const retryable = (error: unknown): boolean => {
   if (!(error instanceof Error)) return false
   if ('code' in error && (error.code === '40001' || error.code === '40P01')) return true
@@ -105,7 +113,7 @@ export class PostgresConnection implements TransactionalSqlConnection {
   private owner: PoolClient | undefined
   private ownerFailure: Error | undefined
   private readonly fenced = new WeakSet<PoolClient>()
-  private writeTail: Promise<unknown> = Promise.resolve()
+  private readonly lanes = new Map<string, Promise<unknown>>()
   private closing = false
   private ended: Promise<void> | undefined
 
@@ -209,13 +217,51 @@ export class PostgresConnection implements TransactionalSqlConnection {
   }
 
   async batch<T>(statements: SqlStatement[]): Promise<SqlResult<T>[]> {
+    return this.inLane(laneFor(statements), () =>
+      this.retrying(() => this.commitBatch<T>(statements)),
+    )
+  }
+
+  /** Retry serialization failures with a short jittered backoff; the operation must be re-runnable. */
+  private async retrying<T>(run: () => Promise<T>): Promise<T> {
     for (let attempt = 1; ; attempt++) {
       try {
-        return await this.commitBatch<T>(statements)
+        return await run()
       } catch (error) {
         if (attempt === TRANSACTION_ATTEMPTS || !retryable(error)) throw error
+        const backoff = Math.min(200, 5 * 2 ** (attempt - 1)) * (0.5 + Math.random())
+        await new Promise((resolve) => setTimeout(resolve, backoff))
       }
     }
+  }
+
+  /**
+   * Transactions in the same lane take turns; transactions without a lane overlap freely.
+   *
+   * Overlapping SERIALIZABLE transactions that touch the same rows abort each other, and a commit
+   * that exhausts its retries is answered to the client as unavailable. Every tile commit in a
+   * season reads the template's status rows and bumps the season's revision row, so those can
+   * only conflict; they queue in one lane, as they effectively did on the single session. All
+   * other transactions touch rows keyed by their own hash, tile, or template and rarely meet, so
+   * they run concurrently and the rare conflict is retried.
+   */
+  private inLane<T>(lane: string | undefined, run: () => Promise<T>): Promise<T> {
+    if (lane === undefined) return run()
+    const requestedAt = performance.now()
+    const turn = () => {
+      ingestTimings.record('sql', 'transaction', performance.now() - requestedAt)
+      return run()
+    }
+    const tail = this.lanes.get(lane) ?? Promise.resolve()
+    const running = tail.then(turn, turn)
+    this.lanes.set(
+      lane,
+      running.then(
+        () => undefined,
+        () => undefined,
+      ),
+    )
+    return running
   }
 
   private async executeBatch<T>(
@@ -251,23 +297,11 @@ export class PostgresConnection implements TransactionalSqlConnection {
    * retried, since a migration or maintenance job may run its own transaction alongside.
    */
   async transaction<T>(operation: (connection: SqlConnection) => Promise<T>): Promise<T> {
-    const requestedAt = performance.now()
-    const run = async () => {
-      ingestTimings.record('sql', 'transaction', performance.now() - requestedAt)
-      for (let attempt = 1; ; attempt++) {
-        try {
-          return await this.serializableTransaction(operation)
-        } catch (error) {
-          if (attempt === TRANSACTION_ATTEMPTS || !retryable(error)) throw error
-        }
-      }
-    }
-    const running = this.writeTail.then(run, run)
-    this.writeTail = running.then(
-      () => undefined,
-      () => undefined,
+    // Callback transactions come from the coordinator's counter accounting and startup; their
+    // rows are shared per template, so they take turns with each other.
+    return this.inLane('coordinator', () =>
+      this.retrying(() => this.serializableTransaction(operation)),
     )
-    return running
   }
 
   private async serializableTransaction<T>(
