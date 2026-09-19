@@ -230,6 +230,8 @@ export class PostgresConnection implements TransactionalSqlConnection {
       } catch (error) {
         if (attempt === TRANSACTION_ATTEMPTS || !retryable(error)) throw error
         const backoff = Math.min(200, 5 * 2 ** (attempt - 1)) * (0.5 + Math.random())
+        // One record per retry, so the count of this stage is the number of aborted attempts.
+        ingestTimings.record('sql', 'retry', backoff)
         await new Promise((resolve) => setTimeout(resolve, backoff))
       }
     }
@@ -282,23 +284,24 @@ export class PostgresConnection implements TransactionalSqlConnection {
     return results
   }
 
+  /** A batch is its own transaction; its lane, if any, is chosen by `batch`, not shared with callbacks. */
   private commitBatch<T>(statements: SqlStatement[]): Promise<SqlResult<T>[]> {
-    return this.transaction((connection) => connection.batch<T>(statements))
+    return this.serializableTransaction((connection) => connection.batch<T>(statements))
   }
 
   /**
-   * Run one serializable transaction, and only one at a time on this process.
+   * Run one serializable transaction.
    *
-   * Reads and single statements share the pool; transactions take turns. Letting them overlap
-   * made them abort each other under SERIALIZABLE, and a commit that exhausts its retries is
-   * answered to the client as unavailable, which is the paint loss the ownership guard exists to
-   * prevent. Taking turns keeps every write exactly as it behaved on one connection while the
-   * rest of a command's round trips no longer wait behind it. A serialization failure is still
-   * retried, since a migration or maintenance job may run its own transaction alongside.
+   * Reads and single statements share the pool. Transactions overlap unless they share a lane:
+   * letting every transaction overlap made the ones that touch the same rows abort each other
+   * under SERIALIZABLE, and a commit that exhausts its retries is answered to the client as
+   * unavailable, which is the paint loss the ownership guard exists to prevent. Callback
+   * transactions come from the coordinator's counter accounting and startup; their rows are
+   * shared per template, so they take turns with each other and with nothing else. A
+   * serialization failure is still retried, since a migration or maintenance job may run its
+   * own transaction alongside.
    */
   async transaction<T>(operation: (connection: SqlConnection) => Promise<T>): Promise<T> {
-    // Callback transactions come from the coordinator's counter accounting and startup; their
-    // rows are shared per template, so they take turns with each other.
     return this.inLane('coordinator', () =>
       this.retrying(() => this.serializableTransaction(operation)),
     )

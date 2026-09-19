@@ -6,6 +6,7 @@ export type IngestStage =
   | 'poolWait'
   | 'statement'
   | 'transaction'
+  | 'retry'
   | 'hash'
   | 'targets'
   | 'reserve'
