@@ -403,6 +403,100 @@ describe('transparent browser hooks', () => {
     },
   )
 
+  it.each(['busy', 'failed', 'cold', 'displayed'])(
+    'loads committed artwork when the background tile loader is %s',
+    async (mode) => {
+      vi.resetModules()
+      const {
+        install,
+        captureTilePixels,
+        ensureTilePixels,
+        loadTilePixels,
+        loadCommittedTilePixels,
+      } = await import('./tile-transform.js')
+      const wanted = { x: 840 + ['busy', 'failed', 'cold', 'displayed'].indexOf(mode), y: 613 }
+      const waiting: ((response: Response) => void)[] = []
+      let attempts = 0
+      class FakeCanvas {
+        getContext() {
+          return null
+        }
+      }
+      class FakeBitmap {
+        width = 1
+        height = 1
+        close() {}
+      }
+      const realm = {
+        ...globalThis,
+        Object,
+        Request,
+        URL,
+        Response,
+        Blob,
+        ArrayBuffer,
+        HTMLCanvasElement: FakeCanvas,
+        createImageBitmap: async () => new FakeBitmap(),
+        performance:
+          mode === 'displayed'
+            ? {
+                getEntriesByType: () => [
+                  {
+                    name: `https://backend.wplace.live/files/s0/tiles/${wanted.x}/${wanted.y}.png`,
+                  },
+                ],
+              }
+            : undefined,
+        fetch: vi.fn(async (url: string) => {
+          if (url.includes(`/${wanted.x}/${wanted.y}.png`) && ++attempts === 1 && mode === 'failed')
+            return new Response(null, { status: 503 })
+          if (mode === 'busy' && /\/85[0-3]\/613\.png/.test(url))
+            return new Promise<Response>((resolve) => waiting.push(resolve))
+          return new Response(new Uint8Array([1]))
+        }),
+      } as unknown as Window & typeof globalThis
+      install(realm, () => null)
+      captureTilePixels(true)
+      try {
+        if (mode !== 'cold' && mode !== 'displayed')
+          await realm.fetch('https://backend.wplace.live/files/s0/tiles/1/2.png')
+        if (mode === 'failed') expect(await loadTilePixels(wanted)).toBeNull()
+        if (mode === 'busy') {
+          for (let x = 850; x < 854; x++) expect(ensureTilePixels({ x, y: 613 })).toBe(true)
+          await vi.waitFor(() => expect(waiting).toHaveLength(4))
+        }
+        if (mode === 'displayed') vi.useFakeTimers()
+        const reading = loadCommittedTilePixels(wanted)
+        const concurrentReading = loadCommittedTilePixels(wanted)
+        if (mode === 'cold') await realm.fetch('https://backend.wplace.live/files/s0/tiles/1/2.png')
+        for (const resolve of waiting) resolve(new Response(new Uint8Array([1])))
+        if (mode === 'displayed') await vi.advanceTimersByTimeAsync(15_001)
+        const pixels = await reading
+        expect(pixels?.[0]).toBe(UNPAINTED)
+        expect(await concurrentReading).toBe(pixels)
+        expect(attempts).toBe(mode === 'failed' ? 2 : 1)
+      } finally {
+        for (const resolve of waiting) resolve(new Response(new Uint8Array([1])))
+        captureTilePixels(false)
+        vi.useRealTimers()
+      }
+    },
+  )
+
+  it('bounds an explicit read when no Wplace tile URL becomes available', async () => {
+    vi.resetModules()
+    const { loadTilePixels } = await import('./tile-transform.js')
+    vi.useFakeTimers()
+    try {
+      const reading = loadTilePixels({ x: 844, y: 613 }, 100)
+      await vi.advanceTimersByTimeAsync(100)
+      expect(await reading).toBeNull()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('deactivates a provisional WebGL context after retargeting to the map', async () => {
     const fakeGl = () => ({
       TEXTURE0: 0x84c0,
