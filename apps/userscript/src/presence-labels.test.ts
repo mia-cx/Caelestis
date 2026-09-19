@@ -340,19 +340,34 @@ describe('renderPresenceLabels', () => {
     expect(y).toBe(130 - 4 - 17)
   })
 
-  it('publishes which of the claims the pointer is over, for the layer to fade', async () => {
+  it('publishes which claims and viewports the pointer is over, for the layer to fade', async () => {
     harness.regions = [twoPieces]
+    harness.peers = [
+      {
+        sessionId: 'b',
+        painter: { wplaceUserId: 4, displayName: 'Lee' },
+        viewport: { x: 400, y: 100, w: 200, h: 100 },
+        draft: { rect: { x: 450, y: 120, w: 10, h: 10 }, pixels: 4 },
+      },
+    ]
     const { renderPresenceLabels } = await import('./presence-labels.js')
-    const { hoveredPresenceRegions } = await import('./presence-hover.js')
+    const { hoveredPresenceItems } = await import('./presence-hover.js')
     const canvas = canvasAt()
     const frame = frameAt(1, canvas)
     renderPresenceLabels(frame)
     hover(canvas, 5, 5)
     renderPresenceLabels(frame)
-    expect([...hoveredPresenceRegions()]).toEqual(['r1'])
+    expect([...hoveredPresenceItems()]).toEqual(['region:r1'])
+    hover(canvas, 410, 110)
+    renderPresenceLabels(frame)
+    expect([...hoveredPresenceItems()]).toEqual(['peer:b:viewport'])
+    // Over the draft, the tag names the draft, but it is the viewport around it that steps aside.
+    hover(canvas, 455, 125)
+    renderPresenceLabels(frame)
+    expect([...hoveredPresenceItems()]).toEqual(['peer:b:viewport'])
     hover(canvas, 300, 300)
     renderPresenceLabels(frame)
-    expect(hoveredPresenceRegions().size).toBe(0)
+    expect(hoveredPresenceItems().size).toBe(0)
   })
 
   it('leaves out viewports or claims when their own switch is off', async () => {

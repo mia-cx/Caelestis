@@ -10,7 +10,7 @@ import { displayedPresenceRect, regionPixelsFor } from './gl/presence-layer.js'
 import { presenceView } from './presence-client.js'
 import { presenceCss } from './presence-colour.js'
 import { canvasPixelAt, rectOnScreen } from './presence-geometry.js'
-import { setHoveredPresenceRegions } from './presence-hover.js'
+import { setHoveredPresenceItems } from './presence-hover.js'
 import {
   measureProfileDetail,
   recordProfileCounter,
@@ -334,7 +334,7 @@ export const presenceTagsAt = (
 const removeAll = (): void => {
   for (const node of nodes.values()) node.remove()
   nodes.clear()
-  setHoveredPresenceRegions(new Set())
+  setHoveredPresenceItems(new Set())
 }
 
 const measureWith =
@@ -393,13 +393,8 @@ export const renderPresenceLabels = (frame: TileFrame): void => {
   const measure = measureWith(document, container)
   const wanted = presenceTagsAt(frame, at, measure, ratioX)
   recordProfileWorkload('Presence hover labels', wanted.length)
-  setHoveredPresenceRegions(
-    new Set(
-      wanted
-        .filter((tag) => tag.key.startsWith('region:'))
-        .map((tag) => tag.key.slice('region:'.length)),
-    ),
-  )
+  // A draft is tagged instead of the viewport around it, but it is the viewport that steps aside.
+  setHoveredPresenceItems(new Set(wanted.map((tag) => tag.key.replace(/:draft$/, ':viewport'))))
   if (wanted.length === 0 && nodes.size === 0) return
   const placed: Placed[] = []
   for (const tag of wanted) {
