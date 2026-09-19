@@ -106,4 +106,24 @@ describe('display claims', () => {
     expect(shown).toHaveLength(2)
     expect(shown.map((part) => part.pixels.count)).toEqual([4_000_000, 4_000_000])
   })
+
+  it('retains separate exact masks after sparse overlaps consume the grouping budget', () => {
+    const sparse = Array.from(
+      { length: 8 },
+      (_, i): RegionClaim => ({
+        ...claim(`s${i}`, 0),
+        document: {
+          items: [0, 1999].map((y) => ({
+            id: `${y}`,
+            op: 'add',
+            shape: { kind: 'rectangle', x: y === 0 ? i * 3 : 1999 - i * 3, y, w: 1, h: 1 },
+          })),
+        },
+      }),
+    )
+    const regions = [...sparse, claim('a', 3000), claim('b', 3003)]
+    const shown = createDisplayClaims()(regions)
+    expect(shown.map((part) => part.id)).toEqual(regions.map((region) => region.id))
+    expect(shown.map((part) => part.pixels.count)).toEqual([...sparse.map(() => 2), 9, 9])
+  })
 })

@@ -22,7 +22,11 @@ const unionBounds = (a: PresenceRect, b: PresenceRect): PresenceRect => ({
   h: Math.max(a.y + a.h, b.y + b.h) - Math.min(a.y, b.y),
 })
 
-const pixelsTouch = (a: RegionShapePixels, b: RegionShapePixels): boolean => {
+// This bounds added grouping work across a whole snapshot, not just one mask allocation.
+const MAX_GROUPING_WORK = MAX_REGION_DOCUMENT_PIXELS
+type WorkBudget = { remaining: number }
+
+const pixelsTouch = (a: RegionShapePixels, b: RegionShapePixels, budget: WorkBudget): boolean => {
   const bounds = a.rect
   const overlap = rectIntersection(
     { x: bounds.x - 1, y: bounds.y - 1, w: bounds.w + 2, h: bounds.h + 2 },
@@ -31,6 +35,7 @@ const pixelsTouch = (a: RegionShapePixels, b: RegionShapePixels): boolean => {
   if (overlap === null) return false
   for (let y = overlap.y; y < overlap.y + overlap.h; y++) {
     for (let x = overlap.x; x < overlap.x + overlap.w; x++) {
+      if (--budget.remaining < 0) return false
       if (b.mask[(y - b.rect.y) * b.rect.w + x - b.rect.x] !== 1) continue
       for (
         let ny = Math.max(y - 1, bounds.y);
@@ -42,6 +47,7 @@ const pixelsTouch = (a: RegionShapePixels, b: RegionShapePixels): boolean => {
           nx <= Math.min(x + 1, bounds.x + bounds.w - 1);
           nx++
         ) {
+          if (--budget.remaining < 0) return false
           if (a.mask[(ny - bounds.y) * bounds.w + nx - bounds.x] === 1) return true
         }
       }
@@ -71,7 +77,7 @@ const unionPixels = (a: RegionShapePixels, b: RegionShapePixels): RegionShapePix
 /**
  * Cached display unions, shared by the overlay and hover labels. Saved identities stay intact.
  * Only actual pixel adjacency joins claims; empty bounds and subtraction gaps stay separate. Oversized
- * unions retain separate masks under the existing raster budget rather than hiding claims.
+ * unions and exhausted aggregate work budgets retain separate masks rather than hiding claims.
  */
 export const createDisplayClaims = () => {
   let previous: readonly RegionClaim[] = []
@@ -88,12 +94,14 @@ export const createDisplayClaims = () => {
     )
       return displayed
     const groups: DisplayClaim[] = []
+    const budget: WorkBudget = { remaining: MAX_GROUPING_WORK }
     for (const region of visible) {
       const pixels = claimDocumentPixels(region.document)
       if (pixels === null || pixels.count === 0) continue
       let group: DisplayClaim = { id: region.id, regions: [region], pixels }
       // Restart after a join: a bridge can connect groups considered earlier in the pass.
       for (let index = 0; index < groups.length; index++) {
+        if (--budget.remaining < 0) break
         const candidate = groups[index] as DisplayClaim
         const other = candidate.regions[0]
         if (
@@ -107,7 +115,19 @@ export const createDisplayClaims = () => {
         if (a.x > b.x + b.w || b.x > a.x + a.w || a.y > b.y + b.h || b.y > a.y + a.h) continue
         const bounds = unionBounds(a, b)
         if (bounds.w * bounds.h > MAX_REGION_DOCUMENT_PIXELS) continue
-        if (!pixelsTouch(group.pixels, candidate.pixels)) continue
+        if (!pixelsTouch(group.pixels, candidate.pixels, budget)) continue
+        const memberCount = candidate.regions.length + group.regions.length
+        const unionWork =
+          bounds.w * bounds.h +
+          a.w * a.h +
+          b.w * b.h +
+          memberCount * (1 + Math.ceil(Math.log2(memberCount))) +
+          groups.length
+        if (unionWork > budget.remaining) {
+          budget.remaining = 0
+          break
+        }
+        budget.remaining -= unionWork
         const members: [RegionClaim, ...RegionClaim[]] = [...candidate.regions, ...group.regions]
         group = {
           id: members
