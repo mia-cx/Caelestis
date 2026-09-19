@@ -96,8 +96,8 @@ const SESSION_LOCK = "hashtext('caelestis-runtime-sessions'), hashtext(current_s
  * replacement owner takes the ownership lock once the old owner session is gone, then must
  * obtain the session lock exclusively before it serves, which the database only grants once every
  * session of the old process has closed. Losing the owner session ends this process's pool at
- * once, so no query of a former owner can commit after a replacement starts writing, and the
- * pool can carry queries concurrently instead of one at a time.
+ * once, so no query of a former owner can commit after a replacement starts writing. Reads and
+ * single statements run concurrently on the pool; transactions take turns, see `transaction`.
  */
 export class PostgresConnection implements TransactionalSqlConnection {
   readonly dialect = 'postgres'
@@ -105,6 +105,7 @@ export class PostgresConnection implements TransactionalSqlConnection {
   private owner: PoolClient | undefined
   private ownerFailure: Error | undefined
   private readonly fenced = new WeakSet<PoolClient>()
+  private writeTail: Promise<unknown> = Promise.resolve()
   private closing = false
   private ended: Promise<void> | undefined
 
@@ -240,18 +241,33 @@ export class PostgresConnection implements TransactionalSqlConnection {
   }
 
   /**
-   * Run one serializable transaction, retrying the whole operation on a serialization failure.
-   * Transactions now overlap on the pool, so conflicts are expected and the operation must be
-   * safe to run again; every caller only issues statements inside it.
+   * Run one serializable transaction, and only one at a time on this process.
+   *
+   * Reads and single statements share the pool; transactions take turns. Letting them overlap
+   * made them abort each other under SERIALIZABLE, and a commit that exhausts its retries is
+   * answered to the client as unavailable, which is the paint loss the ownership guard exists to
+   * prevent. Taking turns keeps every write exactly as it behaved on one connection while the
+   * rest of a command's round trips no longer wait behind it. A serialization failure is still
+   * retried, since a migration or maintenance job may run its own transaction alongside.
    */
   async transaction<T>(operation: (connection: SqlConnection) => Promise<T>): Promise<T> {
-    for (let attempt = 1; ; attempt++) {
-      try {
-        return await this.serializableTransaction(operation)
-      } catch (error) {
-        if (attempt === TRANSACTION_ATTEMPTS || !retryable(error)) throw error
+    const requestedAt = performance.now()
+    const run = async () => {
+      ingestTimings.record('sql', 'transaction', performance.now() - requestedAt)
+      for (let attempt = 1; ; attempt++) {
+        try {
+          return await this.serializableTransaction(operation)
+        } catch (error) {
+          if (attempt === TRANSACTION_ATTEMPTS || !retryable(error)) throw error
+        }
       }
     }
+    const running = this.writeTail.then(run, run)
+    this.writeTail = running.then(
+      () => undefined,
+      () => undefined,
+    )
+    return running
   }
 
   private async serializableTransaction<T>(

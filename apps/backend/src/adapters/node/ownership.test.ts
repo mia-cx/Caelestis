@@ -111,18 +111,28 @@ it.skipIf(!process.env.CAELESTIS_TEST_POSTGRES_URL)(
     await owner.pool.query(`CREATE SCHEMA ${schema}`)
     try {
       await owner.claimOwnership(() => {})
-      // Hold each transaction open briefly so the four cannot share one backend.
+      // Hold each statement open briefly so the four cannot share one backend.
       const pids = await Promise.all(
+        Array.from({ length: 4 }, async () => {
+          const row = await owner
+            .prepare('SELECT pg_backend_pid() AS pid, pg_sleep(0.2) AS slept')
+            .first<{ pid: number }>()
+          return row?.pid
+        }),
+      )
+      expect(new Set(pids).size).toBe(4)
+      // Transactions take turns: four of them run on one backend, one after another.
+      const transactionPids = await Promise.all(
         Array.from({ length: 4 }, () =>
           owner.transaction(async (connection) => {
             const row = await connection
-              .prepare('SELECT pg_backend_pid() AS pid, pg_sleep(0.2) AS slept')
+              .prepare('SELECT pg_backend_pid() AS pid')
               .first<{ pid: number }>()
             return row?.pid
           }),
         ),
       )
-      expect(new Set(pids).size).toBe(4)
+      expect(new Set(transactionPids).size).toBe(1)
       const locks = await owner.pool.query<{ mode: string; count: string }>(
         `SELECT mode, count(*)::text AS count FROM pg_locks
          WHERE locktype = 'advisory' AND granted AND classid = hashtext('caelestis-runtime-sessions')
