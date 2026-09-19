@@ -1,8 +1,6 @@
-import { type HistoryResponse, seconds } from '@caelestis/shared'
 import { describe, expect, it } from 'vitest'
 import {
   availableRangePresets,
-  averagePace,
   axisScale,
   clampWindow,
   clipSeries,
@@ -15,32 +13,6 @@ import {
 } from './progress-pace.js'
 
 describe('pace summaries', () => {
-  it('averages complete retained buckets instead of treating partial boundaries as full hours', () => {
-    const history: HistoryResponse = {
-      resolution: 21_600,
-      coverageStart: seconds(0),
-      buckets: [0, 21_600, 43_200, 64_800, 86_400].map((bucketStart, index) => ({
-        templateId: 'template',
-        resolution: 21_600,
-        bucketStart: seconds(bucketStart),
-        placed: index === 0 || index === 4 ? 600 : 60,
-        correct: index === 0 || index === 4 ? 300 : 30,
-        repairs: 0,
-      })),
-    }
-
-    expect(averagePace(history, 90_000, 86_400)).toEqual({
-      placed: 32.5,
-      correct: 16.25,
-      hours: 24,
-    })
-    expect(averagePace({ ...history, coverageStart: seconds(10_800) }, 90_000, 86_400)).toEqual({
-      placed: 10,
-      correct: 5,
-      hours: 18,
-    })
-  })
-
   it('includes the first bucket and stamps each trailing window at its end', () => {
     expect(
       rollingPaceSeries(

@@ -1,4 +1,4 @@
-import type { HistoryResponse, PainterHistoryResponse } from '@caelestis/shared'
+import type { PainterHistoryResponse } from '@caelestis/shared'
 
 export const PACE_WINDOWS = [
   { key: '30m', seconds: 1_800 },
@@ -15,22 +15,10 @@ export const PACE_WINDOWS = [
 
 export type PaceWindowKey = (typeof PACE_WINDOWS)[number]['key']
 
-/** The oldest server-selected retained tier that can represent one rolling window. */
-export interface PaceHistorySource {
-  readonly window: PaceWindowKey
-  readonly history: HistoryResponse
-}
-
-/** The per-painter counterpart of `PaceHistorySource`, on the same retained tier. */
+/** Retained reported activity for one painter rolling window. */
 export interface PainterHistorySource {
   readonly window: PaceWindowKey
   readonly history: PainterHistoryResponse
-}
-
-export interface PaceAverage {
-  readonly placed: number
-  readonly correct: number
-  readonly hours: number
 }
 
 /** A bucket-start timestamp paired with cumulative placements through that bucket. */
@@ -39,7 +27,7 @@ export interface PacePoint {
   readonly cumPlaced: number
 }
 
-/** A trailing placement rate stamped at the end of its complete window. */
+/** A trailing pixel rate stamped at the end of its complete window. */
 export interface PaceRatePoint {
   readonly t: number
   readonly v: number
@@ -104,30 +92,6 @@ export const rollingPaceSeries = (
   windowSeconds: number,
 ): PaceRatePoint[] =>
   rollingIntervalPace(paceIntervals(source, bucketSeconds), windowSeconds).flat()
-
-/** Average a trailing window ending at the latest complete retained bucket. */
-export const averagePace = (
-  history: HistoryResponse,
-  to: number,
-  windowSeconds: number,
-): PaceAverage | null => {
-  const { coverageStart, resolution } = history
-  if (coverageStart === undefined || resolution === undefined) return null
-
-  const until = Math.floor(to / resolution) * resolution
-  const from = Math.ceil(Math.max(until - windowSeconds, coverageStart) / resolution) * resolution
-  if (until <= from) return null
-
-  let placed = 0
-  let correct = 0
-  for (const bucket of history.buckets) {
-    if (bucket.bucketStart < from || bucket.bucketStart >= until) continue
-    placed += bucket.placed
-    correct += bucket.correct
-  }
-  const hours = (until - from) / 3_600
-  return { placed: placed / hours, correct: correct / hours, hours }
-}
 
 const TIME_TICK_STEPS = [
   3_600,

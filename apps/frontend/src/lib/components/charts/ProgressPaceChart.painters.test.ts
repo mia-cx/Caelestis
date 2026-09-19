@@ -92,6 +92,12 @@ const mountChart = (props: {
       to: TO,
       anchorCorrect: 10,
       anchorMismatched: 0,
+      progressSamples: Array.from({ length: 97 }, (_, index) => ({
+        at: index * 900,
+        correct: index / 10,
+        mismatched: 0,
+        total: 100,
+      })),
       ...props,
     },
   })
