@@ -741,6 +741,61 @@ describe('claim editor', () => {
     expect(harness.batches).toHaveLength(1)
   })
 
+  it('coalesces 13 touching saved claims without an edit and reopens one clean claim', async () => {
+    harness.regions = Array.from({ length: 13 }, (_, index) => ({
+      id: `r${index}`,
+      document: {
+        items: [
+          { id: 'shape', op: 'add', shape: { kind: 'rectangle', x: index * 3, y: 0, w: 3, h: 3 } },
+        ],
+      },
+    }))
+    const editor = await setup('select')
+    expect(editor.claimModeModel()).toMatchObject({ items: 13, pixels: 117, dirty: true })
+    expect(editor.claimEditorPixels()?.parts).toHaveLength(1)
+    key('Enter')
+    await vi.waitFor(() => expect(editor.isClaimModeActive()).toBe(false))
+    expect(harness.batches).toHaveLength(1)
+    expect(harness.batches[0]?.ids).toEqual(harness.regions.map((region) => region.id))
+    expect(harness.saved).toHaveLength(1)
+    expect(harness.saved[0]?.document.items).toHaveLength(13)
+    harness.regions = harness.saved.map((record) => ({ id: 'merged', document: record.document }))
+    editor.startClaimMode()
+    expect(editor.claimModeModel()).toMatchObject({ items: 13, pixels: 117, dirty: false })
+    expect(editor.claimEditorEditingIds()).toEqual(['merged'])
+    expect(editor.claimEditorPixels()?.parts).toHaveLength(1)
+    key('Enter')
+    await vi.waitFor(() => expect(editor.isClaimModeActive()).toBe(false))
+    expect(harness.batches).toHaveLength(1)
+  })
+
+  it('allows regrouping when a split and a merge leave the same claim count', async () => {
+    harness.regions = [
+      {
+        id: 'split',
+        document: {
+          items: [
+            { id: 'a', op: 'add', shape: { kind: 'rectangle', x: 0, y: 0, w: 1, h: 1 } },
+            { id: 'b', op: 'add', shape: { kind: 'rectangle', x: 10, y: 0, w: 1, h: 1 } },
+          ],
+        },
+      },
+      {
+        id: 'join',
+        document: {
+          items: [{ id: 'c', op: 'add', shape: { kind: 'rectangle', x: 11, y: 0, w: 1, h: 1 } }],
+        },
+      },
+    ]
+    const editor = await setup()
+    expect(editor.claimModeModel().dirty).toBe(true)
+    key('Enter')
+    await vi.waitFor(() => expect(editor.isClaimModeActive()).toBe(false))
+    expect(
+      harness.batches[0]?.documents.map((document) => document.items.map((item) => item.id)),
+    ).toEqual([['a'], ['b', 'c']])
+  })
+
   it('splits a saved claim whose shapes no longer touch on save, without an edit', async () => {
     harness.regions = [
       {

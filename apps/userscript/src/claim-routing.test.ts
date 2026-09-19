@@ -26,6 +26,7 @@ vi.mock('./state.js', () => ({
     server.tokenUsable === false ? null : server.token,
 }))
 
+import { claimDocuments } from './claim-document.js'
 import { ClaimRouter, claimRecipients } from './claim-routing.js'
 
 const actor = { wplaceUserId: 7, displayName: 'Mia' }
@@ -480,6 +481,34 @@ describe('claim document batches', () => {
     (h.persist.mock.calls.at(at)?.[0] ?? []).map(
       (entry: { region: RegionClaim }) => entry.region.document,
     )
+
+  it('persists touching owned claims as one while leaving another painter separate', async () => {
+    const h = setup([x])
+    const first = await h.router.saveAll([], [box('left', 0, 0), box('right', 1, 0)])
+    const other: RegionClaim = {
+      ...claim('other'),
+      claimant: { wplaceUserId: 9, displayName: 'Sam' },
+      document: box('other', 2, 0),
+      rect: { x: 2, y: 0, w: 1, h: 1 },
+    }
+    h.remote.set(x.url, [...h.router.mine(), other])
+    h.ownership.set(x.url, [...first.ids])
+    await h.router.reconcile()
+    const mine = h.router.mine()
+    expect(mine.map((region) => region.id)).toEqual(first.ids)
+    const documents = claimDocuments({ items: mine.flatMap((region) => region.document.items) })
+    h.mutations.length = 0
+    const merged = await h.router.saveAll(first.ids, documents)
+    expect(merged).toEqual({ ids: [first.ids[0]], error: null })
+    expect(h.mutations.map((mutation) => [mutation.method, mutation.region.id])).toEqual([
+      ['PUT', first.ids[0]],
+      ['DELETE', first.ids[1]],
+    ])
+    const resumed = new ClaimRouter(h.host, structuredClone(h.persist.mock.calls.at(-1)?.[0]))
+    expect(resumed.mine()).toHaveLength(1)
+    expect(regionDocumentPixels(resumed.mine()[0]?.document as RegionDocument)?.count).toBe(2)
+    expect(h.remote.get(x.url)).toContainEqual(other)
+  })
 
   it('persists every new document before the first write and returns independent ids', async () => {
     const h = setup([x])

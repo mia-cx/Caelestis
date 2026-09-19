@@ -2246,13 +2246,17 @@ export const startClaimMode = (initialTool?: ClaimTool): void => {
   lastStamp = null
   penContinued = null
   hover = null
-  dirty = saved.some((region) => claimDocuments(region.document).length > 1)
+  const grouped = claimDocuments({ items })
+  // Existing claims may now join or split without a gesture. Save must persist that grouping.
+  dirty =
+    grouped.length !== saved.length ||
+    saved.some((region) => claimDocuments(region.document).length > 1)
   drag = null
   pen = null
   stroke = null
   drawing = null
   pending = false
-  message = claimDocumentsLimitError(claimDocuments({ items })) ?? undefined
+  message = claimDocumentsLimitError(grouped) ?? undefined
   bump()
   setCursor(toolCursor())
   notify()
