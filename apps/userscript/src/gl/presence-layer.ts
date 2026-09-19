@@ -14,7 +14,7 @@ import { log, warn } from '../debug.js'
 import { getMap } from '../map-handle.js'
 import { presenceView } from '../presence-client.js'
 import { presenceRgb } from '../presence-colour.js'
-import { hoveredPresenceRegions } from '../presence-hover.js'
+import { hoveredPresenceItems } from '../presence-hover.js'
 import {
   measureProfile,
   measureProfileDetail,
@@ -543,7 +543,7 @@ class PresenceLayer {
         (shown &&
           (item.kind === 'region' ? state.showPresenceClaims : state.showPresenceViewports)),
     )
-    const hovered = hoveredPresenceRegions()
+    const hovered = hoveredPresenceItems()
     recordProfileWorkload('Presence overlay items', items.length)
     const keys = new Set<string>()
     for (const item of items) {
@@ -591,11 +591,12 @@ class PresenceLayer {
         for (const { item, fade } of drawn) {
           const style = STYLES[item.kind]
           const texture = this.maskTexture(gl, item)
-          // Your own claim under the pointer: the fill and stripes fade out over the shared ramp
-          // and the outline stays, so the pixels underneath show in their true colours.
+          // Your own claim, or any painter's viewport, under the pointer: the fill and pattern
+          // fade out over the shared ramp and the outline stays, so the pixels underneath show
+          // in their true colours. Other painters' claims keep their fill.
           let aside = 0
-          if (item.mine === true) {
-            const target = hovered.has(item.key.slice('region:'.length)) ? 1 : 0
+          if (item.mine === true || item.kind === 'viewport' || item.kind === 'painting') {
+            const target = hovered.has(item.key) ? 1 : 0
             const ramp = this.hovers.advance(item.key, target, now)
             aside = ramp.value
             if (!ramp.done) animating = true
