@@ -439,7 +439,10 @@ describe('presence client', () => {
     socket.receive({ type: 'regions', regions: [region, { bogus: true }] })
     expect(client.presenceView().regions).toEqual([region])
     expect(changes).toHaveBeenCalled()
+    const held = client.presenceView().regions[0]
     const document = client.presenceView().regions[0]?.document
+    socket.receive({ type: 'regions', regions: [region] })
+    expect(client.presenceView().regions[0]).toBe(held)
     socket.receive({
       type: 'regions',
       regions: [{ ...region, label: 'New label', expiresAt: 200 }],

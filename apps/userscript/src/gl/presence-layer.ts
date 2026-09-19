@@ -573,11 +573,7 @@ class PresenceLayer {
     this.hovers.prune(new Set(this.retained.keys()))
     this.releaseMasks(
       gl,
-      new Set(
-        drawn
-          .filter(({ item }) => item.mask !== null || item.document !== undefined)
-          .map(({ item }) => item.key),
-      ),
+      new Set(drawn.filter(({ item }) => item.mask !== null).map(({ item }) => item.key)),
     )
     if (drawn.length > 0 && isDrawingTiles()) {
       const tiles = currentQuads()

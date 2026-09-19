@@ -193,7 +193,7 @@ const send = (connection: Connection, event: PresenceClientEvent): boolean => {
   return true
 }
 
-/** Keep geometry identity across wire snapshots while always accepting fresh claim metadata. */
+/** Retain unchanged claims and geometry across snapshots while accepting fresh metadata. */
 const receivedRegions = (connection: Connection, incoming: readonly unknown[]): RegionClaim[] => {
   const previous = new Map(connection.regions.map((region) => [region.id, region]))
   return incoming
@@ -205,8 +205,10 @@ const receivedRegions = (connection: Connection, incoming: readonly unknown[]): 
     )
     .map((region) => {
       const held = previous.get(region.id)
-      if (held === undefined || JSON.stringify(held.document) !== JSON.stringify(region.document))
-        return region
+      if (held === undefined) return region
+      // Display unions key their cache by claim identity, while metadata changes must still arrive.
+      if (JSON.stringify(held) === JSON.stringify(region)) return held
+      if (JSON.stringify(held.document) !== JSON.stringify(region.document)) return region
       return { ...region, document: held.document }
     })
 }

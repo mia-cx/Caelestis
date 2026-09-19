@@ -304,7 +304,8 @@ export const presenceTagsAt = (
       tags.push({ key: viewportKey, text, colour, rect: viewportRect })
   }
   const seen = new Set<string>()
-  const claims = flags.showPresenceClaims === false ? [] : displayClaims(view.regions, claimEditorEditingIds())
+  const claims =
+    flags.showPresenceClaims === false ? [] : displayClaims(view.regions, claimEditorEditingIds())
   for (const claim of claims) {
     seen.add(claim.id)
     const pixels = claim.pixels

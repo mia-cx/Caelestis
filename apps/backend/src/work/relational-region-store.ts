@@ -78,7 +78,10 @@ export class RelationalRegionStore implements RegionStore {
           ne(workRegions.state, 'deleted'),
           or(
             lte(workRegions.expiresAt, now),
-            and(isNull(workRegions.expiresAt), lte(workRegions.createdAt, now - REGION_CLAIM_TTL_MS)),
+            and(
+              isNull(workRegions.expiresAt),
+              lte(workRegions.createdAt, now - REGION_CLAIM_TTL_MS),
+            ),
           ),
         ),
       )
