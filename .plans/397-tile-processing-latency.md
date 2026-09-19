@@ -168,3 +168,13 @@ scope and land in the same branch.
   including the fence test (which now terminates the lock-holding session found via pg_locks) and
   a new four-backend concurrency test. -397g images built; ladder running Node then Bun at 256,
   384, 512, 768.
+- -397g (every transaction overlaps): SERIALIZABLE aborts between tile commits of one season and
+  one upload answered `unavailable` after ten retries, the paint-loss class. -397h (every
+  transaction takes turns): Node 256 fails on lane wait 877 ms p50. -397i (status and coordinator
+  lanes, plus the reservation expiry index): Node 256 still fails, commit 2,875 ms p50, and the
+  log has no 40001 at all. Cause found in the adapter, not the database: `commitBatch` committed
+  through `transaction()`, which queues in the coordinator lane, so every batch (reserve,
+  painter, artifacts, folds) still took turns behind every tile commit; the status lane was a
+  second queue in front of the same one. Bun 256 on -397i passed regardless. Fixed at fd335e90:
+  a batch runs its own serializable transaction in the lane its tables choose; retries are
+  recorded as `sql.retry`. -397j images; ladder Node then Bun at 256, 384, 512.
