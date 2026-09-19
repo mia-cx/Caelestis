@@ -137,6 +137,9 @@ export class PostgresConnection implements TransactionalSqlConnection {
       this.ownerFailure ??= error
       // Release every session lock now, so a replacement owner is not held up by a process that
       // has already lost ownership. In-flight queries fail with their connection, as before.
+      // The dead owner client goes back to the pool as broken so draining does not wait on it.
+      this.owner?.release(true)
+      this.owner = undefined
       this.endPool()
       if (!this.closing) onLost(error)
     }

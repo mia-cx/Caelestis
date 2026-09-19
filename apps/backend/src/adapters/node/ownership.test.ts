@@ -3,7 +3,7 @@ import { once } from 'node:events'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { PostgresConnection } from './postgres-connection.js'
 import { claimSqliteOwnership } from './sqlite-ownership.js'
 
@@ -69,6 +69,18 @@ it.skipIf(!process.env.CAELESTIS_TEST_POSTGRES_URL)(
       await second.pool.query('SELECT pg_terminate_backend($1)', [row?.pid])
       await lost
       await expect(first.prepare('SELECT 1').all()).rejects.toThrow()
+      // The lost owner's sessions release their locks promptly; nothing of it lingers to block
+      // a replacement.
+      await vi.waitFor(
+        async () => {
+          const held = await second.pool.query<{ pid: number; mode: string }>(
+            `SELECT pid, mode FROM pg_locks WHERE locktype = 'advisory' AND granted
+             AND classid IN (hashtext('caelestis-runtime'), hashtext('caelestis-runtime-sessions'))`,
+          )
+          expect(held.rows).toEqual([])
+        },
+        { timeout: 3_000 },
+      )
       await second.claimOwnership(() => {})
       expect(await second.prepare('SELECT 1 AS value').first()).toEqual({ value: 1 })
       await expect(first.prepare('SELECT 2').all()).rejects.toThrow()
