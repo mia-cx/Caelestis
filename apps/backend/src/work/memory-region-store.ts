@@ -30,7 +30,6 @@ export class MemoryRegionStore implements RegionStore {
       this.records.delete(id)
       this.owners.delete(id)
       this.withdrawn.delete(id)
-      this.deleted.add(id)
     }
   }
 

@@ -72,10 +72,10 @@ export class RelationalRegionStore implements RegionStore {
       .set({ expiresAt: sql`${workRegions.createdAt} + ${REGION_CLAIM_TTL_MS}` })
       .where(isNull(workRegions.expiresAt))
       .run()
-    // Keep the primary key forever: legacy PUTs carry no generation or original expiry.
+    // Expiry drops this server's replica; another server may still renew the logical claim.
+    // Explicit deletion keeps its primary key forever, including after its former expiry.
     await this.db
-      .update(workRegions)
-      .set({ state: 'deleted', shape: null })
+      .delete(workRegions)
       .where(and(ne(workRegions.state, 'deleted'), lte(workRegions.expiresAt, now)))
       .run()
   }

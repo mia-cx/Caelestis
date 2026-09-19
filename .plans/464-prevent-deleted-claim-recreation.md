@@ -9,17 +9,17 @@ and retire stale client intent when a server reports deletion.
 
 ## Acceptance criteria
 
-- [ ] Explicitly deleted or replaced claim IDs cannot be recreated, including retries and concurrent writes.
-- [ ] Ownership checks prevent unauthorized deletion or claim ID reservation.
-- [ ] Replica withdrawal permits authenticated reconnection and recipient changes.
-- [ ] Updated clients propagate authoritative deletion and stop recreating claims.
-- [ ] Storage adapters and a two-client reconciliation regression verify the behavior.
+- [x] Explicitly deleted or replaced claim IDs cannot be recreated, including retries and concurrent writes.
+- [x] Ownership checks prevent unauthorized deletion or claim ID reservation.
+- [x] Replica withdrawal permits authenticated reconnection and recipient changes.
+- [x] Updated clients propagate authoritative deletion and stop recreating claims.
+- [x] Storage adapters and a two-client reconciliation regression verify the behavior.
 
 ## TODOs
 
 - [x] Persist terminal claim deletion and reversible withdrawal across storage adapters and API, with route regressions and migrations.
 - [x] Teach userscript transport and routing to distinguish withdrawal from deletion and retire authoritative deleted intent, with focused regressions.
-- [~] Validate the two-client conflict and release checks, document production guard retirement, and update the existing PR.
+- [x] Validate the two-client conflict and release checks and document production guard retirement.
 
 ## Notes
 
@@ -32,3 +32,8 @@ and retire stale client intent when a server reports deletion.
 - Backend route regressions first failed across memory, D1, and SQLite (stale PUT returned 200). All 94 route tests now pass, including a paused in-flight update after deletion. Backend TypeScript checks pass.
 - All 152 route cases also pass with disposable local PostgreSQL 17 and MariaDB 11.8. Userscript checks and 50 routing/transport tests pass after adding terminal deletion handling.
 - Final review found that replica TTL expiry must remain recoverable when another server keeps the logical claim renewed. Test and preserve that distinction before completion.
+- Expiry removes a replica; only explicit deletion retains a terminal identity. Legacy DELETE without `withdraw` remains reversible, because old clients use it for recipient cleanup. Updated clients send `withdraw: false` for deletion and `true` for replica cleanup.
+- Terminal deletion reaches previously withdrawn replicas, with separate deletion/withdrawal receipts. Disconnect cleanup preserves pending explicit deletion.
+- Two independent routers against two real memory stores converge when one replica was offline at deletion. Reloading saved intent performs no additional PUTs.
+- `scripts/retire-20260919-claims.sql` transitions the live incident guard after deployment. A replacement trigger blocks stale active inserts while terminal identities are seeded. Route tests probe between each step, repeat the script, and recreate the D1 adapter. The script has not run in production.
+- Final validation: 883 backend tests pass (12 optional tests skipped), 1,597 userscript tests pass, and 163 route cases pass across memory, D1, SQLite, PostgreSQL 17, and MariaDB 11.8. Both app checks/builds pass. Lint passes with two existing constructor infos; 52 release checks pass.

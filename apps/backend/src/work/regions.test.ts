@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import {
   MAX_RASTER_BITS,
   MAX_REGION_ITEMS,
@@ -127,10 +129,36 @@ const setup = async (adapter: string) => {
     app.request(`/v1/work/regions/${id}?${query}`, {
       method,
       headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify(
+        method === 'DELETE' && typeof body === 'object' && body !== null
+          ? { withdraw: false, ...body }
+          : body,
+      ),
     })
   return { app, sql, publishRegions, body, call }
 }
+
+it('replaces the production incident guard without allowing stale writes between steps', async () => {
+  const h = await setup('d1')
+  const id = '01a0b5c7-c8c4-7f3e-8185-1cc456d040ff'
+  database?.sqlite.exec(`CREATE TRIGGER incident_20260919_retired_claims
+    BEFORE INSERT ON work_regions WHEN NEW.id = '${id}' BEGIN SELECT RAISE(IGNORE); END;`)
+  const sql = readFileSync(
+    join(import.meta.dirname, '../../../../scripts/retire-20260919-claims.sql'),
+    'utf8',
+  )
+  for (let retry = 0; retry < 2; retry++) {
+    for (const statement of sql.split('--> statement-breakpoint')) {
+      database?.sqlite.exec(statement)
+      expect([409, 410]).toContain((await h.call('PUT', id, h.body)).status)
+      expect(await h.sql.regions.listRegions(0, WORLD_TEMPLATE_SURFACE)).toEqual([])
+    }
+  }
+  expect((await h.call('PUT', id, h.body)).status).toBe(410)
+  const reopened = new D1SqlStore(database as unknown as D1Database)
+  expect(await reopened.regions.isRegionDeleted(id)).toBe(true)
+  expect((await h.call('PUT', uuidV7(), h.body)).status).toBe(200)
+})
 
 describe.each([
   'memory',
@@ -139,6 +167,20 @@ describe.each([
     .filter(({ name }) => name !== 'memory' && name !== 'D1')
     .map(({ name }) => name),
 ])('region routes on %s', (adapter) => {
+  it('keeps unmarked legacy DELETE requests reversible for old replica routing', async () => {
+    const h = await setup(adapter)
+    const id = uuidV7()
+    await h.call('PUT', id, h.body)
+    const response = await h.app.request(`/v1/work/regions/${id}`, {
+      method: 'DELETE',
+      headers: { authorization: 'Bearer report', 'content-type': 'application/json' },
+      body: JSON.stringify({ actor }),
+    })
+    expect(response.status).toBe(200)
+    expect(await h.sql.regions.listRegions(0, WORLD_TEMPLATE_SURFACE)).toEqual([])
+    expect((await h.call('PUT', id, h.body)).status).toBe(200)
+  })
+
   it('keeps deletion authoritative against stale client PUTs and concurrent retries', async () => {
     const h = await setup(adapter)
     const id = uuidV7()
@@ -173,6 +215,18 @@ describe.each([
     expect((await h.call('DELETE', id, { actor }, 'second-report')).status).toBe(403)
     expect((await h.call('DELETE', id, { actor: other })).status).toBe(403)
     expect((await h.call('PUT', id, h.body)).status).toBe(200)
+  })
+
+  it('allows a still-live claim to return after replica expiry but retains explicit deletions', async () => {
+    const h = await setup(adapter)
+    const expired = uuidV7(),
+      deleted = uuidV7()
+    await h.call('PUT', expired, h.body)
+    await h.call('PUT', deleted, h.body)
+    await h.call('DELETE', deleted, { actor })
+    await h.sql.regions.expireRegions(Date.now() + REGION_CLAIM_TTL_MS + 1)
+    expect((await h.call('PUT', expired, h.body)).status).toBe(200)
+    expect((await h.call('PUT', deleted, h.body)).status).toBe(410)
   })
 
   it('rejects an in-flight update when deletion commits before its storage write', async () => {

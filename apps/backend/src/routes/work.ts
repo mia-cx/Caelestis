@@ -163,7 +163,13 @@ export const createWorkRoutes = (runtime: BackendRuntime, auth: AuthOptions) => 
     return runBackendHttp(
       c,
       runtime,
-      deleteRegion(id, body.actor, c.get('caller'), 'withdraw' in body && body.withdraw === true),
+      // Legacy clients use DELETE for routing cleanup too. Only explicit intent is terminal.
+      deleteRegion(
+        id,
+        body.actor,
+        c.get('caller'),
+        !('withdraw' in body) || body.withdraw === true,
+      ),
       (result) => c.json(result),
     )
   })
