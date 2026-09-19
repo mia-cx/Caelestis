@@ -16,7 +16,7 @@ export interface RegionOwner {
 
 /** Persisted claims; creation never overwrites an existing identity. */
 export interface RegionStore {
-  /** Remove expired rows before reads, inserts, or renewal. */
+  /** Remove expired replicas before reads, inserts, or renewal; preserve explicit deletions. */
   expireRegions(now: number): Promise<void>
   /** Renew only unexpired claims owned by both this credential and painter. */
   renewRegions(tokenHash: string, actorId: number, now: number): Promise<boolean>
@@ -27,8 +27,11 @@ export interface RegionStore {
     surface: TemplateSurface,
     templateId?: string,
   ): Promise<readonly RegionClaim[]>
+  /** Read an owned identity, including withdrawn replicas; deleted identities return null. */
   readRegion(id: string): Promise<RegionClaim | null>
-  /** Returns false when the ID exists or this surface has reached its claim limit. */
+  /** A terminal identity cannot be reused, even by an old client or an administrator. */
+  isRegionDeleted(id: string): Promise<boolean>
+  /** Returns false when the identity already exists, including withdrawn or deleted records. */
   createRegion(region: RegionClaim, tokenHash: string | null): Promise<boolean>
   /** Update content and template hint; adopt unowned legacy claims. Null means missing or forbidden. */
   updateRegion(
@@ -38,6 +41,6 @@ export interface RegionStore {
     templateId: string | null,
     writer: RegionWriter,
   ): Promise<RegionClaim | null>
-  /** Returns false when the claim is missing or the writer does not own it. */
-  deleteRegion(id: string, writer: RegionWriter): Promise<boolean>
+  /** Retire an owned identity; withdrawal hides a replica but permits its owner to restore it. */
+  deleteRegion(id: string, writer: RegionWriter, withdraw?: boolean): Promise<boolean>
 }

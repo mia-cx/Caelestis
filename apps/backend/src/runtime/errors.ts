@@ -38,6 +38,11 @@ export class ResourceConflictError extends Data.TaggedError('ResourceConflictErr
   readonly message: string
 }> {}
 
+/** A permanently deleted identity cannot be recreated by a stale writer. */
+export class ResourceGoneError extends Data.TaggedError('ResourceGoneError')<{
+  readonly message: string
+}> {}
+
 /** A destructive write omitted the revision precondition required to make it safe. */
 export class PreconditionRequiredError extends Data.TaggedError('PreconditionRequiredError')<{
   readonly message: string
@@ -61,6 +66,7 @@ export type BackendHttpError =
   | RequestValidationError
   | ResourceNotFoundError
   | ResourceConflictError
+  | ResourceGoneError
   | PreconditionRequiredError
   | UnauthorizedError
   | ForbiddenError

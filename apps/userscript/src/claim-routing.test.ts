@@ -8,6 +8,7 @@ import {
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { afterEach, assert, describe, expect, it, vi } from 'vitest'
+import { MemoryRegionStore } from '../../backend/src/work/memory-region-store.js'
 import type { ServerTemplate } from './server-cache.js'
 import type { ConnectedServer } from './state.js'
 
@@ -92,14 +93,27 @@ const setup = (initial: ConnectedServer[] = [x, y, z]) => {
     retire: (server: ConnectedServer) => {
       retired.add(server.url)
     },
-    put: vi.fn(async (server: ConnectedServer, region: RegionClaim, _signal: AbortSignal) => {
-      mutations.push({ method: 'PUT', server: server.url, region })
-      return fail === server.url ? 'unreachable' : null
-    }),
-    remove: vi.fn(async (server: ConnectedServer, region: RegionClaim, _signal: AbortSignal) => {
-      mutations.push({ method: 'DELETE', server: server.url, region })
-      return fail === server.url ? 'unreachable' : null
-    }),
+    put: vi.fn(
+      async (
+        server: ConnectedServer,
+        region: RegionClaim,
+        _signal: AbortSignal,
+      ): Promise<string | null | { deleted: true }> => {
+        mutations.push({ method: 'PUT', server: server.url, region })
+        return fail === server.url ? 'unreachable' : null
+      },
+    ),
+    remove: vi.fn(
+      async (
+        server: ConnectedServer,
+        region: RegionClaim,
+        _signal: AbortSignal,
+        _withdraw = false,
+      ) => {
+        mutations.push({ method: 'DELETE', server: server.url, region })
+        return fail === server.url ? 'unreachable' : null
+      },
+    ),
   }
   return {
     router: new ClaimRouter(host),
@@ -119,6 +133,140 @@ const setup = (initial: ConnectedServer[] = [x, y, z]) => {
   }
 }
 afterEach(() => vi.useRealTimers())
+
+describe('authoritative claim deletion', () => {
+  it('converges two browsers and two real stores after deletion while one replica is offline', async () => {
+    const h = setup([x, y])
+    const stores = new Map([x, y].map((server) => [server, new MemoryRegionStore()]))
+    const writer = { tokenHash: 'credential', actorId: actor.wplaceUserId, admin: false }
+    const refresh = async (server: ConnectedServer) => {
+      const store = stores.get(server)
+      assert(store)
+      h.remote.set(server.url, [...(await store.listRegions(0, WORLD_TEMPLATE_SURFACE))])
+      h.ownership.set(
+        server.url,
+        (await store.regionOwners(0, WORLD_TEMPLATE_SURFACE)).map((row) => row.id),
+      )
+      h.revisions.set(server.url, (h.revisions.get(server.url) ?? 0) + 1)
+    }
+    h.host.put.mockImplementation(async (server, region) => {
+      const store = stores.get(server)
+      assert(store)
+      if (await store.isRegionDeleted(region.id)) return { deleted: true }
+      if (await store.readRegion(region.id))
+        await store.updateRegion(
+          region.id,
+          region.document,
+          region.label,
+          region.templateId ?? null,
+          writer,
+        )
+      else expect(await store.createRegion(region, writer.tokenHash)).toBe(true)
+      await refresh(server)
+      return null
+    })
+    h.host.remove.mockImplementation(async (server, region, _signal, withdraw) => {
+      const store = stores.get(server)
+      assert(store)
+      await store.deleteRegion(region.id, writer, withdraw)
+      await refresh(server)
+      return null
+    })
+    expect(await h.router.save(null, document())).toBeNull()
+    const region = h.router.mine()[0]
+    assert(region)
+    let saved: ConstructorParameters<typeof ClaimRouter>[1] = [
+      { region, deleted: false, copies: [] },
+    ]
+    const secondHost = {
+      ...h.host,
+      servers: () => [x, y],
+      persist: (entries: NonNullable<typeof saved>) => {
+        saved = structuredClone(entries)
+      },
+    }
+    const second = new ClaimRouter(secondHost, saved)
+    await second.reconcile()
+    // Browser A cannot reach y when it deletes. Browser B still has its old saved intent.
+    h.servers([x])
+    expect(await h.router.remove(region.id)).toBeNull()
+    expect(await stores.get(y)?.listRegions(0, WORLD_TEMPLATE_SURFACE)).toHaveLength(1)
+    await second.reconcile()
+    expect(second.mine()).toEqual([])
+    for (const store of stores.values()) {
+      expect(await store.listRegions(0, WORLD_TEMPLATE_SURFACE)).toEqual([])
+      expect(await store.isRegionDeleted(region.id)).toBe(true)
+    }
+    const puts = h.host.put.mock.calls.length
+    const reloaded = new ClaimRouter(secondHost, saved)
+    for (let i = 0; i < 4; i++) {
+      await h.router.reconcile()
+      await reloaded.reconcile()
+    }
+    expect(h.host.put).toHaveBeenCalledTimes(puts)
+    expect(reloaded.mine()).toEqual([])
+  })
+
+  it('retires stale saved intent and deletes its other server copies after a deleted response', async () => {
+    const h = setup([x, y])
+    const region = claim()
+    const router = new ClaimRouter(h.host, [
+      {
+        region,
+        deleted: false,
+        copies: [
+          { url: x.url, serverId: 'x' },
+          { url: y.url, serverId: 'y' },
+        ],
+      },
+    ])
+    h.host.put.mockImplementation(async (server) => (server === x ? { deleted: true } : null))
+    await router.reconcile()
+    expect(router.mine()).toEqual([])
+    expect(h.host.remove).toHaveBeenCalledWith(x, region, expect.any(AbortSignal), false)
+    expect(h.host.remove).toHaveBeenCalledWith(y, region, expect.any(AbortSignal), false)
+    const writes = h.host.put.mock.calls.length
+    await router.reconcile()
+    expect(h.host.put).toHaveBeenCalledTimes(writes)
+    expect(h.persist.mock.lastCall?.[0]).toEqual([expect.objectContaining({ deleted: true })])
+  })
+
+  it('withdraws replicas on disconnect without declaring the logical claim deleted', async () => {
+    const h = setup([x])
+    const region = claim()
+    const router = new ClaimRouter(h.host, [
+      { region, deleted: false, copies: [{ url: x.url, serverId: 'x' }] },
+    ])
+    await router.disconnect(x)
+    expect(h.host.remove).toHaveBeenCalledWith(x, region, expect.any(AbortSignal), true)
+    expect(router.mine()).toEqual([region])
+  })
+
+  it('sends explicit deletion to servers whose replica was already withdrawn', async () => {
+    const h = setup([x, y])
+    const region = claim()
+    const router = new ClaimRouter(h.host, [
+      { region, deleted: false, copies: [{ url: x.url, serverId: 'x' }] },
+    ])
+    await router.reconcile()
+    h.catalogs.set(x.url, [template('x-template')])
+    await router.reconcile()
+    expect(h.host.remove).toHaveBeenCalledWith(y, region, expect.any(AbortSignal), true)
+    h.host.remove.mockClear()
+    expect(await router.remove(region.id)).toBeNull()
+    expect(h.host.remove).toHaveBeenCalledWith(y, region, expect.any(AbortSignal), false)
+  })
+
+  it('preserves pending explicit deletion while disconnecting', async () => {
+    const h = setup([x])
+    const region = claim()
+    const router = new ClaimRouter(h.host, [
+      { region, deleted: true, copies: [{ url: x.url, serverId: 'x' }] },
+    ])
+    await router.disconnect(x)
+    expect(h.host.remove).toHaveBeenCalledWith(x, region, expect.any(AbortSignal), false)
+  })
+})
 
 describe('claim recipients', () => {
   it('uses actual claimed pixels, matching surface/season, and no-overlap fallback', () => {
@@ -354,7 +502,11 @@ describe('claim replication', () => {
     ])
     h.mutations.length = 0
     expect(await h.router.remove(id)).toBeNull()
-    expect(h.mutations.map((m) => [m.method, m.server])).toEqual([['DELETE', y.url]])
+    expect(h.mutations.map((m) => [m.method, m.server])).toEqual([
+      ['DELETE', x.url],
+      ['DELETE', y.url],
+      ['DELETE', z.url],
+    ])
     expect(h.router.mine()).toEqual([])
   })
 

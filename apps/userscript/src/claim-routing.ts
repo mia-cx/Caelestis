@@ -26,6 +26,7 @@ import {
   presenceCanWriteClaims,
   presenceServerClaims,
   presenceServers,
+  type RegionWriteResult,
   releaseRegion,
 } from './presence-client.js'
 import type { ServerTemplate } from './server-cache.js'
@@ -120,8 +121,13 @@ interface RoutingHost {
   saved?(): readonly Entry[]
   retired(server: ConnectedServer): boolean
   retire(server: ConnectedServer): void
-  put(server: ConnectedServer, region: RegionClaim, signal: AbortSignal): Promise<string | null>
-  remove(server: ConnectedServer, region: RegionClaim, signal: AbortSignal): Promise<string | null>
+  put(server: ConnectedServer, region: RegionClaim, signal: AbortSignal): Promise<RegionWriteResult>
+  remove(
+    server: ConnectedServer,
+    region: RegionClaim,
+    signal: AbortSignal,
+    withdraw: boolean,
+  ): Promise<string | null>
 }
 
 /** Durable claim intent with serialized reconciliation and retryable per-server copies. */
@@ -130,7 +136,7 @@ export class ClaimRouter {
   private readonly receipts = new WeakMap<object, Map<string, string>>()
   private readonly snapshots = new WeakMap<object, number>()
   private readonly retiring = new Set<object>()
-  private readonly inFlight = new Map<object, Promise<string | null>>()
+  private readonly inFlight = new Map<object, Promise<RegionWriteResult>>()
   private draftId: string | null = null
   private readonly requests = new Map<object, AbortController>()
   private pending: Promise<void> = Promise.resolve()
@@ -391,7 +397,7 @@ export class ClaimRouter {
         for (const [id, signature] of receipts ?? []) {
           const region = received.regions.find((region) => region.id === id)
           if (
-            signature === 'deleted'
+            signature === 'deleted' || signature === 'withdrawn'
               ? region !== undefined
               : region === undefined ||
                 JSON.stringify([region.document, region.label, region.templateId]) !== signature
@@ -463,7 +469,11 @@ export class ClaimRouter {
       if (puts.some((ok) => !ok)) continue
       await Promise.all(
         servers
-          .filter((server) => !recipients.has(server) && this.hasCopy(entry, server))
+          // A withdrawn replica no longer appears in snapshots or local copy receipts.
+          // Explicit deletion must still reach its retained identity on every connected server.
+          .filter(
+            (server) => !recipients.has(server) && (entry.deleted || this.hasCopy(entry, server)),
+          )
           .map((server) => this.write(entry, server, null)),
       )
     }
@@ -507,7 +517,9 @@ export class ClaimRouter {
     }
     const signature =
       region === null
-        ? 'deleted'
+        ? entry.deleted
+          ? 'deleted'
+          : 'withdrawn'
         : JSON.stringify([region.document, region.label, region.templateId])
     let receipts = this.receipts.get(owner)
     if (receipts === undefined) {
@@ -523,16 +535,29 @@ export class ClaimRouter {
     this.requests.set(owner, controller)
     const work =
       region === null
-        ? this.host.remove(server, entry.region, controller.signal)
+        ? this.host.remove(server, entry.region, controller.signal, !entry.deleted)
         : this.host.put(server, region, controller.signal)
     this.inFlight.set(owner, work)
     const error = await work
     this.inFlight.delete(owner)
     this.requests.delete(owner)
+    if (error !== null && typeof error === 'object') {
+      // Retain the server's deletion before another snapshot can restore this saved claim.
+      entry.deleted = true
+      delete entry.replaceAfter
+      this.persist()
+      this.wanted = true
+      return false
+    }
     // A disconnect in another tab can race an already dispatched PUT. Its creator still has
     // the credential and removes that late copy, even after the disconnect deadline elapsed.
     if (region !== null && this.host.retired(server)) {
-      const cleanup = await this.host.remove(server, region, new AbortController().signal)
+      const cleanup = await this.host.remove(
+        server,
+        region,
+        new AbortController().signal,
+        !entry.deleted,
+      )
       if (cleanup !== null) warn('install', 'late claim disconnect cleanup failed', cleanup)
       return false
     }
@@ -567,7 +592,11 @@ export class ClaimRouter {
         )
         .map((region) => [region.id, region]),
     )
-    for (const entry of [...this.entries.values(), ...(this.host.saved?.() ?? [])])
+    const entries = [...this.entries.values(), ...(this.host.saved?.() ?? [])]
+    const deleted = new Set(
+      entries.filter((entry) => entry.deleted).map((entry) => entry.region.id),
+    )
+    for (const entry of entries)
       if (entry.region.claimant.wplaceUserId === actor?.wplaceUserId && this.hasCopy(entry, server))
         regions.set(entry.region.id, entry.region)
     const controller = new AbortController()
@@ -582,7 +611,12 @@ export class ClaimRouter {
       if (controller.signal.aborted) return
       return Promise.all(
         [...regions.values()].map(async (region) => {
-          const error = await this.host.remove(server, region, controller.signal)
+          const error = await this.host.remove(
+            server,
+            region,
+            controller.signal,
+            !deleted.has(region.id),
+          )
           if (error !== null) warn('install', 'claim disconnect cleanup failed', error)
         }),
       ).then(() => undefined)
@@ -670,8 +704,8 @@ const localRouter = (): ClaimRouter =>
           region,
           signal,
         ),
-      remove: (server, region, signal) =>
-        releaseRegion(server, region.id, region.claimant, region, signal),
+      remove: (server, region, signal, withdraw) =>
+        releaseRegion(server, region.id, region.claimant, region, signal, withdraw),
     },
     load(),
   ))

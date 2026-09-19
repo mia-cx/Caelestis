@@ -8,11 +8,10 @@ import {
   type TemplateSurface,
   templateSurface,
 } from '@caelestis/shared'
-import { and, asc, eq, gt, isNotNull, isNull, lte, or, sql } from 'drizzle-orm'
+import { and, asc, eq, gt, isNotNull, isNull, lte, ne, or, sql } from 'drizzle-orm'
 import { changedRows, relationalDatabase } from '../adapters/relational-database.js'
 import type { SqlConnection } from '../adapters/sql-connection.js'
-import { sqlDialect } from '../adapters/sql-dialect.js'
-import { workRegions } from '../db/schema.js'
+import { workRegionDeletions, workRegions } from '../db/schema.js'
 import type { RegionOwner, RegionStore, RegionWriter } from './region-store.js'
 
 const ownedBy = (writer: RegionWriter) =>
@@ -73,7 +72,12 @@ export class RelationalRegionStore implements RegionStore {
       .set({ expiresAt: sql`${workRegions.createdAt} + ${REGION_CLAIM_TTL_MS}` })
       .where(isNull(workRegions.expiresAt))
       .run()
-    await this.db.delete(workRegions).where(lte(workRegions.expiresAt, now)).run()
+    // Expiry drops this server's replica; another server may still renew the logical claim.
+    // Explicit deletion keeps its primary key forever, including after its former expiry.
+    await this.db
+      .delete(workRegions)
+      .where(and(ne(workRegions.state, 'deleted'), lte(workRegions.expiresAt, now)))
+      .run()
   }
 
   async regionOwners(season: number, surface: TemplateSurface): Promise<readonly RegionOwner[]> {
@@ -92,6 +96,7 @@ export class RelationalRegionStore implements RegionStore {
             ? isNull(workRegions.allianceId)
             : eq(workRegions.allianceId, surface.allianceId),
           isNotNull(workRegions.tokenHash),
+          eq(workRegions.state, 'active'),
         ),
       )
     return rows.flatMap((row) =>
@@ -109,6 +114,7 @@ export class RelationalRegionStore implements RegionStore {
           eq(workRegions.tokenHash, tokenHash),
           eq(workRegions.claimantUserId, actorId),
           gt(workRegions.expiresAt, now),
+          eq(workRegions.state, 'active'),
         ),
       )
       .run()
@@ -132,6 +138,7 @@ export class RelationalRegionStore implements RegionStore {
             ? isNull(workRegions.allianceId)
             : eq(workRegions.allianceId, surface.allianceId),
           templateId === undefined ? undefined : eq(workRegions.templateId, templateId),
+          eq(workRegions.state, 'active'),
         ),
       )
       .orderBy(asc(workRegions.createdAt), asc(workRegions.id))
@@ -140,8 +147,21 @@ export class RelationalRegionStore implements RegionStore {
 
   async readRegion(id: string): Promise<RegionClaim | null> {
     await this.expireRegions(Date.now())
-    const [row] = await this.db.select().from(workRegions).where(eq(workRegions.id, id)).limit(1)
+    const [row] = await this.db
+      .select()
+      .from(workRegions)
+      .where(and(eq(workRegions.id, id), ne(workRegions.state, 'deleted')))
+      .limit(1)
     return row === undefined ? null : fromRow(row)
+  }
+
+  async isRegionDeleted(id: string): Promise<boolean> {
+    const [row] = await this.db
+      .select({ id: workRegionDeletions.id })
+      .from(workRegionDeletions)
+      .where(eq(workRegionDeletions.id, id))
+      .limit(1)
+    return row !== undefined
   }
 
   async createRegion(region: RegionClaim, tokenHash: string | null): Promise<boolean> {
@@ -173,13 +193,35 @@ export class RelationalRegionStore implements RegionStore {
         region.expiresAt ?? Date.now() + REGION_CLAIM_TTL_MS,
       )
       .run()
+      .catch(async (error: unknown) => {
+        // MariaDB rejects a retired ID through its NOT NULL insert guard. SQLite/Postgres skip it.
+        if (await this.isRegionDeleted(region.id)) return { meta: { changes: 0 } }
+        throw error
+      })
     return result.meta.changes === 1
   }
 
-  async deleteRegion(id: string, writer: RegionWriter): Promise<boolean> {
+  async deleteRegion(id: string, writer: RegionWriter, withdraw = false): Promise<boolean> {
+    if (!withdraw) {
+      // Retire the ID and remove the live row atomically. Old binaries cannot see the tombstone
+      // or erase it with their expiry sweep, and the database blocks their stale reinsertion.
+      const retire = this.db
+        .insert(workRegionDeletions)
+        .select(
+          this.db
+            .select({ id: workRegions.id })
+            .from(workRegions)
+            .where(and(eq(workRegions.id, id), ownedBy(writer))),
+        )
+        .onConflictDoNothing()
+      const remove = this.db.delete(workRegions).where(and(eq(workRegions.id, id), ownedBy(writer)))
+      const [, result] = await this.db.batch([retire, remove])
+      return changedRows(result) === 1
+    }
     const result = await this.db
-      .delete(workRegions)
-      .where(and(eq(workRegions.id, id), ownedBy(writer)))
+      .update(workRegions)
+      .set({ state: 'withdrawn' })
+      .where(and(eq(workRegions.id, id), ownedBy(writer), ne(workRegions.state, 'deleted')))
       .run()
     return changedRows(result) === 1
   }
@@ -202,15 +244,16 @@ export class RelationalRegionStore implements RegionStore {
         label,
         templateId,
         tokenHash: sql`coalesce(${workRegions.tokenHash}, ${writer.tokenHash})`,
+        state: 'active',
       })
-      .where(and(eq(workRegions.id, id), ownedBy(writer)))
+      .where(and(eq(workRegions.id, id), ownedBy(writer), ne(workRegions.state, 'deleted')))
     if (this.client.dialect === 'mariadb') {
       const [, read] = await this.db.batch([
         update,
         this.db
           .select()
           .from(workRegions)
-          .where(and(eq(workRegions.id, id), ownedBy(writer)))
+          .where(and(eq(workRegions.id, id), ownedBy(writer), eq(workRegions.state, 'active')))
           .limit(1),
       ])
       return read[0] === undefined ? null : fromRow(read[0])

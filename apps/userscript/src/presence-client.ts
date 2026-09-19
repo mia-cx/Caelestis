@@ -706,6 +706,9 @@ export const presenceServerClaims = (
 export const presenceCanWriteClaims = (server: ConnectedServer): boolean =>
   activeServerToken(server) !== null && connectionFor(server)?.canWriteClaims === true
 
+/** Authoritative deletion is terminal; other failures remain retryable messages. */
+export type RegionWriteResult = string | null | { readonly deleted: true }
+
 const regionRequest = async (
   server: ConnectedServer,
   method: 'PUT' | 'DELETE',
@@ -713,7 +716,7 @@ const regionRequest = async (
   body: unknown,
   scope?: Pick<RegionClaim, 'season' | 'surface'>,
   signal?: AbortSignal,
-): Promise<string | null> => {
+): Promise<RegionWriteResult> => {
   if (server.season === null) return 'Server season unknown.'
   const token = activeServerToken(server)
   if (token === null) return 'Sign in to this server to claim regions.'
@@ -734,6 +737,7 @@ const regionRequest = async (
     if (response.ok || (method === 'DELETE' && response.status === 404)) {
       return null
     }
+    if (response.status === 410) return { deleted: true }
     const error =
       typeof answer === 'object' &&
       answer !== null &&
@@ -746,26 +750,30 @@ const regionRequest = async (
   }
 }
 
-/** Persist a region claim. Resolves to an error message, or null on success. */
+/** Persist a claim, distinguishing permanent deletion from a retryable failure. */
 export const claimRegion = async (
   server: ConnectedServer,
   id: string,
   request: RegionClaimRequest,
   scope?: Pick<RegionClaim, 'season' | 'surface'>,
   signal?: AbortSignal,
-): Promise<string | null> => {
+): Promise<RegionWriteResult> => {
   if (connectionFor(server) === null) return 'This server does not support region claims.'
   return regionRequest(server, 'PUT', id, request, scope, signal)
 }
 
-/** Release one region claim. Resolves to an error message, or null on success. */
+/** Delete a logical claim, or withdraw just this server's replica for later reconnection. */
 export const releaseRegion = async (
   server: ConnectedServer,
   id: string,
   actor: PainterIdentity,
   scope?: Pick<RegionClaim, 'season' | 'surface'>,
   signal?: AbortSignal,
-): Promise<string | null> => regionRequest(server, 'DELETE', id, { actor }, scope, signal)
+  withdraw = false,
+): Promise<string | null> => {
+  const result = await regionRequest(server, 'DELETE', id, { actor, withdraw }, scope, signal)
+  return typeof result === 'object' ? null : result
+}
 
 /** The current viewport and draft as last observed, for claiming what is on screen. */
 export const presencePending = (): {

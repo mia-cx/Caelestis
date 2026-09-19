@@ -1,12 +1,13 @@
 import {
   type PresenceRect,
-  type RegionDocument,
   type RegionPixelComponents,
   type RegionShapePixels,
   regionPixelComponents,
 } from '@caelestis/shared'
+import { claimDocumentPixels } from './claim-document.js'
 import { claimEditorEditingIds } from './claim-editor.js'
-import { displayedPresenceRect, regionPixelsFor } from './gl/presence-layer.js'
+import { displayedPresenceRect } from './gl/presence-layer.js'
+import { displayClaims } from './presence-claims.js'
 import { presenceView } from './presence-client.js'
 import { presenceCss } from './presence-colour.js'
 import { canvasPixelAt, rectOnScreen } from './presence-geometry.js'
@@ -63,29 +64,22 @@ const MAX_MEASURED_LABELS = 128
 const widths = new Map<string, number>()
 
 interface ClaimPieces {
-  readonly document: RegionDocument
   readonly pixels: RegionShapePixels
   readonly components: RegionPixelComponents
   cluster: { readonly inputs: readonly number[]; readonly rect: PresenceRect } | null
 }
 
-/** Rasterised pieces of each claim, per document identity, so hovering costs a lookup. */
+/** Pieces of each display union, per mask identity, so hovering costs a lookup. */
 const pieces = new Map<string, ClaimPieces>()
 
 registerProfileMemorySource('Presence component labels', () =>
   [...pieces.values()].reduce((bytes, entry) => bytes + entry.components.labels.byteLength, 0),
 )
 
-const piecesFor = (id: string, document: RegionDocument): ClaimPieces | null => {
+const piecesFor = (id: string, pixels: RegionShapePixels): ClaimPieces => {
   const held = pieces.get(id)
-  if (held?.document === document) return held
-  const pixels = regionPixelsFor(id, document)
-  if (pixels === null) {
-    pieces.delete(id)
-    return null
-  }
+  if (held?.pixels === pixels) return held
   const entry: ClaimPieces = {
-    document,
     pixels,
     components: measureProfileDetail('Presence components', () => regionPixelComponents(pixels)),
     cluster: null,
@@ -308,20 +302,29 @@ export const presenceTagsAt = (
     else if (viewportRect !== null && contains(viewportRect, at.x, at.y))
       tags.push({ key: viewportKey, text, colour, rect: viewportRect })
   }
-  const editing = new Set(claimEditorEditingIds())
   const seen = new Set<string>()
-  for (const region of flags.showPresenceClaims === false ? [] : view.regions) {
-    seen.add(region.id)
-    if (editing.has(region.id)) continue
-    const held = piecesFor(region.id, region.document)
-    if (held === null || !contains(held.pixels.rect, at.x, at.y)) continue
+  const claims = displayClaims(view.regions, claimEditorEditingIds())
+  for (const claim of flags.showPresenceClaims === false ? [] : claims) {
+    seen.add(claim.id)
+    if (!contains(claim.pixels.rect, at.x, at.y)) continue
+    const held = piecesFor(claim.id, claim.pixels)
     const index = (at.y - held.pixels.rect.y) * held.pixels.rect.w + (at.x - held.pixels.rect.x)
     const label = held.components.labels[index] ?? 0
     if (label === 0) continue
+    // Keep a saved custom label when hovering its original claim within the display union.
+    const region = claim.regions.find((region) => {
+      const pixels = claimDocumentPixels(region.document)
+      return (
+        pixels !== null &&
+        contains(pixels.rect, at.x, at.y) &&
+        pixels.mask[(at.y - pixels.rect.y) * pixels.rect.w + at.x - pixels.rect.x] === 1
+      )
+    })
+    if (region === undefined) continue
     const text = regionText(region.claimant.displayName, region.label)
     const rect = clusterFor(frame, held, label - 1, measure(text), ratio)
     tags.push({
-      key: `region:${region.id}`,
+      key: `region:${claim.id}`,
       text,
       colour: presenceCss(region.claimant.wplaceUserId, 0.85),
       rect,
