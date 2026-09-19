@@ -85,7 +85,7 @@ On the pooled images of run 10:
 | Bun | 256 | 512 | passed | 804 ms | 176 ms | 57 / 405 ms | 65.5% |
 | Bun | 384 | 768 | tile-offer timed out in warmup | 3,314 ms | 1,183 ms | 1,200 / 3,768 ms | — |
 
-On the images before pooling (run 5's adapter, with `CAELESTIS_LIVE_SUBSCRIBER_LIMIT` added), every rung failed in the owned connection's queue:
+On the images before pooling (run 5's adapter, with `CAELESTIS_LIVE_SUBSCRIBER_LIMIT` added), every failing rung failed in the owned connection's queue:
 
 | Runtime | Users | Sockets | Result | Upload p95 | Paint p95 | Turn wait p50 / p99 | Backend CPU |
 | --- | ---: | ---: | --- | ---: | ---: | ---: | ---: |
@@ -103,7 +103,7 @@ Both Node runs at 192 drained warmup and finished the measured phase with every 
 collector then rejected a kubelet CPU window as insufficient and aborted before the final peer-set and draft checks, so they
 are recorded as traffic passes rather than full passes.
 
-The answer today is 256 users on both runtimes: Node passes with paint p99 at 0.4 seconds and Bun with 0.4 seconds against the 5-second deadline, and both fail at 384 in the warmup burst, waiting in the tile lane with no serialization retries and statements still at a millisecond.
+The answer today is 256 users on both runtimes: Node passes with paint p99 at 0.4 seconds and Bun with 0.3 seconds against the 5-second deadline, and both fail at 384 in the warmup burst, waiting in the tile lane with no serialization retries and statements still at a millisecond.
 Before pooling, Node's ceiling was 224 and Bun's 256 with 288 failing; the ladder was not rerun at 288 or 320 on the pooled images.
 
 ## Where the time goes
