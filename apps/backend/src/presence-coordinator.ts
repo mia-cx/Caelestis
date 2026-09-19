@@ -136,15 +136,25 @@ export class PresenceCoordinator<Client> {
     const viewport = subscriber.viewport
     if (viewport === null) return []
     const interest = padRect(viewport, PRESENCE_INTEREST_PADDING)
-    return peers
-      .flatMap((peer) => {
-        if (peer.sessionId === subscriber.sessionId) return []
-        const rects = [peer.viewport, peer.draft?.rect].filter((rect) => rect != null)
-        if (!rects.some((rect) => rectsIntersect(interest, rect))) return []
-        return [
-          { peer, distance: Math.min(...rects.map((rect) => rectCentreDistance(viewport, rect))) },
-        ]
+    const candidates: { peer: PresencePeer; distance: number }[] = []
+    for (const peer of peers) {
+      if (peer.sessionId === subscriber.sessionId) continue
+      const other = peer.viewport
+      const draft = peer.draft?.rect
+      if (
+        !(other !== null && rectsIntersect(interest, other)) &&
+        !(draft !== undefined && rectsIntersect(interest, draft))
+      )
+        continue
+      candidates.push({
+        peer,
+        distance: Math.min(
+          other === null ? Number.POSITIVE_INFINITY : rectCentreDistance(viewport, other),
+          draft === undefined ? Number.POSITIVE_INFINITY : rectCentreDistance(viewport, draft),
+        ),
       })
+    }
+    return candidates
       .sort((a, b) => a.distance - b.distance || a.peer.sessionId.localeCompare(b.peer.sessionId))
       .slice(0, MAX_PRESENCE_PEERS)
       .map(({ peer }) => peer)
@@ -240,6 +250,14 @@ export class PresenceCoordinator<Client> {
         for (const socket of sockets) {
           const subscriber = this.attachment(socket)
           const previous = this.sent.get(subscriber.sessionId)
+          // Heartbeats only refresh liveness. Recovery, membership changes and dirty peer state
+          // still recompute every recipient so moving viewports can discover previously unseen peers.
+          if (
+            previous !== undefined &&
+            dirty.size === 0 &&
+            this.onlineSent.get(subscriber.sessionId) === sockets.length
+          )
+            continue
           const started = performance.now()
           const relevant = this.relevant(subscriber, peers)
           ingestTimings.record('presence', 'select', performance.now() - started)

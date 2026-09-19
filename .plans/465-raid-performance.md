@@ -23,7 +23,7 @@ Implement the thirteen children #466–478 in one PR on the supplied branch. Kee
 - [x] #472 Share scene preparation within a host frame; test, benchmark and commit.
 - [~] #473 Measure and reduce label layout work without stale geometry; test, benchmark and commit.
 - [x] #474 Add deterministic measured-phase backend claim churn and baseline coverage.
-- [~] #475 Reduce repeated presence peer selection; test, benchmark and commit.
+- [x] #475 Reduce repeated presence peer selection; test, benchmark and commit.
 - [~] #476 Reduce claim publication work; test, benchmark and commit.
 - [~] #477 Reduce repeated ownership/expiry database work; test, benchmark and commit.
 - [ ] #478 Reduce tile-lane round trips if current measurements justify it; test, benchmark and commit.
@@ -54,3 +54,4 @@ Implement the thirteen children #466–478 in one PR on the supplied branch. Kee
 - #474 deliberate dropped region messages on client 0 produce claim edit delivery timeout and nonzero benchmark exit; raw failed result retained. This is the expected red gate, not a failed product run.
 - #472 accepted three alternating pairs: combined overlay/outline/marker task time falls 44.3% during movement and 40.1% idle. Whole-page movement task time improves 3.1%, every pair; hover inconsistent. All samples zero long tasks. Tests preserve fades, template changes and host separation.
 - #474 tooling committed after three matched raid baselines per runtime and deliberate fault rejection. Final validation still includes instrumentation overhead, strict stable control, Miniflare, and the separately authorized CNPG/S3 gate. Delivery tracking now keys each mutation independently so overlapping edits cannot overwrite another wait.
+- Mia has no isolated Kubernetes context or HTTPS origin and authorized using available resources. Use a temporary kind cluster on devbox for CNPG/S3; keep it separate from production and delete it after testing. Label local ingress/storage differences.

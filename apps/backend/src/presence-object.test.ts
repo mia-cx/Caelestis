@@ -24,6 +24,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { D1SqlStore } from './adapters/cloudflare/d1-sql-store.js'
 import { SqliteD1Database } from './adapters/cloudflare/sqlite-d1.test-helper.js'
 import { PresenceObject } from './presence-object.js'
+import { ingestTimings } from './telemetry/ingest-timing.js'
 
 vi.mock('cloudflare:workers', () => ({ DurableObject: class {} }))
 
@@ -147,6 +148,26 @@ afterEach(() => {
 })
 
 describe('presence room', () => {
+  it('skips selection for quiet heartbeats and resumes it when a peer moves', async () => {
+    const subscriber = await attach()
+    const peer = await attach({ 'x-caelestis-painter-id': '2' })
+    update(subscriber, { viewport: rect(0) })
+    update(peer, { viewport: rect(0) })
+    await tick()
+    subscriber.send.mockClear()
+    ingestTimings.reset()
+    object.webSocketMessage(asWebSocket(subscriber), JSON.stringify({ type: 'presence-heartbeat' }))
+    await tick()
+    expect(ingestTimings.snapshot().commands.presence.select).toBeUndefined()
+    expect(subscriber.send).not.toHaveBeenCalled()
+    update(peer, { viewport: rect(16) })
+    await tick()
+    expect(subscriber.events().at(-1)).toMatchObject({
+      type: 'presence-delta',
+      upsert: [expect.objectContaining({ viewport: rect(16) })],
+    })
+  })
+
   it('sends hourly claim renewal only to its owner without broadcasting documents', async () => {
     const a = await attach()
     const b = await attach({ 'x-caelestis-painter-id': '2' })

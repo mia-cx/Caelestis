@@ -41,3 +41,25 @@ Frozen compiled directories keep each comparison independent. Reports include co
 benchmark source hashes, trace/fixture hashes, runtime versions, placement, raw latency distributions and correctness.
 The source revision is cb7e687 plus the specified uncommitted candidate; compiled hashes identify the measured artifacts.
 `BENCH_SCENARIO=stable` retains the quiet-claim control. Instrumentation overhead and Workers verification remain pending.
+
+## Peer selection (#475)
+
+The baseline adds timing to cb7e687. The candidate removes temporary rectangle/result arrays from peer selection
+and skips selection on quiet heartbeat ticks. Movement, membership changes and recovery still recompute every recipient.
+Exact interest intersection, distance ordering, session-ID tie order and the 64-peer cap remain unchanged.
+The primary metric is peer-selection task time. Total backend CPU is the secondary resource metric.
+
+| Pair | Node selection, baseline → candidate | Bun selection, baseline → candidate |
+| --- | --- | --- |
+| 1 | 1.815 → 1.005 s | 1.922 → 0.810 s |
+| 2 | 2.011 → 1.132 s | 2.023 → 0.831 s |
+| 3 | 1.892 → 1.021 s | 2.078 → 0.800 s |
+
+Selection time falls 44.8% on Node and 59.5% on Bun. Total backend CPU improves in all pairs,
+by 8.6% on Node and 17.0% on Bun on average. Node CPU is 13.812/15.285/14.662 seconds before,
+and 12.669/14.530/12.813 after. Bun is 12.375/12.661/12.832 before, and 10.351/10.570/10.498 after.
+Presence delivery p95 stays around 295–303 ms. Claim mutation latency and bytes do not consistently improve.
+All twelve runs pass correctness with zero command deadline misses.
+
+[Raw comparisons](benchmarks/raid-backend-475-2026-09-20.json.gz) retain the noisy second Node pair and all secondary metrics.
+Local filesystem results establish this local CPU improvement only. They make no CNPG/S3 capacity claim.
