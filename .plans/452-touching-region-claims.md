@@ -9,12 +9,12 @@ owned claims to coalesce on save, preserving ordered composition and separate di
 - [x] Existing touching claims save together without another edit and reopen as one clean claim.
 - [x] Pixel coverage and ordered add/subtract operations survive grouping.
 - [x] Disconnected regions and other painters' claims stay separate.
-- [ ] Focused tests and a userscript Changeset accompany the fix.
+- [x] Focused tests and a userscript Changeset accompany the fix.
 
 ## TODOs
 - [x] Group shapes by actual pixel adjacency and test connectivity, gaps, and ordered composition.
 - [x] Enable saving existing claims that need regrouping and test save/reopen behavior and ownership isolation.
-- [~] Add the userscript Changeset and complete affected checks and diff review.
+- [x] Add the userscript Changeset and complete affected checks and diff review.
 
 ## Notes
 - The workspace starts clean on `t3code/resolve-issue-452`.
@@ -26,3 +26,9 @@ owned claims to coalesce on save, preserving ordered composition and separate di
 - Editor/routing validation: all 97 focused tests pass, including saving and reopening 13 touching claims,
   simultaneous splitting and merging, and excluding another painter's adjacent claim from mutations.
 - The first editor run lacked the UI package's built output. Building `@caelestis/ui` resolved import failures.
+- Final checks: `pnpm lint` passes with an existing unused backend import warning and two constructor infos.
+- `pnpm exec turbo run check test build --filter=@caelestis/userscript --concurrency=1` passes all five tasks;
+  137 test files and 1,582 userscript tests pass. Error-path tests deliberately log simulated failures.
+- `CHANGESET_BASE_REF=origin/main pnpm test:release` passes all 52 tests and validates the new Changeset.
+- Reviewed every changed hunk, mask boundary indexing, transitive grouping, operation order, and save ownership.
+- Save/reopen verification uses the editor and router test harnesses. No live Wplace claims were modified.
