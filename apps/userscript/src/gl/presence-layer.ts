@@ -15,7 +15,9 @@ import { presenceView } from '../presence-client.js'
 import { presenceRgb } from '../presence-colour.js'
 import { hoveredPresenceItems } from '../presence-hover.js'
 import {
+  clearGpuProfile,
   measureProfile,
+  profileGpu,
   recordProfileCounter,
   recordProfileWorkload,
   registerProfileMemorySource,
@@ -477,6 +479,7 @@ class PresenceLayer {
 
   onRemove(_map: unknown, gl: WebGL2RenderingContext): void {
     if (this.owner !== gl) return
+    clearGpuProfile(gl)
     this.owner = null
     this.releaseMasks(gl, new Set())
     if (this.quad !== null) gl.deleteBuffer(this.quad)
@@ -491,7 +494,9 @@ class PresenceLayer {
   render(gl: WebGL2RenderingContext, _args: unknown): void {
     // A throw from a custom layer freezes MapLibre's whole render loop, so it never escapes.
     try {
-      measureProfile('Presence overlay', () => this.draw(gl))
+      measureProfile('Presence overlay', () =>
+        profileGpu(gl, 'Presence overlay GPU', () => this.draw(gl)),
+      )
     } catch (error) {
       warn('install', 'presence layer render failed; skipping this frame', String(error))
     }
