@@ -76,7 +76,7 @@ const report = {
   repeats,
   diagnosticCpuProfile: process.env.BENCH_CPU_PROFILE === '1',
   transport:
-    'production NodeLiveHost and shared coordinators; Bun-native uses a benchmark-only native socket bridge',
+    'production NodeLiveHost and shared coordinators; bun-native selects the production Bun HTTP/WebSocket adapter',
   database: 'isolated local PostgreSQL 18, fresh database per run, TLS disabled',
   objects: 'local filesystem; no S3, Traefik, frontend rendering or Wplace HTTP traffic',
   ...(miniflareOnly
