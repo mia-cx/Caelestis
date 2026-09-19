@@ -85,14 +85,28 @@ class Statement implements SqlStatement {
   }
 }
 
-/** PostgreSQL/CNPG uses primary connections and one checked-out client per atomic batch. */
+const OWNERSHIP_LOCK = "hashtext('caelestis-runtime'), hashtext(current_schema())"
+const SESSION_LOCK = "hashtext('caelestis-runtime-sessions'), hashtext(current_schema())"
+
+/**
+ * PostgreSQL/CNPG through a connection pool, fenced by two advisory locks.
+ *
+ * The owner session holds the ownership lock exclusively for the life of the process, as before.
+ * Every pooled session that carries application work also holds a shared session lock. A
+ * replacement owner takes the ownership lock once the old owner session is gone, then must
+ * obtain the session lock exclusively before it serves, which the database only grants once every
+ * session of the old process has closed. Losing the owner session ends this process's pool at
+ * once, so no query of a former owner can commit after a replacement starts writing, and the
+ * pool can carry queries concurrently instead of one at a time.
+ */
 export class PostgresConnection implements TransactionalSqlConnection {
   readonly dialect = 'postgres'
   readonly pool: Pool
   private owner: PoolClient | undefined
   private ownerFailure: Error | undefined
-  private ownerTail: Promise<unknown> = Promise.resolve()
+  private readonly fenced = new WeakSet<PoolClient>()
   private closing = false
+  private ended: Promise<void> | undefined
 
   constructor(config: PoolConfig) {
     this.pool = new Pool({
@@ -107,22 +121,39 @@ export class PostgresConnection implements TransactionalSqlConnection {
         },
       },
     })
+    // An idle pooled session can drop without affecting ownership; the pool discards it and the
+    // next checkout opens and fences a new one. Without a listener the event would crash the
+    // process.
+    this.pool.on('error', (error) => {
+      if (!this.closing) console.error('PostgreSQL pooled connection error', error)
+    })
   }
 
-  /** Hold the ownership lock on the same connection used for every application query. */
+  /** Hold the ownership lock on a dedicated session for the life of the process. */
   async claimOwnership(onLost: (error: Error) => void): Promise<void> {
     if (this.owner) throw new Error('Ownership already acquired')
     const client = await this.pool.connect()
     const lost = (error: Error) => {
       this.ownerFailure ??= error
+      // Release every session lock now, so a replacement owner is not held up by a process that
+      // has already lost ownership. In-flight queries fail with their connection, as before.
+      this.endPool()
       if (!this.closing) onLost(error)
     }
     client.on('error', lost)
     try {
       const lock = await client.query<{ acquired: boolean }>(
-        "SELECT pg_try_advisory_lock(hashtext('caelestis-runtime'), hashtext(current_schema())) AS acquired",
+        `SELECT pg_try_advisory_lock(${OWNERSHIP_LOCK}) AS acquired`,
       )
       if (!lock.rows[0]?.acquired) throw new Error('Another Caelestis server owns this database')
+      // The previous owner's sessions may still be closing; wait for the last of them, bounded
+      // by the statement timeout, then let this process's own sessions take shared locks.
+      try {
+        await client.query(`SELECT pg_advisory_lock(${SESSION_LOCK})`)
+      } catch (cause) {
+        throw new Error('A previous Caelestis server is still releasing this database', { cause })
+      }
+      await client.query(`SELECT pg_advisory_unlock(${SESSION_LOCK})`)
       this.owner = client
     } catch (error) {
       client.release(true)
@@ -130,31 +161,42 @@ export class PostgresConnection implements TransactionalSqlConnection {
     }
   }
 
+  /** A pooled session may carry application work only while it holds the shared session lock. */
+  private async fence(client: PoolClient): Promise<void> {
+    if (this.owner === undefined || this.fenced.has(client)) return
+    const lock = await client.query<{ held: boolean }>(
+      `SELECT pg_try_advisory_lock_shared(${SESSION_LOCK}) AS held`,
+    )
+    if (!lock.rows[0]?.held) {
+      const error = new Error('Another Caelestis server is taking over this database')
+      this.ownerFailure ??= error
+      throw error
+    }
+    this.fenced.add(client)
+  }
+
+  private endPool(): Promise<void> {
+    this.ended ??= this.pool.end().catch(() => undefined)
+    return this.ended
+  }
+
   /** Owned deployments never reconnect behind a lost ownership lock. */
   async withClient<T>(operation: (client: PoolClient) => Promise<T>): Promise<T> {
     const requestedAt = performance.now()
-    const owner = this.owner
-    if (owner) {
-      const execute = () => {
-        // Every application query waits its turn on the one owned connection.
-        ingestTimings.record('sql', 'poolWait', performance.now() - requestedAt)
-        if (this.closing) throw new Error('Database is closing')
-        if (this.ownerFailure) throw this.ownerFailure
-        return operation(owner)
-      }
-      const running = this.ownerTail.then(execute, execute)
-      this.ownerTail = running.then(
-        () => undefined,
-        () => undefined,
-      )
-      return running
-    }
+    if (this.closing) throw new Error('Database is closing')
+    if (this.ownerFailure) throw this.ownerFailure
     const client = await this.pool.connect()
     ingestTimings.record('sql', 'poolWait', performance.now() - requestedAt)
+    let broken = false
     try {
+      await this.fence(client)
+      if (this.ownerFailure) throw this.ownerFailure
       return await operation(client)
+    } catch (error) {
+      broken = this.ownerFailure !== undefined
+      throw error
     } finally {
-      client.release()
+      client.release(broken)
     }
   }
 
@@ -194,7 +236,24 @@ export class PostgresConnection implements TransactionalSqlConnection {
     return this.transaction((connection) => connection.batch<T>(statements))
   }
 
+  /**
+   * Run one serializable transaction, retrying the whole operation on a serialization failure.
+   * Transactions now overlap on the pool, so conflicts are expected and the operation must be
+   * safe to run again; every caller only issues statements inside it.
+   */
   async transaction<T>(operation: (connection: SqlConnection) => Promise<T>): Promise<T> {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await this.serializableTransaction(operation)
+      } catch (error) {
+        if (attempt === TRANSACTION_ATTEMPTS || !retryable(error)) throw error
+      }
+    }
+  }
+
+  private async serializableTransaction<T>(
+    operation: (connection: SqlConnection) => Promise<T>,
+  ): Promise<T> {
     return this.withClient(async (client) => {
       await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE')
       try {
@@ -248,8 +307,7 @@ export class PostgresConnection implements TransactionalSqlConnection {
 
   async close(): Promise<void> {
     this.closing = true
-    await this.ownerTail
     this.owner?.release(true)
-    await this.pool.end()
+    await this.endPool()
   }
 }
