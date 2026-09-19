@@ -6,6 +6,7 @@ Every snapshot contains newly parsed copies of the same claim documents.
 The browser still renders Wplace and the existing template workload, whose count and signature must match.
 Native Wplace activity and machine load introduce variation, so each comparison alternates builds across three pairs.
 Bundle hashes, browser context, workloads, frames, long tasks, memory and task/GPU measurements remain in the raw results.
+Each percentage compares that change with its own baseline. The percentages are not additive.
 
 Run a single sample from the repository root:
 
@@ -160,6 +161,13 @@ retain all three alternating pairs, build hashes, draw counts, mask bytes and fr
 
 ## Profiler overhead and constrained CPU
 
+The combined pre-rebase comparison measures instrumented cb7e687 against all client changes here.
+Movement task time is 4.043/3.759/3.849 seconds before and 3.160/2.719/2.156 after, improving in every pair.
+Idle varies in both directions. A temporary target disappeared before the last candidate could measure;
+that entire pair was repeated with matching workload and environment hashes.
+Main subsequently gained claim grouping and deletion changes, so these results describe the earlier implementation.
+[Raw pre-rebase comparison](benchmarks/raid-integrated-pre-rebase-2026-09-20.json.gz) preserves the three complete pairs.
+
 Three alternating runs of the same final bundle compare profiling enabled with profiling disabled.
 The disabled sample reads workload context only after measurement ends. Template signatures, camera,
 browser environment and bundle hashes match. Whole-page movement task time is 3.092/3.146/3.124 seconds
@@ -180,6 +188,10 @@ All assertions passed, including the 30-second hover and trusted movement with a
 Both agents inspected the six screenshots and the accepted pre-discard hover screenshot.
 Claim coverage, subtraction holes, borders and label roles match. Dynamic peer positions differ as expected.
 [Raw independent verification](benchmarks/raid-visual-verification-2026-09-20.json.gz) records its bundle and workload hashes.
+
+| Before transparent-fragment discard | Final bundle |
+| --- | --- |
+| ![Baseline claimed hover](https://i.mia.cx/file/2026/09/470-final-2-baseline.json.0-hover-f228b6.png) | ![Final claimed hover](https://i.mia.cx/file/2026/09/verification.json.0-hover-48e444.png) |
 
 ```sh
 RAID_TEMPLATES=97 RAID_HOVER_MS=10000 RAID_SCENARIOS=hover,movement,idle \
