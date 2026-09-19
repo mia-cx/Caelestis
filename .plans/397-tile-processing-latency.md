@@ -178,3 +178,15 @@ scope and land in the same branch.
   second queue in front of the same one. Bun 256 on -397i passed regardless. Fixed at fd335e90:
   a batch runs its own serializable transaction in the lane its tables choose; retries are
   recorded as `sql.retry`. -397j images; ladder Node then Bun at 256, 384, 512.
+- -397j (fd335e90, batches out of the coordinator lane): Node 256 fails in warmup on an offer
+  timeout. Statement 1.0 ms p50 and pool wait 0.06 ms are back to normal, reserve 24 ms p50, paint
+  counters 24 ms p50, but the status lane waits 2,071 ms p50 and `sql.retry` counted 348 aborted
+  attempts for 225 commits, none logged because only the final failure was. Reservation batches
+  (free lane) and commits (status lane) both read and write `tile_blob_reservations` and
+  `tile_blob_objects`; the tables are tiny, the planner scans them whole, and SERIALIZABLE locks
+  the relation on a read, so every overlapping pair aborts whatever rows they touch. Fixed at
+  6762fbba: one `tiles` lane for every batch on a table the commit touches (canvas_tiles,
+  revisions, both status tables, measurements, both blob tables, tile_history); coordinator
+  callbacks keep their lane (runtime values, counters); painters and telemetry stay free. The
+  first twenty retries per process are logged with the statement and the database's reason.
+  -397k images; ladder Node then Bun at 256, 384, 512.
