@@ -139,6 +139,68 @@ describe.each([
     .filter(({ name }) => name !== 'memory' && name !== 'D1')
     .map(({ name }) => name),
 ])('region routes on %s', (adapter) => {
+  it('keeps deletion authoritative against stale client PUTs and concurrent retries', async () => {
+    const h = await setup(adapter)
+    const id = uuidV7()
+    expect((await h.call('PUT', id, h.body)).status).toBe(200)
+    expect((await h.call('DELETE', id, { actor })).status).toBe(200)
+    const retries = await Promise.all(Array.from({ length: 4 }, () => h.call('PUT', id, h.body)))
+    expect(retries.map((response) => response.status)).toEqual([410, 410, 410, 410])
+    expect(await h.sql.regions.listRegions(0, WORLD_TEMPLATE_SURFACE)).toEqual([])
+    expect(h.publishRegions).toHaveBeenCalledTimes(2)
+  })
+
+  it('allows owned replica reconnection but never withdraws a terminal deletion', async () => {
+    const h = await setup(adapter)
+    const id = uuidV7()
+    await h.call('PUT', id, h.body)
+    expect((await h.call('DELETE', id, { actor, withdraw: true })).status).toBe(200)
+    expect(await h.sql.regions.listRegions(0, WORLD_TEMPLATE_SURFACE)).toEqual([])
+    expect((await h.call('PUT', id, h.body, 'second-report')).status).toBe(403)
+    expect((await h.call('PUT', id, h.body)).status).toBe(200)
+    await h.call('DELETE', id, { actor, withdraw: true })
+    // The owner can delete a claim even after another browser withdraws its replica.
+    expect((await h.call('DELETE', id, { actor })).status).toBe(200)
+    expect((await h.call('DELETE', id, { actor, withdraw: true })).status).toBe(404)
+    expect((await h.call('PUT', id, h.body)).status).toBe(410)
+  })
+
+  it('does not let missing or unauthorized deletes retire an identity', async () => {
+    const h = await setup(adapter)
+    const id = uuidV7()
+    expect((await h.call('DELETE', id, { actor })).status).toBe(404)
+    expect((await h.call('PUT', id, h.body)).status).toBe(200)
+    expect((await h.call('DELETE', id, { actor }, 'second-report')).status).toBe(403)
+    expect((await h.call('DELETE', id, { actor: other })).status).toBe(403)
+    expect((await h.call('PUT', id, h.body)).status).toBe(200)
+  })
+
+  it('rejects an in-flight update when deletion commits before its storage write', async () => {
+    const h = await setup(adapter)
+    const id = uuidV7()
+    await h.call('PUT', id, h.body)
+    let enter = () => {}
+    let release = () => {}
+    const entered = new Promise<void>((resolve) => {
+      enter = resolve
+    })
+    const resume = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const update = h.sql.regions.updateRegion.bind(h.sql.regions)
+    vi.spyOn(h.sql.regions, 'updateRegion').mockImplementationOnce(async (...args) => {
+      enter()
+      await resume
+      return update(...args)
+    })
+    const stale = h.call('PUT', id, { ...h.body, label: 'Stale edit' })
+    await entered
+    expect((await h.call('DELETE', id, { actor })).status).toBe(200)
+    release()
+    expect((await stale).status).toBe(410)
+    expect(await h.sql.regions.listRegions(0, WORLD_TEMPLATE_SURFACE)).toEqual([])
+  })
+
   it('reports ownership by credential and painter, with read-only mutation capability', async () => {
     const h = await setup(adapter)
     const owned = uuidV7(),
@@ -235,8 +297,9 @@ describe.each([
     ).toBe(200)
     // Administrative edits do not transfer an existing credential's ownership.
     expect((await h.call('DELETE', id, { actor })).status).toBe(200)
-    expect((await h.call('PUT', id, h.body)).status).toBe(200)
-    expect((await h.call('DELETE', id, { actor: other }, 'admin')).status).toBe(200)
+    const nextId = uuidV7()
+    expect((await h.call('PUT', nextId, h.body)).status).toBe(200)
+    expect((await h.call('DELETE', nextId, { actor: other }, 'admin')).status).toBe(200)
   })
 
   it('allows one matching-actor writer to adopt an unowned legacy claim atomically', async () => {
@@ -263,8 +326,9 @@ describe.each([
     const winner = tokens[responses.findIndex((response) => response.status === 200)]
     expect((await h.call('DELETE', id, { actor }, loser)).status).toBe(403)
     expect((await h.call('DELETE', id, { actor }, winner)).status).toBe(200)
-    expect(await h.sql.regions.createRegion(legacy, null)).toBe(true)
-    expect((await h.call('PUT', id, { ...h.body, actor: other }, 'admin')).status).toBe(200)
+    const nextId = uuidV7()
+    expect(await h.sql.regions.createRegion({ ...legacy, id: nextId }, null)).toBe(true)
+    expect((await h.call('PUT', nextId, { ...h.body, actor: other }, 'admin')).status).toBe(200)
   })
 
   it('updates and clears the template hint with the same validation as creation', async () => {

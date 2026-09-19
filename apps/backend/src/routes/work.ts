@@ -158,8 +158,13 @@ export const createWorkRoutes = (runtime: BackendRuntime, auth: AuthOptions) => 
       !isWorkIdentity(body.actor)
     )
       return c.json({ error: 'Invalid painter identity' }, 400)
-    return runBackendHttp(c, runtime, deleteRegion(id, body.actor, c.get('caller')), (result) =>
-      c.json(result),
+    if ('withdraw' in body && typeof body.withdraw !== 'boolean')
+      return c.json({ error: 'Invalid withdrawal flag' }, 400)
+    return runBackendHttp(
+      c,
+      runtime,
+      deleteRegion(id, body.actor, c.get('caller'), 'withdraw' in body && body.withdraw === true),
+      (result) => c.json(result),
     )
   })
   routes.get('/', (c) => {

@@ -1,0 +1,1 @@
+ALTER TABLE `work_regions` ADD `state` text DEFAULT 'active' NOT NULL;

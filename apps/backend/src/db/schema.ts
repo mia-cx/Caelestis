@@ -28,6 +28,7 @@ export const workRegions = sqliteTable(
     claimantName: text('claimant_name').notNull(),
     tokenHash: text('token_hash'),
     expiresAt: integer('expires_at'),
+    state: text('state').$type<'active' | 'withdrawn' | 'deleted'>().notNull().default('active'),
     shape: text('shape'),
     x: integer('x').notNull(),
     y: integer('y').notNull(),

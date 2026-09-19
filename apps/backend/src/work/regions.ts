@@ -19,6 +19,7 @@ import {
   ForbiddenError,
   RequestValidationError,
   ResourceConflictError,
+  ResourceGoneError,
   ResourceNotFoundError,
 } from '../runtime/errors.js'
 
@@ -112,8 +113,13 @@ export const putRegion = (
       inserted = yield* storage(() => sql.regions.createRegion(created, caller.tokenHash))
       region = inserted ? created : yield* storage(() => sql.regions.readRegion(id))
     }
-    if (region === null)
-      return yield* Effect.fail(new ResourceConflictError({ message: 'Region limit reached' }))
+    if (region === null) {
+      if (yield* storage(() => sql.regions.isRegionDeleted(id)))
+        return yield* Effect.fail(new ResourceGoneError({ message: 'Region was deleted' }))
+      return yield* Effect.fail(
+        new ResourceConflictError({ message: 'Region changed during save' }),
+      )
+    }
     if (region.season !== season || !sameTemplateSurface(region.surface, surface))
       return yield* Effect.fail(new ResourceConflictError({ message: 'Region is already claimed' }))
     if (!inserted)
@@ -124,13 +130,22 @@ export const putRegion = (
           admin: caller.scope === 'admin',
         }),
       )
-    if (region === null) return yield* Effect.fail(new ForbiddenError({ message: 'forbidden' }))
+    if (region === null) {
+      if (yield* storage(() => sql.regions.isRegionDeleted(id)))
+        return yield* Effect.fail(new ResourceGoneError({ message: 'Region was deleted' }))
+      return yield* Effect.fail(new ForbiddenError({ message: 'forbidden' }))
+    }
     yield* storage(() => live.publishRegions(season, surface))
     return region
   })
 
 /** Only the owning credential with the claimant's ID, or an administrator, can remove a claim. */
-export const deleteRegion = (id: string, actor: PainterIdentity, caller: Caller) =>
+export const deleteRegion = (
+  id: string,
+  actor: PainterIdentity,
+  caller: Caller,
+  withdraw = false,
+) =>
   Effect.gen(function* () {
     if (caller.scope === 'read')
       return yield* Effect.fail(new ForbiddenError({ message: 'forbidden' }))
@@ -140,11 +155,15 @@ export const deleteRegion = (id: string, actor: PainterIdentity, caller: Caller)
     if (region === null)
       return yield* Effect.fail(new ResourceNotFoundError({ message: 'Region not found' }))
     const deleted = yield* storage(() =>
-      sql.regions.deleteRegion(id, {
-        tokenHash: caller.tokenHash,
-        actorId: actor.wplaceUserId,
-        admin: caller.scope === 'admin',
-      }),
+      sql.regions.deleteRegion(
+        id,
+        {
+          tokenHash: caller.tokenHash,
+          actorId: actor.wplaceUserId,
+          admin: caller.scope === 'admin',
+        },
+        withdraw,
+      ),
     )
     if (!deleted) return yield* Effect.fail(new ForbiddenError({ message: 'forbidden' }))
     yield* storage(() => live.publishRegions(region.season, region.surface))
