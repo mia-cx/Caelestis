@@ -603,7 +603,7 @@ class PresenceLayer {
           }
           const fill = 1 - aside
           gl.uniform3f(this.uniform(gl, 'u_colour'), item.colour[0], item.colour[1], item.colour[2])
-          gl.uniform1f(this.uniform(gl, 'u_fill'), style.fill * fade)
+          gl.uniform1f(this.uniform(gl, 'u_fill'), style.fill * fade * fill)
           gl.uniform1f(this.uniform(gl, 'u_border'), style.border * fade)
           gl.uniform1f(this.uniform(gl, 'u_borderWidth'), style.borderWidth * deviceScale)
           gl.uniform1f(this.uniform(gl, 'u_dash'), style.dash * deviceScale)
