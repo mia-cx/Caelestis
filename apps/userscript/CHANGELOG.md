@@ -1,5 +1,11 @@
 # @caelestis/userscript
 
+## 0.14.3
+
+### Patch Changes
+
+- 371b8a9: A hovered viewport's flat fill now fades along with its pattern, so a painting viewport steps aside instead of keeping its tint over the pixels.
+
 ## 0.14.2
 
 ### Patch Changes
