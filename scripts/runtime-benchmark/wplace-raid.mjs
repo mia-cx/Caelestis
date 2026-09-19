@@ -10,13 +10,27 @@ const repeats = Number(process.argv[4] ?? 3)
 assert(Number.isInteger(repeats) && repeats > 0)
 const expectedTemplates = Number(process.env.RAID_TEMPLATES)
 const hoverMs = Number(process.env.RAID_HOVER_MS ?? 30000)
+const profiling = process.env.RAID_PROFILE !== '0'
+const layers = process.env.RAID_LAYERS ?? 'all'
+const cpuRate = Number(process.env.RAID_CPU_RATE ?? 1)
+const scenarios = (process.env.RAID_SCENARIOS ?? 'hover,movement,idle').split(',')
+assert(Number.isFinite(cpuRate) && cpuRate >= 1)
+assert(
+  scenarios.every((value) =>
+    ['hover', 'cold-hover', 'movement', 'idle', 'offmap', 'empty', 'hole'].includes(value),
+  ),
+)
+assert(['all', 'claims', 'viewports', 'none'].includes(layers))
 assert(Number.isFinite(hoverMs) && hoverMs >= 1000)
 assert(
   Number.isInteger(expectedTemplates) && expectedTemplates > 0,
   'Set RAID_TEMPLATES to the expected fully loaded template count',
 )
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms))
-const camera = { center: [-122.797265625, -78.83827746060328], zoom: 15 }
+const camera = {
+  center: [-122.797265625, -78.83827746060328],
+  zoom: Number(process.env.RAID_ZOOM ?? 15),
+}
 const info = await (await fetch('http://127.0.0.1:9222/json/version')).json()
 const socket = new WebSocket(info.webSocketDebuggerUrl)
 await new Promise((done) => socket.addEventListener('open', done, { once: true }))
@@ -57,7 +71,7 @@ const evaluate = async (expression) => {
 // Stored credentials never leave the page. Reads use the existing configuration, while all
 // userscript storage writes and non-Wplace socket/HTTP mutations stay inside this test tab.
 const prelude = `
-const held = new Map([['caelestisProfile','1']]);
+const held = new Map([['caelestisProfile',${JSON.stringify(profiling ? '1' : null)}]]);
 const get = Storage.prototype.getItem, set = Storage.prototype.setItem, remove = Storage.prototype.removeItem;
 Storage.prototype.getItem = function(key) { return key.startsWith('caelestis') && held.has(key) ? held.get(key) : get.call(this,key) };
 Storage.prototype.setItem = function(key,value) { if(key.startsWith('caelestis')) held.set(key,String(value)); else set.call(this,key,value) };
@@ -73,6 +87,7 @@ replay.regions = season => Array.from({length:37},(_,i) => {
 replay.peers = tick => Array.from({length:10},(_,i) => ({sessionId:'raid-peer-'+i,publisherId:'01950000-0000-7000-8000-'+String(i).padStart(12,'0'),painter:{wplaceUserId:910000+i,displayName:'Peer '+i},viewport:{x:325350+(i%4)*20+tick%8,y:1782010+Math.floor(i/4)*20,w:90,h:70},draft:null}));
 replay.emit = (ws,event) => ws.dispatchEvent(new MessageEvent('message',{data:JSON.stringify(event)}));
 const NativeWebSocket = globalThis.WebSocket;
+const isWplace = host => host === 'wplace.live' || host.endsWith('.wplace.live');
 class ReplaySocket extends EventTarget {
  static CONNECTING=0; static OPEN=1; static CLOSING=2; static CLOSED=3;
  readyState=0; bufferedAmount=0; binaryType='blob';
@@ -85,18 +100,18 @@ class ReplaySocket extends EventTarget {
  close() { if(this.readyState===3)return;this.readyState=3;this.dispatchEvent(new CloseEvent('close',{code:1000,wasClean:true})) }
 }
 globalThis.WebSocket = class extends ReplaySocket {
- constructor(url,protocols) { if(new URL(url).hostname.endsWith('wplace.live')) return new NativeWebSocket(url,protocols); super(url,protocols) }
+ constructor(url,protocols) { if(isWplace(new URL(url).hostname)) return new NativeWebSocket(url,protocols); super(url,protocols) }
 };
 const nativeFetch=globalThis.fetch;
 globalThis.fetch=async function(input,init) {
  const url=new URL(typeof input==='string'?input:input.url??input,location.href);
  const method=init?.method??input.method??'GET';
- if(!url.hostname.endsWith('wplace.live')) {
+ if(!isWplace(url.hostname)) {
   if(!['GET','HEAD'].includes(method.toUpperCase())) { replay.blocked++;return new Response('{}',{status:403,headers:{'content-type':'application/json'}}) }
   if(url.pathname.includes('/work/regions'))return Response.json({regions:replay.regions(Number(url.searchParams.get('season')??0)),ownedRegionIds:[],canWrite:false});
  }
  const response=await nativeFetch.call(this,input,init);
- if(!url.hostname.endsWith('wplace.live'))replay.reads.push({path:url.pathname,status:response.status});
+ if(!isWplace(url.hostname))replay.reads.push({path:url.pathname,status:response.status});
  return response;
 };
 replay.publish=()=>{const tick=replay.tick++;for(const ws of replay.sockets){if(ws.readyState!==1||!ws.url.includes('/telemetry/presence'))continue;replay.emit(ws,{type:'regions',regions:replay.regions(ws.season),ownedRegionIds:[]});replay.emit(ws,{type:'presence-delta',online:11,upsert:replay.peers(tick),remove:[]})}};
@@ -112,7 +127,7 @@ try {
   await call('Page.enable')
   await call('Performance.enable')
   await call('Emulation.setFocusEmulationEnabled', { enabled: true })
-  await call('Emulation.setCPUThrottlingRate', { rate: Number(process.env.RAID_CPU_RATE ?? 1) })
+  await call('Emulation.setCPUThrottlingRate', { rate: cpuRate })
   await call('Emulation.setDeviceMetricsOverride', {
     width: 1440,
     height: 900,
@@ -141,7 +156,7 @@ try {
   await evaluate(`void __caelestis.map().jumpTo(${JSON.stringify(camera)})`)
   // Set controls through the same UI intent as a user; persistence is tab-local above.
   await evaluate(
-    `(()=>{document.querySelector('caelestis-rail-control').shadowRoot.querySelector('button').click();const panel=document.querySelector('caelestis-panel');for(const key of ['showPresence','showPresenceClaims','showPresenceViewports'])panel.dispatchEvent(new CustomEvent('caelestis-panel-intent',{detail:{type:'settings',intent:{type:'set-boolean',key,value:true}}}));document.querySelector('caelestis-rail-control').shadowRoot.querySelector('button').click()})()`,
+    `(()=>{document.querySelector('caelestis-rail-control').shadowRoot.querySelector('button').click();const panel=document.querySelector('caelestis-panel');for(const [key,value] of Object.entries(${JSON.stringify({ showPresence: layers !== 'none', showPresenceClaims: layers === 'all' || layers === 'claims', showPresenceViewports: layers === 'all' || layers === 'viewports' })}))panel.dispatchEvent(new CustomEvent('caelestis-panel-intent',{detail:{type:'settings',intent:{type:'set-boolean',key,value}}}));document.querySelector('caelestis-rail-control').shadowRoot.querySelector('button').click()})()`,
   )
   await sleep(5000)
   for (let attempt = 0; attempt < 120; attempt++) {
@@ -160,20 +175,43 @@ try {
   )
   const runs = []
   for (let repeat = 0; repeat < repeats; repeat++)
-    for (const scenario of (process.env.RAID_SCENARIOS ?? 'hover,movement,idle').split(',')) {
+    for (const scenario of scenarios) {
+      const cold = scenario === 'cold-hover'
+      if (cold) {
+        // The native information button keeps the pointer off the map without clicking anything.
+        await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 26, y: 26 })
+        await evaluate(
+          `(()=>{raidReplay.cold=(raidReplay.cold??0)+1;if(!raidReplay.originalRegions){raidReplay.originalRegions=raidReplay.regions;raidReplay.regions=season=>raidReplay.originalRegions(season).map(region=>({...region,document:{items:region.document.items.map(item=>({...item,id:item.id+'-'+raidReplay.cold}))}}))}})()`,
+        )
+      }
       await evaluate(
         `void __caelestis.map().jumpTo(${JSON.stringify(camera)});raidReplay.tick=0;raidReplay.publish()`,
       )
       await sleep(1000)
-      const point = await evaluate(
-        `(()=>{const map=__caelestis.map();const p=map.project([325395/2048000*360-180,Math.atan(Math.sinh(Math.PI*(1-2*1782035/2048000)))*180/Math.PI]);const b=map.getCanvas().getBoundingClientRect();return{x:p.x+b.left,y:p.y+b.top}})()`,
-      )
-      await call('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point })
+      const pixel =
+        scenario === 'empty'
+          ? [325350, 1782000]
+          : scenario === 'hole'
+            ? [325440, 1782080]
+            : [325395, 1782035]
+      const point =
+        scenario === 'offmap'
+          ? { x: 26, y: 26 }
+          : await evaluate(
+              `(()=>{const map=__caelestis.map();const p=map.project([${pixel[0]}/2048000*360-180,Math.atan(Math.sinh(Math.PI*(1-2*${pixel[1]}/2048000)))*180/Math.PI]);const b=map.getCanvas().getBoundingClientRect();return{x:p.x+b.left,y:p.y+b.top}})()`,
+            )
+      if (!cold) await call('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point })
       await evaluate(
         `__caelestis.profileReset();__caelestis.profileConfigure({label:${JSON.stringify(scenario)},browserZoomPercent:Math.round(devicePixelRatio*100)});${scenario === 'idle' ? '' : 'raidReplay.timer=setInterval(raidReplay.publish,300)'}`,
       )
       const before = await metrics()
       const start = Date.now()
+      if (cold) {
+        await evaluate(
+          `(()=>{raidReplay.firstHoverMs=null;raidReplay.hoverStarted=performance.now();raidReplay.hoverObserver=new MutationObserver(()=>{if([...document.querySelectorAll('#caelestis-presence-labels span')].some(node=>node.textContent.includes('Claim'))){raidReplay.firstHoverMs=performance.now()-raidReplay.hoverStarted;raidReplay.hoverObserver.disconnect()}});raidReplay.hoverObserver.observe(document.body,{childList:true,subtree:true})})()`,
+        )
+        await call('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point })
+      }
       const dispatchDelayMs = []
       const at = async (offset) => {
         await sleep(Math.max(0, start + offset - Date.now()))
@@ -231,7 +269,7 @@ try {
         }
         await at(12000)
         await Promise.all(inputs)
-      } else await sleep(scenario === 'hover' ? hoverMs : 10000)
+      } else await sleep(scenario === 'hover' || cold ? hoverMs : 10000)
       await evaluate('clearInterval(raidReplay.timer)')
       const after = await metrics()
       const profile = await evaluate('__caelestis.profile()')
@@ -252,10 +290,16 @@ try {
       const labels = await evaluate(
         '[...document.querySelectorAll("#caelestis-presence-labels span")].map(n=>({text:n.textContent,transform:n.style.transform}))',
       )
+      if (['offmap', 'empty', 'hole'].includes(scenario))
+        assert(
+          !labels.some(({ text }) => text.includes('Claim')),
+          `${scenario} produced a claim label`,
+        )
       runs.push({
         repeat,
         scenario,
         elapsedMs: (after.Timestamp - before.Timestamp) * 1000,
+        firstHoverMs: cold ? await evaluate('raidReplay.firstHoverMs') : null,
         dispatchDelayMs,
         profile,
         labels,
@@ -263,6 +307,7 @@ try {
           taskSeconds: after.TaskDuration - before.TaskDuration,
           scriptSeconds: after.ScriptDuration - before.ScriptDuration,
           layoutSeconds: after.LayoutDuration - before.LayoutDuration,
+          styleSeconds: after.RecalcStyleDuration - before.RecalcStyleDuration,
           heapBytes: after.JSHeapUsedSize,
         },
       })
@@ -275,8 +320,12 @@ try {
             workloadSha256: createHash('sha256')
               .update(prelude)
               .update(String(hoverMs))
+              .update(JSON.stringify({ camera, cpuRate, scenarios, layers }))
               .digest('hex'),
             hoverMs,
+            profiling,
+            cpuRate,
+            layers,
             browser: info.Browser,
             camera,
             environment,

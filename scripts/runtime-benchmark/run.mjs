@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { execFileSync, spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { createWriteStream } from 'node:fs'
-import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { cpus, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
@@ -21,9 +21,17 @@ const warmupMs = Number(process.env.BENCH_WARMUP_MS ?? 35000)
 const measuredMs = Number(process.env.BENCH_MEASURE_MS ?? 60000)
 const durationMs = warmupMs + measuredMs
 const users = Number(process.env.BENCH_USERS ?? 10)
-assert.ok([10, 100, 256, 1000].includes(users), 'BENCH_USERS must be 10, 100, 256, or 1000')
+assert.ok(
+  [10, 100, 256, 288, 320, 384, 1000].includes(users),
+  'BENCH_USERS must be 10, 100, 256, 288, 320, 384, or 1000',
+)
 const variants = (process.env.BENCH_VARIANTS ?? 'node,bun-compat,bun-native').split(',')
 const miniflareOnly = variants.length === 1 && variants[0] === 'miniflare'
+const requestedBuild = resolve(process.env.BENCH_BUILD ?? 'apps/backend/dist')
+assert.ok(
+  !miniflareOnly || process.env.BENCH_BUILD === undefined,
+  'Miniflare builds its Worker from source',
+)
 assert.ok(
   miniflareOnly || !variants.includes('miniflare'),
   'Run Miniflare separately: its storage and process metrics differ',
@@ -32,7 +40,9 @@ const serverCpus = process.env.BENCH_SERVER_CPUS ?? '2,3'
 const databaseCpus = process.env.BENCH_DATABASE_CPUS ?? '4,5'
 const container = `caelestis-runtime-benchmark-${randomUUID().slice(0, 8)}`
 const directory = await mkdtemp(join(tmpdir(), 'caelestis-runtime-benchmark-'))
-const fixture = await fixtures(durationMs, users)
+const scenario = process.env.BENCH_SCENARIO ?? 'stable'
+assert.ok(['stable', 'raid'].includes(scenario), 'BENCH_SCENARIO must be stable or raid')
+const fixture = await fixtures(durationMs, users, { raid: scenario === 'raid' })
 const trace = schedule(durationMs, fixture)
 const traceJson = JSON.stringify(trace)
 await writeFile(join(output, 'trace.json'), traceJson)
@@ -42,6 +52,7 @@ const sourceHashes = Object.fromEntries(
       'run.mjs',
       'server.mjs',
       'traffic.mjs',
+      'raid-claims.mjs',
       ...(miniflareOnly ? ['miniflare-server.mjs'] : []),
     ].map(async (name) => [
       name,
@@ -53,6 +64,8 @@ const sourceHashes = Object.fromEntries(
 )
 const report = {
   sourceHashes,
+  scenario,
+  fault: process.env.BENCH_DROP_CLAIMS === '1' ? 'drop client 0 region updates' : null,
   issue: 385,
   pr: 351,
   commit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
@@ -138,7 +151,15 @@ process.once('SIGINT', () => {
   })
 })
 try {
-  let backendDirectory = resolve('apps/backend/dist')
+  let backendDirectory = requestedBuild
+  const buildHash = createHash('sha256')
+  for (const file of (await readdir(backendDirectory, { recursive: true }))
+    .filter((file) => file.endsWith('.js'))
+    .sort()) {
+    buildHash.update(file)
+    buildHash.update(await readFile(join(backendDirectory, file)))
+  }
+  report.backendSha256 = buildHash.digest('hex')
   const statusSource = await readFile(join(backendDirectory, 'status-coordinator.js'), 'utf8')
   const currentLimit = Number(statusSource.match(/export const MAX_LIVE_SUBSCRIBERS = (\d+);/)[1])
   report.capacity = {
@@ -151,7 +172,7 @@ try {
     // Only the disposable compiled copy changes. Production source and build stay untouched.
     const snapshot = join(directory, 'backend')
     backendDirectory = join(snapshot, 'dist')
-    await cp(resolve('apps/backend/dist'), backendDirectory, { recursive: true })
+    await cp(requestedBuild, backendDirectory, { recursive: true })
     for (const name of [
       'node_modules',
       'package.json',
@@ -319,6 +340,7 @@ try {
           adminToken: 'benchmark-local-admin',
           trace,
           fixture,
+          dropClaims: process.env.BENCH_DROP_CLAIMS === '1',
           warmupMs,
           durationMs,
           async begin() {
@@ -413,7 +435,15 @@ try {
     }
   }
   report.finishedAt = new Date().toISOString()
+  report.passed = report.runs.every(
+    (run) =>
+      run.correctness.finalPeerSetsAndDrafts &&
+      run.correctness.finalClaimsAndOwnership &&
+      run.correctness.errors.length === 0 &&
+      Object.values(run.correctness.clientDeadlineMisses).every((count) => count === 0),
+  )
   await save()
+  assert.ok(report.passed, 'Runtime benchmark failed correctness or the five-second deadline')
   console.log(`Saved ${join(output, 'results.json')}`)
 } catch (error) {
   report.error = String(error)

@@ -158,9 +158,12 @@ export async function benchmarkKubernetes({
   // subscriber limit raised to match (CAELESTIS_LIVE_SUBSCRIBER_LIMIT through the backend env).
   const users = Number(process.env.CAELESTIS_TEST_BENCHMARK_USERS ?? 256)
   assert.ok(Number.isInteger(users) && users >= 2, 'CAELESTIS_TEST_BENCHMARK_USERS must be >= 2')
-  const fixture = await fixtures(durationMs, users)
+  const scenario = process.env.BENCH_SCENARIO ?? 'stable'
+  assert.ok(['stable', 'raid'].includes(scenario), 'BENCH_SCENARIO must be stable or raid')
+  const fixture = await fixtures(durationMs, users, { raid: scenario === 'raid' })
   const trace = schedule(durationMs, fixture)
   const report = {
+    scenario,
     issue: 390,
     context,
     namespace,
@@ -285,9 +288,7 @@ export async function benchmarkKubernetes({
     }
     return result
   }
-  // Per-stage backend timings for uploads, offers, and paints, from the backend's own clock.
-  // They cover setup, warmup, and the measured phase together; the acceptance traffic before the
-  // benchmark is excluded by the reset.
+  // Failed runs retain a diagnostic snapshot; successful traffic resets at its measured boundary.
   const backendStages = async (query = '') => {
     try {
       const response = await fetch(`${site}/backend/v1/admin/server/ingest-timings${query}`, {
@@ -300,7 +301,6 @@ export async function benchmarkKubernetes({
     }
   }
   try {
-    await backendStages('?reset=true')
     console.log(`Replaying ${users} users: 35-second warmup, then 60 measured seconds`)
     report.result = await traffic({
       site,
@@ -313,7 +313,6 @@ export async function benchmarkKubernetes({
       end,
       commandTimeoutMs: report.commandTimeoutMs,
     })
-    report.result.backendStages = await backendStages()
     assert.deepEqual(await inspect(), containers, 'Containers changed during the measured workload')
     report.completed = true
     report.passed = Object.values(report.result.correctness.clientDeadlineMisses).every(

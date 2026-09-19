@@ -33,6 +33,7 @@ import { presenceRectWithinSurface } from './presence/geometry.js'
 import type { PresenceConnection } from './presence/port.js'
 import type { LiveHost, LiveSocket } from './status-coordinator.js'
 import { createLiveSessionFence } from './status-coordinator.js'
+import { ingestTimings } from './telemetry/ingest-timing.js'
 
 interface Attachment extends PresenceConnection {
   readonly sessionId: string
@@ -151,7 +152,14 @@ export class PresenceCoordinator<Client> {
 
   private send(socket: LiveSocket, event: PresenceServerEvent): void {
     try {
-      socket.send(JSON.stringify(event))
+      const started = performance.now()
+      const payload = JSON.stringify(event)
+      ingestTimings.record(
+        event.type === 'regions' ? 'claims' : 'presence',
+        'serialize',
+        performance.now() - started,
+      )
+      socket.send(payload)
     } catch {
       this.close(socket, 1011, 'presence send failed')
     }
@@ -190,72 +198,78 @@ export class PresenceCoordinator<Client> {
   }
 
   private async tick(): Promise<void> {
-    await this.sessions.revoke(async () => {
-      const recovering = this.sockets().find(
-        (socket) => !this.sent.has(this.attachment(socket).sessionId),
-      )
-      const attachment = recovering === undefined ? undefined : this.attachment(recovering)
-      const regions =
-        attachment === undefined
-          ? []
-          : await this.sql.regions.listRegions(attachment.season, attachment.surface)
-      const now = Date.now()
-      for (const socket of this.sockets()) {
-        if (now - this.attachment(socket).lastSeenAt >= PRESENCE_STALE_MS)
-          this.close(socket, 1000, 'presence stale')
-      }
-      const sockets = this.sockets()
-      for (const socket of sockets) {
-        const held = this.attachment(socket)
-        if (held.anonymous || now - (held.renewedAt ?? 0) < CLAIM_RENEW_INTERVAL_MS) continue
-        // A valid heartbeat/update has kept this session alive. Ownership always uses both keys,
-        // including for administrators; connecting must never renew another painter's claims.
-        const renewed = await this.sql.regions.renewRegions(
-          held.tokenHash,
-          held.painter.wplaceUserId,
-          now,
+    const queued = performance.now()
+    await this.sessions.revoke(async () =>
+      ingestTimings.timed('presence', 'total', async () => {
+        ingestTimings.record('presence', 'queue', performance.now() - queued)
+        const recovering = this.sockets().find(
+          (socket) => !this.sent.has(this.attachment(socket).sessionId),
         )
-        socket.serializeAttachment({ ...held, renewedAt: now } satisfies Attachment)
-        if (renewed)
-          this.send(socket, {
-            type: 'claims-renewed',
-            expiresAt: now + REGION_CLAIM_TTL_MS,
-            ids: await this.ownedRegionIds(held),
-          })
-      }
-      const peers = sockets.map((socket) => this.peer(this.attachment(socket)))
-      const dirty = new Set(this.dirty)
-      this.dirty.clear()
-      for (const socket of sockets) {
-        const subscriber = this.attachment(socket)
-        const relevant = this.relevant(subscriber, peers)
-        const previous = this.sent.get(subscriber.sessionId)
-        const next = new Set(relevant.map((peer) => peer.sessionId))
-        this.sent.set(subscriber.sessionId, next)
-        if (previous === undefined) {
-          this.onlineSent.set(subscriber.sessionId, sockets.length)
-          this.send(socket, {
-            type: 'presence-ready',
-            sessionId: subscriber.sessionId,
-            online: sockets.length,
-            peers: relevant,
-            regions,
-            ownedRegionIds: await this.ownedRegionIds(subscriber),
-            canWrite: subscriber.credentialScope !== 'read' && !subscriber.anonymous,
-          })
-          continue
+        const attachment = recovering === undefined ? undefined : this.attachment(recovering)
+        const regions =
+          attachment === undefined
+            ? []
+            : await ingestTimings.timed('claims', 'list', () =>
+                this.sql.regions.listRegions(attachment.season, attachment.surface),
+              )
+        const now = Date.now()
+        for (const socket of this.sockets()) {
+          if (now - this.attachment(socket).lastSeenAt >= PRESENCE_STALE_MS)
+            this.close(socket, 1000, 'presence stale')
         }
-        const upsert = relevant.filter(
-          (peer) => dirty.has(peer.sessionId) || !previous.has(peer.sessionId),
-        )
-        const remove = [...previous].filter((id) => !next.has(id))
-        const onlineChanged = this.onlineSent.get(subscriber.sessionId) !== sockets.length
-        this.onlineSent.set(subscriber.sessionId, sockets.length)
-        if (upsert.length || remove.length || onlineChanged)
-          this.send(socket, { type: 'presence-delta', online: sockets.length, upsert, remove })
-      }
-      await this.armAlarm()
-    })
+        const sockets = this.sockets()
+        for (const socket of sockets) {
+          const held = this.attachment(socket)
+          if (held.anonymous || now - (held.renewedAt ?? 0) < CLAIM_RENEW_INTERVAL_MS) continue
+          // A valid heartbeat/update has kept this session alive. Ownership always uses both keys,
+          // including for administrators; connecting must never renew another painter's claims.
+          const renewed = await ingestTimings.timed('claims', 'renew', () =>
+            this.sql.regions.renewRegions(held.tokenHash, held.painter.wplaceUserId, now),
+          )
+          socket.serializeAttachment({ ...held, renewedAt: now } satisfies Attachment)
+          if (renewed)
+            this.send(socket, {
+              type: 'claims-renewed',
+              expiresAt: now + REGION_CLAIM_TTL_MS,
+              ids: await this.ownedRegionIds(held),
+            })
+        }
+        const peers = sockets.map((socket) => this.peer(this.attachment(socket)))
+        const dirty = new Set(this.dirty)
+        this.dirty.clear()
+        for (const socket of sockets) {
+          const subscriber = this.attachment(socket)
+          const previous = this.sent.get(subscriber.sessionId)
+          const started = performance.now()
+          const relevant = this.relevant(subscriber, peers)
+          ingestTimings.record('presence', 'select', performance.now() - started)
+          const next = new Set(relevant.map((peer) => peer.sessionId))
+          this.sent.set(subscriber.sessionId, next)
+          if (previous === undefined) {
+            this.onlineSent.set(subscriber.sessionId, sockets.length)
+            this.send(socket, {
+              type: 'presence-ready',
+              sessionId: subscriber.sessionId,
+              online: sockets.length,
+              peers: relevant,
+              regions,
+              ownedRegionIds: await this.ownedRegionIds(subscriber),
+              canWrite: subscriber.credentialScope !== 'read' && !subscriber.anonymous,
+            })
+            continue
+          }
+          const upsert = relevant.filter(
+            (peer) => dirty.has(peer.sessionId) || !previous.has(peer.sessionId),
+          )
+          const remove = [...previous].filter((id) => !next.has(id))
+          const onlineChanged = this.onlineSent.get(subscriber.sessionId) !== sockets.length
+          this.onlineSent.set(subscriber.sessionId, sockets.length)
+          if (upsert.length || remove.length || onlineChanged)
+            this.send(socket, { type: 'presence-delta', online: sockets.length, upsert, remove })
+        }
+        await this.armAlarm()
+      }),
+    )
   }
 
   private drop(socket: LiveSocket): void {
@@ -491,29 +505,40 @@ export class PresenceCoordinator<Client> {
 
   /** Reload committed claims and deliver the surface's authoritative region list. */
   async publishRegions(season: number, surface: TemplateSurface): Promise<void> {
-    await this.sessions.revoke(async () => {
-      const regions = await this.sql.regions.listRegions(season, surface)
-      await this.rememberRegionExpiry(season, surface, regions)
-      const owners = await this.sql.regions.regionOwners(season, surface)
-      for (const socket of this.sockets()) {
-        const attachment = this.attachment(socket)
-        const ownedRegionIds = attachment.anonymous
-          ? []
-          : owners
-              .filter(
-                ({ tokenHash, actorId }) =>
-                  tokenHash === attachment.tokenHash && actorId === attachment.painter.wplaceUserId,
-              )
-              .map(({ id }) => id)
-        this.send(socket, { type: 'regions', regions, ownedRegionIds })
-      }
-      await this.armAlarm()
-    })
+    const queued = performance.now()
+    await this.sessions.revoke(async () =>
+      ingestTimings.timed('claims', 'total', async () => {
+        ingestTimings.record('claims', 'queue', performance.now() - queued)
+        const regions = await ingestTimings.timed('claims', 'list', () =>
+          this.sql.regions.listRegions(season, surface),
+        )
+        await this.rememberRegionExpiry(season, surface, regions)
+        const owners = await ingestTimings.timed('claims', 'owners', () =>
+          this.sql.regions.regionOwners(season, surface),
+        )
+        for (const socket of this.sockets()) {
+          const attachment = this.attachment(socket)
+          const ownedRegionIds = attachment.anonymous
+            ? []
+            : owners
+                .filter(
+                  ({ tokenHash, actorId }) =>
+                    tokenHash === attachment.tokenHash &&
+                    actorId === attachment.painter.wplaceUserId,
+                )
+                .map(({ id }) => id)
+          this.send(socket, { type: 'regions', regions, ownedRegionIds })
+        }
+        await this.armAlarm()
+      }),
+    )
   }
 
   private async ownedRegionIds(attachment: Attachment): Promise<readonly string[]> {
     if (attachment.anonymous) return []
-    const owners = await this.sql.regions.regionOwners(attachment.season, attachment.surface)
+    const owners = await ingestTimings.timed('claims', 'owners', () =>
+      this.sql.regions.regionOwners(attachment.season, attachment.surface),
+    )
     return owners
       .filter(
         ({ tokenHash, actorId }) =>

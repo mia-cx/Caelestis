@@ -22,7 +22,7 @@ Implement the thirteen children #466–478 in one PR on the supplied branch. Kee
 - [x] #471 Coalesce presence screen updates with the next map frame; test, benchmark and commit.
 - [x] #472 Share scene preparation within a host frame; test, benchmark and commit.
 - [~] #473 Measure and reduce label layout work without stale geometry; test, benchmark and commit.
-- [~] #474 Add deterministic measured-phase backend claim churn and baseline coverage.
+- [x] #474 Add deterministic measured-phase backend claim churn and baseline coverage.
 - [~] #475 Reduce repeated presence peer selection; test, benchmark and commit.
 - [~] #476 Reduce claim publication work; test, benchmark and commit.
 - [~] #477 Reduce repeated ownership/expiry database work; test, benchmark and commit.
@@ -53,3 +53,4 @@ Implement the thirteen children #466–478 in one PR on the supplied branch. Kee
 - #475 three alternating 256-user pairs pass on Node/Bun with exact accounting, claims and recovery. Selection time falls 44.8%/59.5%, total CPU 8.6%/17.0%. Candidate total CPU improves in every pair. Publication comparison now running.
 - #474 deliberate dropped region messages on client 0 produce claim edit delivery timeout and nonzero benchmark exit; raw failed result retained. This is the expected red gate, not a failed product run.
 - #472 accepted three alternating pairs: combined overlay/outline/marker task time falls 44.3% during movement and 40.1% idle. Whole-page movement task time improves 3.1%, every pair; hover inconsistent. All samples zero long tasks. Tests preserve fades, template changes and host separation.
+- #474 tooling committed after three matched raid baselines per runtime and deliberate fault rejection. Final validation still includes instrumentation overhead, strict stable control, Miniflare, and the separately authorized CNPG/S3 gate. Delivery tracking now keys each mutation independently so overlapping edits cannot overwrite another wait.
