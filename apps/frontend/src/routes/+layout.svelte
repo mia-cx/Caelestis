@@ -86,6 +86,19 @@ const toggleTheme = (): void => {
 
       <div class="flex-1"></div>
 
+      {#if app.server?.discordInviteUrl !== undefined}
+        <a
+          href={app.server.discordInviteUrl}
+          target="_blank"
+          rel="noreferrer"
+          class="btn btn-sm btn-primary gap-1.5 rounded-lg"
+          title={`Join ${app.server.name} on Discord`}
+        >
+          <Icon name="discord" class="size-4" />
+          <span class="max-sm:hidden">Join on Discord</span>
+        </a>
+      {/if}
+
       <a
         href={REPO_URL}
         target="_blank"

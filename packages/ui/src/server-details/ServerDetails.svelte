@@ -135,7 +135,7 @@
       <label>
         <span>Discord invite</span>
         <input bind:value={discordInviteUrl} type="url" inputmode="url" placeholder="https://discord.gg/yourcode" disabled={model.busy} autocomplete="off" />
-        <small>Adds a join button to the home page.</small>
+        <small>Adds a join button to the site header.</small>
       </label>
       <label>
         <span>Home page copy</span>
