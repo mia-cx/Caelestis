@@ -28,18 +28,35 @@ const integer = (value: string): number => {
 }
 
 const TRANSACTION_ATTEMPTS = 10
-/** Batches that write a season's status rows or its revision counter conflict with each other. */
-const STATUS_LANE_TABLES = /\b(template_tile_statuses|status_read_model_revisions)\b/
+/**
+ * Every table a tile commit reads or writes. Batches that touch any of them take turns.
+ *
+ * Rows alone do not decide conflicts under SERIALIZABLE: these tables are small, so the planner
+ * scans them whole and a read locks the relation, and two overlapping transactions that each
+ * read and write one of them abort each other however disjoint their rows are. A reservation and
+ * a commit both read and write the reservation and object tables, so letting them overlap turned
+ * every warmup burst into a retry storm inside the lane.
+ */
+const TILE_LANE_TABLES =
+  /\b(canvas_tiles|status_read_model_revisions|template_alarm_tile_statuses|template_tile_measurements|template_tile_statuses|tile_blob_objects|tile_blob_reservations|tile_history)\b/
 const laneFor = (statements: readonly SqlStatement[]): string | undefined =>
   statements.some(
-    (statement) => statement instanceof Statement && STATUS_LANE_TABLES.test(statement.query),
+    (statement) => statement instanceof Statement && TILE_LANE_TABLES.test(statement.query),
   )
-    ? 'status'
+    ? 'tiles'
     : undefined
+const RETRY_LOG_LIMIT = 20
 const retryable = (error: unknown): boolean => {
   if (!(error instanceof Error)) return false
   if ('code' in error && (error.code === '40001' || error.code === '40P01')) return true
   return error.cause === undefined ? false : retryable(error.cause)
+}
+/** The failing statement and the database's reason, for the first few retries in a log. */
+const describeAbort = (error: unknown): string => {
+  if (!(error instanceof Error)) return String(error)
+  const detail = error.cause instanceof Error ? describeAbort(error.cause) : ''
+  const reason = 'detail' in error && typeof error.detail === 'string' ? ` (${error.detail})` : ''
+  return `${error.message.replace(/\s+/g, ' ').slice(0, 300)}${reason}${detail ? `: ${detail}` : ''}`
 }
 
 class Statement implements SqlStatement {
@@ -114,6 +131,7 @@ export class PostgresConnection implements TransactionalSqlConnection {
   private ownerFailure: Error | undefined
   private readonly fenced = new WeakSet<PoolClient>()
   private readonly lanes = new Map<string, Promise<unknown>>()
+  private retriesLogged = 0
   private closing = false
   private ended: Promise<void> | undefined
 
@@ -232,6 +250,10 @@ export class PostgresConnection implements TransactionalSqlConnection {
         const backoff = Math.min(200, 5 * 2 ** (attempt - 1)) * (0.5 + Math.random())
         // One record per retry, so the count of this stage is the number of aborted attempts.
         ingestTimings.record('sql', 'retry', backoff)
+        if (this.retriesLogged < RETRY_LOG_LIMIT) {
+          this.retriesLogged++
+          console.warn('PostgreSQL transaction retried', describeAbort(error))
+        }
         await new Promise((resolve) => setTimeout(resolve, backoff))
       }
     }
@@ -240,12 +262,11 @@ export class PostgresConnection implements TransactionalSqlConnection {
   /**
    * Transactions in the same lane take turns; transactions without a lane overlap freely.
    *
-   * Overlapping SERIALIZABLE transactions that touch the same rows abort each other, and a commit
-   * that exhausts its retries is answered to the client as unavailable. Every tile commit in a
-   * season reads the template's status rows and bumps the season's revision row, so those can
-   * only conflict; they queue in one lane, as they effectively did on the single session. All
-   * other transactions touch rows keyed by their own hash, tile, or template and rarely meet, so
-   * they run concurrently and the rare conflict is retried.
+   * Overlapping SERIALIZABLE transactions that read and write the same small tables abort each
+   * other, and a commit that exhausts its retries is answered to the client as unavailable.
+   * Batches on the tile tables queue in one lane, as they effectively did on the single session;
+   * the coordinator's callback transactions, on their own tables, queue in another. Everything
+   * else, such as painters and telemetry, runs concurrently and the rare conflict is retried.
    */
   private inLane<T>(lane: string | undefined, run: () => Promise<T>): Promise<T> {
     if (lane === undefined) return run()
