@@ -90,6 +90,12 @@ export class PresenceCoordinator<Client> {
   private readonly sent = new Map<string, Set<string>>()
   private readonly onlineSent = new Map<string, number>()
   private readonly dirty = new Set<string>()
+  private regionSnapshot: string | null = null
+  private regionVersion = 0
+  private readonly claimsSent = new Map<
+    string,
+    { readonly version: number; readonly owned: string }
+  >()
   private timer: ReturnType<typeof setTimeout> | null = null
   private stopped = false
 
@@ -169,6 +175,14 @@ export class PresenceCoordinator<Client> {
         'serialize',
         performance.now() - started,
       )
+      this.sendEncoded(socket, payload)
+    } catch {
+      this.close(socket, 1011, 'presence send failed')
+    }
+  }
+
+  private sendEncoded(socket: LiveSocket, payload: string): void {
+    try {
       socket.send(payload)
     } catch {
       this.close(socket, 1011, 'presence send failed')
@@ -298,6 +312,7 @@ export class PresenceCoordinator<Client> {
     this.rates.delete(id)
     this.sent.delete(id)
     this.onlineSent.delete(id)
+    this.claimsSent.delete(id)
     this.dirty.add(id)
     this.armTick()
   }
@@ -534,18 +549,43 @@ export class PresenceCoordinator<Client> {
         const owners = await ingestTimings.timed('claims', 'owners', () =>
           this.sql.regions.regionOwners(season, surface),
         )
+        const started = performance.now()
+        const snapshot = JSON.stringify(regions)
+        if (snapshot !== this.regionSnapshot) {
+          this.regionSnapshot = snapshot
+          this.regionVersion++
+        }
+        const grouped = new Map<string, Map<number, string[]>>()
+        for (const owner of owners) {
+          let actors = grouped.get(owner.tokenHash)
+          if (actors === undefined) {
+            actors = new Map()
+            grouped.set(owner.tokenHash, actors)
+          }
+          let ids = actors.get(owner.actorId)
+          if (ids === undefined) {
+            ids = []
+            actors.set(owner.actorId, ids)
+          }
+          ids.push(owner.id)
+        }
+        const prefix = `{"type":"regions","regions":${snapshot},"ownedRegionIds":`
+        ingestTimings.record('claims', 'serialize', performance.now() - started)
         for (const socket of this.sockets()) {
           const attachment = this.attachment(socket)
-          const ownedRegionIds = attachment.anonymous
-            ? []
-            : owners
-                .filter(
-                  ({ tokenHash, actorId }) =>
-                    tokenHash === attachment.tokenHash &&
-                    actorId === attachment.painter.wplaceUserId,
-                )
-                .map(({ id }) => id)
-          this.send(socket, { type: 'regions', regions, ownedRegionIds })
+          const started = performance.now()
+          const owned = JSON.stringify(
+            attachment.anonymous
+              ? []
+              : (grouped.get(attachment.tokenHash)?.get(attachment.painter.wplaceUserId) ?? []),
+          )
+          const previous = this.claimsSent.get(attachment.sessionId)
+          ingestTimings.record('claims', 'serialize', performance.now() - started)
+          // Ownership can change without changing public geometry. Compare both, inside the
+          // revocation fence, and forget delivery state on disconnect or hibernation recovery.
+          if (previous?.version === this.regionVersion && previous.owned === owned) continue
+          this.claimsSent.set(attachment.sessionId, { version: this.regionVersion, owned })
+          this.sendEncoded(socket, `${prefix}${owned}}`)
         }
         await this.armAlarm()
       }),

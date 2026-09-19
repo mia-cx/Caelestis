@@ -63,3 +63,24 @@ All twelve runs pass correctness with zero command deadline misses.
 
 [Raw comparisons](benchmarks/raid-backend-475-2026-09-20.json.gz) retain the noisy second Node pair and all secondary metrics.
 Local filesystem results establish this local CPU improvement only. They make no CNPG/S3 capacity claim.
+
+## Claim publication (#476)
+
+The baseline includes #475. The candidate serializes public claims once per publication and groups owners
+by both credential and actor. Each recipient skips a message only when public claims and its ownership are unchanged.
+Every publication still reads committed claims and owners inside the revocation fence. Disconnects clear delivery state.
+
+| Pair | Node CPU, baseline → candidate | Bun CPU, baseline → candidate |
+| --- | --- | --- |
+| 1 | 12.886 → 9.191 s | 10.255 → 8.293 s |
+| 2 | 13.010 → 8.901 s | 10.341 → 8.483 s |
+| 3 | 12.817 → 9.067 s | 10.176 → 8.543 s |
+
+Mean CPU falls 29.9% on Node and 17.7% on Bun. Claim serialization falls from 3.685–3.719 to
+0.058–0.060 seconds on Node, and 2.042–2.128 to 0.064–0.066 seconds on Bun.
+Claim message bytes fall from 2,056,788,900 to 1,487,567,584 in every run, a 27.7% reduction.
+Unchanged-claim request latency p95 also improves in every pair. Changed-claim delivery does not consistently improve.
+All twelve runs preserve final claims, credential ownership, peer sets, drafts, 243 paint events and 7,290 pixels.
+There are no command deadline misses. A focused test transfers ownership without changing public geometry
+and verifies the old credential loses its claim IDs.
+[Raw comparisons](benchmarks/raid-backend-476-2026-09-20.json.gz) include stage timings, bytes and correctness.

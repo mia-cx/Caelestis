@@ -564,6 +564,24 @@ describe('presence room', () => {
       rect: rect(0),
       label: 'Updated',
     })
+    b.send.mockClear()
+    await object.publishRegions(0, WORLD_TEMPLATE_SURFACE)
+    expect(b.send).not.toHaveBeenCalled()
+    // An ownership transfer changes no public geometry, but the old credential must lose its IDs.
+    database.sqlite
+      .prepare('UPDATE work_regions SET token_hash = ? WHERE id = ?')
+      .run('c'.repeat(64), region.id)
+    await object.publishRegions(0, WORLD_TEMPLATE_SURFACE)
+    expect(b.events().at(-1)).toEqual({ type: 'regions', regions: [updated], ownedRegionIds: [] })
+    const replacement = await attach({
+      'x-caelestis-token-hash': 'c'.repeat(64),
+      'x-caelestis-client-hash': 'c'.repeat(64),
+    })
+    expect(replacement.events()[0]).toMatchObject({
+      type: 'presence-ready',
+      ownedRegionIds: [region.id],
+    })
+    object.webSocketClose(asWebSocket(replacement), 1000, 'done', true)
     object.webSocketError(asWebSocket(a))
     await tick()
     expect(b.events().at(-1)).toMatchObject({ online: 1, remove: [expect.any(String)] })
