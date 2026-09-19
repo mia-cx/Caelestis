@@ -71,6 +71,29 @@ afterEach(async () => {
 })
 
 describe('retained history range', () => {
+  it('estimates completion from observed gains without any placement reports', async () => {
+    api.getProgressHistory.mockResolvedValue({
+      samples: [
+        { at: NOW_SECONDS - DAY_SECONDS, correct: 100, mismatched: 0, total: 400 },
+        { at: NOW_SECONDS, correct: 200, mismatched: 0, total: 400 },
+      ],
+    })
+    mounted = mount(StatsPanel, {
+      target: document.body,
+      props: {
+        season: 0,
+        liveDashboard: false,
+        templates: [template('live', NOW_SECONDS - DAY_SECONDS, null)],
+        subscribeDashboard: live.subscribe,
+        progress: { completed: 200, mismatched: 0, unpainted: 200, known: 400, total: 400 },
+      },
+    })
+    flushSync()
+    await vi.waitFor(() =>
+      expect(document.body.textContent).toContain('Estimated completion in ~2 d'),
+    )
+  })
+
   it.each([0, 50, 200, 250])(
     'persists the all-time estimate across the full elapsed history (initial pixels: %s)',
     async (initial) => {
@@ -112,7 +135,7 @@ describe('retained history range', () => {
       }
       mounted = mount(StatsPanel, { target: document.body, props })
       flushSync()
-      await vi.waitFor(() => expect(api.getHistory).toHaveBeenCalledTimes(11))
+      await vi.waitFor(() => expect(api.getHistory).toHaveBeenCalledTimes(1))
       const select = document.querySelector<HTMLSelectElement>(
         'select[aria-label="Completion estimate pace period"]',
       )
@@ -123,7 +146,7 @@ describe('retained history range', () => {
       await vi.waitFor(() => expect(document.querySelector('svg[role="img"]')).not.toBeNull())
       await vi.waitFor(() => expect(document.body.textContent).toContain(expected))
       expect(storage.get('caelestis:estimate-period')).toBe('"all"')
-      expect(api.getHistory).toHaveBeenCalledTimes(11)
+      expect(api.getHistory).toHaveBeenCalledTimes(1)
       await unmount(mounted)
       mounted = mount(StatsPanel, { target: document.body, props })
       flushSync()
@@ -240,9 +263,7 @@ describe('retained history range', () => {
       })
       flushSync()
       await vi.waitFor(() =>
-        expect(document.body.textContent).toContain(
-          reported ? 'Estimated completion in ~2 d' : 'Estimated completion in ~34 h',
-        ),
+        expect(document.body.textContent).toContain('Estimated completion in ~2 d'),
       )
     },
   )
@@ -295,7 +316,13 @@ describe('retained history range', () => {
     },
   )
 
-  it('shows time to completion beyond a year using correct pixels rather than placements', async () => {
+  it('shows time to completion beyond a year using net progress rather than placements', async () => {
+    api.getProgressHistory.mockResolvedValue({
+      samples: [
+        { at: NOW_SECONDS - DAY_SECONDS, correct: 0, mismatched: 0, total: 401 },
+        { at: NOW_SECONDS, correct: 1, mismatched: 0, total: 401 },
+      ],
+    })
     api.getHistory.mockResolvedValue({
       resolution: DAY_SECONDS,
       coverageStart: seconds(NOW_SECONDS - DAY_SECONDS),
@@ -418,6 +445,12 @@ describe('retained history range', () => {
       getItem: (key: string) => (key === 'caelestis:estimate-period' ? '"1y"' : null),
       setItem: vi.fn(),
     })
+    api.getProgressHistory.mockResolvedValue({
+      samples: [
+        { at: NOW_SECONDS - 3 * DAY_SECONDS, correct: 0, mismatched: 0, total: 100 },
+        { at: NOW_SECONDS, correct: 60, mismatched: 0, total: 100 },
+      ],
+    })
     api.getHistory.mockResolvedValue({
       resolution: 900,
       coverageStart: seconds(NOW_SECONDS - 3 * DAY_SECONDS),
@@ -446,16 +479,24 @@ describe('retained history range', () => {
     await vi.advanceTimersByTimeAsync(0)
     flushSync()
     expect(document.body.textContent).toContain('Estimated completion in ~2 d')
-    expect(api.getHistory).toHaveBeenCalledTimes(11)
+    expect(api.getHistory).toHaveBeenCalledTimes(1)
     api.getHistory.mockImplementation(() => new Promise(() => {}))
     await vi.advanceTimersByTimeAsync(15_000)
     flushSync()
-    expect(api.getHistory).toHaveBeenCalledTimes(22)
+    expect(api.getHistory).toHaveBeenCalledTimes(2)
     expect(document.body.textContent).toContain('Estimated completion in ~2 d')
     expect(document.body.textContent).not.toContain('Completion estimate unavailable')
   })
 
   it('changes and persists every ETA period using the loaded history', async () => {
+    api.getProgressHistory.mockResolvedValue({
+      samples: Array.from({ length: 41 }, (_, day) => ({
+        at: day * DAY_SECONDS,
+        correct: day === 40 ? 420 : 0,
+        mismatched: 0,
+        total: 2820,
+      })),
+    })
     const storage = new Map<string, string>()
     vi.stubGlobal('localStorage', {
       getItem: (key: string) => storage.get(key) ?? null,
@@ -512,11 +553,11 @@ describe('retained history range', () => {
       'select[aria-label="Completion estimate pace period"]',
     )
     if (restored === null) throw new Error('missing estimate period')
-    await vi.waitFor(() => expect(api.getHistory).toHaveBeenCalledTimes(22))
+    await vi.waitFor(() => expect(api.getHistory).toHaveBeenCalledTimes(2))
     restored.value = '1y'
     restored.dispatchEvent(new Event('change', { bubbles: true }))
     flushSync()
-    expect(api.getHistory).toHaveBeenCalledTimes(22)
+    expect(api.getHistory).toHaveBeenCalledTimes(2)
     await vi.waitFor(() =>
       expect(document.body.textContent).toContain('Estimated completion in ~229 d'),
     )
@@ -537,14 +578,9 @@ describe('retained history range', () => {
       },
     })
     flushSync()
-    await vi.waitFor(() => expect(api.getHistory).toHaveBeenCalledTimes(11))
+    await vi.waitFor(() => expect(api.getHistory).toHaveBeenCalledTimes(1))
 
     expect(api.getHistory).toHaveBeenCalledWith(['older', 'newer'], 0, finishedAt + 1)
-    expect(
-      api.getHistory.mock.calls
-        .map((call) => call[3]?.maxResolution)
-        .filter((resolution) => resolution !== undefined),
-    ).toEqual([900, 1_800, 3_600, 5_400, 10_800, 21_600, 43_200, 129_600, 302_400, 1_296_000])
   })
 
   it('ends at the current boundary when any included template is live', async () => {
@@ -562,7 +598,7 @@ describe('retained history range', () => {
       },
     })
     flushSync()
-    await vi.waitFor(() => expect(api.getHistory).toHaveBeenCalledTimes(11))
+    await vi.waitFor(() => expect(api.getHistory).toHaveBeenCalledTimes(1))
 
     expect(api.getHistory).toHaveBeenCalledWith(['finished', 'live'], 0, NOW_SECONDS + 1)
   })
@@ -596,7 +632,7 @@ describe('retained history range', () => {
       })
       flushSync()
       await vi.advanceTimersByTimeAsync(0)
-      expect(api.getHistory).toHaveBeenCalledTimes(11)
+      expect(api.getHistory).toHaveBeenCalledTimes(1)
       const preset = document.querySelector<HTMLButtonElement>('[data-range-preset="6h"]')
       preset?.click()
       flushSync()
@@ -606,10 +642,8 @@ describe('retained history range', () => {
       flushSync()
       await vi.advanceTimersByTimeAsync(0)
 
-      expect(api.getHistory).toHaveBeenCalledTimes(22)
-      expect(api.getHistory).toHaveBeenLastCalledWith(['live'], 0, NOW_SECONDS + 16, {
-        maxResolution: 1_296_000,
-      })
+      expect(api.getHistory).toHaveBeenCalledTimes(2)
+      expect(api.getHistory).toHaveBeenLastCalledWith(['live'], 0, NOW_SECONDS + 16)
       expect(preset?.getAttribute('aria-pressed')).toBe('true')
       expect(document.querySelector('[data-handle="head"]')?.getAttribute('aria-valuenow')).toBe(
         String(NOW_SECONDS + 16 - 6 * 3_600),
@@ -867,6 +901,12 @@ describe('painter pace', () => {
   })
 
   it('draws the template lines alone when the server has no painter buckets', async () => {
+    api.getProgressHistory.mockResolvedValue({
+      samples: [
+        { at: NOW_SECONDS - 3600, correct: 0, mismatched: 0, total: 2 },
+        { at: NOW_SECONDS, correct: 1, mismatched: 0, total: 2 },
+      ],
+    })
     api.getHistory.mockResolvedValue({
       buckets: [
         {

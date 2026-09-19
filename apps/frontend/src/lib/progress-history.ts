@@ -1,8 +1,25 @@
 import type { ArchiveProgressSample, ProgressSample } from '@caelestis/shared'
+import { isDailyArchiveInterval } from './archive-history'
 
 export interface ObservedProgressSample extends ProgressSample {
   readonly archive: boolean
 }
+
+/** Signed matching-pixel changes between known observations, never across explicit gaps. */
+export const observedProgressIntervals = (samples: readonly ObservedProgressSample[]) =>
+  samples.flatMap((sample, index) => {
+    const before = samples[index - 1]
+    if (before?.correct == null || sample.correct === null || sample.at <= before.at) return []
+    const interval = { from: before.at, to: sample.at }
+    return [
+      {
+        ...interval,
+        pixels: sample.correct - before.correct,
+        archive: before.archive,
+        dailyObservation: before.archive && isDailyArchiveInterval(interval),
+      },
+    ]
+  })
 
 /** Combine scopes at fixed observation times; a scope without coverage stays unknown. */
 export const combineProgressSamples = (

@@ -27,26 +27,22 @@
     clipSeries,
     nearestSorted,
     PACE_WINDOWS,
-    type PaceHistorySource,
     type PacePoint,
     type PaceRatePoint,
     type PainterHistorySource,
     rollingPaceSeries,
     rollingIntervalPace,
-    paceIntervals,
     snapTime,
     timeTickStep,
     type TimeWindow,
     windowKeyStep,
   } from '$lib/components/charts/progress-pace'
-  import { archiveIntervals, isDailyArchiveInterval } from '$lib/archive-history'
-  import { mergeObservedProgress } from '$lib/progress-history'
+  import { mergeObservedProgress, observedProgressIntervals } from '$lib/progress-history'
 
   let {
     buckets,
     archiveSamples: importedSamples = [],
     progressSamples = [],
-    paceHistories = [],
     resolution,
     from,
     to,
@@ -64,8 +60,6 @@
     buckets: readonly HistoryBucket[]
     archiveSamples?: readonly ArchiveProgressSample[]
     progressSamples?: readonly ProgressSample[]
-    /** One server-selected retained source for each rolling window. */
-    paceHistories?: readonly PaceHistorySource[]
     /** Who painted in the range, leading first: the picker's list. */
     painters?: readonly PainterOption[]
     /** The painters being drawn; whoever fetches `painterHistories` owns this. */
@@ -96,7 +90,7 @@
   const archiveSamples = $derived(importedSamples.filter(sample => sample.at < firstLive))
 
   /**
-   * Saved observations supply completion areas. Reported placements supply rolling pace on the
+   * Saved observations supply completion areas and combined net progress pace on the
    * right axis. Longer pace windows use darker, thicker lines.
    */
   const storedWindows = $derived(windows)
@@ -185,41 +179,20 @@
   })
 
 
-  const retainedPacePoints = (source: PaceHistorySource): PacePoint[] => {
-    const { buckets: paceBuckets, coverageStart, resolution: paceResolution } = source.history
-    if (paceResolution === undefined || coverageStart === undefined || paceBuckets.length === 0) return []
-    const placedByStart = new Map<number, number>()
-    for (const bucket of paceBuckets) {
-      placedByStart.set(bucket.bucketStart, (placedByStart.get(bucket.bucketStart) ?? 0) + bucket.placed)
-    }
-    const start = archiveSamples.length === 0 ? coverageStart : Math.max(coverageStart, Math.min(...paceBuckets.map((bucket) => bucket.bucketStart)))
-    const firstBucket = Math.ceil(start / paceResolution) * paceResolution
-    const filled: PacePoint[] = []
-    let cumPlaced = 0
-    for (let t = firstBucket; t + paceResolution <= to; t += paceResolution) {
-      cumPlaced += placedByStart.get(t) ?? 0
-      filled.push({ t, cumPlaced })
-    }
-    return filled
-  }
-
   // The full-range series depend only on the data, so dragging the window never recomputes them.
+  const chartSamples = $derived(
+    mergeObservedProgress(
+      archiveSamples,
+      progressSamples,
+      live || finished ? { at: to, correct: anchorCorrect, mismatched: anchorMismatched } : undefined,
+    ),
+  )
+  const observedPaces = $derived(observedProgressIntervals(chartSamples))
   const paceWindows = $derived(
     PACE_WINDOWS.map((pace) => {
-      const retained = paceHistories.find((source) => source.window === pace.key)
-      const source = windowUsable(pace.seconds, resolution)
-        ? { points: points.filter((point) => point.t + resolution <= to), resolution }
-        : retained?.history.resolution !== undefined &&
-            windowUsable(pace.seconds, retained.history.resolution)
-          ? { points: retainedPacePoints(retained), resolution: retained.history.resolution }
-          : null
-      const reported = source === null ? [] : paceIntervals(source.points, source.resolution)
-      const reportStart = reported[0]?.from ?? Infinity
-      const imported = pace.seconds < 86_400 ? [] : archivePaces
-        .filter((interval) => interval.to <= reportStart && interval.to <= to)
-        .map((interval) => ({ from: interval.from, to: interval.to, pixels: interval.endCorrect - interval.startCorrect, dailyObservation: isDailyArchiveInterval(interval) }))
-      const segments = rollingIntervalPace([...imported, ...reported], pace.seconds)
-      return { ...pace, usable: segments.length > 0, segments, importedUntil: imported.at(-1)?.to ?? -Infinity }
+      const intervals = observedPaces.filter(interval => interval.to <= to && (!interval.archive || pace.seconds >= 86_400))
+      const segments = rollingIntervalPace(intervals, pace.seconds)
+      return { ...pace, usable: segments.length > 0, segments, importedUntil: intervals.findLast(interval => interval.archive)?.to ?? -Infinity }
     }),
   )
 
@@ -234,8 +207,8 @@
   )
 
   // ── Painters ─────────────────────────────────────────────────────────────────────────────────
-  // Painter lines are the same rolling windows over the same ladder, one line per painter per
-  // enabled window. Colour says who, width says which window, exactly as for the template lines.
+  // Painter lines keep reported activity, one per painter per enabled window.
+  // Colour says who; width says which window, as for the combined net progress lines.
   const painterMetricNoun = 'placed pixels'
   /** The painter under the picker's pointer or keyboard, drawn on top with the others dimmed. */
   let spotlightPainter = $state<number | null>(null)
@@ -309,13 +282,6 @@
     return lines
   })
 
-  const chartSamples = $derived(
-    mergeObservedProgress(
-      archiveSamples,
-      progressSamples,
-      live || finished ? { at: to, correct: anchorCorrect, mismatched: anchorMismatched } : undefined,
-    ),
-  )
   /** Snap the crosshair to every vertex that is actually rendered, including retained fine data. */
   const hoverSnapTimes = $derived.by(() => {
     const times = new Set<number>()
@@ -379,11 +345,6 @@
     }
     return segments
   })
-  // Join at the first saved native observation; current counts cannot reconstruct past progress.
-  const archivePaces = $derived(archiveIntervals([
-    ...archiveSamples,
-    ...progressSamples.slice(0, 1).map(sample => ({ ...sample, snapshotId: -1 })),
-  ]))
   const paceOptions = $derived([
     ...paceWindows.map((pace, index) => ({
       key: pace.key,
@@ -449,13 +410,11 @@
   const activePaces = $derived(
     enabledPaces.flatMap((pace) => pace.segments.map((fullSeries, index) => {
       const series = clipSeries(fullSeries, shownView.from, shownView.to, lerpRate)
-      const last = series[series.length - 1]
-      if (last !== undefined && last.t < shownView.to && to - last.t < resolution && points.length > 0) series.push({ ...last, t: shownView.to })
       const imported = series.filter(point => point.t <= pace.importedUntil)
-      const reported = series.filter(point => point.t >= pace.importedUntil)
+      const observed = series.filter(point => point.t >= pace.importedUntil)
       const strokes = [
         ...(imported.length > 0 ? [{ series: imported, imported: true }] : []),
-        ...(reported.some(point => point.t > pace.importedUntil) ? [{ series: reported, imported: false }] : []),
+        ...(observed.some(point => point.t > pace.importedUntil) ? [{ series: observed, imported: false }] : []),
       ]
       return {
         ...pace,
@@ -1193,7 +1152,7 @@
               data-series-start={pace.fullSeries[0]?.t}
               data-series-first-value={pace.fullSeries[0]?.v}
               d={linePath(stroke.series)}
-              data-pace-source={stroke.imported ? 'imported' : 'reported'}
+              data-pace-source={stroke.imported ? 'imported' : 'observed'}
               fill="none"
               stroke={paceColor(pace.rank)}
               stroke-width={paceWidth(pace.rank)}

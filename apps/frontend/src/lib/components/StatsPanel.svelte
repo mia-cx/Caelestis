@@ -19,7 +19,7 @@
   } from '$lib/api/client'
   import ContributionHeatmap from '$lib/components/charts/ContributionHeatmap.svelte'
   import { archiveContributionDays, combineArchiveSamples } from '$lib/archive-history'
-  import { combineProgressSamples } from '$lib/progress-history'
+  import { combineProgressSamples, mergeObservedProgress } from '$lib/progress-history'
   import { completionPace } from '$lib/completion-pace'
   import {
     defaultVisiblePainters,
@@ -31,7 +31,6 @@
   import ProgressPaceChart from '$lib/components/charts/ProgressPaceChart.svelte'
   import {
     PACE_WINDOWS,
-    type PaceHistorySource,
     type PainterHistorySource,
   } from '$lib/components/charts/progress-pace'
   import Leaderboard from '$lib/components/Leaderboard.svelte'
@@ -50,7 +49,7 @@
     templates: readonly Template[]
     season: number
     liveDashboard: boolean
-    /** Current canvas status for the chart's current point and the ETA's numerator. */
+    /** Current canvas status for the chart, latest net progress interval, and remaining pixels. */
     progress: Progress
     subscribeDashboard: (
       templateIds: readonly string[],
@@ -164,7 +163,6 @@
       cancelled = true
     }
   })
-  let paceHistories = $state<readonly PaceHistorySource[] | null>(null)
   let contributions = $state<readonly ContributionDay[] | null>(null)
   let leaderboard = $state<readonly LeaderboardEntry[] | null>(null)
   /** The rolling pace windows the chart draws; shared so painter lines are fetched for the same. */
@@ -189,7 +187,7 @@
   const togglePainter = (wplaceUserId: number): void => {
     painterOverrides = togglePainterSelection(painterOverrides, selectedPainters, wplaceUserId)
   }
-  /** The selected painters' retained tiers for each enabled rolling window, like `paceHistories`. */
+  /** The selected painters' retained tiers for each enabled rolling window. */
   let painterHistories = $state<readonly PainterHistorySource[]>([])
   let failed = $state(false)
   let historyScope: string | undefined
@@ -216,7 +214,6 @@
     if (historyScope !== scope) {
       historyScope = scope
       history = null
-      paceHistories = null
     }
     failed = false
     getHistory(templateIds, from, to)
@@ -226,24 +223,6 @@
       .catch(() => {
         if (!generation.cancelled) failed = true
       })
-    Promise.all(
-      PACE_WINDOWS.map(async (window): Promise<PaceHistorySource | null> => {
-        try {
-          const paceHistory = await getHistory(templateIds, from, to, {
-            // Two buckets are the minimum honest representation of a rolling window.
-            maxResolution: window.seconds / 2,
-          })
-          return { window: window.key, history: paceHistory }
-        } catch {
-          // The coarse history still renders against servers without bounded-tier queries.
-          return null
-        }
-      }),
-    ).then((responses) => {
-      if (!generation.cancelled) {
-        paceHistories = responses.filter((response) => response !== null)
-      }
-    })
     return () => {
       generation.cancelled = true
     }
@@ -372,20 +351,20 @@
   ] as const
   const storedEstimatePeriod = persisted<string>('caelestis:estimate-period', '7d')
   const estimatePeriod = $derived(estimatePeriods.find((period) => period.key === storedEstimatePeriod.value) ?? estimatePeriods[2])
-  // The 1d source already includes the entire retention ladder, including its permanent tier.
   const pace = $derived.by(() => {
-    const history = paceHistories?.find((candidate) => candidate.window === '1d')?.history
+    if (archives === null || progressSamples === null) return null
+    const observations = mergeObservedProgress(archiveSamples, progressSamples, {
+      at: to, correct: progress.completed, mismatched: progress.mismatched,
+    })
     if (estimatePeriod.key === 'all') {
-      if (archives === null || progressSamples === null) return null
-      // Prefer native progress when both sources observed the same timestamp.
-      const first = [...progressSamples, ...archiveSamples]
-        .filter(sample => sample.correct !== null && sample.at < to)
-        .sort((a, b) => a.at - b.at)[0]
+      // Overall pace uses the full elapsed lifetime, including gaps, as specified in issue #352.
+      // Timed windows below average only adjacent known observation intervals.
+      const first = observations.find(sample => sample.correct !== null && sample.at < to)
       if (first?.correct == null) return null
       const hours = (to - first.at) / 3_600
       return { correct: (progress.completed - first.correct) / hours, hours }
     }
-    return completionPace(history, archiveSamples, progressSamples ?? [], to, estimatePeriod.seconds)
+    return completionPace(observations, to, estimatePeriod.seconds)
   })
 
   const eta = $derived.by(() => {
@@ -428,14 +407,13 @@
       <div class="flex h-[240px] items-center justify-center text-sm text-base-content/50">
         Could not load pace history.
       </div>
-    {:else if history === null || archives === null || progressSamples === null || paceHistories === null}
+    {:else if history === null || archives === null || progressSamples === null}
       <Skeleton class="h-[240px] w-full" />
     {:else}
       <ProgressPaceChart
         {archiveSamples}
         {progressSamples}
         buckets={history}
-        {paceHistories}
         resolution={history[0]?.resolution ?? RESOLUTION}
         from={displayFrom}
         {to}

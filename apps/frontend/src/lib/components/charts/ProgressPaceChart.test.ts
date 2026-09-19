@@ -166,6 +166,36 @@ describe('time-range overview', () => {
 })
 
 describe('rolling pace retention', () => {
+  it.each([60, 0, -30])(
+    'uses signed observed progress instead of placement reports (%s px/h)',
+    (rate) => {
+      stored.set('caelestis:pace-windows', JSON.stringify(['1h']))
+      mounted = mount(ProgressPaceChart, {
+        target: document.body,
+        props: {
+          buckets: [0, 900, 1800, 2700, 3600, 4500, 5400, 6300].map((at) => bucket(900, at)),
+          resolution: 900,
+          from: 0,
+          to: 7200,
+          anchorCorrect: 220,
+          anchorMismatched: 0,
+          progressSamples: [0, 3600, 7200].map((at) => ({
+            at,
+            correct: 100 + (at / 3600) * rate,
+            mismatched: 0,
+            total: 400,
+          })),
+        },
+      })
+      flushSync()
+      expect(
+        document
+          .querySelector('path[data-pace-window="1h"]')
+          ?.getAttribute('data-series-first-value'),
+      ).toBe(String(rate))
+    },
+  )
+
   it.each([false, true])('joins daily pace through saved native coverage only (gap: %s)', (gap) => {
     stored.set('caelestis:pace-windows', JSON.stringify(['1d', '1h']))
     mounted = mount(ProgressPaceChart, {
@@ -191,6 +221,7 @@ describe('rolling pace retention', () => {
             mismatched: gap ? null : 0,
             total: 10000,
           },
+          { at: 173700, correct: gap ? null : 83, mismatched: gap ? null : 0, total: 10000 },
         ],
       },
     })
@@ -200,7 +231,7 @@ describe('rolling pace retention', () => {
     expect(daily?.getAttribute('stroke-dasharray')).toBe('5 4')
     expect((daily?.getAttribute('d')?.match(/L/g) ?? []).length).toBe(gap ? 0 : 1)
     const reported = document.querySelector(
-      'path[data-pace-window="1d"][data-pace-source="reported"]',
+      'path[data-pace-window="1d"][data-pace-source="observed"]',
     )
     if (gap) expect(reported).toBeNull()
     else {
@@ -331,7 +362,6 @@ describe('rolling pace retention', () => {
     expect(progress).toMatch(/L589\.2,/)
     const chart = document.querySelector('svg[role="img"]')
     chart?.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }))
-    chart?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }))
     flushSync()
     expect(document.querySelector('[data-pace-tooltip]')?.textContent).toContain('Eralyon snapshot')
     expect(document.querySelector('[data-pace-tooltip]')?.textContent).toContain('999')
@@ -535,22 +565,17 @@ describe('rolling pace retention', () => {
 
   it('keeps short windows selectable when only the recent history is granular enough', () => {
     const buckets = [bucket(3_600, 0), bucket(3_600, 3_600), bucket(3_600, 7_200)]
-    const paceBuckets = [bucket(900, 4_500)]
 
     mounted = mount(ProgressPaceChart, {
       target: document.body,
       props: {
         buckets,
-        paceHistories: [
-          {
-            window: '30m',
-            history: { buckets: paceBuckets, resolution: 900, coverageStart: seconds(3_600) },
-          },
-          {
-            window: '1h',
-            history: { buckets: paceBuckets, resolution: 900, coverageStart: seconds(3_600) },
-          },
-        ],
+        progressSamples: [3600, 4500, 5400, 6300, 7200, 8100, 9000].map((at) => ({
+          at,
+          correct: at / 900,
+          mismatched: 0,
+          total: 100,
+        })),
         resolution: 3_600,
         from: 0,
         to: 9_000,
@@ -570,18 +595,17 @@ describe('rolling pace retention', () => {
   it('snaps the hover timeline to a rendered fine-grained pace point', () => {
     stored.set('caelestis:pace-windows', JSON.stringify(['30m']))
     const buckets = [bucket(3_600, 0), bucket(3_600, 3_600), bucket(3_600, 7_200)]
-    const paceBuckets = [bucket(900, 4_500), bucket(900, 5_400)]
 
     mounted = mount(ProgressPaceChart, {
       target: document.body,
       props: {
         buckets,
-        paceHistories: [
-          {
-            window: '30m',
-            history: { buckets: paceBuckets, resolution: 900, coverageStart: seconds(3_600) },
-          },
-        ],
+        progressSamples: [3600, 4500, 5400, 6300, 7200, 8100, 9000].map((at) => ({
+          at,
+          correct: at / 900,
+          mismatched: 0,
+          total: 100,
+        })),
         resolution: 3_600,
         from: 0,
         to: 9_000,
@@ -615,24 +639,12 @@ describe('rolling pace retention', () => {
       target: document.body,
       props: {
         buckets: [bucket(21_600, 0)],
-        paceHistories: [
-          {
-            window: '30m',
-            history: {
-              buckets: [bucket(900, 72_000)],
-              resolution: 900,
-              coverageStart: seconds(72_000),
-            },
-          },
-          {
-            window: '6h',
-            history: {
-              buckets: [bucket(3_600, 0)],
-              resolution: 3_600,
-              coverageStart: seconds(0),
-            },
-          },
-        ],
+        progressSamples: [0, 21600, 43200, 64800, 72000, 72900, 73800, 74700, 75600].map((at) => ({
+          at,
+          correct: at / 900,
+          mismatched: 0,
+          total: 100,
+        })),
         resolution: 21_600,
         from: 0,
         to,
@@ -657,7 +669,7 @@ describe('rolling pace retention', () => {
     expect(tail?.getAttribute('aria-valuemax')).toBe(String(to))
   })
 
-  it('holds the latest complete pace through an unfinished bucket', () => {
+  it('ends observed pace at its last measurement without extending placement activity', () => {
     stored.set('caelestis:pace-windows', JSON.stringify(['2h']))
     mounted = mount(ProgressPaceChart, {
       target: document.body,
@@ -671,6 +683,12 @@ describe('rolling pace retention', () => {
         resolution: 3_600,
         from: 0,
         to: 12_600,
+        progressSamples: [0, 3600, 7200, 10800].map((at, i) => ({
+          at,
+          correct: [0, 1, 3, 6][i] ?? 0,
+          mismatched: 0,
+          total: 100,
+        })),
         anchorCorrect: 6,
         anchorMismatched: 0,
       },
@@ -679,8 +697,8 @@ describe('rolling pace retention', () => {
 
     const path = document.querySelector('path[data-pace-window="2h"]')?.getAttribute('d') ?? ''
     const points = [...path.matchAll(/[ML]([^,]+),([^ML]+)/g)]
-    expect(points).toHaveLength(3)
-    expect(points.at(-1)?.[2]).toBe(points.at(-2)?.[2])
+    expect(points).toHaveLength(2)
+    expect(Number(points.at(-1)?.[1])).toBeLessThan(592)
   })
 
   it('keeps lifecycle-wide time labels sparse enough to read', () => {
