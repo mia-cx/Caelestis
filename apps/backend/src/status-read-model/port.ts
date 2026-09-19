@@ -8,6 +8,7 @@ import {
 } from '../manifest/read-model.js'
 import { assembleManifestProjection } from '../manifest/source.js'
 import type { SqlStore } from '../ports/index.js'
+import type { IngestTimingSnapshot } from '../telemetry/ingest-timing.js'
 import {
   createSeasonStatusReadModel,
   type PersistedStatusReadModel,
@@ -68,6 +69,11 @@ export interface StatusReadModelPort {
     tile: TileCoord,
     commit: PreparedTileGenerationCommit,
   ) => Promise<void>
+  /**
+   * Stage timings from wherever this season's live commands actually run. On Cloudflare that is
+   * the season's Durable Object, not the Worker serving the admin route.
+   */
+  readonly readIngestTimings?: (season: number, reset: boolean) => Promise<IngestTimingSnapshot>
 }
 
 export const prepareTileGenerationCommit = (

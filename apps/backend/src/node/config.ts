@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { ConnectionConfig } from 'mariadb'
 import type { PoolConfig } from 'pg'
+import { MAX_LIVE_SUBSCRIBERS } from '../status-coordinator.js'
 
 type Environment = Readonly<Record<string, string | undefined>>
 const integer = (env: Environment, name: string, fallback: number): number => {
@@ -96,7 +97,11 @@ export const readNodeConfig = (env: Environment = process.env) => {
           },
   }
   if (tileGc !== 'dry-run' && tileGc !== 'delete') throw new Error('Unsupported TILE_BLOB_GC_MODE')
+  // Capacity measurements raise this on an isolated stack; production keeps the default.
+  const liveSubscriberLimit = integer(env, 'CAELESTIS_LIVE_SUBSCRIBER_LIMIT', MAX_LIVE_SUBSCRIBERS)
+  if (liveSubscriberLimit < 1) throw new Error('CAELESTIS_LIVE_SUBSCRIBER_LIMIT must be at least 1')
   return {
+    liveSubscriberLimit,
     adapter,
     port,
     basePath,

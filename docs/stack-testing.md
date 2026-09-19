@@ -110,6 +110,8 @@ It refuses unverified replacements. Choose unique image tags for each run.
 The helper records each node's containerd target after import and checks it again before removal.
 Cleanup leaves retagged references untouched and reports them instead of claiming completion.
 Older inventories without per-node targets require manual ownership verification before image cleanup.
+The import streams every image through one `kubectl exec` and aborts after three minutes; set
+`CAELESTIS_IMAGE_IMPORT_TIMEOUT_MS` higher when the path to the node is slow.
 
 ```sh
 node scripts/stack-tests/k3s-images.mjs import CONTEXT test-results/k3s-images BACKEND_IMAGE FRONTEND_IMAGE

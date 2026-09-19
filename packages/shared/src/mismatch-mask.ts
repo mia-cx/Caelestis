@@ -48,13 +48,19 @@ export const encodeMismatchMask = (
   view.setUint16(6, rect.top, true)
   view.setUint16(8, rect.width, true)
   view.setUint16(10, rect.height, true)
-  for (let index = 0; index < classifications.length; index += 1) {
-    const classification = classifications[index]
-    if (classification === undefined || classification > BLANK) {
-      throw new RangeError('mismatch mask contains an unknown classification')
+  // One million pixels pass through here per full-tile classification, on the event loop. Build
+  // each packed byte in a local and validate with one comparison per pixel instead of dividing.
+  let index = 0
+  for (let byteAt = HEADER_BYTES; byteAt < encoded.length; byteAt += 1) {
+    let packed = 0
+    for (let shift = 0; shift < 8 && index < pixels; shift += 2, index += 1) {
+      const classification = classifications[index] ?? BLANK + 1
+      if (classification > BLANK) {
+        throw new RangeError('mismatch mask contains an unknown classification')
+      }
+      packed |= classification << shift
     }
-    const byteAt = HEADER_BYTES + Math.floor(index / PIXELS_PER_BYTE)
-    encoded[byteAt] = (encoded[byteAt] ?? 0) | (classification << ((index % PIXELS_PER_BYTE) * 2))
+    encoded[byteAt] = packed
   }
   return encoded
 }

@@ -98,6 +98,9 @@ export class StatusReadModelObject extends DurableObject<Env> {
   ) {
     return this.coordinator.finishTileGenerationCommit(...args)
   }
+  readIngestTimings(...args: Parameters<StatusCoordinator<WebSocket>['readIngestTimings']>) {
+    return this.coordinator.readIngestTimings(...args)
+  }
   notifyAlarmChange(...args: Parameters<StatusCoordinator<WebSocket>['notifyAlarmChange']>) {
     return this.coordinator.notifyAlarmChange(...args)
   }

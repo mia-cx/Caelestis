@@ -29,12 +29,15 @@ import { presenceRequest } from '../presence/port.js'
 import { PresenceCoordinator } from '../presence-coordinator.js'
 import { createBackendRuntime, makeBackendContext } from '../runtime/backend-runtime.js'
 import { StatusCoordinator } from '../status-coordinator.js'
+import { derivedArtifactWriter } from '../telemetry/derived-artifact-writer.js'
 import { fetchCanvasTiles } from '../telemetry/fetcher.js'
 import { runTileBlobGc } from '../telemetry/tile-blobs.js'
 import { AdmissionCounters, EventLoopLag, snapshotCapacity } from './capacity.js'
 import type { NodeConfig } from './config.js'
 import { sqliteConnection } from './database.js'
 import { NodeLiveHost } from './live.js'
+
+const DERIVED_ARTIFACT_DRAIN_TIMEOUT_MS = 10_000
 
 const MIRROR_INTERVAL_MS = 6 * 60 * 60 * 1000
 const SOCIAL_INTERVAL_MS = 24 * 60 * 60 * 1000
@@ -164,6 +167,8 @@ export const openNodeRuntime = async (
         },
         scheduleAlarms,
         (season, tokenHash, surface) => presenceRoom(season, surface).closeCredential(tokenHash),
+        undefined,
+        { liveSubscribers: config.liveSubscriberLimit },
       )
       seasons.set(season, { coordinator, host })
       return coordinator
@@ -320,6 +325,13 @@ export const openNodeRuntime = async (
           await host.close()
           coordinator.stop()
         }
+        // Queued mismatch artifacts are reconstructible; give them a bounded chance to land.
+        await Promise.race([
+          derivedArtifactWriter.drain(),
+          new Promise<void>((resolve) =>
+            setTimeout(resolve, DERIVED_ARTIFACT_DRAIN_TIMEOUT_MS).unref?.(),
+          ),
+        ])
         await connection.close()
         releaseSqlite?.()
       },

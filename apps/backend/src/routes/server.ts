@@ -1,5 +1,5 @@
 import type { ServerInfo } from '@caelestis/shared'
-import { Effect } from 'effect'
+import { Effect, Context as Services } from 'effect'
 import { Hono } from 'hono'
 import { type AuthOptions, requireScopeEffect } from '../auth/middleware.js'
 import {
@@ -11,6 +11,7 @@ import { BackendStorageError, SqlStoreReadError } from '../runtime/errors.js'
 import { runBackendHttp } from '../runtime/hono.js'
 import { mergeServerInfo } from '../server-info.js'
 import { publishManifestChange } from '../status-read-model/port.js'
+import { ingestTimings } from '../telemetry/ingest-timing.js'
 
 const MAX_NAME_LENGTH = 256
 const MAX_DESCRIPTION_LENGTH = 4096
@@ -120,6 +121,20 @@ export const createServerAdminRoutes = (
       ),
       () => c.json({ ok: true }),
     )
+  })
+
+  // Where live uploads, offers, and paints spend their time since the last reset. Live commands
+  // run in the current season's coordinator, which on Cloudflare is a Durable Object rather than
+  // this Worker, so ask the read model when it can reach that context.
+  routes.get('/ingest-timings', async (c) => {
+    const reset = c.req.query('reset') === 'true'
+    const statusReadModel = Services.get(runtime.context, StatusReadModelService)
+    if (statusReadModel.readIngestTimings !== undefined) {
+      return c.json(await statusReadModel.readIngestTimings(currentSeason, reset))
+    }
+    const snapshot = ingestTimings.snapshot()
+    if (reset) ingestTimings.reset()
+    return c.json(snapshot)
   })
 
   return routes

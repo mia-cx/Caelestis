@@ -1,9 +1,7 @@
 import {
-  BLANK,
   decodePng,
   decodeWplaceIndexedPng,
   encodeMismatchMask,
-  MATCH,
   millis,
   PALETTE_RGB,
   type PaintEvent,
@@ -17,9 +15,8 @@ import {
   tileKey,
   uuidV7,
   WORLD_PIXELS,
-  WRONG,
 } from '@caelestis/shared'
-import { Effect } from 'effect'
+import { Effect, Result } from 'effect'
 import {
   type BlobStore,
   type ContributionDelta,
@@ -53,16 +50,23 @@ import {
   resolveCurrentTileOffers,
   type StatusReadModelPort,
 } from '../status-read-model/port.js'
+import { classifyChunk } from './classify-chunk.js'
 import { decodedPixelCache } from './decoded-pixel-cache.js'
+import { derivedArtifactWriter } from './derived-artifact-writer.js'
 import {
   createDerivedArtifactWriteBatch,
   type DerivedArtifactWriteBatch,
   readMismatchArtifact,
   writeMismatchArtifact,
 } from './derived-classification.js'
+import { foldTileHistoryThrottled } from './history-fold-throttle.js'
+import { type IngestCommand, type IngestStage, ingestTimings } from './ingest-timing.js'
+import { sharedClassifier } from './shared-classification.js'
 import { readTileBlob, reserveTileBlob, reserveTileBlobUpload } from './tile-blobs.js'
 
 export const MAX_CANVAS_TILE_BYTES = 8 * 1024 * 1024
+/** Tiles of one offer batch processed at the same time; a viewport rarely spans more. */
+export const OFFER_TILE_CONCURRENCY = 4
 
 interface BlobStores {
   readonly blobs: BlobStore
@@ -237,68 +241,56 @@ const persistMismatchArtifact = async (
   }
 }
 
+/**
+ * Classify one target against a decoded canvas.
+ *
+ * The counts and mask depend only on the chunk and canvas content, so identical work from other
+ * reporters is shared; the observation timestamp is stamped per caller afterwards.
+ */
 const classifyTarget = async (
   ports: BlobStores,
   target: TelemetryTarget,
   canvas: Uint8Array,
+  canvasHash: string,
   observedAt: number,
 ): Promise<ClassifiedTarget | null> => {
   const rect = chunkRect(target)
   if (rect === null) return null
-  const chunk = await readDecodedChunk(ports, target.hash)
-  if (chunk === null || chunk.width !== rect.width || chunk.height !== rect.height) return null
-
-  let correct = 0
-  let wrong = 0
-  let blank = 0
-  const classifications = new Uint8Array(rect.width * rect.height)
-  const colours = new Map<
-    number,
-    { index: number; correct: number; wrong: number; blank: number; total: number }
-  >()
-  for (let y = 0; y < rect.height; y += 1) {
-    const chunkRow = y * rect.width
-    const canvasRow = (rect.top + y) * TILE_SIZE + rect.left
-    for (let x = 0; x < rect.width; x += 1) {
-      const wanted = chunk.indices[chunkRow + x] ?? TRANSPARENT_INDEX
-      if (wanted === TRANSPARENT_INDEX) continue
-      const actual = canvas[canvasRow + x] ?? TRANSPARENT_INDEX
-      const colour = colours.get(wanted) ?? {
-        index: wanted,
-        correct: 0,
-        wrong: 0,
-        blank: 0,
-        total: 0,
-      }
-      colour.total++
-      if (actual === TRANSPARENT_INDEX) {
-        blank++
-        colour.blank++
-        classifications[chunkRow + x] = BLANK
-      } else if (actual === wanted) {
-        correct++
-        colour.correct++
-        classifications[chunkRow + x] = MATCH
-      } else {
-        wrong++
-        colour.wrong++
-        classifications[chunkRow + x] = WRONG
-      }
-      colours.set(wanted, colour)
-    }
-  }
+  let computed = false
+  const shared = await sharedClassifier.classify(
+    {
+      templateId: target.templateId,
+      versionId: target.versionId,
+      tile: { x: target.tileX, y: target.tileY },
+      chunkHash: target.hash,
+      canvasHash,
+    },
+    async () => {
+      computed = true
+      const chunk = await readDecodedChunk(ports, target.hash)
+      if (chunk === null || chunk.width !== rect.width || chunk.height !== rect.height) return null
+      const { correct, wrong, blank, colours, classifications } = classifyChunk(
+        chunk.indices,
+        canvas,
+        rect,
+      )
+      return { correct, wrong, blank, colours, mask: encodeMismatchMask(rect, classifications) }
+    },
+  )
+  ingestTimings.count(computed ? 'classification.computed' : 'classification.shared')
+  if (shared === null) return null
   return {
     status: {
       templateId: target.templateId,
       versionId: target.versionId,
       tile: { x: target.tileX, y: target.tileY },
-      correct,
-      wrong,
-      blank,
-      colours: [...colours.values()].sort((left, right) => left.index - right.index),
+      correct: shared.correct,
+      wrong: shared.wrong,
+      blank: shared.blank,
+      colours: shared.colours,
       observedAt: millis(observedAt),
     },
-    mask: encodeMismatchMask(rect, classifications),
+    mask: shared.mask,
   }
 }
 
@@ -337,7 +329,7 @@ const readMismatchMaskPromise = async (
   if (artifact !== null) return { kind: 'found', bytes: artifact }
   const canvas = await readDecodedCanvas(ports, latest.hash)
   if (canvas === null) return { kind: 'unobserved' }
-  const classified = await classifyTarget(ports, target, canvas, latest.observedAt)
+  const classified = await classifyTarget(ports, target, canvas, latest.hash, latest.observedAt)
   if (classified === null) return { kind: 'unobserved' }
   await persistMismatchArtifact(ports.blobs, identity, classified.mask)
   return { kind: 'found', bytes: classified.mask }
@@ -362,26 +354,33 @@ const recordObservationPromise = async (
     readonly authoritative?: boolean
     readonly coverageToken?: string
     readonly artifactWriteBatch?: DerivedArtifactWriteBatch
+    /** Which live command this observation belongs to, for stage timings. */
+    readonly command?: IngestCommand
     readonly onCommitted?: (mutation: StatusProjectionMutation | null) => void | Promise<void>
   } = {},
 ): Promise<void> => {
-  const canvas = await decodeCanvasInput(metadata.hash, bytes)
-  const preparedCoverageToken = await prepareTileGenerationCommit(
-    ports.statusReadModel,
-    metadata.season,
-    metadata.tile,
+  const command = options.command ?? 'upload'
+  const timed = <Value>(stage: IngestStage, run: () => Promise<Value>) =>
+    ingestTimings.timed(command, stage, run)
+  const canvas = await timed('decode', () => decodeCanvasInput(metadata.hash, bytes))
+  const preparedCoverageToken = await timed('prepare', () =>
+    prepareTileGenerationCommit(ports.statusReadModel, metadata.season, metadata.tile),
   )
   const { targets, classified, committed } = await (async () => {
     try {
-      const targets = await ports.sql.listTelemetryTargets(
-        metadata.season,
-        metadata.tile,
-        metadata.includeUnpublished,
+      // Coverage is read after the prepare above, so a template published, replaced, or removed
+      // while the caller reserved and stored bytes is classified against its current state.
+      const targets = await timed('targets', () =>
+        ports.sql.listTelemetryTargets(metadata.season, metadata.tile, metadata.includeUnpublished),
       )
       const observedAtMs = metadata.observedAt * 1_000
       const classified = (
-        await Promise.all(
-          targets.map((target) => classifyTarget(ports, target, canvas, observedAtMs)),
+        await timed('classify', () =>
+          Promise.all(
+            targets.map((target) =>
+              classifyTarget(ports, target, canvas, metadata.hash, observedAtMs),
+            ),
+          ),
         )
       ).filter((result): result is ClassifiedTarget => result !== null)
       const statuses = classified.map((result) => result.status)
@@ -394,22 +393,26 @@ const recordObservationPromise = async (
         reportedWithToken: metadata.tokenHash,
         reportedByUserId: metadata.wplaceUserId,
       }
-      await ports.sql.rememberPainter(
-        metadata.wplaceUserId,
-        metadata.displayName,
-        millis(observedAtMs),
+      await timed('painter', () =>
+        ports.sql.rememberPainter(
+          metadata.wplaceUserId,
+          metadata.displayName,
+          millis(observedAtMs),
+        ),
       )
       const recordHistory =
         options.recordHistory ??
         (targets.length === 0 || targets.some((target) => !target.finished))
-      const committed = await ports.sql.commitTileBlobReservation(
-        reservationId,
-        millis(Date.now()),
-        observation,
-        statuses,
-        recordHistory,
-        options.authoritative ?? false,
-        metadata.includeUnpublished,
+      const committed = await timed('commit', () =>
+        ports.sql.commitTileBlobReservation(
+          reservationId,
+          millis(Date.now()),
+          observation,
+          statuses,
+          recordHistory,
+          options.authoritative ?? false,
+          metadata.includeUnpublished,
+        ),
       )
       if (!committed) {
         throw new Error(`tile blob reservation expired before ${metadata.hash} could be recorded`)
@@ -430,6 +433,7 @@ const recordObservationPromise = async (
   // The server recomputed coverage after prepare. A client token only supports adapters that do not
   // implement prepare; it cannot invalidate the fresher server-owned result.
   const repairCoverageToken = preparedCoverageToken?.coverageToken ?? options.coverageToken
+  const projectionStartedAt = performance.now()
   if (committed.current !== null && repairCoverageToken !== undefined) {
     await repairCommittedTileGeneration(ports.statusReadModel, metadata.season, {
       ...committed.current,
@@ -479,12 +483,14 @@ const recordObservationPromise = async (
           ),
         }
   await options.onCommitted?.(mutation)
+  ingestTimings.record(command, 'projection', performance.now() - projectionStartedAt)
   // Evaluate only changed templates, before acknowledging this observation. Initial incomplete
   // work seeds a baseline; a newly lost correct pixel opens an episode immediately.
   const alarmChanges = committed.statusChanges.filter(
     ({ previous, current }) => previous === null || previous.correct !== current.correct,
   )
   // The fetcher evaluates its complete scan/follow-up after its authoritative tile batch.
+  const alarmsStartedAt = performance.now()
   if (options.authoritative !== true && committed.revision !== null && alarmChanges.length > 0) {
     for (const {
       previous,
@@ -511,11 +517,13 @@ const recordObservationPromise = async (
     }
     await publishAlarmChange(ports.statusReadModel, metadata.season)
   }
+  ingestTimings.record(command, 'alarms', performance.now() - alarmsStartedAt)
   // Publish the authoritative revision first. A caller processing many tiles owns one shared batch
   // and flushes it only after its coalesced projection; standalone calls flush their local batch.
   const ownsArtifactWriteBatch = options.artifactWriteBatch === undefined
   const artifactWriteBatch =
-    options.artifactWriteBatch ?? createDerivedArtifactWriteBatch(ports.blobs)
+    options.artifactWriteBatch ??
+    createDerivedArtifactWriteBatch(ports.blobs, { writer: derivedArtifactWriter })
   for (const { status, mask } of classified) {
     artifactWriteBatch.add(
       {
@@ -527,12 +535,16 @@ const recordObservationPromise = async (
       mask,
     )
   }
-  if (ownsArtifactWriteBatch) await artifactWriteBatch.flush()
-  await ports.sql.foldTileHistory(
-    metadata.season,
-    metadata.tile,
-    seconds(Math.floor(Date.now() / 1_000)),
-  )
+  if (ownsArtifactWriteBatch) await timed('artifacts', () => artifactWriteBatch.flush())
+  await timed('historyFold', async () => {
+    const outcome = await foldTileHistoryThrottled(
+      ports.sql,
+      metadata.season,
+      metadata.tile,
+      seconds(Math.floor(Date.now() / 1_000)),
+    )
+    ingestTimings.count(`historyFold.${outcome}`)
+  })
 }
 
 /** Reclassify bytes already held by the current canvas hash without another R2 upload or history fold. */
@@ -570,6 +582,8 @@ const refreshAuthoritativeTilePromise = async (
   return projection
 }
 
+type OfferTileOutcome = 'ignored' | 'wanted' | 'recorded'
+
 /** Process an offer immediately when the content-addressed bytes already exist. */
 const offerTilePromise = async (
   ports: IngestStores,
@@ -580,15 +594,16 @@ const offerTilePromise = async (
     readonly onCommitted?: (mutation: StatusProjectionMutation | null) => void | Promise<void>
   } = {},
 ): Promise<'ignored' | 'wanted' | 'recorded'> => {
-  const targets = await ports.sql.listTelemetryTargets(
-    metadata.season,
-    metadata.tile,
-    metadata.includeUnpublished,
+  const targets = await ingestTimings.timed('offer', 'targets', () =>
+    ports.sql.listTelemetryTargets(metadata.season, metadata.tile, metadata.includeUnpublished),
   )
   if (targets.length === 0) return 'ignored'
-  const held = await reserveTileBlob(ports, metadata.hash)
+  const held = await ingestTimings.timed('offer', 'reserve', () =>
+    reserveTileBlob(ports, metadata.hash),
+  )
   if (held === null) return 'wanted'
   await recordObservationPromise(ports, metadata, held.bytes, held.reservation.id, {
+    command: 'offer',
     ...(options.coverageToken === undefined ? {} : { coverageToken: options.coverageToken }),
     ...(options.artifactWriteBatch === undefined
       ? {}
@@ -596,6 +611,77 @@ const offerTilePromise = async (
     ...(options.onCommitted === undefined ? {} : { onCommitted: options.onCommitted }),
   })
   return 'recorded'
+}
+
+/** True when the registered generation for this hash is active under the reserved key. */
+const tileBytesAlreadyStored = async (
+  ports: BlobSqlStores,
+  hash: string,
+  blobKey: string,
+): Promise<boolean> => {
+  const registered = await ports.sql.readTileBlob(hash)
+  return registered !== null && registered.state === 'active' && registered.blobKey === blobKey
+}
+
+/** Tile-object PUTs in flight on this runtime, by blob key, so concurrent uploaders share one. */
+const inFlightTilePuts = new Map<string, Promise<void>>()
+
+/**
+ * Store one generation's bytes at most once at a time.
+ *
+ * Reporters that offer the same fresh hash inside one commit window all reserve the same
+ * `uploading` generation, and none of them sees it `active` yet. The first PUT for a key is
+ * shared with every concurrent caller; a failed PUT rejects them all so each retries its own.
+ */
+const storeTileBytesOnce = async (
+  ports: BlobSqlStores,
+  hash: string,
+  blobKey: string,
+  bytes: Uint8Array,
+): Promise<void> => {
+  if (storedTileBlobKeys.has(blobKey)) {
+    ingestTimings.count('upload.blobPut.skipped')
+    return
+  }
+  const joined = inFlightTilePuts.get(blobKey)
+  if (joined !== undefined) {
+    ingestTimings.count('upload.blobPut.joined')
+    return joined
+  }
+  // Register before any await: the active-state read and the PUT belong to one owner, so a
+  // caller arriving during either joins it instead of racing past the lookup.
+  const work = (async () => {
+    if (!(await tileBytesAlreadyStored(ports, hash, blobKey))) {
+      await ports.blobs.put('tiles', blobKey, bytes)
+    } else {
+      ingestTimings.count('upload.blobPut.skipped')
+    }
+    rememberStoredTileBlobKey(blobKey)
+  })().finally(() => {
+    inFlightTilePuts.delete(blobKey)
+  })
+  inFlightTilePuts.set(blobKey, work)
+  return work
+}
+
+/**
+ * Blob keys whose bytes this runtime has stored or seen active.
+ *
+ * A generation stays `uploading` until its owner's observation commits, which is long after the
+ * PUT settled, and every reporter reserving it in that gap would PUT again. A restored generation
+ * always gets a fresh key, so remembering a key can never point at bytes that were reclaimed.
+ * Dropping an entry only costs one state read.
+ */
+const STORED_TILE_BLOB_KEYS_LIMIT = 512
+const storedTileBlobKeys = new Set<string>()
+
+const rememberStoredTileBlobKey = (blobKey: string): void => {
+  storedTileBlobKeys.delete(blobKey)
+  storedTileBlobKeys.add(blobKey)
+  if (storedTileBlobKeys.size > STORED_TILE_BLOB_KEYS_LIMIT) {
+    const oldest = storedTileBlobKeys.values().next().value
+    if (oldest !== undefined) storedTileBlobKeys.delete(oldest)
+  }
 }
 
 const uploadTilePromise = async (
@@ -614,21 +700,27 @@ const uploadTilePromise = async (
   if (bytes.byteLength === 0 || bytes.byteLength > MAX_CANVAS_TILE_BYTES) {
     throw new RangeError(`tile must be 1..${MAX_CANVAS_TILE_BYTES} bytes`)
   }
-  const actualHash = await sha256Hex(bytes)
+  const actualHash = await ingestTimings.timed('upload', 'hash', () => sha256Hex(bytes))
   if (actualHash !== metadata.hash) throw new RangeError('tile bytes do not match their sha256')
-  const targets = await ports.sql.listTelemetryTargets(
-    metadata.season,
-    metadata.tile,
-    metadata.includeUnpublished,
+  const targets = await ingestTimings.timed('upload', 'targets', () =>
+    ports.sql.listTelemetryTargets(metadata.season, metadata.tile, metadata.includeUnpublished),
   )
   if (options.requireCoverage !== false && targets.length === 0) {
     throw new RangeError('tile is not covered by a visible template')
   }
-  const reservation = await reserveTileBlobUpload(ports, actualHash)
+  const reservation = await ingestTimings.timed('upload', 'reserve', () =>
+    reserveTileBlobUpload(ports, actualHash),
+  )
   let projection: StatusProjectionChange | null = null
   try {
-    await ports.blobs.put('tiles', reservation.blobKey, bytes)
+    // Many reporters upload one fresh hash inside the same commit window. The generation's object
+    // holds the bytes once; the reservation keeps GC away, so only the observation still needs
+    // recording for each of them.
+    await ingestTimings.timed('upload', 'blobPut', () =>
+      storeTileBytesOnce(ports, actualHash, reservation.blobKey, bytes),
+    )
     await recordObservationPromise(ports, metadata, bytes, reservation.id, {
+      command: 'upload',
       ...(options.coverageToken === undefined ? {} : { coverageToken: options.coverageToken }),
       ...(options.recordHistory === undefined ? {} : { recordHistory: options.recordHistory }),
       ...(options.authoritative === undefined ? {} : { authoritative: options.authoritative }),
@@ -682,11 +774,16 @@ const recordPaintPromise = async (
   const totals = new Map<string, { placed: number; correct: number; repairs: number }>()
   for (const paintedTile of event.tiles) {
     const tile = { x: paintedTile.x, y: paintedTile.y }
-    const targets = await ports.sql.listTelemetryTargets(event.season, tile, includeUnpublished)
+    const targets = await ingestTimings.timed('paint', 'targets', () =>
+      ports.sql.listTelemetryTargets(event.season, tile, includeUnpublished),
+    )
     if (targets.length === 0) continue
-    const latest = await ports.sql.readLatestTile(event.season, tile)
-    const previous = latest === null ? null : await readDecodedCanvas(ports, latest.hash)
+    const previous = await ingestTimings.timed('paint', 'latestTile', async () => {
+      const latest = await ports.sql.readLatestTile(event.season, tile)
+      return latest === null ? null : await readDecodedCanvas(ports, latest.hash)
+    })
 
+    const classifyStartedAt = performance.now()
     for (const target of targets) {
       if (target.finished) continue
       const rect = chunkRect(target)
@@ -716,6 +813,7 @@ const recordPaintPromise = async (
       }
       totals.set(target.templateId, total)
     }
+    ingestTimings.record('paint', 'classify', performance.now() - classifyStartedAt)
   }
 
   const counters: CounterDelta[] = []
@@ -742,15 +840,18 @@ const recordPaintPromise = async (
       ...total,
     })
   }
-  const application = await ports.sql.applyPaintEvent(
-    event.eventId,
-    event.wplaceUserId,
-    event.displayName,
-    seenAt,
-    { counters, contributions, painterBuckets },
+  const application = await ingestTimings.timed('paint', 'apply', () =>
+    ports.sql.applyPaintEvent(event.eventId, event.wplaceUserId, event.displayName, seenAt, {
+      counters,
+      contributions,
+      painterBuckets,
+    }),
   )
   if (application.accounting === null) return 'duplicate'
-  await ports.counters.record(application.accounting.counters, event.eventId)
+  const accounting = application.accounting
+  await ingestTimings.timed('paint', 'counters', () =>
+    ports.counters.record(accounting.counters, event.eventId),
+  )
   return application.applied ? 'recorded' : 'duplicate'
 }
 
@@ -870,7 +971,9 @@ export const offerTilesWithOutcome = (
     let rejected = 0
     let cacheOutcome: 'hit' | 'miss' | 'stale' = 'hit'
     const coverageTokens = new Map<string, string>()
-    const artifactWriteBatch = createDerivedArtifactWriteBatch(blobs)
+    const artifactWriteBatch = createDerivedArtifactWriteBatch(blobs, {
+      writer: derivedArtifactWriter,
+    })
     yield* Effect.acquireUseRelease(
       Effect.void,
       () =>
@@ -906,32 +1009,58 @@ export const offerTilesWithOutcome = (
             if (read.cacheOutcome === 'stale') cacheOutcome = 'stale'
             else if (read.cacheOutcome === 'miss' && cacheOutcome === 'hit') cacheOutcome = 'miss'
           }
-          for (const offer of offers) {
-            if (cached.has(offer.key)) {
-              acknowledged.push(offer.key)
-              alreadyKnown++
-              continue
-            }
-            const coverageToken = coverageTokens.get(
-              `${offer.metadata.season}:${offer.metadata.includeUnpublished ? 'admin' : 'public'}`,
-            )
-            const outcome = yield* storage('offerTile', () =>
-              offerTilePromise({ blobs, sql, statusReadModel }, offer.metadata, {
-                ...(coverageToken === undefined ? {} : { coverageToken }),
-                artifactWriteBatch,
-                onCommitted: (mutation) => {
-                  if (mutation === null) return
-                  const seasonMutations = mutations.get(offer.metadata.season) ?? []
-                  seasonMutations.push(mutation)
-                  mutations.set(offer.metadata.season, seasonMutations)
+          // Each tile in a batch is its own observation on its own rows. Processing them one
+          // after another multiplied the database round trips of one tile by the batch size and
+          // pushed multi-tile offers past the client's deadline. Every started offer settles
+          // before the batch fails: an interrupted fiber cannot stop its storage promise, and the
+          // release below must see every commit so none misses projection repair or artifacts.
+          // Once any offer has failed, offers still queued do not start; offers already in
+          // flight finish so the batch keeps the previous fail-fast shape without losing commits.
+          let firstFailure: TelemetryStorageError | undefined
+          const settled = yield* Effect.forEach(
+            offers,
+            (
+              offer,
+            ): Effect.Effect<Result.Result<OfferTileOutcome | 'cached', TelemetryStorageError>> => {
+              if (firstFailure !== undefined) return Effect.succeed(Result.fail(firstFailure))
+              if (cached.has(offer.key)) return Effect.succeed(Result.succeed('cached' as const))
+              const coverageToken = coverageTokens.get(
+                `${offer.metadata.season}:${offer.metadata.includeUnpublished ? 'admin' : 'public'}`,
+              )
+              return Effect.map(
+                Effect.result(
+                  storage('offerTile', () =>
+                    offerTilePromise({ blobs, sql, statusReadModel }, offer.metadata, {
+                      ...(coverageToken === undefined ? {} : { coverageToken }),
+                      artifactWriteBatch,
+                      onCommitted: (mutation) => {
+                        if (mutation === null) return
+                        const seasonMutations = mutations.get(offer.metadata.season) ?? []
+                        seasonMutations.push(mutation)
+                        mutations.set(offer.metadata.season, seasonMutations)
+                      },
+                    }),
+                  ),
+                ),
+                (result) => {
+                  if (Result.isFailure(result)) firstFailure ??= result.failure
+                  return result
                 },
-              }),
-            )
-            if (outcome === 'wanted') wanted.push(offer.key)
-            else if (outcome === 'recorded') {
+              )
+            },
+            { concurrency: OFFER_TILE_CONCURRENCY },
+          )
+          const failed = settled.find(Result.isFailure)
+          if (failed !== undefined) return yield* Effect.fail(failed.failure)
+          for (const [index, offer] of offers.entries()) {
+            const entry = settled[index]
+            const outcome =
+              entry !== undefined && Result.isSuccess(entry) ? entry.success : undefined
+            if (outcome === 'cached' || outcome === 'recorded') {
               acknowledged.push(offer.key)
               alreadyKnown++
-            } else {
+            } else if (outcome === 'wanted') wanted.push(offer.key)
+            else {
               rejectedKeys.push(offer.key)
               rejected++
             }

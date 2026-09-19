@@ -6,9 +6,23 @@ import {
   type LiveSocket,
   MAX_LIVE_CLIENT_BINARY_BYTES,
 } from '../status-coordinator.js'
+import { type IngestCommand, ingestTimings } from '../telemetry/ingest-timing.js'
 
 export const MAX_BUFFERED_BYTES = 8 * 1024 * 1024
 const HANDSHAKE_TIMEOUT_MS = 10000
+
+const deepFreeze = <Value>(value: Value): Value => {
+  if (typeof value !== 'object' || value === null || Object.isFrozen(value)) return value
+  for (const nested of Object.values(value)) deepFreeze(nested)
+  return Object.freeze(value)
+}
+
+/** Which timed live command a raw frame carries, without parsing the whole JSON body twice. */
+const liveCommandKind = (message: string | ArrayBuffer): IngestCommand | null => {
+  if (typeof message !== 'string') return 'upload'
+  const type = /"type"\s*:\s*"(tile-offer|paint-report)"/.exec(message)?.[1]
+  return type === 'tile-offer' ? 'offer' : type === 'paint-report' ? 'paint' : null
+}
 /** Socket operations shared by ws and Bun's native WebSocket transport. */
 export interface LiveTransportSocket {
   readonly readyState: number
@@ -81,10 +95,14 @@ class NodeLiveSocket implements LiveSocket {
     this.socket?.close(code, reason)
   }
   serializeAttachment(attachment: unknown): void {
-    this.attachment = structuredClone(attachment)
+    // Clone once here, then hand the same frozen object to every reader. Broadcasts read the
+    // attachment of every socket, and cloning on each read was a fifth of the event loop under
+    // 512 subscribers. Freezing keeps the Durable Object contract that a read cannot mutate
+    // stored state.
+    this.attachment = deepFreeze(structuredClone(attachment))
   }
   deserializeAttachment(): unknown {
-    return structuredClone(this.attachment)
+    return this.attachment
   }
 }
 
@@ -145,8 +163,15 @@ export class NodeLiveHost implements LiveHost<NodeLiveSocket> {
           return
         }
         const message = binary ? Uint8Array.from(bytes).buffer : bytes.toString('utf8')
+        const command = liveCommandKind(message)
+        const enqueuedAt = performance.now()
         pending = pending
-          .then(() => this.coordinator().webSocketMessage(socket, message))
+          .then(() => {
+            // Time spent behind this socket's earlier messages, before any work starts.
+            if (command !== null)
+              ingestTimings.record(command, 'queue', performance.now() - enqueuedAt)
+            return this.coordinator().webSocketMessage(socket, message)
+          })
           .catch((error: unknown) => {
             console.error('Live message failed', error)
             socket.close(1011, 'live message failed')

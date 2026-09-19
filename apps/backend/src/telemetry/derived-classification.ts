@@ -1,7 +1,8 @@
 import { decodeMismatchMask, type TileCoord } from '@caelestis/shared'
 import type { BlobStore } from '../ports/index.js'
+import type { DerivedArtifactWriter } from './derived-artifact-writer.js'
 
-interface MismatchArtifactIdentity {
+export interface MismatchArtifactIdentity {
   readonly templateId: string
   readonly versionId: string
   readonly tile: TileCoord
@@ -11,7 +12,11 @@ interface MismatchArtifactIdentity {
 export interface DerivedArtifactWriteBatch {
   /** Queue a reconstructible write when this Worker job still has artifact allowance. */
   readonly add: (identity: MismatchArtifactIdentity, bytes: Uint8Array) => void
-  /** Persist queued artifacts after authoritative projection/publication work has completed. */
+  /**
+   * Hand queued artifacts on after authoritative projection/publication work has completed.
+   * With a background writer this returns as soon as the writes are queued; without one it
+   * resolves when every write has settled.
+   */
   readonly flush: () => Promise<void>
 }
 
@@ -23,6 +28,8 @@ export const createDerivedArtifactWriteBatch = (
   options: {
     readonly limit?: number
     readonly onError?: (error: unknown) => void
+    /** Live commands hand their writes to the runtime's bounded writer instead of waiting. */
+    readonly writer?: DerivedArtifactWriter
   } = {},
 ): DerivedArtifactWriteBatch => {
   let remaining = Math.max(0, Math.floor(options.limit ?? MAX_DERIVED_ARTIFACT_WRITES_PER_JOB))
@@ -35,6 +42,10 @@ export const createDerivedArtifactWriteBatch = (
     },
     flush: async () => {
       const writes = queued.splice(0)
+      if (options.writer !== undefined) {
+        options.writer.schedule(blobs, writes)
+        return
+      }
       await Promise.all(
         writes.map(async ({ identity, bytes }) => {
           try {

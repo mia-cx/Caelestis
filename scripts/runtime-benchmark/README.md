@@ -15,10 +15,14 @@ CAELESTIS_KUBE_CONTEXT=YOUR_CONTEXT CAELESTIS_TEST_ORIGIN=https://YOUR_TEST_HOST
 
 The driver creates a fresh namespace and storage, verifies pod replacement, CNPG switchover, TLS, and migrations,
 then replays 179 explorers and 77 painters through Traefik HTTPS/WSS. It retains the 256-subscriber limit.
+For a capacity ladder, set `CAELESTIS_TEST_BENCHMARK_USERS` to a larger trace and raise the backend's limit
+to match through `CAELESTIS_TEST_BACKEND_ENV='[{"name":"CAELESTIS_LIVE_SUBSCRIBER_LIMIT","value":"2048"}]'`;
+presence already allows 2,048 subscribers. Such runs measure capacity, not the production configuration.
 Every successful run has 35 seconds of warmup and 60 measured seconds. For a passing comparison, repeat three times per runtime, alternating order.
 Use identical application revisions, frontend images, fixtures, and pod placement. Record any shared-cluster noise.
 This verifies load after recovery; the workload does not retry connections during a fault or represent a long soak test.
 The [September 14 production-image report](../../docs/bun-runtime-validation-2026-09-14.md) records failures during warmup on both runtimes.
+The [September 18 tile-processing report](../../docs/tile-processing-latency-2026-09-18.md) records both runtimes passing once the Postgres adapter's queries moved from one owned session to the fenced pool, with a capacity ladder on those images; `compact-report.mjs` turns a raw report into an entry of its results file.
 
 Strict runs stop at the userscript's five-second command deadline. To investigate an existing timeout,
 set `CAELESTIS_TEST_BENCHMARK_OBSERVE=true`. This diagnostic mode waits at most 30 seconds for replies,
@@ -28,6 +32,11 @@ Observation mode exits successfully when collection completes; inspect `benchmar
 
 `benchmark.json` records image IDs, pod placement, runtime versions, driver/source/trace/fixture hashes,
 traffic correctness, latency, and resource measurements. Raw traces and samples remain beside it.
+`result.backendStages` is the backend's own per-stage breakdown of uploads, offers, and paints
+(queue wait, hashing, target lookup, reservation, blob PUT, decode, classification, commit,
+projection, alarms, artifacts, history fold, total), read from `/admin/server/ingest-timings`
+after the run. Counters record shared versus computed classifications and skipped blob PUTs.
+The breakdown covers setup, warmup, and the measured phase together.
 The backend and full application stack have separate CPU, cgroup RSS, and working-set results.
 The latter includes the backend, frontend, two CNPG instances, and MinIO. It excludes shared Traefik,
 operators, Longhorn engines, node services, and the load generator. Browser rendering and Wplace downloads remain outside the workload.

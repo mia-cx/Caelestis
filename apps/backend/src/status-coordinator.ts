@@ -84,6 +84,7 @@ import {
   recordPaint,
   uploadTile,
 } from './telemetry/ingest.js'
+import { type IngestTimingSnapshot, ingestTimings } from './telemetry/ingest-timing.js'
 import { readAlarms, readContributions, readLeaderboard } from './telemetry/queries.js'
 
 export interface LiveSocket {
@@ -513,6 +514,8 @@ export class StatusCoordinator<Client> {
       surface: TemplateSurface,
     ) => Promise<void>,
     private readonly requestMetrics?: Pick<AnalyticsEngineDataset, 'writeDataPoint'>,
+    /** Deployment overrides; the defaults are the production limits. */
+    private readonly limits: { readonly liveSubscribers?: number } = {},
   ) {}
 
   private backendRuntime(): BackendRuntime {
@@ -612,8 +615,22 @@ export class StatusCoordinator<Client> {
   }
 
   private send(socket: LiveSocket, event: LiveSyncServerEvent): void {
+    let messages: readonly string[]
     try {
-      for (const message of encodeLiveServerEvent(event)) socket.send(message)
+      messages = encodeLiveServerEvent(event)
+    } catch {
+      try {
+        socket.close(1011, 'live sync send failed')
+      } catch {}
+      return
+    }
+    this.sendEncoded(socket, messages)
+  }
+
+  /** Deliver an already-encoded event, so one encoding can serve many subscribers. */
+  private sendEncoded(socket: LiveSocket, messages: readonly string[]): void {
+    try {
+      for (const message of messages) socket.send(message)
     } catch {
       try {
         socket.close(1011, 'live sync send failed')
@@ -758,7 +775,15 @@ export class StatusCoordinator<Client> {
       new TextEncoder().encode(encoded).byteLength <= MAX_DELTA_MESSAGE_BYTES
         ? { type: 'status-delta', delta }
         : { type: 'status-reconcile', revision: delta.revision }
-    for (const socket of this.subscribers(scope)) this.send(socket, event)
+    // Encode once for every subscriber; with hundreds of sockets per commit the per-socket
+    // JSON work was a measurable share of the event loop.
+    let messages: readonly string[]
+    try {
+      messages = encodeLiveServerEvent(event)
+    } catch {
+      return
+    }
+    for (const socket of this.subscribers(scope)) this.sendEncoded(socket, messages)
   }
 
   async applyCommittedChange(
@@ -909,6 +934,13 @@ export class StatusCoordinator<Client> {
     this.tileGenerations.finish(tile, commit)
   }
 
+  /** Stage timings for the live commands this coordinator handled since the last reset. */
+  async readIngestTimings(reset: boolean): Promise<IngestTimingSnapshot> {
+    const snapshot = ingestTimings.snapshot()
+    if (reset) ingestTimings.reset()
+    return snapshot
+  }
+
   async notifyAlarmChange(season: number): Promise<void> {
     this.bindSeason(season)
     const event: LiveSyncServerEvent = { type: 'alarms-reconcile' }
@@ -917,15 +949,28 @@ export class StatusCoordinator<Client> {
   }
 
   private async broadcastAlarmSnapshots(): Promise<void> {
+    const subscribers = this.subscribers().flatMap((socket) => {
+      const attachment = socket.deserializeAttachment() as LiveSubscriberAttachment | null
+      return attachment?.protocol === 2 ? [{ socket, attachment }] : []
+    })
+    // One read and one encoding per season and scope, not one per subscriber. With hundreds of
+    // sockets, one alarm change used to fire hundreds of identical queries at the pool at once
+    // and starved every live command behind them.
+    const encoded = new Map<string, Promise<readonly string[]>>()
+    const snapshotFor = ({ season, scope }: LiveSubscriberAttachment) => {
+      const key = `${season}:${scope}`
+      let pending = encoded.get(key)
+      if (pending === undefined) {
+        pending = this.backendRuntime()
+          .run(readAlarms(season, scope === 'admin'))
+          .then((alarms) => encodeLiveServerEvent({ type: 'alarms-snapshot', alarms }))
+        encoded.set(key, pending)
+      }
+      return pending
+    }
     await Promise.all(
-      this.subscribers().map(async (socket) => {
-        const attachment = socket.deserializeAttachment() as LiveSubscriberAttachment | null
-        if (attachment?.protocol !== 2) return
-        await this.sendProjectionSnapshot(socket, attachment, {
-          resource: 'telemetry-alarms',
-          scope: 'world',
-          version: null,
-        })
+      subscribers.map(async ({ socket, attachment }) => {
+        this.sendEncoded(socket, await snapshotFor(attachment))
       }),
     )
   }
@@ -1006,8 +1051,10 @@ export class StatusCoordinator<Client> {
       return
     }
     try {
-      const result = await this.backendRuntime().run(
-        recordPaint(event.event, attachment?.tokenHash ?? '', attachment?.scope === 'admin'),
+      const result = await ingestTimings.timed('paint', 'total', () =>
+        this.backendRuntime().run(
+          recordPaint(event.event, attachment?.tokenHash ?? '', attachment?.scope === 'admin'),
+        ),
       )
       this.send(socket, {
         type: 'paint-result',
@@ -1110,21 +1157,23 @@ export class StatusCoordinator<Client> {
     }
     const receivedAt = seconds(Math.floor(Date.now() / 1_000))
     try {
-      const result = await this.backendRuntime().run(
-        offerTilesWithOutcome(
-          parsed.map(({ offer, tile }) => ({
-            key: offer.tile,
-            metadata: {
-              wplaceUserId: event.batch.wplaceUserId,
-              displayName: event.batch.displayName,
-              tokenHash: attachment?.tokenHash ?? '',
-              season: event.batch.season,
-              tile: tile ?? { x: -1, y: -1 },
-              hash: offer.sha256,
-              observedAt: seconds(Math.min(offer.ts, receivedAt + MAX_TILE_FUTURE_SKEW_SECONDS)),
-              includeUnpublished: attachment?.scope === 'admin',
-            },
-          })),
+      const result = await ingestTimings.timed('offer', 'total', () =>
+        this.backendRuntime().run(
+          offerTilesWithOutcome(
+            parsed.map(({ offer, tile }) => ({
+              key: offer.tile,
+              metadata: {
+                wplaceUserId: event.batch.wplaceUserId,
+                displayName: event.batch.displayName,
+                tokenHash: attachment?.tokenHash ?? '',
+                season: event.batch.season,
+                tile: tile ?? { x: -1, y: -1 },
+                hash: offer.sha256,
+                observedAt: seconds(Math.min(offer.ts, receivedAt + MAX_TILE_FUTURE_SKEW_SECONDS)),
+                includeUnpublished: attachment?.scope === 'admin',
+              },
+            })),
+          ),
         ),
       )
       const byTile = new Map<string, string>(
@@ -1204,20 +1253,22 @@ export class StatusCoordinator<Client> {
     }
     const receivedAt = seconds(Math.floor(Date.now() / 1_000))
     try {
-      await this.backendRuntime().run(
-        uploadTile(
-          {
-            wplaceUserId: metadata.wplaceUserId,
-            displayName: metadata.displayName,
-            tokenHash: attachment?.tokenHash ?? '',
-            season: metadata.season,
-            tile,
-            hash: metadata.sha256,
-            observedAt: seconds(Math.min(metadata.ts, receivedAt + MAX_TILE_FUTURE_SKEW_SECONDS)),
-            includeUnpublished: attachment?.scope === 'admin',
-          },
-          frame.payload,
-          metadata.coverageToken === undefined ? {} : { coverageToken: metadata.coverageToken },
+      await ingestTimings.timed('upload', 'total', () =>
+        this.backendRuntime().run(
+          uploadTile(
+            {
+              wplaceUserId: metadata.wplaceUserId,
+              displayName: metadata.displayName,
+              tokenHash: attachment?.tokenHash ?? '',
+              season: metadata.season,
+              tile,
+              hash: metadata.sha256,
+              observedAt: seconds(Math.min(metadata.ts, receivedAt + MAX_TILE_FUTURE_SKEW_SECONDS)),
+              includeUnpublished: attachment?.scope === 'admin',
+            },
+            frame.payload,
+            metadata.coverageToken === undefined ? {} : { coverageToken: metadata.coverageToken },
+          ),
         ),
       )
       this.send(socket, {
@@ -1343,7 +1394,7 @@ export class StatusCoordinator<Client> {
       const response = await this.liveSessions.attach(
         async () => {
           const sockets = this.objectState.getWebSockets('status')
-          if (sockets.length >= MAX_LIVE_SUBSCRIBERS) {
+          if (sockets.length >= (this.limits.liveSubscribers ?? MAX_LIVE_SUBSCRIBERS)) {
             capacityExceeded = true
             return false
           }

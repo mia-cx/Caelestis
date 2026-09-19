@@ -154,7 +154,11 @@ export async function benchmarkKubernetes({
   const warmupMs = 35000
   const measuredMs = 60000
   const durationMs = warmupMs + measuredMs
-  const fixture = await fixtures(durationMs, 256)
+  // The corrected trace is 256 users; a capacity ladder raises it with the backend's live
+  // subscriber limit raised to match (CAELESTIS_LIVE_SUBSCRIBER_LIMIT through the backend env).
+  const users = Number(process.env.CAELESTIS_TEST_BENCHMARK_USERS ?? 256)
+  assert.ok(Number.isInteger(users) && users >= 2, 'CAELESTIS_TEST_BENCHMARK_USERS must be >= 2')
+  const fixture = await fixtures(durationMs, users)
   const trace = schedule(durationMs, fixture)
   const report = {
     issue: 390,
@@ -164,7 +168,7 @@ export async function benchmarkKubernetes({
     startedAt: new Date().toISOString(),
     description: {
       ...description,
-      users: 256,
+      users,
       explorers: fixture.explorers,
       painters: fixture.painters,
     },
@@ -281,8 +285,23 @@ export async function benchmarkKubernetes({
     }
     return result
   }
+  // Per-stage backend timings for uploads, offers, and paints, from the backend's own clock.
+  // They cover setup, warmup, and the measured phase together; the acceptance traffic before the
+  // benchmark is excluded by the reset.
+  const backendStages = async (query = '') => {
+    try {
+      const response = await fetch(`${site}/backend/v1/admin/server/ingest-timings${query}`, {
+        headers: { authorization: `Bearer ${adminToken}` },
+        signal: AbortSignal.timeout(30000),
+      })
+      return response.ok ? await response.json() : { unavailable: `HTTP ${response.status}` }
+    } catch (error) {
+      return { unavailable: String(error) }
+    }
+  }
   try {
-    console.log('Replaying 256 users: 35-second warmup, then 60 measured seconds')
+    await backendStages('?reset=true')
+    console.log(`Replaying ${users} users: 35-second warmup, then 60 measured seconds`)
     report.result = await traffic({
       site,
       adminToken,
@@ -294,6 +313,7 @@ export async function benchmarkKubernetes({
       end,
       commandTimeoutMs: report.commandTimeoutMs,
     })
+    report.result.backendStages = await backendStages()
     assert.deepEqual(await inspect(), containers, 'Containers changed during the measured workload')
     report.completed = true
     report.passed = Object.values(report.result.correctness.clientDeadlineMisses).every(
@@ -303,6 +323,7 @@ export async function benchmarkKubernetes({
     report.passed = false
     report.error = String(error)
     report.result = error.benchmarkResult
+    if (report.result) report.result.backendStages = await backendStages()
     throw error
   } finally {
     clearInterval(timer)
@@ -310,7 +331,7 @@ export async function benchmarkKubernetes({
     await writeFile(`${output}/benchmark.json`, JSON.stringify(report, null, 2))
   }
   console.log(
-    `256-user benchmark ${report.passed ? 'passed' : 'completed with client deadline misses'}; results: ${output}/benchmark.json`,
+    `${users}-user benchmark ${report.passed ? 'passed' : 'completed with client deadline misses'}; results: ${output}/benchmark.json`,
   )
   return {
     completed: report.completed,

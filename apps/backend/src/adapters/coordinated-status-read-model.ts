@@ -23,6 +23,7 @@ import type {
   TileGenerationCacheRead,
   TileGenerationOffer,
 } from '../status-read-model/tile-generation-cache.js'
+import type { IngestTimingSnapshot } from '../telemetry/ingest-timing.js'
 
 const measuredValue = <A>(measured: MeasuredD1Operation<A>): A => {
   mergeD1Usage(measured.usage)
@@ -138,6 +139,10 @@ export class CoordinatedStatusReadModel implements StatusReadModelPort {
     tile: TileCoord,
   ): Promise<PreparedTileGenerationCommit> {
     return this.shard(season).prepareTileGenerationCommit(season, tile)
+  }
+
+  async readIngestTimings(season: number, reset: boolean): Promise<IngestTimingSnapshot> {
+    return this.shard(season).readIngestTimings(reset)
   }
 
   applyCommittedTileGeneration(season: number, generation: CommittedTileGeneration): Promise<void> {

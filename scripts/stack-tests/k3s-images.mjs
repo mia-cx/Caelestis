@@ -166,10 +166,13 @@ try {
         ],
         { stdio: ['pipe', 'inherit', 'inherit'] },
       )
+      // Three images stream through one kubectl exec. A slower path from the machine running this
+      // to the node needs more than the default three minutes.
+      const importTimeoutMs = Number(process.env.CAELESTIS_IMAGE_IMPORT_TIMEOUT_MS ?? 180_000)
       const deadline = setTimeout(() => {
         source.kill('SIGTERM')
         target.kill('SIGTERM')
-      }, 180_000)
+      }, importTimeoutMs)
       try {
         const [sourceResult, targetResult] = await Promise.all([
           once(source, 'close'),
