@@ -1,5 +1,13 @@
-/** Live commands, plus `sql` for the database adapter's own waits behind them. */
-export type IngestCommand = 'upload' | 'offer' | 'paint' | 'sql' | 'presence' | 'claims'
+/** Live command stages, database statements, and the adapter lanes that serialize transactions. */
+export type IngestCommand =
+  | 'upload'
+  | 'offer'
+  | 'paint'
+  | 'sql'
+  | 'presence'
+  | 'claims'
+  | 'tileLane'
+  | 'coordinatorLane'
 
 export type IngestStage =
   | 'queue'
@@ -141,6 +149,8 @@ export class IngestTimings {
       sql: {},
       presence: {},
       claims: {},
+      tileLane: {},
+      coordinatorLane: {},
     }
     for (const [key, accumulator] of this.stages) {
       const [command, stage] = key.split('.') as [IngestCommand, IngestStage]
