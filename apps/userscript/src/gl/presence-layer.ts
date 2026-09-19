@@ -120,6 +120,8 @@ void main() {
     if (cell.x < 4.0 && cell.y < 4.0) alpha = max(alpha, u_patternAlpha);
   }
   if (edge) alpha = max(alpha, u_border);
+  // Transparent interiors and mask gaps need no framebuffer blend.
+  if (alpha == 0.0) discard;
   fragColor = vec4(u_colour * alpha, alpha);
 }
 `

@@ -133,3 +133,27 @@ Movement layout and style time improve in each pair, but whole-page task time do
 Frame p95 remains 17.2–17.5 ms. Focused tests cover ancestor movement, sibling insertion, label writes,
 projection replacement and label placement. All 25 tests pass, as does the userscript typecheck.
 [Raw profiles](benchmarks/raid-473-2026-09-20.json.gz) retain the noisy hover runs and exact build hashes.
+
+## Transparent fragments (#470)
+
+The baseline includes #473. The candidate discards only fragments whose final alpha is exactly zero,
+after border and pattern evaluation. Premultiplied blending previously wrote a zero contribution at those pixels.
+Colours, opacity, masks, borders and visible patterns retain the same computation.
+The primary metric is presence GPU elapsed time per rendered movement frame.
+
+| Pair | Combined layers, baseline → candidate | Viewports only, baseline → candidate |
+| --- | --- | --- |
+| 1 | 1.217 → 1.104 ms | 0.897 → 0.746 ms |
+| 2 | 1.312 → 1.186 ms | 0.864 → 0.775 ms |
+| 3 | 1.322 → 1.133 ms | 0.870 → 0.697 ms |
+
+Combined movement improves 11.1%, with separate baseline/candidate ranges. Viewports improve in every movement
+and idle pair. Hover results vary. Claims-only rendering at zoom 12 shows no repeatable improvement; those
+measurements include all 37 claims at a smaller scale. No mask sampling, draw calls or uploads are removed.
+Whole-page task time does not establish a general speedup. Matching hover screenshots preserve coverage,
+subtractive holes, border thickness and labels. These measurements use the available Mac GPU only.
+
+[Combined profiles](benchmarks/raid-470-combined-2026-09-20.json.gz),
+[viewport profiles](benchmarks/raid-470-viewports-2026-09-20.json.gz) and
+[claims-only zoom 12 profiles](benchmarks/raid-470-claims-2026-09-20.json.gz)
+retain all three alternating pairs, build hashes, draw counts, mask bytes and frame measurements.
