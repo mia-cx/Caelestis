@@ -12,6 +12,55 @@ it('preserves quoted markers and repeated numbered parameters', () => {
 })
 
 describe.skipIf(!process.env.CAELESTIS_TEST_POSTGRES_URL)('PostgreSQL persistence', () => {
+  it('blocks preceding-binary inserts that overlap terminal claim retirement', async () => {
+    const schema = `test_${crypto.randomUUID().replaceAll('-', '')}`
+    const connection = new PostgresConnection({
+      connectionString: process.env.CAELESTIS_TEST_POSTGRES_URL,
+      options: `-c search_path=${schema}`,
+    })
+    await connection.pool.query(`CREATE SCHEMA ${schema}`)
+    const retiring = await connection.pool.connect()
+    const legacy = await connection.pool.connect()
+    const insert = `INSERT INTO work_regions
+      (id, season, surface_kind, claimant_user_id, claimant_name, x, y, w, h, label, created_at, expires_at)
+      VALUES ('retired', 0, 'world', 1, 'Mia', 0, 0, 8, 8, '', 0, 0) ON CONFLICT(id) DO NOTHING`
+    try {
+      await connection.migrate(join(import.meta.dirname, '../../../migrations-postgres'))
+      await legacy.query(insert)
+      await retiring.query('BEGIN')
+      await retiring.query("INSERT INTO work_region_deletions VALUES ('retired')")
+      await retiring.query("DELETE FROM work_regions WHERE id = 'retired'")
+      const { rows } = await legacy.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')
+      const pid = rows[0]?.pid
+      if (pid === undefined) throw new Error('missing legacy connection PID')
+      const staleInsert = legacy.query(insert)
+      await expect
+        .poll(
+          async () =>
+            (
+              await connection.pool.query<{ blocked: boolean }>(
+                'SELECT cardinality(pg_blocking_pids($1)) > 0 AS blocked',
+                [pid],
+              )
+            ).rows[0]?.blocked,
+        )
+        .toBe(true)
+      await retiring.query('COMMIT')
+      expect((await staleInsert).rowCount).toBe(0)
+      await legacy.query('DELETE FROM work_regions WHERE expires_at <= 1')
+      expect((await legacy.query('SELECT * FROM work_regions')).rows).toEqual([])
+      expect((await legacy.query('SELECT * FROM work_region_deletions')).rows).toEqual([
+        { id: 'retired' },
+      ])
+    } finally {
+      await retiring.query('ROLLBACK')
+      retiring.release()
+      legacy.release()
+      await connection.pool.query(`DROP SCHEMA ${schema} CASCADE`)
+      await connection.close()
+    }
+  })
+
   it('invalidates old public status caches once while retaining other coordinator state', async () => {
     const schema = `test_${crypto.randomUUID().replaceAll('-', '')}`
     const connection = new PostgresConnection({

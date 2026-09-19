@@ -11,7 +11,7 @@ import {
 import { and, asc, eq, gt, isNotNull, isNull, lte, ne, or, sql } from 'drizzle-orm'
 import { changedRows, relationalDatabase } from '../adapters/relational-database.js'
 import type { SqlConnection } from '../adapters/sql-connection.js'
-import { workRegions } from '../db/schema.js'
+import { workRegionDeletions, workRegions } from '../db/schema.js'
 import type { RegionOwner, RegionStore, RegionWriter } from './region-store.js'
 
 const ownedBy = (writer: RegionWriter) =>
@@ -157,9 +157,9 @@ export class RelationalRegionStore implements RegionStore {
 
   async isRegionDeleted(id: string): Promise<boolean> {
     const [row] = await this.db
-      .select({ id: workRegions.id })
-      .from(workRegions)
-      .where(and(eq(workRegions.id, id), eq(workRegions.state, 'deleted')))
+      .select({ id: workRegionDeletions.id })
+      .from(workRegionDeletions)
+      .where(eq(workRegionDeletions.id, id))
       .limit(1)
     return row !== undefined
   }
@@ -193,13 +193,34 @@ export class RelationalRegionStore implements RegionStore {
         region.expiresAt ?? Date.now() + REGION_CLAIM_TTL_MS,
       )
       .run()
+      .catch(async (error: unknown) => {
+        // MariaDB rejects a retired ID through its NOT NULL insert guard. SQLite/Postgres skip it.
+        if (await this.isRegionDeleted(region.id)) return { meta: { changes: 0 } }
+        throw error
+      })
     return result.meta.changes === 1
   }
 
   async deleteRegion(id: string, writer: RegionWriter, withdraw = false): Promise<boolean> {
+    if (!withdraw) {
+      // Retire the ID and remove the live row atomically. Old binaries cannot see the tombstone
+      // or erase it with their expiry sweep, and the database blocks their stale reinsertion.
+      const retire = this.db
+        .insert(workRegionDeletions)
+        .select(
+          this.db
+            .select({ id: workRegions.id })
+            .from(workRegions)
+            .where(and(eq(workRegions.id, id), ownedBy(writer))),
+        )
+        .onConflictDoNothing()
+      const remove = this.db.delete(workRegions).where(and(eq(workRegions.id, id), ownedBy(writer)))
+      const [, result] = await this.db.batch([retire, remove])
+      return changedRows(result) === 1
+    }
     const result = await this.db
       .update(workRegions)
-      .set(withdraw ? { state: 'withdrawn' } : { state: 'deleted', shape: null })
+      .set({ state: 'withdrawn' })
       .where(and(eq(workRegions.id, id), ownedBy(writer), ne(workRegions.state, 'deleted')))
       .run()
     return changedRows(result) === 1

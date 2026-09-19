@@ -15,6 +15,11 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/sqlite-core'
 
+/** Terminal claim identities, separate from rows that older binaries can read or expire. */
+export const workRegionDeletions = sqliteTable('work_region_deletions', {
+  id: text('id').primaryKey(),
+})
+
 /** Persistent painter claims on canvas regions. */
 export const workRegions = sqliteTable(
   'work_regions',

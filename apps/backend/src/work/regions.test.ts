@@ -150,6 +150,15 @@ it('replaces the production incident guard without allowing stale writes between
   for (let retry = 0; retry < 2; retry++) {
     for (const statement of sql.split('--> statement-breakpoint')) {
       database?.sqlite.exec(statement)
+      database?.sqlite.prepare('DELETE FROM work_regions WHERE expires_at <= ?').run(Date.now())
+      database?.sqlite
+        .prepare(`INSERT INTO work_regions
+          (id, season, surface_kind, claimant_user_id, claimant_name, x, y, w, h, label, created_at, expires_at)
+          VALUES (?, 0, 'world', 1, 'Mia', 0, 0, 8, 8, '', 0, ?) ON CONFLICT(id) DO NOTHING`)
+        .run(id, Date.now() + REGION_CLAIM_TTL_MS)
+      expect(
+        database?.sqlite.prepare('SELECT id FROM work_regions WHERE id = ?').get(id),
+      ).toBeUndefined()
       expect([409, 410]).toContain((await h.call('PUT', id, h.body)).status)
       expect(await h.sql.regions.listRegions(0, WORLD_TEMPLATE_SURFACE)).toEqual([])
     }
@@ -158,6 +167,35 @@ it('replaces the production incident guard without allowing stale writes between
   const reopened = new D1SqlStore(database as unknown as D1Database)
   expect(await reopened.regions.isRegionDeleted(id)).toBe(true)
   expect((await h.call('PUT', uuidV7(), h.body)).status).toBe(200)
+})
+
+it('keeps terminal deletion hidden and irreversible through preceding-binary SQL', async () => {
+  const h = await setup('d1')
+  const id = uuidV7()
+  await h.call('PUT', id, h.body)
+  const row = database?.sqlite.prepare('SELECT * FROM work_regions WHERE id = ?').get(id)
+  expect(row).toBeDefined()
+  await h.call('DELETE', id, { actor })
+  // The preceding binary has no state predicate on reads, updates, or expiry deletion.
+  expect(
+    database?.sqlite.prepare('SELECT * FROM work_regions WHERE id = ?').get(id),
+  ).toBeUndefined()
+  database?.sqlite.prepare('UPDATE work_regions SET label = ? WHERE id = ?').run('stale', id)
+  database?.sqlite
+    .prepare('DELETE FROM work_regions WHERE expires_at <= ?')
+    .run(Date.now() + REGION_CLAIM_TTL_MS)
+  if (row === undefined) throw new Error('missing original claim')
+  const columns = Object.keys(row).filter((column) => column !== 'state')
+  database?.sqlite
+    .prepare(
+      `INSERT INTO work_regions (${columns.join(',')}) VALUES (${columns.map(() => '?').join(',')}) ON CONFLICT(id) DO NOTHING`,
+    )
+    .run(...columns.map((column) => row[column] ?? null))
+  expect(
+    database?.sqlite.prepare('SELECT * FROM work_regions WHERE id = ?').get(id),
+  ).toBeUndefined()
+  expect(await h.sql.regions.isRegionDeleted(id)).toBe(true)
+  expect((await h.call('PUT', id, h.body)).status).toBe(410)
 })
 
 describe.each([
