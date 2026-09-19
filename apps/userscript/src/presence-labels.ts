@@ -331,22 +331,6 @@ export const presenceTagsAt = (
   return tags
 }
 
-/**
- * Pieces of every claim except `except`, as canvas rects. A tag cannot merge with another
- * painter's claim, so it is nudged up until it clears these instead.
- */
-export const otherClaimPieces = (except: string): PresenceRect[] => {
-  const view = presenceView()
-  const editing = new Set(claimEditorEditingIds())
-  const boxes: PresenceRect[] = []
-  for (const region of view.regions) {
-    if (region.id === except || editing.has(region.id)) continue
-    const held = piecesFor(region.id, region.document)
-    if (held !== null) boxes.push(...held.components.boxes)
-  }
-  return boxes
-}
-
 const removeAll = (): void => {
   for (const node of nodes.values()) node.remove()
   nodes.clear()
@@ -446,49 +430,23 @@ export const renderPresenceLabels = (frame: TileFrame): void => {
     let x = Math.round(centre - width / 2)
     x = Math.min(Math.max(x, box.left + INSET), box.right - width - INSET)
     let y = Math.round(top - GAP - TAG_HEIGHT)
-    // Another painter's claim cannot share this tag, so the tag climbs until it is clear of it.
-    const obstacles = tag.key.startsWith('region:')
-      ? otherClaimPieces(tag.key.slice('region:'.length))
-          .map((piece) => rectOnScreen(frame, piece))
-          .filter((piece) => piece !== null)
-          .map((piece) => ({
-            left: box.left + piece.x / ratioX,
-            top: box.top + piece.y / ratioY,
-            right: box.left + (piece.x + piece.width) / ratioX,
-            bottom: box.top + (piece.y + piece.height) / ratioY,
-          }))
-      : []
-    const overlaps = (held: {
-      left: number
-      top: number
-      right: number
-      bottom: number
-    }): boolean =>
-      x < held.right && held.left < x + width && y < held.bottom && held.top < y + TAG_HEIGHT
-    // Every constraint is applied together until the chip stops moving: an edge clamp or a
-    // stack onto another tag can land it on a claim again, so each pass rechecks them all.
+    // Other painters' claims are not obstacles: the chip is DOM above the GL layer, so it stays
+    // anchored to its own claim and simply reads over whatever it covers.
+    const overlaps = (held: Placed): boolean =>
+      x < held.x + held.width &&
+      held.x < x + width &&
+      y < held.y + TAG_HEIGHT &&
+      held.y < y + TAG_HEIGHT
+    // The edge clamp and the stack onto another tag can undo each other, so each pass
+    // rechecks both until the chip stops moving.
     for (let round = 0; round < 8; round++) {
       const before = y
-      for (let guard = 0; guard < obstacles.length; guard++) {
-        const hit = obstacles.find(overlaps)
-        if (hit === undefined) break
-        // Above the claim when there is room for it; below it when that would leave the map.
-        const above = Math.round(hit.top - GAP - TAG_HEIGHT)
-        y = above >= box.top + INSET ? above : Math.round(hit.bottom + GAP)
-      }
       // Above the map's top edge there is nowhere to go but inside, just under the edge.
       if (y < box.top + INSET)
         y = Math.round(Math.min(top + INSET, box.bottom - TAG_HEIGHT - INSET))
       // Tags for different things must not cover each other: stack upward on a collision.
       for (let guard = 0; guard < placed.length; guard++) {
-        const other = placed.find((held) =>
-          overlaps({
-            left: held.x,
-            top: held.y,
-            right: held.x + held.width,
-            bottom: held.y + TAG_HEIGHT,
-          }),
-        )
+        const other = placed.find(overlaps)
         if (other === undefined) break
         y = other.y - TAG_HEIGHT - 2
       }
