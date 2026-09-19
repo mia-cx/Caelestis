@@ -64,6 +64,13 @@ const sameAppearance = (left: Appearance, right: Appearance): boolean =>
  * insertion, and frame scheduling. They do not maintain their own visibility or appearance state.
  */
 export class RenderScene {
+  private frame: {
+    readonly key: object
+    readonly templates: readonly PlacedTemplate[]
+    readonly surface: TemplateSurface
+    readonly reducedMotion: boolean
+    readonly result: SceneTemplates
+  } | null = null
   private readonly retained = new Map<string, RetainedTemplate>()
   private ids = new Set<string>()
   private readonly templateFades = ramps()
@@ -96,12 +103,24 @@ export class RenderScene {
     return { data, done }
   }
 
+  /** Advance transitions once when callers share a key unique to this host's current frame. */
   advanceTemplates(
     templates: readonly PlacedTemplate[],
     surface: TemplateSurface,
     now: number,
     reducedMotion: boolean,
+    frame?: object,
   ): SceneTemplates {
+    const prepared = this.frame
+    if (
+      frame !== undefined &&
+      prepared?.key === frame &&
+      prepared.surface === surface &&
+      prepared.reducedMotion === reducedMotion &&
+      prepared.templates.length === templates.length &&
+      templates.every((template, index) => template === prepared.templates[index])
+    )
+      return prepared.result
     if (templates.length !== this.ids.size || templates.some(({ id }) => !this.ids.has(id))) {
       this.ids = new Set(templates.map(({ id }) => id))
       this.templateFades.prune(this.ids)
@@ -170,7 +189,12 @@ export class RenderScene {
       })
       return rendered
     })
-    return { templates: rendered, animating }
+    const result = { templates: rendered, animating }
+    // The world passes its current quad array, replaced at every captured map frame. Other hosts
+    // may omit the key; no prepared state crosses a host or survives into its next frame.
+    this.frame =
+      frame === undefined ? null : { key: frame, templates, surface, reducedMotion, result }
+    return result
   }
 
   advanceMarkers(

@@ -20,7 +20,7 @@ Implement the thirteen children #466–478 in one PR on the supplied branch. Kee
 - [x] #469 Prepare connected components only after a pointer hits claimed pixels; test, benchmark and commit.
 - [ ] #470 Measure remaining presence GPU cost and retain only proven rendering improvements.
 - [x] #471 Coalesce presence screen updates with the next map frame; test, benchmark and commit.
-- [~] #472 Share scene preparation within a host frame; test, benchmark and commit.
+- [x] #472 Share scene preparation within a host frame; test, benchmark and commit.
 - [~] #473 Measure and reduce label layout work without stale geometry; test, benchmark and commit.
 - [~] #474 Add deterministic measured-phase backend claim churn and baseline coverage.
 - [~] #475 Reduce repeated presence peer selection; test, benchmark and commit.
@@ -52,3 +52,4 @@ Implement the thirteen children #466–478 in one PR on the supplied branch. Kee
 - #471 accepted synchronous notification cost: hover 55.2–65.4 to 10.9–27.7 ms; movement 41.8–51.3 to 8.5–10.9 ms, three pairs each. Whole-page and total label time inconclusive; all frame p95 near refresh cap. Burst test passes; current client typecheck and 49 focused tests pass.
 - #475 three alternating 256-user pairs pass on Node/Bun with exact accounting, claims and recovery. Selection time falls 44.8%/59.5%, total CPU 8.6%/17.0%. Candidate total CPU improves in every pair. Publication comparison now running.
 - #474 deliberate dropped region messages on client 0 produce claim edit delivery timeout and nonzero benchmark exit; raw failed result retained. This is the expected red gate, not a failed product run.
+- #472 accepted three alternating pairs: combined overlay/outline/marker task time falls 44.3% during movement and 40.1% idle. Whole-page movement task time improves 3.1%, every pair; hover inconsistent. All samples zero long tasks. Tests preserve fades, template changes and host separation.

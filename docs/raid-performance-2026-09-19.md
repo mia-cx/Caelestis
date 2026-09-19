@@ -102,3 +102,21 @@ as much task time across unrelated tasks as their baselines. Frame p95 remains 1
 The burst test verifies five notifications request rendering without synchronously repainting controls,
 then refresh controls once on the next frame. The affected focused suite passes 49 tests.
 [Raw profiles](benchmarks/raid-471-2026-09-19.json.gz) include hover, trusted movement and idle recovery.
+
+## Shared scene preparation (#472)
+
+The baseline includes #471. Overlay, outline and marker layers share one prepared scene per captured world frame.
+The captured quad array identifies the frame; other hosts retain their independent scene and timing.
+The primary metric sums the three rendering tasks, including their common scene preparation.
+
+| Pair | Movement render tasks, baseline → candidate | Idle render tasks, baseline → candidate |
+| --- | --- | --- |
+| 1 | 695.3 → 395.4 ms | 639.6 → 391.4 ms |
+| 2 | 687.7 → 377.7 ms | 638.5 → 373.2 ms |
+| 3 | 682.4 → 378.2 ms | 633.8 → 379.5 ms |
+
+Movement render time falls 44.3% on average; idle falls 40.1%. Whole-page movement task time falls
+from 3.238/3.207/3.157 to 3.119/3.108/3.081 seconds, a 3.1% mean improvement in all three pairs.
+Hover whole-page and rendering costs remain inconsistent. All samples have zero observed long tasks,
+and frame p95 remains 17.2–17.6 ms. Tests preserve next-frame fades, template replacement and host separation.
+[Raw profiles](benchmarks/raid-472-2026-09-19.json.gz) record the full workload and exact bundle hashes.

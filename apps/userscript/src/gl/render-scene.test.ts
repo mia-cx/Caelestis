@@ -52,6 +52,30 @@ beforeEach(() => {
 })
 
 describe('shared render scene', () => {
+  it('shares preparation within a host frame and refreshes inputs on the next frame', () => {
+    const scene = new RenderScene()
+    const firstFrame = {}
+    const first = scene.advanceTemplates([template], WORLD_TEMPLATE_SURFACE, 0, false, firstFrame)
+    expect(scene.advanceTemplates([template], WORLD_TEMPLATE_SURFACE, 1, false, firstFrame)).toBe(
+      first,
+    )
+    fixture.visible = false
+    const second = scene.advanceTemplates([template], WORLD_TEMPLATE_SURFACE, 300, false, {})
+    expect(second).not.toBe(first)
+    expect(second.animating).toBe(true)
+    expect(
+      scene.advanceTemplates([template], WORLD_TEMPLATE_SURFACE, 600, false, {}).templates[0]?.fade,
+    ).toBe(0)
+    const replacement = { ...template, revision: 2 }
+    expect(
+      scene.advanceTemplates([replacement], WORLD_TEMPLATE_SURFACE, 301, false, firstFrame)
+        .templates[0]?.template,
+    ).toBe(replacement)
+    expect(
+      new RenderScene().advanceTemplates([template], WORLD_TEMPLATE_SURFACE, 1, false, firstFrame),
+    ).not.toBe(first)
+  })
+
   it('retains settled scene entries and palettes across render passes', () => {
     const scene = new RenderScene()
     scene.advanceTemplates([template], WORLD_TEMPLATE_SURFACE, 0, false)
