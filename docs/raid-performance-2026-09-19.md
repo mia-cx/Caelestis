@@ -157,3 +157,36 @@ subtractive holes, border thickness and labels. These measurements use the avail
 [viewport profiles](benchmarks/raid-470-viewports-2026-09-20.json.gz) and
 [claims-only zoom 12 profiles](benchmarks/raid-470-claims-2026-09-20.json.gz)
 retain all three alternating pairs, build hashes, draw counts, mask bytes and frame measurements.
+
+## Profiler overhead and constrained CPU
+
+Three alternating runs of the same final bundle compare profiling enabled with profiling disabled.
+The disabled sample reads workload context only after measurement ends. Template signatures, camera,
+browser environment and bundle hashes match. Whole-page movement task time is 3.092/3.146/3.124 seconds
+with profiling and 3.127/3.093/3.155 without. Hover and idle vary in both directions.
+These measurements do not establish a repeatable overhead estimate. They do not prove profiling is free.
+[Raw profiler comparisons](benchmarks/raid-profiler-overhead-2026-09-20.json.gz) include the noisy hover sample.
+
+A separate final-bundle run applies CDP 4× CPU throttling and holds claimed hover for 30 seconds.
+It preserves 97 templates, 37 claims and ten peers through hover, off-map, empty-space, hole, movement and idle checks.
+The claim label appears over claimed pixels and remains absent outside claims and inside the subtraction hole.
+Movement and idle frame p95 are 17.5 ms, but hover reaches 49.8 ms and off-map reaches 150.7 ms.
+The slowest individual frame is 984 ms. This is a correctness stress check, not a matched speedup or a smoothness claim.
+CPU throttling does not simulate a weaker GPU.
+[Raw constrained run](benchmarks/raid-cpu4-2026-09-20.json.gz) retains those stalls.
+
+An independent local Codex verification ran the final bundle through the same six scenarios without throttling.
+All assertions passed, including the 30-second hover and trusted movement with at most 4 ms dispatch delay.
+Both agents inspected the six screenshots and the accepted pre-discard hover screenshot.
+Claim coverage, subtraction holes, borders and label roles match. Dynamic peer positions differ as expected.
+[Raw independent verification](benchmarks/raid-visual-verification-2026-09-20.json.gz) records its bundle and workload hashes.
+
+```sh
+RAID_TEMPLATES=97 RAID_HOVER_MS=10000 RAID_SCENARIOS=hover,movement,idle \
+  node scripts/runtime-benchmark/compare-builds.mjs browser-profile \
+  final.user.js final.user.js test-results/profiler-overhead
+
+RAID_TEMPLATES=97 RAID_CPU_RATE=4 RAID_HOVER_MS=30000 \
+  RAID_SCENARIOS=hover,offmap,empty,hole,movement,idle \
+  node scripts/benchmark-wplace-collaboration.mjs final.user.js test-results/cpu4.json 1 --raid
+```

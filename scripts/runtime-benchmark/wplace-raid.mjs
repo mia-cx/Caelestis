@@ -273,20 +273,27 @@ try {
       await evaluate('clearInterval(raidReplay.timer)')
       const after = await metrics()
       const profile = await evaluate('__caelestis.profile()')
+      // Profiling disables context collection too. Read the workload after the measured window,
+      // briefly enabling the existing setting without attributing that work to the off sample.
+      const observedContext = profiling
+        ? profile.context.current
+        : await evaluate(`(()=>{
+          const toggle=document.querySelector('caelestis-rail-control').shadowRoot.querySelector('button');
+          toggle.click();
+          const panel=document.querySelector('caelestis-panel');
+          const set=value=>panel.dispatchEvent(new CustomEvent('caelestis-panel-intent',{detail:{type:'settings',intent:{type:'set-boolean',key:'performanceProfiling',value}}}));
+          set(true);try{return __caelestis.profile().context.current}finally{set(false);toggle.click()}
+        })()`)
       assert.equal(
         await evaluate('JSON.stringify(__caelestis.templates())'),
         templateSignature,
         'Template workload changed during sampling',
       )
-      const currentEnvironment = profile.context.current.environment
+      const currentEnvironment = observedContext.environment
       assert.equal(currentEnvironment.viewport.width, environment.width, 'Viewport changed')
       assert.equal(currentEnvironment.devicePixelRatio, environment.dpr, 'DPR changed')
-      assert.equal(
-        profile.context.current.collaboration.regions,
-        37,
-        'Claim replay was not rendered',
-      )
-      assert.equal(profile.context.current.collaboration.peers, 10, 'Peer replay was not rendered')
+      assert.equal(observedContext.collaboration.regions, 37, 'Claim replay was not rendered')
+      assert.equal(observedContext.collaboration.peers, 10, 'Peer replay was not rendered')
       const labels = await evaluate(
         '[...document.querySelectorAll("#caelestis-presence-labels span")].map(n=>({text:n.textContent,transform:n.style.transform}))',
       )
@@ -302,6 +309,7 @@ try {
         firstHoverMs: cold ? await evaluate('raidReplay.firstHoverMs') : null,
         dispatchDelayMs,
         profile,
+        observedContext,
         labels,
         external: {
           taskSeconds: after.TaskDuration - before.TaskDuration,
@@ -337,7 +345,7 @@ try {
         ),
       )
       console.log(
-        `${repeat + 1}/${repeats} ${scenario}: ${runs.at(-1).external.taskSeconds.toFixed(3)} main-thread task seconds; claims=${profile.context.current.collaboration.regions}; labels=${labels.length}`,
+        `${repeat + 1}/${repeats} ${scenario}: ${runs.at(-1).external.taskSeconds.toFixed(3)} main-thread task seconds; claims=${observedContext.collaboration.regions}; labels=${labels.length}`,
       )
       const shot = await call('Page.captureScreenshot', { format: 'png' })
       await writeFile(`${output}.${repeat}-${scenario}.png`, Buffer.from(shot.data, 'base64'))

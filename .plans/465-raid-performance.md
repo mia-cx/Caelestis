@@ -18,13 +18,13 @@ Implement the thirteen children #466–478 in one PR on the supplied branch. Kee
 - [x] #467 Preserve unchanged claim geometry identity; test, benchmark and commit.
 - [x] #468 Reject hidden/offscreen presence geometry before expensive work; test, benchmark and commit.
 - [x] #469 Prepare connected components only after a pointer hits claimed pixels; test, benchmark and commit.
-- [ ] #470 Measure remaining presence GPU cost and retain only proven rendering improvements.
+- [x] #470 Measure remaining presence GPU cost and retain only proven rendering improvements.
 - [x] #471 Coalesce presence screen updates with the next map frame; test, benchmark and commit.
 - [x] #472 Share scene preparation within a host frame; test, benchmark and commit.
-- [~] #473 Measure and reduce label layout work without stale geometry; test, benchmark and commit.
+- [x] #473 Measure and reduce label layout work without stale geometry; test, benchmark and commit.
 - [x] #474 Add deterministic measured-phase backend claim churn and baseline coverage.
 - [x] #475 Reduce repeated presence peer selection; test, benchmark and commit.
-- [~] #476 Reduce claim publication work; test, benchmark and commit.
+- [x] #476 Reduce claim publication work; test, benchmark and commit.
 - [~] #477 Reduce repeated ownership/expiry database work; test, benchmark and commit.
 - [ ] #478 Reduce tile-lane round trips if current measurements justify it; test, benchmark and commit.
 - [ ] Run final validation, publish evidence, rebase, push and file one PR; mark completed issues Ready.
@@ -55,3 +55,15 @@ Implement the thirteen children #466–478 in one PR on the supplied branch. Kee
 - #472 accepted three alternating pairs: combined overlay/outline/marker task time falls 44.3% during movement and 40.1% idle. Whole-page movement task time improves 3.1%, every pair; hover inconsistent. All samples zero long tasks. Tests preserve fades, template changes and host separation.
 - #474 tooling committed after three matched raid baselines per runtime and deliberate fault rejection. Final validation still includes instrumentation overhead, strict stable control, Miniflare, and the separately authorized CNPG/S3 gate. Delivery tracking now keys each mutation independently so overlapping edits cannot overwrite another wait.
 - Mia has no isolated Kubernetes context or HTTPS origin and authorized using available resources. Use a temporary kind cluster on devbox for CNPG/S3; keep it separate from production and delete it after testing. Label local ingress/storage differences.
+- #473 corrected ancestor-invalidation cache passes 25 focused tests and typecheck. Three alternating pairs lower movement label time 54.4%; whole-page time inconclusive. Committed 9d1d285c.
+- #476 three pairs on both runtimes pass exact ownership/accounting and deadlines. Node CPU falls 29.9%, Bun 17.7%; claim bytes fall 27.7% in every run. Stage serialization work falls sharply; changed-claim latency inconclusive.
+- #474 follow-up makes Workers presence timing room-local and reachable through RPC, rather than reading another isolate's clock. Latest backend check and 103 tests pass. Kind support uses direct owned NodePort, avoiding API-server forwarding during measurement; no HTTPS/Longhorn claim.
+- Workers ten-user raid passes in Miniflare, with room-local presence/claim counters, 34 final claims, nine paint events, 270 pixels and zero deadline misses. Backend check and 117 focused tests now pass. Committed 79c929b0.
+- First kind stack passed deployment/recovery but its direct Docker bridge address was unreachable from devbox (EHOSTUNREACH). Cleanup removed the owned cluster. Driver now maps its NodePort through Docker loopback, without API-server forwarding during measurement; three Node and three Bun build pairs are running.
+- #470 transparent-fragment discard lowers movement GPU time 11.1% in three combined-layer pairs (1.217/1.312/1.322 to 1.104/1.186/1.133 ms/frame). Claims-only zoom 12 is inconclusive. Viewports-only comparison is running; retain only after final checks.
+- #470 viewport-only movement and idle also improve in all three pairs; combined screenshots preserve holes, borders and labels. Committed 011abd54. No lower-capability GPU available.
+- Latest real SQLite/D1-emulation/PostgreSQL 17/MariaDB 11.8 region/lane tests pass (138 tests). Owned local SQL containers removed. Full userscript suite passes 1,587 tests with one delayed filesystem-watch test failure; isolated rerun passes. Userscript build, full lint/check and 52 release checks pass.
+- First 60-second CNPG measurement met command deadlines but failed CPU coverage because kubelet counter updates were 12–19 seconds apart. Retained diagnostics; unchanged coverage guard remains. Matched comparisons now use 120 measured seconds. Primary #477 metric is claim-list elapsed time per publication; DB/backend/full-stack CPU and mutation latency are secondary. Recovery ownership reuse also needs a targeted recovery measurement because reconnects alone do not recreate a hibernated room.
+- Full sequential repository suite passes, including all 1,588 userscript tests. Actual restored-room SQLite recovery passes three pairs at both 37 and 512 claims, with exact credential ownership and anonymous checks. Owner reads fall 255 to one; median recovery time improves in every pair. This supports recovery preparation only, not network or deployed Workers latency.
+- Final profiler on/off comparisons pass all workload guards but show no repeatable overhead estimate. The final 4× CPU-throttled run passes hover/off-map/empty/hole/movement/idle correctness. It retains substantial hover/off-map stalls; no weaker-GPU or smoothness claim. Independent visual verification is running.
+- Independent local Codex verification passes all six browser scenarios. Parent inspected all six screenshots and accepted pre-discard baseline. Targeted presence-instrumentation recovery comparison uses actual cb7e687/f002a346 compiled coordinators; 512-claim median wall time averages 1.1% higher, 37-claim result inconclusive. This does not quantify total deployed instrumentation overhead.

@@ -40,7 +40,7 @@ BUN_BINARY=/path/to/bun taskset -c 0,1 node scripts/runtime-benchmark/compare-bu
 Frozen compiled directories keep each comparison independent. Reports include compiled JavaScript hashes,
 benchmark source hashes, trace/fixture hashes, runtime versions, placement, raw latency distributions and correctness.
 The source revision is cb7e687 plus the specified uncommitted candidate; compiled hashes identify the measured artifacts.
-`BENCH_SCENARIO=stable` retains the quiet-claim control. Instrumentation overhead remains pending.
+`BENCH_SCENARIO=stable` retains the quiet-claim control.
 
 The ten-user raid also passes on the production Worker/Durable Object adapters in local Miniflare,
 with 37 initial complex claims, edits, reconnects and exact accounting. Its final state has 34 claims,
@@ -48,6 +48,28 @@ nine paint events and 270 pixels, with no deadline misses. Presence timings use 
 the room and an explicit RPC, so the admin endpoint does not read another isolate's empty clock.
 The endpoint labels its season/world room. This is emulation and correctness evidence, not a Workers capacity claim.
 [Raw Worker replay](benchmarks/raid-backend-miniflare-2026-09-20.json.gz) includes the observed stage counters.
+
+### Instrumentation overhead
+
+A supporting recovery benchmark compares compiled cb7e687 with f002a346, which adds presence instrumentation
+before the backend optimizations. It uses the actual coordinator and SQLite on Mac Node 24.20.0, with
+256 restored sockets, one warmup and five samples per variant, three alternating pairs at each claim count.
+Both variants perform the same ownership reads and pass exact credential/anonymous ownership checks.
+
+| Claims | Pair medians without timing | Pair medians with timing |
+| --- | --- | --- |
+| 37 | 25.131 / 25.686 / 25.149 ms | 25.648 / 25.393 / 25.214 ms |
+| 512 | 142.655 / 146.647 / 142.623 ms | 145.331 / 148.313 / 142.950 ms |
+
+The larger case averages 1.1% more recovery wall time with instrumentation. The smaller case varies in both directions.
+This measures recovery preparation, not socket delivery or total deployed raid overhead. Existing SQL timings
+remain enabled in both builds. The later tile-lane diagnostic counters are outside this comparison.
+[Raw overhead samples](benchmarks/raid-backend-instrumentation-2026-09-20.json.gz) include CPU time and compiled coordinator hashes.
+
+```sh
+node scripts/runtime-benchmark/recovery.mjs \
+  path/to/cb7e687/dist path/to/f002a346/dist test-results/instrumentation-recovery.json
+```
 
 ## Peer selection (#475)
 
