@@ -310,7 +310,7 @@ describe('renderPresenceLabels', () => {
     expect(document.querySelectorAll('#caelestis-presence-labels span')).toHaveLength(0)
   })
 
-  it("climbs off another painter's claim instead of covering it", async () => {
+  it("stays at its own claim's top edge, over another painter's claim there", async () => {
     harness.regions = [
       {
         ...twoPieces,
@@ -336,8 +336,8 @@ describe('renderPresenceLabels', () => {
     expect(chips.map((chip) => chip.textContent)).toEqual(['Sam · claimed'])
     const match = /translate\((-?\d+)px, (-?\d+)px\)/.exec(chips[0]?.style.transform ?? '')
     const y = Number((match as RegExpExecArray)[2])
-    // Not in the 21 px band above y 130, which Ada's claim (y 100..120) occupies; above hers instead.
-    expect(y + 17).toBeLessThanOrEqual(100)
+    // Just above y 130, inside Ada's claim (y 100..120): her claim is not an obstacle.
+    expect(y).toBe(130 - 4 - 17)
   })
 
   it('publishes which of the claims the pointer is over, for the layer to fade', async () => {
@@ -371,8 +371,8 @@ describe('renderPresenceLabels', () => {
     expect((await tagsAt(frameAt(4), 5, 5)).map((tag) => tag.key)).toEqual(['region:r1'])
   })
 
-  it('rechecks other claims after the top-edge clamp moves a chip', async () => {
-    // Mine sits at the very top; its chip has to drop inside the map, where Ada's claim is.
+  it('keeps a chip inside the map at the top edge, even over another claim', async () => {
+    // Mine sits at the very top; its chip drops inside the map, onto Ada's claim, and stays.
     harness.regions = [
       {
         ...twoPieces,
@@ -397,8 +397,8 @@ describe('renderPresenceLabels', () => {
     const chip = document.querySelector<HTMLElement>('#caelestis-presence-labels span')
     const match = /translate\((-?\d+)px, (-?\d+)px\)/.exec(chip?.style.transform ?? '')
     const y = Number((match as RegExpExecArray)[2])
-    // Not over Ada's claim (y 4..44): the clamp put it inside, and the recheck moved it clear.
-    expect(y + 17 <= 4 || y >= 44).toBe(true)
+    // Clamped just under the top edge, over Ada's claim (y 4..44) rather than off the map.
+    expect(y).toBe(4)
   })
 
   it('hides every chip while other painters are hidden', async () => {
