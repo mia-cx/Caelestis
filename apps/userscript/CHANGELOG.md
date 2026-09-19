@@ -1,5 +1,12 @@
 # @caelestis/userscript
 
+## 0.14.1
+
+### Patch Changes
+
+- 08fa508: A claim's hover tag stays just above its own claim, reading over any other painter's claim there, instead of climbing above that claim and detaching from the one it names.
+- 202c618: Merge your region claims when their pixels touch, including existing claims when saved again.
+
 ## 0.14.0
 
 ### Minor Changes
