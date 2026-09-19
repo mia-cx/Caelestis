@@ -1,5 +1,6 @@
 import {
   isRegionDocument,
+  packBits,
   type RegionDocument,
   type RegionItem,
   type RegionShape,
@@ -11,7 +12,7 @@ import {
   claimDocumentPixels,
   claimDocuments,
   claimDocumentsLimitError,
-  regionShapesOverlap,
+  regionShapesTouch,
 } from './claim-document.js'
 
 const rectangle = (x: number, y: number, w: number, h: number): RegionShape => ({
@@ -29,6 +30,83 @@ const item = (id: string, shape: RegionShape, op: 'add' | 'subtract' = 'add'): R
 })
 
 describe('claimDocuments', () => {
+  it.each([
+    [1, 0, true],
+    [-1, 0, true],
+    [0, 1, true],
+    [0, -1, true],
+    [1, 1, true],
+    [-1, -1, true],
+    [2, 0, false],
+    [0, 2, false],
+    [2, 2, false],
+  ])('connects pixels offset by (%i, %i): %s', (x, y, connected) => {
+    const a = rectangle(0, 0, 1, 1)
+    const b = rectangle(x, y, 1, 1)
+    expect(regionShapesTouch(a, b)).toBe(connected)
+    expect(claimDocuments({ items: [item('a', a), item('b', b)] })).toHaveLength(connected ? 1 : 2)
+  })
+
+  it('connects a 13-region chain even when the bridging shapes come last', () => {
+    const shapes = Array.from({ length: 13 }, (_, index) =>
+      item(`r${index}`, rectangle(index * 3, 0, 3, 3)),
+    )
+    const document = {
+      items: [...shapes.filter((_, i) => i % 2 === 0), ...shapes.filter((_, i) => i % 2 === 1)],
+    }
+    expect(claimDocuments(document)).toEqual([document])
+    expect(claimDocumentPixels(claimDocuments(document)[0] as RegionDocument)?.count).toBe(117)
+  })
+
+  it('checks sparse mask pixels in both directions instead of accepting box contact', () => {
+    const sparse: RegionShape = {
+      kind: 'pixels',
+      x: 0,
+      y: 0,
+      w: 3,
+      h: 3,
+      mask: packBits(new Uint8Array([1, 0, 0, 0, 0, 0, 0, 0, 1])),
+    }
+    for (const [x, y, connected] of [
+      [3, 0, false],
+      [3, 2, true],
+      [3, 3, true],
+      [-1, 0, true],
+      [-1, 2, false],
+    ] as const) {
+      const square = rectangle(x, y, 1, 1)
+      const pixel: RegionShape = {
+        kind: 'pixels',
+        x,
+        y,
+        w: 1,
+        h: 1,
+        mask: packBits(new Uint8Array([1])),
+      }
+      for (const shape of [square, pixel]) {
+        expect(regionShapesTouch(sparse, shape)).toBe(connected)
+        expect(regionShapesTouch(shape, sparse)).toBe(connected)
+      }
+    }
+  })
+
+  it('preserves ordered subtraction and refilling when adjacent groups join', () => {
+    const document = {
+      items: [
+        item('left', rectangle(0, 0, 3, 3)),
+        item('cut', rectangle(2, 0, 1, 3), 'subtract'),
+        item('refill', rectangle(2, 1, 1, 1)),
+        item('right', rectangle(3, 0, 3, 3)),
+      ],
+    }
+    const documents = claimDocuments(document)
+    expect(documents).toEqual([document])
+    expect(claimDocumentPixels(documents[0] as RegionDocument)).toEqual(
+      regionDocumentPixels(document),
+    )
+    expect(claimDocumentPixels(documents[0] as RegionDocument)?.count).toBe(16)
+  })
+
   it('splits distant shapes before rasterising their empty bounding space', () => {
     const near = item('near', rectangle(0, 0, 1, 1))
     const far = item('far', rectangle(2000, 2000, 1, 1))
@@ -100,14 +178,14 @@ describe('claimDocuments', () => {
     expect(joined[0]?.items.map((entry) => entry.id)).toEqual(['a', 'b', 'c'])
   })
 
-  it('groups by shared pixels, not by touching bounding boxes', () => {
+  it('groups by touching pixels, not by touching bounding boxes', () => {
     // Two ellipses whose boxes overlap at a corner but whose pixels never meet.
     const ellipse = (x: number, y: number): RegionShape => ({ kind: 'ellipse', x, y, w: 20, h: 20 })
     const apart = { items: [item('a', ellipse(0, 0)), item('b', ellipse(18, 18))] }
-    expect(regionShapesOverlap(ellipse(0, 0), ellipse(18, 18))).toBe(false)
+    expect(regionShapesTouch(ellipse(0, 0), ellipse(18, 18))).toBe(false)
     expect(claimDocuments(apart)).toHaveLength(2)
 
-    const touching = { items: [item('a', ellipse(0, 0)), item('b', ellipse(10, 0))] }
+    const touching = { items: [item('a', ellipse(0, 0)), item('b', ellipse(20, 0))] }
     expect(claimDocuments(touching)).toHaveLength(1)
   })
 

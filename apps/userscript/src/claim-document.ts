@@ -2,7 +2,6 @@ import {
   MAX_REGION_DOCUMENT_PIXELS,
   MAX_REGION_DOCUMENT_WORK,
   MAX_REGION_ITEMS,
-  type PresenceRect,
   type RegionDocument,
   type RegionItem,
   type RegionShape,
@@ -38,22 +37,37 @@ const shapePixels = (shape: RegionShape): RegionShapePixels => {
 }
 
 /**
- * Whether two shapes share a whole pixel. Bounding boxes rule out most pairs; the rest are
- * compared pixel by pixel over the overlap only, a rectangle covering all of its box.
+ * Whether two shapes share a pixel or have pixels touching at an edge or corner, matching
+ * regionPixelComponents. Expanded bounds only narrow the search; empty mask pixels never join.
  */
-export const regionShapesOverlap = (a: RegionShape, b: RegionShape): boolean => {
-  const overlap = rectIntersection(regionShapeBounds(a), regionShapeBounds(b))
+export const regionShapesTouch = (a: RegionShape, b: RegionShape): boolean => {
+  const bounds = regionShapeBounds(a)
+  const overlap = rectIntersection(
+    { x: bounds.x - 1, y: bounds.y - 1, w: bounds.w + 2, h: bounds.h + 2 },
+    regionShapeBounds(b),
+  )
   if (overlap === null) return false
   if (a.kind === 'rectangle' && b.kind === 'rectangle') return true
   const left = a.kind === 'rectangle' ? null : shapePixels(a)
   const right = b.kind === 'rectangle' ? null : shapePixels(b)
   for (let y = overlap.y; y < overlap.y + overlap.h; y++) {
     for (let x = overlap.x; x < overlap.x + overlap.w; x++) {
-      if (
-        (left === null || left.mask[(y - left.rect.y) * left.rect.w + (x - left.rect.x)] === 1) &&
-        (right === null || right.mask[(y - right.rect.y) * right.rect.w + (x - right.rect.x)] === 1)
-      )
-        return true
+      if (right !== null && right.mask[(y - right.rect.y) * right.rect.w + x - right.rect.x] !== 1)
+        continue
+      if (left === null) return true
+      for (
+        let ny = Math.max(y - 1, bounds.y);
+        ny <= Math.min(y + 1, bounds.y + bounds.h - 1);
+        ny++
+      ) {
+        for (
+          let nx = Math.max(x - 1, bounds.x);
+          nx <= Math.min(x + 1, bounds.x + bounds.w - 1);
+          nx++
+        ) {
+          if (left.mask[(ny - bounds.y) * bounds.w + nx - bounds.x] === 1) return true
+        }
+      }
     }
   }
   return false
@@ -69,7 +83,6 @@ const documentsCache = new WeakMap<RegionDocument, readonly RegionDocument[]>()
 export const claimDocuments = (document: RegionDocument): readonly RegionDocument[] => {
   const cached = documentsCache.get(document)
   if (cached !== undefined) return cached
-  const bounds = document.items.map((item) => regionShapeBounds(item.shape))
   const parents = document.items.map((_, index) => index)
   const root = (index: number): number => {
     while (parents[index] !== index) {
@@ -78,15 +91,11 @@ export const claimDocuments = (document: RegionDocument): readonly RegionDocumen
     }
     return index
   }
-  for (let right = 0; right < bounds.length; right++) {
+  for (let right = 0; right < document.items.length; right++) {
     for (let left = 0; left < right; left++) {
-      // Boxes that miss each other cost a comparison and nothing more; already joined pairs
-      // skip the pixel test.
-      if (rectIntersection(bounds[left] as PresenceRect, bounds[right] as PresenceRect) === null)
-        continue
       if (root(left) === root(right)) continue
       if (
-        regionShapesOverlap(
+        regionShapesTouch(
           (document.items[left] as RegionItem).shape,
           (document.items[right] as RegionItem).shape,
         )
