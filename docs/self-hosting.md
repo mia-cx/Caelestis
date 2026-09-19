@@ -263,6 +263,30 @@ S3 credentials need object get, put, delete, and bucket listing. Conditional cre
 The server does not create buckets. Configure bucket encryption and transport through the provider.
 Filesystem objects keep bytes and metadata together in atomic `.object` files. Treat that directory as adapter-owned storage.
 
+## Public server branding
+
+Send an admin bearer token to `PATCH /v1/admin/server` to update `name`, `description`,
+`discordInviteUrl`, `homeCopy`, or `logoText`. Omitted fields stay unchanged.
+Use `null` to clear an optional override; `name` cannot be cleared.
+Names allow 1–256 characters and descriptions allow 1–4096 characters.
+Discord invite URLs allow 128 characters and are stored as `https://discord.gg/<code>`.
+Logo text allows 1–64 characters.
+
+Home copy allows 4000 characters and 20 HTTP or HTTPS links. Blank lines separate paragraphs;
+`## ` starts a heading and `- ` starts a bullet. Inline `**bold**`, `*italic*`, and
+`[label](https://example.com)` are supported. Everything else renders as text.
+Control characters are rejected. Copy is normalized and trimmed; empty copy clears the override.
+
+Upload raw image bytes to `PUT /v1/admin/server/assets/logo` or
+`PUT /v1/admin/server/assets/preview`. PNG, JPEG, WebP, and GIF containers are accepted;
+the server detects the type from the bytes. Logos allow 512 KiB and previews allow 2 MiB.
+Each upload returns `{ etag, contentType }`. `DELETE` on either admin asset route clears that image.
+
+Public `GET` and `HEAD` requests use `/v1/server/assets/logo` and `/v1/server/assets/preview`.
+Append `?v=<etag>` from `/v1/server` or `/v1/manifest` for immutable caching of the current image.
+Without a matching version, clients revalidate using the response ETag.
+Branding settings and images persist in the configured database and blob store.
+
 ## Kubernetes and CNPG
 
 Start from [`deploy/helm/cnpg-s3.example.yaml`](../deploy/helm/cnpg-s3.example.yaml).

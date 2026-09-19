@@ -1,20 +1,43 @@
-import type { ServerInfo } from '@caelestis/shared'
+import {
+  logoText,
+  normaliseHomeCopy,
+  parseDiscordInviteUrl,
+  parseHomeCopy,
+  SERVER_ASSET_MAX_BYTES,
+  type ServerAssetKind,
+  type ServerInfo,
+  sha256Hex,
+  sniffServerAssetContentType,
+} from '@caelestis/shared'
 import { Effect, Context as Services } from 'effect'
 import { Hono } from 'hono'
 import { type AuthOptions, requireScopeEffect } from '../auth/middleware.js'
+import type { ServerAssetRecord, SqlStore } from '../ports/sql-store.js'
 import {
   type BackendRuntime,
+  BlobStoreService,
   SqlStoreService,
   StatusReadModelService,
 } from '../runtime/backend-runtime.js'
 import { BackendStorageError, SqlStoreReadError } from '../runtime/errors.js'
 import { runBackendHttp } from '../runtime/hono.js'
-import { mergeServerInfo } from '../server-info.js'
+import { mergeServerInfo, serverAssetInfo } from '../server-info.js'
 import { publishManifestChange } from '../status-read-model/port.js'
 import { ingestTimings } from '../telemetry/ingest-timing.js'
 
 const MAX_NAME_LENGTH = 256
 const MAX_DESCRIPTION_LENGTH = 4096
+
+const assetKind = (kind: string): ServerAssetKind | null =>
+  kind === 'logo' || kind === 'preview' ? kind : null
+
+const readServerSettings = Effect.gen(function* () {
+  const sql = yield* SqlStoreService
+  return yield* Effect.tryPromise({
+    try: () => sql.readServerSettings(),
+    catch: (cause) => new SqlStoreReadError({ operation: 'readServerSettings', cause }),
+  })
+})
 
 /**
  * What this server calls itself, as the deployment configured it and an admin has since renamed it.
@@ -27,24 +50,45 @@ export const resolveServerInfoEffect = (
   base: ServerInfo,
 ): Effect.Effect<ServerInfo, SqlStoreReadError, SqlStoreService> =>
   Effect.gen(function* () {
-    const sql = yield* SqlStoreService
-    const settings = yield* Effect.tryPromise({
-      try: () => sql.readServerSettings(),
-      catch: (cause) => new SqlStoreReadError({ operation: 'readServerSettings', cause }),
-    })
+    const settings = yield* readServerSettings
     return mergeServerInfo(base, settings)
   })
 
-export const writeServerSettings = (settings: {
-  readonly name?: string
-  readonly description?: string | null
-}): Effect.Effect<void, BackendStorageError, SqlStoreService> =>
+/** Persist a partial operator override without changing omitted fields. */
+export const writeServerSettings = (
+  settings: Parameters<SqlStore['writeServerSettings']>[0],
+): Effect.Effect<void, BackendStorageError, SqlStoreService> =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
     yield* Effect.tryPromise({
       try: () => sql.writeServerSettings(settings),
       catch: (cause) => new BackendStorageError({ operation: 'writeServerSettings', cause }),
     })
+  })
+
+/** Keep the old asset reachable until its replacement has been stored and published. */
+const replaceServerAsset = (
+  kind: ServerAssetKind,
+  record: ServerAssetRecord | null,
+  bytes: Uint8Array | null,
+  season: number,
+) =>
+  Effect.gen(function* () {
+    const blobs = yield* BlobStoreService
+    const previous = (yield* readServerSettings)[kind]
+    if (record !== null && bytes !== null) {
+      yield* Effect.tryPromise({
+        try: () => blobs.put('branding', record.blobKey, bytes),
+        catch: (cause) => new BackendStorageError({ operation: 'putServerAsset', cause }),
+      })
+    }
+    yield* writeServerSettingsAndPublish({ [kind]: record }, season)
+    if (previous !== null && previous.blobKey !== record?.blobKey) {
+      yield* Effect.tryPromise({
+        try: () => blobs.delete('branding', [previous.blobKey]),
+        catch: (cause) => new BackendStorageError({ operation: 'deleteServerAsset', cause }),
+      })
+    }
   })
 
 const writeServerSettingsAndPublish = (
@@ -63,11 +107,52 @@ export const createServerRoutes = (runtime: BackendRuntime, base: ServerInfo) =>
   routes.get('/', (c) =>
     runBackendHttp(c, runtime, resolveServerInfoEffect(base), (server) => c.json(server)),
   )
+  routes.on(['GET', 'HEAD'], '/assets/:kind', (c) => {
+    const kind = assetKind(c.req.param('kind'))
+    if (kind === null) return c.json({ error: 'asset not found' }, 404)
+    return runBackendHttp(
+      c,
+      runtime,
+      Effect.gen(function* () {
+        const record = (yield* readServerSettings)[kind]
+        if (record === null) return null
+        const blobs = yield* BlobStoreService
+        const bytes = yield* Effect.tryPromise({
+          try: () => blobs.get('branding', record.blobKey),
+          catch: (cause) => new BackendStorageError({ operation: 'getServerAsset', cause }),
+        })
+        return bytes === null ? null : { bytes, ...serverAssetInfo(record) }
+      }),
+      (asset) => {
+        if (asset === null) return c.json({ error: 'asset not found' }, 404)
+        const headers = {
+          'content-type': asset.contentType,
+          'content-length': String(asset.bytes.byteLength),
+          etag: `"${asset.etag}"`,
+          'x-content-type-options': 'nosniff',
+          'content-disposition': 'inline',
+          'cache-control':
+            c.req.query('v') === asset.etag
+              ? 'public, max-age=31536000, immutable'
+              : 'public, no-cache',
+        }
+        const candidates = (c.req.header('if-none-match') ?? '')
+          .split(',')
+          .map((candidate) => candidate.trim().replace(/^W\//, ''))
+        if (candidates.includes(headers.etag) || candidates.includes('*')) {
+          return new Response(null, { status: 304, headers })
+        }
+        return new Response(c.req.method === 'HEAD' ? null : asset.bytes.slice().buffer, {
+          headers,
+        })
+      },
+    )
+  })
   return routes
 }
 
 /**
- * Renaming the server.
+ * Operator-managed public server details and branding assets.
  *
  * Its own route under `/admin` rather than a method on the public one, so the read stays reachable
  * without a credential while the write never is.
@@ -84,7 +169,19 @@ export const createServerAdminRoutes = (
   routes.patch('/', async (c) => {
     const body: unknown = await c.req.json().catch(() => null)
     if (typeof body !== 'object' || body === null) return c.json({ error: 'invalid body' }, 400)
-    const { name, description } = body as { name?: unknown; description?: unknown }
+    const {
+      name,
+      description,
+      discordInviteUrl,
+      homeCopy,
+      logoText: rawLogoText,
+    } = body as {
+      name?: unknown
+      description?: unknown
+      discordInviteUrl?: unknown
+      homeCopy?: unknown
+      logoText?: unknown
+    }
 
     if (
       name !== undefined &&
@@ -103,8 +200,31 @@ export const createServerAdminRoutes = (
     ) {
       return c.json({ error: 'description must be 1..4096 characters, or null' }, 400)
     }
-    if (name === undefined && description === undefined) {
-      return c.json({ error: 'patch must set at least one of name, description' }, 400)
+    const invite = parseDiscordInviteUrl(discordInviteUrl)
+    if (discordInviteUrl !== undefined && discordInviteUrl !== null && invite === null) {
+      return c.json({ error: 'discordInviteUrl must be a Discord invite link, or null' }, 400)
+    }
+    const copy = typeof homeCopy === 'string' ? normaliseHomeCopy(homeCopy) : homeCopy
+    if (copy !== undefined && copy !== null) {
+      const result = parseHomeCopy(copy)
+      if (!result.ok) return c.json({ error: result.message }, 400)
+    }
+    const text = logoText(rawLogoText)
+    if (rawLogoText !== undefined && rawLogoText !== null && text === null) {
+      return c.json({ error: 'logoText must be 1..64 characters, or null' }, 400)
+    }
+    if (
+      [name, description, discordInviteUrl, homeCopy, rawLogoText].every(
+        (value) => value === undefined,
+      )
+    ) {
+      return c.json(
+        {
+          error:
+            'patch must set at least one of name, description, discordInviteUrl, homeCopy, logoText',
+        },
+        400,
+      )
     }
 
     return runBackendHttp(
@@ -116,10 +236,49 @@ export const createServerAdminRoutes = (
           ...(description === undefined
             ? {}
             : { description: description === null ? null : (description as string) }),
+          ...(discordInviteUrl === undefined ? {} : { discordInviteUrl: invite }),
+          ...(homeCopy === undefined ? {} : { homeCopy: copy as string | null }),
+          ...(rawLogoText === undefined ? {} : { logoText: text }),
         },
         currentSeason,
       ),
       () => c.json({ ok: true }),
+    )
+  })
+
+  routes.put('/assets/:kind', async (c) => {
+    const kind = assetKind(c.req.param('kind'))
+    if (kind === null) return c.json({ error: 'asset not found' }, 404)
+    const limit = SERVER_ASSET_MAX_BYTES[kind]
+    const tooLarge = () =>
+      c.json(
+        {
+          error: kind === 'logo' ? 'logo must be at most 512 KiB' : 'preview must be at most 2 MiB',
+        },
+        413,
+      )
+    if (Number(c.req.header('content-length')) > limit) return tooLarge()
+    const body = await c.req.arrayBuffer().catch(() => null)
+    if (body === null || body.byteLength === 0)
+      return c.json({ error: 'upload must not be empty' }, 400)
+    if (body.byteLength > limit) return tooLarge()
+    const bytes = new Uint8Array(body)
+    const contentType = sniffServerAssetContentType(bytes)
+    if (contentType === null) return c.json({ error: 'upload a PNG, JPEG, WebP or GIF image' }, 415)
+    const etag = await sha256Hex(bytes)
+    return runBackendHttp(
+      c,
+      runtime,
+      replaceServerAsset(kind, { blobKey: `${kind}/${etag}`, contentType }, bytes, currentSeason),
+      () => c.json({ etag, contentType }),
+    )
+  })
+
+  routes.delete('/assets/:kind', (c) => {
+    const kind = assetKind(c.req.param('kind'))
+    if (kind === null) return c.json({ error: 'asset not found' }, 404)
+    return runBackendHttp(c, runtime, replaceServerAsset(kind, null, null, currentSeason), () =>
+      c.json({ ok: true }),
     )
   })
 

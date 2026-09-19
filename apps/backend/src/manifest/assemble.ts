@@ -155,41 +155,35 @@ const assembleManifestWithSql = async (
   const tiles = [
     ...new Set(templates.flatMap((template) => template.chunks.map(({ tile }) => tile))),
   ].sort((left, right) => left.localeCompare(right))
-  const normalizedServer: ServerInfo =
-    options.server.description === undefined
-      ? {
-          id: options.server.id,
-          name: options.server.name,
-          auth: options.server.auth,
-          ...(options.server.liveSync === undefined ? {} : { liveSync: options.server.liveSync }),
-          ...(options.server.liveSyncMax === undefined
-            ? {}
-            : { liveSyncMax: options.server.liveSyncMax }),
-          ...(options.server.liveTileOffers === undefined
-            ? {}
-            : { liveTileOffers: options.server.liveTileOffers }),
-          ...(options.server.presence === undefined ? {} : { presence: options.server.presence }),
-          ...(options.server.livePaintParts === undefined
-            ? {}
-            : { livePaintParts: options.server.livePaintParts }),
-        }
+  // Fixed field order keeps the content hash stable regardless of the caller's object key order.
+  const server = options.server
+  const normalizedServer: ServerInfo = {
+    id: server.id,
+    name: server.name,
+    ...(server.description === undefined ? {} : { description: server.description }),
+    auth: server.auth,
+    ...(server.liveSync === undefined ? {} : { liveSync: server.liveSync }),
+    ...(server.liveSyncMax === undefined ? {} : { liveSyncMax: server.liveSyncMax }),
+    ...(server.liveTileOffers === undefined ? {} : { liveTileOffers: server.liveTileOffers }),
+    ...(server.presence === undefined ? {} : { presence: server.presence }),
+    ...(server.livePaintParts === undefined ? {} : { livePaintParts: server.livePaintParts }),
+    ...(server.discordInviteUrl === undefined ? {} : { discordInviteUrl: server.discordInviteUrl }),
+    ...(server.homeCopy === undefined ? {} : { homeCopy: server.homeCopy }),
+    ...(server.logoText === undefined ? {} : { logoText: server.logoText }),
+    ...(server.logoImage === undefined
+      ? {}
       : {
-          id: options.server.id,
-          name: options.server.name,
-          description: options.server.description,
-          auth: options.server.auth,
-          ...(options.server.liveSync === undefined ? {} : { liveSync: options.server.liveSync }),
-          ...(options.server.liveSyncMax === undefined
-            ? {}
-            : { liveSyncMax: options.server.liveSyncMax }),
-          ...(options.server.liveTileOffers === undefined
-            ? {}
-            : { liveTileOffers: options.server.liveTileOffers }),
-          ...(options.server.presence === undefined ? {} : { presence: options.server.presence }),
-          ...(options.server.livePaintParts === undefined
-            ? {}
-            : { livePaintParts: options.server.livePaintParts }),
-        }
+          logoImage: { etag: server.logoImage.etag, contentType: server.logoImage.contentType },
+        }),
+    ...(server.previewImage === undefined
+      ? {}
+      : {
+          previewImage: {
+            etag: server.previewImage.etag,
+            contentType: server.previewImage.contentType,
+          },
+        }),
+  }
   const unsigned: Manifest = {
     ...(catalog.length === 0
       ? {}

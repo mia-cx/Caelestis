@@ -7,10 +7,10 @@
  */
 
 /**
- * Blobs are segregated by kind: template chunks, mirrored canvas tiles, and reconstructible
- * immutable products derived from those two authoritative inputs.
+ * Blobs are segregated by kind: template chunks, mirrored canvas tiles, derived products,
+ * archives, and operator branding. Tile and chunk garbage collection never scans branding.
  */
-export type BlobNamespace = 'chunks' | 'tiles' | 'derived' | 'archives'
+export type BlobNamespace = 'chunks' | 'tiles' | 'derived' | 'archives' | 'branding'
 
 export interface BlobListPage {
   /** Keys relative to the requested namespace, in the object store's stable listing order. */
