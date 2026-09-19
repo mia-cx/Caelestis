@@ -864,6 +864,9 @@ export const tileBlobReservations = sqliteTable(
   },
   (table) => [
     index('tile_blob_reservations_hash_expiry_idx').on(table.sha256, table.expiresAtMs),
+    // Expiry sweeps run inside every reservation and commit; without a leading expiry index the
+    // sweep scans the table and, under SERIALIZABLE, conflicts with every concurrent insert.
+    index('tile_blob_reservations_expiry_idx').on(table.expiresAtMs),
     check(
       'tile_blob_reservations_sha256_check',
       sql`typeof(${table.sha256}) = 'text' AND length(${table.sha256}) = 64

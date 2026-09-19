@@ -1,0 +1,1 @@
+CREATE INDEX tile_blob_reservations_expiry_idx ON tile_blob_reservations (expires_at_ms);
