@@ -33,11 +33,11 @@ Storage: new `BlobNamespace` `'branding'`, key `<kind>/<sha256>`. `server_settin
 
 ## TODOs
 - [x] Shared contract: `parseHomeCopy`, `parseDiscordInviteUrl`, `ServerInfo` fields in shared and wire-schema, tests.
-- [~] Backend (Codex): schema, migrations for sqlite/postgres/mariadb, `ServerSettings` port and adapters, `'branding'` blob namespace, admin patch and asset routes, public asset route, `mergeServerInfo`, tests.
+- [x] Backend (Codex): schema, migrations for sqlite/postgres/mariadb, `ServerSettings` port and adapters, `'branding'` blob namespace, admin patch and asset routes, public asset route, `mergeServerInfo`, tests.
 - [x] Userscript: `Edit server details` action beside rename on the server root row; a `caelestis-server-details` UI element with fields, uploads, clear buttons, and feedback; `state.ts` mutations for patch, upload and delete.
 - [x] Frontend: header logo (image with text fallback), home copy blocks and Discord join action on the home page, social metadata precedence, tests.
-- [~] Changesets for backend, frontend, userscript; docs note in `docs/self-hosting.md`.
-- [ ] Full validation: lint, check, test.
+- [x] Changesets for backend, frontend, userscript; docs note in `docs/self-hosting.md`.
+- [x] Full validation: lint, check, test.
 
 ## Notes
 - Backend seam goes to Codex `gpt-6-astra`; Claude keeps the UI. Brief in `.plans/415-codex-backend.md`.
