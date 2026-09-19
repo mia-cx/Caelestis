@@ -357,6 +357,8 @@
       at: to, correct: progress.completed, mismatched: progress.mismatched,
     })
     if (estimatePeriod.key === 'all') {
+      // Overall pace uses the full elapsed lifetime, including gaps, as specified in issue #352.
+      // Timed windows below average only adjacent known observation intervals.
       const first = observations.find(sample => sample.correct !== null && sample.at < to)
       if (first?.correct == null) return null
       const hours = (to - first.at) / 3_600
