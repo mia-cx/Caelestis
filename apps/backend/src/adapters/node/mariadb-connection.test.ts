@@ -90,7 +90,7 @@ describe.skipIf(!process.env.CAELESTIS_TEST_MARIADB_URL)('MariaDB connection', (
         if (!retired)
           await db.batch([
             db.prepare(
-              "INSERT INTO work_region_deletions VALUES ('retired') ON CONFLICT(id) DO NOTHING",
+              "INSERT INTO work_region_deletions (id) VALUES ('retired') ON CONFLICT(id) DO NOTHING",
             ),
             db.prepare("DELETE FROM work_regions WHERE id = 'retired'"),
           ])
