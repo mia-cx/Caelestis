@@ -736,6 +736,7 @@ const installFetchTap = (realm: Window & typeof globalThis): InstalledValueHook 
           if (tile !== null) {
             tileRequestOrder.set(tile, nextPixelObservation())
             tileUrlShape = url.replace(`/${tile.x}/${tile.y}.png`, '/{x}/{y}.png')
+            wakeTileLoaders()
             shouldNormalizeMissing = isGetFetch(input, args[1], realm, urlGetters)
           }
           const parsed = new URL(url, realm.location?.href)
@@ -1126,6 +1127,7 @@ const rememberTilePixels = (key: string, pixels: Uint8Array): void => {
   pixelsOfTile.delete(key)
   pixelsOfTile.set(key, pixels)
   if (becameAvailable) {
+    wakeTileLoaders()
     const available = parseTileKey(key)
     if (available !== null) {
       for (const listener of tilePixelAvailabilityListeners) listener(available)
@@ -1163,6 +1165,11 @@ const chased = new Set<string>()
 /** Active chase per tile, separate from the one-shot history so another reader can join it. */
 const activeChases = new Map<string, Promise<void>>()
 let chasing = 0
+const tileLoadWaiters = new Set<() => void>()
+/** Wake explicit readers when a URL, captured tile, or fetch slot becomes available. */
+const wakeTileLoaders = (): void => {
+  for (const resolve of tileLoadWaiters) resolve()
+}
 
 /**
  * Fetch a tile we never saw decoded, rather than waiting for wplace to fetch it again.
@@ -1219,6 +1226,7 @@ export const ensureTilePixels = (tile: TileCoord): boolean => {
     } finally {
       chasing--
       activeChases.delete(key)
+      wakeTileLoaders()
     }
   })()
   activeChases.set(key, chase)
@@ -1226,7 +1234,7 @@ export const ensureTilePixels = (tile: TileCoord): boolean => {
   return true
 }
 
-/** Resolve once an on-demand tile chase has produced exact palette indices. */
+/** Wait for an explicit tile read, allowing one attempt even if background capture failed earlier. */
 export const loadTilePixels = async (
   tile: TileCoord,
   timeoutMs = 15_000,
@@ -1236,21 +1244,42 @@ export const loadTilePixels = async (
   const key = tileKey(tile)
   requestedTilePixels.set(key, (requestedTilePixels.get(key) ?? 0) + 1)
   let timeout: ReturnType<typeof setTimeout> | undefined
+  let wake: (() => void) | undefined
+  let expired = false
+  const deadline = new Promise<void>((resolve) => {
+    timeout = setTimeout(
+      () => {
+        expired = true
+        resolve()
+      },
+      Math.max(0, timeoutMs),
+    )
+  })
   try {
-    let chase = activeChases.get(key)
-    if (chase === undefined) {
-      if (!ensureTilePixels(tile)) return null
-      chase = activeChases.get(key)
+    while (!expired) {
+      const pixels = tilePixels(tile)
+      if (pixels !== null) return pixels
+      let chase = activeChases.get(key)
+      if (chase === undefined && tileUrlShape !== null && chasing < CHASE_LIMIT) {
+        // The one-shot history throttles frame-driven capture, not a fresh user action.
+        chased.delete(key)
+        ensureTilePixels(tile)
+        chase = activeChases.get(key)
+      }
+      if (chase !== undefined) {
+        await Promise.race([chase, deadline])
+        return tilePixels(tile)
+      }
+      const changed = new Promise<void>((resolve) => {
+        wake = resolve
+        tileLoadWaiters.add(resolve)
+      })
+      await Promise.race([changed, deadline])
+      if (wake !== undefined) tileLoadWaiters.delete(wake)
     }
-    if (chase === undefined) return tilePixels(tile)
-    await Promise.race([
-      chase,
-      new Promise<void>((resolve) => {
-        timeout = setTimeout(resolve, Math.max(0, timeoutMs))
-      }),
-    ])
     return tilePixels(tile)
   } finally {
+    if (wake !== undefined) tileLoadWaiters.delete(wake)
     if (timeout !== undefined) clearTimeout(timeout)
     const requests = (requestedTilePixels.get(key) ?? 1) - 1
     if (requests === 0) requestedTilePixels.delete(key)
@@ -2276,6 +2305,20 @@ export const install = (
   mapHandle: () => ReturnType<typeof getMap> = getMap,
 ): void => {
   captureRealm = realm
+  if (tileUrlShape === null) {
+    // Wplace may have displayed its tiles before our fetch hook installed after refresh.
+    // Recover the observed URL from resource timing instead of requiring another map fetch.
+    const resources = realm.performance?.getEntriesByType('resource') ?? []
+    for (let i = resources.length - 1; i >= 0; i--) {
+      const url = resources[i]?.name
+      if (url === undefined) continue
+      const tile = tileFromUrl(url)
+      if (tile === null) continue
+      tileUrlShape = url.replace(`/${tile.x}/${tile.y}.png`, '/{x}/{y}.png')
+      wakeTileLoaders()
+      break
+    }
+  }
   const browserHooks: InstalledValueHook[] = []
   const addBrowserHook = (installer: () => InstalledValueHook | null): boolean => {
     try {
