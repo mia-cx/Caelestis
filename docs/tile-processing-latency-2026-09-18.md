@@ -16,7 +16,7 @@ One passing run per runtime establishes that the workload completes; they are no
 - An alarm change reads and encodes one snapshot per scope for all subscribers; a status delta is encoded once.
 - The Node live host no longer clones a socket's attachment on every read.
 - Every live command records per-stage timings, and the Postgres adapter records pool wait, statement time, lane wait, and serialization retries.
-- PostgreSQL and CNPG application queries run on the connection pool. The owner session keeps the exclusive ownership lock; every pooled session holds a shared session lock; a replacement owner must hold that key exclusively once, which the database grants only after every session of the old process has closed; a lost owner session ends its pool at once.
+- PostgreSQL and CNPG application queries run on the connection pool. The owner session keeps the exclusive ownership lock; every pooled session holds a shared session lock and verifies that this process's owner session still holds the ownership lock; a replacement owner must hold the session key exclusively once, which the database grants only after every session of the old process has closed; a lost owner session ends its pool at once.
 - Transactions on the tile tables take turns in one lane, the coordinator's callback transactions in another, and everything else overlaps; serialization failures are retried with a jittered backoff and the first twenty per process are logged with the statement and the database's reason.
 - `tile_blob_reservations` has an index on its expiry, which every reservation sweeps.
 
@@ -137,7 +137,7 @@ The second showed 62.7 percent idle, `writev` at 5.8 percent, canvas decoding at
 ## The adapter now
 
 `apps/backend/src/adapters/node/postgres-connection.ts` claims the ownership advisory lock on one pooled client at startup, as before.
-Every other pooled session takes a shared advisory lock on a second key the first time it carries application work.
+Every other pooled session takes a shared advisory lock on a second key the first time it carries application work, then verifies that a backend carrying this process's owner name still holds the ownership lock; the database releases that lock the moment the owner backend dies, possibly before the process hears of it, and this check keeps a session opened after that moment from joining a database another owner has since drained and taken.
 A replacement owner takes the ownership lock once the old owner session is gone, then must obtain the session key exclusively before it serves, which the database grants only after every session of the old process has closed, bounded by the statement timeout.
 Losing the owner session ends this process's pool at once, so no query of a former owner can commit after a replacement starts writing.
 This is stricter fencing than the single session gave: a takeover waits for every connection of the old process, not just its owner.

@@ -199,3 +199,10 @@ scope and land in the same branch.
   (25 runs, via scripts/runtime-benchmark/compact-report.mjs), README, and Changesets updated.
   TODO 7 done for Node (one pass) and Bun (one pass on the final images). -397i/j/k image
   references removed from both nodes; no test namespaces remain.
+- Pullfrog P1 on the fence (real): the ownership lock is released when the owner backend dies,
+  before the process necessarily notices; a replacement could drain and serve while the old
+  process opened a fresh pooled session that the shared lock alone admitted. Fixed at 511f7005:
+  the owner session sets a unique `application_name`; `fence()` verifies after its shared lock
+  that a backend by that name holds the ownership lock, else treats it as lost ownership (pool
+  ends, runtime told). New Postgres-backed test covers it. Also `compact-report.mjs` uses the
+  configured `description.users`. Not re-benchmarked: one extra statement per new pooled session.
