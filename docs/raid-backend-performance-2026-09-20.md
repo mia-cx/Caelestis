@@ -1,5 +1,8 @@
 # Backend raid measurements
 
+The measurements below describe the cb7e687 implementation before the final rebase onto c2121c03.
+That rebase adds claim deletion guards. Fresh comparisons on the merged implementation are pending.
+
 The first local comparisons use the production Node host and shared coordinators on an isolated devbox clone.
 Node 22.23.2 and Bun 1.4.2 use local PostgreSQL 18 and filesystem object storage.
 Those Bun runs use the Node-compatible socket path (`bun-compat`), not the native Bun adapter.
@@ -157,8 +160,9 @@ differences cannot be attributed to expiry alone.
 
 Resource totals cover the five application containers. They exclude operators, Kubernetes services,
 storage engines and benchmark processes. Raw reports retain each counter's actual measurement interval.
-[Raw Node comparisons](benchmarks/raid-backend-477-node-2026-09-20.json.gz) include image IDs, placement,
-trace hashes, SQL stages, resource samples and correctness assertions.
+[Node summaries](benchmarks/raid-backend-477-node-2026-09-20.json.gz) include image IDs, placement,
+trace hashes, SQL stages, resource samples and correctness assertions. Each summary records the hash
+of the [complete raw Node samples](https://i.mia.cx/file/2026/09/raid-backend-477-node-2026-09-20.json-d8d974.gz).
 
 ### Restored-room ownership
 
