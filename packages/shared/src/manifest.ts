@@ -1,3 +1,4 @@
+import type { ServerAsset } from './server-branding.js'
 import type { TemplateTag } from './tags.js'
 import type { TemplateSurface } from './template-surface.js'
 import type { Millis } from './time.js'
@@ -45,6 +46,16 @@ export interface ServerInfo {
   readonly presence?: 1
   /** Accepts bounded paint-part transfers on live protocol v2. */
   readonly livePaintParts?: 1
+  /** Canonical `https://discord.gg/<code>` the public home page offers as a join action. */
+  readonly discordInviteUrl?: string
+  /** Operator copy for the home page, in the bounded format `parseHomeCopy` accepts. */
+  readonly homeCopy?: string
+  /** Header text when no logo image is set. Absent means the server name. */
+  readonly logoText?: string
+  /** Header logo image, served at `serverAssetPath('logo', ...)`. */
+  readonly logoImage?: ServerAsset
+  /** Default link preview for non-template routes, served at `serverAssetPath('preview', ...)`. */
+  readonly previewImage?: ServerAsset
 }
 
 /**
