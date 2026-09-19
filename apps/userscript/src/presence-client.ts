@@ -193,6 +193,24 @@ const send = (connection: Connection, event: PresenceClientEvent): boolean => {
   return true
 }
 
+/** Keep geometry identity across wire snapshots while always accepting fresh claim metadata. */
+const receivedRegions = (connection: Connection, incoming: readonly unknown[]): RegionClaim[] => {
+  const previous = new Map(connection.regions.map((region) => [region.id, region]))
+  return incoming
+    .filter(isPresenceRegion)
+    .filter(
+      (region) =>
+        region.season === connection.server.season &&
+        sameTemplateSurface(region.surface, WORLD_TEMPLATE_SURFACE),
+    )
+    .map((region) => {
+      const held = previous.get(region.id)
+      if (held === undefined || JSON.stringify(held.document) !== JSON.stringify(region.document))
+        return region
+      return { ...region, document: held.document }
+    })
+}
+
 const armHeartbeat = (connection: Connection): void => {
   if (connection.heartbeatTimer !== null) clearTimeout(connection.heartbeatTimer)
   connection.heartbeatTimer = setTimeout(() => {
@@ -300,13 +318,7 @@ const applyServerEvent = (connection: Connection, value: unknown): boolean => {
         return [peer.sessionId, peer] as const
       }),
     )
-    connection.regions = event.regions
-      .filter(isPresenceRegion)
-      .filter(
-        (region) =>
-          region.season === connection.server.season &&
-          sameTemplateSurface(region.surface, WORLD_TEMPLATE_SURFACE),
-      )
+    connection.regions = receivedRegions(connection, event.regions)
     connection.claimsRevision++
     connection.ownedRegionIds = regionIds(event.ownedRegionIds)
     connection.canWriteClaims = event.canWrite === true
@@ -331,13 +343,7 @@ const applyServerEvent = (connection: Connection, value: unknown): boolean => {
   }
   if (event.type === 'regions') {
     if (!Array.isArray(event.regions)) return false
-    connection.regions = event.regions
-      .filter(isPresenceRegion)
-      .filter(
-        (region) =>
-          region.season === connection.server.season &&
-          sameTemplateSurface(region.surface, WORLD_TEMPLATE_SURFACE),
-      )
+    connection.regions = receivedRegions(connection, event.regions)
     connection.claimsRevision++
     connection.ownedRegionIds = regionIds(event.ownedRegionIds)
     for (const listener of claimListeners) listener()

@@ -15,7 +15,7 @@ Implement the thirteen children #466–478 in one PR on the supplied branch. Kee
 ## TODOs
 
 - [x] #466 Build isolated trusted-input Wplace benchmark coverage and presence GPU timing; capture baseline.
-- [ ] #467 Preserve unchanged claim geometry identity; test, benchmark and commit.
+- [x] #467 Preserve unchanged claim geometry identity; test, benchmark and commit.
 - [ ] #468 Reject hidden/offscreen presence geometry before expensive work; test, benchmark and commit.
 - [ ] #469 Prepare connected components only after a pointer hits claimed pixels; test, benchmark and commit.
 - [ ] #470 Measure remaining presence GPU cost and retain only proven rendering improvements.
@@ -38,3 +38,4 @@ Implement the thirteen children #466–478 in one PR on the supplied branch. Kee
 - Each line above is independently committable. More than eight TODOs is intentional because each issue needs its own measured result.
 - #466: complete built baseline runs on real Wplace. Hover captured 18.388 s whole-page task time/30 s; trusted drag/wheel smoke captured 3.787 s. These are diagnostic single runs, not optimization claims. Replay verifies 37 claims/10 peers and holds the pointer for 30 seconds. Dedicated tab is closed in finally; outgoing collaboration writes are intercepted. Existing user's tab remains open.
 - Tooling validation: userscript typecheck passed; full userscript suite passed 137 files/1,582 tests. Happy DOM teardown logs AbortError from existing fetch teardown; no failed tests. Presence GPU instrumentation uses existing profileGpu query handling.
+- #467: focused test failed on unchanged document identity before the fix; all 17 presence-client tests pass afterward. Three alternating baseline/candidate pairs completed on full Wplace builds, with 30-second hover and trusted movement each. Candidate eliminates repeated raster/component CPU and uploads. Whole-page CPU improves in every pair; GPU time does not consistently improve. Raw profiles are in docs/benchmarks/raid-467-2026-09-19.json.gz.
