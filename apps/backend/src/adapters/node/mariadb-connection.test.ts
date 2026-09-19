@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -21,6 +21,91 @@ describe.skipIf(!process.env.CAELESTIS_TEST_MARIADB_URL)('MariaDB connection', (
   afterEach(async () => {
     await harness?.close()
   })
+
+  it.each([false, true])(
+    'guards legacy inserts at READ COMMITTED with fence=%s',
+    async (fenced) => {
+      const migrations = join(import.meta.dirname, '../../../migrations-mariadb')
+      const directory = await mkdtemp(join(tmpdir(), 'caelestis-maria-fence-'))
+      try {
+        for (const name of await readdir(migrations)) {
+          if (!fenced && name === '0006_region_deletion_fence.sql') continue
+          await copyFile(join(migrations, name), join(directory, name))
+        }
+        await db.migrate(directory)
+      } finally {
+        await rm(directory, { recursive: true, force: true })
+      }
+      const legacy = new MariaConnection(harness.config)
+      const insert = `INSERT INTO work_regions
+      (id, season, surface_kind, claimant_user_id, claimant_name, x, y, w, h, label, created_at, expires_at)
+      VALUES ('retired', 0, 'world', 1, 'Mia', 0, 0, 8, 8, '', 0, 0) ON CONFLICT(id) DO NOTHING`
+      let staleInsert: Promise<boolean> | undefined
+      try {
+        await db.prepare(insert).run()
+        await legacy.prepare('SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED').run()
+        const legacyId = await legacy
+          .prepare('SELECT CONNECTION_ID() AS id')
+          .first<{ id: number }>()
+        const retired = await db.withClient(async (client) => {
+          await client.query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED')
+          await client.beginTransaction()
+          try {
+            // INSERT ... SELECT in the deletion batch reads the live row before retiring its ID.
+            await client.query("SELECT id FROM work_regions WHERE id = 'retired' FOR UPDATE")
+            staleInsert = legacy
+              .prepare(insert)
+              .run()
+              .then(
+                () => true,
+                () => false,
+              )
+            await expect
+              .poll(
+                async () =>
+                  (
+                    await harness.admin
+                      .prepare(`
+            SELECT count(*) AS waiting FROM information_schema.INNODB_LOCK_WAITS w
+            JOIN information_schema.INNODB_TRX t ON t.trx_id = w.requesting_trx_id
+            WHERE t.trx_mysql_thread_id = ?`)
+                      .bind(legacyId?.id)
+                      .first<{ waiting: number }>()
+                  )?.waiting,
+                { timeout: 5000 },
+              )
+              .toBe(1)
+            await client.query("INSERT INTO work_region_deletions VALUES ('retired')")
+            await client.query("DELETE FROM work_regions WHERE id = 'retired'")
+            await client.commit()
+            return true
+          } catch (error) {
+            await client.rollback()
+            if (error instanceof Error && 'errno' in error && error.errno === 1213) return false
+            throw error
+          }
+        })
+        await staleInsert
+        // Either lock ordering can lose a deadlock. The production batch retries retirement.
+        if (!retired)
+          await db.batch([
+            db.prepare(
+              "INSERT INTO work_region_deletions VALUES ('retired') ON CONFLICT(id) DO NOTHING",
+            ),
+            db.prepare("DELETE FROM work_regions WHERE id = 'retired'"),
+          ])
+        // The unfenced control must reproduce the resurrection, or this interleaving proves nothing.
+        expect((await db.prepare('SELECT id FROM work_regions').all()).results).toEqual(
+          fenced ? [] : [{ id: 'retired' }],
+        )
+        expect((await db.prepare('SELECT * FROM work_region_deletions').all()).results).toEqual([
+          { id: 'retired' },
+        ])
+      } finally {
+        await legacy.close()
+      }
+    },
+  )
 
   it('repeats numbered parameters and preserves literals without SQL interpolation', async () => {
     const value = "?2 ' \\ ON CONFLICT §0§"
