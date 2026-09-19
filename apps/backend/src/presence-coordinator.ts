@@ -38,6 +38,7 @@ import {
   type IngestTimings,
   ingestTimings,
 } from './telemetry/ingest-timing.js'
+import type { RegionOwner } from './work/region-store.js'
 
 interface Attachment extends PresenceConnection {
   readonly sessionId: string
@@ -273,6 +274,18 @@ export class PresenceCoordinator<Client> {
         const peers = sockets.map((socket) => this.peer(this.attachment(socket)))
         const dirty = new Set(this.dirty)
         this.dirty.clear()
+        // Recovery replies share one committed owner list inside this revocation fence. Do not
+        // retain it across ticks, where a credential transfer or expiry could invalidate it.
+        const recoveryOwners =
+          attachment !== undefined &&
+          sockets.some((socket) => {
+            const held = this.attachment(socket)
+            return !held.anonymous && !this.sent.has(held.sessionId)
+          })
+            ? await this.timings.timed('claims', 'owners', () =>
+                this.sql.regions.regionOwners(attachment.season, attachment.surface),
+              )
+            : undefined
         for (const socket of sockets) {
           const subscriber = this.attachment(socket)
           const previous = this.sent.get(subscriber.sessionId)
@@ -297,7 +310,7 @@ export class PresenceCoordinator<Client> {
               online: sockets.length,
               peers: relevant,
               regions,
-              ownedRegionIds: await this.ownedRegionIds(subscriber),
+              ownedRegionIds: await this.ownedRegionIds(subscriber, recoveryOwners),
               canWrite: subscriber.credentialScope !== 'read' && !subscriber.anonymous,
             })
             continue
@@ -604,11 +617,16 @@ export class PresenceCoordinator<Client> {
     )
   }
 
-  private async ownedRegionIds(attachment: Attachment): Promise<readonly string[]> {
+  private async ownedRegionIds(
+    attachment: Attachment,
+    recoveredOwners?: readonly RegionOwner[],
+  ): Promise<readonly string[]> {
     if (attachment.anonymous) return []
-    const owners = await this.timings.timed('claims', 'owners', () =>
-      this.sql.regions.regionOwners(attachment.season, attachment.surface),
-    )
+    const owners =
+      recoveredOwners ??
+      (await this.timings.timed('claims', 'owners', () =>
+        this.sql.regions.regionOwners(attachment.season, attachment.surface),
+      ))
     return owners
       .filter(
         ({ tokenHash, actorId }) =>

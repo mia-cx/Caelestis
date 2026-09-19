@@ -7,8 +7,13 @@ import { MemorySqlStore } from './memory/memory-sql-store.js'
 import { mariaTestDatabase } from './node/mariadb.test-helper.js'
 import { PostgresConnection } from './node/postgres-connection.js'
 import { RelationalSqlStore } from './relational-sql-store.js'
+import type { SqlConnection } from './sql-connection.js'
 
-export type SqlStoreHarness = { store: SqlStore; close(): void | Promise<void> }
+export type SqlStoreHarness = {
+  store: SqlStore
+  connection?: Pick<SqlConnection, 'prepare'>
+  close(): void | Promise<void>
+}
 
 /** The same behavioral assertions exercise every supported relational store. */
 export const sqlStoreAdapters: {
@@ -32,6 +37,7 @@ export const sqlStoreAdapters: {
       }
       return {
         store: new D1SqlStore(database as unknown as D1Database),
+        connection: database,
         close: () => database.close(),
       }
     },
@@ -41,7 +47,11 @@ export const sqlStoreAdapters: {
     make: () => {
       const database = sqliteConnection(':memory:')
       database.migrate(join(import.meta.dirname, '../../migrations'))
-      return { store: new RelationalSqlStore(database), close: () => database.close() }
+      return {
+        store: new RelationalSqlStore(database),
+        connection: database,
+        close: () => database.close(),
+      }
     },
   },
 ]
@@ -65,6 +75,7 @@ if (process.env.CAELESTIS_TEST_POSTGRES_URL) {
       }
       return {
         store: new RelationalSqlStore(database),
+        connection: database,
         async close() {
           try {
             await database.pool.query(`DROP SCHEMA ${schema} CASCADE`)
@@ -88,7 +99,7 @@ if (process.env.CAELESTIS_TEST_MARIADB_URL) {
         await close()
         throw error
       }
-      return { store: new RelationalSqlStore(database), close }
+      return { store: new RelationalSqlStore(database), connection: database, close }
     },
   })
 }

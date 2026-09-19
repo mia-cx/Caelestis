@@ -14,6 +14,10 @@ import type { SqlConnection } from '../adapters/sql-connection.js'
 import { workRegionDeletions, workRegions } from '../db/schema.js'
 import type { RegionOwner, RegionStore, RegionWriter } from './region-store.js'
 
+// Old binaries may insert null expiry during rolling upgrades. Apply their original deadline
+// directly instead of backfilling every row before every read and renewal.
+const effectiveExpiry = sql<number>`coalesce(${workRegions.expiresAt}, ${workRegions.createdAt} + ${REGION_CLAIM_TTL_MS})`
+
 const ownedBy = (writer: RegionWriter) =>
   writer.admin
     ? undefined
@@ -66,17 +70,18 @@ export class RelationalRegionStore implements RegionStore {
   }
 
   async expireRegions(now: number): Promise<void> {
-    // Older binaries can still insert without expiry between migration and replacement.
-    await this.db
-      .update(workRegions)
-      .set({ expiresAt: sql`${workRegions.createdAt} + ${REGION_CLAIM_TTL_MS}` })
-      .where(isNull(workRegions.expiresAt))
-      .run()
-    // Expiry drops this server's replica; another server may still renew the logical claim.
-    // Explicit deletion keeps its primary key forever, including after its former expiry.
+    // Expiry drops replicas, but never a permanent deletion retained by older schema versions.
     await this.db
       .delete(workRegions)
-      .where(and(ne(workRegions.state, 'deleted'), lte(workRegions.expiresAt, now)))
+      .where(
+        and(
+          ne(workRegions.state, 'deleted'),
+          or(
+            lte(workRegions.expiresAt, now),
+            and(isNull(workRegions.expiresAt), lte(workRegions.createdAt, now - REGION_CLAIM_TTL_MS)),
+          ),
+        ),
+      )
       .run()
   }
 
@@ -113,7 +118,7 @@ export class RelationalRegionStore implements RegionStore {
         and(
           eq(workRegions.tokenHash, tokenHash),
           eq(workRegions.claimantUserId, actorId),
-          gt(workRegions.expiresAt, now),
+          gt(effectiveExpiry, now),
           eq(workRegions.state, 'active'),
         ),
       )

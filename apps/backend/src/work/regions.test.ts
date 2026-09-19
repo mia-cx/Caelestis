@@ -135,7 +135,7 @@ const setup = async (adapter: string) => {
           : body,
       ),
     })
-  return { app, sql, publishRegions, body, call }
+  return { app, sql, publishRegions, body, call, connection: portable?.connection ?? database }
 }
 
 it('replaces the production incident guard without allowing stale writes between steps', async () => {
@@ -844,29 +844,46 @@ it.each([null, '{', 'null', JSON.stringify({ ...star, inner: star.r }), '{"items
   },
 )
 
-it('assigns finite expiry to rows an old binary writes after migration', async () => {
-  const h = await setup('d1')
-  const id = uuidV7()
-  const original = Schema.decodeUnknownSync(RegionClaimSchema)(
-    await (await h.call('PUT', id, h.body)).json(),
-  )
-  database?.sqlite.prepare('UPDATE work_regions SET expires_at = NULL WHERE id = ?').run(id)
-  expect((await h.sql.regions.readRegion(id))?.expiresAt).toBe(
-    original.createdAt + REGION_CLAIM_TTL_MS,
-  )
-  database?.sqlite.prepare('UPDATE work_regions SET expires_at = NULL WHERE id = ?').run(id)
-  await h.sql.regions.renewRegions(
-    await hashToken('report'),
-    actor.wplaceUserId,
-    original.createdAt + 1_000,
-  )
-  expect((await h.sql.regions.readRegion(id))?.expiresAt).toBe(
-    original.createdAt + 1_000 + REGION_CLAIM_TTL_MS,
-  )
-  database?.sqlite.prepare('UPDATE work_regions SET expires_at = NULL WHERE id = ?').run(id)
-  await h.sql.regions.expireRegions(original.createdAt + REGION_CLAIM_TTL_MS)
-  expect(await h.sql.regions.readRegion(id)).toBeNull()
-})
+it.each(sqlStoreAdapters.filter(({ name }) => name !== 'memory').map(({ name }) => name))(
+  'assigns finite expiry to old-binary rows in %s',
+  async (adapter) => {
+    const h = await setup(adapter)
+    if (!h.connection) throw new Error('Legacy row test requires a SQL connection')
+    const id = uuidV7()
+    const original = Schema.decodeUnknownSync(RegionClaimSchema)(
+      await (await h.call('PUT', id, h.body)).json(),
+    )
+    await h.connection
+      .prepare('UPDATE work_regions SET expires_at = NULL WHERE id = ?')
+      .bind(id)
+      .run()
+    expect((await h.sql.regions.readRegion(id))?.expiresAt).toBe(
+      original.createdAt + REGION_CLAIM_TTL_MS,
+    )
+    await h.connection
+      .prepare('UPDATE work_regions SET expires_at = NULL WHERE id = ?')
+      .bind(id)
+      .run()
+    await h.sql.regions.renewRegions(
+      await hashToken('report'),
+      actor.wplaceUserId,
+      original.createdAt + 1_000,
+    )
+    expect((await h.sql.regions.readRegion(id))?.expiresAt).toBe(
+      original.createdAt + 1_000 + REGION_CLAIM_TTL_MS,
+    )
+    await h.connection
+      .prepare('UPDATE work_regions SET expires_at = NULL WHERE id = ?')
+      .bind(id)
+      .run()
+    await h.sql.regions.renewRegions(
+      await hashToken('report'),
+      actor.wplaceUserId,
+      original.createdAt + REGION_CLAIM_TTL_MS,
+    )
+    expect(await h.sql.regions.readRegion(id)).toBeNull()
+  },
+)
 
 it('wraps a legacy single-shape row in a document', async () => {
   const h = await setup('d1')

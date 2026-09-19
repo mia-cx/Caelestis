@@ -484,6 +484,7 @@ describe('presence room', () => {
         expect.objectContaining({ draft: { rect: rect(8), pixels: 1 } }),
       ]),
     })
+    expect(object.readIngestTimings(false).commands.claims.owners?.count).toBe(1)
   })
 
   it('checks capacity, malformed headers, protocol negotiation, and revoked credentials', async () => {
