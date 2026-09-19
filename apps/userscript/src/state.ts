@@ -9,6 +9,8 @@ import {
   parseTemplateFilters,
   parseTemplateTags,
   type ReconciliationReason,
+  SERVER_ASSET_MAX_BYTES,
+  type ServerAssetKind,
   type ShortcutOverrides,
   type SyncTransport,
   type TemplateFilters,
@@ -1991,6 +1993,112 @@ export const renameServer = async (
     return { ok: false, message: String(error) }
   } finally {
     activeServerRenames.delete(server.url)
+  }
+}
+
+/**
+ * Re-read public server metadata after an admin write committed, and adopt it only while the
+ * connection that wrote is still the current one for its URL and still describes the same server.
+ * A failed re-read is not a failed write, so it is swallowed.
+ */
+const adoptRefreshedServerInfo = async (server: ConnectedServer): Promise<void> => {
+  const current = getState().servers.find((candidate) => candidate.url === server.url)
+  if (current === undefined || current.info === null || server.info === null) return
+  let refreshed: ServerInfo | null = null
+  try {
+    const metadata = await requestServerMetadata(serverEndpoint(current.url, '/server'))
+    if (metadata.response.ok) refreshed = parseServerInfo(metadata.body)
+  } catch {
+    return
+  }
+  const latest = getState().servers.find((candidate) => candidate.url === server.url)
+  if (
+    latest !== undefined &&
+    latest.info !== null &&
+    isCurrentServerConnection(current) &&
+    latest.info === current.info &&
+    refreshed !== null &&
+    refreshed.id === server.info.id
+  ) {
+    upsertServer({ ...latest, info: refreshed })
+  }
+}
+
+export interface ServerDetailsPatch {
+  readonly name?: string
+  readonly description?: string | null
+  readonly discordInviteUrl?: string | null
+  readonly homeCopy?: string | null
+  readonly logoText?: string | null
+}
+
+/** Edit the public presentation every member and crawler sees. Null clears a field. */
+export const updateServerDetails = async (
+  server: ConnectedServer,
+  patch: ServerDetailsPatch,
+): Promise<{ ok: true } | { ok: false; message: string }> => {
+  if (Object.values(patch).every((value) => value === undefined))
+    return { ok: false, message: 'Nothing to change.' }
+  try {
+    const { response, body } = await requestServerMutation(
+      serverEndpoint(server.url, '/admin/server'),
+      { method: 'PATCH', headers: adminHeaders(server), body: JSON.stringify(patch) },
+    )
+    if (response.status === 401 || response.status === 403) noteAuthFailure(server, response.status)
+    if (!response.ok) return { ok: false, message: failure(response, isRecord(body) ? body : null) }
+    await adoptRefreshedServerInfo(server)
+    return { ok: true }
+  } catch (error) {
+    return { ok: false, message: String(error) }
+  }
+}
+
+/** Upload a logo or link preview image. The server sniffs the container and bounds the size. */
+export const uploadServerAsset = async (
+  server: ConnectedServer,
+  kind: ServerAssetKind,
+  bytes: Uint8Array,
+  contentType: string,
+): Promise<{ ok: true } | { ok: false; message: string }> => {
+  if (bytes.byteLength === 0) return { ok: false, message: 'That file is empty.' }
+  if (bytes.byteLength > SERVER_ASSET_MAX_BYTES[kind])
+    return {
+      ok: false,
+      message: `The ${kind} image must be at most ${Math.round(SERVER_ASSET_MAX_BYTES[kind] / 1024)} KiB.`,
+    }
+  try {
+    const { response, body } = await requestServerUpload(
+      serverEndpoint(server.url, `/admin/server/assets/${kind}`),
+      {
+        method: 'PUT',
+        headers: { ...adminHeaders(server), 'content-type': contentType },
+        body: bytes.slice().buffer,
+      },
+    )
+    if (response.status === 401 || response.status === 403) noteAuthFailure(server, response.status)
+    if (!response.ok) return { ok: false, message: failure(response, isRecord(body) ? body : null) }
+    await adoptRefreshedServerInfo(server)
+    return { ok: true }
+  } catch (error) {
+    return { ok: false, message: String(error) }
+  }
+}
+
+export const deleteServerAsset = async (
+  server: ConnectedServer,
+  kind: ServerAssetKind,
+): Promise<{ ok: true } | { ok: false; message: string }> => {
+  try {
+    const { response, body } = await requestServerMutation(
+      serverEndpoint(server.url, `/admin/server/assets/${kind}`),
+      { method: 'DELETE', headers: adminHeaders(server) },
+    )
+    if (response.status === 401 || response.status === 403) noteAuthFailure(server, response.status)
+    if (!response.ok) return { ok: false, message: failure(response, isRecord(body) ? body : null) }
+    await adoptRefreshedServerInfo(server)
+    return { ok: true }
+  } catch (error) {
+    return { ok: false, message: String(error) }
   }
 }
 
