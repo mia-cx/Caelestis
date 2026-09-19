@@ -18,8 +18,8 @@ and retire stale client intent when a server reports deletion.
 ## TODOs
 
 - [x] Persist terminal claim deletion and reversible withdrawal across storage adapters and API, with route regressions and migrations.
-- [~] Teach userscript transport and routing to distinguish withdrawal from deletion and retire authoritative deleted intent, with focused regressions.
-- [ ] Validate the two-client conflict and release checks, document production guard retirement, and update the existing PR.
+- [x] Teach userscript transport and routing to distinguish withdrawal from deletion and retire authoritative deleted intent, with focused regressions.
+- [~] Validate the two-client conflict and release checks, document production guard retirement, and update the existing PR.
 
 ## Notes
 
@@ -30,3 +30,5 @@ and retire stale client intent when a server reports deletion.
 - Use an active/withdrawn/deleted state on the existing identity record. Keeping the primary key makes concurrent stale inserts harmless; update predicates cannot reactivate deleted rows. Withdrawn identities retain ownership so reconnection and a racing explicit deletion remain authorized.
 - Keep terminal IDs indefinitely because legacy clients do not send an original expiry or generation with PUT. Clear their stored geometry to keep deletion records small.
 - Backend route regressions first failed across memory, D1, and SQLite (stale PUT returned 200). All 94 route tests now pass, including a paused in-flight update after deletion. Backend TypeScript checks pass.
+- All 152 route cases also pass with disposable local PostgreSQL 17 and MariaDB 11.8. Userscript checks and 50 routing/transport tests pass after adding terminal deletion handling.
+- Final review found that replica TTL expiry must remain recoverable when another server keeps the logical claim renewed. Test and preserve that distinction before completion.

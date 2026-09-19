@@ -92,14 +92,27 @@ const setup = (initial: ConnectedServer[] = [x, y, z]) => {
     retire: (server: ConnectedServer) => {
       retired.add(server.url)
     },
-    put: vi.fn(async (server: ConnectedServer, region: RegionClaim, _signal: AbortSignal) => {
-      mutations.push({ method: 'PUT', server: server.url, region })
-      return fail === server.url ? 'unreachable' : null
-    }),
-    remove: vi.fn(async (server: ConnectedServer, region: RegionClaim, _signal: AbortSignal) => {
-      mutations.push({ method: 'DELETE', server: server.url, region })
-      return fail === server.url ? 'unreachable' : null
-    }),
+    put: vi.fn(
+      async (
+        server: ConnectedServer,
+        region: RegionClaim,
+        _signal: AbortSignal,
+      ): Promise<string | null | { deleted: true }> => {
+        mutations.push({ method: 'PUT', server: server.url, region })
+        return fail === server.url ? 'unreachable' : null
+      },
+    ),
+    remove: vi.fn(
+      async (
+        server: ConnectedServer,
+        region: RegionClaim,
+        _signal: AbortSignal,
+        _withdraw = false,
+      ) => {
+        mutations.push({ method: 'DELETE', server: server.url, region })
+        return fail === server.url ? 'unreachable' : null
+      },
+    ),
   }
   return {
     router: new ClaimRouter(host),
@@ -119,6 +132,43 @@ const setup = (initial: ConnectedServer[] = [x, y, z]) => {
   }
 }
 afterEach(() => vi.useRealTimers())
+
+describe('authoritative claim deletion', () => {
+  it('retires stale saved intent and deletes its other server copies after a deleted response', async () => {
+    const h = setup([x, y])
+    const region = claim()
+    const router = new ClaimRouter(h.host, [
+      {
+        region,
+        deleted: false,
+        copies: [
+          { url: x.url, serverId: 'x' },
+          { url: y.url, serverId: 'y' },
+        ],
+      },
+    ])
+    h.host.put.mockImplementation(async (server) => (server === x ? { deleted: true } : null))
+    await router.reconcile()
+    expect(router.mine()).toEqual([])
+    expect(h.host.remove).toHaveBeenCalledWith(x, region, expect.any(AbortSignal), false)
+    expect(h.host.remove).toHaveBeenCalledWith(y, region, expect.any(AbortSignal), false)
+    const writes = h.host.put.mock.calls.length
+    await router.reconcile()
+    expect(h.host.put).toHaveBeenCalledTimes(writes)
+    expect(h.persist.mock.lastCall?.[0]).toEqual([expect.objectContaining({ deleted: true })])
+  })
+
+  it('withdraws replicas on disconnect without declaring the logical claim deleted', async () => {
+    const h = setup([x])
+    const region = claim()
+    const router = new ClaimRouter(h.host, [
+      { region, deleted: false, copies: [{ url: x.url, serverId: 'x' }] },
+    ])
+    await router.disconnect(x)
+    expect(h.host.remove).toHaveBeenCalledWith(x, region, expect.any(AbortSignal), true)
+    expect(router.mine()).toEqual([region])
+  })
+})
 
 describe('claim recipients', () => {
   it('uses actual claimed pixels, matching surface/season, and no-overlap fallback', () => {

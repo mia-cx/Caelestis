@@ -24,6 +24,7 @@ const harness = vi.hoisted(() => ({
   draftedTiles: [] as { x: number; y: number }[],
   draftedOffsets: new Map<string, number[]>(),
   mutations: [] as { url: string; init: RequestInit }[],
+  mutationStatus: 200,
   reads: [] as { url: string; init: RequestInit }[],
   /** Presence headcount per server origin; a missing entry answers 404. */
   online: new Map<string, number>(),
@@ -57,7 +58,10 @@ vi.mock('./tile-transform.js', () => ({
 vi.mock('./server-transport.js', () => ({
   requestServerMutation: (url: string, init: RequestInit) => {
     harness.mutations.push({ url, init })
-    return Promise.resolve({ response: new Response(null, { status: 200 }), body: {} })
+    return Promise.resolve({
+      response: new Response(null, { status: harness.mutationStatus }),
+      body: {},
+    })
   },
   requestServerTree: async (url: string, init: RequestInit) => {
     harness.reads.push({ url, init })
@@ -154,6 +158,7 @@ const tileAt = (x: number, y: number, screenX = 0, screenY = 0) => ({
 })
 
 beforeEach(() => {
+  harness.mutationStatus = 200
   vi.useFakeTimers()
   vi.stubGlobal('WebSocket', FakeWebSocket)
   FakeWebSocket.instances.length = 0
@@ -566,5 +571,28 @@ describe('presence client', () => {
       /\/work\/regions\/0192e7c0-0000-7000-8000-000000000002$/,
     )
     expect(new Headers(mutation?.init.headers).get('authorization')).toBe('Bearer secret-token')
+  })
+
+  it('distinguishes terminal deletion from retryable failures and sends replica withdrawal intent', async () => {
+    const { client } = await connect()
+    const id = '0192e7c0-0000-7000-8000-000000000002'
+    const actor = { wplaceUserId: 7, displayName: 'Mia' }
+    const request = { actor, label: '', document: { items: [] } }
+    harness.mutationStatus = 410
+    expect(await client.claimRegion(server, id, request)).toEqual({ deleted: true })
+    expect(await client.releaseRegion(server, id, actor)).toBeNull()
+    harness.mutationStatus = 503
+    expect(await client.claimRegion(server, id, request)).toBe('Server answered 503.')
+    harness.mutationStatus = 200
+    await client.releaseRegion(server, id, actor, undefined, undefined, true)
+    expect(JSON.parse(String(harness.mutations.at(-1)?.init.body))).toEqual({
+      actor,
+      withdraw: true,
+    })
+    await client.releaseRegion(server, id, actor)
+    expect(JSON.parse(String(harness.mutations.at(-1)?.init.body))).toEqual({
+      actor,
+      withdraw: false,
+    })
   })
 })
