@@ -2,22 +2,20 @@ import {
   decodePresenceDraftMask,
   PRESENCE_VIEWPORT_MIN_MS,
   type PresenceRect,
-  type RegionDocument,
   type RegionShapePixels,
   rectsIntersect,
-  regionDocumentPixels,
   sameRect,
   TILE_SIZE,
 } from '@caelestis/shared'
 import { claimEditorEditingIds, claimEditorPixels } from '../claim-editor.js'
 import { log, warn } from '../debug.js'
 import { getMap } from '../map-handle.js'
+import { displayClaims } from '../presence-claims.js'
 import { presenceView } from '../presence-client.js'
 import { presenceRgb } from '../presence-colour.js'
 import { hoveredPresenceItems } from '../presence-hover.js'
 import {
   measureProfile,
-  measureProfileDetail,
   recordProfileCounter,
   recordProfileWorkload,
   registerProfileMemorySource,
@@ -232,24 +230,6 @@ const lerpRect = (from: PresenceRect, to: PresenceRect, t: number): PresenceRect
   h: from.h + (to.h - from.h) * t,
 })
 
-/** Rasterised claim documents, kept per region so a redraw does not rasterise again. */
-const documentPixels = new Map<string, { document: RegionDocument; pixels: RegionShapePixels }>()
-
-export const regionPixelsFor = (id: string, document: RegionDocument): RegionShapePixels | null => {
-  const held = documentPixels.get(id)
-  if (held?.document === document) return held.pixels
-  const pixels = measureProfileDetail('Presence region rasterize', () =>
-    regionDocumentPixels(document),
-  )
-  recordProfileCounter('Presence region rasterizations')
-  if (pixels === null) {
-    documentPixels.delete(id)
-    return null
-  }
-  documentPixels.set(id, { document, pixels })
-  return pixels
-}
-
 /** Pixels as texels: inside or not. The outline is found in the shader, in device pixels. */
 const shapeTexels = ({
   rect,
@@ -285,24 +265,17 @@ const currentItems = (): Item[] => {
       })
     }
   }
-  const editing = new Set(claimEditorEditingIds())
-  const seen = new Set<string>()
-  for (const region of view.regions) {
-    seen.add(region.id)
-    // The claim being edited is drawn by the editor instead, so its stored copy steps aside.
-    if (editing.has(region.id)) continue
-    const pixels = regionPixelsFor(region.id, region.document)
-    if (pixels === null) continue
+  for (const claim of displayClaims(view.regions, claimEditorEditingIds())) {
+    const region = claim.regions[0]
     items.push({
-      key: `region:${region.id}`,
+      key: `region:${claim.id}`,
       kind: 'region',
-      rect: pixels.rect,
+      rect: claim.pixels.rect,
       colour: presenceRgb(region.claimant.wplaceUserId),
-      mask: pixels,
+      mask: claim.pixels,
       mine: view.me !== null && region.claimant.wplaceUserId === view.me.wplaceUserId,
     })
   }
-  for (const id of documentPixels.keys()) if (!seen.has(id)) documentPixels.delete(id)
   for (const [index, pixels] of (claimEditorPixels()?.parts ?? []).entries()) {
     items.push({
       key: `${TOOL_KEY}:${index}`,
@@ -342,12 +315,6 @@ class PresenceLayer {
   constructor() {
     registerProfileMemorySource('Presence GPU masks', () =>
       [...this.masks.values()].reduce((bytes, mask) => bytes + mask.width * mask.height, 0),
-    )
-    registerProfileMemorySource('Presence region masks', () =>
-      [...documentPixels.values()].reduce(
-        (bytes, entry) => bytes + entry.pixels.mask.byteLength,
-        0,
-      ),
     )
   }
 

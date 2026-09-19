@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { regionDocumentPixels, TILE_SIZE } from '@caelestis/shared'
+import { TILE_SIZE } from '@caelestis/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { TileFrame } from './tile-transform.js'
 
@@ -24,8 +24,6 @@ vi.mock('./presence-client.js', () => ({
 vi.mock('./claim-editor.js', () => ({ claimEditorEditingIds: () => [] }))
 vi.mock('./gl/presence-layer.js', () => ({
   displayedPresenceRect: (key: string) => harness.displayed.get(key) ?? null,
-  regionPixelsFor: (_id: string, document: Parameters<typeof regionDocumentPixels>[0]) =>
-    regionDocumentPixels(document),
 }))
 vi.mock('./state.js', () => ({
   getState: () => ({ showPresence: harness.showPresence, ...harness.flags }),
@@ -89,6 +87,42 @@ afterEach(async () => {
 })
 
 describe('presence tags', () => {
+  it('uses one tag and hover key across existing touching claims without saving', async () => {
+    harness.regions = Array.from({ length: 13 }, (_, index) => ({
+      ...twoPieces,
+      id: `r${index}`,
+      document: { items: [{ id: 'shape', op: 'add', shape: rect(index * 10, 0, 10, 10) }] },
+    }))
+    const left = await tagsAt(frameAt(4), 5, 5)
+    const right = await tagsAt(frameAt(4), 125, 5)
+    expect(left).toHaveLength(1)
+    expect(right).toEqual(left)
+    expect(left[0]?.rect).toEqual({ x: 0, y: 0, w: 130, h: 10 })
+  })
+
+  it('preserves each saved custom label while sharing the union boundary', async () => {
+    harness.regions = [
+      {
+        ...twoPieces,
+        id: 'a',
+        label: 'Left',
+        document: { items: [{ id: 'a', op: 'add', shape: rect(0, 0, 10, 10) }] },
+      },
+      {
+        ...twoPieces,
+        id: 'b',
+        label: 'Right',
+        document: { items: [{ id: 'b', op: 'add', shape: rect(10, 0, 10, 10) }] },
+      },
+    ]
+    const left = await tagsAt(frameAt(4), 5, 5)
+    const right = await tagsAt(frameAt(4), 15, 5)
+    expect(left[0]?.text).toBe('Sam · Left')
+    expect(right[0]?.text).toBe('Sam · Right')
+    expect(right[0]?.key).toBe(left[0]?.key)
+    expect(right[0]?.rect).toEqual({ x: 0, y: 0, w: 20, h: 10 })
+  })
+
   it('reuses clustering until its component, text width, projection or document changes', async () => {
     harness.regions = [twoPieces]
     const { presenceTagsAt } = await import('./presence-labels.js')
