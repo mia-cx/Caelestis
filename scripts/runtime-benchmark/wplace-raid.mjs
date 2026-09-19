@@ -8,6 +8,13 @@ const bundle = await readFile(resolve(process.argv[2]), 'utf8')
 const output = resolve(process.argv[3])
 const repeats = Number(process.argv[4] ?? 3)
 assert(Number.isInteger(repeats) && repeats > 0)
+const expectedTemplates = Number(process.env.RAID_TEMPLATES)
+const hoverMs = Number(process.env.RAID_HOVER_MS ?? 30000)
+assert(Number.isFinite(hoverMs) && hoverMs >= 1000)
+assert(
+  Number.isInteger(expectedTemplates) && expectedTemplates > 0,
+  'Set RAID_TEMPLATES to the expected fully loaded template count',
+)
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms))
 const camera = { center: [-122.797265625, -78.83827746060328], zoom: 15 }
 const info = await (await fetch('http://127.0.0.1:9222/json/version')).json()
@@ -58,7 +65,7 @@ Storage.prototype.removeItem = function(key) { if(key.startsWith('caelestis')) h
 globalThis.GM_getValue = (key,fallback) => localStorage.getItem(key) ?? fallback;
 globalThis.GM_setValue = (key,value) => held.set(key,value);
 globalThis.GM_deleteValue = key => held.set(key,null);
-const replay = globalThis.raidReplay = { sockets:[], blocked:0, tick:0 };
+const replay = globalThis.raidReplay = { sockets:[], blocked:0, tick:0, reads:[] };
 replay.regions = season => Array.from({length:37},(_,i) => {
  const rect={x:325380+(i%7)*180,y:1782020+Math.floor(i/7)*180,w:140,h:140};
  return {id:'raid-claim-'+i,season,surface:{kind:'world',allianceId:null},templateId:null,claimant:{wplaceUserId:900000+i,displayName:'Benchmark '+i},document:{items:[{id:'outer',op:'add',shape:{kind:'rectangle',...rect}},{id:'hole',op:'subtract',shape:{kind:'rectangle',x:rect.x+50,y:rect.y+50,w:20,h:20}}]},rect,label:'Claim '+i,createdAt:1700000000000,expiresAt:1900000000000};
@@ -70,11 +77,11 @@ class ReplaySocket extends EventTarget {
  static CONNECTING=0; static OPEN=1; static CLOSING=2; static CLOSED=3;
  readyState=0; bufferedAmount=0; binaryType='blob';
  constructor(url,protocols) {
-  super(); this.url=String(url);this.protocol=Array.isArray(protocols)?protocols[0]:(protocols??'');this.season=Number(new URL(url).searchParams.get('season')??0);
+  super(); this.url=String(url);this.protocol=this.url.includes('/telemetry/live')?'caelestis.live.v1':Array.isArray(protocols)?protocols[0]:(protocols??'');this.season=Number(new URL(url).searchParams.get('season')??0);
   replay.sockets.push(this);
   setTimeout(()=>{this.readyState=1;this.dispatchEvent(new Event('open'));if(this.url.includes('/telemetry/presence'))replay.emit(this,{type:'presence-ready',sessionId:'raid-self',online:11,peers:replay.peers(0),regions:replay.regions(this.season),ownedRegionIds:[],canWrite:false})},20);
  }
- send() { replay.blocked++ }
+ send(data) { replay.blocked++;if(data==='ping')queueMicrotask(()=>this.dispatchEvent(new MessageEvent('message',{data:'pong'}))) }
  close() { if(this.readyState===3)return;this.readyState=3;this.dispatchEvent(new CloseEvent('close',{code:1000,wasClean:true})) }
 }
 globalThis.WebSocket = class extends ReplaySocket {
@@ -88,7 +95,9 @@ globalThis.fetch=async function(input,init) {
   if(!['GET','HEAD'].includes(method.toUpperCase())) { replay.blocked++;return new Response('{}',{status:403,headers:{'content-type':'application/json'}}) }
   if(url.pathname.includes('/work/regions'))return Response.json({regions:replay.regions(Number(url.searchParams.get('season')??0)),ownedRegionIds:[],canWrite:false});
  }
- return nativeFetch.call(this,input,init);
+ const response=await nativeFetch.call(this,input,init);
+ if(!url.hostname.endsWith('wplace.live'))replay.reads.push({path:url.pathname,status:response.status});
+ return response;
 };
 replay.publish=()=>{const tick=replay.tick++;for(const ws of replay.sockets){if(ws.readyState!==1||!ws.url.includes('/telemetry/presence'))continue;replay.emit(ws,{type:'regions',regions:replay.regions(ws.season),ownedRegionIds:[]});replay.emit(ws,{type:'presence-delta',online:11,upsert:replay.peers(tick),remove:[]})}};
 `
@@ -135,6 +144,17 @@ try {
     `(()=>{document.querySelector('caelestis-rail-control').shadowRoot.querySelector('button').click();const panel=document.querySelector('caelestis-panel');for(const key of ['showPresence','showPresenceClaims','showPresenceViewports'])panel.dispatchEvent(new CustomEvent('caelestis-panel-intent',{detail:{type:'settings',intent:{type:'set-boolean',key,value:true}}}));document.querySelector('caelestis-rail-control').shadowRoot.querySelector('button').click()})()`,
   )
   await sleep(5000)
+  for (let attempt = 0; attempt < 120; attempt++) {
+    if ((await evaluate('__caelestis.templates().length')) === expectedTemplates) break
+    await sleep(500)
+  }
+  assert.equal(
+    await evaluate('__caelestis.templates().length'),
+    expectedTemplates,
+    `Template workload did not finish loading: ${JSON.stringify(await evaluate('raidReplay.reads'))}`,
+  )
+  const templateSignature = await evaluate('JSON.stringify(__caelestis.templates())')
+  const templateSha256 = createHash('sha256').update(templateSignature).digest('hex')
   const environment = await evaluate(
     '({width:innerWidth,height:innerHeight,dpr:devicePixelRatio,scale:visualViewport.scale})',
   )
@@ -150,16 +170,32 @@ try {
       )
       await call('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point })
       await evaluate(
-        `__caelestis.profileReset();__caelestis.profileConfigure({label:${JSON.stringify(scenario)},browserZoomPercent:null});raidReplay.timer=setInterval(raidReplay.publish,300)`,
+        `__caelestis.profileReset();__caelestis.profileConfigure({label:${JSON.stringify(scenario)},browserZoomPercent:Math.round(devicePixelRatio*100)});${scenario === 'idle' ? '' : 'raidReplay.timer=setInterval(raidReplay.publish,300)'}`,
       )
       const before = await metrics()
       const start = Date.now()
+      const dispatchDelayMs = []
+      const at = async (offset) => {
+        await sleep(Math.max(0, start + offset - Date.now()))
+        const late = Math.max(0, Date.now() - start - offset)
+        dispatchDelayMs.push(late)
+        assert(late < 200, `Input driver is ${late} ms late; reject this comparison`)
+      }
       if (scenario === 'movement') {
+        // Input acknowledgements wait for the renderer. Keep sending at wall-clock cadence
+        // so a slower build receives the same workload instead of stretching the camera path.
+        const inputs = []
+        const dispatch = (params) => {
+          const input = call('Input.dispatchMouseEvent', params)
+          input.catch(() => {}) // Observed by Promise.all after the scheduled path.
+          inputs.push(input)
+        }
         for (let round = 0; round < 8; round++) {
+          await at(round * 1500)
           const p = { x: 720, y: 450 },
             sign = round % 2 ? -1 : 1
-          await call('Input.dispatchMouseEvent', { type: 'mouseMoved', ...p })
-          await call('Input.dispatchMouseEvent', {
+          dispatch({ type: 'mouseMoved', ...p })
+          dispatch({
             type: 'mousePressed',
             ...p,
             button: 'left',
@@ -168,16 +204,16 @@ try {
           })
           pressed = true
           for (let step = 1; step <= 12; step++) {
-            await call('Input.dispatchMouseEvent', {
+            await at(round * 1500 + step * 35)
+            dispatch({
               type: 'mouseMoved',
               x: p.x + sign * step * 10,
               y: p.y + Math.sin(step / 4) * 40,
               button: 'left',
               buttons: 1,
             })
-            await sleep(35)
           }
-          await call('Input.dispatchMouseEvent', {
+          dispatch({
             type: 'mouseReleased',
             x: p.x + sign * 120,
             y: p.y + Math.sin(3) * 40,
@@ -186,18 +222,27 @@ try {
             clickCount: 1,
           })
           pressed = false
-          await call('Input.dispatchMouseEvent', {
+          dispatch({
             type: 'mouseWheel',
             ...p,
             deltaX: 0,
             deltaY: sign * 100,
           })
-          await sleep(900)
         }
-      } else await sleep(scenario === 'hover' ? 30000 : 10000)
+        await at(12000)
+        await Promise.all(inputs)
+      } else await sleep(scenario === 'hover' ? hoverMs : 10000)
       await evaluate('clearInterval(raidReplay.timer)')
       const after = await metrics()
       const profile = await evaluate('__caelestis.profile()')
+      assert.equal(
+        await evaluate('JSON.stringify(__caelestis.templates())'),
+        templateSignature,
+        'Template workload changed during sampling',
+      )
+      const currentEnvironment = profile.context.current.environment
+      assert.equal(currentEnvironment.viewport.width, environment.width, 'Viewport changed')
+      assert.equal(currentEnvironment.devicePixelRatio, environment.dpr, 'DPR changed')
       assert.equal(
         profile.context.current.collaboration.regions,
         37,
@@ -210,7 +255,8 @@ try {
       runs.push({
         repeat,
         scenario,
-        elapsedMs: Date.now() - start,
+        elapsedMs: (after.Timestamp - before.Timestamp) * 1000,
+        dispatchDelayMs,
         profile,
         labels,
         external: {
@@ -226,10 +272,15 @@ try {
         JSON.stringify(
           {
             bundleSha256: createHash('sha256').update(bundle).digest('hex'),
-            workloadSha256: createHash('sha256').update(prelude).digest('hex'),
+            workloadSha256: createHash('sha256')
+              .update(prelude)
+              .update(String(hoverMs))
+              .digest('hex'),
+            hoverMs,
             browser: info.Browser,
             camera,
             environment,
+            templateSha256,
             runs,
           },
           null,
@@ -237,7 +288,7 @@ try {
         ),
       )
       console.log(
-        `${repeat + 1}/${repeats} ${scenario}: ${runs.at(-1).external.taskSeconds.toFixed(3)} CPU seconds; claims=${profile.context.current.collaboration.regions}; labels=${labels.length}`,
+        `${repeat + 1}/${repeats} ${scenario}: ${runs.at(-1).external.taskSeconds.toFixed(3)} main-thread task seconds; claims=${profile.context.current.collaboration.regions}; labels=${labels.length}`,
       )
       const shot = await call('Page.captureScreenshot', { format: 'png' })
       await writeFile(`${output}.${repeat}-${scenario}.png`, Buffer.from(shot.data, 'base64'))
