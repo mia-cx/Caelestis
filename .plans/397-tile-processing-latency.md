@@ -158,3 +158,13 @@ scope and land in the same branch.
   fully (upload p95 1,312 ms, paint p95 1,514 ms, backend 79.1%). Ceiling on this branch: 256 on
   Bun (288 fails), 224 on Node (256 fails), both set by the serialized owner connection. The
   -397f image references are removed from both nodes; no test namespaces remain.
+- Mia: the point of the issue was the single connection; the guard exists so no paint event or
+  report is lost and no connected user has stale state. Implemented option 1 in
+  `postgres-connection.ts`: the owner session keeps the exclusive ownership lock; pooled sessions
+  take a shared session lock on a second key when fenced; a replacement owner must hold that key
+  exclusively once (granted only after every old session closed) before serving; losing the owner
+  session ends the old pool. `transaction()` retries 40001/40P01 like `batch()`; the pool has an
+  error listener. MariaDB unchanged. Postgres-backed adapter tests on the devbox: 371 passed,
+  including the fence test (which now terminates the lock-holding session found via pg_locks) and
+  a new four-backend concurrency test. -397g images built; ladder running Node then Bun at 256,
+  384, 512, 768.
