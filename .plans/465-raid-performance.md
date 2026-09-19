@@ -16,7 +16,7 @@ Implement the thirteen children #466–478 in one PR on the supplied branch. Kee
 
 - [x] #466 Build isolated trusted-input Wplace benchmark coverage and presence GPU timing; capture baseline.
 - [x] #467 Preserve unchanged claim geometry identity; test, benchmark and commit.
-- [~] #468 Reject hidden/offscreen presence geometry before expensive work; test, benchmark and commit.
+- [x] #468 Reject hidden/offscreen presence geometry before expensive work; test, benchmark and commit.
 - [~] #469 Prepare connected components only after a pointer hits claimed pixels; test, benchmark and commit.
 - [ ] #470 Measure remaining presence GPU cost and retain only proven rendering improvements.
 - [~] #471 Coalesce presence screen updates with the next map frame; test, benchmark and commit.
@@ -47,3 +47,4 @@ Implement the thirteen children #466–478 in one PR on the supplied branch. Kee
 - Backend candidates are prepared, not accepted: #475 allocation-light selection and heartbeat skips; #476 shared serialization plus exact snapshot/ownership deduplication; #477 one indexed expiry sweep with legacy-null renewal compatibility. Baselines use frozen compiled directories and SHA256 provenance. A mistakenly concurrent baseline copy contained the candidate; detected and rebuilt before any comparison used it.
 - PR #463 advanced to 70330d52 and remains open; #449 remains open at 794322ae. Main still cb7e687 at latest check.
 - #467 accepted final comparison: three matched pairs with 10-second hover and 12-second trusted movement. Repeated raster/component task time falls to zero in all six candidate samples. Movement task time improves 16.3% on average, in every pair; hover frame p95 improves to 17.4–17.5 ms. Hover total task time and GPU time do not consistently improve. Raw final profiles and both earlier diagnostic sets retained in docs/benchmarks.
+- #468 accepted memory result: 725,200 to 19,600 GPU-mask bytes in every one of three alternating hover/movement pairs (97.3%). CPU/GPU time inconclusive; claim/holes/hover screenshots inspected. Focused tests now pass 71/71, including corrected scene-fade expectation. CPU region/component caches remain for #469.

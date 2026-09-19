@@ -56,3 +56,17 @@ retain the heavy machine-contention diagnostic; they support cache elimination, 
 
 The live deletion/recreation fix in PR #463 remains separate. These runs use controlled unchanged snapshots;
 they do not attribute the live incident's message rate to normal production behavior.
+
+## Offscreen preparation (#468)
+
+The baseline includes #467. The candidate rejects hidden claims before preparation and checks actual canvas
+visibility before mask rasterization/upload. It retains cheap fade/motion state, so pan entry and exit do not blink.
+The primary metric is retained GPU mask memory. All three alternating hover/movement pairs reduce it from
+725,200 to 19,600 bytes (97.3%). One of the 37 claims is visible along this camera path.
+CPU masks and component labels still retain 725,200 and 1,450,400 bytes respectively; #469 addresses that path.
+Whole-page heap values vary with GC. Task and GPU timings do not establish a repeatable speedup.
+Frame p95 stays around 17.4–17.6 ms. Screenshots preserve the claim boundary, subtractive hole and hover chips.
+
+The focused culling test covers offscreen-to-visible entry, pan re-entry, hidden changes and mask release after fading.
+The affected client tests pass (71 across seven files). [Raw comparison profiles](benchmarks/raid-468-2026-09-19.json.gz)
+include exact baseline/candidate bundle hashes and all secondary metrics.
