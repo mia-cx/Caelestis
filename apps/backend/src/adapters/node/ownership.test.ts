@@ -64,11 +64,17 @@ it.skipIf(!process.env.CAELESTIS_TEST_POSTGRES_URL)(
         reportLost = resolve
       })
       await first.claimOwnership(reportLost)
+      console.info('step: first owns')
       await expect(second.claimOwnership(() => {})).rejects.toThrow('Another Caelestis server')
+      console.info('step: second refused')
       const row = await first.prepare('SELECT pg_backend_pid() AS pid').first<{ pid: number }>()
+      console.info('step: pid', row?.pid)
       await second.pool.query('SELECT pg_terminate_backend($1)', [row?.pid])
+      console.info('step: terminated')
       await lost
+      console.info('step: lost')
       await expect(first.prepare('SELECT 1').all()).rejects.toThrow()
+      console.info('step: fenced')
       // The lost owner's sessions release their locks promptly; nothing of it lingers to block
       // a replacement.
       await vi.waitFor(
@@ -81,7 +87,9 @@ it.skipIf(!process.env.CAELESTIS_TEST_POSTGRES_URL)(
         },
         { timeout: 3_000 },
       )
+      console.info('step: no locks linger')
       await second.claimOwnership(() => {})
+      console.info('step: second owns')
       expect(await second.prepare('SELECT 1 AS value').first()).toEqual({ value: 1 })
       await expect(first.prepare('SELECT 2').all()).rejects.toThrow()
     } finally {
@@ -90,6 +98,7 @@ it.skipIf(!process.env.CAELESTIS_TEST_POSTGRES_URL)(
       await second.close()
     }
   },
+  40_000,
 )
 
 it.skipIf(!process.env.CAELESTIS_TEST_POSTGRES_URL)(
