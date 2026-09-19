@@ -1337,6 +1337,7 @@ const actionIcon = (name: string): TreeActionModel['icon'] => {
     case 'extension':
     case 'palette':
     case 'download':
+    case 'tune':
       return name
     default:
       return 'kebab'
