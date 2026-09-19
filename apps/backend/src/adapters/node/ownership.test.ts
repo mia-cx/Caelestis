@@ -133,6 +133,22 @@ it.skipIf(!process.env.CAELESTIS_TEST_POSTGRES_URL)(
         ),
       )
       expect(new Set(transactionPids).size).toBe(1)
+      // Batches on a tile table take turns in their own lane; other batches overlap.
+      await owner.pool.query('CREATE TABLE tile_blob_reservations (id text)')
+      const batchPids = async (query: string) =>
+        Promise.all(
+          Array.from({ length: 4 }, async () => {
+            const [result] = await owner.batch<{ pid: number }>([owner.prepare(query)])
+            return result?.results[0]?.pid
+          }),
+        )
+      const tilePids = await batchPids(
+        `SELECT pg_backend_pid() AS pid, pg_sleep(0.2) AS slept,
+           (SELECT count(*) FROM tile_blob_reservations) AS reservations`,
+      )
+      expect(new Set(tilePids).size).toBe(1)
+      const freePids = await batchPids('SELECT pg_backend_pid() AS pid, pg_sleep(0.2) AS slept')
+      expect(new Set(freePids).size).toBe(4)
       const locks = await owner.pool.query<{ mode: string; count: string }>(
         `SELECT mode, count(*)::text AS count FROM pg_locks
          WHERE locktype = 'advisory' AND granted AND classid = hashtext('caelestis-runtime-sessions')
