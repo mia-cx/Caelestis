@@ -123,6 +123,45 @@ describe('presence tags', () => {
     expect(right[0]?.rect).toEqual({ x: 0, y: 0, w: 20, h: 10 })
   })
 
+  it('builds components only after hitting an occupied pixel and drops changed or deleted pieces', async () => {
+    const claim = {
+      ...twoPieces,
+      document: {
+        items: [
+          ...twoPieces.document.items,
+          { id: 'hole', op: 'subtract', shape: rect(3, 3, 4, 4) },
+        ],
+      },
+    }
+    harness.regions = [claim]
+    const { presenceTagsAt } = await import('./presence-labels.js')
+    const profile = await import('./profile.js')
+    profile.setProfileEnabled(true)
+    profile.resetProfile()
+    const builds = () =>
+      profile.profileSnapshot().tasks.find((task) => task.name === 'Presence components')?.count ??
+      0
+    for (const at of [
+      { x: 100, y: 100 },
+      { x: 30, y: 5 },
+      { x: 5, y: 5 },
+    ])
+      expect(presenceTagsAt(frameAt(4), at)).toEqual([])
+    expect(builds()).toBe(0)
+    expect(presenceTagsAt(frameAt(4), { x: 1, y: 1 })).toHaveLength(1)
+    expect(presenceTagsAt(frameAt(4), { x: 65, y: 5 })).toHaveLength(1)
+    expect(builds()).toBe(1)
+    harness.regions = [{ ...claim, document: twoPieces.document }]
+    expect(presenceTagsAt(frameAt(4), { x: 5, y: 5 })).toHaveLength(1)
+    expect(builds()).toBe(2)
+    harness.regions = []
+    presenceTagsAt(frameAt(4), { x: 5, y: 5 })
+    harness.regions = [claim]
+    presenceTagsAt(frameAt(4), { x: 1, y: 1 })
+    expect(builds()).toBe(3)
+    profile.setProfileEnabled(false)
+  })
+
   it('reuses clustering until its component, text width, projection or document changes', async () => {
     harness.regions = [twoPieces]
     const { presenceTagsAt } = await import('./presence-labels.js')

@@ -17,7 +17,7 @@ Implement the thirteen children #466–478 in one PR on the supplied branch. Kee
 - [x] #466 Build isolated trusted-input Wplace benchmark coverage and presence GPU timing; capture baseline.
 - [x] #467 Preserve unchanged claim geometry identity; test, benchmark and commit.
 - [x] #468 Reject hidden/offscreen presence geometry before expensive work; test, benchmark and commit.
-- [~] #469 Prepare connected components only after a pointer hits claimed pixels; test, benchmark and commit.
+- [x] #469 Prepare connected components only after a pointer hits claimed pixels; test, benchmark and commit.
 - [ ] #470 Measure remaining presence GPU cost and retain only proven rendering improvements.
 - [~] #471 Coalesce presence screen updates with the next map frame; test, benchmark and commit.
 - [~] #472 Share scene preparation within a host frame; test, benchmark and commit.
@@ -48,3 +48,4 @@ Implement the thirteen children #466–478 in one PR on the supplied branch. Kee
 - PR #463 advanced to 70330d52 and remains open; #449 remains open at 794322ae. Main still cb7e687 at latest check.
 - #467 accepted final comparison: three matched pairs with 10-second hover and 12-second trusted movement. Repeated raster/component task time falls to zero in all six candidate samples. Movement task time improves 16.3% on average, in every pair; hover frame p95 improves to 17.4–17.5 ms. Hover total task time and GPU time do not consistently improve. Raw final profiles and both earlier diagnostic sets retained in docs/benchmarks.
 - #468 accepted memory result: 725,200 to 19,600 GPU-mask bytes in every one of three alternating hover/movement pairs (97.3%). CPU/GPU time inconclusive; claim/holes/hover screenshots inspected. Focused tests now pass 71/71, including corrected scene-fade expectation. CPU region/component caches remain for #469.
+- #469 three alternating cold-hover/movement/idle pairs pass workload guards. Cold component CPU 137.6/40.7/35.7 to 3.3/7.4/8.0 ms; first label 191.9/70.1/69.8 to 16.1/55.3/49.0 ms. Component and CPU mask memory fall 97.3%. Whole-page time inconclusive. Focused test covers bounds, gaps, holes, first hit, changed geometry and deletion.

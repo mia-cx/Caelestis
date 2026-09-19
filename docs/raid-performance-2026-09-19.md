@@ -70,3 +70,21 @@ Frame p95 stays around 17.4–17.6 ms. Screenshots preserve the claim boundary, 
 The focused culling test covers offscreen-to-visible entry, pan re-entry, hidden changes and mask release after fading.
 The affected client tests pass (71 across seven files). [Raw comparison profiles](benchmarks/raid-468-2026-09-19.json.gz)
 include exact baseline/candidate bundle hashes and all secondary metrics.
+
+## Lazy hover components (#469)
+
+The baseline includes #468. The candidate checks bounds and occupied pixels before building components.
+Cold-hover resets document identities while the pointer is outside the map, then moves onto one claimed piece.
+All three pairs build one component map instead of 37. Retained component bytes fall from 1,450,400 to
+39,200, and CPU mask bytes from 725,200 to 19,600. Both reductions are 97.3%.
+
+| Pair | Component task time, baseline → candidate | First label, baseline → candidate |
+| --- | --- | --- |
+| 1 | 137.6 → 3.3 ms | 191.9 → 16.1 ms |
+| 2 | 40.7 → 7.4 ms | 70.1 → 55.3 ms |
+| 3 | 35.7 → 8.0 ms | 69.8 → 49.0 ms |
+
+The lower component cost and first-label latency repeat in every pair. Whole-page task time does not:
+it improves in one cold-hover pair and increases in two. Warm movement and idle timings show no consistent gain.
+The focused test covers outside bounds, gaps, subtraction holes, separate pieces, changed geometry and deletion.
+[Raw profiles](benchmarks/raid-469-2026-09-19.json.gz) retain all three scenarios and exact build hashes.

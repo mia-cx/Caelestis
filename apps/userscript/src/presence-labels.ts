@@ -303,12 +303,16 @@ export const presenceTagsAt = (
       tags.push({ key: viewportKey, text, colour, rect: viewportRect })
   }
   const seen = new Set<string>()
-  const claims = displayClaims(view.regions, claimEditorEditingIds())
-  for (const claim of flags.showPresenceClaims === false ? [] : claims) {
+  const claims = flags.showPresenceClaims === false ? [] : displayClaims(view.regions, claimEditorEditingIds())
+  for (const claim of claims) {
     seen.add(claim.id)
-    if (!contains(claim.pixels.rect, at.x, at.y)) continue
-    const held = piecesFor(claim.id, claim.pixels)
-    const index = (at.y - held.pixels.rect.y) * held.pixels.rect.w + (at.x - held.pixels.rect.x)
+    const pixels = claim.pixels
+    if (pieces.get(claim.id)?.pixels !== pixels) pieces.delete(claim.id)
+    if (!contains(pixels.rect, at.x, at.y)) continue
+    const index = (at.y - pixels.rect.y) * pixels.rect.w + (at.x - pixels.rect.x)
+    // A gap or subtractive hole needs no flood fill. Build pieces on the first real hit only.
+    if (!pixels.mask[index]) continue
+    const held = piecesFor(claim.id, pixels)
     const label = held.components.labels[index] ?? 0
     if (label === 0) continue
     // Keep a saved custom label when hovering its original claim within the display union.
