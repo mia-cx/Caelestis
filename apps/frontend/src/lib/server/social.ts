@@ -1,4 +1,5 @@
 import type { Manifest, ServerInfo, Template, TemplateStatus } from '@caelestis/shared'
+import { serverAssetPath } from '@caelestis/shared'
 import type { ObjectInfo, ObjectStorage } from '@caelestis/storage'
 import {
   DEFAULT_SOCIAL_IMAGE,
@@ -13,6 +14,33 @@ interface SocialContext {
   statuses: readonly TemplateStatus[]
 }
 
+export const DEFAULT_SOCIAL_DESCRIPTION =
+  'Follow Wplace pixel art, track template progress, and watch timelapses on Caelestis.'
+
+export interface SocialImage {
+  image: string
+  imageType: string
+  imageWidth: number | null
+  imageHeight: number | null
+  imageAlt: string
+}
+
+/**
+ * The preview an operator uploaded, addressed through the frontend's read proxy so a crawler never
+ * needs the backend origin. Absent when they have not uploaded one.
+ */
+const configuredPreview = (url: URL, server: ServerInfo | null): SocialImage | null => {
+  if (server?.previewImage === undefined) return null
+  return {
+    image: new URL(`/api/v1${serverAssetPath('preview', server.previewImage)}`, url.origin).href,
+    imageType: server.previewImage.contentType,
+    // Dimensions are not known without decoding the upload. Crawlers accept their absence.
+    imageWidth: null,
+    imageHeight: null,
+    imageAlt: server.name,
+  }
+}
+
 /** Build public, crawler-readable metadata without depending on browser credentials or state. */
 export const socialMetadata = async (
   url: URL,
@@ -22,17 +50,23 @@ export const socialMetadata = async (
 ) => {
   const { server, manifest, statuses } = context
   const siteName = server?.name ?? 'Caelestis'
-  const metadata = {
+  const metadata: SocialImage & {
+    title: string
+    description: string
+    siteName: string
+    url: string
+  } = {
     title: siteName === 'Caelestis' ? siteName : `${siteName} · Caelestis`,
-    description:
-      'Follow Wplace pixel art, track template progress, and watch timelapses on Caelestis.',
+    description: server?.description ?? DEFAULT_SOCIAL_DESCRIPTION,
     siteName,
     url: new URL(url.pathname, url.origin).href,
-    image: new URL(DEFAULT_SOCIAL_IMAGE, url.origin).href,
-    imageType: 'image/png',
-    imageWidth: 1200,
-    imageHeight: 630,
-    imageAlt: 'Caelestis · Wplace templates, progress and timelapses',
+    ...(configuredPreview(url, server) ?? {
+      image: new URL(DEFAULT_SOCIAL_IMAGE, url.origin).href,
+      imageType: 'image/png',
+      imageWidth: 1200,
+      imageHeight: 630,
+      imageAlt: 'Caelestis · Wplace templates, progress and timelapses',
+    }),
   }
   const [kind, encodedId] = url.pathname.split('/').filter(Boolean)
   let id: string | undefined
@@ -65,11 +99,14 @@ export const socialMetadata = async (
   if (image != null) {
     const imageUrl = new URL(`/social/template/${encodeURIComponent(template.id)}.gif`, url.origin)
     imageUrl.searchParams.set('v', image.etag)
-    metadata.image = imageUrl.href
-    metadata.imageType = 'image/gif'
-    metadata.imageWidth = SOCIAL_IMAGE_WIDTH
-    metadata.imageHeight = SOCIAL_IMAGE_HEIGHT
-    metadata.imageAlt = `Painting timelapse of ${template.name} on Wplace`
+    return {
+      ...metadata,
+      image: imageUrl.href,
+      imageType: 'image/gif',
+      imageWidth: SOCIAL_IMAGE_WIDTH,
+      imageHeight: SOCIAL_IMAGE_HEIGHT,
+      imageAlt: `Painting timelapse of ${template.name} on Wplace`,
+    }
   }
   return metadata
 }

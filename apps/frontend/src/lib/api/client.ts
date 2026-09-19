@@ -11,8 +11,11 @@ import {
   type PainterHistoryResponse,
   type PainterTotalsResponse,
   type ProgressHistoryResponse,
+  type ServerAsset,
+  type ServerAssetKind,
   type ServerInfo,
   type StatusResponse,
+  serverAssetPath,
   type TileHistoryResponse,
   uuidV7,
 } from '@caelestis/shared'
@@ -42,6 +45,17 @@ export const readServerUrl = (): string =>
   )
 
 export const readToken = (): string | null => localStorage.getItem(TOKEN_KEY)
+
+/**
+ * Where the browser loads an operator's logo or preview from: the read proxy on the server render
+ * and for the configured server, the chosen server's own origin otherwise.
+ */
+export const serverAssetUrl = (kind: ServerAssetKind, asset: ServerAsset): string => {
+  const path = `${apiVersionPath}${serverAssetPath(kind, asset)}`
+  return typeof window === 'undefined' || usesServerReadProxy()
+    ? `/api${path}`
+    : `${readServerUrl()}${path}`
+}
 
 /** Use the SSR Worker credential only for its configured/default server and never for user choices. */
 export const usesServerReadProxy = (): boolean =>

@@ -1,11 +1,16 @@
 <script lang="ts">
+import { Icon } from '@caelestis/ui'
 import FolderSection from '$lib/components/FolderSection.svelte'
+import HomeCopy from '$lib/components/HomeCopy.svelte'
 import TemplateCard from '$lib/components/TemplateCard.svelte'
 import { Skeleton } from '$lib/components/ui/skeleton'
 import { useApp } from '$lib/state/app.svelte'
 
 const app = useApp()
 const tree = $derived(app.tree)
+const homeCopy = $derived(app.server?.homeCopy)
+const discordInviteUrl = $derived(app.server?.discordInviteUrl)
+const serverName = $derived(app.server?.name ?? 'Caelestis')
 const activeAlarms = $derived([...app.alarms.values()])
 const sustainedAlarms = $derived(
   activeAlarms.filter((alarm) => alarm.kind === 'sustained-griefing').length,
@@ -25,6 +30,31 @@ const sustainedAlarms = $derived(
   </div>
 {:else}
   <div class="flex flex-col gap-4">
+    {#if homeCopy !== undefined || discordInviteUrl !== undefined}
+      <section
+        class="flex flex-col gap-3 rounded-2xl border-[1.5px] border-base-300 bg-base-100 p-4 sm:flex-row sm:items-start sm:justify-between"
+        aria-label={`About ${serverName}`}
+      >
+        <div class="min-w-0 flex-1">
+          {#if homeCopy !== undefined}
+            <HomeCopy copy={homeCopy} />
+          {:else}
+            <p class="text-sm text-base-content/70">Paint with {serverName} on Wplace.</p>
+          {/if}
+        </div>
+        {#if discordInviteUrl !== undefined}
+          <a
+            href={discordInviteUrl}
+            target="_blank"
+            rel="noreferrer"
+            class="btn btn-primary btn-sm shrink-0 gap-1.5 rounded-lg"
+          >
+            <Icon name="discord" class="size-4" />
+            Join {serverName} on Discord
+          </a>
+        {/if}
+      </section>
+    {/if}
     {#if activeAlarms.length > 0}
       <div class="alert alert-error" role="status">
         <span>
