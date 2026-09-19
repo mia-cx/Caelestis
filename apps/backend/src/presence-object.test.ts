@@ -24,7 +24,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { D1SqlStore } from './adapters/cloudflare/d1-sql-store.js'
 import { SqliteD1Database } from './adapters/cloudflare/sqlite-d1.test-helper.js'
 import { PresenceObject } from './presence-object.js'
-import { ingestTimings } from './telemetry/ingest-timing.js'
 
 vi.mock('cloudflare:workers', () => ({ DurableObject: class {} }))
 
@@ -155,10 +154,10 @@ describe('presence room', () => {
     update(peer, { viewport: rect(0) })
     await tick()
     subscriber.send.mockClear()
-    ingestTimings.reset()
+    object.readIngestTimings(true)
     object.webSocketMessage(asWebSocket(subscriber), JSON.stringify({ type: 'presence-heartbeat' }))
     await tick()
-    expect(ingestTimings.snapshot().commands.presence.select).toBeUndefined()
+    expect(object.readIngestTimings(false).commands.presence.select).toBeUndefined()
     expect(subscriber.send).not.toHaveBeenCalled()
     update(peer, { viewport: rect(16) })
     await tick()
@@ -166,6 +165,9 @@ describe('presence room', () => {
       type: 'presence-delta',
       upsert: [expect.objectContaining({ viewport: rect(16) })],
     })
+    expect(object.readIngestTimings(false).commands.presence.select?.count).toBe(2)
+    const recovered = new PresenceObject(state, { DB: database } as unknown as Env)
+    expect(recovered.readIngestTimings(false).commands.presence).toEqual({})
   })
 
   it('sends hourly claim renewal only to its owner without broadcasting documents', async () => {

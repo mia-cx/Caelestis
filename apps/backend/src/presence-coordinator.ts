@@ -33,7 +33,11 @@ import { presenceRectWithinSurface } from './presence/geometry.js'
 import type { PresenceConnection } from './presence/port.js'
 import type { LiveHost, LiveSocket } from './status-coordinator.js'
 import { createLiveSessionFence } from './status-coordinator.js'
-import { ingestTimings } from './telemetry/ingest-timing.js'
+import {
+  type IngestTimingSnapshot,
+  type IngestTimings,
+  ingestTimings,
+} from './telemetry/ingest-timing.js'
 
 interface Attachment extends PresenceConnection {
   readonly sessionId: string
@@ -102,7 +106,15 @@ export class PresenceCoordinator<Client> {
   constructor(
     private readonly state: PresenceHost<Client>,
     private readonly sql: SqlStore,
+    private readonly timings: IngestTimings = ingestTimings,
   ) {}
+
+  /** Read this room's diagnostic clock; portable hosts may share a process-wide collector. */
+  readIngestTimings(reset: boolean): IngestTimingSnapshot {
+    const snapshot = this.timings.snapshot()
+    if (reset) this.timings.reset()
+    return snapshot
+  }
 
   private attachment(socket: LiveSocket): Attachment {
     return socket.deserializeAttachment() as Attachment
@@ -170,7 +182,7 @@ export class PresenceCoordinator<Client> {
     try {
       const started = performance.now()
       const payload = JSON.stringify(event)
-      ingestTimings.record(
+      this.timings.record(
         event.type === 'regions' ? 'claims' : 'presence',
         'serialize',
         performance.now() - started,
@@ -224,8 +236,8 @@ export class PresenceCoordinator<Client> {
   private async tick(): Promise<void> {
     const queued = performance.now()
     await this.sessions.revoke(async () =>
-      ingestTimings.timed('presence', 'total', async () => {
-        ingestTimings.record('presence', 'queue', performance.now() - queued)
+      this.timings.timed('presence', 'total', async () => {
+        this.timings.record('presence', 'queue', performance.now() - queued)
         const recovering = this.sockets().find(
           (socket) => !this.sent.has(this.attachment(socket).sessionId),
         )
@@ -233,7 +245,7 @@ export class PresenceCoordinator<Client> {
         const regions =
           attachment === undefined
             ? []
-            : await ingestTimings.timed('claims', 'list', () =>
+            : await this.timings.timed('claims', 'list', () =>
                 this.sql.regions.listRegions(attachment.season, attachment.surface),
               )
         const now = Date.now()
@@ -247,7 +259,7 @@ export class PresenceCoordinator<Client> {
           if (held.anonymous || now - (held.renewedAt ?? 0) < CLAIM_RENEW_INTERVAL_MS) continue
           // A valid heartbeat/update has kept this session alive. Ownership always uses both keys,
           // including for administrators; connecting must never renew another painter's claims.
-          const renewed = await ingestTimings.timed('claims', 'renew', () =>
+          const renewed = await this.timings.timed('claims', 'renew', () =>
             this.sql.regions.renewRegions(held.tokenHash, held.painter.wplaceUserId, now),
           )
           socket.serializeAttachment({ ...held, renewedAt: now } satisfies Attachment)
@@ -274,7 +286,7 @@ export class PresenceCoordinator<Client> {
             continue
           const started = performance.now()
           const relevant = this.relevant(subscriber, peers)
-          ingestTimings.record('presence', 'select', performance.now() - started)
+          this.timings.record('presence', 'select', performance.now() - started)
           const next = new Set(relevant.map((peer) => peer.sessionId))
           this.sent.set(subscriber.sessionId, next)
           if (previous === undefined) {
@@ -540,13 +552,13 @@ export class PresenceCoordinator<Client> {
   async publishRegions(season: number, surface: TemplateSurface): Promise<void> {
     const queued = performance.now()
     await this.sessions.revoke(async () =>
-      ingestTimings.timed('claims', 'total', async () => {
-        ingestTimings.record('claims', 'queue', performance.now() - queued)
-        const regions = await ingestTimings.timed('claims', 'list', () =>
+      this.timings.timed('claims', 'total', async () => {
+        this.timings.record('claims', 'queue', performance.now() - queued)
+        const regions = await this.timings.timed('claims', 'list', () =>
           this.sql.regions.listRegions(season, surface),
         )
         await this.rememberRegionExpiry(season, surface, regions)
-        const owners = await ingestTimings.timed('claims', 'owners', () =>
+        const owners = await this.timings.timed('claims', 'owners', () =>
           this.sql.regions.regionOwners(season, surface),
         )
         const started = performance.now()
@@ -570,7 +582,7 @@ export class PresenceCoordinator<Client> {
           ids.push(owner.id)
         }
         const prefix = `{"type":"regions","regions":${snapshot},"ownedRegionIds":`
-        ingestTimings.record('claims', 'serialize', performance.now() - started)
+        this.timings.record('claims', 'serialize', performance.now() - started)
         for (const socket of this.sockets()) {
           const attachment = this.attachment(socket)
           const started = performance.now()
@@ -580,7 +592,7 @@ export class PresenceCoordinator<Client> {
               : (grouped.get(attachment.tokenHash)?.get(attachment.painter.wplaceUserId) ?? []),
           )
           const previous = this.claimsSent.get(attachment.sessionId)
-          ingestTimings.record('claims', 'serialize', performance.now() - started)
+          this.timings.record('claims', 'serialize', performance.now() - started)
           // Ownership can change without changing public geometry. Compare both, inside the
           // revocation fence, and forget delivery state on disconnect or hibernation recovery.
           if (previous?.version === this.regionVersion && previous.owned === owned) continue
@@ -594,7 +606,7 @@ export class PresenceCoordinator<Client> {
 
   private async ownedRegionIds(attachment: Attachment): Promise<readonly string[]> {
     if (attachment.anonymous) return []
-    const owners = await ingestTimings.timed('claims', 'owners', () =>
+    const owners = await this.timings.timed('claims', 'owners', () =>
       this.sql.regions.regionOwners(attachment.season, attachment.surface),
     )
     return owners

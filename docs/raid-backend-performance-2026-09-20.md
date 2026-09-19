@@ -40,7 +40,14 @@ BUN_BINARY=/path/to/bun taskset -c 0,1 node scripts/runtime-benchmark/compare-bu
 Frozen compiled directories keep each comparison independent. Reports include compiled JavaScript hashes,
 benchmark source hashes, trace/fixture hashes, runtime versions, placement, raw latency distributions and correctness.
 The source revision is cb7e687 plus the specified uncommitted candidate; compiled hashes identify the measured artifacts.
-`BENCH_SCENARIO=stable` retains the quiet-claim control. Instrumentation overhead and Workers verification remain pending.
+`BENCH_SCENARIO=stable` retains the quiet-claim control. Instrumentation overhead remains pending.
+
+The ten-user raid also passes on the production Worker/Durable Object adapters in local Miniflare,
+with 37 initial complex claims, edits, reconnects and exact accounting. Its final state has 34 claims,
+nine paint events and 270 pixels, with no deadline misses. Presence timings use a collector owned by
+the room and an explicit RPC, so the admin endpoint does not read another isolate's empty clock.
+The endpoint labels its season/world room. This is emulation and correctness evidence, not a Workers capacity claim.
+[Raw Worker replay](benchmarks/raid-backend-miniflare-2026-09-20.json.gz) includes the observed stage counters.
 
 ## Peer selection (#475)
 
