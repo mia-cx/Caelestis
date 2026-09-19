@@ -190,3 +190,12 @@ scope and land in the same branch.
   callbacks keep their lane (runtime values, counters); painters and telemetry stay free. The
   first twenty retries per process are logged with the statement and the database's reason.
   -397k images; ladder Node then Bun at 256, 384, 512.
+- -397k (6762fbba, one tile lane): strict Node 256 PASSES (upload p95 2,477 ms, offer p95 1,546,
+  paint p95 312, zero misses, all correctness checks, no retries, lane wait 455 ms p50 / 916 p99,
+  statement 1.1 ms, pool wait 0, backend 96.2%, CNPG 8.7 and 4.8%). Strict Bun 256 PASSES (upload
+  p95 804, paint p95 176, lane 57 ms p50, backend 65.5%). Both fail at 384 in warmup in the lane
+  (Node 1,598 ms p50, Bun 1,200 ms), no retries. Node CPU is the remaining constraint; options
+  noted in the report (lane on a worker thread, fewer statements per commit). Report, compact JSON
+  (25 runs, via scripts/runtime-benchmark/compact-report.mjs), README, and Changesets updated.
+  TODO 7 done for Node (one pass) and Bun (one pass on the final images). -397i/j/k image
+  references removed from both nodes; no test namespaces remain.

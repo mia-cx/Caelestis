@@ -4,7 +4,7 @@
   "cluster": "k3s 1.34 on hydra-olympus-1 and hydra-olympus-2; backend, frontend, MinIO on hydra-olympus-2; two CNPG instances, one per node",
   "workload": "70 percent explorers and 30 percent painters per user count, two authenticated WebSockets per user through Traefik, Box Art fixture on eight tiles, five-second client deadline",
   "driver": "scripts/test-helm-stack.mjs from the devbox athena-hephaestus with CAELESTIS_TEST_EXTENDED, CAELESTIS_TEST_STORAGE=s3, CAELESTIS_TEST_BENCHMARK; ladder rungs add CAELESTIS_TEST_BENCHMARK_USERS and CAELESTIS_LIVE_SUBSCRIBER_LIMIT=2048",
-  "verdict": "Bun passes the strict 256-user run twice on the final images and fails at 288, 320, and 384 in warmup; Node passes at 224, completes the traffic at 192, and fails at 256. Classification, decoding, artifacts, and folds are no longer measurable; every failed rung waits in the serialized owner connection of the Postgres adapter.",
+  "verdict": "Both runtimes pass the strict 256-user run on the final images (6762fbba) with every correctness check and zero deadline misses, and both fail at 384 in warmup. Classification, decoding, artifacts, and folds are no longer measurable. The Postgres adapter runs application queries on the fenced pool; transactions on the tile tables take turns in one lane, which is the remaining wait: 455 ms p50 on Node at 96 percent of a core, 57 ms on Bun at 66 percent.",
   "runs": [
     {
       "name": "node-strict-1",
@@ -409,7 +409,10 @@
           "warmup": 0,
           "measured": 0
         },
-        "errors": ["Error: paint-report timed out", "Error: Error: paint-report timed out"]
+        "errors": [
+          "Error: paint-report timed out",
+          "Error: Error: paint-report timed out"
+        ]
       },
       "backendStages": {
         "since": 1789752299226,
@@ -739,7 +742,10 @@
           "warmup": 0,
           "measured": 0
         },
-        "errors": ["Error: paint-report timed out", "Error: Error: paint-report timed out"]
+        "errors": [
+          "Error: paint-report timed out",
+          "Error: Error: paint-report timed out"
+        ]
       },
       "backendStages": {
         "since": 1789754188282,
@@ -1069,7 +1075,10 @@
           "warmup": 0,
           "measured": 0
         },
-        "errors": ["Error: paint-report timed out", "Error: Error: paint-report timed out"]
+        "errors": [
+          "Error: paint-report timed out",
+          "Error: Error: paint-report timed out"
+        ]
       },
       "backendStages": {
         "since": 1789755188696,
@@ -1399,7 +1408,10 @@
           "warmup": 0,
           "measured": 0
         },
-        "errors": ["Error: paint-report timed out", "Error: Error: paint-report timed out"]
+        "errors": [
+          "Error: paint-report timed out",
+          "Error: Error: paint-report timed out"
+        ]
       },
       "backendStages": {
         "since": 1789756280007,
@@ -2533,7 +2545,10 @@
           "warmup": 0,
           "measured": 0
         },
-        "errors": ["Error: paint-report timed out", "Error: Error: paint-report timed out"]
+        "errors": [
+          "Error: paint-report timed out",
+          "Error: Error: paint-report timed out"
+        ]
       },
       "backendStages": {
         "since": 1789768147174,
@@ -2879,7 +2894,10 @@
           "warmup": 0,
           "measured": 0
         },
-        "errors": ["Error: paint-report timed out", "Error: Error: paint-report timed out"]
+        "errors": [
+          "Error: paint-report timed out",
+          "Error: Error: paint-report timed out"
+        ]
       },
       "backendStages": {
         "since": 1789768473583,
@@ -4012,7 +4030,9 @@
           "warmup": 0,
           "measured": 0
         },
-        "errors": ["AssertionError [ERR_ASSERTION]: Insufficient CPU coverage"]
+        "errors": [
+          "AssertionError [ERR_ASSERTION]: Insufficient CPU coverage"
+        ]
       },
       "backendStages": {
         "since": 1789769540013,
@@ -4814,6 +4834,4591 @@
           }
         ]
       }
+    },
+    {
+      "name": "node-ladder-256-pooled-free",
+      "namespace": "caelestis-test-cnpg-s3-mu8eb9mn",
+      "startedAt": "2026-09-19T13:04:18.382Z",
+      "applicationRevision": "b05cf15b",
+      "backendImage": "caelestis-backend:node-397g",
+      "change": "Pooled sessions; every transaction overlaps",
+      "users": 256,
+      "runtime": {
+        "node": "24.20.0"
+      },
+      "passed": false,
+      "completed": false,
+      "failure": "Error: Error: tile-upload timed out",
+      "phase": "warmup",
+      "commandTimeoutMs": 5000,
+      "sent": {
+        "presence-update": 4509,
+        "paint-report": 25,
+        "tile-offer": 125,
+        "tile-upload": 43
+      },
+      "received": {
+        "presence-delta": 6652,
+        "paint-result": 22,
+        "tile-offer-result": 112,
+        "status-delta": 1536,
+        "alarms-reconcile": 512,
+        "alarms-snapshot": 512,
+        "tile-upload-result": 22
+      },
+      "latenciesMs": {
+        "paint-report": {
+          "count": 22,
+          "p50": 85.3,
+          "p95": 1487.6,
+          "p99": 1559.1,
+          "max": 1559.1
+        },
+        "tile-offer": {
+          "count": 112,
+          "p50": 14.7,
+          "p95": 1229.7,
+          "p99": 2627.7,
+          "max": 2863.8
+        },
+        "tile-upload": {
+          "count": 19,
+          "p50": 2634.1,
+          "p95": 4792.2,
+          "p99": 4792.2,
+          "max": 4792.2
+        }
+      },
+      "presenceDeliveryMs": {
+        "count": 109136,
+        "p50": 205.8,
+        "p95": 357.8,
+        "p99": 428.4,
+        "max": 532.2
+      },
+      "correctness": {
+        "online": 256,
+        "sockets": 512,
+        "finalPeerSetsAndDrafts": false,
+        "clientDeadlineMs": 5000,
+        "clientDeadlineMisses": {
+          "warmup": 0,
+          "measured": 0
+        },
+        "errors": [
+          "Error: tile-upload timed out",
+          "tile-upload-result: unavailable",
+          "AssertionError [ERR_ASSERTION]: {\"type\":\"tile-upload-result\",\"requestId\":\"01a0b9c4-fcdb-70c9-831c-1d6e953befaa\",\"deliveryId\":\"01a0b9c4-fc3a-72be-9b3e-b5b097a77bb2\",\"accepted\":false,\"error\":\"unavailable\"}\n+ actual - expected\n\n+ 'unavailable'\n- undefined\n",
+          "tile-upload-result: unavailable",
+          "AssertionError [ERR_ASSERTION]: {\"type\":\"tile-upload-result\",\"requestId\":\"01a0b9c4-fcbe-799c-abe7-1c2a91af0cc0\",\"deliveryId\":\"01a0b9c4-fbfc-727d-8b25-aa432d18a6fb\",\"accepted\":false,\"error\":\"unavailable\"}\n+ actual - expected\n\n+ 'unavailable'\n- undefined\n",
+          "tile-upload-result: unavailable",
+          "Error: Error: tile-upload timed out"
+        ]
+      },
+      "backendStages": {
+        "since": 1789823058664,
+        "commands": {
+          "upload": {
+            "queue": {
+              "count": 51,
+              "totalMs": 2.04,
+              "maxMs": 0.084,
+              "p50Ms": 0.037,
+              "p99Ms": 0.084
+            },
+            "hash": {
+              "count": 51,
+              "totalMs": 784.353,
+              "maxMs": 181.312,
+              "p50Ms": 5.171,
+              "p99Ms": 181.312
+            },
+            "targets": {
+              "count": 102,
+              "totalMs": 10169.479,
+              "maxMs": 311.031,
+              "p50Ms": 77.982,
+              "p99Ms": 306.433
+            },
+            "reserve": {
+              "count": 51,
+              "totalMs": 15168.886,
+              "maxMs": 1312.078,
+              "p50Ms": 280.66,
+              "p99Ms": 1312.078
+            },
+            "blobPut": {
+              "count": 51,
+              "totalMs": 401.626,
+              "maxMs": 191.85,
+              "p50Ms": 0.01,
+              "p99Ms": 191.85
+            },
+            "decode": {
+              "count": 51,
+              "totalMs": 3786.311,
+              "maxMs": 1302.131,
+              "p50Ms": 0.023,
+              "p99Ms": 1302.131
+            },
+            "prepare": {
+              "count": 51,
+              "totalMs": 4.366,
+              "maxMs": 0.38,
+              "p50Ms": 0.057,
+              "p99Ms": 0.38
+            },
+            "classify": {
+              "count": 51,
+              "totalMs": 673.111,
+              "maxMs": 130.587,
+              "p50Ms": 0.045,
+              "p99Ms": 130.587
+            },
+            "painter": {
+              "count": 51,
+              "totalMs": 5078.763,
+              "maxMs": 296.22,
+              "p50Ms": 72.65,
+              "p99Ms": 296.22
+            },
+            "commit": {
+              "count": 51,
+              "totalMs": 87616.766,
+              "maxMs": 4113.538,
+              "p50Ms": 1438.598,
+              "p99Ms": 4113.538
+            },
+            "projection": {
+              "count": 44,
+              "totalMs": 901.373,
+              "maxMs": 260.235,
+              "p50Ms": 0.067,
+              "p99Ms": 260.235
+            },
+            "alarms": {
+              "count": 44,
+              "totalMs": 1366.179,
+              "maxMs": 650.115,
+              "p50Ms": 0.001,
+              "p99Ms": 650.115
+            },
+            "artifacts": {
+              "count": 44,
+              "totalMs": 13.882,
+              "maxMs": 1.318,
+              "p50Ms": 0.279,
+              "p99Ms": 1.318
+            },
+            "historyFold": {
+              "count": 44,
+              "totalMs": 76.642,
+              "maxMs": 11.059,
+              "p50Ms": 0.023,
+              "p99Ms": 11.059
+            },
+            "total": {
+              "count": 51,
+              "totalMs": 126726.488,
+              "maxMs": 5080.761,
+              "p50Ms": 2508.254,
+              "p99Ms": 5080.761
+            }
+          },
+          "offer": {
+            "queue": {
+              "count": 126,
+              "totalMs": 3.905,
+              "maxMs": 0.146,
+              "p50Ms": 0.025,
+              "p99Ms": 0.1
+            },
+            "targets": {
+              "count": 118,
+              "totalMs": 12536.098,
+              "maxMs": 535.755,
+              "p50Ms": 74.805,
+              "p99Ms": 523.997
+            },
+            "reserve": {
+              "count": 89,
+              "totalMs": 23013.994,
+              "maxMs": 1256.948,
+              "p50Ms": 148.598,
+              "p99Ms": 1256.948
+            },
+            "total": {
+              "count": 126,
+              "totalMs": 61204.159,
+              "maxMs": 4226.748,
+              "p50Ms": 0.328,
+              "p99Ms": 3975.416
+            },
+            "decode": {
+              "count": 29,
+              "totalMs": 0.691,
+              "maxMs": 0.048,
+              "p50Ms": 0.019,
+              "p99Ms": 0.048
+            },
+            "prepare": {
+              "count": 29,
+              "totalMs": 1.728,
+              "maxMs": 0.181,
+              "p50Ms": 0.048,
+              "p99Ms": 0.181
+            },
+            "classify": {
+              "count": 29,
+              "totalMs": 1.373,
+              "maxMs": 0.094,
+              "p50Ms": 0.038,
+              "p99Ms": 0.094
+            },
+            "painter": {
+              "count": 29,
+              "totalMs": 4517.096,
+              "maxMs": 306.923,
+              "p50Ms": 145.646,
+              "p99Ms": 306.923
+            },
+            "commit": {
+              "count": 29,
+              "totalMs": 45228.544,
+              "maxMs": 3718.645,
+              "p50Ms": 1472.06,
+              "p99Ms": 3718.645
+            },
+            "projection": {
+              "count": 27,
+              "totalMs": 2.102,
+              "maxMs": 0.21,
+              "p50Ms": 0.067,
+              "p99Ms": 0.21
+            },
+            "alarms": {
+              "count": 27,
+              "totalMs": 0.029,
+              "maxMs": 0.008,
+              "p50Ms": 0.001,
+              "p99Ms": 0.008
+            },
+            "historyFold": {
+              "count": 27,
+              "totalMs": 0.564,
+              "maxMs": 0.031,
+              "p50Ms": 0.018,
+              "p99Ms": 0.031
+            }
+          },
+          "paint": {
+            "queue": {
+              "count": 25,
+              "totalMs": 0.719,
+              "maxMs": 0.06,
+              "p50Ms": 0.025,
+              "p99Ms": 0.06
+            },
+            "targets": {
+              "count": 25,
+              "totalMs": 1450.934,
+              "maxMs": 227.964,
+              "p50Ms": 47.444,
+              "p99Ms": 227.964
+            },
+            "latestTile": {
+              "count": 25,
+              "totalMs": 1792.56,
+              "maxMs": 284.374,
+              "p50Ms": 15.673,
+              "p99Ms": 284.374
+            },
+            "classify": {
+              "count": 25,
+              "totalMs": 1.376,
+              "maxMs": 0.241,
+              "p50Ms": 0.038,
+              "p99Ms": 0.241
+            },
+            "apply": {
+              "count": 25,
+              "totalMs": 2479.856,
+              "maxMs": 363.914,
+              "p50Ms": 17.163,
+              "p99Ms": 363.914
+            },
+            "counters": {
+              "count": 25,
+              "totalMs": 10162.364,
+              "maxMs": 1086.906,
+              "p50Ms": 21.21,
+              "p99Ms": 1086.906
+            },
+            "total": {
+              "count": 25,
+              "totalMs": 15906.51,
+              "maxMs": 1549.938,
+              "p50Ms": 159.855,
+              "p99Ms": 1549.938
+            }
+          },
+          "sql": {
+            "poolWait": {
+              "count": 7703,
+              "totalMs": 170506.927,
+              "maxMs": 510.329,
+              "p50Ms": 75.046,
+              "p99Ms": 305.293
+            },
+            "statement": {
+              "count": 10503,
+              "totalMs": 45338.936,
+              "maxMs": 286.847,
+              "p50Ms": 1.995,
+              "p99Ms": 20.978
+            }
+          }
+        },
+        "counters": {
+          "classification.computed": 10,
+          "historyFold.folded": 8,
+          "upload.blobPut.skipped": 41,
+          "classification.shared": 70,
+          "historyFold.skipped": 63
+        }
+      },
+      "serverMetrics": {}
+    },
+    {
+      "name": "bun-ladder-256-pooled-free",
+      "namespace": "caelestis-test-cnpg-s3-mu8eh6o1",
+      "startedAt": "2026-09-19T13:08:37.420Z",
+      "applicationRevision": "b05cf15b",
+      "backendImage": "caelestis-backend:bun-397g",
+      "change": "Pooled sessions; every transaction overlaps",
+      "users": 256,
+      "runtime": {
+        "bun": "1.4.2"
+      },
+      "passed": false,
+      "completed": false,
+      "failure": "Error: tile-upload-result: unavailable",
+      "phase": "warmup",
+      "commandTimeoutMs": 5000,
+      "sent": {
+        "presence-update": 3441,
+        "paint-report": 19,
+        "tile-offer": 108,
+        "tile-upload": 17
+      },
+      "received": {
+        "presence-delta": 5120,
+        "paint-result": 18,
+        "tile-offer-result": 85,
+        "status-delta": 1024,
+        "alarms-reconcile": 512,
+        "alarms-snapshot": 512,
+        "tile-upload-result": 9
+      },
+      "latenciesMs": {
+        "paint-report": {
+          "count": 18,
+          "p50": 72.3,
+          "p95": 611.6,
+          "p99": 611.6,
+          "max": 611.6
+        },
+        "tile-offer": {
+          "count": 85,
+          "p50": 2.9,
+          "p95": 238.4,
+          "p99": 1898.6,
+          "max": 1898.6
+        },
+        "tile-upload": {
+          "count": 8,
+          "p50": 1084.7,
+          "p95": 2056.3,
+          "p99": 2056.3,
+          "max": 2056.3
+        }
+      },
+      "presenceDeliveryMs": {
+        "count": 84859,
+        "p50": 191.6,
+        "p95": 334.8,
+        "p99": 375.7,
+        "max": 470.1
+      },
+      "correctness": {
+        "online": 256,
+        "sockets": 512,
+        "finalPeerSetsAndDrafts": false,
+        "clientDeadlineMs": 5000,
+        "clientDeadlineMisses": {
+          "warmup": 0,
+          "measured": 0
+        },
+        "errors": [
+          "tile-upload-result: unavailable",
+          "AssertionError [ERR_ASSERTION]: {\"type\":\"tile-upload-result\",\"requestId\":\"01a0b9c8-e41d-7381-a5de-a94f366283dc\",\"deliveryId\":\"01a0b9c8-e40e-77b1-b874-90877197836e\",\"accepted\":false,\"error\":\"unavailable\"}\n+ actual - expected\n\n+ 'unavailable'\n- undefined\n",
+          "Error: tile-upload-result: unavailable\nAssertionError [ERR_ASSERTION]: {\"type\":\"tile-upload-result\",\"requestId\":\"01a0b9c8-e41d-7381-a5de-a94f366283dc\",\"deliveryId\":\"01a0b9c8-e40e-77b1-b874-90877197836e\",\"accepted\":false,\"error\":\"unavailable\"}\n+ actual - expected\n\n+ 'unavailable'\n- undefined\n"
+        ]
+      },
+      "backendStages": {
+        "since": 1789823317639,
+        "commands": {
+          "upload": {
+            "queue": {
+              "count": 25,
+              "totalMs": 0.544,
+              "maxMs": 0.051,
+              "p50Ms": 0.02,
+              "p99Ms": 0.051
+            },
+            "hash": {
+              "count": 25,
+              "totalMs": 348.733,
+              "maxMs": 97.608,
+              "p50Ms": 3.976,
+              "p99Ms": 97.608
+            },
+            "targets": {
+              "count": 50,
+              "totalMs": 1968.096,
+              "maxMs": 193.308,
+              "p50Ms": 16.145,
+              "p99Ms": 193.308
+            },
+            "reserve": {
+              "count": 25,
+              "totalMs": 2828.41,
+              "maxMs": 597.547,
+              "p50Ms": 63.006,
+              "p99Ms": 597.547
+            },
+            "blobPut": {
+              "count": 25,
+              "totalMs": 256.096,
+              "maxMs": 34.207,
+              "p50Ms": 0.016,
+              "p99Ms": 34.207
+            },
+            "decode": {
+              "count": 25,
+              "totalMs": 973.364,
+              "maxMs": 105.549,
+              "p50Ms": 0.072,
+              "p99Ms": 105.549
+            },
+            "prepare": {
+              "count": 25,
+              "totalMs": 2.366,
+              "maxMs": 0.495,
+              "p50Ms": 0.072,
+              "p99Ms": 0.495
+            },
+            "classify": {
+              "count": 25,
+              "totalMs": 287.379,
+              "maxMs": 50.719,
+              "p50Ms": 0.089,
+              "p99Ms": 50.719
+            },
+            "painter": {
+              "count": 25,
+              "totalMs": 854.864,
+              "maxMs": 139.212,
+              "p50Ms": 21.892,
+              "p99Ms": 139.212
+            },
+            "commit": {
+              "count": 25,
+              "totalMs": 19102.842,
+              "maxMs": 2191.634,
+              "p50Ms": 554.34,
+              "p99Ms": 2191.634
+            },
+            "projection": {
+              "count": 22,
+              "totalMs": 279.553,
+              "maxMs": 66.17,
+              "p50Ms": 1.128,
+              "p99Ms": 66.17
+            },
+            "alarms": {
+              "count": 22,
+              "totalMs": 543.927,
+              "maxMs": 198.642,
+              "p50Ms": 0.002,
+              "p99Ms": 198.642
+            },
+            "artifacts": {
+              "count": 22,
+              "totalMs": 19.327,
+              "maxMs": 8.039,
+              "p50Ms": 0.495,
+              "p99Ms": 8.039
+            },
+            "historyFold": {
+              "count": 22,
+              "totalMs": 81.363,
+              "maxMs": 13.302,
+              "p50Ms": 0.041,
+              "p99Ms": 13.302
+            },
+            "total": {
+              "count": 25,
+              "totalMs": 27683.944,
+              "maxMs": 2537.776,
+              "p50Ms": 967.455,
+              "p99Ms": 2537.776
+            }
+          },
+          "offer": {
+            "queue": {
+              "count": 109,
+              "totalMs": 0.912,
+              "maxMs": 0.052,
+              "p50Ms": 0.008,
+              "p99Ms": 0.024
+            },
+            "targets": {
+              "count": 107,
+              "totalMs": 5235.882,
+              "maxMs": 194.793,
+              "p50Ms": 38.406,
+              "p99Ms": 194.719
+            },
+            "reserve": {
+              "count": 68,
+              "totalMs": 12534.009,
+              "maxMs": 577.456,
+              "p50Ms": 171.491,
+              "p99Ms": 577.456
+            },
+            "total": {
+              "count": 109,
+              "totalMs": 44825.342,
+              "maxMs": 2746.668,
+              "p50Ms": 0.362,
+              "p99Ms": 2401.489
+            },
+            "decode": {
+              "count": 39,
+              "totalMs": 1.146,
+              "maxMs": 0.055,
+              "p50Ms": 0.027,
+              "p99Ms": 0.055
+            },
+            "prepare": {
+              "count": 39,
+              "totalMs": 2.546,
+              "maxMs": 0.149,
+              "p50Ms": 0.059,
+              "p99Ms": 0.149
+            },
+            "classify": {
+              "count": 39,
+              "totalMs": 2.699,
+              "maxMs": 0.156,
+              "p50Ms": 0.065,
+              "p99Ms": 0.156
+            },
+            "painter": {
+              "count": 39,
+              "totalMs": 2888.63,
+              "maxMs": 254.156,
+              "p50Ms": 61.47,
+              "p99Ms": 254.156
+            },
+            "commit": {
+              "count": 39,
+              "totalMs": 36997.885,
+              "maxMs": 2271.766,
+              "p50Ms": 732.353,
+              "p99Ms": 2271.766
+            },
+            "projection": {
+              "count": 38,
+              "totalMs": 4.597,
+              "maxMs": 0.35,
+              "p50Ms": 0.106,
+              "p99Ms": 0.35
+            },
+            "alarms": {
+              "count": 38,
+              "totalMs": 0.027,
+              "maxMs": 0.009,
+              "p50Ms": 0,
+              "p99Ms": 0.009
+            },
+            "historyFold": {
+              "count": 38,
+              "totalMs": 1.227,
+              "maxMs": 0.106,
+              "p50Ms": 0.026,
+              "p99Ms": 0.106
+            }
+          },
+          "paint": {
+            "queue": {
+              "count": 19,
+              "totalMs": 0.154,
+              "maxMs": 0.026,
+              "p50Ms": 0.007,
+              "p99Ms": 0.026
+            },
+            "targets": {
+              "count": 19,
+              "totalMs": 419.873,
+              "maxMs": 113.756,
+              "p50Ms": 3.658,
+              "p99Ms": 113.756
+            },
+            "latestTile": {
+              "count": 19,
+              "totalMs": 435.307,
+              "maxMs": 195.143,
+              "p50Ms": 1.433,
+              "p99Ms": 195.143
+            },
+            "classify": {
+              "count": 19,
+              "totalMs": 1.196,
+              "maxMs": 0.195,
+              "p50Ms": 0.06,
+              "p99Ms": 0.195
+            },
+            "apply": {
+              "count": 19,
+              "totalMs": 751.14,
+              "maxMs": 175.689,
+              "p50Ms": 15.303,
+              "p99Ms": 175.689
+            },
+            "counters": {
+              "count": 19,
+              "totalMs": 2240.358,
+              "maxMs": 426.044,
+              "p50Ms": 11.403,
+              "p99Ms": 426.044
+            },
+            "total": {
+              "count": 19,
+              "totalMs": 3861.457,
+              "maxMs": 722.354,
+              "p50Ms": 29.52,
+              "p99Ms": 722.354
+            }
+          },
+          "sql": {
+            "poolWait": {
+              "count": 7277,
+              "totalMs": 56768.182,
+              "maxMs": 254.819,
+              "p50Ms": 44.473,
+              "p99Ms": 194.615
+            },
+            "statement": {
+              "count": 9569,
+              "totalMs": 28051.402,
+              "maxMs": 153.724,
+              "p50Ms": 1.814,
+              "p99Ms": 22.83
+            }
+          }
+        },
+        "counters": {
+          "classification.computed": 10,
+          "historyFold.folded": 8,
+          "upload.blobPut.skipped": 15,
+          "classification.shared": 54,
+          "historyFold.skipped": 52
+        }
+      },
+      "serverMetrics": {}
+    },
+    {
+      "name": "node-ladder-256-pooled-turns",
+      "namespace": "caelestis-test-cnpg-s3-mu8fdtvu",
+      "startedAt": "2026-09-19T13:34:26.389Z",
+      "applicationRevision": "113e1e57",
+      "backendImage": "caelestis-backend:node-397h",
+      "change": "Pooled sessions; every transaction takes turns",
+      "users": 256,
+      "runtime": {
+        "node": "24.20.0"
+      },
+      "passed": false,
+      "completed": false,
+      "failure": "Error: Error: tile-upload timed out",
+      "phase": "warmup",
+      "commandTimeoutMs": 5000,
+      "sent": {
+        "presence-update": 7395,
+        "paint-report": 42,
+        "tile-offer": 236,
+        "tile-upload": 101
+      },
+      "received": {
+        "presence-delta": 9984,
+        "paint-result": 35,
+        "tile-offer-result": 217,
+        "tile-upload-result": 79,
+        "status-delta": 3072,
+        "alarms-reconcile": 1024,
+        "alarms-snapshot": 1024
+      },
+      "latenciesMs": {
+        "paint-report": {
+          "count": 35,
+          "p50": 1386.8,
+          "p95": 2681.5,
+          "p99": 2781.8,
+          "max": 2781.8
+        },
+        "tile-offer": {
+          "count": 217,
+          "p50": 52.9,
+          "p95": 2640.2,
+          "p99": 4264.6,
+          "max": 4489.3
+        },
+        "tile-upload": {
+          "count": 78,
+          "p50": 1544.8,
+          "p95": 3246.1,
+          "p99": 4662.8,
+          "max": 4662.8
+        }
+      },
+      "presenceDeliveryMs": {
+        "count": 175886,
+        "p50": 223.9,
+        "p95": 413.9,
+        "p99": 502.8,
+        "max": 651.4
+      },
+      "correctness": {
+        "online": 256,
+        "sockets": 512,
+        "finalPeerSetsAndDrafts": false,
+        "clientDeadlineMs": 5000,
+        "clientDeadlineMisses": {
+          "warmup": 0,
+          "measured": 0
+        },
+        "errors": [
+          "Error: tile-upload timed out",
+          "Error: Error: tile-upload timed out"
+        ]
+      },
+      "backendStages": {
+        "since": 1789824866669,
+        "commands": {
+          "upload": {
+            "queue": {
+              "count": 109,
+              "totalMs": 4.581,
+              "maxMs": 0.178,
+              "p50Ms": 0.038,
+              "p99Ms": 0.113
+            },
+            "hash": {
+              "count": 109,
+              "totalMs": 648.26,
+              "maxMs": 133.491,
+              "p50Ms": 3.156,
+              "p99Ms": 64.166
+            },
+            "targets": {
+              "count": 218,
+              "totalMs": 3395.589,
+              "maxMs": 200.957,
+              "p50Ms": 2.938,
+              "p99Ms": 196.959
+            },
+            "reserve": {
+              "count": 109,
+              "totalMs": 91597.204,
+              "maxMs": 2111.033,
+              "p50Ms": 779.933,
+              "p99Ms": 2107.834
+            },
+            "blobPut": {
+              "count": 109,
+              "totalMs": 1069.823,
+              "maxMs": 366.019,
+              "p50Ms": 0.009,
+              "p99Ms": 187.762
+            },
+            "decode": {
+              "count": 109,
+              "totalMs": 4674.503,
+              "maxMs": 766.151,
+              "p50Ms": 0.024,
+              "p99Ms": 539.396
+            },
+            "prepare": {
+              "count": 109,
+              "totalMs": 7.775,
+              "maxMs": 0.392,
+              "p50Ms": 0.049,
+              "p99Ms": 0.295
+            },
+            "classify": {
+              "count": 109,
+              "totalMs": 726.3,
+              "maxMs": 130.714,
+              "p50Ms": 0.041,
+              "p99Ms": 97.194
+            },
+            "painter": {
+              "count": 109,
+              "totalMs": 1140.7,
+              "maxMs": 149.408,
+              "p50Ms": 1.914,
+              "p99Ms": 121.098
+            },
+            "commit": {
+              "count": 109,
+              "totalMs": 84059.461,
+              "maxMs": 1876.462,
+              "p50Ms": 697.434,
+              "p99Ms": 1581.471
+            },
+            "projection": {
+              "count": 109,
+              "totalMs": 18563.986,
+              "maxMs": 3842.219,
+              "p50Ms": 0.064,
+              "p99Ms": 3068.883
+            },
+            "alarms": {
+              "count": 109,
+              "totalMs": 921.271,
+              "maxMs": 228.309,
+              "p50Ms": 0.001,
+              "p99Ms": 88.791
+            },
+            "artifacts": {
+              "count": 109,
+              "totalMs": 31.13,
+              "maxMs": 1.297,
+              "p50Ms": 0.273,
+              "p99Ms": 1.118
+            },
+            "historyFold": {
+              "count": 109,
+              "totalMs": 84.151,
+              "maxMs": 16.557,
+              "p50Ms": 0.024,
+              "p99Ms": 10.341
+            },
+            "total": {
+              "count": 109,
+              "totalMs": 206976.284,
+              "maxMs": 5108.967,
+              "p50Ms": 1843.028,
+              "p99Ms": 4642.123
+            }
+          },
+          "offer": {
+            "queue": {
+              "count": 237,
+              "totalMs": 7.762,
+              "maxMs": 0.107,
+              "p50Ms": 0.028,
+              "p99Ms": 0.09
+            },
+            "targets": {
+              "count": 334,
+              "totalMs": 6268.713,
+              "maxMs": 457.41,
+              "p50Ms": 6.23,
+              "p99Ms": 255.555
+            },
+            "reserve": {
+              "count": 229,
+              "totalMs": 117014.406,
+              "maxMs": 1925.553,
+              "p50Ms": 80.759,
+              "p99Ms": 1834.197
+            },
+            "total": {
+              "count": 237,
+              "totalMs": 189472.472,
+              "maxMs": 5877.974,
+              "p50Ms": 22.347,
+              "p99Ms": 5175.347
+            },
+            "decode": {
+              "count": 105,
+              "totalMs": 2.823,
+              "maxMs": 0.211,
+              "p50Ms": 0.021,
+              "p99Ms": 0.072
+            },
+            "prepare": {
+              "count": 105,
+              "totalMs": 5.989,
+              "maxMs": 0.216,
+              "p50Ms": 0.047,
+              "p99Ms": 0.208
+            },
+            "classify": {
+              "count": 105,
+              "totalMs": 4.67,
+              "maxMs": 0.104,
+              "p50Ms": 0.038,
+              "p99Ms": 0.1
+            },
+            "painter": {
+              "count": 105,
+              "totalMs": 567.022,
+              "maxMs": 144.006,
+              "p50Ms": 2.874,
+              "p99Ms": 25.117
+            },
+            "commit": {
+              "count": 105,
+              "totalMs": 140833.386,
+              "maxMs": 2123.781,
+              "p50Ms": 1344.958,
+              "p99Ms": 2097.252
+            },
+            "projection": {
+              "count": 105,
+              "totalMs": 8.47,
+              "maxMs": 0.453,
+              "p50Ms": 0.068,
+              "p99Ms": 0.39
+            },
+            "alarms": {
+              "count": 105,
+              "totalMs": 0.134,
+              "maxMs": 0.012,
+              "p50Ms": 0.001,
+              "p99Ms": 0.006
+            },
+            "historyFold": {
+              "count": 105,
+              "totalMs": 2.245,
+              "maxMs": 0.065,
+              "p50Ms": 0.017,
+              "p99Ms": 0.06
+            }
+          },
+          "paint": {
+            "queue": {
+              "count": 42,
+              "totalMs": 1.394,
+              "maxMs": 0.072,
+              "p50Ms": 0.028,
+              "p99Ms": 0.072
+            },
+            "targets": {
+              "count": 42,
+              "totalMs": 476.456,
+              "maxMs": 110.447,
+              "p50Ms": 3.989,
+              "p99Ms": 110.447
+            },
+            "latestTile": {
+              "count": 42,
+              "totalMs": 369.728,
+              "maxMs": 129.862,
+              "p50Ms": 1.966,
+              "p99Ms": 129.862
+            },
+            "classify": {
+              "count": 42,
+              "totalMs": 2.018,
+              "maxMs": 0.225,
+              "p50Ms": 0.034,
+              "p99Ms": 0.225
+            },
+            "apply": {
+              "count": 42,
+              "totalMs": 31087.765,
+              "maxMs": 2062.417,
+              "p50Ms": 704.442,
+              "p99Ms": 2062.417
+            },
+            "counters": {
+              "count": 42,
+              "totalMs": 28359.066,
+              "maxMs": 2016.085,
+              "p50Ms": 618.54,
+              "p99Ms": 2016.085
+            },
+            "total": {
+              "count": 42,
+              "totalMs": 60323.667,
+              "maxMs": 3346.069,
+              "p50Ms": 1447.171,
+              "p99Ms": 3346.069
+            }
+          },
+          "sql": {
+            "poolWait": {
+              "count": 8040,
+              "totalMs": 3719.669,
+              "maxMs": 451.98,
+              "p50Ms": 0.061,
+              "p99Ms": 8.811
+            },
+            "statement": {
+              "count": 10637,
+              "totalMs": 30145.292,
+              "maxMs": 271.355,
+              "p50Ms": 0.986,
+              "p99Ms": 4.53
+            },
+            "transaction": {
+              "count": 545,
+              "totalMs": 484327.896,
+              "maxMs": 2099.346,
+              "p50Ms": 876.577,
+              "p99Ms": 2028.478
+            }
+          }
+        },
+        "counters": {
+          "classification.computed": 14,
+          "historyFold.folded": 8,
+          "upload.blobPut.joined": 2,
+          "upload.blobPut.skipped": 93,
+          "classification.shared": 200,
+          "historyFold.skipped": 206
+        }
+      },
+      "serverMetrics": {}
+    },
+    {
+      "name": "bun-ladder-256-pooled-turns",
+      "namespace": "caelestis-test-cnpg-s3-mu8fk1cx",
+      "startedAt": "2026-09-19T13:38:57.562Z",
+      "applicationRevision": "113e1e57",
+      "backendImage": "caelestis-backend:bun-397h",
+      "change": "Pooled sessions; every transaction takes turns",
+      "users": 256,
+      "runtime": {
+        "bun": "1.4.2"
+      },
+      "passed": true,
+      "completed": true,
+      "failure": null,
+      "phase": "measured",
+      "commandTimeoutMs": 5000,
+      "sent": {
+        "presence-update": 26466,
+        "tile-offer": 835,
+        "tile-upload": 163,
+        "paint-report": 154
+      },
+      "received": {
+        "presence-delta": 39684,
+        "tile-offer-result": 835,
+        "status-delta": 14848,
+        "alarms-reconcile": 6144,
+        "alarms-snapshot": 6144,
+        "tile-upload-result": 163,
+        "paint-result": 154
+      },
+      "latenciesMs": {
+        "tile-offer": {
+          "count": 835,
+          "p50": 18.6,
+          "p95": 796.4,
+          "p99": 988.9,
+          "max": 1585.2
+        },
+        "tile-upload": {
+          "count": 163,
+          "p50": 513.7,
+          "p95": 921.4,
+          "p99": 1421.1,
+          "max": 1688
+        },
+        "paint-report": {
+          "count": 154,
+          "p50": 41.7,
+          "p95": 798.1,
+          "p99": 933.8,
+          "max": 1061.4
+        }
+      },
+      "presenceDeliveryMs": {
+        "count": 721725,
+        "p50": 196,
+        "p95": 345.6,
+        "p99": 409.8,
+        "max": 555.2
+      },
+      "correctness": {
+        "online": 256,
+        "sockets": 512,
+        "finalPeerSetsAndDrafts": true,
+        "paintEvents": 243,
+        "paintPixels": 7290,
+        "duplicateRejected": true,
+        "clientDeadlineMs": 5000,
+        "clientDeadlineMisses": {
+          "warmup": 0,
+          "measured": 0
+        },
+        "errors": []
+      },
+      "backendStages": {
+        "since": 1789825137767,
+        "commands": {
+          "upload": {
+            "queue": {
+              "count": 285,
+              "totalMs": 10.492,
+              "maxMs": 4.954,
+              "p50Ms": 0.018,
+              "p99Ms": 0.075
+            },
+            "hash": {
+              "count": 285,
+              "totalMs": 2799.861,
+              "maxMs": 112.285,
+              "p50Ms": 2.724,
+              "p99Ms": 102.298
+            },
+            "targets": {
+              "count": 570,
+              "totalMs": 6160.076,
+              "maxMs": 148.932,
+              "p50Ms": 2.541,
+              "p99Ms": 108.691
+            },
+            "reserve": {
+              "count": 285,
+              "totalMs": 66298.111,
+              "maxMs": 793.234,
+              "p50Ms": 210.598,
+              "p99Ms": 745.767
+            },
+            "blobPut": {
+              "count": 285,
+              "totalMs": 1797.09,
+              "maxMs": 109.305,
+              "p50Ms": 0.009,
+              "p99Ms": 93.194
+            },
+            "decode": {
+              "count": 285,
+              "totalMs": 4109.089,
+              "maxMs": 108.992,
+              "p50Ms": 0.02,
+              "p99Ms": 97.506
+            },
+            "prepare": {
+              "count": 285,
+              "totalMs": 12.866,
+              "maxMs": 1.516,
+              "p50Ms": 0.03,
+              "p99Ms": 0.288
+            },
+            "classify": {
+              "count": 285,
+              "totalMs": 565.849,
+              "maxMs": 55.938,
+              "p50Ms": 0.032,
+              "p99Ms": 36.703
+            },
+            "painter": {
+              "count": 285,
+              "totalMs": 1599.056,
+              "maxMs": 107.3,
+              "p50Ms": 1.774,
+              "p99Ms": 83.644
+            },
+            "commit": {
+              "count": 285,
+              "totalMs": 76340.045,
+              "maxMs": 705.609,
+              "p50Ms": 268.812,
+              "p99Ms": 661.078
+            },
+            "projection": {
+              "count": 285,
+              "totalMs": 12093.735,
+              "maxMs": 1242.363,
+              "p50Ms": 0.056,
+              "p99Ms": 834.695
+            },
+            "alarms": {
+              "count": 285,
+              "totalMs": 1911.238,
+              "maxMs": 224.622,
+              "p50Ms": 0,
+              "p99Ms": 167.719
+            },
+            "artifacts": {
+              "count": 285,
+              "totalMs": 64.109,
+              "maxMs": 8.235,
+              "p50Ms": 0.195,
+              "p99Ms": 1.041
+            },
+            "historyFold": {
+              "count": 285,
+              "totalMs": 140.389,
+              "maxMs": 18.139,
+              "p50Ms": 0.015,
+              "p99Ms": 14.226
+            },
+            "total": {
+              "count": 285,
+              "totalMs": 173974.651,
+              "maxMs": 2127.304,
+              "p50Ms": 553.615,
+              "p99Ms": 1773.582
+            }
+          },
+          "offer": {
+            "queue": {
+              "count": 1330,
+              "totalMs": 10.079,
+              "maxMs": 0.114,
+              "p50Ms": 0.007,
+              "p99Ms": 0.025
+            },
+            "targets": {
+              "count": 1355,
+              "totalMs": 10028.69,
+              "maxMs": 167.826,
+              "p50Ms": 2.635,
+              "p99Ms": 89.306
+            },
+            "reserve": {
+              "count": 820,
+              "totalMs": 166007.375,
+              "maxMs": 684.366,
+              "p50Ms": 140.887,
+              "p99Ms": 509.991
+            },
+            "total": {
+              "count": 1330,
+              "totalMs": 233523.486,
+              "maxMs": 2266.824,
+              "p50Ms": 0.183,
+              "p99Ms": 541.48
+            },
+            "decode": {
+              "count": 535,
+              "totalMs": 11.373,
+              "maxMs": 0.106,
+              "p50Ms": 0.018,
+              "p99Ms": 0.063
+            },
+            "prepare": {
+              "count": 535,
+              "totalMs": 19.068,
+              "maxMs": 0.302,
+              "p50Ms": 0.028,
+              "p99Ms": 0.128
+            },
+            "classify": {
+              "count": 535,
+              "totalMs": 19.453,
+              "maxMs": 0.347,
+              "p50Ms": 0.029,
+              "p99Ms": 0.109
+            },
+            "painter": {
+              "count": 535,
+              "totalMs": 1872.08,
+              "maxMs": 102.383,
+              "p50Ms": 1.898,
+              "p99Ms": 28.033
+            },
+            "commit": {
+              "count": 535,
+              "totalMs": 154355.169,
+              "maxMs": 805.345,
+              "p50Ms": 271.943,
+              "p99Ms": 675.434
+            },
+            "projection": {
+              "count": 535,
+              "totalMs": 27.817,
+              "maxMs": 0.217,
+              "p50Ms": 0.044,
+              "p99Ms": 0.158
+            },
+            "alarms": {
+              "count": 535,
+              "totalMs": 0.174,
+              "maxMs": 0.009,
+              "p50Ms": 0,
+              "p99Ms": 0.001
+            },
+            "historyFold": {
+              "count": 535,
+              "totalMs": 7.755,
+              "maxMs": 0.136,
+              "p50Ms": 0.011,
+              "p99Ms": 0.062
+            }
+          },
+          "paint": {
+            "queue": {
+              "count": 244,
+              "totalMs": 1.869,
+              "maxMs": 0.062,
+              "p50Ms": 0.007,
+              "p99Ms": 0.026
+            },
+            "targets": {
+              "count": 244,
+              "totalMs": 1572.114,
+              "maxMs": 130.007,
+              "p50Ms": 2.114,
+              "p99Ms": 100.133
+            },
+            "latestTile": {
+              "count": 244,
+              "totalMs": 605.13,
+              "maxMs": 90.918,
+              "p50Ms": 1.119,
+              "p99Ms": 21.455
+            },
+            "classify": {
+              "count": 244,
+              "totalMs": 4.844,
+              "maxMs": 0.165,
+              "p50Ms": 0.014,
+              "p99Ms": 0.132
+            },
+            "apply": {
+              "count": 244,
+              "totalMs": 28324.542,
+              "maxMs": 753.19,
+              "p50Ms": 10.979,
+              "p99Ms": 688.696
+            },
+            "counters": {
+              "count": 244,
+              "totalMs": 30675.228,
+              "maxMs": 692.56,
+              "p50Ms": 10.589,
+              "p99Ms": 627.929
+            },
+            "total": {
+              "count": 244,
+              "totalMs": 61328.291,
+              "maxMs": 1369.252,
+              "p50Ms": 27.492,
+              "p99Ms": 1170.689
+            }
+          },
+          "sql": {
+            "poolWait": {
+              "count": 15007,
+              "totalMs": 4048.042,
+              "maxMs": 290.071,
+              "p50Ms": 0.021,
+              "p99Ms": 5.189
+            },
+            "statement": {
+              "count": 25552,
+              "totalMs": 64927.521,
+              "maxMs": 168.172,
+              "p50Ms": 0.982,
+              "p99Ms": 13.702
+            },
+            "transaction": {
+              "count": 2238,
+              "totalMs": 484139.141,
+              "maxMs": 792.767,
+              "p50Ms": 94.239,
+              "p99Ms": 301.057
+            }
+          }
+        },
+        "counters": {
+          "classification.computed": 44,
+          "historyFold.folded": 14,
+          "upload.blobPut.skipped": 234,
+          "classification.shared": 776,
+          "historyFold.skipped": 806,
+          "upload.blobPut.joined": 7
+        }
+      },
+      "serverMetrics": {
+        "durationMs": 60150,
+        "backend": {
+          "cpuPercent": 66.86070909090908,
+          "rssMiB": {
+            "count": 58,
+            "p50": 243.296875,
+            "p95": 262.046875,
+            "p99": 262.046875,
+            "max": 262.046875
+          },
+          "workingSetMiB": {
+            "count": 58,
+            "p50": 247.73046875,
+            "p95": 266.66015625,
+            "p99": 266.66015625,
+            "max": 266.66015625
+          }
+        },
+        "fullStack": {
+          "cpuPercent": 111.54685065553493,
+          "rssMiB": {
+            "count": 50,
+            "p50": 647.10546875,
+            "p95": 668.16796875,
+            "p99": 668.171875,
+            "max": 668.171875
+          },
+          "workingSetMiB": {
+            "count": 50,
+            "p50": 715.82421875,
+            "p95": 738.2109375,
+            "p99": 738.3828125,
+            "max": 738.3828125
+          }
+        },
+        "containers": [
+          {
+            "name": "s3",
+            "node": "hydra-olympus-2",
+            "image": "sha256:69b2ec208575b69597784255eec6fa6a2985ee9e1a47f4411a51f7f5fdd193a9",
+            "cpuPercent": 9.97,
+            "limits": {
+              "cpu": "1",
+              "memory": "1Gi"
+            }
+          },
+          {
+            "name": "postgres",
+            "node": "hydra-olympus-2",
+            "image": "sha256:5afe65ddcca9f28c2a701386ed2fc75469006593a379d29d08f1482114aa4e49",
+            "cpuPercent": 3.6,
+            "limits": {
+              "cpu": "1",
+              "memory": "1Gi"
+            }
+          },
+          {
+            "name": "postgres",
+            "node": "hydra-olympus-1",
+            "image": "sha256:5afe65ddcca9f28c2a701386ed2fc75469006593a379d29d08f1482114aa4e49",
+            "cpuPercent": 6.5,
+            "limits": {
+              "cpu": "1",
+              "memory": "1Gi"
+            }
+          },
+          {
+            "name": "backend",
+            "node": "hydra-olympus-2",
+            "image": "docker.io/library/caelestis-backend:bun-397h",
+            "cpuPercent": 66.86,
+            "limits": {
+              "cpu": "2",
+              "memory": "1Gi"
+            }
+          },
+          {
+            "name": "frontend",
+            "node": "hydra-olympus-2",
+            "image": "docker.io/library/caelestis-frontend:397h",
+            "cpuPercent": 24.61,
+            "limits": {
+              "cpu": "2",
+              "memory": "1Gi"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "bun-ladder-384-pooled-turns",
+      "namespace": "caelestis-test-cnpg-s3-mu8frhzy",
+      "startedAt": "2026-09-19T13:44:41.209Z",
+      "applicationRevision": "113e1e57",
+      "backendImage": "caelestis-backend:bun-397h",
+      "change": "Pooled sessions; every transaction takes turns",
+      "users": 384,
+      "runtime": {
+        "bun": "1.4.2"
+      },
+      "passed": false,
+      "completed": false,
+      "failure": "Error: Error: tile-upload timed out",
+      "phase": "warmup",
+      "commandTimeoutMs": 5000,
+      "sent": {
+        "presence-update": 6925,
+        "paint-report": 38,
+        "tile-offer": 189,
+        "tile-upload": 85
+      },
+      "received": {
+        "presence-delta": 8270,
+        "paint-result": 24,
+        "tile-offer-result": 180,
+        "tile-upload-result": 24,
+        "status-delta": 384,
+        "alarms-reconcile": 384,
+        "alarms-snapshot": 384
+      },
+      "latenciesMs": {
+        "paint-report": {
+          "count": 24,
+          "p50": 27.2,
+          "p95": 3795.7,
+          "p99": 3874.1,
+          "max": 3874.1
+        },
+        "tile-offer": {
+          "count": 180,
+          "p50": 58.6,
+          "p95": 382,
+          "p99": 464.1,
+          "max": 545.6
+        },
+        "tile-upload": {
+          "count": 24,
+          "p50": 3880,
+          "p95": 3985.2,
+          "p99": 4415.8,
+          "max": 4415.8
+        }
+      },
+      "presenceDeliveryMs": {
+        "count": 149795,
+        "p50": 238.4,
+        "p95": 429.1,
+        "p99": 524.1,
+        "max": 723.9
+      },
+      "correctness": {
+        "online": 384,
+        "sockets": 768,
+        "finalPeerSetsAndDrafts": false,
+        "clientDeadlineMs": 5000,
+        "clientDeadlineMisses": {
+          "warmup": 0,
+          "measured": 0
+        },
+        "errors": [
+          "Error: tile-upload timed out",
+          "Error: Error: tile-upload timed out"
+        ]
+      },
+      "backendStages": {
+        "since": 1789825481448,
+        "commands": {
+          "upload": {
+            "queue": {
+              "count": 93,
+              "totalMs": 1.922,
+              "maxMs": 0.047,
+              "p50Ms": 0.019,
+              "p99Ms": 0.047
+            },
+            "hash": {
+              "count": 93,
+              "totalMs": 3227.161,
+              "maxMs": 248.088,
+              "p50Ms": 9.331,
+              "p99Ms": 248.088
+            },
+            "targets": {
+              "count": 186,
+              "totalMs": 4975.166,
+              "maxMs": 274.678,
+              "p50Ms": 2.761,
+              "p99Ms": 263.679
+            },
+            "reserve": {
+              "count": 93,
+              "totalMs": 133994.02,
+              "maxMs": 2393.243,
+              "p50Ms": 1545.237,
+              "p99Ms": 2393.243
+            },
+            "blobPut": {
+              "count": 93,
+              "totalMs": 492.767,
+              "maxMs": 149.024,
+              "p50Ms": 0.01,
+              "p99Ms": 149.024
+            },
+            "decode": {
+              "count": 93,
+              "totalMs": 1048.036,
+              "maxMs": 378.128,
+              "p50Ms": 0.029,
+              "p99Ms": 378.128
+            },
+            "prepare": {
+              "count": 93,
+              "totalMs": 6.707,
+              "maxMs": 0.481,
+              "p50Ms": 0.06,
+              "p99Ms": 0.481
+            },
+            "classify": {
+              "count": 93,
+              "totalMs": 291.938,
+              "maxMs": 51.28,
+              "p50Ms": 0.048,
+              "p99Ms": 51.28
+            },
+            "painter": {
+              "count": 93,
+              "totalMs": 954.451,
+              "maxMs": 270.807,
+              "p50Ms": 1.548,
+              "p99Ms": 270.807
+            },
+            "commit": {
+              "count": 93,
+              "totalMs": 130278.104,
+              "maxMs": 2217.14,
+              "p50Ms": 1691.458,
+              "p99Ms": 2217.14
+            },
+            "projection": {
+              "count": 93,
+              "totalMs": 13591.049,
+              "maxMs": 2500.336,
+              "p50Ms": 0.112,
+              "p99Ms": 2500.336
+            },
+            "alarms": {
+              "count": 93,
+              "totalMs": 262.797,
+              "maxMs": 45.32,
+              "p50Ms": 0,
+              "p99Ms": 45.32
+            },
+            "artifacts": {
+              "count": 93,
+              "totalMs": 22.244,
+              "maxMs": 0.958,
+              "p50Ms": 0.254,
+              "p99Ms": 0.958
+            },
+            "historyFold": {
+              "count": 93,
+              "totalMs": 74.422,
+              "maxMs": 12.584,
+              "p50Ms": 0.031,
+              "p99Ms": 12.584
+            },
+            "total": {
+              "count": 93,
+              "totalMs": 289250.468,
+              "maxMs": 6012.388,
+              "p50Ms": 3530.847,
+              "p99Ms": 6012.388
+            }
+          },
+          "offer": {
+            "queue": {
+              "count": 190,
+              "totalMs": 1.82,
+              "maxMs": 0.173,
+              "p50Ms": 0.006,
+              "p99Ms": 0.071
+            },
+            "targets": {
+              "count": 140,
+              "totalMs": 6205.849,
+              "maxMs": 218.667,
+              "p50Ms": 35.261,
+              "p99Ms": 217.547
+            },
+            "reserve": {
+              "count": 131,
+              "totalMs": 24814.214,
+              "maxMs": 2014.063,
+              "p50Ms": 69.25,
+              "p99Ms": 1955.785
+            },
+            "total": {
+              "count": 190,
+              "totalMs": 38729.619,
+              "maxMs": 3518.961,
+              "p50Ms": 0.396,
+              "p99Ms": 3361.151
+            },
+            "decode": {
+              "count": 9,
+              "totalMs": 0.289,
+              "maxMs": 0.087,
+              "p50Ms": 0.025,
+              "p99Ms": 0.087
+            },
+            "prepare": {
+              "count": 9,
+              "totalMs": 0.587,
+              "maxMs": 0.115,
+              "p50Ms": 0.059,
+              "p99Ms": 0.115
+            },
+            "classify": {
+              "count": 9,
+              "totalMs": 0.58,
+              "maxMs": 0.117,
+              "p50Ms": 0.049,
+              "p99Ms": 0.117
+            },
+            "painter": {
+              "count": 9,
+              "totalMs": 43.285,
+              "maxMs": 27.026,
+              "p50Ms": 2.225,
+              "p99Ms": 27.026
+            },
+            "commit": {
+              "count": 9,
+              "totalMs": 13760.727,
+              "maxMs": 1876.893,
+              "p50Ms": 1823.663,
+              "p99Ms": 1876.893
+            },
+            "projection": {
+              "count": 9,
+              "totalMs": 0.944,
+              "maxMs": 0.349,
+              "p50Ms": 0.072,
+              "p99Ms": 0.349
+            },
+            "alarms": {
+              "count": 9,
+              "totalMs": 0.092,
+              "maxMs": 0.07,
+              "p50Ms": 0.003,
+              "p99Ms": 0.07
+            },
+            "historyFold": {
+              "count": 9,
+              "totalMs": 0.231,
+              "maxMs": 0.035,
+              "p50Ms": 0.028,
+              "p99Ms": 0.035
+            }
+          },
+          "paint": {
+            "queue": {
+              "count": 38,
+              "totalMs": 0.263,
+              "maxMs": 0.011,
+              "p50Ms": 0.007,
+              "p99Ms": 0.011
+            },
+            "targets": {
+              "count": 38,
+              "totalMs": 951.639,
+              "maxMs": 141.083,
+              "p50Ms": 14.568,
+              "p99Ms": 141.083
+            },
+            "latestTile": {
+              "count": 38,
+              "totalMs": 585.906,
+              "maxMs": 90.687,
+              "p50Ms": 2.434,
+              "p99Ms": 90.687
+            },
+            "classify": {
+              "count": 38,
+              "totalMs": 2.055,
+              "maxMs": 0.2,
+              "p50Ms": 0.032,
+              "p99Ms": 0.2
+            },
+            "apply": {
+              "count": 38,
+              "totalMs": 33922.311,
+              "maxMs": 2196.79,
+              "p50Ms": 222.146,
+              "p99Ms": 2196.79
+            },
+            "counters": {
+              "count": 38,
+              "totalMs": 28259.516,
+              "maxMs": 2459.923,
+              "p50Ms": 280.725,
+              "p99Ms": 2459.923
+            },
+            "total": {
+              "count": 38,
+              "totalMs": 63747.419,
+              "maxMs": 3966.921,
+              "p50Ms": 1595.545,
+              "p99Ms": 3966.921
+            }
+          },
+          "sql": {
+            "poolWait": {
+              "count": 10034,
+              "totalMs": 4451.63,
+              "maxMs": 80.597,
+              "p50Ms": 0.029,
+              "p99Ms": 6.491
+            },
+            "statement": {
+              "count": 11431,
+              "totalMs": 29387.243,
+              "maxMs": 274.16,
+              "p50Ms": 0.881,
+              "p99Ms": 3.18
+            },
+            "transaction": {
+              "count": 301,
+              "totalMs": 350294.725,
+              "maxMs": 2375.798,
+              "p50Ms": 1440.991,
+              "p99Ms": 2194.444
+            }
+          }
+        },
+        "counters": {
+          "classification.computed": 10,
+          "historyFold.folded": 8,
+          "upload.blobPut.skipped": 83,
+          "classification.shared": 92,
+          "historyFold.skipped": 94
+        }
+      },
+      "serverMetrics": {}
+    },
+    {
+      "name": "node-ladder-256-lanes",
+      "namespace": "caelestis-test-cnpg-s3-mu8ghvge",
+      "startedAt": "2026-09-19T14:05:34.253Z",
+      "applicationRevision": "d272b1df",
+      "backendImage": "caelestis-backend:node-397i",
+      "change": "Pooled sessions with status and coordinator lanes; batches still queued in the coordinator lane",
+      "users": 256,
+      "runtime": {
+        "node": "24.20.0"
+      },
+      "passed": false,
+      "completed": false,
+      "failure": "Error: Error: tile-upload timed out",
+      "phase": "warmup",
+      "commandTimeoutMs": 5000,
+      "sent": {
+        "presence-update": 5057,
+        "paint-report": 28,
+        "tile-offer": 140,
+        "tile-upload": 53
+      },
+      "received": {
+        "presence-delta": 7050,
+        "paint-result": 26,
+        "tile-offer-result": 118,
+        "tile-upload-result": 19,
+        "status-delta": 1024,
+        "alarms-reconcile": 512,
+        "alarms-snapshot": 512
+      },
+      "latenciesMs": {
+        "paint-report": {
+          "count": 26,
+          "p50": 229.2,
+          "p95": 1569.7,
+          "p99": 1706.1,
+          "max": 1706.1
+        },
+        "tile-offer": {
+          "count": 118,
+          "p50": 17,
+          "p95": 448.2,
+          "p99": 631.5,
+          "max": 4616.7
+        },
+        "tile-upload": {
+          "count": 19,
+          "p50": 3699.7,
+          "p95": 4549.9,
+          "p99": 4549.9,
+          "max": 4549.9
+        }
+      },
+      "presenceDeliveryMs": {
+        "count": 120388,
+        "p50": 214.4,
+        "p95": 379,
+        "p99": 450.7,
+        "max": 670.3
+      },
+      "correctness": {
+        "online": 256,
+        "sockets": 512,
+        "finalPeerSetsAndDrafts": false,
+        "clientDeadlineMs": 5000,
+        "clientDeadlineMisses": {
+          "warmup": 0,
+          "measured": 0
+        },
+        "errors": [
+          "Error: tile-upload timed out",
+          "Error: Error: tile-upload timed out"
+        ]
+      },
+      "backendStages": {
+        "since": 1789826734515,
+        "commands": {
+          "upload": {
+            "queue": {
+              "count": 61,
+              "totalMs": 2.946,
+              "maxMs": 0.157,
+              "p50Ms": 0.044,
+              "p99Ms": 0.157
+            },
+            "hash": {
+              "count": 61,
+              "totalMs": 644.472,
+              "maxMs": 120.872,
+              "p50Ms": 2.267,
+              "p99Ms": 120.872
+            },
+            "targets": {
+              "count": 122,
+              "totalMs": 2036.001,
+              "maxMs": 276.497,
+              "p50Ms": 5.148,
+              "p99Ms": 274.206
+            },
+            "reserve": {
+              "count": 61,
+              "totalMs": 29077.192,
+              "maxMs": 1020.759,
+              "p50Ms": 569.242,
+              "p99Ms": 1020.759
+            },
+            "blobPut": {
+              "count": 61,
+              "totalMs": 951.856,
+              "maxMs": 450.446,
+              "p50Ms": 0.01,
+              "p99Ms": 450.446
+            },
+            "decode": {
+              "count": 61,
+              "totalMs": 3156.485,
+              "maxMs": 636.754,
+              "p50Ms": 0.027,
+              "p99Ms": 636.754
+            },
+            "prepare": {
+              "count": 61,
+              "totalMs": 5.124,
+              "maxMs": 0.357,
+              "p50Ms": 0.065,
+              "p99Ms": 0.357
+            },
+            "classify": {
+              "count": 61,
+              "totalMs": 894.537,
+              "maxMs": 129.201,
+              "p50Ms": 0.06,
+              "p99Ms": 129.201
+            },
+            "painter": {
+              "count": 61,
+              "totalMs": 836.118,
+              "maxMs": 119.615,
+              "p50Ms": 4.634,
+              "p99Ms": 119.615
+            },
+            "commit": {
+              "count": 61,
+              "totalMs": 174714.964,
+              "maxMs": 4918.044,
+              "p50Ms": 2874.979,
+              "p99Ms": 4918.044
+            },
+            "projection": {
+              "count": 61,
+              "totalMs": 1693.709,
+              "maxMs": 571.912,
+              "p50Ms": 0.094,
+              "p99Ms": 571.912
+            },
+            "alarms": {
+              "count": 61,
+              "totalMs": 707.17,
+              "maxMs": 166.06,
+              "p50Ms": 0.001,
+              "p99Ms": 166.06
+            },
+            "artifacts": {
+              "count": 61,
+              "totalMs": 21.96,
+              "maxMs": 1.558,
+              "p50Ms": 0.344,
+              "p99Ms": 1.558
+            },
+            "historyFold": {
+              "count": 61,
+              "totalMs": 139.845,
+              "maxMs": 23.768,
+              "p50Ms": 0.028,
+              "p99Ms": 23.768
+            },
+            "total": {
+              "count": 61,
+              "totalMs": 214915.372,
+              "maxMs": 5617.438,
+              "p50Ms": 3528.739,
+              "p99Ms": 5617.438
+            }
+          },
+          "offer": {
+            "queue": {
+              "count": 141,
+              "totalMs": 4.722,
+              "maxMs": 0.121,
+              "p50Ms": 0.028,
+              "p99Ms": 0.077
+            },
+            "targets": {
+              "count": 127,
+              "totalMs": 4142.409,
+              "maxMs": 206.009,
+              "p50Ms": 7.556,
+              "p99Ms": 204.221
+            },
+            "reserve": {
+              "count": 107,
+              "totalMs": 15658.731,
+              "maxMs": 797.786,
+              "p50Ms": 24.212,
+              "p99Ms": 764.698
+            },
+            "total": {
+              "count": 141,
+              "totalMs": 111664.788,
+              "maxMs": 5708.269,
+              "p50Ms": 0.402,
+              "p99Ms": 5616.75
+            },
+            "decode": {
+              "count": 20,
+              "totalMs": 0.548,
+              "maxMs": 0.088,
+              "p50Ms": 0.022,
+              "p99Ms": 0.088
+            },
+            "prepare": {
+              "count": 20,
+              "totalMs": 1.315,
+              "maxMs": 0.138,
+              "p50Ms": 0.053,
+              "p99Ms": 0.138
+            },
+            "classify": {
+              "count": 20,
+              "totalMs": 0.945,
+              "maxMs": 0.089,
+              "p50Ms": 0.042,
+              "p99Ms": 0.089
+            },
+            "painter": {
+              "count": 20,
+              "totalMs": 181.675,
+              "maxMs": 97.471,
+              "p50Ms": 4.407,
+              "p99Ms": 97.471
+            },
+            "commit": {
+              "count": 20,
+              "totalMs": 95319.39,
+              "maxMs": 4900.047,
+              "p50Ms": 4836.47,
+              "p99Ms": 4900.047
+            },
+            "projection": {
+              "count": 20,
+              "totalMs": 2.144,
+              "maxMs": 0.318,
+              "p50Ms": 0.079,
+              "p99Ms": 0.318
+            },
+            "alarms": {
+              "count": 20,
+              "totalMs": 0.031,
+              "maxMs": 0.012,
+              "p50Ms": 0.001,
+              "p99Ms": 0.012
+            },
+            "historyFold": {
+              "count": 20,
+              "totalMs": 0.447,
+              "maxMs": 0.041,
+              "p50Ms": 0.018,
+              "p99Ms": 0.041
+            }
+          },
+          "paint": {
+            "queue": {
+              "count": 28,
+              "totalMs": 0.905,
+              "maxMs": 0.085,
+              "p50Ms": 0.029,
+              "p99Ms": 0.085
+            },
+            "targets": {
+              "count": 28,
+              "totalMs": 381.182,
+              "maxMs": 125.03,
+              "p50Ms": 5.515,
+              "p99Ms": 125.03
+            },
+            "latestTile": {
+              "count": 28,
+              "totalMs": 345.277,
+              "maxMs": 169.644,
+              "p50Ms": 4.247,
+              "p99Ms": 169.644
+            },
+            "classify": {
+              "count": 28,
+              "totalMs": 1.946,
+              "maxMs": 0.278,
+              "p50Ms": 0.04,
+              "p99Ms": 0.278
+            },
+            "apply": {
+              "count": 28,
+              "totalMs": 7831.123,
+              "maxMs": 984.344,
+              "p50Ms": 109.772,
+              "p99Ms": 984.344
+            },
+            "counters": {
+              "count": 28,
+              "totalMs": 7722.628,
+              "maxMs": 1009.538,
+              "p50Ms": 122.551,
+              "p99Ms": 1009.538
+            },
+            "total": {
+              "count": 28,
+              "totalMs": 16303.185,
+              "maxMs": 1653.774,
+              "p50Ms": 359.384,
+              "p99Ms": 1653.774
+            }
+          },
+          "sql": {
+            "poolWait": {
+              "count": 6985,
+              "totalMs": 1933.118,
+              "maxMs": 128.7,
+              "p50Ms": 0.069,
+              "p99Ms": 6.473
+            },
+            "statement": {
+              "count": 8096,
+              "totalMs": 28216.734,
+              "maxMs": 274.026,
+              "p50Ms": 3.488,
+              "p99Ms": 6.403
+            },
+            "transaction": {
+              "count": 321,
+              "totalMs": 314916.7,
+              "maxMs": 4880.238,
+              "p50Ms": 171.865,
+              "p99Ms": 4851.91
+            }
+          }
+        },
+        "counters": {
+          "classification.computed": 12,
+          "historyFold.folded": 8,
+          "upload.blobPut.joined": 3,
+          "classification.shared": 69,
+          "upload.blobPut.skipped": 46,
+          "historyFold.skipped": 73
+        }
+      },
+      "serverMetrics": {}
+    },
+    {
+      "name": "bun-ladder-256-lanes",
+      "namespace": "caelestis-test-cnpg-s3-mu8go4np",
+      "startedAt": "2026-09-19T14:10:03.138Z",
+      "applicationRevision": "d272b1df",
+      "backendImage": "caelestis-backend:bun-397i",
+      "change": "Pooled sessions with status and coordinator lanes; batches still queued in the coordinator lane",
+      "users": 256,
+      "runtime": {
+        "bun": "1.4.2"
+      },
+      "passed": true,
+      "completed": true,
+      "failure": null,
+      "phase": "measured",
+      "commandTimeoutMs": 5000,
+      "sent": {
+        "presence-update": 26466,
+        "tile-offer": 835,
+        "tile-upload": 132,
+        "paint-report": 154
+      },
+      "received": {
+        "tile-offer-result": 835,
+        "status-delta": 10752,
+        "presence-delta": 39936,
+        "alarms-reconcile": 6144,
+        "alarms-snapshot": 6144,
+        "tile-upload-result": 132,
+        "paint-result": 154
+      },
+      "latenciesMs": {
+        "tile-offer": {
+          "count": 835,
+          "p50": 7.9,
+          "p95": 526.7,
+          "p99": 645.6,
+          "max": 729.3
+        },
+        "tile-upload": {
+          "count": 132,
+          "p50": 459.7,
+          "p95": 641.2,
+          "p99": 727.2,
+          "max": 874.2
+        },
+        "paint-report": {
+          "count": 154,
+          "p50": 25,
+          "p95": 262.1,
+          "p99": 361,
+          "max": 458.8
+        }
+      },
+      "presenceDeliveryMs": {
+        "count": 726622,
+        "p50": 194.8,
+        "p95": 344.7,
+        "p99": 403.4,
+        "max": 572.9
+      },
+      "correctness": {
+        "online": 256,
+        "sockets": 512,
+        "finalPeerSetsAndDrafts": true,
+        "paintEvents": 243,
+        "paintPixels": 7290,
+        "duplicateRejected": true,
+        "clientDeadlineMs": 5000,
+        "clientDeadlineMisses": {
+          "warmup": 0,
+          "measured": 0
+        },
+        "errors": []
+      },
+      "backendStages": {
+        "since": 1789827003356,
+        "commands": {
+          "upload": {
+            "queue": {
+              "count": 288,
+              "totalMs": 5.149,
+              "maxMs": 0.072,
+              "p50Ms": 0.017,
+              "p99Ms": 0.045
+            },
+            "hash": {
+              "count": 288,
+              "totalMs": 2970.177,
+              "maxMs": 140.073,
+              "p50Ms": 2.83,
+              "p99Ms": 111.335
+            },
+            "targets": {
+              "count": 576,
+              "totalMs": 5149.248,
+              "maxMs": 168.093,
+              "p50Ms": 2.428,
+              "p99Ms": 111.402
+            },
+            "reserve": {
+              "count": 288,
+              "totalMs": 23168.513,
+              "maxMs": 422.64,
+              "p50Ms": 49.528,
+              "p99Ms": 355.526
+            },
+            "blobPut": {
+              "count": 288,
+              "totalMs": 2031.354,
+              "maxMs": 134.966,
+              "p50Ms": 0.008,
+              "p99Ms": 114.304
+            },
+            "decode": {
+              "count": 288,
+              "totalMs": 4521.815,
+              "maxMs": 115.336,
+              "p50Ms": 0.019,
+              "p99Ms": 107.824
+            },
+            "prepare": {
+              "count": 288,
+              "totalMs": 10.76,
+              "maxMs": 0.464,
+              "p50Ms": 0.029,
+              "p99Ms": 0.202
+            },
+            "classify": {
+              "count": 288,
+              "totalMs": 522.125,
+              "maxMs": 50.885,
+              "p50Ms": 0.031,
+              "p99Ms": 44.067
+            },
+            "painter": {
+              "count": 288,
+              "totalMs": 1459.777,
+              "maxMs": 123.681,
+              "p50Ms": 1.66,
+              "p99Ms": 91.299
+            },
+            "commit": {
+              "count": 288,
+              "totalMs": 149705.742,
+              "maxMs": 1335.468,
+              "p50Ms": 431.739,
+              "p99Ms": 1211.105
+            },
+            "projection": {
+              "count": 288,
+              "totalMs": 3627.807,
+              "maxMs": 252.139,
+              "p50Ms": 0.052,
+              "p99Ms": 210.364
+            },
+            "alarms": {
+              "count": 288,
+              "totalMs": 1666.35,
+              "maxMs": 204.902,
+              "p50Ms": 0.001,
+              "p99Ms": 143.794
+            },
+            "artifacts": {
+              "count": 288,
+              "totalMs": 59.798,
+              "maxMs": 3.081,
+              "p50Ms": 0.2,
+              "p99Ms": 0.923
+            },
+            "historyFold": {
+              "count": 288,
+              "totalMs": 160.799,
+              "maxMs": 27.12,
+              "p50Ms": 0.014,
+              "p99Ms": 13.878
+            },
+            "total": {
+              "count": 288,
+              "totalMs": 195135.564,
+              "maxMs": 1424.585,
+              "p50Ms": 571.678,
+              "p99Ms": 1376.399
+            }
+          },
+          "offer": {
+            "queue": {
+              "count": 1330,
+              "totalMs": 9.469,
+              "maxMs": 0.137,
+              "p50Ms": 0.006,
+              "p99Ms": 0.03
+            },
+            "targets": {
+              "count": 1500,
+              "totalMs": 10617.672,
+              "maxMs": 171.122,
+              "p50Ms": 2.524,
+              "p99Ms": 99.997
+            },
+            "reserve": {
+              "count": 894,
+              "totalMs": 39656.283,
+              "maxMs": 385.149,
+              "p50Ms": 28.86,
+              "p99Ms": 186.825
+            },
+            "total": {
+              "count": 1330,
+              "totalMs": 260808.884,
+              "maxMs": 1455.999,
+              "p50Ms": 0.19,
+              "p99Ms": 638.304
+            },
+            "decode": {
+              "count": 606,
+              "totalMs": 12.361,
+              "maxMs": 0.203,
+              "p50Ms": 0.017,
+              "p99Ms": 0.043
+            },
+            "prepare": {
+              "count": 606,
+              "totalMs": 19.722,
+              "maxMs": 0.236,
+              "p50Ms": 0.025,
+              "p99Ms": 0.083
+            },
+            "classify": {
+              "count": 606,
+              "totalMs": 21.453,
+              "maxMs": 0.221,
+              "p50Ms": 0.028,
+              "p99Ms": 0.12
+            },
+            "painter": {
+              "count": 606,
+              "totalMs": 1545.714,
+              "maxMs": 113.036,
+              "p50Ms": 1.818,
+              "p99Ms": 13.182
+            },
+            "commit": {
+              "count": 606,
+              "totalMs": 327040.957,
+              "maxMs": 1398.45,
+              "p50Ms": 399.958,
+              "p99Ms": 1202.514
+            },
+            "projection": {
+              "count": 606,
+              "totalMs": 31.923,
+              "maxMs": 0.374,
+              "p50Ms": 0.041,
+              "p99Ms": 0.145
+            },
+            "alarms": {
+              "count": 606,
+              "totalMs": 0.683,
+              "maxMs": 0.059,
+              "p50Ms": 0.001,
+              "p99Ms": 0.001
+            },
+            "historyFold": {
+              "count": 606,
+              "totalMs": 8.217,
+              "maxMs": 0.132,
+              "p50Ms": 0.01,
+              "p99Ms": 0.039
+            }
+          },
+          "paint": {
+            "queue": {
+              "count": 244,
+              "totalMs": 1.638,
+              "maxMs": 0.029,
+              "p50Ms": 0.006,
+              "p99Ms": 0.017
+            },
+            "targets": {
+              "count": 244,
+              "totalMs": 1731.733,
+              "maxMs": 154.118,
+              "p50Ms": 2.116,
+              "p99Ms": 98.004
+            },
+            "latestTile": {
+              "count": 244,
+              "totalMs": 662.055,
+              "maxMs": 104.875,
+              "p50Ms": 1.089,
+              "p99Ms": 16.301
+            },
+            "classify": {
+              "count": 244,
+              "totalMs": 4.767,
+              "maxMs": 0.113,
+              "p50Ms": 0.014,
+              "p99Ms": 0.098
+            },
+            "apply": {
+              "count": 244,
+              "totalMs": 8001.472,
+              "maxMs": 349.393,
+              "p50Ms": 7.378,
+              "p99Ms": 342.126
+            },
+            "counters": {
+              "count": 244,
+              "totalMs": 8959.05,
+              "maxMs": 458.666,
+              "p50Ms": 10.54,
+              "p99Ms": 252.705
+            },
+            "total": {
+              "count": 244,
+              "totalMs": 19498.56,
+              "maxMs": 805.019,
+              "p50Ms": 24.541,
+              "p99Ms": 559.223
+            }
+          },
+          "sql": {
+            "poolWait": {
+              "count": 15520,
+              "totalMs": 3865.845,
+              "maxMs": 101.356,
+              "p50Ms": 0.022,
+              "p99Ms": 7.797
+            },
+            "statement": {
+              "count": 26777,
+              "totalMs": 65004.623,
+              "maxMs": 170.244,
+              "p50Ms": 1.127,
+              "p99Ms": 79.807
+            },
+            "transaction": {
+              "count": 3273,
+              "totalMs": 505157.611,
+              "maxMs": 1294.253,
+              "p50Ms": 27.641,
+              "p99Ms": 548.093
+            }
+          }
+        },
+        "counters": {
+          "classification.computed": 44,
+          "historyFold.folded": 14,
+          "upload.blobPut.skipped": 233,
+          "classification.shared": 850,
+          "historyFold.skipped": 880,
+          "upload.blobPut.joined": 11
+        }
+      },
+      "serverMetrics": {
+        "durationMs": 60163,
+        "backend": {
+          "cpuPercent": 57.090266666666665,
+          "rssMiB": {
+            "count": 44,
+            "p50": 258.8125,
+            "p95": 262.5625,
+            "p99": 262.5625,
+            "max": 262.5625
+          },
+          "workingSetMiB": {
+            "count": 44,
+            "p50": 263.31640625,
+            "p95": 266.828125,
+            "p99": 266.828125,
+            "max": 266.828125
+          }
+        },
+        "fullStack": {
+          "cpuPercent": 95.55270284314778,
+          "rssMiB": {
+            "count": 44,
+            "p50": 701.4453125,
+            "p95": 719.14453125,
+            "p99": 719.14453125,
+            "max": 719.14453125
+          },
+          "workingSetMiB": {
+            "count": 44,
+            "p50": 772.92578125,
+            "p95": 791.25,
+            "p99": 791.27734375,
+            "max": 791.27734375
+          }
+        },
+        "containers": [
+          {
+            "name": "s3",
+            "node": "hydra-olympus-2",
+            "image": "sha256:69b2ec208575b69597784255eec6fa6a2985ee9e1a47f4411a51f7f5fdd193a9",
+            "cpuPercent": 6.94,
+            "limits": {
+              "cpu": "1",
+              "memory": "1Gi"
+            }
+          },
+          {
+            "name": "postgres",
+            "node": "hydra-olympus-2",
+            "image": "sha256:5afe65ddcca9f28c2a701386ed2fc75469006593a379d29d08f1482114aa4e49",
+            "cpuPercent": 3.12,
+            "limits": {
+              "cpu": "1",
+              "memory": "1Gi"
+            }
+          },
+          {
+            "name": "postgres",
+            "node": "hydra-olympus-1",
+            "image": "sha256:5afe65ddcca9f28c2a701386ed2fc75469006593a379d29d08f1482114aa4e49",
+            "cpuPercent": 4.67,
+            "limits": {
+              "cpu": "1",
+              "memory": "1Gi"
+            }
+          },
+          {
+            "name": "backend",
+            "node": "hydra-olympus-2",
+            "image": "docker.io/library/caelestis-backend:bun-397i",
+            "cpuPercent": 57.09,
+            "limits": {
+              "cpu": "2",
+              "memory": "1Gi"
+            }
+          },
+          {
+            "name": "frontend",
+            "node": "hydra-olympus-2",
+            "image": "docker.io/library/caelestis-frontend:397i",
+            "cpuPercent": 23.72,
+            "limits": {
+              "cpu": "2",
+              "memory": "1Gi"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "node-ladder-256-free-batches",
+      "namespace": "caelestis-test-cnpg-s3-mu8he0hc",
+      "startedAt": "2026-09-19T14:30:33.292Z",
+      "applicationRevision": "fd335e90",
+      "backendImage": "caelestis-backend:node-397j",
+      "change": "Batches out of the coordinator lane; reservations and commits overlap and abort each other",
+      "users": 256,
+      "runtime": {
+        "node": "24.20.0"
+      },
+      "passed": false,
+      "completed": false,
+      "failure": "Error: Error: tile-offer timed out",
+      "phase": "warmup",
+      "commandTimeoutMs": 5000,
+      "sent": {
+        "presence-update": 8082,
+        "paint-report": 45,
+        "tile-offer": 252,
+        "tile-upload": 114
+      },
+      "received": {
+        "presence-delta": 11264,
+        "paint-result": 45,
+        "tile-offer-result": 233,
+        "status-delta": 4352,
+        "alarms-reconcile": 1024,
+        "alarms-snapshot": 1024,
+        "tile-upload-result": 67
+      },
+      "latenciesMs": {
+        "paint-report": {
+          "count": 45,
+          "p50": 96.4,
+          "p95": 271.1,
+          "p99": 461.9,
+          "max": 461.9
+        },
+        "tile-offer": {
+          "count": 233,
+          "p50": 51,
+          "p95": 4632.3,
+          "p99": 4855.8,
+          "max": 4980.4
+        },
+        "tile-upload": {
+          "count": 67,
+          "p50": 2187.9,
+          "p95": 4657.2,
+          "p99": 4858,
+          "max": 4858
+        }
+      },
+      "presenceDeliveryMs": {
+        "count": 198890,
+        "p50": 213.4,
+        "p95": 374.5,
+        "p99": 443,
+        "max": 585.3
+      },
+      "correctness": {
+        "online": 256,
+        "sockets": 512,
+        "finalPeerSetsAndDrafts": false,
+        "clientDeadlineMs": 5000,
+        "clientDeadlineMisses": {
+          "warmup": 0,
+          "measured": 0
+        },
+        "errors": [
+          "Error: tile-offer timed out",
+          "Error: Error: tile-offer timed out"
+        ]
+      },
+      "backendStages": {
+        "since": 1789828233564,
+        "commands": {
+          "upload": {
+            "queue": {
+              "count": 122,
+              "totalMs": 4.391,
+              "maxMs": 0.098,
+              "p50Ms": 0.031,
+              "p99Ms": 0.08
+            },
+            "hash": {
+              "count": 122,
+              "totalMs": 628.698,
+              "maxMs": 119.235,
+              "p50Ms": 3.167,
+              "p99Ms": 31.044
+            },
+            "targets": {
+              "count": 244,
+              "totalMs": 2671.892,
+              "maxMs": 177.957,
+              "p50Ms": 3.009,
+              "p99Ms": 137.346
+            },
+            "reserve": {
+              "count": 122,
+              "totalMs": 6902.589,
+              "maxMs": 768.322,
+              "p50Ms": 23.569,
+              "p99Ms": 594.758
+            },
+            "blobPut": {
+              "count": 122,
+              "totalMs": 523.078,
+              "maxMs": 86.044,
+              "p50Ms": 0.008,
+              "p99Ms": 41.995
+            },
+            "decode": {
+              "count": 122,
+              "totalMs": 3842.539,
+              "maxMs": 389.213,
+              "p50Ms": 0.023,
+              "p99Ms": 312.791
+            },
+            "prepare": {
+              "count": 122,
+              "totalMs": 8.973,
+              "maxMs": 0.382,
+              "p50Ms": 0.058,
+              "p99Ms": 0.283
+            },
+            "classify": {
+              "count": 122,
+              "totalMs": 621.584,
+              "maxMs": 95.76,
+              "p50Ms": 0.037,
+              "p99Ms": 93.256
+            },
+            "painter": {
+              "count": 122,
+              "totalMs": 1183.675,
+              "maxMs": 144.909,
+              "p50Ms": 2.461,
+              "p99Ms": 118.331
+            },
+            "commit": {
+              "count": 122,
+              "totalMs": 296649.014,
+              "maxMs": 4742.879,
+              "p50Ms": 2445.212,
+              "p99Ms": 4690.997
+            },
+            "projection": {
+              "count": 122,
+              "totalMs": 781.652,
+              "maxMs": 159.727,
+              "p50Ms": 0.062,
+              "p99Ms": 53.299
+            },
+            "alarms": {
+              "count": 122,
+              "totalMs": 672.44,
+              "maxMs": 71.914,
+              "p50Ms": 0.001,
+              "p99Ms": 70.049
+            },
+            "artifacts": {
+              "count": 122,
+              "totalMs": 29.572,
+              "maxMs": 1.459,
+              "p50Ms": 0.249,
+              "p99Ms": 0.986
+            },
+            "historyFold": {
+              "count": 122,
+              "totalMs": 82.704,
+              "maxMs": 14.437,
+              "p50Ms": 0.025,
+              "p99Ms": 11.932
+            },
+            "total": {
+              "count": 122,
+              "totalMs": 314661.268,
+              "maxMs": 4788.371,
+              "p50Ms": 2512.459,
+              "p99Ms": 4739.695
+            }
+          },
+          "offer": {
+            "queue": {
+              "count": 253,
+              "totalMs": 7.874,
+              "maxMs": 0.111,
+              "p50Ms": 0.026,
+              "p99Ms": 0.083
+            },
+            "targets": {
+              "count": 352,
+              "totalMs": 4978.692,
+              "maxMs": 189.652,
+              "p50Ms": 6.209,
+              "p99Ms": 145.592
+            },
+            "reserve": {
+              "count": 249,
+              "totalMs": 17410.773,
+              "maxMs": 1029.586,
+              "p50Ms": 27.148,
+              "p99Ms": 608.426
+            },
+            "total": {
+              "count": 253,
+              "totalMs": 272250.789,
+              "maxMs": 5182.505,
+              "p50Ms": 19.365,
+              "p99Ms": 4932.016
+            },
+            "decode": {
+              "count": 103,
+              "totalMs": 2.326,
+              "maxMs": 0.054,
+              "p50Ms": 0.019,
+              "p99Ms": 0.05
+            },
+            "prepare": {
+              "count": 103,
+              "totalMs": 5.292,
+              "maxMs": 0.112,
+              "p50Ms": 0.045,
+              "p99Ms": 0.106
+            },
+            "classify": {
+              "count": 103,
+              "totalMs": 4.404,
+              "maxMs": 0.108,
+              "p50Ms": 0.036,
+              "p99Ms": 0.097
+            },
+            "painter": {
+              "count": 103,
+              "totalMs": 503.324,
+              "maxMs": 86.276,
+              "p50Ms": 3.079,
+              "p99Ms": 22.477
+            },
+            "commit": {
+              "count": 103,
+              "totalMs": 346466.423,
+              "maxMs": 4754.359,
+              "p50Ms": 4240.244,
+              "p99Ms": 4748.459
+            },
+            "projection": {
+              "count": 103,
+              "totalMs": 9.479,
+              "maxMs": 0.524,
+              "p50Ms": 0.078,
+              "p99Ms": 0.235
+            },
+            "alarms": {
+              "count": 103,
+              "totalMs": 0.128,
+              "maxMs": 0.009,
+              "p50Ms": 0.001,
+              "p99Ms": 0.008
+            },
+            "historyFold": {
+              "count": 103,
+              "totalMs": 2.606,
+              "maxMs": 0.164,
+              "p50Ms": 0.02,
+              "p99Ms": 0.144
+            }
+          },
+          "paint": {
+            "queue": {
+              "count": 45,
+              "totalMs": 1.323,
+              "maxMs": 0.061,
+              "p50Ms": 0.026,
+              "p99Ms": 0.061
+            },
+            "targets": {
+              "count": 45,
+              "totalMs": 552.022,
+              "maxMs": 114.258,
+              "p50Ms": 6.569,
+              "p99Ms": 114.258
+            },
+            "latestTile": {
+              "count": 45,
+              "totalMs": 360.62,
+              "maxMs": 127.858,
+              "p50Ms": 2.446,
+              "p99Ms": 127.858
+            },
+            "classify": {
+              "count": 45,
+              "totalMs": 2.114,
+              "maxMs": 0.369,
+              "p50Ms": 0.033,
+              "p99Ms": 0.369
+            },
+            "apply": {
+              "count": 45,
+              "totalMs": 1192.378,
+              "maxMs": 110.361,
+              "p50Ms": 17.113,
+              "p99Ms": 110.361
+            },
+            "counters": {
+              "count": 45,
+              "totalMs": 1539.581,
+              "maxMs": 310.701,
+              "p50Ms": 23.775,
+              "p99Ms": 310.701
+            },
+            "total": {
+              "count": 45,
+              "totalMs": 3679.419,
+              "maxMs": 394.45,
+              "p50Ms": 52.114,
+              "p99Ms": 394.45
+            }
+          },
+          "sql": {
+            "poolWait": {
+              "count": 8547,
+              "totalMs": 2199.29,
+              "maxMs": 155.432,
+              "p50Ms": 0.056,
+              "p99Ms": 7.132
+            },
+            "statement": {
+              "count": 12364,
+              "totalMs": 36721.313,
+              "maxMs": 202.786,
+              "p50Ms": 0.988,
+              "p99Ms": 4.189
+            },
+            "transaction": {
+              "count": 304,
+              "totalMs": 628341.487,
+              "maxMs": 4737.019,
+              "p50Ms": 2071.197,
+              "p99Ms": 4728.361
+            },
+            "retry": {
+              "count": 348,
+              "totalMs": 6286.109,
+              "maxMs": 238.867,
+              "p50Ms": 7.148,
+              "p99Ms": 206.524
+            }
+          }
+        },
+        "counters": {
+          "classification.computed": 14,
+          "historyFold.folded": 8,
+          "upload.blobPut.joined": 3,
+          "upload.blobPut.skipped": 105,
+          "classification.shared": 211,
+          "historyFold.skipped": 217
+        }
+      },
+      "serverMetrics": {}
+    },
+    {
+      "name": "node-ladder-256-pooled",
+      "namespace": "caelestis-test-cnpg-s3-mu8i4ir8",
+      "startedAt": "2026-09-19T14:51:10.637Z",
+      "applicationRevision": "6762fbba",
+      "backendImage": "caelestis-backend:node-397k",
+      "change": "Pooled sessions; tile batches take turns in one lane, coordinator callbacks in another, the rest overlap",
+      "users": 256,
+      "runtime": {
+        "node": "24.20.0"
+      },
+      "passed": true,
+      "completed": true,
+      "failure": null,
+      "phase": "measured",
+      "commandTimeoutMs": 5000,
+      "sent": {
+        "presence-update": 26466,
+        "tile-offer": 835,
+        "tile-upload": 295,
+        "paint-report": 154
+      },
+      "received": {
+        "tile-offer-result": 835,
+        "presence-delta": 36864,
+        "paint-result": 154,
+        "status-delta": 22016,
+        "alarms-reconcile": 6144,
+        "alarms-snapshot": 6144,
+        "tile-upload-result": 295
+      },
+      "latenciesMs": {
+        "tile-offer": {
+          "count": 835,
+          "p50": 180.4,
+          "p95": 1546.3,
+          "p99": 1851.1,
+          "max": 2403.1
+        },
+        "paint-report": {
+          "count": 154,
+          "p50": 62.5,
+          "p95": 312.2,
+          "p99": 434.3,
+          "max": 442.6
+        },
+        "tile-upload": {
+          "count": 295,
+          "p50": 955.7,
+          "p95": 2476.9,
+          "p99": 2600.8,
+          "max": 2732.8
+        }
+      },
+      "presenceDeliveryMs": {
+        "count": 676259,
+        "p50": 227.1,
+        "p95": 416.9,
+        "p99": 512.3,
+        "max": 763.3
+      },
+      "correctness": {
+        "online": 256,
+        "sockets": 512,
+        "finalPeerSetsAndDrafts": true,
+        "paintEvents": 243,
+        "paintPixels": 7290,
+        "duplicateRejected": true,
+        "clientDeadlineMs": 5000,
+        "clientDeadlineMisses": {
+          "warmup": 0,
+          "measured": 0
+        },
+        "errors": []
+      },
+      "backendStages": {
+        "since": 1789829470895,
+        "commands": {
+          "upload": {
+            "queue": {
+              "count": 484,
+              "totalMs": 17.283,
+              "maxMs": 0.168,
+              "p50Ms": 0.031,
+              "p99Ms": 0.098
+            },
+            "hash": {
+              "count": 484,
+              "totalMs": 2493.644,
+              "maxMs": 160.579,
+              "p50Ms": 2.585,
+              "p99Ms": 112.358
+            },
+            "targets": {
+              "count": 968,
+              "totalMs": 15554.751,
+              "maxMs": 349.444,
+              "p50Ms": 3.045,
+              "p99Ms": 200.725
+            },
+            "reserve": {
+              "count": 484,
+              "totalMs": 258581.872,
+              "maxMs": 1676.417,
+              "p50Ms": 485.232,
+              "p99Ms": 1453.238
+            },
+            "blobPut": {
+              "count": 484,
+              "totalMs": 3382.259,
+              "maxMs": 304.939,
+              "p50Ms": 0.007,
+              "p99Ms": 159.67
+            },
+            "decode": {
+              "count": 484,
+              "totalMs": 18486.756,
+              "maxMs": 832.06,
+              "p50Ms": 0.024,
+              "p99Ms": 471.526
+            },
+            "prepare": {
+              "count": 484,
+              "totalMs": 23.943,
+              "maxMs": 0.489,
+              "p50Ms": 0.039,
+              "p99Ms": 0.29
+            },
+            "classify": {
+              "count": 484,
+              "totalMs": 1372.81,
+              "maxMs": 215.713,
+              "p50Ms": 0.035,
+              "p99Ms": 51.61
+            },
+            "painter": {
+              "count": 484,
+              "totalMs": 4458.432,
+              "maxMs": 171.726,
+              "p50Ms": 2.11,
+              "p99Ms": 131.505
+            },
+            "commit": {
+              "count": 484,
+              "totalMs": 249048.974,
+              "maxMs": 1289.24,
+              "p50Ms": 487.117,
+              "p99Ms": 1203.084
+            },
+            "projection": {
+              "count": 484,
+              "totalMs": 3976.619,
+              "maxMs": 375.432,
+              "p50Ms": 0.053,
+              "p99Ms": 141.98
+            },
+            "alarms": {
+              "count": 484,
+              "totalMs": 2591.41,
+              "maxMs": 122.932,
+              "p50Ms": 0.001,
+              "p99Ms": 90.268
+            },
+            "artifacts": {
+              "count": 484,
+              "totalMs": 99.621,
+              "maxMs": 1.475,
+              "p50Ms": 0.235,
+              "p99Ms": 0.696
+            },
+            "historyFold": {
+              "count": 484,
+              "totalMs": 203.599,
+              "maxMs": 61.696,
+              "p50Ms": 0.022,
+              "p99Ms": 13.569
+            },
+            "total": {
+              "count": 484,
+              "totalMs": 560502.557,
+              "maxMs": 2690.742,
+              "p50Ms": 1067.094,
+              "p99Ms": 2559.046
+            }
+          },
+          "offer": {
+            "queue": {
+              "count": 1330,
+              "totalMs": 40.232,
+              "maxMs": 0.444,
+              "p50Ms": 0.023,
+              "p99Ms": 0.092
+            },
+            "targets": {
+              "count": 2258,
+              "totalMs": 26570.9,
+              "maxMs": 418.097,
+              "p50Ms": 4.049,
+              "p99Ms": 107.783
+            },
+            "reserve": {
+              "count": 1371,
+              "totalMs": 519306.132,
+              "maxMs": 1174.175,
+              "p50Ms": 422.797,
+              "p99Ms": 871.181
+            },
+            "total": {
+              "count": 1330,
+              "totalMs": 719827.267,
+              "maxMs": 2630.335,
+              "p50Ms": 88.34,
+              "p99Ms": 1587.173
+            },
+            "decode": {
+              "count": 887,
+              "totalMs": 20.846,
+              "maxMs": 0.132,
+              "p50Ms": 0.018,
+              "p99Ms": 0.074
+            },
+            "prepare": {
+              "count": 887,
+              "totalMs": 36.258,
+              "maxMs": 0.187,
+              "p50Ms": 0.032,
+              "p99Ms": 0.111
+            },
+            "classify": {
+              "count": 887,
+              "totalMs": 36.373,
+              "maxMs": 0.199,
+              "p50Ms": 0.032,
+              "p99Ms": 0.136
+            },
+            "painter": {
+              "count": 887,
+              "totalMs": 4237.587,
+              "maxMs": 176.485,
+              "p50Ms": 2.775,
+              "p99Ms": 23.346
+            },
+            "commit": {
+              "count": 887,
+              "totalMs": 549268.671,
+              "maxMs": 1770.565,
+              "p50Ms": 522.744,
+              "p99Ms": 1433.615
+            },
+            "projection": {
+              "count": 887,
+              "totalMs": 52.109,
+              "maxMs": 0.304,
+              "p50Ms": 0.048,
+              "p99Ms": 0.148
+            },
+            "alarms": {
+              "count": 887,
+              "totalMs": 1.043,
+              "maxMs": 0.023,
+              "p50Ms": 0.001,
+              "p99Ms": 0.005
+            },
+            "historyFold": {
+              "count": 887,
+              "totalMs": 37.171,
+              "maxMs": 9.351,
+              "p50Ms": 0.016,
+              "p99Ms": 0.133
+            }
+          },
+          "paint": {
+            "queue": {
+              "count": 244,
+              "totalMs": 6.977,
+              "maxMs": 0.101,
+              "p50Ms": 0.025,
+              "p99Ms": 0.066
+            },
+            "targets": {
+              "count": 244,
+              "totalMs": 2803.162,
+              "maxMs": 160.259,
+              "p50Ms": 4.584,
+              "p99Ms": 113.356
+            },
+            "latestTile": {
+              "count": 244,
+              "totalMs": 1720.611,
+              "maxMs": 179.055,
+              "p50Ms": 2.14,
+              "p99Ms": 120.453
+            },
+            "classify": {
+              "count": 244,
+              "totalMs": 9.864,
+              "maxMs": 0.238,
+              "p50Ms": 0.033,
+              "p99Ms": 0.121
+            },
+            "apply": {
+              "count": 244,
+              "totalMs": 6367.599,
+              "maxMs": 333.704,
+              "p50Ms": 14.289,
+              "p99Ms": 209.048
+            },
+            "counters": {
+              "count": 244,
+              "totalMs": 8488.973,
+              "maxMs": 410.79,
+              "p50Ms": 18.545,
+              "p99Ms": 259.763
+            },
+            "total": {
+              "count": 244,
+              "totalMs": 19560.488,
+              "maxMs": 653.223,
+              "p50Ms": 48.198,
+              "p99Ms": 407.966
+            }
+          },
+          "sql": {
+            "poolWait": {
+              "count": 19071,
+              "totalMs": 8001.145,
+              "maxMs": 408.353,
+              "p50Ms": 0.047,
+              "p99Ms": 6.209
+            },
+            "statement": {
+              "count": 35310,
+              "totalMs": 144791.768,
+              "maxMs": 348.237,
+              "p50Ms": 1.105,
+              "p99Ms": 4.944
+            },
+            "transaction": {
+              "count": 3132,
+              "totalMs": 1471818.051,
+              "maxMs": 1752.358,
+              "p50Ms": 454.684,
+              "p99Ms": 915.566
+            }
+          }
+        },
+        "counters": {
+          "classification.computed": 44,
+          "historyFold.folded": 14,
+          "upload.blobPut.joined": 10,
+          "upload.blobPut.skipped": 430,
+          "classification.shared": 1327,
+          "historyFold.skipped": 1357
+        }
+      },
+      "serverMetrics": {
+        "durationMs": 61055,
+        "backend": {
+          "cpuPercent": 96.21261363636363,
+          "rssMiB": {
+            "count": 59,
+            "p50": 183.5546875,
+            "p95": 188.515625,
+            "p99": 188.515625,
+            "max": 188.515625
+          },
+          "workingSetMiB": {
+            "count": 59,
+            "p50": 192,
+            "p95": 197,
+            "p99": 197,
+            "max": 197
+          }
+        },
+        "fullStack": {
+          "cpuPercent": 152.47142095565584,
+          "rssMiB": {
+            "count": 55,
+            "p50": 640.9375,
+            "p95": 661.96875,
+            "p99": 662.85546875,
+            "max": 662.85546875
+          },
+          "workingSetMiB": {
+            "count": 55,
+            "p50": 716.25390625,
+            "p95": 738.08984375,
+            "p99": 738.08984375,
+            "max": 738.08984375
+          }
+        },
+        "containers": [
+          {
+            "name": "postgres",
+            "node": "hydra-olympus-1",
+            "image": "sha256:5afe65ddcca9f28c2a701386ed2fc75469006593a379d29d08f1482114aa4e49",
+            "cpuPercent": 8.65,
+            "limits": {
+              "cpu": "1",
+              "memory": "1Gi"
+            }
+          },
+          {
+            "name": "postgres",
+            "node": "hydra-olympus-2",
+            "image": "sha256:5afe65ddcca9f28c2a701386ed2fc75469006593a379d29d08f1482114aa4e49",
+            "cpuPercent": 4.78,
+            "limits": {
+              "cpu": "1",
+              "memory": "1Gi"
+            }
+          },
+          {
+            "name": "s3",
+            "node": "hydra-olympus-2",
+            "image": "sha256:69b2ec208575b69597784255eec6fa6a2985ee9e1a47f4411a51f7f5fdd193a9",
+            "cpuPercent": 17.1,
+            "limits": {
+              "cpu": "1",
+              "memory": "1Gi"
+            }
+          },
+          {
+            "name": "backend",
+            "node": "hydra-olympus-2",
+            "image": "docker.io/library/caelestis-backend:node-397k",
+            "cpuPercent": 96.21,
+            "limits": {
+              "cpu": "2",
+              "memory": "1Gi"
+            }
+          },
+          {
+            "name": "frontend",
+            "node": "hydra-olympus-2",
+            "image": "docker.io/library/caelestis-frontend:397i",
+            "cpuPercent": 25.73,
+            "limits": {
+              "cpu": "2",
+              "memory": "1Gi"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "node-ladder-384-pooled",
+      "namespace": "caelestis-test-cnpg-s3-mu8ice76",
+      "startedAt": "2026-09-19T14:57:22.981Z",
+      "applicationRevision": "6762fbba",
+      "backendImage": "caelestis-backend:node-397k",
+      "change": "Pooled sessions; tile batches take turns in one lane, coordinator callbacks in another, the rest overlap",
+      "users": 384,
+      "runtime": {
+        "node": "24.20.0"
+      },
+      "passed": false,
+      "completed": false,
+      "failure": "Error: Error: tile-upload timed out",
+      "phase": "warmup",
+      "commandTimeoutMs": 5000,
+      "sent": {
+        "presence-update": 7387,
+        "paint-report": 41,
+        "tile-offer": 200,
+        "tile-upload": 96
+      },
+      "received": {
+        "presence-delta": 8272,
+        "paint-result": 41,
+        "tile-offer-result": 200,
+        "status-delta": 1536,
+        "alarms-reconcile": 768,
+        "alarms-snapshot": 768,
+        "tile-upload-result": 17
+      },
+      "latenciesMs": {
+        "paint-report": {
+          "count": 41,
+          "p50": 272.6,
+          "p95": 2116.5,
+          "p99": 2511.8,
+          "max": 2511.8
+        },
+        "tile-offer": {
+          "count": 200,
+          "p50": 80,
+          "p95": 691,
+          "p99": 797.2,
+          "max": 854.9
+        },
+        "tile-upload": {
+          "count": 17,
+          "p50": 4272.7,
+          "p95": 4964.9,
+          "p99": 4964.9,
+          "max": 4964.9
+        }
+      },
+      "presenceDeliveryMs": {
+        "count": 152630,
+        "p50": 255.8,
+        "p95": 478.7,
+        "p99": 602.7,
+        "max": 827.5
+      },
+      "correctness": {
+        "online": 384,
+        "sockets": 768,
+        "finalPeerSetsAndDrafts": false,
+        "clientDeadlineMs": 5000,
+        "clientDeadlineMisses": {
+          "warmup": 0,
+          "measured": 0
+        },
+        "errors": [
+          "Error: tile-upload timed out",
+          "Error: tile-upload timed out",
+          "Error: tile-upload timed out",
+          "Error: tile-upload timed out",
+          "Error: tile-upload timed out",
+          "Error: tile-upload timed out",
+          "Error: Error: tile-upload timed out"
+        ]
+      },
+      "backendStages": {
+        "since": 1789829843292,
+        "commands": {
+          "upload": {
+            "queue": {
+              "count": 104,
+              "totalMs": 4.932,
+              "maxMs": 0.183,
+              "p50Ms": 0.036,
+              "p99Ms": 0.15
+            },
+            "hash": {
+              "count": 104,
+              "totalMs": 2606.74,
+              "maxMs": 269.157,
+              "p50Ms": 9.088,
+              "p99Ms": 267.368
+            },
+            "targets": {
+              "count": 208,
+              "totalMs": 14684.661,
+              "maxMs": 502.122,
+              "p50Ms": 9.22,
+              "p99Ms": 457.75
+            },
+            "reserve": {
+              "count": 104,
+              "totalMs": 199704.445,
+              "maxMs": 2958.643,
+              "p50Ms": 2237.297,
+              "p99Ms": 2942.29
+            },
+            "blobPut": {
+              "count": 104,
+              "totalMs": 743.963,
+              "maxMs": 203.403,
+              "p50Ms": 0.008,
+              "p99Ms": 195.828
+            },
+            "decode": {
+              "count": 104,
+              "totalMs": 17923.476,
+              "maxMs": 2324.908,
+              "p50Ms": 0.024,
+              "p99Ms": 1642.605
+            },
+            "prepare": {
+              "count": 104,
+              "totalMs": 10.442,
+              "maxMs": 0.517,
+              "p50Ms": 0.048,
+              "p99Ms": 0.444
+            },
+            "classify": {
+              "count": 104,
+              "totalMs": 609.458,
+              "maxMs": 152.31,
+              "p50Ms": 0.038,
+              "p99Ms": 112.327
+            },
+            "painter": {
+              "count": 104,
+              "totalMs": 2908.773,
+              "maxMs": 290.744,
+              "p50Ms": 2.874,
+              "p99Ms": 254.457
+            },
+            "commit": {
+              "count": 104,
+              "totalMs": 177311.912,
+              "maxMs": 2982.043,
+              "p50Ms": 1870.419,
+              "p99Ms": 2976.319
+            },
+            "projection": {
+              "count": 104,
+              "totalMs": 821.373,
+              "maxMs": 125.07,
+              "p50Ms": 0.07,
+              "p99Ms": 80.473
+            },
+            "alarms": {
+              "count": 104,
+              "totalMs": 740.483,
+              "maxMs": 103.186,
+              "p50Ms": 0.001,
+              "p99Ms": 102.474
+            },
+            "artifacts": {
+              "count": 104,
+              "totalMs": 22.617,
+              "maxMs": 1.18,
+              "p50Ms": 0.203,
+              "p99Ms": 1.122
+            },
+            "historyFold": {
+              "count": 104,
+              "totalMs": 80.295,
+              "maxMs": 12.904,
+              "p50Ms": 0.02,
+              "p99Ms": 12.75
+            },
+            "total": {
+              "count": 104,
+              "totalMs": 418262.135,
+              "maxMs": 5873.654,
+              "p50Ms": 4292.237,
+              "p99Ms": 5847.122
+            }
+          },
+          "offer": {
+            "queue": {
+              "count": 201,
+              "totalMs": 5.98,
+              "maxMs": 0.135,
+              "p50Ms": 0.025,
+              "p99Ms": 0.1
+            },
+            "targets": {
+              "count": 146,
+              "totalMs": 10790.15,
+              "maxMs": 493.865,
+              "p50Ms": 51.61,
+              "p99Ms": 292.772
+            },
+            "reserve": {
+              "count": 146,
+              "totalMs": 20249.794,
+              "maxMs": 575.801,
+              "p50Ms": 70.449,
+              "p99Ms": 561.638
+            },
+            "total": {
+              "count": 201,
+              "totalMs": 20336.194,
+              "maxMs": 816.32,
+              "p50Ms": 0.341,
+              "p99Ms": 677.057
+            }
+          },
+          "paint": {
+            "queue": {
+              "count": 41,
+              "totalMs": 1.4,
+              "maxMs": 0.105,
+              "p50Ms": 0.027,
+              "p99Ms": 0.105
+            },
+            "targets": {
+              "count": 41,
+              "totalMs": 1870.062,
+              "maxMs": 487.758,
+              "p50Ms": 14.914,
+              "p99Ms": 487.758
+            },
+            "latestTile": {
+              "count": 41,
+              "totalMs": 1735.288,
+              "maxMs": 425.973,
+              "p50Ms": 4.873,
+              "p99Ms": 425.973
+            },
+            "classify": {
+              "count": 41,
+              "totalMs": 2.077,
+              "maxMs": 0.39,
+              "p50Ms": 0.033,
+              "p99Ms": 0.39
+            },
+            "apply": {
+              "count": 41,
+              "totalMs": 6174.571,
+              "maxMs": 726.503,
+              "p50Ms": 20.078,
+              "p99Ms": 726.503
+            },
+            "counters": {
+              "count": 41,
+              "totalMs": 11147.237,
+              "maxMs": 1679.666,
+              "p50Ms": 48.496,
+              "p99Ms": 1679.666
+            },
+            "total": {
+              "count": 41,
+              "totalMs": 20966.93,
+              "maxMs": 2354.797,
+              "p50Ms": 223.189,
+              "p99Ms": 2354.797
+            }
+          },
+          "sql": {
+            "poolWait": {
+              "count": 10088,
+              "totalMs": 32923.515,
+              "maxMs": 473.837,
+              "p50Ms": 0.049,
+              "p99Ms": 6.133
+            },
+            "statement": {
+              "count": 11537,
+              "totalMs": 40661.138,
+              "maxMs": 355.594,
+              "p50Ms": 1.047,
+              "p99Ms": 42.255
+            },
+            "transaction": {
+              "count": 271,
+              "totalMs": 369998.46,
+              "maxMs": 2970.277,
+              "p50Ms": 1598.125,
+              "p99Ms": 2954.162
+            }
+          }
+        },
+        "counters": {
+          "classification.computed": 12,
+          "historyFold.folded": 8,
+          "upload.blobPut.joined": 3,
+          "upload.blobPut.skipped": 89,
+          "classification.shared": 92,
+          "historyFold.skipped": 96
+        }
+      },
+      "serverMetrics": {}
+    },
+    {
+      "name": "bun-ladder-256-pooled",
+      "namespace": "caelestis-test-cnpg-s3-mu8iiv9b",
+      "startedAt": "2026-09-19T15:02:11.498Z",
+      "applicationRevision": "6762fbba",
+      "backendImage": "caelestis-backend:bun-397k",
+      "change": "Pooled sessions; tile batches take turns in one lane, coordinator callbacks in another, the rest overlap",
+      "users": 256,
+      "runtime": {
+        "bun": "1.4.2"
+      },
+      "passed": true,
+      "completed": true,
+      "failure": null,
+      "phase": "measured",
+      "commandTimeoutMs": 5000,
+      "sent": {
+        "presence-update": 26466,
+        "tile-offer": 835,
+        "tile-upload": 164,
+        "paint-report": 154
+      },
+      "received": {
+        "presence-delta": 40192,
+        "tile-offer-result": 835,
+        "status-delta": 12544,
+        "alarms-reconcile": 6144,
+        "alarms-snapshot": 6144,
+        "tile-upload-result": 164,
+        "paint-result": 154
+      },
+      "latenciesMs": {
+        "tile-offer": {
+          "count": 835,
+          "p50": 13.6,
+          "p95": 646.2,
+          "p99": 741.1,
+          "max": 850.9
+        },
+        "tile-upload": {
+          "count": 164,
+          "p50": 524.3,
+          "p95": 803.8,
+          "p99": 838.3,
+          "max": 910.1
+        },
+        "paint-report": {
+          "count": 154,
+          "p50": 33.8,
+          "p95": 176.2,
+          "p99": 345.1,
+          "max": 358
+        }
+      },
+      "presenceDeliveryMs": {
+        "count": 723907,
+        "p50": 196.3,
+        "p95": 348.3,
+        "p99": 412.7,
+        "max": 562.1
+      },
+      "correctness": {
+        "online": 256,
+        "sockets": 512,
+        "finalPeerSetsAndDrafts": true,
+        "paintEvents": 243,
+        "paintPixels": 7290,
+        "duplicateRejected": true,
+        "clientDeadlineMs": 5000,
+        "clientDeadlineMisses": {
+          "warmup": 0,
+          "measured": 0
+        },
+        "errors": []
+      },
+      "backendStages": {
+        "since": 1789830131715,
+        "commands": {
+          "upload": {
+            "queue": {
+              "count": 271,
+              "totalMs": 5.135,
+              "maxMs": 0.123,
+              "p50Ms": 0.017,
+              "p99Ms": 0.051
+            },
+            "hash": {
+              "count": 271,
+              "totalMs": 2955.302,
+              "maxMs": 131.103,
+              "p50Ms": 2.829,
+              "p99Ms": 118.366
+            },
+            "targets": {
+              "count": 542,
+              "totalMs": 8080.361,
+              "maxMs": 252.416,
+              "p50Ms": 3.147,
+              "p99Ms": 136.232
+            },
+            "reserve": {
+              "count": 271,
+              "totalMs": 51692.579,
+              "maxMs": 551.714,
+              "p50Ms": 172.853,
+              "p99Ms": 533.241
+            },
+            "blobPut": {
+              "count": 271,
+              "totalMs": 1992.598,
+              "maxMs": 154.504,
+              "p50Ms": 0.009,
+              "p99Ms": 81.67
+            },
+            "decode": {
+              "count": 271,
+              "totalMs": 4832.212,
+              "maxMs": 121.116,
+              "p50Ms": 0.019,
+              "p99Ms": 118.856
+            },
+            "prepare": {
+              "count": 271,
+              "totalMs": 10.531,
+              "maxMs": 0.466,
+              "p50Ms": 0.028,
+              "p99Ms": 0.188
+            },
+            "classify": {
+              "count": 271,
+              "totalMs": 630.32,
+              "maxMs": 99.652,
+              "p50Ms": 0.032,
+              "p99Ms": 50.28
+            },
+            "painter": {
+              "count": 271,
+              "totalMs": 2412.626,
+              "maxMs": 163.176,
+              "p50Ms": 1.896,
+              "p99Ms": 98.059
+            },
+            "commit": {
+              "count": 271,
+              "totalMs": 60929.89,
+              "maxMs": 561.854,
+              "p50Ms": 220.705,
+              "p99Ms": 533.262
+            },
+            "projection": {
+              "count": 271,
+              "totalMs": 2064.977,
+              "maxMs": 208.292,
+              "p50Ms": 0.061,
+              "p99Ms": 189.026
+            },
+            "alarms": {
+              "count": 271,
+              "totalMs": 1508.489,
+              "maxMs": 167.723,
+              "p50Ms": 0,
+              "p99Ms": 77.878
+            },
+            "artifacts": {
+              "count": 271,
+              "totalMs": 56.856,
+              "maxMs": 5.216,
+              "p50Ms": 0.204,
+              "p99Ms": 1.006
+            },
+            "historyFold": {
+              "count": 271,
+              "totalMs": 139.644,
+              "maxMs": 15.458,
+              "p50Ms": 0.014,
+              "p99Ms": 12.988
+            },
+            "total": {
+              "count": 271,
+              "totalMs": 137386.088,
+              "maxMs": 1058.875,
+              "p50Ms": 519.024,
+              "p99Ms": 992.196
+            }
+          },
+          "offer": {
+            "queue": {
+              "count": 1330,
+              "totalMs": 9.651,
+              "maxMs": 0.181,
+              "p50Ms": 0.006,
+              "p99Ms": 0.03
+            },
+            "targets": {
+              "count": 1291,
+              "totalMs": 11282.244,
+              "maxMs": 194.23,
+              "p50Ms": 3.294,
+              "p99Ms": 106.102
+            },
+            "reserve": {
+              "count": 781,
+              "totalMs": 124801.317,
+              "maxMs": 585.055,
+              "p50Ms": 117.123,
+              "p99Ms": 433.93
+            },
+            "total": {
+              "count": 1330,
+              "totalMs": 167350.399,
+              "maxMs": 1059.06,
+              "p50Ms": 0.189,
+              "p99Ms": 687.466
+            },
+            "decode": {
+              "count": 510,
+              "totalMs": 11.527,
+              "maxMs": 0.859,
+              "p50Ms": 0.018,
+              "p99Ms": 0.071
+            },
+            "prepare": {
+              "count": 510,
+              "totalMs": 17.754,
+              "maxMs": 0.292,
+              "p50Ms": 0.028,
+              "p99Ms": 0.145
+            },
+            "classify": {
+              "count": 510,
+              "totalMs": 18.613,
+              "maxMs": 0.309,
+              "p50Ms": 0.031,
+              "p99Ms": 0.128
+            },
+            "painter": {
+              "count": 510,
+              "totalMs": 1991.634,
+              "maxMs": 125.335,
+              "p50Ms": 2.079,
+              "p99Ms": 78.382
+            },
+            "commit": {
+              "count": 510,
+              "totalMs": 107015.065,
+              "maxMs": 582.576,
+              "p50Ms": 196.496,
+              "p99Ms": 504.502
+            },
+            "projection": {
+              "count": 510,
+              "totalMs": 26.863,
+              "maxMs": 0.45,
+              "p50Ms": 0.044,
+              "p99Ms": 0.197
+            },
+            "alarms": {
+              "count": 510,
+              "totalMs": 0.178,
+              "maxMs": 0.029,
+              "p50Ms": 0,
+              "p99Ms": 0.001
+            },
+            "historyFold": {
+              "count": 510,
+              "totalMs": 7.274,
+              "maxMs": 0.191,
+              "p50Ms": 0.011,
+              "p99Ms": 0.074
+            }
+          },
+          "paint": {
+            "queue": {
+              "count": 244,
+              "totalMs": 1.741,
+              "maxMs": 0.054,
+              "p50Ms": 0.006,
+              "p99Ms": 0.028
+            },
+            "targets": {
+              "count": 244,
+              "totalMs": 917.214,
+              "maxMs": 24.979,
+              "p50Ms": 2.011,
+              "p99Ms": 20.176
+            },
+            "latestTile": {
+              "count": 244,
+              "totalMs": 608.605,
+              "maxMs": 74.148,
+              "p50Ms": 1.056,
+              "p99Ms": 27.99
+            },
+            "classify": {
+              "count": 244,
+              "totalMs": 5.259,
+              "maxMs": 0.157,
+              "p50Ms": 0.014,
+              "p99Ms": 0.123
+            },
+            "apply": {
+              "count": 244,
+              "totalMs": 5017.206,
+              "maxMs": 217.812,
+              "p50Ms": 7.496,
+              "p99Ms": 193.164
+            },
+            "counters": {
+              "count": 244,
+              "totalMs": 5094.748,
+              "maxMs": 191.367,
+              "p50Ms": 9.81,
+              "p99Ms": 169.548
+            },
+            "total": {
+              "count": 244,
+              "totalMs": 11789.739,
+              "maxMs": 399.512,
+              "p50Ms": 26.634,
+              "p99Ms": 261.564
+            }
+          },
+          "sql": {
+            "poolWait": {
+              "count": 14717,
+              "totalMs": 3066.921,
+              "maxMs": 242.484,
+              "p50Ms": 0.021,
+              "p99Ms": 5.027
+            },
+            "statement": {
+              "count": 24852,
+              "totalMs": 72595.72,
+              "maxMs": 232.103,
+              "p50Ms": 1.035,
+              "p99Ms": 18.788
+            },
+            "transaction": {
+              "count": 1901,
+              "totalMs": 293842.666,
+              "maxMs": 563.793,
+              "p50Ms": 56.657,
+              "p99Ms": 404.547
+            }
+          }
+        },
+        "counters": {
+          "classification.computed": 44,
+          "historyFold.folded": 14,
+          "upload.blobPut.joined": 12,
+          "upload.blobPut.skipped": 215,
+          "classification.shared": 737,
+          "historyFold.skipped": 767
+        }
+      },
+      "serverMetrics": {
+        "durationMs": 60227,
+        "backend": {
+          "cpuPercent": 65.45521304347827,
+          "rssMiB": {
+            "count": 56,
+            "p50": 239.484375,
+            "p95": 258.69921875,
+            "p99": 258.69921875,
+            "max": 258.69921875
+          },
+          "workingSetMiB": {
+            "count": 56,
+            "p50": 244.9921875,
+            "p95": 264.1171875,
+            "p99": 264.1171875,
+            "max": 264.1171875
+          }
+        },
+        "fullStack": {
+          "cpuPercent": 107.65679241082519,
+          "rssMiB": {
+            "count": 52,
+            "p50": 634.55859375,
+            "p95": 683.7265625,
+            "p99": 683.7734375,
+            "max": 683.7734375
+          },
+          "workingSetMiB": {
+            "count": 52,
+            "p50": 700.828125,
+            "p95": 750.6796875,
+            "p99": 750.8359375,
+            "max": 750.8359375
+          }
+        },
+        "containers": [
+          {
+            "name": "backend",
+            "node": "hydra-olympus-2",
+            "image": "docker.io/library/caelestis-backend:bun-397k",
+            "cpuPercent": 65.46,
+            "limits": {
+              "cpu": "2",
+              "memory": "1Gi"
+            }
+          },
+          {
+            "name": "frontend",
+            "node": "hydra-olympus-2",
+            "image": "docker.io/library/caelestis-frontend:397i",
+            "cpuPercent": 23.47,
+            "limits": {
+              "cpu": "2",
+              "memory": "1Gi"
+            }
+          },
+          {
+            "name": "postgres",
+            "node": "hydra-olympus-1",
+            "image": "sha256:5afe65ddcca9f28c2a701386ed2fc75469006593a379d29d08f1482114aa4e49",
+            "cpuPercent": 5.54,
+            "limits": {
+              "cpu": "1",
+              "memory": "1Gi"
+            }
+          },
+          {
+            "name": "s3",
+            "node": "hydra-olympus-2",
+            "image": "sha256:69b2ec208575b69597784255eec6fa6a2985ee9e1a47f4411a51f7f5fdd193a9",
+            "cpuPercent": 9.58,
+            "limits": {
+              "cpu": "1",
+              "memory": "1Gi"
+            }
+          },
+          {
+            "name": "postgres",
+            "node": "hydra-olympus-2",
+            "image": "sha256:5afe65ddcca9f28c2a701386ed2fc75469006593a379d29d08f1482114aa4e49",
+            "cpuPercent": 3.62,
+            "limits": {
+              "cpu": "1",
+              "memory": "1Gi"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "bun-ladder-384-pooled",
+      "namespace": "caelestis-test-cnpg-s3-mu8iqgb7",
+      "startedAt": "2026-09-19T15:07:52.076Z",
+      "applicationRevision": "6762fbba",
+      "backendImage": "caelestis-backend:bun-397k",
+      "change": "Pooled sessions; tile batches take turns in one lane, coordinator callbacks in another, the rest overlap",
+      "users": 384,
+      "runtime": {
+        "bun": "1.4.2"
+      },
+      "passed": false,
+      "completed": false,
+      "failure": "Error: Error: tile-offer timed out",
+      "phase": "warmup",
+      "commandTimeoutMs": 5000,
+      "sent": {
+        "presence-update": 8482,
+        "paint-report": 47,
+        "tile-offer": 245,
+        "tile-upload": 112
+      },
+      "received": {
+        "presence-delta": 10368,
+        "paint-result": 47,
+        "tile-offer-result": 226,
+        "tile-upload-result": 42,
+        "status-delta": 3072,
+        "alarms-reconcile": 768,
+        "alarms-snapshot": 768
+      },
+      "latenciesMs": {
+        "paint-report": {
+          "count": 47,
+          "p50": 148.7,
+          "p95": 1182.7,
+          "p99": 1254.3,
+          "max": 1254.3
+        },
+        "tile-offer": {
+          "count": 226,
+          "p50": 73.1,
+          "p95": 3173.9,
+          "p99": 4972.9,
+          "max": 4998
+        },
+        "tile-upload": {
+          "count": 42,
+          "p50": 2828.8,
+          "p95": 3314.1,
+          "p99": 3413.8,
+          "max": 3413.8
+        }
+      },
+      "presenceDeliveryMs": {
+        "count": 189946,
+        "p50": 232.4,
+        "p95": 404.4,
+        "p99": 518.4,
+        "max": 669.2
+      },
+      "correctness": {
+        "online": 384,
+        "sockets": 768,
+        "finalPeerSetsAndDrafts": false,
+        "clientDeadlineMs": 5000,
+        "clientDeadlineMisses": {
+          "warmup": 0,
+          "measured": 0
+        },
+        "errors": [
+          "Error: tile-offer timed out",
+          "Error: tile-offer timed out",
+          "Error: tile-upload timed out",
+          "Error: tile-offer timed out",
+          "Error: tile-offer timed out",
+          "Error: Error: tile-offer timed out"
+        ]
+      },
+      "backendStages": {
+        "since": 1789830472314,
+        "commands": {
+          "upload": {
+            "queue": {
+              "count": 120,
+              "totalMs": 2.436,
+              "maxMs": 0.065,
+              "p50Ms": 0.018,
+              "p99Ms": 0.039
+            },
+            "hash": {
+              "count": 120,
+              "totalMs": 2937.908,
+              "maxMs": 219.039,
+              "p50Ms": 5.115,
+              "p99Ms": 207.778
+            },
+            "targets": {
+              "count": 240,
+              "totalMs": 4272.598,
+              "maxMs": 243.052,
+              "p50Ms": 2.775,
+              "p99Ms": 208.358
+            },
+            "reserve": {
+              "count": 120,
+              "totalMs": 222807.722,
+              "maxMs": 3968.912,
+              "p50Ms": 1728.825,
+              "p99Ms": 3956.397
+            },
+            "blobPut": {
+              "count": 120,
+              "totalMs": 701.824,
+              "maxMs": 284.064,
+              "p50Ms": 0.009,
+              "p99Ms": 92.762
+            },
+            "decode": {
+              "count": 120,
+              "totalMs": 1205.807,
+              "maxMs": 92.805,
+              "p50Ms": 0.025,
+              "p99Ms": 86.656
+            },
+            "prepare": {
+              "count": 120,
+              "totalMs": 8.281,
+              "maxMs": 0.573,
+              "p50Ms": 0.053,
+              "p99Ms": 0.245
+            },
+            "classify": {
+              "count": 120,
+              "totalMs": 298.473,
+              "maxMs": 73.372,
+              "p50Ms": 0.042,
+              "p99Ms": 46.357
+            },
+            "painter": {
+              "count": 120,
+              "totalMs": 1343.772,
+              "maxMs": 225.446,
+              "p50Ms": 1.636,
+              "p99Ms": 224.531
+            },
+            "commit": {
+              "count": 120,
+              "totalMs": 143700.129,
+              "maxMs": 3861.897,
+              "p50Ms": 1147.885,
+              "p99Ms": 2801.32
+            },
+            "projection": {
+              "count": 120,
+              "totalMs": 680.39,
+              "maxMs": 188.155,
+              "p50Ms": 0.086,
+              "p99Ms": 182.336
+            },
+            "alarms": {
+              "count": 120,
+              "totalMs": 494.561,
+              "maxMs": 215.743,
+              "p50Ms": 0.001,
+              "p99Ms": 42.696
+            },
+            "artifacts": {
+              "count": 120,
+              "totalMs": 24.743,
+              "maxMs": 1.031,
+              "p50Ms": 0.212,
+              "p99Ms": 0.899
+            },
+            "historyFold": {
+              "count": 120,
+              "totalMs": 76.386,
+              "maxMs": 11.765,
+              "p50Ms": 0.023,
+              "p99Ms": 10.609
+            },
+            "total": {
+              "count": 120,
+              "totalMs": 378597.485,
+              "maxMs": 5576.306,
+              "p50Ms": 2920.885,
+              "p99Ms": 5544.828
+            }
+          },
+          "offer": {
+            "queue": {
+              "count": 246,
+              "totalMs": 1.705,
+              "maxMs": 0.08,
+              "p50Ms": 0.005,
+              "p99Ms": 0.053
+            },
+            "targets": {
+              "count": 247,
+              "totalMs": 5599.505,
+              "maxMs": 248.315,
+              "p50Ms": 12.822,
+              "p99Ms": 214.39
+            },
+            "reserve": {
+              "count": 196,
+              "totalMs": 108774.738,
+              "maxMs": 3625.545,
+              "p50Ms": 55.753,
+              "p99Ms": 3521.782
+            },
+            "total": {
+              "count": 246,
+              "totalMs": 172259.066,
+              "maxMs": 5580.877,
+              "p50Ms": 0.449,
+              "p99Ms": 5475.256
+            },
+            "decode": {
+              "count": 51,
+              "totalMs": 1.53,
+              "maxMs": 0.084,
+              "p50Ms": 0.026,
+              "p99Ms": 0.084
+            },
+            "prepare": {
+              "count": 51,
+              "totalMs": 2.919,
+              "maxMs": 0.253,
+              "p50Ms": 0.048,
+              "p99Ms": 0.253
+            },
+            "classify": {
+              "count": 51,
+              "totalMs": 2.887,
+              "maxMs": 0.242,
+              "p50Ms": 0.046,
+              "p99Ms": 0.242
+            },
+            "painter": {
+              "count": 51,
+              "totalMs": 237.976,
+              "maxMs": 32.372,
+              "p50Ms": 2.642,
+              "p99Ms": 32.372
+            },
+            "commit": {
+              "count": 51,
+              "totalMs": 140517.566,
+              "maxMs": 3821.563,
+              "p50Ms": 2729.249,
+              "p99Ms": 3821.563
+            },
+            "projection": {
+              "count": 51,
+              "totalMs": 4.878,
+              "maxMs": 0.287,
+              "p50Ms": 0.081,
+              "p99Ms": 0.287
+            },
+            "alarms": {
+              "count": 51,
+              "totalMs": 0.219,
+              "maxMs": 0.069,
+              "p50Ms": 0.003,
+              "p99Ms": 0.069
+            },
+            "historyFold": {
+              "count": 51,
+              "totalMs": 1.919,
+              "maxMs": 0.59,
+              "p50Ms": 0.024,
+              "p99Ms": 0.59
+            }
+          },
+          "paint": {
+            "queue": {
+              "count": 47,
+              "totalMs": 0.321,
+              "maxMs": 0.026,
+              "p50Ms": 0.006,
+              "p99Ms": 0.026
+            },
+            "targets": {
+              "count": 47,
+              "totalMs": 884.072,
+              "maxMs": 182.169,
+              "p50Ms": 7.633,
+              "p99Ms": 182.169
+            },
+            "latestTile": {
+              "count": 47,
+              "totalMs": 369.511,
+              "maxMs": 46.111,
+              "p50Ms": 1.865,
+              "p99Ms": 46.111
+            },
+            "classify": {
+              "count": 47,
+              "totalMs": 2.374,
+              "maxMs": 0.26,
+              "p50Ms": 0.035,
+              "p99Ms": 0.26
+            },
+            "apply": {
+              "count": 47,
+              "totalMs": 3699.015,
+              "maxMs": 509.792,
+              "p50Ms": 13.534,
+              "p99Ms": 509.792
+            },
+            "counters": {
+              "count": 47,
+              "totalMs": 5928.044,
+              "maxMs": 677.665,
+              "p50Ms": 27.071,
+              "p99Ms": 677.665
+            },
+            "total": {
+              "count": 47,
+              "totalMs": 10922.51,
+              "maxMs": 1152.583,
+              "p50Ms": 63.839,
+              "p99Ms": 1152.583
+            }
+          },
+          "sql": {
+            "poolWait": {
+              "count": 10579,
+              "totalMs": 3919.477,
+              "maxMs": 152.046,
+              "p50Ms": 0.023,
+              "p99Ms": 6.957
+            },
+            "statement": {
+              "count": 12758,
+              "totalMs": 35283.04,
+              "maxMs": 247.349,
+              "p50Ms": 0.883,
+              "p99Ms": 3.361
+            },
+            "transaction": {
+              "count": 414,
+              "totalMs": 597973.674,
+              "maxMs": 3914.972,
+              "p50Ms": 1200.353,
+              "p99Ms": 3768.162
+            }
+          }
+        },
+        "counters": {
+          "classification.computed": 12,
+          "historyFold.folded": 8,
+          "upload.blobPut.joined": 3,
+          "upload.blobPut.skipped": 105,
+          "classification.shared": 159,
+          "historyFold.skipped": 163
+        }
+      },
+      "serverMetrics": {}
     }
   ],
   "profiles": [

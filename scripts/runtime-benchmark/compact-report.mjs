@@ -64,7 +64,7 @@ const run = {
   runtime,
   passed: report.passed === true,
   completed: result.phase === 'measured' && report.error == null,
-  failure: report.error ? String(report.error.message ?? report.error) : null,
+  failure: report.error ? String(report.error.message ?? report.error).split('\n')[0] : null,
   phase: result.phase ?? null,
   commandTimeoutMs: report.commandTimeoutMs,
   sent: result.sent,
