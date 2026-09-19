@@ -409,10 +409,7 @@
           "warmup": 0,
           "measured": 0
         },
-        "errors": [
-          "Error: paint-report timed out",
-          "Error: Error: paint-report timed out"
-        ]
+        "errors": ["Error: paint-report timed out", "Error: Error: paint-report timed out"]
       },
       "backendStages": {
         "since": 1789752299226,
@@ -742,10 +739,7 @@
           "warmup": 0,
           "measured": 0
         },
-        "errors": [
-          "Error: paint-report timed out",
-          "Error: Error: paint-report timed out"
-        ]
+        "errors": ["Error: paint-report timed out", "Error: Error: paint-report timed out"]
       },
       "backendStages": {
         "since": 1789754188282,
@@ -1075,10 +1069,7 @@
           "warmup": 0,
           "measured": 0
         },
-        "errors": [
-          "Error: paint-report timed out",
-          "Error: Error: paint-report timed out"
-        ]
+        "errors": ["Error: paint-report timed out", "Error: Error: paint-report timed out"]
       },
       "backendStages": {
         "since": 1789755188696,
@@ -1408,10 +1399,7 @@
           "warmup": 0,
           "measured": 0
         },
-        "errors": [
-          "Error: paint-report timed out",
-          "Error: Error: paint-report timed out"
-        ]
+        "errors": ["Error: paint-report timed out", "Error: Error: paint-report timed out"]
       },
       "backendStages": {
         "since": 1789756280007,
@@ -2545,10 +2533,7 @@
           "warmup": 0,
           "measured": 0
         },
-        "errors": [
-          "Error: paint-report timed out",
-          "Error: Error: paint-report timed out"
-        ]
+        "errors": ["Error: paint-report timed out", "Error: Error: paint-report timed out"]
       },
       "backendStages": {
         "since": 1789768147174,
@@ -2894,10 +2879,7 @@
           "warmup": 0,
           "measured": 0
         },
-        "errors": [
-          "Error: paint-report timed out",
-          "Error: Error: paint-report timed out"
-        ]
+        "errors": ["Error: paint-report timed out", "Error: Error: paint-report timed out"]
       },
       "backendStages": {
         "since": 1789768473583,
@@ -4030,9 +4012,7 @@
           "warmup": 0,
           "measured": 0
         },
-        "errors": [
-          "AssertionError [ERR_ASSERTION]: Insufficient CPU coverage"
-        ]
+        "errors": ["AssertionError [ERR_ASSERTION]: Insufficient CPU coverage"]
       },
       "backendStages": {
         "since": 1789769540013,
@@ -5609,10 +5589,7 @@
           "warmup": 0,
           "measured": 0
         },
-        "errors": [
-          "Error: tile-upload timed out",
-          "Error: Error: tile-upload timed out"
-        ]
+        "errors": ["Error: tile-upload timed out", "Error: Error: tile-upload timed out"]
       },
       "backendStages": {
         "since": 1789824866669,
@@ -6411,10 +6388,7 @@
           "warmup": 0,
           "measured": 0
         },
-        "errors": [
-          "Error: tile-upload timed out",
-          "Error: Error: tile-upload timed out"
-        ]
+        "errors": ["Error: tile-upload timed out", "Error: Error: tile-upload timed out"]
       },
       "backendStages": {
         "since": 1789825481448,
@@ -6767,10 +6741,7 @@
           "warmup": 0,
           "measured": 0
         },
-        "errors": [
-          "Error: tile-upload timed out",
-          "Error: Error: tile-upload timed out"
-        ]
+        "errors": ["Error: tile-upload timed out", "Error: Error: tile-upload timed out"]
       },
       "backendStages": {
         "since": 1789826734515,
@@ -7569,10 +7540,7 @@
           "warmup": 0,
           "measured": 0
         },
-        "errors": [
-          "Error: tile-offer timed out",
-          "Error: Error: tile-offer timed out"
-        ]
+        "errors": ["Error: tile-offer timed out", "Error: Error: tile-offer timed out"]
       },
       "backendStages": {
         "since": 1789828233564,

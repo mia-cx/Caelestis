@@ -161,3 +161,66 @@ it.skipIf(!process.env.CAELESTIS_TEST_POSTGRES_URL)(
     }
   },
 )
+
+it.skipIf(!process.env.CAELESTIS_TEST_POSTGRES_URL)(
+  'refuses a new pooled session once the owner session is gone, even before the process notices',
+  async () => {
+    const schema = `owner_${crypto.randomUUID().replaceAll('-', '')}`
+    const config = {
+      connectionString: process.env.CAELESTIS_TEST_POSTGRES_URL,
+      options: `-c search_path=${schema}`,
+    }
+    const owner = new PostgresConnection(config)
+    await owner.pool.query(`CREATE SCHEMA ${schema}`)
+    let lost = 0
+    try {
+      await owner.claimOwnership(() => {
+        lost++
+      })
+      // Pretend the process has not heard that its owner session died: swallow the event that
+      // would end the pool, so the next query opens and fences a fresh session on its own.
+      const session = (
+        owner as unknown as {
+          owner: {
+            removeAllListeners(event: string): void
+            on(event: string, listener: () => void): void
+          }
+        }
+      ).owner
+      session.removeAllListeners('error')
+      session.on('error', () => {})
+      await owner.pool.query(
+        `SELECT pg_terminate_backend(pid) FROM pg_locks
+         WHERE locktype = 'advisory' AND classid = hashtext('caelestis-runtime')::oid
+           AND objid = hashtext(current_schema())::oid`,
+      )
+      await vi.waitFor(async () => {
+        const held = await owner.pool.query(
+          `SELECT 1 FROM pg_locks
+           WHERE locktype = 'advisory' AND classid = hashtext('caelestis-runtime')::oid`,
+        )
+        expect(held.rowCount).toBe(0)
+      })
+      await expect(owner.prepare('SELECT 1 AS one').first()).rejects.toThrow(
+        'Another Caelestis server is taking over this database',
+      )
+      // The refusal is a lost ownership: the process is told and its pool ends, leaving no
+      // shared lock behind for a replacement to wait on.
+      expect(lost).toBe(1)
+      await owner.close()
+      const observer = new PostgresConnection(config)
+      try {
+        const shared = await observer.pool.query(
+          `SELECT 1 FROM pg_locks
+           WHERE locktype = 'advisory' AND classid = hashtext('caelestis-runtime-sessions')::oid`,
+        )
+        expect(shared.rowCount).toBe(0)
+      } finally {
+        await observer.pool.query(`DROP SCHEMA ${schema} CASCADE`)
+        await observer.close()
+      }
+    } finally {
+      await owner.close()
+    }
+  },
+)

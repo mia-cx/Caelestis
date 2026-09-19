@@ -60,7 +60,8 @@ const run = {
   applicationRevision: options.revision,
   backendImage,
   change: options.change ?? null,
-  users: result.correctness?.online ?? null,
+  // The configured trace size, not the count online at the end, which a failed run cuts short.
+  users: report.description?.users ?? null,
   runtime,
   passed: report.passed === true,
   completed: result.phase === 'measured' && report.error == null,

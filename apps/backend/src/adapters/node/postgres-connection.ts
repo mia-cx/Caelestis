@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { Pool, type PoolClient, type PoolConfig, types } from 'pg'
@@ -128,7 +128,10 @@ export class PostgresConnection implements TransactionalSqlConnection {
   readonly dialect = 'postgres'
   readonly pool: Pool
   private owner: PoolClient | undefined
+  /** The owner session's application name, unique per process, which fenced sessions verify. */
+  private ownerName: string | undefined
   private ownerFailure: Error | undefined
+  private lostOwnership: ((error: Error) => void) | undefined
   private readonly fenced = new WeakSet<PoolClient>()
   private readonly lanes = new Map<string, Promise<unknown>>()
   private retriesLogged = 0
@@ -171,11 +174,15 @@ export class PostgresConnection implements TransactionalSqlConnection {
       if (!this.closing) onLost(error)
     }
     client.on('error', lost)
+    this.lostOwnership = lost
     try {
+      const name = `caelestis-owner-${randomUUID()}`
+      await client.query("SELECT set_config('application_name', $1, false)", [name])
       const lock = await client.query<{ acquired: boolean }>(
         `SELECT pg_try_advisory_lock(${OWNERSHIP_LOCK}) AS acquired`,
       )
       if (!lock.rows[0]?.acquired) throw new Error('Another Caelestis server owns this database')
+      this.ownerName = name
       // The previous owner's sessions may still be closing; wait for the last of them, bounded
       // by the statement timeout, then let this process's own sessions take shared locks.
       try {
@@ -191,15 +198,40 @@ export class PostgresConnection implements TransactionalSqlConnection {
     }
   }
 
-  /** A pooled session may carry application work only while it holds the shared session lock. */
+  /**
+   * A pooled session may carry application work only while it holds the shared session lock and
+   * this process's owner session still holds the ownership lock.
+   *
+   * The database releases the ownership lock the moment the owner backend dies, possibly before
+   * this process hears of it. A replacement can then take ownership, drain the old sessions that
+   * remain, and serve, while this process still believes it owns the database and opens a fresh
+   * session, which the shared lock alone would admit. So a session checks, once it holds its
+   * shared lock, that the ownership lock is held by a backend carrying this process's owner
+   * name. A session that passes holds its shared lock for its lifetime, so no replacement can
+   * drain past it; a session that fails ends this process's pool.
+   */
   private async fence(client: PoolClient): Promise<void> {
     if (this.owner === undefined || this.fenced.has(client)) return
     const lock = await client.query<{ held: boolean }>(
       `SELECT pg_try_advisory_lock_shared(${SESSION_LOCK}) AS held`,
     )
-    if (!lock.rows[0]?.held) {
+    const owned = lock.rows[0]?.held
+      ? await client.query<{ owned: boolean }>(
+          `SELECT EXISTS (
+             SELECT 1 FROM pg_locks AS lock
+             INNER JOIN pg_stat_activity AS session ON session.pid = lock.pid
+             WHERE lock.locktype = 'advisory' AND lock.granted AND lock.mode = 'ExclusiveLock'
+               AND lock.classid = hashtext('caelestis-runtime')::oid
+               AND lock.objid = hashtext(current_schema())::oid
+               AND session.application_name = $1
+           ) AS owned`,
+          [this.ownerName],
+        )
+      : undefined
+    if (!owned?.rows[0]?.owned) {
       const error = new Error('Another Caelestis server is taking over this database')
       this.ownerFailure ??= error
+      this.lostOwnership?.(error)
       throw error
     }
     this.fenced.add(client)
