@@ -19,7 +19,7 @@ Implement the thirteen children #466–478 in one PR on the supplied branch. Kee
 - [x] #468 Reject hidden/offscreen presence geometry before expensive work; test, benchmark and commit.
 - [x] #469 Prepare connected components only after a pointer hits claimed pixels; test, benchmark and commit.
 - [ ] #470 Measure remaining presence GPU cost and retain only proven rendering improvements.
-- [~] #471 Coalesce presence screen updates with the next map frame; test, benchmark and commit.
+- [x] #471 Coalesce presence screen updates with the next map frame; test, benchmark and commit.
 - [~] #472 Share scene preparation within a host frame; test, benchmark and commit.
 - [~] #473 Measure and reduce label layout work without stale geometry; test, benchmark and commit.
 - [~] #474 Add deterministic measured-phase backend claim churn and baseline coverage.
@@ -49,3 +49,6 @@ Implement the thirteen children #466–478 in one PR on the supplied branch. Kee
 - #467 accepted final comparison: three matched pairs with 10-second hover and 12-second trusted movement. Repeated raster/component task time falls to zero in all six candidate samples. Movement task time improves 16.3% on average, in every pair; hover frame p95 improves to 17.4–17.5 ms. Hover total task time and GPU time do not consistently improve. Raw final profiles and both earlier diagnostic sets retained in docs/benchmarks.
 - #468 accepted memory result: 725,200 to 19,600 GPU-mask bytes in every one of three alternating hover/movement pairs (97.3%). CPU/GPU time inconclusive; claim/holes/hover screenshots inspected. Focused tests now pass 71/71, including corrected scene-fade expectation. CPU region/component caches remain for #469.
 - #469 three alternating cold-hover/movement/idle pairs pass workload guards. Cold component CPU 137.6/40.7/35.7 to 3.3/7.4/8.0 ms; first label 191.9/70.1/69.8 to 16.1/55.3/49.0 ms. Component and CPU mask memory fall 97.3%. Whole-page time inconclusive. Focused test covers bounds, gaps, holes, first hit, changed geometry and deletion.
+- #471 accepted synchronous notification cost: hover 55.2–65.4 to 10.9–27.7 ms; movement 41.8–51.3 to 8.5–10.9 ms, three pairs each. Whole-page and total label time inconclusive; all frame p95 near refresh cap. Burst test passes; current client typecheck and 49 focused tests pass.
+- #475 three alternating 256-user pairs pass on Node/Bun with exact accounting, claims and recovery. Selection time falls 44.8%/59.5%, total CPU 8.6%/17.0%. Candidate total CPU improves in every pair. Publication comparison now running.
+- #474 deliberate dropped region messages on client 0 produce claim edit delivery timeout and nonzero benchmark exit; raw failed result retained. This is the expected red gate, not a failed product run.

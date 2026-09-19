@@ -11,6 +11,7 @@ const harness = vi.hoisted(() => ({
   stateListeners: [] as Array<() => void>,
   paintListeners: [] as Array<() => void>,
   mismatchListeners: [] as Array<() => void>,
+  presenceListeners: [] as Array<() => void>,
   clearDraftPixels: vi.fn(),
   triggerRepaint: vi.fn(),
   renderOverlayControls: vi.fn(),
@@ -33,6 +34,11 @@ vi.mock('./coordinates.js', () => ({
   cssPixelsPerCanvasPixelIn: harness.cssPixelsPerCanvasPixelIn,
   screenPointForIn: harness.screenPointForIn,
   viewportCentreIn: harness.viewportCentreIn,
+}))
+vi.mock('./presence-client.js', async (original) => ({
+  ...(await original<typeof import('./presence-client.js')>()),
+  installPresence: vi.fn(),
+  onPresenceChange: (listener: () => void) => harness.presenceListeners.push(listener),
 }))
 vi.mock('./debug.js', () => ({ installDebugApi: vi.fn(), warn: vi.fn() }))
 vi.mock('./gl/layer.js', () => ({
@@ -155,10 +161,25 @@ beforeEach(() => {
   harness.stateListeners = []
   harness.paintListeners = []
   harness.mismatchListeners = []
+  harness.presenceListeners = []
   harness.allianceViewportChange = null
 })
 
 describe('GL frame lifecycle', () => {
+  it('defers screen controls during a presence burst until the requested map frame', async () => {
+    await load()
+    const current = frame(document.createElement('canvas'))
+    harness.tileFrame?.(current)
+    harness.renderOverlayControls.mockClear()
+    harness.triggerRepaint.mockClear()
+    expect(harness.presenceListeners).toHaveLength(1)
+    for (let message = 0; message < 5; message++) harness.presenceListeners[0]?.()
+    expect(harness.triggerRepaint).toHaveBeenCalled()
+    expect(harness.renderOverlayControls).not.toHaveBeenCalled()
+    harness.tileFrame?.(current)
+    expect(harness.renderOverlayControls).toHaveBeenCalledOnce()
+  })
+
   it('installs the deferred userscript update check', async () => {
     await load()
 

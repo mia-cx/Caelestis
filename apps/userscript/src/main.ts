@@ -416,10 +416,8 @@ const main = (): void => {
   step('presence', () => {
     installPresence()
     installClaimRouting()
-    onPresenceChange(() => {
-      repaintPresence()
-      repaint()
-    })
+    // MapLibre coalesces message bursts into one frame, which also refreshes the screen controls.
+    onPresenceChange(repaintPresence)
     onClaimEditorChange(repaintPresence)
     onPresenceHoverChange(repaintPresence)
     installClaimToolHost()

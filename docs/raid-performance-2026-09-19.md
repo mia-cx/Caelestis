@@ -88,3 +88,17 @@ The lower component cost and first-label latency repeat in every pair. Whole-pag
 it improves in one cold-hover pair and increases in two. Warm movement and idle timings show no consistent gain.
 The focused test covers outside bounds, gaps, subtraction holes, separate pieces, changed geometry and deletion.
 [Raw profiles](benchmarks/raid-469-2026-09-19.json.gz) retain all three scenarios and exact build hashes.
+
+## Coalesced presence notifications (#471)
+
+The baseline includes #469. The candidate schedules the next map frame instead of immediately rerunning
+every screen hook for each presence message. The primary metric is synchronous presence notification task time.
+It falls in all three hover pairs (56.6/55.2/65.4 to 10.9/27.7/26.8 ms), and all movement pairs
+(51.3/42.8/41.8 to 10.9/9.4/8.5 ms). Label passes match rendered frames instead of frames plus messages.
+This removes duplicate work; it does not delay applying incoming state.
+
+Whole-page task time and total label time do not consistently improve. Two candidate hover runs take twice
+as much task time across unrelated tasks as their baselines. Frame p95 remains 17.3–17.6 ms.
+The burst test verifies five notifications request rendering without synchronously repainting controls,
+then refresh controls once on the next frame. The affected focused suite passes 49 tests.
+[Raw profiles](benchmarks/raid-471-2026-09-19.json.gz) include hover, trusted movement and idle recovery.
