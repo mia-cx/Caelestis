@@ -1,0 +1,43 @@
+{
+  "startedAt": "2026-09-20T04:11:26.253Z",
+  "endedAt": "2026-09-20T04:11:42.972Z",
+  "attempted": 100,
+  "routeMode": "pixel",
+  "maxConcurrency": 8,
+  "phases": [
+    {
+      "rate": 6,
+      "startedAt": "2026-09-20T04:11:26.256Z",
+      "endedAt": "2026-09-20T04:11:42.972Z",
+      "attempted": 100,
+      "statuses": {
+        "200": 99,
+        "429": 1
+      }
+    }
+  ],
+  "stopped": {
+    "attempt": 100,
+    "scheduledRate": 6,
+    "route": "pixel",
+    "path": "/s0/pixel/603/769?x=599&y=500",
+    "startedAt": "2026-09-20T04:11:42.804Z",
+    "inFlightAtDispatch": 1,
+    "completedAt": "2026-09-20T04:11:42.866Z",
+    "status": 429,
+    "elapsedSeconds": 0.040882,
+    "bytes": 17,
+    "httpVersion": "2",
+    "remoteIp": "172.66.145.132",
+    "proxyUsed": 0,
+    "headers": {
+      "date": "Sun, 20 Sep 2026 04:11:42 GMT",
+      "content-type": "text/plain; charset=UTF-8",
+      "retry-after": "60",
+      "cache-control": "private, max-age=0, no-store, no-cache, must-revalidate, post-check=0, pre-check=0",
+      "server": "cloudflare",
+      "cf-ray": "a3ddfcd8ddcd2836-AMS"
+    }
+  },
+  "stopReason": "first unexpected response or transport failure"
+}

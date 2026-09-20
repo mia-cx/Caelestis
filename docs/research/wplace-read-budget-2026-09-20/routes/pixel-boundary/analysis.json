@@ -1,0 +1,89 @@
+{
+  "attempts": 81,
+  "spanSeconds": 10.165,
+  "statuses": {
+    "200": 80,
+    "429": 1
+  },
+  "maxInFlight": 1,
+  "bytes": 65670,
+  "firstRejection": {
+    "attempt": 81,
+    "scheduledRate": 8,
+    "route": "pixel",
+    "path": "/s0/pixel/603/769?x=580&y=500",
+    "startedAt": "2026-09-20T04:17:15.105Z",
+    "inFlightAtDispatch": 1,
+    "completedAt": "2026-09-20T04:17:15.176Z",
+    "status": 429,
+    "elapsedSeconds": 0.048978,
+    "bytes": 17,
+    "httpVersion": "2",
+    "remoteIp": "104.20.28.88",
+    "proxyUsed": 0,
+    "headers": {
+      "date": "Sun, 20 Sep 2026 04:17:15 GMT",
+      "content-type": "text/plain; charset=UTF-8",
+      "retry-after": "60",
+      "cache-control": "private, max-age=0, no-store, no-cache, must-revalidate, post-check=0, pre-check=0",
+      "server": "cloudflare",
+      "cf-ray": "a3de04f5cb7ee00a-AMS"
+    }
+  },
+  "windows": [
+    {
+      "seconds": 1,
+      "wholeWindowElapsed": true,
+      "maximumKnownStarts": 8,
+      "peakEndingAt": "2026-09-20T04:17:05.893Z",
+      "knownStartsBeforeRejectionResponse": 8,
+      "tileStarts": 0,
+      "pixelStarts": 8
+    },
+    {
+      "seconds": 60,
+      "wholeWindowElapsed": false,
+      "maximumKnownStarts": 81,
+      "peakEndingAt": "2026-09-20T04:17:15.105Z",
+      "knownStartsBeforeRejectionResponse": 81,
+      "tileStarts": 0,
+      "pixelStarts": 81
+    },
+    {
+      "seconds": 300,
+      "wholeWindowElapsed": false,
+      "maximumKnownStarts": 81,
+      "peakEndingAt": "2026-09-20T04:17:15.105Z",
+      "knownStartsBeforeRejectionResponse": 81,
+      "tileStarts": 0,
+      "pixelStarts": 81
+    },
+    {
+      "seconds": 600,
+      "wholeWindowElapsed": false,
+      "maximumKnownStarts": 81,
+      "peakEndingAt": "2026-09-20T04:17:15.105Z",
+      "knownStartsBeforeRejectionResponse": 81,
+      "tileStarts": 0,
+      "pixelStarts": 81
+    },
+    {
+      "seconds": 1800,
+      "wholeWindowElapsed": false,
+      "maximumKnownStarts": 81,
+      "peakEndingAt": "2026-09-20T04:17:15.105Z",
+      "knownStartsBeforeRejectionResponse": 81,
+      "tileStarts": 0,
+      "pixelStarts": 81
+    },
+    {
+      "seconds": 3600,
+      "wholeWindowElapsed": false,
+      "maximumKnownStarts": 81,
+      "peakEndingAt": "2026-09-20T04:17:15.105Z",
+      "knownStartsBeforeRejectionResponse": 81,
+      "tileStarts": 0,
+      "pixelStarts": 81
+    }
+  ]
+}

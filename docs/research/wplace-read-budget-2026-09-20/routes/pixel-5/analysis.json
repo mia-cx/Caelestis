@@ -1,0 +1,47 @@
+{
+  "attempts": 597,
+  "spanSeconds": 119.887,
+  "statuses": {
+    "200": 597
+  },
+  "maxInFlight": 1,
+  "bytes": 440888,
+  "windows": [
+    {
+      "seconds": 1,
+      "wholeWindowElapsed": true,
+      "maximumKnownStarts": 5,
+      "peakEndingAt": "2026-09-20T04:12:44.686Z"
+    },
+    {
+      "seconds": 60,
+      "wholeWindowElapsed": true,
+      "maximumKnownStarts": 299,
+      "peakEndingAt": "2026-09-20T04:13:43.801Z"
+    },
+    {
+      "seconds": 300,
+      "wholeWindowElapsed": false,
+      "maximumKnownStarts": 597,
+      "peakEndingAt": "2026-09-20T04:14:43.694Z"
+    },
+    {
+      "seconds": 600,
+      "wholeWindowElapsed": false,
+      "maximumKnownStarts": 597,
+      "peakEndingAt": "2026-09-20T04:14:43.694Z"
+    },
+    {
+      "seconds": 1800,
+      "wholeWindowElapsed": false,
+      "maximumKnownStarts": 597,
+      "peakEndingAt": "2026-09-20T04:14:43.694Z"
+    },
+    {
+      "seconds": 3600,
+      "wholeWindowElapsed": false,
+      "maximumKnownStarts": 597,
+      "peakEndingAt": "2026-09-20T04:14:43.694Z"
+    }
+  ]
+}

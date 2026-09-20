@@ -1,0 +1,20 @@
+{
+  "startedAt": "2026-09-20T04:12:43.877Z",
+  "endedAt": "2026-09-20T04:14:43.899Z",
+  "attempted": 597,
+  "routeMode": "pixel",
+  "maxConcurrency": 8,
+  "phases": [
+    {
+      "rate": 5,
+      "startedAt": "2026-09-20T04:12:43.880Z",
+      "endedAt": "2026-09-20T04:14:43.896Z",
+      "attempted": 597,
+      "statuses": {
+        "200": 597
+      }
+    }
+  ],
+  "stopped": null,
+  "stopReason": "bounded workload completed without rejection"
+}
