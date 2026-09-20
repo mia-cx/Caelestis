@@ -1,0 +1,38 @@
+{
+  "startedAt": "2026-09-20T12:02:08.891Z",
+  "endedAt": "2026-09-20T12:07:09.030Z",
+  "dispatchStartedAt": "2026-09-20T12:02:08.949Z",
+  "dispatchEndedAt": "2026-09-20T12:07:08.950Z",
+  "attempted": 9343,
+  "routeMode": "concurrent",
+  "maxConcurrency": 32,
+  "tilePaths": 1024,
+  "connectionCount": 1,
+  "transport": "persistent HTTP/2 over IPv4",
+  "phases": [
+    {
+      "route": "tile",
+      "rate": 28,
+      "startedAt": "2026-09-20T12:02:08.949Z",
+      "endedAt": "2026-09-20T12:07:08.950Z",
+      "attempted": 8147,
+      "achievedRate": 27.156576144746186,
+      "statuses": {
+        "200": 8147
+      }
+    },
+    {
+      "route": "pixel",
+      "rate": 4,
+      "startedAt": "2026-09-20T12:02:08.949Z",
+      "endedAt": "2026-09-20T12:07:08.950Z",
+      "attempted": 1196,
+      "achievedRate": 3.986653377822074,
+      "statuses": {
+        "200": 1196
+      }
+    }
+  ],
+  "stopped": null,
+  "stopReason": "bounded workload completed without rejection"
+}

@@ -2,11 +2,12 @@
 
 Investigated September 20, 2026 for [issue #492](https://github.com/mia-riezebos/Caelestis/issues/492).
 
-**The measured tile cutoff is around 30 requests/second. Running targets of 29 tile reads/second and 5 attribution reads/second together failed on attribution after 2m58s.** Tile-only target 29 passed a full minute; target 30 received 429 after 7.681 seconds. Attribution-only target 5 passed two minutes and target 6 failed. The concurrent result rules out adopting both passing targets together as a sustained budget. The mixed hour at four combined requests/second passed. All nine observed 429 responses requested a 60-second cooldown. These are measured workloads, not official quotas.
+**Concurrent targets of 28 tile reads/second and 4 attribution reads/second passed five minutes with 9,343 successful responses. Targets of 29 + 5 failed on attribution after 2m58s.** The measured tile cutoff is around 30 requests/second. Tile-only target 29 passed a full minute; target 30 received 429 after 7.681 seconds. Attribution-only target 5 passed two minutes and target 6 failed. The mixed hour at four combined requests/second passed. All nine observed 429 responses requested a 60-second cooldown. These are measured workloads, not official quotas.
 
 | Workload | Target rate | Observation | Result |
 | --- | ---: | --- | --- |
 | Mixed tile/pixel | 4/second combined | One hour | 14,340 × 200; achieved 3.983/second |
+| Concurrent tile/pixel | 28 tile + 4 pixel/second | Five minutes | Tile 8,147 × 200; pixel 1,196 × 200 |
 | Concurrent tile/pixel | 29 tile + 5 pixel/second | Attribution 429 after 177.977 seconds | Tile 4,939 × 200; pixel 884 × 200, 1 × 429 |
 | Tile, persistent HTTP/2 | 29/second | Full minute after passing targets 16–28 | 1,704 × 200; achieved 28.4/second |
 | Tile, persistent HTTP/2 | 30/second | 429 headers after 7.681 seconds | 222 × 200, 1 × 429; achieved 28.961/second over 7.7 seconds |
@@ -238,6 +239,21 @@ All 5,824 requests used one connection. Maximum in-flight count reached 32; ther
 **The combined 29 + 5 target does not hold for five minutes.** Attribution is the rejecting route. This result leaves shared enforcement versus a longer attribution-only limit unresolved; the earlier attribution-only 5/second pass lasted just two minutes. It does not support treating the route budgets as fully independent.
 
 The [exact runner](wplace-read-budget-2026-09-20/concurrent/probe.mjs), [compressed attempts](wplace-read-budget-2026-09-20/concurrent/attempts.jsonl.gz), [summary](wplace-read-budget-2026-09-20/concurrent/summary.json), and [checksum](wplace-read-budget-2026-09-20/concurrent/SHA256SUMS) preserve the experiment.
+
+### Lower concurrent workload
+
+The follow-up reduced the targets to **28 tile reads/second and 4 attribution reads/second**. It retained the same five-minute duration, independent scheduling, shared IPv4 connection, 1,024 tile paths, and stop-on-rejection rule. Dispatch ran from **12:02:08.949 to 12:07:08.950 UTC**, well after the previous cooldown expired.
+
+**All 9,343 requests returned 200.** No rejection, challenge, transport error, or retry occurred.
+
+| Route | Target/second | Requests | Actual/second | Responses |
+| --- | ---: | ---: | ---: | --- |
+| Tile | 28 | 8,147 | 27.157 | All 200 |
+| Attribution | 4 | 1,196 | 3.987 | All 200 |
+
+The run used one persistent HTTP/2 connection and reached the 32-stream concurrency cap. Actual combined throughput was 31.143 requests/second. This is the highest completed five-minute concurrent workload in the investigation. Use 28 + 4 as the measured passing target for the next budget discussion; production defaults remain unchanged.
+
+The [exact runner](wplace-read-budget-2026-09-20/concurrent-28-4/probe.mjs), [compressed attempts](wplace-read-budget-2026-09-20/concurrent-28-4/attempts.jsonl.gz), [summary](wplace-read-budget-2026-09-20/concurrent-28-4/summary.json), and [checksum](wplace-read-budget-2026-09-20/concurrent-28-4/SHA256SUMS) preserve this pass. Decompression matches the original log byte for byte; offline checks verify route counts and all statuses.
 
 ## Published clients and historical reports
 
