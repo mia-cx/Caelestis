@@ -1,0 +1,19 @@
+{
+  "startedAt": "2026-09-20T03:05:15.550Z",
+  "endedAt": "2026-09-20T04:05:15.648Z",
+  "attempted": 14340,
+  "maxConcurrency": 8,
+  "phases": [
+    {
+      "rate": 4,
+      "startedAt": "2026-09-20T03:05:15.552Z",
+      "endedAt": "2026-09-20T04:05:15.633Z",
+      "attempted": 14340,
+      "statuses": {
+        "200": 14340
+      }
+    }
+  ],
+  "stopped": null,
+  "stopReason": "bounded ramp exhausted without rejection"
+}
