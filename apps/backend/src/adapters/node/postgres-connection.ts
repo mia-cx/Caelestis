@@ -304,8 +304,12 @@ export class PostgresConnection implements TransactionalSqlConnection {
     if (lane === undefined) return run()
     const requestedAt = performance.now()
     const turn = () => {
-      ingestTimings.record('sql', 'transaction', performance.now() - requestedAt)
-      return run()
+      const command = lane === 'tiles' ? 'tileLane' : 'coordinatorLane'
+      const wait = performance.now() - requestedAt
+      // Keep the existing aggregate while separating queue delay from occupied lane time.
+      ingestTimings.record('sql', 'transaction', wait)
+      ingestTimings.record(command, 'queue', wait)
+      return ingestTimings.timed(command, 'total', run)
     }
     const tail = this.lanes.get(lane) ?? Promise.resolve()
     const running = tail.then(turn, turn)

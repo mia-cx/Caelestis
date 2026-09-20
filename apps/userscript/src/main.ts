@@ -416,17 +416,16 @@ const main = (): void => {
   step('presence', () => {
     installPresence()
     installClaimRouting()
-    onPresenceChange(() => {
-      repaintPresence()
-      repaint()
-    })
+    // MapLibre coalesces message bursts into one frame, which also refreshes the screen controls.
+    onPresenceChange(repaintPresence)
     onClaimEditorChange(repaintPresence)
     onPresenceHoverChange(repaintPresence)
     installClaimToolHost()
     onFrame(observePresenceFrame, 'Presence viewport')
     onFrame(syncClaimEditorFrame, 'Claim editor overlay')
     onFrame((frame) => {
-      if (activeAllianceSurface() === null) renderPresenceLabels(frame)
+      if (activeAllianceSurface() === null)
+        renderPresenceLabels(frame, overlayProjection.project(frame))
     }, 'Presence labels')
   })
   /**

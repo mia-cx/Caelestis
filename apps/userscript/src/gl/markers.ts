@@ -203,6 +203,7 @@ const drawVisible = (
     WORLD_TEMPLATE_SURFACE,
     now,
     prefersReducedMotion(),
+    tiles,
   )
   const sceneMarkers = worldRenderScene.advanceMarkers(
     sceneTemplates.templates,

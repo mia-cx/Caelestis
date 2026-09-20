@@ -9,10 +9,10 @@ import { kubernetesRun } from './stack-tests/kubernetes-run.mjs'
 import { availablePort, run, start } from './stack-tests/process.mjs'
 import { importWplace, verifyWplace } from './stack-tests/wplace.mjs'
 
-const [backend, frontend, stack] = process.argv.slice(2)
+const [backend, frontend, stack, resultsPath] = process.argv.slice(2)
 if (!backend || !frontend || !['sqlite', 'cnpg', 'mariadb'].includes(stack))
   throw new Error(
-    'Usage: node scripts/test-helm-stack.mjs BACKEND_IMAGE FRONTEND_IMAGE sqlite|cnpg|mariadb',
+    'Usage: node scripts/test-helm-stack.mjs BACKEND_IMAGE FRONTEND_IMAGE sqlite|cnpg|mariadb [output]',
   )
 const context = process.env.CAELESTIS_KUBE_CONTEXT
 const storage = process.env.CAELESTIS_TEST_STORAGE ?? (stack === 'sqlite' ? 'filesystem' : 's3')
@@ -25,8 +25,8 @@ const origin = process.env.CAELESTIS_TEST_ORIGIN
 const benchmark = process.env.CAELESTIS_TEST_BENCHMARK === 'true'
 if (benchmark) {
   assert.ok(
-    context && origin && !keep,
-    'Benchmark requires an isolated stack with Traefik and cleanup',
+    !keep && (!context || origin),
+    'Benchmark requires a disposable kind cluster or an explicit cluster and HTTPS origin',
   )
   assert.ok(stack === 'cnpg' && storage === 's3' && process.env.CAELESTIS_TEST_EXTENDED === 'true')
 }
@@ -40,7 +40,9 @@ const name = context
   ? `caelestis-test-${stack}-${storage}-${Date.now().toString(36)}`
   : `caelestis-ci-${process.pid}`
 const directory = mkdtempSync(`${tmpdir()}/${name}-`)
-const output = resolve(context ? `test-results/${name}` : `test-results/helm-${stack}`)
+const output = resolve(
+  resultsPath ?? (context || benchmark ? `test-results/${name}` : `test-results/helm-${stack}`),
+)
 rmSync(output, { recursive: true, force: true })
 mkdirSync(output, { recursive: true })
 const log = `${output}/provision.log`
@@ -166,6 +168,7 @@ let forward
 let created = false
 let passed = false
 let benchmarkResult
+let benchmarkPort
 let cleanupPromise
 const cleanup = () =>
   (cleanupPromise ??= (async () => {
@@ -240,6 +243,26 @@ try {
     created = true
     console.log(`Testing ${stack}/${storage} in ${name}; cleanup inventory: ${cluster.file}`)
   } else {
+    const kindConfig = `${directory}/kind.json`
+    if (benchmark) {
+      benchmarkPort = await availablePort()
+      writeFileSync(
+        kindConfig,
+        JSON.stringify({
+          kind: 'Cluster',
+          apiVersion: 'kind.x-k8s.io/v1alpha4',
+          nodes: [
+            {
+              role: 'control-plane',
+              extraPortMappings: [
+                { containerPort: 30080, hostPort: benchmarkPort, listenAddress: '127.0.0.1' },
+              ],
+            },
+          ],
+        }),
+      )
+    }
+    created = true
     await run(
       kind,
       [
@@ -253,6 +276,7 @@ try {
         'kindest/node:v1.35.8@sha256:07b2536e30b803ed61d1677a79df6115f798ce64c80f9e22f6ed45afd09323c0',
         '--wait',
         '180s',
+        ...(benchmark ? ['--config', kindConfig] : []),
       ],
       { env, log, timeout: 360_000 },
     )
@@ -625,10 +649,35 @@ try {
   await suite.remove(state)
   if (benchmark) {
     const { benchmarkKubernetes } = await import('./runtime-benchmark/kubernetes.mjs')
+    let benchmarkSite = origin?.origin
+    if (!context) {
+      // Docker exposes this owned NodePort on loopback, including on rootless Docker hosts.
+      // kubectl port-forward would put the API server in the measured application data path.
+      const ports = JSON.parse(kubectl('get', 'service/test-caelestis', '-o', 'json')).spec.ports
+      ports[0].nodePort = 30080
+      kubectl(
+        'patch',
+        'service/test-caelestis',
+        '--type=merge',
+        '-p',
+        JSON.stringify({ spec: { type: 'NodePort', ports } }),
+      )
+      benchmarkSite = `http://127.0.0.1:${benchmarkPort}`
+      await waitFor(
+        async () =>
+          (await fetch(`${benchmarkSite}/api/v1/manifest`, { signal: AbortSignal.timeout(3000) }))
+            .ok,
+        'kind NodePort',
+      )
+    }
     benchmarkResult = await benchmarkKubernetes({
-      context,
+      context: context ?? `kind-${name}`,
+      env,
       namespace,
-      site: origin.origin,
+      site: benchmarkSite,
+      transport: context
+        ? 'Production images through Traefik HTTPS/WSS and the Node frontend'
+        : 'Production images through an owned kind NodePort, HTTP/WS and the Node frontend; no ingress TLS or Longhorn',
       adminToken,
       output,
       observe: process.env.CAELESTIS_TEST_BENCHMARK_OBSERVE === 'true',

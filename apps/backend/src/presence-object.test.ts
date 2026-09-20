@@ -24,6 +24,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { D1SqlStore } from './adapters/cloudflare/d1-sql-store.js'
 import { SqliteD1Database } from './adapters/cloudflare/sqlite-d1.test-helper.js'
 import { PresenceObject } from './presence-object.js'
+import { RelationalRegionStore } from './work/relational-region-store.js'
 
 vi.mock('cloudflare:workers', () => ({ DurableObject: class {} }))
 
@@ -147,6 +148,92 @@ afterEach(() => {
 })
 
 describe('presence room', () => {
+  it('does not resend claims when the database returns the same owners in another order', async () => {
+    const sql = new D1SqlStore(database as unknown as D1Database)
+    const ids = Array.from({ length: 37 }, () => uuidV7())
+    for (const id of ids)
+      await sql.regions.createRegion(
+        {
+          id,
+          season: 0,
+          surface: WORLD_TEMPLATE_SURFACE,
+          templateId: null,
+          claimant: { wplaceUserId: 1, displayName: 'Mia' },
+          document: { items: [{ id: 'box', op: 'add', shape: { kind: 'rectangle', ...rect(0) } }] },
+          rect: rect(0),
+          label: '',
+          createdAt: Date.now(),
+        },
+        'a'.repeat(64),
+      )
+    const socket = await attach()
+    const rows = await sql.regions.regionOwners(0, WORLD_TEMPLATE_SURFACE)
+    const owners = vi.spyOn(RelationalRegionStore.prototype, 'regionOwners')
+    try {
+      await object.publishRegions(0, WORLD_TEMPLATE_SURFACE)
+      const bytes = []
+      for (const order of [rows.toReversed(), rows, rows.toReversed()]) {
+        socket.send.mockClear()
+        owners.mockResolvedValue(order)
+        await object.publishRegions(0, WORLD_TEMPLATE_SURFACE)
+        bytes.push(
+          socket.send.mock.calls.reduce(
+            (total, [message]) => total + Buffer.byteLength(message),
+            0,
+          ),
+        )
+      }
+      expect(bytes).toEqual([0, 0, 0])
+    } finally {
+      owners.mockRestore()
+    }
+  })
+
+  it('excludes ownership rows newer than the ready, publication or recovered claim snapshot', async () => {
+    const owners = vi
+      .spyOn(RelationalRegionStore.prototype, 'regionOwners')
+      .mockResolvedValue([{ id: uuidV7(), tokenHash: 'a'.repeat(64), actorId: 1 }])
+    try {
+      const socket = await attach()
+      expect(socket.events().at(-1)).toMatchObject({ regions: [], ownedRegionIds: [] })
+      await object.publishRegions(0, WORLD_TEMPLATE_SURFACE)
+      expect(socket.events().at(-1)).toMatchObject({ regions: [], ownedRegionIds: [] })
+      object = new PresenceObject(state, { DB: database } as unknown as Env)
+      object.webSocketMessage(asWebSocket(socket), JSON.stringify({ type: 'presence-heartbeat' }))
+      await tick()
+      expect(socket.events().at(-1)).toMatchObject({
+        type: 'presence-ready',
+        regions: [],
+        ownedRegionIds: [],
+      })
+    } finally {
+      owners.mockRestore()
+    }
+  })
+
+  it('skips selection for quiet heartbeats and resumes it when a peer moves', async () => {
+    const subscriber = await attach()
+    const peer = await attach({ 'x-caelestis-painter-id': '2' })
+    update(subscriber, { viewport: rect(0) })
+    update(peer, { viewport: rect(0) })
+    await tick()
+    subscriber.send.mockClear()
+    object.readIngestTimings(true)
+    object.webSocketMessage(asWebSocket(subscriber), JSON.stringify({ type: 'presence-heartbeat' }))
+    await tick()
+    expect(object.readIngestTimings(false).commands.presence.select).toBeUndefined()
+    expect(subscriber.send).not.toHaveBeenCalled()
+    update(peer, { viewport: rect(16) })
+    await tick()
+    expect(subscriber.events().at(-1)).toMatchObject({
+      type: 'presence-delta',
+      upsert: [expect.objectContaining({ viewport: rect(16) })],
+    })
+    expect(object.readIngestTimings(false).commands.presence.select?.count).toBe(2)
+    const recovered = new PresenceObject(state, { DB: database } as unknown as Env)
+    expect(recovered.readIngestTimings(false).commands.presence).toEqual({})
+  })
+
   it('sends hourly claim renewal only to its owner without broadcasting documents', async () => {
     const a = await attach()
     const b = await attach({ 'x-caelestis-painter-id': '2' })
@@ -461,6 +548,7 @@ describe('presence room', () => {
         expect.objectContaining({ draft: { rect: rect(8), pixels: 1 } }),
       ]),
     })
+    expect(object.readIngestTimings(false).commands.claims.owners?.count).toBe(1)
   })
 
   it('checks capacity, malformed headers, protocol negotiation, and revoked credentials', async () => {
@@ -543,6 +631,24 @@ describe('presence room', () => {
       rect: rect(0),
       label: 'Updated',
     })
+    b.send.mockClear()
+    await object.publishRegions(0, WORLD_TEMPLATE_SURFACE)
+    expect(b.send).not.toHaveBeenCalled()
+    // An ownership transfer changes no public geometry, but the old credential must lose its IDs.
+    database.sqlite
+      .prepare('UPDATE work_regions SET token_hash = ? WHERE id = ?')
+      .run('c'.repeat(64), region.id)
+    await object.publishRegions(0, WORLD_TEMPLATE_SURFACE)
+    expect(b.events().at(-1)).toEqual({ type: 'regions', regions: [updated], ownedRegionIds: [] })
+    const replacement = await attach({
+      'x-caelestis-token-hash': 'c'.repeat(64),
+      'x-caelestis-client-hash': 'c'.repeat(64),
+    })
+    expect(replacement.events()[0]).toMatchObject({
+      type: 'presence-ready',
+      ownedRegionIds: [region.id],
+    })
+    object.webSocketClose(asWebSocket(replacement), 1000, 'done', true)
     object.webSocketError(asWebSocket(a))
     await tick()
     expect(b.events().at(-1)).toMatchObject({ online: 1, remove: [expect.any(String)] })

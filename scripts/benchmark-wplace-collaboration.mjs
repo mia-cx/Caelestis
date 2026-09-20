@@ -2,6 +2,12 @@ import { createHash } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 
+// The raid mode owns a separate tab and blocks outgoing collaboration mutations.
+if (process.argv.includes('--raid')) {
+  await import('./runtime-benchmark/wplace-raid.mjs')
+  process.exit(0)
+}
+
 // One Wplace tab, the complete userscript, native drafts and controlled incoming peers.
 // node scripts/benchmark-wplace-collaboration.mjs <bundle> <output.json> [repeats=3]
 const bundle = await readFile(resolve(process.argv[2]), 'utf8')

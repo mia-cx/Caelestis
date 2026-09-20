@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
+import { isDeepStrictEqual } from 'node:util'
 import {
   decodePng,
   decodePresenceDraftMask,
@@ -21,6 +22,7 @@ import {
   sameRect,
   uuidV7,
 } from '../../packages/shared/dist/index.js'
+import { assertClaims, claimId, raidClaim, raidClaimSchedule } from './raid-claims.mjs'
 
 export const description = {
   socketsPerUser: 2,
@@ -95,6 +97,12 @@ export function schedule(durationMs, model) {
       }
     }
   }
+  if (model.raid) {
+    events.push(...raidClaimSchedule(durationMs, model))
+    for (let user = 0; user < Math.min(model.explorers, 2); user++)
+      for (let at = 27000 + user * 1000; at < durationMs; at += 30000)
+        events.push({ at, user, kind: 'reconnect' })
+  }
   return events
     .filter((event) => event.at < durationMs)
     .sort((a, b) => a.at - b.at || a.user - b.user)
@@ -138,7 +146,7 @@ const pixels = (user, cycle, count, model) => {
     return { x, y, color }
   })
 }
-export async function fixtures(durationMs, users) {
+export async function fixtures(durationMs, users, { raid = false } = {}) {
   const source = JSON.parse(
     await readFile(new URL('../../fixtures/stack-tests/box-art.wplace', import.meta.url), 'utf8'),
   )
@@ -149,6 +157,7 @@ export async function fixtures(durationMs, users) {
   const { indices } = quantiseToPalette(image.pixels)
   const explorers = Math.round(users * 0.7)
   const model = {
+    raid,
     users,
     explorers,
     painters: users - explorers,
@@ -220,6 +229,7 @@ export async function traffic({
   begin,
   end,
   commandTimeoutMs = CLIENT_COMMAND_TIMEOUT_MS,
+  dropClaims = false,
 }) {
   const api = `${site}/backend/v1`
   const clients = []
@@ -228,12 +238,14 @@ export async function traffic({
   const errors = []
   let measuring = false
   let serverMetrics
+  let backendStages
   let phase = 'warmup'
   const clientDeadlineMisses = { warmup: 0, measured: 0 }
   let warmupJobsDrained = null
   let closing = false
   let sentBytes = 0
   let receivedBytes = 0
+  const receivedBytesByType = {}
   const sent = {},
     received = {},
     latencies = {},
@@ -241,6 +253,11 @@ export async function traffic({
   const dispatchDelay = [],
     presenceLatency = []
   const expectedPaints = []
+  const expectedClaims = new Map()
+  const claimDeliveries = new Map()
+  const hasClaim = (state, id, document, owner, user) =>
+    isDeepStrictEqual(state.regions.get(id)?.document ?? null, document) &&
+    state.ownedRegionIds.includes(id) === (document !== null && owner === user)
   const heartbeat = setInterval(() => {
     for (const client of clients) {
       const state = client.presence
@@ -262,7 +279,7 @@ export async function traffic({
     latencies[kind] ??= []
     latencies[kind].push(ms)
   }
-  const request = async (path, body, method = 'GET', token = adminToken) => {
+  const request = async (path, body, method = 'GET', token = adminToken, deadlineMs = 30000) => {
     const response = await fetch(`${api}${path}`, {
       method,
       headers: {
@@ -270,7 +287,7 @@ export async function traffic({
         ...(body && !(body instanceof FormData) ? { 'content-type': 'application/json' } : {}),
       },
       ...(body ? { body: body instanceof FormData ? body : JSON.stringify(body) } : {}),
-      signal: AbortSignal.timeout(30000),
+      signal: AbortSignal.timeout(deadlineMs),
     })
     assert.ok(response.ok, `${path}: ${response.status} ${await response.clone().text()}`)
     return response.status === 204 ? null : response.json()
@@ -300,22 +317,43 @@ export async function traffic({
       draft: null,
       sessionId: null,
       online: 0,
+      regions: new Map(),
+      ownedRegionIds: [],
       lastSend: 0,
+      reconnecting: false,
     }
     allSockets.push(socket)
     socket.addEventListener('error', () => errors.push(`user ${user} ${channel} socket error`))
     socket.addEventListener('close', (event) => {
-      if (!closing) errors.push(`user ${user} ${channel} closed ${event.code} ${event.reason}`)
+      if (!closing && !state.reconnecting)
+        errors.push(`user ${user} ${channel} closed ${event.code} ${event.reason}`)
     })
     socket.addEventListener('message', ({ data }) => {
       try {
         const message = data === 'pong' ? { type: 'pong' } : JSON.parse(data)
         if (measuring) {
           receivedBytes += Buffer.byteLength(data)
+          receivedBytesByType[message.type] =
+            (receivedBytesByType[message.type] ?? 0) + Buffer.byteLength(data)
           received[message.type] = (received[message.type] ?? 0) + 1
         }
         if (message.error) errors.push(`${message.type}: ${message.error}`)
+        // Deliberate delivery regression proves the raid convergence gate can fail.
+        if (dropClaims && user === 0 && message.type === 'regions') return
         if (message.type === 'presence-ready') state.sessionId = message.sessionId
+        if (message.type === 'presence-ready' || message.type === 'regions') {
+          state.regions = new Map(message.regions.map((region) => [region.id, region]))
+          state.ownedRegionIds = message.ownedRegionIds
+          for (const id of state.ownedRegionIds)
+            assert.equal(state.regions.get(id)?.claimant.wplaceUserId, 800000 + user)
+          for (const delivery of claimDeliveries.values()) {
+            if (!delivery.remaining.has(user)) continue
+            if (!hasClaim(state, delivery.id, delivery.document, delivery.owner, user)) continue
+            delivery.remaining.delete(user)
+            record('claim-delivery', performance.now() - delivery.started)
+            if (delivery.remaining.size === 0) delivery.resolve()
+          }
+        }
         if (message.type === 'presence-ready' || message.type === 'presence-delta') {
           state.online = message.online
           for (const id of message.remove ?? []) state.peers.delete(id)
@@ -350,6 +388,8 @@ export async function traffic({
       }
     })
     state.send = (message, binary = false) => {
+      // Presence state changes during the gap coalesce into the replacement socket's first update.
+      if (state.reconnecting) return
       const payload = binary ? message : JSON.stringify(message)
       if (measuring) {
         sentBytes += typeof payload === 'string' ? Buffer.byteLength(payload) : payload.byteLength
@@ -470,25 +510,41 @@ export async function traffic({
         'POST',
       )
       credentials.push(token)
-      if (user >= fixture.explorers)
-        await request(
-          `/work/regions/${uuidV7()}?season=0`,
-          {
-            actor: { wplaceUserId: 800000 + user, displayName: `Benchmark ${user}` },
-            label: `Benchmark ${user}`,
-            document: {
-              items: [
-                {
-                  id: 'area',
-                  op: 'add',
-                  shape: { kind: 'rectangle', ...areaFor(user, fixture) },
-                },
-              ],
-            },
-          },
-          'PUT',
-          token,
-        )
+      if (user >= fixture.explorers) {
+        const claim = fixture.raid
+          ? raidClaim(user, fixture.origin, 1)
+          : {
+              actor: { wplaceUserId: 800000 + user, displayName: `Benchmark ${user}` },
+              label: `Benchmark ${user}`,
+              document: {
+                items: [
+                  {
+                    id: 'area',
+                    op: 'add',
+                    shape: { kind: 'rectangle', ...areaFor(user, fixture) },
+                  },
+                ],
+              },
+            }
+        expectedClaims.set(claimId(user), claim)
+        await request(`/work/regions/${claimId(user)}?season=0`, claim, 'PUT', token)
+      }
+    }
+    if (fixture.raid) {
+      for (let extra = fixture.painters; extra < 37; extra++) {
+        const user = fixture.explorers + (extra % fixture.painters)
+        const id = claimId(user, 1000 + extra)
+        const claim = raidClaim(user, { x: fixture.origin.x + extra * 80, y: fixture.origin.y }, 1)
+        expectedClaims.set(id, claim)
+        await request(`/work/regions/${id}?season=0`, claim, 'PUT', credentials[user])
+      }
+    }
+    const initialClaims = {
+      count: expectedClaims.size,
+      documentBytes: [...expectedClaims.values()].reduce(
+        (sum, claim) => sum + Buffer.byteLength(JSON.stringify(claim.document)),
+        0,
+      ),
     }
     for (let user = 0; user < fixture.users; user++) {
       const token = credentials[user]
@@ -501,7 +557,7 @@ export async function traffic({
       }
       clients.push(client)
       const ready = await client.presence.next('presence-ready')
-      assert.equal(ready.regions.length, fixture.painters)
+      assert.equal(ready.regions.length, expectedClaims.size)
       client.live.send({
         type: 'state-vector',
         requestId: uuidV7(),
@@ -511,6 +567,7 @@ export async function traffic({
       await client.live.next('status-snapshot')
     }
     await offer(clients[0], fixture.frames[0])
+    await request('/admin/server/ingest-timings?reset=true')
     await begin()
     measuring = true
     let start = performance.now()
@@ -528,13 +585,14 @@ export async function traffic({
         await Promise.all(jobs)
         if (errors.length) throw new Error(errors.join('\n'))
         await end()
-        for (const counter of [sent, received, latencies])
+        for (const counter of [sent, received, receivedBytesByType, latencies])
           for (const key of Object.keys(counter)) delete counter[key]
         sentBytes = 0
         receivedBytes = 0
         dispatchDelay.length = 0
         presenceLatency.length = 0
         viewportTimes.clear()
+        await request('/admin/server/ingest-timings?reset=true')
         await begin()
         phase = 'measured'
         // Draining must not shorten the measured trace or cause a catch-up burst.
@@ -545,10 +603,82 @@ export async function traffic({
         await Promise.all(jobs)
         serverMetrics = await end()
         measuring = false
+        backendStages = await request('/admin/server/ingest-timings')
         break
       }
       if (measuring) dispatchDelay.push(Math.max(0, performance.now() - start - event.at))
       const client = clients[event.user]
+      if (event.kind === 'reconnect') {
+        const previous = client.presence
+        previous.reconnecting = true
+        previous.socket.close(1000, 'benchmark reconnect')
+        const started = performance.now()
+        launch(
+          (async () => {
+            const replacement = await connect(event.user, 'presence', client.token)
+            await replacement.next('presence-ready')
+            client.presence = replacement
+            if (previous.viewport !== null) sendViewport(client, previous.viewport)
+            replacement.draft = previous.draft
+            if (replacement.draft !== null)
+              replacement.send({ type: 'presence-update', draft: replacement.draft })
+            record('presence-reconnect', performance.now() - started)
+          })(),
+        )
+      }
+      if (event.kind === 'claim') {
+        const id = event.id
+        const claim = raidClaim(event.user, fixture.origin, event.version)
+        const deleting = event.operation === 'delete'
+        if (deleting) expectedClaims.delete(id)
+        else expectedClaims.set(id, claim)
+        const started = performance.now()
+        let timer
+        const delivered = new Promise((resolve, reject) => {
+          // Consecutive edits can overlap within the five-second delivery deadline.
+          claimDeliveries.set(event, {
+            id,
+            document: deleting ? null : claim.document,
+            owner: event.user,
+            started,
+            remaining: new Set(
+              clients
+                .filter(
+                  (client) =>
+                    !hasClaim(
+                      client.presence,
+                      id,
+                      deleting ? null : claim.document,
+                      event.user,
+                      client.id - 800000,
+                    ),
+                )
+                .map((client) => client.id - 800000),
+            ),
+            resolve,
+          })
+          if (claimDeliveries.get(event).remaining.size === 0) resolve()
+          timer = setTimeout(
+            () => reject(new Error(`Claim ${event.operation} delivery timed out`)),
+            commandTimeoutMs,
+          )
+        })
+        launch(
+          Promise.all([
+            request(
+              `/work/regions/${id}?season=0`,
+              deleting ? { actor: claim.actor } : claim,
+              deleting ? 'DELETE' : 'PUT',
+              client.token,
+              commandTimeoutMs,
+            ).then(() => record(`claim-${event.operation}`, performance.now() - started)),
+            delivered,
+          ]).finally(() => {
+            clearTimeout(timer)
+            claimDeliveries.delete(event)
+          }),
+        )
+      }
       if (event.kind === 'viewport') sendViewport(client, event.rect)
       if (event.kind === 'draft') {
         client.presence.draft = event.draft
@@ -601,6 +731,7 @@ export async function traffic({
     // Let the final batch settle, then compare every client's peer set and state with the interest rules.
     await sleep(1000)
     for (const client of clients) {
+      assertClaims(client.presence, expectedClaims, client.id - 800000)
       assert.equal(client.presence.online, fixture.users)
       const expected = clients
         .filter(
@@ -659,10 +790,13 @@ export async function traffic({
       phase,
       warmupJobsDrained,
       serverMetrics,
+      backendStages,
       sent,
       received,
       sentBytes,
       receivedBytes,
+      receivedBytesByType,
+      initialClaims,
       latencies: Object.fromEntries(
         Object.entries(latencies).map(([kind, values]) => [kind, distribution(values)]),
       ),
@@ -672,6 +806,8 @@ export async function traffic({
         online: fixture.users,
         sockets: allSockets.length,
         finalPeerSetsAndDrafts: true,
+        finalClaimsAndOwnership: true,
+        claims: expectedClaims.size,
         paintEvents: expectedPaints.length,
         paintPixels: expectedPaints.length * 30,
         duplicateRejected: expectedPaints.length > 0,

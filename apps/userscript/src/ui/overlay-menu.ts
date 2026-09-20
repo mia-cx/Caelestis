@@ -1863,6 +1863,7 @@ export const renderAllianceOverlayControls = (
     frame.width <= 0 || frame.height <= 0 || geometry.width <= 0 || geometry.height <= 0
       ? null
       : {
+          canvasBox: frame,
           pointFor: (x, y) => ({
             x: frame.left + ((x - geometry.originX) / geometry.width) * frame.width,
             y: frame.top + ((y - geometry.originY) / geometry.height) * frame.height,

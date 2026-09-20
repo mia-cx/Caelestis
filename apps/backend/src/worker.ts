@@ -84,6 +84,8 @@ const appFor = (env: Env): App => {
     new DurableObjectCounterStore(env.TELEMETRY),
     statusReadModelFor(env),
     {
+      readIngestTimings: (season, surface, reset) =>
+        env.PRESENCE.getByName(`${season}:${templateSurfaceKey(surface)}`).readIngestTimings(reset),
       publishRegions: (season, surface) =>
         env.PRESENCE.getByName(`${season}:${templateSurfaceKey(surface)}`).publishRegions(
           season,

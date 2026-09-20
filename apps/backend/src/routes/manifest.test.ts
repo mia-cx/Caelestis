@@ -1,4 +1,4 @@
-import { millis } from '@caelestis/shared'
+import { millis, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryBlobStore } from '../adapters/memory/memory-blob-store.js'
 import { MemoryCounterStore } from '../adapters/memory/memory-counter-store.js'
@@ -7,8 +7,10 @@ import { createApp } from '../app.js'
 import { hashToken } from '../auth/tokens.js'
 import { measureRequest } from '../metrics/request-metrics.js'
 import type { TemplateVersionRecord } from '../ports/index.js'
+import type { PresencePort } from '../presence/port.js'
 import { makeBackendContext } from '../runtime/backend-runtime.js'
 import { DirectStatusReadModel } from '../status-read-model/port.js'
+import { IngestTimings } from '../telemetry/ingest-timing.js'
 
 const BOOTSTRAP = 'bootstrap-operator-token'
 const MEMBER = 'member-token'
@@ -119,6 +121,37 @@ describe('server and manifest routes', () => {
   })
 
   afterEach(() => vi.restoreAllMocks())
+
+  it('reads and resets the presence room clock through its port, for administrators only', async () => {
+    const timings = new IngestTimings()
+    timings.record('presence', 'select', 12)
+    const readIngestTimings = vi.fn<NonNullable<PresencePort['readIngestTimings']>>(
+      async (_season, _surface, reset) => {
+        const snapshot = timings.snapshot()
+        if (reset) timings.reset()
+        return snapshot
+      },
+    )
+    const context = makeBackendContext(
+      new MemoryBlobStore(),
+      sql,
+      new MemoryCounterStore(sql, () => createdAt),
+      new DirectStatusReadModel(sql),
+      { publishRegions: async () => {}, readIngestTimings },
+    )
+    const isolated = createApp(context, serverOptions)
+    const path = '/admin/server/ingest-timings?reset=true'
+    expect((await isolated.request(path, bearer(MEMBER))).status).toBe(403)
+    expect(readIngestTimings).not.toHaveBeenCalled()
+    const response = await isolated.request(path, bearer(BOOTSTRAP))
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      commands: { presence: { select: { count: 1, totalMs: 12 } } },
+      presenceRoom: { season: 7, surface: WORLD_TEMPLATE_SURFACE },
+    })
+    expect(readIngestTimings).toHaveBeenCalledWith(7, WORLD_TEMPLATE_SURFACE, true)
+    expect(timings.snapshot().commands.presence).toEqual({})
+  })
 
   it('serves public server information and reports the configured auth mode', async () => {
     const response = await app.request('/server')

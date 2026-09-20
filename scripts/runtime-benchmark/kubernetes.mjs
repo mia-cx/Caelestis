@@ -87,10 +87,13 @@ export async function benchmarkKubernetes({
   adminToken,
   output,
   observe = false,
+  env = process.env,
+  transport = 'Production images through Traefik HTTPS/WSS and the Node frontend',
 }) {
   const kubectl = async (...args) => {
     const { stdout } = await execute('kubectl', ['--context', context, ...args], {
       encoding: 'utf8',
+      env,
       timeout: 30_000,
       maxBuffer: 32 * 1024 * 1024,
     })
@@ -152,15 +155,19 @@ export async function benchmarkKubernetes({
     ).flat(),
   })
   const warmupMs = 35000
-  const measuredMs = 60000
+  const measuredMs = Number(process.env.CAELESTIS_TEST_BENCHMARK_MEASURE_MS ?? 60000)
+  assert.ok(Number.isInteger(measuredMs) && measuredMs >= 60000, 'Measure for at least 60 seconds')
   const durationMs = warmupMs + measuredMs
   // The corrected trace is 256 users; a capacity ladder raises it with the backend's live
   // subscriber limit raised to match (CAELESTIS_LIVE_SUBSCRIBER_LIMIT through the backend env).
   const users = Number(process.env.CAELESTIS_TEST_BENCHMARK_USERS ?? 256)
   assert.ok(Number.isInteger(users) && users >= 2, 'CAELESTIS_TEST_BENCHMARK_USERS must be >= 2')
-  const fixture = await fixtures(durationMs, users)
+  const scenario = process.env.BENCH_SCENARIO ?? 'stable'
+  assert.ok(['stable', 'raid'].includes(scenario), 'BENCH_SCENARIO must be stable or raid')
+  const fixture = await fixtures(durationMs, users, { raid: scenario === 'raid' })
   const trace = schedule(durationMs, fixture)
   const report = {
+    scenario,
     issue: 390,
     context,
     namespace,
@@ -176,7 +183,7 @@ export async function benchmarkKubernetes({
     measuredMs,
     observe,
     commandTimeoutMs: observe ? OBSERVATION_TIMEOUT_MS : CLIENT_COMMAND_TIMEOUT_MS,
-    transport: 'Production images through Traefik HTTPS/WSS and the Node frontend',
+    transport,
     database: 'Two CNPG PostgreSQL instances with verified TLS; S3 objects in MinIO',
     resources:
       'Kubelet cumulative CPU and cgroup RSS/working set for the five application containers; shared Traefik, operators, storage engines, node services, and driver excluded',
@@ -216,7 +223,7 @@ export async function benchmarkKubernetes({
     driver: process.versions,
     sourceHashes: Object.fromEntries(
       await Promise.all(
-        ['kubernetes.mjs', 'traffic.mjs'].map(async (file) => [
+        ['kubernetes.mjs', 'traffic.mjs', 'raid-claims.mjs'].map(async (file) => [
           file,
           hash(await readFile(new URL(file, import.meta.url))),
         ]),
@@ -285,9 +292,7 @@ export async function benchmarkKubernetes({
     }
     return result
   }
-  // Per-stage backend timings for uploads, offers, and paints, from the backend's own clock.
-  // They cover setup, warmup, and the measured phase together; the acceptance traffic before the
-  // benchmark is excluded by the reset.
+  // Failed runs retain a diagnostic snapshot; successful traffic resets at its measured boundary.
   const backendStages = async (query = '') => {
     try {
       const response = await fetch(`${site}/backend/v1/admin/server/ingest-timings${query}`, {
@@ -300,8 +305,9 @@ export async function benchmarkKubernetes({
     }
   }
   try {
-    await backendStages('?reset=true')
-    console.log(`Replaying ${users} users: 35-second warmup, then 60 measured seconds`)
+    console.log(
+      `Replaying ${users} users: 35-second warmup, then ${measuredMs / 1000} measured seconds`,
+    )
     report.result = await traffic({
       site,
       adminToken,
@@ -313,7 +319,6 @@ export async function benchmarkKubernetes({
       end,
       commandTimeoutMs: report.commandTimeoutMs,
     })
-    report.result.backendStages = await backendStages()
     assert.deepEqual(await inspect(), containers, 'Containers changed during the measured workload')
     report.completed = true
     report.passed = Object.values(report.result.correctness.clientDeadlineMisses).every(

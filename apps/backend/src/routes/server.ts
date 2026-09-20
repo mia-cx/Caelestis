@@ -8,6 +8,7 @@ import {
   type ServerInfo,
   sha256Hex,
   sniffServerAssetContentType,
+  WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { Effect, Context as Services } from 'effect'
 import { Hono } from 'hono'
@@ -16,6 +17,7 @@ import type { ServerAssetRecord, SqlStore } from '../ports/sql-store.js'
 import {
   type BackendRuntime,
   BlobStoreService,
+  PresenceService,
   SqlStoreService,
   StatusReadModelService,
 } from '../runtime/backend-runtime.js'
@@ -310,12 +312,25 @@ export const createServerAdminRoutes = (
   routes.get('/ingest-timings', async (c) => {
     const reset = c.req.query('reset') === 'true'
     const statusReadModel = Services.get(runtime.context, StatusReadModelService)
-    if (statusReadModel.readIngestTimings !== undefined) {
-      return c.json(await statusReadModel.readIngestTimings(currentSeason, reset))
-    }
-    const snapshot = ingestTimings.snapshot()
-    if (reset) ingestTimings.reset()
-    return c.json(snapshot)
+    const snapshot =
+      statusReadModel.readIngestTimings !== undefined
+        ? await statusReadModel.readIngestTimings(currentSeason, reset)
+        : ingestTimings.snapshot()
+    if (reset && statusReadModel.readIngestTimings === undefined) ingestTimings.reset()
+    const presence = Services.get(runtime.context, PresenceService)
+    if (presence.readIngestTimings === undefined) return c.json(snapshot)
+    // A presence Durable Object has its own isolate and clock. The admin endpoint covers the
+    // current season's world room explicitly, rather than returning another isolate's zeros.
+    const room = await presence.readIngestTimings(currentSeason, WORLD_TEMPLATE_SURFACE, reset)
+    return c.json({
+      ...snapshot,
+      commands: {
+        ...snapshot.commands,
+        presence: room.commands.presence,
+        claims: room.commands.claims,
+      },
+      presenceRoom: { season: currentSeason, surface: WORLD_TEMPLATE_SURFACE, since: room.since },
+    })
   })
 
   return routes

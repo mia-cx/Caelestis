@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url'
 import { uuidV7 } from '../../packages/shared/dist/index.js'
 
 const backendRequire = createRequire(new URL('../../apps/backend/package.json', import.meta.url))
+const { unstable_splitSqlQuery: splitSqlQuery } = backendRequire('wrangler')
 const wranglerRequire = createRequire(backendRequire.resolve('wrangler/package.json'))
 const miniflareRequire = createRequire(wranglerRequire.resolve('miniflare'))
 const { Miniflare, convertV4MiniflareOptions } = wranglerRequire('miniflare')
@@ -71,15 +72,8 @@ try {
   const database = await mf.getD1Database('DB')
   const migrationRoot = new URL('../../apps/backend/migrations/', import.meta.url)
   for (const name of (await readdir(migrationRoot)).filter((x) => x.endsWith('.sql')).sort()) {
-    const source = (await readFile(new URL(name, migrationRoot), 'utf8')).replaceAll(
-      '--> statement-breakpoint',
-      '',
-    )
-    for (const statement of source
-      .split(';')
-      .map((x) => x.trim())
-      .filter(Boolean))
-      await database.prepare(statement).run()
+    const source = await readFile(new URL(name, migrationRoot), 'utf8')
+    for (const statement of splitSqlQuery(source)) await database.prepare(statement).run()
   }
   // Include workerd and the Miniflare controller. Measuring Node alone misses the actual runtime.
   const children = async (pid) => {

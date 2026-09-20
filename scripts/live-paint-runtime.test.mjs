@@ -16,6 +16,7 @@ import {
 
 // Exercise the runtime shipped with our installed Wrangler, using only ephemeral local bindings.
 const backendRequire = createRequire(new URL('../apps/backend/package.json', import.meta.url))
+const { unstable_splitSqlQuery: splitSqlQuery } = backendRequire('wrangler')
 const wranglerRequire = createRequire(backendRequire.resolve('wrangler/package.json'))
 const { Miniflare, convertV4MiniflareOptions } = wranglerRequire('miniflare')
 const { build } = createRequire(new URL('../apps/userscript/package.json', import.meta.url))(
@@ -76,15 +77,8 @@ test('100k paint pixels survive live framing and acknowledgement replay in worke
   for (const file of (await readdir(migrationRoot))
     .filter((name) => name.endsWith('.sql'))
     .sort()) {
-    const source = (await readFile(new URL(file, migrationRoot), 'utf8')).replaceAll(
-      '--> statement-breakpoint',
-      '',
-    )
-    for (const statement of source
-      .split(';')
-      .map((sql) => sql.trim())
-      .filter(Boolean))
-      await database.prepare(statement).run()
+    const source = await readFile(new URL(file, migrationRoot), 'utf8')
+    for (const statement of splitSqlQuery(source)) await database.prepare(statement).run()
   }
   const sql = new D1SqlStore(database)
   const blobs = await mf.getR2Bucket('BLOBS')

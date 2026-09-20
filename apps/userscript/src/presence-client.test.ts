@@ -439,6 +439,26 @@ describe('presence client', () => {
     socket.receive({ type: 'regions', regions: [region, { bogus: true }] })
     expect(client.presenceView().regions).toEqual([region])
     expect(changes).toHaveBeenCalled()
+    const held = client.presenceView().regions[0]
+    const document = client.presenceView().regions[0]?.document
+    socket.receive({ type: 'regions', regions: [region] })
+    expect(client.presenceView().regions[0]).toBe(held)
+    socket.receive({
+      type: 'regions',
+      regions: [{ ...region, label: 'New label', expiresAt: 200 }],
+    })
+    expect(client.presenceView().regions[0]).toMatchObject({ label: 'New label', expiresAt: 200 })
+    expect(client.presenceView().regions[0]?.document).toBe(document)
+    socket.receive({
+      type: 'regions',
+      regions: [
+        { ...region, document: { items: [{ ...region.document.items[0], op: 'subtract' }] } },
+      ],
+    })
+    expect(client.presenceView().regions[0]?.document).not.toBe(document)
+    socket.receive({ type: 'regions', regions: [] })
+    socket.receive({ type: 'regions', regions: [region] })
+    expect(client.presenceView().regions[0]?.document).not.toBe(document)
   })
 
   it('renews only the credential-owned IDs and keeps HTTP snapshots until a socket is ready', async () => {

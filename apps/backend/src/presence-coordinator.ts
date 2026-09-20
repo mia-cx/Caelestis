@@ -33,6 +33,12 @@ import { presenceRectWithinSurface } from './presence/geometry.js'
 import type { PresenceConnection } from './presence/port.js'
 import type { LiveHost, LiveSocket } from './status-coordinator.js'
 import { createLiveSessionFence } from './status-coordinator.js'
+import {
+  type IngestTimingSnapshot,
+  type IngestTimings,
+  ingestTimings,
+} from './telemetry/ingest-timing.js'
+import type { RegionOwner } from './work/region-store.js'
 
 interface Attachment extends PresenceConnection {
   readonly sessionId: string
@@ -89,13 +95,27 @@ export class PresenceCoordinator<Client> {
   private readonly sent = new Map<string, Set<string>>()
   private readonly onlineSent = new Map<string, number>()
   private readonly dirty = new Set<string>()
+  private regionSnapshot: string | null = null
+  private regionVersion = 0
+  private readonly claimsSent = new Map<
+    string,
+    { readonly version: number; readonly owned: string }
+  >()
   private timer: ReturnType<typeof setTimeout> | null = null
   private stopped = false
 
   constructor(
     private readonly state: PresenceHost<Client>,
     private readonly sql: SqlStore,
+    private readonly timings: IngestTimings = ingestTimings,
   ) {}
+
+  /** Read this room's diagnostic clock; portable hosts may share a process-wide collector. */
+  readIngestTimings(reset: boolean): IngestTimingSnapshot {
+    const snapshot = this.timings.snapshot()
+    if (reset) this.timings.reset()
+    return snapshot
+  }
 
   private attachment(socket: LiveSocket): Attachment {
     return socket.deserializeAttachment() as Attachment
@@ -135,15 +155,25 @@ export class PresenceCoordinator<Client> {
     const viewport = subscriber.viewport
     if (viewport === null) return []
     const interest = padRect(viewport, PRESENCE_INTEREST_PADDING)
-    return peers
-      .flatMap((peer) => {
-        if (peer.sessionId === subscriber.sessionId) return []
-        const rects = [peer.viewport, peer.draft?.rect].filter((rect) => rect != null)
-        if (!rects.some((rect) => rectsIntersect(interest, rect))) return []
-        return [
-          { peer, distance: Math.min(...rects.map((rect) => rectCentreDistance(viewport, rect))) },
-        ]
+    const candidates: { peer: PresencePeer; distance: number }[] = []
+    for (const peer of peers) {
+      if (peer.sessionId === subscriber.sessionId) continue
+      const other = peer.viewport
+      const draft = peer.draft?.rect
+      if (
+        !(other !== null && rectsIntersect(interest, other)) &&
+        !(draft !== undefined && rectsIntersect(interest, draft))
+      )
+        continue
+      candidates.push({
+        peer,
+        distance: Math.min(
+          other === null ? Number.POSITIVE_INFINITY : rectCentreDistance(viewport, other),
+          draft === undefined ? Number.POSITIVE_INFINITY : rectCentreDistance(viewport, draft),
+        ),
       })
+    }
+    return candidates
       .sort((a, b) => a.distance - b.distance || a.peer.sessionId.localeCompare(b.peer.sessionId))
       .slice(0, MAX_PRESENCE_PEERS)
       .map(({ peer }) => peer)
@@ -151,7 +181,37 @@ export class PresenceCoordinator<Client> {
 
   private send(socket: LiveSocket, event: PresenceServerEvent): void {
     try {
-      socket.send(JSON.stringify(event))
+      const started = performance.now()
+      if (
+        (event.type === 'regions' || event.type === 'presence-ready') &&
+        event.ownedRegionIds !== undefined
+      ) {
+        // Ownership may be read after a concurrent claim insert. Advertise only IDs and actors
+        // present in this snapshot; the mutation's queued publication carries the newer claim.
+        const actors = new Map(
+          event.regions.map((region) => [region.id, region.claimant.wplaceUserId]),
+        )
+        const actor = this.attachment(socket).painter.wplaceUserId
+        event = {
+          ...event,
+          ownedRegionIds: event.ownedRegionIds.filter((id) => actors.get(id) === actor),
+        }
+      }
+      const payload = JSON.stringify(event)
+      this.timings.record(
+        event.type === 'regions' ? 'claims' : 'presence',
+        'serialize',
+        performance.now() - started,
+      )
+      this.sendEncoded(socket, payload)
+    } catch {
+      this.close(socket, 1011, 'presence send failed')
+    }
+  }
+
+  private sendEncoded(socket: LiveSocket, payload: string): void {
+    try {
+      socket.send(payload)
     } catch {
       this.close(socket, 1011, 'presence send failed')
     }
@@ -190,72 +250,98 @@ export class PresenceCoordinator<Client> {
   }
 
   private async tick(): Promise<void> {
-    await this.sessions.revoke(async () => {
-      const recovering = this.sockets().find(
-        (socket) => !this.sent.has(this.attachment(socket).sessionId),
-      )
-      const attachment = recovering === undefined ? undefined : this.attachment(recovering)
-      const regions =
-        attachment === undefined
-          ? []
-          : await this.sql.regions.listRegions(attachment.season, attachment.surface)
-      const now = Date.now()
-      for (const socket of this.sockets()) {
-        if (now - this.attachment(socket).lastSeenAt >= PRESENCE_STALE_MS)
-          this.close(socket, 1000, 'presence stale')
-      }
-      const sockets = this.sockets()
-      for (const socket of sockets) {
-        const held = this.attachment(socket)
-        if (held.anonymous || now - (held.renewedAt ?? 0) < CLAIM_RENEW_INTERVAL_MS) continue
-        // A valid heartbeat/update has kept this session alive. Ownership always uses both keys,
-        // including for administrators; connecting must never renew another painter's claims.
-        const renewed = await this.sql.regions.renewRegions(
-          held.tokenHash,
-          held.painter.wplaceUserId,
-          now,
+    const queued = performance.now()
+    await this.sessions.revoke(async () =>
+      this.timings.timed('presence', 'total', async () => {
+        this.timings.record('presence', 'queue', performance.now() - queued)
+        const recovering = this.sockets().find(
+          (socket) => !this.sent.has(this.attachment(socket).sessionId),
         )
-        socket.serializeAttachment({ ...held, renewedAt: now } satisfies Attachment)
-        if (renewed)
-          this.send(socket, {
-            type: 'claims-renewed',
-            expiresAt: now + REGION_CLAIM_TTL_MS,
-            ids: await this.ownedRegionIds(held),
-          })
-      }
-      const peers = sockets.map((socket) => this.peer(this.attachment(socket)))
-      const dirty = new Set(this.dirty)
-      this.dirty.clear()
-      for (const socket of sockets) {
-        const subscriber = this.attachment(socket)
-        const relevant = this.relevant(subscriber, peers)
-        const previous = this.sent.get(subscriber.sessionId)
-        const next = new Set(relevant.map((peer) => peer.sessionId))
-        this.sent.set(subscriber.sessionId, next)
-        if (previous === undefined) {
-          this.onlineSent.set(subscriber.sessionId, sockets.length)
-          this.send(socket, {
-            type: 'presence-ready',
-            sessionId: subscriber.sessionId,
-            online: sockets.length,
-            peers: relevant,
-            regions,
-            ownedRegionIds: await this.ownedRegionIds(subscriber),
-            canWrite: subscriber.credentialScope !== 'read' && !subscriber.anonymous,
-          })
-          continue
+        const attachment = recovering === undefined ? undefined : this.attachment(recovering)
+        const regions =
+          attachment === undefined
+            ? []
+            : await this.timings.timed('claims', 'list', () =>
+                this.sql.regions.listRegions(attachment.season, attachment.surface),
+              )
+        const now = Date.now()
+        for (const socket of this.sockets()) {
+          if (now - this.attachment(socket).lastSeenAt >= PRESENCE_STALE_MS)
+            this.close(socket, 1000, 'presence stale')
         }
-        const upsert = relevant.filter(
-          (peer) => dirty.has(peer.sessionId) || !previous.has(peer.sessionId),
-        )
-        const remove = [...previous].filter((id) => !next.has(id))
-        const onlineChanged = this.onlineSent.get(subscriber.sessionId) !== sockets.length
-        this.onlineSent.set(subscriber.sessionId, sockets.length)
-        if (upsert.length || remove.length || onlineChanged)
-          this.send(socket, { type: 'presence-delta', online: sockets.length, upsert, remove })
-      }
-      await this.armAlarm()
-    })
+        const sockets = this.sockets()
+        for (const socket of sockets) {
+          const held = this.attachment(socket)
+          if (held.anonymous || now - (held.renewedAt ?? 0) < CLAIM_RENEW_INTERVAL_MS) continue
+          // A valid heartbeat/update has kept this session alive. Ownership always uses both keys,
+          // including for administrators; connecting must never renew another painter's claims.
+          const renewed = await this.timings.timed('claims', 'renew', () =>
+            this.sql.regions.renewRegions(held.tokenHash, held.painter.wplaceUserId, now),
+          )
+          socket.serializeAttachment({ ...held, renewedAt: now } satisfies Attachment)
+          if (renewed)
+            this.send(socket, {
+              type: 'claims-renewed',
+              expiresAt: now + REGION_CLAIM_TTL_MS,
+              ids: await this.ownedRegionIds(held),
+            })
+        }
+        const peers = sockets.map((socket) => this.peer(this.attachment(socket)))
+        const dirty = new Set(this.dirty)
+        this.dirty.clear()
+        // Recovery replies share one committed owner list inside this revocation fence. Do not
+        // retain it across ticks, where a credential transfer or expiry could invalidate it.
+        const recoveryOwners =
+          attachment !== undefined &&
+          sockets.some((socket) => {
+            const held = this.attachment(socket)
+            return !held.anonymous && !this.sent.has(held.sessionId)
+          })
+            ? await this.timings.timed('claims', 'owners', () =>
+                this.sql.regions.regionOwners(attachment.season, attachment.surface),
+              )
+            : undefined
+        for (const socket of sockets) {
+          const subscriber = this.attachment(socket)
+          const previous = this.sent.get(subscriber.sessionId)
+          // Heartbeats only refresh liveness. Recovery, membership changes and dirty peer state
+          // still recompute every recipient so moving viewports can discover previously unseen peers.
+          if (
+            previous !== undefined &&
+            dirty.size === 0 &&
+            this.onlineSent.get(subscriber.sessionId) === sockets.length
+          )
+            continue
+          const started = performance.now()
+          const relevant = this.relevant(subscriber, peers)
+          this.timings.record('presence', 'select', performance.now() - started)
+          const next = new Set(relevant.map((peer) => peer.sessionId))
+          this.sent.set(subscriber.sessionId, next)
+          if (previous === undefined) {
+            this.onlineSent.set(subscriber.sessionId, sockets.length)
+            this.send(socket, {
+              type: 'presence-ready',
+              sessionId: subscriber.sessionId,
+              online: sockets.length,
+              peers: relevant,
+              regions,
+              ownedRegionIds: await this.ownedRegionIds(subscriber, recoveryOwners),
+              canWrite: subscriber.credentialScope !== 'read' && !subscriber.anonymous,
+            })
+            continue
+          }
+          const upsert = relevant.filter(
+            (peer) => dirty.has(peer.sessionId) || !previous.has(peer.sessionId),
+          )
+          const remove = [...previous].filter((id) => !next.has(id))
+          const onlineChanged = this.onlineSent.get(subscriber.sessionId) !== sockets.length
+          this.onlineSent.set(subscriber.sessionId, sockets.length)
+          if (upsert.length || remove.length || onlineChanged)
+            this.send(socket, { type: 'presence-delta', online: sockets.length, upsert, remove })
+        }
+        await this.armAlarm()
+      }),
+    )
   }
 
   private drop(socket: LiveSocket): void {
@@ -266,6 +352,7 @@ export class PresenceCoordinator<Client> {
     this.rates.delete(id)
     this.sent.delete(id)
     this.onlineSent.delete(id)
+    this.claimsSent.delete(id)
     this.dirty.add(id)
     this.armTick()
   }
@@ -491,29 +578,76 @@ export class PresenceCoordinator<Client> {
 
   /** Reload committed claims and deliver the surface's authoritative region list. */
   async publishRegions(season: number, surface: TemplateSurface): Promise<void> {
-    await this.sessions.revoke(async () => {
-      const regions = await this.sql.regions.listRegions(season, surface)
-      await this.rememberRegionExpiry(season, surface, regions)
-      const owners = await this.sql.regions.regionOwners(season, surface)
-      for (const socket of this.sockets()) {
-        const attachment = this.attachment(socket)
-        const ownedRegionIds = attachment.anonymous
-          ? []
-          : owners
-              .filter(
-                ({ tokenHash, actorId }) =>
-                  tokenHash === attachment.tokenHash && actorId === attachment.painter.wplaceUserId,
-              )
-              .map(({ id }) => id)
-        this.send(socket, { type: 'regions', regions, ownedRegionIds })
-      }
-      await this.armAlarm()
-    })
+    const queued = performance.now()
+    await this.sessions.revoke(async () =>
+      this.timings.timed('claims', 'total', async () => {
+        this.timings.record('claims', 'queue', performance.now() - queued)
+        const regions = await this.timings.timed('claims', 'list', () =>
+          this.sql.regions.listRegions(season, surface),
+        )
+        await this.rememberRegionExpiry(season, surface, regions)
+        const owners = await this.timings.timed('claims', 'owners', () =>
+          this.sql.regions.regionOwners(season, surface),
+        )
+        const started = performance.now()
+        const snapshot = JSON.stringify(regions)
+        if (snapshot !== this.regionSnapshot) {
+          this.regionSnapshot = snapshot
+          this.regionVersion++
+        }
+        const grouped = new Map<string, Map<number, string[]>>()
+        const actorsInSnapshot = new Map(
+          regions.map((region) => [region.id, region.claimant.wplaceUserId]),
+        )
+        for (const owner of owners) {
+          if (actorsInSnapshot.get(owner.id) !== owner.actorId) continue
+          let actors = grouped.get(owner.tokenHash)
+          if (actors === undefined) {
+            actors = new Map()
+            grouped.set(owner.tokenHash, actors)
+          }
+          let ids = actors.get(owner.actorId)
+          if (ids === undefined) {
+            ids = []
+            actors.set(owner.actorId, ids)
+          }
+          ids.push(owner.id)
+        }
+        // SQL row order is unspecified; equivalent ownership sets must share a cache key.
+        for (const actors of grouped.values()) for (const ids of actors.values()) ids.sort()
+        const prefix = `{"type":"regions","regions":${snapshot},"ownedRegionIds":`
+        this.timings.record('claims', 'serialize', performance.now() - started)
+        for (const socket of this.sockets()) {
+          const attachment = this.attachment(socket)
+          const started = performance.now()
+          const owned = JSON.stringify(
+            attachment.anonymous
+              ? []
+              : (grouped.get(attachment.tokenHash)?.get(attachment.painter.wplaceUserId) ?? []),
+          )
+          const previous = this.claimsSent.get(attachment.sessionId)
+          this.timings.record('claims', 'serialize', performance.now() - started)
+          // Ownership can change without changing public geometry. Compare both, inside the
+          // revocation fence, and forget delivery state on disconnect or hibernation recovery.
+          if (previous?.version === this.regionVersion && previous.owned === owned) continue
+          this.claimsSent.set(attachment.sessionId, { version: this.regionVersion, owned })
+          this.sendEncoded(socket, `${prefix}${owned}}`)
+        }
+        await this.armAlarm()
+      }),
+    )
   }
 
-  private async ownedRegionIds(attachment: Attachment): Promise<readonly string[]> {
+  private async ownedRegionIds(
+    attachment: Attachment,
+    recoveredOwners?: readonly RegionOwner[],
+  ): Promise<readonly string[]> {
     if (attachment.anonymous) return []
-    const owners = await this.sql.regions.regionOwners(attachment.season, attachment.surface)
+    const owners =
+      recoveredOwners ??
+      (await this.timings.timed('claims', 'owners', () =>
+        this.sql.regions.regionOwners(attachment.season, attachment.surface),
+      ))
     return owners
       .filter(
         ({ tokenHash, actorId }) =>

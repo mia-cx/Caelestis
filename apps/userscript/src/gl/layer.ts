@@ -296,7 +296,13 @@ export const overlayLayer = {
     // template made a dense viewport repeat the same native query dozens of times per frame.
     const reducedMotion = prefersReducedMotion()
     const profiling = isProfileEnabled()
-    const scene = worldRenderScene.advanceTemplates(all, WORLD_TEMPLATE_SURFACE, now, reducedMotion)
+    const scene = worldRenderScene.advanceTemplates(
+      all,
+      WORLD_TEMPLATE_SURFACE,
+      now,
+      reducedMotion,
+      tiles,
+    )
     let animating = scene.animating || !peek.done
     let visibleSourcePixels = 0
     const visible: {
@@ -539,6 +545,7 @@ export const outlineLayer = {
       WORLD_TEMPLATE_SURFACE,
       now,
       prefersReducedMotion(),
+      currentQuads(),
     )
     if (
       !scene.templates.some(

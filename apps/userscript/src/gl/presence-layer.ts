@@ -15,7 +15,9 @@ import { presenceView } from '../presence-client.js'
 import { presenceRgb } from '../presence-colour.js'
 import { hoveredPresenceItems } from '../presence-hover.js'
 import {
+  clearGpuProfile,
   measureProfile,
+  profileGpu,
   recordProfileCounter,
   recordProfileWorkload,
   registerProfileMemorySource,
@@ -243,8 +245,9 @@ const shapeTexels = ({
 /** What the presence view and the claim editor say should be on screen, keyed for fading. */
 const currentItems = (): Item[] => {
   const view = presenceView()
+  const flags = getState()
   const items: Item[] = []
-  for (const peer of view.peers) {
+  for (const peer of flags.showPresence && flags.showPresenceViewports ? view.peers : []) {
     const colour = presenceRgb(peer.painter.wplaceUserId)
     if (peer.viewport !== null) {
       items.push({
@@ -265,7 +268,12 @@ const currentItems = (): Item[] => {
       })
     }
   }
-  for (const claim of displayClaims(view.regions, claimEditorEditingIds())) {
+  // Keep complete display unions, including offscreen members, but skip hidden preparation.
+  const claims =
+    flags.showPresence && flags.showPresenceClaims
+      ? displayClaims(view.regions, claimEditorEditingIds())
+      : []
+  for (const claim of claims) {
     const region = claim.regions[0]
     items.push({
       key: `region:${claim.id}`,
@@ -449,6 +457,33 @@ class PresenceLayer {
     }
   }
 
+  /** Test the clipped tile intersection, not just tile bounds extending beyond the canvas. */
+  private visible(
+    rect: PresenceRect,
+    tiles: readonly TileQuad[],
+    width: number,
+    height: number,
+  ): boolean {
+    return tiles.some((tile) => {
+      if (!rectsIntersect(rect, tileRect(tile))) return false
+      const scaleX = tile.width / TILE_SIZE
+      const scaleY = tile.height / TILE_SIZE
+      const left =
+        tile.x + (Math.max(rect.x, tile.tile.x * TILE_SIZE) - tile.tile.x * TILE_SIZE) * scaleX
+      const top =
+        tile.y + (Math.max(rect.y, tile.tile.y * TILE_SIZE) - tile.tile.y * TILE_SIZE) * scaleY
+      const right =
+        tile.x +
+        (Math.min(rect.x + rect.w, (tile.tile.x + 1) * TILE_SIZE) - tile.tile.x * TILE_SIZE) *
+          scaleX
+      const bottom =
+        tile.y +
+        (Math.min(rect.y + rect.h, (tile.tile.y + 1) * TILE_SIZE) - tile.tile.y * TILE_SIZE) *
+          scaleY
+      return left < width && top < height && right > 0 && bottom > 0
+    })
+  }
+
   onAdd(_map: unknown, gl: WebGL2RenderingContext): void {
     // A replacement map can arrive without the old one delivering `onRemove`; those handles belong
     // to the old context, so forget them rather than delete them here.
@@ -477,6 +512,7 @@ class PresenceLayer {
 
   onRemove(_map: unknown, gl: WebGL2RenderingContext): void {
     if (this.owner !== gl) return
+    clearGpuProfile(gl)
     this.owner = null
     this.releaseMasks(gl, new Set())
     if (this.quad !== null) gl.deleteBuffer(this.quad)
@@ -491,7 +527,9 @@ class PresenceLayer {
   render(gl: WebGL2RenderingContext, _args: unknown): void {
     // A throw from a custom layer freezes MapLibre's whole render loop, so it never escapes.
     try {
-      measureProfile('Presence overlay', () => this.draw(gl))
+      measureProfile('Presence overlay', () =>
+        profileGpu(gl, 'Presence overlay GPU', () => this.draw(gl)),
+      )
     } catch (error) {
       warn('install', 'presence layer render failed; skipping this frame', String(error))
     }
@@ -501,15 +539,8 @@ class PresenceLayer {
     const { program, vao, quad } = this
     if (program === null || vao === null || quad === null) return
     const now = performance.now()
-    const state = getState()
-    const shown = state.showPresence
     // The editor's own claim shows even with other painters hidden; it is the user's own work.
-    const items = currentItems().filter(
-      (item) =>
-        item.kind === 'tool' ||
-        (shown &&
-          (item.kind === 'region' ? state.showPresenceClaims : state.showPresenceViewports)),
-    )
+    const items = currentItems()
     const hovered = hoveredPresenceItems()
     recordProfileWorkload('Presence overlay items', items.length)
     const keys = new Set<string>()
@@ -557,7 +588,6 @@ class PresenceLayer {
         gl.uniform1f(this.uniform(gl, 'u_scale'), deviceScale)
         for (const { item, fade } of drawn) {
           const style = STYLES[item.kind]
-          const texture = this.maskTexture(gl, item)
           // Your own claim, or any painter's viewport, under the pointer: the fill and pattern
           // fade out over the shared ramp and the outline stays, so the pixels underneath show
           // in their true colours. Other painters' claims keep their fill.
@@ -568,6 +598,10 @@ class PresenceLayer {
             aside = ramp.value
             if (!ramp.done) animating = true
           }
+          const shown = this.displayRect(item, now)
+          if (shown.moving) animating = true
+          if (!this.visible(shown.rect, tiles, bufferWidth, bufferHeight)) continue
+          const texture = this.maskTexture(gl, item)
           const fill = 1 - aside
           gl.uniform3f(this.uniform(gl, 'u_colour'), item.colour[0], item.colour[1], item.colour[2])
           gl.uniform1f(this.uniform(gl, 'u_fill'), style.fill * fade * fill)
@@ -581,8 +615,6 @@ class PresenceLayer {
           gl.activeTexture(gl.TEXTURE0)
           gl.bindTexture(gl.TEXTURE_2D, texture)
           gl.uniform1i(this.uniform(gl, 'u_mask'), 0)
-          const shown = this.displayRect(item, now)
-          if (shown.moving) animating = true
           this.drawRect(gl, shown.rect, tiles, bufferWidth, bufferHeight)
         }
         gl.bindVertexArray(null)

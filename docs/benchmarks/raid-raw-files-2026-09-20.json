@@ -1,0 +1,80 @@
+[
+  {
+    "file": "backend-476-samples.tar.gz",
+    "url": "https://i.mia.cx/file/2026/09/backend-476-samples.tar-f597f9.gz",
+    "sha256": "eca0306f54afc355f0b1230e6785bea1d0bd7ad9aeb8c583a6fae53271265965",
+    "bytes": 86598560
+  },
+  {
+    "file": "backend-477-bun.json.gz",
+    "url": "https://i.mia.cx/file/2026/09/backend-477-bun.json-213fd2.gz",
+    "sha256": "7c1bbd94284c319d4337e25fe5406ea7d228846044dfb3b342f43a420296ab57",
+    "bytes": 93506115
+  },
+  {
+    "file": "backend-475-samples.tar.gz",
+    "url": "https://i.mia.cx/file/2026/09/backend-475-samples.tar-8078ec.gz",
+    "sha256": "a7fed9aba2b63ebb7c555ce3175405f09209eb0caaa74d6779719c2085532471",
+    "bytes": 86128331
+  },
+  {
+    "file": "capacity-bun-raid-288.json.gz",
+    "url": "https://i.mia.cx/file/2026/09/capacity-bun-raid-288.json-bed8ec.gz",
+    "sha256": "f0fe467c6931186981b64ff716f8d16a4a2b3f03dabd9e259a701d9597b7d502",
+    "bytes": 17456360
+  },
+  {
+    "file": "capacity-bun-raid-320.json.gz",
+    "url": "https://i.mia.cx/file/2026/09/capacity-bun-raid-320.json-a79c0f.gz",
+    "sha256": "9ebbb3d8ee8368361b3bff98db36c39f5bfb0279c29b6178e33fdbbf059af25a",
+    "bytes": 19117967
+  },
+  {
+    "file": "capacity-bun-raid-384.json.gz",
+    "url": "https://i.mia.cx/file/2026/09/capacity-bun-raid-384.json-31253a.gz",
+    "sha256": "63672233fff4c01ae99cd398ee4cb5322bc0362353af043a5257739a7e991514",
+    "bytes": 22849117
+  },
+  {
+    "file": "capacity-bun-stable-256.json.gz",
+    "url": "https://i.mia.cx/file/2026/09/capacity-bun-stable-256.json-1f5d61.gz",
+    "sha256": "640ef00e374f0e6a374f8225e6186d99b8566cea532fb2170deedbfa0eda0180",
+    "bytes": 14985402
+  },
+  {
+    "file": "backend-477-node.json.gz",
+    "url": "https://i.mia.cx/file/2026/09/backend-477-node.json-0d4a6a.gz",
+    "sha256": "7eeb87b9c026188d130b5706fffe75c352390c404ed8d2aec65f781d9ff29ca1",
+    "bytes": 92718648
+  },
+  {
+    "file": "capacity-node-raid-288.json.gz",
+    "url": "https://i.mia.cx/file/2026/09/capacity-node-raid-288.json-6a0c26.gz",
+    "sha256": "e5881fbd2e172a395371aaa3c3dabafd32094a885972b633b3d6d03f16cc2702",
+    "bytes": 17337667
+  },
+  {
+    "file": "capacity-node-raid-320.json.gz",
+    "url": "https://i.mia.cx/file/2026/09/capacity-node-raid-320.json-0d32eb.gz",
+    "sha256": "6a8e498ed84c41c591a6e778dd00d9a6c167d789b11cadae8a222d4fdaa43ad5",
+    "bytes": 18902676
+  },
+  {
+    "file": "measured-source.bundle",
+    "url": "https://i.mia.cx/file/2026/09/measured-source-22461b.bundle",
+    "sha256": "32031745b2bb37bcf5178550eb2d9472463cf7adfed0226d8b5452fce81dea6d",
+    "bytes": 542811
+  },
+  {
+    "file": "capacity-node-raid-384.json.gz",
+    "url": "https://i.mia.cx/file/2026/09/capacity-node-raid-384.json-9822e3.gz",
+    "sha256": "60e49e6775f5456951b30f9256abbab0d7d376223cf292c5f30816df208f844a",
+    "bytes": 22561893
+  },
+  {
+    "file": "capacity-node-stable-256.json.gz",
+    "url": "https://i.mia.cx/file/2026/09/capacity-node-stable-256.json-f9f760.gz",
+    "sha256": "181266aa079dbe818707609656430b6c62b12317344996f20da2b3e8d6643e70",
+    "bytes": 14910246
+  }
+]
