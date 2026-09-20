@@ -17,7 +17,7 @@ const { template } = $derived(entry)
 
 <a
   href="/template/{template.id}"
-  class="group flex flex-col overflow-hidden rounded-2xl border-[1.5px] border-base-300 bg-base-100 focus-visible:outline-2 focus-visible:outline-primary"
+  class="group flex flex-col overflow-hidden pixel-card bg-base-100 focus-visible:outline-2 focus-visible:outline-primary"
 >
   <div class="flex h-44 justify-center overflow-hidden border-b-[1.5px] border-base-300">
     <TemplateCanvas {template} {canvas} class="h-44 w-auto" />

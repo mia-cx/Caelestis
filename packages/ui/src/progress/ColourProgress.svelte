@@ -1,24 +1,18 @@
 <script lang="ts">
   import MenuStyles from '../foundations/MenuStyles.svelte'
   import { formatCount, formatExactCount, formatPixels, type TemplateColourStatus, WPLACE_PALETTE } from '@caelestis/shared'
+  import type { Snippet } from 'svelte'
   import type { ColourProgressSort } from '../types.js'
+  import { COLOUR_PROGRESS_SORTS as sorts } from './colour-sorts.js'
 
-  let { colours, sort = 'index', onSortChange }: {
+  let { colours, sort = 'index', onSortChange, sortControl }: {
     colours: readonly TemplateColourStatus[]
     sort?: ColourProgressSort
     onSortChange?: (sort: ColourProgressSort) => void
+    /** A host's own picker in place of the native select, which no stylesheet can reach. */
+    sortControl?: Snippet
   } = $props()
 
-  const sorts: ReadonlyArray<{ key: ColourProgressSort; label: string }> = [
-    { key: 'index', label: 'palette index' },
-    { key: 'progress', label: 'highest %' },
-    { key: 'progress-asc', label: 'lowest %' },
-    { key: 'remaining', label: 'most left' },
-    { key: 'remaining-asc', label: 'least left' },
-    { key: 'total', label: 'biggest' },
-    { key: 'free', label: 'free first' },
-    { key: 'premium', label: 'premium first' },
-  ]
 
   const rows = $derived.by(() => {
     const resolved = colours.flatMap((colour) => {
@@ -50,10 +44,14 @@
 <MenuStyles />
 
 <div class="toolbar">
-  <label for="caelestis-colour-sort">Sort by</label>
-  <select class="caelestis-select" id="caelestis-colour-sort" value={sort} onchange={(event) => onSortChange?.(event.currentTarget.value as ColourProgressSort)}>
-    {#each sorts as option (option.key)}<option value={option.key}>{option.label}</option>{/each}
-  </select>
+  {#if sortControl}
+    {@render sortControl()}
+  {:else}
+    <label for="caelestis-colour-sort">Sort by</label>
+    <select class="caelestis-select" id="caelestis-colour-sort" value={sort} onchange={(event) => onSortChange?.(event.currentTarget.value as ColourProgressSort)}>
+      {#each sorts as option (option.key)}<option value={option.key}>{option.label}</option>{/each}
+    </select>
+  {/if}
 </div>
 <ul>
   {#each rows as { colour, palette, done } (colour.index)}

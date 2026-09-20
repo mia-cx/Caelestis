@@ -295,6 +295,322 @@
    * Small is a 3 step stair for controls, large a 4 step stair for cards. clip-path clips shadows and
    * outlines with it, so focus rings draw inside the box (see the base layer).
    */
+  /*
+   * Boxes with a real border: the outer stair clips the box, and a pseudo-element paints the border
+   * colour through an evenodd ring (outer stair minus a one unit smaller stair inset by one unit), so
+   * the border follows the corner instead of being sliced by it. Buttons round at 6 units, cards at 10.
+   */
+  --pixel-btn-outer: polygon(
+    0 calc(6 * var(--px)),
+    0 calc(5 * var(--px)),
+    0 calc(4 * var(--px)),
+    calc(1 * var(--px)) calc(4 * var(--px)),
+    calc(1 * var(--px)) calc(3 * var(--px)),
+    calc(1 * var(--px)) calc(2 * var(--px)),
+    calc(2 * var(--px)) calc(2 * var(--px)),
+    calc(2 * var(--px)) calc(1 * var(--px)),
+    calc(4 * var(--px)) calc(1 * var(--px)),
+    calc(4 * var(--px)) 0,
+    calc(100% - 4 * var(--px)) 0,
+    calc(100% - 4 * var(--px)) calc(1 * var(--px)),
+    calc(100% - 2 * var(--px)) calc(1 * var(--px)),
+    calc(100% - 2 * var(--px)) calc(2 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(2 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(3 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(4 * var(--px)),
+    100% calc(4 * var(--px)),
+    100% calc(5 * var(--px)),
+    100% calc(6 * var(--px)),
+    100% calc(100% - 6 * var(--px)),
+    100% calc(100% - 5 * var(--px)),
+    100% calc(100% - 4 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(100% - 4 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(100% - 3 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(100% - 2 * var(--px)),
+    calc(100% - 2 * var(--px)) calc(100% - 2 * var(--px)),
+    calc(100% - 2 * var(--px)) calc(100% - 1 * var(--px)),
+    calc(100% - 4 * var(--px)) calc(100% - 1 * var(--px)),
+    calc(100% - 4 * var(--px)) 100%,
+    calc(4 * var(--px)) 100%,
+    calc(4 * var(--px)) calc(100% - 1 * var(--px)),
+    calc(2 * var(--px)) calc(100% - 1 * var(--px)),
+    calc(2 * var(--px)) calc(100% - 2 * var(--px)),
+    calc(1 * var(--px)) calc(100% - 2 * var(--px)),
+    calc(1 * var(--px)) calc(100% - 3 * var(--px)),
+    calc(1 * var(--px)) calc(100% - 4 * var(--px)),
+    0 calc(100% - 4 * var(--px)),
+    0 calc(100% - 5 * var(--px)),
+    0 calc(100% - 6 * var(--px))
+  );
+  --pixel-btn-ring: polygon(
+    evenodd,
+    0 calc(6 * var(--px)),
+    0 calc(5 * var(--px)),
+    0 calc(4 * var(--px)),
+    calc(1 * var(--px)) calc(4 * var(--px)),
+    calc(1 * var(--px)) calc(3 * var(--px)),
+    calc(1 * var(--px)) calc(2 * var(--px)),
+    calc(2 * var(--px)) calc(2 * var(--px)),
+    calc(2 * var(--px)) calc(1 * var(--px)),
+    calc(4 * var(--px)) calc(1 * var(--px)),
+    calc(4 * var(--px)) 0,
+    calc(100% - 4 * var(--px)) 0,
+    calc(100% - 4 * var(--px)) calc(1 * var(--px)),
+    calc(100% - 2 * var(--px)) calc(1 * var(--px)),
+    calc(100% - 2 * var(--px)) calc(2 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(2 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(3 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(4 * var(--px)),
+    100% calc(4 * var(--px)),
+    100% calc(5 * var(--px)),
+    100% calc(6 * var(--px)),
+    100% calc(100% - 6 * var(--px)),
+    100% calc(100% - 5 * var(--px)),
+    100% calc(100% - 4 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(100% - 4 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(100% - 3 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(100% - 2 * var(--px)),
+    calc(100% - 2 * var(--px)) calc(100% - 2 * var(--px)),
+    calc(100% - 2 * var(--px)) calc(100% - 1 * var(--px)),
+    calc(100% - 4 * var(--px)) calc(100% - 1 * var(--px)),
+    calc(100% - 4 * var(--px)) 100%,
+    calc(4 * var(--px)) 100%,
+    calc(4 * var(--px)) calc(100% - 1 * var(--px)),
+    calc(2 * var(--px)) calc(100% - 1 * var(--px)),
+    calc(2 * var(--px)) calc(100% - 2 * var(--px)),
+    calc(1 * var(--px)) calc(100% - 2 * var(--px)),
+    calc(1 * var(--px)) calc(100% - 3 * var(--px)),
+    calc(1 * var(--px)) calc(100% - 4 * var(--px)),
+    0 calc(100% - 4 * var(--px)),
+    0 calc(100% - 5 * var(--px)),
+    0 calc(100% - 6 * var(--px)),
+    calc(1 * var(--px)) calc(6 * var(--px)),
+    calc(1 * var(--px)) calc(5 * var(--px)),
+    calc(1 * var(--px)) calc(4 * var(--px)),
+    calc(2 * var(--px)) calc(4 * var(--px)),
+    calc(2 * var(--px)) calc(3 * var(--px)),
+    calc(2 * var(--px)) calc(2 * var(--px)),
+    calc(4 * var(--px)) calc(2 * var(--px)),
+    calc(4 * var(--px)) calc(1 * var(--px)),
+    calc(100% - 4 * var(--px)) calc(1 * var(--px)),
+    calc(100% - 4 * var(--px)) calc(2 * var(--px)),
+    calc(100% - 2 * var(--px)) calc(2 * var(--px)),
+    calc(100% - 2 * var(--px)) calc(3 * var(--px)),
+    calc(100% - 2 * var(--px)) calc(4 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(4 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(5 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(6 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(100% - 6 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(100% - 5 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(100% - 4 * var(--px)),
+    calc(100% - 2 * var(--px)) calc(100% - 4 * var(--px)),
+    calc(100% - 2 * var(--px)) calc(100% - 3 * var(--px)),
+    calc(100% - 2 * var(--px)) calc(100% - 2 * var(--px)),
+    calc(100% - 4 * var(--px)) calc(100% - 2 * var(--px)),
+    calc(100% - 4 * var(--px)) calc(100% - 1 * var(--px)),
+    calc(4 * var(--px)) calc(100% - 1 * var(--px)),
+    calc(4 * var(--px)) calc(100% - 2 * var(--px)),
+    calc(2 * var(--px)) calc(100% - 2 * var(--px)),
+    calc(2 * var(--px)) calc(100% - 3 * var(--px)),
+    calc(2 * var(--px)) calc(100% - 4 * var(--px)),
+    calc(1 * var(--px)) calc(100% - 4 * var(--px)),
+    calc(1 * var(--px)) calc(100% - 5 * var(--px)),
+    calc(1 * var(--px)) calc(100% - 6 * var(--px))
+  );
+  --pixel-card-outer: polygon(
+    0 calc(10 * var(--px)),
+    0 calc(9 * var(--px)),
+    0 calc(8 * var(--px)),
+    0 calc(7 * var(--px)),
+    calc(1 * var(--px)) calc(7 * var(--px)),
+    calc(1 * var(--px)) calc(6 * var(--px)),
+    calc(1 * var(--px)) calc(5 * var(--px)),
+    calc(2 * var(--px)) calc(5 * var(--px)),
+    calc(2 * var(--px)) calc(4 * var(--px)),
+    calc(2 * var(--px)) calc(3 * var(--px)),
+    calc(3 * var(--px)) calc(3 * var(--px)),
+    calc(3 * var(--px)) calc(2 * var(--px)),
+    calc(5 * var(--px)) calc(2 * var(--px)),
+    calc(5 * var(--px)) calc(1 * var(--px)),
+    calc(7 * var(--px)) calc(1 * var(--px)),
+    calc(7 * var(--px)) 0,
+    calc(100% - 7 * var(--px)) 0,
+    calc(100% - 7 * var(--px)) calc(1 * var(--px)),
+    calc(100% - 5 * var(--px)) calc(1 * var(--px)),
+    calc(100% - 5 * var(--px)) calc(2 * var(--px)),
+    calc(100% - 3 * var(--px)) calc(2 * var(--px)),
+    calc(100% - 3 * var(--px)) calc(3 * var(--px)),
+    calc(100% - 2 * var(--px)) calc(3 * var(--px)),
+    calc(100% - 2 * var(--px)) calc(4 * var(--px)),
+    calc(100% - 2 * var(--px)) calc(5 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(5 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(6 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(7 * var(--px)),
+    100% calc(7 * var(--px)),
+    100% calc(8 * var(--px)),
+    100% calc(9 * var(--px)),
+    100% calc(10 * var(--px)),
+    100% calc(100% - 10 * var(--px)),
+    100% calc(100% - 9 * var(--px)),
+    100% calc(100% - 8 * var(--px)),
+    100% calc(100% - 7 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(100% - 7 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(100% - 6 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(100% - 5 * var(--px)),
+    calc(100% - 2 * var(--px)) calc(100% - 5 * var(--px)),
+    calc(100% - 2 * var(--px)) calc(100% - 4 * var(--px)),
+    calc(100% - 2 * var(--px)) calc(100% - 3 * var(--px)),
+    calc(100% - 3 * var(--px)) calc(100% - 3 * var(--px)),
+    calc(100% - 3 * var(--px)) calc(100% - 2 * var(--px)),
+    calc(100% - 5 * var(--px)) calc(100% - 2 * var(--px)),
+    calc(100% - 5 * var(--px)) calc(100% - 1 * var(--px)),
+    calc(100% - 7 * var(--px)) calc(100% - 1 * var(--px)),
+    calc(100% - 7 * var(--px)) 100%,
+    calc(7 * var(--px)) 100%,
+    calc(7 * var(--px)) calc(100% - 1 * var(--px)),
+    calc(5 * var(--px)) calc(100% - 1 * var(--px)),
+    calc(5 * var(--px)) calc(100% - 2 * var(--px)),
+    calc(3 * var(--px)) calc(100% - 2 * var(--px)),
+    calc(3 * var(--px)) calc(100% - 3 * var(--px)),
+    calc(2 * var(--px)) calc(100% - 3 * var(--px)),
+    calc(2 * var(--px)) calc(100% - 4 * var(--px)),
+    calc(2 * var(--px)) calc(100% - 5 * var(--px)),
+    calc(1 * var(--px)) calc(100% - 5 * var(--px)),
+    calc(1 * var(--px)) calc(100% - 6 * var(--px)),
+    calc(1 * var(--px)) calc(100% - 7 * var(--px)),
+    0 calc(100% - 7 * var(--px)),
+    0 calc(100% - 8 * var(--px)),
+    0 calc(100% - 9 * var(--px)),
+    0 calc(100% - 10 * var(--px))
+  );
+  --pixel-card-ring: polygon(
+    evenodd,
+    0 calc(10 * var(--px)),
+    0 calc(9 * var(--px)),
+    0 calc(8 * var(--px)),
+    0 calc(7 * var(--px)),
+    calc(1 * var(--px)) calc(7 * var(--px)),
+    calc(1 * var(--px)) calc(6 * var(--px)),
+    calc(1 * var(--px)) calc(5 * var(--px)),
+    calc(2 * var(--px)) calc(5 * var(--px)),
+    calc(2 * var(--px)) calc(4 * var(--px)),
+    calc(2 * var(--px)) calc(3 * var(--px)),
+    calc(3 * var(--px)) calc(3 * var(--px)),
+    calc(3 * var(--px)) calc(2 * var(--px)),
+    calc(5 * var(--px)) calc(2 * var(--px)),
+    calc(5 * var(--px)) calc(1 * var(--px)),
+    calc(7 * var(--px)) calc(1 * var(--px)),
+    calc(7 * var(--px)) 0,
+    calc(100% - 7 * var(--px)) 0,
+    calc(100% - 7 * var(--px)) calc(1 * var(--px)),
+    calc(100% - 5 * var(--px)) calc(1 * var(--px)),
+    calc(100% - 5 * var(--px)) calc(2 * var(--px)),
+    calc(100% - 3 * var(--px)) calc(2 * var(--px)),
+    calc(100% - 3 * var(--px)) calc(3 * var(--px)),
+    calc(100% - 2 * var(--px)) calc(3 * var(--px)),
+    calc(100% - 2 * var(--px)) calc(4 * var(--px)),
+    calc(100% - 2 * var(--px)) calc(5 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(5 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(6 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(7 * var(--px)),
+    100% calc(7 * var(--px)),
+    100% calc(8 * var(--px)),
+    100% calc(9 * var(--px)),
+    100% calc(10 * var(--px)),
+    100% calc(100% - 10 * var(--px)),
+    100% calc(100% - 9 * var(--px)),
+    100% calc(100% - 8 * var(--px)),
+    100% calc(100% - 7 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(100% - 7 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(100% - 6 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(100% - 5 * var(--px)),
+    calc(100% - 2 * var(--px)) calc(100% - 5 * var(--px)),
+    calc(100% - 2 * var(--px)) calc(100% - 4 * var(--px)),
+    calc(100% - 2 * var(--px)) calc(100% - 3 * var(--px)),
+    calc(100% - 3 * var(--px)) calc(100% - 3 * var(--px)),
+    calc(100% - 3 * var(--px)) calc(100% - 2 * var(--px)),
+    calc(100% - 5 * var(--px)) calc(100% - 2 * var(--px)),
+    calc(100% - 5 * var(--px)) calc(100% - 1 * var(--px)),
+    calc(100% - 7 * var(--px)) calc(100% - 1 * var(--px)),
+    calc(100% - 7 * var(--px)) 100%,
+    calc(7 * var(--px)) 100%,
+    calc(7 * var(--px)) calc(100% - 1 * var(--px)),
+    calc(5 * var(--px)) calc(100% - 1 * var(--px)),
+    calc(5 * var(--px)) calc(100% - 2 * var(--px)),
+    calc(3 * var(--px)) calc(100% - 2 * var(--px)),
+    calc(3 * var(--px)) calc(100% - 3 * var(--px)),
+    calc(2 * var(--px)) calc(100% - 3 * var(--px)),
+    calc(2 * var(--px)) calc(100% - 4 * var(--px)),
+    calc(2 * var(--px)) calc(100% - 5 * var(--px)),
+    calc(1 * var(--px)) calc(100% - 5 * var(--px)),
+    calc(1 * var(--px)) calc(100% - 6 * var(--px)),
+    calc(1 * var(--px)) calc(100% - 7 * var(--px)),
+    0 calc(100% - 7 * var(--px)),
+    0 calc(100% - 8 * var(--px)),
+    0 calc(100% - 9 * var(--px)),
+    0 calc(100% - 10 * var(--px)),
+    calc(1 * var(--px)) calc(10 * var(--px)),
+    calc(1 * var(--px)) calc(9 * var(--px)),
+    calc(1 * var(--px)) calc(8 * var(--px)),
+    calc(1 * var(--px)) calc(7 * var(--px)),
+    calc(2 * var(--px)) calc(7 * var(--px)),
+    calc(2 * var(--px)) calc(6 * var(--px)),
+    calc(2 * var(--px)) calc(5 * var(--px)),
+    calc(3 * var(--px)) calc(5 * var(--px)),
+    calc(3 * var(--px)) calc(4 * var(--px)),
+    calc(4 * var(--px)) calc(4 * var(--px)),
+    calc(4 * var(--px)) calc(3 * var(--px)),
+    calc(5 * var(--px)) calc(3 * var(--px)),
+    calc(5 * var(--px)) calc(2 * var(--px)),
+    calc(7 * var(--px)) calc(2 * var(--px)),
+    calc(7 * var(--px)) calc(1 * var(--px)),
+    calc(100% - 7 * var(--px)) calc(1 * var(--px)),
+    calc(100% - 7 * var(--px)) calc(2 * var(--px)),
+    calc(100% - 5 * var(--px)) calc(2 * var(--px)),
+    calc(100% - 5 * var(--px)) calc(3 * var(--px)),
+    calc(100% - 4 * var(--px)) calc(3 * var(--px)),
+    calc(100% - 4 * var(--px)) calc(4 * var(--px)),
+    calc(100% - 3 * var(--px)) calc(4 * var(--px)),
+    calc(100% - 3 * var(--px)) calc(5 * var(--px)),
+    calc(100% - 2 * var(--px)) calc(5 * var(--px)),
+    calc(100% - 2 * var(--px)) calc(6 * var(--px)),
+    calc(100% - 2 * var(--px)) calc(7 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(7 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(8 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(9 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(10 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(100% - 10 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(100% - 9 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(100% - 8 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(100% - 7 * var(--px)),
+    calc(100% - 2 * var(--px)) calc(100% - 7 * var(--px)),
+    calc(100% - 2 * var(--px)) calc(100% - 6 * var(--px)),
+    calc(100% - 2 * var(--px)) calc(100% - 5 * var(--px)),
+    calc(100% - 3 * var(--px)) calc(100% - 5 * var(--px)),
+    calc(100% - 3 * var(--px)) calc(100% - 4 * var(--px)),
+    calc(100% - 4 * var(--px)) calc(100% - 4 * var(--px)),
+    calc(100% - 4 * var(--px)) calc(100% - 3 * var(--px)),
+    calc(100% - 5 * var(--px)) calc(100% - 3 * var(--px)),
+    calc(100% - 5 * var(--px)) calc(100% - 2 * var(--px)),
+    calc(100% - 7 * var(--px)) calc(100% - 2 * var(--px)),
+    calc(100% - 7 * var(--px)) calc(100% - 1 * var(--px)),
+    calc(7 * var(--px)) calc(100% - 1 * var(--px)),
+    calc(7 * var(--px)) calc(100% - 2 * var(--px)),
+    calc(5 * var(--px)) calc(100% - 2 * var(--px)),
+    calc(5 * var(--px)) calc(100% - 3 * var(--px)),
+    calc(4 * var(--px)) calc(100% - 3 * var(--px)),
+    calc(4 * var(--px)) calc(100% - 4 * var(--px)),
+    calc(3 * var(--px)) calc(100% - 4 * var(--px)),
+    calc(3 * var(--px)) calc(100% - 5 * var(--px)),
+    calc(2 * var(--px)) calc(100% - 5 * var(--px)),
+    calc(2 * var(--px)) calc(100% - 6 * var(--px)),
+    calc(2 * var(--px)) calc(100% - 7 * var(--px)),
+    calc(1 * var(--px)) calc(100% - 7 * var(--px)),
+    calc(1 * var(--px)) calc(100% - 8 * var(--px)),
+    calc(1 * var(--px)) calc(100% - 9 * var(--px)),
+    calc(1 * var(--px)) calc(100% - 10 * var(--px))
+  );
+
   /* One unit off each corner: for handles, swatches and heatmap cells that are only a few units wide. */
   --pixel-corners-xs: polygon(
     0 calc(1 * var(--px)),
@@ -492,8 +808,10 @@
  * stepped clip instead of a radius; shadows go, because a blur is the one thing a pixel cannot do.
  */
 @layer utilities {
+  /* rounded-full lives on thin tracks and small thumbs, where a stair wider than the box folds up. */
   .rounded-xs,
-  .rounded-sm {
+  .rounded-sm,
+  .rounded-full {
     border-radius: 0;
     clip-path: var(--pixel-corners-xs);
   }
@@ -503,7 +821,6 @@
   .rounded-lg,
   .rounded-t,
   .rounded-b,
-  .btn,
   .badge,
   .input,
   .select,
@@ -518,12 +835,52 @@
   .rounded-xl,
   .rounded-2xl,
   .rounded-3xl,
-  .rounded-full,
   .card,
   .modal-box,
   .dropdown-content {
     border-radius: 0;
     clip-path: var(--pixel-corners-lg);
+  }
+
+  /*
+   * daisyUI buttons: the browser border goes, the ring pseudo-element draws it in --btn-border, which
+   * every variant and hover state already sets. isolation keeps the ring under the label.
+   */
+  .btn {
+    position: relative;
+    isolation: isolate;
+    border-width: 0;
+    border-radius: 0;
+    clip-path: var(--pixel-btn-outer);
+  }
+
+  .btn::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background-color: var(--btn-border);
+    clip-path: var(--pixel-btn-ring);
+    pointer-events: none;
+  }
+
+  /* Tailwind-bordered cards: same idea, the ring takes the box's border colour via a custom property. */
+  .pixel-card {
+    position: relative;
+    isolation: isolate;
+    border-width: 0 !important;
+    border-radius: 0;
+    clip-path: var(--pixel-card-outer);
+  }
+
+  .pixel-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background-color: var(--pixel-card-border, var(--color-base-300));
+    clip-path: var(--pixel-card-ring);
+    pointer-events: none;
   }
 
   .shadow,

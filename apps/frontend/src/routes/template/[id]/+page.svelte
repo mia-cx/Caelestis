@@ -177,7 +177,7 @@ const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
       {/if}
     </nav>
 
-    <header class="flex flex-wrap items-center gap-x-4 gap-y-2">
+    <header class="flex flex-wrap items-baseline gap-x-4 gap-y-2">
       <h1 class="text-2xl font-bold">{template.name}</h1>
       {#if !template.published}
         <span class="badge badge-warning badge-sm">unpublished</span>
@@ -208,7 +208,7 @@ const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
       </p>
     {/if}
 
-    <section class="overflow-hidden rounded-2xl border-[1.5px] border-base-300 bg-base-100">
+    <section class="overflow-hidden pixel-card bg-base-100">
       <TemplateViewer {template} {hashFor} {overlayAlpha} class="h-[28rem] w-full" />
 
       <div class="flex flex-wrap items-center gap-x-4 gap-y-2 border-t-[1.5px] border-base-300 px-4 py-3">
@@ -322,7 +322,7 @@ const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
     />
 
     {#if status?.colours !== undefined && status.colours.length > 0}
-      <section class="rounded-2xl border-[1.5px] border-base-300 bg-base-100 p-4">
+      <section class="pixel-card bg-base-100 p-4">
         <h2 class="mb-3 font-semibold">Progress by colour</h2>
         <ColourProgress colours={status.colours} />
       </section>

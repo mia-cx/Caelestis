@@ -22,7 +22,7 @@ let open = $state(depth < 2)
 </script>
 
 <Collapsible.Root bind:open>
-  <section class="rounded-2xl border-[1.5px] border-base-300 bg-base-100">
+  <section class="pixel-card bg-base-100">
     <div class="flex items-center gap-2 p-3">
       <Collapsible.Trigger
         class="flex size-6 shrink-0 items-center justify-center rounded-lg hover:bg-base-200 focus-visible:outline-2 focus-visible:outline-primary"
