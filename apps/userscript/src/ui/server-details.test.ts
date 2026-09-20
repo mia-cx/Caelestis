@@ -81,7 +81,15 @@ it('seeds the form from public server info and patches only what changed', async
   expect(updateServerDetails).not.toHaveBeenCalled()
 
   // A refresh that lands while the dialog is open must not turn untouched fields into edits.
-  servers.list = [server({ ...connected.info, name: 'Allies renamed', description: 'Old' })]
+  servers.list = [
+    server({
+      id: SERVER_ID,
+      name: 'Allies renamed',
+      auth: 'none',
+      description: 'Old',
+      logoImage: asset,
+    }),
+  ]
   intend({
     type: 'save',
     fields: {
