@@ -42,7 +42,7 @@ jobs:
           node-version: 24.20.0
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @caelestis/frontend... build
+      - run: pnpm --filter @caelestis/backend... --filter @caelestis/frontend... build
       - name: Provision, test, and remove dedicated resources
         run: node scripts/test-cloudflare-remote.mjs
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

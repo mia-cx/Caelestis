@@ -94,7 +94,7 @@ For local Cloudflare, install workspace dependencies and build the frontend depe
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm --filter @caelestis/frontend... build
+pnpm --filter @caelestis/backend... --filter @caelestis/frontend... build
 node scripts/test-cloudflare-stack.mjs
 ```
 
