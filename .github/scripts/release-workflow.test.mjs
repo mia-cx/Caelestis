@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { describe, it } from 'node:test'
 
@@ -100,6 +102,63 @@ describe('app release workflow', () => {
     )
     assert.match(portableWorkflow, /publish:\n(?: {4}#.*\n)* {4}needs: validate/)
     assert.doesNotMatch(portableWorkflow, /publish:\n {4}needs: \[[^\]]*cloudflare/)
+  })
+
+  it('makes environment secrets available to nested Cloudflare acceptance', () => {
+    const cloudflareJob = portableWorkflow.match(/\n {2}cloudflare:\n([\s\S]*?)\n {2}publish:/)?.[1]
+    assert.ok(cloudflareJob)
+    assert.match(cloudflareJob, /secrets: inherit/)
+    assert.match(portableCloudflareWorkflow, /environment: stack-tests/)
+  })
+
+  it('builds all release artifacts even when the caller is a push with no server changes', () => {
+    const step = portableCiWorkflow.match(
+      /name: Detect server changes([\s\S]*?)\n {2}release-tooling:/,
+    )?.[1]
+    assert.ok(step)
+    const script = step.match(/run: \|\n([\s\S]*)/)?.[1].replace(/^ {10}/gm, '')
+    assert.ok(script)
+    const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim()
+    const directory = mkdtempSync(resolve(tmpdir(), 'caelestis-release-gate-'))
+    try {
+      for (const [event, release, expected] of [
+        ['push', head, true],
+        ['push', '', false],
+        ['pull_request', '', false],
+        ['schedule', '', true],
+        ['workflow_dispatch', head, true],
+      ]) {
+        const output = resolve(directory, `${event}-${release || 'ordinary'}`)
+        execFileSync('bash', ['-e', '-c', script], {
+          cwd: root,
+          env: {
+            ...process.env,
+            BASH_ENV: '/dev/null',
+            EVENT: event,
+            RELEASE_SHA: release,
+            BASE_SHA: head,
+            HEAD_REF: '',
+            GITHUB_SHA: head,
+            GITHUB_OUTPUT: output,
+            RUNNER_TEMP: directory,
+          },
+        })
+        const gates = Object.fromEntries(
+          readFileSync(output, 'utf8')
+            .trim()
+            .split('\n')
+            .map((line) => line.split('=')),
+        )
+        assert.deepEqual(
+          gates,
+          { server: String(expected), stacks: String(expected), tooling: String(expected) },
+          `${event}, release_sha=${release || '(empty)'}`,
+        )
+      }
+      assert.match(step, /RELEASE_SHA: \$\{\{ inputs\.release_sha \}\}/)
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
   })
 
   it('binds a portable retry to its release merge and changed apps', () => {
