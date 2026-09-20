@@ -1,0 +1,63 @@
+{
+  "startedAt": "2026-09-20T11:52:39.515Z",
+  "endedAt": "2026-09-20T11:55:37.868Z",
+  "dispatchStartedAt": "2026-09-20T11:52:39.787Z",
+  "dispatchEndedAt": "2026-09-20T11:55:37.770Z",
+  "attempted": 5824,
+  "routeMode": "concurrent",
+  "maxConcurrency": 32,
+  "tilePaths": 1024,
+  "connectionCount": 1,
+  "transport": "persistent HTTP/2 over IPv4",
+  "phases": [
+    {
+      "route": "tile",
+      "rate": 29,
+      "startedAt": "2026-09-20T11:52:39.787Z",
+      "endedAt": "2026-09-20T11:55:37.770Z",
+      "attempted": 4939,
+      "achievedRate": 27.74984127697589,
+      "statuses": {
+        "200": 4939
+      }
+    },
+    {
+      "route": "pixel",
+      "rate": 5,
+      "startedAt": "2026-09-20T11:52:39.787Z",
+      "endedAt": "2026-09-20T11:55:37.770Z",
+      "attempted": 885,
+      "achievedRate": 4.97238500306209,
+      "statuses": {
+        "200": 884,
+        "429": 1
+      }
+    }
+  ],
+  "stopped": {
+    "attempt": 5824,
+    "scheduledRate": 5,
+    "route": "pixel",
+    "path": "/s0/pixel/603/769?x=584&y=508",
+    "startedAt": "2026-09-20T11:55:37.735Z",
+    "inFlightAtDispatch": 4,
+    "connectionId": 1,
+    "remoteIp": "104.20.28.88",
+    "httpVersion": "2",
+    "proxyUsed": 0,
+    "bytes": 17,
+    "responseAt": "2026-09-20T11:55:37.764Z",
+    "status": 429,
+    "headers": {
+      "date": "Sun, 20 Sep 2026 11:55:37 GMT",
+      "content-type": "text/plain; charset=UTF-8",
+      "retry-after": "60",
+      "cache-control": "private, max-age=0, no-store, no-cache, must-revalidate, post-check=0, pre-check=0",
+      "server": "cloudflare",
+      "cf-ray": "a3e0a468eee5c23f-AMS"
+    },
+    "completedAt": "2026-09-20T11:55:37.779Z",
+    "elapsedSeconds": 0.044
+  },
+  "stopReason": "first unexpected response or transport failure"
+}

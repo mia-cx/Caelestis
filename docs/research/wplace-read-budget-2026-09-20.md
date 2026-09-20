@@ -2,11 +2,12 @@
 
 Investigated September 20, 2026 for [issue #492](https://github.com/mia-riezebos/Caelestis/issues/492).
 
-**The measured tile cutoff is around 30 requests/second: a 29/second target passed a full minute, then 30/second received 429 after 7.681 seconds. Pixel attribution passed 5/second for two minutes and failed at 6/second.** The tile result comes from a continuous staircase using persistent HTTP/2 and 1,024 paths. It supersedes the earlier rough inference near 20/second from a connection-limited run. The mixed hour at four combined requests/second also passed. All eight observed 429 responses requested a 60-second cooldown. These are measured workloads, not official quotas.
+**The measured tile cutoff is around 30 requests/second. Running targets of 29 tile reads/second and 5 attribution reads/second together failed on attribution after 2m58s.** Tile-only target 29 passed a full minute; target 30 received 429 after 7.681 seconds. Attribution-only target 5 passed two minutes and target 6 failed. The concurrent result rules out adopting both passing targets together as a sustained budget. The mixed hour at four combined requests/second passed. All nine observed 429 responses requested a 60-second cooldown. These are measured workloads, not official quotas.
 
 | Workload | Target rate | Observation | Result |
 | --- | ---: | --- | --- |
 | Mixed tile/pixel | 4/second combined | One hour | 14,340 × 200; achieved 3.983/second |
+| Concurrent tile/pixel | 29 tile + 5 pixel/second | Attribution 429 after 177.977 seconds | Tile 4,939 × 200; pixel 884 × 200, 1 × 429 |
 | Tile, persistent HTTP/2 | 29/second | Full minute after passing targets 16–28 | 1,704 × 200; achieved 28.4/second |
 | Tile, persistent HTTP/2 | 30/second | 429 headers after 7.681 seconds | 222 × 200, 1 × 429; achieved 28.961/second over 7.7 seconds |
 | Tile, four paths | 16/second | 75 seconds | 1,194 × 200 |
@@ -221,6 +222,23 @@ Slow successful requests spent roughly 10–15 seconds establishing TCP, while D
 
 The [curl runner](wplace-read-budget-2026-09-20/tile-curl-staircase/probe.mjs), [compressed log](wplace-read-budget-2026-09-20/tile-curl-staircase/attempts.jsonl.gz), [summary](wplace-read-budget-2026-09-20/tile-curl-staircase/summary.json), [offline analysis](wplace-read-budget-2026-09-20/tile-curl-staircase/analysis.json), and [checksum](wplace-read-budget-2026-09-20/tile-curl-staircase/SHA256SUMS) retain this transport failure separately. Error strings contain only the public request command and timeout description.
 
+## Concurrent near-boundary workload
+
+Mia requested running both routes together at one request/second below their failing targets. Independent schedulers targeted **29 tile reads/second and 5 attribution reads/second for five minutes**, sharing one persistent HTTP/2 connection over IPv4. The tile stream cycled through the same 1,024 paths. The pixel stream visited distinct coordinates within tile 603/769. There were no cookies, retries, or saved response bodies. The combined concurrency cap was 32.
+
+Dispatch began at **11:52:39.787 UTC**. Attribution request 885 received 429 headers at **11:55:37.764**, after **177.977 seconds**, with `Retry-After: 60`. Both streams stopped immediately. Zero requests started after those headers. Already-started responses finished by 11:55:37.868.
+
+| Route | Target/second | Attempts | Actual/second | Responses |
+| --- | ---: | ---: | ---: | --- |
+| Tile | 29 | 4,939 | 27.750 | 4,939 × 200 |
+| Attribution | 5 | 885 | 4.972 | 884 × 200, 1 × 429 |
+
+All 5,824 requests used one connection. Maximum in-flight count reached 32; there were no transport errors. Actual rates use the 177.983-second dispatch period. The scheduler resumes normal spacing after a stall without catch-up bursts.
+
+**The combined 29 + 5 target does not hold for five minutes.** Attribution is the rejecting route. This result leaves shared enforcement versus a longer attribution-only limit unresolved; the earlier attribution-only 5/second pass lasted just two minutes. It does not support treating the route budgets as fully independent.
+
+The [exact runner](wplace-read-budget-2026-09-20/concurrent/probe.mjs), [compressed attempts](wplace-read-budget-2026-09-20/concurrent/attempts.jsonl.gz), [summary](wplace-read-budget-2026-09-20/concurrent/summary.json), and [checksum](wplace-read-budget-2026-09-20/concurrent/SHA256SUMS) preserve the experiment.
+
 ## Published clients and historical reports
 
 These repositories are primary evidence for their own code. Their descriptions of Wplace behavior are third-party observations, not Wplace guarantees.
@@ -239,7 +257,7 @@ Map Inspector's “batches” are concurrent single-coordinate requests. Its [co
 
 The older j0code client uses a shared GET helper for tiles and pixel metadata. It retries 429 using `Retry-After`, with a 20-second fallback. Sharing a client helper does not prove shared server enforcement. [Implementation, September 22, 2025](https://github.com/j0code/wplace-api/blob/39614e3dd75dfd64a4a4476b7650f45702cedd88/src/main.ts#L142-L203)
 
-No captured numerical quota was found in the searched public evidence. Code that reads a header does not prove the server always sends it. Our tests independently captured `Retry-After: 60` on all eight 429 responses, but still no quota counters.
+No captured numerical quota was found in the searched public evidence. Code that reads a header does not prove the server always sends it. Our tests independently captured `Retry-After: 60` on all nine 429 responses, but still no quota counters.
 
 ## Budget design supported by current evidence
 
@@ -268,7 +286,7 @@ Stop at the first 429 and respect its cooldown. End the phase instead of retryin
 
 For every attempt, record start/end time, route class, in-flight count, status, bytes, and relevant headers. Include `Retry-After`, quota headers if present, `Cache-Control`, `Age`, `ETag`, `Last-Modified`, `Date`, and CDN cache status when supplied. Distinguish a changed tile from a newly delivered stale snapshot. Record scheduled and actual spacing.
 
-The initial short pass exposed response behavior without finding an unsuitable rate. Later tests found eight HTTP rejections under their recorded workloads. The hour supplies sustained mixed-workload evidence, but none of these runs establishes a universal minute/hour/day quota or total production headroom. The user's explicit escalation requests authorized the tests; stopping on rejection and respecting cooldown still apply.
+The initial short pass exposed response behavior without finding an unsuitable rate. Later tests found nine HTTP rejections under their recorded workloads. The hour supplies sustained mixed-workload evidence, but none of these runs establishes a universal minute/hour/day quota or total production headroom. The user's explicit escalation requests authorized the tests; stopping on rejection and respecting cooldown still apply.
 
 Separate-versus-shared enforcement remains partly unresolved. Different endpoint outcomes support separate application ceilings, but they do not exclude a shared counter or prove behavior during an active cooldown. Stronger evidence would require explicit counters, an operator statement, or further controlled observations. A single fixed access context cannot establish IP-versus-account enforcement.
 
