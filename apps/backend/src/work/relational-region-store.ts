@@ -203,6 +203,7 @@ export class RelationalRegionStore implements RegionStore {
 
   async deleteRegion(id: string, writer: RegionWriter, withdraw = false): Promise<boolean> {
     if (!withdraw) {
+      const canClear = writer.admin ? undefined : eq(workRegions.claimantUserId, writer.actorId)
       // Retire the ID and remove the live row atomically. Old binaries cannot see the tombstone
       // or erase it with their expiry sweep, and the database blocks their stale reinsertion.
       const retire = this.db
@@ -211,10 +212,10 @@ export class RelationalRegionStore implements RegionStore {
           this.db
             .select({ id: workRegions.id })
             .from(workRegions)
-            .where(and(eq(workRegions.id, id), ownedBy(writer))),
+            .where(and(eq(workRegions.id, id), canClear)),
         )
         .onConflictDoNothing()
-      const remove = this.db.delete(workRegions).where(and(eq(workRegions.id, id), ownedBy(writer)))
+      const remove = this.db.delete(workRegions).where(and(eq(workRegions.id, id), canClear))
       const [, result] = await this.db.batch([retire, remove])
       return changedRows(result) === 1
     }

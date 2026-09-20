@@ -41,6 +41,6 @@ export interface RegionStore {
     templateId: string | null,
     writer: RegionWriter,
   ): Promise<RegionClaim | null>
-  /** Retire an owned identity; withdrawal hides a replica but permits its owner to restore it. */
+  /** Clear by painter or admin; reversible replica withdrawal additionally requires the owning token. */
   deleteRegion(id: string, writer: RegionWriter, withdraw?: boolean): Promise<boolean>
 }

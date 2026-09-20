@@ -14,6 +14,7 @@
     onclaimregion,
     onflyto,
     onflytoclaim,
+    onclearclaim,
   }: {
     model: NonNullable<PanelModel['work']>
     onIntent: (intent: TemplateTreeIntent) => void
@@ -23,6 +24,7 @@
     onclaimregion?: () => void
     onflyto?: (key: string) => void
     onflytoclaim?: (key: string) => void
+    onclearclaim?: (key: string) => void
   } = $props()
   const count = $derived(model.tree.entries.length)
   const presence = $derived(model.presence)
@@ -141,6 +143,11 @@
                         <span class="player-activity">{claim.description}</span>
                       </span>
                       <span class="player-actions">
+                        {#if claim.canClear}
+                          <Button label="Clear claim" title="Clear claim" size="compact" kind="ghost" iconOnly disabled={claim.clearing ?? false} onclick={() => onclearclaim?.(claim.key)}>
+                            <Icon name="trash" size="1rem" />
+                          </Button>
+                        {/if}
                         <Button label={`Fly to ${claim.mine ? 'your' : `${claim.name}'s`} claim`} title={`Fly to ${claim.mine ? 'your' : `${claim.name}'s`} claim`} size="compact" kind="ghost" iconOnly onclick={() => onflytoclaim?.(claim.key)}>
                           <Icon name="flyTo" size="1rem" />
                         </Button>

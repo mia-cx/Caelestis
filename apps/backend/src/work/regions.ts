@@ -139,7 +139,7 @@ export const putRegion = (
     return region
   })
 
-/** Only the owning credential with the claimant's ID, or an administrator, can remove a claim. */
+/** Clear a painter's claim with any write credential; replica withdrawal still requires ownership. */
 export const deleteRegion = (
   id: string,
   actor: PainterIdentity,

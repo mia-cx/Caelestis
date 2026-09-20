@@ -250,9 +250,22 @@ describe.each([
     const id = uuidV7()
     expect((await h.call('DELETE', id, { actor })).status).toBe(404)
     expect((await h.call('PUT', id, h.body)).status).toBe(200)
-    expect((await h.call('DELETE', id, { actor }, 'second-report')).status).toBe(403)
     expect((await h.call('DELETE', id, { actor: other })).status).toBe(403)
     expect((await h.call('PUT', id, h.body)).status).toBe(200)
+  })
+
+  it('clears the same painter across tokens without authorizing edits or withdrawal', async () => {
+    const h = await setup(adapter)
+    const id = uuidV7()
+    await h.call('PUT', id, h.body)
+    expect((await h.call('PUT', id, h.body, 'second-report')).status).toBe(403)
+    expect((await h.call('DELETE', id, { actor, withdraw: true }, 'second-report')).status).toBe(
+      403,
+    )
+    expect((await h.call('DELETE', id, { actor }, 'read')).status).toBe(403)
+    expect((await h.call('DELETE', id, { actor }, 'second-report')).status).toBe(200)
+    expect(await h.sql.regions.listRegions(0, WORLD_TEMPLATE_SURFACE)).toEqual([])
+    expect((await h.call('PUT', id, h.body)).status).toBe(410)
   })
 
   it('allows a still-live claim to return after replica expiry but retains explicit deletions', async () => {
@@ -368,7 +381,7 @@ describe.each([
     expect(h.publishRegions).toHaveBeenLastCalledWith(0, WORLD_TEMPLATE_SURFACE)
   })
 
-  it('binds mutations to the creating credential and painter while allowing admins', async () => {
+  it('binds editing and withdrawal to the creating credential while allowing admins', async () => {
     const h = await setup(adapter)
     const id = uuidV7()
     const response = await h.call('PUT', id, h.body)
@@ -377,7 +390,8 @@ describe.each([
     expect(original).not.toHaveProperty('tokenHash')
     for (const method of ['PUT', 'DELETE']) {
       expect(
-        (await h.call(method, id, { ...h.body, label: 'Forged' }, 'second-report')).status,
+        (await h.call(method, id, { ...h.body, label: 'Forged', withdraw: true }, 'second-report'))
+          .status,
       ).toBe(403)
       expect((await h.call(method, id, { ...h.body, actor: other })).status).toBe(403)
     }
@@ -415,9 +429,8 @@ describe.each([
     const responses = await Promise.all(tokens.map((token) => h.call('PUT', id, h.body, token)))
     expect(responses.map((response) => response.status).sort()).toEqual([200, 403])
     const loser = tokens[responses.findIndex((response) => response.status === 403)]
-    const winner = tokens[responses.findIndex((response) => response.status === 200)]
-    expect((await h.call('DELETE', id, { actor }, loser)).status).toBe(403)
-    expect((await h.call('DELETE', id, { actor }, winner)).status).toBe(200)
+    expect((await h.call('DELETE', id, { actor, withdraw: true }, loser)).status).toBe(403)
+    expect((await h.call('DELETE', id, { actor }, loser)).status).toBe(200)
     const nextId = uuidV7()
     expect(await h.sql.regions.createRegion({ ...legacy, id: nextId }, null)).toBe(true)
     expect((await h.call('PUT', nextId, { ...h.body, actor: other }, 'admin')).status).toBe(200)
