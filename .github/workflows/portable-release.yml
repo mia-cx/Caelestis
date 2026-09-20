@@ -36,6 +36,8 @@ jobs:
 
   cloudflare:
     uses: ./.github/workflows/portable-cloudflare.yml
+    # Required for called jobs to resolve environment secrets (actions/runner#4453).
+    secrets: inherit
     with:
       release_sha: ${{ inputs.release_sha }}
 
