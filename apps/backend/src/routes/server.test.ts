@@ -304,9 +304,26 @@ describe('public server branding', () => {
       expect((await upload('logo', gif)).status).toBe(500)
       expect(await sql.readServerSettings()).toEqual(previous)
       expect(await blobs.get('branding', `logo/${await sha256Hex(png)}`)).toEqual(png)
+      // The replacement that never became current is gone too: branding is never swept.
+      expect(await blobs.get('branding', `logo/${await sha256Hex(gif)}`)).toBeNull()
       expect(errorLog).toHaveBeenCalledTimes(2)
     } finally {
       errorLog.mockRestore()
     }
+  })
+
+  it('keeps an object that an overlapping upload restored before the cleanup ran', async () => {
+    const { upload, sql, blobs } = harness()
+    await upload('logo')
+    const previous = await sql.readServerSettings()
+    const write = sql.writeServerSettings.bind(sql)
+    // Between this request's write and its cleanup, another admin re-uploads the original bytes.
+    vi.spyOn(sql, 'writeServerSettings').mockImplementationOnce(async (patch) => {
+      await write(patch)
+      await write({ logo: previous.logo })
+    })
+    expect((await upload('logo', gif)).status).toBe(200)
+    expect((await sql.readServerSettings()).logo).toEqual(previous.logo)
+    expect(await blobs.get('branding', `logo/${await sha256Hex(png)}`)).toEqual(png)
   })
 })

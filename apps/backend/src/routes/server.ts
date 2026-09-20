@@ -66,7 +66,14 @@ export const writeServerSettings = (
     })
   })
 
-/** Keep the old asset reachable until its replacement has been stored and published. */
+/**
+ * Store a replacement (or clear the asset), then drop whatever the settings no longer reference.
+ *
+ * Branding is never swept, so every object this leaves behind is leaked for good. Two rules keep
+ * that bounded: a settings write that fails takes the object it just stored back out, and the old
+ * object is only deleted if the settings still do not point at it after our write, because an
+ * overlapping upload may have restored it in between.
+ */
 const replaceServerAsset = (
   kind: ServerAssetKind,
   record: ServerAssetRecord | null,
@@ -75,19 +82,29 @@ const replaceServerAsset = (
 ) =>
   Effect.gen(function* () {
     const blobs = yield* BlobStoreService
+    const deleteBlob = (key: string) =>
+      Effect.tryPromise({
+        try: () => blobs.delete('branding', [key]),
+        catch: (cause) => new BackendStorageError({ operation: 'deleteServerAsset', cause }),
+      })
     const previous = (yield* readServerSettings)[kind]
+    // Re-uploading identical bytes overwrites the object the settings already reference; that one
+    // must survive a failed write.
+    const storedFresh = record !== null && bytes !== null && previous?.blobKey !== record.blobKey
     if (record !== null && bytes !== null) {
       yield* Effect.tryPromise({
         try: () => blobs.put('branding', record.blobKey, bytes),
         catch: (cause) => new BackendStorageError({ operation: 'putServerAsset', cause }),
       })
     }
-    yield* writeServerSettingsAndPublish({ [kind]: record }, season)
-    if (previous !== null && previous.blobKey !== record?.blobKey) {
-      yield* Effect.tryPromise({
-        try: () => blobs.delete('branding', [previous.blobKey]),
-        catch: (cause) => new BackendStorageError({ operation: 'deleteServerAsset', cause }),
-      })
+    yield* writeServerSettingsAndPublish({ [kind]: record }, season).pipe(
+      Effect.tapError(() =>
+        storedFresh && record !== null ? Effect.ignore(deleteBlob(record.blobKey)) : Effect.void,
+      ),
+    )
+    const current = (yield* readServerSettings)[kind]
+    if (previous !== null && current?.blobKey !== previous.blobKey) {
+      yield* deleteBlob(previous.blobKey)
     }
   })
 
