@@ -138,20 +138,11 @@ const flyable = (region: RegionClaim): boolean =>
   sameTemplateSurface(region.surface, WORLD_TEMPLATE_SURFACE) &&
   presenceServers().some((server) => server.season === region.season)
 
-/**
- * Every claim worth listing, mine first. Mine merge the router, so a claim still on its way to a
- * server is already here, with the presence snapshot, so a claim made in another browser or one the
- * local store has not adopted yet is here too. Everyone else's come from the snapshot alone.
- */
+/** List server-confirmed claims; the local retry journal is not evidence of an active claim. */
 const knownClaims = (view: PresenceView): { mine: RegionClaim[]; others: RegionClaim[] } => {
   const me = view.me?.wplaceUserId
-  const owned = new Map<string, RegionClaim>()
-  for (const region of claimRouter().mine()) owned.set(region.id, region)
-  for (const region of view.regions)
-    if (me !== undefined && region.claimant.wplaceUserId === me && !owned.has(region.id))
-      owned.set(region.id, region)
-  const mine = [...owned.values()]
-    .filter(flyable)
+  const mine = view.regions
+    .filter((region) => flyable(region) && region.claimant.wplaceUserId === me)
     .sort((left, right) => right.createdAt - left.createdAt)
   const others = view.regions
     .filter((region) => flyable(region) && region.claimant.wplaceUserId !== me)

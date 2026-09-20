@@ -141,6 +141,14 @@ describe('presenceSummaryModel players', () => {
 })
 
 describe('presenceSummaryModel claims', () => {
+  it('omits locally cached claims absent from every server snapshot', () => {
+    harness.view.me = painter(7, 'Mia')
+    harness.mine = [claim('stale', painter(7, 'Mia'))]
+    expect(presenceSummaryModel()?.claims).toEqual([])
+    expect(flyToClaim('stale')).toBe(false)
+    expect(harness.navigateTo).not.toHaveBeenCalled()
+  })
+
   it('lists your claims first, newest first, then everyone else by name', () => {
     harness.view.me = painter(7, 'Mia')
     harness.mine = [
@@ -207,7 +215,10 @@ describe('flyToClaim', () => {
   it('frames the claim rect, yours or theirs', () => {
     harness.view.me = painter(7, 'Mia')
     harness.mine = [claim('mine', painter(7, 'Mia'), rect(100, 200, 40, 20))]
-    harness.view.regions = [claim('theirs', painter(9, 'Zed'), rect(300, 300, 10, 10))]
+    harness.view.regions = [
+      ...harness.mine,
+      claim('theirs', painter(9, 'Zed'), rect(300, 300, 10, 10)),
+    ]
     expect(flyToClaim('mine')).toBe(true)
     expect(harness.navigateTo).toHaveBeenLastCalledWith({ x: 120, y: 210, width: 40, height: 20 })
     expect(flyToClaim('theirs')).toBe(true)
