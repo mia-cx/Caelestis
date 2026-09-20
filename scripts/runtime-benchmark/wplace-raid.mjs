@@ -38,8 +38,14 @@ let sequence = 0
 let sessionId
 let targetId
 const pending = new Map()
+const exceptions = []
 socket.addEventListener('message', ({ data }) => {
   const event = JSON.parse(data)
+  if (event.method === 'Runtime.exceptionThrown')
+    exceptions.push(
+      event.params.exceptionDetails.exception?.description?.split('\n')[0] ??
+        event.params.exceptionDetails.text,
+    )
   const job = pending.get(event.id)
   if (!job) return
   pending.delete(event.id)
@@ -125,6 +131,7 @@ try {
   targetId = (await call('Target.createTarget', { url: 'about:blank', background: true })).targetId
   sessionId = (await call('Target.attachToTarget', { targetId, flatten: true })).sessionId
   await call('Page.enable')
+  await call('Runtime.enable')
   await call('Performance.enable')
   await call('Emulation.setFocusEmulationEnabled', { enabled: true })
   await call('Emulation.setCPUThrottlingRate', { rate: cpuRate })
@@ -356,6 +363,16 @@ try {
       const shot = await call('Page.captureScreenshot', { format: 'png' })
       await writeFile(`${output}.${repeat}-${scenario}.png`, Buffer.from(shot.data, 'base64'))
     }
+} catch (error) {
+  await mkdir(dirname(output), { recursive: true })
+  const page = await evaluate(
+    '({origin:location.origin,title:document.title,debug:typeof globalThis.__caelestis,map:!!globalThis.__caelestis?.map(),templates:globalThis.__caelestis?.templates().length,sockets:globalThis.raidReplay?.sockets.map(s=>({path:new URL(s.url).pathname,state:s.readyState})),reads:globalThis.raidReplay?.reads})',
+  ).catch(() => null)
+  await writeFile(
+    `${output}.failure.json`,
+    JSON.stringify({ error: String(error), page, exceptions }, null, 2),
+  )
+  throw error
 } finally {
   if (pressed)
     await call('Input.dispatchMouseEvent', {

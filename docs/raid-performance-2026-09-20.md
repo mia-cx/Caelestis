@@ -1,6 +1,7 @@
 # Raid performance after claim grouping and deletion
 
 These comparisons use main c2121c03, including the merged claim-grouping and deletion changes.
+The submitted branch is rebased onto main 05088c8e; measurements retain their original source and bundle identities.
 Each retained optimization has three alternating baseline/candidate pairs. Individual percentages are not additive.
 The earlier [browser](raid-performance-2026-09-19.md) and
 [backend](raid-backend-performance-2026-09-20.md) reports describe the preceding cb7e687 implementation.
@@ -12,7 +13,7 @@ The isolated replay contains 97 templates, 37 claims with subtraction holes, and
 Fresh claim snapshots arrive every 300 ms. The runner blocks external collaboration writes and owns its temporary tab.
 Each comparison checks template, workload, browser, camera and viewport signatures, plus bundle hashes.
 Movement follows eight trusted drag/wheel cycles over 12 seconds. Individual comparisons hold hover for ten seconds;
-the combined comparison holds it for 30 seconds. TaskDuration is elapsed main-thread task time, not operating-system CPU.
+the historical combined comparison holds it for 30 seconds. TaskDuration is elapsed main-thread task time, not operating-system CPU.
 
 | Change | Matched result | Limits |
 | --- | --- | --- |
@@ -45,6 +46,29 @@ The lazy-component change claims a hole-hover memory benefit, not hitch-free ent
 Profiler on/off pairs likewise show no reliable overhead percentage. The four-times CPU-throttled run and the final
 six-scenario visual run pass workload and negative-hover guards, but they do not establish smoothness on slower hardware.
 [Additional browser evidence](benchmarks/raid-additional-browser-2026-09-20.json.gz) retains these results and the rejected GPU experiment.
+
+### Final rebase limitation
+
+The latest-main baseline and shipping candidate both build successfully. The final integrated comparison stops before sampling:
+Wplace and the map load, but the browser has zero templates, no configured collaboration servers and no presence socket.
+A read-only check of the original tab confirms the same empty configuration and absent saved `caelestis.state.v2`.
+The cause of that configuration loss is unknown. No saved settings were changed to reconstruct the workload.
+The runner now preserves setup diagnostics with socket paths, counts and exceptions, without credential query strings.
+[Final build provenance and setup failure](benchmarks/raid-shipping-setup-2026-09-20.json) record the limitation.
+
+Consequently, no combined speedup is claimed for the final rebased bundle. The completed individual comparisons above remain
+tied to c2121c03. The historical integrated and six-scenario runs in the additional evidence include the subsequently removed
+fragment-discard experiment; they are not measurements of the submitted bundle.
+
+### Visual evidence
+
+These inspected screenshots use the c2121c03 workload at the same viewport and zoom. The candidate includes all retained
+client optimizations and excludes fragment discard. Claimed coverage, the subtraction hole, borders and hover labels remain visible.
+They precede the final main rebase.
+
+| Baseline | Retained client optimizations |
+| --- | --- |
+| ![Baseline claimed hover](https://i.mia.cx/file/2026/09/rebased-467-0-baseline.json.0-hover-fd7bd5.png) | ![Optimized claimed hover](https://i.mia.cx/file/2026/09/rebased-473-2-candidate.json.0-hover-718ffe.png) |
 
 ## Portable backend
 
@@ -118,7 +142,8 @@ This measures room recovery preparation, excluding network transport and deploye
 
 `pnpm lint`, `pnpm check`, `pnpm test --concurrency=1`, `pnpm build`, and
 `CHANGESET_BASE_REF=origin/main pnpm test:release` pass after the rebase.
-The full run includes 1,609 userscript, 887 backend and 175 frontend tests. The later ownership fix passes all 888 backend tests.
+The final run on main 05088c8e includes 1,620 userscript, 920 backend and 214 frontend tests, with all eleven Turbo tasks passing.
+Shared, UI, wire-schema and storage suites also pass; all 52 release checks pass.
 Fifteen environment-specific backend tests skip.
 Separate SQLite, D1-emulation, PostgreSQL 17 and MariaDB 11.8 contracts pass 171 region/connection cases.
 Owned SQL test containers are removed afterward.

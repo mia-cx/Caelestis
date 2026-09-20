@@ -1,0 +1,43 @@
+{
+  "builds": [
+    {
+      "name": "base",
+      "revision": "05088c8eb8f198ff06626a3c6aea65ed5c406263",
+      "sharedPackagesRevision": "adfed473fc1a1fe66aeca97feeec97a9f1bb09d8",
+      "sha256": "8d84b4221abd2afff5b340f95a2094b551fcb217396a1e64452c6e5305b7ec42",
+      "baselineGpuInstrumentation": "aeff3cae"
+    },
+    {
+      "name": "final",
+      "revision": "adfed473fc1a1fe66aeca97feeec97a9f1bb09d8",
+      "sharedPackagesRevision": "adfed473fc1a1fe66aeca97feeec97a9f1bb09d8",
+      "sha256": "dec2f3be1fe46d4b1d577d32721f2a2f22f8a95c10a190117c30a7811c8faa27",
+      "baselineGpuInstrumentation": null
+    }
+  ],
+  "failure": {
+    "error": "AssertionError [ERR_ASSERTION]: Map or replay presence did not connect",
+    "page": {
+      "origin": "https://wplace.live",
+      "title": "Wplace - Paint the world",
+      "debug": "object",
+      "map": true,
+      "templates": 0,
+      "sockets": [],
+      "reads": [
+        {
+          "path": "/repos/mia-riezebos/Caelestis/releases/latest",
+          "status": 200
+        }
+      ]
+    },
+    "exceptions": []
+  },
+  "originalTab": {
+    "map": true,
+    "templates": 0,
+    "storedStatePresent": false,
+    "configuredServers": 0
+  },
+  "result": "No accepted timing samples; final integrated comparison deferred."
+}
