@@ -9,6 +9,7 @@ import { readBackendJson } from '$lib/server/backend.js'
 import { imageStorageFor } from '$lib/server/image-storage.js'
 import { socialMetadata } from '$lib/server/social.js'
 import { ensureSocialImage } from '$lib/server/social-images.js'
+import { sanitizeServerInfo } from '$lib/server-info.js'
 import type { AppBootstrap } from '$lib/state/app.svelte.js'
 import type { LayoutServerLoad } from './$types'
 
@@ -43,7 +44,7 @@ export const load: LayoutServerLoad = async (event) => {
     return { bootstrap, social }
   }
   try {
-    const server = await readBackendJson<ServerInfo>(event, '/v1/server')
+    const server = sanitizeServerInfo(await readBackendJson<ServerInfo>(event, '/v1/server'))
     const manifest = await readBackendJson<Manifest>(event, '/v1/manifest')
     const [status, alarms, canvas] = await Promise.allSettled([
       readBackendJson<StatusResponse>(event, `/v1/telemetry/status?season=${manifest.season}`),

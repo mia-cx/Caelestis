@@ -19,6 +19,7 @@ import {
   type TileHistoryResponse,
   uuidV7,
 } from '@caelestis/shared'
+import { sanitizeServerInfo } from '../server-info.js'
 import { frontendClientAccept } from './client-metrics.js'
 import { isServerUrlConfigured, resolveSelectedServerUrl, resolveServerUrl } from './server-url.js'
 
@@ -177,13 +178,13 @@ const json = async <T>(path: string, versionPath?: ApiVersionPath): Promise<T> =
 export const getServer = async (): Promise<ServerInfo> => {
   apiVersionPath = API_VERSION_PATH
   try {
-    return await json('/server', API_VERSION_PATH)
+    return sanitizeServerInfo(await json('/server', API_VERSION_PATH))
   } catch (error) {
     if (!(error instanceof ApiError) || error.status !== 404) throw error
   }
   const server = await json<ServerInfo>('/server', '')
   apiVersionPath = ''
-  return server
+  return sanitizeServerInfo(server)
 }
 
 export const getManifest = (season?: number): Promise<Manifest> =>
