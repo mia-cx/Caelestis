@@ -1,5 +1,19 @@
 # @caelestis/frontend
 
+## 0.7.0
+
+### Minor Changes
+
+- 39eb9a6: The dashboard is drawn on a pixel grid: FalseType type, Pixelarticons icons and cursors, stair-stepped corners and borders, crisp charts, one dropdown design.
+- 9b6bc43: The site shows the operator's logo, home page copy and Discord join button, and link previews use their description and preview image.
+
+### Patch Changes
+
+- 509b396: Show denser retained timelapse snapshots with playback timing proportional to elapsed recorded time.
+- 509b396: Link the timelapse transport and progress graph with a shared playhead and scrubbing in either view.
+- a77dda3: Calculate combined pace and completion estimates from observed matching-pixel changes, including progress by painters without Caelestis.
+- 2afa8dd: Keep social timelapse GIFs proportional to recorded time across dense and sparse history.
+
 ## 0.6.1
 
 ### Patch Changes

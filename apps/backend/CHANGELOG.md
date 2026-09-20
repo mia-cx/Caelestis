@@ -1,5 +1,26 @@
 # @caelestis/backend
 
+## 0.9.0
+
+### Minor Changes
+
+- 3a6fd56: Admins configure the server's public presentation: description, Discord invite, home page copy, logo text, and uploaded logo and link preview images.
+
+### Patch Changes
+
+- 1dbd5e7: Clear your claims from the Painters drawer with any write-capable token, without finding the original token.
+- 509b396: Show denser retained timelapse snapshots with playback timing proportional to elapsed recorded time.
+- 29817ac: Prevent deleted claims from returning during MariaDB READ COMMITTED transaction races.
+- 6c96ce5: Expire legacy claims without repeating an expiry backfill before every claim operation.
+- ec1f9cb: Serialize claim snapshots once per room and avoid sending unchanged claims and ownership twice.
+- 6c96ce5: Reuse claim ownership reads while restoring a room's connected painters.
+- fd227f6: Avoid resending unchanged claim snapshots when database ownership rows arrive in a different order.
+- 53c40f0: Keep claim ownership IDs consistent with their published snapshot during concurrent edits.
+- 09e1aa9: Reduce presence peer-selection allocations and skip unchanged heartbeat selections.
+- e9823dc: Include presence selection and claim publication stages in server performance diagnostics.
+- 70330d5: Keep deleted claims hidden and prevent their recreation during backend rollback.
+- bbbf3d7: Prevent stale browsers from recreating deleted claims while preserving server reconnection.
+
 ## 0.8.0
 
 ### Minor Changes
