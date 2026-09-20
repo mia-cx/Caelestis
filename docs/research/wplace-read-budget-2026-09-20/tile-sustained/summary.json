@@ -1,0 +1,53 @@
+{
+  "startedAt": "2026-09-20T04:38:14.183Z",
+  "endedAt": "2026-09-20T04:44:17.738Z",
+  "attempted": 5735,
+  "routeMode": "tile",
+  "maxConcurrency": 16,
+  "tilePaths": 1024,
+  "phases": [
+    {
+      "rate": 16,
+      "startedAt": "2026-09-20T04:38:14.184Z",
+      "endedAt": "2026-09-20T04:43:14.210Z",
+      "attempted": 4474,
+      "statuses": {
+        "200": 4474
+      }
+    },
+    {
+      "rate": 32,
+      "startedAt": "2026-09-20T04:43:14.214Z",
+      "endedAt": "2026-09-20T04:44:17.736Z",
+      "attempted": 1261,
+      "statuses": {
+        "200": 1259,
+        "429": 2
+      }
+    }
+  ],
+  "stopped": {
+    "attempt": 5734,
+    "scheduledRate": 32,
+    "route": "tile",
+    "path": "/files/s0/tiles/606/758.png",
+    "startedAt": "2026-09-20T04:44:17.651Z",
+    "inFlightAtDispatch": 3,
+    "completedAt": "2026-09-20T04:44:17.701Z",
+    "status": 429,
+    "elapsedSeconds": 0.040952,
+    "bytes": 17,
+    "httpVersion": "2",
+    "remoteIp": "172.66.145.132",
+    "proxyUsed": 0,
+    "headers": {
+      "date": "Sun, 20 Sep 2026 04:44:17 GMT",
+      "content-type": "text/plain; charset=UTF-8",
+      "retry-after": "60",
+      "cache-control": "private, max-age=0, no-store, no-cache, must-revalidate, post-check=0, pre-check=0",
+      "server": "cloudflare",
+      "cf-ray": "a3de2c929b28ad10-AMS"
+    }
+  },
+  "stopReason": "first unexpected response or transport failure"
+}
