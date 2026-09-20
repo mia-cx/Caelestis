@@ -69,10 +69,10 @@ export const writeServerSettings = (
 /**
  * Store a replacement (or clear the asset), then drop whatever the settings no longer reference.
  *
- * Branding is never swept, so every object this leaves behind is leaked for good. Two rules keep
- * that bounded: a settings write that fails takes the object it just stored back out, and the old
- * object is only deleted if the settings still do not point at it after our write, because an
- * overlapping upload may have restored it in between.
+ * Branding is never swept, so every object this leaves behind is leaked for good. One rule keeps
+ * that bounded: after our write, delete exactly the objects the settings no longer reference. That
+ * covers the old object (unless an overlapping upload restored it), our own object when an
+ * overlapping upload superseded it, and a settings write that failed after the store.
  */
 const replaceServerAsset = (
   kind: ServerAssetKind,
@@ -102,9 +102,14 @@ const replaceServerAsset = (
         storedFresh && record !== null ? Effect.ignore(deleteBlob(record.blobKey)) : Effect.void,
       ),
     )
+    // Delete whatever the settings no longer reference after our write: the old object unless an
+    // overlapping upload restored it, and our own object if an overlapping upload superseded it.
     const current = (yield* readServerSettings)[kind]
     if (previous !== null && current?.blobKey !== previous.blobKey) {
       yield* deleteBlob(previous.blobKey)
+    }
+    if (storedFresh && record !== null && current?.blobKey !== record.blobKey) {
+      yield* deleteBlob(record.blobKey)
     }
   })
 

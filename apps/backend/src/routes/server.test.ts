@@ -325,5 +325,7 @@ describe('public server branding', () => {
     expect((await upload('logo', gif)).status).toBe(200)
     expect((await sql.readServerSettings()).logo).toEqual(previous.logo)
     expect(await blobs.get('branding', `logo/${await sha256Hex(png)}`)).toEqual(png)
+    // The superseded upload does not linger either.
+    expect(await blobs.get('branding', `logo/${await sha256Hex(gif)}`)).toBeNull()
   })
 })
