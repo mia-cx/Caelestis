@@ -2,6 +2,7 @@ export { default as AppearanceEditor } from './appearance/AppearanceEditor.svelt
 export { default as ColourInput } from './appearance/ColourInput.svelte'
 export { default as Button } from './foundations/Button.svelte'
 export { default as Icon, type IconName } from './foundations/Icon.svelte'
+export { type IconSet, useIconSet } from './foundations/icons.js'
 export { default as MenuStyles } from './foundations/MenuStyles.svelte'
 export { default as SectionHeader } from './foundations/SectionHeader.svelte'
 export { default as SettingRow } from './foundations/SettingRow.svelte'

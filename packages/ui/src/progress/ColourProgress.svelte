@@ -73,7 +73,7 @@
   select { inline-size: 11rem; }
   ul { display: flex; flex-direction: column; gap: 0.375rem; margin: 0; padding: 0; list-style: none; }
   li { display: grid; grid-template-columns: 1.5rem 1rem minmax(5rem, 9rem) minmax(4rem, 1fr) 8.5rem; align-items: center; gap: 0.5rem; color: var(--caelestis-text); font: 500 0.8rem/1.2 ui-sans-serif, system-ui, sans-serif; }
-  .index, .count, .percent { color: var(--caelestis-muted-text); text-align: end; font-size: 0.75rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .index, .count, .percent { color: var(--caelestis-muted-text); text-align: end; font-size: inherit; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .swatch { inline-size: 1rem; block-size: 1rem; border: 1px solid color-mix(in oklch, var(--caelestis-text) 20%, transparent); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); }
   .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .track { block-size: 0.375rem; overflow: hidden; border-radius: 999px; background: var(--caelestis-raised-surface); }
