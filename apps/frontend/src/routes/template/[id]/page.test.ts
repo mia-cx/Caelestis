@@ -6,7 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 const fixture = vi.hoisted(() => ({
   app: {
     manifest: { season: 0, templates: [] as Template[], nodes: [] },
-    statuses: new Map([['dense', { correct: 1, mismatched: 0, unknown: 0, total: 1 }]]),
+    statuses: new Map([['dense', { correct: 1, wrong: 0, blank: 0, total: 1 }]]),
     alarms: new Map(),
     canvas: new Map(),
   },
@@ -82,33 +82,36 @@ const click = (label: string) => {
   flushSync()
 }
 const position = () =>
-  document
-    .querySelector('[aria-label="timelapse position"] [role="slider"]')
-    ?.getAttribute('aria-valuenow')
+  Number(
+    document
+      .querySelector('[aria-label="timelapse position"] [role="slider"]')
+      ?.getAttribute('aria-valuenow'),
+  ) - start
 const advance = async (ms: number) => {
-  await vi.advanceTimersByTimeAsync(ms)
+  vi.advanceTimersByTime(ms)
   flushSync()
 }
 
 it('plays dense history at timestamp deadlines, preserves a pause, and replays', async () => {
   await show()
-  expect(position()).toBe('4')
+  expect(position()).toBe(7_200)
   click('play timelapse')
-  expect(position()).toBe('0')
+  expect(position()).toBe(0)
   await advance(118)
-  expect(position()).toBe('1')
+  expect(position()).toBeCloseTo(60, -2)
+  const paused = position()
   click('pause timelapse')
   await advance(1_000)
-  expect(position()).toBe('1')
+  expect(position()).toBe(paused)
   click('play timelapse')
   await advance(234)
-  expect(position()).toBe('2')
+  expect(position()).toBeCloseTo(180, -1)
   await advance(6_650)
-  expect(position()).toBe('3')
+  expect(position()).toBeCloseTo(3_600, -1)
   await advance(7_000)
-  expect(position()).toBe('4')
+  expect(position()).toBe(7_200)
   click('play timelapse')
-  expect(position()).toBe('0')
+  expect(position()).toBe(0)
 })
 
 it('retimes the current hold when a speed preset changes and persists the choice', async () => {
@@ -121,7 +124,7 @@ it('retimes the current hold when a speed preset changes and persists the choice
   preset?.click()
   flushSync()
   await advance(4)
-  expect(position()).toBe('1')
+  expect(position()).toBeCloseTo(66, -1)
   expect(localStorage.getItem('caelestis:timelapse-speed')).toBe('1')
 })
 
@@ -133,10 +136,10 @@ it('seeks with the keyboard and pauses active playback', async () => {
   )
   slider?.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }))
   flushSync()
-  expect(position()).toBe('4')
+  expect(position()).toBe(7_200)
   expect(document.querySelector('[aria-label="play timelapse"]')).not.toBeNull()
   await advance(1_000)
-  expect(position()).toBe('4')
+  expect(position()).toBe(7_200)
 })
 
 it('bounds finished history and imported frames at the finish instant', async () => {
@@ -157,9 +160,20 @@ it('bounds finished history and imported frames at the finish instant', async ()
   })
   await show()
   expect(fixture.history).toHaveBeenCalledWith(0, 0, 0, start, start + 3_601)
-  expect(position()).toBe('1')
+  expect(position()).toBe(3_600)
   click('play timelapse')
   await advance(7_000)
-  expect(position()).toBe('1')
+  expect(position()).toBe(3_600)
   expect(document.body.textContent).toContain('current')
+})
+
+it('moves the transport evenly through dense and sparse sections', async () => {
+  await show()
+  click('play timelapse')
+  await advance(1_750)
+  expect(position()).toBeCloseTo(900, -2)
+  await advance(1_750)
+  expect(position()).toBeCloseTo(1_800, -2)
+  await advance(3_500)
+  expect(position()).toBeCloseTo(3_600, -1)
 })

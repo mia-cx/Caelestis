@@ -16,7 +16,7 @@
   import { tilesInRect } from '$lib/render'
   import { useApp } from '$lib/state/app.svelte'
   import { persisted } from '$lib/persisted.svelte'
-  import { TimelapseClock } from '$lib/timelapse'
+  import { frameAt, TimelapseClock } from '$lib/timelapse'
   import { progressFromStatus } from '$lib/tree'
 
   const app = useApp()
@@ -54,6 +54,7 @@ const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
   let historyEnd = $state(0)
   // The scrub position: 0..timeline.length, where the last stop is "live".
   let scrub = $state(0)
+  let playhead = $state(0)
   let playing = $state(false)
   $effect(() => {
     const target = template
@@ -61,8 +62,8 @@ const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
     if (target === null || season === undefined) return
     const generation = { cancelled: false }
     const from = Math.floor(target.createdAt / 1_000)
-    historyEnd = (target.finishedAt ?? Date.now()) / 1_000
-    const to = Math.floor(historyEnd) + 1
+    historyEnd = Math.floor((target.finishedAt ?? Date.now()) / 1_000)
+    const to = historyEnd + 1
     frames = null
     archiveError = null
     playing = false
@@ -88,6 +89,7 @@ const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
       if (generation.cancelled) return
       frames = new Map(entries)
       scrub = timelineOf(new Map(entries)).length
+      playhead = historyEnd
     })
     return () => {
       generation.cancelled = true
@@ -137,8 +139,9 @@ const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
     if (!playing) return
     const clock = playback
     const end = timeline.length
-    clock.play(speed, (index) => {
+    clock.play(speed, (index, time) => {
       scrub = index
+      playhead = Math.floor(time)
       if (index >= end) playing = false
     })
     return () => clock.pause()
@@ -244,7 +247,8 @@ const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
             onclick={() => {
               if (!playing && scrub >= timeline.length) {
                 scrub = 0
-                playback.seek(0)
+                playhead = timeline[0] ?? historyEnd
+                playback.seek(playhead)
               }
               playing = !playing
             }}
@@ -292,23 +296,25 @@ const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
           </div>
           <Slider
             type="single"
-            min={0}
-            max={timeline.length}
+            min={timeline[0] ?? historyEnd}
+            max={historyEnd}
             step={1}
-            value={scrub}
+            value={playhead}
             onValueChange={(value: number) => {
-              scrub = value
+              playhead = value
+              scrub = value >= historyEnd ? timeline.length : frameAt(timeline, value)
               playback.seek(value)
               playing = false
             }}
             class="min-w-40 flex-1"
             aria-label="timelapse position"
+            aria-valuetext={formatFrame(playhead)}
           />
           <span class="w-32 shrink-0 text-end text-xs tabular-nums text-base-content/70">
             {#if live}
               <span class="badge badge-success badge-xs align-middle">{template.finished ? 'current' : 'live'}</span>
             {:else if scrubTime !== undefined && scrubTime !== null}
-              {formatFrame(scrubTime)}
+              {formatFrame(playhead)}
             {/if}
           </span>
         {/if}

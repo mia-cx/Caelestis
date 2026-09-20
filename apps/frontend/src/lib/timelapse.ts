@@ -12,6 +12,7 @@ export const frameAt = (timeline: readonly number[], time: number): number => {
 
 // Preserve the original hourly playback pace while allowing arbitrary snapshot intervals.
 const RECORDED_SECONDS_PER_MS = 3_600 / 350
+const PLAYHEAD_UPDATE_MS = 1_000 / 60
 
 /**
  * A recorded-time clock with variable frame deadlines. Late callbacks skip to the current frame
@@ -28,10 +29,10 @@ export class TimelapseClock {
     this.position = timeline[0] ?? end
   }
 
-  /** Seek to a snapshot, or to the live stop at timeline.length. */
-  seek(index: number): void {
+  /** Seek to recorded time, including the gaps between observations. */
+  seek(time: number): void {
     this.pause()
-    this.position = this.timeline[index] ?? this.end
+    this.position = time
   }
 
   /** Pause without losing the elapsed portion of the current snapshot. */
@@ -41,7 +42,7 @@ export class TimelapseClock {
   }
 
   /** Play at recorded hours per 350 ms, reporting timeline.length at the live stop. */
-  play(speed: number, onFrame: (index: number) => void): void {
+  play(speed: number, onFrame: (index: number, time: number) => void): void {
     this.pause()
     const from = this.position
     const started = performance.now()
@@ -58,13 +59,17 @@ export class TimelapseClock {
       updatePosition()
       if (this.position >= this.end) {
         this.stop = null
-        onFrame(this.timeline.length)
+        onFrame(this.timeline.length, this.position)
         return
       }
       const index = frameAt(this.timeline, this.position)
-      onFrame(index)
+      onFrame(index, this.position)
       const next = this.timeline[index + 1] ?? this.end
-      timer = setTimeout(tick, Math.max(1, (next - this.position) / rate))
+      // Keep the transport moving through sparse holds without changing the selected image.
+      timer = setTimeout(
+        tick,
+        Math.max(1, Math.min(PLAYHEAD_UPDATE_MS, (next - this.position) / rate)),
+      )
     }
     tick()
   }
