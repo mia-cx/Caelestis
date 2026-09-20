@@ -10,7 +10,7 @@ Implement the thirteen children #466–478 in one PR on the supplied branch. Kee
 - [x] At least three alternating baseline/candidate comparisons for every retained optimization.
 - [x] Preserve rendering, claims, ownership, expiry, events, accounting and recovery semantics.
 - [x] Focused tests and affected full repository checks pass.
-- [ ] One non-draft PR, linked issues and Roadmap Ready after complete validation.
+- [x] One non-draft PR, linked issues and Roadmap Ready after complete validation.
 
 ## TODOs
 
@@ -27,7 +27,7 @@ Implement the thirteen children #466–478 in one PR on the supplied branch. Kee
 - [x] #476 Reduce claim publication work; test, benchmark and commit.
 - [x] #477 Reduce repeated ownership/expiry database work; test, benchmark and commit.
 - [x] #478 Measure tile-lane occupancy and capacity; retain diagnostics and record the no-change outcome.
-- [ ] Run final validation, publish evidence, rebase, push and file one PR; mark completed issues Ready.
+- [x] Run final validation, publish evidence, rebase, push and file one PR; mark completed issues Ready.
 
 ## Notes
 
@@ -80,3 +80,4 @@ Implement the thirteen children #466–478 in one PR on the supplied branch. Kee
 - Mia requested batch execution to conserve weekly tokens. Remaining runs, raw compression and collection run through one coordinator, with long tool waits and no per-sample model polling. Final source bundle preserves measured commit IDs across the final rebase.
 - Final rebase onto main 05088c8e passes install, build, lint, check, all eleven test tasks and 52 release checks. Suites include 1,620 userscript, 920 backend and 214 frontend tests; 15 environment-specific backend tests skip.
 - Final integrated browser repeat is explicitly deferred: the baseline stops before sampling because Chromium's configuration now contains zero templates and no servers. The original tab also has no saved state; cause unknown. Preserve setup diagnostics and completed c2121c03 comparisons without claiming a final combined speedup. Do not rerun the completed backend matrix or alter the user's saved settings.
+- Published non-draft PR https://github.com/mia-riezebos/Caelestis/pull/496 against main. Issues #465–478 are Ready in Roadmap. No merge requested or performed.
