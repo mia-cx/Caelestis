@@ -14,7 +14,7 @@ recorded time, preserving the existing 350 ms per recorded hour at 1×.
 
 ## TODOs
 
-- [ ] Return mixed-density tile history by default, preserving explicit-resolution reads, with route regressions.
+- [x] Return mixed-density tile history by default, preserving explicit-resolution reads, with route regressions.
 - [ ] Drive the viewer with elapsed recorded time and verify playback controls with focused tests.
 - [ ] Add release notes, validate the affected packages and browser flow, and file the PR.
 
@@ -28,3 +28,5 @@ recorded time, preserving the existing 350 ms per recorded hour at 1×.
 - Keep explicit numeric resolution reads compatible. Mixed default responses omit the optional
   resolution field because their bucket widths differ. Prefer finer history where tiers overlap.
 - Run isolated local services for verification. No production reads, writes, or deployment.
+- The route regression failed before the change: two raw frames 60 seconds apart became one daily
+  frame. All 20 telemetry read-route tests pass after the change, including mixed tiers and overlaps.
