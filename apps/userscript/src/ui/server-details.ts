@@ -88,7 +88,9 @@ export const openServerDetails = (server: ConnectedServer, rerender: () => void)
       revision: model.revision + 1,
     })
   }
+  let closed = false
   const close = (): void => {
+    closed = true
     editor.remove()
     if (restoreFocus?.isConnected) restoreFocus.focus()
     if (closeEditor === close) closeEditor = undefined
@@ -135,7 +137,10 @@ export const openServerDetails = (server: ConnectedServer, rerender: () => void)
           update({ notice: 'Nothing changed.' })
           return
         }
-        void run(() => updateServerDetails(current(), patch), 'Saved.')
+        // A saved edit is done; the dialog closes. Uploads and removals stay open for the next one.
+        void run(() => updateServerDetails(current(), patch), 'Saved.').then(() => {
+          if (model.error === undefined && !closed) close()
+        })
         return
       }
       case 'upload':

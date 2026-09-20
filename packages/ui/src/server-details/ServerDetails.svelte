@@ -26,6 +26,9 @@
   let homeCopy = $state('')
   let logoText = $state('')
   let validation = $state('')
+  // A drag that starts on an input and ends outside the panel fires `click` on the dialog itself.
+  // Only a press that began on the backdrop counts as a backdrop click.
+  let backdropPress = false
   const savedRevision = $derived(model.revision)
   const emit = (intent: ServerDetailsIntent): void => onIntent?.(intent)
 
@@ -108,7 +111,8 @@
   aria-labelledby="server-details-title"
   aria-describedby="server-details-owner"
   oncancel={(event) => { event.preventDefault(); emit({ type: 'close' }) }}
-  onclick={(event) => { if (event.target === dialog) emit({ type: 'close' }) }}
+  onpointerdown={(event) => { backdropPress = event.target === dialog }}
+  onclick={(event) => { if (backdropPress && event.target === dialog) emit({ type: 'close' }); backdropPress = false }}
 >
   <form class="content" onsubmit={(event) => { event.preventDefault(); save() }}>
     <header>

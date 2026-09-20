@@ -71,24 +71,6 @@ it('seeds the form from public server info and patches only what changed', async
     type: 'save',
     fields: {
       name: 'Allies',
-      description: '',
-      discordInviteUrl: 'https://discord.gg/abc',
-      homeCopy: '',
-      logoText: '',
-    },
-  })
-  await vi.waitFor(() => expect(editor().model.notice).toBe('Saved.'))
-  expect(updateServerDetails).toHaveBeenCalledWith(connected, {
-    description: null,
-    discordInviteUrl: 'https://discord.gg/abc',
-  })
-  expect(editor().model.revision).toBe(1)
-  expect(rerender).toHaveBeenCalled()
-
-  intend({
-    type: 'save',
-    fields: {
-      name: 'Allies',
       description: 'Old',
       discordInviteUrl: '',
       homeCopy: '',
@@ -96,7 +78,29 @@ it('seeds the form from public server info and patches only what changed', async
     },
   })
   expect(editor().model.notice).toBe('Nothing changed.')
-  expect(updateServerDetails).toHaveBeenCalledTimes(1)
+  expect(updateServerDetails).not.toHaveBeenCalled()
+
+  // A refused save keeps the dialog open with the reason.
+  vi.mocked(updateServerDetails).mockResolvedValueOnce({ ok: false, message: 'name is taken' })
+  const fields = {
+    name: 'Allies',
+    description: '',
+    discordInviteUrl: 'https://discord.gg/abc',
+    homeCopy: '',
+    logoText: '',
+  }
+  intend({ type: 'save', fields })
+  await vi.waitFor(() => expect(editor().model.error).toBe('name is taken'))
+  expect(editor().model.busy).toBe(false)
+
+  // A saved edit closes it.
+  intend({ type: 'save', fields })
+  await vi.waitFor(() => expect(document.querySelector('caelestis-server-details')).toBeNull())
+  expect(updateServerDetails).toHaveBeenLastCalledWith(connected, {
+    description: null,
+    discordInviteUrl: 'https://discord.gg/abc',
+  })
+  expect(rerender).toHaveBeenCalled()
 })
 
 it('uploads and clears assets, and shows a server refusal', async () => {
