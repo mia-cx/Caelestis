@@ -133,6 +133,9 @@ export interface ClaimRowModel {
   readonly description: string
   /** Whether this claim belongs to the current painter. */
   readonly mine: boolean
+  /** Whether the current connection can explicitly clear this claim. */
+  readonly canClear?: boolean
+  readonly clearing?: boolean
 }
 
 /** The server's painter headcount, and the painters it sends for the current viewport. */
@@ -238,6 +241,7 @@ export type PanelIntent =
   | { readonly type: 'region-claim' }
   | { readonly type: 'presence-fly'; readonly key: string }
   | { readonly type: 'claim-fly'; readonly key: string }
+  | { readonly type: 'claim-clear'; readonly key: string }
   | { readonly type: 'work-tree'; readonly intent: TemplateTreeIntent }
   | { readonly type: 'navigate'; readonly view: PanelView }
   | { readonly type: 'close' }

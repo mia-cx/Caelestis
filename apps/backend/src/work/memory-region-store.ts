@@ -123,7 +123,13 @@ export class MemoryRegionStore implements RegionStore {
   }
   async deleteRegion(id: string, writer: RegionWriter, withdraw = false): Promise<boolean> {
     const current = this.records.get(id)
-    if (current === undefined || !this.canWrite(current, writer)) return false
+    if (current === undefined) return false
+    if (
+      withdraw
+        ? !this.canWrite(current, writer)
+        : !writer.admin && current.claimant.wplaceUserId !== writer.actorId
+    )
+      return false
     if (withdraw) this.withdrawn.add(id)
     else {
       this.records.delete(id)

@@ -17,12 +17,15 @@ const harness = vi.hoisted(() => ({
   toast: vi.fn(),
   editor: null as ClaimEditorHost | null,
   saveAll: vi.fn(async (ids: readonly string[]) => ({ ids, error: null })),
+  remove: vi.fn(async (_id: string): Promise<string | null> => null),
+  writable: true,
 }))
 
 vi.mock('../claim-routing.js', () => ({
   claimRouter: () => ({
     mine: () => harness.mine,
     saveAll: harness.saveAll,
+    remove: harness.remove,
   }),
 }))
 
@@ -31,6 +34,8 @@ vi.mock('../presence-client.js', () => ({
   presenceLiveServer: () => null,
   presenceRegionServer: () => null,
   presenceServers: () => [{ season: 1 }],
+  presenceCanWriteClaims: () => harness.writable,
+  presenceServerClaims: () => ({ regions: harness.view.regions }),
   claimRegion: vi.fn(),
   releaseRegion: vi.fn(),
 }))
@@ -51,6 +56,7 @@ vi.mock('../wplace-account.js', () => ({ accountIdentity: () => harness.view.me 
 vi.mock('./toast.js', () => ({ toast: harness.toast }))
 
 import {
+  clearClaim,
   flyToClaim,
   flyToPainter,
   installClaimToolHost,
@@ -81,6 +87,9 @@ beforeEach(() => {
   harness.navigateTo.mockClear()
   harness.toast.mockClear()
   harness.saveAll.mockClear()
+  harness.remove.mockReset()
+  harness.remove.mockResolvedValue(null)
+  harness.writable = true
 })
 
 describe('presenceSummaryModel players', () => {
@@ -141,6 +150,40 @@ describe('presenceSummaryModel players', () => {
 })
 
 describe('presenceSummaryModel claims', () => {
+  it('clears a server-confirmed own claim without needing local credential ownership', async () => {
+    harness.view.me = painter(7, 'Mia')
+    harness.view.regions = [claim('mine', painter(7, 'Mia')), claim('other', painter(8, 'Sam'))]
+    expect(presenceSummaryModel()?.claims?.map((row) => row.canClear)).toEqual([true, false])
+    const changed = vi.fn()
+    await clearClaim('mine', changed)
+    expect(harness.remove).toHaveBeenCalledWith('mine')
+    expect(changed).toHaveBeenCalledTimes(2)
+    harness.writable = false
+    expect(presenceSummaryModel()?.claims?.every((row) => !row.canClear)).toBe(true)
+    await clearClaim('mine', changed)
+    expect(harness.remove).toHaveBeenCalledTimes(1)
+  })
+
+  it('prevents duplicate clears and makes failures retryable', async () => {
+    harness.view.me = painter(7, 'Mia')
+    harness.view.regions = [claim('mine', painter(7, 'Mia'))]
+    let finish: (error: string) => void = () => {}
+    harness.remove.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+    )
+    const changed = vi.fn()
+    const pending = clearClaim('mine', changed)
+    await clearClaim('mine', changed)
+    expect(harness.remove).toHaveBeenCalledTimes(1)
+    finish('Server unreachable. The claim will retry.')
+    await pending
+    expect(harness.toast).toHaveBeenCalledWith('Server unreachable. The claim will retry.', 'error')
+    expect(presenceSummaryModel()?.claims?.[0]?.canClear).toBe(true)
+  })
+
   it('omits locally cached claims absent from every server snapshot', () => {
     harness.view.me = painter(7, 'Mia')
     harness.mine = [claim('stale', painter(7, 'Mia'))]

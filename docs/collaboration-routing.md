@@ -16,6 +16,8 @@ Snapshots identify claims owned by the connection's exact credential and painter
 
 Adding a server, changing a catalog, or editing a claim recalculates recipients. The client writes replacements before removing old copies. It persists intent and known destinations before sending, then retries failures. Browser tabs share that journal under a Web Lock so an older tab cannot replay stale saved intent. Deletion retains local intent until its copies can be removed or expire.
 
+The Painters drawer lists claims reported by servers, not cached retry intent. A painter can clear their claims from the drawer using any current write-capable token, even if another token created them. Clearing persists deletion intent across replicas and reloads. Editing, renewal, automatic adoption, and reversible replica withdrawal still require the owning credential. Wplace painter IDs remain client-supplied; this deletion policy is not verified Wplace authentication.
+
 Removing a connection persists a retirement marker that every tab checks before writing, aborts local in-flight requests, and reads shared intent for cleanup. A PUT already dispatched by another tab removes its copy when it completes. Cleanup has a three-second deadline and runs before credentials are discarded. Unreachable copies remain subject to expiry. Explicitly reconnecting the server permits claim writes again.
 
 ## Expiry

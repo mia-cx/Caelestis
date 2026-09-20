@@ -23,7 +23,13 @@ import {
   startClaimMode,
 } from '../claim-editor.js'
 import { claimRouter } from '../claim-routing.js'
-import { type PresenceView, presenceServers, presenceView } from '../presence-client.js'
+import {
+  type PresenceView,
+  presenceCanWriteClaims,
+  presenceServerClaims,
+  presenceServers,
+  presenceView,
+} from '../presence-client.js'
 import { presenceCss } from '../presence-colour.js'
 import { activeServerToken, type ConnectedServer } from '../state.js'
 import { isServerTemplate, localTemplates, type PlacedTemplate } from '../templates/local-store.js'
@@ -46,6 +52,7 @@ interface ClaimTarget {
 const pending = false
 let message: string | undefined
 let rerenderPanel: (() => void) | null = null
+const clearing = new Set<string>()
 
 const templateRect = (template: PlacedTemplate): PresenceRect => ({
   x: template.originX,
@@ -168,6 +175,7 @@ export const claimSummary = (region: RegionClaim): string => {
 
 const claimRows = (view: PresenceView): ClaimRowModel[] => {
   const { mine, others } = knownClaims(view)
+  const clearable = clearableClaimIds(view)
   const row = (region: RegionClaim, isMine: boolean): ClaimRowModel => ({
     key: region.id,
     name: isMine ? 'You' : region.claimant.displayName,
@@ -175,8 +183,35 @@ const claimRows = (view: PresenceView): ClaimRowModel[] => {
     colour: presenceCss(region.claimant.wplaceUserId),
     description: claimSummary(region),
     mine: isMine,
+    canClear: clearable.has(region.id),
+    clearing: clearing.has(region.id),
   })
   return [...mine.map((region) => row(region, true)), ...others.map((region) => row(region, false))]
+}
+
+const clearableClaimIds = (view: PresenceView): Set<string> =>
+  new Set(
+    presenceServers()
+      .filter(presenceCanWriteClaims)
+      .flatMap((server) => presenceServerClaims(server).regions)
+      .filter((region) => region.claimant.wplaceUserId === view.me?.wplaceUserId)
+      .map((region) => region.id),
+  )
+
+/** Persist explicit deletion and retry failed replicas without requiring the creating credential. */
+export const clearClaim = async (id: string, changed: () => void): Promise<void> => {
+  if (clearing.has(id) || !clearableClaimIds(presenceView()).has(id)) return
+  clearing.add(id)
+  changed()
+  try {
+    const error = await claimRouter().remove(id)
+    if (error !== null) toast(error, 'error')
+  } catch (error) {
+    toast(error instanceof Error ? error.message : 'Could not clear the claim. Retry.', 'error')
+  } finally {
+    clearing.delete(id)
+    changed()
+  }
 }
 
 /** What the drawer shows: headcount, the painters, and whether the claim tool can open. */

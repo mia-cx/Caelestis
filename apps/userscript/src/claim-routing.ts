@@ -331,19 +331,26 @@ export class ClaimRouter {
     return { ids: error === null ? nextIds : pendingIds, error }
   }
 
-  /** Keep deletion intent until every known copy is removed, even if a server renews its TTL. */
+  /** Clear this painter's claim across tokens without adopting foreign credentials for replication. */
   async remove(id: string): Promise<string | null> {
-    const entry = this.entries.get(id)
-    if (
-      entry === undefined ||
-      entry.region.claimant.wplaceUserId !== this.host.actor()?.wplaceUserId
-    )
+    const previous = this.entries.get(id)
+    const region =
+      previous?.region ??
+      this.servers()
+        .flatMap((server) => this.host.claims(server).regions)
+        .find((region) => region.id === id)
+    if (region === undefined || region.claimant.wplaceUserId !== this.host.actor()?.wplaceUserId)
       return 'That claim is no longer available.'
-    entry.deleted = true
+    const entry: Entry = { region, deleted: true, copies: [...(previous?.copies ?? [])] }
+    for (const server of this.servers())
+      if (this.host.claims(server).regions.some((region) => region.id === id))
+        this.rememberCopy(entry, server)
+    this.entries.set(id, entry)
     try {
       this.persist()
     } catch (error) {
-      entry.deleted = false
+      if (previous === undefined) this.entries.delete(id)
+      else this.entries.set(id, previous)
       return `Could not save deletion: ${String(error)}`
     }
     await this.reconcile()

@@ -135,6 +135,41 @@ const setup = (initial: ConnectedServer[] = [x, y, z]) => {
 afterEach(() => vi.useRealTimers())
 
 describe('authoritative claim deletion', () => {
+  it('clears a server claim made with another token without adopting it for replication', async () => {
+    const h = setup([x, y])
+    const region = claim()
+    h.remote.set(x.url, [region])
+    h.remote.set(y.url, [region])
+    await h.router.reconcile()
+    expect(h.router.mine()).toEqual([])
+    expect(await h.router.remove(region.id)).toBeNull()
+    expect(h.mutations.map((mutation) => [mutation.method, mutation.server])).toEqual([
+      ['DELETE', x.url],
+      ['DELETE', y.url],
+    ])
+    expect(h.persist.mock.lastCall?.[0]).toEqual([expect.objectContaining({ deleted: true })])
+    h.mutations.length = 0
+    await h.router.reconcile()
+    expect(h.mutations).toEqual([])
+  })
+
+  it('retains cross-token deletion for retry after reload and rejects another painter', async () => {
+    const h = setup([x, y])
+    const region = claim()
+    h.remote.set(x.url, [region])
+    h.remote.set(y.url, [region])
+    h.fail(y.url)
+    expect(await h.router.remove(region.id)).toContain('unreachable')
+    h.fail(null)
+    h.mutations.length = 0
+    const resumed = new ClaimRouter(h.host, structuredClone(h.persist.mock.lastCall?.[0]))
+    await resumed.reconcile()
+    expect(h.mutations.every((mutation) => mutation.method === 'DELETE')).toBe(true)
+    expect(h.mutations).toHaveLength(2)
+    h.remote.set(x.url, [{ ...claim('other'), claimant: { wplaceUserId: 8, displayName: 'Sam' } }])
+    expect(await resumed.remove('other')).toBe('That claim is no longer available.')
+  })
+
   it('converges two browsers and two real stores after deletion while one replica is offline', async () => {
     const h = setup([x, y])
     const stores = new Map([x, y].map((server) => [server, new MemoryRegionStore()]))

@@ -365,6 +365,7 @@ describe('panel shell', () => {
               colour: 'rgb(4 5 6)',
               description: 'rectangle · 10×10',
               mine: true,
+              canClear: true,
             },
           ],
         },
@@ -378,6 +379,12 @@ describe('panel shell', () => {
       label.textContent?.replace(/\s+/g, ' ').trim(),
     )
     expect(labels).toEqual(['Your claims 1', "Others' claims 1"])
+    const clear = root?.querySelectorAll<HTMLButtonElement>('[aria-label="Clear claim"]')
+    expect(clear).toHaveLength(1)
+    clear?.[0]?.click()
+    expect(intent).toHaveBeenCalledWith(
+      expect.objectContaining({ detail: { type: 'claim-clear', key: 'mine' } }),
+    )
     const rows = [...(root?.querySelectorAll('.player-activity') ?? [])].map(
       (row) => row.textContent,
     )

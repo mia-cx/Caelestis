@@ -132,6 +132,7 @@ import {
   type PanelView,
 } from './panel-scope.js'
 import {
+  clearClaim,
   flyToClaim,
   flyToPainter,
   openClaimTool,
@@ -1149,6 +1150,9 @@ const buildSveltePanel = (): CaelestisPanel => {
         break
       case 'claim-fly':
         flyToClaim(intent.key)
+        break
+      case 'claim-clear':
+        void clearClaim(intent.key, rerenderTree)
         break
       case 'navigate':
         if (panelSurface.kind !== 'world' && intent.view === 'settings') break
