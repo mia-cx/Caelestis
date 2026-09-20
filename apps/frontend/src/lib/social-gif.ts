@@ -19,7 +19,7 @@ function encodeFrames(
   const span = times[historyFrames] - start
   const tickAt = (index: number) => Math.ceil(((times[index] - start) * historyTicks) / span)
   let previous: Uint8Array | undefined
-  let initialDelay = 0
+  let elapsed = 0
   let pending:
     | {
         indices: Uint8Array
@@ -42,14 +42,16 @@ function encodeFrames(
   }
   for (const [index, frame] of frames.entries()) {
     const final = index === historyFrames
-    const delay =
-      (final ? LIVE_PAUSE_MS : (tickAt(index + 1) - tickAt(index)) * GIF_TICK_MS) + initialDelay
-    initialDelay = 0
+    let delay = final ? LIVE_PAUSE_MS : tickAt(index + 1) * GIF_TICK_MS - elapsed
+    // Always show the first state. Later deadlines repay this minimum hold rather than
+    // lengthening the history or starting with a future image.
+    if (!final && !previous) delay = Math.max(MIN_FRAME_DELAY_MS, delay)
+    if (delay <= 0) continue
+    if (!final) elapsed += delay
     // Players stretch 0–10 ms frames to a default pause. Hold the previous image through
     // these short observations while retaining their time in the ten-second total.
-    if (!final && delay < MIN_FRAME_DELAY_MS) {
-      if (pending) pending.delay += delay
-      else initialDelay = delay
+    if (!final && delay < MIN_FRAME_DELAY_MS && pending) {
+      pending.delay += delay
       continue
     }
     const changed = new Uint8Array(width * height)

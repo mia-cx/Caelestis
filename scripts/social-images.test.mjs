@@ -82,6 +82,19 @@ test('short observations keep their elapsed time without GIF default-delay pause
   }
 })
 
+test('a short first observation remains visible without changing total playback time', async () => {
+  const red = Uint8Array.of(255, 0, 0, 255)
+  const blue = Uint8Array.of(0, 0, 255, 255)
+  const green = Uint8Array.of(0, 255, 0, 255)
+  for (const firstEnd of [0.1, 1]) {
+    const gif = encodeTimelapseGif([red, blue, green], 1, 1, [0, firstEnd, 1000])
+    assert.deepEqual((await sharp(gif, { animated: true }).metadata()).delay, [20, 9980, 5000])
+    for (const [page, color] of [red, blue, green].entries()) {
+      assert.deepEqual([...(await sharp(gif, { page }).ensureAlpha().raw().toBuffer())], [...color])
+    }
+  }
+})
+
 test('delta frames repaint erasures, preserve static pixels and all 128 colors, and reset on loop', async () => {
   const width = 128
   const height = 2

@@ -69,3 +69,8 @@ recorded time, preserving the existing 350 ms per recorded hour at 1×.
 - A touch can move before the browser cancels it. A new page integration regression reproduced
   the retained seek and pause. The page now snapshots position/play state for chart drags and
   restores both on cancellation; completed drags still preview and commit their seek.
+- The follow-up GIF fix could skip a short first image. Decoded-pixel regression reproduced it;
+  the first image now borrows a safe 20 ms hold from later deadlines, preserving ten seconds total.
+  All 16 social tests and 211 frontend tests pass alongside lint, types, and builds. Isolated
+  headless Chromium verifies rollback of actual tiles/time and paused/running playback after a
+  moved gesture is canceled; completed drags retain their seek. Task-owned processes were stopped.
