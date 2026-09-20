@@ -252,14 +252,14 @@
    * outline, hotspots in 1x pixels as that script prints them. The system cursor stays as fallback.
    */
   :root {
-    --cursor-default: image-set(url('/cursors/default.png') 1x, url('/cursors/default@2x.png') 2x) 6 4, default;
-    --cursor-pointer: image-set(url('/cursors/pointer.png') 1x, url('/cursors/pointer@2x.png') 2x) 11 1, pointer;
-    --cursor-text: image-set(url('/cursors/text.png') 1x, url('/cursors/text@2x.png') 2x) 13 13, text;
-    --cursor-crosshair: image-set(url('/cursors/crosshair.png') 1x, url('/cursors/crosshair@2x.png') 2x) 13 13, crosshair;
-    --cursor-grab: image-set(url('/cursors/grab.png') 1x, url('/cursors/grab@2x.png') 2x) 13 13, grab;
-    --cursor-grabbing: image-set(url('/cursors/grabbing.png') 1x, url('/cursors/grabbing@2x.png') 2x) 13 13, grabbing;
-    --cursor-ew-resize: image-set(url('/cursors/ew-resize.png') 1x, url('/cursors/ew-resize@2x.png') 2x) 13 13, ew-resize;
-    --cursor-not-allowed: image-set(url('/cursors/not-allowed.png') 1x, url('/cursors/not-allowed@2x.png') 2x) 13 13, not-allowed;
+    --cursor-default: image-set(url('/cursors/default.png') 1x, url('/cursors/default@2x.png') 2x) 5 3, default;
+    --cursor-pointer: image-set(url('/cursors/pointer.png') 1x, url('/cursors/pointer@2x.png') 2x) 10 0, pointer;
+    --cursor-text: image-set(url('/cursors/text.png') 1x, url('/cursors/text@2x.png') 2x) 12 12, text;
+    --cursor-crosshair: image-set(url('/cursors/crosshair.png') 1x, url('/cursors/crosshair@2x.png') 2x) 12 12, crosshair;
+    --cursor-grab: image-set(url('/cursors/grab.png') 1x, url('/cursors/grab@2x.png') 2x) 12 12, grab;
+    --cursor-grabbing: image-set(url('/cursors/grabbing.png') 1x, url('/cursors/grabbing@2x.png') 2x) 12 12, grabbing;
+    --cursor-ew-resize: image-set(url('/cursors/ew-resize.png') 1x, url('/cursors/ew-resize@2x.png') 2x) 12 12, ew-resize;
+    --cursor-not-allowed: image-set(url('/cursors/not-allowed.png') 1x, url('/cursors/not-allowed@2x.png') 2x) 12 12, not-allowed;
   }
 
   html {
@@ -774,6 +774,17 @@
   .shadow-xl,
   .shadow-2xl {
     box-shadow: none;
+  }
+
+  /* Every menu, native or custom, shares the menu styles from the UI package; here they take the page font and the pixel corners. */
+  .caelestis-menu,
+  .caelestis-select {
+    --menu-font: 400 var(--text-base) / var(--text-base--line-height) var(--font-sans);
+    --menu-shadow: none;
+  }
+  .caelestis-menu {
+    border-width: var(--ui-px);
+    clip-path: var(--pixel-corners-sm);
   }
 
   /* Tailwind's cursor utilities, on the pixel cursors. */

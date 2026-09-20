@@ -35,7 +35,8 @@
   } from '$lib/components/charts/progress-pace'
   import Leaderboard from '$lib/components/Leaderboard.svelte'
   import { Skeleton } from '$lib/components/ui/skeleton'
-  import { persisted } from '$lib/persisted.svelte'
+  import * as Select from '$lib/components/ui/select'
+import { persisted } from '$lib/persisted.svelte'
   import type { Progress } from '$lib/tree'
   import type { DashboardSnapshot } from '$lib/state/app.svelte'
 
@@ -393,14 +394,17 @@
             Completion estimate unavailable
           {/if}
         </span>
-        <label class="inline-flex items-center gap-2">
-          based on
-          <select class="select select-xs w-auto" aria-label="Completion estimate pace period" value={estimatePeriod.key} onchange={(event) => { storedEstimatePeriod.value = event.currentTarget.value }}>
-            {#each estimatePeriods as period (period.key)}
-              <option value={period.key}>{period.label}</option>
-            {/each}
-          </select>
-        </label>
+        <span class="inline-flex items-center gap-2">
+          <span id="estimate-period-label">based on</span>
+          <Select.Root type="single" value={estimatePeriod.key} onValueChange={(value) => { storedEstimatePeriod.value = value }}>
+            <Select.Trigger size="sm" aria-labelledby="estimate-period-label">{estimatePeriod.label}</Select.Trigger>
+            <Select.Content>
+              {#each estimatePeriods as period (period.key)}
+                <Select.Item value={period.key} label={period.label} />
+              {/each}
+            </Select.Content>
+          </Select.Root>
+        </span>
       </div>
     </div>
     {#if failed}
