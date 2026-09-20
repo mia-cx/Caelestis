@@ -228,7 +228,7 @@ describe('rolling pace retention', () => {
     flushSync()
     const daily = document.querySelector('path[data-pace-window="1d"]')
     expect(daily?.getAttribute('data-series-first-value')).toBe('1')
-    expect(daily?.getAttribute('stroke-dasharray')).toBe('5 4')
+    expect(daily?.getAttribute('stroke-dasharray')).toBe('3 3')
     expect((daily?.getAttribute('d')?.match(/L/g) ?? []).length).toBe(gap ? 0 : 1)
     const reported = document.querySelector(
       'path[data-pace-window="1d"][data-pace-source="observed"]',
@@ -481,7 +481,7 @@ describe('rolling pace retention', () => {
     expect(lines[0]?.getAttribute('d')).toMatch(/^M48\.0,.*L138\.7,/)
     expect(lines[1]?.getAttribute('d')).toMatch(/^M501\.3,.*L592\.0,/)
     for (const [index, line] of lines.entries()) {
-      expect(line.getAttribute('stroke-dasharray')).toBe('5 4')
+      expect(line.getAttribute('stroke-dasharray')).toBe('3 3')
       expect(areas[index]?.getAttribute('d')).toMatch(new RegExp(`^${line.getAttribute('d')}.*Z$`))
     }
   })

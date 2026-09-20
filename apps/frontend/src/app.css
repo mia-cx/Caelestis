@@ -295,6 +295,21 @@
    * Small is a 3 step stair for controls, large a 4 step stair for cards. clip-path clips shadows and
    * outlines with it, so focus rings draw inside the box (see the base layer).
    */
+  /* One unit off each corner: for handles, swatches and heatmap cells that are only a few units wide. */
+  --pixel-corners-xs: polygon(
+    0 calc(1 * var(--px)),
+    calc(1 * var(--px)) calc(1 * var(--px)),
+    calc(1 * var(--px)) 0,
+    calc(100% - 1 * var(--px)) 0,
+    calc(100% - 1 * var(--px)) calc(1 * var(--px)),
+    100% calc(1 * var(--px)),
+    100% calc(100% - 1 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(100% - 1 * var(--px)),
+    calc(100% - 1 * var(--px)) 100%,
+    calc(1 * var(--px)) 100%,
+    calc(1 * var(--px)) calc(100% - 1 * var(--px)),
+    0 calc(100% - 1 * var(--px))
+  );
   --pixel-corners-sm: polygon(
     0 calc(4 * var(--px)),
     0 calc(3 * var(--px)),
@@ -477,9 +492,13 @@
  * stepped clip instead of a radius; shadows go, because a blur is the one thing a pixel cannot do.
  */
 @layer utilities {
-  .rounded,
   .rounded-xs,
-  .rounded-sm,
+  .rounded-sm {
+    border-radius: 0;
+    clip-path: var(--pixel-corners-xs);
+  }
+
+  .rounded,
   .rounded-md,
   .rounded-lg,
   .rounded-t,

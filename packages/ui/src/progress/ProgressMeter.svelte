@@ -31,7 +31,7 @@
 
 <style>
   .meter-wrap { display: flex; min-inline-size: 0; align-items: center; gap: 0.5rem; }
-  .track { display: flex; flex: 1; min-inline-size: 0; block-size: 0.75rem; overflow: hidden; border: 1px solid var(--caelestis-border); border-radius: 999px; background-color: var(--caelestis-raised-surface); background-image: repeating-linear-gradient(135deg, transparent 0 3px, color-mix(in oklch, var(--caelestis-text) 10%, transparent) 3px 4px); }
+  .track { display: flex; flex: 1; min-inline-size: 0; block-size: 0.75rem; overflow: hidden; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, 999px); background-color: var(--caelestis-raised-surface); background-image: repeating-linear-gradient(135deg, transparent 0 3px, color-mix(in oklch, var(--caelestis-text) 10%, transparent) 3px 4px); }
   .track.small { block-size: 0.375rem; border: 0; }
   .track span { block-size: 100%; }
   .completed { background: var(--caelestis-progress-completed, var(--caelestis-success)); }
