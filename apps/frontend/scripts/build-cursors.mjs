@@ -15,7 +15,7 @@ const CURSORS = [
   { role: 'default', name: 'cursor-minimal', hotspot: 'top-left' },
   { role: 'pointer', name: 'pointer', hotspot: 'top-index' },
   { role: 'text', name: 'text-cursor', hotspot: 'centre' },
-  { role: 'crosshair', name: 'target', hotspot: 'centre', fill: false },
+  { role: 'crosshair', name: 'plus', hotspot: 'centre' },
   { role: 'grab', name: 'hand', hotspot: 'centre' },
   { role: 'grabbing', name: 'hand', hotspot: 'centre' },
   { role: 'ew-resize', name: 'arrows-horizontal', hotspot: 'centre' },
