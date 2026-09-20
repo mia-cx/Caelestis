@@ -1,5 +1,26 @@
 # @caelestis/userscript
 
+## 0.15.0
+
+### Minor Changes
+
+- a133166: An admin edits server details beside the rename action: description, Discord invite, home page copy, logo text, and logo and preview image uploads.
+
+### Patch Changes
+
+- 0b420aa: Bound claim grouping work so sparse overlapping claims cannot freeze the map.
+- 1dbd5e7: Clear your claims from the Painters drawer with any write-capable token, without finding the original token.
+- 870b948: Show touching claims from the same painter with one outline and hover tag immediately, without saving them again.
+- 56b23c0: Let canvas artwork updates wait for tile loading and retry missed captures after refresh.
+- 00cbc27: Reuse unchanged claim geometry when receiving presence snapshots.
+- 186c5b2: Build claim hover components only when the pointer reaches a claimed pixel.
+- 2d1e70d: Reuse the map controls' canvas bounds when placing claim hover labels.
+- ca6e0bc: Refresh map controls once per frame when presence updates arrive together.
+- 0308c36: Share template appearance preparation across the map's rendering layers each frame.
+- 87c5c8c: Prepare presence masks only when their pixels can appear on screen.
+- bbbf3d7: Prevent stale browsers from recreating deleted claims while preserving server reconnection.
+- e0e5b29: Hide cached claims from the Painters drawer when no server reports them.
+
 ## 0.14.3
 
 ### Patch Changes
