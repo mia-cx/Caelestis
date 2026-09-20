@@ -12,7 +12,7 @@ recorded time, preserving the existing 350 ms per recorded hour at 1×.
 - [x] Transport distance and seeking represent elapsed time, with a steadily moving playhead.
 - [x] The progress & pace graph shares the playhead and can seek the timelapse in both directions.
 - [x] Play/pause, seeking, replay, saved speed, and lifecycle bounds still work.
-- [ ] Focused regressions, affected package checks, and Chromium verification pass.
+- [x] Focused regressions, affected package checks, and Chromium verification pass.
 
 ## TODOs
 
@@ -20,7 +20,7 @@ recorded time, preserving the existing 350 ms per recorded hour at 1×.
 - [x] Drive the viewer with elapsed recorded time and verify playback controls with focused tests.
 - [x] Map the transport to recorded time and verify continuous motion through sparse holds.
 - [x] Link the progress & pace graph to timelapse playback and scrubbing, with focused interaction tests.
-- [ ] Add release notes, validate the affected packages and browser flow, and file the PR.
+- [x] Add release notes and validate the affected packages and browser flow.
 
 ## Notes
 
@@ -58,3 +58,6 @@ recorded time, preserving the existing 350 ms per recorded hour at 1×.
   A canceled touch initially sought; Fable independently fixed it and added a regression.
 - All further Chromium checks reuse the background target with persistent focus emulation.
   The fixture harness's initial target creation lacked background:true; that path was removed.
+- Final validation: `pnpm lint`, `pnpm check`, `pnpm build`, all 209 frontend tests, and 52 release
+  checks pass. Chromium verifies canceled touches and vertical scrolling no longer seek, plus
+  desktop/mobile in light/dark themes. Fixture screenshots and measured timing accompany the PR.
