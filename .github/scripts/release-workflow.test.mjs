@@ -105,6 +105,10 @@ describe('app release workflow', () => {
   })
 
   it('makes environment secrets available to nested Cloudflare acceptance', () => {
+    const portableJob = workflow.match(/\n  portable:\n([\s\S]*?)\n  userscript:/)?.[1]
+    assert.ok(portableJob)
+    assert.match(portableJob, /secrets: inherit/)
+
     const cloudflareJob = portableWorkflow.match(/\n {2}cloudflare:\n([\s\S]*?)\n {2}publish:/)?.[1]
     assert.ok(cloudflareJob)
     assert.match(cloudflareJob, /secrets: inherit/)

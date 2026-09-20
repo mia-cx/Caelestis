@@ -167,8 +167,7 @@ jobs:
       release_sha: ${{ needs.version.outputs.portable_release_sha }}
       frontend_released: ${{ needs.version.outputs.portable_frontend_released == 'true' }}
       backend_released: ${{ needs.version.outputs.portable_backend_released == 'true' }}
-    secrets:
-      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+    secrets: inherit
     permissions:
       contents: write
       packages: write
