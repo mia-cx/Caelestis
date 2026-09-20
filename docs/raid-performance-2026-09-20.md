@@ -77,6 +77,12 @@ The driver uses CPUs 0–1, backend 2–3 and database 4–5, with 35 seconds of
 Every run preserves the five-second command deadline and 300 ms presence cadence.
 These measurements do not establish CNPG/S3 performance.
 
+Review follow-up: the publication cache now sorts each credential/actor's ownership IDs once before comparing recipients.
+An unordered SQL result can otherwise resend an unchanged snapshot. The real coordinator with SQLite/D1 emulation,
+37 claims and one socket sends 15,034 redundant payload bytes on each of three owner-order reversals before the fix,
+and zero after it. The focused test preserves this reproduction; existing tests still cover actual ownership transfers.
+This is a deterministic payload check, not a new CPU or full-stack benchmark claim.
+
 | Change | Runtime | Baseline CPU seconds | Candidate CPU seconds | Result |
 | --- | --- | --- | --- | --- |
 | Peer selection (#475) | Node 22.23.2 | 14.401 / 14.552 / 14.615 | 13.132 / 13.470 / 13.355 | 8.3% lower; selection time 44.3% lower. |

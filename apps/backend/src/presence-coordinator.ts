@@ -613,6 +613,8 @@ export class PresenceCoordinator<Client> {
           }
           ids.push(owner.id)
         }
+        // SQL row order is unspecified; equivalent ownership sets must share a cache key.
+        for (const actors of grouped.values()) for (const ids of actors.values()) ids.sort()
         const prefix = `{"type":"regions","regions":${snapshot},"ownedRegionIds":`
         this.timings.record('claims', 'serialize', performance.now() - started)
         for (const socket of this.sockets()) {

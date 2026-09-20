@@ -148,6 +148,47 @@ afterEach(() => {
 })
 
 describe('presence room', () => {
+  it('does not resend claims when the database returns the same owners in another order', async () => {
+    const sql = new D1SqlStore(database as unknown as D1Database)
+    const ids = Array.from({ length: 37 }, () => uuidV7())
+    for (const id of ids)
+      await sql.regions.createRegion(
+        {
+          id,
+          season: 0,
+          surface: WORLD_TEMPLATE_SURFACE,
+          templateId: null,
+          claimant: { wplaceUserId: 1, displayName: 'Mia' },
+          document: { items: [{ id: 'box', op: 'add', shape: { kind: 'rectangle', ...rect(0) } }] },
+          rect: rect(0),
+          label: '',
+          createdAt: Date.now(),
+        },
+        'a'.repeat(64),
+      )
+    const socket = await attach()
+    const rows = await sql.regions.regionOwners(0, WORLD_TEMPLATE_SURFACE)
+    const owners = vi.spyOn(RelationalRegionStore.prototype, 'regionOwners')
+    try {
+      await object.publishRegions(0, WORLD_TEMPLATE_SURFACE)
+      const bytes = []
+      for (const order of [rows.toReversed(), rows, rows.toReversed()]) {
+        socket.send.mockClear()
+        owners.mockResolvedValue(order)
+        await object.publishRegions(0, WORLD_TEMPLATE_SURFACE)
+        bytes.push(
+          socket.send.mock.calls.reduce(
+            (total, [message]) => total + Buffer.byteLength(message),
+            0,
+          ),
+        )
+      }
+      expect(bytes).toEqual([0, 0, 0])
+    } finally {
+      owners.mockRestore()
+    }
+  })
+
   it('excludes ownership rows newer than the ready, publication or recovered claim snapshot', async () => {
     const owners = vi
       .spyOn(RelationalRegionStore.prototype, 'regionOwners')
