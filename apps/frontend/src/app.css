@@ -247,6 +247,52 @@
     font-synthesis: none;
   }
 
+  /*
+   * Pixel cursors: Pixelarticons rasterised by scripts/build-cursors.mjs at 1x and 2x with a dark
+   * outline, hotspots in 1x pixels as that script prints them. The system cursor stays as fallback.
+   */
+  :root {
+    --cursor-default: image-set(url('/cursors/default.png') 1x, url('/cursors/default@2x.png') 2x) 6 4, default;
+    --cursor-pointer: image-set(url('/cursors/pointer.png') 1x, url('/cursors/pointer@2x.png') 2x) 11 1, pointer;
+    --cursor-text: image-set(url('/cursors/text.png') 1x, url('/cursors/text@2x.png') 2x) 13 13, text;
+    --cursor-crosshair: image-set(url('/cursors/crosshair.png') 1x, url('/cursors/crosshair@2x.png') 2x) 13 13, crosshair;
+    --cursor-grab: image-set(url('/cursors/grab.png') 1x, url('/cursors/grab@2x.png') 2x) 13 13, grab;
+    --cursor-grabbing: image-set(url('/cursors/grabbing.png') 1x, url('/cursors/grabbing@2x.png') 2x) 13 13, grabbing;
+    --cursor-ew-resize: image-set(url('/cursors/ew-resize.png') 1x, url('/cursors/ew-resize@2x.png') 2x) 13 13, ew-resize;
+    --cursor-not-allowed: image-set(url('/cursors/not-allowed.png') 1x, url('/cursors/not-allowed@2x.png') 2x) 13 13, not-allowed;
+  }
+
+  html {
+    cursor: var(--cursor-default);
+  }
+
+  a,
+  button,
+  summary,
+  label[for],
+  [role='button'],
+  [role='option'],
+  [role='menuitem'],
+  [role='tab'],
+  select,
+  input[type='checkbox'],
+  input[type='radio'],
+  input[type='range'],
+  input[type='file'] {
+    cursor: var(--cursor-pointer);
+  }
+
+  input:not([type='checkbox'], [type='radio'], [type='range'], [type='file']),
+  textarea,
+  [contenteditable='true'] {
+    cursor: var(--cursor-text);
+  }
+
+  :disabled,
+  [aria-disabled='true'] {
+    cursor: var(--cursor-not-allowed);
+  }
+
   /* Focus rings draw inside the box, because the pixel-corner clip cuts anything outside it. */
   :focus-visible {
     outline-offset: calc(-1 * var(--ui-px));
@@ -728,6 +774,32 @@
   .shadow-xl,
   .shadow-2xl {
     box-shadow: none;
+  }
+
+  /* Tailwind's cursor utilities, on the pixel cursors. */
+  .cursor-default {
+    cursor: var(--cursor-default);
+  }
+  .cursor-pointer {
+    cursor: var(--cursor-pointer);
+  }
+  .cursor-text {
+    cursor: var(--cursor-text);
+  }
+  .cursor-crosshair {
+    cursor: var(--cursor-crosshair);
+  }
+  .cursor-grab {
+    cursor: var(--cursor-grab);
+  }
+  .cursor-grabbing {
+    cursor: var(--cursor-grabbing);
+  }
+  .cursor-ew-resize {
+    cursor: var(--cursor-ew-resize);
+  }
+  .cursor-not-allowed {
+    cursor: var(--cursor-not-allowed);
   }
 
   /* daisyUI sizes its buttons at 14px; the pixel scale has no 14. */
