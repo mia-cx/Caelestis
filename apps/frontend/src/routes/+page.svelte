@@ -30,7 +30,7 @@ const sustainedAlarms = $derived(
   <div class="flex flex-col gap-4">
     {#if homeCopy !== undefined}
       <section
-        class="rounded-2xl border-2 border-base-300 bg-base-100 p-4"
+        class="rounded-2xl border-[1.5px] border-base-300 bg-base-100 p-4"
         aria-label={`About ${serverName}`}
       >
         <HomeCopy copy={homeCopy} />
@@ -49,7 +49,7 @@ const sustainedAlarms = $derived(
     {/each}
 
     {#if tree.templates.length > 0}
-      <section class="rounded-2xl border-2 border-base-300 bg-base-100 p-3">
+      <section class="rounded-2xl border-[1.5px] border-base-300 bg-base-100 p-3">
         <h2 class="px-1 pb-3 font-semibold">Ungrouped templates</h2>
         <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {#each tree.templates as entry (entry.template.id)}
@@ -60,7 +60,7 @@ const sustainedAlarms = $derived(
     {/if}
 
     {#if tree.templateCount === 0}
-      <div class="rounded-2xl border-2 border-dashed border-base-300 p-10 text-center text-base-content/60">
+      <div class="rounded-2xl border-[1.5px] border-dashed border-base-300 p-10 text-center text-base-content/60">
         <p class="font-semibold">No templates yet</p>
         <p class="mt-1 text-sm">
           Upload templates in the userscript. Their canvas progress will appear here.

@@ -380,7 +380,7 @@
 </script>
 
 <div class="flex flex-col gap-4">
-  <section class="rounded-2xl border-2 border-base-300 bg-base-100 p-4">
+  <section class="rounded-2xl border-[1.5px] border-base-300 bg-base-100 p-4">
     <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
       <h2 class="font-semibold">Progress &amp; pace</h2>
       <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs tabular-nums text-base-content/60">
@@ -433,7 +433,7 @@
     {#if progressError}<p class="mt-2 text-sm text-error" role="alert">{progressError}</p>{/if}
   </section>
 
-  <section class="rounded-2xl border-2 border-base-300 bg-base-100 p-4">
+  <section class="rounded-2xl border-[1.5px] border-base-300 bg-base-100 p-4">
     <h2 class="mb-3 font-semibold">Leaderboard</h2>
     {#if leaderboard === null}
       <Skeleton class="h-40 w-full" />
@@ -442,7 +442,7 @@
     {/if}
   </section>
 
-  <section class="rounded-2xl border-2 border-base-300 bg-base-100 p-4">
+  <section class="rounded-2xl border-[1.5px] border-base-300 bg-base-100 p-4">
     <h2 class="mb-3 font-semibold">Contributions</h2>
     {#if contributions === null}
       <Skeleton class="h-28 w-full" />

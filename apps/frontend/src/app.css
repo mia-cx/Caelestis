@@ -64,7 +64,7 @@
   --radius-selector: var(--caelestis-radius);
   --size-field: 0.25rem;
   --size-selector: 0.25rem;
-  --border: 2px;
+  --border: 1.5px;
   --depth: 0;
   --noise: 0;
 }
@@ -103,7 +103,7 @@
   --radius-selector: var(--caelestis-radius);
   --size-field: 0.25rem;
   --size-selector: 0.25rem;
-  --border: 2px;
+  --border: 1.5px;
   --depth: 0;
   --noise: 0;
 }
@@ -126,26 +126,27 @@
   --font-logo: 'FalseType', 'Nunito Variable', sans-serif;
 
   /*
-   * Pixel type scale. FalseType draws whole pixels only at multiples of 12px, so the scale has three
-   * steps: 12px for copy, 24px for headings, 36px for the logo. Line heights leave an even number of
-   * pixels of leading so the baseline stays on the grid.
+   * Pixel type scale on a 1.5px grid unit, exact on 2x displays where that is 3 device pixels.
+   * FalseType draws whole canvas pixels at multiples of 6px there, and copy needs 12px caps to read,
+   * so the scale has two steps: 18px for copy and 36px for headings and the logo. Line heights leave
+   * whole pixels of leading so the baseline stays on the grid.
    */
-  --text-xs: 0.75rem;
-  --text-xs--line-height: 1rem;
-  --text-sm: 0.75rem;
-  --text-sm--line-height: 1.25rem;
-  --text-base: 0.75rem;
-  --text-base--line-height: 1.25rem;
-  --text-lg: 1.5rem;
-  --text-lg--line-height: 2rem;
-  --text-xl: 1.5rem;
-  --text-xl--line-height: 2rem;
-  --text-2xl: 1.5rem;
-  --text-2xl--line-height: 2rem;
+  --text-xs: 1.125rem;
+  --text-xs--line-height: 1.5rem;
+  --text-sm: 1.125rem;
+  --text-sm--line-height: 1.5rem;
+  --text-base: 1.125rem;
+  --text-base--line-height: 1.5rem;
+  --text-lg: 2.25rem;
+  --text-lg--line-height: 3rem;
+  --text-xl: 2.25rem;
+  --text-xl--line-height: 3rem;
+  --text-2xl: 2.25rem;
+  --text-2xl--line-height: 3rem;
   --text-3xl: 2.25rem;
-  --text-3xl--line-height: 2.75rem;
+  --text-3xl--line-height: 3rem;
   --text-4xl: 2.25rem;
-  --text-4xl--line-height: 2.75rem;
+  --text-4xl--line-height: 3rem;
 
   --color-background: var(--color-base-100);
   --color-foreground: var(--color-base-content);
@@ -248,7 +249,7 @@
 
   /* Focus rings draw inside the box, because the pixel-corner clip cuts anything outside it. */
   :focus-visible {
-    outline-offset: -2px;
+    outline-offset: calc(-1 * var(--px));
   }
 
   body {
@@ -286,70 +287,97 @@
 :root {
   /* Corners are stair-stepped with clip-path below; nothing rounds underneath. */
   --caelestis-radius: 0;
+  /* The pixel grid unit: one canvas pixel is this many CSS pixels. Everything below scales from it. */
+  --px: 1.5px;
+  --icon-size: 1.125rem;
   /*
    * Pixel corners: polygons that bite whole pixels out of each corner, the way FalseType rounds a C.
    * Small is a 3 step stair for controls, large a 4 step stair for cards. clip-path clips shadows and
    * outlines with it, so focus rings draw inside the box (see the base layer).
    */
   --pixel-corners-sm: polygon(
-    3px 0,
-    calc(100% - 3px) 0,
-    calc(100% - 3px) 1px,
-    calc(100% - 1px) 1px,
-    calc(100% - 1px) 3px,
-    100% 3px,
-    100% calc(100% - 3px),
-    calc(100% - 1px) calc(100% - 3px),
-    calc(100% - 1px) calc(100% - 1px),
-    calc(100% - 3px) calc(100% - 1px),
-    calc(100% - 3px) 100%,
-    3px 100%,
-    3px calc(100% - 1px),
-    1px calc(100% - 1px),
-    1px calc(100% - 3px),
-    0 calc(100% - 3px),
-    0 3px,
-    1px 3px,
-    1px 1px,
-    3px 1px
+    0 calc(4 * var(--px)),
+    0 calc(3 * var(--px)),
+    0 calc(2 * var(--px)),
+    calc(1 * var(--px)) calc(2 * var(--px)),
+    calc(1 * var(--px)) calc(1 * var(--px)),
+    calc(2 * var(--px)) calc(1 * var(--px)),
+    calc(2 * var(--px)) 0,
+    calc(100% - 2 * var(--px)) 0,
+    calc(100% - 2 * var(--px)) calc(1 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(1 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(2 * var(--px)),
+    100% calc(2 * var(--px)),
+    100% calc(3 * var(--px)),
+    100% calc(4 * var(--px)),
+    100% calc(100% - 4 * var(--px)),
+    100% calc(100% - 3 * var(--px)),
+    100% calc(100% - 2 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(100% - 2 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(100% - 1 * var(--px)),
+    calc(100% - 2 * var(--px)) calc(100% - 1 * var(--px)),
+    calc(100% - 2 * var(--px)) 100%,
+    calc(2 * var(--px)) 100%,
+    calc(2 * var(--px)) calc(100% - 1 * var(--px)),
+    calc(1 * var(--px)) calc(100% - 1 * var(--px)),
+    calc(1 * var(--px)) calc(100% - 2 * var(--px)),
+    0 calc(100% - 2 * var(--px)),
+    0 calc(100% - 3 * var(--px)),
+    0 calc(100% - 4 * var(--px))
   );
   --pixel-corners-lg: polygon(
-    6px 0,
-    calc(100% - 6px) 0,
-    calc(100% - 6px) 1px,
-    calc(100% - 3px) 1px,
-    calc(100% - 3px) 2px,
-    calc(100% - 2px) 2px,
-    calc(100% - 2px) 3px,
-    calc(100% - 1px) 3px,
-    calc(100% - 1px) 6px,
-    100% 6px,
-    100% calc(100% - 6px),
-    calc(100% - 1px) calc(100% - 6px),
-    calc(100% - 1px) calc(100% - 3px),
-    calc(100% - 2px) calc(100% - 3px),
-    calc(100% - 2px) calc(100% - 2px),
-    calc(100% - 3px) calc(100% - 2px),
-    calc(100% - 3px) calc(100% - 1px),
-    calc(100% - 6px) calc(100% - 1px),
-    calc(100% - 6px) 100%,
-    6px 100%,
-    6px calc(100% - 1px),
-    3px calc(100% - 1px),
-    3px calc(100% - 2px),
-    2px calc(100% - 2px),
-    2px calc(100% - 3px),
-    1px calc(100% - 3px),
-    1px calc(100% - 6px),
-    0 calc(100% - 6px),
-    0 6px,
-    1px 6px,
-    1px 3px,
-    2px 3px,
-    2px 2px,
-    3px 2px,
-    3px 1px,
-    6px 1px
+    0 calc(8 * var(--px)),
+    0 calc(7 * var(--px)),
+    0 calc(6 * var(--px)),
+    0 calc(5 * var(--px)),
+    calc(1 * var(--px)) calc(5 * var(--px)),
+    calc(1 * var(--px)) calc(4 * var(--px)),
+    calc(1 * var(--px)) calc(3 * var(--px)),
+    calc(2 * var(--px)) calc(3 * var(--px)),
+    calc(2 * var(--px)) calc(2 * var(--px)),
+    calc(3 * var(--px)) calc(2 * var(--px)),
+    calc(3 * var(--px)) calc(1 * var(--px)),
+    calc(5 * var(--px)) calc(1 * var(--px)),
+    calc(5 * var(--px)) 0,
+    calc(100% - 5 * var(--px)) 0,
+    calc(100% - 5 * var(--px)) calc(1 * var(--px)),
+    calc(100% - 3 * var(--px)) calc(1 * var(--px)),
+    calc(100% - 3 * var(--px)) calc(2 * var(--px)),
+    calc(100% - 2 * var(--px)) calc(2 * var(--px)),
+    calc(100% - 2 * var(--px)) calc(3 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(3 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(4 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(5 * var(--px)),
+    100% calc(5 * var(--px)),
+    100% calc(6 * var(--px)),
+    100% calc(7 * var(--px)),
+    100% calc(8 * var(--px)),
+    100% calc(100% - 8 * var(--px)),
+    100% calc(100% - 7 * var(--px)),
+    100% calc(100% - 6 * var(--px)),
+    100% calc(100% - 5 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(100% - 5 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(100% - 4 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(100% - 3 * var(--px)),
+    calc(100% - 2 * var(--px)) calc(100% - 3 * var(--px)),
+    calc(100% - 2 * var(--px)) calc(100% - 2 * var(--px)),
+    calc(100% - 3 * var(--px)) calc(100% - 2 * var(--px)),
+    calc(100% - 3 * var(--px)) calc(100% - 1 * var(--px)),
+    calc(100% - 5 * var(--px)) calc(100% - 1 * var(--px)),
+    calc(100% - 5 * var(--px)) 100%,
+    calc(5 * var(--px)) 100%,
+    calc(5 * var(--px)) calc(100% - 1 * var(--px)),
+    calc(3 * var(--px)) calc(100% - 1 * var(--px)),
+    calc(3 * var(--px)) calc(100% - 2 * var(--px)),
+    calc(2 * var(--px)) calc(100% - 2 * var(--px)),
+    calc(2 * var(--px)) calc(100% - 3 * var(--px)),
+    calc(1 * var(--px)) calc(100% - 3 * var(--px)),
+    calc(1 * var(--px)) calc(100% - 4 * var(--px)),
+    calc(1 * var(--px)) calc(100% - 5 * var(--px)),
+    0 calc(100% - 5 * var(--px)),
+    0 calc(100% - 6 * var(--px)),
+    0 calc(100% - 7 * var(--px)),
+    0 calc(100% - 8 * var(--px))
   );
   --tabs-dur: 250ms;
   --tabs-ease: cubic-bezier(0.22, 1, 0.36, 1);
@@ -491,7 +519,7 @@
 
   /* daisyUI sizes its buttons at 14px; the pixel scale has no 14. */
   .btn {
-    --fontsize: 0.75rem;
+    --fontsize: 1.125rem;
   }
 }
 
@@ -513,7 +541,7 @@
 /* Pixel perfect only at whole multiples of 0.75rem, and only with the browser adding nothing. */
 @utility font-logo {
   font-family: var(--font-logo);
-  /* 12 canvas pixels per em, so whole multiples of 0.75rem draw every pixel whole: 2.25rem is 3:1. */
+  /* 12 canvas pixels per em: 2.25rem is 3 CSS px per canvas pixel, whole on every display. */
   font-size: 2.25rem;
   line-height: 1;
   letter-spacing: 0;

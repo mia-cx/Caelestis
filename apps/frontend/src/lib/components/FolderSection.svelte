@@ -22,20 +22,20 @@ let open = $state(depth < 2)
 </script>
 
 <Collapsible.Root bind:open>
-  <section class="rounded-2xl border-2 border-base-300 bg-base-100">
+  <section class="rounded-2xl border-[1.5px] border-base-300 bg-base-100">
     <div class="flex items-center gap-2 p-3">
       <Collapsible.Trigger
         class="flex size-6 shrink-0 items-center justify-center rounded-lg hover:bg-base-200 focus-visible:outline-2 focus-visible:outline-primary"
         aria-label="{open ? 'collapse' : 'expand'} {folder.node.name}"
       >
-        <Icon name="chevronRight" class="size-3 text-base-content/50 transition-transform {open ? 'rotate-90' : ''}" />
+        <Icon name="chevronRight" class="size-4.5 text-base-content/50 transition-transform {open ? 'rotate-90' : ''}" />
       </Collapsible.Trigger>
       <a
         href="/folder/{folder.node.id}"
         class="flex min-w-0 flex-1 items-center gap-2 rounded-lg focus-visible:outline-2 focus-visible:outline-primary"
         title="Stats and charts for {folder.node.name}"
       >
-        <Icon name="folder" class="size-3 shrink-0 text-accent" />
+        <Icon name="folder" class="size-4.5 shrink-0 text-accent" />
         <span class="truncate font-semibold hover:text-primary">{folder.node.name}</span>
         <span class="shrink-0 text-xs tabular-nums text-base-content/50">
           {folder.templateCount}
@@ -49,7 +49,7 @@ let open = $state(depth < 2)
       {/if}
     </div>
     <Collapsible.Content>
-      <div class="flex flex-col gap-3 border-t-2 border-base-300 p-3">
+      <div class="flex flex-col gap-3 border-t-[1.5px] border-base-300 p-3">
         {#if folder.templates.length > 0}
           <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {#each folder.templates as entry (entry.template.id)}

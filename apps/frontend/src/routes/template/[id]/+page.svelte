@@ -162,7 +162,7 @@ const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
     <Skeleton class="h-80 w-full rounded-2xl" />
   </div>
 {:else if template === null || progress === null}
-  <div class="rounded-2xl border-2 border-dashed border-base-300 p-10 text-center text-base-content/60">
+  <div class="rounded-2xl border-[1.5px] border-dashed border-base-300 p-10 text-center text-base-content/60">
     <p class="font-semibold">Template not found</p>
     <p class="mt-1 text-sm">It may have been deleted or unpublished.</p>
     <a href="/" class="btn btn-sm mt-4">Back to all templates</a>
@@ -195,7 +195,7 @@ const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
       </span>
       {#if wplaceUrl !== null}
         <a href={wplaceUrl} target="_blank" rel="noreferrer" class="btn btn-xs btn-outline gap-1 rounded-lg">
-          <Icon name="popout" class="size-3" /> View on wplace
+          <Icon name="popout" class="size-4.5" /> View on wplace
         </a>
       {/if}
     </header>
@@ -208,10 +208,10 @@ const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
       </p>
     {/if}
 
-    <section class="overflow-hidden rounded-2xl border-2 border-base-300 bg-base-100">
+    <section class="overflow-hidden rounded-2xl border-[1.5px] border-base-300 bg-base-100">
       <TemplateViewer {template} {hashFor} {overlayAlpha} class="h-[28rem] w-full" />
 
-      <div class="flex flex-wrap items-center gap-x-4 gap-y-2 border-t-2 border-base-300 px-4 py-3">
+      <div class="flex flex-wrap items-center gap-x-4 gap-y-2 border-t-[1.5px] border-base-300 px-4 py-3">
         <span class="shrink-0 text-sm text-base-content/70">Template overlay</span>
         <Slider
           type="single"
@@ -228,7 +228,7 @@ const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
         </span>
       </div>
 
-      <div class="flex flex-wrap items-center gap-x-3 gap-y-2 border-t-2 border-base-300 px-4 py-3">
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-2 border-t-[1.5px] border-base-300 px-4 py-3">
         {#if frames === null}
           <Skeleton class="h-6 w-full" />
         {:else if timeline.length === 0}
@@ -244,7 +244,7 @@ const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
             }}
             aria-label={playing ? 'pause timelapse' : 'play timelapse'}
           >
-            {#if playing}<Icon name="pause" class="size-3" />{:else}<Icon name="play" class="size-3" />{/if}
+            {#if playing}<Icon name="pause" class="size-4.5" />{:else}<Icon name="play" class="size-4.5" />{/if}
           </button>
           <div class="dropdown dropdown-top group">
             <button
@@ -307,7 +307,7 @@ const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
         {/if}
       </div>
       {#if template.timelapseFrozen}
-        <div class="border-t-2 border-base-300 px-4 py-2">
+        <div class="border-t-[1.5px] border-base-300 px-4 py-2">
           <TemplateState compact frozen />
         </div>
       {/if}
@@ -322,7 +322,7 @@ const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
     />
 
     {#if status?.colours !== undefined && status.colours.length > 0}
-      <section class="rounded-2xl border-2 border-base-300 bg-base-100 p-4">
+      <section class="rounded-2xl border-[1.5px] border-base-300 bg-base-100 p-4">
         <h2 class="mb-3 font-semibold">Progress by colour</h2>
         <ColourProgress colours={status.colours} />
       </section>
