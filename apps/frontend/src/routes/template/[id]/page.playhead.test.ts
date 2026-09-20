@@ -244,3 +244,31 @@ it('seeks from the keyboard walk on the chart', async () => {
   expect(paused()).toBe(true)
   expect(shownHash()).toBe('60')
 })
+
+it.each([false, true])(
+  'restores a canceled moved touch scrub when playing=%s',
+  async (wasPlaying) => {
+    await show()
+    clickChart(start + 200)
+    if (wasPlaying) click('play timelapse')
+    const plot = chart()
+    const touch = { pointerType: 'touch', pointerId: 7 }
+    plot?.dispatchEvent(pointer('pointerdown', { ...touch, clientX: px(start + 200) }))
+    window.dispatchEvent(pointer('pointermove', { ...touch, clientX: px(start + 3_700) }))
+    flushSync()
+    expect(position()).toBe(3_700)
+    expect(paused()).toBe(true)
+    window.dispatchEvent(pointer('pointercancel', touch))
+    flushSync()
+    expect(position()).toBe(200)
+    expect(shownHash()).toBe('180')
+    expect(paused()).toBe(!wasPlaying)
+    await advance(100)
+    if (wasPlaying) {
+      expect(position()).toBeGreaterThan(200)
+      expect(position()).toBeLessThan(260)
+    } else {
+      expect(position()).toBe(200)
+    }
+  },
+)

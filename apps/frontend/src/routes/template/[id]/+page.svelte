@@ -159,6 +159,16 @@ const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
     playing = false
   }
 
+  /** A browser-canceled scrub restores both the position and whether playback was running. */
+  const beginScrub = (): (() => void) => {
+    const position = playhead
+    const wasPlaying = playing
+    return () => {
+      seekTo(position)
+      playing = wasPlaying
+    }
+  }
+
   const formatFrame = (t: number): string =>
     new Date(t * 1000).toLocaleString(undefined, {
       month: 'short',
@@ -341,6 +351,7 @@ const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
       subscribeDashboard={app.subscribeDashboard}
       playhead={live ? null : playhead}
       onSeek={timeline.length > 0 ? seekTo : undefined}
+      onScrubStart={beginScrub}
     />
 
     {#if status?.colours !== undefined && status.colours.length > 0}

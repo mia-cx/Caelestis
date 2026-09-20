@@ -58,6 +58,7 @@
     windows = persisted<string[]>('caelestis:pace-windows', ['1h', '6h']),
     playhead = null,
     onSeek,
+    onScrubStart,
   }: {
     buckets: readonly HistoryBucket[]
     archiveSamples?: readonly ArchiveProgressSample[]
@@ -94,6 +95,8 @@
      * time; the chart only draws `playhead`. Absent, the plot keeps its zoom-only gestures.
      */
     onSeek?: (t: number) => void
+    /** Capture the playback state before a drag; the returned callback rolls back cancellation. */
+    onScrubStart?: () => () => void
   } = $props()
 
   const firstLive = $derived(Math.min(...progressSamples.map(sample => sample.at), (live || finished) ? to : Infinity))
@@ -731,6 +734,7 @@
     const scrub =
       seek !== undefined &&
       overPlayhead(event.clientX, plot.getBoundingClientRect().left, event.pointerType)
+    const cancelScrub = scrub ? onScrubStart?.() : undefined
     const dragView = { from: shownView.from, to: shownView.to }
     void shownWindow.set(dragView, { duration: 0 })
     const clampView = (t: number): number => Math.min(dragView.to, Math.max(dragView.from, t))
@@ -789,7 +793,9 @@
         finish(up.clientX, up.clientY)
       }),
       listen('pointercancel', (cancel) => {
-        if (cancel.pointerId === event.pointerId) finish()
+        if (cancel.pointerId !== event.pointerId) return
+        if (moved && scrub) cancelScrub?.()
+        finish()
       }),
     ]
   }

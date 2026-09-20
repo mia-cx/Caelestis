@@ -48,6 +48,7 @@ import { persisted } from '$lib/persisted.svelte'
     subscribeDashboard,
     playhead = null,
     onSeek,
+    onScrubStart,
   }: {
     templates: readonly Template[]
     season: number
@@ -58,6 +59,8 @@ import { persisted } from '$lib/persisted.svelte'
     playhead?: number | null
     /** Lets the chart seek that timelapse. Folders and other unlinked scopes leave it unset. */
     onSeek?: (t: number) => void
+    /** Supplies cancellation rollback for the linked timelapse's playhead drag. */
+    onScrubStart?: () => () => void
     subscribeDashboard: (
       templateIds: readonly string[],
       contributionsFrom: number,
@@ -439,6 +442,7 @@ import { persisted } from '$lib/persisted.svelte'
         windows={storedWindows}
         {playhead}
         {onSeek}
+        {onScrubStart}
       />
     {/if}
     {#if archiveError}<p class="mt-2 text-sm text-error" role="alert">{archiveError}</p>{/if}

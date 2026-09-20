@@ -61,3 +61,11 @@ recorded time, preserving the existing 350 ms per recorded hour at 1×.
 - Final validation: `pnpm lint`, `pnpm check`, `pnpm build`, all 209 frontend tests, and 52 release
   checks pass. Chromium verifies canceled touches and vertical scrolling no longer seek, plus
   desktop/mobile in light/dark themes. Fixture screenshots and measured timing accompany the PR.
+- PR #486 review found two reachable regressions. Scheduled social rendering consumes the mixed
+  history, so index-based sampling and delays distorted its dense tail. Sampling and GIF delays
+  now follow timestamps, including size-limit retries; short GIF delays retain their time without
+  triggering player default pauses. The archive pixel fixture now has a finite finished range
+  instead of relying on equal durations for observations decades before its implicit live end.
+- A touch can move before the browser cancels it. A new page integration regression reproduced
+  the retained seek and pause. The page now snapshots position/play state for chart drags and
+  restores both on cancellation; completed drags still preview and commit their seek.
