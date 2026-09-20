@@ -18,6 +18,47 @@ vi.mock('$lib/api/client', () => api)
 
 import StatsPanel from './StatsPanel.svelte'
 
+const PERIOD_LABELS: Record<string, string> = {
+  '1d': 'last day',
+  '3d': 'last 3 days',
+  '7d': 'last 7 days',
+  '30d': 'last 30 days',
+  '1y': 'last year',
+  all: 'all',
+}
+
+/** The estimate period is a bits-ui Select; its trigger shows the chosen label. */
+const periodTrigger = (): HTMLButtonElement => {
+  const trigger = document.querySelector<HTMLButtonElement>(
+    'button[aria-labelledby="estimate-period-label"]',
+  )
+  if (trigger === null) throw new Error('missing estimate period')
+  return trigger
+}
+const periodValue = (): string | undefined =>
+  Object.entries(PERIOD_LABELS).find(
+    ([, label]) => periodTrigger().textContent?.trim() === label,
+  )?.[0]
+const choosePeriod = async (key: string): Promise<void> => {
+  const trigger = periodTrigger()
+  trigger.dispatchEvent(
+    new PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse', button: 0 }),
+  )
+  trigger.click()
+  flushSync()
+  const option = await vi.waitFor(() => {
+    const found = document.querySelector<HTMLElement>(`[role="option"][data-value="${key}"]`)
+    if (found === null) throw new Error(`option ${key} not open`)
+    return found
+  })
+  option.dispatchEvent(
+    new PointerEvent('pointerup', { bubbles: true, pointerType: 'mouse', button: 0 }),
+  )
+  option.click()
+  flushSync()
+  await vi.waitFor(() => expect(periodValue()).toBe(key))
+}
+
 const DAY_SECONDS = 86_400
 const NOW_SECONDS = 40 * DAY_SECONDS
 
@@ -136,13 +177,7 @@ describe('retained history range', () => {
       mounted = mount(StatsPanel, { target: document.body, props })
       flushSync()
       await vi.waitFor(() => expect(api.getHistory).toHaveBeenCalledTimes(1))
-      const select = document.querySelector<HTMLSelectElement>(
-        'select[aria-label="Completion estimate pace period"]',
-      )
-      if (!select) throw new Error('missing estimate period')
-      select.value = 'all'
-      select.dispatchEvent(new Event('change', { bubbles: true }))
-      flushSync()
+      await choosePeriod('all')
       await vi.waitFor(() => expect(document.querySelector('svg[role="img"]')).not.toBeNull())
       await vi.waitFor(() => expect(document.body.textContent).toContain(expected))
       expect(storage.get('caelestis:estimate-period')).toBe('"all"')
@@ -152,11 +187,7 @@ describe('retained history range', () => {
       flushSync()
       await vi.waitFor(() => expect(document.querySelector('svg[role="img"]')).not.toBeNull())
       await vi.waitFor(() => expect(document.body.textContent).toContain(expected))
-      expect(
-        document.querySelector<HTMLSelectElement>(
-          'select[aria-label="Completion estimate pace period"]',
-        )?.value,
-      ).toBe('all')
+      expect(periodValue()).toBe('all')
     },
   )
 
@@ -529,34 +560,16 @@ describe('retained history range', () => {
     await vi.waitFor(() =>
       expect(document.body.textContent).toContain('Estimated completion in ~40 d'),
     )
-    const select = document.querySelector<HTMLSelectElement>(
-      'select[aria-label="Completion estimate pace period"]',
-    )
-    if (select === null) throw new Error('missing estimate period')
-    expect(select.value).toBe('7d')
-    select.value = '1d'
-    select.dispatchEvent(new Event('change', { bubbles: true }))
-    flushSync()
+    expect(periodValue()).toBe('7d')
+    await choosePeriod('1d')
     expect(document.body.textContent).toContain('Estimated completion in ~6 d')
     expect(storage.get('caelestis:estimate-period')).toBe('"1d"')
     await unmount(mounted)
     mounted = mount(StatsPanel, { target: document.body, props })
     flushSync()
-    await vi.waitFor(() =>
-      expect(
-        document.querySelector<HTMLSelectElement>(
-          'select[aria-label="Completion estimate pace period"]',
-        )?.value,
-      ).toBe('1d'),
-    )
-    const restored = document.querySelector<HTMLSelectElement>(
-      'select[aria-label="Completion estimate pace period"]',
-    )
-    if (restored === null) throw new Error('missing estimate period')
+    await vi.waitFor(() => expect(periodValue()).toBe('1d'))
     await vi.waitFor(() => expect(api.getHistory).toHaveBeenCalledTimes(2))
-    restored.value = '1y'
-    restored.dispatchEvent(new Event('change', { bubbles: true }))
-    flushSync()
+    await choosePeriod('1y')
     expect(api.getHistory).toHaveBeenCalledTimes(2)
     await vi.waitFor(() =>
       expect(document.body.textContent).toContain('Estimated completion in ~229 d'),
