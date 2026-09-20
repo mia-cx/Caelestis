@@ -1,0 +1,76 @@
+# #485 Denser timelapses with time-stable playback
+
+## Summary
+
+Return the finest retained tile observations across the requested range. Advance playback by
+recorded time, preserving the existing 350 ms per recorded hour at 1×.
+
+## Acceptance criteria
+
+- [x] Sub-hour observations survive alongside older folded and imported history.
+- [x] Irregular timestamp gaps take proportional playback time, without timer drift.
+- [x] Transport distance and seeking represent elapsed time, with a steadily moving playhead.
+- [x] The progress & pace graph shares the playhead and can seek the timelapse in both directions.
+- [x] Play/pause, seeking, replay, saved speed, and lifecycle bounds still work.
+- [x] Focused regressions, affected package checks, and Chromium verification pass.
+
+## TODOs
+
+- [x] Return mixed-density tile history by default, preserving explicit-resolution reads, with route regressions.
+- [x] Drive the viewer with elapsed recorded time and verify playback controls with focused tests.
+- [x] Map the transport to recorded time and verify continuous motion through sparse holds.
+- [x] Link the progress & pace graph to timelapse playback and scrubbing, with focused interaction tests.
+- [x] Add release notes and validate the affected packages and browser flow.
+
+## Notes
+
+- Roadmap issue #485 is In Progress. The supplied branch is clean.
+- The default history query currently coalesces every observation to one tier chosen for the entire range.
+- The viewer currently advances one frame every 350 / speed milliseconds.
+- This is a direct feature change at two explicit policy points. Skip speculative diagnosis phases;
+  demonstrate lost sub-hour observations with the route regression before changing the query.
+- Keep explicit numeric resolution reads compatible. Mixed default responses omit the optional
+  resolution field because their bucket widths differ. Prefer finer history where tiers overlap.
+- Run isolated local services for verification. No production reads, writes, or deployment.
+- The route regression failed before the change: two raw frames 60 seconds apart became one daily
+  frame. All 20 telemetry read-route tests pass after the change, including mixed tiers and overlaps.
+- Four mounted-page regressions and ten clock tests pass. They cover sub-hour deadlines, every
+  speed range, partial-frame pause/resume, speed changes, seek, replay, empty input, finished bounds,
+  and late callbacks. Replaced spread-based minimum lookup to support large preserved histories.
+- Mia extended the scope to the transport: use a recorded-time axis, seek between observations,
+  and update the playhead through long holds without redrawing unchanged tile selections.
+- Mia requested graph synchronization delegated to Claude fable-5.1. Claude Code uses model
+  `claude-fable-5-1`; it owns chart/StatsPanel/template-page integration and focused tests.
+- Full `pnpm test` hits an existing runtime-test migration parser failure: the unchanged
+  scripts/live-paint-runtime.test.mjs splits migration 0028's CREATE TRIGGER at its inner semicolon.
+  Package tests are being run separately; no migration or unrelated test-runner changes in this PR.
+- Time-based transport passes 16 focused tests and Chromium pixel/position checks. Equal pointer
+  distances select equal recorded intervals; the playhead advances through holds. Forwarded labels
+  and formatted time to the actual slider thumb after Chromium exposed missing accessible names.
+- Backend suite: 885 passed, 15 skipped. Userscript suite: 1601 passed, two timing failures; both
+  failing files passed independently (132 tests). Shared/UI/storage/wire package suites passed.
+- Claude Fable 5.1 implemented optional chart playhead/onSeek props through StatsPanel, a shared
+  page seek handler, and 18 integration tests. Click seeks, dragging the playhead scrubs, dragging
+  elsewhere zooms, and Enter/Space seeks from keyboard hover. Double-click still resets zoom and
+  also seeks to that point. Unlinked charts retain their behavior.
+- Chromium confirms both directions, archive timestamps before creation, zoomed positioning,
+  off-window overview marker, actual tile changes, mobile touch, and no playback-driven refetches.
+  A canceled touch initially sought; Fable independently fixed it and added a regression.
+- All further Chromium checks reuse the background target with persistent focus emulation.
+  The fixture harness's initial target creation lacked background:true; that path was removed.
+- Final validation: `pnpm lint`, `pnpm check`, `pnpm build`, all 209 frontend tests, and 52 release
+  checks pass. Chromium verifies canceled touches and vertical scrolling no longer seek, plus
+  desktop/mobile in light/dark themes. Fixture screenshots and measured timing accompany the PR.
+- PR #486 review found two reachable regressions. Scheduled social rendering consumes the mixed
+  history, so index-based sampling and delays distorted its dense tail. Sampling and GIF delays
+  now follow timestamps, including size-limit retries; short GIF delays retain their time without
+  triggering player default pauses. The archive pixel fixture now has a finite finished range
+  instead of relying on equal durations for observations decades before its implicit live end.
+- A touch can move before the browser cancels it. A new page integration regression reproduced
+  the retained seek and pause. The page now snapshots position/play state for chart drags and
+  restores both on cancellation; completed drags still preview and commit their seek.
+- The follow-up GIF fix could skip a short first image. Decoded-pixel regression reproduced it;
+  the first image now borrows a safe 20 ms hold from later deadlines, preserving ten seconds total.
+  All 16 social tests and 211 frontend tests pass alongside lint, types, and builds. Isolated
+  headless Chromium verifies rollback of actual tiles/time and paused/running playback after a
+  moved gesture is canceled; completed drags retain their seek. Task-owned processes were stopped.

@@ -951,3 +951,54 @@ describe('painter pace', () => {
     expect(document.querySelector('path[data-painter-line]')).toBeNull()
   })
 })
+
+describe('timelapse link', () => {
+  const props = {
+    season: 0,
+    liveDashboard: true,
+    templates: [template('live', NOW_SECONDS - DAY_SECONDS, null)],
+    subscribeDashboard: live.subscribe,
+    progress: { completed: 1, mismatched: 0, unpainted: 1, known: 2, total: 2 },
+  }
+  const plot = (): SVGSVGElement => {
+    const found = document.querySelector('svg[role="img"]')
+    if (!(found instanceof SVGSVGElement)) throw new Error('missing chart')
+    found.getBoundingClientRect = () => ({ left: 0, top: 0, right: 640, bottom: 240 }) as DOMRect
+    return found
+  }
+  const tap = (clientX: number): void => {
+    const init = { bubbles: true, clientX, clientY: 100, pointerType: 'mouse' }
+    plot().dispatchEvent(new PointerEvent('pointerdown', init))
+    window.dispatchEvent(new PointerEvent('pointerup', init))
+    flushSync()
+  }
+
+  it('draws no playhead and ignores clicks for an unlinked scope', async () => {
+    mounted = mount(StatsPanel, { target: document.body, props })
+    flushSync()
+    await vi.waitFor(() => expect(document.querySelector('svg[role="img"]')).not.toBeNull())
+
+    expect(document.querySelector('[data-playhead]')).toBeNull()
+    expect(plot().getAttribute('aria-label')).not.toContain('timelapse')
+    tap(320)
+    expect(document.querySelector('[data-playhead]')).toBeNull()
+  })
+
+  it('draws the page playhead and forwards chart seeks for a linked template', async () => {
+    const onSeek = vi.fn()
+    mounted = mount(StatsPanel, {
+      target: document.body,
+      props: { ...props, playhead: NOW_SECONDS - DAY_SECONDS / 2, onSeek },
+    })
+    flushSync()
+    await vi.waitFor(() => expect(document.querySelector('[data-playhead]')).not.toBeNull())
+
+    tap(320)
+    expect(onSeek).toHaveBeenCalledTimes(1)
+    const from = Number(
+      document.querySelector('[data-handle="head"]')?.getAttribute('aria-valuemin'),
+    )
+    const to = Number(document.querySelector('[data-handle="tail"]')?.getAttribute('aria-valuemax'))
+    expect(onSeek.mock.calls[0]?.[0]).toBeCloseTo(from + (to - from) / 2, 3)
+  })
+})

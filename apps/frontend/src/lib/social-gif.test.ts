@@ -17,16 +17,16 @@ beforeEach(() => {
   bytes.mockReset()
 })
 
-it('retries oversized GIFs with both history endpoints and redistributes their original duration', () => {
+it('retries oversized GIFs while preserving recorded timing and the final hold', () => {
   bytes
     .mockReturnValueOnce(new Uint8Array(4_500_001))
     .mockReturnValueOnce(new Uint8Array(4_500_001))
     .mockReturnValue(new Uint8Array(10))
   const frames = Array.from({ length: 9 }, (_, i) => Uint8Array.of(i, 0, 0, 255))
-  expect(encodeTimelapseGif(frames, 1, 1)).toHaveLength(10)
+  expect(encodeTimelapseGif(frames, 1, 1, [0, 1, 2, 3, 60, 61, 62, 99, 100])).toHaveLength(10)
   const final = writes.mock.calls.slice(-4)
   expect(final.map(([indices]) => indices[0])).toEqual([0, 4, 7, 8])
-  expect(final.map(([, , , options]) => options.delay)).toEqual([3340, 3330, 3330, 5000])
+  expect(final.map(([, , , options]) => options.delay)).toEqual([6000, 3900, 100, 5000])
 })
 
 it('fails visibly when even the history endpoints and final state exceed the size limit', () => {

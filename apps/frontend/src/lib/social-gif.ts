@@ -2,14 +2,24 @@ import { applyPalette, GIFEncoder, quantize } from 'gifenc/dist/gifenc.esm.js'
 
 export const HISTORY_PLAYBACK_SECONDS = 10
 const GIF_TICK_MS = 10
+const MIN_FRAME_DELAY_MS = 20
 const LIVE_PAUSE_MS = 5000
 const MAX_GIF_BYTES = 4_500_000
 
-function encodeFrames(frames: readonly Uint8Array[], width: number, height: number) {
+function encodeFrames(
+  frames: readonly Uint8Array[],
+  width: number,
+  height: number,
+  times: readonly number[],
+) {
   const gif = GIFEncoder()
   const historyFrames = frames.length - 1
   const historyTicks = (HISTORY_PLAYBACK_SECONDS * 1000) / GIF_TICK_MS
+  const start = times[0]
+  const span = times[historyFrames] - start
+  const tickAt = (index: number) => Math.ceil(((times[index] - start) * historyTicks) / span)
   let previous: Uint8Array | undefined
+  let elapsed = 0
   let pending:
     | {
         indices: Uint8Array
@@ -32,11 +42,18 @@ function encodeFrames(frames: readonly Uint8Array[], width: number, height: numb
   }
   for (const [index, frame] of frames.entries()) {
     const final = index === historyFrames
-    const delay = final
-      ? LIVE_PAUSE_MS
-      : (Math.ceil(((index + 1) * historyTicks) / historyFrames) -
-          Math.ceil((index * historyTicks) / historyFrames)) *
-        GIF_TICK_MS
+    let delay = final ? LIVE_PAUSE_MS : tickAt(index + 1) * GIF_TICK_MS - elapsed
+    // Always show the first state. Later deadlines repay this minimum hold rather than
+    // lengthening the history or starting with a future image.
+    if (!final && !previous) delay = Math.max(MIN_FRAME_DELAY_MS, delay)
+    if (delay <= 0) continue
+    if (!final) elapsed += delay
+    // Players stretch 0–10 ms frames to a default pause. Hold the previous image through
+    // these short observations while retaining their time in the ten-second total.
+    if (!final && delay < MIN_FRAME_DELAY_MS && pending) {
+      pending.delay += delay
+      continue
+    }
     const changed = new Uint8Array(width * height)
     let hasChanges = !previous
     if (previous) {
@@ -100,17 +117,23 @@ function encodeFrames(frames: readonly Uint8Array[], width: number, height: numb
   return gif.bytes()
 }
 
-/** Encode opaque canvases as ten seconds of history and a five-second final hold, looping forever. */
+/** Encode ten seconds of recorded history and a five-second live hold. Times include the live boundary. */
 export function encodeTimelapseGif(
   frames: readonly Uint8Array[],
   width: number,
   height: number,
+  times: readonly number[] = frames.map((_, index) => index),
 ): Uint8Array {
   let selected = frames
+  let selectedTimes = times
   while (true) {
-    const bytes = encodeFrames(selected, width, height)
+    const bytes = encodeFrames(selected, width, height, selectedTimes)
     if (bytes.length <= MAX_GIF_BYTES) return bytes
     if (selected.length <= 3) throw new Error('Timelapse exceeds the share image size limit')
     selected = [...selected.slice(0, -2).filter((_, i) => i % 2 === 0), ...selected.slice(-2)]
+    selectedTimes = [
+      ...selectedTimes.slice(0, -2).filter((_, i) => i % 2 === 0),
+      ...selectedTimes.slice(-2),
+    ]
   }
 }

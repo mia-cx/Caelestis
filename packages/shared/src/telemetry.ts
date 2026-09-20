@@ -477,7 +477,7 @@ export interface TileHistoryFrame {
 }
 
 export interface TileHistoryResponse {
-  /** Width of the returned observation buckets, or 0 for exact timestamps. */
+  /** Bucket width for explicit-tier reads (0 means exact timestamps); omitted for mixed history. */
   readonly resolution?: number
   readonly frames: readonly TileHistoryFrame[]
 }

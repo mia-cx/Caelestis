@@ -860,7 +860,7 @@ describe('telemetry read routes', () => {
     expect(unauthenticated.status).toBe(401)
   })
 
-  it('coalesces preserved raw tile history when an old range selects the permanent tier', async () => {
+  it('preserves sub-hour observations even when an old range selects the permanent tier', async () => {
     const { app, sql } = await harness()
     const readToken = await mintToken(app, 'read')
     const now = Math.floor(Date.now() / 1_000)
@@ -880,6 +880,19 @@ describe('telemetry read routes', () => {
       [],
     )
 
+    await sql.recordTileObservation(
+      {
+        season: 0,
+        tile: { x: 0, y: 0 },
+        hash: 'c'.repeat(64),
+        observedAt: millis((from + 60) * 1_000),
+        reportedAt: seconds(from + 60),
+        reportedWithToken: TOKEN_DIGEST,
+        reportedByUserId: 1,
+      },
+      [],
+    )
+
     const response = await app.request(
       `/telemetry/tiles/0/0/history?season=0&from=${from}&to=${to}`,
       { headers: bearer(readToken) },
@@ -887,9 +900,56 @@ describe('telemetry read routes', () => {
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({
-      frames: [{ bucketStart: from, hash, reporters: 1 }],
-      resolution: expect.any(Number),
+      frames: [
+        { bucketStart: from, hash, reporters: 1 },
+        { bucketStart: from + 60, hash: 'c'.repeat(64), reporters: 1 },
+      ],
     })
+  })
+
+  it('combines retained tiers, prefers overlapping raw detail, and preserves explicit reads', async () => {
+    const { app, sql } = await harness()
+    const now = Math.floor(Date.now() / 86_400_000) * 86_400
+    const times = [now - 40 * 86_400, now - 10 * 86_400, now - 3 * 86_400, now - 120, now - 60]
+    const record = async (at: number, hash: string) => {
+      await sql.recordTileObservation(
+        {
+          season: 0,
+          tile: { x: 0, y: 0 },
+          hash,
+          observedAt: millis(at * 1_000),
+          reportedAt: seconds(at),
+          reportedWithToken: TOKEN_DIGEST,
+          reportedByUserId: 1,
+        },
+        [],
+      )
+    }
+    for (const [index, at] of times.entries()) await record(at, String(index).repeat(64))
+    await sql.foldTileHistory(0, { x: 0, y: 0 }, seconds(now))
+    const request = (extra = '') =>
+      app.request(`/telemetry/tiles/0/0/history?season=0&from=${times[0]}&to=${now}${extra}`, {
+        headers: bearer(BOOTSTRAP),
+      })
+    const expected = times.map((bucketStart, index) => ({
+      bucketStart,
+      hash: String(index).repeat(64),
+      reporters: 1,
+    }))
+    await expect((await request()).json()).resolves.toEqual({ frames: expected })
+    await expect((await request('&resolution=0')).json()).resolves.toEqual({
+      resolution: 0,
+      frames: expected.slice(-2),
+    })
+    await expect((await request('&resolution=3600')).json()).resolves.toEqual({
+      resolution: 3600,
+      frames: expected.slice(2, 3),
+    })
+
+    // A late raw observation must not be preceded by a coarser snapshot of that same interval.
+    await record(now - 3 * 86_400 + 60, 'f'.repeat(64))
+    expected[2] = { bucketStart: now - 3 * 86_400 + 60, hash: 'f'.repeat(64), reporters: 1 }
+    await expect((await request()).json()).resolves.toEqual({ frames: expected })
   })
 
   it('serves mirrored tile blobs by hash like template chunks', async () => {

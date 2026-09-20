@@ -41,6 +41,60 @@ test('samples the entire retained timeline, preserving both endpoints', () => {
   assert.deepEqual(sampleTimeline([9, 1, 5, 1, 3, 7], 3), [1, 5, 9])
 })
 
+test('mixed-density GIF history follows recorded time, including its sparse prefix', async () => {
+  const day = 86_400
+  const times = [
+    ...Array.from({ length: 40 }, (_, i) => i * day),
+    ...Array.from({ length: 1_440 }, (_, i) => 39 * day + i * 60),
+  ]
+  const sampled = sampleTimeline(times)
+  assert.ok(sampled.filter((time) => time >= 39 * day).length <= 9)
+  const frames = sampled.map((time) =>
+    time < 39 * day ? Uint8Array.of(255, 0, 0, 255) : Uint8Array.of(0, 0, 255, 255),
+  )
+  frames.push(Uint8Array.of(0, 255, 0, 255))
+  const gif = encodeTimelapseGif(frames, 1, 1, [...sampled, 40 * day])
+  const { delay } = await sharp(gif, { animated: true }).metadata()
+  assert.equal(delay.length, 3)
+  assert.ok(
+    Math.abs(delay[0] - 9_750) <= 40,
+    'sampling stays within one output frame of recorded time',
+  )
+  assert.equal(delay[0] + delay[1], 10_000)
+  assert.equal(delay[2], 5_000)
+  for (const [page, color] of [
+    [255, 0, 0, 255],
+    [0, 0, 255, 255],
+    [0, 255, 0, 255],
+  ].entries()) {
+    assert.deepEqual([...(await sharp(gif, { page }).ensureAlpha().raw().toBuffer())], color)
+  }
+})
+
+test('short observations keep their elapsed time without GIF default-delay pauses', async () => {
+  const red = Uint8Array.of(255, 0, 0, 255)
+  const blue = Uint8Array.of(0, 0, 255, 255)
+  const green = Uint8Array.of(0, 255, 0, 255)
+  const gif = encodeTimelapseGif([red, green, green, blue, red], 1, 1, [0, 500, 500.1, 501, 1000])
+  assert.deepEqual((await sharp(gif, { animated: true }).metadata()).delay, [5010, 4990, 5000])
+  for (const [page, color] of [red, blue, red].entries()) {
+    assert.deepEqual([...(await sharp(gif, { page }).ensureAlpha().raw().toBuffer())], [...color])
+  }
+})
+
+test('a short first observation remains visible without changing total playback time', async () => {
+  const red = Uint8Array.of(255, 0, 0, 255)
+  const blue = Uint8Array.of(0, 0, 255, 255)
+  const green = Uint8Array.of(0, 255, 0, 255)
+  for (const firstEnd of [0.1, 1]) {
+    const gif = encodeTimelapseGif([red, blue, green], 1, 1, [0, firstEnd, 1000])
+    assert.deepEqual((await sharp(gif, { animated: true }).metadata()).delay, [20, 9980, 5000])
+    for (const [page, color] of [red, blue, green].entries()) {
+      assert.deepEqual([...(await sharp(gif, { page }).ensureAlpha().raw().toBuffer())], [...color])
+    }
+  }
+})
+
 test('delta frames repaint erasures, preserve static pixels and all 128 colors, and reset on loop', async () => {
   const width = 128
   const height = 2
@@ -289,7 +343,7 @@ test('imported observations before creation enter the GIF, gaps stay neutral, an
     throw new Error(`Unexpected read: ${path}`)
   }
   const gif = await renderTemplateHistory(
-    { ...template, createdAt: 10000 },
+    { ...template, createdAt: 10000, finished: true, finishedAt: 30000 },
     0,
     new Map([['0/0', 'blue']]),
     read,

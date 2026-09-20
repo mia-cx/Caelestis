@@ -46,12 +46,21 @@ import { persisted } from '$lib/persisted.svelte'
     liveDashboard,
     progress,
     subscribeDashboard,
+    playhead = null,
+    onSeek,
+    onScrubStart,
   }: {
     templates: readonly Template[]
     season: number
     liveDashboard: boolean
     /** Current canvas status for the chart, latest net progress interval, and remaining pixels. */
     progress: Progress
+    /** The page's timelapse position, when it has one, for the chart to draw as a playhead. */
+    playhead?: number | null
+    /** Lets the chart seek that timelapse. Folders and other unlinked scopes leave it unset. */
+    onSeek?: (t: number) => void
+    /** Supplies cancellation rollback for the linked timelapse's playhead drag. */
+    onScrubStart?: () => () => void
     subscribeDashboard: (
       templateIds: readonly string[],
       contributionsFrom: number,
@@ -431,6 +440,9 @@ import { persisted } from '$lib/persisted.svelte'
         onSetAllPainters={(shown) => { painterOverrides = selectAllPainters(painters, shown) }}
         {painterHistories}
         windows={storedWindows}
+        {playhead}
+        {onSeek}
+        {onScrubStart}
       />
     {/if}
     {#if archiveError}<p class="mt-2 text-sm text-error" role="alert">{archiveError}</p>{/if}

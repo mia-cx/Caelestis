@@ -56,6 +56,9 @@
     onSetAllPainters = () => {},
     painterHistories = [],
     windows = persisted<string[]>('caelestis:pace-windows', ['1h', '6h']),
+    playhead = null,
+    onSeek,
+    onScrubStart,
   }: {
     buckets: readonly HistoryBucket[]
     archiveSamples?: readonly ArchiveProgressSample[]
@@ -84,6 +87,16 @@
     finished?: boolean
     /** The right edge is now: the canvas is still being painted, so the last point is live. */
     live?: boolean
+    /** A timelapse's recorded time, drawn as a playhead wherever it falls inside the range. */
+    playhead?: number | null
+    /**
+     * Links the plot to that timelapse: a click seeks to the time under the pointer and a drag
+     * that starts on the playhead scrubs it. Whoever owns the timelapse clamps and applies the
+     * time; the chart only draws `playhead`. Absent, the plot keeps its zoom-only gestures.
+     */
+    onSeek?: (t: number) => void
+    /** Capture the playback state before a drag; the returned callback rolls back cancellation. */
+    onScrubStart?: () => () => void
   } = $props()
 
   const firstLive = $derived(Math.min(...progressSamples.map(sample => sample.at), (live || finished) ? to : Infinity))
@@ -616,6 +629,25 @@
     live && view.to === to ? { t: to, cumCorrect: anchorCorrect } : null,
   )
 
+  // ── Timelapse playhead ───────────────────────────────────────────────────────────────────────
+  // The plot draws the playhead only inside the shown window; the strip keeps it in view across
+  // the whole range, so a zoomed reader still sees where playback is.
+  const linked = $derived(onSeek !== undefined)
+  const playheadShown = $derived(
+    playhead !== null && playhead >= shownView.from && playhead <= shownView.to ? playhead : null,
+  )
+  const playheadInRange = $derived(playhead !== null && playhead >= from && playhead <= to ? playhead : null)
+  /** How far from the playhead a press still grabs it. Fingers need more room than a mouse. */
+  const playheadGrabHalfWidth = (pointerType: string): number =>
+    pointerType === 'mouse' ? 10 : 22
+  const overPlayhead = (clientX: number, left: number, pointerType: string): boolean =>
+    linked &&
+    playheadShown !== null &&
+    Math.abs(clientX - left - x(playheadShown)) <= playheadGrabHalfWidth(pointerType)
+  /** The pointer is on the playhead, or dragging it: the cursor says so. */
+  let nearPlayhead = $state(false)
+  let scrubbing = $state(false)
+
   const hoverSummary = (point: HoverPoint): string => {
     const paces = activePaces.flatMap((pace) => {
       const value = hoverPace(pace.series, point.t)
@@ -663,6 +695,13 @@
         else return
         event.preventDefault()
         return
+      case 'Enter':
+      case ' ':
+        if (onSeek === undefined || hover === null) return
+        onSeek(hover.t)
+        announce = `Timelapse moved to ${formatTime(hover.t)}`
+        event.preventDefault()
+        return
       default:
         return
     }
@@ -672,10 +711,12 @@
     announce = hover === null ? '' : hoverSummary(hover)
   }
 
-  // ── Drag on the plot to zoom ─────────────────────────────────────────────────────────────────
+  // ── Drag on the plot to zoom, click or drag the playhead to seek ─────────────────────────────
   // Listeners live on `window` for the length of a drag, so the gesture keeps working when the
   // pointer leaves the plot, the strip, or even the page.
   // They attach synchronously: the next pointer event may arrive before any microtask runs.
+  // A press that moves under 4px is a click. On a linked chart that seeks the timelapse; a press
+  // that starts on the playhead and moves scrubs it instead of zooming. Everything else zooms.
   const listen = <K extends keyof WindowEventMap>(
     type: K,
     handler: (event: WindowEventMap[K]) => void,
@@ -689,6 +730,11 @@
   const onPlotPointerDown = (event: PointerEvent): void => {
     if (event.button !== 0 || hoverSnapTimes.length === 0) return
     const plot = event.currentTarget as SVGSVGElement
+    const seek = onSeek
+    const scrub =
+      seek !== undefined &&
+      overPlayhead(event.clientX, plot.getBoundingClientRect().left, event.pointerType)
+    const cancelScrub = scrub ? onScrubStart?.() : undefined
     const dragView = { from: shownView.from, to: shownView.to }
     void shownWindow.set(dragView, { duration: 0 })
     const clampView = (t: number): number => Math.min(dragView.to, Math.max(dragView.from, t))
@@ -703,6 +749,7 @@
       stops = []
       const drag = plotDrag
       plotDrag = null
+      scrubbing = false
       if (drag !== null) {
         selectWindow(
           clampWindow(
@@ -731,14 +778,24 @@
         const left = plot.getBoundingClientRect().left
         const current = clampView(timeIn(dragView, move.clientX, left))
         if (!moved && Math.abs(move.clientX - startX) > 4) moved = true
-        if (moved) plotDrag = { from: anchor, to: current }
+        if (moved && scrub && seek !== undefined) {
+          scrubbing = true
+          seek(current)
+        } else if (moved) {
+          plotDrag = { from: anchor, to: current }
+        }
         hoverPointer(move.clientX, left)
       }),
       listen('pointerup', (up) => {
-        if (up.pointerId === event.pointerId) finish(up.clientX, up.clientY)
+        if (up.pointerId !== event.pointerId) return
+        // A cancelled press, such as a touch the browser took for scrolling, never seeks.
+        if (!moved && seek !== undefined) seek(anchor)
+        finish(up.clientX, up.clientY)
       }),
       listen('pointercancel', (cancel) => {
-        if (cancel.pointerId === event.pointerId) finish()
+        if (cancel.pointerId !== event.pointerId) return
+        if (moved && scrub) cancelScrub?.()
+        finish()
       }),
     ]
   }
@@ -969,7 +1026,9 @@
       painters.length > 0
         ? `, with ${painterMetricNoun} pace lines for ${selectedPainters.size} of ${painters.length} painters`
         : ''
-    }. Use the arrow keys to read values.`,
+    }. Use the arrow keys to read values.${
+      linked ? ' Click, or press Enter on a value, to move the timelapse there.' : ''
+    }`,
   )
 </script>
 
@@ -1064,14 +1123,19 @@
         role="img"
         tabindex="0"
         aria-label={chartLabel}
-        class="block touch-pan-y cursor-crosshair rounded-lg outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+        class="block touch-pan-y {scrubbing || nearPlayhead
+          ? 'cursor-ew-resize'
+          : 'cursor-crosshair'} rounded-lg outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
         onpointermove={(event) => {
-          if (plotDrag === null && brushDrag === null) {
-            hoverPointer(event.clientX, event.currentTarget.getBoundingClientRect().left)
+          if (plotDrag === null && brushDrag === null && !scrubbing) {
+            const left = event.currentTarget.getBoundingClientRect().left
+            hoverPointer(event.clientX, left)
+            nearPlayhead = overPlayhead(event.clientX, left, event.pointerType)
           }
         }}
         onpointerleave={() => {
-          if (plotDrag === null) hover = null
+          nearPlayhead = false
+          if (plotDrag === null && !scrubbing) hover = null
         }}
         onpointerdown={onPlotPointerDown}
         ondblclick={resetWindow}
@@ -1233,6 +1297,23 @@
           {/if}
         </g>
 
+        {#if playheadShown !== null}
+          <g data-playhead>
+            <line
+              x1={x(playheadShown)}
+              x2={x(playheadShown)}
+              y1={pad.top}
+              y2={height - pad.bottom}
+              class="stroke-primary"
+              stroke-width="1.5"
+            />
+            <path
+              d={`M${(x(playheadShown) - 5).toFixed(1)},${pad.top - 9}h10l-5,8z`}
+              class="fill-primary"
+            />
+          </g>
+        {/if}
+
         {#if plotDrag !== null}
           <rect
             data-plot-selection
@@ -1390,6 +1471,17 @@
           height={BRUSH_HEIGHT - brushPad.top - brushPad.bottom}
           class="fill-primary/15 stroke-primary/70 {brushDrag === 'move' ? 'cursor-grabbing' : 'cursor-grab'}"
         />
+        {#if playheadInRange !== null}
+          <line
+            data-brush-playhead
+            x1={bx(playheadInRange)}
+            x2={bx(playheadInRange)}
+            y1={brushPad.top}
+            y2={BRUSH_HEIGHT - brushPad.bottom}
+            class="pointer-events-none stroke-primary"
+            stroke-width="1.5"
+          />
+        {/if}
       </svg>
       {#if zoomed}
         <span

@@ -147,38 +147,28 @@ const coalesceTelemetryHistory = (
     )
 }
 
-const coalesceTileHistory = (
+/** Keep each tier's observations unless a finer tier covers the same bucket. */
+const mergeTileHistory = (
   tiers: readonly { readonly resolution: number; readonly frames: readonly TileHistoryFrame[] }[],
-  resolution: number,
-  range: HistoryRange,
 ): readonly TileHistoryFrame[] => {
-  if (resolution === 0) return tiers[0]?.frames ?? []
-  const groups = new Map<
-    number,
-    { readonly resolution: number; readonly frame: TileHistoryFrame }[]
-  >()
+  const covered = new Map(
+    TILE_HISTORY_RESOLUTIONS.map((resolution) => [resolution, new Set<number>()]),
+  )
+  const frames: TileHistoryFrame[] = []
+  // Callers read tiers in ascending resolution order. Raw observations therefore win even when
+  // a frozen template or a late report preserves them inside an already-folded bucket.
   for (const tier of tiers) {
     for (const frame of tier.frames) {
-      const bucketStart = Math.floor(frame.bucketStart / resolution) * resolution
-      if (bucketStart < range.fromSeconds || bucketStart >= range.toSeconds) continue
-      const held = groups.get(bucketStart) ?? []
-      held.push({ resolution: tier.resolution, frame })
-      groups.set(bucketStart, held)
+      if (covered.get(tier.resolution)?.has(frame.bucketStart)) continue
+      frames.push(frame)
+      for (const [resolution, starts] of covered) {
+        if (resolution > tier.resolution) {
+          starts.add(Math.floor(frame.bucketStart / resolution) * resolution)
+        }
+      }
     }
   }
-  return [...groups]
-    .sort(([left], [right]) => left - right)
-    .flatMap(([bucketStart, candidates]) => {
-      const latest = [...candidates]
-        .sort(
-          (left, right) =>
-            left.frame.bucketStart - right.frame.bucketStart || right.resolution - left.resolution,
-        )
-        .at(-1)?.frame
-      return latest === undefined
-        ? []
-        : [{ bucketStart: seconds(bucketStart), hash: latest.hash, reporters: latest.reporters }]
-    })
+  return frames.sort((left, right) => left.bucketStart - right.bucketStart)
 }
 
 const sqlRead = <A>(operation: string, read: () => Promise<A>) =>
@@ -520,6 +510,7 @@ export const readCanvas = (
     }
   })
 
+/** Return all retained detail by default; an explicit resolution reads only that legacy tier. */
 export const readTileHistory = (input: {
   readonly season: number
   readonly tile: TileCoord
@@ -528,11 +519,8 @@ export const readTileHistory = (input: {
 }): Effect.Effect<TileHistoryResponse, SqlStoreReadError, SqlStoreService> =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
-    const resolution = input.legacyResolution ?? selectTileHistoryResolution(input.range)
-    const resolutions =
-      input.legacyResolution === undefined
-        ? TILE_HISTORY_RESOLUTIONS.filter((tier) => tier <= resolution)
-        : [resolution]
+    const resolution = input.legacyResolution
+    const resolutions = resolution === undefined ? TILE_HISTORY_RESOLUTIONS : [resolution]
     const tiers = yield* sqlRead('readTileHistory', () =>
       Promise.all(
         resolutions.map(async (tier) => ({
@@ -547,10 +535,7 @@ export const readTileHistory = (input: {
       ),
     )
     return {
-      resolution,
-      frames:
-        input.legacyResolution === undefined
-          ? coalesceTileHistory(tiers, resolution, input.range)
-          : (tiers[0]?.frames ?? []),
+      ...(resolution === undefined ? {} : { resolution }),
+      frames: resolution === undefined ? mergeTileHistory(tiers) : (tiers[0]?.frames ?? []),
     }
   })

@@ -18,14 +18,22 @@ const MAX_FRAMES = MAX_FPS * HISTORY_PLAYBACK_SECONDS
 const MAX_SOURCE_IMAGES = 4096
 const BACKGROUND = [27, 27, 32, 255]
 
-/** Sample the retained timeline evenly, preserving both endpoints. */
+/** Sample by recorded time so dense retained tiers cannot crowd out older history. */
 export const sampleTimeline = (times: readonly number[], limit = MAX_FRAMES): number[] => {
   const sorted = [...new Set(times)].sort((a, b) => a - b)
   if (sorted.length <= limit) return sorted
-  return Array.from(
-    { length: limit },
-    (_, i) => sorted[Math.round((i * (sorted.length - 1)) / (limit - 1))],
-  )
+  const first = sorted[0]
+  const span = sorted[sorted.length - 1] - first
+  let index = 0
+  return [
+    ...new Set(
+      Array.from({ length: limit }, (_, i) => {
+        const time = first + (i * span) / (limit - 1)
+        while (index + 1 < sorted.length && sorted[index + 1] <= time) index++
+        return sorted[index]
+      }),
+    ),
+  ]
 }
 
 /** Map output pixels to native tile pixels, including longitude wrap. */
@@ -63,6 +71,7 @@ export const renderTimelapse = async ({
   readMapTile,
   width = SOCIAL_IMAGE_WIDTH,
   height = SOCIAL_IMAGE_HEIGHT,
+  historyEnd,
 }: {
   template: Pick<Template, 'bbox' | 'finished'>
   histories: ReadonlyMap<string, readonly PlaybackFrame[]>
@@ -72,6 +81,7 @@ export const renderTimelapse = async ({
   readMapTile?: ReadMapTile
   width?: number
   height?: number
+  historyEnd?: number
 }): Promise<Uint8Array | null> => {
   const samplesByTile = captureSamples(template.bbox, width, height)
   // Reserve one source image per tile for the live hold, retaining both history endpoints.
@@ -135,7 +145,10 @@ export const renderTimelapse = async ({
   }
   if (!observed) return null
   if (readMapTile) await stampMapAttribution(frames, width, height)
-  return encodeTimelapseGif(frames, width, height)
+  return encodeTimelapseGif(frames, width, height, [
+    ...timeline,
+    historyEnd ?? (timeline.at(-1) ?? 0) + 1,
+  ])
 }
 
 /** Merge native observations with this version's sparse backfill before rendering. */
@@ -172,6 +185,7 @@ export const renderTemplateHistory = async (
     histories,
     canvas,
     readMapTile,
+    historyEnd: to,
     readTile: async (hash) =>
       new Uint8Array(
         await (

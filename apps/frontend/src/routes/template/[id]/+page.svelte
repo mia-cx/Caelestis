@@ -16,6 +16,7 @@
   import { tilesInRect } from '$lib/render'
   import { useApp } from '$lib/state/app.svelte'
   import { persisted } from '$lib/persisted.svelte'
+  import { frameAt, TimelapseClock } from '$lib/timelapse'
   import { progressFromStatus } from '$lib/tree'
 
   const app = useApp()
@@ -50,8 +51,10 @@ const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
   // ── Timelapse ────────────────────────────────────────────────────────────────────────────────
   let frames = $state<ReadonlyMap<TileKey, readonly PlaybackFrame[]> | null>(null)
   let archiveError = $state<string | null>(null)
+  let historyEnd = $state(0)
   // The scrub position: 0..timeline.length, where the last stop is "live".
   let scrub = $state(0)
+  let playhead = $state(0)
   let playing = $state(false)
   $effect(() => {
     const target = template
@@ -59,7 +62,8 @@ const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
     if (target === null || season === undefined) return
     const generation = { cancelled: false }
     const from = Math.floor(target.createdAt / 1_000)
-    const to = Math.floor((target.finishedAt ?? Date.now()) / 1_000) + 1
+    historyEnd = Math.floor((target.finishedAt ?? Date.now()) / 1_000)
+    const to = historyEnd + 1
     frames = null
     archiveError = null
     playing = false
@@ -85,6 +89,7 @@ const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
       if (generation.cancelled) return
       frames = new Map(entries)
       scrub = timelineOf(new Map(entries)).length
+      playhead = historyEnd
     })
     return () => {
       generation.cancelled = true
@@ -100,6 +105,7 @@ const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
   }
 
   const timeline = $derived(frames === null ? [] : timelineOf(frames))
+  const playback = $derived(new TimelapseClock(timeline, historyEnd))
   const live = $derived(scrub >= timeline.length)
   const scrubTime = $derived(live ? null : timeline[scrub])
 
@@ -124,22 +130,44 @@ const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
     }
   })
 
-  /** Playback rate: 1× preserves the original 350 ms cadence; the popout scales that. */
+  /** Playback rate: 1× is one recorded hour per 350 ms, independent of snapshot density. */
   const SPEED_PRESETS = [0.25, 0.5, 0.75, 1, 1.5, 2, 4] as const
   const storedSpeed = persisted<number>('caelestis:timelapse-speed', 1)
-  const speed = $derived(Math.min(4, Math.max(0.05, storedSpeed.value)))
+  const speed = $derived(Number.isFinite(storedSpeed.value) ? Math.min(4, Math.max(0.05, storedSpeed.value)) : 1)
 
   $effect(() => {
     if (!playing) return
-    const interval = setInterval(() => {
-      if (scrub >= timeline.length) {
-        playing = false
-      } else {
-        scrub += 1
-      }
-    }, 350 / speed)
-    return () => clearInterval(interval)
+    const clock = playback
+    const end = timeline.length
+    clock.play(speed, (index, time) => {
+      scrub = index
+      playhead = Math.floor(time)
+      if (index >= end) playing = false
+    })
+    return () => clock.pause()
   })
+
+  /**
+   * Move the timelapse to a recorded time and pause. The transport and the pace chart both seek
+   * through here: times outside the retained history clamp to its ends, and the end stays live.
+   */
+  const seekTo = (time: number): void => {
+    const value = Math.floor(Math.min(historyEnd, Math.max(timeline[0] ?? historyEnd, time)))
+    playhead = value
+    scrub = value >= historyEnd ? timeline.length : frameAt(timeline, value)
+    playback.seek(value)
+    playing = false
+  }
+
+  /** A browser-canceled scrub restores both the position and whether playback was running. */
+  const beginScrub = (): (() => void) => {
+    const position = playhead
+    const wasPlaying = playing
+    return () => {
+      seekTo(position)
+      playing = wasPlaying
+    }
+  }
 
   const formatFrame = (t: number): string =>
     new Date(t * 1000).toLocaleString(undefined, {
@@ -239,7 +267,11 @@ const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
           <button
             class="btn btn-sm btn-circle btn-primary"
             onclick={() => {
-              if (!playing && scrub >= timeline.length) scrub = 0
+              if (!playing && scrub >= timeline.length) {
+                scrub = 0
+                playhead = timeline[0] ?? historyEnd
+                playback.seek(playhead)
+              }
               playing = !playing
             }}
             aria-label={playing ? 'pause timelapse' : 'play timelapse'}
@@ -286,22 +318,20 @@ const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
           </div>
           <Slider
             type="single"
-            min={0}
-            max={timeline.length}
+            min={timeline[0] ?? historyEnd}
+            max={historyEnd}
             step={1}
-            value={scrub}
-            onValueChange={(value: number) => {
-              scrub = value
-              playing = false
-            }}
+            value={playhead}
+            onValueChange={seekTo}
             class="min-w-40 flex-1"
             aria-label="timelapse position"
+            aria-valuetext={formatFrame(playhead)}
           />
           <span class="w-32 shrink-0 text-end text-xs tabular-nums text-base-content/70">
             {#if live}
               <span class="badge badge-success badge-xs align-middle">{template.finished ? 'current' : 'live'}</span>
             {:else if scrubTime !== undefined && scrubTime !== null}
-              {formatFrame(scrubTime)}
+              {formatFrame(playhead)}
             {/if}
           </span>
         {/if}
@@ -319,6 +349,9 @@ const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
       liveDashboard={app.liveProtocol === 2}
       {progress}
       subscribeDashboard={app.subscribeDashboard}
+      playhead={live ? null : playhead}
+      onSeek={timeline.length > 0 ? seekTo : undefined}
+      onScrubStart={beginScrub}
     />
 
     {#if status?.colours !== undefined && status.colours.length > 0}
