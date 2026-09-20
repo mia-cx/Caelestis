@@ -302,6 +302,12 @@ try {
           !labels.some(({ text }) => text.includes('Claim')),
           `${scenario} produced a claim label`,
         )
+      if (['hover', 'cold-hover'].includes(scenario))
+        assert.equal(
+          labels.some(({ text }) => text.includes('Claim')),
+          layers === 'all' || layers === 'claims',
+          `${scenario} claim label does not match the visible layers`,
+        )
       runs.push({
         repeat,
         scenario,
