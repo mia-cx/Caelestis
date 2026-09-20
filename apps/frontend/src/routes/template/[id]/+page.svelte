@@ -16,7 +16,7 @@
   import { tilesInRect } from '$lib/render'
   import { useApp } from '$lib/state/app.svelte'
   import { persisted } from '$lib/persisted.svelte'
-  import { frameAt, TimelapseClock } from '$lib/timelapse'
+  import { frameAt, TimelapseClock, transportScale } from '$lib/timelapse'
   import { progressFromStatus } from '$lib/tree'
 
   const app = useApp()
@@ -106,6 +106,10 @@ const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
 
   const timeline = $derived(frames === null ? [] : timelineOf(frames))
   const playback = $derived(new TimelapseClock(timeline, historyEnd))
+  // The slider walks a bounded step domain: stepping through recorded seconds made bits-ui build a
+  // list of every second in the range on each playhead move, which stalled playback and exhausted
+  // memory on phones.
+  const transport = $derived(transportScale(timeline[0] ?? historyEnd, historyEnd))
   const live = $derived(scrub >= timeline.length)
   const scrubTime = $derived(live ? null : timeline[scrub])
 
@@ -318,14 +322,15 @@ const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
           </div>
           <Slider
             type="single"
-            min={timeline[0] ?? historyEnd}
-            max={historyEnd}
+            min={0}
+            max={transport.steps}
             step={1}
-            value={playhead}
-            onValueChange={seekTo}
+            value={transport.toStep(playhead)}
+            onValueChange={(step: number) => seekTo(transport.toTime(step))}
             class="min-w-40 flex-1"
             aria-label="timelapse position"
             aria-valuetext={formatFrame(playhead)}
+            data-playhead={playhead}
           />
           <span class="w-32 shrink-0 text-end text-xs tabular-nums text-base-content/70">
             {#if live}

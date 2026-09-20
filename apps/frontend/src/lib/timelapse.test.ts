@@ -1,7 +1,33 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import { frameAt, TimelapseClock } from './timelapse.js'
+import { frameAt, TimelapseClock, TRANSPORT_STEPS, transportScale } from './timelapse.js'
 
 afterEach(() => vi.useRealTimers())
+
+it('bounds the transport slider to a fixed step count with exact endpoints', () => {
+  const week = transportScale(1_800_000_000, 1_800_604_800)
+  expect(week.steps).toBe(TRANSPORT_STEPS)
+  expect(week.toStep(1_800_000_000)).toBe(0)
+  expect(week.toStep(1_800_604_800)).toBe(TRANSPORT_STEPS)
+  expect(week.toTime(0)).toBe(1_800_000_000)
+  expect(week.toTime(TRANSPORT_STEPS)).toBe(1_800_604_800)
+  expect(week.toTime(week.toStep(1_800_302_400))).toBe(1_800_302_400)
+  expect(week.toStep(1_800_302_401)).toBe(500)
+  expect(week.toStep(1_700_000_000)).toBe(0)
+  expect(week.toStep(1_900_000_000)).toBe(TRANSPORT_STEPS)
+  expect(week.toTime(-3)).toBe(1_800_000_000)
+  expect(week.toTime(TRANSPORT_STEPS + 3)).toBe(1_800_604_800)
+})
+
+it('steps through every recorded second when the range is short', () => {
+  const short = transportScale(100, 160)
+  expect(short.steps).toBe(60)
+  expect(short.toStep(130)).toBe(30)
+  expect(short.toTime(30)).toBe(130)
+  const empty = transportScale(100, 100)
+  expect(empty.steps).toBe(1)
+  expect(empty.toStep(100)).toBe(0)
+  expect(empty.toTime(1)).toBe(100)
+})
 
 it('selects the latest snapshot without reading a future frame', () => {
   expect(frameAt([], 0)).toBe(-1)
