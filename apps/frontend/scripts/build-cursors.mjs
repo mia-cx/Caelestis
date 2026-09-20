@@ -10,12 +10,12 @@ const icon = (name) =>
   require(`@iconify-icons/pixelarticons/${name}`).default ??
   require(`@iconify-icons/pixelarticons/${name}`)
 
-/** Cursor role, icon, and where the hotspot sits: a corner of the ink box or its centre. */
+/** Cursor role, icon, where the hotspot sits (a corner of the ink box or its centre), and whether enclosed regions fill. */
 const CURSORS = [
   { role: 'default', name: 'cursor-minimal', hotspot: 'top-left' },
   { role: 'pointer', name: 'pointer', hotspot: 'top-index' },
   { role: 'text', name: 'text-cursor', hotspot: 'centre' },
-  { role: 'crosshair', name: 'plus', hotspot: 'centre' },
+  { role: 'crosshair', name: 'target', hotspot: 'centre', fill: false },
   { role: 'grab', name: 'hand', hotspot: 'centre' },
   { role: 'grabbing', name: 'hand', hotspot: 'centre' },
   { role: 'ew-resize', name: 'arrows-horizontal', hotspot: 'centre' },
@@ -36,7 +36,7 @@ const svgOf = (data, fill, size) =>
  * region the stroke encloses with the light colour, so the cursor reads on any background. The 2x
  * file is the same pixels doubled.
  */
-const render = async (data, scale) => {
+const render = async (data, scale, fill = true) => {
   const { data: raw, info } = await sharp(svgOf(data, '#000', GRID))
     .raw()
     .toBuffer({ resolveWithObject: true })
@@ -65,7 +65,7 @@ const render = async (data, scale) => {
   const pixels = Buffer.alloc(GRID * GRID * 4, 0)
   for (let y = 0; y < GRID; y++)
     for (let x = 0; x < GRID; x++) {
-      const colour = ink(x, y) ? dark : !outside[y * GRID + x] || halo(x, y) ? light : null
+      const colour = ink(x, y) ? dark : (fill && !outside[y * GRID + x]) || halo(x, y) ? light : null
       if (colour !== null) pixels.set(colour, (y * GRID + x) * 4)
     }
   return sharp(pixels, { raw: { width: GRID, height: GRID, channels: 4 } })
@@ -94,8 +94,8 @@ const inkBox = async (png) => {
 const hotspots = {}
 for (const cursor of CURSORS) {
   const data = icon(cursor.name)
-  const one = await render(data, 1)
-  const two = await render(data, 2)
+  const one = await render(data, 1, cursor.fill ?? true)
+  const two = await render(data, 2, cursor.fill ?? true)
   writeFileSync(new URL(`${cursor.role}.png`, OUT), one)
   writeFileSync(new URL(`${cursor.role}@2x.png`, OUT), two)
   const box = await inkBox(one)
