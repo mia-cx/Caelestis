@@ -11,17 +11,17 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import '@fontsource-variable/nunito';
-@import '@fontsource/silkscreen';
 
 /*
  * FalseType: the Wplace canvas alphabet as whole-pixel outlines, from github.com/patchstep/FalseType.
  * Twelve canvas pixels per em, so whole multiples of 0.75rem draw every pixel whole. Latin letters,
- * punctuation and a few symbols; anything else falls through to Silkscreen.
+ * punctuation and a few symbols; anything else falls through to Nunito.
  */
 @font-face {
   font-family: 'FalseType';
   src: url('/fonts/FalseType.woff2') format('woff2');
-  font-weight: 400;
+  /* One face answers every weight and style, so bold or italic text stays on this font, unsynthesised. */
+  font-weight: 100 900;
   font-style: normal;
   font-display: block;
 }
@@ -64,8 +64,8 @@
   --radius-selector: var(--caelestis-radius);
   --size-field: 0.25rem;
   --size-selector: 0.25rem;
-  --border: 1.5px;
-  --depth: 1;
+  --border: 2px;
+  --depth: 0;
   --noise: 0;
 }
 
@@ -103,7 +103,7 @@
   --radius-selector: var(--caelestis-radius);
   --size-field: 0.25rem;
   --size-selector: 0.25rem;
-  --border: 1.5px;
+  --border: 2px;
   --depth: 0;
   --noise: 0;
 }
@@ -122,9 +122,30 @@
   --radius-2xl: var(--caelestis-radius);
   --radius-3xl: var(--caelestis-radius);
   --radius-4xl: var(--caelestis-radius);
-  --font-sans: 'Nunito Variable', ui-rounded, system-ui, -apple-system, sans-serif;
-  --font-pixel: 'Silkscreen', monospace;
-  --font-logo: 'FalseType', 'Silkscreen', monospace;
+  --font-sans: 'FalseType', 'Nunito Variable', ui-rounded, system-ui, -apple-system, sans-serif;
+  --font-logo: 'FalseType', 'Nunito Variable', sans-serif;
+
+  /*
+   * Pixel type scale. FalseType draws whole pixels only at multiples of 12px, so the scale has three
+   * steps: 12px for copy, 24px for headings, 36px for the logo. Line heights leave an even number of
+   * pixels of leading so the baseline stays on the grid.
+   */
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.75rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base: 0.75rem;
+  --text-base--line-height: 1.25rem;
+  --text-lg: 1.5rem;
+  --text-lg--line-height: 2rem;
+  --text-xl: 1.5rem;
+  --text-xl--line-height: 2rem;
+  --text-2xl: 1.5rem;
+  --text-2xl--line-height: 2rem;
+  --text-3xl: 2.25rem;
+  --text-3xl--line-height: 2.75rem;
+  --text-4xl: 2.25rem;
+  --text-4xl--line-height: 2.75rem;
 
   --color-background: var(--color-base-100);
   --color-foreground: var(--color-base-content);
@@ -214,9 +235,25 @@
   html {
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
+    /* FalseType everywhere: no kerning or ligatures to nudge pixels off the grid. */
+    font-kerning: none;
+    font-variant-ligatures: none;
+    /*
+     * FalseType has one face. Without this the browser fakes bold by smearing and italic by
+     * shearing, which puts every pixel between two others. Bold and italic simply render regular
+     * until the font grows those glyphs.
+     */
+    font-synthesis: none;
+  }
+
+  /* Focus rings draw inside the box, because the pixel-corner clip cuts anything outside it. */
+  :focus-visible {
+    outline-offset: -2px;
   }
 
   body {
+    font-size: var(--text-base);
+    line-height: var(--text-base--line-height);
     /* The map-paper ground the panels float on: base-200 with a faint 24px pixel grid. */
     background-color: var(--color-base-200);
     background-image:
@@ -247,7 +284,73 @@
  * window and give it a hairline so it still reads on the dark theme's whisper-quiet surfaces.
  */
 :root {
-  --caelestis-radius: calc(0.7rem + 1px);
+  /* Corners are stair-stepped with clip-path below; nothing rounds underneath. */
+  --caelestis-radius: 0;
+  /*
+   * Pixel corners: polygons that bite whole pixels out of each corner, the way FalseType rounds a C.
+   * Small is a 3 step stair for controls, large a 4 step stair for cards. clip-path clips shadows and
+   * outlines with it, so focus rings draw inside the box (see the base layer).
+   */
+  --pixel-corners-sm: polygon(
+    3px 0,
+    calc(100% - 3px) 0,
+    calc(100% - 3px) 1px,
+    calc(100% - 1px) 1px,
+    calc(100% - 1px) 3px,
+    100% 3px,
+    100% calc(100% - 3px),
+    calc(100% - 1px) calc(100% - 3px),
+    calc(100% - 1px) calc(100% - 1px),
+    calc(100% - 3px) calc(100% - 1px),
+    calc(100% - 3px) 100%,
+    3px 100%,
+    3px calc(100% - 1px),
+    1px calc(100% - 1px),
+    1px calc(100% - 3px),
+    0 calc(100% - 3px),
+    0 3px,
+    1px 3px,
+    1px 1px,
+    3px 1px
+  );
+  --pixel-corners-lg: polygon(
+    6px 0,
+    calc(100% - 6px) 0,
+    calc(100% - 6px) 1px,
+    calc(100% - 3px) 1px,
+    calc(100% - 3px) 2px,
+    calc(100% - 2px) 2px,
+    calc(100% - 2px) 3px,
+    calc(100% - 1px) 3px,
+    calc(100% - 1px) 6px,
+    100% 6px,
+    100% calc(100% - 6px),
+    calc(100% - 1px) calc(100% - 6px),
+    calc(100% - 1px) calc(100% - 3px),
+    calc(100% - 2px) calc(100% - 3px),
+    calc(100% - 2px) calc(100% - 2px),
+    calc(100% - 3px) calc(100% - 2px),
+    calc(100% - 3px) calc(100% - 1px),
+    calc(100% - 6px) calc(100% - 1px),
+    calc(100% - 6px) 100%,
+    6px 100%,
+    6px calc(100% - 1px),
+    3px calc(100% - 1px),
+    3px calc(100% - 2px),
+    2px calc(100% - 2px),
+    2px calc(100% - 3px),
+    1px calc(100% - 3px),
+    1px calc(100% - 6px),
+    0 calc(100% - 6px),
+    0 6px,
+    1px 6px,
+    1px 3px,
+    2px 3px,
+    2px 2px,
+    3px 2px,
+    3px 1px,
+    6px 1px
+  );
   --tabs-dur: 250ms;
   --tabs-ease: cubic-bezier(0.22, 1, 0.36, 1);
   --tabs-text-muted: color-mix(in oklab, var(--color-base-content) 70%, transparent);
@@ -341,6 +444,57 @@
   }
 }
 
+/*
+ * Pixel corners. The rounded utilities and the daisyUI shapes keep their names and gain a stair-
+ * stepped clip instead of a radius; shadows go, because a blur is the one thing a pixel cannot do.
+ */
+@layer utilities {
+  .rounded,
+  .rounded-xs,
+  .rounded-sm,
+  .rounded-md,
+  .rounded-lg,
+  .rounded-t,
+  .rounded-b,
+  .btn,
+  .badge,
+  .input,
+  .select,
+  .textarea,
+  .alert,
+  .tab,
+  .menu {
+    border-radius: 0;
+    clip-path: var(--pixel-corners-sm);
+  }
+
+  .rounded-xl,
+  .rounded-2xl,
+  .rounded-3xl,
+  .rounded-full,
+  .card,
+  .modal-box,
+  .dropdown-content {
+    border-radius: 0;
+    clip-path: var(--pixel-corners-lg);
+  }
+
+  .shadow,
+  .shadow-xs,
+  .shadow-sm,
+  .shadow-md,
+  .shadow-lg,
+  .shadow-xl,
+  .shadow-2xl {
+    box-shadow: none;
+  }
+
+  /* daisyUI sizes its buttons at 14px; the pixel scale has no 14. */
+  .btn {
+    --fontsize: 0.75rem;
+  }
+}
+
 @utility pixelated {
   image-rendering: pixelated;
 }
@@ -356,12 +510,7 @@
   background-size: 16px 16px;
 }
 
-@utility font-pixel {
-  font-family: var(--font-pixel);
-  letter-spacing: 0.02em;
-}
-
-/* Pixel perfect only at whole multiples of 1rem, and only with the browser adding nothing. */
+/* Pixel perfect only at whole multiples of 0.75rem, and only with the browser adding nothing. */
 @utility font-logo {
   font-family: var(--font-logo);
   /* 12 canvas pixels per em, so whole multiples of 0.75rem draw every pixel whole: 2.25rem is 3:1. */

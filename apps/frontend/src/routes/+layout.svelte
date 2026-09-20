@@ -68,7 +68,7 @@ const toggleTheme = (): void => {
 </svelte:head>
 
 <div class="flex min-h-dvh flex-col">
-  <header class="sticky top-0 z-20 border-b-[1.5px] border-base-300 bg-base-100/90 backdrop-blur">
+  <header class="sticky top-0 z-20 border-b-2 border-base-300 bg-base-100">
     <div class="container mx-auto flex h-14 w-full max-w-6xl items-center gap-3 px-4">
       <a href="/" class="flex min-w-0 items-center gap-2" aria-label={`${logoText} home`}>
         {#if logoSrc !== null}
@@ -94,7 +94,7 @@ const toggleTheme = (): void => {
           class="btn btn-sm btn-primary gap-1.5 rounded-lg"
           title={`Join ${app.server.name} on Discord`}
         >
-          <Icon name="discord" class="size-4" />
+          <Icon name="discord" class="size-3" />
           <span class="max-sm:hidden">Join on Discord</span>
         </a>
       {/if}
@@ -106,13 +106,13 @@ const toggleTheme = (): void => {
         class="btn btn-sm btn-outline gap-1.5 rounded-lg"
         title="Get the userscript from the Caelestis GitHub repository"
       >
-        <Icon name="github" class="size-4" />
+        <Icon name="github" class="size-3" />
         <span class="max-sm:hidden">Install the userscript</span>
       </a>
 
       <button class="btn btn-sm btn-ghost btn-circle" onclick={toggleTheme} aria-label="toggle theme">
-        <Icon name="lightMode" class="size-4 hidden [[data-theme=caelestis-dark]_&]:block" />
-        <Icon name="darkMode" class="size-4 [[data-theme=caelestis-dark]_&]:hidden" />
+        <Icon name="lightMode" class="size-3 hidden [[data-theme=caelestis-dark]_&]:block" />
+        <Icon name="darkMode" class="size-3 [[data-theme=caelestis-dark]_&]:hidden" />
       </button>
     </div>
   </header>
@@ -121,7 +121,7 @@ const toggleTheme = (): void => {
     {@render children()}
   </main>
 
-  <footer class="border-t-[1.5px] border-base-300 py-4">
+  <footer class="border-t-2 border-base-300 py-4">
     <div class="container mx-auto flex w-full max-w-6xl items-center justify-between px-4 text-xs text-base-content/50">
       <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer" class="link link-hover">
         Map tiles © OpenStreetMap contributors

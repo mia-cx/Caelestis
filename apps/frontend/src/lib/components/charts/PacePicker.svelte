@@ -16,7 +16,7 @@
 <MenuStyles />
 <Popover.Root bind:open onOpenChange={(next) => { if (!next) query = '' }}>
   <Popover.Trigger data-pace-trigger class="btn btn-xs btn-soft gap-1.5 tabular-nums" aria-label={`Pace lines: ${summary}`}>
-    <span>{summary}</span><Icon name="unfoldMore" class="size-3.5 text-base-content/60" />
+    <span>{summary}</span><Icon name="unfoldMore" class="size-3 text-base-content/60" />
   </Popover.Trigger>
   <Popover.Portal>
     <Popover.Content data-pace-list sideOffset={4} align="start" class="caelestis-menu z-50 w-64 outline-none">
@@ -35,8 +35,8 @@
                   {#if !option.available}<span class="sr-only">No suitable history</span>{/if}
                 </span>
                 <span class="sr-only">{option.selected && option.available ? 'drawn' : 'not drawn'}</span>
-                <span class="flex size-3.5 shrink-0 items-center justify-center">
-                  {#if option.selected && option.available}<Icon name="check" class="size-3.5" />{/if}
+                <span class="flex size-3 shrink-0 items-center justify-center">
+                  {#if option.selected && option.available}<Icon name="check" class="size-3" />{/if}
                 </span>
               </Command.Item>
             {/each}

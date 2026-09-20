@@ -42,7 +42,7 @@ const relativeDay = (day: number): string => {
       {#each entries as entry, index (entry.wplaceUserId)}
         {@const rank = index + 1}
         <Table.Row>
-          <Table.Cell class="font-pixel text-xs {medal(rank) ?? 'text-base-content/50'}">{rank}</Table.Cell>
+          <Table.Cell class="text-xs {medal(rank) ?? 'text-base-content/50'}">{rank}</Table.Cell>
           <Table.Cell>
             <span class="font-medium">{entry.displayName || `user ${entry.wplaceUserId}`}</span>
             <span class="ml-1.5 text-xs text-base-content/40 tabular-nums">#{entry.wplaceUserId}</span>

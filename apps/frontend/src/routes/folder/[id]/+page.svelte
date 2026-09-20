@@ -52,7 +52,7 @@ const ancestors = $derived.by(() => {
     <Skeleton class="h-60 w-full rounded-2xl" />
   </div>
 {:else if folder === null}
-  <div class="rounded-2xl border-[1.5px] border-dashed border-base-300 p-10 text-center text-base-content/60">
+  <div class="rounded-2xl border-2 border-dashed border-base-300 p-10 text-center text-base-content/60">
     <p class="font-semibold">Folder not found</p>
     <a href="/" class="btn btn-sm mt-4">Back to all templates</a>
   </div>
@@ -97,14 +97,14 @@ const ancestors = $derived.by(() => {
     {/if}
 
     {#if colours !== null && colours.length > 0}
-      <section class="rounded-2xl border-[1.5px] border-base-300 bg-base-100 p-4">
+      <section class="rounded-2xl border-2 border-base-300 bg-base-100 p-4">
         <h2 class="mb-3 font-semibold">Progress by colour</h2>
         <ColourProgress {colours} />
       </section>
     {/if}
 
     {#if folder.templates.length > 0}
-      <section class="rounded-2xl border-[1.5px] border-base-300 bg-base-100 p-3">
+      <section class="rounded-2xl border-2 border-base-300 bg-base-100 p-3">
         <h2 class="px-1 pb-3 font-semibold">Templates</h2>
         <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {#each folder.templates as entry (entry.template.id)}
