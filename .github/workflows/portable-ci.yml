@@ -54,14 +54,16 @@ jobs:
         id: changes
         env:
           EVENT: ${{ github.event_name }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD_REF: ${{ github.head_ref }}
         run: |
-          if [ "$EVENT" != pull_request ] && [ "$EVENT" != push ]; then
+          # A release call inherits the caller's push event, so it is recognised by its input.
+          if [ -n "$RELEASE_SHA" ] || { [ "$EVENT" != pull_request ] && [ "$EVENT" != push ]; }; then
             echo 'server=true' >> "$GITHUB_OUTPUT"
             echo 'stacks=true' >> "$GITHUB_OUTPUT"
             echo 'tooling=true' >> "$GITHUB_OUTPUT"
-            echo "$EVENT runs validate every stack"
+            echo "${RELEASE_SHA:+release }${EVENT} runs validate every stack"
             exit
           fi
           if [ "$EVENT" = pull_request ] && [ "$HEAD_REF" = changeset-release/main ]; then
