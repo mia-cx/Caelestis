@@ -308,7 +308,8 @@
       linear-gradient(color-mix(in oklab, var(--color-base-content) 4%, transparent) var(--ui-px), transparent var(--ui-px)),
       linear-gradient(90deg, color-mix(in oklab, var(--color-base-content) 4%, transparent) var(--ui-px), transparent var(--ui-px));
     background-size: 24px 24px;
-    /* Small meter percentages in the shared UI are 10px; on the pixel grid 12px is the smallest whole size. */
+    /* Meter percentages in the shared UI are 13.6px and 10px; on the pixel grid they take the body size and its smallest whole step. */
+    --caelestis-meter-size: 1.125rem;
     --caelestis-meter-small-size: 0.75rem;
     /* Meter tracks in the shared UI hatch at 45 degrees; here they dither on the grid instead. */
     --caelestis-track-pattern: repeating-conic-gradient(
@@ -776,6 +777,40 @@
   .shadow-xl,
   .shadow-2xl {
     box-shadow: none;
+  }
+
+  /*
+   * Keyboard focus on a clipped box: the clip cuts anything outside it, so daisyUI's offset outline,
+   * the shadcn box-shadow ring and the slider thumb's ring all vanished. Draw one solid outline one
+   * UI pixel inside the edge instead. Later than the Tailwind and daisyUI rules, so it wins the tie.
+   */
+  .rounded-xs:focus-visible,
+  .rounded-sm:focus-visible,
+  .rounded-full:focus-visible,
+  .rounded:focus-visible,
+  .rounded-md:focus-visible,
+  .rounded-lg:focus-visible,
+  .rounded-t:focus-visible,
+  .rounded-b:focus-visible,
+  .rounded-xl:focus-visible,
+  .rounded-2xl:focus-visible,
+  .rounded-3xl:focus-visible,
+  .input:focus-visible,
+  .select:focus-visible,
+  .textarea:focus-visible,
+  .tab:focus-visible,
+  .btn:focus-visible,
+  .btn:has(:focus-visible),
+  .pixel-card:focus-visible {
+    outline: var(--ui-px) solid var(--color-ring);
+    outline-offset: calc(-1 * var(--ui-px));
+    box-shadow: none;
+  }
+
+  /* A primary button is the ring colour already; its label colour is the one thing guaranteed to contrast. */
+  .btn:focus-visible,
+  .btn:has(:focus-visible) {
+    outline-color: currentColor;
   }
 
   /* Every menu, native or custom, shares the menu styles from the UI package; here they take the page font and the pixel corners. */
