@@ -10,6 +10,33 @@ export const frameAt = (timeline: readonly number[], time: number): number => {
   return low - 1
 }
 
+/**
+ * Slider positions across the recorded range. A pointer cannot place a thumb more precisely than
+ * this, and bits-ui materialises every step between min and max on each value change, so the
+ * transport must never step through recorded seconds directly.
+ */
+export const TRANSPORT_STEPS = 1_000
+
+export interface TransportScale {
+  /** The slider maximum; positions run from 0 to this inclusive. */
+  readonly steps: number
+  toStep(time: number): number
+  toTime(step: number): number
+}
+
+/** Map recorded time to a bounded slider domain whose endpoints land exactly on start and end. */
+export const transportScale = (start: number, end: number): TransportScale => {
+  const span = Math.max(0, end - start)
+  const steps = Math.max(1, Math.min(TRANSPORT_STEPS, span))
+  return {
+    steps,
+    toStep: (time) =>
+      span === 0 ? 0 : Math.round(Math.min(1, Math.max(0, (time - start) / span)) * steps),
+    toTime: (step) =>
+      step >= steps ? end : step <= 0 ? start : start + Math.round((step / steps) * span),
+  }
+}
+
 // Preserve the original hourly playback pace while allowing arbitrary snapshot intervals.
 const RECORDED_SECONDS_PER_MS = 3_600 / 350
 const PLAYHEAD_UPDATE_MS = 1_000 / 60
