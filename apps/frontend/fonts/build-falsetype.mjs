@@ -12,7 +12,7 @@ const { data, info } = await sharp(new URL('./falsetype-glyphs.png', import.meta
   .raw()
   .toBuffer({ resolveWithObject: true })
 const on = (x, y) => data[(y * info.width + x) * 4 + 3] > 0
-const BASELINE = meta.baseline // rows 0..7 sit above the baseline, rows 8..10 below
+const BASELINE = meta.baseline // sheet rows above this many sit above the baseline, the rest below
 
 /** Trace a bitmap into closed rectilinear contours by cancelling shared pixel edges. */
 const trace = (cellX, width) => {
