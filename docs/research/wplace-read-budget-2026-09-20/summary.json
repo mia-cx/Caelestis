@@ -1,0 +1,54 @@
+{
+  "startedAt": "2026-09-20T02:32:12.356Z",
+  "endedAt": "2026-09-20T02:35:07.565Z",
+  "attempted": 100,
+  "stopped": null,
+  "statuses": {
+    "200": 90,
+    "304": 10
+  },
+  "stages": [
+    {
+      "name": "tile-baseline",
+      "planned": 10,
+      "attempted": 10,
+      "scheduledSpacingMs": 5000,
+      "conditional": 0
+    },
+    {
+      "name": "pixel-baseline",
+      "planned": 10,
+      "attempted": 10,
+      "scheduledSpacingMs": 5000,
+      "conditional": 0
+    },
+    {
+      "name": "tile-1rps",
+      "planned": 20,
+      "attempted": 20,
+      "scheduledSpacingMs": 1000,
+      "conditional": 0
+    },
+    {
+      "name": "pixel-1rps",
+      "planned": 20,
+      "attempted": 20,
+      "scheduledSpacingMs": 1000,
+      "conditional": 0
+    },
+    {
+      "name": "mixed-1rps",
+      "planned": 20,
+      "attempted": 20,
+      "scheduledSpacingMs": 1000,
+      "conditional": 0
+    },
+    {
+      "name": "conditional-1rps",
+      "planned": 20,
+      "attempted": 20,
+      "scheduledSpacingMs": 1000,
+      "conditional": 10
+    }
+  ]
+}
