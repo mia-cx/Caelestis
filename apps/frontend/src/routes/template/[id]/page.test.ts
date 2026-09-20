@@ -83,9 +83,7 @@ const click = (label: string) => {
 }
 const position = () =>
   Number(
-    document
-      .querySelector('[aria-label="timelapse position"] [role="slider"]')
-      ?.getAttribute('aria-valuenow'),
+    document.querySelector('[aria-label="timelapse position"]')?.getAttribute('data-playhead'),
   ) - start
 const advance = async (ms: number) => {
   vi.advanceTimersByTime(ms)
@@ -126,6 +124,26 @@ it('retimes the current hold when a speed preset changes and persists the choice
   await advance(4)
   expect(position()).toBeCloseTo(66, -1)
   expect(localStorage.getItem('caelestis:timelapse-speed')).toBe('1')
+})
+
+it('bounds the transport slider steps across a week of history and still seeks its ends', async () => {
+  vi.setSystemTime((start + 604_800) * 1_000)
+  await show()
+  const thumb = document.querySelector<HTMLElement>(
+    '[aria-label="timelapse position"] [role="slider"]',
+  )
+  expect(thumb?.getAttribute('aria-valuemax')).toBe('1000')
+  expect(position()).toBe(604_800)
+  thumb?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))
+  flushSync()
+  expect(position()).toBe(0)
+  thumb?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+  flushSync()
+  expect(position()).toBe(605)
+  thumb?.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }))
+  flushSync()
+  expect(position()).toBe(604_800)
+  expect(document.body.textContent).toContain('live')
 })
 
 it('seeks with the keyboard and pauses active playback', async () => {

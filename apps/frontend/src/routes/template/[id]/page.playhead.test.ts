@@ -110,9 +110,7 @@ const click = (label: string) => {
 }
 const position = () =>
   Number(
-    document
-      .querySelector('[aria-label="timelapse position"] [role="slider"]')
-      ?.getAttribute('aria-valuenow'),
+    document.querySelector('[aria-label="timelapse position"]')?.getAttribute('data-playhead'),
   ) - start
 const paused = (): boolean => document.querySelector('[aria-label="play timelapse"]') !== null
 const shownHash = (): string | undefined => fixture.viewer?.hashFor('0/0')
