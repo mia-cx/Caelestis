@@ -15,7 +15,7 @@
 
 /*
  * FalseType: the Wplace canvas alphabet as whole-pixel outlines, from github.com/patchstep/FalseType.
- * One canvas pixel is 64 units of a 1024 em, so 1rem draws 1:1 and 2rem 2:1. Latin letters,
+ * Twelve canvas pixels per em, so whole multiples of 0.75rem draw every pixel whole. Latin letters,
  * punctuation and a few symbols; anything else falls through to Silkscreen.
  */
 @font-face {
@@ -364,12 +364,18 @@
 /* Pixel perfect only at whole multiples of 1rem, and only with the browser adding nothing. */
 @utility font-logo {
   font-family: var(--font-logo);
-  font-size: 2rem;
+  /* 12 canvas pixels per em, so whole multiples of 0.75rem draw every pixel whole: 2.25rem is 3:1. */
+  font-size: 2.25rem;
   line-height: 1;
   letter-spacing: 0;
   font-kerning: none;
   font-variant-ligatures: none;
   text-rendering: optimizeSpeed;
+  /* Accents on capitals reach above the em. Clip long names without cutting those off. */
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: clip;
+  overflow-clip-margin: 0.25em;
 }
 
 @media (prefers-reduced-motion: reduce) {
