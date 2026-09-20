@@ -21,3 +21,6 @@ Thumbs.db
 # Vite
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# FalseType is built from fonts/falsetype-glyphs.png; only the served .woff2 is tracked
+/fonts/FalseType.otf

@@ -13,6 +13,19 @@
 @import '@fontsource-variable/nunito';
 @import '@fontsource/silkscreen';
 
+/*
+ * FalseType: the Wplace canvas alphabet as whole-pixel outlines, built from `fonts/falsetype-glyphs.png`
+ * by `fonts/build-falsetype.mjs`. One canvas pixel is 64 units of a 1024 em, so 1rem draws 1:1 and
+ * 2rem 2:1. Letters only; anything else falls through to Silkscreen.
+ */
+@font-face {
+  font-family: 'FalseType';
+  src: url('/fonts/FalseType.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
 @plugin 'daisyui' {
   themes: caelestis --default, caelestis-dark --prefersdark;
 }
@@ -111,6 +124,7 @@
   --radius-4xl: var(--caelestis-radius);
   --font-sans: 'Nunito Variable', ui-rounded, system-ui, -apple-system, sans-serif;
   --font-pixel: 'Silkscreen', monospace;
+  --font-logo: 'FalseType', 'Silkscreen', monospace;
 
   --color-background: var(--color-base-100);
   --color-foreground: var(--color-base-content);
@@ -345,6 +359,17 @@
 @utility font-pixel {
   font-family: var(--font-pixel);
   letter-spacing: 0.02em;
+}
+
+/* Pixel perfect only at whole multiples of 1rem, and only with the browser adding nothing. */
+@utility font-logo {
+  font-family: var(--font-logo);
+  font-size: 2rem;
+  line-height: 1;
+  letter-spacing: 0;
+  font-kerning: none;
+  font-variant-ligatures: none;
+  text-rendering: optimizeSpeed;
 }
 
 @media (prefers-reduced-motion: reduce) {

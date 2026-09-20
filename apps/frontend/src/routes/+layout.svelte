@@ -80,7 +80,7 @@ const toggleTheme = (): void => {
             onerror={() => (logoBroken = logoImage?.etag ?? null)}
           />
         {:else}
-          <span class="truncate font-pixel text-lg leading-none text-primary">{logoText}</span>
+          <span class="truncate font-logo text-primary">{logoText}</span>
         {/if}
       </a>
 
