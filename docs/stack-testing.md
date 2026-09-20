@@ -11,7 +11,7 @@ GitHub provides the runners. Each Kubernetes test creates its own kind cluster a
 | PR or main push without server or tooling changes | Nothing. The `changes` job finds no backend, frontend, shared package, deploy, Dockerfile, root workspace, or stack-test file, so every job skips and `stack-tests` reports success |
 | Nightly and extended manual runs | The same checks, plus all six ARM64 Compose combinations per runtime, previous-version upgrades, database connection-loss recovery, and CNPG primary switchover |
 | Nightly Cloudflare run | A real, isolated D1/R2/Durable Object deployment, shared acceptance tests, backend redeployment, and cleanup |
-| Portable release | Extended checks and live Cloudflare must pass before publishing the tested images |
+| Portable release | Extended checks build and test both architectures before publishing. Live Cloudflare acceptance runs independently |
 
 The shared suite in `scripts/stack-tests/acceptance.mjs` checks authenticated HTTP, frontend SSR, template creation and updates, exact chunk bytes, tile uploads, WebSocket paint reports, duplicate rejection, read-only WebSocket permissions, and live reconciliation. It repeats reads and duplicate reports after restart, pod replacement, or migration. Deleting a template retains shared chunks by design.
 
@@ -44,6 +44,9 @@ The wizard writes the following configuration:
 It also keeps a private, git-ignored `.env.stack-ci` file for reruns. The test environment permits only `main` and has no reviewer or wait-time gate. The existing production Cloudflare token is separate.
 
 Cloudflare documents [token creation](https://developers.cloudflare.com/fundamentals/api/get-started/create-token/) and [workers.dev configuration](https://developers.cloudflare.com/workers/configuration/routing/workers-dev/). Docker documents [personal access tokens](https://docs.docker.com/security/access-tokens/personal-access-tokens/).
+
+If Cloudflare returns error `10042` ("Please enable R2 through the Cloudflare Dashboard"),
+enable R2 on the test account. Saving an API token does not activate R2.
 
 After this PR merges, enable the required check and run both full workflows:
 
@@ -91,7 +94,7 @@ For local Cloudflare, install workspace dependencies and build the frontend depe
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm --filter @caelestis/frontend... build
+pnpm --filter @caelestis/backend... --filter @caelestis/frontend... build
 node scripts/test-cloudflare-stack.mjs
 ```
 
