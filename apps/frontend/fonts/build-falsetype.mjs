@@ -80,7 +80,10 @@ for (const g of meta.glyphs) {
   const advance = g.char === ' ' ? 2 * UNIT : (g.width + 1) * UNIT
   glyphs.push(
     new opentype.Glyph({
-      name: g.char === ' ' ? 'space' : g.char,
+      // PostScript names: letters as themselves, everything else by code point.
+      name: /^[A-Za-z]$/.test(g.char)
+        ? g.char
+        : `uni${g.char.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')}`,
       unicode: g.char.charCodeAt(0),
       advanceWidth: advance,
       path,
