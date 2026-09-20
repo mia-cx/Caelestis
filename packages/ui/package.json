@@ -29,6 +29,7 @@
   "dependencies": {
     "@caelestis/shared": "workspace:*",
     "@iconify-icons/material-symbols": "2.0.2",
+    "@iconify-icons/pixelarticons": "2.0.0",
     "@iconify-icons/simple-icons": "^2.0.2"
   },
   "peerDependencies": {

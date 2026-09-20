@@ -10,9 +10,10 @@
 </script>
 
 <!-- Iconify bodies are static markup from the package, each path already carrying fill="currentColor". -->
-<svg class={className} viewBox={`0 0 ${icon.width ?? 24} ${icon.height ?? 24}`} fill="currentColor" aria-hidden="true" style:width={size} style:height={size}>{@html icon.body}</svg>
+<!-- Pixelarticons draw on a 24 unit grid in 2 unit strokes: whole pixels at 12px and 24px, blur at anything else. -->
+<svg class={className} viewBox={`0 0 ${icon.width ?? 24} ${icon.height ?? 24}`} fill="currentColor" shape-rendering="crispEdges" aria-hidden="true" style:width={size} style:height={size}>{@html icon.body}</svg>
 
 <style>
   /* Zero-specificity default, so utility classes such as Tailwind's size-* override it. */
-  :where(svg) { width: 1rem; height: 1rem; flex-shrink: 0; }
+  :where(svg) { width: 0.75rem; height: 0.75rem; flex-shrink: 0; }
 </style>
