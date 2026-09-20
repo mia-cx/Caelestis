@@ -65,7 +65,11 @@ const render = async (data, scale, fill = true) => {
   const pixels = Buffer.alloc(GRID * GRID * 4, 0)
   for (let y = 0; y < GRID; y++)
     for (let x = 0; x < GRID; x++) {
-      const colour = ink(x, y) ? dark : (fill && !outside[y * GRID + x]) || halo(x, y) ? light : null
+      const colour = ink(x, y)
+        ? dark
+        : (fill && !outside[y * GRID + x]) || halo(x, y)
+          ? light
+          : null
       if (colour !== null) pixels.set(colour, (y * GRID + x) * 4)
     }
   return sharp(pixels, { raw: { width: GRID, height: GRID, channels: 4 } })

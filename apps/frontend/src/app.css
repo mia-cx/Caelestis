@@ -308,6 +308,8 @@
       linear-gradient(color-mix(in oklab, var(--color-base-content) 4%, transparent) var(--ui-px), transparent var(--ui-px)),
       linear-gradient(90deg, color-mix(in oklab, var(--color-base-content) 4%, transparent) var(--ui-px), transparent var(--ui-px));
     background-size: 24px 24px;
+    /* Small meter percentages in the shared UI are 10px; on the pixel grid 12px is the smallest whole size. */
+    --caelestis-meter-small-size: 0.75rem;
     /* Meter tracks in the shared UI hatch at 45 degrees; here they dither on the grid instead. */
     --caelestis-track-pattern: repeating-conic-gradient(
         color-mix(in oklch, var(--caelestis-text) 10%, transparent) 0 25%,
