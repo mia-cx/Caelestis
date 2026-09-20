@@ -780,7 +780,10 @@
   .cursor-default {
     cursor: var(--cursor-default);
   }
-  .cursor-pointer {
+  .cursor-pointer,
+  .btn,
+  .link,
+  .tab {
     cursor: var(--cursor-pointer);
   }
   .cursor-text {
