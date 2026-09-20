@@ -2,11 +2,13 @@
 
 Investigated September 20, 2026 for [issue #492](https://github.com/mia-riezebos/Caelestis/issues/492).
 
-**Pixel attribution succeeded at a target of 5 requests/second for two minutes, but failed at 6/second. A broader tile run passed five minutes at a 16/second target, then received 429 during its 32/second stage.** That rejected stage achieved 19.851 requests/second because latency limited dispatch. The mixed hour at four combined requests/second also passed. All seven observed 429 responses requested a 60-second cooldown. These are measured workloads, not exact quotas or bucket sizes.
+**The measured tile cutoff is around 30 requests/second: a 29/second target passed a full minute, then 30/second received 429 after 7.681 seconds. Pixel attribution passed 5/second for two minutes and failed at 6/second.** The tile result comes from a continuous staircase using persistent HTTP/2 and 1,024 paths. It supersedes the earlier rough inference near 20/second from a connection-limited run. The mixed hour at four combined requests/second also passed. All eight observed 429 responses requested a 60-second cooldown. These are measured workloads, not official quotas.
 
 | Workload | Target rate | Observation | Result |
 | --- | ---: | --- | --- |
 | Mixed tile/pixel | 4/second combined | One hour | 14,340 × 200; achieved 3.983/second |
+| Tile, persistent HTTP/2 | 29/second | Full minute after passing targets 16–28 | 1,704 × 200; achieved 28.4/second |
+| Tile, persistent HTTP/2 | 30/second | 429 headers after 7.681 seconds | 222 × 200, 1 × 429; achieved 28.961/second over 7.7 seconds |
 | Tile, four paths | 16/second | 75 seconds | 1,194 × 200 |
 | Tile, 1,024 paths | 16/second | Five minutes | 4,474 × 200; achieved 14.912/second |
 | Tile, 1,024 paths | 32/second | Stopped after 63.522 seconds | 1,259 × 200, 2 × 429; achieved 19.851/second |
@@ -130,7 +132,7 @@ The parent edited probe portability after launch, adding environment overrides f
 
 ## Completed endpoint tests
 
-All six tests used the same shared IPv4 context, cookie-free HTTP/2 access, no proxy, and no retries. The parent left at least 61 seconds without probe requests before each next route test, including after the successful tile run. Background Caelestis traffic was not controlled. The four pixel failures below and initial mixed-ramp failure produced five 429s. The later broad tile run added two, bringing the investigation to **seven observed 429s total**, all with `Retry-After: 60`.
+All six tests used the same shared IPv4 context, cookie-free HTTP/2 access, no proxy, and no retries. The parent left at least 61 seconds without probe requests before each next route test, including after the successful tile run. Background Caelestis traffic was not controlled. The four pixel failures below and initial mixed-ramp failure produced five 429s. The broad tile run added two and the persistent-HTTP/2 staircase added one, bringing the investigation to **eight observed 429s total**, all with `Retry-After: 60`.
 
 | Artifact | Route and target | Run start UTC | Run end UTC | Responses |
 | --- | --- | --- | --- | --- |
@@ -181,6 +183,44 @@ The 16/second stage had 4,438 `REVALIDATED` and 36 `EXPIRED` cache statuses. The
 
 Preserved artifacts are [compressed attempts](wplace-read-budget-2026-09-20/tile-sustained/attempts.jsonl.gz), [summary](wplace-read-budget-2026-09-20/tile-sustained/summary.json), [offline analysis](wplace-read-budget-2026-09-20/tile-sustained/analysis.json), [checksum](wplace-read-budget-2026-09-20/tile-sustained/SHA256SUMS), and a [separate probe version](wplace-read-budget-2026-09-20/tile-sustained/probe.mjs). This version adds grid-size and concurrency controls; earlier probe versions remain intact. Run settings were `WPLACE_PROBE_ROUTE=tile`, `WPLACE_PROBE_TILE_GRID_SIDE=32`, `WPLACE_PROBE_CONCURRENCY=16`, `WPLACE_PROBE_RATES='[16,32,64]'`, and `WPLACE_PROBE_SECONDS=300`. The compressed log reproduces the original allowlisted metadata without bodies, credentials, or source IP. The existing analyzer can read its decompressed JSONL without HTTP.
 
+## Continuous tile staircase
+
+The user requested increasing tile traffic by one request/second every 60 seconds until 429. A single dispatch clock changed rates continuously, without pauses or draining requests between steps. The test retained the 1,024-path grid, IPv4, anonymous requests, user agent, and no-retry policy. Persistent HTTP/2 replaced per-request connections, with a cap of 32 concurrent streams.
+
+**Every target from 16 through 29/second passed its full minute. The 30/second target received 429 after 7.681 seconds.** The run began at 04:58:08.266 UTC, started dispatch at 04:58:08.308, and finished draining at 05:12:16.268 on September 20, 2026. Its 18,952 starts produced 18,951 HTTP 200 responses and one 429. Maximum observed concurrency was 18. A normal HTTP/2 GOAWAY rotated the session after 10,000 requests; the second session carried 8,952. No request was retried.
+
+| Target per second | Phase start UTC | Dispatch duration | Requests | Achieved per second | Result |
+| ---: | --- | ---: | ---: | ---: | --- |
+| 16 | 04:58:08.308 | 60 seconds | 955 | 15.917 | All 200 |
+| 17 | 04:59:08.308 | 60 seconds | 1,020 | 17.000 | All 200 |
+| 18 | 05:00:08.308 | 60 seconds | 1,074 | 17.900 | All 200 |
+| 19 | 05:01:08.308 | 60 seconds | 1,139 | 18.983 | All 200 |
+| 20 | 05:02:08.308 | 60 seconds | 1,178 | 19.633 | All 200 |
+| 21 | 05:03:08.308 | 60 seconds | 1,255 | 20.917 | All 200 |
+| 22 | 05:04:08.308 | 60 seconds | 1,313 | 21.883 | All 200 |
+| 23 | 05:05:08.308 | 60 seconds | 1,379 | 22.983 | All 200 |
+| 24 | 05:06:08.308 | 60 seconds | 1,446 | 24.100 | All 200 |
+| 25 | 05:07:08.308 | 60 seconds | 1,482 | 24.700 | All 200 |
+| 26 | 05:08:08.308 | 60 seconds | 1,553 | 25.883 | All 200 |
+| 27 | 05:09:08.308 | 60 seconds | 1,574 | 26.233 | All 200 |
+| 28 | 05:10:08.308 | 60 seconds | 1,657 | 27.617 | All 200 |
+| 29 | 05:11:08.308 | 60 seconds | 1,704 | 28.400 | All 200 |
+| 30 | 05:12:08.308 | 7.700 seconds | 223 | 28.961 | 222 × 200, 1 × 429 |
+
+Attempt 18,952 started at 05:12:15.975. Its 429 headers arrived at **05:12:15.989**, with `Retry-After: 60`; its body ended at 05:12:16.066. The runner stopped on the headers, and **zero requests started afterward**. Dispatch-loop shutdown completed at 05:12:16.008, explaining the table's 7.700-second duration versus 7.681 seconds to rejection headers. Targets 31 and 32 did not run. The standalone analyzer retains its older body-completion timing for rejection windows; the header timestamp above determines the actual stop.
+
+This is the strongest tile-rate result in the investigation. The cutoff is around a 30/second target under this workload. The successful 29/second target achieved 28.4/second; it was a one-minute step after lower rates, not a long-term guarantee. The earlier 19.851/second phase average mixed latency stalls with short faster periods and does not establish a 20/second quota.
+
+The [exact persistent-HTTP/2 runner](wplace-read-budget-2026-09-20/tile-h2-staircase/probe.mjs), [compressed log](wplace-read-budget-2026-09-20/tile-h2-staircase/attempts.jsonl.gz), [summary](wplace-read-budget-2026-09-20/tile-h2-staircase/summary.json), [offline analysis](wplace-read-budget-2026-09-20/tile-h2-staircase/analysis.json), and [checksum](wplace-read-budget-2026-09-20/tile-h2-staircase/SHA256SUMS) preserve the result. Logs include response-header time and connection ID without bodies, credentials, or source IP. Decompression and the existing analyzer reproduce counts without network access.
+
+### Interrupted connection-per-request staircase
+
+The preceding curl staircase ran from 04:52:09.928 to 04:55:14.514 UTC. It used the same continuous minute clock and path grid. Targets 16 and 17 passed, but requests dispatched at target 18 suffered TCP connection timeouts. Totals were 2,790 starts, 2,777 HTTP 200 responses, 13 transport errors, and **no 429**. One request entered target 19 before the first outstanding timeout became known and stopped dispatch. The summary preserves that short fourth phase.
+
+Slow successful requests spent roughly 10–15 seconds establishing TCP, while DNS completed in milliseconds. For example, attempt 2,693 recorded 0.001973 seconds for DNS, 10.014268 seconds through TCP connection, and 10.068945 seconds total. This identifies connection establishment as the measured bottleneck. It does not identify the underlying network cause or establish an HTTP quota. Reusing HTTP/2 connections removed this obstacle in the completed staircase above.
+
+The [curl runner](wplace-read-budget-2026-09-20/tile-curl-staircase/probe.mjs), [compressed log](wplace-read-budget-2026-09-20/tile-curl-staircase/attempts.jsonl.gz), [summary](wplace-read-budget-2026-09-20/tile-curl-staircase/summary.json), [offline analysis](wplace-read-budget-2026-09-20/tile-curl-staircase/analysis.json), and [checksum](wplace-read-budget-2026-09-20/tile-curl-staircase/SHA256SUMS) retain this transport failure separately. Error strings contain only the public request command and timeout description.
+
 ## Published clients and historical reports
 
 These repositories are primary evidence for their own code. Their descriptions of Wplace behavior are third-party observations, not Wplace guarantees.
@@ -199,7 +239,7 @@ Map Inspector's “batches” are concurrent single-coordinate requests. Its [co
 
 The older j0code client uses a shared GET helper for tiles and pixel metadata. It retries 429 using `Retry-After`, with a 20-second fallback. Sharing a client helper does not prove shared server enforcement. [Implementation, September 22, 2025](https://github.com/j0code/wplace-api/blob/39614e3dd75dfd64a4a4476b7650f45702cedd88/src/main.ts#L142-L203)
 
-No captured numerical quota was found in the searched public evidence. Code that reads a header does not prove the server always sends it. Our tests independently captured `Retry-After: 60` on all seven 429 responses, but still no quota counters.
+No captured numerical quota was found in the searched public evidence. Code that reads a header does not prove the server always sends it. Our tests independently captured `Retry-After: 60` on all eight 429 responses, but still no quota counters.
 
 ## Budget design supported by current evidence
 
@@ -228,13 +268,13 @@ Stop at the first 429 and respect its cooldown. End the phase instead of retryin
 
 For every attempt, record start/end time, route class, in-flight count, status, bytes, and relevant headers. Include `Retry-After`, quota headers if present, `Cache-Control`, `Age`, `ETag`, `Last-Modified`, `Date`, and CDN cache status when supplied. Distinguish a changed tile from a newly delivered stale snapshot. Record scheduled and actual spacing.
 
-The initial short pass exposed response behavior without finding an unsuitable rate. Later tests found seven rejections under their recorded workloads. The hour supplies sustained mixed-workload evidence, but none of these runs establishes a universal minute/hour/day quota or total production headroom. The user's explicit escalation requests authorized the tests; stopping on rejection and respecting cooldown still apply.
+The initial short pass exposed response behavior without finding an unsuitable rate. Later tests found eight HTTP rejections under their recorded workloads. The hour supplies sustained mixed-workload evidence, but none of these runs establishes a universal minute/hour/day quota or total production headroom. The user's explicit escalation requests authorized the tests; stopping on rejection and respecting cooldown still apply.
 
 Separate-versus-shared enforcement remains partly unresolved. Different endpoint outcomes support separate application ceilings, but they do not exclude a shared counter or prove behavior during an active cooldown. Stronger evidence would require explicit counters, an operator statement, or further controlled observations. A single fixed access context cannot establish IP-versus-account enforcement.
 
 ## Completion criteria and unknowns
 
-The bounded research is complete. The ramp, hour observation, endpoint tests, and broader tile run establish successful workloads and failures for both routes. Every observed rejection requested a 60-second cooldown. These measurements support the next queue-policy decision without an official quota. They do not approve production defaults. Exact enforcement rules, aggregate background traffic, and production headroom remain unresolved.
+The bounded research is complete. The ramp, hour observation, endpoint tests, and continuous tile staircase establish successful workloads and failures for both routes. Every observed HTTP rejection requested a 60-second cooldown. These measurements support the next queue-policy decision without an official quota. They do not approve production defaults. Exact enforcement rules, aggregate background traffic, and production headroom remain unresolved.
 
 Still unknown:
 

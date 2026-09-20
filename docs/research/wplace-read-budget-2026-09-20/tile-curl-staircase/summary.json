@@ -1,0 +1,64 @@
+{
+  "startedAt": "2026-09-20T04:52:09.928Z",
+  "endedAt": "2026-09-20T04:55:14.514Z",
+  "dispatchStartedAt": "2026-09-20T04:52:09.929Z",
+  "dispatchEndedAt": "2026-09-20T04:55:10.233Z",
+  "attempted": 2790,
+  "routeMode": "tile",
+  "maxConcurrency": 32,
+  "tilePaths": 1024,
+  "phases": [
+    {
+      "rate": 16,
+      "startedAt": "2026-09-20T04:52:09.929Z",
+      "endedAt": "2026-09-20T04:53:09.929Z",
+      "attempted": 953,
+      "achievedRate": 15.883333333333333,
+      "statuses": {
+        "200": 953
+      }
+    },
+    {
+      "rate": 17,
+      "startedAt": "2026-09-20T04:53:09.929Z",
+      "endedAt": "2026-09-20T04:54:09.929Z",
+      "attempted": 1017,
+      "achievedRate": 16.95,
+      "statuses": {
+        "200": 1017
+      }
+    },
+    {
+      "rate": 18,
+      "startedAt": "2026-09-20T04:54:09.929Z",
+      "endedAt": "2026-09-20T04:55:09.929Z",
+      "attempted": 819,
+      "achievedRate": 13.65,
+      "statuses": {
+        "200": 806,
+        "error": 13
+      }
+    },
+    {
+      "rate": 19,
+      "startedAt": "2026-09-20T04:55:09.929Z",
+      "endedAt": "2026-09-20T04:55:10.233Z",
+      "attempted": 1,
+      "achievedRate": 3.2894736842105265,
+      "statuses": {
+        "200": 1
+      }
+    }
+  ],
+  "stopped": {
+    "attempt": 2691,
+    "scheduledRate": 18,
+    "route": "tile",
+    "path": "/files/s0/tiles/607/755.png",
+    "startedAt": "2026-09-20T04:54:50.211Z",
+    "inFlightAtDispatch": 2,
+    "completedAt": "2026-09-20T04:55:10.232Z",
+    "error": "Command failed: curl -4 --silent --show-error --max-time 20 --user-agent Caelestis-Tile-Fetcher/1.0 --dump-header - --output /dev/null --write-out \nCURL_METRICS_JSON%{json} https://backend.wplace.live/files/s0/tiles/607/755.png\ncurl: (28) Connection timed out after 20002 milliseconds\n"
+  },
+  "stopReason": "first unexpected response or transport failure"
+}

@@ -1,0 +1,76 @@
+{
+  "attempts": 2790,
+  "spanSeconds": 184.568,
+  "statuses": {
+    "200": 2777,
+    "error": 13
+  },
+  "maxInFlight": 32,
+  "bytes": 217474748,
+  "firstRejection": {
+    "attempt": 2691,
+    "scheduledRate": 18,
+    "route": "tile",
+    "path": "/files/s0/tiles/607/755.png",
+    "startedAt": "2026-09-20T04:54:50.211Z",
+    "inFlightAtDispatch": 2,
+    "completedAt": "2026-09-20T04:55:10.232Z",
+    "error": "Command failed: curl -4 --silent --show-error --max-time 20 --user-agent Caelestis-Tile-Fetcher/1.0 --dump-header - --output /dev/null --write-out \nCURL_METRICS_JSON%{json} https://backend.wplace.live/files/s0/tiles/607/755.png\ncurl: (28) Connection timed out after 20002 milliseconds\n"
+  },
+  "windows": [
+    {
+      "seconds": 1,
+      "wholeWindowElapsed": true,
+      "maximumKnownStarts": 19,
+      "peakEndingAt": "2026-09-20T04:54:44.558Z",
+      "knownStartsBeforeRejectionResponse": 1,
+      "tileStarts": 1,
+      "pixelStarts": 0
+    },
+    {
+      "seconds": 60,
+      "wholeWindowElapsed": true,
+      "maximumKnownStarts": 1058,
+      "peakEndingAt": "2026-09-20T04:54:52.783Z",
+      "knownStartsBeforeRejectionResponse": 814,
+      "tileStarts": 814,
+      "pixelStarts": 0
+    },
+    {
+      "seconds": 300,
+      "wholeWindowElapsed": false,
+      "maximumKnownStarts": 2790,
+      "peakEndingAt": "2026-09-20T04:55:10.123Z",
+      "knownStartsBeforeRejectionResponse": 2790,
+      "tileStarts": 2790,
+      "pixelStarts": 0
+    },
+    {
+      "seconds": 600,
+      "wholeWindowElapsed": false,
+      "maximumKnownStarts": 2790,
+      "peakEndingAt": "2026-09-20T04:55:10.123Z",
+      "knownStartsBeforeRejectionResponse": 2790,
+      "tileStarts": 2790,
+      "pixelStarts": 0
+    },
+    {
+      "seconds": 1800,
+      "wholeWindowElapsed": false,
+      "maximumKnownStarts": 2790,
+      "peakEndingAt": "2026-09-20T04:55:10.123Z",
+      "knownStartsBeforeRejectionResponse": 2790,
+      "tileStarts": 2790,
+      "pixelStarts": 0
+    },
+    {
+      "seconds": 3600,
+      "wholeWindowElapsed": false,
+      "maximumKnownStarts": 2790,
+      "peakEndingAt": "2026-09-20T04:55:10.123Z",
+      "knownStartsBeforeRejectionResponse": 2790,
+      "tileStarts": 2790,
+      "pixelStarts": 0
+    }
+  ]
+}

@@ -1,0 +1,191 @@
+{
+  "startedAt": "2026-09-20T04:58:08.266Z",
+  "endedAt": "2026-09-20T05:12:16.268Z",
+  "dispatchStartedAt": "2026-09-20T04:58:08.308Z",
+  "dispatchEndedAt": "2026-09-20T05:12:16.008Z",
+  "attempted": 18952,
+  "routeMode": "tile",
+  "maxConcurrency": 32,
+  "tilePaths": 1024,
+  "connectionCount": 2,
+  "transport": "persistent HTTP/2 over IPv4",
+  "phases": [
+    {
+      "rate": 16,
+      "startedAt": "2026-09-20T04:58:08.308Z",
+      "endedAt": "2026-09-20T04:59:08.308Z",
+      "attempted": 955,
+      "achievedRate": 15.916666666666666,
+      "statuses": {
+        "200": 955
+      }
+    },
+    {
+      "rate": 17,
+      "startedAt": "2026-09-20T04:59:08.308Z",
+      "endedAt": "2026-09-20T05:00:08.308Z",
+      "attempted": 1020,
+      "achievedRate": 17,
+      "statuses": {
+        "200": 1020
+      }
+    },
+    {
+      "rate": 18,
+      "startedAt": "2026-09-20T05:00:08.308Z",
+      "endedAt": "2026-09-20T05:01:08.308Z",
+      "attempted": 1074,
+      "achievedRate": 17.9,
+      "statuses": {
+        "200": 1074
+      }
+    },
+    {
+      "rate": 19,
+      "startedAt": "2026-09-20T05:01:08.308Z",
+      "endedAt": "2026-09-20T05:02:08.308Z",
+      "attempted": 1139,
+      "achievedRate": 18.983333333333334,
+      "statuses": {
+        "200": 1139
+      }
+    },
+    {
+      "rate": 20,
+      "startedAt": "2026-09-20T05:02:08.308Z",
+      "endedAt": "2026-09-20T05:03:08.308Z",
+      "attempted": 1178,
+      "achievedRate": 19.633333333333333,
+      "statuses": {
+        "200": 1178
+      }
+    },
+    {
+      "rate": 21,
+      "startedAt": "2026-09-20T05:03:08.308Z",
+      "endedAt": "2026-09-20T05:04:08.308Z",
+      "attempted": 1255,
+      "achievedRate": 20.916666666666668,
+      "statuses": {
+        "200": 1255
+      }
+    },
+    {
+      "rate": 22,
+      "startedAt": "2026-09-20T05:04:08.308Z",
+      "endedAt": "2026-09-20T05:05:08.308Z",
+      "attempted": 1313,
+      "achievedRate": 21.883333333333333,
+      "statuses": {
+        "200": 1313
+      }
+    },
+    {
+      "rate": 23,
+      "startedAt": "2026-09-20T05:05:08.308Z",
+      "endedAt": "2026-09-20T05:06:08.308Z",
+      "attempted": 1379,
+      "achievedRate": 22.983333333333334,
+      "statuses": {
+        "200": 1379
+      }
+    },
+    {
+      "rate": 24,
+      "startedAt": "2026-09-20T05:06:08.308Z",
+      "endedAt": "2026-09-20T05:07:08.308Z",
+      "attempted": 1446,
+      "achievedRate": 24.1,
+      "statuses": {
+        "200": 1446
+      }
+    },
+    {
+      "rate": 25,
+      "startedAt": "2026-09-20T05:07:08.308Z",
+      "endedAt": "2026-09-20T05:08:08.308Z",
+      "attempted": 1482,
+      "achievedRate": 24.7,
+      "statuses": {
+        "200": 1482
+      }
+    },
+    {
+      "rate": 26,
+      "startedAt": "2026-09-20T05:08:08.308Z",
+      "endedAt": "2026-09-20T05:09:08.308Z",
+      "attempted": 1553,
+      "achievedRate": 25.883333333333333,
+      "statuses": {
+        "200": 1553
+      }
+    },
+    {
+      "rate": 27,
+      "startedAt": "2026-09-20T05:09:08.308Z",
+      "endedAt": "2026-09-20T05:10:08.308Z",
+      "attempted": 1574,
+      "achievedRate": 26.233333333333334,
+      "statuses": {
+        "200": 1574
+      }
+    },
+    {
+      "rate": 28,
+      "startedAt": "2026-09-20T05:10:08.308Z",
+      "endedAt": "2026-09-20T05:11:08.308Z",
+      "attempted": 1657,
+      "achievedRate": 27.616666666666667,
+      "statuses": {
+        "200": 1657
+      }
+    },
+    {
+      "rate": 29,
+      "startedAt": "2026-09-20T05:11:08.308Z",
+      "endedAt": "2026-09-20T05:12:08.308Z",
+      "attempted": 1704,
+      "achievedRate": 28.4,
+      "statuses": {
+        "200": 1704
+      }
+    },
+    {
+      "rate": 30,
+      "startedAt": "2026-09-20T05:12:08.308Z",
+      "endedAt": "2026-09-20T05:12:16.008Z",
+      "attempted": 223,
+      "achievedRate": 28.96103896103896,
+      "statuses": {
+        "200": 222,
+        "429": 1
+      }
+    }
+  ],
+  "stopped": {
+    "attempt": 18952,
+    "scheduledRate": 30,
+    "route": "tile",
+    "path": "/files/s0/tiles/603/760.png",
+    "startedAt": "2026-09-20T05:12:15.975Z",
+    "inFlightAtDispatch": 17,
+    "connectionId": 2,
+    "remoteIp": "172.66.145.132",
+    "httpVersion": "2",
+    "proxyUsed": 0,
+    "bytes": 17,
+    "responseAt": "2026-09-20T05:12:15.989Z",
+    "status": 429,
+    "headers": {
+      "date": "Sun, 20 Sep 2026 05:12:15 GMT",
+      "content-type": "text/plain; charset=UTF-8",
+      "retry-after": "60",
+      "cache-control": "private, max-age=0, no-store, no-cache, must-revalidate, post-check=0, pre-check=0",
+      "server": "cloudflare",
+      "cf-ray": "a3de558bee8d5392-AMS"
+    },
+    "completedAt": "2026-09-20T05:12:16.066Z",
+    "elapsedSeconds": 0.091
+  },
+  "stopReason": "first unexpected response or transport failure"
+}
