@@ -1,5 +1,11 @@
 # @caelestis/frontend
 
+## 0.7.1
+
+### Patch Changes
+
+- f674a95: Keep timelapse playback smooth and stop long histories from crashing the template page on phones.
+
 ## 0.7.0
 
 ### Minor Changes
