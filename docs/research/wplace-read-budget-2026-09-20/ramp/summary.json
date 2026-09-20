@@ -1,0 +1,67 @@
+{
+  "startedAt": "2026-09-20T03:01:09.362Z",
+  "endedAt": "2026-09-20T03:04:14.611Z",
+  "attempted": 915,
+  "maxConcurrency": 8,
+  "phases": [
+    {
+      "rate": 2,
+      "startedAt": "2026-09-20T03:01:09.364Z",
+      "endedAt": "2026-09-20T03:02:09.490Z",
+      "attempted": 120,
+      "statuses": {
+        "200": 120
+      }
+    },
+    {
+      "rate": 4,
+      "startedAt": "2026-09-20T03:02:09.491Z",
+      "endedAt": "2026-09-20T03:03:09.502Z",
+      "attempted": 239,
+      "statuses": {
+        "200": 239
+      }
+    },
+    {
+      "rate": 8,
+      "startedAt": "2026-09-20T03:03:09.504Z",
+      "endedAt": "2026-09-20T03:04:09.625Z",
+      "attempted": 477,
+      "statuses": {
+        "200": 477
+      }
+    },
+    {
+      "rate": 16,
+      "startedAt": "2026-09-20T03:04:09.626Z",
+      "endedAt": "2026-09-20T03:04:14.611Z",
+      "attempted": 79,
+      "statuses": {
+        "200": 78,
+        "429": 1
+      }
+    }
+  ],
+  "stopped": {
+    "attempt": 914,
+    "scheduledRate": 16,
+    "route": "pixel",
+    "path": "/s0/pixel/603/769?x=556&y=504",
+    "startedAt": "2026-09-20T03:04:14.468Z",
+    "inFlightAtDispatch": 2,
+    "completedAt": "2026-09-20T03:04:14.536Z",
+    "status": 429,
+    "elapsedSeconds": 0.051914,
+    "bytes": 17,
+    "httpVersion": "2",
+    "remoteIp": "172.66.145.132",
+    "proxyUsed": 0,
+    "headers": {
+      "date": "Sun, 20 Sep 2026 03:04:14 GMT",
+      "content-type": "text/plain; charset=UTF-8",
+      "retry-after": "60",
+      "cache-control": "private, max-age=0, no-store, no-cache, must-revalidate, post-check=0, pre-check=0"
+    }
+  },
+  "stopReason": "first unexpected response or transport failure"
+}

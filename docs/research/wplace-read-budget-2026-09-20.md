@@ -2,7 +2,7 @@
 
 Investigated September 20, 2026 for [issue #492](https://github.com/mia-riezebos/Caelestis/issues/492).
 
-**The bounded run completed 100 requests with 90 HTTP 200 and 10 HTTP 304 responses. No numerical Wplace read quota has been verified.** The one-request/second phases succeeded with one request in flight. This does not establish a sustained production budget. Keep issue #492 open.
+**The authorized ramp first received 429 during the 16 combined requests/second phase, with `Retry-After: 60`.** The preceding 2, 4, and 8 requests/second phases each ran for 60 seconds without rejection. This is an observed failure point under one workload, not a universal Wplace quota. The subsequent one-hour run at four combined requests/second is **IN PROGRESS**, not passed. Keep issue #492 open.
 
 Mia confirmed that this Mac shares its public IPv4 with the existing Caelestis server. The parent investigation ran calibration from the Mac on that shared egress. It did not run commands on the Caelestis server. Existing background traffic remained unmeasured, so the combined IP request rate is unknown.
 
@@ -25,7 +25,7 @@ The authenticated checks followed a successful `/me` response. Earlier anonymous
 
 These response observations come from this investigation, not an official contract. [The attribution report](wplace-attribution-2026-09-20.md) preserves the client inspection and access checks. [Public-source research](wplace-attribution-public-sources-2026-09-20.md) records the supporting implementations and announcements. The [official patch notes](https://wplace.live/patch-notes) and searched first-party statements supplied no numerical read quota.
 
-## Completed calibration
+## Initial bounded calibration
 
 The recorded run started at **2026-09-20 02:32:12.356 UTC** and ended at **02:35:07.565 UTC**, lasting 175.209 seconds. The probe forced IPv4, used no cookies or authentication, and used `Caelestis-Tile-Fetcher/1.0`. Every recorded response used HTTP/2 with `proxyUsed: 0`. The probe kept one request in flight and made no retries. Two earlier standalone baseline requests also returned 200; those are additional to the 100 recorded attempts and are not included in the attached run log.
 
@@ -42,11 +42,52 @@ Actual within-phase start spacing was 5,001–5,004 ms for baselines and 1,000�
 
 All ten conditional requests used `If-None-Match` and returned 304 with zero downloaded body bytes. This confirms conditional request support for those unchanged tiles. It does not establish exemption from request accounting. Tile responses included CDN `HIT`, `REVALIDATED`, and `EXPIRED` states. Pixel responses were `DYNAMIC`. These distinctions describe delivery and caching; they do not expose enforcement counters.
 
-The result establishes a short successful additional workload on the selected shared IPv4. It does not establish the IP's total rate, headroom, sustainable quota, or whether endpoint counters are shared. Repeated tile reads covered four fixed paths; cache warmth and path diversity differ from a wide monitoring scan. No concurrency or burst phase ran. No 429 occurred, so cooldown duration and recovery remain unmeasured.
+The initial result establishes a short successful additional workload on the selected shared IPv4. It does not establish the IP's total rate, headroom, sustainable quota, or whether endpoint counters are shared. Repeated tile reads covered four fixed paths; cache warmth and path diversity differ from a wide monitoring scan. This initial pass included no concurrency or burst phase and no 429. The later ramp below supplies the first rejection and cooldown header.
 
 The durable artifacts are [attempts.jsonl](wplace-read-budget-2026-09-20/attempts.jsonl), [summary.json](wplace-read-budget-2026-09-20/summary.json), and the [probe](wplace-read-budget-2026-09-20/probe.mjs). The log retains only allowlisted response headers and timing/status/size metadata. It contains no response bodies, cookies, authorization headers, or the source egress IP. `remoteIp` is the public destination address. The probe discards response bodies rather than saving pixel identities.
 
 The preserved probe matches the executed workload, with one portability change: `WPLACE_BUDGET_OUTPUT_DIR` can override its original output directory. Inspect the schedule without network requests using `node docs/research/wplace-read-budget-2026-09-20/probe.mjs --dry-run`. An authorized rerun must select a fresh existing output directory and retain the agreed caps; rerunning would add traffic to the shared egress.
+
+## Authorized ramp and first rejection
+
+Mia explicitly requested increasing traffic until rate limiting and observations across one second, one minute, five minutes, ten minutes, thirty minutes, and one hour. That instruction superseded the earlier proposal to avoid escalation. The parent investigation retained the same shared IPv4, alternating tile/pixel requests, cookie-free access, and no automatic retries.
+
+The ramp ran from **03:01:09.362 to 03:04:14.611 UTC**. The configured concurrency cap was eight; the largest observed in-flight count was three. Every response used HTTP/2 and reported `proxyUsed: 0`.
+
+| Scheduled combined rate | Phase duration | Requests started | Responses |
+| --- | --- | ---: | --- |
+| 2/second | 60-second dispatch window | 120 | 120 × 200 |
+| 4/second | 60-second dispatch window | 239 | 239 × 200 |
+| 8/second | 60-second dispatch window | 477 | 477 × 200 |
+| 16/second | Stopped at first rejection | 79 | 78 × 200, 1 × 429 |
+
+The completed ramp contains **915 attempts: 914 × 200 and 1 × 429**. Scheduled rates are pacing targets; timer and process overhead explain the slightly lower request counts. Phases drained outstanding requests before advancing. Planned 32/second and 64/second phases never ran.
+
+Attempt 914 was a public pixel lookup. It started at **03:04:14.468**, 4.842 seconds after the 16/second phase began, and returned 429 at **03:04:14.536**. The response included `Retry-After: 60`. It supplied no `RateLimit-*` or `X-RateLimit-*` quota counters. This verifies one server-requested cooldown duration; it does not establish a 60-second counting window, refill rule, or general quota. Cloudflare delivery does not identify which limiter generated the 429.
+
+Dispatch stopped on that response. Attempt 915, a tile request, had already started five milliseconds before the rejection arrived and completed afterward with 200. No new request started after the first 429 response. An already-running tile succeeding alongside a rejected pixel does not prove independent endpoint budgets.
+
+The parent waited 61 seconds from the rejection response before starting the next experiment. The ramp itself has no retries or recovery probes.
+
+### Time-window observations
+
+The analyzer counts known request starts in `(window end - duration, window end]`. It counts attempted requests, including the rejected request and any still in flight. Background requests from the shared egress remain outside these counts.
+
+| Window | Largest known starts in ramp | Starts before first 429 response | Interpretation |
+| --- | ---: | ---: | --- |
+| 1 second | 16 | 16: 8 tile, 8 pixel | Observed workload; not a proven permitted burst |
+| 1 minute | 516 | 516: 258 tile, 258 pixel | Observed mixed preceding load; not a verified per-minute quota |
+| 5, 10, 30, 60 minutes | 915 within the partial run | 915: 458 tile, 457 pixel | Full windows did not elapse; no result for those durations |
+
+The 60-second count spans portions of the 8/second and 16/second phases. Accumulated load, route-specific enforcement, concurrency, CDN behavior, or unknown background traffic could explain the rejection. This experiment cannot isolate those causes. Four repeated tile paths also keep the workload narrower and more cache-friendly than a wide monitoring scan.
+
+### Sustained run in progress
+
+After cooldown, the parent started a **one-hour alternating tile/pixel phase at four combined requests/second** at **03:05:15.552 UTC**. Its stop condition remains the first unexpected response or transport failure. At this report revision, that run is **IN PROGRESS**. Five-, ten-, thirty-, and sixty-minute success must not be claimed from its planned duration. Its unfinished output remains outside the published artifacts until the parent records the result.
+
+The completed ramp artifacts are [attempts](wplace-read-budget-2026-09-20/ramp/attempts.jsonl), [summary](wplace-read-budget-2026-09-20/ramp/summary.json), [window analysis](wplace-read-budget-2026-09-20/ramp/analysis.json), [analyzer](wplace-read-budget-2026-09-20/ramp/analyze.mjs), and [probe](wplace-read-budget-2026-09-20/ramp/probe.mjs). Logs retain allowlisted headers and metadata, with no bodies, credentials, or source IP. The summary's `maxConcurrency: 8` is the configured cap; the analysis's `maxInFlight: 3` is observed.
+
+The parent edited probe portability after launch, adding environment overrides for rates, phase duration, and output location. The preserved defaults retain the executed ramp workload: `[2,4,8,16,32,64]`, 60-second phases, cap eight, and alternating routes. The file is therefore the portable reproduction, not byte-identical pre-launch source. `--dry-run` checks the schedule without HTTP. Running the analyzer over the saved JSONL is also network-free.
 
 ## Published clients and historical reports
 
@@ -66,7 +107,7 @@ Map Inspector's “batches” are concurrent single-coordinate requests. Its [co
 
 The older j0code client uses a shared GET helper for tiles and pixel metadata. It retries 429 using `Retry-After`, with a 20-second fallback. Sharing a client helper does not prove shared server enforcement. [Implementation, September 22, 2025](https://github.com/j0code/wplace-api/blob/39614e3dd75dfd64a4a4476b7650f45702cedd88/src/main.ts#L142-L203)
 
-No captured response containing `RateLimit-*`, `X-RateLimit-*`, or a verified numeric `Retry-After` was found in the searched public evidence. Code that reads a header does not prove the server always sends it.
+No captured numerical quota was found in the searched public evidence. Code that reads a header does not prove the server always sends it. Our later ramp independently captured `Retry-After: 60` on one 429 response, but still no quota counters.
 
 ## Budget design supported by current evidence
 
@@ -82,12 +123,12 @@ The steady demand calculation is `tile attempts/second + attribution attempts/se
 
 The selected first pass used the Mac's shared IPv4, 100 attempts, concurrency one, and a 20-minute cap. The completed phases above replace the earlier unexecuted 120-attempt proposal. No optional burst requests or recovery controls were used. The probe stopped on any unexpected status or challenge and had no automatic retries.
 
-Before a longer run, measure or account for existing Caelestis requests sharing this IP. Otherwise the experiment can measure only additional traffic, not the aggregate ceiling. Record the selected workload, endpoint hostnames, authentication state, coordinates, maximum attempts, duration, and stop conditions. The current log already captures exact public coordinates and request timing.
+The explicitly authorized ramp and in-progress sustained run extend that first pass. Existing Caelestis traffic sharing this IP remains unknown. These experiments measure additional traffic, not the aggregate ceiling. Their logs capture the selected routes, coordinates, request timing, and stop conditions.
 
 Further work should answer the remaining questions without silently escalating the completed workload:
 
 1. Count background tile, attribution, and other Wplace attempts across processes on this egress.
-2. Choose a longer bounded observation at an agreed aggregate rate below a proposed operating ceiling. Report the duration explicitly.
+2. Finish and record the authorized one-hour observation, or its earlier stop, without treating its planned duration as measured.
 3. If concurrency or burst behavior matters, give it a separate bounded schedule rather than combining it with sustained-rate changes.
 4. Revisit endpoint separation only when headers, operator information, or controlled observations can distinguish shared enforcement.
 
@@ -95,20 +136,20 @@ Stop at the first 429 and respect its cooldown. End the phase instead of retryin
 
 For every attempt, record start/end time, route class, in-flight count, status, bytes, and relevant headers. Include `Retry-After`, quota headers if present, `Cache-Control`, `Age`, `ETag`, `Last-Modified`, `Date`, and CDN cache status when supplied. Distinguish a changed tile from a newly delivered stale snapshot. Record scheduled and actual spacing.
 
-The completed short pass exposed response behavior without finding an unsuitable rate. It cannot establish minute/hour/day limits or a sustainable production ceiling. Its clean result means only that the recorded workload succeeded in that context. Any longer observation needs another bounded schedule. Do not keep increasing traffic until a threshold appears.
+The initial short pass exposed response behavior without finding an unsuitable rate. The later ramp found one rejection under a specific preceding workload. Neither establishes a universal minute/hour/day quota or a sustainable aggregate production ceiling. The user's explicit escalation request authorized the ramp; stopping on rejection and respecting cooldown still apply.
 
-Separate-versus-shared enforcement remains inconclusive if all phases succeed. Stronger evidence would require explicit quota counters, an operator statement, or carefully controlled cross-route observations. Do not infer IP/account enforcement by rotating identities or addresses. A single fixed context cannot resolve those dimensions.
+Separate-versus-shared enforcement remains inconclusive: a pixel 429 and an already-in-flight successful tile cannot distinguish it. Stronger evidence would require explicit quota counters, an operator statement, or controlled cross-route observations. A single fixed access context also cannot establish IP-versus-account enforcement.
 
 ## Completion criteria and unknowns
 
-Issue #492 remains unresolved because the successful short workload does not establish a sustained aggregate budget. The shared IPv4 is now known, but background traffic and headroom are not. A follow-up must connect the measured aggregate workload and observation duration to an operating recommendation, or obtain an explicit Wplace quota.
+Issue #492 remains unresolved. The ramp establishes a first rejection and a 60-second requested cooldown, while sustained observation remains in progress. The shared IPv4 is known, but aggregate background traffic and headroom are not. The completed sustained result must inform an operating recommendation without presenting that recommendation as an official quota.
 
 Still unknown:
 
 - Numerical burst and sustained limits, concurrency constraints, and their time windows.
 - Enforcement by IP, account, route, hostname, or combinations, including whether tiles and attribution share counters.
 - Accounting for cached responses, conditional requests, 304s, failures, and retries.
-- Header availability, cooldown behavior, and variation by server egress or time.
+- Whether the observed 60-second cooldown generalizes, and how enforcement varies by egress or time.
 - Whether Wplace offers an approved integration with a distinct read quota.
 
-The next measurement is the existing traffic on the shared egress, followed by a selected longer schedule if needed. Do not describe one request/second as a verified Wplace quota or guaranteed production ceiling.
+The next artifact is the authorized sustained run's completed result. Do not describe 4, 8, or 16 requests/second as a verified Wplace quota or guaranteed production ceiling.
