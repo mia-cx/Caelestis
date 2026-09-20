@@ -147,6 +147,18 @@ const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
     return () => clock.pause()
   })
 
+  /**
+   * Move the timelapse to a recorded time and pause. The transport and the pace chart both seek
+   * through here: times outside the retained history clamp to its ends, and the end stays live.
+   */
+  const seekTo = (time: number): void => {
+    const value = Math.floor(Math.min(historyEnd, Math.max(timeline[0] ?? historyEnd, time)))
+    playhead = value
+    scrub = value >= historyEnd ? timeline.length : frameAt(timeline, value)
+    playback.seek(value)
+    playing = false
+  }
+
   const formatFrame = (t: number): string =>
     new Date(t * 1000).toLocaleString(undefined, {
       month: 'short',
@@ -300,12 +312,7 @@ const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
             max={historyEnd}
             step={1}
             value={playhead}
-            onValueChange={(value: number) => {
-              playhead = value
-              scrub = value >= historyEnd ? timeline.length : frameAt(timeline, value)
-              playback.seek(value)
-              playing = false
-            }}
+            onValueChange={seekTo}
             class="min-w-40 flex-1"
             aria-label="timelapse position"
             aria-valuetext={formatFrame(playhead)}
@@ -332,6 +339,8 @@ const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
       liveDashboard={app.liveProtocol === 2}
       {progress}
       subscribeDashboard={app.subscribeDashboard}
+      playhead={live ? null : playhead}
+      onSeek={timeline.length > 0 ? seekTo : undefined}
     />
 
     {#if status?.colours !== undefined && status.colours.length > 0}

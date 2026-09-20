@@ -7,11 +7,11 @@ recorded time, preserving the existing 350 ms per recorded hour at 1×.
 
 ## Acceptance criteria
 
-- [ ] Sub-hour observations survive alongside older folded and imported history.
-- [ ] Irregular timestamp gaps take proportional playback time, without timer drift.
-- [ ] Transport distance and seeking represent elapsed time, with a steadily moving playhead.
-- [ ] The progress & pace graph shares the playhead and can seek the timelapse in both directions.
-- [ ] Play/pause, seeking, replay, saved speed, and lifecycle bounds still work.
+- [x] Sub-hour observations survive alongside older folded and imported history.
+- [x] Irregular timestamp gaps take proportional playback time, without timer drift.
+- [x] Transport distance and seeking represent elapsed time, with a steadily moving playhead.
+- [x] The progress & pace graph shares the playhead and can seek the timelapse in both directions.
+- [x] Play/pause, seeking, replay, saved speed, and lifecycle bounds still work.
 - [ ] Focused regressions, affected package checks, and Chromium verification pass.
 
 ## TODOs
@@ -19,7 +19,7 @@ recorded time, preserving the existing 350 ms per recorded hour at 1×.
 - [x] Return mixed-density tile history by default, preserving explicit-resolution reads, with route regressions.
 - [x] Drive the viewer with elapsed recorded time and verify playback controls with focused tests.
 - [x] Map the transport to recorded time and verify continuous motion through sparse holds.
-- [ ] Link the progress & pace graph to timelapse playback and scrubbing, with focused interaction tests.
+- [x] Link the progress & pace graph to timelapse playback and scrubbing, with focused interaction tests.
 - [ ] Add release notes, validate the affected packages and browser flow, and file the PR.
 
 ## Notes
@@ -49,3 +49,12 @@ recorded time, preserving the existing 350 ms per recorded hour at 1×.
   and formatted time to the actual slider thumb after Chromium exposed missing accessible names.
 - Backend suite: 885 passed, 15 skipped. Userscript suite: 1601 passed, two timing failures; both
   failing files passed independently (132 tests). Shared/UI/storage/wire package suites passed.
+- Claude Fable 5.1 implemented optional chart playhead/onSeek props through StatsPanel, a shared
+  page seek handler, and 18 integration tests. Click seeks, dragging the playhead scrubs, dragging
+  elsewhere zooms, and Enter/Space seeks from keyboard hover. Double-click still resets zoom and
+  also seeks to that point. Unlinked charts retain their behavior.
+- Chromium confirms both directions, archive timestamps before creation, zoomed positioning,
+  off-window overview marker, actual tile changes, mobile touch, and no playback-driven refetches.
+  A canceled touch initially sought; Fable independently fixed it and added a regression.
+- All further Chromium checks reuse the background target with persistent focus emulation.
+  The fixture harness's initial target creation lacked background:true; that path was removed.
