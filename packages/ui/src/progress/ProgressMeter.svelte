@@ -31,14 +31,14 @@
 
 <style>
   .meter-wrap { display: flex; min-inline-size: 0; align-items: center; gap: 0.5rem; }
-  .track { display: flex; flex: 1; min-inline-size: 0; block-size: 0.75rem; overflow: hidden; border: 1px solid var(--caelestis-border); border-radius: 999px; background-color: var(--caelestis-raised-surface); background-image: repeating-linear-gradient(135deg, transparent 0 3px, color-mix(in oklch, var(--caelestis-text) 10%, transparent) 3px 4px); }
+  .track { display: flex; flex: 1; min-inline-size: 0; block-size: 0.75rem; overflow: hidden; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, 999px); background-color: var(--caelestis-raised-surface); background-image: var(--caelestis-track-pattern, repeating-linear-gradient(135deg, transparent 0 3px, color-mix(in oklch, var(--caelestis-text) 10%, transparent) 3px 4px)); }
   .track.small { block-size: 0.375rem; border: 0; }
   .track span { block-size: 100%; }
   .completed { background: var(--caelestis-progress-completed, var(--caelestis-success)); }
   .completed.alarm { opacity: 0.25; }
   .mismatched { background: var(--caelestis-danger); }
   .unpainted { background: color-mix(in oklch, var(--caelestis-text) 20%, transparent); }
-  .percent { flex: 0 0 5ch; min-inline-size: 0; text-align: end; font: 700 0.85rem/1 ui-sans-serif, system-ui, sans-serif; font-variant-numeric: tabular-nums; }
-  .percent.small { font-size: 0.625rem; }
+  .percent { flex: 0 0 5ch; min-inline-size: 0; text-align: end; font-family: inherit; font-size: var(--caelestis-meter-size, 0.85rem); font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+  .percent.small { font-size: var(--caelestis-meter-small-size, 0.625rem); }
   .alarm-text { color: var(--caelestis-danger); }
 </style>

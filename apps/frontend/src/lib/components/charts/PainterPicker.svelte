@@ -88,7 +88,7 @@
     aria-label="choose whose pace to draw"
   >
     <span>{summary}</span>
-    <Icon name="unfoldMore" class="size-3.5 text-base-content/60" />
+    <Icon name="unfoldMore" class="size-4.5 text-base-content/60" />
   </Popover.Trigger>
   <Popover.Portal>
     <Popover.Content
@@ -129,9 +129,9 @@
               ></span>
               <span class="min-w-0 flex-1 truncate font-medium">All users</span>
               <span class="sr-only" data-painter-state>{allUsersShown ? 'drawn' : 'not drawn'}</span>
-              <span class="flex size-3.5 shrink-0 items-center justify-center">
+              <span class="flex size-3 shrink-0 items-center justify-center">
                 {#if allUsersShown}
-                  <Icon name="check" class="size-3.5" />
+                  <Icon name="check" class="size-4.5" />
                 {/if}
               </span>
             </Command.Item>
@@ -160,9 +160,9 @@
                 </span>
                 <!-- `aria-selected` is the command cursor, so the drawn state is read out as text. -->
                 <span class="sr-only" data-painter-state>{isSelected ? 'drawn' : 'not drawn'}</span>
-                <span class="flex size-3.5 shrink-0 items-center justify-center">
+                <span class="flex size-3 shrink-0 items-center justify-center">
                   {#if isSelected}
-                    <Icon name="check" class="size-3.5" />
+                    <Icon name="check" class="size-4.5" />
                   {/if}
                 </span>
               </Command.Item>

@@ -1,3 +1,10 @@
+<script lang="ts" module>
+import { useIconSet } from '@caelestis/ui'
+
+// The dashboard sits on a pixel grid; the userscript keeps Material Symbols over Wplace.
+useIconSet('pixel')
+</script>
+
 <script lang="ts">
 import { Icon } from '@caelestis/ui'
 import { onMount, untrack } from 'svelte'
@@ -68,7 +75,7 @@ const toggleTheme = (): void => {
 </svelte:head>
 
 <div class="flex min-h-dvh flex-col">
-  <header class="sticky top-0 z-20 border-b-[1.5px] border-base-300 bg-base-100/90 backdrop-blur">
+  <header class="sticky top-0 z-20 border-b-[1.5px] border-base-300 bg-base-100">
     <div class="container mx-auto flex h-14 w-full max-w-6xl items-center gap-3 px-4">
       <a href="/" class="flex min-w-0 items-center gap-2" aria-label={`${logoText} home`}>
         {#if logoSrc !== null}
@@ -80,7 +87,7 @@ const toggleTheme = (): void => {
             onerror={() => (logoBroken = logoImage?.etag ?? null)}
           />
         {:else}
-          <span class="truncate font-pixel text-lg leading-none text-primary">{logoText}</span>
+          <span class="font-logo text-primary">{logoText}</span>
         {/if}
       </a>
 
@@ -94,7 +101,7 @@ const toggleTheme = (): void => {
           class="btn btn-sm btn-primary gap-1.5 rounded-lg"
           title={`Join ${app.server.name} on Discord`}
         >
-          <Icon name="discord" class="size-4" />
+          <Icon name="discord" class="size-4.5" />
           <span class="max-sm:hidden">Join on Discord</span>
         </a>
       {/if}
@@ -106,13 +113,13 @@ const toggleTheme = (): void => {
         class="btn btn-sm btn-outline gap-1.5 rounded-lg"
         title="Get the userscript from the Caelestis GitHub repository"
       >
-        <Icon name="github" class="size-4" />
+        <Icon name="github" class="size-4.5" />
         <span class="max-sm:hidden">Install the userscript</span>
       </a>
 
       <button class="btn btn-sm btn-ghost btn-circle" onclick={toggleTheme} aria-label="toggle theme">
-        <Icon name="lightMode" class="size-4 hidden [[data-theme=caelestis-dark]_&]:block" />
-        <Icon name="darkMode" class="size-4 [[data-theme=caelestis-dark]_&]:hidden" />
+        <Icon name="lightMode" class="size-4.5 hidden [[data-theme=caelestis-dark]_&]:block" />
+        <Icon name="darkMode" class="size-4.5 [[data-theme=caelestis-dark]_&]:hidden" />
       </button>
     </div>
   </header>

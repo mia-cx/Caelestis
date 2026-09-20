@@ -35,7 +35,8 @@
   } from '$lib/components/charts/progress-pace'
   import Leaderboard from '$lib/components/Leaderboard.svelte'
   import { Skeleton } from '$lib/components/ui/skeleton'
-  import { persisted } from '$lib/persisted.svelte'
+  import * as Select from '$lib/components/ui/select'
+import { persisted } from '$lib/persisted.svelte'
   import type { Progress } from '$lib/tree'
   import type { DashboardSnapshot } from '$lib/state/app.svelte'
 
@@ -380,7 +381,7 @@
 </script>
 
 <div class="flex flex-col gap-4">
-  <section class="rounded-2xl border-[1.5px] border-base-300 bg-base-100 p-4">
+  <section class="pixel-card bg-base-100 p-4">
     <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
       <h2 class="font-semibold">Progress &amp; pace</h2>
       <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs tabular-nums text-base-content/60">
@@ -393,14 +394,17 @@
             Completion estimate unavailable
           {/if}
         </span>
-        <label class="inline-flex items-center gap-2">
-          based on
-          <select class="select select-xs w-auto" aria-label="Completion estimate pace period" value={estimatePeriod.key} onchange={(event) => { storedEstimatePeriod.value = event.currentTarget.value }}>
-            {#each estimatePeriods as period (period.key)}
-              <option value={period.key}>{period.label}</option>
-            {/each}
-          </select>
-        </label>
+        <span class="inline-flex items-center gap-2">
+          <span id="estimate-period-label">based on</span>
+          <Select.Root type="single" value={estimatePeriod.key} onValueChange={(value) => { storedEstimatePeriod.value = value }}>
+            <Select.Trigger size="sm" aria-labelledby="estimate-period-label">{estimatePeriod.label}</Select.Trigger>
+            <Select.Content>
+              {#each estimatePeriods as period (period.key)}
+                <Select.Item value={period.key} label={period.label} />
+              {/each}
+            </Select.Content>
+          </Select.Root>
+        </span>
       </div>
     </div>
     {#if failed}
@@ -433,7 +437,7 @@
     {#if progressError}<p class="mt-2 text-sm text-error" role="alert">{progressError}</p>{/if}
   </section>
 
-  <section class="rounded-2xl border-[1.5px] border-base-300 bg-base-100 p-4">
+  <section class="pixel-card bg-base-100 p-4">
     <h2 class="mb-3 font-semibold">Leaderboard</h2>
     {#if leaderboard === null}
       <Skeleton class="h-40 w-full" />
@@ -442,7 +446,7 @@
     {/if}
   </section>
 
-  <section class="rounded-2xl border-[1.5px] border-base-300 bg-base-100 p-4">
+  <section class="pixel-card bg-base-100 p-4">
     <h2 class="mb-3 font-semibold">Contributions</h2>
     {#if contributions === null}
       <Skeleton class="h-28 w-full" />

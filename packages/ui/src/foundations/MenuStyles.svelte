@@ -1,8 +1,8 @@
 <!-- Shared by native selects and custom menus, including inside userscript shadow roots. -->
 <style>
   :global(.caelestis-select), :global(.caelestis-menu) {
-    --menu-radius: 0.5rem;
-    --menu-item-radius: 0.25rem;
+    --menu-radius: var(--caelestis-radius, 0.5rem);
+    --menu-item-radius: var(--caelestis-radius, 0.25rem);
     --menu-padding: 0.25rem;
     --menu-surface: var(--caelestis-surface, var(--color-base-100, white));
     --menu-text: var(--caelestis-text, var(--color-base-content, #202c40));
@@ -10,7 +10,8 @@
     --menu-hover: color-mix(in oklab, var(--menu-text) 10%, transparent);
     box-sizing: border-box;
     color: var(--menu-text);
-    font: 400 0.875rem/1.35 ui-sans-serif, system-ui, sans-serif;
+    /* A host on its own type sets --menu-font; the userscript keeps the system face over Wplace. */
+    font: var(--menu-font, 400 0.875rem/1.35 ui-sans-serif, system-ui, sans-serif);
   }
   :global(select.caelestis-select) {
     appearance: none;
@@ -40,7 +41,7 @@
     border-radius: var(--menu-radius);
     background: var(--menu-surface);
     color: var(--menu-text);
-    box-shadow: 0 8px 24px #0002;
+    box-shadow: var(--menu-shadow, 0 8px 24px #0002);
   }
   /* Keep picker selectors separate so unsupported browsers retain custom-menu styles. */
   :global(select.caelestis-select::picker(select)) {

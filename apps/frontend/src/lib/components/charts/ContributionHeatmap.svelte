@@ -99,7 +99,7 @@ const label = (day: number, placed: number): string =>
   `${new Date(day * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' })}: ${placed.toLocaleString()} ${imported.has(day) && !days.some((entry) => entry.day === day) ? 'net correct pixels (imported)' : 'pixels'}`
 </script>
 
-<div bind:clientWidth={width} class="flex flex-col gap-1 text-[10px] leading-none text-base-content/50">
+<div bind:clientWidth={width} class="flex flex-col gap-1 text-[12px] leading-none text-base-content/50">
   <!-- One grid for axes and cells: the label column is fixed, the week columns share the rest. -->
   <div
     class="grid w-full"
@@ -116,10 +116,10 @@ const label = (day: number, placed: number): string =>
     {#each grid as column, c (c)}
       {#each column as cell, d (cell.day)}
         {#if cell.placed === null}
-          <span class="aspect-square w-full rounded-[2px]" style:grid-row={d + 2} style:grid-column={c + 2}></span>
+          <span class="aspect-square w-full rounded-xs" style:grid-row={d + 2} style:grid-column={c + 2}></span>
         {:else}
           <span
-            class="aspect-square w-full rounded-[2px]"
+            class="aspect-square w-full rounded-xs"
             style:grid-row={d + 2}
             style:grid-column={c + 2}
             style:background={level(cell.placed)}
@@ -133,9 +133,9 @@ const label = (day: number, placed: number): string =>
   </div>
   <div class="flex items-center gap-1 self-end pt-1">
     less
-    <span class="size-2.5 rounded-[2px]" style:background="color-mix(in oklab, var(--color-base-content) 8%, transparent)"></span>
+    <span class="size-2.5 rounded-xs" style:background="color-mix(in oklab, var(--color-base-content) 8%, transparent)"></span>
     {#each [1, 2, 3, 4, 5] as step (step)}
-      <span class="size-2.5 rounded-[2px]" style:background="var(--heat-{step})"></span>
+      <span class="size-2.5 rounded-xs" style:background="var(--heat-{step})"></span>
     {/each}
     more
   </div>

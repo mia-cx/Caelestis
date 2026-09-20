@@ -11,7 +11,20 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import '@fontsource-variable/nunito';
-@import '@fontsource/silkscreen';
+
+/*
+ * FalseType: Mia's bitmap font, packaged as whole-pixel outlines, from github.com/patchstep/FalseType.
+ * Twelve canvas pixels per em, so whole multiples of 0.75rem draw every pixel whole. Latin letters,
+ * punctuation and a few symbols; anything else falls through to Nunito.
+ */
+@font-face {
+  font-family: 'FalseType';
+  src: url('/fonts/FalseType.woff2') format('woff2');
+  /* One face answers every weight and style, so bold or italic text stays on this font, unsynthesised. */
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: block;
+}
 
 @plugin 'daisyui' {
   themes: caelestis --default, caelestis-dark --prefersdark;
@@ -52,7 +65,7 @@
   --size-field: 0.25rem;
   --size-selector: 0.25rem;
   --border: 1.5px;
-  --depth: 1;
+  --depth: 0;
   --noise: 0;
 }
 
@@ -109,8 +122,31 @@
   --radius-2xl: var(--caelestis-radius);
   --radius-3xl: var(--caelestis-radius);
   --radius-4xl: var(--caelestis-radius);
-  --font-sans: 'Nunito Variable', ui-rounded, system-ui, -apple-system, sans-serif;
-  --font-pixel: 'Silkscreen', monospace;
+  --font-sans: 'FalseType', 'Nunito Variable', ui-rounded, system-ui, -apple-system, sans-serif;
+  --font-logo: 'FalseType', 'Nunito Variable', sans-serif;
+
+  /*
+   * Pixel type scale on a 1.5px grid unit, exact on 2x displays where that is 3 device pixels.
+   * FalseType draws whole canvas pixels at multiples of 6px there, and copy needs 12px caps to read,
+   * so the scale has two steps: 18px for copy and 36px for headings and the logo. Line heights leave
+   * whole pixels of leading so the baseline stays on the grid.
+   */
+  --text-xs: 1.125rem;
+  --text-xs--line-height: 1.5rem;
+  --text-sm: 1.125rem;
+  --text-sm--line-height: 1.5rem;
+  --text-base: 1.125rem;
+  --text-base--line-height: 1.5rem;
+  --text-lg: 2.25rem;
+  --text-lg--line-height: 3rem;
+  --text-xl: 2.25rem;
+  --text-xl--line-height: 3rem;
+  --text-2xl: 2.25rem;
+  --text-2xl--line-height: 3rem;
+  --text-3xl: 2.25rem;
+  --text-3xl--line-height: 3rem;
+  --text-4xl: 2.25rem;
+  --text-4xl--line-height: 3rem;
 
   --color-background: var(--color-base-100);
   --color-foreground: var(--color-base-content);
@@ -200,15 +236,87 @@
   html {
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
+    /* FalseType everywhere: no kerning or ligatures to nudge pixels off the grid. */
+    font-kerning: none;
+    font-variant-ligatures: none;
+    /*
+     * FalseType has one face. Without this the browser fakes bold by smearing and italic by
+     * shearing, which puts every pixel between two others. Bold and italic simply render regular
+     * until the font grows those glyphs.
+     */
+    font-synthesis: none;
+  }
+
+  /*
+   * Pixel cursors: Pixelarticons rasterised by scripts/build-cursors.mjs at 1x and 2x with a dark
+   * outline, hotspots in 1x pixels as that script prints them. The system cursor stays as fallback.
+   */
+  :root {
+    --cursor-default: image-set(url('/cursors/default.png') 1x, url('/cursors/default@2x.png') 2x) 5 3, default;
+    --cursor-pointer: image-set(url('/cursors/pointer.png') 1x, url('/cursors/pointer@2x.png') 2x) 10 0, pointer;
+    --cursor-text: image-set(url('/cursors/text.png') 1x, url('/cursors/text@2x.png') 2x) 12 12, text;
+    --cursor-crosshair: image-set(url('/cursors/crosshair.png') 1x, url('/cursors/crosshair@2x.png') 2x) 12 12, crosshair;
+    --cursor-grab: image-set(url('/cursors/grab.png') 1x, url('/cursors/grab@2x.png') 2x) 12 12, grab;
+    --cursor-grabbing: image-set(url('/cursors/grabbing.png') 1x, url('/cursors/grabbing@2x.png') 2x) 12 12, grabbing;
+    --cursor-ew-resize: image-set(url('/cursors/ew-resize.png') 1x, url('/cursors/ew-resize@2x.png') 2x) 12 12, ew-resize;
+    --cursor-not-allowed: image-set(url('/cursors/not-allowed.png') 1x, url('/cursors/not-allowed@2x.png') 2x) 12 12, not-allowed;
+  }
+
+  html {
+    cursor: var(--cursor-default);
+  }
+
+  a,
+  button,
+  summary,
+  label[for],
+  [role='button'],
+  [role='option'],
+  [role='menuitem'],
+  [role='tab'],
+  select,
+  input[type='checkbox'],
+  input[type='radio'],
+  input[type='range'],
+  input[type='file'] {
+    cursor: var(--cursor-pointer);
+  }
+
+  input:not([type='checkbox'], [type='radio'], [type='range'], [type='file']),
+  textarea,
+  [contenteditable='true'] {
+    cursor: var(--cursor-text);
+  }
+
+  :disabled,
+  [aria-disabled='true'] {
+    cursor: var(--cursor-not-allowed);
+  }
+
+  /* Focus rings draw inside the box, because the pixel-corner clip cuts anything outside it. */
+  :focus-visible {
+    outline-offset: calc(-1 * var(--ui-px));
   }
 
   body {
+    font-size: var(--text-base);
+    line-height: var(--text-base--line-height);
     /* The map-paper ground the panels float on: base-200 with a faint 24px pixel grid. */
     background-color: var(--color-base-200);
+    /* Grid lines one UI pixel wide on a 24px cell, both multiples of the unit, so they never smear. */
     background-image:
-      linear-gradient(color-mix(in oklab, var(--color-base-content) 4%, transparent) 1px, transparent 1px),
-      linear-gradient(90deg, color-mix(in oklab, var(--color-base-content) 4%, transparent) 1px, transparent 1px);
+      linear-gradient(color-mix(in oklab, var(--color-base-content) 4%, transparent) var(--ui-px), transparent var(--ui-px)),
+      linear-gradient(90deg, color-mix(in oklab, var(--color-base-content) 4%, transparent) var(--ui-px), transparent var(--ui-px));
     background-size: 24px 24px;
+    /* Meter percentages in the shared UI are 13.6px and 10px; on the pixel grid they take the body size and its smallest whole step. */
+    --caelestis-meter-size: 1.125rem;
+    --caelestis-meter-small-size: 0.75rem;
+    /* Meter tracks in the shared UI hatch at 45 degrees; here they dither on the grid instead. */
+    --caelestis-track-pattern: repeating-conic-gradient(
+        color-mix(in oklch, var(--caelestis-text) 10%, transparent) 0 25%,
+        transparent 0 50%
+      )
+      0 0 / calc(2 * var(--ui-px)) calc(2 * var(--ui-px));
     color: var(--color-base-content);
   }
 
@@ -233,7 +341,261 @@
  * window and give it a hairline so it still reads on the dark theme's whisper-quiet surfaces.
  */
 :root {
-  --caelestis-radius: calc(0.7rem + 1px);
+  /* Corners are stair-stepped with clip-path below; nothing rounds underneath. */
+  --caelestis-radius: 0;
+  /* The pixel grid unit: one canvas pixel is this many CSS pixels. Everything below scales from it. */
+  --px: 1.5px;
+  --icon-size: 1.125rem;
+  /*
+   * Pixel corners: polygons that bite whole pixels out of each corner, generated from a quarter
+   * circle. clip-path clips shadows and outlines with it, so focus rings draw inside the box.
+   */
+  /*
+   * Boxes with a real border: the outer stair clips the box, and a pseudo-element paints the border
+   * colour through an evenodd ring (outer stair minus a one unit smaller stair inset by one unit), so
+   * the border follows the corner instead of being sliced by it.
+   */
+
+  /*
+   * Chrome draws on a coarser grid than type: one UI pixel is two canvas pixels, so corners and
+   * borders read as pixel art at arm's length instead of as a fine stair. Controls round at 3 UI
+   * pixels, cards at 5, and the ring border is 1 UI pixel.
+   */
+  --ui-px: calc(2 * var(--px));
+  --pixel-corners-sm: polygon(
+    0 calc(3 * var(--ui-px)),
+    0 calc(2 * var(--ui-px)),
+    0 calc(1 * var(--ui-px)),
+    calc(1 * var(--ui-px)) calc(1 * var(--ui-px)),
+    calc(1 * var(--ui-px)) 0,
+    calc(100% - 1 * var(--ui-px)) 0,
+    calc(100% - 1 * var(--ui-px)) calc(1 * var(--ui-px)),
+    100% calc(1 * var(--ui-px)),
+    100% calc(2 * var(--ui-px)),
+    100% calc(3 * var(--ui-px)),
+    100% calc(100% - 3 * var(--ui-px)),
+    100% calc(100% - 2 * var(--ui-px)),
+    100% calc(100% - 1 * var(--ui-px)),
+    calc(100% - 1 * var(--ui-px)) calc(100% - 1 * var(--ui-px)),
+    calc(100% - 1 * var(--ui-px)) 100%,
+    calc(1 * var(--ui-px)) 100%,
+    calc(1 * var(--ui-px)) calc(100% - 1 * var(--ui-px)),
+    0 calc(100% - 1 * var(--ui-px)),
+    0 calc(100% - 2 * var(--ui-px)),
+    0 calc(100% - 3 * var(--ui-px))
+  );
+  --pixel-corners-lg: polygon(
+    0 calc(5 * var(--ui-px)),
+    0 calc(4 * var(--ui-px)),
+    0 calc(3 * var(--ui-px)),
+    calc(1 * var(--ui-px)) calc(3 * var(--ui-px)),
+    calc(1 * var(--ui-px)) calc(2 * var(--ui-px)),
+    calc(1 * var(--ui-px)) calc(1 * var(--ui-px)),
+    calc(3 * var(--ui-px)) calc(1 * var(--ui-px)),
+    calc(3 * var(--ui-px)) 0,
+    calc(100% - 3 * var(--ui-px)) 0,
+    calc(100% - 3 * var(--ui-px)) calc(1 * var(--ui-px)),
+    calc(100% - 1 * var(--ui-px)) calc(1 * var(--ui-px)),
+    calc(100% - 1 * var(--ui-px)) calc(2 * var(--ui-px)),
+    calc(100% - 1 * var(--ui-px)) calc(3 * var(--ui-px)),
+    100% calc(3 * var(--ui-px)),
+    100% calc(4 * var(--ui-px)),
+    100% calc(5 * var(--ui-px)),
+    100% calc(100% - 5 * var(--ui-px)),
+    100% calc(100% - 4 * var(--ui-px)),
+    100% calc(100% - 3 * var(--ui-px)),
+    calc(100% - 1 * var(--ui-px)) calc(100% - 3 * var(--ui-px)),
+    calc(100% - 1 * var(--ui-px)) calc(100% - 2 * var(--ui-px)),
+    calc(100% - 1 * var(--ui-px)) calc(100% - 1 * var(--ui-px)),
+    calc(100% - 3 * var(--ui-px)) calc(100% - 1 * var(--ui-px)),
+    calc(100% - 3 * var(--ui-px)) 100%,
+    calc(3 * var(--ui-px)) 100%,
+    calc(3 * var(--ui-px)) calc(100% - 1 * var(--ui-px)),
+    calc(1 * var(--ui-px)) calc(100% - 1 * var(--ui-px)),
+    calc(1 * var(--ui-px)) calc(100% - 2 * var(--ui-px)),
+    calc(1 * var(--ui-px)) calc(100% - 3 * var(--ui-px)),
+    0 calc(100% - 3 * var(--ui-px)),
+    0 calc(100% - 4 * var(--ui-px)),
+    0 calc(100% - 5 * var(--ui-px))
+  );
+  --pixel-btn-outer: polygon(
+    0 calc(3 * var(--ui-px)),
+    0 calc(2 * var(--ui-px)),
+    0 calc(1 * var(--ui-px)),
+    calc(1 * var(--ui-px)) calc(1 * var(--ui-px)),
+    calc(1 * var(--ui-px)) 0,
+    calc(100% - 1 * var(--ui-px)) 0,
+    calc(100% - 1 * var(--ui-px)) calc(1 * var(--ui-px)),
+    100% calc(1 * var(--ui-px)),
+    100% calc(2 * var(--ui-px)),
+    100% calc(3 * var(--ui-px)),
+    100% calc(100% - 3 * var(--ui-px)),
+    100% calc(100% - 2 * var(--ui-px)),
+    100% calc(100% - 1 * var(--ui-px)),
+    calc(100% - 1 * var(--ui-px)) calc(100% - 1 * var(--ui-px)),
+    calc(100% - 1 * var(--ui-px)) 100%,
+    calc(1 * var(--ui-px)) 100%,
+    calc(1 * var(--ui-px)) calc(100% - 1 * var(--ui-px)),
+    0 calc(100% - 1 * var(--ui-px)),
+    0 calc(100% - 2 * var(--ui-px)),
+    0 calc(100% - 3 * var(--ui-px))
+  );
+  --pixel-btn-ring: polygon(
+    evenodd,
+    0 calc(3 * var(--ui-px)),
+    0 calc(2 * var(--ui-px)),
+    0 calc(1 * var(--ui-px)),
+    calc(1 * var(--ui-px)) calc(1 * var(--ui-px)),
+    calc(1 * var(--ui-px)) 0,
+    calc(100% - 1 * var(--ui-px)) 0,
+    calc(100% - 1 * var(--ui-px)) calc(1 * var(--ui-px)),
+    100% calc(1 * var(--ui-px)),
+    100% calc(2 * var(--ui-px)),
+    100% calc(3 * var(--ui-px)),
+    100% calc(100% - 3 * var(--ui-px)),
+    100% calc(100% - 2 * var(--ui-px)),
+    100% calc(100% - 1 * var(--ui-px)),
+    calc(100% - 1 * var(--ui-px)) calc(100% - 1 * var(--ui-px)),
+    calc(100% - 1 * var(--ui-px)) 100%,
+    calc(1 * var(--ui-px)) 100%,
+    calc(1 * var(--ui-px)) calc(100% - 1 * var(--ui-px)),
+    0 calc(100% - 1 * var(--ui-px)),
+    0 calc(100% - 2 * var(--ui-px)),
+    0 calc(100% - 3 * var(--ui-px)),
+    0 calc(3 * var(--ui-px)),
+    calc(1 * var(--ui-px)) calc(3 * var(--ui-px)),
+    calc(1 * var(--ui-px)) calc(2 * var(--ui-px)),
+    calc(2 * var(--ui-px)) calc(2 * var(--ui-px)),
+    calc(2 * var(--ui-px)) calc(1 * var(--ui-px)),
+    calc(100% - 2 * var(--ui-px)) calc(1 * var(--ui-px)),
+    calc(100% - 2 * var(--ui-px)) calc(2 * var(--ui-px)),
+    calc(100% - 1 * var(--ui-px)) calc(2 * var(--ui-px)),
+    calc(100% - 1 * var(--ui-px)) calc(3 * var(--ui-px)),
+    calc(100% - 1 * var(--ui-px)) calc(100% - 3 * var(--ui-px)),
+    calc(100% - 1 * var(--ui-px)) calc(100% - 2 * var(--ui-px)),
+    calc(100% - 2 * var(--ui-px)) calc(100% - 2 * var(--ui-px)),
+    calc(100% - 2 * var(--ui-px)) calc(100% - 1 * var(--ui-px)),
+    calc(2 * var(--ui-px)) calc(100% - 1 * var(--ui-px)),
+    calc(2 * var(--ui-px)) calc(100% - 2 * var(--ui-px)),
+    calc(1 * var(--ui-px)) calc(100% - 2 * var(--ui-px)),
+    calc(1 * var(--ui-px)) calc(100% - 3 * var(--ui-px)),
+    calc(1 * var(--ui-px)) calc(3 * var(--ui-px))
+  );
+  --pixel-card-ring: polygon(
+    evenodd,
+    0 calc(5 * var(--ui-px)),
+    0 calc(4 * var(--ui-px)),
+    0 calc(3 * var(--ui-px)),
+    calc(1 * var(--ui-px)) calc(3 * var(--ui-px)),
+    calc(1 * var(--ui-px)) calc(2 * var(--ui-px)),
+    calc(1 * var(--ui-px)) calc(1 * var(--ui-px)),
+    calc(3 * var(--ui-px)) calc(1 * var(--ui-px)),
+    calc(3 * var(--ui-px)) 0,
+    calc(100% - 3 * var(--ui-px)) 0,
+    calc(100% - 3 * var(--ui-px)) calc(1 * var(--ui-px)),
+    calc(100% - 1 * var(--ui-px)) calc(1 * var(--ui-px)),
+    calc(100% - 1 * var(--ui-px)) calc(2 * var(--ui-px)),
+    calc(100% - 1 * var(--ui-px)) calc(3 * var(--ui-px)),
+    100% calc(3 * var(--ui-px)),
+    100% calc(4 * var(--ui-px)),
+    100% calc(5 * var(--ui-px)),
+    100% calc(100% - 5 * var(--ui-px)),
+    100% calc(100% - 4 * var(--ui-px)),
+    100% calc(100% - 3 * var(--ui-px)),
+    calc(100% - 1 * var(--ui-px)) calc(100% - 3 * var(--ui-px)),
+    calc(100% - 1 * var(--ui-px)) calc(100% - 2 * var(--ui-px)),
+    calc(100% - 1 * var(--ui-px)) calc(100% - 1 * var(--ui-px)),
+    calc(100% - 3 * var(--ui-px)) calc(100% - 1 * var(--ui-px)),
+    calc(100% - 3 * var(--ui-px)) 100%,
+    calc(3 * var(--ui-px)) 100%,
+    calc(3 * var(--ui-px)) calc(100% - 1 * var(--ui-px)),
+    calc(1 * var(--ui-px)) calc(100% - 1 * var(--ui-px)),
+    calc(1 * var(--ui-px)) calc(100% - 2 * var(--ui-px)),
+    calc(1 * var(--ui-px)) calc(100% - 3 * var(--ui-px)),
+    0 calc(100% - 3 * var(--ui-px)),
+    0 calc(100% - 4 * var(--ui-px)),
+    0 calc(100% - 5 * var(--ui-px)),
+    0 calc(5 * var(--ui-px)),
+    calc(1 * var(--ui-px)) calc(5 * var(--ui-px)),
+    calc(1 * var(--ui-px)) calc(4 * var(--ui-px)),
+    calc(1 * var(--ui-px)) calc(3 * var(--ui-px)),
+    calc(2 * var(--ui-px)) calc(3 * var(--ui-px)),
+    calc(2 * var(--ui-px)) calc(2 * var(--ui-px)),
+    calc(3 * var(--ui-px)) calc(2 * var(--ui-px)),
+    calc(3 * var(--ui-px)) calc(1 * var(--ui-px)),
+    calc(100% - 3 * var(--ui-px)) calc(1 * var(--ui-px)),
+    calc(100% - 3 * var(--ui-px)) calc(2 * var(--ui-px)),
+    calc(100% - 2 * var(--ui-px)) calc(2 * var(--ui-px)),
+    calc(100% - 2 * var(--ui-px)) calc(3 * var(--ui-px)),
+    calc(100% - 1 * var(--ui-px)) calc(3 * var(--ui-px)),
+    calc(100% - 1 * var(--ui-px)) calc(4 * var(--ui-px)),
+    calc(100% - 1 * var(--ui-px)) calc(5 * var(--ui-px)),
+    calc(100% - 1 * var(--ui-px)) calc(100% - 5 * var(--ui-px)),
+    calc(100% - 1 * var(--ui-px)) calc(100% - 4 * var(--ui-px)),
+    calc(100% - 1 * var(--ui-px)) calc(100% - 3 * var(--ui-px)),
+    calc(100% - 2 * var(--ui-px)) calc(100% - 3 * var(--ui-px)),
+    calc(100% - 2 * var(--ui-px)) calc(100% - 2 * var(--ui-px)),
+    calc(100% - 3 * var(--ui-px)) calc(100% - 2 * var(--ui-px)),
+    calc(100% - 3 * var(--ui-px)) calc(100% - 1 * var(--ui-px)),
+    calc(3 * var(--ui-px)) calc(100% - 1 * var(--ui-px)),
+    calc(3 * var(--ui-px)) calc(100% - 2 * var(--ui-px)),
+    calc(2 * var(--ui-px)) calc(100% - 2 * var(--ui-px)),
+    calc(2 * var(--ui-px)) calc(100% - 3 * var(--ui-px)),
+    calc(1 * var(--ui-px)) calc(100% - 3 * var(--ui-px)),
+    calc(1 * var(--ui-px)) calc(100% - 4 * var(--ui-px)),
+    calc(1 * var(--ui-px)) calc(100% - 5 * var(--ui-px)),
+    calc(1 * var(--ui-px)) calc(5 * var(--ui-px))
+  );
+  --pixel-card-outer: polygon(
+    0 calc(5 * var(--ui-px)),
+    0 calc(4 * var(--ui-px)),
+    0 calc(3 * var(--ui-px)),
+    calc(1 * var(--ui-px)) calc(3 * var(--ui-px)),
+    calc(1 * var(--ui-px)) calc(2 * var(--ui-px)),
+    calc(1 * var(--ui-px)) calc(1 * var(--ui-px)),
+    calc(3 * var(--ui-px)) calc(1 * var(--ui-px)),
+    calc(3 * var(--ui-px)) 0,
+    calc(100% - 3 * var(--ui-px)) 0,
+    calc(100% - 3 * var(--ui-px)) calc(1 * var(--ui-px)),
+    calc(100% - 1 * var(--ui-px)) calc(1 * var(--ui-px)),
+    calc(100% - 1 * var(--ui-px)) calc(2 * var(--ui-px)),
+    calc(100% - 1 * var(--ui-px)) calc(3 * var(--ui-px)),
+    100% calc(3 * var(--ui-px)),
+    100% calc(4 * var(--ui-px)),
+    100% calc(5 * var(--ui-px)),
+    100% calc(100% - 5 * var(--ui-px)),
+    100% calc(100% - 4 * var(--ui-px)),
+    100% calc(100% - 3 * var(--ui-px)),
+    calc(100% - 1 * var(--ui-px)) calc(100% - 3 * var(--ui-px)),
+    calc(100% - 1 * var(--ui-px)) calc(100% - 2 * var(--ui-px)),
+    calc(100% - 1 * var(--ui-px)) calc(100% - 1 * var(--ui-px)),
+    calc(100% - 3 * var(--ui-px)) calc(100% - 1 * var(--ui-px)),
+    calc(100% - 3 * var(--ui-px)) 100%,
+    calc(3 * var(--ui-px)) 100%,
+    calc(3 * var(--ui-px)) calc(100% - 1 * var(--ui-px)),
+    calc(1 * var(--ui-px)) calc(100% - 1 * var(--ui-px)),
+    calc(1 * var(--ui-px)) calc(100% - 2 * var(--ui-px)),
+    calc(1 * var(--ui-px)) calc(100% - 3 * var(--ui-px)),
+    0 calc(100% - 3 * var(--ui-px)),
+    0 calc(100% - 4 * var(--ui-px)),
+    0 calc(100% - 5 * var(--ui-px))
+  );
+
+  /* One unit off each corner: for handles, swatches and heatmap cells that are only a few units wide. */
+  --pixel-corners-xs: polygon(
+    0 calc(1 * var(--px)),
+    calc(1 * var(--px)) calc(1 * var(--px)),
+    calc(1 * var(--px)) 0,
+    calc(100% - 1 * var(--px)) 0,
+    calc(100% - 1 * var(--px)) calc(1 * var(--px)),
+    100% calc(1 * var(--px)),
+    100% calc(100% - 1 * var(--px)),
+    calc(100% - 1 * var(--px)) calc(100% - 1 * var(--px)),
+    calc(100% - 1 * var(--px)) 100%,
+    calc(1 * var(--px)) 100%,
+    calc(1 * var(--px)) calc(100% - 1 * var(--px)),
+    0 calc(100% - 1 * var(--px))
+  );
   --tabs-dur: 250ms;
   --tabs-ease: cubic-bezier(0.22, 1, 0.36, 1);
   --tabs-text-muted: color-mix(in oklab, var(--color-base-content) 70%, transparent);
@@ -327,6 +689,176 @@
   }
 }
 
+/*
+ * Pixel corners. The rounded utilities and the daisyUI shapes keep their names and gain a stair-
+ * stepped clip instead of a radius; shadows go, because a blur is the one thing a pixel cannot do.
+ */
+@layer utilities {
+  /* rounded-full lives on thin tracks and small thumbs, where a stair wider than the box folds up. */
+  .rounded-xs,
+  .rounded-sm,
+  .rounded-full {
+    border-radius: 0;
+    clip-path: var(--pixel-corners-xs);
+  }
+
+  .rounded,
+  .rounded-md,
+  .rounded-lg,
+  .rounded-t,
+  .rounded-b,
+  .badge,
+  .input,
+  .select,
+  .textarea,
+  .alert,
+  .tab,
+  .menu {
+    border-radius: 0;
+    clip-path: var(--pixel-corners-sm);
+  }
+
+  .rounded-xl,
+  .rounded-2xl,
+  .rounded-3xl,
+  .card,
+  .modal-box,
+  .dropdown-content {
+    border-radius: 0;
+    clip-path: var(--pixel-corners-lg);
+  }
+
+  /*
+   * daisyUI buttons: the browser border goes, the ring pseudo-element draws it in --btn-border, which
+   * every variant and hover state already sets. isolation keeps the ring under the label.
+   */
+  .btn {
+    position: relative;
+    isolation: isolate;
+    border-width: 0;
+    border-radius: 0;
+    clip-path: var(--pixel-btn-outer);
+  }
+
+  .btn::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background-color: var(--btn-border);
+    clip-path: var(--pixel-btn-ring);
+    pointer-events: none;
+  }
+
+  /* Tailwind-bordered cards: same idea, the ring takes the box's border colour via a custom property. */
+  .pixel-card {
+    position: relative;
+    isolation: isolate;
+    border-width: 0 !important;
+    border-radius: 0;
+    clip-path: var(--pixel-card-outer);
+  }
+
+  .pixel-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background-color: var(--pixel-card-border, var(--color-base-300));
+    clip-path: var(--pixel-card-ring);
+    pointer-events: none;
+  }
+
+  .shadow,
+  .shadow-xs,
+  .shadow-sm,
+  .shadow-md,
+  .shadow-lg,
+  .shadow-xl,
+  .shadow-2xl {
+    box-shadow: none;
+  }
+
+  /*
+   * Keyboard focus on a clipped box: the clip cuts anything outside it, so daisyUI's offset outline,
+   * the shadcn box-shadow ring and the slider thumb's ring all vanished. Draw one solid outline one
+   * UI pixel inside the edge instead. Later than the Tailwind and daisyUI rules, so it wins the tie.
+   */
+  .rounded-xs:focus-visible,
+  .rounded-sm:focus-visible,
+  .rounded-full:focus-visible,
+  .rounded:focus-visible,
+  .rounded-md:focus-visible,
+  .rounded-lg:focus-visible,
+  .rounded-t:focus-visible,
+  .rounded-b:focus-visible,
+  .rounded-xl:focus-visible,
+  .rounded-2xl:focus-visible,
+  .rounded-3xl:focus-visible,
+  .input:focus-visible,
+  .select:focus-visible,
+  .textarea:focus-visible,
+  .tab:focus-visible,
+  .btn:focus-visible,
+  .btn:has(:focus-visible),
+  .pixel-card:focus-visible {
+    outline: var(--ui-px) solid var(--color-ring);
+    outline-offset: calc(-1 * var(--ui-px));
+    box-shadow: none;
+  }
+
+  /* A primary button is the ring colour already; its label colour is the one thing guaranteed to contrast. */
+  .btn:focus-visible,
+  .btn:has(:focus-visible) {
+    outline-color: currentColor;
+  }
+
+  /* Every menu, native or custom, shares the menu styles from the UI package; here they take the page font and the pixel corners. */
+  .caelestis-menu,
+  .caelestis-select {
+    --menu-font: 400 var(--text-base) / var(--text-base--line-height) var(--font-sans);
+    --menu-shadow: none;
+  }
+  .caelestis-menu {
+    border-width: var(--ui-px);
+    clip-path: var(--pixel-corners-sm);
+  }
+
+  /* Tailwind's cursor utilities, on the pixel cursors. */
+  .cursor-default {
+    cursor: var(--cursor-default);
+  }
+  .cursor-pointer,
+  .btn,
+  .link,
+  .tab {
+    cursor: var(--cursor-pointer);
+  }
+  .cursor-text {
+    cursor: var(--cursor-text);
+  }
+  .cursor-crosshair {
+    cursor: var(--cursor-crosshair);
+  }
+  .cursor-grab {
+    cursor: var(--cursor-grab);
+  }
+  .cursor-grabbing {
+    cursor: var(--cursor-grabbing);
+  }
+  .cursor-ew-resize {
+    cursor: var(--cursor-ew-resize);
+  }
+  .cursor-not-allowed {
+    cursor: var(--cursor-not-allowed);
+  }
+
+  /* daisyUI sizes its buttons at 14px; the pixel scale has no 14. */
+  .btn {
+    --fontsize: 1.125rem;
+  }
+}
+
 @utility pixelated {
   image-rendering: pixelated;
 }
@@ -342,9 +874,21 @@
   background-size: 16px 16px;
 }
 
-@utility font-pixel {
-  font-family: var(--font-pixel);
-  letter-spacing: 0.02em;
+/* Pixel perfect only at whole multiples of 0.75rem, and only with the browser adding nothing. */
+@utility font-logo {
+  font-family: var(--font-logo);
+  /* 12 canvas pixels per em: 2.25rem is 3 CSS px per canvas pixel, whole on every display. */
+  font-size: 2.25rem;
+  line-height: 1;
+  letter-spacing: 0;
+  font-kerning: none;
+  font-variant-ligatures: none;
+  text-rendering: optimizeSpeed;
+  /* Accents on capitals reach above the em. Clip long names without cutting those off. */
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: clip;
+  overflow-clip-margin: 0.25em;
 }
 
 @media (prefers-reduced-motion: reduce) {

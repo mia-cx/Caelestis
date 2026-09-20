@@ -1056,7 +1056,9 @@
       <!-- The image is focusable so keyboard users can walk the data points; the live region below
            reads each one out. -->
       <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+      <!-- Whole pixels: every line, area and dash lands on the grid, jaggies included. -->
       <svg
+        shape-rendering="crispEdges"
         {width}
         {height}
         role="img"
@@ -1089,13 +1091,13 @@
               y={yLeft(tick) + 3}
               text-anchor="end"
               aria-label={formatPixels(tick)}
-              class="fill-base-content/50 text-[10px] tabular-nums"><title>{formatPixels(tick)}</title>{formatCount(tick)}</text
+              class="fill-base-content/50 text-[12px] tabular-nums"><title>{formatPixels(tick)}</title>{formatCount(tick)}</text
             >
           {/if}
         {/each}
         {#if activePaces.length > 0 || activePainterLines.length > 0}
           {#if rightMin < 0}
-            <text x={width - pad.right + 8} y={yRight(rightMin) + 3} class="fill-base-content/50 text-[10px] tabular-nums">{formatCount(rightMin)}</text>
+            <text x={width - pad.right + 8} y={yRight(rightMin) + 3} class="fill-base-content/50 text-[12px] tabular-nums">{formatCount(rightMin)}</text>
           {/if}
           {#each rightScale.ticks as tick (tick)}
             {#if yRight(tick) >= pad.top}
@@ -1104,15 +1106,15 @@
                 y={yRight(tick) + 3}
                 text-anchor="start"
                 aria-label={`${formatPixels(tick)} per hour`}
-                class="fill-base-content/40 text-[10px] tabular-nums"
+                class="fill-base-content/40 text-[12px] tabular-nums"
                 ><title>{formatPixels(tick)} per hour</title>{formatCount(tick)}</text
               >
             {/if}
           {/each}
         {/if}
-        <text x={pad.left - 8} y={9} text-anchor="end" class="fill-base-content/40 text-[9px]">px</text>
+        <text x={pad.left - 8} y={9} text-anchor="end" class="fill-base-content/40 text-[12px]">px</text>
         {#if activePaces.length > 0 || activePainterLines.length > 0}
-          <text x={width - pad.right + 8} y={9} text-anchor="start" class="fill-base-content/40 text-[9px]"
+          <text x={width - pad.right + 8} y={9} text-anchor="start" class="fill-base-content/40 text-[12px]"
             >px/h</text
           >
         {/if}
@@ -1136,7 +1138,7 @@
             x={x(tick)}
             y={height - 6}
             text-anchor="middle"
-            class="fill-base-content/50 text-[10px] tabular-nums"
+            class="fill-base-content/50 text-[12px] tabular-nums"
           >
             {formatTick(tick)}
           </text>
@@ -1156,7 +1158,7 @@
               fill="none"
               stroke={paceColor(pace.rank)}
               stroke-width={paceWidth(pace.rank)}
-              stroke-dasharray={stroke.imported ? '5 4' : undefined}
+              stroke-dasharray={stroke.imported ? '3 3' : undefined}
               stroke-linejoin="round"
             />
             {/each}
@@ -1177,10 +1179,10 @@
               class="fill-error" opacity="0.25" />
             {#if segment.some((point) => point.mismatched > 0)}
               <path data-archive-mismatched d={mismatchedLine} fill="none" class="stroke-error"
-                stroke-width="1.5" stroke-dasharray={archived ? '5 4' : undefined} stroke-linejoin="round" />
+                stroke-width="1.5" stroke-dasharray={archived ? '3 3' : undefined} stroke-linejoin="round" />
             {/if}
             <path data-archive-progress d={line} fill="none" stroke="var(--chart-correct)"
-              stroke-width="1.5" stroke-dasharray={archived ? '5 4' : undefined} stroke-linejoin="round" />
+              stroke-width="1.5" stroke-dasharray={archived ? '3 3' : undefined} stroke-linejoin="round" />
           {/each}
 
 
@@ -1363,13 +1365,13 @@
       onpointerdown={onBrushPointerDown}
       ondblclick={resetWindow}
     >
-      <svg {width} height={BRUSH_HEIGHT} class="block" aria-hidden="true">
+      <svg {width} height={BRUSH_HEIGHT} shape-rendering="crispEdges" class="block" aria-hidden="true">
         <rect
           x={pad.left}
           y={brushPad.top}
           width={plotWidth}
           height={BRUSH_HEIGHT - brushPad.top - brushPad.bottom}
-          rx="4"
+          rx="0"
           class="fill-base-200"
         />
         <g class="chart-reveal">
@@ -1409,7 +1411,7 @@
           aria-valuemax={grip.max}
           aria-valuenow={grip.t}
           aria-valuetext={formatTime(grip.t)}
-          class="group absolute inset-y-0 z-10 flex cursor-ew-resize items-center outline-none {grip.edge ===
+          class="absolute inset-y-0 z-10 flex cursor-ew-resize items-center outline-none focus-visible:outline-solid focus-visible:outline-[3px] focus-visible:outline-primary {grip.edge ===
           'head'
             ? 'justify-end'
             : 'justify-start'}"
@@ -1418,7 +1420,7 @@
           onkeydown={(event) => onGripKey(grip.edge, event)}
         >
           <span
-            class="h-[calc(100%-8px)] w-1.5 rounded-xs bg-primary ring-1 ring-base-100 group-focus-visible:ring-2 group-focus-visible:ring-primary/60 group-focus-visible:ring-offset-1 group-focus-visible:ring-offset-base-100"
+            class="h-[calc(100%-8px)] w-1.5 rounded-xs bg-primary"
             aria-hidden="true"
           ></span>
         </span>
