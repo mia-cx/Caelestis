@@ -80,6 +80,24 @@ it('seeds the form from public server info and patches only what changed', async
   expect(editor().model.notice).toBe('Nothing changed.')
   expect(updateServerDetails).not.toHaveBeenCalled()
 
+  // A refresh that lands while the dialog is open must not turn untouched fields into edits.
+  servers.list = [server({ ...connected.info, name: 'Allies renamed', description: 'Old' })]
+  intend({
+    type: 'save',
+    fields: {
+      name: 'Allies',
+      description: 'New',
+      discordInviteUrl: '',
+      homeCopy: '',
+      logoText: '',
+    },
+  })
+  await vi.waitFor(() => expect(updateServerDetails).toHaveBeenCalledTimes(1))
+  expect(updateServerDetails).toHaveBeenLastCalledWith(expect.anything(), { description: 'New' })
+  await vi.waitFor(() => expect(document.querySelector('caelestis-server-details')).toBeNull())
+  servers.list = [connected]
+  openServerDetails(connected, rerender)
+
   // A refused save keeps the dialog open with the reason.
   vi.mocked(updateServerDetails).mockResolvedValueOnce({ ok: false, message: 'name is taken' })
   const fields = {

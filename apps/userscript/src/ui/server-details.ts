@@ -132,7 +132,9 @@ export const openServerDetails = (server: ConnectedServer, rerender: () => void)
         close()
         return
       case 'save': {
-        const patch = patchBetween(fieldsFor(current()), intent.fields)
+        // Diff against what the dialog showed, not against global state: a refresh that landed while
+        // the dialog was open must not make untouched fields look edited and overwrite newer values.
+        const patch = patchBetween(model, intent.fields)
         if (Object.keys(patch).length === 0) {
           update({ notice: 'Nothing changed.' })
           return
