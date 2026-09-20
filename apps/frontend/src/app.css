@@ -13,7 +13,7 @@
 @import '@fontsource-variable/nunito';
 
 /*
- * FalseType: the Wplace canvas alphabet as whole-pixel outlines, from github.com/patchstep/FalseType.
+ * FalseType: Mia's bitmap font, packaged as whole-pixel outlines, from github.com/patchstep/FalseType.
  * Twelve canvas pixels per em, so whole multiples of 0.75rem draw every pixel whole. Latin letters,
  * punctuation and a few symbols; anything else falls through to Nunito.
  */
