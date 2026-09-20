@@ -1411,7 +1411,7 @@
           aria-valuemax={grip.max}
           aria-valuenow={grip.t}
           aria-valuetext={formatTime(grip.t)}
-          class="group absolute inset-y-0 z-10 flex cursor-ew-resize items-center outline-none {grip.edge ===
+          class="absolute inset-y-0 z-10 flex cursor-ew-resize items-center outline-none focus-visible:outline-solid focus-visible:outline-[3px] focus-visible:outline-primary {grip.edge ===
           'head'
             ? 'justify-end'
             : 'justify-start'}"
@@ -1420,7 +1420,7 @@
           onkeydown={(event) => onGripKey(grip.edge, event)}
         >
           <span
-            class="h-[calc(100%-8px)] w-1.5 rounded-xs bg-primary ring-1 ring-base-100 group-focus-visible:ring-2 group-focus-visible:ring-primary/60 group-focus-visible:ring-offset-1 group-focus-visible:ring-offset-base-100"
+            class="h-[calc(100%-8px)] w-1.5 rounded-xs bg-primary"
             aria-hidden="true"
           ></span>
         </span>
