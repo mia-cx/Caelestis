@@ -24,6 +24,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { D1SqlStore } from './adapters/cloudflare/d1-sql-store.js'
 import { SqliteD1Database } from './adapters/cloudflare/sqlite-d1.test-helper.js'
 import { PresenceObject } from './presence-object.js'
+import { RelationalRegionStore } from './work/relational-region-store.js'
 
 vi.mock('cloudflare:workers', () => ({ DurableObject: class {} }))
 
@@ -147,6 +148,28 @@ afterEach(() => {
 })
 
 describe('presence room', () => {
+  it('excludes ownership rows newer than the ready, publication or recovered claim snapshot', async () => {
+    const owners = vi
+      .spyOn(RelationalRegionStore.prototype, 'regionOwners')
+      .mockResolvedValue([{ id: uuidV7(), tokenHash: 'a'.repeat(64), actorId: 1 }])
+    try {
+      const socket = await attach()
+      expect(socket.events().at(-1)).toMatchObject({ regions: [], ownedRegionIds: [] })
+      await object.publishRegions(0, WORLD_TEMPLATE_SURFACE)
+      expect(socket.events().at(-1)).toMatchObject({ regions: [], ownedRegionIds: [] })
+      object = new PresenceObject(state, { DB: database } as unknown as Env)
+      object.webSocketMessage(asWebSocket(socket), JSON.stringify({ type: 'presence-heartbeat' }))
+      await tick()
+      expect(socket.events().at(-1)).toMatchObject({
+        type: 'presence-ready',
+        regions: [],
+        ownedRegionIds: [],
+      })
+    } finally {
+      owners.mockRestore()
+    }
+  })
+
   it('skips selection for quiet heartbeats and resumes it when a peer moves', async () => {
     const subscriber = await attach()
     const peer = await attach({ 'x-caelestis-painter-id': '2' })

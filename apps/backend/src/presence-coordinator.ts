@@ -182,6 +182,21 @@ export class PresenceCoordinator<Client> {
   private send(socket: LiveSocket, event: PresenceServerEvent): void {
     try {
       const started = performance.now()
+      if (
+        (event.type === 'regions' || event.type === 'presence-ready') &&
+        event.ownedRegionIds !== undefined
+      ) {
+        // Ownership may be read after a concurrent claim insert. Advertise only IDs and actors
+        // present in this snapshot; the mutation's queued publication carries the newer claim.
+        const actors = new Map(
+          event.regions.map((region) => [region.id, region.claimant.wplaceUserId]),
+        )
+        const actor = this.attachment(socket).painter.wplaceUserId
+        event = {
+          ...event,
+          ownedRegionIds: event.ownedRegionIds.filter((id) => actors.get(id) === actor),
+        }
+      }
       const payload = JSON.stringify(event)
       this.timings.record(
         event.type === 'regions' ? 'claims' : 'presence',
@@ -581,7 +596,11 @@ export class PresenceCoordinator<Client> {
           this.regionVersion++
         }
         const grouped = new Map<string, Map<number, string[]>>()
+        const actorsInSnapshot = new Map(
+          regions.map((region) => [region.id, region.claimant.wplaceUserId]),
+        )
         for (const owner of owners) {
+          if (actorsInSnapshot.get(owner.id) !== owner.actorId) continue
           let actors = grouped.get(owner.tokenHash)
           if (actors === undefined) {
             actors = new Map()
