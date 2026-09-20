@@ -16,6 +16,7 @@
   import { tilesInRect } from '$lib/render'
   import { useApp } from '$lib/state/app.svelte'
   import { persisted } from '$lib/persisted.svelte'
+  import { TimelapseClock } from '$lib/timelapse'
   import { progressFromStatus } from '$lib/tree'
 
   const app = useApp()
@@ -50,6 +51,7 @@ const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
   // ── Timelapse ────────────────────────────────────────────────────────────────────────────────
   let frames = $state<ReadonlyMap<TileKey, readonly PlaybackFrame[]> | null>(null)
   let archiveError = $state<string | null>(null)
+  let historyEnd = $state(0)
   // The scrub position: 0..timeline.length, where the last stop is "live".
   let scrub = $state(0)
   let playing = $state(false)
@@ -59,7 +61,8 @@ const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
     if (target === null || season === undefined) return
     const generation = { cancelled: false }
     const from = Math.floor(target.createdAt / 1_000)
-    const to = Math.floor((target.finishedAt ?? Date.now()) / 1_000) + 1
+    historyEnd = (target.finishedAt ?? Date.now()) / 1_000
+    const to = Math.floor(historyEnd) + 1
     frames = null
     archiveError = null
     playing = false
@@ -100,6 +103,7 @@ const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
   }
 
   const timeline = $derived(frames === null ? [] : timelineOf(frames))
+  const playback = $derived(new TimelapseClock(timeline, historyEnd))
   const live = $derived(scrub >= timeline.length)
   const scrubTime = $derived(live ? null : timeline[scrub])
 
@@ -124,21 +128,20 @@ const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
     }
   })
 
-  /** Playback rate: 1× preserves the original 350 ms cadence; the popout scales that. */
+  /** Playback rate: 1× is one recorded hour per 350 ms, independent of snapshot density. */
   const SPEED_PRESETS = [0.25, 0.5, 0.75, 1, 1.5, 2, 4] as const
   const storedSpeed = persisted<number>('caelestis:timelapse-speed', 1)
-  const speed = $derived(Math.min(4, Math.max(0.05, storedSpeed.value)))
+  const speed = $derived(Number.isFinite(storedSpeed.value) ? Math.min(4, Math.max(0.05, storedSpeed.value)) : 1)
 
   $effect(() => {
     if (!playing) return
-    const interval = setInterval(() => {
-      if (scrub >= timeline.length) {
-        playing = false
-      } else {
-        scrub += 1
-      }
-    }, 350 / speed)
-    return () => clearInterval(interval)
+    const clock = playback
+    const end = timeline.length
+    clock.play(speed, (index) => {
+      scrub = index
+      if (index >= end) playing = false
+    })
+    return () => clock.pause()
   })
 
   const formatFrame = (t: number): string =>
@@ -239,7 +242,10 @@ const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
           <button
             class="btn btn-sm btn-circle btn-primary"
             onclick={() => {
-              if (!playing && scrub >= timeline.length) scrub = 0
+              if (!playing && scrub >= timeline.length) {
+                scrub = 0
+                playback.seek(0)
+              }
               playing = !playing
             }}
             aria-label={playing ? 'pause timelapse' : 'play timelapse'}
@@ -292,6 +298,7 @@ const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
             value={scrub}
             onValueChange={(value: number) => {
               scrub = value
+              playback.seek(value)
               playing = false
             }}
             class="min-w-40 flex-1"

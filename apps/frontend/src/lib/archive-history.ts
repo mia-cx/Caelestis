@@ -16,7 +16,10 @@ export const mergeArchiveFrames = (
   live: TileHistoryResponse,
   archive: readonly ArchiveTileFrame[],
 ): readonly PlaybackFrame[] => {
-  const firstLive = Math.min(...live.frames.map((frame) => frame.bucketStart))
+  const firstLive = live.frames.reduce(
+    (first, frame) => Math.min(first, frame.bucketStart),
+    Infinity,
+  )
   const frames: PlaybackFrame[] = [...live.frames]
   for (const frame of archive) {
     if (frame.at >= firstLive) continue

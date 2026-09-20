@@ -15,7 +15,7 @@ recorded time, preserving the existing 350 ms per recorded hour at 1×.
 ## TODOs
 
 - [x] Return mixed-density tile history by default, preserving explicit-resolution reads, with route regressions.
-- [ ] Drive the viewer with elapsed recorded time and verify playback controls with focused tests.
+- [x] Drive the viewer with elapsed recorded time and verify playback controls with focused tests.
 - [ ] Add release notes, validate the affected packages and browser flow, and file the PR.
 
 ## Notes
@@ -30,3 +30,6 @@ recorded time, preserving the existing 350 ms per recorded hour at 1×.
 - Run isolated local services for verification. No production reads, writes, or deployment.
 - The route regression failed before the change: two raw frames 60 seconds apart became one daily
   frame. All 20 telemetry read-route tests pass after the change, including mixed tiers and overlaps.
+- Four mounted-page regressions and ten clock tests pass. They cover sub-hour deadlines, every
+  speed range, partial-frame pause/resume, speed changes, seek, replay, empty input, finished bounds,
+  and late callbacks. Replaced spread-based minimum lookup to support large preserved histories.
