@@ -201,6 +201,26 @@ describe('tree model adapter', () => {
     expect(templateTreeKeyFor(null, [connected])).toBeUndefined()
   })
 
+  it('offers server details editing beside rename to admins only', () => {
+    const connected = server(SERVER_ID, 0, 'https://cached.example.com')
+    acceptServerSnapshot(connected, { nodes: [], templates: [] })
+    const rowFor = (candidate: typeof connected) => {
+      setState({ servers: [candidate] })
+      const entry = templateTreeAdapter(callbacks, vi.fn()).model.entries.find(
+        (entry) => entry.type === 'row' && entry.key === `server:${candidate.url}`,
+      )
+      return entry?.type === 'row' ? entry : undefined
+    }
+    const admin = rowFor(connected)
+    expect(admin?.renamable).toBe(true)
+    expect(admin?.actions?.map((action) => action.label)).toContain('Edit server details')
+    const member = rowFor({ ...connected, isAdmin: false })
+    expect(member?.renamable).toBeFalsy()
+    expect(member?.actions?.map((action) => action.label) ?? []).not.toContain(
+      'Edit server details',
+    )
+  })
+
   it('translates tree state and routes typed expansion and action intents', () => {
     setState({ collapsed: ['local'] })
     const rerender = vi.fn()

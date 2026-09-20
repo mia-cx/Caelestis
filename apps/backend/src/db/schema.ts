@@ -1,4 +1,9 @@
-import type { Millis, Seconds, TemplateSurfaceKind } from '@caelestis/shared'
+import type {
+  Millis,
+  Seconds,
+  ServerAssetContentType,
+  TemplateSurfaceKind,
+} from '@caelestis/shared'
 import { WORLD_PIXELS, WORLD_TILES } from '@caelestis/shared'
 import { sql } from 'drizzle-orm'
 import {
@@ -97,6 +102,13 @@ export const serverSettings = sqliteTable(
     id: integer('id').primaryKey(),
     name: text('name'),
     description: text('description'),
+    discordInviteUrl: text('discord_invite_url'),
+    homeCopy: text('home_copy'),
+    logoText: text('logo_text'),
+    logoBlobKey: text('logo_blob_key'),
+    logoContentType: text('logo_content_type').$type<ServerAssetContentType>(),
+    previewBlobKey: text('preview_blob_key'),
+    previewContentType: text('preview_content_type').$type<ServerAssetContentType>(),
   },
   (table) => [check('server_settings_single_row_check', sql`${table.id} = 1`)],
 )

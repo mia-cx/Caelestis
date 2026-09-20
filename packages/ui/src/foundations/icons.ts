@@ -72,6 +72,7 @@ import visibility from '@iconify-icons/material-symbols/visibility'
 import visibilityOff from '@iconify-icons/material-symbols/visibility-off'
 import warning from '@iconify-icons/material-symbols/warning'
 // Brand marks are not Material Symbols; Simple Icons is the Iconify set for those.
+import discord from '@iconify-icons/simple-icons/discord'
 import github from '@iconify-icons/simple-icons/github'
 
 /** The subset of Iconify's icon record the renderer reads. */
@@ -97,6 +98,7 @@ export const ICONS = define({
   close,
   createFolder: createNewFolder,
   darkMode,
+  discord,
   dock: viewSidebarOutline,
   download,
   error,

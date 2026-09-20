@@ -306,6 +306,7 @@ describe('surface-scoped template tree', () => {
     expect(serverRoot).toMatchObject({
       type: 'row',
       actions: [
+        expect.objectContaining({ label: 'Edit server details', icon: 'tune' }),
         expect.objectContaining({ label: 'Manage tags', icon: 'tag' }),
         expect.objectContaining({ label: 'New folder' }),
         expect.objectContaining({ label: 'Import template' }),
@@ -325,7 +326,8 @@ describe('surface-scoped template tree', () => {
     )
 
     adapter.handle({ type: 'action', key: 'local', actionId: 'row-1' })
-    adapter.handle({ type: 'action', key: `server:${server.url}`, actionId: 'row-2' })
+    // The server row leads with "Edit server details", so import sits one slot later than Local's.
+    adapter.handle({ type: 'action', key: `server:${server.url}`, actionId: 'row-3' })
     adapter.handle({ type: 'action', key: 'local-import', actionId: 'run' })
     adapter.handle({
       type: 'drop',

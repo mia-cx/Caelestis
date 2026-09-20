@@ -1,5 +1,10 @@
 import {
+  logoText,
+  parseDiscordInviteUrl,
+  parseHomeCopy,
+  parseServerAsset,
   parseTemplateTags,
+  type ServerAsset,
   sameTemplateSurface,
   type TemplateSurface,
   type TemplateTag,
@@ -25,6 +30,37 @@ export interface ServerInfo {
   /** Present when the server accepts the painter presence socket at `/telemetry/presence`. */
   readonly presence?: 1
   readonly livePaintParts?: 1
+  /** Public presentation an admin configured. See `@caelestis/shared` server branding. */
+  readonly discordInviteUrl?: string
+  readonly homeCopy?: string
+  readonly logoText?: string
+  readonly logoImage?: ServerAsset
+  readonly previewImage?: ServerAsset
+}
+
+/**
+ * Presentation fields are cosmetic, so a value this client cannot make sense of is dropped rather
+ * than making the whole server unusable.
+ */
+const parseServerPresentation = (
+  value: Record<string, unknown>,
+): Pick<
+  ServerInfo,
+  'discordInviteUrl' | 'homeCopy' | 'logoText' | 'logoImage' | 'previewImage'
+> => {
+  const discordInviteUrl = parseDiscordInviteUrl(value.discordInviteUrl)
+  const homeCopy =
+    typeof value.homeCopy === 'string' && parseHomeCopy(value.homeCopy).ok ? value.homeCopy : null
+  const logo = logoText(value.logoText)
+  const logoImage = parseServerAsset(value.logoImage)
+  const previewImage = parseServerAsset(value.previewImage)
+  return {
+    ...(discordInviteUrl === null ? {} : { discordInviteUrl }),
+    ...(homeCopy === null ? {} : { homeCopy }),
+    ...(logo === null ? {} : { logoText: logo }),
+    ...(logoImage === null ? {} : { logoImage }),
+    ...(previewImage === null ? {} : { previewImage }),
+  }
 }
 
 export interface TreeNode {
@@ -105,6 +141,7 @@ export const parseServerInfo = (value: unknown): ServerInfo | null => {
     ...(value.liveTileOffers === 1 ? { liveTileOffers: 1 as const } : {}),
     ...(value.presence === 1 ? { presence: 1 as const } : {}),
     ...(value.livePaintParts === 1 ? { livePaintParts: 1 as const } : {}),
+    ...parseServerPresentation(value),
   }
 }
 

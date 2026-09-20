@@ -185,6 +185,12 @@ export interface TreeCallbacks {
 
 const reportTreeError = (message: string): void => toast(message, 'error')
 
+const openServerDetails = (server: ConnectedServer, rerender: () => void): void => {
+  void import('./server-details.js')
+    .then((editor) => editor.openServerDetails(server, rerender))
+    .catch((error: unknown) => reportTreeError(String(error)))
+}
+
 const openTagManager = (target: TreeTarget, rerender: () => void): void => {
   void import('./tags.js')
     .then((editor) => editor.openTagManager(target, rerender))
@@ -711,6 +717,17 @@ const buildTree = <Result>(
         : undefined,
       actions: canCreate
         ? [
+            // Beside rename, because rename is the one server-level edit that already exists and
+            // this is where the rest of the public presentation lives.
+            ...(server === undefined
+              ? []
+              : [
+                  {
+                    icon: 'tune' as const,
+                    label: 'Edit server details',
+                    run: () => openServerDetails(server, rerender),
+                  },
+                ]),
             { icon: 'tag', label: 'Manage tags', run: () => openTagManager(target, rerender) },
             {
               icon: 'createFolder',
@@ -1320,6 +1337,7 @@ const actionIcon = (name: string): TreeActionModel['icon'] => {
     case 'extension':
     case 'palette':
     case 'download':
+    case 'tune':
       return name
     default:
       return 'kebab'

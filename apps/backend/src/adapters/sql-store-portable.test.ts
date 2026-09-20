@@ -16,6 +16,50 @@ describe.each(sqlStoreAdapters)('$name portable writes', ({ make }) => {
   })
   afterEach(() => harness?.close())
 
+  it('round-trips every server setting and preserves omitted fields when updating or clearing', async () => {
+    const store = harness.store
+    const empty = {
+      name: null,
+      description: null,
+      discordInviteUrl: null,
+      homeCopy: null,
+      logoText: null,
+      logo: null,
+      preview: null,
+    }
+    expect(await store.readServerSettings()).toEqual(empty)
+    await store.writeServerSettings({})
+    expect(await store.readServerSettings()).toEqual(empty)
+    const settings = {
+      name: 'Community',
+      description: 'Our art',
+      discordInviteUrl: 'https://discord.gg/Art',
+      homeCopy: '## Welcome\n\nPaint **together**.',
+      logoText: 'Art',
+      logo: { blobKey: `logo/${'a'.repeat(64)}`, contentType: 'image/png' as const },
+      preview: { blobKey: `preview/${'b'.repeat(64)}`, contentType: 'image/webp' as const },
+    }
+    await store.writeServerSettings(settings)
+    expect(await store.readServerSettings()).toEqual(settings)
+    await store.writeServerSettings({ name: 'Renamed' })
+    expect(await store.readServerSettings()).toEqual({ ...settings, name: 'Renamed' })
+    await store.writeServerSettings({
+      description: null,
+      discordInviteUrl: null,
+      homeCopy: null,
+      logoText: null,
+      logo: null,
+      preview: null,
+    })
+    expect(await store.readServerSettings()).toEqual({ ...empty, name: 'Renamed' })
+    await store.writeServerSettings({ preview: settings.preview })
+    expect(await store.readServerSettings()).toEqual({
+      ...empty,
+      name: 'Renamed',
+      preview: settings.preview,
+    })
+  })
+
   const template = async () => {
     await harness.store.insertTemplateVersion({
       templateId: 'template-1',

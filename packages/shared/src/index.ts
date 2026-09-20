@@ -31,6 +31,7 @@ export {
   quantiseToPalette,
 } from './quantise.js'
 export * from './region-shape.js'
+export * from './server-branding.js'
 export * from './shortcuts.js'
 export {
   type PixelBounds,

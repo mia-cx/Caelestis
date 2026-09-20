@@ -1,7 +1,12 @@
 <script lang="ts">
 import { Icon } from '@caelestis/ui'
 import { onMount, untrack } from 'svelte'
-import { readToken, serverUrlIsConfigured, usesServerReadProxy } from '$lib/api/client'
+import {
+  readToken,
+  serverAssetUrl,
+  serverUrlIsConfigured,
+  usesServerReadProxy,
+} from '$lib/api/client'
 import ConnectDialog from '$lib/components/ConnectDialog.svelte'
 import SocialMetadata from '$lib/components/SocialMetadata.svelte'
 import { provideApp } from '$lib/state/app.svelte'
@@ -35,6 +40,17 @@ $effect(() => {
   if (app.authRequired) connectOpen = true
 })
 
+// The header shows the operator's logo image when they uploaded one and it loads, their logo text
+// when they set one, and the server name otherwise. A broken image drops back to text.
+const logoText = $derived(app.server?.logoText ?? app.server?.name ?? 'Caelestis')
+const logoImage = $derived(app.server?.logoImage)
+let logoBroken = $state<string | null>(null)
+const logoSrc = $derived(
+  logoImage === undefined || logoBroken === logoImage.etag
+    ? null
+    : serverAssetUrl('logo', logoImage),
+)
+
 const toggleTheme = (): void => {
   const current =
     document.documentElement.dataset.theme ??
@@ -54,11 +70,34 @@ const toggleTheme = (): void => {
 <div class="flex min-h-dvh flex-col">
   <header class="sticky top-0 z-20 border-b-[1.5px] border-base-300 bg-base-100/90 backdrop-blur">
     <div class="container mx-auto flex h-14 w-full max-w-6xl items-center gap-3 px-4">
-      <a href="/" class="flex items-center gap-2" aria-label="Caelestis home">
-        <span class="font-pixel text-lg leading-none text-primary">Caelestis</span>
+      <a href="/" class="flex min-w-0 items-center gap-2" aria-label={`${logoText} home`}>
+        {#if logoSrc !== null}
+          <img
+            src={logoSrc}
+            alt={logoText}
+            class="h-8 max-w-[min(12rem,50vw)] object-contain"
+            decoding="async"
+            onerror={() => (logoBroken = logoImage?.etag ?? null)}
+          />
+        {:else}
+          <span class="truncate font-pixel text-lg leading-none text-primary">{logoText}</span>
+        {/if}
       </a>
 
       <div class="flex-1"></div>
+
+      {#if app.server?.discordInviteUrl !== undefined}
+        <a
+          href={app.server.discordInviteUrl}
+          target="_blank"
+          rel="noreferrer"
+          class="btn btn-sm btn-primary gap-1.5 rounded-lg"
+          title={`Join ${app.server.name} on Discord`}
+        >
+          <Icon name="discord" class="size-4" />
+          <span class="max-sm:hidden">Join on Discord</span>
+        </a>
+      {/if}
 
       <a
         href={REPO_URL}

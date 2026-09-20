@@ -65,6 +65,36 @@ describe('server manifest template lifecycle', () => {
       ).toBeNull()
     }
   })
+  it('keeps valid public presentation and drops what it cannot render', () => {
+    const asset = { etag: 'a'.repeat(64), contentType: 'image/png' as const }
+    expect(
+      parseServerInfo({
+        ...server,
+        discordInviteUrl: 'https://discord.gg/abc',
+        homeCopy: '## Hi\n\nWelcome.',
+        logoText: 'Allies',
+        logoImage: asset,
+        previewImage: { ...asset, contentType: 'image/webp' },
+      }),
+    ).toEqual({
+      ...server,
+      discordInviteUrl: 'https://discord.gg/abc',
+      homeCopy: '## Hi\n\nWelcome.',
+      logoText: 'Allies',
+      logoImage: asset,
+      previewImage: { ...asset, contentType: 'image/webp' },
+    })
+    expect(
+      parseServerInfo({
+        ...server,
+        discordInviteUrl: 'https://example.com/x',
+        homeCopy: '[x](javascript:alert(1))',
+        logoText: '',
+        logoImage: { etag: 'short', contentType: 'image/png' },
+        previewImage: { ...asset, contentType: 'image/svg+xml' },
+      }),
+    ).toEqual(server)
+  })
   it('accepts only the explicit live-sync capability versions', () => {
     expect(
       parseServerInfo({ ...server, liveSync: 1, liveSyncMax: 2, livePaintParts: 1 })

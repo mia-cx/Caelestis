@@ -654,6 +654,33 @@ describe('tile and template schemas', () => {
     else expectRejected(ServerInfo, server)
   })
 
+  it('carries operator branding and rejects what the frontend could not render safely', () => {
+    const server = {
+      id: SERVER_ID,
+      name: 'Server',
+      auth: 'none',
+      discordInviteUrl: 'https://discord.gg/abc123',
+      homeCopy: '## Hello\n\nWe paint [here](https://wplace.live).',
+      logoText: 'Allies',
+      logoImage: { etag: 'a'.repeat(64), contentType: 'image/png' },
+      previewImage: { etag: 'b'.repeat(64), contentType: 'image/webp' },
+    }
+    expect(Schema.decodeUnknownSync(ServerInfo)(server)).toEqual(server)
+    expectRejected(ServerInfo, { ...server, discordInviteUrl: 'https://discord.com/invite/abc' })
+    expectRejected(ServerInfo, { ...server, discordInviteUrl: 'https://example.com/abc' })
+    expectRejected(ServerInfo, { ...server, homeCopy: '[x](javascript:alert(1))' })
+    expectRejected(ServerInfo, { ...server, homeCopy: '' })
+    expectRejected(ServerInfo, { ...server, logoText: 'x'.repeat(65) })
+    expectRejected(ServerInfo, {
+      ...server,
+      logoImage: { etag: 'short', contentType: 'image/png' },
+    })
+    expectRejected(ServerInfo, {
+      ...server,
+      previewImage: { etag: 'a'.repeat(64), contentType: 'image/svg+xml' },
+    })
+  })
+
   it('accepts the bounded v1-v2 live compatibility window', () => {
     const server = {
       id: SERVER_ID,

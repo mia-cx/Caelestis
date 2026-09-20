@@ -14,6 +14,7 @@ export { default as ColourProgress } from './progress/ColourProgress.svelte'
 export { default as PaletteProgress } from './progress/PaletteProgress.svelte'
 export { default as ProgressMeter } from './progress/ProgressMeter.svelte'
 export { default as RailControl } from './rail/RailControl.svelte'
+export { default as ServerDetails } from './server-details/ServerDetails.svelte'
 export { default as SettingsPanel } from './settings/SettingsPanel.svelte'
 export {
   SHORTCUT_ACTIONS,
@@ -54,6 +55,9 @@ export type {
   RailControlId,
   RailControlIntent,
   RailControlModel,
+  ServerDetailsFields,
+  ServerDetailsIntent,
+  ServerDetailsModel,
   SettingsAccessTokenModel,
   SettingsAccessTokensModel,
   SettingsBooleanKey,

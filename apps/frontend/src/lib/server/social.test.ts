@@ -50,6 +50,42 @@ describe('share metadata', () => {
     expect(result.description).toContain('Wplace')
   })
 
+  it('uses the operator description and preview on non-template routes only', async () => {
+    const branded = {
+      ...server,
+      name: 'Allies',
+      description: 'The Allied Communities paint together.',
+      previewImage: { etag: 'e'.repeat(64), contentType: 'image/webp' as const },
+    }
+    const home = await socialMetadata(new URL('https://example.com/'), {
+      ...context,
+      server: branded,
+    })
+    expect(home.title).toBe('Allies · Caelestis')
+    expect(home.description).toBe('The Allied Communities paint together.')
+    expect(home.image).toBe(`https://example.com/api/v1/server/assets/preview?v=${'e'.repeat(64)}`)
+    expect(home.imageType).toBe('image/webp')
+    expect(home.imageWidth).toBeNull()
+    expect(home.imageAlt).toBe('Allies')
+
+    const folder = await socialMetadata(new URL('https://example.com/folder/folder'), {
+      ...context,
+      server: branded,
+    })
+    expect(folder.description).toBe('Our shared pixel art.')
+    expect(folder.image).toBe(home.image)
+
+    const images = { head: vi.fn().mockResolvedValue({ etag: 'gif' }), get: vi.fn() }
+    const templatePage = await socialMetadata(
+      new URL('https://example.com/template/art'),
+      { ...context, server: branded },
+      images,
+    )
+    expect(templatePage.image).toBe('https://example.com/social/template/art.gif?v=gif')
+    expect(templatePage.imageWidth).toBe(640)
+    expect(templatePage.description).toContain('pixels on Wplace')
+  })
+
   it('gives folder links their own title and description', async () => {
     const result = await socialMetadata(new URL('https://example.com/folder/folder'), context)
     expect(result.title).toBe('Gallery · Caelestis')

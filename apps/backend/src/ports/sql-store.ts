@@ -5,6 +5,7 @@ import {
   PALETTE_SIZE,
   type PixelBounds,
   type Seconds,
+  type ServerAssetContentType,
   seconds,
   type TemplateStatus,
   type TemplateSurface,
@@ -935,14 +936,25 @@ export interface TemplatePatch {
 }
 
 /**
- * What an admin has renamed this server to, or nulls where they have not.
+ * An operator's public server details and branding, or nulls where they have not set an override.
  *
- * Null is "not decided" and falls back to the deployment's own configuration — which is different
- * from an empty string, and is why these are nullable rather than defaulted.
+ * Null falls back to deployment configuration for name and description; branding fields are
+ * omitted from public responses when null.
  */
 export interface ServerSettings {
   readonly name: string | null
   readonly description: string | null
+  readonly discordInviteUrl: string | null
+  readonly homeCopy: string | null
+  readonly logoText: string | null
+  readonly logo: ServerAssetRecord | null
+  readonly preview: ServerAssetRecord | null
+}
+
+/** Branding object key relative to the branding namespace, plus its sniffed media type. */
+export interface ServerAssetRecord {
+  readonly blobKey: string
+  readonly contentType: ServerAssetContentType
 }
 
 export interface SqlStore extends TagStore {
@@ -955,6 +967,11 @@ export interface SqlStore extends TagStore {
   writeServerSettings(patch: {
     readonly name?: string
     readonly description?: string | null
+    readonly discordInviteUrl?: string | null
+    readonly homeCopy?: string | null
+    readonly logoText?: string | null
+    readonly logo?: ServerAssetRecord | null
+    readonly preview?: ServerAssetRecord | null
   }): Promise<void>
 
   /**

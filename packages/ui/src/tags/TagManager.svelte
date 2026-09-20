@@ -12,6 +12,9 @@
   let rename = $state('')
   let deleting = $state<string | null>(null)
   let validation = $state('')
+  // A drag from an input to outside the panel fires `click` on the dialog; only a press that began
+  // on the backdrop closes it.
+  let backdropPress = false
   const disabled = $derived(model.busy || model.loading || !model.ready)
   const savedRevision = $derived(model.revision)
   const sorted = $derived([...model.tags].sort((a, b) => a.name.localeCompare(b.name)))
@@ -30,7 +33,7 @@
   const focusInput = (input: HTMLInputElement): void => { input.focus(); input.select() }
 </script>
 
-<dialog bind:this={dialog} aria-labelledby="tag-title" aria-describedby="tag-owner" oncancel={(event) => { event.preventDefault(); emit({ type: 'close' }) }} onclick={(event) => { if (event.target === dialog) emit({ type: 'close' }) }}>
+<dialog bind:this={dialog} aria-labelledby="tag-title" aria-describedby="tag-owner" oncancel={(event) => { event.preventDefault(); emit({ type: 'close' }) }} onpointerdown={(event) => { backdropPress = event.target === dialog }} onclick={(event) => { if (backdropPress && event.target === dialog) emit({ type: 'close' }); backdropPress = false }}>
   <div class="content">
     <header>
       <div><h2 id="tag-title">{model.targetName === undefined ? 'Manage tags' : `Tags for ${model.targetName}`}</h2><p id="tag-owner">{model.owner}</p></div>

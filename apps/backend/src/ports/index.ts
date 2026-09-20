@@ -74,6 +74,7 @@ export {
   type PainterTotalRow,
   painterBucketResolution,
   READ_BUCKETS_CHUNK_SIZE,
+  type ServerAssetRecord,
   type ServerSettings,
   type SqlStore,
   TELEMETRY_DECAY_EDGES,

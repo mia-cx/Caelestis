@@ -4,10 +4,12 @@ import {
   isRegionDocument,
   isRegionItem,
   isRegionShape,
+  MAX_HOME_COPY_LENGTH,
   MAX_LIVE_MESSAGE_BYTES,
   MAX_LIVE_PAINT_PARTS,
   MAX_LIVE_PROJECTIONS,
   MAX_LIVE_TEMPLATE_IDS,
+  MAX_LOGO_TEXT_LENGTH,
   MAX_PATH_NODES,
   MAX_PRESENCE_PEERS,
   MAX_PRESENCE_REGION_LABEL,
@@ -21,7 +23,10 @@ import {
   MAX_TILE_OFFERS,
   MIN_REGION_SHAPE_CORNERS,
   PALETTE_SIZE,
+  parseDiscordInviteUrl,
+  parseHomeCopy,
   parseTemplateTags,
+  SERVER_ASSET_CONTENT_TYPES,
   TILE_SIZE,
   TRANSPARENT_INDEX,
   templateSurface,
@@ -369,6 +374,26 @@ const BoundingBox = BoundingBoxStruct.pipe(
   ),
 )
 
+const ServerAsset = Schema.Struct({
+  etag: Hash,
+  contentType: Schema.Literals(SERVER_ASSET_CONTENT_TYPES),
+})
+
+const DiscordInviteUrl = Schema.String.pipe(
+  Schema.check(
+    booleanFilter(
+      (value: string) => parseDiscordInviteUrl(value) === value,
+      'must be a canonical https://discord.gg invite',
+    ),
+  ),
+)
+
+const HomeCopy = boundedString(MAX_HOME_COPY_LENGTH).pipe(
+  Schema.check(
+    booleanFilter((value: string) => parseHomeCopy(value).ok, 'must be valid home copy'),
+  ),
+)
+
 export const ServerInfo = Schema.Struct({
   id: Identifier,
   name: Name,
@@ -379,6 +404,11 @@ export const ServerInfo = Schema.Struct({
   liveTileOffers: Schema.optionalKey(Schema.Literal(1)),
   presence: Schema.optionalKey(Schema.Literal(1)),
   livePaintParts: Schema.optionalKey(Schema.Literal(1)),
+  discordInviteUrl: Schema.optionalKey(DiscordInviteUrl),
+  homeCopy: Schema.optionalKey(HomeCopy),
+  logoText: Schema.optionalKey(boundedString(MAX_LOGO_TEXT_LENGTH)),
+  logoImage: Schema.optionalKey(ServerAsset),
+  previewImage: Schema.optionalKey(ServerAsset),
 }).pipe(
   Schema.check(
     booleanFilter(

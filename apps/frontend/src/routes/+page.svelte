@@ -1,11 +1,14 @@
 <script lang="ts">
 import FolderSection from '$lib/components/FolderSection.svelte'
+import HomeCopy from '$lib/components/HomeCopy.svelte'
 import TemplateCard from '$lib/components/TemplateCard.svelte'
 import { Skeleton } from '$lib/components/ui/skeleton'
 import { useApp } from '$lib/state/app.svelte'
 
 const app = useApp()
 const tree = $derived(app.tree)
+const homeCopy = $derived(app.server?.homeCopy)
+const serverName = $derived(app.server?.name ?? 'Caelestis')
 const activeAlarms = $derived([...app.alarms.values()])
 const sustainedAlarms = $derived(
   activeAlarms.filter((alarm) => alarm.kind === 'sustained-griefing').length,
@@ -25,6 +28,14 @@ const sustainedAlarms = $derived(
   </div>
 {:else}
   <div class="flex flex-col gap-4">
+    {#if homeCopy !== undefined}
+      <section
+        class="rounded-2xl border-[1.5px] border-base-300 bg-base-100 p-4"
+        aria-label={`About ${serverName}`}
+      >
+        <HomeCopy copy={homeCopy} />
+      </section>
+    {/if}
     {#if activeAlarms.length > 0}
       <div class="alert alert-error" role="status">
         <span>

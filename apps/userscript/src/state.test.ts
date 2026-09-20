@@ -1207,6 +1207,106 @@ describe('server state boundaries', () => {
     })
   })
 
+  it('edits server details and adopts the refreshed public metadata', async () => {
+    const branded = {
+      ...serverInfo,
+      description: 'We paint together.',
+      discordInviteUrl: 'https://discord.gg/abc',
+    }
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(branded), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const { getState, setState, updateServerDetails } = await import('./state.js')
+    const server = {
+      url: 'https://example.com',
+      info: serverInfo,
+      token: 'admin-token',
+      status: 'connected' as const,
+      isAdmin: true,
+      season: 0,
+    }
+    setState({ servers: [server] })
+
+    await expect(updateServerDetails(server, {})).resolves.toEqual({
+      ok: false,
+      message: 'Nothing to change.',
+    })
+    await expect(
+      updateServerDetails(server, {
+        description: 'We paint together.',
+        discordInviteUrl: 'https://discord.gg/abc',
+        homeCopy: null,
+      }),
+    ).resolves.toEqual({ ok: true })
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('https://example.com/backend/v1/admin/server')
+    expect(init.method).toBe('PATCH')
+    expect(new Headers(init.headers).get('authorization')).toBe('Bearer admin-token')
+    expect(JSON.parse(String(init.body))).toEqual({
+      description: 'We paint together.',
+      discordInviteUrl: 'https://discord.gg/abc',
+      homeCopy: null,
+    })
+    expect(getState().servers[0]?.info).toEqual(branded)
+  })
+
+  it('uploads and removes branding assets with useful failures', async () => {
+    const asset = { etag: 'a'.repeat(64), contentType: 'image/png' as const }
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: 'upload a PNG, JPEG, WebP or GIF image' }), {
+          status: 415,
+        }),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify(asset), { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ...serverInfo, logoImage: asset }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(serverInfo), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const { deleteServerAsset, getState, setState, uploadServerAsset } = await import('./state.js')
+    const server = {
+      url: 'https://example.com',
+      info: serverInfo,
+      token: 'admin-token',
+      status: 'connected' as const,
+      isAdmin: true,
+      season: 0,
+    }
+    setState({ servers: [server] })
+    const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+
+    await expect(uploadServerAsset(server, 'logo', new Uint8Array(), 'image/png')).resolves.toEqual(
+      { ok: false, message: 'That file is empty.' },
+    )
+    await expect(
+      uploadServerAsset(server, 'logo', new Uint8Array(600 * 1024), 'image/png'),
+    ).resolves.toEqual({ ok: false, message: 'The logo image must be at most 512 KiB.' })
+    await expect(uploadServerAsset(server, 'logo', bytes, 'text/plain')).resolves.toEqual({
+      ok: false,
+      message: 'upload a PNG, JPEG, WebP or GIF image',
+    })
+    await expect(uploadServerAsset(server, 'logo', bytes, 'image/png')).resolves.toEqual({
+      ok: true,
+    })
+    const [url, init] = fetchMock.mock.calls[1] as [string, RequestInit]
+    expect(url).toBe('https://example.com/backend/v1/admin/server/assets/logo')
+    expect(init.method).toBe('PUT')
+    expect(new Headers(init.headers).get('content-type')).toBe('image/png')
+    expect(new Uint8Array(init.body as ArrayBuffer)).toEqual(bytes)
+    expect(getState().servers[0]?.info).toEqual({ ...serverInfo, logoImage: asset })
+
+    await expect(deleteServerAsset(server, 'logo')).resolves.toEqual({ ok: true })
+    const [deleteUrl, deleteInit] = fetchMock.mock.calls[3] as [string, RequestInit]
+    expect(deleteUrl).toBe('https://example.com/backend/v1/admin/server/assets/logo')
+    expect(deleteInit.method).toBe('DELETE')
+    expect(getState().servers[0]?.info).toEqual(serverInfo)
+  })
+
   it('publishes an in-flight manifest through a cosmetic server metadata replacement', async () => {
     let finish = (_response: Response): void => undefined
     vi.stubGlobal(

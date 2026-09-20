@@ -83,6 +83,13 @@ describe.each(adapters)('$name generation-fenced tile blobs', ({ make }) => {
 
   afterEach(() => harness.close())
 
+  it('leaves branding objects outside the tile garbage collection namespace', async () => {
+    await harness.blobs.put('branding', `logo/${HASH}`, BYTES)
+    await gc(harness, 'delete', 100_000)
+    expect(await harness.blobs.get('branding', `logo/${HASH}`)).toEqual(BYTES)
+    expect(await harness.blobs.list('tiles', { limit: 10 })).toEqual({ keys: [] })
+  })
+
   it('keeps a reference that arrives before the fence', async () => {
     await harness.blobs.put('tiles', HASH, BYTES)
     await harness.sql.noteTileBlobObject(HASH, HASH, millis(1_000))

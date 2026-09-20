@@ -5,6 +5,7 @@ import type {
   PaletteProgressModel,
   PanelModel,
   RailControlModel,
+  ServerDetailsModel,
   ShortcutHelpModel,
   TagManagerModel,
 } from '../types.js'
@@ -15,6 +16,7 @@ import OverlayControlsElement from './OverlayControls.element.svelte'
 import PaletteProgressElement from './PaletteProgress.element.svelte'
 import PanelElement from './Panel.element.svelte'
 import RailControlElement from './RailControl.element.svelte'
+import ServerDetailsElement from './ServerDetails.element.svelte'
 import ShortcutHelpElement from './ShortcutHelp.element.svelte'
 import TagManagerElement from './TagManager.element.svelte'
 import TemplateAdminElement from './TemplateAdmin.element.svelte'
@@ -35,6 +37,8 @@ export const RAIL_CONTROL_TAG = 'caelestis-rail-control'
 export const SHORTCUT_HELP_TAG = 'caelestis-shortcut-help'
 export const TAG_MANAGER_TAG = 'caelestis-tag-manager'
 export type CaelestisTagManager = HTMLElement & { model: TagManagerModel }
+export const SERVER_DETAILS_TAG = 'caelestis-server-details'
+export type CaelestisServerDetails = HTMLElement & { model: ServerDetailsModel }
 export const CLAIM_MODE_TAG = 'caelestis-claim-mode'
 export type CaelestisClaimMode = HTMLElement & { model: ClaimModeModel }
 
@@ -88,6 +92,8 @@ export const CaelestisShortcutHelp =
 export const CaelestisTagManager =
   TagManagerElement.element as ElementConstructor<CaelestisTagManager>
 export const CaelestisClaimMode = ClaimModeElement.element as ElementConstructor<CaelestisClaimMode>
+export const CaelestisServerDetails =
+  ServerDetailsElement.element as ElementConstructor<CaelestisServerDetails>
 
 /** Browser-only and idempotent, so both hosts can call it whenever their UI mounts. */
 export const registerCaelestisUi = (): void => {
@@ -103,6 +109,8 @@ export const registerCaelestisUi = (): void => {
     customElements.define(TAG_MANAGER_TAG, CaelestisTagManager)
   if (customElements.get(CLAIM_MODE_TAG) === undefined)
     customElements.define(CLAIM_MODE_TAG, CaelestisClaimMode)
+  if (customElements.get(SERVER_DETAILS_TAG) === undefined)
+    customElements.define(SERVER_DETAILS_TAG, CaelestisServerDetails)
   if (customElements.get(TEMPLATE_STATE_TAG) === undefined) {
     customElements.define(TEMPLATE_STATE_TAG, CaelestisTemplateState)
   }
@@ -134,6 +142,7 @@ declare global {
     'caelestis-backfill': CaelestisBackfill
     'caelestis-tag-manager': CaelestisTagManager
     'caelestis-claim-mode': CaelestisClaimMode
+    'caelestis-server-details': CaelestisServerDetails
     'caelestis-template-admin': CaelestisTemplateAdmin
     'caelestis-template-state': CaelestisTemplateState
     'caelestis-notifications': CaelestisNotifications
