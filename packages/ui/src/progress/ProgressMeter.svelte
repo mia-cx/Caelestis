@@ -39,6 +39,6 @@
   .mismatched { background: var(--caelestis-danger); }
   .unpainted { background: color-mix(in oklch, var(--caelestis-text) 20%, transparent); }
   .percent { flex: 0 0 5ch; min-inline-size: 0; text-align: end; font-family: inherit; font-size: 1.125rem; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
-  .percent.small { font-size: 0.625rem; }
+  .percent.small { font-size: 0.75rem; }
   .alarm-text { color: var(--caelestis-danger); }
 </style>
