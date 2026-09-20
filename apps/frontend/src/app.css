@@ -14,9 +14,9 @@
 @import '@fontsource/silkscreen';
 
 /*
- * FalseType: the Wplace canvas alphabet as whole-pixel outlines, built from `fonts/falsetype-glyphs.png`
- * by `fonts/build-falsetype.mjs`. One canvas pixel is 64 units of a 1024 em, so 1rem draws 1:1 and
- * 2rem 2:1. Letters only; anything else falls through to Silkscreen.
+ * FalseType: the Wplace canvas alphabet as whole-pixel outlines, from github.com/patchstep/FalseType.
+ * One canvas pixel is 64 units of a 1024 em, so 1rem draws 1:1 and 2rem 2:1. Latin letters,
+ * punctuation and a few symbols; anything else falls through to Silkscreen.
  */
 @font-face {
   font-family: 'FalseType';
