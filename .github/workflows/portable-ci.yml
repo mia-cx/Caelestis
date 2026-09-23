@@ -12,7 +12,7 @@ on:
         type: boolean
         default: false
       release_sha:
-        description: Exact release merge commit to validate; defaults to the triggering commit
+        description: Exact release or approved dependency commit; defaults to the triggering commit
         type: string
         default: ''
   workflow_dispatch:
@@ -26,7 +26,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: portable-ci-${{ github.event_name }}-${{ github.ref }}
+  group: portable-ci-${{ github.workflow }}-${{ github.event_name }}-${{ inputs.release_sha || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -217,7 +217,7 @@ jobs:
           test -n "$CAELESTIS_TEST_POSTGRES_URL"
           test -n "$CAELESTIS_TEST_MARIADB_URL"
           test -n "$CAELESTIS_TEST_S3_ENDPOINT"
-          pnpm --filter @caelestis/backend --filter @caelestis/frontend --filter @caelestis/storage exec vitest run --maxWorkers=1 --testTimeout=30000 --hookTimeout=30000
+          pnpm --filter @caelestis/backend --filter @caelestis/frontend --filter @caelestis/storage --filter @caelestis/wire-schema exec vitest run --maxWorkers=1 --testTimeout=30000 --hookTimeout=30000
           pnpm test:social
           node --test scripts/stack-tests/*.test.mjs
           node --test scripts/runtime-benchmark/kubernetes.test.mjs

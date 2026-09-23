@@ -1,0 +1,87 @@
+name: Dependabot full validation
+run-name: 'Validate Dependabot PR #${{ inputs.pr_number }} at ${{ inputs.head_sha }}'
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Open Dependabot PR number (review its changes before approving)
+        required: true
+        type: string
+      head_sha:
+        description: Full 40-character PR head SHA you approve for disposable deployments
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependabot-full-validation-${{ inputs.pr_number }}
+  cancel-in-progress: false
+
+jobs:
+  approve:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
+    outputs:
+      sha: ${{ steps.approve.outputs.sha }}
+    steps:
+      # Only trusted workflow code may use a token that writes commit statuses.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Approve the exact Dependabot head
+        id: approve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          APPROVED_SHA: ${{ inputs.head_sha }}
+        run: node .github/scripts/dependabot-validation.mjs approve
+
+  userscript:
+    needs: approve
+    uses: ./.github/workflows/userscript-ci.yml
+    with:
+      source_sha: ${{ needs.approve.outputs.sha }}
+
+  portable:
+    needs: approve
+    uses: ./.github/workflows/portable-ci.yml
+    with:
+      release_sha: ${{ needs.approve.outputs.sha }}
+      extended: true
+
+  cloudflare:
+    needs: approve
+    uses: ./.github/workflows/portable-cloudflare.yml
+    with:
+      release_sha: ${{ needs.approve.outputs.sha }}
+    # No production or publication secrets cross this boundary. The called job selects stack-tests.
+    secrets:
+      CLOUDFLARE_TEST_API_TOKEN: ${{ secrets.CLOUDFLARE_TEST_API_TOKEN }}
+
+  result:
+    if: ${{ always() && needs.approve.outputs.sha != '' }}
+    needs: [approve, userscript, portable, cloudflare]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      statuses: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Report every required suite on the approved commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APPROVED_SHA: ${{ needs.approve.outputs.sha }}
+          VALIDATION_NEEDS: ${{ toJSON(needs) }}
+        run: node .github/scripts/dependabot-validation.mjs report
