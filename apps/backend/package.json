@@ -34,8 +34,8 @@
     "@types/pg": "^8.23.1",
     "@types/ws": "^8.18.1",
     "drizzle-kit": "0.31.10",
-    "typescript": "^5.7.0",
-    "vitest": "^4.1.10",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.1",
     "wrangler": "^4.135.0"
   }
 }

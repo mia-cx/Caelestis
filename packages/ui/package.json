@@ -41,8 +41,8 @@
     "happy-dom": "^20.14.5",
     "svelte": "^5.57.1",
     "svelte-check": "^4.7.6",
-    "typescript": "^5.7.0",
+    "typescript": "^7.0.2",
     "vite": "^8.3.0",
-    "vitest": "^4.1.10"
+    "vitest": "^5.0.1"
   }
 }

@@ -32,6 +32,6 @@
     "@changesets/cli": "3.0.3",
     "sharp": "^0.35.4",
     "turbo": "^2.11.2",
-    "typescript": "^5.7.0"
+    "typescript": "^7.0.2"
   }
 }
