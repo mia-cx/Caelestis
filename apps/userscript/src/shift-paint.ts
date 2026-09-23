@@ -11,6 +11,7 @@ type Position = { clientX: number; clientY: number }
 export const installShiftPaint = (): void => {
   let spaceHeld = false
   let shiftHeld = false
+  let nativePaused = false
   let forwarding = false
   let cursor: Position | null = null
 
@@ -56,6 +57,12 @@ export const installShiftPaint = (): void => {
     event.stopImmediatePropagation()
   }
 
+  const resumeSpace = (): void => {
+    if (!nativePaused || !spaceHeld || shiftHeld || !brushActive()) return
+    nativePaused = false
+    forwardPaintKey('keydown')
+  }
+
   window.addEventListener(
     'keydown',
     (event) => {
@@ -74,6 +81,7 @@ export const installShiftPaint = (): void => {
       if (event.code === 'Space') spaceHeld = true
       if (!spaceHeld || !shiftHeld || !brushActive()) return
       if (event.code !== 'Space' && event.key !== 'Shift') return
+      nativePaused = true
       forwardPaintKey('keyup')
       if (event.code === 'Space') claim(event)
       if (!event.repeat) paintCurrent()
@@ -85,10 +93,12 @@ export const installShiftPaint = (): void => {
     'keyup',
     (event) => {
       if (isForwardedPaintKey(event)) return
-      if (event.code === 'Space') spaceHeld = false
-      const wasShiftHeld = shiftHeld
+      if (event.code === 'Space') {
+        spaceHeld = false
+        nativePaused = false
+      }
       shiftHeld = event.shiftKey
-      if (wasShiftHeld && !shiftHeld && spaceHeld && brushActive()) forwardPaintKey('keydown')
+      resumeSpace()
     },
     true,
   )
@@ -96,6 +106,7 @@ export const installShiftPaint = (): void => {
   const reset = (): void => {
     spaceHeld = false
     shiftHeld = false
+    nativePaused = false
     cursor = null
   }
   window.addEventListener('blur', reset)
@@ -116,8 +127,11 @@ export const installShiftPaint = (): void => {
       }
       const from = cursor
       cursor = { clientX: event.clientX, clientY: event.clientY }
+      // Shift can be released while a move session or another tool temporarily owns the brush.
+      resumeSpace()
       if (!shiftHeld || !spaceHeld || !brushActive()) return
       claim(event)
+      nativePaused = true
       forwardPaintKey('keyup')
       const start = from === null ? null : pickerPointAt(target, from.clientX, from.clientY)
       const dx = start === null ? 0 : Math.abs(point.x - start.x)

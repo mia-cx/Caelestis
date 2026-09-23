@@ -135,6 +135,34 @@ it('takes over when Shift is pressed during an existing Space stroke', () => {
   expect([...draft.keys()]).toEqual([0, 1, 3])
 })
 
+it('resumes held Space after Shift is released during template movement', () => {
+  move(0)
+  key('keydown', 'Space', true)
+  move(2)
+  harness.moving = true
+  key('keyup', 'ShiftLeft')
+  move(3)
+  expect([...draft.keys()]).toEqual([1])
+  expect(nativeHeld).toBe(false)
+  harness.moving = false
+  move(4)
+  expect([...draft.keys()]).toEqual([1, 3, 4])
+  expect(nativeHeld).toBe(true)
+})
+
+it.each(['release', 'blur', 'pointercancel'])('cancels a deferred Space resume on %s', (cancel) => {
+  move(0)
+  key('keydown', 'Space', true)
+  harness.moving = true
+  key('keyup', 'ShiftLeft')
+  if (cancel === 'release') key('keyup', 'Space')
+  else window.dispatchEvent(new Event(cancel))
+  harness.moving = false
+  move(4)
+  expect(nativeHeld).toBe(false)
+  expect(draft.size).toBe(0)
+})
+
 it('skips every pixel that needs a different colour from the selected swatch', () => {
   harness.overlay = 4
   move(0)
