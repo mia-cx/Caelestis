@@ -8,7 +8,7 @@
 
 ## TODOs
 - [x] Implement filtering through native input, with focused tests and a userscript Changeset.
-- [ ] Validate native draft behavior in background Chromium, run package checks, and file the PR.
+- [x] Validate native draft behavior in background Chromium and run package checks.
 
 ## Notes
 - Issue #513 is In Progress in Roadmap.
@@ -16,3 +16,7 @@
 - Use an owned background tab through CDP 9222; never submit paint during verification.
 - Mia clarified that Shift must also prevent drawing the wrong selected colour, and therefore skips cells without a visible template colour.
 - World map only. Mia explicitly deferred alliance painting.
+- Native event-path check: a 40-cell stroke drafted 34 mismatches and skipped six matches. Retracing kept 34 drafts; undo/redo changed 34 -> 33 -> 34; releasing Shift resumed normal painting.
+- Final focused suite: 55 tests passed, including wrong-colour rejection, cells outside visible templates, and alliance pass-through. Typecheck, userscript build, changed-file Biome, and whitespace checks passed.
+- Full userscript suite: 1,629 passed; the unrelated file-watcher test timed out under parallel load and passed its isolated rerun.
+- Mia is testing this build in her chosen location. Browser control stopped; temporary camera overrides restored and the temporary QA template removed.
