@@ -32,14 +32,17 @@ test('live telemetry volume stays off the Worker request budget', () => {
   assert.equal(report.projected.reductionPercent, 99.9602)
 })
 
-test('the Effect beta is exactly pinned for both runtime importers', async () => {
+test('both runtime importers use the same exact Effect pin', async () => {
   const packages = await Promise.all(
     ['../apps/backend/package.json', '../packages/wire-schema/package.json'].map(async (relative) =>
       JSON.parse(await readFile(new URL(relative, import.meta.url), 'utf8')),
     ),
   )
-  for (const manifest of packages) assert.equal(manifest.dependencies.effect, '4.0.0-beta.102')
+  // Dependabot may update the pin, but ranges and mismatched runtime versions are unsafe.
+  const version = packages[0].dependencies.effect
+  assert.match(version, /^\d+\.\d+\.\d+(?:-[\w.-]+)?$/)
+  for (const manifest of packages) assert.equal(manifest.dependencies.effect, version)
 
   const lockfile = await readFile(new URL('../pnpm-lock.yaml', import.meta.url), 'utf8')
-  assert.match(lockfile, /effect@4\.0\.0-beta\.102:/)
+  assert.ok(lockfile.includes(`  effect@${version}:`))
 })

@@ -16,6 +16,7 @@ Manually approve an exact Dependabot PR head for userscript validation and the c
 
 - [x] Add the exact-commit approval and result reporter with adversarial tests.
 - [x] Connect reusable validation workflows and test their routing and permissions.
+- [x] Make the newly enabled Effect pin check accept consistent exact version updates.
 - [ ] Document the manual run, validate workflow syntax and release tooling, and file the PR.
 
 ## Notes
@@ -27,3 +28,4 @@ Manually approve an exact Dependabot PR head for userscript validation and the c
 - Approval/result tests pass for stale commits, untrusted selections, and every non-success suite result. Read-only validation against actual PR #508 also passed.
 - All 62 release-tooling tests pass, including the command entrypoint with intercepted GitHub API calls. Actionlint 1.7.12 accepts all four changed workflows. Lint passes with the existing adjacent-space regex warning in release-workflow.test.mjs.
 - Added wire-schema tests to portable runtime coverage; full userscript calls also run lint and the root fixture, capacity, progress, and live-paint suites.
+- The capacity suite hardcoded Effect beta.102 despite main using rc.115. It now checks consistent exact pins and the matching lockfile entry.
