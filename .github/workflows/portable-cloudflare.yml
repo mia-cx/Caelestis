@@ -4,9 +4,13 @@ on:
   workflow_call:
     inputs:
       release_sha:
-        description: Exact release merge commit to validate
+        description: Exact release or explicitly approved dependency commit to validate
         type: string
         default: ''
+    secrets:
+      CLOUDFLARE_TEST_API_TOKEN:
+        description: Dedicated test-account token; stack-tests environment takes precedence
+        required: false
   workflow_dispatch:
   schedule:
     - cron: '47 23 * * *'
@@ -20,7 +24,7 @@ concurrency:
 
 jobs:
   cloudflare:
-    # Never expose test-account credentials to pull request code or an arbitrary dispatch ref.
+    # Only main may call this job. Dependabot candidates require explicit SHA approval there.
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
