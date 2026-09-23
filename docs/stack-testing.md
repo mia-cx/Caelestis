@@ -10,6 +10,7 @@ GitHub provides the runners. Each Kubernetes test creates its own kind cluster a
 | PR or main push touching `.github/`, `.changeset/`, an app manifest or changelog, or the root manifests | The release tooling tests (`pnpm test:release`), regardless of the server gate |
 | PR or main push without server or tooling changes | Nothing. The `changes` job finds no backend, frontend, shared package, deploy, Dockerfile, root workspace, or stack-test file, so every job skips and `stack-tests` reports success |
 | Nightly and extended manual runs | The same checks, plus all six ARM64 Compose combinations per runtime, previous-version upgrades, database connection-loss recovery, and CNPG primary switchover |
+| Approved Dependabot head | Userscript/shared/UI builds, checks and tests, repository lint and root test suites, the extended portable matrix, and remote Cloudflare acceptance |
 | Nightly Cloudflare run | A real, isolated D1/R2/Durable Object deployment, shared acceptance tests, backend redeployment, and cleanup |
 | Portable release | Extended checks build and test both architectures before publishing. Live Cloudflare acceptance runs independently |
 
@@ -18,6 +19,26 @@ The shared suite in `scripts/stack-tests/acceptance.mjs` checks authenticated HT
 Compose also runs the packaged social renderer, rejects a competing backend owner, and kills the backend without a graceful flush. Kubernetes tests use the shipped chart and example values, including real CNPG-generated credentials and verified TLS. MariaDB's Kubernetes fixture also requires verified TLS. Adapter tests retain their separate coverage of storage metadata, conditional writes, deletion, transactions, deadlines, and recovery.
 
 Each matrix job runs independently with `fail-fast: false`. Logs and results stay in Actions artifacts for seven days. The `stack-tests` job fails if any required job fails, gets cancelled, or is unexpectedly skipped. A missing database service is a failure.
+
+## Approve a Dependabot full run
+
+Review the open Dependabot PR, including changed scripts and dependencies. In **Actions → Dependabot full validation → Run workflow**, select **main** and enter the PR number and its full head SHA. Starting this workflow approves that exact commit for execution with the dedicated Cloudflare test token.
+
+To get the SHA and start the same run from the CLI:
+
+```sh
+gh pr view 508 --json headRefOid --jq .headRefOid
+gh workflow run dependabot-validation.yml --ref main \
+  -f pr_number=508 -f head_sha=PASTE_THE_REVIEWED_40_CHARACTER_SHA
+```
+
+The workflow rejects a stale SHA, closed PR, fork, non-Dependabot author, or base other than `main`. A new Dependabot commit needs a new approval. Rerunning an existing run keeps its original SHA. Normal Dependabot PR runs remain credential-free; approving or rerunning those runs does not start this suite. See [GitHub's Dependabot Actions restrictions](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-on-actions).
+
+The **Dependabot full validation** commit status links to the run and its artifacts. It passes only when userscript, portable, and Cloudflare validation all succeed. If cancellation interrupts the reporter, the status can remain pending; it never becomes a pass. Later PR commits do not inherit the result.
+
+This run builds the userscript and deploys both Node and Bun backend images with the frontend to disposable Compose and kind environments. It also deploys Workers, D1, R2, and Durable Objects to the reserved Cloudflare test resources. Cleanup follows each suite. No release, image publication, or production deployment runs. The userscript build is an artifact, not a published installer.
+
+Workflow definitions and action versions come from the dispatched `main` commit. Source, manifests, lockfiles, build scripts, and tests come from the approved PR head. For GitHub Actions dependency bumps, also inspect the ordinary PR checks that execute changed workflow definitions; this manual run does not test changed Action versions. GitHub documents [how reusable workflow references select their version](https://docs.github.com/en/actions/how-tos/reuse-automations/reuse-workflows#calling-a-reusable-workflow).
 
 ## One-time account setup
 
@@ -62,7 +83,7 @@ The gate script adds one ruleset without replacing other branch rules. It refuse
 
 The live suite reserves the D1 database and R2 bucket `caelestis-stack-ci`, plus Workers with that prefix. Use these names only for the suite. It replaces all production resource IDs and routes before deploying. Test data goes through workers.dev URLs and service bindings.
 
-All live runs share one concurrency group. Cleanup runs before provisioning and in `finally`; the next successful scheduled run also cleans up resources left by an interrupted runner. The cleaner empties only the reserved bucket before deleting it. Missing account setup fails the live job with the setup-document path. A PR never receives the Cloudflare secret.
+All live runs share one concurrency group. Cleanup runs before provisioning and in `finally`; the next successful scheduled run also cleans up resources left by an interrupted runner. The cleaner empties only the reserved bucket before deleting it. Missing account setup fails the live job with the setup-document path. Automatic PR runs never receive the Cloudflare secret. A manually approved Dependabot head receives only the dedicated test token through the `stack-tests` environment, using the same reserved resources and cleanup.
 
 ## Upgrades and release artifacts
 

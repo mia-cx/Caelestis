@@ -10,7 +10,7 @@ Manually approve an exact Dependabot PR head for userscript validation and the c
 - [x] Run userscript/shared/UI checks and the extended portable and Cloudflare acceptance suites.
 - [x] Publish a commit status with the run link; require every suite to succeed.
 - [x] Keep production credentials, publication, and deployment outside this workflow.
-- [ ] Document approval and the distinction between candidate source and trusted workflow definitions.
+- [x] Document approval and the distinction between candidate source and trusted workflow definitions.
 
 ## TODOs
 
@@ -18,7 +18,7 @@ Manually approve an exact Dependabot PR head for userscript validation and the c
 - [x] Connect reusable validation workflows and test their routing and permissions.
 - [x] Make the newly enabled Effect pin check accept consistent exact version updates.
 - [x] Build all backend dependencies before the newly enabled live-paint suite.
-- [ ] Document the manual run, validate workflow syntax and release tooling, and file the PR.
+- [x] Document the manual run and validate workflow syntax and release tooling.
 
 ## Notes
 
@@ -31,3 +31,4 @@ Manually approve an exact Dependabot PR head for userscript validation and the c
 - Added wire-schema tests to portable runtime coverage; full userscript calls also run lint and the root fixture, capacity, progress, and live-paint suites.
 - The capacity suite hardcoded Effect beta.102 despite main using rc.115. It now checks consistent exact pins and the matching lockfile entry.
 - A fresh userscript runner lacked storage build output for test:live-paints. Its command now builds the backend dependency graph. The 100,000-pixel workerd replay passes, as do 204 wire-schema tests, three progress tests, three capacity tests, and the fixture inventory test.
+- Remote deployment validation remains a post-merge manual run. No production or disposable remote deployment was started during implementation.
