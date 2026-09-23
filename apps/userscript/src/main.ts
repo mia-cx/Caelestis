@@ -64,6 +64,7 @@ import {
 import { readProfileContext } from './profile-context.js'
 import { serverMismatchMemoryBytes } from './server-mismatch.js'
 import { installServerSyncCoordinator } from './server-sync-coordinator.js'
+import { installShiftPaint } from './shift-paint.js'
 import { getState, loadState, onStateChange } from './state.js'
 import { installTelemetry } from './telemetry.js'
 import {
@@ -397,6 +398,7 @@ const main = (): void => {
   // Middle-click picking, answered from the template when the template is what you can see.
   step('paint cursor', installPaintCursorTracking)
   step('colour picker', installColourPicker)
+  step('shift paint', installShiftPaint)
   step('keyboard shortcuts', () => {
     installKeyboardShortcuts(redraw)
   })

@@ -13,7 +13,7 @@ import { readArtboardPixels } from './gl/artboard-pixels.js'
 import { canvasPixelAt } from './main.js'
 import { getMap } from './map-handle.js'
 import { nativePixelAt } from './native-pixels.js'
-import { forwardPaintMove, isForwardedPaintMove } from './paint-cursor.js'
+import { forwardPaintMove, isForwardedPaintKey, isForwardedPaintMove } from './paint-cursor.js'
 import { pickerIndex } from './picker-source.js'
 import { claimedHiddenFor } from './templates/colour-filter.js'
 import {
@@ -71,7 +71,7 @@ const MAP_SURFACE = '.maplibregl-canvas-container, canvas.maplibregl-canvas'
 const MIDDLE_BUTTON_MASK = 4
 
 /** The palette index our overlay claims at a logical canvas pixel, or null if it claims none. */
-const overlayIndexAt = (surface: TemplateSurface, x: number, y: number): number | null => {
+export const overlayIndexAt = (surface: TemplateSurface, x: number, y: number): number | null => {
   // Last match wins: the layer draws templates in this order, so the last one drawn is the one on
   // top, and the one on top is the one being pointed at.
   let found: number | null = null
@@ -91,7 +91,7 @@ const overlayIndexAt = (surface: TemplateSurface, x: number, y: number): number 
 }
 
 /** The exact base tile index. A cache miss starts a fetch and deliberately returns no colour. */
-const placedIndexAt = (x: number, y: number): number | null => {
+const placedIndexAt = (x: number, y: number, includeDraft = false): number | null => {
   const column = Math.floor(x)
   const row = Math.floor(y)
   const tile = {
@@ -99,7 +99,7 @@ const placedIndexAt = (x: number, y: number): number | null => {
     y: Math.floor(row / TILE_SIZE),
   }
   ensureTilePixels(tile)
-  return nativePixelAt(worldNativePixels(tile), column, row, false)?.index ?? null
+  return nativePixelAt(worldNativePixels(tile), column, row, includeDraft)?.index ?? null
 }
 
 /** The colour the picker is allowed to offer at one canvas pixel. */
@@ -110,7 +110,12 @@ interface PickerPoint {
   readonly alliance: ActiveAllianceSurface | null
 }
 
-const pickerPointAt = (target: Element, clientX: number, clientY: number): PickerPoint | null => {
+/** Resolve the logical paint cell using the native surface's projection. */
+export const pickerPointAt = (
+  target: Element,
+  clientX: number,
+  clientY: number,
+): PickerPoint | null => {
   const alliance = activeAllianceSurface()
   if (alliance?.frame.contains(target)) {
     const point = alliancePointAt(alliance, clientX, clientY)
@@ -140,6 +145,9 @@ const pickedIndexAt = ({ surface, x, y, alliance }: PickerPoint): number | null 
   })
   return pickerIndex({ template, pixelArt: nativePixelAt(regions, x, y, false)?.index ?? null })
 }
+
+/** Uncomposited world colour under the brush, including the current native draft. */
+export const worldPaintIndexAt = (x: number, y: number): number | null => placedIndexAt(x, y, true)
 
 /**
  * Wplace exposes no picker state, but its rendered control does: the active tool is `btn-primary`.
@@ -200,6 +208,7 @@ export const installColourPicker = (): void => {
   window.addEventListener(
     'keydown',
     (event) => {
+      if (isForwardedPaintKey(event)) return
       if (event.code === 'Space') spaceHeld = true
     },
     { capture: true },
@@ -207,6 +216,7 @@ export const installColourPicker = (): void => {
   window.addEventListener(
     'keyup',
     (event) => {
+      if (isForwardedPaintKey(event)) return
       if (event.code === 'Space') spaceHeld = false
     },
     { capture: true },

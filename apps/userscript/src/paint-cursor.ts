@@ -3,6 +3,17 @@ import type { MapLike } from './map-handle.js'
 import { isPaintOpen } from './wplace-paint.js'
 
 const forwardedMoves = new WeakSet<Event>()
+const forwardedKeys = new WeakSet<Event>()
+
+/** Whether a Space transition belongs to filtered painting rather than the physical keyboard. */
+export const isForwardedPaintKey = (event: Event): boolean => forwardedKeys.has(event)
+
+/** Pause or resume native Space painting without changing our physical-key tracking. */
+export const forwardPaintKey = (type: 'keydown' | 'keyup'): void => {
+  const event = new KeyboardEvent(type, { code: 'Space', key: ' ', bubbles: true })
+  forwardedKeys.add(event)
+  document.dispatchEvent(event)
+}
 
 /** Whether this is movement forwarded by Caelestis rather than a compatibility mouse event. */
 export const isForwardedPaintMove = (event: Event): boolean => forwardedMoves.has(event)
