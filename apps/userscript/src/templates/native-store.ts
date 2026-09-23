@@ -11,6 +11,7 @@ import { pageWindow } from '../page-world.js'
 import { loadAccount, ownedColours } from '../wplace-account.js'
 import { whenWplaceMapReady } from '../wplace-ready.js'
 import type { ImportedTemplate } from './import.js'
+import type { resizeWplaceImage } from './wplace-resize.js'
 
 /** Wplace owns these fields. Caelestis folders, appearance, and history stay in its own database. */
 export interface NativeTemplate {
@@ -91,7 +92,7 @@ const MAX_NATIVE_IMAGE_BYTES = 64 * 1024 * 1024
 const PROJECTION_EPSILON = 1e-9
 
 /** Geographic edges map to integer canvas pixels, including the eastern world boundary. */
-export const nativePlacement = (template: NativeTemplate) => {
+export const nativePlacement = (template: Pick<NativeTemplate, 'bounds'>) => {
   const { north, south, west, east } = template.bounds
   if (
     ![north, south, west, east].every(Number.isFinite) ||
@@ -255,7 +256,11 @@ export class NativeTemplates {
     return { template, image, token: `${serialized}\n${digest}` }
   }
 
-  async pixels(snapshot: NativeSnapshot, deriveTemplatePalette = false): Promise<ImportedTemplate> {
+  /** Process a source without saving it; file imports need no native storage record. */
+  async pixels(
+    snapshot: Pick<NativeSnapshot, 'template' | 'image'>,
+    deriveTemplatePalette = false,
+  ): Promise<ImportedTemplate> {
     const { template, image } = snapshot
     const placement = nativePlacement(template)
     const rendered = await this.images.render(image, template, deriveTemplatePalette)
@@ -401,8 +406,11 @@ const nativeFunction = <T>(module: NativeModule, matches: (source: string) => bo
  * top level. Before Wplace's `init` hook has loaded that catalog the evaluation throws, the chunk is
  * then failed for good, and Wplace's own import of it fails too: no map, ever (#416). So nothing
  * here starts until Wplace has built its map, which only happens after `init` resolved.
+ * File imports can supply exact sampling before native palette conversion and dithering.
  */
-export const connectNativeTemplates = async (): Promise<NativeTemplates> => {
+export const connectNativeTemplates = async (
+  processing: { resize?: typeof resizeWplaceImage } = {},
+): Promise<NativeTemplates> => {
   await whenWplaceMapReady()
   const page = pageWindow()
   const candidates = new Set(
@@ -555,6 +563,8 @@ export const connectNativeTemplates = async (): Promise<NativeTemplates> => {
                   ? paletteForSource(source, template.colorMetric)
                   : template.templateColorIdxs
                 : undefined
+        // File imports own their sampling while native processing retains exact palette/dither behavior.
+        if (processing.resize) source = await processing.resize(source, width, height)
         const pending = render({
           source: { pixels: source.data, width: source.width, height: source.height },
           targetWidth: width,
