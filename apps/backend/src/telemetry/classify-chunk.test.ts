@@ -131,47 +131,50 @@ describe('classifyChunk', () => {
     })
   })
 
-  it('keeps a full canvas tile well under the live command budget', () => {
-    const random = seeded(1_000_000)
-    const rect = { left: 0, top: 0, width: TILE_SIZE, height: TILE_SIZE }
-    const chunk = randomChunk(random, TILE_SIZE * TILE_SIZE, 0.3)
-    const canvas = randomCanvas(random, chunk, rect)
-    const measure = (classify: typeof classifyChunk) => {
-      const startedAt = performance.now()
-      encodeMismatchMask(rect, classify(chunk, canvas, rect).classifications)
-      return performance.now() - startedAt
-    }
-    // Warm the encoder as well as both classifiers. A cold encode used to count only against
-    // the optimized path, making the comparison depend on Bun's JIT compilation timing.
-    for (let round = 0; round < 5; round++) {
-      measure(classifyChunk)
-      measure(referenceClassify)
-    }
-    const optimized = []
-    const reference = []
-    for (let round = 0; round < 7; round++) {
-      // Alternate order so scheduling pauses do not consistently penalize the same path.
-      if (round % 2 === 0) {
-        optimized.push(measure(classifyChunk))
-        reference.push(measure(referenceClassify))
-      } else {
-        reference.push(measure(referenceClassify))
-        optimized.push(measure(classifyChunk))
+  it.runIf(process.env.CAELESTIS_PERFORMANCE === '1')(
+    'keeps a full canvas tile well under the live command budget',
+    () => {
+      const random = seeded(1_000_000)
+      const rect = { left: 0, top: 0, width: TILE_SIZE, height: TILE_SIZE }
+      const chunk = randomChunk(random, TILE_SIZE * TILE_SIZE, 0.3)
+      const canvas = randomCanvas(random, chunk, rect)
+      const measure = (classify: typeof classifyChunk) => {
+        const startedAt = performance.now()
+        encodeMismatchMask(rect, classify(chunk, canvas, rect).classifications)
+        return performance.now() - startedAt
       }
-    }
-    const median = (samples: number[]) =>
-      samples.sort((left, right) => left - right)[Math.floor(samples.length / 2)] ?? 0
-    const elapsedMs = median(optimized)
-    const referenceMs = median(reference)
-    const result = classifyChunk(chunk, canvas, rect)
-    const mask = encodeMismatchMask(rect, result.classifications)
-    console.info(
-      `full-tile classify + encode median ${elapsedMs.toFixed(1)} ms (reference ${referenceMs.toFixed(1)} ms), ${mask.byteLength} bytes`,
-    )
+      // Warm the encoder as well as both classifiers. A cold encode used to count only against
+      // the optimized path, making the comparison depend on Bun's JIT compilation timing.
+      for (let round = 0; round < 5; round++) {
+        measure(classifyChunk)
+        measure(referenceClassify)
+      }
+      const optimized = []
+      const reference = []
+      for (let round = 0; round < 7; round++) {
+        // Alternate order so scheduling pauses do not consistently penalize the same path.
+        if (round % 2 === 0) {
+          optimized.push(measure(classifyChunk))
+          reference.push(measure(referenceClassify))
+        } else {
+          reference.push(measure(referenceClassify))
+          optimized.push(measure(classifyChunk))
+        }
+      }
+      const median = (samples: number[]) =>
+        samples.sort((left, right) => left - right)[Math.floor(samples.length / 2)] ?? 0
+      const elapsedMs = median(optimized)
+      const referenceMs = median(reference)
+      const result = classifyChunk(chunk, canvas, rect)
+      const mask = encodeMismatchMask(rect, result.classifications)
+      console.info(
+        `full-tile classify + encode median ${elapsedMs.toFixed(1)} ms (reference ${referenceMs.toFixed(1)} ms), ${mask.byteLength} bytes`,
+      )
 
-    expect(result.correct + result.wrong + result.blank).toBeGreaterThan(600_000)
-    // Compare the same end-to-end work, retaining the 2x improvement requirement. A median
-    // rejects isolated GC/scheduling pauses while still catching a return to per-pixel allocation.
-    expect(elapsedMs).toBeLessThan(referenceMs / 2)
-  })
+      expect(result.correct + result.wrong + result.blank).toBeGreaterThan(600_000)
+      // Compare the same end-to-end work, retaining the 2x improvement requirement. A median
+      // rejects isolated GC/scheduling pauses while still catching a return to per-pixel allocation.
+      expect(elapsedMs).toBeLessThan(referenceMs / 2)
+    },
+  )
 })

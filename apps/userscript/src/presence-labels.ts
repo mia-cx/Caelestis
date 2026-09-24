@@ -470,11 +470,3 @@ export const renderPresenceLabels = (
     nodes.delete(key)
   }
 }
-
-/** Test seam: forget the pointer, the chips, and the cached pieces. */
-export const resetPresenceLabels = (): void => {
-  removeAll()
-  pieces.clear()
-  widths.clear()
-  pointer = null
-}

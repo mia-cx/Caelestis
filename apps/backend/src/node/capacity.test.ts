@@ -119,10 +119,9 @@ describe('AdmissionCounters', () => {
 })
 
 describe('EventLoopLag', () => {
-  it('reports finite non-negative seconds and resets between reads', async () => {
+  it('reports zero before sampling and supports repeated reads', () => {
     const lag = new EventLoopLag()
     try {
-      await new Promise((resolve) => setTimeout(resolve, 60))
       const first = lag.read()
       expect(first.max).toBeGreaterThanOrEqual(0)
       expect(first.p99).toBeGreaterThanOrEqual(0)

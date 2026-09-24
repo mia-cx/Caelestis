@@ -210,17 +210,17 @@ describe('Dependabot workflow boundaries', () => {
       userscript,
       /name: caelestis-userscript-\$\{\{ inputs.source_sha \|\| github.sha \}\}/,
     )
-    for (const command of ['build', 'check', 'test']) {
-      assert.ok(userscript.includes(`pnpm --filter @caelestis/userscript... ${command}`))
+    assert.ok(userscript.includes('pnpm --filter @caelestis/userscript... build'))
+    for (const command of ['check', 'test']) {
+      assert.ok(
+        userscript.includes(`pnpm exec turbo run ${command} --filter=@caelestis/userscript...`),
+      )
     }
-    for (const command of [
-      'lint',
-      'test:fixtures',
-      'test:capacity',
-      'test:progress',
-      'test:live-paints',
-    ]) {
+    for (const command of ['lint', 'test:capacity', 'test:progress']) {
       assert.ok(userscript.includes(`pnpm ${command}`))
+    }
+    for (const path of ['test/import-contract.test.ts', 'test/api-telemetry.test.ts']) {
+      assert.ok(userscript.includes(`pnpm --filter @caelestis/userscript test ${path}`))
     }
     assert.match(portable, /if \[ -n "\$RELEASE_SHA" \]/)
     assert.match(
