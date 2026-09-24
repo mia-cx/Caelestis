@@ -20,7 +20,7 @@ Wplace's client keeps its MapLibre map rendering at 60 fps while idle. It also r
 ## TODOs
 
 - [x] Add the Wplace patch registry with persistent per-patch switches and the debug API, plus P1 (pause `pixel-hover`), P2 (highlight-area move guard), and P6 (pause hidden marker animations), with tests. Validated: `vitest run src/wplace-patches.test.ts` (14 passed), `tsc --noEmit`, biome.
-- [ ] Make the presence draft check run on a trailing timer when its one-second limit skips a check, with tests.
+- [x] Make the presence draft check run on a trailing timer when its one-second limit skips a check, with tests. Validated: `vitest run src/presence-client.test.ts` (19 passed), `tsc --noEmit`, biome.
 - [ ] Drive the deferred marker retry from a timer instead of from later frames, with tests.
 - [ ] P3 + P4: conditional tile refresh with HEAD checks, and narrowed draft-preview refreshes from the service-worker message tap, with tests. (Codex gpt-6-sol)
 - [ ] P5: skip Caelestis tile capture when a tile's bytes are unchanged, with tests. (Codex gpt-6-sol)
