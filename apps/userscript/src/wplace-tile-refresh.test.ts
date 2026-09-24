@@ -280,6 +280,33 @@ describe('capture scope refresh', () => {
     expect(original).toHaveBeenCalledTimes(2)
   })
 
+  it('holds a widened scope until a live map is patched, then refreshes that map once', async () => {
+    vi.useFakeTimers()
+    realm()
+    vi.resetModules()
+    const refresh = await import('./wplace-tile-refresh.js')
+    const patched = (connected: boolean) => {
+      const original = vi.fn()
+      refresh.patchTileRefresh({
+        getCanvas: () => ({ isConnected: connected }),
+        getSource: () => ({ tiles: ['https://backend.wplace.live/files/s0/tiles/{x}/{y}.png'] }),
+        style: { tileManagers: {} },
+        refreshTiles: original,
+      })
+      return original
+    }
+    refresh.watchCaptureScope()(['paint'])
+    await vi.advanceTimersByTimeAsync(0)
+    // A map Wplace already replaced cannot take the refresh either.
+    const replaced = patched(false)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(replaced).not.toHaveBeenCalled()
+    const current = patched(true)
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(current.mock.calls).toEqual([['pixel-art-layer']])
+  })
+
   it('leaves refreshing to Wplace when conditional refresh is switched off', async () => {
     vi.useFakeTimers()
     realm()

@@ -132,6 +132,7 @@ export const resetWplacePatches = (): void => {
 
 /** The slice of MapLibre's `Map` these patches use. */
 export interface PatchableMap {
+  getCanvas?(): { readonly isConnected: boolean }
   getSource?(id: string): unknown
   refreshTiles?(id: string, tiles?: readonly { x: number; y: number; z: number }[]): unknown
   moveLayer?(id: string, before?: string): unknown

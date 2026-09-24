@@ -249,9 +249,34 @@ const signature = async (url: string): Promise<string | null> => {
   }
 }
 
-/** The patched map's unconditional refresh, once there is one. */
-let refreshAll: (() => void) | null = null
+/** The latest patched map's unconditional refresh; false when that map has left the page. */
+let refreshAll: (() => boolean) | null = null
 let refreshAllScheduled = false
+/**
+ * A full refresh no live patched map has taken yet.
+ *
+ * Capture can widen its scope before the attach loop has patched the current map, or while the last
+ * patched one is being replaced. Dropping the request then would leave its stale pixels until the
+ * safety refresh, so it waits for the next map instead.
+ */
+let refreshAllPending = false
+
+const deliverRefreshAll = (): void => {
+  refreshAllScheduled = false
+  if (!refreshAllPending) return
+  try {
+    if (refreshAll?.() === true) refreshAllPending = false
+  } catch {
+    refreshAllPending = false
+    count('wplace-patch:full tile refresh failed')
+  }
+}
+
+const scheduleRefreshAll = (): void => {
+  if (refreshAllScheduled) return
+  refreshAllScheduled = true
+  pageWindow().setTimeout(deliverRefreshAll, 0)
+}
 
 /**
  * Re-download every visible Wplace tile once.
@@ -263,16 +288,9 @@ let refreshAllScheduled = false
  * reloads everything on its own timer anyway.
  */
 export const refreshAllWplaceTiles = (): void => {
-  if (refreshAllScheduled || !isWplacePatchEnabled('tile-refresh')) return
-  refreshAllScheduled = true
-  pageWindow().setTimeout(() => {
-    refreshAllScheduled = false
-    try {
-      refreshAll?.()
-    } catch {
-      count('wplace-patch:full tile refresh failed')
-    }
-  }, 0)
+  if (!isWplacePatchEnabled('tile-refresh')) return
+  refreshAllPending = true
+  scheduleRefreshAll()
 }
 
 /**
@@ -321,9 +339,13 @@ export const patchTileRefresh = (map: PatchableMap): void => {
     return original.call(receiver, SOURCE)
   }
   refreshAll = () => {
+    if (map.getCanvas?.().isConnected === false) return false
     count('wplace-patch:full tile refresh for capture')
     full(map)
+    return true
   }
+  // A scope that widened before this map was patched still owes it one full refresh.
+  if (refreshAllPending) scheduleRefreshAll()
   /** The timer's refresh: HEAD every visible tile and reload only those that changed. */
   const periodic = (receiver: PatchableMap): unknown => {
     if (!isWplacePatchEnabled('tile-refresh')) return full(receiver)
