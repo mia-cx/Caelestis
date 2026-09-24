@@ -1,4 +1,5 @@
 import { count, log } from './debug.js'
+import { patchTileRefresh } from './wplace-tile-refresh.js'
 
 /**
  * Performance patches for Wplace's own client, applied from inside the page.
@@ -109,9 +110,14 @@ export const resetWplacePatches = (): void => {
 /** The slice of MapLibre's `Map` these patches use. */
 export interface PatchableMap {
   getSource?(id: string): unknown
+  refreshTiles?(id: string, tiles?: readonly { x: number; y: number; z: number }[]): unknown
   moveLayer?(id: string, before?: string): unknown
   on?(type: string, listener: (event: { sourceId?: string }) => void): unknown
-  style?: { _order?: readonly string[] }
+  style?: {
+    _order?: readonly string[]
+    tileManagers?: ReadonlyMap<string, unknown> | Record<string, unknown>
+    sourceCaches?: ReadonlyMap<string, unknown> | Record<string, unknown>
+  }
 }
 
 interface CanvasSourceLike {
@@ -271,6 +277,7 @@ export const applyWplacePatches = (map: PatchableMap | null): void => {
   if (!patchedMaps.has(map)) {
     patchedMaps.add(map)
     guardHighlightMoves(map)
+    patchTileRefresh(map)
     // Pause a re-created hover source as soon as it loads, rather than up to a second later.
     map.on?.('sourcedata', (event) => {
       if (event.sourceId === HOVER_SOURCE) syncHoverCanvas(map)

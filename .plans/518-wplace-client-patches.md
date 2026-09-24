@@ -22,7 +22,7 @@ Wplace's client keeps its MapLibre map rendering at 60 fps while idle. It also r
 - [x] Add the Wplace patch registry with persistent per-patch switches and the debug API, plus P1 (pause `pixel-hover`), P2 (highlight-area move guard), and P6 (pause hidden marker animations), with tests. Validated: `vitest run src/wplace-patches.test.ts` (14 passed), `tsc --noEmit`, biome.
 - [x] Make the presence draft check run on a trailing timer when its one-second limit skips a check, with tests. Validated: `vitest run src/presence-client.test.ts` (19 passed), `tsc --noEmit`, biome.
 - [x] Drive the deferred marker retry from a timer instead of from later frames, with tests. Validated: `vitest run src/gl/markers.test.ts src/gl/markers-work.test.ts` (16 passed), `tsc --noEmit`, biome.
-- [ ] P3 + P4: conditional tile refresh with HEAD checks, and narrowed draft-preview refreshes from the service-worker message tap, with tests. (Codex gpt-6-sol)
+- [x] P3 + P4: conditional tile refresh with HEAD checks, and narrowed draft-preview refreshes from the service-worker message tap, with tests. (Codex gpt-6-sol) Review fix: draft tiles used the season as `z`, so narrowed refreshes matched no tile; `z` now comes from the source zoom, and the tests use the real season 0. Validated: `vitest run src/wplace-tile-refresh.test.ts src/wplace-patches.test.ts` (34 passed), `tsc --noEmit`, biome.
 - [ ] P5: skip Caelestis tile capture when a tile's bytes are unchanged, with tests. (Codex gpt-6-sol)
 - [ ] Live verification in the background debug Chromium, before/after numbers in `docs/performance-profiling.md`, and Changesets.
 

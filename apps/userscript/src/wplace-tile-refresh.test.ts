@@ -1,0 +1,400 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { resetWplacePatches, setWplacePatchEnabled } from './wplace-patches.js'
+import { installServiceWorkerTap, patchTileRefresh } from './wplace-tile-refresh.js'
+
+const A = { x: 1, y: 2, z: 11 }
+const B = { x: 3, y: 4, z: 11 }
+const C = { x: 5, y: 6, z: 11 }
+const D = { x: 7, y: 8, z: 11 }
+
+const realm = () => {
+  const frames: FrameRequestCallback[] = []
+  const listeners: ((event: { data: unknown }) => void)[] = []
+  const calls: { receiver: unknown; args: unknown[] }[] = []
+  class Worker {
+    postMessage(...args: unknown[]) {
+      calls.push({ receiver: this, args })
+      return 'sent'
+    }
+  }
+  const page = {
+    ServiceWorker: Worker,
+    navigator: {
+      serviceWorker: {
+        addEventListener: (_type: string, listener: (event: { data: unknown }) => void) =>
+          listeners.push(listener),
+      },
+    },
+    requestAnimationFrame: (callback: FrameRequestCallback) => {
+      frames.push(callback)
+      return frames.length
+    },
+    setTimeout,
+    clearTimeout,
+    fetch: vi.fn(),
+  }
+  vi.stubGlobal('window', page)
+  return {
+    page,
+    worker: new Worker(),
+    calls,
+    flush: () => {
+      for (const callback of frames.splice(0)) callback(0)
+    },
+    message: (data: unknown) => {
+      for (const listener of listeners) listener({ data })
+    },
+  }
+}
+
+const preview = (tile: { x: number; y: number }, x = 1, color = 10) => ({
+  tile: [tile.x, tile.y],
+  pixel: [x, 2],
+  // Wplace's live season. It must never be mistaken for the tile zoom (11).
+  season: 0,
+  color: { r: color, g: 0, b: 0, a: 255 },
+})
+
+const fakeMap = (tiles = [A, B, C, D], useSourceCaches = false) => {
+  const reset = vi.fn()
+  const manager = {
+    _inViewTiles: { getAllTiles: () => tiles.map((tile) => ({ tileID: { canonical: tile } })) },
+    _outOfViewCache: { reset },
+  }
+  const source = {
+    tiles: ['https://backend.wplace.live/files/s0/tiles/{x}/{y}.png'],
+    minzoom: 11,
+    maxzoom: 11,
+  }
+  const original = vi.fn(function (this: unknown, _id: string, _tiles?: unknown) {
+    return this
+  })
+  const map = {
+    getSource: (id: string) => (id === 'pixel-art-layer' ? source : undefined),
+    style: useSourceCaches
+      ? { sourceCaches: { 'pixel-art-layer': manager } }
+      : { tileManagers: { 'pixel-art-layer': manager } },
+    refreshTiles: original,
+  }
+  patchTileRefresh(map)
+  return { map, original, reset, source, manager }
+}
+
+const settle = async () => {
+  for (let i = 0; i < 8; i++) await Promise.resolve()
+}
+
+beforeEach(() => {
+  vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => {} })
+  resetWplacePatches()
+})
+
+afterEach(() => {
+  vi.useRealTimers()
+  resetWplacePatches()
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+})
+
+describe('periodic tile refresh', () => {
+  it('passes other sources and explicit tile lists through unchanged', () => {
+    realm()
+    const { map, original } = fakeMap()
+    map.refreshTiles('other')
+    map.refreshTiles('pixel-art-layer', [A])
+    expect(original.mock.calls).toEqual([['other'], ['pixel-art-layer', [A]]])
+    expect(Object.getOwnPropertyDescriptor(map, 'refreshTiles')?.enumerable).toBe(false)
+  })
+
+  it('reloads unknown, changed, and failed tiles but skips unchanged ones', async () => {
+    const { page } = realm()
+    const replies = new Map([
+      ['1/2', 'a'],
+      ['3/4', 'a'],
+      ['5/6', 'a'],
+      ['7/8', 'a'],
+    ])
+    page.fetch.mockImplementation(async (url: string, init: RequestInit) => {
+      expect(init).toEqual({ method: 'HEAD' })
+      const key = /tiles\/(\d+\/\d+)\.png/.exec(url)?.[1] ?? ''
+      const value = replies.get(key)
+      if (value === 'fail') throw new Error('network')
+      return {
+        ok: true,
+        headers: { get: (name: string) => (name === 'Last-Modified' ? value : '200000') },
+      }
+    })
+    const { map, original, reset, manager } = fakeMap()
+    map.refreshTiles('pixel-art-layer')
+    expect(reset).toHaveBeenCalledTimes(1)
+    await settle()
+    expect(original).toHaveBeenLastCalledWith('pixel-art-layer', [A, B, C, D])
+
+    replies.set('3/4', 'b')
+    replies.set('7/8', 'fail')
+    const nextTiles = [A, B, C, D, { x: 9, y: 10, z: 11 }]
+    // A new in-view tile has no previous signature.
+    manager._inViewTiles.getAllTiles = () =>
+      nextTiles.map((tile) => ({ tileID: { canonical: tile } }))
+    replies.set('9/10', 'a')
+    map.refreshTiles('pixel-art-layer')
+    await settle()
+    expect(reset).toHaveBeenCalledTimes(2)
+    expect(original).toHaveBeenLastCalledWith('pixel-art-layer', [B, D, nextTiles[4]])
+    expect(original).toHaveBeenCalledTimes(2)
+    map.refreshTiles('pixel-art-layer')
+    await settle()
+    expect(original).toHaveBeenCalledTimes(3)
+    expect(original).toHaveBeenLastCalledWith('pixel-art-layer', [D])
+  })
+
+  it('uses sourceCaches on older MapLibre versions', async () => {
+    const { page } = realm()
+    page.fetch.mockResolvedValue({ ok: true, headers: { get: () => 'a' } })
+    const { map, original, reset } = fakeMap([A], true)
+    map.refreshTiles('pixel-art-layer')
+    await settle()
+    expect(reset).toHaveBeenCalledOnce()
+    expect(original).toHaveBeenCalledWith('pixel-art-layer', [A])
+  })
+
+  it('treats a new source URL as unknown even when headers match', async () => {
+    const { page } = realm()
+    page.fetch.mockResolvedValue({ ok: true, headers: { get: () => 'a' } })
+    const { map, original, source } = fakeMap([A])
+    map.refreshTiles('pixel-art-layer')
+    await settle()
+    source.tiles[0] = 'https://backend.wplace.live/files/s12/tiles/{x}/{y}.png'
+    map.refreshTiles('pixel-art-layer')
+    await settle()
+    expect(original).toHaveBeenCalledTimes(2)
+    expect(original).toHaveBeenLastCalledWith('pixel-art-layer', [A])
+  })
+
+  it('reloads tiles when HEAD is non-OK or lacks either header', async () => {
+    const { page } = realm()
+    page.fetch.mockImplementation(async (url: string) => {
+      const key = /tiles\/(\d+\/\d+)\.png/.exec(url)?.[1]
+      if (key === '1/2') return { ok: false }
+      return {
+        ok: true,
+        headers: {
+          get: (name: string) => (key === '3/4' && name === 'Last-Modified' ? null : 'a'),
+        },
+      }
+    })
+    const { map, original } = fakeMap([A, B])
+    map.refreshTiles('pixel-art-layer')
+    await settle()
+    expect(original).toHaveBeenCalledWith('pixel-art-layer', [A, B])
+  })
+
+  it('runs a full refresh every tenth periodic call and after ninety seconds', async () => {
+    const { page } = realm()
+    page.fetch.mockResolvedValue({ ok: true, headers: { get: () => 'a' } })
+    const now = vi.spyOn(Date, 'now').mockReturnValue(0)
+    const { map, original } = fakeMap([A])
+    for (let i = 0; i < 10; i++) {
+      map.refreshTiles('pixel-art-layer')
+      await settle()
+    }
+    expect(original).toHaveBeenLastCalledWith('pixel-art-layer')
+    expect(page.fetch).toHaveBeenCalledTimes(9)
+    now.mockReturnValue(90_001)
+    map.refreshTiles('pixel-art-layer')
+    expect(original).toHaveBeenLastCalledWith('pixel-art-layer')
+    expect(page.fetch).toHaveBeenCalledTimes(9)
+  })
+
+  it('drops an overlapping call and skips results after its source disappears', async () => {
+    const { page } = realm()
+    let resolve!: (value: unknown) => void
+    page.fetch.mockReturnValue(new Promise((done) => (resolve = done)))
+    const { map, original } = fakeMap([A])
+    map.refreshTiles('pixel-art-layer')
+    map.refreshTiles('pixel-art-layer')
+    expect(page.fetch).toHaveBeenCalledOnce()
+    expect(original).not.toHaveBeenCalled()
+    map.getSource = () => undefined
+    resolve({ ok: true, headers: { get: () => 'a' } })
+    await settle()
+    expect(original).not.toHaveBeenCalled()
+  })
+
+  it('ignores an older HEAD round after a worker cause forces a full refresh', async () => {
+    const { page, worker } = realm()
+    installServiceWorkerTap(page as unknown as Window & typeof globalThis)
+    let resolve!: (value: unknown) => void
+    page.fetch.mockReturnValue(new Promise((done) => (resolve = done)))
+    const { map, original } = fakeMap([A])
+    map.refreshTiles('pixel-art-layer')
+    worker.postMessage({ type: 'paintPixels', data: [] })
+    map.refreshTiles('pixel-art-layer')
+    resolve({ ok: true, headers: { get: () => 'a' } })
+    await settle()
+    expect(original).toHaveBeenCalledTimes(1)
+    expect(original).toHaveBeenCalledWith('pixel-art-layer')
+  })
+
+  it('passes through when both switches are off', () => {
+    realm()
+    setWplacePatchEnabled('tile-refresh', false)
+    setWplacePatchEnabled('draft-refresh', false)
+    const { map, original } = fakeMap()
+    map.refreshTiles('pixel-art-layer')
+    expect(original).toHaveBeenCalledWith('pixel-art-layer')
+  })
+
+  it('falls back to a full refresh when MapLibre cache internals are unavailable', () => {
+    realm()
+    const { map, original, manager } = fakeMap()
+    manager._outOfViewCache.reset = undefined as never
+    map.refreshTiles('pixel-art-layer')
+    expect(original).toHaveBeenCalledWith('pixel-art-layer')
+  })
+})
+
+describe('draft refresh', () => {
+  it('diffs changed pixels and clearPixelPreview across frames', () => {
+    const { page, worker, flush } = realm()
+    installServiceWorkerTap(page as unknown as Window & typeof globalThis)
+    const { map, original, reset } = fakeMap()
+    worker.postMessage({ type: 'previewPixels', data: [preview(A), preview(B)] })
+    map.refreshTiles('pixel-art-layer')
+    expect(original).not.toHaveBeenCalled()
+    flush()
+    expect(original).toHaveBeenLastCalledWith('pixel-art-layer', [A, B])
+    worker.postMessage({ type: 'previewPixels', data: [preview(A), preview(B, 1, 20)] })
+    map.refreshTiles('pixel-art-layer')
+    flush()
+    expect(original).toHaveBeenLastCalledWith('pixel-art-layer', [B])
+    worker.postMessage({ type: 'clearPixelPreview' })
+    map.refreshTiles('pixel-art-layer')
+    flush()
+    expect(original).toHaveBeenLastCalledWith('pixel-art-layer', [A, B])
+    expect(reset).toHaveBeenCalledTimes(3)
+  })
+
+  it('merges multiple refreshes in a frame and skips a net empty change', () => {
+    const { page, worker, flush } = realm()
+    installServiceWorkerTap(page as unknown as Window & typeof globalThis)
+    const { map, original } = fakeMap()
+    worker.postMessage({ type: 'previewPixels', data: [preview(A)] })
+    map.refreshTiles('pixel-art-layer')
+    worker.postMessage({ type: 'previewPixels', data: [preview(A), preview(B)] })
+    map.refreshTiles('pixel-art-layer')
+    flush()
+    expect(original).toHaveBeenCalledTimes(1)
+    expect(original).toHaveBeenLastCalledWith('pixel-art-layer', [A, B])
+    worker.postMessage({ type: 'previewPixels', data: [preview(A)] })
+    map.refreshTiles('pixel-art-layer')
+    worker.postMessage({ type: 'previewPixels', data: [preview(A), preview(B)] })
+    map.refreshTiles('pixel-art-layer')
+    flush()
+    expect(original).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps periodic checks running through the idle clearPixelPreview keep-alive', async () => {
+    const { page, worker } = realm()
+    page.fetch.mockResolvedValue({
+      ok: true,
+      headers: { get: (name: string) => (name === 'Last-Modified' ? 'same' : '200000') },
+    })
+    installServiceWorkerTap(page as unknown as Window & typeof globalThis)
+    const { map, original } = fakeMap()
+    // Wplace posts this every few seconds with nothing drafted.
+    worker.postMessage({ type: 'clearPixelPreview' })
+    map.refreshTiles('pixel-art-layer')
+    await settle()
+    expect(page.fetch).toHaveBeenCalledTimes(4)
+    expect(original).toHaveBeenLastCalledWith('pixel-art-layer', [A, B, C, D])
+
+    worker.postMessage({ type: 'clearPixelPreview' })
+    map.refreshTiles('pixel-art-layer')
+    await settle()
+    expect(page.fetch).toHaveBeenCalledTimes(8)
+    expect(original).toHaveBeenCalledTimes(1)
+  })
+
+  it('checks tiles instead of dropping a refresh when drafts net out to no change', async () => {
+    const { page, worker, flush } = realm()
+    page.fetch.mockResolvedValue({
+      ok: true,
+      headers: { get: (name: string) => (name === 'Last-Modified' ? 'same' : '200000') },
+    })
+    installServiceWorkerTap(page as unknown as Window & typeof globalThis)
+    const { map } = fakeMap()
+    worker.postMessage({ type: 'previewPixels', data: [preview(A)] })
+    worker.postMessage({ type: 'clearPixelPreview' })
+    map.refreshTiles('pixel-art-layer')
+    flush()
+    await settle()
+    expect(page.fetch).toHaveBeenCalledTimes(4)
+  })
+
+  it('uses the timeout when the animation frame does not run', () => {
+    vi.useFakeTimers()
+    const { page, worker } = realm()
+    installServiceWorkerTap(page as unknown as Window & typeof globalThis)
+    const { map, original } = fakeMap()
+    worker.postMessage({ type: 'previewPixels', data: [preview(A)] })
+    map.refreshTiles('pixel-art-layer')
+    vi.advanceTimersByTime(100)
+    expect(original).toHaveBeenCalledWith('pixel-art-layer', [A])
+    vi.useRealTimers()
+  })
+
+  it('uses a full refresh when draft narrowing is switched off', () => {
+    const { page, worker } = realm()
+    installServiceWorkerTap(page as unknown as Window & typeof globalThis)
+    setWplacePatchEnabled('draft-refresh', false)
+    const { map, original } = fakeMap()
+    worker.postMessage({ type: 'previewPixels', data: [preview(A)] })
+    map.refreshTiles('pixel-art-layer')
+    expect(original).toHaveBeenCalledWith('pixel-art-layer')
+  })
+
+  it.each(['paintPixels', 'unpaintPixels', 'refreshPixelArt'])(
+    'passes through page-sent %s',
+    (type) => {
+      const { page, worker } = realm()
+      installServiceWorkerTap(page as unknown as Window & typeof globalThis)
+      const { map, original } = fakeMap()
+      worker.postMessage({ type })
+      map.refreshTiles('pixel-art-layer')
+      expect(original).toHaveBeenCalledWith('pixel-art-layer')
+    },
+  )
+
+  it('passes through unsolicited worker refreshPixelArt before the page listener runs', () => {
+    const { page, message } = realm()
+    installServiceWorkerTap(page as unknown as Window & typeof globalThis)
+    const { map, original } = fakeMap()
+    message({ type: 'refreshPixelArt' })
+    map.refreshTiles('pixel-art-layer')
+    expect(original).toHaveBeenCalledWith('pixel-art-layer')
+  })
+
+  it('keeps postMessage arguments, receiver, and result intact despite observation errors', () => {
+    const { page, worker, calls } = realm()
+    installServiceWorkerTap(page as unknown as Window & typeof globalThis)
+    expect(worker.postMessage({ type: 'previewPixels', data: null }, ['transfer'])).toBe('sent')
+    expect(calls).toEqual([
+      { receiver: worker, args: [{ type: 'previewPixels', data: null }, ['transfer']] },
+    ])
+    expect(
+      Object.getOwnPropertyDescriptor(page.ServiceWorker.prototype, 'postMessage')?.enumerable,
+    ).toBe(false)
+  })
+
+  it('preserves an error from the original postMessage', () => {
+    const { page, worker } = realm()
+    page.ServiceWorker.prototype.postMessage = () => {
+      throw new Error('original failure')
+    }
+    installServiceWorkerTap(page as unknown as Window & typeof globalThis)
+    expect(() => worker.postMessage({ type: 'previewPixels', data: [] })).toThrow(
+      'original failure',
+    )
+  })
+})

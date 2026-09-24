@@ -105,6 +105,7 @@ import {
 } from './wplace-patches.js'
 import { installColourPicker } from './wplace-picker.js'
 import { getWplaceState, installWplaceStateCapture } from './wplace-state.js'
+import { installServiceWorkerTap } from './wplace-tile-refresh.js'
 
 /**
  * Entry point.
@@ -298,8 +299,8 @@ export const startUserscript = (): void => {
   registerProfileMemorySource('Marker density buffers', markerDensityMemoryBytes)
   registerProfileMemorySource('Marker draw batches', markerBatchMemoryBytes)
   registerProfileMemorySource('Marker GPU buffers', markerGpuMemoryBytes)
-  // Before anything else: the trap has to be in place before MapLibre constructs its Map.
-  // Both traps must be armed before Wplace's modules evaluate; the state is built during startup.
+  // These traps must be armed before Wplace's modules evaluate or MapLibre constructs its Map.
+  step('service-worker tile refresh tap', () => installServiceWorkerTap())
   step('wplace state capture', installWplaceStateCapture)
   step('map capture', installMapCapture)
   step('alliance surface observer', installAllianceSurfaceObserver)
