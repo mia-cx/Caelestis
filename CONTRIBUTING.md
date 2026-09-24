@@ -35,6 +35,9 @@ Their `svelte-check --tsgo` commands use the TypeScript 7 alias `@typescript/nat
 Keep this [upstream-supported setup](https://github.com/sveltejs/language-tools/tree/master/packages/svelte-check#typescript-7-supports)
 until Svelte declaration generation supports the native compiler API.
 
+The root test command runs one package at a time. Each Vitest process already parallelizes its
+files; competing worker pools distort the rasterization timing assertions.
+
 Run focused tests while you work. Before opening a pull request, run every full check affected by
 the change:
 

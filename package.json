@@ -10,7 +10,7 @@
     "build": "turbo build",
     "dev": "turbo run dev",
     "check": "turbo check",
-    "test": "pnpm test:fixtures && pnpm test:capacity && pnpm test:social && pnpm test:progress && pnpm test:live-paints && turbo test",
+    "test": "pnpm test:fixtures && pnpm test:capacity && pnpm test:social && pnpm test:progress && pnpm test:live-paints && turbo test --concurrency=1",
     "test:progress": "pnpm --filter @caelestis/shared build && node --test scripts/recount-progress.test.mjs",
     "test:live-paints": "pnpm --filter @caelestis/backend... build && node --test scripts/live-paint-runtime.test.mjs",
     "test:social": "pnpm --filter @caelestis/shared build && node --test scripts/social-images.test.mjs",
