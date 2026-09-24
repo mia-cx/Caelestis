@@ -471,16 +471,7 @@ export const startUserscript = (): void => {
       // Pixels kept while capture was off may be stale, and tiles are no longer re-downloaded on a
       // timer to correct them. When capture starts caring about more, re-read everything visible.
       captureScope(
-        on
-          ? [
-              ...(isPaintOpen() ? ['paint'] : []),
-              ...localTemplates()
-                .filter(
-                  (template) => template.serverUrl === undefined && isTemplateVisible(template),
-                )
-                .map((template) => `${template.id}@${template.originX},${template.originY}`),
-            ]
-          : [],
+        on ? [...(isPaintOpen() ? ['paint'] : []), ...pixelAccounting.captureScopeKeys()] : [],
       )
     }
     sync()

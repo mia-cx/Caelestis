@@ -714,6 +714,20 @@ export const wantsTilePixels = (tile?: TileCoord): boolean => {
   })
 }
 
+/**
+ * Every reason `wantsTilePixels` currently answers yes, as stable keys.
+ *
+ * Built from the same two sources, so the two cannot drift: each hidden template tile that progress
+ * asked for, and each visible local template at its position. A new key means pixels kept from
+ * before may not describe what it needs, and every visible tile is re-read.
+ */
+export const captureScopeKeys = (): string[] => [
+  ...pendingProgressPixels,
+  ...worldTemplates()
+    .filter((template) => template.serverUrl === undefined && isTemplateVisible(template))
+    .map((template) => `${template.id}@${template.originX},${template.originY}`),
+]
+
 /** The switches, not what is on screen — see `claimedHiddenFor` for why the two differ. */
 const assertedHidden = (template: PlacedTemplate): readonly number[] =>
   claimedHiddenFor(appearanceOf(template))
@@ -2120,6 +2134,7 @@ export const pixelAccounting = Object.freeze({
     }
   },
   wantsTilePixels,
+  captureScopeKeys,
   onChange: onMismatchesChanged,
   onDraftChange: onDraftsChanged,
   memoryBytes: mismatchMemoryBytes,
