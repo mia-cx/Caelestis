@@ -10,8 +10,8 @@ newer merged feature tests after auditing their contracts, including paths reint
 Rebased onto merged dependency PRs #507 and #508. The [refresh map](refresh-2026-09-24.md)
 records current contracts and retained-test decisions. The version-apps branch remains bot-managed.
 
-- Default suite passes 341 Vitest cases and 36 tooling cases. One timing benchmark runs separately.
-- Uncached shuffled execution passes with seed 76 in 25.6 seconds across all 12 Turbo tasks.
+- The refreshed suite passes 346 Vitest cases and 36 tooling cases, including restored palette migration, concurrent alarm ordering, and admitted-scope coverage.
+- Uncached shuffled execution passes with seed 76 in 24.8 seconds across all 12 Turbo tasks.
 - Build and all package checks pass. Frozen install, actionlint, and whitespace checks pass.
 - Lint passes with 38 warnings and one informational diagnostic, including retained non-null assertion warnings; no errors.
 - Diagnostic coverage completes for all seven packages with no percentage gate.
@@ -21,6 +21,7 @@ records current contracts and retained-test decisions. The version-apps branch r
   Apple's 3.54.0 library fails a historical table rename. The refresh map documents the reproducer and override.
 - Chromium CDP contracts pass with focus emulation, an owned tab, real PNG/canvas decoding, refresh recovery, and worker lifecycle.
 - Classification performance gates pass under Node and Bun. No production deployment or live Wplace write was performed.
+- Linux CI passes Node/Bun runtime checks without the macOS SQLite override. Userscript CI now uses Turbo's existing backend fixture prerequisite.
 
 The earlier validation sections below describe the original rewrite and are historical.
 
