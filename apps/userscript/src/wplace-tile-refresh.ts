@@ -254,6 +254,52 @@ const signature = async (url: string): Promise<string | null> => {
   }
 }
 
+/** The patched map's unconditional refresh, once there is one. */
+let refreshAll: (() => void) | null = null
+let refreshAllScheduled = false
+
+/**
+ * Re-download every visible Wplace tile once.
+ *
+ * Caelestis keeps captured pixels while capture is off, on the promise that turning it back on
+ * re-reads everything visible. Wplace's six-second re-download used to keep that promise; the
+ * conditional refresh above does not, so a tile that changed unread would keep its old pixels. One
+ * full refresh when capture starts caring about more tiles restores it. With the patch off, Wplace
+ * reloads everything on its own timer anyway.
+ */
+export const refreshAllWplaceTiles = (): void => {
+  if (refreshAllScheduled || !isWplacePatchEnabled('tile-refresh')) return
+  refreshAllScheduled = true
+  pageWindow().setTimeout(() => {
+    refreshAllScheduled = false
+    try {
+      refreshAll?.()
+    } catch {
+      count('wplace-patch:full tile refresh failed')
+    }
+  }, 0)
+}
+
+/**
+ * Watch what tile capture cares about, and re-read every visible tile when that grows.
+ *
+ * Keys name the reasons capture wants pixels, such as Paint being open or a template at its
+ * position. Only a new key widens the scope; a key disappearing never needs fresh pixels.
+ */
+export const watchCaptureScope = (): ((keys: Iterable<string>) => void) => {
+  let scope = new Set<string>()
+  return (keys) => {
+    const next = new Set(keys)
+    for (const key of next) {
+      if (scope.has(key)) continue
+      count('wplace-patch:capture scope widened')
+      refreshAllWplaceTiles()
+      break
+    }
+    scope = next
+  }
+}
+
 /**
  * P3 and P4: keep MapLibre's off-screen invalidation, but avoid re-downloading unchanged tiles.
  * A full refresh every tenth check bounds the risk from Last-Modified's one-second resolution.
@@ -278,6 +324,10 @@ export const patchTileRefresh = (map: PatchableMap): void => {
       state.applied = state.preview
     }
     return original.call(receiver, SOURCE)
+  }
+  refreshAll = () => {
+    count('wplace-patch:full tile refresh for capture')
+    full(map)
   }
   /** The timer's refresh: HEAD every visible tile and reload only those that changed. */
   const periodic = (receiver: PatchableMap): unknown => {

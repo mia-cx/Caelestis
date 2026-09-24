@@ -105,7 +105,7 @@ import {
 } from './wplace-patches.js'
 import { installColourPicker } from './wplace-picker.js'
 import { getWplaceState, installWplaceStateCapture } from './wplace-state.js'
-import { installServiceWorkerTap } from './wplace-tile-refresh.js'
+import { installServiceWorkerTap, watchCaptureScope } from './wplace-tile-refresh.js'
 
 /**
  * Entry point.
@@ -464,8 +464,25 @@ export const startUserscript = (): void => {
     // before the one-shot picker click; a miss is also chased on demand by `placedIndexAt`.
     const interest = (tile: { readonly x: number; readonly y: number }): boolean =>
       isPaintOpen() || pixelAccounting.wantsTilePixels(tile)
-    const sync = (): void =>
-      captureTilePixels(pixelAccounting.wantsTilePixels() || isPaintOpen(), interest)
+    const captureScope = watchCaptureScope()
+    const sync = (): void => {
+      const on = pixelAccounting.wantsTilePixels() || isPaintOpen()
+      captureTilePixels(on, interest)
+      // Pixels kept while capture was off may be stale, and tiles are no longer re-downloaded on a
+      // timer to correct them. When capture starts caring about more, re-read everything visible.
+      captureScope(
+        on
+          ? [
+              ...(isPaintOpen() ? ['paint'] : []),
+              ...localTemplates()
+                .filter(
+                  (template) => template.serverUrl === undefined && isTemplateVisible(template),
+                )
+                .map((template) => `${template.id}@${template.originX},${template.originY}`),
+            ]
+          : [],
+      )
+    }
     sync()
     onStateChange(sync)
     onLocalChange(sync)

@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resetWplacePatches, setWplacePatchEnabled } from './wplace-patches.js'
-import { installServiceWorkerTap, patchTileRefresh } from './wplace-tile-refresh.js'
+import {
+  installServiceWorkerTap,
+  patchTileRefresh,
+  watchCaptureScope,
+} from './wplace-tile-refresh.js'
 
 const A = { x: 1, y: 2, z: 11 }
 const B = { x: 3, y: 4, z: 11 }
@@ -296,6 +300,39 @@ describe('periodic tile refresh', () => {
     manager._outOfViewCache.reset = undefined as never
     map.refreshTiles('pixel-art-layer')
     expect(original).toHaveBeenCalledWith('pixel-art-layer')
+  })
+})
+
+describe('capture scope refresh', () => {
+  it('re-reads every visible tile once when capture starts caring about more', async () => {
+    vi.useFakeTimers()
+    realm()
+    const { original } = fakeMap()
+    const scope = watchCaptureScope()
+    scope(['paint', 'one@0,0'])
+    scope(['paint', 'one@0,0', 'two@5,5'])
+    await vi.advanceTimersByTimeAsync(0)
+    // Two widenings in one task are one full refresh, with no tile list.
+    expect(original.mock.calls).toEqual([['pixel-art-layer']])
+
+    scope(['paint', 'one@0,0', 'two@5,5'])
+    scope(['one@0,0'])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(original).toHaveBeenCalledTimes(1)
+
+    scope(['one@0,0', 'one@9,9'])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(original).toHaveBeenCalledTimes(2)
+  })
+
+  it('leaves refreshing to Wplace when conditional refresh is switched off', async () => {
+    vi.useFakeTimers()
+    realm()
+    const { original } = fakeMap()
+    setWplacePatchEnabled('tile-refresh', false)
+    watchCaptureScope()(['paint'])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(original).not.toHaveBeenCalled()
   })
 })
 
