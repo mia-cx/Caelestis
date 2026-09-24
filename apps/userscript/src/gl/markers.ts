@@ -175,6 +175,32 @@ export const keepMarkersAboveDrafts = (): void => {
  */
 const RETRY_MS = 250
 let nextRetry = 0
+let retryTimer: ReturnType<typeof setTimeout> | null = null
+
+const requestMapFrame = (): void => {
+  const map = getMap() as { triggerRepaint?: () => void } | null
+  map?.triggerRepaint?.()
+}
+
+/**
+ * Ask for another frame once the heartbeat allows it, from a timer.
+ *
+ * Asking only from inside a frame relied on some other frame arriving after the heartbeat was due.
+ * Wplace's map used to render continuously, so one always did. Now an idle map renders nothing, and
+ * a scan deferred behind a failed or queued tile chase would wait for the next unrelated movement.
+ */
+export const retryDeferredScan = (now: number, request: () => void = requestMapFrame): void => {
+  if (retryTimer !== null) return
+  retryTimer = setTimeout(
+    () => {
+      retryTimer = null
+      nextRetry = performance.now() + RETRY_MS
+      request()
+      count('marker:asked for another frame')
+    },
+    Math.max(0, nextRetry - now),
+  )
+}
 
 /** Every marked pixel of every template that asks for it, over every tile on screen. */
 const drawVisible = (
@@ -379,12 +405,7 @@ const drawVisible = (
 
   if (selectedWork.length === 0 && mismatchWork.length === 0) {
     reportWorkload(0, 0)
-    if (deferred && now >= nextRetry) {
-      nextRetry = now + RETRY_MS
-      const map = getMap() as { triggerRepaint?: () => void } | null
-      map?.triggerRepaint?.()
-      count('marker:asked for another frame')
-    }
+    if (deferred) retryDeferredScan(now)
     return
   }
 
@@ -407,12 +428,7 @@ const drawVisible = (
   for (const one of mismatchDraws)
     drawMarkers(gl, one.tile, one.marks, one.style, one.fade, mismatchSampleRate)
 
-  if (deferred && now >= nextRetry) {
-    nextRetry = now + RETRY_MS
-    const map = getMap() as { triggerRepaint?: () => void } | null
-    map?.triggerRepaint?.()
-    count('marker:asked for another frame')
-  }
+  if (deferred) retryDeferredScan(now)
 }
 
 const drawAll = (
