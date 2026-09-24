@@ -405,7 +405,7 @@ export const createTelemetryRoutes = (
     },
   )
 
-  routes.get('/status', requireScopeEffect(runtime, auth, 'read'), (c) => {
+  routes.get('/status', requireScopeEffect(runtime, auth, 'read'), async (c) => {
     const season =
       c.req.query('season') === undefined
         ? options.currentSeason
@@ -419,7 +419,7 @@ export const createTelemetryRoutes = (
     )
   })
 
-  routes.get('/alarms', requireScopeEffect(runtime, auth, 'read'), (c) => {
+  routes.get('/alarms', requireScopeEffect(runtime, auth, 'read'), async (c) => {
     const season =
       c.req.query('season') === undefined
         ? options.currentSeason
@@ -495,7 +495,7 @@ export const createTelemetryRoutes = (
     )
   })
 
-  routes.get('/history', requireScopeEffect(runtime, auth, 'read'), (c) => {
+  routes.get('/history', requireScopeEffect(runtime, auth, 'read'), async (c) => {
     const templateIds = parseTemplateIds(c.req.query('templateIds'))
     if (templateIds === null) {
       return c.json(
@@ -542,7 +542,7 @@ export const createTelemetryRoutes = (
     )
   })
 
-  routes.get('/painter-history', requireScopeEffect(runtime, auth, 'read'), (c) => {
+  routes.get('/painter-history', requireScopeEffect(runtime, auth, 'read'), async (c) => {
     const templateIds = parseTemplateIds(c.req.query('templateIds'))
     if (templateIds === null) {
       return c.json(
@@ -585,7 +585,7 @@ export const createTelemetryRoutes = (
     )
   })
 
-  routes.get('/painters', requireScopeEffect(runtime, auth, 'read'), (c) => {
+  routes.get('/painters', requireScopeEffect(runtime, auth, 'read'), async (c) => {
     const templateIds = parseTemplateIds(c.req.query('templateIds'))
     if (templateIds === null) {
       return c.json(
@@ -615,7 +615,7 @@ export const createTelemetryRoutes = (
     )
   })
 
-  routes.get('/contributions', requireScopeEffect(runtime, auth, 'read'), (c) => {
+  routes.get('/contributions', requireScopeEffect(runtime, auth, 'read'), async (c) => {
     const templateIds = parseTemplateIds(c.req.query('templateIds'))
     if (templateIds === null) {
       return c.json(
@@ -639,7 +639,7 @@ export const createTelemetryRoutes = (
     )
   })
 
-  routes.get('/leaderboard', requireScopeEffect(runtime, auth, 'read'), (c) => {
+  routes.get('/leaderboard', requireScopeEffect(runtime, auth, 'read'), async (c) => {
     const season =
       c.req.query('season') === undefined
         ? options.currentSeason
@@ -683,7 +683,7 @@ export const createTelemetryRoutes = (
     )
   })
 
-  routes.get('/canvas', requireScopeEffect(runtime, auth, 'read'), (c) => {
+  routes.get('/canvas', requireScopeEffect(runtime, auth, 'read'), async (c) => {
     const season =
       c.req.query('season') === undefined
         ? options.currentSeason
@@ -694,7 +694,7 @@ export const createTelemetryRoutes = (
 
   // GET here, PUT with a trailing `:hash` above — Hono matches on method and path together, so the
   // two never collide, and `history` is not a valid hash so nothing shadows the upload either.
-  routes.get('/tiles/:x/:y/history', requireScopeEffect(runtime, auth, 'read'), (c) => {
+  routes.get('/tiles/:x/:y/history', requireScopeEffect(runtime, auth, 'read'), async (c) => {
     const x = wholeNumber(c.req.param('x'))
     const y = wholeNumber(c.req.param('y'))
     if (x === null || y === null || x >= WORLD_TILES || y >= WORLD_TILES) {

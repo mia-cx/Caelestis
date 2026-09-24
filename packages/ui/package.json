@@ -22,7 +22,7 @@
   "types": "./dist/index.d.ts",
   "scripts": {
     "build": "svelte-package --input src --output dist && vite build",
-    "check": "svelte-check --tsconfig ./tsconfig.check.json",
+    "check": "svelte-check --tsgo --tsconfig ./tsconfig.check.json",
     "test": "vitest run",
     "clean": "rm -rf dist .turbo"
   },
@@ -38,10 +38,11 @@
   "devDependencies": {
     "@sveltejs/package": "^2.5.8",
     "@sveltejs/vite-plugin-svelte": "^7.3.0",
+    "@typescript/native": "npm:typescript@^7.0.2",
     "happy-dom": "^20.14.5",
     "svelte": "^5.57.1",
     "svelte-check": "^4.7.6",
-    "typescript": "^7.0.2",
+    "typescript": "~6.0.3",
     "vite": "^8.3.0",
     "vitest": "^5.0.1"
   }

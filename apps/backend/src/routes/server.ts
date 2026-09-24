@@ -131,7 +131,7 @@ export const createServerRoutes = (runtime: BackendRuntime, base: ServerInfo) =>
   routes.get('/', (c) =>
     runBackendHttp(c, runtime, resolveServerInfoEffect(base), (server) => c.json(server)),
   )
-  routes.on(['GET', 'HEAD'], '/assets/:kind', (c) => {
+  routes.on(['GET', 'HEAD'], '/assets/:kind', async (c) => {
     const kind = assetKind(c.req.param('kind'))
     if (kind === null) return c.json({ error: 'asset not found' }, 404)
     return runBackendHttp(
@@ -298,7 +298,7 @@ export const createServerAdminRoutes = (
     )
   })
 
-  routes.delete('/assets/:kind', (c) => {
+  routes.delete('/assets/:kind', async (c) => {
     const kind = assetKind(c.req.param('kind'))
     if (kind === null) return c.json({ error: 'asset not found' }, 404)
     return runBackendHttp(c, runtime, replaceServerAsset(kind, null, null, currentSeason), () =>

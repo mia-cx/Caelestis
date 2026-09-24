@@ -11,7 +11,10 @@ const MAX_SNAPSHOT_PARTS = Math.ceil(MAX_LIVE_SNAPSHOT_BYTES / SNAPSHOT_CHUNK_CO
 const MAX_PENDING_SNAPSHOTS = 4
 
 /** Frame upload metadata and PNG bytes as one retryable WebSocket message. */
-export const encodeLiveTileUpload = (metadata: LiveTileUpload, payload: Uint8Array): Uint8Array => {
+export const encodeLiveTileUpload = (
+  metadata: LiveTileUpload,
+  payload: Uint8Array,
+): Uint8Array<ArrayBuffer> => {
   const header = new TextEncoder().encode(JSON.stringify(metadata))
   if (header.byteLength > MAX_LIVE_BINARY_HEADER_BYTES)
     throw new RangeError('live header too large')

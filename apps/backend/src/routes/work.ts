@@ -81,7 +81,7 @@ const parseMutation = (body: unknown): WorkMutation | null => {
 export const createWorkRoutes = (runtime: BackendRuntime, auth: AuthOptions) => {
   const routes = new Hono()
   routes.use('/*', requireScopeEffect(runtime, auth, 'read'))
-  routes.get('/regions', (c) => {
+  routes.get('/regions', async (c) => {
     const season = natural(c.req.query('season'))
     const allianceId = c.req.query('allianceId')
     const surface = templateSurface(
@@ -173,7 +173,7 @@ export const createWorkRoutes = (runtime: BackendRuntime, auth: AuthOptions) => 
       (result) => c.json(result),
     )
   })
-  routes.get('/', (c) => {
+  routes.get('/', async (c) => {
     const season = natural(c.req.query('season'))
     const surface = templateSurface(
       c.req.query('surface') ?? 'world',
@@ -192,7 +192,7 @@ export const createWorkRoutes = (runtime: BackendRuntime, auth: AuthOptions) => 
       }),
     )
   })
-  routes.get('/:id/history', (c) => {
+  routes.get('/:id/history', async (c) => {
     const id = c.req.param('id')
     const before =
       c.req.query('before') === undefined ? Number.MAX_SAFE_INTEGER : natural(c.req.query('before'))

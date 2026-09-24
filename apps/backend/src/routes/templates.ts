@@ -50,7 +50,7 @@ export const createTemplateRoutes = (runtime: BackendRuntime, auth: AuthOptions)
 
   routes.use('/*', requireScopeEffect(runtime, auth, 'admin'))
 
-  routes.delete('/:templateId/alarms/:alarmId', (c) => {
+  routes.delete('/:templateId/alarms/:alarmId', async (c) => {
     const templateId = c.req.param('templateId')
     const alarmId = c.req.param('alarmId')
     if (!UUID_V7.test(templateId) || !UUID_V7.test(alarmId)) {

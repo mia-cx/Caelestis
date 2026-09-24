@@ -29,6 +29,12 @@ pnpm --filter @caelestis/frontend dev
 
 ## Checks
 
+TypeScript packages use the native TypeScript 7 compiler. The Svelte packages also install
+TypeScript 6 because `svelte-package` and Svelte transforms require its JavaScript compiler API.
+Their `svelte-check --tsgo` commands use the TypeScript 7 alias `@typescript/native` for diagnostics.
+Keep this [upstream-supported setup](https://github.com/sveltejs/language-tools/tree/master/packages/svelte-check#typescript-7-supports)
+until Svelte declaration generation supports the native compiler API.
+
 Run focused tests while you work. Before opening a pull request, run every full check affected by
 the change:
 
