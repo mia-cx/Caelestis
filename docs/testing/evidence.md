@@ -10,8 +10,8 @@ newer merged feature tests after auditing their contracts, including paths reint
 Rebased onto merged dependency PRs #507 and #508. The [refresh map](refresh-2026-09-24.md)
 records current contracts and retained-test decisions. The version-apps branch remains bot-managed.
 
-- The refreshed suite passes 346 Vitest cases and 36 tooling cases, including restored palette migration, concurrent alarm ordering, and admitted-scope coverage.
-- Uncached shuffled execution passes with seed 76 in 24.8 seconds across all 12 Turbo tasks.
+- The refreshed suite passes 346 Vitest cases and 36 tooling cases, including restored palette migration, concurrent alarm ordering, and admitted-scope coverage. Three further concurrent-ingest cases pass focused validation.
+- Uncached shuffled execution before those three additions passes with seed 76 in 24.8 seconds across all 12 Turbo tasks.
 - Build and all package checks pass. Frozen install, actionlint, and whitespace checks pass.
 - Lint passes with 38 warnings and one informational diagnostic, including retained non-null assertion warnings; no errors.
 - Diagnostic coverage completes for all seven packages with no percentage gate.
@@ -22,6 +22,7 @@ records current contracts and retained-test decisions. The version-apps branch r
 - Chromium CDP contracts pass with focus emulation, an owned tab, real PNG/canvas decoding, refresh recovery, and worker lifecycle.
 - Classification performance gates pass under Node and Bun. No production deployment or live Wplace write was performed.
 - Linux CI passes Node/Bun runtime checks without the macOS SQLite override. Userscript CI now uses Turbo's existing backend fixture prerequisite.
+- [Full disposable validation](https://github.com/mia-riezebos/Caelestis/actions/runs/35943208081) passes all 44 jobs at `950aa239`, including AMD64/ARM64 images, Compose, Helm, scans, and runtime checks. Later commits change tests, their runner wiring, and evidence only.
 
 The earlier validation sections below describe the original rewrite and are historical.
 
