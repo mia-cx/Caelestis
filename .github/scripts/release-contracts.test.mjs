@@ -21,6 +21,20 @@ const notes = '### Patch Changes\n\n- abc1234: Preserve template placement.'
 const changelog = `# Changes\n\n## 1.2.3\n\n${notes}\n\n## 1.2.2\n\nOlder change.\n`
 const changeset = '---\n"@caelestis/userscript": patch\n---\n\nPreserve template placement.\n'
 
+test('release credentials cross both reusable workflow boundaries and portable publishing keeps its own gate', () => {
+  const workflow = (name) =>
+    readFileSync(new URL(`../workflows/${name}.yml`, import.meta.url), 'utf8')
+  const job = (source, name) =>
+    source.match(new RegExp(`\\n  ${name}:\\n([\\s\\S]*?)(?=\\n  [\\w-]+:|$)`))?.[1] ?? ''
+  const outer = job(workflow('app-release'), 'portable')
+  const release = workflow('portable-release')
+  assert.match(outer, /uses: .*portable-release\.yml/)
+  assert.match(outer, /secrets: inherit/)
+  assert.match(job(release, 'cloudflare'), /secrets: inherit/)
+  assert.match(job(release, 'publish'), /needs: validate/)
+  assert.doesNotMatch(job(release, 'publish'), /needs:.*cloudflare/)
+})
+
 test('release artifacts contain the built bytes, their digest, and only the selected release notes', (t) => {
   const root = mkdtempSync(join(tmpdir(), 'caelestis-release-'))
   t.after(() => rmSync(root, { recursive: true, force: true }))

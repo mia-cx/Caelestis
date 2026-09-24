@@ -85,10 +85,10 @@ jobs:
         if: inputs.source_sha != ''
         run: |
           pnpm lint
-          pnpm test:fixtures
+          pnpm --filter @caelestis/userscript test test/import-contract.test.ts
           pnpm test:capacity
           pnpm test:progress
-          pnpm test:live-paints
+          pnpm --filter @caelestis/userscript test test/api-telemetry.test.ts
 
       - name: Upload userscript build
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

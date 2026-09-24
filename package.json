@@ -20,6 +20,7 @@
     "test:services": "node scripts/test-services.mjs",
     "test:browser": "pnpm --filter @caelestis/userscript test:browser",
     "test:runtime": "pnpm --filter @caelestis/backend test:runtime",
+    "test:performance": "CAELESTIS_PERFORMANCE=1 pnpm --filter @caelestis/backend test src/telemetry/classify-chunk.test.ts",
     "test:databases": "pnpm --filter @caelestis/backend test:integration:docker",
     "capacity:report": "node scripts/sync-capacity.mjs",
     "test:capacity": "node --test scripts/capacity-contract.test.mjs",

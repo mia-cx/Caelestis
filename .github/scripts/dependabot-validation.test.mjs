@@ -213,14 +213,11 @@ describe('Dependabot workflow boundaries', () => {
     for (const command of ['build', 'check', 'test']) {
       assert.ok(userscript.includes(`pnpm --filter @caelestis/userscript... ${command}`))
     }
-    for (const command of [
-      'lint',
-      'test:fixtures',
-      'test:capacity',
-      'test:progress',
-      'test:live-paints',
-    ]) {
+    for (const command of ['lint', 'test:capacity', 'test:progress']) {
       assert.ok(userscript.includes(`pnpm ${command}`))
+    }
+    for (const path of ['test/import-contract.test.ts', 'test/api-telemetry.test.ts']) {
+      assert.ok(userscript.includes(`pnpm --filter @caelestis/userscript test ${path}`))
     }
     assert.match(portable, /if \[ -n "\$RELEASE_SHA" \]/)
     assert.match(
