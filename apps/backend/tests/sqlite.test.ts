@@ -42,6 +42,6 @@ describe('SQLite relational contract', () => {
         throw new Error('abort')
       }),
     ).rejects.toThrow('abort')
-    expect(await sql.readServerSettings()).toEqual({ name: null, description: null })
+    expect(await sql.readServerSettings()).toMatchObject({ name: null, description: null })
   })
 })

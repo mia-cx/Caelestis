@@ -57,3 +57,20 @@ it('samples unique observations while retaining both timeline endpoints', () => 
   expect(sampleTimeline([9, 1, 5, 1], 2)).toEqual([1, 9])
   expect(sampleTimeline([9, 1, 5, 1], 3)).toEqual([1, 5, 9])
 })
+
+it('allocates GIF holds by recorded time across dense and sparse observations', async () => {
+  const colors = [
+    [255, 0, 0, 255],
+    [0, 255, 0, 255],
+    [0, 0, 255, 255],
+    [255, 255, 255, 255],
+  ]
+  const bytes = await encodeTimelapseGif(
+    colors.map((color) => new Uint8Array(color)),
+    1,
+    1,
+    [0, 60, 3600, 7200],
+  )
+  const metadata = await sharp(bytes, { animated: true }).metadata()
+  expect(metadata.delay).toEqual([90, 4910, 5000, 5000])
+})

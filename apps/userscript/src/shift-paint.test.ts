@@ -16,7 +16,7 @@ vi.mock('./alliance-surface.js', () => ({ activeAllianceSurface: () => harness.a
 vi.mock('./wplace-paint.js', () => ({
   isPaintOpen: () => harness.open,
   paintPaletteSwatches: () => [...document.querySelectorAll('button[id^="color-"]')],
-  paintPaletteIndexOf: () => 12,
+  paintPaletteIndexOf: (button: Element) => Number(button.id.slice('color-'.length)) - 1,
 }))
 vi.mock('./wplace-picker.js', () => ({
   pickerPointAt: (target: Element, x: number, y: number) =>
@@ -169,6 +169,25 @@ it('skips every pixel that needs a different colour from the selected swatch', (
   key('keydown', 'Space', true)
   move(4)
   expect(draft.size).toBe(0)
+})
+
+it('reads a changed native swatch before the next Shift click', () => {
+  const clicked: number[] = []
+  canvas.addEventListener('click', (event) => clicked.push(event.clientX))
+  const click = () =>
+    canvas.dispatchEvent(
+      new MouseEvent('click', {
+        clientX: 0,
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    )
+  harness.overlay = 4
+  click()
+  document.querySelector('button')?.setAttribute('id', 'color-5')
+  click()
+  expect(clicked).toEqual([0])
 })
 
 it('skips pixels outside visible template colours', () => {

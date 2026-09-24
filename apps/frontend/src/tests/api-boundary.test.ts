@@ -226,6 +226,51 @@ const seedArchive = async (backend: Awaited<ReturnType<typeof createTestBackend>
 }
 
 describe('frontend API client against the built backend', () => {
+  it('reads current public branding and serves exact versioned image bytes without credentials', async () => {
+    const backend = await createTestBackend({ openAccess: true })
+    const updated = await backend.app.fetch(
+      authorized('/admin/server', {
+        method: 'PATCH',
+        ...json({
+          name: 'United Pixels',
+          homeCopy: 'Welcome **painters**',
+          discordInviteUrl: 'https://discord.gg/pixels',
+          logoText: 'UP',
+        }),
+      }),
+    )
+    expect(updated.status).toBe(200)
+    const bytes = await encodeIndexedPng(2, 1, new Uint8Array([1, 2]))
+    const uploaded = await backend.app.fetch(
+      authorized('/admin/server/assets/preview', {
+        method: 'PUT',
+        body: Uint8Array.from(bytes),
+      }),
+    )
+    expect(uploaded.status).toBe(200)
+    vi.stubGlobal('fetch', frontendFetch(backend.app))
+    const server = await getServer()
+    expect(server).toMatchObject({
+      name: 'United Pixels',
+      homeCopy: 'Welcome **painters**',
+      discordInviteUrl: 'https://discord.gg/pixels',
+      logoText: 'UP',
+      previewImage: { contentType: 'image/png' },
+    })
+    const etag = server.previewImage?.etag
+    expect(etag).toMatch(/^[a-f0-9]{64}$/)
+    const path = `https://backend.test/server/assets/preview?v=${etag}`
+    const image = await backend.app.fetch(new Request(path))
+    expect(new Uint8Array(await image.arrayBuffer())).toEqual(bytes)
+    expect(image.headers.get('cache-control')).toContain('immutable')
+    const cached = await backend.app.fetch(
+      new Request(path, { headers: { 'if-none-match': `W/"${etag}"` } }),
+    )
+    expect(cached.status).toBe(304)
+    const head = await backend.app.fetch(new Request(path, { method: 'HEAD' }))
+    expect(head.headers.get('content-length')).toBe(String(bytes.length))
+    expect(await head.text()).toBe('')
+  })
   it('reads a published template lifecycle and authenticated chunk through its browser transport', async () => {
     const { backend, node, template } = await createPublishedTemplate()
     const requests: Request[] = []

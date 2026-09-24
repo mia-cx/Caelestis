@@ -51,28 +51,38 @@ try {
     platform: 'browser',
     logLevel: 'silent',
   })
-  browser = spawn(
-    executable,
-    ['--headless=new', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'],
-    { stdio: 'ignore' },
-  )
-  browser.once('error', (error) => {
-    startupError = error
-  })
-  const deadline = Date.now() + 10000
-  let port
-  while (Date.now() < deadline) {
-    if (startupError) throw startupError
-    if (browser.exitCode !== null) throw new Error(`Chromium exited ${browser.exitCode}`)
+  let port = process.env.CDP_PORT
+  if (!port) {
     try {
-      port = (await readFile(join(profile, 'DevToolsActivePort'), 'utf8')).split('\n')[0]
-      if (/^\d+$/.test(port)) break
-    } catch (error) {
-      if (error.code !== 'ENOENT') throw error
+      const response = await fetch('http://127.0.0.1:9222/json/version')
+      if (response.ok) port = '9222'
+    } catch {
+      /* No existing debug browser; start an isolated test instance. */
     }
-    await new Promise((resolve) => setTimeout(resolve, 50))
   }
-  if (!port) throw new Error('Disposable Chromium did not expose its CDP port')
+  if (!port) {
+    browser = spawn(
+      executable,
+      ['--headless=new', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'],
+      { stdio: 'ignore' },
+    )
+    browser.once('error', (error) => {
+      startupError = error
+    })
+    const deadline = Date.now() + 10000
+    while (Date.now() < deadline) {
+      if (startupError) throw startupError
+      if (browser.exitCode !== null) throw new Error(`Chromium exited ${browser.exitCode}`)
+      try {
+        port = (await readFile(join(profile, 'DevToolsActivePort'), 'utf8')).split('\n')[0]
+        if (/^\d+$/.test(port)) break
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    if (!port) throw new Error('Disposable Chromium did not expose its CDP port')
+  }
   check = spawn(process.execPath, ['browser-tests/cdp-smoke.mjs'], {
     cwd: new URL('..', import.meta.url),
     env: { ...process.env, CDP_PORT: port, BROWSER_BUNDLE: bundle },

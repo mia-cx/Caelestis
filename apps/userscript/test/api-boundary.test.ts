@@ -35,6 +35,44 @@ afterEach(() => {
 })
 
 describe('userscript to backend API boundary', () => {
+  it('edits sparse public branding and refreshes asset metadata through the real backend', async () => {
+    await installBackend()
+    const { state, server } = await connect()
+    expect(
+      await state.updateServerDetails(server, {
+        name: 'Community',
+        description: 'Keep this description',
+        homeCopy: 'Welcome **painters**',
+        discordInviteUrl: 'https://discord.gg/pixels',
+        logoText: 'UP',
+      }),
+    ).toEqual({ ok: true })
+    expect(await state.updateServerDetails(server, { name: 'United Pixels' })).toEqual({ ok: true })
+    const info = () => state.getState().servers.find((entry) => entry.url === origin)?.info
+    expect(info()).toMatchObject({
+      name: 'United Pixels',
+      description: 'Keep this description',
+      homeCopy: 'Welcome **painters**',
+      discordInviteUrl: 'https://discord.gg/pixels',
+      logoText: 'UP',
+    })
+    const bytes = await encodeIndexedPng(2, 1, new Uint8Array([1, 2]))
+    expect(await state.uploadServerAsset(server, 'logo', bytes, 'image/png')).toEqual({ ok: true })
+    expect(info()?.logoImage).toMatchObject({ contentType: 'image/png' })
+    expect(
+      await state.uploadServerAsset(
+        server,
+        'preview',
+        new TextEncoder().encode('<svg/>'),
+        'image/png',
+      ),
+    ).toMatchObject({ ok: false })
+    expect(await state.deleteServerAsset(server, 'logo')).toEqual({ ok: true })
+    expect(info()?.logoImage).toBeUndefined()
+    expect(await state.updateServerDetails(server, { homeCopy: null })).toEqual({ ok: true })
+    expect(info()).toMatchObject({ name: 'United Pixels', description: 'Keep this description' })
+    expect(info()?.homeCopy).toBeUndefined()
+  })
   it('probes, writes, reads, and synchronizes a persisted server template', async () => {
     await installBackend()
     const { state, server } = await connect()

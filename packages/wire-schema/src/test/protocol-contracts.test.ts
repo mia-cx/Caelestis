@@ -195,10 +195,12 @@ describe('live protocol decoder contracts', () => {
 
     const claimsRenewed = { type: 'claims-renewed' as const, expiresAt: millis, ids: [id] }
     expect(decode(PresenceServerEvent, claimsRenewed)).toEqual(claimsRenewed)
-    rejected(PresenceServerEvent, {
+    const largeRenewal = {
       ...claimsRenewed,
       ids: Array.from({ length: 501 }, () => id),
-    })
+    }
+    expect(decode(PresenceServerEvent, largeRenewal)).toEqual(largeRenewal)
+    rejected(PresenceServerEvent, { ...claimsRenewed, ids: [''] })
 
     const work = {
       id,

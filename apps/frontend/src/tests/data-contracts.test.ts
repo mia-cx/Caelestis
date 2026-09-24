@@ -13,7 +13,6 @@ import {
   togglePainterSelection,
 } from '../lib/components/charts/painter-pace'
 import {
-  averagePace,
   clampWindow,
   clipSeries,
   rollingIntervalPace,
@@ -94,36 +93,19 @@ describe('observed progress and archive precedence', () => {
 })
 
 describe('pace and chart windows', () => {
-  it('averages complete covered buckets, excluding the unfinished current bucket', () => {
-    const history = {
-      coverageStart: seconds(0),
-      resolution: 3600,
-      buckets: [
-        {
-          templateId: template().id,
-          resolution: 3600,
-          bucketStart: seconds(0),
-          placed: 100,
-          correct: 80,
-          repairs: 0,
-        },
-        {
-          templateId: template().id,
-          resolution: 3600,
-          bucketStart: seconds(3600),
-          placed: 999,
-          correct: 999,
-          repairs: 0,
-        },
-      ],
-    }
-    expect(averagePace(history, 5400, 7200)).toEqual({ placed: 100, correct: 80, hours: 1 })
-    expect(completionPace(history, [], [], 5400, 7200)).toEqual({
-      placed: 100,
-      correct: 80,
-      hours: 1,
-    })
-    expect(averagePace({ buckets: [] }, 5400, 7200)).toBeNull()
+  it('measures signed matching-pixel progress without inventing activity across gaps or future samples', () => {
+    const samples = [
+      sample(0, 2),
+      sample(3600, 8),
+      sample(7200, 5),
+      sample(10800, null),
+      sample(14400, 9),
+    ].map((sample) => ({ ...sample, archive: false }))
+    expect(completionPace(samples, 7200, 7200)).toEqual({ correct: 1.5, hours: 2 })
+    expect(completionPace(samples, 7200, 3600)).toEqual({ correct: -3, hours: 1 })
+    expect(completionPace(samples, 14400, 3600)).toBeNull()
+    expect(completionPace(samples, 3600, 3600)).toEqual({ correct: 6, hours: 1 })
+    expect(completionPace([], 7200, 3600)).toBeNull()
   })
 
   it('splits rolling rates at observation gaps', () => {

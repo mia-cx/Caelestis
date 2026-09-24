@@ -24,9 +24,14 @@ export default {
         createdWithToken: tokenHash,
         createdAt,
       })
-    assertEqual(await sql.readServerSettings(), { name: null, description: null })
+    const initial = await sql.readServerSettings()
+    assertEqual(
+      [initial.name, initial.description, initial.homeCopy, initial.logo],
+      [null, null, null, null],
+    )
     await sql.writeServerSettings({ name: 'D1 server' })
     await sql.writeServerSettings({ description: 'real binding' })
+    await sql.writeServerSettings({ homeCopy: 'Welcome painters', logoText: 'UP' })
     return Response.json({
       tokenHashes: (await sql.listAccessTokens()).map((token) => token.tokenHash),
       settings: await sql.readServerSettings(),

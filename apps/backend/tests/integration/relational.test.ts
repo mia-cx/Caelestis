@@ -1,10 +1,12 @@
 import { join } from 'node:path'
 import { millis, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { coordinatorDatabase } from '../../src/adapters/node/coordinator-database.js'
 import { MariaConnection } from '../../src/adapters/node/mariadb-connection.js'
 import { PostgresConnection } from '../../src/adapters/node/postgres-connection.js'
 import { RelationalSqlStore } from '../../src/adapters/relational-sql-store.js'
 import { InvalidNodeParentError } from '../../src/ports/sql-store.js'
+import { schedulerContract } from '../support/scheduler-contract.js'
 
 const migrationRoot = process.cwd()
 const postgresUrl = process.env.CAELESTIS_TEST_POSTGRES_URL
@@ -79,6 +81,10 @@ afterAll(async () => {
 })
 
 describe('external relational adapter contract', () => {
+  it('fences concurrent durable jobs on the selected database', async () => {
+    if (connection === undefined) throw new Error('Integration fixture did not open a database')
+    await schedulerContract(coordinatorDatabase(connection))
+  })
   it('migrates and preserves shared persistence boundaries in the selected real database', async () => {
     if (connection === undefined) throw new Error('Integration fixture did not open a database')
     await connection.migrate(migrations)

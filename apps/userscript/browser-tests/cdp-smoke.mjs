@@ -3,11 +3,10 @@ import { readFile } from 'node:fs/promises'
 const port = process.env.CDP_PORT ?? '9222'
 const bundle = process.env.BROWSER_BUNDLE
 if (bundle === undefined) throw new Error('BROWSER_BUNDLE is required')
-const targets = await fetch(`http://127.0.0.1:${port}/json/list`).then((response) =>
-  response.json(),
+const target = await fetch(`http://127.0.0.1:${port}/json/new?about:blank`, { method: 'PUT' }).then(
+  (response) => response.json(),
 )
-const target = targets.find((candidate) => candidate.type === 'page')
-if (target === undefined) throw new Error('CDP has no page target')
+if (!target.webSocketDebuggerUrl) throw new Error('Could not create an owned CDP tab')
 
 const socket = new WebSocket(target.webSocketDebuggerUrl)
 const calls = new Map()
@@ -46,6 +45,7 @@ try {
     throw new Error('production browser contracts returned an incomplete result')
 } finally {
   socket.close()
+  await fetch(`http://127.0.0.1:${port}/json/close/${target.id}`)
 }
 
 console.log('production CDP browser contracts passed')

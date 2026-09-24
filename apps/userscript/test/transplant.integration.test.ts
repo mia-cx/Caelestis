@@ -1,4 +1,4 @@
-import { decodeWplaceIndexedPng } from '@caelestis/shared'
+import { decodePng, decodeWplaceIndexedPng } from '@caelestis/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { moveServerTemplateToServer, transplant } from '../src/application/transplant.js'
 import '../src/application/tree-server-state.js'
@@ -63,6 +63,33 @@ afterEach(() => vi.unstubAllGlobals())
 
 describe('cross-server template transplant', () => {
   it('admits a Local folder branch at the server before removing its persisted source', async () => {
+    // Happy DOM cannot decode Node Blob values. Keep PNG decoding real at the browser boundary.
+    type Bitmap = Awaited<ReturnType<typeof decodePng>>
+    vi.stubGlobal('createImageBitmap', async (blob: Blob) => ({
+      ...(await decodePng(new Uint8Array(await blob.arrayBuffer()))),
+      close() {},
+    }))
+    vi.stubGlobal(
+      'OffscreenCanvas',
+      class {
+        getContext() {
+          let bitmap: Bitmap | undefined
+          return {
+            drawImage: (source: Bitmap) => {
+              bitmap = source
+            },
+            getImageData: () => {
+              if (!bitmap) throw new Error('No image drawn')
+              return new ImageData(
+                new Uint8ClampedArray(bitmap.pixels),
+                bitmap.width,
+                bitmap.height,
+              )
+            },
+          }
+        }
+      },
+    )
     const { app } = await createTestBackend()
     const destination: ConnectedServer = {
       url: 'https://destination-local-folder.test',

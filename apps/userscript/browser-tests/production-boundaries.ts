@@ -1,3 +1,4 @@
+import { encodeIndexedPng } from '@caelestis/shared'
 import {
   forgetInWorker,
   mismatchWorkerMemoryBytes,
@@ -8,6 +9,7 @@ import {
   clearDraftPixels,
   draftPixels,
   install,
+  loadTilePixels,
   registerDraftCanvas,
 } from '../src/tile-transform.js'
 
@@ -40,8 +42,36 @@ const scan = (server: Uint8Array) =>
 
 /** Browser-only contracts: production worker transfer/cache lifecycle and browser canvas readback. */
 export const runProductionBrowserBoundaries = async () => {
+  // Simulate Wplace loading its map before the userscript installs its capture hooks.
+  const tileUrl = 'https://backend.wplace.live/files/s3/tiles/3/4.png'
+  const encoded = await encodeIndexedPng(
+    TILE_SIZE,
+    TILE_SIZE,
+    new Uint8Array(TILE_SIZE * TILE_SIZE).fill(5),
+  )
+  const originalEntries = performance.getEntriesByType.bind(performance)
+  Object.defineProperty(performance, 'getEntriesByType', {
+    configurable: true,
+    value: (type: string) => (type === 'resource' ? [{ name: tileUrl }] : originalEntries(type)),
+  })
+  const requests: string[] = []
+  window.fetch = async (input) => {
+    const url = String(input)
+    requests.push(url)
+    if (url !== tileUrl) throw new Error(`Unexpected browser contract request: ${url}`)
+    return new Response(Uint8Array.from(encoded), { headers: { 'content-type': 'image/png' } })
+  }
   install(window)
   captureTilePixels(true)
+  const recovered = await loadTilePixels(tile)
+  if (recovered?.length !== TILE_SIZE * TILE_SIZE || recovered.some((pixel) => pixel !== 5))
+    throw new Error('Refresh recovery did not decode the tile loaded before capture installed')
+  if (requests.length !== 1 || requests[0] !== tileUrl)
+    throw new Error('Refresh recovery fetched unexpected tiles')
+  Object.defineProperty(performance, 'getEntriesByType', {
+    configurable: true,
+    value: originalEntries,
+  })
   const canvas = document.createElement('canvas')
   canvas.width = TILE_SIZE
   canvas.height = TILE_SIZE
