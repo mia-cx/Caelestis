@@ -22,6 +22,9 @@ try {
  *
  * `@run-at document-start` matters: the tile-fetch shim has to be installed before wplace's own
  * bundle gets a chance to capture `fetch`.
+ *
+ * `@namespace` keeps its old repository URL until v1.0.0. Userscript managers identify a script by
+ * name and namespace, so changing it installs a separate script with empty GM storage.
  */
 const metadata = `// ==UserScript==
 // @name         Caelestis
@@ -29,6 +32,11 @@ const metadata = `// ==UserScript==
 // @version      ${pkg.version}
 // @description  Shared pixel-art templates for wplace.live, overlaid from one or more alliance servers
 // @author       mia-riezebos
+// @copyright    2026, Mia Riezebos (https://mia.cx)
+// @license      https://github.com/mia-riezebos/Caelestis/blob/main/LICENSE
+// @compatible   chrome Tampermonkey, Violentmonkey, or another userscript manager
+// @compatible   firefox Tampermonkey, Violentmonkey, or another userscript manager
+// @compatible   edge Tampermonkey, Violentmonkey, or another userscript manager
 // @homepageURL  https://github.com/mia-riezebos/Caelestis
 // @supportURL   https://github.com/mia-riezebos/Caelestis/issues
 // @downloadURL  https://github.com/mia-riezebos/Caelestis/releases/latest/download/caelestis.user.js
