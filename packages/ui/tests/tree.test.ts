@@ -942,10 +942,9 @@ describe('template tree', () => {
       throw new Error('missing rename row')
     }
 
-    const css = [...document.styleSheets]
-      .flatMap((sheet) => [...sheet.cssRules])
-      .map((rule) => rule.cssText)
-      .join('\n')
+    // Happy DOM drops unsupported WebKit properties when serializing CSSOM rules.
+    // Check the emitted styles that Safari receives, including both prefixed declarations.
+    const css = [...document.querySelectorAll('style')].map((style) => style.textContent).join('\n')
     expect(css).toContain('-webkit-user-select: none')
     expect(css).toContain('-webkit-user-select: text')
     void unmount(component)
