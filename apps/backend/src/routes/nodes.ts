@@ -117,7 +117,7 @@ export const createNodeRoutes = (runtime: BackendRuntime, auth: AuthOptions) => 
     )
   })
 
-  routes.get('/', (c) => {
+  routes.get('/', async (c) => {
     const season = parseSeason(c.req.query('season'))
     if (season === null) return c.json({ error: 'season must be a non-negative integer' }, 400)
     const surface = parseSurface(c.req.query('surface'), c.req.query('allianceId'))
@@ -171,7 +171,7 @@ export const createNodeRoutes = (runtime: BackendRuntime, auth: AuthOptions) => 
     )
   })
 
-  routes.get('/:id/subtree', (c) => {
+  routes.get('/:id/subtree', async (c) => {
     const nodeId = c.req.param('id')
     if (!UUID_V7.test(nodeId)) {
       return c.json({ error: 'id must be a canonical lowercase UUIDv7' }, 400)

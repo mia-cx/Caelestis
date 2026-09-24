@@ -43,7 +43,7 @@ export const createManifestRoutes = (
 
   routes.use('/*', requireScopeEffect(runtime, auth, 'read'))
 
-  routes.get('/', (c) => {
+  routes.get('/', async (c) => {
     const season = parseSeason(c.req.query('season'), options.currentSeason)
     if (season === null) return c.json({ error: 'season must be a non-negative integer' }, 400)
     const surface = parseSurface(c.req.query('surface'), c.req.query('allianceId'))

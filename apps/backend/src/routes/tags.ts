@@ -15,7 +15,7 @@ export const createTagRoutes = (
 ) => {
   const routes = new Hono()
   routes.use('/*', requireScopeEffect(runtime, auth, 'admin'))
-  routes.get('/', (c) => {
+  routes.get('/', async (c) => {
     const templateId = c.req.query('templateId')
     const folderId = c.req.query('folderId')
     if (folderId !== undefined && (!UUID_V7.test(folderId) || templateId !== undefined))
@@ -58,7 +58,7 @@ export const createTagRoutes = (
       (result) => c.json(result),
     )
   })
-  routes.delete('/:id', (c) => {
+  routes.delete('/:id', async (c) => {
     const id = c.req.param('id')
     if (!UUID_V7.test(id)) return c.json({ error: 'Invalid tag ID.' }, 400)
     return runBackendHttp(c, runtime, mutateTag({ type: 'delete', id }, currentSeason), () =>
@@ -66,7 +66,7 @@ export const createTagRoutes = (
     )
   })
   for (const attached of [true, false]) {
-    routes.on(attached ? 'PUT' : 'DELETE', '/:id/folders/:folderId', (c) => {
+    routes.on(attached ? 'PUT' : 'DELETE', '/:id/folders/:folderId', async (c) => {
       const id = c.req.param('id')
       const folderId = c.req.param('folderId')
       if (!UUID_V7.test(id) || !UUID_V7.test(folderId))
@@ -78,7 +78,7 @@ export const createTagRoutes = (
         () => c.body(null, 204),
       )
     })
-    routes.on(attached ? 'PUT' : 'DELETE', '/:id/templates/:templateId', (c) => {
+    routes.on(attached ? 'PUT' : 'DELETE', '/:id/templates/:templateId', async (c) => {
       const id = c.req.param('id')
       const templateId = c.req.param('templateId')
       if (!UUID_V7.test(id) || !UUID_V7.test(templateId))

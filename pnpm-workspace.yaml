@@ -1,6 +1,11 @@
 packages:
   - apps/*
   - packages/*
+# svelte-package imports the compiler API but omits this peer, otherwise resolving root TS 7.
+packageExtensions:
+  '@sveltejs/package@2.5.8':
+    peerDependencies:
+      typescript: '>=5 <7'
 allowBuilds:
   esbuild: true
   msgpackr-extract: true
