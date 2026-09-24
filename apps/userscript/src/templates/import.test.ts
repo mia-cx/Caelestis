@@ -1,5 +1,56 @@
-import { TRANSPARENT_INDEX } from '@caelestis/shared'
+// @vitest-environment happy-dom
+import { canvasPixelToLatLng, TRANSPARENT_INDEX, WORLD_PIXELS } from '@caelestis/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { NativeTemplate } from './native-store.js'
+
+const nativeRender = vi.fn(async (image: ImageData, _template: NativeTemplate) => image)
+const nativeWrite = vi.fn()
+
+vi.mock('./native-store.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./native-store.js')>()
+  return {
+    ...actual,
+    connectNativeTemplates: vi.fn(
+      async (processing: Parameters<typeof actual.connectNativeTemplates>[0]) =>
+        new actual.NativeTemplates(
+          {
+            templates: [],
+            placementSession: false,
+            getById: vi.fn(),
+            add: nativeWrite,
+            update: nativeWrite,
+            remove: nativeWrite,
+            persist: nativeWrite,
+            commitPendingChanges: nativeWrite,
+            subscribeChange: vi.fn(),
+          },
+          {
+            read: vi.fn(),
+            save: nativeWrite,
+            remove: nativeWrite,
+            subscribe: vi.fn(),
+            render: async (blob, template) => {
+              if (!processing?.resize) throw new Error('file import must supply its resizer')
+              const bitmap = await createImageBitmap(blob)
+              const dimensions = actual.nativePlacement(template)
+              const image = new ImageData(
+                new Uint8ClampedArray(
+                  readbacks.shift() ?? new Uint8ClampedArray(bitmap.width * bitmap.height * 4),
+                ),
+                bitmap.width,
+                bitmap.height,
+              )
+              bitmap.close()
+              return nativeRender(
+                await processing.resize(image, dimensions.width, dimensions.height),
+                template,
+              )
+            },
+          },
+        ),
+    ),
+  }
+})
 
 const rgba = (...pixels: Array<[number, number, number, number]>): Uint8ClampedArray =>
   new Uint8ClampedArray(pixels.flat())
@@ -57,6 +108,8 @@ class TestCanvas {
 }
 
 beforeEach(() => {
+  nativeRender.mockClear()
+  nativeWrite.mockClear()
   readbacks.length = 0
   bitmapSizes.length = 0
   blobSizes.length = 0
@@ -239,6 +292,162 @@ describe('template import', () => {
       sortOrder: 12,
     })
     expect(fetch).toHaveBeenCalledWith('data:image/png;base64,AAAA')
+  })
+
+  it('uses both geographic corners rather than source dimensions for Wplace imports', async () => {
+    blobSizes.push({ width: 1024, height: 1024 })
+    bitmapSizes.push({ width: 1024, height: 1024 })
+    const pixels = new Uint8ClampedArray(1024 * 1024 * 4)
+    pixels.set([255, 255, 255, 255], 0)
+    readbacks.push(pixels)
+    const { importFile } = await import('./import.js')
+    const contents = JSON.stringify({
+      name: 'United Pixels logo',
+      image: { dataUrl: 'data:image/png;base64,AAAA' },
+      bounds: {
+        north: -75.5780655209011,
+        south: -75.58301185261782,
+        west: -40.25988281250001,
+        east: -40.240019531250006,
+      },
+    })
+    const [template] = await importFile(file('scaled.wplace', contents), { x: 0, y: 0 })
+    expect(template).toMatchObject({
+      originX: 794966,
+      originY: 1697843,
+      width: 113,
+      height: 113,
+    })
+    expect(nativeWrite).not.toHaveBeenCalled()
+  })
+
+  it('keeps native alpha boundaries and forwards the full color-processing recipe', async () => {
+    bitmapSizes.push({ width: 4, height: 1 })
+    readbacks.push(rgba([0, 0, 0, 15], [0, 0, 0, 16], [0, 0, 0, 127], [0, 0, 0, 128]))
+    const { importFile } = await import('./import.js')
+    const [template] = await importFile(
+      file(
+        'recipe.wplace',
+        JSON.stringify({
+          image: { dataUrl: 'data:image/png;base64,AAAA' },
+          bounds: { north: 0, west: 0 },
+          colorMetric: 'ciede2000',
+          dithering: true,
+          useLegacyColors: true,
+          colorPaletteMode: 'template',
+          templateColorIdxs: [1, 5, 1, 0, -1, '2'],
+        }),
+      ),
+      { x: 0, y: 0 },
+    )
+    expect(template?.indices).toEqual(new Uint8Array([TRANSPARENT_INDEX, 0, 0, 0]))
+    expect(nativeRender).toHaveBeenCalledWith(
+      expect.any(ImageData),
+      expect.objectContaining({
+        colorMetric: 'ciede2000',
+        dithering: true,
+        useLegacyColors: true,
+        colorPaletteMode: 'template',
+        templateColorIdxs: [1, 5],
+      }),
+    )
+    expect(nativeWrite).not.toHaveBeenCalled()
+  })
+
+  it.each(['all', 'free', 'unlocked'])(
+    'preserves the %s palette mode',
+    async (colorPaletteMode) => {
+      readbacks.push(rgba([0, 0, 0, 255]))
+      const { importFile } = await import('./import.js')
+      await importFile(
+        file(
+          'palette.wplace',
+          JSON.stringify({
+            image: { dataUrl: 'data:image/png;base64,AAAA' },
+            bounds: { north: 0, west: 0 },
+            colorPaletteMode,
+            colorMetric: 'compuphase',
+          }),
+        ),
+        { x: 0, y: 0 },
+      )
+      expect(nativeRender).toHaveBeenCalledWith(
+        expect.any(ImageData),
+        expect.objectContaining({
+          colorPaletteMode,
+          colorMetric: 'compuphase',
+        }),
+      )
+    },
+  )
+
+  it('places a scaled image at the eastern and southern world edges', async () => {
+    bitmapSizes.push({ width: 4, height: 4 })
+    readbacks.push(new Uint8ClampedArray(4 * 4 * 4).fill(255))
+    const nw = canvasPixelToLatLng({ x: WORLD_PIXELS - 2, y: WORLD_PIXELS - 2 })
+    const se = canvasPixelToLatLng({ x: WORLD_PIXELS, y: WORLD_PIXELS })
+    const { importFile } = await import('./import.js')
+    const [template] = await importFile(
+      file(
+        'edge.wplace',
+        JSON.stringify({
+          image: { dataUrl: 'data:image/png;base64,AAAA' },
+          bounds: { north: nw.lat, west: nw.lng, south: se.lat, east: se.lng },
+        }),
+      ),
+      { x: 0, y: 0 },
+    )
+    expect(template).toMatchObject({
+      originX: WORLD_PIXELS - 2,
+      originY: WORLD_PIXELS - 2,
+      width: 2,
+      height: 2,
+    })
+  })
+
+  it.each([
+    { north: 0, west: 0, south: -1 },
+    { north: 0, west: 0, south: 1, east: 1 },
+    { north: 0, west: 0, south: -1, east: -1 },
+    { north: 0, west: 0, south: 0, east: 1 },
+    { north: 0, west: 0, south: -1, east: 181 },
+    { north: 0, west: 0, south: -90, east: 1 },
+    { north: 80, west: -170, south: -80, east: 170 },
+  ])('rejects invalid or oversized output bounds before decoding: %j', async (bounds) => {
+    const { importFile } = await import('./import.js')
+    expect(
+      await importFile(
+        file(
+          'bad.wplace',
+          JSON.stringify({
+            image: { dataUrl: 'data:image/png;base64,AAAA' },
+            bounds,
+          }),
+        ),
+        { x: 0, y: 0 },
+      ),
+    ).toEqual([])
+    expect(createImageBitmap).not.toHaveBeenCalled()
+    expect(nativeRender).not.toHaveBeenCalled()
+  })
+
+  it('propagates native processing failures without falling back to different colors', async () => {
+    readbacks.push(rgba([0, 0, 0, 255]))
+    nativeRender.mockRejectedValueOnce(new Error('worker unavailable'))
+    const { importFile } = await import('./import.js')
+    await expect(
+      importFile(
+        file(
+          'failed.wplace',
+          JSON.stringify({
+            image: { dataUrl: 'data:image/png;base64,AAAA' },
+            bounds: { north: 0, west: 0 },
+          }),
+        ),
+        { x: 0, y: 0 },
+      ),
+    ).rejects.toThrow('worker unavailable')
+    expect(nativeWrite).not.toHaveBeenCalled()
   })
 
   it('rejects a wplace image URL outside the embedded PNG trust boundary', async () => {

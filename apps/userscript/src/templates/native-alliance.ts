@@ -225,7 +225,6 @@ export const installNativeAllianceTemplates = (native: NativeTemplates): (() => 
             updatedAt: 0,
           },
           image,
-          token: placement.version,
         },
         true,
       )

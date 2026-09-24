@@ -1,4 +1,5 @@
 import {
+  canvasPixelToLatLng,
   latLngToCanvasPixel,
   MAX_MERCATOR_LATITUDE,
   PALETTE_RGB,
@@ -9,6 +10,8 @@ import {
   WORLD_TILES,
 } from '@caelestis/shared'
 import { log, warn } from '../debug.js'
+import type { NativeTemplate } from './native-store.js'
+import { resizeWplaceImage } from './wplace-resize.js'
 
 /**
  * Bringing a template in from a file.
@@ -21,9 +24,8 @@ import { log, warn } from '../debug.js'
  *   Counterintuitively the easier import, because its coordinates never left our system.
  * - **A plain PNG** — no placement at all, so the caller supplies one.
  *
- * Decoding uses the browser's own PNG support via `createImageBitmap` rather than a bundled decoder.
- * The userscript is the one place where bundle size actually matters, and the platform already has
- * this.
+ * Wplace files use native decoding and color processing after our exact nearest-neighbor resize.
+ * Plain PNG and Marble images use the browser's PNG decoder via `createImageBitmap`.
  */
 
 export type TemplateSource = 'wplace' | 'marble' | 'image'
@@ -256,6 +258,8 @@ const importWplace = async (file: Record<string, unknown>): Promise<ImportedTemp
     typeof west !== 'number' ||
     !Number.isFinite(north) ||
     !Number.isFinite(west) ||
+    west < -180 ||
+    west >= 180 ||
     north < -MAX_MERCATOR_LATITUDE ||
     north > MAX_MERCATOR_LATITUDE
   ) {
@@ -265,38 +269,83 @@ const importWplace = async (file: Record<string, unknown>): Promise<ImportedTemp
 
   const blob = await blobFromDataUrl(dataUrl)
   const dimensions = await pngDimensions(blob)
-  // The file places by geography; the canvas thinks in pixels. `28-native-wplace-format` confirmed
-  // this projection to the pixel against this exact file.
   const origin = latLngToCanvasPixel({ lat: north, lng: west })
   const originX = Math.round(origin.x)
   const originY = Math.round(origin.y)
+  // Older files carried only an anchor. Complete bounds describe the resized footprint, not PNG size.
+  const fallback = canvasPixelToLatLng({
+    x: originX + dimensions.width,
+    y: originY + dimensions.height,
+  })
+  const anchorOnly = bounds.south === undefined && bounds.east === undefined
+  const south = anchorOnly ? fallback.lat : bounds.south
+  const east = anchorOnly ? fallback.lng : bounds.east
+  if (typeof south !== 'number' || typeof east !== 'number') {
+    warn('install', 'skipping .wplace template: incomplete geographic bounds')
+    return []
+  }
+  const { connectNativeTemplates, nativePlacement } = await import('./native-store.js')
+  const geographicBounds = { north, south, west, east }
+  let placement: ReturnType<typeof nativePlacement>
+  try {
+    placement = nativePlacement({ bounds: geographicBounds })
+  } catch (error) {
+    warn('install', 'skipping .wplace template: invalid geographic bounds', String(error))
+    return []
+  }
   if (
     originX < 0 ||
     originY < 0 ||
-    originX + dimensions.width > WORLD_PIXELS ||
-    originY + dimensions.height > WORLD_PIXELS
+    originX + placement.width > WORLD_PIXELS ||
+    originY + placement.height > WORLD_PIXELS ||
+    (anchorOnly && originY + dimensions.height > WORLD_PIXELS)
   ) {
     warn('install', 'skipping .wplace template: projected image leaves the canvas')
     return []
   }
-  const { width, height, pixels } = await decodeToRgba(blob, dimensions)
-  const { indices, moved, opaque } = await quantise(pixels)
-  return [
-    {
-      id: newId(),
-      name,
-      source: 'wplace',
-      sortOrder:
-        typeof file.order === 'number' && Number.isSafeInteger(file.order) ? file.order : 0,
-      originX,
-      originY,
-      width,
-      height,
-      indices,
-      moved,
-      opaque,
-    },
-  ]
+  const templateColorIdxs = Array.isArray(file.templateColorIdxs)
+    ? [
+        ...new Set(
+          file.templateColorIdxs.filter(
+            (index): index is number =>
+              typeof index === 'number' &&
+              Number.isInteger(index) &&
+              index > 0 &&
+              index <= PALETTE_RGB.length,
+          ),
+        ),
+      ]
+    : []
+  const colorPaletteMode =
+    file.colorPaletteMode === 'free' || file.colorPaletteMode === 'unlocked'
+      ? file.colorPaletteMode
+      : file.colorPaletteMode === 'template' && templateColorIdxs.length > 0
+        ? 'template'
+        : 'all'
+  const template: NativeTemplate = {
+    id: newId(),
+    name,
+    bounds: geographicBounds,
+    originalWidth: dimensions.width,
+    originalHeight: dimensions.height,
+    colorMetric:
+      file.colorMetric === 'compuphase' || file.colorMetric === 'ciede2000'
+        ? file.colorMetric
+        : 'lab',
+    dithering: file.dithering === true,
+    useLegacyColors: file.useLegacyColors === true,
+    colorPaletteMode,
+    templateColorIdxs,
+    opacity: 1,
+    visible: true,
+    locked: false,
+    hasPlaced: true,
+    order: typeof file.order === 'number' && Number.isSafeInteger(file.order) ? file.order : 0,
+    updatedAt: Date.now(),
+  }
+  const native = await connectNativeTemplates({ resize: resizeWplaceImage })
+  const imported = await native.pixels({ template, image: blob })
+  return [{ ...imported, id: template.id }]
 }
 
 interface MarbleFile {
