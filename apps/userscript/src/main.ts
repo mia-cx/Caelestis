@@ -94,8 +94,17 @@ import { installClaimToolHost } from './ui/presence-actions.js'
 import { installUserscriptUpdateCheck } from './userscript-update.js'
 import { loadAccount } from './wplace-account.js'
 import { isPaintOpen, onPaintSelectionChange, watchPaintSelection } from './wplace-paint.js'
+import {
+  applyWplacePatches,
+  onWplacePatchChange,
+  type PatchableMap,
+  setWplacePatchEnabled,
+  type WplacePatch,
+  wplacePatchSettings,
+} from './wplace-patches.js'
 import { installColourPicker } from './wplace-picker.js'
 import { getWplaceState, installWplaceStateCapture } from './wplace-state.js'
+import { installServiceWorkerTap, watchCaptureScope } from './wplace-tile-refresh.js'
 
 /**
  * Entry point.
@@ -180,7 +189,9 @@ const attachOverlayLayer = (): void => {
     installOverlayLayer()
     installPresenceLayer()
     syncPaintCursorMap(getMap())
+    applyWplacePatches(getMap() as PatchableMap | null)
   }
+  onWplacePatchChange(() => applyWplacePatches(getMap() as PatchableMap | null))
   attach()
   setInterval(attach, 1_000)
 }
@@ -287,8 +298,8 @@ export const startUserscript = (): void => {
   registerProfileMemorySource('Marker density buffers', markerDensityMemoryBytes)
   registerProfileMemorySource('Marker draw batches', markerBatchMemoryBytes)
   registerProfileMemorySource('Marker GPU buffers', markerGpuMemoryBytes)
-  // Before anything else: the trap has to be in place before MapLibre constructs its Map.
-  // Both traps must be armed before Wplace's modules evaluate; the state is built during startup.
+  // These traps must be armed before Wplace's modules evaluate or MapLibre constructs its Map.
+  step('service-worker tile refresh tap', () => installServiceWorkerTap())
   step('wplace state capture', installWplaceStateCapture)
   step('map capture', installMapCapture)
   step('alliance surface observer', installAllianceSurfaceObserver)
@@ -328,6 +339,12 @@ export const startUserscript = (): void => {
           season: server.season,
         })),
       }),
+      /** Caelestis's performance patches for Wplace's own client, each with its own switch. */
+      wplacePatches: {
+        list: () => wplacePatchSettings(),
+        enable: (patch: WplacePatch) => setWplacePatchEnabled(patch, true),
+        disable: (patch: WplacePatch) => setWplacePatchEnabled(patch, false),
+      },
       /** The exact focused-template counts currently decorating Wplace's native paint palette. */
       paletteProgress: () => paintPaletteProgress(),
       /** A live performance snapshot. Enable profiling in Settings first. */
@@ -445,11 +462,21 @@ export const startUserscript = (): void => {
     // before the one-shot picker click; a miss is also chased on demand by `placedIndexAt`.
     const interest = (tile: { readonly x: number; readonly y: number }): boolean =>
       isPaintOpen() || pixelAccounting.wantsTilePixels(tile)
-    const sync = (): void =>
-      captureTilePixels(pixelAccounting.wantsTilePixels() || isPaintOpen(), interest)
+    const captureScope = watchCaptureScope()
+    const sync = (): void => {
+      const on = pixelAccounting.wantsTilePixels() || isPaintOpen()
+      captureTilePixels(on, interest)
+      // Pixels kept while capture was off may be stale, and tiles are no longer re-downloaded on a
+      // timer to correct them. When capture starts caring about more, re-read everything visible.
+      captureScope(
+        on ? [...(isPaintOpen() ? ['paint'] : []), ...pixelAccounting.captureScopeKeys()] : [],
+      )
+    }
     sync()
     onStateChange(sync)
     onLocalChange(sync)
+    // Hidden-template progress widens the scope without a frame, and its idle scan can run first.
+    pixelAccounting.onCaptureScopeChange(sync)
     onPaintSelectionChange(sync)
     // And on every frame that carries tiles. The four above are the events that *should* cover it,
     // and between them they missed the only one that mattered: at start-up nothing is restored yet,

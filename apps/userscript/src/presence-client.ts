@@ -621,6 +621,43 @@ const reconcile = (): void => {
   }
 }
 
+/** Rescan the local draft; true when it differs from what is pending. */
+const checkDraft = (at: number): boolean => {
+  draftCheckedAt = at
+  const tiles = draftedTiles()
+  const draft =
+    tiles.length === 0
+      ? null
+      : measureProfileDetail('Presence draft scan', () => draftIn(tiles, draftedPixelOffsets))
+  recordProfileWorkload('Presence local draft tiles', tiles.length)
+  recordProfileWorkload('Presence local draft pixels', draft?.pixels ?? 0)
+  if (sameDraft(draft, pendingDraft)) return false
+  pendingDraft = draft
+  return true
+}
+
+let trailingDraftCheck: ReturnType<typeof setTimeout> | null = null
+
+/**
+ * Finish a draft scan that a frame skipped, once the rate limit allows it.
+ *
+ * Frames alone cannot be trusted to come back. The last frames of a paint session are the burst
+ * after Wplace removes its draft layers, and once the map stops rendering while idle nothing follows
+ * them. A draft cleared inside the one-second limit would otherwise stay on other painters' screens
+ * until this tab's map next moved.
+ */
+const scheduleTrailingDraftCheck = (at: number): void => {
+  if (trailingDraftCheck !== null) return
+  trailingDraftCheck = setTimeout(
+    () => {
+      trailingDraftCheck = null
+      if (connections.size === 0) return
+      if (checkDraft(now())) scheduleAll()
+    },
+    Math.max(0, draftCheckedAt + PRESENCE_DRAFT_MIN_MS - at),
+  )
+}
+
 /** Feed one tile frame. Cheap on every frame; the draft scan runs at most once a second. */
 export const observePresenceFrame = (frame: TileFrame): void => {
   if (connections.size === 0) return
@@ -632,19 +669,8 @@ export const observePresenceFrame = (frame: TileFrame): void => {
   }
   const at = now()
   if (at - draftCheckedAt >= PRESENCE_DRAFT_MIN_MS) {
-    draftCheckedAt = at
-    const tiles = draftedTiles()
-    const draft =
-      tiles.length === 0
-        ? null
-        : measureProfileDetail('Presence draft scan', () => draftIn(tiles, draftedPixelOffsets))
-    recordProfileWorkload('Presence local draft tiles', tiles.length)
-    recordProfileWorkload('Presence local draft pixels', draft?.pixels ?? 0)
-    if (!sameDraft(draft, pendingDraft)) {
-      pendingDraft = draft
-      changed = true
-    }
-  }
+    if (checkDraft(at)) changed = true
+  } else scheduleTrailingDraftCheck(at)
   if (changed) scheduleAll()
 }
 

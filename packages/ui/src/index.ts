@@ -66,6 +66,7 @@ export type {
   SettingsIntent,
   SettingsModel,
   SettingsServerModel,
+  SettingsWplacePatchModel,
   ShortcutHelpIntent,
   ShortcutHelpModel,
   ShortcutHelpPlatform,

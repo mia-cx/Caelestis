@@ -101,7 +101,8 @@ starts the application; importing transfer collaborators no longer starts the wh
 
 [Import evidence](import-evidence.md) covers the real saved Blue Marble fixture through persisted
 palette pixels. [Pixel evidence](pixel-evidence.md) covers visible mismatch filters, draft removal,
-committed artwork, and per-template palette ownership.
+committed artwork, and per-template palette ownership. [Wplace patch evidence](wplace-patches-evidence.md)
+covers the idle-render, tile-refresh, and capture patches for Wplace's own client.
 
 The initial map above lists candidate boundaries. It is not an instruction to restore every old
 case. The rewrite excludes per-installer smoke tests, exact icon/style/shader assertions, profiling

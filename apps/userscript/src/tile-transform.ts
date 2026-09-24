@@ -16,6 +16,7 @@ import { buildExactRgbIndex, canvasRgbIndex } from './rgb-index.js'
 import { draftedPixelsIn } from './templates/drafted.js'
 import { tilePixelCacheLimit } from './tile-pixel-cache.js'
 import { forgetCharges, observeCharges } from './wplace-charges.js'
+import { isWplacePatchEnabled } from './wplace-patches.js'
 import {
   captureFetchUrlGetters,
   isGetFetch,
@@ -317,6 +318,7 @@ const installValueHook = (
  */
 const tileOfBlob = new WeakMap<Blob, TileCoord>()
 const tileOfBuffer = new WeakMap<ArrayBufferLike, TileCoord>()
+const digestOfBlob = new WeakMap<Blob, Promise<ArrayBuffer | null>>()
 
 /** Column-major 4x4, the layout WebGL uses. */
 export const project = (m: ArrayLike<number>, x: number, y: number): readonly [number, number] => {
@@ -927,7 +929,8 @@ const installBlobTap = (realm: Window & typeof globalThis): InstalledValueHook |
       (target as unknown) === (Wrapped as unknown) ? NativeBlob : target,
     ) as Blob
     try {
-      for (const part of blobPartsForAttribution(args[0])) {
+      const parts = blobPartsForAttribution(args[0])
+      for (const part of parts) {
         const buffer = isPageInstance(
           part,
           'ArrayBuffer',
@@ -940,6 +943,27 @@ const installBlobTap = (realm: Window & typeof globalThis): InstalledValueHook |
         const tile = buffer === undefined ? undefined : tileOfBuffer.get(buffer)
         if (tile !== undefined) {
           tileOfBlob.set(blob, tile)
+          // Blob copies its parts at construction. Hash that exact single part after the copy,
+          // without holding up Wplace's constructor or its response body read.
+          if (
+            parts.length === 1 &&
+            blob.size === (realm.ArrayBuffer.isView(part) ? part.byteLength : buffer?.byteLength) &&
+            isWplacePatchEnabled('capture-dedupe') &&
+            capturePixels &&
+            (captureInterest === null || captureInterest(tile)) &&
+            !acceptedPixels.has(tileKey(tile)) &&
+            !requestedTilePixels.has(tileKey(tile))
+          ) {
+            try {
+              const digest = realm.crypto.subtle.digest('SHA-256', part as BufferSource)
+              digestOfBlob.set(
+                blob,
+                digest.catch(() => null),
+              )
+            } catch {
+              // A missing or failing page crypto leaves the normal capture path intact.
+            }
+          }
           log('bitmap', `blob built from tagged buffer ${tile.x}/${tile.y}`, { bytes: blob.size })
           break
         }
@@ -965,6 +989,8 @@ const installBlobTap = (realm: Window & typeof globalThis): InstalledValueHook |
  * drawer's source-only colour picker.
  */
 const pixelsOfTile = new Map<string, Uint8Array>()
+/** Only the digest of a completed tile capture may skip a later read of retained pixels. */
+const capturedTileDigests = new Map<string, ArrayBuffer>()
 // Object identity carries request order through the existing buffer/blob/bitmap attribution taps.
 const submissionOrder = new WeakMap<object, number>()
 const pendingSubmissions = new Set<number>()
@@ -1013,6 +1039,7 @@ const retainAcceptedPaint = (paint: AcceptedPaint, accepted: number): void => {
   if (total === 0 || paint.painted !== total) return
   for (const tile of paint.tiles) {
     const key = tileKey(tile)
+    capturedTileDigests.delete(key)
     let held = acceptedPixels.get(key)
     if (held === undefined) {
       held = { pixels: new Map(), pending: 0 }
@@ -1127,6 +1154,7 @@ const rememberTilePixels = (key: string, pixels: Uint8Array): void => {
     const oldest = pixelsOfTile.keys().next()
     if (oldest.done) break
     pixelsOfTile.delete(oldest.value)
+    capturedTileDigests.delete(oldest.value)
     comparisonDrafts.delete(oldest.value)
     observedTileOrder.delete(oldest.value)
     const evicted = parseTileKey(oldest.value)
@@ -1684,6 +1712,7 @@ const readWrite = (
  */
 const applyWrite = (tile: TileCoord, triples: readonly number[]): boolean => {
   const key = tileKey(tile)
+  capturedTileDigests.delete(key)
   let draft = draftPixels(tile)
   if (draft === null) {
     draft = new Uint8Array(TILE_SIZE * TILE_SIZE).fill(UNPAINTED)
@@ -1759,6 +1788,8 @@ export const captureDraftPixels = (
 ): void => {
   flushDraftWrites()
   const key = tileKey(tile)
+  // A preview may change while the PNG stays the same; make the next tile observation do a full read.
+  capturedTileDigests.delete(key)
   // Resolve zero-alpha occupancy before diffing. Otherwise an unchanged transparent draft emits
   // a removal followed by a replacement on every fallback readback.
   const transparent = new Set<number>()
@@ -1858,12 +1889,19 @@ const reusableCaptureContext = (): OffscreenCanvasRenderingContext2D | null => {
   return captureContext
 }
 
+const sameDigest = (a: ArrayBuffer, b: ArrayBuffer): boolean => {
+  const left = new Uint8Array(a)
+  const right = new Uint8Array(b)
+  return left.length === right.length && left.every((byte, index) => byte === right[index])
+}
+
 /** Read a tile into palette indices, from whatever wplace last drew it from. */
 const capture = (
   tile: TileCoord,
   bitmap: CanvasImageSource & { width: number; height: number },
   from: 'tile' | 'preview' = 'tile',
   dirty: CanvasWriteRect | null = null,
+  digest: ArrayBuffer | null = null,
 ): boolean =>
   measureProfile(from === 'preview' ? 'Draft pixel capture' : 'Tile pixel capture', () => {
     const key = tileKey(tile)
@@ -1894,6 +1932,29 @@ const capture = (
     const empty = from === 'tile' && bitmap.width < TILE_SIZE && bitmap.height < TILE_SIZE
     if (!empty && (bitmap.width !== TILE_SIZE || bitmap.height !== TILE_SIZE)) return false
     try {
+      const existing = pixelsOfTile.get(key)
+      const previousDigest = capturedTileDigests.get(key)
+      if (
+        from === 'tile' &&
+        isWplacePatchEnabled('capture-dedupe') &&
+        digest !== null &&
+        previousDigest !== undefined &&
+        existing !== undefined &&
+        !acceptedPixels.has(key) &&
+        !requestedTilePixels.has(key) &&
+        observation !== undefined &&
+        sameDigest(digest, previousDigest)
+      ) {
+        // A new request still fences older responses and refreshes the cache's LRU position.
+        // Empty notifications have no listeners; only changed pixels are announced.
+        observedTileOrder.set(key, observation)
+        recordPixelObservation(existing, observation)
+        rememberTilePixels(key, existing)
+        notifyPixelBatch(tile, [], 'observed')
+        pruneSubmissionFences()
+        count('pixels:tile captures skipped')
+        return true
+      }
       if (from === 'preview' && dirty !== null && draftOfTile.has(key)) {
         const context = reusableCaptureContext()
         if (context === null) return false
@@ -1974,12 +2035,14 @@ const capture = (
        * a stale answer — so handing over a *new* array said "everything about this tile has changed"
        * when what had actually changed was one pixel someone painted.
        */
-      const existing = pixelsOfTile.get(key)
       if (existing === undefined || existing.length !== indices.length) {
         if (observation !== undefined) recordPixelObservation(indices, observation)
         rememberTilePixels(key, indices)
         notifyPixelBatch(tile, retired, 'observed')
         pruneSubmissionFences()
+        if (digest === null) capturedTileDigests.delete(key)
+        else capturedTileDigests.set(key, digest)
+        count('pixels:tile captures')
         count('pixels:captured')
         return true
       }
@@ -1988,6 +2051,9 @@ const capture = (
       apply(tile, existing, indices, 'server')
       notifyPixelBatch(tile, retired, 'observed')
       pruneSubmissionFences()
+      if (digest === null) capturedTileDigests.delete(key)
+      else capturedTileDigests.set(key, digest)
+      count('pixels:tile captures')
       count('pixels:re-read as a diff')
       return true
     } catch (error) {
@@ -2033,8 +2099,17 @@ const installBitmapTap = (realm: Window & typeof globalThis): InstalledValueHook
           if (sourceBlob !== undefined && sourceBytes !== undefined) {
             if (exact !== undefined) {
               tileOfBitmap.set(bitmap, exact)
-              capture(exact, bitmap)
               log('bitmap', `matched ${exact.x}/${exact.y} by identity`, { bytes: sourceBytes })
+              const pendingDigest = digestOfBlob.get(sourceBlob)
+              if (pendingDigest !== undefined) {
+                // Decode and hash run together. Only the digest can delay Wplace's bitmap promise;
+                // a failed digest resolves to null and takes the ordinary capture path.
+                return pendingDigest.then((digest) => {
+                  capture(exact, bitmap, 'tile', null, digest)
+                  return bitmap
+                })
+              }
+              capture(exact, bitmap)
               return bitmap
             }
             count('bitmap:fell-back-to-byte-length')

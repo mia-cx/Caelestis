@@ -313,6 +313,14 @@ export interface ProfileMetricModel {
   readonly value: string
 }
 
+/** One of the host's fixes to Wplace's own client, which a painter can switch off. */
+export interface SettingsWplacePatchModel {
+  readonly id: string
+  readonly label: string
+  readonly hint: string
+  readonly enabled: boolean
+}
+
 export interface SettingsModel {
   readonly servers: readonly SettingsServerModel[]
   readonly addServerPending?: boolean
@@ -331,6 +339,7 @@ export interface SettingsModel {
   readonly notifyUpdates: boolean
   readonly notifyActivity: boolean
   readonly shortcuts: ShortcutSettingsModel
+  readonly wplacePatches?: readonly SettingsWplacePatchModel[]
   readonly profile?: {
     readonly note: string
     readonly metrics: readonly ProfileMetricModel[]
@@ -362,6 +371,7 @@ export type SettingsIntent =
       readonly value: SettingsModel['colourNavigationOrder']
     }
   | { readonly type: 'set-boolean'; readonly key: SettingsBooleanKey; readonly value: boolean }
+  | { readonly type: 'set-wplace-patch'; readonly id: string; readonly enabled: boolean }
   | {
       readonly type: 'set-shortcut-binding'
       readonly id: import('@caelestis/shared').ShortcutId

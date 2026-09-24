@@ -112,6 +112,12 @@ import { endServerGeneration, forgetChunks, serverTemplateKey } from '../templat
 import { ensureLocalTags } from '../templates/tags.js'
 import { ownedColours, refreshAccount } from '../wplace-account.js'
 import { isPaintOpen, onPaintSelectionChange, selectedColour } from '../wplace-paint.js'
+import {
+  isWplacePatch,
+  onWplacePatchChange,
+  setWplacePatchEnabled,
+  wplacePatchSettings,
+} from '../wplace-patches.js'
 import { positionChargeForecast } from './charge-forecast.js'
 import { activeColourPreset, type ColourPresetId, hiddenForPreset } from './colours.js'
 import { setTemplateDisplayMode } from './display-mode.js'
@@ -616,6 +622,7 @@ const settingsModel = (): SettingsModel => {
       customised: Object.keys(state.shortcutOverrides).length > 0,
       ...(shortcutChange === undefined ? {} : { lastChange: shortcutChange }),
     },
+    wplacePatches: wplacePatchSettings(),
     debugLogging: isDebugEnabled(),
     performanceProfiling: isProfileEnabled(),
     ...(snapshot === null
@@ -814,6 +821,11 @@ const handleSettingsIntent = (intent: SettingsIntent): void => {
       else if (intent.key === 'performanceProfiling') setProfileEnabled(intent.value)
       else setState({ [intent.key]: intent.value })
       refreshSettings()
+      break
+    case 'set-wplace-patch':
+      // Persists the switch, applies or undoes the patch on the live map, and redraws this view
+      // through the change listener installed with the panel.
+      if (isWplacePatch(intent.id)) setWplacePatchEnabled(intent.id, intent.enabled)
       break
     case 'set-shortcut-binding': {
       const { overrides, displaced } = assignShortcutBinding(
@@ -1712,6 +1724,8 @@ export const installPanel = (): void => {
   // change.
   onStateChange(refreshView)
   onAllianceManifestChange(refreshView)
+  // A patch switched from the console must not leave an open settings view showing the old state.
+  onWplacePatchChange(refreshSettings)
   onActiveAllianceSurfaceChange(selectAlliancePanelSurface)
   onArtboardPixelsChange(() => {
     if (currentView() === 'tree' && panelSurface.kind !== 'world') refreshView()
