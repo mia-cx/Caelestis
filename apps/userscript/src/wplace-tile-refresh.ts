@@ -187,6 +187,27 @@ const inViewTiles = (manager: unknown): Tile[] => {
   return [...new Map(tiles.map((tile) => [tileKey(tile), tile])).values()]
 }
 
+/**
+ * In-view tiles whose last load failed.
+ *
+ * A HEAD signature is recorded when the reload is requested, not when it succeeds. A reload that
+ * then fails (a 429, a dropped connection) would match its signature on every later check and stay
+ * broken until the safety refresh; MapLibre marks it `errored`, so those always go back in.
+ */
+const erroredTiles = (manager: unknown): Set<string> => {
+  const entries = (
+    manager as { _inViewTiles?: { getAllTiles?: () => unknown } }
+  )?._inViewTiles?.getAllTiles?.()
+  const errored = new Set<string>()
+  if (!Array.isArray(entries)) return errored
+  for (const entry of entries) {
+    const tile = entry as { state?: unknown; tileID?: { canonical?: Tile } }
+    if (tile.state === 'errored' && tile.tileID?.canonical !== undefined)
+      errored.add(tileKey(tile.tileID.canonical))
+  }
+  return errored
+}
+
 const resetCache = (manager: unknown): void => {
   const cache = (manager as { _outOfViewCache?: { reset?: () => void } })?._outOfViewCache
   if (typeof cache?.reset !== 'function') throw new Error('MapLibre off-screen cache unavailable')
@@ -206,16 +227,30 @@ const tileUrl = (source: unknown, tile: Tile): string => {
   return url
 }
 
+/**
+ * How long one HEAD may take. `fetch` never times out on its own, and a round only ends when every
+ * request settles; one stalled request would otherwise hold `checking` forever and stop every later
+ * refresh, the safety full refresh included.
+ */
+const HEAD_TIMEOUT_MS = 10_000
+
 const signature = async (url: string): Promise<string | null> => {
+  let timer: number | undefined
   try {
     // Wplace wraps page fetch for anti-cheat. Resolve it for each request, after its wrapper exists.
-    const response = await pageWindow().fetch(url, { method: 'HEAD' })
+    // The signal comes from the same realm as that fetch, which rejects a foreign AbortSignal.
+    const realm = pageWindow()
+    const deadline = new realm.AbortController()
+    timer = realm.setTimeout(() => deadline.abort(), HEAD_TIMEOUT_MS)
+    const response = await realm.fetch(url, { method: 'HEAD', signal: deadline.signal })
     if (!response.ok) return null
     const modified = response.headers.get('Last-Modified')
     const length = response.headers.get('Content-Length')
     return modified && length ? `${modified}|${length}` : null
   } catch {
     return null
+  } finally {
+    if (timer !== undefined) pageWindow().clearTimeout(timer)
   }
 }
 
@@ -280,8 +315,10 @@ export const patchTileRefresh = (map: PatchableMap): void => {
         )
           return
         const changed: Tile[] = []
+        const errored = erroredTiles(manager)
         for (const { tile, url, value } of results) {
-          if (value === null || signatures.get(url) !== value) changed.push(tile)
+          if (value === null || signatures.get(url) !== value || errored.has(tileKey(tile)))
+            changed.push(tile)
           if (value === null) signatures.delete(url)
           else signatures.set(url, value)
         }

@@ -32,6 +32,7 @@ const realm = () => {
     setTimeout,
     clearTimeout,
     fetch: vi.fn(),
+    AbortController,
   }
   vi.stubGlobal('window', page)
   return {
@@ -57,8 +58,15 @@ const preview = (tile: { x: number; y: number }, x = 1, color = 10) => ({
 
 const fakeMap = (tiles = [A, B, C, D], useSourceCaches = false) => {
   const reset = vi.fn()
+  const errored = new Set<typeof A>()
   const manager = {
-    _inViewTiles: { getAllTiles: () => tiles.map((tile) => ({ tileID: { canonical: tile } })) },
+    _inViewTiles: {
+      getAllTiles: () =>
+        tiles.map((tile) => ({
+          tileID: { canonical: tile },
+          state: errored.has(tile) ? 'errored' : 'loaded',
+        })),
+    },
     _outOfViewCache: { reset },
   }
   const source = {
@@ -77,7 +85,7 @@ const fakeMap = (tiles = [A, B, C, D], useSourceCaches = false) => {
     refreshTiles: original,
   }
   patchTileRefresh(map)
-  return { map, original, reset, source, manager }
+  return { map, original, reset, source, manager, errored }
 }
 
 const settle = async () => {
@@ -115,7 +123,8 @@ describe('periodic tile refresh', () => {
       ['7/8', 'a'],
     ])
     page.fetch.mockImplementation(async (url: string, init: RequestInit) => {
-      expect(init).toEqual({ method: 'HEAD' })
+      expect(init).toMatchObject({ method: 'HEAD' })
+      expect(init.signal).toBeInstanceOf(AbortSignal)
       const key = /tiles\/(\d+\/\d+)\.png/.exec(url)?.[1] ?? ''
       const value = replies.get(key)
       if (value === 'fail') throw new Error('network')
@@ -135,7 +144,7 @@ describe('periodic tile refresh', () => {
     const nextTiles = [A, B, C, D, { x: 9, y: 10, z: 11 }]
     // A new in-view tile has no previous signature.
     manager._inViewTiles.getAllTiles = () =>
-      nextTiles.map((tile) => ({ tileID: { canonical: tile } }))
+      nextTiles.map((tile) => ({ tileID: { canonical: tile }, state: 'loaded' }))
     replies.set('9/10', 'a')
     map.refreshTiles('pixel-art-layer')
     await settle()
@@ -204,6 +213,42 @@ describe('periodic tile refresh', () => {
     map.refreshTiles('pixel-art-layer')
     expect(original).toHaveBeenLastCalledWith('pixel-art-layer')
     expect(page.fetch).toHaveBeenCalledTimes(9)
+  })
+
+  it('recovers from a HEAD that never answers once its deadline passes', async () => {
+    vi.useFakeTimers()
+    const { page } = realm()
+    page.fetch.mockImplementation(
+      (_url: string, init: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init.signal?.addEventListener('abort', () => reject(init.signal?.reason))
+        }),
+    )
+    const { map, original } = fakeMap([A])
+    map.refreshTiles('pixel-art-layer')
+    map.refreshTiles('pixel-art-layer')
+    expect(page.fetch).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(10_000)
+    // The stalled round ended as a failed check, so its tile reloads and the next round runs.
+    expect(original).toHaveBeenLastCalledWith('pixel-art-layer', [A])
+    map.refreshTiles('pixel-art-layer')
+    expect(page.fetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('reloads a tile whose last reload failed even when its signature is unchanged', async () => {
+    const { page } = realm()
+    page.fetch.mockResolvedValue({
+      ok: true,
+      headers: { get: (name: string) => (name === 'Last-Modified' ? 'same' : '200000') },
+    })
+    const { map, original, errored } = fakeMap([A, B])
+    map.refreshTiles('pixel-art-layer')
+    await settle()
+    expect(original).toHaveBeenLastCalledWith('pixel-art-layer', [A, B])
+    errored.add(B)
+    map.refreshTiles('pixel-art-layer')
+    await settle()
+    expect(original).toHaveBeenLastCalledWith('pixel-art-layer', [B])
   })
 
   it('drops an overlapping call and skips results after its source disappears', async () => {
