@@ -103,3 +103,24 @@ Missing entries do not prove zero latency. See the [Event Timing specification](
 | Discover native draft observables | Deferred until capture remains a bottleneck and a capability test preserves transparent drafts and source picking. |
 
 The current shared-machine measurements justify none of these changes.
+
+## Wplace client patches
+
+Caelestis patches waste in Wplace's own client (#518). Each patch has a switch: `__caelestis.wplacePatches.list()`, `.disable(name)`, and `.enable(name)`. Switches persist in `caelestis.wplace-patches.v1`.
+
+Measured on 2026-09-24 in the debug Chromium. Background tab with focus emulation, 1440×900, DPR 1, Paris at zoom 12.8 (Wplace's 6-second refresh), 60 idle seconds, read through CDP `Performance.getMetrics` and the Network domain:
+
+| | Wplace alone | Caelestis with patches |
+| --- | --- | --- |
+| Main-thread task time | 24.7 s | 1.25 s |
+| `triggerRepaint` calls | 18,010 | 7 |
+| Tile requests | 20 GETs, 4,048 KB | 18 HEADs, 2 GETs, 405 KB |
+
+Over a busy event tile in Antarctica, 9 HEAD checks found 5 changed tiles. The resulting 6 GETs include one safety full refresh.
+
+Before comparing, check these by hand:
+
+- [ ] The hover crosshair follows the pointer at zoom 17.
+- [ ] Highlight-area outlines keep the colour line above the white line.
+- [ ] A draft pixel appears on its tile and clears again. Only that tile reloads.
+- [ ] Busy tiles still update within one refresh interval.
