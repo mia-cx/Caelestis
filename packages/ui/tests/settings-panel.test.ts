@@ -65,4 +65,43 @@ describe('settings panel intent boundary', () => {
       { type: 'reset-profile' },
     ])
   })
+
+  it('switches each Wplace patch by its own id, and hides the section when there are none', async () => {
+    const intents: SettingsIntent[] = []
+    const target = document.body.appendChild(document.createElement('div'))
+    mounted.push(
+      mount(SettingsPanel, {
+        target,
+        props: {
+          model: {
+            ...settings(),
+            wplacePatches: [
+              { id: 'hover-canvas', label: 'Stop idle redraws', hint: 'Hint.', enabled: true },
+              {
+                id: 'tile-refresh',
+                label: 'Download changed tiles only',
+                hint: 'Hint.',
+                enabled: false,
+              },
+            ],
+          },
+          onIntent: (intent) => intents.push(intent),
+        },
+      }),
+    )
+    const toggle = (label: string) =>
+      target.querySelector(`input[aria-label="${label}"]`) as HTMLInputElement
+    expect(toggle('Stop idle redraws').checked).toBe(true)
+    expect(toggle('Download changed tiles only').checked).toBe(false)
+    toggle('Stop idle redraws').click()
+    toggle('Download changed tiles only').click()
+    expect(intents).toEqual([
+      { type: 'set-wplace-patch', id: 'hover-canvas', enabled: false },
+      { type: 'set-wplace-patch', id: 'tile-refresh', enabled: true },
+    ])
+
+    const empty = document.body.appendChild(document.createElement('div'))
+    mounted.push(mount(SettingsPanel, { target: empty, props: { model: settings() } }))
+    expect(empty.textContent).not.toContain('Wplace performance')
+  })
 })

@@ -20,6 +20,7 @@ pnpm --filter @caelestis/userscript test src/wplace-patches.test.ts src/wplace-t
 | Draft refresh reloads only draft tiles | Changed draft pixels and `clearPixelPreview` narrow the reload to their tiles at the source zoom; one stroke is one reload per frame; the idle keep-alive and net-empty drafts still run the periodic check; paint, rollback, and worker refreshes pass through; `postMessage` stays transparent. | A draft pixel baked into and cleared from only its own tile. |
 | Capture re-reads after scope grows | A new capture scope key (Paint, a template position) triggers one full refresh; switching conditional refresh off leaves it to Wplace. | Not exercised live. |
 | Unchanged tiles skip readback | `test/tile-capture-contract.test.ts` through the production fetch and bitmap taps: identical bytes skip the readback; changed, evicted, accepted-paint, drafted, switched-off, and unhashable cases read again. | Not exercised live; the profile had no visible local templates and Paint closed. |
+| Settings switch each patch | `packages/ui/tests/settings-panel.test.ts`: each toggle reflects its patch and emits `set-wplace-patch` for its own id; the section is absent without patches. `wplace-patches.test.ts` covers persistence and live application of a switch. | Switching "Stop idle redraws" off in Settings resumed the hover source and stored the choice; switching it on paused it again. |
 
 ## Gaps
 

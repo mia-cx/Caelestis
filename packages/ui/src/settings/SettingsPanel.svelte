@@ -238,6 +238,14 @@
   {/each}
   <p class="subtle shortcut-status" role="status">{shortcutStatus}</p>
 
+  {#if (model.wplacePatches ?? []).length > 0}
+    <SectionHeader title="Wplace performance" icon="tune" />
+    <p class="subtle">Caelestis fixes waste in Wplace's own client. Turn a fix off if Wplace looks or behaves wrong.</p>
+    {#each model.wplacePatches ?? [] as patch (patch.id)}
+      <SettingRow label={patch.label} hint={patch.hint}>{#snippet children()}<Toggle label={patch.label} checked={patch.enabled} onChange={(value) => emit({ type: 'set-wplace-patch', id: patch.id, enabled: value })} />{/snippet}</SettingRow>
+    {/each}
+  {/if}
+
   <SectionHeader title="Diagnostics" icon="bug" />
   <SettingRow label="Debug logging" hint="Verbose console output for bug reports">{#snippet children()}<Toggle label="Debug logging" checked={model.debugLogging} onChange={(value) => emit({ type: 'set-boolean', key: 'debugLogging', value })} />{/snippet}</SettingRow>
   <SettingRow label="Performance profiling" hint="Measures Caelestis CPU, GPU and known buffers. Profiling adds a small overhead.">{#snippet children()}<Toggle label="Performance profiling" checked={model.performanceProfiling} onChange={(value) => emit({ type: 'set-boolean', key: 'performanceProfiling', value })} />{/snippet}</SettingRow>

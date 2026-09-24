@@ -13,13 +13,31 @@ import { patchTileRefresh } from './wplace-tile-refresh.js'
  * sync, and Turnstile run exactly as they would without Caelestis.
  */
 export const WPLACE_PATCHES = {
-  'hover-canvas': "Stop Wplace's pixel-hover canvas source from rendering the map every frame",
-  'highlight-order': "Skip Wplace's highlight-area layer moves that are already satisfied",
-  'tile-refresh': 'Reload only the Wplace tiles that changed since they were last fetched',
-  'draft-refresh': 'Reload only the tiles whose draft pixels changed',
-  'capture-dedupe': "Skip Caelestis's tile pixel capture when a tile's bytes are unchanged",
-  'marker-animations': "Pause Wplace's marker animations while the marker is hidden",
-} as const
+  'hover-canvas': {
+    label: 'Stop idle redraws',
+    hint: 'Wplace redraws the whole map every frame for its hover crosshair, even when nothing moves. The crosshair still follows the pointer.',
+  },
+  'highlight-order': {
+    label: 'Settle event outlines',
+    hint: "Stops Wplace re-sorting the event outline's layers on every map update, which also kept the map redrawing.",
+  },
+  'tile-refresh': {
+    label: 'Download changed tiles only',
+    hint: 'Every few seconds, checks each visible tile and downloads only the ones that changed. Every tile is still downloaded again about once a minute.',
+  },
+  'draft-refresh': {
+    label: 'Reload drafted tiles only',
+    hint: 'Placing or erasing a draft pixel reloads only the tiles whose drafts changed, not every visible tile.',
+  },
+  'capture-dedupe': {
+    label: 'Skip identical tile reads',
+    hint: "Caelestis skips re-reading a tile's pixels when Wplace downloads an identical copy.",
+  },
+  'marker-animations': {
+    label: 'Pause hidden marker animations',
+    hint: "Stops the event marker's animations while it is hidden, zoomed in.",
+  },
+} as const satisfies Record<string, { readonly label: string; readonly hint: string }>
 
 export type WplacePatch = keyof typeof WPLACE_PATCHES
 
@@ -28,7 +46,7 @@ const STORAGE_KEY = 'caelestis.wplace-patches.v1'
 // biome-ignore lint/suspicious/noExplicitAny: userscript-manager APIs exist only in their sandbox
 const gm = globalThis as any
 
-const isPatch = (value: unknown): value is WplacePatch =>
+export const isWplacePatch = (value: unknown): value is WplacePatch =>
   typeof value === 'string' && Object.hasOwn(WPLACE_PATCHES, value)
 
 /** The stored value is the list of patches switched off, so a new patch starts on. */
@@ -39,7 +57,7 @@ const readDisabled = (): Set<WplacePatch> => {
         ? gm.GM_getValue(STORAGE_KEY, '[]')
         : (globalThis.localStorage?.getItem(STORAGE_KEY) ?? '[]')
     const parsed: unknown = JSON.parse(raw)
-    return new Set(Array.isArray(parsed) ? parsed.filter(isPatch) : [])
+    return new Set(Array.isArray(parsed) ? parsed.filter(isWplacePatch) : [])
   } catch {
     return new Set()
   }
@@ -89,13 +107,18 @@ export const onWplacePatchChange = (
   return () => listeners.delete(listener)
 }
 
-export const wplacePatchStates = (): Record<WplacePatch, { enabled: boolean; what: string }> =>
-  Object.fromEntries(
-    (Object.keys(WPLACE_PATCHES) as WplacePatch[]).map((patch) => [
-      patch,
-      { enabled: isWplacePatchEnabled(patch), what: WPLACE_PATCHES[patch] },
-    ]),
-  ) as Record<WplacePatch, { enabled: boolean; what: string }>
+/** Every patch with its settings copy and current switch, in settings order. */
+export const wplacePatchSettings = (): {
+  readonly id: WplacePatch
+  readonly label: string
+  readonly hint: string
+  readonly enabled: boolean
+}[] =>
+  (Object.keys(WPLACE_PATCHES) as WplacePatch[]).map((id) => ({
+    id,
+    ...WPLACE_PATCHES[id],
+    enabled: isWplacePatchEnabled(id),
+  }))
 
 /** Test seam. */
 export const resetWplacePatches = (): void => {
