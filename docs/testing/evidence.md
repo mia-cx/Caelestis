@@ -1,8 +1,28 @@
 # Fresh suite evidence
 
 Issue #76 replaces all 277 inherited `*.test.ts` and `*.test.mjs` files at `55d89f0d`.
-Every inherited path is absent. No filename was reused. Retained PNG and Blue Marble fixtures supply
-real image data; their old metadata smoke tests were removed.
+The initial rewrite removed every inherited path. Retained PNG and Blue Marble fixtures supply
+real image data; their old metadata smoke tests were removed. The September 24 refresh retains
+newer merged feature tests after auditing their contracts, including paths reintroduced by those features.
+
+## September 24 refresh
+
+Rebased onto merged dependency PRs #507 and #508. The [refresh map](refresh-2026-09-24.md)
+records current contracts and retained-test decisions. The version-apps branch remains bot-managed.
+
+- Default suite passes 341 Vitest cases and 36 tooling cases. One timing benchmark runs separately.
+- Uncached shuffled execution passes with seed 76 in 25.6 seconds across all 12 Turbo tasks.
+- Build and all package checks pass. Frozen install, actionlint, and whitespace checks pass.
+- Lint passes with 38 warnings and one informational diagnostic, including retained non-null assertion warnings; no errors.
+- Diagnostic coverage completes for all seven packages with no percentage gate.
+- D1 and Worker host contracts pass with the Miniflare 5 compatibility adapter.
+- PostgreSQL, MariaDB, and S3 contracts pass under Node 24.20.0 and Bun 1.4.2 against disposable local services.
+- Real Node and Bun HTTP/WebSocket lifecycle tests pass. Local Bun explicitly uses Homebrew SQLite 3.53.3;
+  Apple's 3.54.0 library fails a historical table rename. The refresh map documents the reproducer and override.
+- Chromium CDP contracts pass with focus emulation, an owned tab, real PNG/canvas decoding, refresh recovery, and worker lifecycle.
+- Classification performance gates pass under Node and Bun. No production deployment or live Wplace write was performed.
+
+The earlier validation sections below describe the original rewrite and are historical.
 
 The four production maps were written before replacement assertions. Their rows identify candidate
 boundaries. The selected contracts below apply the five rules in [TESTING.md](../../TESTING.md).
@@ -43,7 +63,7 @@ Dead reset functions and test-only exports were removed from production modules.
 | Area | Decision and reason |
 | --- | --- |
 | Declarative code | Types, barrels, constants, schema declarations, vendored UI primitives, shaders, and startup delegation rely on check/build and their consuming contracts. Dedicated snapshots would duplicate declarations. |
-| Browser layout and Wplace integration | Full MapLibre/WebGL frames, drag hit regions, panel clearance, transformed picking, Wplace account discovery, and canvas replacement need a browser acceptance fixture. The fast suite does not emulate their geometry. The separate browser command proves worker transport and canvas readback only. Changes to the other interactions still require focused browser verification. |
+| Browser layout and Wplace integration | Full MapLibre/WebGL frames, drag hit regions, panel clearance, transformed picking, Wplace account discovery, and canvas replacement need browser verification. The fast suite does not emulate their geometry. The separate browser command proves worker transport, canvas readback, and tile recovery after refresh. Changes to the other interactions still require focused browser verification. |
 | Deployment and load | Existing Compose, Helm, Cloudflare, upgrade, recovery, and benchmark drivers remain separate. Rebuilding their source-text unit assertions would not prove deployment behavior. This rewrite does not claim a fresh deployment or load result. |
 | Exhaustive presentation and internal state | Exact icons, animation samples, DOM styling, logging/profiling internals, private cache layouts, and every helper branch receive no dedicated case. Observable settings, selected colours, rendered pixels, and cleanup contracts carry the useful proof. |
 

@@ -60,8 +60,9 @@ Run these separate checks when the change affects their boundary:
 | --- | --- |
 | `pnpm test:shuffle` | Repeat the default suite with shuffled Vitest cases and files. |
 | `pnpm test:coverage` | Package line, branch, and function diagnostics in `test-results/coverage/`; no percentage gate. |
-| `pnpm test:browser` | Production worker and canvas behavior in disposable debug Chromium; Chromium must be installed. |
+| `pnpm test:browser` | Production worker, refresh recovery, and canvas behavior in an owned debug Chromium tab; reuses `CDP_PORT` or port 9222, otherwise starts an isolated browser. |
 | `pnpm test:runtime` | Real HTTP/WebSocket lifecycle with temporary SQLite in Node and Bun; Bun must be installed. |
+| `pnpm test:performance` | Warmed classification/encoding benchmark, separate from default and coverage runs. |
 | `pnpm test:worker` | Worker host configuration and a migrated local D1 binding. |
 | `pnpm test:databases` | Shared PostgreSQL/MariaDB contracts in disposable Docker containers, under Node and Bun. |
 | `pnpm test:services` | PostgreSQL, MariaDB, and S3 contracts against explicitly supplied disposable endpoints. |

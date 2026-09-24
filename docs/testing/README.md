@@ -10,6 +10,7 @@ That revision contains 277 inherited `*.test.ts` and `*.test.mjs` files.
 - [Backend, database adapters, and runtimes](backend.md)
 - [Userscript, local persistence, and Wplace integration](userscript.md)
 - [Frontend, UI, and tooling](frontend-ui-tooling.md)
+- [September 24 merged-feature refresh](refresh-2026-09-24.md)
 
 Map entries describe candidate coverage. [Final evidence](evidence.md) records selected contracts,
 validation, and deliberate exclusions.

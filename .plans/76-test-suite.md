@@ -62,3 +62,20 @@ stale destructive guards, work/region claims, and observed Wplace tiles/paints w
 Check/build/lint pass, as do the nine new backend contracts under Bun.
 Diagnostic coverage passes for all seven packages. The API maps record client-specific socket,
 work, alliance, and backfill gaps. PR #412 includes the priority override and expanded evidence.
+
+## September 24 refresh
+
+Rebase onto merged dependency PRs #507 and #508. Leave version-apps PR #515 to GitHub Actions.
+The earlier validation above describes the September 15 revision, not this refresh.
+
+- [x] Rebase while preserving merged production behavior and the replacement suite structure.
+- [x] Reconcile test discovery, compiler compatibility, and CI commands with current dependencies.
+- [x] Cover native template processing, Shift painting, claim grouping and ownership, and refreshed tile capture.
+- [x] Cover durable job fencing, ingestion recovery, server branding, and capacity through durable/API contracts.
+- [x] Update timelapse, observed completion pace, chart interaction, and current UI contracts.
+- [ ] Audit newer tests against TESTING.md, validate default and extended suites, and publish current evidence.
+
+For each merged feature, read production first and record the observable contract in
+docs/testing/refresh-2026-09-24.md. Retain newer cases only when they catch a distinct failure
+at a suitable boundary. Rewrite stale or redundant cases. Every retained test must be discovered
+by a documented command. Mark unverified behavior explicitly in the evidence.
