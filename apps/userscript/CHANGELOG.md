@@ -1,5 +1,28 @@
 # @caelestis/userscript
 
+## 0.16.0
+
+### Minor Changes
+
+- f9995fc: Hold Shift while painting to draw only unfinished template pixels that need the selected colour.
+
+### Patch Changes
+
+- 9ede931: Match Wplace template imports to their saved scale, palette, dithering, and transparency.
+- b6c0590: Keep retrying template markers on tiles that failed to load, even while the map stays still.
+- 92fc72d: Re-download only the Wplace tiles that changed, instead of every visible tile every few seconds.
+  
+  - Placing or erasing a draft pixel reloads only the tiles whose drafts changed.
+- 1a80760: Remove your drafts from other painters' screens when you submit or close Paint, even while your map stays still.
+- e1e5d7d: Skip re-reading a Wplace tile's pixels when a refresh returns the same image.
+- 3f4c9d0: Reject truncated PNG chunks before template import.
+- fda3b68: Declare the MCX License, copyright, and browser compatibility in the userscript metadata.
+- a3705a8: Stop Wplace's map from redrawing every frame while it sits still, cutting idle CPU and GPU use.
+  
+  - Pause Wplace's event-marker animations while the marker is hidden.
+  - Switch any Wplace patch off from the console with `__caelestis.wplacePatches.disable(name)`.
+- 6ea4a2f: Switch each Wplace performance fix off or on from a new Wplace performance section in Settings.
+
 ## 0.15.0
 
 ### Minor Changes
