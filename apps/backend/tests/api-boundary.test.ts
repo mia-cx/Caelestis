@@ -90,6 +90,29 @@ const reportOperations = [
 afterEach(() => vi.restoreAllMocks())
 
 describe('backend API trust boundary', () => {
+  it('admits permitted scopes to every protected route at both API prefixes', async () => {
+    const backend = await createTestBackend()
+    const read = await mint(backend, 'read')
+    const report = await mint(backend, 'report')
+    for (const prefix of ['', '/v1']) {
+      const operations = [
+        ...reads.flatMap((path) =>
+          [read.token, report.token, adminToken].map((token) => ({ method: 'GET', path, token })),
+        ),
+        ...adminOperations.map(([method, path]) => ({ method, path, token: adminToken })),
+        ...reportOperations.flatMap(([method, path]) =>
+          [report.token, adminToken].map((token) => ({ method, path, token })),
+        ),
+      ]
+      for (const { method, path, token } of operations) {
+        const response = await request(backend, prefix + path, method, token)
+        // Missing records/bodies can fail validation. Authentication must still admit the scope.
+        // Populated successful operations are covered in the real client and route contracts.
+        expect([401, 403, 500], `${method} ${prefix}${path}`).not.toContain(response.status)
+      }
+    }
+  })
+
   it('requires authentication on every protected read at both API prefixes', async () => {
     const backend = await createTestBackend()
     for (const prefix of ['', '/v1']) {
