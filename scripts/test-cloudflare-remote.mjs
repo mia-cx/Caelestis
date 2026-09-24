@@ -6,6 +6,7 @@ import { resolve } from 'node:path'
 import { acceptance, waitFor } from './stack-tests/acceptance.mjs'
 import { cloudflareConfigs } from './stack-tests/cloudflare-config.mjs'
 import { run } from './stack-tests/process.mjs'
+import { workersDevFetch } from './stack-tests/workers-dev-fetch.mjs'
 
 // Reserved exclusively for this suite. The workflow serializes all remote runs.
 const prefix = 'caelestis-stack-ci'
@@ -160,7 +161,7 @@ try {
     'frontend and backend Workers',
     180_000,
   )
-  const suite = acceptance({ site, adminToken, readToken })
+  const suite = acceptance({ site, adminToken, readToken, fetch: workersDevFetch })
   const state = await suite.seed()
   await suite.verify(state)
   // Redeploy the exact Worker to test Durable Object state across deployment replacement.

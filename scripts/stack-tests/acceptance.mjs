@@ -28,9 +28,15 @@ export async function waitFor(check, label, timeout = 120_000, retryErrors = tru
 }
 
 /** Exercise public HTTP and WebSockets; deployment drivers only manage lifecycle. */
-export function acceptance({ site, api = `${site}/backend/v1`, adminToken, readToken }) {
+export function acceptance({
+  site,
+  api = `${site}/backend/v1`,
+  adminToken,
+  readToken,
+  fetch: fetchRequest = globalThis.fetch,
+}) {
   const request = async (path, { token = adminToken, ...init } = {}) =>
-    fetch(`${api}${path}`, {
+    fetchRequest(`${api}${path}`, {
       ...init,
       signal: AbortSignal.timeout(30_000),
       headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), ...init.headers },
@@ -177,7 +183,7 @@ export function acceptance({ site, api = `${site}/backend/v1`, adminToken, readT
       return state
     },
     async verify(state) {
-      const response = await fetch(`${site}/api/v1/manifest`, {
+      const response = await fetchRequest(`${site}/api/v1/manifest`, {
         signal: AbortSignal.timeout(30_000),
       })
       assert.equal(response.status, 200)
@@ -187,7 +193,7 @@ export function acceptance({ site, api = `${site}/backend/v1`, adminToken, readT
         manifest.templates.find((t) => t.id === state.templateId)?.name,
         'Stack acceptance updated',
       )
-      const page = await fetch(site, { signal: AbortSignal.timeout(30_000) })
+      const page = await fetchRequest(site, { signal: AbortSignal.timeout(30_000) })
       assert.equal(page.status, 200)
       const html = await page.text()
       assert.ok(html.includes(state.serverId), 'SSR must contain the stored server identity')
