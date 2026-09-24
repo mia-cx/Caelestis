@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { createHash, randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { setTimeout as delay } from 'node:timers/promises'
+import { reconnectWebSocket, WebSocketDisconnected } from './websocket-reconnect.mjs'
 
 // encodeIndexedPng(3, 1, [0, 1, 2]), using the application's palette.
 const png = Buffer.from(
@@ -11,13 +12,14 @@ const png = Buffer.from(
 const uuid = () => randomUUID().replace(/^(.{14})./, '$17')
 
 /** Wait for deployment readiness, never retry failed acceptance assertions. */
-export async function waitFor(check, label, timeout = 120_000) {
+export async function waitFor(check, label, timeout = 120_000, retryErrors = true) {
   const deadline = Date.now() + timeout
   let last
   while (Date.now() < deadline) {
     try {
       if (await check()) return
     } catch (error) {
+      if (!retryErrors) throw error
       last = error
     }
     await delay(1000)
@@ -26,9 +28,15 @@ export async function waitFor(check, label, timeout = 120_000) {
 }
 
 /** Exercise public HTTP and WebSockets; deployment drivers only manage lifecycle. */
-export function acceptance({ site, api = `${site}/backend/v1`, adminToken, readToken }) {
+export function acceptance({
+  site,
+  api = `${site}/backend/v1`,
+  adminToken,
+  readToken,
+  fetch: fetchRequest = globalThis.fetch,
+}) {
   const request = async (path, { token = adminToken, ...init } = {}) =>
-    fetch(`${api}${path}`, {
+    fetchRequest(`${api}${path}`, {
       ...init,
       signal: AbortSignal.timeout(30_000),
       headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), ...init.headers },
@@ -58,7 +66,7 @@ export function acceptance({ site, api = `${site}/backend/v1`, adminToken, readT
       if (data !== 'pong') messages.push(JSON.parse(data))
     })
     socket.addEventListener('error', () => {
-      failed = new Error(`WebSocket failed: ${url}`)
+      failed = new WebSocketDisconnected(`WebSocket failed: ${url}`)
     })
     try {
       await waitFor(
@@ -68,6 +76,7 @@ export function acceptance({ site, api = `${site}/backend/v1`, adminToken, readT
         },
         'WebSocket open',
         15_000,
+        false,
       )
     } catch (error) {
       socket.close()
@@ -80,7 +89,7 @@ export function acceptance({ site, api = `${site}/backend/v1`, adminToken, readT
         await waitFor(
           () => {
             if (failed || socket.readyState === WebSocket.CLOSED)
-              throw failed ?? new Error('WebSocket closed')
+              throw failed ?? new WebSocketDisconnected('WebSocket closed')
             index = messages.findIndex(
               (m) => m.type === type && (!requestId || m.requestId === requestId),
             )
@@ -88,6 +97,7 @@ export function acceptance({ site, api = `${site}/backend/v1`, adminToken, readT
           },
           `WebSocket ${type}`,
           20_000,
+          false,
         )
         return messages.splice(index, 1)[0]
       },
@@ -173,7 +183,7 @@ export function acceptance({ site, api = `${site}/backend/v1`, adminToken, readT
       return state
     },
     async verify(state) {
-      const response = await fetch(`${site}/api/v1/manifest`, {
+      const response = await fetchRequest(`${site}/api/v1/manifest`, {
         signal: AbortSignal.timeout(30_000),
       })
       assert.equal(response.status, 200)
@@ -183,7 +193,7 @@ export function acceptance({ site, api = `${site}/backend/v1`, adminToken, readT
         manifest.templates.find((t) => t.id === state.templateId)?.name,
         'Stack acceptance updated',
       )
-      const page = await fetch(site, { signal: AbortSignal.timeout(30_000) })
+      const page = await fetchRequest(site, { signal: AbortSignal.timeout(30_000) })
       assert.equal(page.status, 200)
       const html = await page.text()
       assert.ok(html.includes(state.serverId), 'SSR must contain the stored server identity')
@@ -192,7 +202,9 @@ export function acceptance({ site, api = `${site}/backend/v1`, adminToken, readT
       const chunk = await request(`/chunks/${state.chunkHash}`, { token: readToken })
       assert.equal(chunk.status, 200)
       assert.equal(Buffer.from(await chunk.arrayBuffer()).toString('base64'), state.chunkBytes)
-      await report(state, 'duplicate')
+      // Cloudflare replaces Durable Objects during redeployment and can close a new socket
+      // before its first response. Replay only this already-recorded event on transport loss.
+      await reconnectWebSocket(() => report(state, 'duplicate'))
       const totals = await json(
         `/telemetry/painters?templateIds=${state.templateId}&from=${state.event.ts - 120}&to=${state.event.ts + 120}`,
       )

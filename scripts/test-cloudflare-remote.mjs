@@ -6,6 +6,7 @@ import { resolve } from 'node:path'
 import { acceptance, waitFor } from './stack-tests/acceptance.mjs'
 import { cloudflareConfigs } from './stack-tests/cloudflare-config.mjs'
 import { run } from './stack-tests/process.mjs'
+import { workersDevFetch } from './stack-tests/workers-dev-fetch.mjs'
 
 // Reserved exclusively for this suite. The workflow serializes all remote runs.
 const prefix = 'caelestis-stack-ci'
@@ -143,12 +144,24 @@ try {
   for (const component of ['backend', 'frontend', 'gateway'])
     await command('deploy', '--config', configs[component])
   await waitFor(
-    async () =>
-      (await fetch(`${site}/api/v1/manifest`, { signal: AbortSignal.timeout(10_000) })).ok,
-    'remote Workers',
+    async () => {
+      // The frontend binding can be ready before the gateway's direct backend route propagates.
+      // Probe both paths before testing authorization; acceptance assertions are never retried.
+      const responses = await Promise.all(
+        ['/api/v1/manifest', '/backend/v1/manifest'].map((path) =>
+          fetch(`${site}${path}`, {
+            headers: { authorization: `Bearer ${readToken}` },
+            signal: AbortSignal.timeout(10_000),
+          }),
+        ),
+      )
+      await Promise.all(responses.map((response) => response.body?.cancel()))
+      return responses.every((response) => response.ok)
+    },
+    'frontend and backend Workers',
     180_000,
   )
-  const suite = acceptance({ site, adminToken, readToken })
+  const suite = acceptance({ site, adminToken, readToken, fetch: workersDevFetch })
   const state = await suite.seed()
   await suite.verify(state)
   // Redeploy the exact Worker to test Durable Object state across deployment replacement.
