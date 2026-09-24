@@ -76,10 +76,10 @@ jobs:
         run: pnpm --filter @caelestis/userscript... build
 
       - name: Typecheck userscript and dependencies
-        run: pnpm --filter @caelestis/userscript... check
+        run: pnpm exec turbo run check --filter=@caelestis/userscript...
 
       - name: Test userscript and dependencies
-        run: pnpm --filter @caelestis/userscript... test
+        run: pnpm exec turbo run test --filter=@caelestis/userscript...
 
       - name: Check repository lint and remaining root test suites
         if: inputs.source_sha != ''
