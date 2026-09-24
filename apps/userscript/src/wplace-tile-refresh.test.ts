@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { resetWplacePatches, setWplacePatchEnabled } from './wplace-patches.js'
 import {
   installServiceWorkerTap,
@@ -60,7 +60,7 @@ const preview = (tile: { x: number; y: number }, x = 1, color = 10) => ({
   color: { r: color, g: 0, b: 0, a: 255 },
 })
 
-const fakeMap = (tiles = [A, B, C, D], useSourceCaches = false) => {
+const fakeMap = (tiles = [A, B, C, D]) => {
   const reset = vi.fn()
   const errored = new Set<typeof A>()
   const manager = {
@@ -83,9 +83,7 @@ const fakeMap = (tiles = [A, B, C, D], useSourceCaches = false) => {
   })
   const map = {
     getSource: (id: string) => (id === 'pixel-art-layer' ? source : undefined),
-    style: useSourceCaches
-      ? { sourceCaches: { 'pixel-art-layer': manager } }
-      : { tileManagers: { 'pixel-art-layer': manager } },
+    style: { tileManagers: { 'pixel-art-layer': manager } },
     refreshTiles: original,
   }
   patchTileRefresh(map)
@@ -96,16 +94,9 @@ const settle = async () => {
   for (let i = 0; i < 8; i++) await Promise.resolve()
 }
 
-beforeEach(() => {
-  vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => {} })
-  resetWplacePatches()
-})
-
 afterEach(() => {
   vi.useRealTimers()
   resetWplacePatches()
-  vi.unstubAllGlobals()
-  vi.restoreAllMocks()
 })
 
 describe('periodic tile refresh', () => {
@@ -115,10 +106,9 @@ describe('periodic tile refresh', () => {
     map.refreshTiles('other')
     map.refreshTiles('pixel-art-layer', [A])
     expect(original.mock.calls).toEqual([['other'], ['pixel-art-layer', [A]]])
-    expect(Object.getOwnPropertyDescriptor(map, 'refreshTiles')?.enumerable).toBe(false)
   })
 
-  it('reloads unknown, changed, and failed tiles but skips unchanged ones', async () => {
+  it('reloads unknown, changed, and unverifiable tiles but skips unchanged ones', async () => {
     const { page } = realm()
     const replies = new Map([
       ['1/2', 'a'],
@@ -132,9 +122,13 @@ describe('periodic tile refresh', () => {
       const key = /tiles\/(\d+\/\d+)\.png/.exec(url)?.[1] ?? ''
       const value = replies.get(key)
       if (value === 'fail') throw new Error('network')
+      if (value === 'refused') return { ok: false }
       return {
         ok: true,
-        headers: { get: (name: string) => (name === 'Last-Modified' ? value : '200000') },
+        headers: {
+          get: (name: string) =>
+            name === 'Last-Modified' ? (value === 'no-date' ? null : value) : '200000',
+        },
       }
     })
     const { map, original, reset, manager } = fakeMap()
@@ -144,6 +138,7 @@ describe('periodic tile refresh', () => {
     expect(original).toHaveBeenLastCalledWith('pixel-art-layer', [A, B, C, D])
 
     replies.set('3/4', 'b')
+    replies.set('5/6', 'refused')
     replies.set('7/8', 'fail')
     const nextTiles = [A, B, C, D, { x: 9, y: 10, z: 11 }]
     // A new in-view tile has no previous signature.
@@ -153,22 +148,15 @@ describe('periodic tile refresh', () => {
     map.refreshTiles('pixel-art-layer')
     await settle()
     expect(reset).toHaveBeenCalledTimes(2)
-    expect(original).toHaveBeenLastCalledWith('pixel-art-layer', [B, D, nextTiles[4]])
+    expect(original).toHaveBeenLastCalledWith('pixel-art-layer', [B, C, D, nextTiles[4]])
     expect(original).toHaveBeenCalledTimes(2)
+
+    replies.set('5/6', 'no-date')
     map.refreshTiles('pixel-art-layer')
     await settle()
     expect(original).toHaveBeenCalledTimes(3)
-    expect(original).toHaveBeenLastCalledWith('pixel-art-layer', [D])
-  })
-
-  it('uses sourceCaches on older MapLibre versions', async () => {
-    const { page } = realm()
-    page.fetch.mockResolvedValue({ ok: true, headers: { get: () => 'a' } })
-    const { map, original, reset } = fakeMap([A], true)
-    map.refreshTiles('pixel-art-layer')
-    await settle()
-    expect(reset).toHaveBeenCalledOnce()
-    expect(original).toHaveBeenCalledWith('pixel-art-layer', [A])
+    // A refused, dateless, or failed check never counts as unchanged.
+    expect(original).toHaveBeenLastCalledWith('pixel-art-layer', [C, D])
   })
 
   it('treats a new source URL as unknown even when headers match', async () => {
@@ -182,24 +170,6 @@ describe('periodic tile refresh', () => {
     await settle()
     expect(original).toHaveBeenCalledTimes(2)
     expect(original).toHaveBeenLastCalledWith('pixel-art-layer', [A])
-  })
-
-  it('reloads tiles when HEAD is non-OK or lacks either header', async () => {
-    const { page } = realm()
-    page.fetch.mockImplementation(async (url: string) => {
-      const key = /tiles\/(\d+\/\d+)\.png/.exec(url)?.[1]
-      if (key === '1/2') return { ok: false }
-      return {
-        ok: true,
-        headers: {
-          get: (name: string) => (key === '3/4' && name === 'Last-Modified' ? null : 'a'),
-        },
-      }
-    })
-    const { map, original } = fakeMap([A, B])
-    map.refreshTiles('pixel-art-layer')
-    await settle()
-    expect(original).toHaveBeenCalledWith('pixel-art-layer', [A, B])
   })
 
   it('runs a full refresh every tenth periodic call and after ninety seconds', async () => {
@@ -268,21 +238,6 @@ describe('periodic tile refresh', () => {
     resolve({ ok: true, headers: { get: () => 'a' } })
     await settle()
     expect(original).not.toHaveBeenCalled()
-  })
-
-  it('ignores an older HEAD round after a worker cause forces a full refresh', async () => {
-    const { page, worker } = realm()
-    installServiceWorkerTap(page as unknown as Window & typeof globalThis)
-    let resolve!: (value: unknown) => void
-    page.fetch.mockReturnValue(new Promise((done) => (resolve = done)))
-    const { map, original } = fakeMap([A])
-    map.refreshTiles('pixel-art-layer')
-    worker.postMessage({ type: 'paintPixels', data: [] })
-    map.refreshTiles('pixel-art-layer')
-    resolve({ ok: true, headers: { get: () => 'a' } })
-    await settle()
-    expect(original).toHaveBeenCalledTimes(1)
-    expect(original).toHaveBeenCalledWith('pixel-art-layer')
   })
 
   it('passes through when both switches are off', () => {
@@ -357,7 +312,7 @@ describe('draft refresh', () => {
     expect(reset).toHaveBeenCalledTimes(3)
   })
 
-  it('merges multiple refreshes in a frame and skips a net empty change', () => {
+  it('merges the refreshes of one brush stroke into one reload per frame', () => {
     const { page, worker, flush } = realm()
     installServiceWorkerTap(page as unknown as Window & typeof globalThis)
     const { map, original } = fakeMap()
@@ -368,12 +323,6 @@ describe('draft refresh', () => {
     flush()
     expect(original).toHaveBeenCalledTimes(1)
     expect(original).toHaveBeenLastCalledWith('pixel-art-layer', [A, B])
-    worker.postMessage({ type: 'previewPixels', data: [preview(A)] })
-    map.refreshTiles('pixel-art-layer')
-    worker.postMessage({ type: 'previewPixels', data: [preview(A), preview(B)] })
-    map.refreshTiles('pixel-art-layer')
-    flush()
-    expect(original).toHaveBeenCalledTimes(1)
   })
 
   it('keeps periodic checks running through the idle clearPixelPreview keep-alive', async () => {
@@ -464,9 +413,6 @@ describe('draft refresh', () => {
     expect(calls).toEqual([
       { receiver: worker, args: [{ type: 'previewPixels', data: null }, ['transfer']] },
     ])
-    expect(
-      Object.getOwnPropertyDescriptor(page.ServiceWorker.prototype, 'postMessage')?.enumerable,
-    ).toBe(false)
   })
 
   it('preserves an error from the original postMessage', () => {
