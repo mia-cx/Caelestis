@@ -177,11 +177,6 @@ const RETRY_MS = 250
 let nextRetry = 0
 let retryTimer: ReturnType<typeof setTimeout> | null = null
 
-const requestMapFrame = (): void => {
-  const map = getMap() as { triggerRepaint?: () => void } | null
-  map?.triggerRepaint?.()
-}
-
 /**
  * Ask for another frame once the heartbeat allows it, from a timer.
  *
@@ -189,13 +184,14 @@ const requestMapFrame = (): void => {
  * Wplace's map used to render continuously, so one always did. Now an idle map renders nothing, and
  * a scan deferred behind a failed or queued tile chase would wait for the next unrelated movement.
  */
-export const retryDeferredScan = (now: number, request: () => void = requestMapFrame): void => {
+const retryDeferredScan = (now: number): void => {
   if (retryTimer !== null) return
   retryTimer = setTimeout(
     () => {
       retryTimer = null
       nextRetry = performance.now() + RETRY_MS
-      request()
+      const map = getMap() as { triggerRepaint?: () => void } | null
+      map?.triggerRepaint?.()
       count('marker:asked for another frame')
     },
     Math.max(0, nextRetry - now),

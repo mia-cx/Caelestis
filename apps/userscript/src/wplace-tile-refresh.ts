@@ -163,13 +163,8 @@ export const installServiceWorkerTap = (realm: Window & typeof globalThis = page
   }
 }
 
-const managerFor = (map: PatchableMap): unknown => {
-  const managers = map.style?.tileManagers ?? map.style?.sourceCaches
-  if (managers && 'get' in managers && typeof managers.get === 'function') {
-    return managers.get(SOURCE)
-  }
-  return (managers as Record<string, unknown> | undefined)?.[SOURCE]
-}
+/** MapLibre 5's per-source tile manager, which Wplace's pinned version keeps on `style`. */
+const managerFor = (map: PatchableMap): unknown => map.style?.tileManagers?.[SOURCE]
 
 const inViewTiles = (manager: unknown): Tile[] => {
   const source = manager as {

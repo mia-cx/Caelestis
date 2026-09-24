@@ -115,8 +115,7 @@ export interface PatchableMap {
   on?(type: string, listener: (event: { sourceId?: string }) => void): unknown
   style?: {
     _order?: readonly string[]
-    tileManagers?: ReadonlyMap<string, unknown> | Record<string, unknown>
-    sourceCaches?: ReadonlyMap<string, unknown> | Record<string, unknown>
+    tileManagers?: Record<string, unknown>
   }
 }
 
@@ -184,7 +183,7 @@ const TOP_RANK: Readonly<Record<string, number>> = {
  * layer is a sibling from the same highlight that the listener moves after it. A move with a `before`
  * id counts as satisfied when the layer already sits directly below that id.
  */
-export const highlightMoveIsSatisfied = (
+const highlightMoveIsSatisfied = (
   order: readonly string[],
   id: string,
   before?: string,
@@ -253,18 +252,18 @@ let markerStyle: HTMLStyleElement | null = null
  * semicolon, so `opacity: 0;` cannot match `opacity: 0.5`.
  */
 const syncMarkerAnimations = (): void => {
-  const enabled = isWplacePatchEnabled('marker-animations')
-  if (markerStyle === null) {
-    if (!enabled || typeof document === 'undefined' || document.head === null) return
-    markerStyle = document.createElement('style')
-    markerStyle.dataset.caelestis = 'wplace-marker-animations'
-    markerStyle.textContent =
-      '.maplibregl-marker[style*="opacity: 0;"] .wplace-marker-root,' +
-      '.maplibregl-marker[style*="opacity: 0;"] .wplace-marker-ping' +
-      '{animation-play-state:paused}'
-    document.head.append(markerStyle)
+  if (!isWplacePatchEnabled('marker-animations')) {
+    markerStyle?.remove()
+    markerStyle = null
+    return
   }
-  markerStyle.disabled = !enabled
+  if (markerStyle?.isConnected || typeof document === 'undefined' || document.head === null) return
+  markerStyle = document.createElement('style')
+  markerStyle.textContent =
+    '.maplibregl-marker[style*="opacity: 0;"] .wplace-marker-root,' +
+    '.maplibregl-marker[style*="opacity: 0;"] .wplace-marker-ping' +
+    '{animation-play-state:paused}'
+  document.head.append(markerStyle)
 }
 
 /**
