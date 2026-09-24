@@ -94,6 +94,15 @@ import { installClaimToolHost } from './ui/presence-actions.js'
 import { installUserscriptUpdateCheck } from './userscript-update.js'
 import { loadAccount } from './wplace-account.js'
 import { isPaintOpen, onPaintSelectionChange, watchPaintSelection } from './wplace-paint.js'
+import {
+  applyWplacePatches,
+  onWplacePatchChange,
+  type PatchableMap,
+  setWplacePatchEnabled,
+  WPLACE_PATCHES,
+  type WplacePatch,
+  wplacePatchStates,
+} from './wplace-patches.js'
 import { installColourPicker } from './wplace-picker.js'
 import { getWplaceState, installWplaceStateCapture } from './wplace-state.js'
 
@@ -180,7 +189,9 @@ const attachOverlayLayer = (): void => {
     installOverlayLayer()
     installPresenceLayer()
     syncPaintCursorMap(getMap())
+    applyWplacePatches(getMap() as PatchableMap | null)
   }
+  onWplacePatchChange(() => applyWplacePatches(getMap() as PatchableMap | null))
   attach()
   setInterval(attach, 1_000)
 }
@@ -328,6 +339,13 @@ export const startUserscript = (): void => {
           season: server.season,
         })),
       }),
+      /** Caelestis's performance patches for Wplace's own client, each with its own switch. */
+      wplacePatches: {
+        list: () => wplacePatchStates(),
+        enable: (patch: WplacePatch) => setWplacePatchEnabled(patch, true),
+        disable: (patch: WplacePatch) => setWplacePatchEnabled(patch, false),
+        names: () => Object.keys(WPLACE_PATCHES),
+      },
       /** The exact focused-template counts currently decorating Wplace's native paint palette. */
       paletteProgress: () => paintPaletteProgress(),
       /** A live performance snapshot. Enable profiling in Settings first. */
