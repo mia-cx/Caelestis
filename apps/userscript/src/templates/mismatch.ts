@@ -721,6 +721,24 @@ export const wantsTilePixels = (tile?: TileCoord): boolean => {
  * asked for, and each visible local template at its position. A new key means pixels kept from
  * before may not describe what it needs, and every visible tile is re-read.
  */
+const captureScopeListeners = new Set<() => void>()
+
+const announceCaptureScope = (): void => {
+  for (const listener of captureScopeListeners) {
+    try {
+      listener()
+    } catch {
+      count('mismatch:capture-scope-listener-failed')
+    }
+  }
+}
+
+/** Notified synchronously when progress adds a tile to what capture wants. */
+export const onCaptureScopeChange = (listener: () => void): (() => void) => {
+  captureScopeListeners.add(listener)
+  return () => captureScopeListeners.delete(listener)
+}
+
 export const captureScopeKeys = (): string[] => [
   ...pendingProgressPixels,
   ...worldTemplates()
@@ -787,6 +805,9 @@ const queueIncompleteLocalProgress = (template: PlacedTemplate): void => {
     pending = true
   }
   if (pending) {
+    // Before the idle scan can read a stale retained copy and drop the key: a later frame is too
+    // late to notice the scope grew, and the refresh it triggers is what corrects that read.
+    if (captureChanged) announceCaptureScope()
     scheduleIdleScan()
     if (captureChanged) notifyChanged()
   }
@@ -2135,6 +2156,7 @@ export const pixelAccounting = Object.freeze({
   },
   wantsTilePixels,
   captureScopeKeys,
+  onCaptureScopeChange,
   onChange: onMismatchesChanged,
   onDraftChange: onDraftsChanged,
   memoryBytes: mismatchMemoryBytes,

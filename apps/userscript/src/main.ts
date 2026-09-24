@@ -475,6 +475,8 @@ export const startUserscript = (): void => {
     sync()
     onStateChange(sync)
     onLocalChange(sync)
+    // Hidden-template progress widens the scope without a frame, and its idle scan can run first.
+    pixelAccounting.onCaptureScopeChange(sync)
     onPaintSelectionChange(sync)
     // And on every frame that carries tiles. The four above are the events that *should* cover it,
     // and between them they missed the only one that mattered: at start-up nothing is restored yet,
