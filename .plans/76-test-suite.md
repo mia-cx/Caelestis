@@ -73,7 +73,7 @@ The earlier validation above describes the September 15 revision, not this refre
 - [x] Cover native template processing, Shift painting, claim grouping and ownership, and refreshed tile capture.
 - [x] Cover durable job fencing, ingestion recovery, server branding, and capacity through durable/API contracts.
 - [x] Update timelapse, observed completion pace, chart interaction, and current UI contracts.
-- [ ] Audit newer tests against TESTING.md, validate default and extended suites, and publish current evidence.
+- [x] Audit newer tests against TESTING.md, validate default and extended suites, and publish current evidence.
 
 For each merged feature, read production first and record the observable contract in
 docs/testing/refresh-2026-09-24.md. Retain newer cases only when they catch a distinct failure
