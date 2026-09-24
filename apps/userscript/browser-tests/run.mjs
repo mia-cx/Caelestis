@@ -23,7 +23,12 @@ const stop = () =>
       if (!child?.pid || child.exitCode !== null || child.signalCode !== null) continue
       const exited = once(child, 'exit')
       child.kill('SIGTERM')
-      await exited
+      const force = setTimeout(() => child.kill('SIGKILL'), 3000)
+      try {
+        await exited
+      } finally {
+        clearTimeout(force)
+      }
     }
     await Promise.all(
       [profile, artifacts].map((path) =>
@@ -54,7 +59,9 @@ try {
   let port = process.env.CDP_PORT
   if (!port) {
     try {
-      const response = await fetch('http://127.0.0.1:9222/json/version')
+      const response = await fetch('http://127.0.0.1:9222/json/version', {
+        signal: AbortSignal.timeout(2000),
+      })
       if (response.ok) port = '9222'
     } catch {
       /* No existing debug browser; start an isolated test instance. */
@@ -88,8 +95,21 @@ try {
     env: { ...process.env, CDP_PORT: port, BROWSER_BUNDLE: bundle },
     stdio: 'inherit',
   })
-  const [code] = await once(check, 'exit')
-  if (code !== 0) throw new Error(`Production browser contracts exited ${code}`)
+  let timeout
+  try {
+    const [code] = await Promise.race([
+      once(check, 'exit'),
+      new Promise((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error('Production browser contracts timed out')),
+          60000,
+        )
+      }),
+    ])
+    if (code !== 0) throw new Error(`Production browser contracts exited ${code}`)
+  } finally {
+    clearTimeout(timeout)
+  }
 } finally {
   await stop()
   process.removeListener('SIGINT', interrupt)
