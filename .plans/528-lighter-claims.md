@@ -15,7 +15,7 @@ Add a setting that hides claims unless Wplace's paint drawer is open.
 
 ## TODOs
 - [x] Lower claim and viewport fill and pattern alphas; Changeset.
-- [ ] Add the stored setting and a pure claims-visible predicate with tests.
+- [x] Add the stored setting and a pure claims-visible predicate with tests.
 - [ ] Gate the presence layer and claim labels on the predicate; repaint when the drawer opens or closes.
 - [ ] Add the settings toggle and panel model field; Changeset.
 - [ ] Final validation: typecheck, lint, userscript and ui tests.

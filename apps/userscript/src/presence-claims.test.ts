@@ -1,6 +1,6 @@
 import { type RegionClaim, regionPixelComponents, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { assert, describe, expect, it } from 'vitest'
-import { createDisplayClaims } from './presence-claims.js'
+import { claimsVisible, createDisplayClaims } from './presence-claims.js'
 
 const claim = (id: string, x: number, y = 0, w = 3, h = 3): RegionClaim => ({
   id,
@@ -125,5 +125,30 @@ describe('display claims', () => {
     const shown = createDisplayClaims()(regions)
     expect(shown.map((part) => part.id)).toEqual(regions.map((region) => region.id))
     expect(shown.map((part) => part.pixels.count)).toEqual([...sparse.map(() => 2), 9, 9])
+  })
+})
+
+describe('claims visible', () => {
+  const flags = {
+    showPresence: true,
+    showPresenceClaims: true,
+    showPresenceClaimsOnlyWhilePainting: false,
+  }
+
+  it('shows claims with the drawer open or closed by default', () => {
+    expect(claimsVisible(flags, false)).toBe(true)
+    expect(claimsVisible(flags, true)).toBe(true)
+  })
+
+  it('shows claims only while painting when asked', () => {
+    const painting = { ...flags, showPresenceClaimsOnlyWhilePainting: true }
+    expect(claimsVisible(painting, false)).toBe(false)
+    expect(claimsVisible(painting, true)).toBe(true)
+  })
+
+  it('keeps claims hidden while painting if claims or painters are off', () => {
+    const painting = { ...flags, showPresenceClaimsOnlyWhilePainting: true }
+    expect(claimsVisible({ ...painting, showPresenceClaims: false }, true)).toBe(false)
+    expect(claimsVisible({ ...painting, showPresence: false }, true)).toBe(false)
   })
 })
