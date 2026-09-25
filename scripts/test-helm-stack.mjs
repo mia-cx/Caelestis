@@ -118,9 +118,7 @@ const workload = (name, image, port, variables, args = [], volumes = []) => ({
               limits: { cpu: '1', memory: '1Gi' },
             },
             readinessProbe: {
-              ...(name === 's3'
-                ? { httpGet: { path: '/health', port } }
-                : { tcpSocket: { port } }),
+              ...(name === 's3' ? { httpGet: { path: '/health', port } } : { tcpSocket: { port } }),
               periodSeconds: 2,
             },
             volumeMounts: volumes.map(({ name, mountPath }) => ({ name, mountPath })),

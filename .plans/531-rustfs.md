@@ -20,7 +20,7 @@ the old volume left untouched for rollback. The operator deletes it after the mi
 - [x] Cover the migration in the Compose stack test.
 - [x] Switch CI and the Helm stack test to RustFS.
 - [x] Update self-hosting docs; Changeset.
-- [ ] Final validation: run the S3 Compose stack locally, lint, script tests.
+- [x] Final validation: run the S3 Compose stack locally, lint, script tests.
 
 ## Notes
 - Design change from the issue: copy the raw volume files instead of reading through
@@ -35,3 +35,4 @@ the old volume left untouched for rollback. The operator deletes it after the mi
 - Fresh install by hand: s3-migrate logs "no MinIO data to copy", then "none"; backend and frontend healthy.
 - S3 storage contract against RustFS 1.0.0 locally: 7/7, including exactly one concurrent creator.
 - Helm test: the pod gets `fsGroup: 10001` so RustFS can write its claim. Not run locally (kind filled the MacBook disk); CI runs it. Stack tests run on `ssh devbox` from now on.
+- Devbox run 2026-09-26: sqlite/s3 and postgres/s3 Compose stack tests passed with the MinIO fixture (copy, 4 objects, restart skipped, MinIO volume unchanged, acceptance suite). Biome clean on deploy, scripts, .github, docs.
