@@ -1,5 +1,11 @@
 # @caelestis/frontend
 
+## 0.7.2
+
+### Patch Changes
+
+- 3f4c9d0: Reject truncated PNG chunks before template import.
+
 ## 0.7.1
 
 ### Patch Changes

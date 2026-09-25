@@ -1,5 +1,12 @@
 # @caelestis/backend
 
+## 0.9.1
+
+### Patch Changes
+
+- 42caa5c: Durable jobs now claim a fenced, renewable lease before they run, so several processes sharing one database run each job once. Existing coordinator databases migrate in place on startup.
+- 3f4c9d0: Reject truncated PNG chunks before template import.
+
 ## 0.9.0
 
 ### Minor Changes
