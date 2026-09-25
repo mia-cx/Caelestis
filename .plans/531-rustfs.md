@@ -17,7 +17,7 @@ the old volume left untouched for rollback. The operator deletes it after the mi
 ## TODOs
 - [x] Add a fixture of a volume written by the real MinIO image, with a manifest.
 - [x] Switch `deploy/compose/s3.yaml` to RustFS with a copy migration and a count check.
-- [ ] Cover the migration in the Compose stack test.
+- [x] Cover the migration in the Compose stack test.
 - [ ] Switch CI and the Helm stack test to RustFS.
 - [ ] Update self-hosting docs; Changeset.
 - [ ] Final validation: run the S3 Compose stack locally, lint, script tests.
@@ -31,3 +31,5 @@ the old volume left untouched for rollback. The operator deletes it after the mi
   content types, metadata, and a 412 for `If-None-Match: *`.
 - RustFS runs as uid 10001 and MinIO wrote files as root, so the copy needs a chown.
 - The backend image runs as `node` (uid 1000); the migration state volume must be writable by it.
+- Local run 2026-09-26: `node scripts/test-portable-compose.mjs miacx/caelestis-backend:local miacx/caelestis-frontend:local sqlite s3` passed: copy, 4 objects checked, restart skipped the copy, MinIO volume hash unchanged, acceptance suite on RustFS.
+- Fresh install by hand: s3-migrate logs "no MinIO data to copy", then "none"; backend and frontend healthy.
