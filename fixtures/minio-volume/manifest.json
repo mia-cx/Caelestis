@@ -1,0 +1,41 @@
+{
+  "bucket": "caelestis",
+  "objects": [
+    {
+      "key": "minio-migration/empty",
+      "md5": "d41d8cd98f00b204e9800998ecf8427e",
+      "size": 0,
+      "contentType": "application/octet-stream",
+      "metadata": {
+        "origin": "minio"
+      }
+    },
+    {
+      "key": "minio-migration/inline.txt",
+      "md5": "a1d1bde699a38b7b09c5fb63f291601b",
+      "size": 17,
+      "contentType": "text/plain",
+      "metadata": {
+        "origin": "minio"
+      }
+    },
+    {
+      "key": "minio-migration/tiles/1/2.png",
+      "md5": "71b2a6d6fd2abca20b66cec1f39c8a47",
+      "size": 150000,
+      "contentType": "image/png",
+      "metadata": {
+        "origin": "minio"
+      }
+    },
+    {
+      "key": "minio-migration/with space/ünïcode.bin",
+      "md5": "f69d006e454cd35fac6021244a574f52",
+      "size": 4000,
+      "contentType": "application/octet-stream",
+      "metadata": {
+        "origin": "minio"
+      }
+    }
+  ]
+}
