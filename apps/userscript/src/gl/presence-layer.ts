@@ -144,22 +144,22 @@ interface Style {
 
 const STYLES: Record<Kind, Style> = {
   viewport: {
-    fill: 0.15,
+    fill: 0.1,
     border: 0.9,
     borderWidth: 1.5,
     dash: 6,
     maskAlpha: 0,
     pattern: 2,
-    patternAlpha: 0.35,
+    patternAlpha: 0.25,
   },
   painting: {
-    fill: 0.3,
+    fill: 0.2,
     border: 0.9,
     borderWidth: 1.5,
     dash: 0,
     maskAlpha: 0,
     pattern: 1,
-    patternAlpha: 0.5,
+    patternAlpha: 0.35,
   },
   draft: {
     fill: 0,
@@ -175,9 +175,9 @@ const STYLES: Record<Kind, Style> = {
     border: 0.95,
     borderWidth: 1.5,
     dash: 0,
-    maskAlpha: 0.3,
+    maskAlpha: 0.15,
     pattern: 1,
-    patternAlpha: 0.5,
+    patternAlpha: 0.3,
   },
   tool: {
     fill: 0,
