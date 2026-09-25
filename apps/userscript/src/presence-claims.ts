@@ -151,10 +151,7 @@ export const createDisplayClaims = () => {
 
 /** Whether claims belong on screen: shown at all, and, if asked, only while the paint drawer is open. */
 export const claimsVisible = (
-  flags: Pick<
-    State,
-    'showPresence' | 'showPresenceClaims' | 'showPresenceClaimsOnlyWhilePainting'
-  >,
+  flags: Pick<State, 'showPresence' | 'showPresenceClaims' | 'showPresenceClaimsOnlyWhilePainting'>,
   paintOpen: boolean,
 ): boolean =>
   flags.showPresence &&
