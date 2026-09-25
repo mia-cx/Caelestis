@@ -8,6 +8,7 @@ import {
 } from '@caelestis/shared'
 import { claimDocumentPixels } from './claim-document.js'
 import { registerProfileMemorySource } from './profile.js'
+import type { State } from './state.js'
 
 export interface DisplayClaim {
   readonly id: string
@@ -147,6 +148,18 @@ export const createDisplayClaims = () => {
     return displayed
   }
 }
+
+/** Whether claims belong on screen: shown at all, and, if asked, only while the paint drawer is open. */
+export const claimsVisible = (
+  flags: Pick<
+    State,
+    'showPresence' | 'showPresenceClaims' | 'showPresenceClaimsOnlyWhilePainting'
+  >,
+  paintOpen: boolean,
+): boolean =>
+  flags.showPresence &&
+  flags.showPresenceClaims &&
+  (!flags.showPresenceClaimsOnlyWhilePainting || paintOpen)
 
 const readDisplayClaims = createDisplayClaims()
 let retained: readonly DisplayClaim[] = []

@@ -238,6 +238,8 @@ export interface State {
   readonly showPresenceViewports: boolean
   /** With `showPresence`: region claims, theirs and yours. */
   readonly showPresenceClaims: boolean
+  /** With `showPresenceClaims`: draw claims only while Wplace's paint drawer is open. */
+  readonly showPresenceClaimsOnlyWhilePainting: boolean
   readonly notifyRegressions: boolean
   readonly notifyGriefing: boolean
   readonly notifyUpdates: boolean
@@ -269,6 +271,7 @@ const DEFAULT_STATE: State = {
   showPresence: true,
   showPresenceViewports: true,
   showPresenceClaims: true,
+  showPresenceClaimsOnlyWhilePainting: false,
   notifyRegressions: false,
   notifyGriefing: false,
   notifyUpdates: true,
@@ -607,6 +610,7 @@ export const loadState = (): State => {
       showPresence: stored.showPresence !== false,
       showPresenceViewports: stored.showPresenceViewports !== false,
       showPresenceClaims: stored.showPresenceClaims !== false,
+      showPresenceClaimsOnlyWhilePainting: stored.showPresenceClaimsOnlyWhilePainting === true,
       notifyRegressions: stored.notifyRegressions === true,
       notifyGriefing: stored.notifyGriefing === true,
       notifyUpdates: stored.notifyUpdates !== false,
