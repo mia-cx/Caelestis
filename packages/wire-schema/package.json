@@ -19,7 +19,7 @@
   },
   "dependencies": {
     "@caelestis/shared": "workspace:*",
-    "effect": "4.0.0-rc.115"
+    "effect": "4.0.0-rc.117"
   },
   "devDependencies": {
     "typescript": "^7.0.2",
