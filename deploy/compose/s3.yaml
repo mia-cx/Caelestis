@@ -1,4 +1,6 @@
 # A local S3-compatible service for either database adapter. Use a dedicated app bucket.
+# RustFS replaced MinIO, whose images can no longer be pulled. The credential variables keep their
+# MinIO names so existing .env files work unchanged.
 x-s3: &s3
   OBJECT_STORAGE: s3
   S3_BUCKET: caelestis
@@ -8,6 +10,7 @@ x-s3: &s3
   AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-caelestis}
   AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}
   AWS_SESSION_TOKEN: ''
+x-rustfs-image: &rustfs-image rustfs/rustfs:1.0.0@sha256:8cc9801755448b71a786705ce76692c77e14936cccd87cf2fc31842e58f4d1ff
 services:
   backend:
     environment: *s3
@@ -16,15 +19,75 @@ services:
         condition: service_completed_successfully
   frontend:
     environment: *s3
+  # Copies an older stack's MinIO volume into the RustFS volume once, before RustFS first starts.
+  # RustFS converts MinIO's single-drive layout itself. The MinIO volume is mounted read-only and
+  # never changes, so it stays a complete rollback copy until you delete it.
+  s3-migrate:
+    image: *rustfs-image
+    user: '0:0'
+    restart: 'no'
+    network_mode: none
+    entrypoint: [sh, -eu, -c]
+    command:
+      - |
+        status=$$(cat /state/status 2>/dev/null || true)
+        if [ -n "$$status" ] && [ "$$status" != copying ]; then
+          echo "MinIO migration: $$status"
+          exit 0
+        fi
+        if [ ! -f /minio/.minio.sys/format.json ]; then
+          echo none > /state/status
+          echo 'MinIO migration: no MinIO data to copy'
+          exit 0
+        fi
+        if [ -e /data/.rustfs.sys ]; then
+          echo 'MinIO migration: the RustFS volume already holds data, but no migration was recorded.' >&2
+          echo 'Delete the MinIO volume if RustFS already has everything, or delete the RustFS volume to copy again.' >&2
+          exit 1
+        fi
+        echo copying > /state/status
+        echo 'MinIO migration: copying the MinIO volume'
+        find /data -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+        cp -a /minio/. /data/
+        chown -R 10001:10001 /data
+        (cd /minio && find . -type f -exec md5sum {} + | sort) > /tmp/minio.md5
+        (cd /data && find . -type f -exec md5sum {} + | sort) > /tmp/rustfs.md5
+        if ! cmp -s /tmp/minio.md5 /tmp/rustfs.md5; then
+          echo 'MinIO migration: the copy differs from the MinIO volume' >&2
+          exit 1
+        fi
+        : > /state/expected
+        for bucket in /minio/*/; do
+          [ -d "$$bucket" ] || continue
+          echo "$$(basename "$$bucket") $$(find "$$bucket" -type f -name xl.meta | wc -l)" >> /state/expected
+        done
+        # s3-init runs as node (uid 1000) and records the check, so hand it /state before marking it copied.
+        echo copied > /state/status.next
+        chown -R 1000:1000 /state
+        mv /state/status.next /state/status
+        echo "MinIO migration: copied $$(wc -l < /tmp/minio.md5) files; s3-init checks the objects next"
+    volumes:
+      - s3:/minio:ro
+      - rustfs:/data
+      - s3-migration:/state
   s3:
-    image: quay.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
-    command: [server, /data]
+    image: *rustfs-image
+    command: [/data]
     restart: unless-stopped
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-caelestis}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}
+      RUSTFS_ACCESS_KEY: ${MINIO_ROOT_USER:-caelestis}
+      RUSTFS_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}
     volumes:
-      - s3:/data
+      - rustfs:/data
+    depends_on:
+      s3-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: [CMD, curl, -fsS, http://127.0.0.1:9000/health]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
   s3-init:
     image: ${CAELESTIS_BACKEND_IMAGE:-miacx/caelestis-backend:local}
     build:
@@ -33,15 +96,20 @@ services:
     restart: 'no'
     working_dir: /app/apps/backend
     environment: *s3
-    depends_on: [s3]
+    depends_on:
+      s3:
+        condition: service_healthy
+    volumes:
+      - s3-migration:/state
     command:
       - node
       - --input-type=module
       - -e
       - |
+        import { readFile, writeFile } from 'node:fs/promises';
         import { createRequire } from 'node:module';
         import { setTimeout } from 'node:timers/promises';
-        const { S3Client, CreateBucketCommand } = createRequire(import.meta.resolve('@caelestis/storage/s3'))('@aws-sdk/client-s3');
+        const { S3Client, CreateBucketCommand, ListObjectsV2Command } = createRequire(import.meta.resolve('@caelestis/storage/s3'))('@aws-sdk/client-s3');
         const client = new S3Client({ endpoint: process.env.S3_ENDPOINT, region: process.env.S3_REGION, forcePathStyle: true });
         try {
           for (let attempt = 0; ; attempt++) {
@@ -52,6 +120,28 @@ services:
               await setTimeout(1000);
             }
           }
+          // A copied MinIO volume only counts as migrated once RustFS lists every object it held.
+          const status = (await readFile('/state/status', 'utf8').catch(() => '')).trim();
+          if (status === 'copied') {
+            const expected = (await readFile('/state/expected', 'utf8')).split('\n').filter(Boolean);
+            for (const line of expected) {
+              const [bucket, count] = line.split(' ');
+              let found = 0;
+              let token;
+              do {
+                const page = await client.send(new ListObjectsV2Command({ Bucket: bucket, ContinuationToken: token }));
+                found += page.KeyCount ?? 0;
+                token = page.NextContinuationToken;
+              } while (token);
+              if (found !== Number(count))
+                throw new Error(`MinIO migration: RustFS lists $${found} objects in $${bucket}, MinIO held $${count}. The MinIO volume is unchanged.`);
+              console.log(`MinIO migration: $${bucket} has all $${found} objects`);
+            }
+            await writeFile('/state/status', 'verified\n');
+          }
         } finally { client.destroy(); }
 volumes:
+  # The MinIO data from before RustFS. Delete it once the migration is verified.
   s3:
+  rustfs:
+  s3-migration:

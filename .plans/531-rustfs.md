@@ -16,7 +16,7 @@ the old volume left untouched for rollback. The operator deletes it after the mi
 
 ## TODOs
 - [x] Add a fixture of a volume written by the real MinIO image, with a manifest.
-- [ ] Switch `deploy/compose/s3.yaml` to RustFS with a copy migration and a count check.
+- [x] Switch `deploy/compose/s3.yaml` to RustFS with a copy migration and a count check.
 - [ ] Cover the migration in the Compose stack test.
 - [ ] Switch CI and the Helm stack test to RustFS.
 - [ ] Update self-hosting docs; Changeset.
