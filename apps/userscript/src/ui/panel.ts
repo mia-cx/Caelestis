@@ -612,6 +612,7 @@ const settingsModel = (): SettingsModel => {
     showPresence: state.showPresence,
     showPresenceViewports: state.showPresenceViewports,
     showPresenceClaims: state.showPresenceClaims,
+    showPresenceClaimsOnlyWhilePainting: state.showPresenceClaimsOnlyWhilePainting,
     notifyRegressions: state.notifyRegressions,
     notifyGriefing: state.notifyGriefing,
     notifyUpdates: state.notifyUpdates,
