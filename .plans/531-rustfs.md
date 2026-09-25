@@ -7,12 +7,12 @@ the old volume left untouched for rollback. The operator deletes it after the mi
 
 ## Acceptance criteria
 - [ ] CI, the Helm stack test, and the Compose stack test run against a pinned RustFS image.
-- [ ] A fresh `s3.yaml` install starts with RustFS and needs no MinIO.
-- [ ] An existing install upgrades with no manual steps; objects and metadata arrive; old volume unchanged.
-- [ ] Starting again after a migration doesn't copy again.
-- [ ] Existing `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` keep working.
-- [ ] Docs cover the switch, rollback, and deleting the old volume.
-- [ ] A backend Changeset.
+- [x] A fresh `s3.yaml` install starts with RustFS and needs no MinIO.
+- [x] An existing install upgrades with no manual steps; objects and metadata arrive; old volume unchanged.
+- [x] Starting again after a migration doesn't copy again.
+- [x] Existing `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` keep working.
+- [x] Docs cover the switch, rollback, and deleting the old volume.
+- [x] A backend Changeset.
 
 ## TODOs
 - [x] Add a fixture of a volume written by the real MinIO image, with a manifest.
