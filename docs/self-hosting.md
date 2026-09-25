@@ -169,9 +169,38 @@ For example:
 docker compose -f compose.yaml -f deploy/compose/postgres.yaml -f deploy/compose/s3.yaml up --build -d --wait
 ```
 
-The S3 example provisions a dedicated local MinIO bucket. It uses its root credentials for convenience in this local stack.
+The S3 example provisions a dedicated local [RustFS](https://github.com/rustfs/rustfs) bucket. It uses its root credentials for convenience in this local stack.
+The credential variables keep their MinIO names, `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD`, so older `.env` files work unchanged.
 For an existing S3 service, omit `s3.yaml`. Set `OBJECT_STORAGE=s3`, `S3_BUCKET`, endpoint, and credentials in `.env`.
 This works with every database override, including CNPG. Both application containers must use the same object provider and bucket.
+
+### Moving from MinIO to RustFS
+
+Older releases ran MinIO in `s3.yaml`. MinIO no longer publishes its images, so the S3 example now runs RustFS.
+An existing stack moves over on its first start with the new files. Nothing needs to be done by hand:
+
+1. `s3-migrate` copies the MinIO volume, `<project>_s3`, into a new RustFS volume, `<project>_rustfs`.
+   It mounts the MinIO volume read-only and checks every copied file against the original.
+2. RustFS starts on the copy and converts MinIO's format.
+3. `s3-init` checks that RustFS lists as many objects in each bucket as MinIO held. The backend only starts after that passes.
+
+The result is recorded in `<project>_s3-migration`, so later starts skip the copy. `docker compose logs s3-migrate` shows
+`MinIO migration: verified` once it's done, or `none` when there was no MinIO data. The copy needs as much free disk as the MinIO volume.
+
+The MinIO volume is left exactly as it was. Once the migration is verified and the server works, delete it:
+
+```sh
+docker volume rm <project>_s3
+```
+
+If a check fails, the backend does not start and the MinIO volume is still intact.
+To copy again, remove the RustFS volume and the migration record, then start the stack:
+
+```sh
+docker compose down
+docker volume rm <project>_rustfs <project>_s3-migration
+docker compose up -d --wait
+```
 
 ### Temporary HTTPS tunnel for Docker testing
 

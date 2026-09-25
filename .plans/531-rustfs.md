@@ -19,7 +19,7 @@ the old volume left untouched for rollback. The operator deletes it after the mi
 - [x] Switch `deploy/compose/s3.yaml` to RustFS with a copy migration and a count check.
 - [x] Cover the migration in the Compose stack test.
 - [x] Switch CI and the Helm stack test to RustFS.
-- [ ] Update self-hosting docs; Changeset.
+- [x] Update self-hosting docs; Changeset.
 - [ ] Final validation: run the S3 Compose stack locally, lint, script tests.
 
 ## Notes
