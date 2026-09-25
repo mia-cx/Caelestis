@@ -25,7 +25,7 @@
     "tailwind-variants": "^3.3.0"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20260920.1",
+    "@cloudflare/workers-types": "^5.20260922.1",
     "@fontsource-variable/nunito": "^5.3.0",
     "@internationalized/date": "^3.12.4",
     "@sveltejs/adapter-cloudflare": "^7.2.9",
@@ -34,7 +34,7 @@
     "@sveltejs/vite-plugin-svelte": "^7.1.2",
     "@tailwindcss/vite": "^4.3.3",
     "@typescript/native": "npm:typescript@^7.0.2",
-    "daisyui": "^5.7.42",
+    "daisyui": "^5.7.43",
     "happy-dom": "20.14.5",
     "svelte": "^5.57.1",
     "svelte-check": "^4.6.0",
@@ -43,6 +43,6 @@
     "typescript": "~6.0.3",
     "vite": "^8.3.0",
     "vitest": "^5.0.1",
-    "wrangler": "^4.135.0"
+    "wrangler": "^4.136.2"
   }
 }
