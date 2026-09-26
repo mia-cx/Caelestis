@@ -37,3 +37,4 @@ the old volume left untouched for rollback. The operator deletes it after the mi
 - Helm test: the pod gets `fsGroup: 10001` so RustFS can write its claim. Not run locally (kind filled the MacBook disk); CI runs it. Stack tests run on `ssh devbox` from now on.
 - Devbox run 2026-09-26: sqlite/s3 and postgres/s3 Compose stack tests passed with the MinIO fixture (copy, 4 objects, restart skipped, MinIO volume unchanged, acceptance suite). Biome clean on deploy, scripts, .github, docs.
 - Manual Portable CI run 36201876157 on the branch (extended=false): runtime, all 12 amd64 Compose stacks (6 from the MinIO fixture), all 6 Helm stacks on kind, and image scans passed.
+- Review fixes (Pullfrog, CodeRabbit): `/health/ready` gates, exact key match plus MD5-vs-ETag re-read in s3-init, docs for freeing the old volume. Devbox sqlite/s3 passed ("4 re-read and matched"); manual Portable CI run 36203575958: 28 jobs passed.
