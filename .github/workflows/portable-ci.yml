@@ -205,7 +205,7 @@ jobs:
       - name: Start disposable S3 service
         run: |
           docker run -d --name portable-s3 -p 127.0.0.1:9000:9000 -e RUSTFS_ACCESS_KEY=caelestis-test -e RUSTFS_SECRET_KEY=caelestis-test-password rustfs/rustfs:1.0.0@sha256:8cc9801755448b71a786705ce76692c77e14936cccd87cf2fc31842e58f4d1ff /data
-          curl --retry 30 --retry-delay 1 --retry-all-errors --retry-max-time 60 --fail http://127.0.0.1:9000/health
+          curl --retry 30 --retry-delay 1 --retry-all-errors --retry-max-time 60 --fail http://127.0.0.1:9000/health/ready
       - name: Build and check the Node backend and frontend
         env:
           CAELESTIS_TARGET: node

@@ -118,7 +118,9 @@ const workload = (name, image, port, variables, args = [], volumes = []) => ({
               limits: { cpu: '1', memory: '1Gi' },
             },
             readinessProbe: {
-              ...(name === 's3' ? { httpGet: { path: '/health', port } } : { tcpSocket: { port } }),
+              ...(name === 's3'
+                ? { httpGet: { path: '/health/ready', port } }
+                : { tcpSocket: { port } }),
               periodSeconds: 2,
             },
             volumeMounts: volumes.map(({ name, mountPath }) => ({ name, mountPath })),
@@ -359,7 +361,7 @@ try {
                   import {setTimeout} from 'node:timers/promises';
                   const deadline=Date.now()+60000;
                   for(;;) {
-                    try { if((await fetch('http://s3:9000/health',{signal:AbortSignal.timeout(3000)})).ok) break; } catch {}
+                    try { if((await fetch('http://s3:9000/health/ready',{signal:AbortSignal.timeout(3000)})).ok) break; } catch {}
                     if(Date.now()>deadline) throw new Error('RustFS service routing did not become ready');
                     await setTimeout(1000);
                   }
