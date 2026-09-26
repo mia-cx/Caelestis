@@ -125,7 +125,10 @@ try {
     assert.match(compose('logs', '--no-color', 's3-migrate'), /copying the MinIO volume/)
     const count = minioManifest.objects.length
     const init = compose('logs', '--no-color', 's3-init')
-    assert.match(init, new RegExp(`caelestis has all ${count} objects; ${count} re-read and matched`))
+    assert.match(
+      init,
+      new RegExp(`caelestis has all ${count} objects; ${count} re-read and matched`),
+    )
     assert.match(init, /MinIO migration: verified/)
     verifyMinioObjects()
   }
