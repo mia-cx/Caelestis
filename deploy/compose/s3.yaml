@@ -56,16 +56,21 @@ services:
           echo 'MinIO migration: the copy differs from the MinIO volume' >&2
           exit 1
         fi
-        : > /state/expected
+        # MinIO keeps each object's metadata at <bucket>/<key>/xl.meta, and a folder object "a/" at
+        # a/__XLDIR__/xl.meta. s3-init requires RustFS to list exactly these keys. Caelestis never
+        # enables bucket versioning, so there are no delete markers to leave out.
+        rm -rf /state/keys
+        mkdir /state/keys
         for bucket in /minio/*/; do
           [ -d "$$bucket" ] || continue
-          echo "$$(basename "$$bucket") $$(find "$$bucket" -type f -name xl.meta | wc -l)" >> /state/expected
+          (cd "$$bucket" && find . -type f -name xl.meta | sed -e 's|^\./||' -e 's|/xl\.meta$$||' -e 's|__XLDIR__$$||') \
+            > "/state/keys/$$(basename "$$bucket")"
         done
         # s3-init runs as node (uid 1000) and records the check, so hand it /state before marking it copied.
         echo copied > /state/status.next
         chown -R 1000:1000 /state
         mv /state/status.next /state/status
-        echo "MinIO migration: copied $$(wc -l < /tmp/minio.md5) files; s3-init checks the objects next"
+        echo "MinIO migration: copied $$(wc -l < /tmp/minio.md5) files; s3-init checks every object next"
     volumes:
       - s3:/minio:ro
       - rustfs:/data
@@ -83,7 +88,7 @@ services:
       s3-migrate:
         condition: service_completed_successfully
     healthcheck:
-      test: [CMD, curl, -fsS, http://127.0.0.1:9000/health]
+      test: [CMD, curl, -fsS, http://127.0.0.1:9000/health/ready]
       interval: 5s
       timeout: 3s
       retries: 30
@@ -106,10 +111,11 @@ services:
       - --input-type=module
       - -e
       - |
-        import { readFile, writeFile } from 'node:fs/promises';
+        import { createHash } from 'node:crypto';
+        import { readdir, readFile, writeFile } from 'node:fs/promises';
         import { createRequire } from 'node:module';
         import { setTimeout } from 'node:timers/promises';
-        const { S3Client, CreateBucketCommand, ListObjectsV2Command } = createRequire(import.meta.resolve('@caelestis/storage/s3'))('@aws-sdk/client-s3');
+        const { S3Client, CreateBucketCommand, GetObjectCommand, ListObjectsV2Command } = createRequire(import.meta.resolve('@caelestis/storage/s3'))('@aws-sdk/client-s3');
         const client = new S3Client({ endpoint: process.env.S3_ENDPOINT, region: process.env.S3_REGION, forcePathStyle: true });
         try {
           for (let attempt = 0; ; attempt++) {
@@ -120,24 +126,40 @@ services:
               await setTimeout(1000);
             }
           }
-          // A copied MinIO volume only counts as migrated once RustFS lists every object it held.
+          // A copied MinIO volume only counts as migrated once RustFS lists exactly the keys MinIO
+          // held, and every object still hashes to the MD5 ETag MinIO recorded when it stored it.
           const status = (await readFile('/state/status', 'utf8').catch(() => '')).trim();
           if (status === 'copied') {
-            const expected = (await readFile('/state/expected', 'utf8')).split('\n').filter(Boolean);
-            for (const line of expected) {
-              const [bucket, count] = line.split(' ');
-              let found = 0;
+            const unchanged = 'The MinIO volume is unchanged.';
+            for (const bucket of await readdir('/state/keys')) {
+              const expected = new Set((await readFile(`/state/keys/$${bucket}`, 'utf8')).split('\n').filter(Boolean));
+              const listed = [];
               let token;
               do {
                 const page = await client.send(new ListObjectsV2Command({ Bucket: bucket, ContinuationToken: token }));
-                found += page.KeyCount ?? 0;
+                listed.push(...(page.Contents ?? []));
                 token = page.NextContinuationToken;
               } while (token);
-              if (found !== Number(count))
-                throw new Error(`MinIO migration: RustFS lists $${found} objects in $${bucket}, MinIO held $${count}. The MinIO volume is unchanged.`);
-              console.log(`MinIO migration: $${bucket} has all $${found} objects`);
+              const keys = new Set(listed.map((object) => object.Key));
+              const missing = [...expected].filter((key) => !keys.has(key));
+              const extra = [...keys].filter((key) => !expected.has(key));
+              if (missing.length > 0 || extra.length > 0)
+                throw new Error(`MinIO migration: $${bucket} is missing $${missing.length} keys (first: $${missing[0] ?? 'none'}) and has $${extra.length} MinIO did not (first: $${extra[0] ?? 'none'}). $${unchanged}`);
+              // Multipart ETags are not an MD5 of the bytes, so those objects are only checked by key.
+              const single = listed.filter((object) => /^"?[0-9a-f]{32}"?$$/.test(object.ETag ?? ''));
+              for (let at = 0; at < single.length; at += 16) {
+                await Promise.all(single.slice(at, at + 16).map(async (object) => {
+                  const got = await client.send(new GetObjectCommand({ Bucket: bucket, Key: object.Key }));
+                  const hash = createHash('md5');
+                  for await (const chunk of got.Body) hash.update(chunk);
+                  if (hash.digest('hex') !== object.ETag.replaceAll('"', ''))
+                    throw new Error(`MinIO migration: $${bucket}/$${object.Key} no longer matches its ETag. $${unchanged}`);
+                }));
+              }
+              console.log(`MinIO migration: $${bucket} has all $${listed.length} objects; $${single.length} re-read and matched`);
             }
             await writeFile('/state/status', 'verified\n');
+            console.log('MinIO migration: verified');
           }
         } finally { client.destroy(); }
 volumes:

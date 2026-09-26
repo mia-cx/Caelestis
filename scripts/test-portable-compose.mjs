@@ -123,10 +123,10 @@ try {
   compose('up', '-d', '--no-build', '--pull', 'never', '--wait', '--wait-timeout', '180')
   if (storage === 's3') {
     assert.match(compose('logs', '--no-color', 's3-migrate'), /copying the MinIO volume/)
-    assert.match(
-      compose('logs', '--no-color', 's3-init'),
-      new RegExp(`caelestis has all ${minioManifest.objects.length} objects`),
-    )
+    const count = minioManifest.objects.length
+    const init = compose('logs', '--no-color', 's3-init')
+    assert.match(init, new RegExp(`caelestis has all ${count} objects; ${count} re-read and matched`))
+    assert.match(init, /MinIO migration: verified/)
     verifyMinioObjects()
   }
   const site = `http://${compose('port', 'frontend', '3000')}`
