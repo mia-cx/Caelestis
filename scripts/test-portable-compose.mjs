@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { acceptance, waitFor } from './stack-tests/acceptance.mjs'
 import { importWplace, verifyWplace } from './stack-tests/wplace.mjs'
 
@@ -43,11 +44,94 @@ const compose = (...command) =>
 const logs = `test-results/compose-${database}-${storage}`
 rmSync(logs, { recursive: true, force: true })
 mkdirSync(logs, { recursive: true })
+// Every S3 stack starts as an upgrade from MinIO: its old volume holds bytes the real MinIO image
+// wrote, which the RustFS stack must copy over on its first start and then leave untouched.
+const minioFixture = resolve('fixtures/minio-volume')
+const minioManifest = JSON.parse(readFileSync(`${minioFixture}/manifest.json`, 'utf8'))
+const minioVolume = `${project}_s3`
+const inVolume = (volume, mode, args) =>
+  execFileSync(
+    'docker',
+    ['run', '--rm', '--user', '0', '-v', `${volume}:/volume:${mode}`, ...args],
+    {
+      encoding: 'utf8',
+    },
+  ).trim()
+const volumeDigest = (volume) =>
+  inVolume(volume, 'ro', [
+    '--entrypoint',
+    'sh',
+    backend,
+    '-c',
+    'cd /volume && find . -type f -exec md5sum {} + | sort | md5sum',
+  ])
+const verifyMinioObjects = () =>
+  compose(
+    'exec',
+    '-T',
+    '-w',
+    '/app/apps/backend',
+    'backend',
+    'node',
+    '--input-type=module',
+    '-e',
+    `
+    import { createHash } from 'node:crypto';
+    import { createRequire } from 'node:module';
+    const { S3Client, GetObjectCommand } = createRequire(import.meta.resolve('@caelestis/storage/s3'))('@aws-sdk/client-s3');
+    const client = new S3Client({ endpoint: process.env.S3_ENDPOINT, region: process.env.S3_REGION, forcePathStyle: true });
+    const manifest = ${JSON.stringify(minioManifest)};
+    for (const object of manifest.objects) {
+      const got = await client.send(new GetObjectCommand({ Bucket: manifest.bucket, Key: object.key }));
+      const md5 = createHash('md5').update(await got.Body.transformToByteArray()).digest('hex');
+      const actual = { md5, contentType: got.ContentType, origin: got.Metadata?.origin };
+      const expected = { md5: object.md5, contentType: object.contentType, origin: object.metadata.origin };
+      if (JSON.stringify(actual) !== JSON.stringify(expected))
+        throw new Error(object.key + ' after migration: ' + JSON.stringify(actual) + ' expected ' + JSON.stringify(expected));
+    }
+    client.destroy();
+  `,
+  )
 try {
   compose('config', '--quiet')
   if (database !== 'sqlite') compose('pull', '--policy', 'missing', database)
   if (storage === 's3') compose('pull', '--policy', 'missing', 's3')
+  let minioDigest
+  if (storage === 's3') {
+    execFileSync('docker', [
+      'volume',
+      'create',
+      '--label',
+      `com.docker.compose.project=${project}`,
+      '--label',
+      'com.docker.compose.volume=s3',
+      minioVolume,
+    ])
+    inVolume(minioVolume, 'rw', [
+      '-v',
+      `${minioFixture}:/fixture:ro`,
+      '--entrypoint',
+      'tar',
+      backend,
+      '-xzf',
+      '/fixture/volume.tar.gz',
+      '-C',
+      '/volume',
+    ])
+    minioDigest = volumeDigest(minioVolume)
+  }
   compose('up', '-d', '--no-build', '--pull', 'never', '--wait', '--wait-timeout', '180')
+  if (storage === 's3') {
+    assert.match(compose('logs', '--no-color', 's3-migrate'), /copying the MinIO volume/)
+    const count = minioManifest.objects.length
+    const init = compose('logs', '--no-color', 's3-init')
+    assert.match(
+      init,
+      new RegExp(`caelestis has all ${count} objects; ${count} re-read and matched`),
+    )
+    assert.match(init, /MinIO migration: verified/)
+    verifyMinioObjects()
+  }
   const site = `http://${compose('port', 'frontend', '3000')}`
   const suite = acceptance({
     site,
@@ -174,6 +258,13 @@ try {
   )
   compose('up', '-d', '--no-build', '--wait', '--wait-timeout', '180')
   await verify()
+  if (storage === 's3') {
+    // Later starts find the recorded migration and copy nothing; MinIO's volume is still as it was.
+    const migrate = compose('logs', '--no-color', 's3-migrate').split('\n')
+    assert.match(migrate.at(-1) ?? '', /MinIO migration: verified$/)
+    verifyMinioObjects()
+    assert.equal(volumeDigest(minioVolume), minioDigest)
+  }
   await suite.remove(state)
   writeFileSync(
     `${logs}/result.json`,

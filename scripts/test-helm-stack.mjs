@@ -104,6 +104,8 @@ const workload = (name, image, port, variables, args = [], volumes = []) => ({
       spec: {
         automountServiceAccountToken: false,
         nodeSelector,
+        // RustFS runs as uid 10001, so its claim must be writable by that group.
+        ...(name === 's3' ? { securityContext: { fsGroup: 10001 } } : {}),
         containers: [
           {
             name,
@@ -117,7 +119,7 @@ const workload = (name, image, port, variables, args = [], volumes = []) => ({
             },
             readinessProbe: {
               ...(name === 's3'
-                ? { httpGet: { path: '/minio/health/ready', port } }
+                ? { httpGet: { path: '/health/ready', port } }
                 : { tcpSocket: { port } }),
               periodSeconds: 2,
             },
@@ -327,10 +329,10 @@ try {
       claim('s3'),
       workload(
         's3',
-        'quay.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e',
+        'rustfs/rustfs:1.0.0@sha256:8cc9801755448b71a786705ce76692c77e14936cccd87cf2fc31842e58f4d1ff',
         9000,
-        { MINIO_ROOT_USER: 'stack-test', MINIO_ROOT_PASSWORD: s3Password },
-        ['server', '/data'],
+        { RUSTFS_ACCESS_KEY: 'stack-test', RUSTFS_SECRET_KEY: s3Password },
+        ['/data'],
         [{ name: 'data', claim: 's3', mountPath: '/data' }],
       ),
     )
@@ -359,8 +361,8 @@ try {
                   import {setTimeout} from 'node:timers/promises';
                   const deadline=Date.now()+60000;
                   for(;;) {
-                    try { if((await fetch('http://s3:9000/minio/health/ready',{signal:AbortSignal.timeout(3000)})).ok) break; } catch {}
-                    if(Date.now()>deadline) throw new Error('MinIO service routing did not become ready');
+                    try { if((await fetch('http://s3:9000/health/ready',{signal:AbortSignal.timeout(3000)})).ok) break; } catch {}
+                    if(Date.now()>deadline) throw new Error('RustFS service routing did not become ready');
                     await setTimeout(1000);
                   }
                   const {S3Client,CreateBucketCommand}=createRequire(import.meta.resolve('@caelestis/storage/s3'))('@aws-sdk/client-s3');
