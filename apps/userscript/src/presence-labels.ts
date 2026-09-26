@@ -8,7 +8,7 @@ import { claimDocumentPixels } from './claim-document.js'
 import { claimEditorEditingIds } from './claim-editor.js'
 import type { ScreenProjection } from './coordinates.js'
 import { displayedPresenceRect } from './gl/presence-layer.js'
-import { displayClaims } from './presence-claims.js'
+import { claimsVisible, displayClaims } from './presence-claims.js'
 import { presenceView } from './presence-client.js'
 import { presenceCss } from './presence-colour.js'
 import { canvasPixelAt, rectOnScreen } from './presence-geometry.js'
@@ -21,6 +21,7 @@ import {
 } from './profile.js'
 import { getState } from './state.js'
 import { isDrawingTiles, type TileFrame } from './tile-transform.js'
+import { isPaintOpen } from './wplace-paint.js'
 
 /**
  * Name tags for what the presence layer draws, shown only for what the pointer is over.
@@ -304,8 +305,9 @@ export const presenceTagsAt = (
       tags.push({ key: viewportKey, text, colour, rect: viewportRect })
   }
   const seen = new Set<string>()
-  const claims =
-    flags.showPresenceClaims === false ? [] : displayClaims(view.regions, claimEditorEditingIds())
+  const claims = claimsVisible(flags, isPaintOpen())
+    ? displayClaims(view.regions, claimEditorEditingIds())
+    : []
   for (const claim of claims) {
     seen.add(claim.id)
     const pixels = claim.pixels

@@ -265,6 +265,7 @@ export type SettingsBooleanKey =
   | 'showPresence'
   | 'showPresenceViewports'
   | 'showPresenceClaims'
+  | 'showPresenceClaimsOnlyWhilePainting'
   | 'debugLogging'
   | 'performanceProfiling'
   | 'notifyRegressions'
@@ -332,6 +333,7 @@ export interface SettingsModel {
   readonly showPresence: boolean
   readonly showPresenceViewports: boolean
   readonly showPresenceClaims: boolean
+  readonly showPresenceClaimsOnlyWhilePainting: boolean
   readonly debugLogging: boolean
   readonly performanceProfiling: boolean
   readonly notifyRegressions: boolean

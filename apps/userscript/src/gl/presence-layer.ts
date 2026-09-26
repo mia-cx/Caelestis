@@ -10,7 +10,7 @@ import {
 import { claimEditorEditingIds, claimEditorPixels } from '../claim-editor.js'
 import { log, warn } from '../debug.js'
 import { getMap } from '../map-handle.js'
-import { displayClaims } from '../presence-claims.js'
+import { claimsVisible, displayClaims } from '../presence-claims.js'
 import { presenceView } from '../presence-client.js'
 import { presenceRgb } from '../presence-colour.js'
 import { hoveredPresenceItems } from '../presence-hover.js'
@@ -24,6 +24,7 @@ import {
 } from '../profile.js'
 import { getState } from '../state.js'
 import { currentQuads, isDrawingTiles, type TileQuad } from '../tile-transform.js'
+import { isPaintOpen } from '../wplace-paint.js'
 import { ramps } from './fade.js'
 import { linkTemplateProgram, writeClipCorner } from './renderer-core.js'
 
@@ -144,22 +145,22 @@ interface Style {
 
 const STYLES: Record<Kind, Style> = {
   viewport: {
-    fill: 0.15,
+    fill: 0.1,
     border: 0.9,
     borderWidth: 1.5,
     dash: 6,
     maskAlpha: 0,
     pattern: 2,
-    patternAlpha: 0.35,
+    patternAlpha: 0.25,
   },
   painting: {
-    fill: 0.3,
+    fill: 0.2,
     border: 0.9,
     borderWidth: 1.5,
     dash: 0,
     maskAlpha: 0,
     pattern: 1,
-    patternAlpha: 0.5,
+    patternAlpha: 0.35,
   },
   draft: {
     fill: 0,
@@ -175,9 +176,9 @@ const STYLES: Record<Kind, Style> = {
     border: 0.95,
     borderWidth: 1.5,
     dash: 0,
-    maskAlpha: 0.3,
+    maskAlpha: 0.15,
     pattern: 1,
-    patternAlpha: 0.5,
+    patternAlpha: 0.3,
   },
   tool: {
     fill: 0,
@@ -269,10 +270,9 @@ const currentItems = (): Item[] => {
     }
   }
   // Keep complete display unions, including offscreen members, but skip hidden preparation.
-  const claims =
-    flags.showPresence && flags.showPresenceClaims
-      ? displayClaims(view.regions, claimEditorEditingIds())
-      : []
+  const claims = claimsVisible(flags, isPaintOpen())
+    ? displayClaims(view.regions, claimEditorEditingIds())
+    : []
   for (const claim of claims) {
     const region = claim.regions[0]
     items.push({
