@@ -34,7 +34,7 @@ and when the tab goes away. Other painters see them like claims.
 - [ ] Userscript: presence client publishes quick claims and reads peers' quick claims.
 - [x] Userscript: Ctrl+drag input, Ctrl+click removal, context-menu suppression, clear on drawer close.
 - [x] Userscript: draw own and peers' quick claims, with a hover label for peers.
-- [ ] Changesets for userscript and backend.
+- [x] Changesets for userscript and backend.
 - [ ] Final validation.
 
 ## Notes
