@@ -30,7 +30,7 @@ and when the tab goes away. Other painters see them like claims.
 
 ## TODOs
 - [x] Shared contract: types, limit, wire schema, contract tests.
-- [ ] Backend (Codex): coordinator stores, validates, relays and forgets quick claims; tests.
+- [x] Backend (Codex): coordinator stores, validates, relays and forgets quick claims; tests.
 - [ ] Userscript: presence client publishes quick claims and reads peers' quick claims.
 - [x] Userscript: Ctrl+drag input, Ctrl+click removal, context-menu suppression, clear on drawer close.
 - [x] Userscript: draw own and peers' quick claims, with a hover label for peers.
@@ -38,3 +38,6 @@ and when the tab goes away. Other painters see them like claims.
 - [ ] Final validation.
 
 ## Notes
+- Backend drafted by Codex gpt-6-astra (brief in `530-codex-backend-task.md`). Its sandbox could not open localhost listeners, so I ran the socket tests: 10/10 quick-claim runtime tests, attachment size test, full backend suite 99 passed / 1 skipped.
+- Removed Codex's anonymous guard: the route only makes a session anonymous with read scope, which the coordinator already ignores, so the guard was unreachable (a mutation test showed no test could fail on it).
+- Mutation check on the userscript: publishing quick claims only while the tab is visible fails the hidden-tab test, as it should.
