@@ -247,3 +247,14 @@ it('ends quick claims when sharing stops and claims nothing while it is off', ()
   expect(harness.claims).toEqual([])
   expect(reachedWplace).toContain('pointerdown')
 })
+
+it('drops a drag still in progress when sharing stops', () => {
+  pointer('pointerdown', 0, 0)
+  pointer('pointermove', 20, 20)
+  harness.sharePresence = false
+  for (const listener of harness.stateListeners) listener({ sharePresence: false })
+  pointer('pointerup', 30, 30)
+  click()
+  expect(harness.claims).toEqual([])
+  expect(reachedWplace).toEqual([])
+})

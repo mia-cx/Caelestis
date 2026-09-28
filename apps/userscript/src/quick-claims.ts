@@ -283,7 +283,13 @@ export const installQuickClaims = (): void => {
   )
   // Stopping sharing ends them too, so they cannot come back for everyone when sharing resumes.
   onStateChange((state) => {
-    if (!state.sharePresence && presenceQuickClaims().length > 0) setPresenceQuickClaims([])
+    if (state.sharePresence) return
+    // A drag in progress ends like an Escape: no claim, and the rest of the gesture stays ours.
+    if (drag !== null && !drag.cancelled) {
+      drag.cancelled = true
+      changed()
+    }
+    if (presenceQuickClaims().length > 0) setPresenceQuickClaims([])
   })
   // Painting and cancelling both close the drawer; either way the paint session is over.
   onPaintSelectionChange(() => {
