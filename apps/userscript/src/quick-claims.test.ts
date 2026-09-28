@@ -1,0 +1,147 @@
+// @vitest-environment happy-dom
+import {
+  MAX_QUICK_CLAIMS,
+  type PresenceRect,
+  WORLD_PIXELS,
+  WORLD_TEMPLATE_SURFACE,
+} from '@caelestis/shared'
+import { beforeAll, beforeEach, expect, it, vi } from 'vitest'
+import { installQuickClaims, quickClaimRect } from './quick-claims.js'
+
+const harness = vi.hoisted(() => ({
+  open: true,
+  claims: [] as readonly PresenceRect[],
+  drawer: [] as (() => void)[],
+  toasts: [] as string[],
+}))
+vi.mock('./wplace-paint.js', () => ({
+  isPaintOpen: () => harness.open,
+  onPaintSelectionChange: (listener: () => void) => harness.drawer.push(listener),
+}))
+// The map maps one client pixel to one canvas pixel; anything but the canvas is off the map.
+vi.mock('./wplace-picker.js', () => ({
+  pickerPointAt: (target: Element, x: number, y: number) =>
+    target.tagName === 'CANVAS' ? { surface: WORLD_TEMPLATE_SURFACE, x, y, alliance: null } : null,
+}))
+vi.mock('./presence-client.js', () => ({
+  presenceQuickClaims: () => harness.claims,
+  setPresenceQuickClaims: (rects: readonly PresenceRect[]) => {
+    harness.claims = rects
+  },
+}))
+vi.mock('./ui/notification-host.js', () => ({
+  showToast: (message: string) => harness.toasts.push(message),
+}))
+
+let canvas: HTMLCanvasElement
+let reachedWplace: string[]
+
+const pointer = (
+  type: 'pointerdown' | 'pointermove' | 'pointerup',
+  x: number,
+  y: number,
+  ctrlKey = true,
+): PointerEvent => {
+  const event = new PointerEvent(type, {
+    pointerId: 1,
+    button: 0,
+    clientX: x,
+    clientY: y,
+    ctrlKey,
+    bubbles: true,
+    cancelable: true,
+  })
+  canvas.dispatchEvent(event)
+  return event
+}
+
+const drag = (from: [number, number], to: [number, number], ctrlKey = true): void => {
+  pointer('pointerdown', ...from, ctrlKey)
+  pointer('pointermove', ...to, ctrlKey)
+  pointer('pointerup', ...to, ctrlKey)
+}
+
+beforeAll(() => installQuickClaims())
+
+beforeEach(() => {
+  harness.open = true
+  harness.claims = []
+  harness.toasts = []
+  document.body.innerHTML = ''
+  canvas = document.createElement('canvas')
+  document.body.append(canvas)
+  reachedWplace = []
+  for (const type of ['pointerdown', 'pointermove', 'pointerup', 'contextmenu'])
+    canvas.addEventListener(type, () => reachedWplace.push(type))
+})
+
+it('claims the dragged rectangle, both corners included, without Wplace seeing the drag', () => {
+  drag([120, 80], [100, 90])
+  expect(harness.claims).toEqual([{ x: 100, y: 80, w: 21, h: 11 }])
+  expect(reachedWplace).toEqual([])
+})
+
+it('leaves a plain drag, or a Ctrl+drag with the paint drawer closed, to Wplace', () => {
+  drag([10, 10], [40, 40], false)
+  harness.open = false
+  drag([10, 10], [40, 40])
+  expect(harness.claims).toEqual([])
+  expect(reachedWplace).toContain('pointerdown')
+})
+
+it('removes the quick claim under a Ctrl+click and ignores one outside every claim', () => {
+  drag([0, 0], [10, 10])
+  drag([50, 50], [60, 60])
+  pointer('pointerdown', 200, 200)
+  pointer('pointerup', 200, 200)
+  expect(harness.claims).toHaveLength(2)
+  pointer('pointerdown', 5, 5)
+  pointer('pointerup', 5, 5)
+  expect(harness.claims).toEqual([{ x: 50, y: 50, w: 11, h: 11 }])
+})
+
+it('clears every quick claim when the paint drawer closes', () => {
+  drag([0, 0], [10, 10])
+  harness.open = false
+  for (const listener of harness.drawer) listener()
+  expect(harness.claims).toEqual([])
+})
+
+it('keeps a Ctrl+click on the map from opening the context menu only while painting', () => {
+  const menu = (ctrlKey: boolean, target: Element): boolean => {
+    const event = new MouseEvent('contextmenu', { ctrlKey, bubbles: true, cancelable: true })
+    target.dispatchEvent(event)
+    return event.defaultPrevented
+  }
+  expect(menu(true, canvas)).toBe(true)
+  expect(menu(false, canvas)).toBe(false)
+  expect(menu(true, document.body)).toBe(false)
+  harness.open = false
+  expect(menu(true, canvas)).toBe(false)
+})
+
+it('refuses a claim past the limit or over the area limit, and says why', () => {
+  for (let index = 0; index < MAX_QUICK_CLAIMS; index++)
+    drag([index * 20, 0], [index * 20 + 10, 10])
+  drag([0, 100], [10, 110])
+  drag([0, 0], [2_500, 2_500])
+  expect(harness.claims).toHaveLength(MAX_QUICK_CLAIMS)
+  expect(harness.toasts).toHaveLength(2)
+})
+
+it('cancels the drag in progress on Escape', () => {
+  pointer('pointerdown', 0, 0)
+  pointer('pointermove', 30, 30)
+  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true }))
+  pointer('pointerup', 30, 30)
+  expect(harness.claims).toEqual([])
+})
+
+it('keeps a rectangle dragged past the canvas edge on the canvas', () => {
+  expect(quickClaimRect({ x: WORLD_PIXELS - 2, y: -5 }, { x: WORLD_PIXELS + 9, y: 3 })).toEqual({
+    x: WORLD_PIXELS - 2,
+    y: 0,
+    w: 2,
+    h: 4,
+  })
+})
