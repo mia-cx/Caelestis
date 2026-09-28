@@ -67,6 +67,14 @@ const pointer = (
   return event
 }
 
+/** The click a browser dispatches after a release, before its next task. */
+const click = (type: 'click' | 'auxclick' = 'click'): void => {
+  canvas.dispatchEvent(
+    new MouseEvent(type, { button: type === 'click' ? 0 : 2, bubbles: true, cancelable: true }),
+  )
+}
+const nextTask = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
+
 const drag = (from: [number, number], to: [number, number], ctrlKey = true): void => {
   pointer('pointerdown', ...from, ctrlKey)
   pointer('pointermove', ...to, ctrlKey)
@@ -84,13 +92,46 @@ beforeEach(() => {
   canvas = document.createElement('canvas')
   document.body.append(canvas)
   reachedWplace = []
-  for (const type of ['pointerdown', 'pointermove', 'pointerup', 'contextmenu'])
+  for (const type of [
+    'pointerdown',
+    'pointermove',
+    'pointerup',
+    'click',
+    'auxclick',
+    'contextmenu',
+  ])
     canvas.addEventListener(type, () => reachedWplace.push(type))
 })
 
-it('claims the dragged rectangle, both corners included, without Wplace seeing the drag', () => {
+it('claims the dragged rectangle, both corners included, without Wplace seeing the drag', async () => {
   drag([120, 80], [100, 90])
+  click()
   expect(harness.claims).toEqual([{ x: 100, y: 80, w: 21, h: 11 }])
+  expect(reachedWplace).toEqual([])
+  // Only the gesture's own click is kept from Wplace; the next one is an ordinary click.
+  await nextTask()
+  click()
+  expect(reachedWplace).toEqual(['click'])
+})
+
+it('ends the claim where the pointer is released, even past its last move', () => {
+  pointer('pointerdown', 0, 0)
+  pointer('pointermove', 10, 10)
+  pointer('pointerup', 30, 20)
+  pointer('pointerdown', 100, 100)
+  pointer('pointerup', 140, 110)
+  expect(harness.claims).toEqual([
+    { x: 0, y: 0, w: 31, h: 21 },
+    { x: 100, y: 100, w: 41, h: 11 },
+  ])
+})
+
+it("keeps a secondary-button Ctrl+click's auxclick from Wplace too", () => {
+  drag([0, 0], [10, 10])
+  pointer('pointerdown', 5, 5)
+  pointer('pointerup', 5, 5)
+  click('auxclick')
+  expect(harness.claims).toEqual([])
   expect(reachedWplace).toEqual([])
 })
 
@@ -142,12 +183,15 @@ it('refuses a claim past the limit or over the area limit, and says why', () => 
   expect(harness.toasts).toHaveLength(2)
 })
 
-it('cancels the drag in progress on Escape', () => {
+it('cancels the drag on Escape and still keeps the rest of the gesture from Wplace', () => {
   pointer('pointerdown', 0, 0)
   pointer('pointermove', 30, 30)
   window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true }))
-  pointer('pointerup', 30, 30)
+  pointer('pointermove', 40, 40)
+  pointer('pointerup', 40, 40)
+  click()
   expect(harness.claims).toEqual([])
+  expect(reachedWplace).toEqual([])
 })
 
 it('snaps each corner to the whole pixel under it and keeps the rectangle on the canvas', () => {

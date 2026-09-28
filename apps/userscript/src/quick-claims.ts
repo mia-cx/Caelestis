@@ -89,9 +89,16 @@ interface Drag {
   readonly start: Point
   current: Point
   dragging: boolean
+  /** Escape ends the claim but not the gesture: the rest of it still stays away from Wplace. */
+  cancelled: boolean
 }
 
+/** The key the rectangle being dragged is drawn under; it follows the pointer, so it never fades. */
+export const QUICK_CLAIM_PREVIEW_KEY = 'quick:me:preview'
+
 let drag: Drag | null = null
+/** Set from a gesture's release until the click it produces, which Wplace must not see either. */
+let swallowClick = false
 const listeners: (() => void)[] = []
 
 const changed = (): void => {
@@ -114,9 +121,9 @@ export const quickClaimItems = (view: PresenceView): QuickClaimItem[] => {
     painter: view.me,
     mine: true,
   }))
-  if (drag?.dragging) {
+  if (drag?.dragging && !drag.cancelled) {
     items.push({
-      key: 'quick:me:preview',
+      key: QUICK_CLAIM_PREVIEW_KEY,
       rect: quickClaimRect(drag.start, drag.current),
       painter: view.me,
       mine: false,
@@ -153,11 +160,28 @@ const swallow = (event: Event): void => {
   event.stopImmediatePropagation()
 }
 
+/** Follow the pointer once it has travelled far enough to count as a drag. */
+const track = (held: Drag, event: PointerEvent): void => {
+  const moved = Math.hypot(event.clientX - held.startClient.x, event.clientY - held.startClient.y)
+  if (!held.dragging && moved < DRAG_DISTANCE) return
+  held.dragging = true
+  held.current = worldPointAt(event) ?? held.current
+}
+
 const finish = (event: PointerEvent): void => {
   const held = drag
   if (held === null || event.pointerId !== held.pointerId) return
   swallow(event)
   drag = null
+  // The browser dispatches this release's click before its next task; after that, clicks are
+  // ordinary again.
+  swallowClick = true
+  setTimeout(() => {
+    swallowClick = false
+  }, 0)
+  if (held.cancelled) return
+  // The release is the last position, and may be the only one the pointer reported out here.
+  track(held, event)
   const rects = presenceQuickClaims()
   if (!held.dragging) {
     const index = quickClaimAt(rects, held.start)
@@ -196,6 +220,7 @@ export const installQuickClaims = (): void => {
         start: point,
         current: point,
         dragging: false,
+        cancelled: false,
       }
     },
     { capture: true },
@@ -205,18 +230,23 @@ export const installQuickClaims = (): void => {
     (event) => {
       if (drag === null || event.pointerId !== drag.pointerId) return
       swallow(event)
-      const moved = Math.hypot(
-        event.clientX - drag.startClient.x,
-        event.clientY - drag.startClient.y,
-      )
-      if (!drag.dragging && moved < DRAG_DISTANCE) return
-      drag.dragging = true
-      drag.current = worldPointAt(event) ?? drag.current
-      changed()
+      if (drag.cancelled) return
+      track(drag, event)
+      if (drag.dragging) changed()
     },
     { capture: true },
   )
   window.addEventListener('pointerup', finish, { capture: true })
+  for (const type of ['click', 'auxclick'])
+    window.addEventListener(
+      type,
+      (event) => {
+        if (!swallowClick) return
+        swallowClick = false
+        swallow(event)
+      },
+      { capture: true },
+    )
   window.addEventListener(
     'pointercancel',
     (event) => {
@@ -229,9 +259,9 @@ export const installQuickClaims = (): void => {
   window.addEventListener(
     'keydown',
     (event) => {
-      if (event.key !== 'Escape' || drag === null) return
+      if (event.key !== 'Escape' || drag === null || drag.cancelled) return
       swallow(event)
-      drag = null
+      drag.cancelled = true
       changed()
     },
     { capture: true },
@@ -248,7 +278,7 @@ export const installQuickClaims = (): void => {
   onPaintSelectionChange(() => {
     if (isPaintOpen()) return
     if (drag !== null) {
-      drag = null
+      drag.cancelled = true
       changed()
     }
     setPresenceQuickClaims([])
