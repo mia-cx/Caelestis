@@ -19,25 +19,27 @@ and when the tab goes away. Other painters see them like claims.
   Ctrl+click without a drag inside one of your own quick claims removes it (the undo).
 
 ## Acceptance criteria
-- [ ] Ctrl+drag draws a rectangle only while the paint drawer is open, without painting, panning, or Wplace's own selection.
-- [ ] Ctrl+click on macOS does not open the context menu over the map while the drawer is open; elsewhere it is untouched.
-- [ ] Each drag adds one quick claim, shown at once, and other painters see it.
-- [ ] Closing the paint drawer (submit or cancel) clears every quick claim from that tab.
-- [ ] Closing or crashing the tab clears them once the presence session ends. No manual cleanup.
-- [ ] Quick claims never outlive their session, even if a clear message fails.
-- [ ] Editor claims are unaffected.
-- [ ] Focused coverage and Changesets for userscript and backend.
+- [x] Ctrl+drag draws a rectangle only while the paint drawer is open, without painting, panning, or Wplace's own selection.
+- [x] Ctrl+click on macOS does not open the context menu over the map while the drawer is open; elsewhere it is untouched.
+- [x] Each drag adds one quick claim, shown at once, and other painters see it.
+- [x] Closing the paint drawer (submit or cancel) clears every quick claim from that tab.
+- [x] Closing or crashing the tab clears them once the presence session ends. No manual cleanup.
+- [x] Quick claims never outlive their session, even if a clear message fails.
+- [x] Editor claims are unaffected.
+- [x] Focused coverage and Changesets for userscript and backend.
 
 ## TODOs
 - [x] Shared contract: types, limit, wire schema, contract tests.
 - [x] Backend (Codex): coordinator stores, validates, relays and forgets quick claims; tests.
-- [ ] Userscript: presence client publishes quick claims and reads peers' quick claims.
+- [x] Userscript: presence client publishes quick claims and reads peers' quick claims.
 - [x] Userscript: Ctrl+drag input, Ctrl+click removal, context-menu suppression, clear on drawer close.
 - [x] Userscript: draw own and peers' quick claims, with a hover label for peers.
 - [x] Changesets for userscript and backend.
-- [ ] Final validation.
+- [x] Final validation.
 
 ## Notes
 - Backend drafted by Codex gpt-6-astra (brief in `530-codex-backend-task.md`). Its sandbox could not open localhost listeners, so I ran the socket tests: 10/10 quick-claim runtime tests, attachment size test, full backend suite 99 passed / 1 skipped.
 - Removed Codex's anonymous guard: the route only makes a session anonymous with read scope, which the coordinator already ignores, so the guard was unreachable (a mutation test showed no test could fail on it).
 - Mutation check on the userscript: publishing quick claims only while the tab is visible fails the hidden-tab test, as it should.
+- Final validation 2026-09-28: userscript tsc clean, vitest 153/153 (30 files); shared 57; wire-schema 12; frontend check clean; backend tsc, full suite 99 passed / 1 skipped, quick-claim runtime 10/10; Biome clean apart from existing warnings.
+- Live check in the debug Chromium on wplace.live with this build injected, zoom 15.5, paint drawer open: Ctrl+drag drew the dashed quick claim; the draft stayed at 0 pixels and the map centre, zoom and bearing did not change; Ctrl+click inside removed it; closing the drawer cleared a new one. Not checked live: another painter seeing it (production backend lacks the change; the runtime socket tests cover it) and the OS-level macOS Ctrl+click menu (CDP cannot synthesise it; the unit test covers the contextmenu event).
