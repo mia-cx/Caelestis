@@ -350,10 +350,11 @@ class PresenceLayer {
   /**
    * Where a rect is drawn this frame. A viewport that moved glides from where it was to where it
    * is over `PRESENCE_MOTION_MS`, so peers are seen moving rather than jumping; anything with a
-   * mask snaps, because its texture is cut to its rect.
+   * mask snaps, because its texture is cut to its rect. Quick claims snap too: a claim covers
+   * whole pixels, and a glide would draw it between them.
    */
   displayRect(item: Item, now: number): { rect: PresenceRect; moving: boolean } {
-    if (item.mask !== null) {
+    if (item.mask !== null || item.kind === 'quick') {
       this.motions.delete(item.key)
       return { rect: item.rect, moving: false }
     }

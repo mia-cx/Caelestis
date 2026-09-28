@@ -27,10 +27,13 @@ vi.mock('./wplace-paint.js', () => ({
   isPaintOpen: () => harness.open,
   onPaintSelectionChange: (listener: () => void) => harness.drawer.push(listener),
 }))
-// The map maps one client pixel to one canvas pixel; anything but the canvas is off the map.
+// One client pixel is one canvas pixel. Like the real map, the position is fractional: the pointer
+// lands inside a pixel, never on its corner. Anything but the canvas is off the map.
 vi.mock('./wplace-picker.js', () => ({
   pickerPointAt: (target: Element, x: number, y: number) =>
-    target.tagName === 'CANVAS' ? { surface: WORLD_TEMPLATE_SURFACE, x, y, alliance: null } : null,
+    target.tagName === 'CANVAS'
+      ? { surface: WORLD_TEMPLATE_SURFACE, x: x + 0.75, y: y + 0.25, alliance: null }
+      : null,
 }))
 vi.mock('./presence-client.js', () => ({
   presenceQuickClaims: () => harness.claims,
@@ -147,8 +150,10 @@ it('cancels the drag in progress on Escape', () => {
   expect(harness.claims).toEqual([])
 })
 
-it('keeps a rectangle dragged past the canvas edge on the canvas', () => {
-  expect(quickClaimRect({ x: WORLD_PIXELS - 2, y: -5 }, { x: WORLD_PIXELS + 9, y: 3 })).toEqual({
+it('snaps each corner to the whole pixel under it and keeps the rectangle on the canvas', () => {
+  expect(
+    quickClaimRect({ x: WORLD_PIXELS - 1.5, y: -0.4 }, { x: WORLD_PIXELS + 9.9, y: 3.9 }),
+  ).toEqual({
     x: WORLD_PIXELS - 2,
     y: 0,
     w: 2,

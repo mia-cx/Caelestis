@@ -34,9 +34,14 @@ type Point = { readonly x: number; readonly y: number }
 /** CSS pixels the pointer must travel before a Ctrl+press counts as a drag, not a click. */
 const DRAG_DISTANCE = 4
 
-/** The rectangle spanned by two canvas pixels, both included, kept on the world canvas. */
+/**
+ * The rectangle spanned by the canvas pixels under two points, both included, kept on the world
+ * canvas. Points are fractional where the pointer falls inside a pixel; each snaps to the pixel it
+ * is in, nearest-neighbour, so a claim always covers whole pixels.
+ */
 export const quickClaimRect = (from: Point, to: Point): PresenceRect => {
-  const clamp = (value: number): number => Math.min(WORLD_PIXELS - 1, Math.max(0, value))
+  const clamp = (value: number): number =>
+    Math.min(WORLD_PIXELS - 1, Math.max(0, Math.floor(value)))
   const left = clamp(Math.min(from.x, to.x))
   const top = clamp(Math.min(from.y, to.y))
   const right = clamp(Math.max(from.x, to.x))
@@ -129,12 +134,17 @@ export const quickClaimItems = (view: PresenceView): QuickClaimItem[] => {
   return items
 }
 
-/** A world-canvas pixel under the pointer, only when the map itself is under it. */
+/**
+ * The world-canvas pixel under the pointer, only when the map itself is under it. The map reports
+ * a fractional position inside the pixel; the pixel is the one that contains it.
+ */
 const worldPointAt = (event: PointerEvent | MouseEvent): Point | null => {
   const target = event.target
   if (!(target instanceof Element)) return null
   const point = pickerPointAt(target, event.clientX, event.clientY)
-  return point === null || point.alliance !== null ? null : { x: point.x, y: point.y }
+  return point === null || point.alliance !== null
+    ? null
+    : { x: Math.floor(point.x), y: Math.floor(point.y) }
 }
 
 /** Keep one pointer sequence away from Wplace's paint, pan and rotate handlers. */
