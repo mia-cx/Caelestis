@@ -1,3 +1,4 @@
+import { MAX_QUICK_CLAIMS } from '@caelestis/shared'
 import { Schema } from 'effect'
 import { describe, expect, it } from 'vitest'
 import {
@@ -61,6 +62,23 @@ describe('wire schema public contracts', () => {
       draft: null,
     })
     invalid(PresenceClientEvent, { type: 'presence-update', viewport: { x: 0, y: 0, w: 0, h: 1 } })
+    const quick = { x: 10, y: 20, w: 30, h: 40 }
+    expect(decode(PresenceClientEvent, { type: 'presence-update', quickClaims: [quick] })).toEqual({
+      type: 'presence-update',
+      quickClaims: [quick],
+    })
+    expect(decode(PresenceClientEvent, { type: 'presence-update', quickClaims: [] })).toEqual({
+      type: 'presence-update',
+      quickClaims: [],
+    })
+    invalid(PresenceClientEvent, {
+      type: 'presence-update',
+      quickClaims: Array.from({ length: MAX_QUICK_CLAIMS + 1 }, () => quick),
+    })
+    invalid(PresenceClientEvent, {
+      type: 'presence-update',
+      quickClaims: [{ x: 0, y: 0, w: 2_001, h: 2_000 }],
+    })
     expect(
       decode(RegionDocument, {
         items: [{ id: 'brush', op: 'add', shape: { kind: 'rectangle', x: 1, y: 2, w: 3, h: 4 } }],

@@ -15,6 +15,7 @@ import {
   MAX_PRESENCE_REGION_LABEL,
   MAX_PRESENCE_REGION_PIXELS,
   MAX_PRESENCE_SUBSCRIBERS,
+  MAX_QUICK_CLAIMS,
   MAX_RASTER_BITS,
   MAX_REGION_ITEMS,
   MAX_REGION_SHAPE_CORNERS,
@@ -188,6 +189,14 @@ export const PresenceDraft = Schema.Struct({
   pixels: integerBetween(0, Number.MAX_SAFE_INTEGER),
 }).pipe(Schema.check(booleanFilter(isPresenceDraft, 'invalid presence draft mask')))
 
+const RegionRect = PresenceRect.check(
+  booleanFilter(
+    (rect) => rect.w * rect.h <= MAX_PRESENCE_REGION_PIXELS,
+    'region area exceeds limit',
+  ),
+)
+const QuickClaims = boundedArray(RegionRect, MAX_QUICK_CLAIMS)
+
 const PresenceIdentity = Schema.Struct({
   wplaceUserId: integerBetween(0, Number.MAX_SAFE_INTEGER),
   displayName: boundedString(128),
@@ -200,6 +209,7 @@ export const PresenceClientEvent = Schema.Union([
     type: Schema.Literal('presence-update'),
     viewport: Schema.optionalKey(Schema.NullOr(PresenceRect)),
     draft: Schema.optionalKey(Schema.NullOr(PresenceDraft)),
+    quickClaims: Schema.optionalKey(QuickClaims),
   }),
 ])
 
@@ -209,14 +219,9 @@ export const PresencePeer = Schema.Struct({
   painter: PresenceIdentity,
   viewport: Schema.NullOr(PresenceRect),
   draft: Schema.NullOr(PresenceDraft),
+  quickClaims: Schema.optionalKey(QuickClaims),
 })
 
-const RegionRect = PresenceRect.check(
-  booleanFilter(
-    (rect) => rect.w * rect.h <= MAX_PRESENCE_REGION_PIXELS,
-    'region area exceeds limit',
-  ),
-)
 const RegionLabel = Schema.String.check(Schema.isMaxLength(MAX_PRESENCE_REGION_LABEL))
 
 const RegionBox = {

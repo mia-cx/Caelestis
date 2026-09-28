@@ -50,6 +50,11 @@ export const MAX_PRESENCE_SUBSCRIBERS_PER_CLIENT = 4
 export const MAX_PRESENCE_MESSAGES_PER_SECOND = 8
 export const MAX_PRESENCE_REGION_PIXELS = 4_000_000
 export const MAX_PRESENCE_REGION_LABEL = 64
+/**
+ * Rectangles one session may claim while painting. Quick claims are session state, like the draft,
+ * so the server forgets them with the session; the cap keeps them inside its hibernation state.
+ */
+export const MAX_QUICK_CLAIMS = 16
 /** Claims expire after thirty days without an authenticated owner connection. */
 export const REGION_CLAIM_TTL_MS = 30 * 24 * 60 * 60 * 1_000
 
@@ -73,6 +78,8 @@ export interface PresenceUpdate {
   readonly type: 'presence-update'
   readonly viewport?: PresenceRect | null
   readonly draft?: PresenceDraft | null
+  /** Rectangles claimed for the current paint session; `[]` clears them. */
+  readonly quickClaims?: readonly PresenceRect[]
 }
 
 export type PresenceClientEvent = PresenceUpdate | { readonly type: 'presence-heartbeat' }
@@ -85,6 +92,8 @@ export interface PresencePeer {
   readonly painter: PainterIdentity
   readonly viewport: PresenceRect | null
   readonly draft: PresenceDraft | null
+  /** The peer's quick claims for its current paint session; absent when it has none. */
+  readonly quickClaims?: readonly PresenceRect[]
 }
 
 /**
@@ -154,6 +163,12 @@ export const isPresenceRect = (value: unknown): value is PresenceRect =>
   (value as PresenceRect).y >= 0 &&
   (value as PresenceRect).w > 0 &&
   (value as PresenceRect).h > 0
+
+/** A quick-claim list anyone may send: bounded in count, each rect bounded in area. */
+export const isQuickClaimList = (value: unknown): value is readonly PresenceRect[] =>
+  Array.isArray(value) &&
+  value.length <= MAX_QUICK_CLAIMS &&
+  value.every((rect) => isPresenceRect(rect) && rect.w * rect.h <= MAX_PRESENCE_REGION_PIXELS)
 
 export const rectsIntersect = (a: PresenceRect, b: PresenceRect): boolean =>
   a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
