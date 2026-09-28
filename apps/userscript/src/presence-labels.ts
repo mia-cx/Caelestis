@@ -19,7 +19,7 @@ import {
   recordProfileWorkload,
   registerProfileMemorySource,
 } from './profile.js'
-import { quickClaimItems } from './quick-claims.js'
+import { QUICK_CLAIM_PREVIEW_KEY, quickClaimItems } from './quick-claims.js'
 import { getState } from './state.js'
 import { isDrawingTiles, type TileFrame } from './tile-transform.js'
 import { isPaintOpen } from './wplace-paint.js'
@@ -306,7 +306,7 @@ export const presenceTagsAt = (
       tags.push({ key: viewportKey, text, colour, rect: viewportRect })
   }
   for (const quick of quickClaimItems(view)) {
-    if (quick.key === 'quick:me:preview' || !contains(quick.rect, at.x, at.y)) continue
+    if (quick.key === QUICK_CLAIM_PREVIEW_KEY || !contains(quick.rect, at.x, at.y)) continue
     tags.push({
       key: quick.key,
       text: quick.mine

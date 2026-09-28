@@ -22,7 +22,7 @@ import {
   recordProfileWorkload,
   registerProfileMemorySource,
 } from '../profile.js'
-import { quickClaimItems } from '../quick-claims.js'
+import { QUICK_CLAIM_PREVIEW_KEY, quickClaimItems } from '../quick-claims.js'
 import { getState } from '../state.js'
 import { currentQuads, isDrawingTiles, type TileQuad } from '../tile-transform.js'
 import { isPaintOpen } from '../wplace-paint.js'
@@ -576,7 +576,7 @@ class PresenceLayer {
     let animating = false
     const drawn: { item: Item; fade: number }[] = []
     for (const [key, item] of this.retained) {
-      if (item.kind === 'tool') {
+      if (item.kind === 'tool' || key === QUICK_CLAIM_PREVIEW_KEY) {
         if (keys.has(key)) drawn.push({ item, fade: 1 })
         else this.retained.delete(key)
         continue
