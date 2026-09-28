@@ -1,6 +1,7 @@
 import {
   isPresenceDraft,
   isPresenceRect,
+  isQuickClaimList,
   isRegionDocument,
   isWorkIdentity,
   type PainterIdentity,
@@ -73,6 +74,8 @@ interface Connection {
   /** Undefined means nothing has been sent on this socket yet. */
   sentViewport: PresenceRect | null | undefined
   sentDraft: PresenceDraft | null | undefined
+  /** A new session starts with none, so there is no undefined state to resend. */
+  sentQuickClaims: readonly PresenceRect[]
   sentViewportAt: number
   sentDraftAt: number
 }
@@ -96,6 +99,7 @@ const publisherId = uuidV7()
 let hiddenTab = false
 let pendingViewport: PresenceRect | null = null
 let pendingDraft: PresenceDraft | null = null
+let pendingQuickClaims: readonly PresenceRect[] = []
 let draftCheckedAt = Number.NEGATIVE_INFINITY
 
 const now = (): number => Date.now()
@@ -136,6 +140,9 @@ const sameDraft = (left: PresenceDraft | null, right: PresenceDraft | null): boo
     left.pixels === right.pixels &&
     left.mask === right.mask)
 
+const sameRects = (left: readonly PresenceRect[], right: readonly PresenceRect[]): boolean =>
+  left.length === right.length && left.every((rect, index) => sameRect(rect, right[index] ?? null))
+
 const isPeer = (value: unknown): value is PresencePeer => {
   if (typeof value !== 'object' || value === null) return false
   const peer = value as PresencePeer
@@ -149,7 +156,8 @@ const isPeer = (value: unknown): value is PresencePeer => {
       )) &&
     isWorkIdentity(peer.painter) &&
     (peer.viewport === null || isPresenceRect(peer.viewport)) &&
-    (peer.draft === null || isPresenceDraft(peer.draft))
+    (peer.draft === null || isPresenceDraft(peer.draft)) &&
+    (peer.quickClaims === undefined || isQuickClaimList(peer.quickClaims))
   )
 }
 
@@ -235,31 +243,38 @@ const armHeartbeat = (connection: Connection): void => {
 const effective = (): {
   readonly viewport: PresenceRect | null
   readonly draft: PresenceDraft | null
-} =>
-  canPublish()
+  readonly quickClaims: readonly PresenceRect[]
+} => ({
+  ...(canPublish()
     ? { viewport: pendingViewport, draft: pendingDraft }
-    : { viewport: null, draft: null }
+    : { viewport: null, draft: null }),
+  // A hidden tab is still painting; its quick claims end with the paint session or the tab.
+  quickClaims: getState().sharePresence ? pendingQuickClaims : [],
+})
 
 /** Send whatever changed and is due; wait for whatever changed but is not due yet. */
 const flush = (connection: Connection): void => {
   connection.flushTimer = null
   if (connection.socket?.readyState !== WebSocket.OPEN) return
-  const { viewport, draft } = effective()
+  const { viewport, draft, quickClaims } = effective()
   const at = now()
   const viewportDirty =
     connection.sentViewport === undefined || !sameRect(connection.sentViewport, viewport)
   const draftDirty = connection.sentDraft === undefined || !sameDraft(connection.sentDraft, draft)
-  if (!viewportDirty && !draftDirty) return
+  // Quick claims change at the speed of a hand dragging rectangles, so they are always due.
+  const sendQuickClaims = !sameRects(connection.sentQuickClaims, quickClaims)
+  if (!viewportDirty && !draftDirty && !sendQuickClaims) return
   const viewportDue = at - connection.sentViewportAt >= PRESENCE_VIEWPORT_MIN_MS
   const draftDue = at - connection.sentDraftAt >= PRESENCE_DRAFT_MIN_MS
   // Clearing is always due: a closed tab or a cancelled draft should vanish for peers at once.
   const sendViewport = viewportDirty && (viewportDue || viewport === null)
   const sendDraft = draftDirty && (draftDue || draft === null)
-  if (sendViewport || sendDraft) {
+  if (sendViewport || sendDraft || sendQuickClaims) {
     const event: PresenceClientEvent = {
       type: 'presence-update',
       ...(sendViewport ? { viewport } : {}),
       ...(sendDraft ? { draft } : {}),
+      ...(sendQuickClaims ? { quickClaims } : {}),
     }
     if (send(connection, event)) {
       if (sendViewport) {
@@ -270,6 +285,7 @@ const flush = (connection: Connection): void => {
         connection.sentDraft = draft
         connection.sentDraftAt = at
       }
+      if (sendQuickClaims) connection.sentQuickClaims = quickClaims
     }
   }
   if ((viewportDirty && !sendViewport) || (draftDirty && !sendDraft)) scheduleFlush(connection)
@@ -278,7 +294,11 @@ const flush = (connection: Connection): void => {
 const scheduleFlush = (connection: Connection): void => {
   if (connection.flushTimer !== null) return
   const at = now()
-  const { viewport, draft } = effective()
+  const { viewport, draft, quickClaims } = effective()
+  if (!sameRects(connection.sentQuickClaims, quickClaims)) {
+    connection.flushTimer = setTimeout(() => flush(connection), 0)
+    return
+  }
   // Clearing never waits, matching `flush`: peers should lose a stale rect straight away.
   const viewportWait =
     viewport === null ? 0 : Math.max(0, connection.sentViewportAt + PRESENCE_VIEWPORT_MIN_MS - at)
@@ -520,6 +540,7 @@ const open = (connection: Connection): void => {
     }
     connection.sentViewport = undefined
     connection.sentDraft = undefined
+    connection.sentQuickClaims = []
     connection.sentViewportAt = Number.NEGATIVE_INFINITY
     connection.sentDraftAt = Number.NEGATIVE_INFINITY
     log('install', 'presence connected', { server: server.url })
@@ -604,6 +625,7 @@ const reconcile = (): void => {
         flushTimer: null,
         sentViewport: undefined,
         sentDraft: undefined,
+        sentQuickClaims: [],
         sentViewportAt: Number.NEGATIVE_INFINITY,
         sentDraftAt: Number.NEGATIVE_INFINITY,
       }
@@ -814,6 +836,17 @@ export const presencePending = (): {
   readonly viewport: PresenceRect | null
   readonly draft: PresenceDraft | null
 } => ({ viewport: pendingViewport, draft: pendingDraft })
+
+/** This tab's quick claims for the current paint session, newest last. */
+export const presenceQuickClaims = (): readonly PresenceRect[] => pendingQuickClaims
+
+/** Replace this tab's quick claims and send them to every server at once. `[]` clears them. */
+export const setPresenceQuickClaims = (rects: readonly PresenceRect[]): void => {
+  if (sameRects(rects, pendingQuickClaims)) return
+  pendingQuickClaims = rects
+  scheduleAll()
+  notify()
+}
 
 const onVisibility = (): void => {
   const hidden = typeof document !== 'undefined' && document.visibilityState === 'hidden'
