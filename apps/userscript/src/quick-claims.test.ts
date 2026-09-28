@@ -6,13 +6,22 @@ import {
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { beforeAll, beforeEach, expect, it, vi } from 'vitest'
-import { installQuickClaims, quickClaimRect } from './quick-claims.js'
+import type { PresenceView } from './presence-client.js'
+import { installQuickClaims, quickClaimItems, quickClaimRect } from './quick-claims.js'
 
 const harness = vi.hoisted(() => ({
   open: true,
   claims: [] as readonly PresenceRect[],
   drawer: [] as (() => void)[],
   toasts: [] as string[],
+  showPresenceClaims: true,
+}))
+vi.mock('./state.js', () => ({
+  getState: () => ({
+    showPresence: true,
+    showPresenceClaims: harness.showPresenceClaims,
+    showPresenceClaimsOnlyWhilePainting: false,
+  }),
 }))
 vi.mock('./wplace-paint.js', () => ({
   isPaintOpen: () => harness.open,
@@ -67,6 +76,7 @@ beforeEach(() => {
   harness.open = true
   harness.claims = []
   harness.toasts = []
+  harness.showPresenceClaims = true
   document.body.innerHTML = ''
   canvas = document.createElement('canvas')
   document.body.append(canvas)
@@ -144,4 +154,31 @@ it('keeps a rectangle dragged past the canvas edge on the canvas', () => {
     w: 2,
     h: 4,
   })
+})
+
+it("draws your quick claims while painting and others' only where claims show", () => {
+  const me = { wplaceUserId: 1, displayName: 'Mia' }
+  const peer = { wplaceUserId: 2, displayName: 'Other painter' }
+  const view: PresenceView = {
+    peers: [
+      {
+        sessionId: 'peer',
+        painter: peer,
+        viewport: null,
+        draft: null,
+        quickClaims: [{ x: 5, y: 5, w: 5, h: 5 }],
+      },
+    ],
+    regions: [],
+    online: 1,
+    connected: true,
+    me,
+  }
+  drag([0, 0], [3, 3])
+  expect(quickClaimItems(view).map(({ key, mine }) => [key, mine])).toEqual([
+    ['quick:me:0', true],
+    ['quick:peer:0', false],
+  ])
+  harness.showPresenceClaims = false
+  expect(quickClaimItems(view).map(({ key }) => key)).toEqual(['quick:me:0'])
 })
