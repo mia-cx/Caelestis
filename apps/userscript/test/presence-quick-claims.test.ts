@@ -1,4 +1,10 @@
-import { MAX_QUICK_CLAIMS, PRESENCE_PROTOCOL_V1, type PresenceRect } from '@caelestis/shared'
+import {
+  MAX_PRESENCE_MESSAGES_PER_SECOND,
+  MAX_QUICK_CLAIMS,
+  PRESENCE_PROTOCOL_V1,
+  PRESENCE_QUICK_CLAIMS_MIN_MS,
+  type PresenceRect,
+} from '@caelestis/shared'
 import { afterEach, expect, it, vi } from 'vitest'
 
 const SERVER_ID = '018f4f2a-1234-7abc-8def-0123456789ab'
@@ -104,15 +110,21 @@ const connect = async () => {
 
 const rect = (x: number): PresenceRect => ({ x, y: 10, w: 4, h: 3 })
 
-it('sends each quick-claim change at once, and an empty list to clear them', async () => {
+it('sends the first quick claim at once, then only the latest list of a burst, clears included', async () => {
   const { presence, socket } = await connect()
   presence.setPresenceQuickClaims([rect(0)])
   await vi.advanceTimersByTimeAsync(0)
-  presence.setPresenceQuickClaims([rect(0), rect(20)])
-  await vi.advanceTimersByTimeAsync(0)
+  for (let count = 2; count <= 16; count++) {
+    presence.setPresenceQuickClaims(Array.from({ length: count }, (_, index) => rect(index * 10)))
+    await vi.advanceTimersByTimeAsync(20)
+  }
+  await vi.advanceTimersByTimeAsync(PRESENCE_QUICK_CLAIMS_MIN_MS)
   presence.setPresenceQuickClaims([])
-  await vi.advanceTimersByTimeAsync(0)
-  expect(socket.quickClaims()).toEqual([[rect(0)], [rect(0), rect(20)], []])
+  await vi.advanceTimersByTimeAsync(PRESENCE_QUICK_CLAIMS_MIN_MS)
+  const sent = socket.quickClaims() as PresenceRect[][]
+  expect(sent.map((rects) => rects.length)).toEqual([1, 16, 0])
+  // Sixteen rectangles drawn in a third of a second stay inside the server's per-second limit.
+  expect(socket.sent.length).toBeLessThanOrEqual(MAX_PRESENCE_MESSAGES_PER_SECOND)
 })
 
 it('sends held quick claims again on a new session, and none when there are none', async () => {
@@ -147,12 +159,12 @@ it('withdraws quick claims when sharing stops, but not when the tab is hidden', 
   const visibility = async (value: 'hidden' | 'visible') => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, value })
     document.dispatchEvent(new Event('visibilitychange'))
-    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(PRESENCE_QUICK_CLAIMS_MIN_MS)
   }
   await visibility('hidden')
   await visibility('visible')
   state.setState({ sharePresence: false })
-  await vi.advanceTimersByTimeAsync(0)
+  await vi.advanceTimersByTimeAsync(PRESENCE_QUICK_CLAIMS_MIN_MS)
   expect(socket.quickClaims()).toEqual([[rect(0)], []])
   state.setState({ sharePresence: true })
 })

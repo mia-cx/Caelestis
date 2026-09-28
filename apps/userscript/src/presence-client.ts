@@ -8,6 +8,7 @@ import {
   PRESENCE_DRAFT_MIN_MS,
   PRESENCE_HEARTBEAT_MS,
   PRESENCE_PROTOCOL_V1,
+  PRESENCE_QUICK_CLAIMS_MIN_MS,
   PRESENCE_VIEWPORT_MIN_MS,
   type PresenceClientEvent,
   type PresenceDraft,
@@ -76,6 +77,7 @@ interface Connection {
   sentDraft: PresenceDraft | null | undefined
   /** A new session starts with none, so there is no undefined state to resend. */
   sentQuickClaims: readonly PresenceRect[]
+  sentQuickClaimsAt: number
   sentViewportAt: number
   sentDraftAt: number
 }
@@ -261,14 +263,17 @@ const flush = (connection: Connection): void => {
   const viewportDirty =
     connection.sentViewport === undefined || !sameRect(connection.sentViewport, viewport)
   const draftDirty = connection.sentDraft === undefined || !sameDraft(connection.sentDraft, draft)
-  // Quick claims change at the speed of a hand dragging rectangles, so they are always due.
-  const sendQuickClaims = !sameRects(connection.sentQuickClaims, quickClaims)
-  if (!viewportDirty && !draftDirty && !sendQuickClaims) return
+  const quickClaimsDirty = !sameRects(connection.sentQuickClaims, quickClaims)
+  if (!viewportDirty && !draftDirty && !quickClaimsDirty) return
   const viewportDue = at - connection.sentViewportAt >= PRESENCE_VIEWPORT_MIN_MS
   const draftDue = at - connection.sentDraftAt >= PRESENCE_DRAFT_MIN_MS
   // Clearing is always due: a closed tab or a cancelled draft should vanish for peers at once.
   const sendViewport = viewportDirty && (viewportDue || viewport === null)
   const sendDraft = draftDirty && (draftDue || draft === null)
+  // Quick claims coalesce, clears included: a burst of rectangles sends the latest list only, so
+  // the socket stays under the server's per-second limit and is not closed for drawing fast.
+  const sendQuickClaims =
+    quickClaimsDirty && at - connection.sentQuickClaimsAt >= PRESENCE_QUICK_CLAIMS_MIN_MS
   if (sendViewport || sendDraft || sendQuickClaims) {
     const event: PresenceClientEvent = {
       type: 'presence-update',
@@ -285,20 +290,27 @@ const flush = (connection: Connection): void => {
         connection.sentDraft = draft
         connection.sentDraftAt = at
       }
-      if (sendQuickClaims) connection.sentQuickClaims = quickClaims
+      if (sendQuickClaims) {
+        connection.sentQuickClaims = quickClaims
+        connection.sentQuickClaimsAt = at
+      }
     }
   }
-  if ((viewportDirty && !sendViewport) || (draftDirty && !sendDraft)) scheduleFlush(connection)
+  if (
+    (viewportDirty && !sendViewport) ||
+    (draftDirty && !sendDraft) ||
+    (quickClaimsDirty && !sendQuickClaims)
+  )
+    scheduleFlush(connection)
 }
 
 const scheduleFlush = (connection: Connection): void => {
   if (connection.flushTimer !== null) return
   const at = now()
   const { viewport, draft, quickClaims } = effective()
-  if (!sameRects(connection.sentQuickClaims, quickClaims)) {
-    connection.flushTimer = setTimeout(() => flush(connection), 0)
-    return
-  }
+  const quickClaimsWait = sameRects(connection.sentQuickClaims, quickClaims)
+    ? Number.POSITIVE_INFINITY
+    : Math.max(0, connection.sentQuickClaimsAt + PRESENCE_QUICK_CLAIMS_MIN_MS - at)
   // Clearing never waits, matching `flush`: peers should lose a stale rect straight away.
   const viewportWait =
     viewport === null ? 0 : Math.max(0, connection.sentViewportAt + PRESENCE_VIEWPORT_MIN_MS - at)
@@ -310,6 +322,7 @@ const scheduleFlush = (connection: Connection): void => {
   const wait = Math.min(
     viewportDirty ? viewportWait : Number.POSITIVE_INFINITY,
     draftDirty ? draftWait : Number.POSITIVE_INFINITY,
+    quickClaimsWait,
   )
   if (!Number.isFinite(wait)) return
   connection.flushTimer = setTimeout(() => flush(connection), wait)
@@ -541,6 +554,7 @@ const open = (connection: Connection): void => {
     connection.sentViewport = undefined
     connection.sentDraft = undefined
     connection.sentQuickClaims = []
+    connection.sentQuickClaimsAt = Number.NEGATIVE_INFINITY
     connection.sentViewportAt = Number.NEGATIVE_INFINITY
     connection.sentDraftAt = Number.NEGATIVE_INFINITY
     log('install', 'presence connected', { server: server.url })
@@ -626,6 +640,7 @@ const reconcile = (): void => {
         sentViewport: undefined,
         sentDraft: undefined,
         sentQuickClaims: [],
+        sentQuickClaimsAt: Number.NEGATIVE_INFINITY,
         sentViewportAt: Number.NEGATIVE_INFINITY,
         sentDraftAt: Number.NEGATIVE_INFINITY,
       }

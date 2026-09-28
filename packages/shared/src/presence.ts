@@ -29,6 +29,8 @@ export const PRESENCE_PROTOCOL_V1 = 'caelestis.presence.v1'
  */
 export const PRESENCE_VIEWPORT_MIN_MS = 300
 export const PRESENCE_DRAFT_MIN_MS = 1_000
+/** Quick claims coalesce to one send per half second, so drawing fast stays inside the rate limit. */
+export const PRESENCE_QUICK_CLAIMS_MIN_MS = 500
 export const PRESENCE_HEARTBEAT_MS = 30_000
 /** The server batches at the same cadence as a moving viewport, so a pan is relayed as it goes. */
 export const PRESENCE_TICK_MS = 300
@@ -44,8 +46,8 @@ export const MAX_PRESENCE_SUBSCRIBERS = 2_048
 export const MAX_PRESENCE_SUBSCRIBERS_PER_CLIENT = 4
 /**
  * Incoming messages per socket per second before the server closes it: four viewports (at 300 ms
- * a boundary can land four in a second) and one draft is the honest maximum, with room for a
- * heartbeat landing in the same second.
+ * a boundary can land four in a second), one draft and two quick-claim lists is the honest
+ * maximum, with room for a heartbeat landing in the same second.
  */
 export const MAX_PRESENCE_MESSAGES_PER_SECOND = 8
 export const MAX_PRESENCE_REGION_PIXELS = 4_000_000
