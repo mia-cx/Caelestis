@@ -12,7 +12,7 @@ import {
   presenceQuickClaims,
   setPresenceQuickClaims,
 } from './presence-client.js'
-import { getState } from './state.js'
+import { getState, onStateChange } from './state.js'
 import { showToast } from './ui/notification-host.js'
 import { isPaintOpen, onPaintSelectionChange } from './wplace-paint.js'
 import { pickerPointAt } from './wplace-picker.js'
@@ -210,7 +210,14 @@ export const installQuickClaims = (): void => {
     'pointerdown',
     (event) => {
       // macOS reports a Ctrl+click as the secondary button on some browsers.
-      if (!event.ctrlKey || (event.button !== 0 && event.button !== 2) || !isPaintOpen()) return
+      if (
+        !event.ctrlKey ||
+        (event.button !== 0 && event.button !== 2) ||
+        !isPaintOpen() ||
+        // A quick claim nobody else can see claims nothing; the gesture stays Wplace's.
+        !getState().sharePresence
+      )
+        return
       const point = worldPointAt(event)
       if (point === null) return
       swallow(event)
@@ -274,6 +281,10 @@ export const installQuickClaims = (): void => {
     },
     { capture: true },
   )
+  // Stopping sharing ends them too, so they cannot come back for everyone when sharing resumes.
+  onStateChange((state) => {
+    if (!state.sharePresence && presenceQuickClaims().length > 0) setPresenceQuickClaims([])
+  })
   // Painting and cancelling both close the drawer; either way the paint session is over.
   onPaintSelectionChange(() => {
     if (isPaintOpen()) return

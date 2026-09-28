@@ -15,13 +15,18 @@ const harness = vi.hoisted(() => ({
   drawer: [] as (() => void)[],
   toasts: [] as string[],
   showPresenceClaims: true,
+  sharePresence: true,
+  stateListeners: [] as ((state: { sharePresence: boolean }) => void)[],
 }))
 vi.mock('./state.js', () => ({
   getState: () => ({
+    sharePresence: harness.sharePresence,
     showPresence: true,
     showPresenceClaims: harness.showPresenceClaims,
     showPresenceClaimsOnlyWhilePainting: false,
   }),
+  onStateChange: (listener: (state: { sharePresence: boolean }) => void) =>
+    harness.stateListeners.push(listener),
 }))
 vi.mock('./wplace-paint.js', () => ({
   isPaintOpen: () => harness.open,
@@ -88,6 +93,7 @@ beforeEach(() => {
   harness.claims = []
   harness.toasts = []
   harness.showPresenceClaims = true
+  harness.sharePresence = true
   document.body.innerHTML = ''
   canvas = document.createElement('canvas')
   document.body.append(canvas)
@@ -230,4 +236,14 @@ it("draws your quick claims while painting and others' only where claims show", 
   ])
   harness.showPresenceClaims = false
   expect(quickClaimItems(view).map(({ key }) => key)).toEqual(['quick:me:0'])
+})
+
+it('ends quick claims when sharing stops and claims nothing while it is off', () => {
+  drag([0, 0], [10, 10])
+  harness.sharePresence = false
+  for (const listener of harness.stateListeners) listener({ sharePresence: false })
+  expect(harness.claims).toEqual([])
+  drag([20, 20], [30, 30])
+  expect(harness.claims).toEqual([])
+  expect(reachedWplace).toContain('pointerdown')
 })
