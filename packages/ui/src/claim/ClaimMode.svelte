@@ -483,6 +483,7 @@
       border-inline: 0;
     }
     .actions {
+      flex-wrap: wrap;
       justify-content: flex-end;
     }
   }

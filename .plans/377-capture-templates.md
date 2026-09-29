@@ -36,7 +36,7 @@ flow. Mia's comment on the issue: reuse the claim flow's vector tools for the se
 - [x] Capture committed art inside a selection mask, with a focused test.
 - [x] Tree entries and the capture flow: download or import into the chosen row, then place.
 - [x] Changeset for the userscript.
-- [~] Final validation. Repo checks pass; the live Wplace check could not run (see Notes).
+- [x] Final validation. Repo checks and live Wplace capture/placement checks pass (see Notes).
 
 ## Notes
 - Capture is world-only. The entries hide on alliance surfaces, and `captureTemplate` refuses
@@ -53,5 +53,12 @@ flow. Mia's comment on the issue: reuse the claim flow's vector tools for the se
   `pnpm build` clean; `pnpm test` all green (userscript 160/160 in 32 files, backend 99 + 1
   skipped, frontend 68, ui and shared green). New: `test/capture-selection.test.ts` (tile
   crossing, mask, unpainted pixels; unloaded tile fails) and a ClaimMode capture-actions test.
-- Live check not run: no debug Chromium was listening on 127.0.0.1:9228 (or any 92xx port) on
-  this host, so the claim-editor gestures, download, and placement hand-off are unverified in Wplace.
+- Live check 2026-09-29: isolated Chromium with software WebGL, persistent CDP focus emulation,
+  and the live Wplace canvas. Drew a 26×27 selection, clicked Add as template with the panel
+  open, and applied Local placement. No painting or server writes. PNG download was not exercised.
+- Screenshot verification found the docked panel intercepting capture buttons and Cancel clipping
+  off phone screens. Raised the editor above the panel and wrapped narrow-screen actions.
+  All three buttons fit and hit-test correctly at 390px and 320px; clicking Cancel exits capture.
+- Final checks after both UI fixes: lint (same 38 baseline warnings), typecheck, build, and tests
+  pass, including 170 userscript tests. Before-and-after desktop and phone screenshots are attached
+  to PR #536.
