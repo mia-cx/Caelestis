@@ -1,7 +1,10 @@
 import {
+  encodeIndexedPng,
   nodeSlug,
   sameTemplateSurface,
   type TemplateSurface,
+  TILE_SIZE,
+  TRANSPARENT_INDEX,
   templateSurfaceBounds,
   WORLD_PIXELS,
   WORLD_TEMPLATE_SURFACE,
@@ -15,6 +18,7 @@ import type {
 } from '@caelestis/ui/elements'
 import { refreshAllianceManifest } from '../alliance-server-sync.js'
 import { activeAllianceSurface } from '../alliance-surface.js'
+import { startCaptureMode, stopClaimMode } from '../claim-editor.js'
 import { warn } from '../debug.js'
 import { createLocalFolder, removeLocalFolder } from '../local-folders.js'
 import { viewportCentre } from '../main.js'
@@ -41,6 +45,7 @@ import {
   uploadTemplateVersion,
 } from '../state.js'
 import { serverAlarmFor } from '../telemetry.js'
+import { captureSelectedArtwork } from '../templates/current-artwork.js'
 import { importFile } from '../templates/import.js'
 import {
   addLocalTemplate,
@@ -284,6 +289,18 @@ const localTemplateId = (target: TreeTarget): string | null =>
 
 const surfaceOf = (target: TreeTarget): TemplateSurface => target.surface ?? WORLD_TEMPLATE_SURFACE
 
+const download = (file: Blob, filename: string): void => {
+  const url = URL.createObjectURL(file)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.hidden = true
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 0)
+}
+
 const exportTemplate = async (target: TreeTarget): Promise<void> => {
   const localId = localTemplateId(target)
   const id =
@@ -308,15 +325,7 @@ const exportTemplate = async (target: TreeTarget): Promise<void> => {
       toast(`“${template.name}” changed while it was being exported. Try again.`, 'warning')
       return
     }
-    const url = URL.createObjectURL(file)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = wplaceFilename(template.name)
-    link.hidden = true
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    setTimeout(() => URL.revokeObjectURL(url), 0)
+    download(file, wplaceFilename(template.name))
     toast(`Exported “${template.name}”.`)
   } catch (error) {
     warn('install', `could not export ${template.name}`, String(error))
@@ -1212,6 +1221,14 @@ export const openContextMenu = (
                 returnToCanvas: true,
                 run: () => void importTemplate(target, rerender, surface),
               },
+              surface.kind === 'world'
+                ? {
+                    icon: 'fitScreen',
+                    label: 'Capture from canvas',
+                    returnToCanvas: true,
+                    run: () => captureTemplate(target, rerender),
+                  }
+                : null,
             ],
             publish: [folderPublication],
             edit: [rename],
@@ -1350,97 +1367,145 @@ export const importTemplate = async (
   // iOS disables custom extensions such as .wplace when an accept filter is present.
   if (surface.kind !== 'world') picker.accept = 'image/png,image/*'
   picker.addEventListener('change', () => {
-    void (async () => {
-      const file = picker.files?.[0]
-      if (file === undefined) return
-      const centre = importCentre(surface)
-      try {
-        toast(`Reading ${file.name}…`)
-        const imported = await importFile(file, centre)
-        if (imported.length === 0) {
-          toast('Nothing importable in that file.', 'error')
-          return
-        }
-        const first = imported[0]
-        if (first === undefined) return
-        const reservation = first.source === 'image' ? reserveMove() : null
-        if (first.source === 'image' && reservation === null) {
-          toast('Finish the current placement, then import this image again.', 'warning')
-          return
-        }
-        if (target.server !== null) {
-          await importTemplatesToServer(
-            imported,
-            target.server,
-            target.nodeId ?? null,
-            reservation,
-            rerender,
-            (server, render) => refreshEditedSurface(server, surface, render),
-            surface,
-          )
-          return
-        }
-        // Straight into whichever Local folder was clicked. Importing from a folder's own button
-        // and then finding the result at the top level would make the button a lie.
-        const folderId = localFolderIdOf(target)
-        // Each record stands or falls on its own. Rolling the whole file back on one failure meant
-        // importing two templates with one slot left admitted the first, hit the cap on the second,
-        // and then deleted the first as well — a success thrown away to tidy up after a failure
-        // that had nothing to do with it.
-        const admitted: string[] = []
-        const failed: string[] = []
-        try {
-          for (const template of imported) {
-            try {
-              await addLocalTemplate(template, surface)
-              admitted.push(template.id)
-              if (folderId !== null && !(await setTemplateFolder(template.id, folderId)))
-                failed.push(`${template.name} was imported, but not into that folder`)
-            } catch (error) {
-              failed.push(`${template.name}: ${String(error)}`)
-            }
-          }
-          rerender()
-          if (failed.length > 0) toast(failed.join('. '), 'error')
-          if (!admitted.includes(first.id)) return
-
-          const moved = first.moved
-          toast(
-            `Imported ${first.name} — ${first.width}x${first.height}` +
-              (moved > 0 ? `, ${moved.toLocaleString()} pixels quantised` : ''),
-          )
-          if (first.source === 'image') {
-            // The reservation spans persistence, so another placement cannot strand this image in
-            // volatile state between admission and `beginMove`.
-            if (reservation === null || !reservation.start(first.id, rerender)) {
-              for (const template of imported) await removeLocalTemplate(template.id)
-              rerender()
-              toast(
-                'Another placement started. Finish it, then import this image again.',
-                'warning',
-              )
-            }
-          } else {
-            // It already knows where it belongs, so go and look at it — centred on the template and
-            // zoomed to fit it, in-game. Changing the URL would reload and throw the import away.
-            if (surface.kind === 'world') navigateTo(centreOf(first))
-          }
-        } catch (error) {
-          rerender()
-          throw error
-        } finally {
-          reservation?.release()
-        }
-      } catch (error) {
-        const reason = (error instanceof Error ? error.message : String(error)).replace(/\.$/, '')
-        toast(`Could not import “${file.name}”: ${reason}.`, 'error')
-      }
-    })()
+    const file = picker.files?.[0]
+    if (file !== undefined)
+      void importTemplateFile(file, target, rerender, surface, importCentre(surface))
   })
   picker.style.display = 'none'
   document.body.appendChild(picker)
   picker.click()
   setTimeout(() => picker.remove(), 60_000)
+}
+
+/**
+ * Import one file into a tree row. Files that carry a placement go where they belong; a plain
+ * image starts the placement flow centred on `centre`.
+ */
+const importTemplateFile = async (
+  file: File,
+  target: TreeTarget,
+  rerender: () => void,
+  surface: TemplateSurface,
+  centre: { readonly x: number; readonly y: number },
+): Promise<void> => {
+  try {
+    toast(`Reading ${file.name}…`)
+    const imported = await importFile(file, centre)
+    if (imported.length === 0) {
+      toast('Nothing importable in that file.', 'error')
+      return
+    }
+    const first = imported[0]
+    if (first === undefined) return
+    const reservation = first.source === 'image' ? reserveMove() : null
+    if (first.source === 'image' && reservation === null) {
+      toast('Finish the current placement, then import this image again.', 'warning')
+      return
+    }
+    if (target.server !== null) {
+      await importTemplatesToServer(
+        imported,
+        target.server,
+        target.nodeId ?? null,
+        reservation,
+        rerender,
+        (server, render) => refreshEditedSurface(server, surface, render),
+        surface,
+      )
+      return
+    }
+    // Straight into whichever Local folder was clicked. Importing from a folder's own button
+    // and then finding the result at the top level would make the button a lie.
+    const folderId = localFolderIdOf(target)
+    // Each record stands or falls on its own. Rolling the whole file back on one failure meant
+    // importing two templates with one slot left admitted the first, hit the cap on the second,
+    // and then deleted the first as well — a success thrown away to tidy up after a failure
+    // that had nothing to do with it.
+    const admitted: string[] = []
+    const failed: string[] = []
+    try {
+      for (const template of imported) {
+        try {
+          await addLocalTemplate(template, surface)
+          admitted.push(template.id)
+          if (folderId !== null && !(await setTemplateFolder(template.id, folderId)))
+            failed.push(`${template.name} was imported, but not into that folder`)
+        } catch (error) {
+          failed.push(`${template.name}: ${String(error)}`)
+        }
+      }
+      rerender()
+      if (failed.length > 0) toast(failed.join('. '), 'error')
+      if (!admitted.includes(first.id)) return
+
+      const moved = first.moved
+      toast(
+        `Imported ${first.name} — ${first.width}x${first.height}` +
+          (moved > 0 ? `, ${moved.toLocaleString()} pixels quantised` : ''),
+      )
+      if (first.source === 'image') {
+        // The reservation spans persistence, so another placement cannot strand this image in
+        // volatile state between admission and `beginMove`.
+        if (reservation === null || !reservation.start(first.id, rerender)) {
+          for (const template of imported) await removeLocalTemplate(template.id)
+          rerender()
+          toast('Another placement started. Finish it, then import this image again.', 'warning')
+        }
+      } else {
+        // It already knows where it belongs, so go and look at it — centred on the template and
+        // zoomed to fit it, in-game. Changing the URL would reload and throw the import away.
+        if (surface.kind === 'world') navigateTo(centreOf(first))
+      }
+    } catch (error) {
+      rerender()
+      throw error
+    } finally {
+      reservation?.release()
+    }
+  } catch (error) {
+    const reason = (error instanceof Error ? error.message : String(error)).replace(/\.$/, '')
+    toast(`Could not import “${file.name}”: ${reason}.`, 'error')
+  }
+}
+
+/**
+ * Capture committed world art into a new template. The claim editor's tools select the art; the
+ * capture downloads as a PNG, or imports into `target` as Import template would, with placement
+ * starting over the source so it can be dragged onto the damaged copy.
+ */
+export const captureTemplate = (target: TreeTarget, rerender: () => void): void => {
+  if (activeAllianceSurface() !== null) {
+    toast('Capture works on the world canvas. Leave the alliance canvas first.', 'warning')
+    return
+  }
+  const started = startCaptureMode({
+    capture: async (selection, action) => {
+      const indices = await captureSelectedArtwork(selection)
+      if (indices.every((index) => index === TRANSPARENT_INDEX))
+        return 'There is no painted art in this selection.'
+      const { x, y, w, h } = selection.rect
+      // Blue Marble's coordinates: tile, then pixel within it.
+      const name = `Capture ${Math.floor(x / TILE_SIZE)}-${Math.floor(y / TILE_SIZE)}-${x % TILE_SIZE}-${y % TILE_SIZE}`
+      const png = new File(
+        [Uint8Array.from(await encodeIndexedPng(w, h, indices))],
+        `${name}.png`,
+        { type: 'image/png' },
+      )
+      if (action === 'download') {
+        download(png, png.name)
+        toast(`Downloaded ${png.name}.`)
+        return null
+      }
+      // Placement needs the map's pointer events, which capture mode holds.
+      stopClaimMode()
+      await importTemplateFile(png, target, rerender, WORLD_TEMPLATE_SURFACE, {
+        x: x + w / 2,
+        y: y + h / 2,
+      })
+      return null
+    },
+  })
+  if (!started) toast('Leave claim mode, then capture.', 'warning')
 }
 
 /**

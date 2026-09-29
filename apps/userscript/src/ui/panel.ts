@@ -36,6 +36,7 @@ import {
 import { cancelDestinationAdmissions } from '../application/transplant.js'
 import {
   cancelTreeActionSetup,
+  captureTemplate,
   copyServerTemplateToLocal,
   copyToServer,
   createFolder,
@@ -1018,6 +1019,7 @@ const treeCallbacks = (): TreeCallbacks => ({
   },
   onCreateFolder: (target) => void createFolder(target, rerenderTree, panelSurface),
   onImportTemplate: (target) => void importTemplate(target, rerenderTree, panelSurface),
+  onCaptureTemplate: (target) => captureTemplate(target, rerenderTree),
   onContextMenu: (target, event) => openContextMenu(target, event, rerenderTree, panelSurface),
   onCopyToServer: (id) => void copyToServer(id, rerenderTree),
   onDropInServer: (server, nodeId, draggedKey, beforeKey) =>

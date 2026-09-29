@@ -163,6 +163,8 @@ export interface TreeCallbacks {
   readonly onAddServer: () => void
   readonly onCreateFolder: (target: TreeTarget) => void
   readonly onImportTemplate: (target: TreeTarget) => void
+  /** Select committed art on the map and add it as a template here, or download it. */
+  readonly onCaptureTemplate: (target: TreeTarget) => void
   readonly onContextMenu: (target: TreeTarget, event: MouseEvent) => void
   readonly onCopyToServer: (templateId: string) => void
   /** Move one server-owned row into a Local folder. Local reparenting stays inside the tree. */
@@ -428,6 +430,18 @@ const buildTree = <Result>(
       ? undefined
       : { mine: claim.mine, claimed: claim.people.length > 0 }
   }
+  // Capture selects with the claim editor, which only works over the world canvas.
+  const captureActions = (target: TreeTarget) =>
+    surface.kind === 'world'
+      ? [
+          {
+            icon: 'fitScreen' as const,
+            label: 'Capture from canvas',
+            returnToCanvas: true,
+            run: () => callbacks.onCaptureTemplate(target),
+          },
+        ]
+      : []
   const dropInLocal = async (
     draggedKey: string,
     parentKey: string | null,
@@ -740,6 +754,7 @@ const buildTree = <Result>(
               returnToCanvas: true,
               run: () => callbacks.onImportTemplate(target),
             },
+            ...captureActions(target),
           ]
         : undefined,
     }
@@ -857,6 +872,7 @@ const buildTree = <Result>(
                         returnToCanvas: true,
                         run: () => callbacks.onImportTemplate(nodeTarget),
                       },
+                      ...captureActions(nodeTarget),
                     ],
                   }
                 : {}),
@@ -1079,6 +1095,7 @@ const buildTree = <Result>(
                 returnToCanvas: true,
                 run: () => callbacks.onImportTemplate(folderTarget),
               },
+              ...captureActions(folderTarget),
             ],
           },
         })
