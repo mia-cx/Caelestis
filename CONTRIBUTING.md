@@ -87,5 +87,10 @@ tests, and internal maintenance do not need a Changeset.
 - Use a conventional title such as `fix(userscript): preserve template placement`.
 - Rebase on the latest `main` and keep unrelated changes out of the branch.
 - Describe the problem, the outcome, and the checks you ran.
-- Include before and after evidence for visual changes.
+- If the pull request touches UI, include labelled before-and-after screenshots
+  and/or video of the affected UI or behavior. Use comparable viewport sizes,
+  data, and interaction steps. Show motion or interaction with video or a GIF
+  when screenshots cannot convey the change. For new UI, show the previous
+  entry point or workflow as the before state. Attach or embed the media in the
+  pull request; test results do not replace visual evidence.
 - Allow maintainer edits on pull requests from forks.
