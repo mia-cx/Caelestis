@@ -19,6 +19,7 @@ import {
   recordProfileWorkload,
   registerProfileMemorySource,
 } from './profile.js'
+import { QUICK_CLAIM_PREVIEW_KEY, quickClaimItems } from './quick-claims.js'
 import { getState } from './state.js'
 import { isDrawingTiles, type TileFrame } from './tile-transform.js'
 import { isPaintOpen } from './wplace-paint.js'
@@ -303,6 +304,20 @@ export const presenceTagsAt = (
       tags.push({ key: draftKey, text, colour, rect: draftRect })
     else if (viewportRect !== null && contains(viewportRect, at.x, at.y))
       tags.push({ key: viewportKey, text, colour, rect: viewportRect })
+  }
+  for (const quick of quickClaimItems(view)) {
+    if (quick.key === QUICK_CLAIM_PREVIEW_KEY || !contains(quick.rect, at.x, at.y)) continue
+    tags.push({
+      key: quick.key,
+      text: quick.mine
+        ? 'Quick claim · Ctrl+click to remove'
+        : `${quick.painter?.displayName ?? 'Painter'} · painting here`,
+      colour:
+        quick.painter === null
+          ? 'rgba(255, 255, 255, 0.85)'
+          : presenceCss(quick.painter.wplaceUserId, 0.85),
+      rect: quick.rect,
+    })
   }
   const seen = new Set<string>()
   const claims = claimsVisible(flags, isPaintOpen())
