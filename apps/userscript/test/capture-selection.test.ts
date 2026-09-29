@@ -1,0 +1,55 @@
+import { TILE_SIZE, TRANSPARENT_INDEX } from '@caelestis/shared'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { captureSelectedArtwork } from '../src/templates/current-artwork.js'
+import { loadCommittedTilePixels, UNPAINTED } from '../src/tile-transform.js'
+
+vi.mock('../src/tile-transform.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/tile-transform.js')>()),
+  loadCommittedTilePixels: vi.fn(),
+}))
+
+const tiles = new Map<string, Uint8Array>()
+
+const paint = (x: number, y: number, index: number): void => {
+  const key = `${Math.floor(x / TILE_SIZE)}/${Math.floor(y / TILE_SIZE)}`
+  const tile = tiles.get(key) ?? new Uint8Array(TILE_SIZE * TILE_SIZE).fill(UNPAINTED)
+  tile[(y % TILE_SIZE) * TILE_SIZE + (x % TILE_SIZE)] = index
+  tiles.set(key, tile)
+}
+
+beforeEach(() => {
+  tiles.clear()
+  vi.mocked(loadCommittedTilePixels).mockImplementation(
+    async (tile) => tiles.get(`${tile.x}/${tile.y}`) ?? null,
+  )
+})
+
+// Four pixels across the boundary between tiles 0/0 and 1/0, two rows, one corner cut out.
+const selection = {
+  rect: { x: TILE_SIZE - 2, y: 5, w: 4, h: 2 },
+  mask: new Uint8Array([1, 1, 1, 1, 1, 1, 1, 0]),
+  count: 7,
+}
+
+describe('captureSelectedArtwork', () => {
+  it('copies committed art across tiles, keeping unpainted and unselected pixels transparent', async () => {
+    paint(TILE_SIZE - 2, 5, 5)
+    paint(TILE_SIZE - 1, 5, 9)
+    paint(TILE_SIZE + 1, 5, 31)
+    paint(TILE_SIZE - 2, 6, 12)
+    paint(TILE_SIZE + 1, 6, 20)
+
+    const indices = await captureSelectedArtwork(selection)
+
+    const _ = TRANSPARENT_INDEX
+    expect(Array.from(indices)).toEqual([5, 9, _, 31, 12, _, _, _])
+  })
+
+  it('fails instead of treating an unloaded tile as transparent', async () => {
+    paint(TILE_SIZE - 2, 5, 5)
+
+    await expect(captureSelectedArtwork(selection)).rejects.toThrow(
+      'Could not load committed Wplace tile 1/0',
+    )
+  })
+})

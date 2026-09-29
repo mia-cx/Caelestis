@@ -1,4 +1,5 @@
 import {
+  type RegionShapePixels,
   sameTemplateSurface,
   TILE_SIZE,
   TRANSPARENT_INDEX,
@@ -81,7 +82,13 @@ export const captureCurrentArtwork = async (template: PlacedTemplate): Promise<U
       throw new Error('The alliance canvas changed. Try again.')
     return compositeCommittedArtwork(template, readArtboardPixels(active, geometry))
   }
+  return captureWorldArtwork(template)
+}
 
+/** Composite committed world art over a placement, loading every tile it touches first. */
+const captureWorldArtwork = async (
+  template: Pick<PlacedTemplate, 'originX' | 'originY' | 'width' | 'height' | 'indices'>,
+): Promise<Uint8Array> => {
   const indices = template.indices.slice()
   for (let y = 0; y < template.height; ) {
     const worldY = template.originY + y
@@ -116,5 +123,25 @@ export const captureCurrentArtwork = async (template: PlacedTemplate): Promise<U
     }
     y += height
   }
+  return indices
+}
+
+/**
+ * Committed world art under a selection, one image pixel per canvas pixel over the selection's
+ * bounds and transparent outside its mask. Every tile it touches loads first; a tile that cannot
+ * load fails the capture rather than reading as transparent.
+ */
+export const captureSelectedArtwork = async ({
+  rect,
+  mask,
+}: RegionShapePixels): Promise<Uint8Array> => {
+  const indices = await captureWorldArtwork({
+    originX: rect.x,
+    originY: rect.y,
+    width: rect.w,
+    height: rect.h,
+    indices: new Uint8Array(rect.w * rect.h).fill(TRANSPARENT_INDEX),
+  })
+  for (let at = 0; at < indices.length; at++) if (mask[at] !== 1) indices[at] = TRANSPARENT_INDEX
   return indices
 }
