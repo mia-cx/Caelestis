@@ -282,7 +282,8 @@ const host = (): ClaimEditorHost => ({
     return result
   },
   changed: () => rerenderPanel?.(),
-  capture: (selection, action) => captureSelection(selection, action, () => rerenderPanel?.()),
+  capture: (selection, action, isCurrent) =>
+    captureSelection(selection, action, () => rerenderPanel?.(), isCurrent),
 })
 
 /** Wire the editor to this module once, before anything can open it. */

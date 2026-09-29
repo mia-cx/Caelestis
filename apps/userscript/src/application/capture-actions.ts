@@ -39,6 +39,7 @@ export const captureSelection = async (
   selection: RegionSelection,
   action: ClaimCaptureAction,
   rerender: () => void,
+  isCurrent: () => boolean,
 ): Promise<string | null> => {
   // Reserve first: a template can only open placement when nothing else is being placed.
   const reservation = action === 'template' ? reserveMove() : null
@@ -46,6 +47,7 @@ export const captureSelection = async (
     return 'Finish the current placement, then capture again.'
   try {
     const capture = await captureRegion(selection)
+    if (!isCurrent()) return null
     if (action === 'download') {
       await download(capture)
       toast(`Downloaded ${captureFilename(capture)}.`)
@@ -53,13 +55,24 @@ export const captureSelection = async (
     }
     const template = templateFromCapture(capture)
     await addLocalTemplate(template)
+    if (!isCurrent()) {
+      if (!(await removeLocalTemplate(template.id)))
+        toast(`Capture ended, but ${template.name} remains in Local templates.`, 'warning')
+      rerender()
+      return null
+    }
     rerender()
     // The editor's window listeners would swallow the placement pointer events.
     stopClaimMode()
     if (reservation === null || !reservation.start(template.id, rerender)) {
-      await removeLocalTemplate(template.id)
+      const removed = await removeLocalTemplate(template.id)
       rerender()
-      toast('Another placement started. Finish it, then capture again.', 'warning')
+      toast(
+        removed
+          ? 'Another placement started. Finish it, then capture again.'
+          : `Another placement started. ${template.name} remains in Local templates.`,
+        'warning',
+      )
       return null
     }
     toast(`Captured ${template.width}x${template.height}. Move it, then click to place.`)

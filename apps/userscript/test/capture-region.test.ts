@@ -1,4 +1,4 @@
-import { TILE_SIZE, TRANSPARENT_INDEX } from '@caelestis/shared'
+import { TILE_SIZE, TRANSPARENT_INDEX, WORLD_PIXELS } from '@caelestis/shared'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { captureRegion, templateFromCapture } from '../src/templates/capture-region.js'
 import { UNPAINTED } from '../src/tile-transform.js'
@@ -83,6 +83,24 @@ describe('captureRegion', () => {
 
     await expect(captureRegion(selection(TILE_SIZE - 1, 0, 2, 1))).rejects.toThrow(
       /committed Wplace tile 1\/0/,
+    )
+  })
+
+  it('refuses selections past the world edge instead of wrapping to unrelated tiles', async () => {
+    const west = blankTile()
+    const east = blankTile()
+    paint(west, 0, 0, 5)
+    paint(east, TILE_SIZE - 1, 0, 9)
+    tiles.set('0/0', west)
+    tiles.set(`${WORLD_PIXELS / TILE_SIZE - 1}/0`, east)
+
+    expect((await captureRegion(selection(WORLD_PIXELS - 1, 0, 1, 1))).indices[0]).toBe(9)
+
+    await expect(captureRegion(selection(WORLD_PIXELS - 1, 0, 2, 1))).rejects.toThrow(
+      /beyond the map/,
+    )
+    await expect(captureRegion(selection(0, WORLD_PIXELS - 1, 1, 2))).rejects.toThrow(
+      /beyond the map/,
     )
   })
 

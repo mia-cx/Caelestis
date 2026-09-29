@@ -219,6 +219,7 @@ export interface ClaimEditorHost {
   readonly capture: (
     selection: RegionSelection,
     action: ClaimCaptureAction,
+    isCurrent: () => boolean,
   ) => Promise<string | null>
 }
 
@@ -1866,7 +1867,11 @@ const capture = async (action: ClaimCaptureAction): Promise<void> => {
   notify()
   let error: string | null
   try {
-    error = await host.capture({ rect: selection.rect, parts: selection.parts }, action)
+    error = await host.capture(
+      { rect: selection.rect, parts: selection.parts },
+      action,
+      () => active && session === mine,
+    )
   } catch (thrown) {
     error = String(thrown)
   }

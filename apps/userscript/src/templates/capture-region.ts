@@ -4,6 +4,7 @@ import {
   type RegionShapePixels,
   TRANSPARENT_INDEX,
   uuidV7,
+  WORLD_PIXELS,
 } from '@caelestis/shared'
 import { overlayCommittedWorldArtwork } from './current-artwork.js'
 import type { ImportedTemplate } from './import.js'
@@ -52,6 +53,8 @@ export const maskToSelection = (indices: Uint8Array, selection: RegionSelection)
  */
 export const captureRegion = async (selection: RegionSelection): Promise<RegionCapture> => {
   const { rect } = selection
+  if (rect.x < 0 || rect.y < 0 || rect.x + rect.w > WORLD_PIXELS || rect.y + rect.h > WORLD_PIXELS)
+    throw new Error('The selection extends beyond the map. Select an area inside its bounds.')
   if (rect.w * rect.h > MAX_REGION_DOCUMENT_PIXELS)
     throw new Error('That selection spans too much of the canvas. Select a smaller area.')
   const indices = new Uint8Array(rect.w * rect.h).fill(TRANSPARENT_INDEX)
