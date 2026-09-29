@@ -20,19 +20,31 @@ flow. Mia's comment on the issue: reuse the claim flow's vector tools for the se
   (claim mode has no alliance artboard support).
 
 ## Acceptance criteria
-- [ ] Select a region on the world map, snapped to Wplace pixels.
-- [ ] Capture reads only committed art; drafts, overlays, markers, map and UI are excluded.
-- [ ] Exact colours, dimensions and transparency at one image pixel per Wplace pixel, at any zoom.
-- [ ] Selections across tile boundaries load their tiles first; missing data fails the capture.
-- [ ] The capture is an independent snapshot.
-- [ ] Download PNG, or add as template through normal creation and placement; nothing is painted.
+- [x] Select a region on the world map, snapped to Wplace pixels.
+- [x] Capture reads only committed art; drafts, overlays, markers, map and UI are excluded.
+- [x] Exact colours, dimensions and transparency at one image pixel per Wplace pixel, at any zoom.
+- [x] Selections across tile boundaries load their tiles first; missing data fails the capture.
+- [x] The capture is an independent snapshot.
+- [x] Download PNG, or add as template through normal creation and placement; nothing is painted.
 
 ## TODOs
-- [ ] UI: capture purpose in the claim mode bar, capture intents, capture icon for tree actions.
-- [ ] Capture committed art inside a selection mask, with a focused test.
-- [ ] Claim editor: capture mode that starts empty and hands the selection to a capture host.
-- [ ] Tree entries and the capture flow: download or import into the chosen row, then place.
-- [ ] Changeset for the userscript.
-- [ ] Final validation, including a live check in the debug Chromium.
+- [x] UI: capture purpose in the claim mode bar, capture intents, capture icon for tree actions.
+- [x] Claim editor: capture mode that starts empty and hands the selection to a capture host
+  (committed with the UI change, since the model type needs both sides).
+- [x] Capture committed art inside a selection mask, with a focused test.
+- [x] Tree entries and the capture flow: download or import into the chosen row, then place.
+- [x] Changeset for the userscript.
+- [~] Final validation. Repo checks pass; the live Wplace check could not run (see Notes).
 
 ## Notes
+- Capture is world-only. The entries hide on alliance surfaces, and `captureTemplate` refuses
+  while an alliance canvas is open.
+- Exact colours: the capture encodes palette indices with `encodeIndexedPng`, and the image import
+  decodes with `colorSpaceConversion: 'none'` and no premultiplying, then quantises exact palette
+  RGB back to the same indices. Transparent stays index 63 through `tRNS`.
+- Validation 2026-09-29: `pnpm lint` clean apart from existing warnings; `pnpm check` clean;
+  `pnpm build` clean; `pnpm test` all green (userscript 160/160 in 32 files, backend 99 + 1
+  skipped, frontend 68, ui and shared green). New: `test/capture-selection.test.ts` (tile
+  crossing, mask, unpainted pixels; unloaded tile fails) and a ClaimMode capture-actions test.
+- Live check not run: no debug Chromium was listening on 127.0.0.1:9228 (or any 92xx port) on
+  this host, so the claim-editor gestures, download, and placement hand-off are unverified in Wplace.
