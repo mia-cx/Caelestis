@@ -224,15 +224,20 @@ export interface ClaimCaptureHost {
   /**
    * Capture the art under the selection mask, then download it or add it as a template. Resolves
    * to null when done, which leaves capture mode, or to a message that keeps the selection open.
-   * The host may leave capture mode itself first, for a follow-up such as placement that needs
-   * the map's pointer events.
+   * The signal aborts when the editor closes. The host must discard cancelled work, including
+   * any temporary template admission, before it can start placement or download a file.
    */
-  readonly capture: (selection: RegionShapePixels, action: CaptureAction) => Promise<string | null>
+  readonly capture: (
+    selection: RegionShapePixels,
+    action: CaptureAction,
+    signal: AbortSignal,
+  ) => Promise<string | null>
 }
 
 let host: ClaimEditorHost | null = null
 /** Set while the editor selects art to capture rather than regions to claim. */
 let captureHost: ClaimCaptureHost | null = null
+let captureController: AbortController | null = null
 let installed = false
 let active = false
 let tool: ClaimTool = 'select'
@@ -1854,16 +1859,19 @@ const capture = async (action: CaptureAction): Promise<void> => {
   }
   const mine = session
   const target = captureHost
+  const controller = new AbortController()
+  captureController = controller
   pending = true
   message = undefined
   notify()
   let error: string | null
   try {
-    error = await target.capture(selection, action)
+    error = await target.capture(selection, action, controller.signal)
   } catch (failure) {
     error = failure instanceof Error ? failure.message : String(failure)
   }
-  if (session !== mine) return
+  if (captureController === controller) captureController = null
+  if (session !== mine || controller.signal.aborted) return
   pending = false
   if (!active) return
   if (error === null) stopClaimMode()
@@ -2376,6 +2384,8 @@ const enter = (
 export const stopClaimMode = (): void => {
   if (!active) return
   active = false
+  captureController?.abort()
+  captureController = null
   captureHost = null
   items = []
   select([])

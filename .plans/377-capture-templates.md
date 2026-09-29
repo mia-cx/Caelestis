@@ -14,8 +14,10 @@ flow. Mia's comment on the issue: reuse the claim flow's vector tools for the se
 - Capture reads `captureCurrentArtwork`'s committed world-tile path: every touched tile loads
   first, and a tile that cannot load fails the capture instead of reading as transparent. Drafts,
   overlays and markers never enter it.
-- Add as template feeds the PNG through the same import path as Import template, into the tree
-  row it was started from, placed over the source so the user drags it onto the damaged area.
+- Add as template passes the captured palette indices through the same admission and placement
+  path as Import template, into the chosen tree row. Only Download PNG encodes an image.
+- Reserve placement before loading tiles. Closing capture aborts pending work and removes any
+  temporary admission; late results cannot close a newer editor session.
 - Entry point: "Capture from canvas" beside every "Import template" entry, world surface only
   (claim mode has no alliance artboard support).
 
@@ -39,9 +41,14 @@ flow. Mia's comment on the issue: reuse the claim flow's vector tools for the se
 ## Notes
 - Capture is world-only. The entries hide on alliance surfaces, and `captureTemplate` refuses
   while an alliance canvas is open.
-- Exact colours: the capture encodes palette indices with `encodeIndexedPng`, and the image import
-  decodes with `colorSpaceConversion: 'none'` and no premultiplying, then quantises exact palette
-  RGB back to the same indices. Transparent stays index 63 through `tRNS`.
+- Exact colours: template creation retains captured palette indices directly. PNG downloads use
+  `encodeIndexedPng`. Out-of-world selections fail rather than wrapping to unrelated artwork.
+- Review fixes use the existing cooperative UI model: rail actions can close capture during tile
+  loading or temporary admission. The editor owns cancellation, and both Local and server staging
+  roll back cancelled captures before starting placement.
+- Follow-up validation: lint, typecheck, build, and the full test command pass. Focused tests cover
+  exact Local-folder placement, occupied placement, admission failure, server permissions,
+  cancellation during tile loading and Local/server admission, later editor sessions, and world edges.
 - Validation 2026-09-29: `pnpm lint` clean apart from existing warnings; `pnpm check` clean;
   `pnpm build` clean; `pnpm test` all green (userscript 160/160 in 32 files, backend 99 + 1
   skipped, frontend 68, ui and shared green). New: `test/capture-selection.test.ts` (tile

@@ -1,4 +1,4 @@
-import { TILE_SIZE, TRANSPARENT_INDEX } from '@caelestis/shared'
+import { TILE_SIZE, TRANSPARENT_INDEX, WORLD_PIXELS } from '@caelestis/shared'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { captureSelectedArtwork } from '../src/templates/current-artwork.js'
 import { loadCommittedTilePixels, UNPAINTED } from '../src/tile-transform.js'
@@ -32,6 +32,15 @@ const selection = {
 }
 
 describe('captureSelectedArtwork', () => {
+  it('refuses shapes crossing the world edge instead of wrapping their pixels', async () => {
+    await expect(
+      captureSelectedArtwork({
+        rect: { x: WORLD_PIXELS - 1, y: 0, w: 2, h: 1 },
+        mask: new Uint8Array([1, 1]),
+        count: 2,
+      }),
+    ).rejects.toThrow('inside the world canvas')
+  })
   it('copies committed art across tiles, keeping unpainted and unselected pixels transparent', async () => {
     paint(TILE_SIZE - 2, 5, 5)
     paint(TILE_SIZE - 1, 5, 9)

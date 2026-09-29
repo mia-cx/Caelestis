@@ -89,6 +89,7 @@ export const captureCurrentArtwork = async (template: PlacedTemplate): Promise<U
 const captureWorldArtwork = async (
   template: Pick<PlacedTemplate, 'originX' | 'originY' | 'width' | 'height' | 'indices'>,
   mask?: Uint8Array,
+  signal?: AbortSignal,
 ): Promise<Uint8Array> => {
   const indices = template.indices.slice()
   for (let y = 0; y < template.height; ) {
@@ -109,7 +110,9 @@ const captureWorldArtwork = async (
         continue
       }
       const tile = { x: Math.floor(worldX / TILE_SIZE), y: Math.floor(worldY / TILE_SIZE) }
+      signal?.throwIfAborted()
       const pixels = await loadCommittedTilePixels(tile)
+      signal?.throwIfAborted()
       if (pixels === null)
         throw new Error(
           `Could not load committed Wplace tile ${tile.x}/${tile.y}. Load that area and try again.`,
@@ -143,10 +146,12 @@ const captureWorldArtwork = async (
  * bounds and transparent outside its mask. Only tiles with selected pixels need to load; a missing
  * selected tile fails the capture rather than reading as transparent.
  */
-export const captureSelectedArtwork = async ({
-  rect,
-  mask,
-}: RegionShapePixels): Promise<Uint8Array> => {
+export const captureSelectedArtwork = async (
+  { rect, mask }: RegionShapePixels,
+  signal?: AbortSignal,
+): Promise<Uint8Array> => {
+  if (rect.x < 0 || rect.y < 0 || rect.x + rect.w > WORLD_PIXELS || rect.y + rect.h > WORLD_PIXELS)
+    throw new Error('Keep the capture selection inside the world canvas.')
   const indices = await captureWorldArtwork(
     {
       originX: rect.x,
@@ -156,6 +161,7 @@ export const captureSelectedArtwork = async ({
       indices: new Uint8Array(rect.w * rect.h).fill(TRANSPARENT_INDEX),
     },
     mask,
+    signal,
   )
   for (let at = 0; at < indices.length; at++) if (mask[at] !== 1) indices[at] = TRANSPARENT_INDEX
   return indices

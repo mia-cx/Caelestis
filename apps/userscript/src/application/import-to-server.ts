@@ -92,6 +92,7 @@ export const importTemplatesToServer = async (
   rerender: () => void,
   refreshServer: RefreshServer,
   surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
+  signal?: AbortSignal,
 ): Promise<boolean> => {
   if (!server.isAdmin) {
     reservation?.release()
@@ -113,6 +114,7 @@ export const importTemplatesToServer = async (
   const failures: string[] = []
   try {
     for (const template of imported) {
+      signal?.throwIfAborted()
       try {
         await addLocalTemplate(template, surface)
         admitted.push(template.id)
@@ -120,11 +122,13 @@ export const importTemplatesToServer = async (
         failures.push(`${template.name}: ${String(error)}`)
       }
     }
+    signal?.throwIfAborted()
     rerender()
     if (failures.length > 0) toast(failures.join('. '), 'error')
     if (!admitted.includes(first.id)) return false
 
     if (first.source === 'image') {
+      signal?.throwIfAborted()
       const started = reservation?.start(first.id, () => {
         rerender()
         void uploadAdmitted(server, nodeId, admitted, rerender, refreshServer, surface)
@@ -141,6 +145,12 @@ export const importTemplatesToServer = async (
 
     await uploadAdmitted(server, nodeId, admitted, rerender, refreshServer, surface)
     return true
+  } catch (error) {
+    if (signal?.aborted) {
+      for (const id of admitted) await removeLocalTemplate(id)
+      rerender()
+    }
+    throw error
   } finally {
     reservation?.release()
   }
