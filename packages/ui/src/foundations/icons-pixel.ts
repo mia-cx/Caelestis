@@ -16,6 +16,7 @@ import circle from '@iconify-icons/pixelarticons/circle'
 import close from '@iconify-icons/pixelarticons/close'
 import closeBox from '@iconify-icons/pixelarticons/close-box'
 import colorsSwatch from '@iconify-icons/pixelarticons/colors-swatch'
+import crop from '@iconify-icons/pixelarticons/crop'
 import discord from '@iconify-icons/pixelarticons/discord'
 import download from '@iconify-icons/pixelarticons/download'
 import edit from '@iconify-icons/pixelarticons/edit'
@@ -109,6 +110,7 @@ export const PIXEL_ICONS: Readonly<Record<IconName, IconData>> = define({
   keyboard,
   lightMode: sun,
   move,
+  screenshotRegion: crop,
   shapes,
   toolSelect: pointer,
   toolDirect: squareCursor,

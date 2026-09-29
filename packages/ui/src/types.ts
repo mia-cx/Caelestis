@@ -201,8 +201,15 @@ export interface ClaimToolOptions {
   readonly maxWidth: number
 }
 
-/** Claim mode: a tool drawer on the left, a cancel-or-confirm bar at the top. */
+/** What a confirmed capture does with the selected artwork. */
+export type ClaimCaptureAction = 'download' | 'template'
+
+/**
+ * Claim mode: a tool drawer on the left, a cancel-or-confirm bar at the top. The same tools
+ * also select the region to capture as an image, which swaps Save for the capture actions.
+ */
 export interface ClaimModeModel {
+  readonly purpose: 'claim' | 'capture'
   readonly tool: ClaimTool
   readonly tools: readonly ClaimToolEntry[]
   readonly groups: readonly ClaimToolGroup[]
@@ -233,6 +240,7 @@ export type ClaimModeIntent =
   | { readonly type: 'set-subtract'; readonly subtract: boolean }
   | { readonly type: 'delete-item' }
   | { readonly type: 'confirm' }
+  | { readonly type: 'capture'; readonly action: ClaimCaptureAction }
   | { readonly type: 'cancel' }
 
 export type PanelIntent =
@@ -391,6 +399,7 @@ export type RailControlId =
   | 'colour'
   | 'mismatch'
   | 'claim'
+  | 'capture'
   | 'presence'
   | 'overlay-menu'
   | 'overlay-finished'
