@@ -1999,7 +1999,8 @@ const ensureMode = (): void => {
   Object.assign(element.style, {
     position: 'fixed',
     inset: '0',
-    zIndex: '26',
+    // Editor actions must stay above the docked panel (30), below its popovers (40).
+    zIndex: '31',
     pointerEvents: 'none',
   } satisfies Partial<CSSStyleDeclaration>)
   applyWplaceTheme(element)
