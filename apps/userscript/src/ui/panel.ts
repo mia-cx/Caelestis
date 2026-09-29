@@ -145,10 +145,12 @@ import {
   presenceSummaryModel,
 } from './presence-actions.js'
 import {
+  captureToolButton,
   claimToolButton,
   installRailStateSync,
   mismatchModeButton,
   presenceModeButton,
+  syncCaptureToolState,
   syncClaimToolState,
   syncMismatchModeState,
   syncPresenceModeState,
@@ -1489,6 +1491,7 @@ const railButtons = (): CaelestisRailControl[] => [
   mismatchModeButton(),
   presenceModeButton(),
   claimToolButton(),
+  captureToolButton(),
 ]
 
 const trayOpen = (): boolean => tray !== null && !tray.hidden
@@ -1670,7 +1673,9 @@ export const installPanel = (): void => {
   syncMismatchModeState()
   syncPresenceModeState()
   syncClaimToolState()
+  syncCaptureToolState()
   onClaimEditorChange(syncClaimToolState)
+  onClaimEditorChange(syncCaptureToolState)
   onPresenceChange(syncClaimToolState)
   // Headcounts and claims arrive over the socket; the Painters drawer has to follow them.
   onPresenceChange(() =>

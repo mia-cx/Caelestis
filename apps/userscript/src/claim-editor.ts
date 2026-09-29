@@ -25,6 +25,7 @@ import {
 } from '@caelestis/shared'
 import {
   CLAIM_MODE_TAG,
+  type ClaimCaptureAction,
   type ClaimModeIntent,
   type ClaimModeModel,
   type ClaimTool,
@@ -54,6 +55,7 @@ import { splitItem, strokeArea } from './claim-split.js'
 import { warn } from './debug.js'
 import { canvasPixelAt, isMapInteractionTarget, screenProjection } from './main.js'
 import { getMap } from './map-handle.js'
+import type { RegionSelection } from './templates/capture-region.js'
 import type { TileFrame } from './tile-transform.js'
 import { applyWplaceTheme } from './ui/theme.js'
 import { dismissWplacePixelCard } from './wplace-pixel-card.js'
@@ -210,11 +212,21 @@ export interface ClaimEditorHost {
     documents: readonly RegionDocument[],
   ) => Promise<ClaimSaveResult>
   readonly changed: () => void
+  /**
+   * Capture mode's result: snapshot the committed art under the selection and download it or
+   * open it as a new template. Resolves to an error message, or null once the editor may close.
+   */
+  readonly capture: (
+    selection: RegionSelection,
+    action: ClaimCaptureAction,
+  ) => Promise<string | null>
 }
 
 let host: ClaimEditorHost | null = null
 let installed = false
 let active = false
+/** Whether this session edits claims or selects a region to capture. */
+let purpose: ClaimModeModel['purpose'] = 'claim'
 let tool: ClaimTool = 'select'
 let sides = 6
 let points = 5
@@ -331,6 +343,8 @@ export const onClaimEditorChange = (listener: () => void): void => {
 
 export const isClaimModeActive = (): boolean => active
 
+export const claimModePurpose = (): ClaimModeModel['purpose'] | null => (active ? purpose : null)
+
 export const claimEditorTool = (): ClaimTool => tool
 
 /** The saved claims loaded into the editor, so their stored copies step aside in the layer. */
@@ -444,6 +458,7 @@ export const claimModeModel = (): ClaimModeModel => {
       maxCorners: MAX_REGION_SHAPE_CORNERS,
       maxWidth: MAX_STROKE_WIDTH,
     },
+    purpose,
     subtract,
     items: items.length,
     selected: selectedIds.length > 0,
@@ -1701,6 +1716,7 @@ const onKeydown = (event: KeyboardEvent): void => {
   if (key === 'enter') {
     consume(event)
     if (pen !== null) commitPen(false)
+    else if (purpose === 'capture') void capture('template')
     else void confirm()
     return
   }
@@ -1830,6 +1846,39 @@ const confirm = async (): Promise<void> => {
   }
 }
 
+/**
+ * Hand the selected pixels to the host to capture. The editor stays open with the selection
+ * when the capture fails, so the painter can adjust it and try again.
+ */
+const capture = async (action: ClaimCaptureAction): Promise<void> => {
+  if (!active || pending || host === null) return
+  if (pen !== null) commitPen(false)
+  const selection = claimEditorPixels()
+  if (pixelCache?.error != null) {
+    message = pixelCache.error
+    notify()
+    return
+  }
+  if (selection === null || selection.count === 0) return
+  const mine = session
+  pending = true
+  message = undefined
+  notify()
+  let error: string | null
+  try {
+    error = await host.capture({ rect: selection.rect, parts: selection.parts }, action)
+  } catch (thrown) {
+    error = String(thrown)
+  }
+  if (session !== mine) return
+  pending = false
+  if (error === null) stopClaimMode()
+  else {
+    message = error
+    notify()
+  }
+}
+
 export const handleClaimModeIntent = (intent: ClaimModeIntent): void => {
   if (!active) return
   switch (intent.type) {
@@ -1881,6 +1930,9 @@ export const handleClaimModeIntent = (intent: ClaimModeIntent): void => {
       return
     case 'confirm':
       void confirm()
+      return
+    case 'capture':
+      void capture(intent.action)
       return
     case 'cancel':
       stopClaimMode()
@@ -2209,20 +2261,28 @@ export const installClaimEditor = (editorHost: ClaimEditorHost): void => {
   window.addEventListener('wheel', onWheel, { capture: true, passive: false })
 }
 
-/** Enter claim mode with a tool in hand. Every one of your saved regions loads for editing. */
-export const startClaimMode = (initialTool?: ClaimTool): void => {
+/**
+ * Enter claim mode with a tool in hand. Every one of your saved regions loads for editing.
+ * Capture mode starts empty instead: it selects pixels to snapshot and never touches claims.
+ */
+export const startClaimMode = (
+  initialTool?: ClaimTool,
+  startPurpose: ClaimModeModel['purpose'] = 'claim',
+): void => {
   if (host === null) return
   if (active) {
+    if (startPurpose !== purpose) return
     if (initialTool !== undefined) setTool(initialTool)
     return
   }
   active = true
+  purpose = startPurpose
   session++
   tool = initialTool ?? 'select'
   shown = { ...defaultShown(), [groupOf(tool)]: tool }
   // Whatever pixel Wplace had selected is stale now that clicks belong to the editor.
   dismissWplacePixelCard()
-  const saved = host.myRegions()
+  const saved = purpose === 'capture' ? [] : host.myRegions()
   // Claims saved separately may reuse item ids; every item needs its own here, or a later
   // edit could address the wrong one and the written documents would be refused.
   const seen = new Set<string>()
