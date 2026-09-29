@@ -12,8 +12,10 @@
 
   const clamp = (value: number, min: number, max: number): number =>
     Math.min(max, Math.max(min, Math.round(value)))
+  const capture = $derived(model.purpose === 'capture')
   const hint = $derived.by(() => {
     if (model.message) return model.message
+    if (capture && model.items === 0) return 'Draw around the art to capture. Enter adds it as a template.'
     switch (model.tool) {
       case 'select':
         return 'Shift-click adds to the selection. Drag empty canvas to select several.'
@@ -102,8 +104,8 @@
 
 <svelte:window onkeydowncapture={onWindowKeydown} />
 
-<div class="mode" aria-label="Claim mode">
-  <nav class="drawer" aria-label="Claim tools">
+<div class="mode" aria-label={capture ? 'Capture mode' : 'Claim mode'}>
+  <nav class="drawer" aria-label={capture ? 'Selection tools' : 'Claim tools'}>
     {#each model.groups as group (group.id)}
       {@const entry = entryFor(group)}
       <div class="slot">
@@ -152,7 +154,7 @@
     {/each}
   </nav>
 
-  <div class="bar" role="toolbar" aria-label="Claims">
+  <div class="bar" role="toolbar" aria-label={capture ? 'Capture' : 'Claims'}>
     <div class="row">
       <div class="group tool-group" aria-label="Tool">
         <span class="tool-name"><Icon name={current.icon} size="1rem" />{current.label}</span>
@@ -191,7 +193,7 @@
         </div>
       </div>
 
-      <div class="group status" aria-label="Claims">
+      <div class="group status" aria-label={capture ? 'Selection' : 'Claims'}>
         <span class="count">{model.items} {model.items === 1 ? 'shape' : 'shapes'}</span>
         <span class="dot" aria-hidden="true"></span>
         <span class="count">{model.pixels.toLocaleString()} px</span>
@@ -201,9 +203,15 @@
       </div>
 
       <div class="group actions">
-        <span class="unsaved" class:visible={model.dirty} aria-live="polite">{model.dirty ? 'Unsaved' : ''}</span>
-        <Button label="Cancel" size="compact" kind="ghost" disabled={model.pending} onclick={() => onIntent({ type: 'cancel' })} />
-        <Button label="Save claims" size="compact" kind="primary" disabled={model.pending || !model.dirty} onclick={() => onIntent({ type: 'confirm' })} />
+        {#if capture}
+          <Button label="Cancel" size="compact" kind="ghost" disabled={model.pending} onclick={() => onIntent({ type: 'cancel' })} />
+          <Button label="Download PNG" size="compact" disabled={model.pending || model.pixels === 0} onclick={() => onIntent({ type: 'capture', action: 'download' })} />
+          <Button label="Add as template" size="compact" kind="primary" disabled={model.pending || model.pixels === 0} onclick={() => onIntent({ type: 'capture', action: 'template' })} />
+        {:else}
+          <span class="unsaved" class:visible={model.dirty} aria-live="polite">{model.dirty ? 'Unsaved' : ''}</span>
+          <Button label="Cancel" size="compact" kind="ghost" disabled={model.pending} onclick={() => onIntent({ type: 'cancel' })} />
+          <Button label="Save claims" size="compact" kind="primary" disabled={model.pending || !model.dirty} onclick={() => onIntent({ type: 'confirm' })} />
+        {/if}
       </div>
     </div>
     <p class="hint" class:message={model.message !== undefined} role="status" title={hint}>{hint}</p>
