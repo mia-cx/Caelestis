@@ -1387,23 +1387,23 @@ const importTemplateFile = async (
   rerender: () => void,
   surface: TemplateSurface,
   centre: { readonly x: number; readonly y: number },
-): Promise<void> => {
+): Promise<boolean> => {
   try {
     toast(`Reading ${file.name}…`)
     const imported = await importFile(file, centre)
     if (imported.length === 0) {
       toast('Nothing importable in that file.', 'error')
-      return
+      return false
     }
     const first = imported[0]
-    if (first === undefined) return
+    if (first === undefined) return false
     const reservation = first.source === 'image' ? reserveMove() : null
     if (first.source === 'image' && reservation === null) {
       toast('Finish the current placement, then import this image again.', 'warning')
-      return
+      return false
     }
     if (target.server !== null) {
-      await importTemplatesToServer(
+      return await importTemplatesToServer(
         imported,
         target.server,
         target.nodeId ?? null,
@@ -1412,7 +1412,6 @@ const importTemplateFile = async (
         (server, render) => refreshEditedSurface(server, surface, render),
         surface,
       )
-      return
     }
     // Straight into whichever Local folder was clicked. Importing from a folder's own button
     // and then finding the result at the top level would make the button a lie.
@@ -1436,7 +1435,7 @@ const importTemplateFile = async (
       }
       rerender()
       if (failed.length > 0) toast(failed.join('. '), 'error')
-      if (!admitted.includes(first.id)) return
+      if (!admitted.includes(first.id)) return false
 
       const moved = first.moved
       toast(
@@ -1450,12 +1449,14 @@ const importTemplateFile = async (
           for (const template of imported) await removeLocalTemplate(template.id)
           rerender()
           toast('Another placement started. Finish it, then import this image again.', 'warning')
+          return false
         }
       } else {
         // It already knows where it belongs, so go and look at it — centred on the template and
         // zoomed to fit it, in-game. Changing the URL would reload and throw the import away.
         if (surface.kind === 'world') navigateTo(centreOf(first))
       }
+      return true
     } catch (error) {
       rerender()
       throw error
@@ -1465,6 +1466,7 @@ const importTemplateFile = async (
   } catch (error) {
     const reason = (error instanceof Error ? error.message : String(error)).replace(/\.$/, '')
     toast(`Could not import “${file.name}”: ${reason}.`, 'error')
+    return false
   }
 }
 
@@ -1496,13 +1498,13 @@ export const captureTemplate = (target: TreeTarget, rerender: () => void): void 
         toast(`Downloaded ${png.name}.`)
         return null
       }
-      // Placement needs the map's pointer events, which capture mode holds.
-      stopClaimMode()
-      await importTemplateFile(png, target, rerender, WORLD_TEMPLATE_SURFACE, {
+      const started = await importTemplateFile(png, target, rerender, WORLD_TEMPLATE_SURFACE, {
         x: x + w / 2,
         y: y + h / 2,
       })
-      return null
+      // Placement needs the map's pointer events, which capture mode holds.
+      if (started) stopClaimMode()
+      return started ? null : 'Could not add the template. Try again.'
     },
   })
   if (!started) toast('Leave claim mode, then capture.', 'warning')

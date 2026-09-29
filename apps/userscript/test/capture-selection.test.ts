@@ -52,4 +52,24 @@ describe('captureSelectedArtwork', () => {
       'Could not load committed Wplace tile 1/0',
     )
   })
+
+  it('skips a missing tile between two selected regions', async () => {
+    const mask = new Uint8Array(TILE_SIZE * 2 + 1)
+    mask[0] = 1
+    mask[mask.length - 1] = 1
+    paint(0, 0, 5)
+    paint(TILE_SIZE * 2, 0, 9)
+
+    const indices = await captureSelectedArtwork({
+      rect: { x: 0, y: 0, w: mask.length, h: 1 },
+      mask,
+      count: 2,
+    })
+
+    expect(indices[0]).toBe(5)
+    expect(indices[TILE_SIZE]).toBe(TRANSPARENT_INDEX)
+    expect(indices[indices.length - 1]).toBe(9)
+    expect(loadCommittedTilePixels).toHaveBeenCalledTimes(2)
+    expect(loadCommittedTilePixels).not.toHaveBeenCalledWith({ x: 1, y: 0 })
+  })
 })

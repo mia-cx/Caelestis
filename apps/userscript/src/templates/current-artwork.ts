@@ -88,6 +88,7 @@ export const captureCurrentArtwork = async (template: PlacedTemplate): Promise<U
 /** Composite committed world art over a placement, loading every tile it touches first. */
 const captureWorldArtwork = async (
   template: Pick<PlacedTemplate, 'originX' | 'originY' | 'width' | 'height' | 'indices'>,
+  mask?: Uint8Array,
 ): Promise<Uint8Array> => {
   const indices = template.indices.slice()
   for (let y = 0; y < template.height; ) {
@@ -96,6 +97,17 @@ const captureWorldArtwork = async (
     for (let x = 0; x < template.width; ) {
       const worldX = (template.originX + x) % WORLD_PIXELS
       const width = Math.min(TILE_SIZE - (worldX % TILE_SIZE), template.width - x)
+      let selected = mask === undefined
+      for (let row = 0; !selected && row < height; row++) {
+        selected =
+          mask
+            ?.subarray((y + row) * template.width + x, (y + row) * template.width + x + width)
+            .includes(1) === true
+      }
+      if (!selected) {
+        x += width
+        continue
+      }
       const tile = { x: Math.floor(worldX / TILE_SIZE), y: Math.floor(worldY / TILE_SIZE) }
       const pixels = await loadCommittedTilePixels(tile)
       if (pixels === null)
@@ -128,20 +140,23 @@ const captureWorldArtwork = async (
 
 /**
  * Committed world art under a selection, one image pixel per canvas pixel over the selection's
- * bounds and transparent outside its mask. Every tile it touches loads first; a tile that cannot
- * load fails the capture rather than reading as transparent.
+ * bounds and transparent outside its mask. Only tiles with selected pixels need to load; a missing
+ * selected tile fails the capture rather than reading as transparent.
  */
 export const captureSelectedArtwork = async ({
   rect,
   mask,
 }: RegionShapePixels): Promise<Uint8Array> => {
-  const indices = await captureWorldArtwork({
-    originX: rect.x,
-    originY: rect.y,
-    width: rect.w,
-    height: rect.h,
-    indices: new Uint8Array(rect.w * rect.h).fill(TRANSPARENT_INDEX),
-  })
+  const indices = await captureWorldArtwork(
+    {
+      originX: rect.x,
+      originY: rect.y,
+      width: rect.w,
+      height: rect.h,
+      indices: new Uint8Array(rect.w * rect.h).fill(TRANSPARENT_INDEX),
+    },
+    mask,
+  )
   for (let at = 0; at < indices.length; at++) if (mask[at] !== 1) indices[at] = TRANSPARENT_INDEX
   return indices
 }

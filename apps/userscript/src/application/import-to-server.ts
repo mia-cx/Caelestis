@@ -92,21 +92,21 @@ export const importTemplatesToServer = async (
   rerender: () => void,
   refreshServer: RefreshServer,
   surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
-): Promise<void> => {
+): Promise<boolean> => {
   if (!server.isAdmin) {
     reservation?.release()
     toast('This server needs an admin code before it can accept templates.', 'warning')
-    return
+    return false
   }
 
   const first = imported[0]
   if (first === undefined) {
     reservation?.release()
-    return
+    return false
   }
   if (first.source === 'image' && reservation === null) {
     toast('Finish the current placement, then import this image again.', 'warning')
-    return
+    return false
   }
 
   const admitted: string[] = []
@@ -122,7 +122,7 @@ export const importTemplatesToServer = async (
     }
     rerender()
     if (failures.length > 0) toast(failures.join('. '), 'error')
-    if (!admitted.includes(first.id)) return
+    if (!admitted.includes(first.id)) return false
 
     if (first.source === 'image') {
       const started = reservation?.start(first.id, () => {
@@ -133,13 +133,14 @@ export const importTemplatesToServer = async (
         for (const templateId of admitted) await removeLocalTemplate(templateId)
         rerender()
         toast('Another placement started. Import the image again when it is finished.', 'warning')
-        return
+        return false
       }
       toast(`Place “${first.name}”, then Apply to upload it.`, 'warning')
-      return
+      return true
     }
 
     await uploadAdmitted(server, nodeId, admitted, rerender, refreshServer, surface)
+    return true
   } finally {
     reservation?.release()
   }
