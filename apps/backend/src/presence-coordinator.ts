@@ -45,6 +45,10 @@ interface Attachment extends PresenceConnection {
   readonly viewport: PresenceRect | null
   readonly draftRect: PresenceRect | null
   readonly draftPixels: number
+  // Tuples keep 16 large world rects around 450 JSON bytes rather than 700. Together with
+  // a 128-character name and all connection fields, the attachment stays below 2,048 bytes.
+  // Optional for sockets attached before quick claims were introduced.
+  readonly quickClaims?: readonly (readonly [number, number, number, number])[]
   readonly lastSeenAt: number
   readonly closed?: boolean
   readonly renewedAt?: number
@@ -140,6 +144,9 @@ export class PresenceCoordinator<Client> {
       ...(attachment.publisherId === undefined ? {} : { publisherId: attachment.publisherId }),
       painter: attachment.painter,
       viewport: attachment.viewport,
+      ...(attachment.quickClaims?.length
+        ? { quickClaims: attachment.quickClaims.map(([x, y, w, h]) => ({ x, y, w, h })) }
+        : {}),
       draft:
         attachment.draftRect === null
           ? null
@@ -160,9 +167,11 @@ export class PresenceCoordinator<Client> {
       if (peer.sessionId === subscriber.sessionId) continue
       const other = peer.viewport
       const draft = peer.draft?.rect
+      const quickClaims = peer.quickClaims ?? []
       if (
         !(other !== null && rectsIntersect(interest, other)) &&
-        !(draft !== undefined && rectsIntersect(interest, draft))
+        !(draft !== undefined && rectsIntersect(interest, draft)) &&
+        !quickClaims.some((rect) => rectsIntersect(interest, rect))
       )
         continue
       candidates.push({
@@ -170,6 +179,7 @@ export class PresenceCoordinator<Client> {
         distance: Math.min(
           other === null ? Number.POSITIVE_INFINITY : rectCentreDistance(viewport, other),
           draft === undefined ? Number.POSITIVE_INFINITY : rectCentreDistance(viewport, draft),
+          ...quickClaims.map((rect) => rectCentreDistance(viewport, rect)),
         ),
       })
     }
@@ -530,6 +540,8 @@ export class PresenceCoordinator<Client> {
       return
     }
     if (attachment.credentialScope === 'read') return
+    // Anonymous sessions are read scope, so the early return above keeps their quick claims out.
+    const quickClaims = event.quickClaims
     const viewport =
       event.viewport === undefined
         ? attachment.viewport
@@ -546,7 +558,8 @@ export class PresenceCoordinator<Client> {
       (event.viewport != null && !presenceRectWithinSurface(event.viewport, attachment.surface)) ||
       (event.draft != null && !presenceRectWithinSurface(event.draft.rect, attachment.surface)) ||
       (viewport !== null && !presenceRectWithinSurface(viewport, attachment.surface)) ||
-      (draft != null && !presenceRectWithinSurface(draft.rect, attachment.surface))
+      (draft != null && !presenceRectWithinSurface(draft.rect, attachment.surface)) ||
+      quickClaims?.some((rect) => !presenceRectWithinSurface(rect, attachment.surface))
     )
       return
     if (draft !== undefined) {
@@ -558,6 +571,9 @@ export class PresenceCoordinator<Client> {
       viewport,
       draftRect: draft === undefined ? attachment.draftRect : (draft?.rect ?? null),
       draftPixels: draft === undefined ? attachment.draftPixels : (draft?.pixels ?? 0),
+      ...(quickClaims === undefined
+        ? {}
+        : { quickClaims: quickClaims.map(({ x, y, w, h }) => [x, y, w, h] as const) }),
       lastSeenAt: now,
     } satisfies Attachment)
     this.dirty.add(attachment.sessionId)

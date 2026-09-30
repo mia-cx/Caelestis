@@ -10,7 +10,7 @@ import {
 import { claimEditorEditingIds, claimEditorPixels } from '../claim-editor.js'
 import { log, warn } from '../debug.js'
 import { getMap } from '../map-handle.js'
-import { displayClaims } from '../presence-claims.js'
+import { claimsVisible, displayClaims } from '../presence-claims.js'
 import { presenceView } from '../presence-client.js'
 import { presenceRgb } from '../presence-colour.js'
 import { hoveredPresenceItems } from '../presence-hover.js'
@@ -22,8 +22,10 @@ import {
   recordProfileWorkload,
   registerProfileMemorySource,
 } from '../profile.js'
+import { QUICK_CLAIM_PREVIEW_KEY, quickClaimItems } from '../quick-claims.js'
 import { getState } from '../state.js'
 import { currentQuads, isDrawingTiles, type TileQuad } from '../tile-transform.js'
+import { isPaintOpen } from '../wplace-paint.js'
 import { ramps } from './fade.js'
 import { linkTemplateProgram, writeClipCorner } from './renderer-core.js'
 
@@ -124,7 +126,7 @@ void main() {
 }
 `
 
-type Kind = 'viewport' | 'painting' | 'draft' | 'region' | 'tool'
+type Kind = 'viewport' | 'painting' | 'draft' | 'region' | 'quick' | 'tool'
 
 interface Style {
   readonly fill: number
@@ -144,22 +146,22 @@ interface Style {
 
 const STYLES: Record<Kind, Style> = {
   viewport: {
-    fill: 0.15,
+    fill: 0.1,
     border: 0.9,
     borderWidth: 1.5,
     dash: 6,
     maskAlpha: 0,
     pattern: 2,
-    patternAlpha: 0.35,
+    patternAlpha: 0.25,
   },
   painting: {
-    fill: 0.3,
+    fill: 0.2,
     border: 0.9,
     borderWidth: 1.5,
     dash: 0,
     maskAlpha: 0,
     pattern: 1,
-    patternAlpha: 0.5,
+    patternAlpha: 0.35,
   },
   draft: {
     fill: 0,
@@ -175,9 +177,19 @@ const STYLES: Record<Kind, Style> = {
     border: 0.95,
     borderWidth: 1.5,
     dash: 0,
-    maskAlpha: 0.3,
+    maskAlpha: 0.15,
     pattern: 1,
-    patternAlpha: 0.5,
+    patternAlpha: 0.3,
+  },
+  // A claim held only for one paint session: the claim's weight, with a dashed edge.
+  quick: {
+    fill: 0.15,
+    border: 0.95,
+    borderWidth: 1.5,
+    dash: 6,
+    maskAlpha: 0,
+    pattern: 1,
+    patternAlpha: 0.3,
   },
   tool: {
     fill: 0,
@@ -269,10 +281,9 @@ const currentItems = (): Item[] => {
     }
   }
   // Keep complete display unions, including offscreen members, but skip hidden preparation.
-  const claims =
-    flags.showPresence && flags.showPresenceClaims
-      ? displayClaims(view.regions, claimEditorEditingIds())
-      : []
+  const claims = claimsVisible(flags, isPaintOpen())
+    ? displayClaims(view.regions, claimEditorEditingIds())
+    : []
   for (const claim of claims) {
     const region = claim.regions[0]
     items.push({
@@ -282,6 +293,16 @@ const currentItems = (): Item[] => {
       colour: presenceRgb(region.claimant.wplaceUserId),
       mask: claim.pixels,
       mine: view.me !== null && region.claimant.wplaceUserId === view.me.wplaceUserId,
+    })
+  }
+  for (const quick of quickClaimItems(view)) {
+    items.push({
+      key: quick.key,
+      kind: 'quick',
+      rect: quick.rect,
+      colour: quick.painter === null ? [1, 1, 1] : presenceRgb(quick.painter.wplaceUserId),
+      mask: null,
+      mine: quick.mine,
     })
   }
   for (const [index, pixels] of (claimEditorPixels()?.parts ?? []).entries()) {
@@ -329,10 +350,11 @@ class PresenceLayer {
   /**
    * Where a rect is drawn this frame. A viewport that moved glides from where it was to where it
    * is over `PRESENCE_MOTION_MS`, so peers are seen moving rather than jumping; anything with a
-   * mask snaps, because its texture is cut to its rect.
+   * mask snaps, because its texture is cut to its rect. Quick claims snap too: a claim covers
+   * whole pixels, and a glide would draw it between them.
    */
   displayRect(item: Item, now: number): { rect: PresenceRect; moving: boolean } {
-    if (item.mask !== null) {
+    if (item.mask !== null || item.kind === 'quick') {
       this.motions.delete(item.key)
       return { rect: item.rect, moving: false }
     }
@@ -554,7 +576,7 @@ class PresenceLayer {
     let animating = false
     const drawn: { item: Item; fade: number }[] = []
     for (const [key, item] of this.retained) {
-      if (item.kind === 'tool') {
+      if (item.kind === 'tool' || key === QUICK_CLAIM_PREVIEW_KEY) {
         if (keys.has(key)) drawn.push({ item, fade: 1 })
         else this.retained.delete(key)
         continue
