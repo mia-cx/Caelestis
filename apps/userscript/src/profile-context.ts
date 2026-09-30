@@ -65,6 +65,7 @@ export const readProfileContext = () => {
       shown: state.showPresence,
       viewportsShown: state.showPresenceViewports,
       claimsShown: state.showPresenceClaims,
+      claimsOnlyWhilePainting: state.showPresenceClaimsOnlyWhilePainting,
     },
   }
 }
