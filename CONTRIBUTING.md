@@ -11,7 +11,7 @@ behavior and scope are clear. Keep each issue and pull request focused on one co
 
 ## Local setup
 
-Caelestis requires Node.js 22.13 or newer. Corepack installs the pnpm version pinned in
+Caelestis requires Node.js 22.19 or newer. Corepack installs the pnpm version pinned in
 `package.json`.
 
 ```sh
