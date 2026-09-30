@@ -42,7 +42,7 @@ Each release publishes the same tested tags to both registries:
 | Registry | Backend | Frontend |
 | --- | --- | --- |
 | Docker Hub | `docker.io/miacx/caelestis-backend` | `docker.io/miacx/caelestis-frontend` |
-| GHCR | `ghcr.io/mia-riezebos/caelestis-backend` | `ghcr.io/mia-riezebos/caelestis-frontend` |
+| GHCR | `ghcr.io/mia-cx/caelestis-backend` | `ghcr.io/mia-cx/caelestis-frontend` |
 
 Bun uses native HTTP, WebSockets, and SQLite statements behind the portable adapters.
 Routes, authentication, claims, coordination, migrations, and transaction rules have one shared implementation.
@@ -67,7 +67,7 @@ Published Helm charts pin the default Bun backend and Node frontend digests. To 
 `image.digest` with the release's `backend-node-image.txt` digest. To select by tag instead, clear that digest:
 
 ```sh
-helm upgrade --install caelestis oci://ghcr.io/mia-riezebos/caelestis/charts/caelestis \
+helm upgrade --install caelestis oci://ghcr.io/mia-cx/caelestis/charts/caelestis \
   --version YOUR_CHART_VERSION -f your-values.yaml \
   --set-string image.tag=YOUR_IMAGE_TAG-node --set-string image.digest= \
   --wait --timeout 10m
@@ -169,9 +169,46 @@ For example:
 docker compose -f compose.yaml -f deploy/compose/postgres.yaml -f deploy/compose/s3.yaml up --build -d --wait
 ```
 
-The S3 example provisions a dedicated local MinIO bucket. It uses its root credentials for convenience in this local stack.
+The S3 example provisions a dedicated local [RustFS](https://github.com/rustfs/rustfs) bucket. It uses its root credentials for convenience in this local stack.
+The credential variables keep their MinIO names, `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD`, so older `.env` files work unchanged.
 For an existing S3 service, omit `s3.yaml`. Set `OBJECT_STORAGE=s3`, `S3_BUCKET`, endpoint, and credentials in `.env`.
 This works with every database override, including CNPG. Both application containers must use the same object provider and bucket.
+
+### Moving from MinIO to RustFS
+
+Older releases ran MinIO in `s3.yaml`. MinIO no longer publishes its images, so the S3 example now runs RustFS.
+An existing stack moves over on its first start with the new files. Nothing needs to be done by hand:
+
+1. `s3-migrate` copies the MinIO volume, `<project>_s3`, into a new RustFS volume, `<project>_rustfs`.
+   It mounts the MinIO volume read-only and checks every copied file against the original.
+2. RustFS starts on the copy and converts MinIO's format.
+3. `s3-init` checks that RustFS lists exactly the keys MinIO held in each bucket.
+   It then reads every object back and compares it with the MD5 ETag MinIO recorded. The backend only starts after that passes.
+
+The result is recorded in `<project>_s3-migration`, so later starts skip the copy. `docker compose logs s3-init` shows
+`MinIO migration: verified` when the check passes. Later starts log `verified` from `s3-migrate` instead, or `none` when there was no MinIO data.
+The copy needs as much free disk as the MinIO volume, and reading every object back takes a while on a large store.
+
+The commands below use your stack's `-f` options, or `COMPOSE_FILE` in `.env`, the same as every other command.
+
+The MinIO volume is left exactly as it was. Once the migration is verified and the server works, delete it.
+The finished `s3-migrate` container still references the volume, so remove that container first:
+
+```sh
+docker compose rm -f s3-migrate
+docker volume rm <project>_s3
+```
+
+Compose recreates an empty `<project>_s3` volume on the next start, because `s3.yaml` still declares it. It stays empty and unused.
+
+If a check fails, the backend does not start and the MinIO volume is still intact.
+To copy again, remove the RustFS volume and the migration record, then start the stack:
+
+```sh
+docker compose down
+docker volume rm <project>_rustfs <project>_s3-migration
+docker compose up -d --wait
+```
 
 ### Temporary HTTPS tunnel for Docker testing
 
@@ -364,7 +401,7 @@ Portable admin export/import across providers is tracked separately and is not p
 Approved app releases publish `linux/amd64` and `linux/arm64` images to Docker Hub and GHCR.
 They use immutable patch and tested app-version pair tags, for example `1.2.3` and `backend-1.2.3-frontend-4.5.6`.
 Latest, major, and minor aliases move when the corresponding app version changes.
-Its Helm version is `1.2.3+frontend.4.5.6`, stored at `oci://ghcr.io/mia-riezebos/caelestis/charts/caelestis`.
+Its Helm version is `1.2.3+frontend.4.5.6`, stored at `oci://ghcr.io/mia-cx/caelestis/charts/caelestis`.
 OCI represents the chart version's `+` as `_`. Pass the original version to Helm.
 Published charts pin both image digests. Pin chart versions when upgrading.
 Server GitHub Releases contain the chart, registry-specific Node/Bun backend and frontend digests, runtime and app versions,

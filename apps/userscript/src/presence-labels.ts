@@ -8,7 +8,7 @@ import { claimDocumentPixels } from './claim-document.js'
 import { claimEditorEditingIds } from './claim-editor.js'
 import type { ScreenProjection } from './coordinates.js'
 import { displayedPresenceRect } from './gl/presence-layer.js'
-import { displayClaims } from './presence-claims.js'
+import { claimsVisible, displayClaims } from './presence-claims.js'
 import { presenceView } from './presence-client.js'
 import { presenceCss } from './presence-colour.js'
 import { canvasPixelAt, rectOnScreen } from './presence-geometry.js'
@@ -19,8 +19,10 @@ import {
   recordProfileWorkload,
   registerProfileMemorySource,
 } from './profile.js'
+import { QUICK_CLAIM_PREVIEW_KEY, quickClaimItems } from './quick-claims.js'
 import { getState } from './state.js'
 import { isDrawingTiles, type TileFrame } from './tile-transform.js'
+import { isPaintOpen } from './wplace-paint.js'
 
 /**
  * Name tags for what the presence layer draws, shown only for what the pointer is over.
@@ -303,9 +305,24 @@ export const presenceTagsAt = (
     else if (viewportRect !== null && contains(viewportRect, at.x, at.y))
       tags.push({ key: viewportKey, text, colour, rect: viewportRect })
   }
+  for (const quick of quickClaimItems(view)) {
+    if (quick.key === QUICK_CLAIM_PREVIEW_KEY || !contains(quick.rect, at.x, at.y)) continue
+    tags.push({
+      key: quick.key,
+      text: quick.mine
+        ? 'Quick claim · Ctrl+click to remove'
+        : `${quick.painter?.displayName ?? 'Painter'} · painting here`,
+      colour:
+        quick.painter === null
+          ? 'rgba(255, 255, 255, 0.85)'
+          : presenceCss(quick.painter.wplaceUserId, 0.85),
+      rect: quick.rect,
+    })
+  }
   const seen = new Set<string>()
-  const claims =
-    flags.showPresenceClaims === false ? [] : displayClaims(view.regions, claimEditorEditingIds())
+  const claims = claimsVisible(flags, isPaintOpen())
+    ? displayClaims(view.regions, claimEditorEditingIds())
+    : []
   for (const claim of claims) {
     seen.add(claim.id)
     const pixels = claim.pixels

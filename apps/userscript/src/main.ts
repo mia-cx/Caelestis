@@ -62,6 +62,7 @@ import {
   resetProfile,
 } from './profile.js'
 import { readProfileContext } from './profile-context.js'
+import { installQuickClaims, onQuickClaimPreviewChange } from './quick-claims.js'
 import { serverMismatchMemoryBytes } from './server-mismatch.js'
 import { installServerSyncCoordinator } from './server-sync-coordinator.js'
 import { installShiftPaint } from './shift-paint.js'
@@ -440,6 +441,8 @@ export const startUserscript = (): void => {
     onPresenceChange(repaintPresence)
     onClaimEditorChange(repaintPresence)
     onPresenceHoverChange(repaintPresence)
+    onQuickClaimPreviewChange(repaintPresence)
+    installQuickClaims()
     installClaimToolHost()
     onFrame(observePresenceFrame, 'Presence viewport')
     onFrame(syncClaimEditorFrame, 'Claim editor overlay')
