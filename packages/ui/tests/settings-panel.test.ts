@@ -19,6 +19,7 @@ const settings = (): SettingsModel => ({
   showPresence: true,
   showPresenceViewports: true,
   showPresenceClaims: true,
+  showPresenceClaimsOnlyWhilePainting: false,
   debugLogging: false,
   performanceProfiling: false,
   notifyRegressions: true,
@@ -64,6 +65,38 @@ describe('settings panel intent boundary', () => {
       { type: 'reset-shortcut-bindings' },
       { type: 'reset-profile' },
     ])
+  })
+
+  it('asks to show claims only while painting, and disables that without claims', () => {
+    const intents: SettingsIntent[] = []
+    const target = document.body.appendChild(document.createElement('div'))
+    mounted.push(
+      mount(SettingsPanel, {
+        target,
+        props: { model: settings(), onIntent: (intent) => intents.push(intent) },
+      }),
+    )
+    const toggle = target.querySelector(
+      'input[aria-label="Claims only while painting"]',
+    ) as HTMLInputElement
+    expect(toggle.checked).toBe(false)
+    expect(toggle.disabled).toBe(false)
+    toggle.click()
+    expect(intents).toEqual([
+      { type: 'set-boolean', key: 'showPresenceClaimsOnlyWhilePainting', value: true },
+    ])
+
+    const hidden = document.body.appendChild(document.createElement('div'))
+    mounted.push(
+      mount(SettingsPanel, {
+        target: hidden,
+        props: { model: { ...settings(), showPresenceClaims: false } },
+      }),
+    )
+    expect(
+      (hidden.querySelector('input[aria-label="Claims only while painting"]') as HTMLInputElement)
+        .disabled,
+    ).toBe(true)
   })
 
   it('switches each Wplace patch by its own id, and hides the section when there are none', async () => {
