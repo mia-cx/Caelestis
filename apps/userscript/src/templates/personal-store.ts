@@ -96,13 +96,16 @@ const project = async (
     },
   }
   const artworkChanged = previous !== null && !samePixels(previous, template)
+  // Pixels edited in Wplace's editor no longer come from the imported source and recipe.
+  const { authoring: _stale, ...processedOnly } = template
+  const projected = artworkChanged ? processedOnly : template
   // A native edit during decoding supersedes this projection.
   if ((await api.read(snapshot.template.id))?.token !== snapshot.token) throw new NativeConflict()
   const revision = cacheResult(
-    await disk.saveTemplate(template, previous?.revision ?? null, artworkChanged),
+    await disk.saveTemplate(projected, previous?.revision ?? null, artworkChanged),
   )
-  if (previous === null) await synchronizeLocalTemplateTags(template.id, api)
-  return { ...template, revision }
+  if (previous === null) await synchronizeLocalTemplateTags(projected.id, api)
+  return { ...projected, revision }
 }
 
 /** Journal the native identity before copying pixels, so an interrupted migration never duplicates art. */

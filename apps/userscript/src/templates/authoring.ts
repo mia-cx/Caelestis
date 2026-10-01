@@ -25,7 +25,7 @@ const isBlob = (value: unknown): value is Blob =>
 /** Authoring read back from storage or a file, if it is whole and describes a template this size. */
 export const storedAuthoring = (
   value: unknown,
-  size: { readonly width?: unknown; readonly height?: unknown },
+  size: Readonly<Record<string, unknown>>,
 ): TemplateAuthoring | null => {
   if (typeof value !== 'object' || value === null) return null
   const { source, recipe: rawRecipe, artwork } = value as Record<string, unknown>

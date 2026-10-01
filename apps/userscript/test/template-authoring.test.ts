@@ -1,5 +1,17 @@
-import { encodeIndexedPng, PALETTE_RGB, TRANSPARENT_INDEX } from '@caelestis/shared'
+import {
+  decodeWplaceIndexedPng,
+  encodeIndexedPng,
+  PALETTE_RGB,
+  TRANSPARENT_INDEX,
+} from '@caelestis/shared'
 import { describe, expect, it, vi } from 'vitest'
+
+// A pass-through spy: a crafted header must be refused before this decoder allocates its size.
+vi.mock('@caelestis/shared', async (original) => {
+  const shared = await original<typeof import('@caelestis/shared')>()
+  return { ...shared, decodeWplaceIndexedPng: vi.fn(shared.decodeWplaceIndexedPng) }
+})
+
 import { type ImportedTemplate, importFile } from '../src/templates/import.js'
 import { loadTemplate, openTemplateDatabase, saveTemplate } from '../src/templates/persist.js'
 import { installBitmapDecoder } from './image-decoder.js'
@@ -126,6 +138,26 @@ describe('exported template files', () => {
       reimport({ ...json, caelestis: { ...(json.caelestis as object), version: 2 } }),
     ).rejects.toThrow('newer Caelestis')
   })
+
+  it('refuses artwork whose PNG header disagrees with the block before decoding it', async () => {
+    dataUrlFetch()
+    const { json } = await exported()
+    const { authoring: _authoring, ...block } = json.caelestis as Record<string, unknown>
+    const huge = Uint8Array.from(await encodeIndexedPng(3, 2, new Uint8Array(6)))
+    new DataView(huge.buffer).setUint32(16, 10_000)
+    new DataView(huge.buffer).setUint32(20, 10_000)
+    const image = {
+      ...(json.image as object),
+      dataUrl: `data:image/png;base64,${Buffer.from(huge).toString('base64')}`,
+    }
+    vi.mocked(decodeWplaceIndexedPng).mockClear()
+
+    await expect(reimport({ ...json, image, caelestis: block })).rejects.toThrow('damaged')
+    expect(decodeWplaceIndexedPng).not.toHaveBeenCalled()
+    await expect(
+      reimport({ ...json, caelestis: { ...block, width: 5_000, height: 5_000 } }),
+    ).rejects.toThrow('unreadable')
+  })
 })
 
 describe('local template authoring', () => {
@@ -145,10 +177,31 @@ describe('local template authoring', () => {
     expect(decode).not.toHaveBeenCalled()
   })
 
-  it('rebuilds lost artwork from its source and writes it back', async () => {
+  it.each([
+    [
+      'truncated',
+      (record: Record<string, unknown>) => ({ ...record, indices: new Blob([new Uint8Array(2)]) }),
+    ],
+    ['missing', ({ indices: _indices, ...record }: Record<string, unknown>) => record],
+    [
+      'a different colour',
+      (record: Record<string, unknown>) => ({
+        ...record,
+        indices: new Blob([new Uint8Array([5, 1, 2, 3, 4, TRANSPARENT_INDEX])]),
+      }),
+    ],
+    [
+      'an invalid palette byte',
+      (record: Record<string, unknown>) => ({
+        ...record,
+        indices: new Blob([new Uint8Array([255, 1, 2, 3, 4, TRANSPARENT_INDEX])]),
+      }),
+    ],
+  ])('rebuilds %s artwork from its source and writes it back', async (_damage, damage) => {
     const { imported, decode } = await importedAndSaved()
     const stored = await rawRecord(imported.id)
-    await putRaw({ ...stored, indices: new Blob([new Uint8Array(2)]) })
+    if (stored === undefined) throw new Error('template was not stored')
+    await putRaw(damage(stored))
 
     expect([...(await loaded(imported.id)).indices]).toEqual([...imported.indices])
     expect(decode).toHaveBeenCalledOnce()
