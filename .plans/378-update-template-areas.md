@@ -18,17 +18,27 @@ flow, so you replace parts of a template instead of the whole.
 - Keys inside an open dialog pass through the editor, so the confirmation works from the keyboard.
 
 ## Acceptance criteria
-- [ ] Select part of an existing template and see how many pixels the update changes.
-- [ ] Only committed art inside the selection is read; drafts and overlays never enter it.
-- [ ] Pixels outside the selection, placement, name, and settings stay unchanged.
-- [ ] Cancelling leaves the template unchanged; unloaded canvas fails visibly.
-- [ ] Saves through the normal Local and server template version flow.
+- [x] Select part of an existing template and see how many pixels the update changes.
+- [x] Only committed art inside the selection is read; drafts and overlays never enter it.
+- [x] Pixels outside the selection, placement, name, and settings stay unchanged.
+- [x] Cancelling leaves the template unchanged; unloaded canvas fails visibly.
+- [x] Saves through the normal Local and server template version flow.
 
 ## TODOs
 - [x] Capture committed art into a template inside a selection, with a focused test.
 - [x] Capture editor: update purpose, its bar actions, and dialog keys passing through.
 - [x] Update flow and the template menu entry.
 - [x] Changeset for the userscript.
-- [ ] Final validation and before/after screenshots.
+- [x] Final validation and before/after screenshots.
 
 ## Notes
+- The menu label is "Update an area": longer labels wrapped to two lines in the tree menu.
+- The update mode lives only in the tree menu, like #377's capture. The on-map overlay menu keeps
+  its single "Use canvas artwork" button.
+- Validation 2026-10-01: userscript and ui typecheck, svelte-check, build, and tests pass
+  (userscript 173, ui 13). Changed files lint clean.
+- Live check 2026-10-01: shared debug Chromium, isolated browser context, live Wplace canvas.
+  Imported a 16×16 frame over existing art and selected its top-left corner (90 px, 72 inside the
+  template). The confirmation read "Update 72 pixels of “frame”?". Escape closed only the dialog
+  and kept the selection. Confirming cleared mismatches in that corner only. Local template only;
+  no server writes.
