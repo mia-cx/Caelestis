@@ -8,6 +8,7 @@ import {
 } from '../lib/archive-history'
 import { completionPace } from '../lib/completion-pace'
 import {
+  painterColour,
   rankPainters,
   selectAllPainters,
   togglePainterSelection,
@@ -148,6 +149,13 @@ describe('pace and chart windows', () => {
     expect(togglePainterSelection({}, new Set([1]), 2, 1)).toEqual({})
     expect(togglePainterSelection({}, new Set([1]), 1, 1)).toEqual({ 1: false })
     expect(rankPainters(options, '2').map((p) => p.wplaceUserId)).toEqual([2])
+  })
+
+  it("painter colours follow Wplace's palette[id % 14] Tailwind 500 table", () => {
+    const red = 'oklch(63.7% 0.237 25.331)'
+    const rose = 'oklch(64.5% 0.246 16.439)'
+    expect(new Set(Array.from({ length: 14 }, (_, id) => painterColour(id))).size).toBe(14)
+    expect([0, 13, 14, 27, 28].map(painterColour)).toEqual([red, rose, red, rose, red])
   })
 })
 
