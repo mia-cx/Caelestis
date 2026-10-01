@@ -62,6 +62,7 @@
       <span class="size-2.5 shrink-0 rounded-full" style:background={painterColour(selected)} aria-hidden="true"></span>
     {/if}
     <span>{summary}</span>
+    {#if selected !== null}<span class="text-base-content/50">#{selected}</span>{/if}
     <Icon name="unfoldMore" class="size-4.5 text-base-content/60" />
   </Popover.Trigger>
   <Popover.Portal>
