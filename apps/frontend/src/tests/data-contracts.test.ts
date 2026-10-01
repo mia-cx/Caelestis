@@ -8,6 +8,7 @@ import {
 } from '../lib/archive-history'
 import { completionPace } from '../lib/completion-pace'
 import {
+  contributionPainters,
   painterColour,
   rankPainters,
   selectAllPainters,
@@ -171,6 +172,31 @@ describe('pace and chart windows', () => {
     ]
     const ids = Array.from({ length: 2 * wplace.length }, (_, id) => id)
     expect(ids.map(painterColour)).toEqual([...wplace, ...wplace])
+  })
+
+  it('heatmap painters stay apart by id, take their latest name, and lead by pixels placed', () => {
+    const row = (wplaceUserId: number, displayName: string, day: number, placed: number) => ({
+      templateId: 't',
+      wplaceUserId,
+      displayName,
+      day: seconds(day * 86_400),
+      placed,
+      correct: placed,
+      repairs: 0,
+    })
+    expect(
+      contributionPainters([
+        row(2, 'Mira', 2, 5),
+        row(1, 'Old name', 1, 4),
+        row(1, 'Mira', 3, 4),
+        row(1, '', 4, 1),
+        row(3, '', 1, 2),
+      ]),
+    ).toEqual([
+      { wplaceUserId: 1, displayName: 'Mira', placed: 9 },
+      { wplaceUserId: 2, displayName: 'Mira', placed: 5 },
+      { wplaceUserId: 3, displayName: '', placed: 2 },
+    ])
   })
 })
 

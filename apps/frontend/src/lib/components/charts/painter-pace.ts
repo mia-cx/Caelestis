@@ -1,4 +1,9 @@
-import type { PainterTotal, WplaceUserId } from '@caelestis/shared'
+import type {
+  ContributionDay,
+  PainterIdentity,
+  PainterTotal,
+  WplaceUserId,
+} from '@caelestis/shared'
 
 /** How many leading painters a fresh chart draws before anyone touches the picker. */
 export const DEFAULT_VISIBLE_PAINTERS = 5
@@ -42,9 +47,34 @@ export const defaultVisiblePainters = (
 ): Set<WplaceUserId> => new Set(options.slice(0, limit).map((painter) => painter.wplaceUserId))
 
 /** The label the chart, picker, and tooltip all use for a painter. */
-export const painterLabel = (
-  painter: Pick<PainterOption, 'wplaceUserId' | 'displayName'>,
-): string => painter.displayName || `user ${painter.wplaceUserId}`
+export const painterLabel = (painter: PainterIdentity): string =>
+  painter.displayName || `user ${painter.wplaceUserId}`
+
+/** A painter in a contribution history, with everything they placed in it. */
+export interface ContributionPainter extends PainterIdentity {
+  readonly placed: number
+}
+
+/**
+ * Everyone in a contribution history, most pixels placed first, each under the latest name they
+ * reported. Keyed by Wplace id, so a rename or a namesake never merges or splits a painter.
+ */
+export const contributionPainters = (days: readonly ContributionDay[]): ContributionPainter[] => {
+  const painters = new Map<WplaceUserId, ContributionPainter & { named: number }>()
+  for (const day of days) {
+    const known = painters.get(day.wplaceUserId)
+    const rename = day.displayName !== '' && (known === undefined || day.day >= known.named)
+    painters.set(day.wplaceUserId, {
+      wplaceUserId: day.wplaceUserId,
+      displayName: rename ? day.displayName : (known?.displayName ?? ''),
+      named: rename ? day.day : (known?.named ?? Number.NEGATIVE_INFINITY),
+      placed: (known?.placed ?? 0) + day.placed,
+    })
+  }
+  return [...painters.values()]
+    .sort((a, b) => b.placed - a.placed || a.wplaceUserId - b.wplaceUserId)
+    .map(({ wplaceUserId, displayName, placed }) => ({ wplaceUserId, displayName, placed }))
+}
 
 /**
  * The Tailwind v4 `500` shades Wplace colours a `#ID` with, in Wplace's order: red, orange, yellow,
@@ -101,7 +131,10 @@ export const fuzzyScore = (query: string, text: string): number | null => {
 }
 
 /** The painters matching `query`, best match first; an empty query keeps leaderboard order. */
-export const rankPainters = (options: readonly PainterOption[], query: string): PainterOption[] => {
+export const rankPainters = <Painter extends PainterIdentity>(
+  options: readonly Painter[],
+  query: string,
+): Painter[] => {
   if (query.trim() === '') return [...options]
   return options
     .flatMap((painter) => {
