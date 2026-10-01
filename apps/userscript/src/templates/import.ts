@@ -5,6 +5,7 @@ import {
   MAX_MERCATOR_LATITUDE,
   MAX_TEMPLATE_SOURCE_BYTES,
   PALETTE_RGB,
+  pngSize,
   sha256Hex,
   TEMPLATE_PROCESSORS,
   TEMPLATE_RECIPE_FORMAT,
@@ -359,6 +360,9 @@ const cachedArtwork = async (
 ): Promise<Uint8Array | null> => {
   try {
     const bytes = new Uint8Array(await (await blobFromDataUrl(dataUrl)).arrayBuffer())
+    // The header must match the block before decoding allocates whatever size it declares.
+    const size = pngSize(bytes)
+    if (size.width !== block.width || size.height !== block.height) return null
     const image = await decodeWplaceIndexedPng(bytes)
     if (image === null || image.width !== block.width || image.height !== block.height) return null
     return (await sha256Hex(image.indices)) === block.artwork ? image.indices : null
