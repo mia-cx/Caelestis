@@ -7,7 +7,7 @@ art there as correct, leaving the rest of the template alone. Mia's comment: reu
 flow, so you replace parts of a template instead of the whole.
 
 ## Design
-- "Use canvas artwork in an area" sits beside "Use canvas artwork" in a template's menu, world
+- "Update an area" sits beside "Use canvas artwork" in a template's menu, world
   templates only. It opens the #377 capture editor with an update purpose: Cancel and
   Update template in the bar, Enter updates.
 - Only template pixels inside the selection change. They follow the whole-template rule: painted

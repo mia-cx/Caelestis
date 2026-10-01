@@ -1095,7 +1095,7 @@ export const openContextMenu = (
     surfaceOf(target).kind === 'world'
       ? {
           icon: 'fitScreen',
-          label: 'Use canvas artwork in an area',
+          label: 'Update an area',
           returnToCanvas: true,
           run: () => {
             if (artworkId !== null) requestTemplateAreaUpdate(artworkId, rerender)
