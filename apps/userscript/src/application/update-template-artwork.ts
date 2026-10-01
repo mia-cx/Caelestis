@@ -1,5 +1,7 @@
 import { encodeIndexedPng, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { allianceManifestFor, refreshAllianceManifest } from '../alliance-server-sync.js'
+import { activeAllianceSurface } from '../alliance-surface.js'
+import { startCaptureMode } from '../claim-editor.js'
 import { invalidateServerReads } from '../server-read-coalescer.js'
 import {
   admittedServerContentsFor,
@@ -10,11 +12,12 @@ import {
   serverConnectionIdentity,
   uploadTemplateVersion,
 } from '../state.js'
-import { captureCurrentArtwork } from '../templates/current-artwork.js'
+import { captureCurrentArtwork, captureTemplateArea } from '../templates/current-artwork.js'
 import {
   isCurrentTemplate,
   isDeletingLocal,
   isServerTemplate,
+  type PlacedTemplate,
   replaceLocalArtwork,
   templateById,
 } from '../templates/local-store.js'
@@ -28,8 +31,14 @@ const confirming = new Set<string>()
 /** Whether either template menu is already capturing or saving this template. */
 export const isUpdatingTemplateArtwork = (id: string): boolean => pending.has(id)
 
-/** Save committed Wplace art as a new target version without submitting paint events. */
-export const updateTemplateArtwork = async (id: string): Promise<void> => {
+/**
+ * Save captured art as a new target version without submitting paint events. `capture` reads the
+ * new target from committed art, or resolves to null to abandon the update. False when abandoned.
+ */
+const updateArtwork = async (
+  id: string,
+  capture: (template: PlacedTemplate) => Promise<Uint8Array | null>,
+): Promise<boolean> => {
   if (pending.has(id)) throw new Error('This template is already being updated.')
   pending.add(id)
   try {
@@ -65,11 +74,12 @@ export const updateTemplateArtwork = async (id: string): Promise<void> => {
         )
     }
     checkCurrent()
-    const indices = await captureCurrentArtwork(template)
+    const indices = await capture(template)
+    if (indices === null) return false
     checkCurrent()
     if (server === undefined) {
       await replaceLocalArtwork(template, indices)
-      return
+      return true
     }
     const png = new Blob(
       [Uint8Array.from(await encodeIndexedPng(template.width, template.height, indices))],
@@ -91,10 +101,15 @@ export const updateTemplateArtwork = async (id: string): Promise<void> => {
       if (surface.kind !== 'world') await refreshAllianceManifest(server, surface)
     }
     if (!result.ok) throw new Error(result.message)
+    return true
   } finally {
     pending.delete(id)
   }
 }
+
+/** Save committed Wplace art over the whole template as a new target version. */
+export const updateTemplateArtwork = (id: string): Promise<boolean> =>
+  updateArtwork(id, captureCurrentArtwork)
 
 /** Confirm the target change before either menu starts capturing or saving artwork. */
 export const requestTemplateArtworkUpdate = (id: string, rerender: () => void): void => {
@@ -132,4 +147,57 @@ export const requestTemplateArtworkUpdate = (id: string, rerender: () => void): 
       confirming.delete(id)
       rerender()
     })
+}
+
+/**
+ * Select parts of a world template on the map, then replace only those with committed art. The
+ * confirmation names how many pixels change; declining keeps the selection for another try.
+ */
+export const requestTemplateAreaUpdate = (id: string, rerender: () => void): void => {
+  if (activeAllianceSurface() !== null) {
+    toast('Area updates work on the world canvas. Leave the alliance canvas first.', 'warning')
+    return
+  }
+  const started = startCaptureMode({
+    purpose: 'update',
+    capture: async (selection, _action, signal) => {
+      let pixels = ''
+      const update = updateArtwork(id, async (template) => {
+        const indices = await captureTemplateArea(template, selection, signal)
+        signal.throwIfAborted()
+        const changed = indices.reduce(
+          (count, index, at) => count + Number(index !== template.indices[at]),
+          0,
+        )
+        if (changed === 0)
+          throw new Error('No canvas art in this selection differs from the template.')
+        pixels = `${changed.toLocaleString()} ${changed === 1 ? 'pixel' : 'pixels'}`
+        let trigger = document.activeElement
+        while (trigger?.shadowRoot?.activeElement) trigger = trigger.shadowRoot.activeElement
+        const confirmed = await confirmDestructive({
+          title: `Update ${pixels} of “${template.name}”?`,
+          body:
+            'Committed canvas artwork replaces the template inside your selection. ' +
+            (isServerTemplate(template)
+              ? 'This changes the target for everyone using this server template. '
+              : '') +
+            'You cannot currently revert to a previous version.',
+          note: '',
+          confirmLabel: 'Update template',
+          restoreFocusTo: trigger instanceof HTMLElement ? trigger : null,
+        })
+        signal.throwIfAborted()
+        return confirmed ? indices : null
+      })
+      rerender()
+      try {
+        if (!(await update)) return 'Template unchanged.'
+      } finally {
+        rerender()
+      }
+      toast(`Updated ${pixels} from the canvas.`)
+      return null
+    },
+  })
+  if (!started) toast('Leave claim mode, then update the template.', 'warning')
 }
