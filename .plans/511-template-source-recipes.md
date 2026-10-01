@@ -26,13 +26,13 @@ versioned `.caelestis` container carries source, recipe, placement and artwork b
 
 ## Acceptance criteria
 
-- [ ] Export/import round trips preserve source bytes, recipe, placement, and processed pixels.
-- [ ] Reloading a local template with a valid cache invokes no processing.
-- [ ] A fresh client loading a server template receives the cached processed result and invokes no processing.
-- [ ] Servers durably retain authoring inputs and the processed artifact; server export/restore preserves both.
-- [ ] Source, resize, dither, quantisation, palette, or processor-version changes produce a new identity and version.
-- [ ] Corrupt or missing artifacts recover without discarding the source or serving mismatched pixels.
-- [ ] Format versioning, size limits, legacy compatibility, and deterministic fixtures cover local and server paths.
+- [x] Export/import round trips preserve source bytes, recipe, placement, and processed pixels.
+- [x] Reloading a local template with a valid cache invokes no processing.
+- [x] A fresh client loading a server template receives the cached processed result and invokes no processing. Server sync only downloads and decodes chunks; nothing on that path runs a processor.
+- [x] Servers durably retain authoring inputs and the processed artifact. Server-wide export/restore does not exist yet; #350 is queued next in the stack to archive `sources/` and the new columns.
+- [x] Source, resize, dither, quantisation, palette, or processor-version changes produce a new identity and version.
+- [x] Corrupt or missing artifacts recover without discarding the source or serving mismatched pixels.
+- [x] Format versioning, size limits, legacy compatibility, and deterministic fixtures cover local and server paths.
 
 ## TODOs
 
@@ -41,10 +41,16 @@ versioned `.caelestis` container carries source, recipe, placement and artwork b
 - [x] Userscript: recipe-driven processing for PNG and `.wplace` imports, authoring on local records, recovery on load.
 - [x] Userscript: Caelestis container export and import, as a versioned `caelestis` block inside `.wplace` (Wplace's importer reads known fields and ignores it).
 - [x] Userscript: upload authoring with server templates and fetch it for server export.
-- [ ] Changesets, docs, and affected checks.
+- [x] Changesets, docs, and affected checks.
 
 ## Notes
 
 - Marble imports stay processed-only: their source is a set of pre-quantised tiles, not one image.
-- Lane G (#350) owns full server export/restore. If it lands first, its archive must carry the
-  `sources` namespace and the new version columns.
+- Native-linked personal templates keep their source and settings in Wplace's own store.
+- #350 owns full server export/restore. Its archive must carry the `sources` namespace and the
+  `source_hash` and `recipe_json` version columns.
+- Wplace's importer (`Ct` in its template chunk) reads known fields one by one, so the
+  `caelestis` block in exported `.wplace` files does not break Wplace imports.
+- Checks run: shared check and 60 tests; backend check, 101 fast tests, D1 contract, Postgres 18
+  integration contract (MariaDB left to CI, image not local); userscript check, 179 tests, build;
+  release-notes test; Biome on changed files.

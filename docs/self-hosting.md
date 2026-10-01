@@ -325,6 +325,12 @@ Append `?v=<etag>` from `/v1/server` or `/v1/manifest` for immutable caching of 
 Without a matching version, clients revalidate using the response ETag.
 Branding settings and images persist in the configured database and blob store.
 
+## Template sources
+
+A template version can keep the original PNG and processing recipe it was made from.
+The recipe is stored with the version in the database. The PNG is stored once per content hash under `sources/` in the blob store, next to `chunks/`, up to 32 MiB each.
+Back up and migrate `sources/` with the rest of the blob store. Losing it leaves template artwork intact but drops the inputs needed to re-edit it.
+
 ## Kubernetes and CNPG
 
 Start from [`deploy/helm/cnpg-s3.example.yaml`](../deploy/helm/cnpg-s3.example.yaml).
