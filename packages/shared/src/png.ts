@@ -177,6 +177,20 @@ export class PngError extends Error {
   }
 }
 
+const IHDR_END = 24
+
+/** Dimensions from the fixed IHDR header, without decoding. Any PNG variant is accepted. */
+export const pngSize = (bytes: Uint8Array): { width: number; height: number } => {
+  if (
+    bytes.length < IHDR_END ||
+    SIGNATURE.some((expected, index) => bytes[index] !== expected) ||
+    String.fromCharCode(...bytes.subarray(12, 16)) !== 'IHDR'
+  )
+    throw new PngError('not a PNG')
+  const view = new DataView(bytes.buffer, bytes.byteOffset, IHDR_END)
+  return { width: view.getUint32(16), height: view.getUint32(20) }
+}
+
 interface ParsedPng {
   readonly width: number
   readonly height: number

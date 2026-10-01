@@ -2,16 +2,19 @@ import {
   decodePng,
   decodeWplaceIndexedPng,
   encodeIndexedPng,
+  MAX_TEMPLATE_SOURCE_BYTES,
   MAX_TIMELAPSE_CAPTURE_TILES,
   millis,
   PALETTE_SIZE,
   type PixelBounds,
+  pngSize,
   type QuantiseReport,
   quantiseToPalette,
   type SurfaceChunkKey,
   sameTemplateSurface,
   sha256Hex,
   sliceTemplateForSurface,
+  type TemplateRecipe,
   type TemplateSurface,
   TRANSPARENT_INDEX,
   tileKey,
@@ -41,6 +44,13 @@ export interface StoreTemplateInput {
   readonly originX: number
   readonly originY: number
   readonly png: Uint8Array
+  /** The original PNG and the recipe the client used to turn it into `png`. */
+  readonly authoring?: TemplateAuthoringInput
+}
+
+export interface TemplateAuthoringInput {
+  readonly source: Uint8Array
+  readonly recipe: TemplateRecipe
 }
 
 export interface StoredTemplate {
@@ -103,6 +113,27 @@ const colourTotals = (
     .map(([index, total]) => ({ index, total }))
 }
 
+/**
+ * Refuse authoring that does not describe these pixels. The server cannot rerun the processor, so
+ * it checks everything it can: the source bytes, their size, and the output size.
+ */
+const checkAuthoring = async (
+  authoring: TemplateAuthoringInput,
+  width: number,
+  height: number,
+): Promise<void> => {
+  const { source, recipe } = authoring
+  if (source.byteLength > MAX_TEMPLATE_SOURCE_BYTES)
+    throw new StoreTemplateError('source image is too large to keep')
+  if ((await sha256Hex(source)) !== recipe.source.sha256)
+    throw new StoreTemplateError('source image does not match its recipe')
+  const size = pngSize(source)
+  if (size.width !== recipe.source.width || size.height !== recipe.source.height)
+    throw new StoreTemplateError('source image size does not match its recipe')
+  if (recipe.width !== width || recipe.height !== height)
+    throw new StoreTemplateError(`recipe output is not ${width}x${height}`)
+}
+
 export const storeTemplate = async (
   blobs: BlobStore,
   sql: SqlStore,
@@ -119,6 +150,7 @@ export const storeTemplate = async (
   const indexed = await decodeWplaceIndexedPng(input.png)
   const decoded = indexed ?? (await decodePng(input.png))
   const { width, height } = decoded
+  if (input.authoring !== undefined) await checkAuthoring(input.authoring, width, height)
   const { indices, report } =
     'indices' in decoded
       ? { indices: decoded.indices, report: exactPaletteReport(decoded.indices) }
@@ -191,6 +223,12 @@ export const storeTemplate = async (
       if (!present.has(hash)) await blobs.put('chunks', hash, png)
     }),
   )
+  // Like chunks, the source lands before the version row, so no version can name a missing source.
+  if (input.authoring !== undefined) {
+    const { source, recipe } = input.authoring
+    const hash = recipe.source.sha256
+    if (!(await blobs.hasAll('sources', [hash])).has(hash)) await blobs.put('sources', hash, source)
+  }
 
   const templateId = input.templateId ?? uuidV7()
   const versionId = uuidV7()
@@ -214,6 +252,7 @@ export const storeTemplate = async (
     totalPixels: sliced.totalPixels,
     colourTotals: colourTotals(indices),
     chunks: versionChunks,
+    ...(input.authoring === undefined ? {} : { recipe: input.authoring.recipe }),
   }
   await sql.insertTemplateVersion(version, {
     requireExisting: input.templateId !== undefined,

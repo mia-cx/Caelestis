@@ -21,6 +21,7 @@ export {
   encodeIndexedPng,
   type IndexedImage,
   PngError,
+  pngSize,
   type RgbaImage,
 } from './png.js'
 export * from './presence.js'

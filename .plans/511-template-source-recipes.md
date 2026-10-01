@@ -37,7 +37,7 @@ versioned `.caelestis` container carries source, recipe, placement and artwork b
 ## TODOs
 
 - [x] Shared recipe type, validation, canonical identity, and unit tests.
-- [ ] Backend: per-version source and recipe columns (SQLite, Postgres, MariaDB), `sources` blobs, create and replace parts, authoring read routes, contract tests.
+- [x] Backend: per-version source and recipe columns (SQLite, Postgres, MariaDB), `sources` blobs, create and replace parts, authoring read routes, contract tests.
 - [ ] Userscript: recipe-driven processing for PNG and `.wplace` imports, authoring on local records, recovery on load.
 - [ ] Userscript: `.caelestis` container export and import.
 - [ ] Userscript: upload authoring with server templates and fetch it for server export.

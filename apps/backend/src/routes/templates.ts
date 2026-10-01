@@ -1,5 +1,8 @@
 import {
+  MAX_TEMPLATE_SOURCE_BYTES,
   millis,
+  parseTemplateRecipe,
+  type TemplateRecipe,
   type TemplateSurface,
   templateSurface,
   WORLD_TEMPLATE_SURFACE,
@@ -8,12 +11,14 @@ import { Hono } from 'hono'
 import { type AuthOptions, requireScopeEffect } from '../auth/middleware.js'
 import type { BackendRuntime } from '../runtime/backend-runtime.js'
 import { runBackendHttp } from '../runtime/hono.js'
+import type { TemplateAuthoringInput } from '../templates/store.js'
 import {
   createTemplate,
   deleteTemplate,
   dismissTemplateAlarm,
   patchTemplate,
   readBlob,
+  readTemplateRecipe,
   replaceTemplateVersion,
 } from '../templates/use-cases.js'
 
@@ -43,6 +48,25 @@ const parseSurface = (kind: unknown, allianceId: unknown): TemplateSurface | nul
   if (kind === 'world') return allianceId === undefined ? WORLD_TEMPLATE_SURFACE : null
   const parsedAllianceId = parseWholeNumber(allianceId)
   return parsedAllianceId === null ? null : templateSurface(kind, parsedAllianceId)
+}
+
+/** Optional authoring parts. A source without its recipe, or the reverse, is refused. */
+const authoringParts = async (
+  source: unknown,
+  recipe: unknown,
+): Promise<{ readonly authoring?: TemplateAuthoringInput } | { readonly error: string }> => {
+  if (source === undefined && recipe === undefined) return {}
+  if (!(source instanceof File) || typeof recipe !== 'string')
+    return { error: 'source must be a PNG file part sent with a recipe JSON part' }
+  if (source.size > MAX_TEMPLATE_SOURCE_BYTES) return { error: 'source image is too large to keep' }
+  let parsed: TemplateRecipe | null
+  try {
+    parsed = parseTemplateRecipe(JSON.parse(recipe))
+  } catch {
+    parsed = null
+  }
+  if (parsed === null) return { error: 'recipe is not a valid template recipe' }
+  return { authoring: { source: new Uint8Array(await source.arrayBuffer()), recipe: parsed } }
 }
 
 export const createTemplateRoutes = (runtime: BackendRuntime, auth: AuthOptions) => {
@@ -78,8 +102,12 @@ export const createTemplateRoutes = (runtime: BackendRuntime, auth: AuthOptions)
       originY,
       surfaceKind,
       allianceId,
+      source,
+      recipe,
     } = body
     if (!(png instanceof File)) return c.json({ error: 'png must be a file part' }, 400)
+    const parts = await authoringParts(source, recipe)
+    if ('error' in parts) return c.json({ error: parts.error }, 400)
     const nodeId = rawNodeId === undefined ? null : rawNodeId
     if (nodeId !== null && (typeof nodeId !== 'string' || !UUID_V7.test(nodeId))) {
       return c.json({ error: 'nodeId must be a canonical lowercase UUIDv7 or omitted' }, 400)
@@ -132,6 +160,7 @@ export const createTemplateRoutes = (runtime: BackendRuntime, auth: AuthOptions)
         originX: parsedOriginX,
         originY: parsedOriginY,
         png: new Uint8Array(await png.arrayBuffer()),
+        ...parts,
       }),
       (result) => c.json(result, 201),
     )
@@ -160,8 +189,10 @@ export const createTemplateRoutes = (runtime: BackendRuntime, auth: AuthOptions)
     const body = await c.req.parseBody().catch(() => null)
     if (body === null) return c.json({ error: 'invalid multipart body' }, 400)
 
-    const { png, originX, originY } = body
+    const { png, originX, originY, source, recipe } = body
     if (!(png instanceof File)) return c.json({ error: 'png must be a file part' }, 400)
+    const parts = await authoringParts(source, recipe)
+    if ('error' in parts) return c.json({ error: parts.error }, 400)
     const caller = c.get('caller')
     return runBackendHttp(
       c,
@@ -172,6 +203,7 @@ export const createTemplateRoutes = (runtime: BackendRuntime, auth: AuthOptions)
         originX,
         originY,
         png: new Uint8Array(await png.arrayBuffer()),
+        ...parts,
       }),
       (result) => c.json(result, 201),
     )
@@ -288,7 +320,7 @@ export const createTemplateRoutes = (runtime: BackendRuntime, auth: AuthOptions)
 const createBlobRoutes = (
   runtime: BackendRuntime,
   auth: AuthOptions,
-  namespace: 'chunks' | 'tiles',
+  namespace: 'chunks' | 'sources' | 'tiles',
 ) => {
   const routes = new Hono()
 
@@ -316,6 +348,27 @@ const createBlobRoutes = (
 
 export const createChunkRoutes = (runtime: BackendRuntime, auth: AuthOptions) =>
   createBlobRoutes(runtime, auth, 'chunks')
+
+/** Original template PNGs, addressed by the `source.sha256` their recipes name. */
+export const createSourceRoutes = (runtime: BackendRuntime, auth: AuthOptions) =>
+  createBlobRoutes(runtime, auth, 'sources')
+
+/** The recipe behind a template version, so a client can export or re-edit its authoring inputs. */
+export const createRecipeRoutes = (runtime: BackendRuntime, auth: AuthOptions) => {
+  const routes = new Hono()
+  routes.use('/*', requireScopeEffect(runtime, auth, 'read'))
+  routes.get('/:versionId', async (c) => {
+    const versionId = c.req.param('versionId')
+    if (!UUID_V7.test(versionId)) {
+      return c.json({ error: 'versionId must be a canonical lowercase UUIDv7' }, 400)
+    }
+    return runBackendHttp(c, runtime, readTemplateRecipe(versionId), (result) =>
+      // Versions are immutable, so their recipes are too.
+      c.json(result, 200, { 'cache-control': 'private, max-age=31536000, immutable' }),
+    )
+  })
+  return routes
+}
 
 /**
  * Mirrored canvas tiles, served exactly like template chunks: the timelapse endpoint answers with

@@ -275,6 +275,12 @@ export const templateVersions = sqliteTable(
     boundsSouth: real('bounds_south'),
     boundsWest: real('bounds_west'),
     boundsEast: real('bounds_east'),
+    /**
+     * Authoring inputs behind this version's chunks: the original PNG in the `sources` blob
+     * namespace and its canonical processing recipe. Both null for processed-only uploads.
+     */
+    sourceHash: text('source_hash'),
+    recipeJson: text('recipe_json'),
   },
   (table) => [
     unique('template_versions_id_template_idx').on(table.id, table.templateId),
