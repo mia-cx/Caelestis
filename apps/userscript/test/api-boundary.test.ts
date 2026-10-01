@@ -89,6 +89,15 @@ describe('template authoring through the backend', () => {
       ok: false,
       message: 'source image does not match its recipe',
     })
+    // Moving a draft is a new version of the same pixels, so it keeps their source and recipe.
+    const moved = await state.uploadTemplateVersion(server, withSource.id, {
+      originX: 11,
+      originY: 20,
+      name: 'Authored',
+      png,
+      authoring: { source: new Blob([source]), recipe, artwork },
+    })
+    if (!moved.ok) throw new Error(moved.message)
 
     const reader = await connect(readToken)
     const { readServerAuthoring } = await import('../src/application/template-authoring.js')
@@ -97,6 +106,9 @@ describe('template authoring through the backend', () => {
     expect(read?.artwork).toBe(artwork)
     expect(new Uint8Array(await (read?.source ?? new Blob()).arrayBuffer())).toEqual(source)
     expect(await readServerAuthoring(reader.server, processedOnly.version, indices)).toBeNull()
+    expect((await readServerAuthoring(reader.server, moved.versionId, indices))?.recipe).toEqual(
+      recipe,
+    )
   })
 })
 
