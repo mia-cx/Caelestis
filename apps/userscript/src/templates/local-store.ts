@@ -32,6 +32,7 @@ import {
   legacyAppearanceGroups,
   normaliseAppearance,
 } from './appearance.js'
+import { storedAuthoring } from './authoring.js'
 import {
   type ImportedTemplate,
   MAX_TEMPLATE_ID_LENGTH,
@@ -681,6 +682,7 @@ const normaliseStoredTemplate = (value: unknown): StoredTemplate => {
     folderId,
     updatedAt,
     native,
+    authoring: rawAuthoring,
   } = value
   if (typeof id !== 'string' || id.length === 0 || id.length > MAX_TEMPLATE_ID_LENGTH) {
     throw new RangeError('template id is invalid')
@@ -748,6 +750,10 @@ const normaliseStoredTemplate = (value: unknown): StoredTemplate => {
   ) {
     throw new RangeError('template appearance ownership is invalid')
   }
+  const authoring = storedAuthoring(rawAuthoring, { width, height })
+  // The artwork is still good; only the inputs behind it are unusable.
+  if (rawAuthoring !== undefined && authoring === null)
+    warn('install', `dropping unreadable source and recipe of ${name}`)
   const normalised: StoredTemplate = {
     ...(native === undefined ? {} : { native: native as NonNullable<StoredTemplate['native']> }),
     id,
@@ -779,6 +785,7 @@ const normaliseStoredTemplate = (value: unknown): StoredTemplate => {
           : legacyAppearanceGroups(appearance)
         : (owns as AppearanceGroup[]),
     ...(sortOrder === undefined ? {} : { sortOrder: sortOrder as number }),
+    ...(authoring === null ? {} : { authoring }),
   }
   validatePlacement(normalised)
   return normalised
@@ -1873,8 +1880,10 @@ export const replaceLocalArtwork = async (
       }
     }
     checkCurrent()
+    // Canvas artwork does not come from the recipe, so this version is processed-only.
+    const { authoring: _authoring, ...processedOnly } = expected
     const next = {
-      ...expected,
+      ...processedOnly,
       indices,
       opaque: indices.reduce((count, index) => count + Number(index !== TRANSPARENT_INDEX), 0),
       moved: 0,
