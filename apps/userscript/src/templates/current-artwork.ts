@@ -142,6 +142,34 @@ const captureWorldArtwork = async (
 }
 
 /**
+ * A world template with committed art merged in only where a selection covers it, by the same
+ * rule as `captureCurrentArtwork`. Pixels outside the selection keep the template's. Only tiles
+ * under selected template pixels load.
+ */
+export const captureTemplateArea = async (
+  template: Pick<PlacedTemplate, 'originX' | 'originY' | 'width' | 'height' | 'indices'>,
+  { rect, mask }: RegionShapePixels,
+  signal?: AbortSignal,
+): Promise<Uint8Array> => {
+  const area = new Uint8Array(template.width * template.height)
+  for (let y = 0; y < template.height; y++) {
+    const row = template.originY + y - rect.y
+    if (row < 0 || row >= rect.h) continue
+    for (let x = 0; x < template.width; x++) {
+      const column = ((template.originX + x) % WORLD_PIXELS) - rect.x
+      if (column >= 0 && column < rect.w && mask[row * rect.w + column] === 1)
+        area[y * template.width + x] = 1
+    }
+  }
+  if (!area.includes(1)) throw new Error('Select part of the template to update.')
+  const indices = await captureWorldArtwork(template, area, signal)
+  template.indices.forEach((index, at) => {
+    if (area[at] !== 1) indices[at] = index
+  })
+  return indices
+}
+
+/**
  * Committed world art under a selection, one image pixel per canvas pixel over the selection's
  * bounds and transparent outside its mask. Only tiles with selected pixels need to load; a missing
  * selected tile fails the capture rather than reading as transparent.
