@@ -32,7 +32,7 @@ import {
   legacyAppearanceGroups,
   normaliseAppearance,
 } from './appearance.js'
-import { storedAuthoring } from './authoring.js'
+import { storedAuthoring, type TemplateAuthoring } from './authoring.js'
 import {
   type ImportedTemplate,
   MAX_TEMPLATE_ID_LENGTH,
@@ -1261,6 +1261,8 @@ export const canCopyAsLocalTemplate = (template: PlacedTemplate): boolean =>
 export const copyAsLocalTemplate = async (
   template: PlacedTemplate,
   id: string,
+  /** Server templates keep theirs on the server, so the caller fetches it. */
+  authoring: TemplateAuthoring | null = template.authoring ?? null,
 ): Promise<PlacedTemplate> => {
   if (!canCopyAsLocalTemplate(template)) {
     throw new RangeError('wrapped server templates cannot be copied into Local')
@@ -1279,6 +1281,7 @@ export const copyAsLocalTemplate = async (
     indices: template.indices,
     moved: template.moved,
     opaque: template.opaque,
+    ...(authoring === null ? {} : { authoring }),
   }
   if (isServerTemplate(template)) {
     const surface = template.surface ?? WORLD_TEMPLATE_SURFACE

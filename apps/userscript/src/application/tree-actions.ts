@@ -84,6 +84,7 @@ import {
 import { importTemplatesToServer } from './import-to-server.js'
 import { runWhileBusy } from './operation-lock.js'
 import { serverDestinations } from './server-destinations.js'
+import { authoringOf } from './template-authoring.js'
 import {
   copyCurrentLocalTemplateToServer,
   copyLocalTemplateToServer,
@@ -330,7 +331,7 @@ const exportTemplate = async (target: TreeTarget): Promise<void> => {
 
   toast(`Preparing “${template.name}”…`)
   try {
-    const file = await templateAsWplace(template, template.authoring ?? null)
+    const file = await templateAsWplace(template, await authoringOf(template))
     if (file === null) {
       toast(`“${template.name}” changed while it was being exported. Try again.`, 'warning')
       return

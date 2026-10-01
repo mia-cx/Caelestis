@@ -1,5 +1,11 @@
-import { decodeWplaceIndexedPng, encodeIndexedPng } from '@caelestis/shared'
+import {
+  decodeWplaceIndexedPng,
+  encodeIndexedPng,
+  sha256Hex,
+  type TemplateRecipe,
+} from '@caelestis/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { TemplateAuthoring } from '../src/templates/authoring.js'
 import { adminToken, backendFetch, createTestBackend, readToken } from './backend.js'
 
 const origin = 'https://userscript-api-boundary.test'
@@ -32,6 +38,66 @@ afterEach(() => {
   vi.restoreAllMocks()
   vi.resetModules()
   localStorage.clear()
+})
+
+/** A 2x1 artwork and the 4x2 source and recipe that produced it. */
+const authored = async () => {
+  const indices = new Uint8Array([1, 2])
+  const artwork = await encodeIndexedPng(2, 1, indices)
+  const source = await encodeIndexedPng(4, 2, new Uint8Array([1, 1, 2, 2, 1, 1, 2, 2]))
+  const recipe: TemplateRecipe = {
+    format: 1,
+    processor: 'wplace-native',
+    processorVersion: 1,
+    source: { sha256: await sha256Hex(source), width: 4, height: 2 },
+    width: 2,
+    height: 1,
+    colorMetric: 'lab',
+    dithering: true,
+    legacyDecode: false,
+    palette: [1, 2],
+  }
+  return {
+    indices,
+    png: new Blob([Uint8Array.from(artwork)], { type: 'image/png' }),
+    source: Uint8Array.from(source),
+    recipe,
+    artwork: await sha256Hex(indices),
+  }
+}
+
+describe('template authoring through the backend', () => {
+  it('keeps source and recipe with an uploaded version for any reader', async () => {
+    await installBackend()
+    const { state, server } = await connect()
+    const { indices, png, source, recipe, artwork } = await authored()
+    const upload = (authoring: TemplateAuthoring | null) =>
+      state.uploadTemplate(server, {
+        nodeId: null,
+        name: 'Authored',
+        originX: 10,
+        originY: 20,
+        png,
+        authoring,
+      })
+
+    const withSource = await upload({ source: new Blob([source]), recipe, artwork })
+    const processedOnly = await upload(null)
+    const mismatched = await upload({ source: new Blob([source, source]), recipe, artwork })
+    if (!withSource.ok || !processedOnly.ok) throw new Error('upload failed')
+    expect(mismatched).toMatchObject({
+      ok: false,
+      message: 'source image does not match its recipe',
+    })
+
+    const reader = await connect(readToken)
+    const { readServerAuthoring } = await import('../src/application/template-authoring.js')
+    const read = await readServerAuthoring(reader.server, withSource.version, indices)
+    expect(read?.recipe).toEqual(recipe)
+    expect(read?.artwork).toBe(artwork)
+    expect(new Uint8Array(await (read?.source ?? new Blob()).arrayBuffer())).toEqual(source)
+    expect(await readServerAuthoring(reader.server, processedOnly.version, indices)).toBeNull()
+  })
 })
 
 describe('userscript to backend API boundary', () => {

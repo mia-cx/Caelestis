@@ -16,6 +16,7 @@ import {
   type TemplateFilters,
   type TemplateSurface,
   type TemplateTag,
+  templateRecipeJson,
   templateSurface,
   templateSurfaceKey,
   WORLD_TEMPLATE_SURFACE,
@@ -55,6 +56,7 @@ import {
   DEFAULT_APPEARANCE,
   normaliseAppearance,
 } from './templates/appearance.js'
+import type { TemplateAuthoring } from './templates/authoring.js'
 import { remapPaletteColours, remapStoredAppearance } from './templates/palette-migration.js'
 import { DEFAULT_SORT, type SortOrder } from './ui/sort.js'
 
@@ -1396,6 +1398,8 @@ export const uploadTemplate = async (
     originY: number
     png: Blob
     surface?: TemplateSurface
+    /** The source and recipe behind `png`, kept by the server with this version. */
+    authoring?: TemplateAuthoring | null
   },
 ): Promise<{ ok: true; id: string; version: string } | UploadFailure> => {
   const begun = beginUpload(server)
@@ -1403,6 +1407,12 @@ export const uploadTemplate = async (
   try {
     const form = new FormData()
     form.set('png', input.png, `${input.name}.png`)
+    if (input.authoring != null) {
+      // Re-wrapped: a stored source is a page-realm Blob that this realm's FormData refuses.
+      const source = new Blob([await input.authoring.source.arrayBuffer()], { type: 'image/png' })
+      form.set('source', source, 'source.png')
+      form.set('recipe', templateRecipeJson(input.authoring.recipe))
+    }
     if (input.nodeId !== null) form.set('nodeId', input.nodeId)
     if (server.season === null) return { ok: false, message: 'Refresh this server first.' }
     form.set('season', String(server.season))
