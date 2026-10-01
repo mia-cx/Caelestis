@@ -28,7 +28,7 @@ flow, so you replace parts of a template instead of the whole.
 - [x] Capture committed art into a template inside a selection, with a focused test.
 - [x] Capture editor: update purpose, its bar actions, and dialog keys passing through.
 - [x] Update flow and the template menu entry.
-- [ ] Changeset for the userscript.
+- [x] Changeset for the userscript.
 - [ ] Final validation and before/after screenshots.
 
 ## Notes
