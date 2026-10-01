@@ -41,7 +41,8 @@ const bytes = async (blob: unknown): Promise<number[]> => [
 const importedAndSaved = async () => {
   const source = await encodeIndexedPng(3, 2, new Uint8Array([0, 1, 2, 3, 4, TRANSPARENT_INDEX]))
   const decode = installBitmapDecoder()
-  const [imported] = await importFile(new File([source], 'art.png', { type: 'image/png' }), {
+  const file = new File([Uint8Array.from(source)], 'art.png', { type: 'image/png' })
+  const [imported] = await importFile(file, {
     x: 1_000,
     y: 1_000,
   })
@@ -58,6 +59,74 @@ const loaded = async (id: string): Promise<ImportedTemplate> => {
   if (result.status !== 'loaded') throw new Error(`template did not load: ${result.status}`)
   return result.template as ImportedTemplate
 }
+
+const dataUrlFetch = () =>
+  vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+    const url = String(input)
+    if (!url.startsWith('data:image/png;base64,')) throw new Error(`unexpected request: ${url}`)
+    return new Response(Buffer.from(url.slice(url.indexOf(',') + 1), 'base64'))
+  })
+
+/** Export a placed local template, returning the parsed `.wplace` JSON. */
+const exported = async () => {
+  const { imported, decode } = await importedAndSaved()
+  const store = await import('../src/templates/local-store.js')
+  const { templateAsWplace } = await import('../src/templates/wplace-export.js')
+  const placed = await store.addLocalTemplate(
+    { ...imported, id: `${imported.id}-placed` },
+    undefined,
+    true,
+  )
+  const file = await templateAsWplace(placed, placed.authoring ?? null)
+  await store.removeLocalTemplate(placed.id)
+  if (file === null) throw new Error('nothing exported')
+  return { imported, decode, json: JSON.parse(await file.text()) as Record<string, unknown> }
+}
+
+const reimport = async (json: unknown) =>
+  await importFile(new File([JSON.stringify(json)], 'art.wplace'), { x: 0, y: 0 })
+
+describe('exported template files', () => {
+  it('round trips artwork, placement, source, and recipe without processing', async () => {
+    dataUrlFetch()
+    const { imported, decode, json } = await exported()
+    decode.mockClear()
+    const [again] = await reimport(json)
+    expect(again).toMatchObject({
+      originX: imported.originX,
+      originY: imported.originY,
+      width: imported.width,
+      height: imported.height,
+      indices: imported.indices,
+    })
+    expect(again?.authoring?.recipe).toEqual(imported.authoring?.recipe)
+    expect(await bytes(again?.authoring?.source)).toEqual(await bytes(imported.authoring?.source))
+    expect(decode).not.toHaveBeenCalled()
+  })
+
+  it('rebuilds damaged artwork from the source, and refuses when nothing can rebuild it', async () => {
+    dataUrlFetch()
+    const { imported, decode, json } = await exported()
+    const other = await encodeIndexedPng(3, 2, new Uint8Array(6))
+    const damaged = {
+      ...json,
+      image: {
+        ...(json.image as object),
+        dataUrl: `data:image/png;base64,${Buffer.from(other).toString('base64')}`,
+      },
+    }
+    decode.mockClear()
+    const [rebuilt] = await reimport(damaged)
+    expect(rebuilt?.indices).toEqual(imported.indices)
+    expect(decode).toHaveBeenCalledOnce()
+
+    const { authoring: _authoring, ...processedOnly } = json.caelestis as Record<string, unknown>
+    await expect(reimport({ ...damaged, caelestis: processedOnly })).rejects.toThrow('damaged')
+    await expect(
+      reimport({ ...json, caelestis: { ...(json.caelestis as object), version: 2 } }),
+    ).rejects.toThrow('newer Caelestis')
+  })
+})
 
 describe('local template authoring', () => {
   it('keeps the source and recipe, and reloads the cached artwork without processing', async () => {

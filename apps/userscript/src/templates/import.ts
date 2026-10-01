@@ -1,5 +1,6 @@
 import {
   canvasPixelToLatLng,
+  decodeWplaceIndexedPng,
   latLngToCanvasPixel,
   MAX_MERCATOR_LATITUDE,
   MAX_TEMPLATE_SOURCE_BYTES,
@@ -17,6 +18,7 @@ import {
 import { log, warn } from '../debug.js'
 import { loadAccount, ownedColours } from '../wplace-account.js'
 import type { TemplateAuthoring } from './authoring.js'
+import { type CaelestisBlock, parseCaelestisBlock } from './caelestis-file.js'
 import type { NativeTemplate } from './native-store.js'
 import { resizeWplaceImage } from './wplace-resize.js'
 
@@ -350,6 +352,75 @@ const authoringFor = async (
     ? {}
     : { authoring: { source, recipe, artwork: await sha256Hex(indices) } }
 
+/** The exported artwork, if it is intact. */
+const cachedArtwork = async (
+  dataUrl: string,
+  block: CaelestisBlock,
+): Promise<Uint8Array | null> => {
+  try {
+    const bytes = new Uint8Array(await (await blobFromDataUrl(dataUrl)).arrayBuffer())
+    const image = await decodeWplaceIndexedPng(bytes)
+    if (image === null || image.width !== block.width || image.height !== block.height) return null
+    return (await sha256Hex(image.indices)) === block.artwork ? image.indices : null
+  } catch {
+    return null
+  }
+}
+
+/** The file's source and recipe, if they are whole and describe this artwork. */
+const blockAuthoring = async (block: CaelestisBlock): Promise<TemplateAuthoring | null> => {
+  if (block.authoring === undefined) return null
+  const { recipe } = block.authoring
+  const source = await blobFromDataUrl(block.authoring.source)
+  if (
+    source.size <= MAX_TEMPLATE_SOURCE_BYTES &&
+    recipe.width === block.width &&
+    recipe.height === block.height &&
+    (await sha256Hex(new Uint8Array(await source.arrayBuffer()))) === recipe.source.sha256
+  )
+    return { source, recipe, artwork: block.artwork }
+  warn('install', 'the source image in this file is damaged or too large to keep')
+  return null
+}
+
+/**
+ * Caelestis exports carry their processed artwork, so an intact one imports with no processing.
+ * Damaged artwork is rebuilt from the source, and must hash to the artwork its recipe first
+ * produced; otherwise the import fails rather than showing different pixels.
+ */
+const importCaelestis = async (
+  file: Record<string, unknown>,
+  block: CaelestisBlock,
+  name: string,
+  artworkUrl: string,
+): Promise<ImportedTemplate[]> => {
+  const origin = { originX: block.originX, originY: block.originY }
+  const authoring = await blockAuthoring(block)
+  let indices = await cachedArtwork(artworkUrl, block)
+  if (indices === null) {
+    if (authoring === null) throw new Error('the artwork in this file is damaged')
+    ;({ indices } = await processRecipe(authoring.source, authoring.recipe, origin))
+    if ((await sha256Hex(indices)) !== block.artwork)
+      throw new Error('the artwork in this file is damaged, and its source does not reproduce it')
+  }
+  return [
+    {
+      id: newId(),
+      name,
+      source: 'wplace',
+      sortOrder:
+        typeof file.order === 'number' && Number.isSafeInteger(file.order) ? file.order : 0,
+      ...origin,
+      width: block.width,
+      height: block.height,
+      indices,
+      moved: 0,
+      opaque: indices.reduce((count, index) => count + Number(index !== TRANSPARENT_INDEX), 0),
+      ...(authoring === null ? {} : { authoring }),
+    },
+  ]
+}
+
 const importWplace = async (file: Record<string, unknown>): Promise<ImportedTemplate[]> => {
   const image = isRecord(file.image) ? file.image : null
   const bounds = isRecord(file.bounds) ? file.bounds : null
@@ -362,6 +433,8 @@ const importWplace = async (file: Record<string, unknown>): Promise<ImportedTemp
   if (!/^data:image\/png;base64,/i.test(dataUrl)) {
     throw new Error('.wplace image must be an embedded PNG data URL')
   }
+  if (file.caelestis !== undefined)
+    return await importCaelestis(file, parseCaelestisBlock(file.caelestis), name, dataUrl)
   const { north, west } = bounds
   if (
     typeof north !== 'number' ||
