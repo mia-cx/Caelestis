@@ -1512,6 +1512,7 @@ export const captureTemplate = (target: TreeTarget, rerender: () => void): void 
     return
   }
   const started = startCaptureMode({
+    purpose: 'capture',
     capture: async (selection, action, signal) => {
       signal.throwIfAborted()
       const reservation = action === 'template' ? reserveMove() : null

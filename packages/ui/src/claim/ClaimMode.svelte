@@ -12,10 +12,11 @@
 
   const clamp = (value: number, min: number, max: number): number =>
     Math.min(max, Math.max(min, Math.round(value)))
-  const capture = $derived(model.purpose === 'capture')
+  const capture = $derived(model.purpose !== 'claim')
   const hint = $derived.by(() => {
     if (model.message) return model.message
-    if (capture && model.items === 0) return 'Draw around the art to capture. Enter adds it as a template.'
+    if (model.purpose === 'capture' && model.items === 0) return 'Draw around the art to capture. Enter adds it as a template.'
+    if (model.purpose === 'update' && model.items === 0) return 'Draw around the parts to take from the canvas. Enter updates the template.'
     switch (model.tool) {
       case 'select':
         return 'Shift-click adds to the selection. Drag empty canvas to select several.'
@@ -203,7 +204,10 @@
       </div>
 
       <div class="group actions">
-        {#if capture}
+        {#if model.purpose === 'update'}
+          <Button label="Cancel" size="compact" kind="ghost" disabled={model.pending} onclick={() => onIntent({ type: 'cancel' })} />
+          <Button label="Update template" size="compact" kind="primary" disabled={model.pending || model.pixels === 0} onclick={() => onIntent({ type: 'capture', action: 'update' })} />
+        {:else if capture}
           <Button label="Cancel" size="compact" kind="ghost" disabled={model.pending} onclick={() => onIntent({ type: 'cancel' })} />
           <Button label="Download PNG" size="compact" disabled={model.pending || model.pixels === 0} onclick={() => onIntent({ type: 'capture', action: 'download' })} />
           <Button label="Add as template" size="compact" kind="primary" disabled={model.pending || model.pixels === 0} onclick={() => onIntent({ type: 'capture', action: 'template' })} />
