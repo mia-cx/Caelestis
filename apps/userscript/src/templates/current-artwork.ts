@@ -61,6 +61,55 @@ export const compositeCommittedArtwork = (
   return indices
 }
 
+/**
+ * Lay committed world art over `indices`, a row-major window at the given origin.
+ *
+ * Painted pixels overwrite; unpainted ones leave `indices` as it was. Every tile the window
+ * touches must have loaded, or this throws: absent data must never pass for transparency.
+ */
+export const overlayCommittedWorldArtwork = async (
+  indices: Uint8Array,
+  originX: number,
+  originY: number,
+  width: number,
+  height: number,
+): Promise<Uint8Array> => {
+  for (let y = 0; y < height; ) {
+    const worldY = originY + y
+    const rows = Math.min(TILE_SIZE - (worldY % TILE_SIZE), height - y)
+    for (let x = 0; x < width; ) {
+      const worldX = (originX + x) % WORLD_PIXELS
+      const columns = Math.min(TILE_SIZE - (worldX % TILE_SIZE), width - x)
+      const tile = { x: Math.floor(worldX / TILE_SIZE), y: Math.floor(worldY / TILE_SIZE) }
+      const pixels = await loadCommittedTilePixels(tile)
+      if (pixels === null)
+        throw new Error(
+          `Could not load committed Wplace tile ${tile.x}/${tile.y}. Load that area and try again.`,
+        )
+      const art = nativePixelWindow(
+        {
+          committed: [
+            {
+              x: tile.x * TILE_SIZE,
+              y: tile.y * TILE_SIZE,
+              width: TILE_SIZE,
+              height: TILE_SIZE,
+              pixels,
+              emptyIndex: UNPAINTED,
+            },
+          ],
+          draft: [],
+        },
+        { x: worldX, y: worldY, width: columns, height: rows },
+      )
+      overlayWindow(indices, width, x, y, art)
+      x += columns
+    }
+    y += rows
+  }
+  return indices
+}
+
 /** Capture complete committed art at the saved placement, including world tile crossings and east-edge wrapping. */
 export const captureCurrentArtwork = async (template: PlacedTemplate): Promise<Uint8Array> => {
   const surface = template.surface ?? WORLD_TEMPLATE_SURFACE
@@ -82,39 +131,11 @@ export const captureCurrentArtwork = async (template: PlacedTemplate): Promise<U
     return compositeCommittedArtwork(template, readArtboardPixels(active, geometry))
   }
 
-  const indices = template.indices.slice()
-  for (let y = 0; y < template.height; ) {
-    const worldY = template.originY + y
-    const height = Math.min(TILE_SIZE - (worldY % TILE_SIZE), template.height - y)
-    for (let x = 0; x < template.width; ) {
-      const worldX = (template.originX + x) % WORLD_PIXELS
-      const width = Math.min(TILE_SIZE - (worldX % TILE_SIZE), template.width - x)
-      const tile = { x: Math.floor(worldX / TILE_SIZE), y: Math.floor(worldY / TILE_SIZE) }
-      const pixels = await loadCommittedTilePixels(tile)
-      if (pixels === null)
-        throw new Error(
-          `Could not load committed Wplace tile ${tile.x}/${tile.y}. Load that area and try again.`,
-        )
-      const art = nativePixelWindow(
-        {
-          committed: [
-            {
-              x: tile.x * TILE_SIZE,
-              y: tile.y * TILE_SIZE,
-              width: TILE_SIZE,
-              height: TILE_SIZE,
-              pixels,
-              emptyIndex: UNPAINTED,
-            },
-          ],
-          draft: [],
-        },
-        { x: worldX, y: worldY, width, height },
-      )
-      overlayWindow(indices, template.width, x, y, art)
-      x += width
-    }
-    y += height
-  }
-  return indices
+  return await overlayCommittedWorldArtwork(
+    template.indices.slice(),
+    template.originX,
+    template.originY,
+    template.width,
+    template.height,
+  )
 }

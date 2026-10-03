@@ -1,15 +1,16 @@
 import type { CaelestisRailControl, RailControlIntent } from '@caelestis/ui/elements'
 import { activeAllianceSurface } from '../alliance-surface.js'
-import { isClaimModeActive, stopClaimMode } from '../claim-editor.js'
+import { claimModePurpose, stopClaimMode } from '../claim-editor.js'
 import { redraw } from '../main.js'
 import { presenceView } from '../presence-client.js'
 import { shortcutHint } from '../shortcut-bindings.js'
 import { getState, onStateChange, setState } from '../state.js'
-import { openClaimTool } from './presence-actions.js'
+import { openCaptureTool, openClaimTool } from './presence-actions.js'
 import { applyWplaceTheme } from './theme.js'
 
 export const MISMATCH_MODE_ID = 'caelestis-mismatch-mode'
 export const CLAIM_TOOL_ID = 'caelestis-claim-tool-mode'
+export const CAPTURE_TOOL_ID = 'caelestis-capture-tool-mode'
 export const PRESENCE_MODE_ID = 'caelestis-presence-mode'
 
 /**
@@ -21,6 +22,7 @@ export const installRailStateSync = (): void => {
   onStateChange(syncMismatchModeState)
   onStateChange(syncPresenceModeState)
   onStateChange(syncClaimToolState)
+  onStateChange(syncCaptureToolState)
 }
 
 export const syncPresenceModeState = (): void => {
@@ -55,7 +57,7 @@ export const presenceModeButton = (): CaelestisRailControl => {
 export const syncClaimToolState = (): void => {
   const button = document.getElementById(CLAIM_TOOL_ID) as CaelestisRailControl | null
   if (button === null) return
-  const active = isClaimModeActive()
+  const active = claimModePurpose() === 'claim'
   const view = presenceView()
   // Alliance artboards have no presence room, so claims only exist on the world canvas.
   const ready = view.connected && view.me !== null && activeAllianceSurface() === null
@@ -83,16 +85,60 @@ export const claimToolButton = (): CaelestisRailControl => {
   button.addEventListener('caelestis-rail-intent', (event) => {
     const intent = (event as CustomEvent<RailControlIntent>).detail
     if (intent.id !== 'claim') return
-    if (isClaimModeActive()) stopClaimMode()
+    if (claimModePurpose() === 'claim') stopClaimMode()
     else {
+      stopClaimMode()
       // The rail control only looks disabled; the guard is here.
       const view = presenceView()
       if (!(view.connected && view.me !== null && activeAllianceSurface() === null)) return
       openClaimTool()
     }
     syncClaimToolState()
+    syncCaptureToolState()
   })
   syncClaimToolState()
+  return button
+}
+
+export const syncCaptureToolState = (): void => {
+  const button = document.getElementById(CAPTURE_TOOL_ID) as CaelestisRailControl | null
+  if (button === null) return
+  const active = claimModePurpose() === 'capture'
+  // Alliance artboards have no world tiles to capture from.
+  const ready = activeAllianceSurface() === null
+  button.model = {
+    id: 'capture',
+    label: active ? 'Leave capture mode (Esc)' : 'Capture a region as a template',
+    title: active
+      ? 'Leave capture mode without capturing (Esc)'
+      : ready
+        ? 'Capture a region: select map art to download as a PNG or move as a new template'
+        : 'Capture a region. Only available on the world map.',
+    pressed: active,
+    ...(ready || active ? {} : { disabled: true }),
+  }
+}
+
+/** The way into capture mode, which selects map art to download or open as a template. */
+export const captureToolButton = (): CaelestisRailControl => {
+  const existing = document.getElementById(CAPTURE_TOOL_ID)
+  if (existing !== null) return existing as CaelestisRailControl
+  const button = document.createElement('caelestis-rail-control')
+  button.id = CAPTURE_TOOL_ID
+  applyWplaceTheme(button)
+  button.addEventListener('caelestis-rail-intent', (event) => {
+    const intent = (event as CustomEvent<RailControlIntent>).detail
+    if (intent.id !== 'capture') return
+    if (claimModePurpose() === 'capture') stopClaimMode()
+    else {
+      if (activeAllianceSurface() !== null) return
+      stopClaimMode()
+      openCaptureTool()
+    }
+    syncClaimToolState()
+    syncCaptureToolState()
+  })
+  syncCaptureToolState()
   return button
 }
 

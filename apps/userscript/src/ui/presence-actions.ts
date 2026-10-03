@@ -15,6 +15,7 @@ import type {
   PainterRowModel,
   PresenceSummaryModel,
 } from '@caelestis/ui/elements'
+import { captureSelection } from '../application/capture-actions.js'
 import { claimDocumentPixels, claimDocuments } from '../claim-document.js'
 import {
   type ClaimEditorHost,
@@ -281,6 +282,8 @@ const host = (): ClaimEditorHost => ({
     return result
   },
   changed: () => rerenderPanel?.(),
+  capture: (selection, action, isCurrent) =>
+    captureSelection(selection, action, () => rerenderPanel?.(), isCurrent),
 })
 
 /** Wire the editor to this module once, before anything can open it. */
@@ -319,4 +322,11 @@ export const openClaimTool = (tool?: ClaimTool, rerender?: () => void): boolean 
   installClaimEditor(host())
   startClaimMode(tool)
   return true
+}
+
+/** Enter capture mode: pick a region on the map to download or open as a new template. */
+export const openCaptureTool = (rerender?: () => void): void => {
+  if (rerender !== undefined) rerenderPanel = rerender
+  installClaimEditor(host())
+  startClaimMode(undefined, 'capture')
 }

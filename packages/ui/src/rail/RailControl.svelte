@@ -11,6 +11,7 @@
     colour: 'palette',
     mismatch: 'bug',
     claim: 'shapes',
+    capture: 'screenshotRegion',
     presence: 'painters',
     'overlay-menu': 'kebab',
     'overlay-finished': 'check',

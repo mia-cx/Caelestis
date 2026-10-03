@@ -18,6 +18,7 @@ describe('claim and appearance intent boundaries', () => {
   it('opens a tool flyout, selects the requested tool, and blocks pending actions', async () => {
     const intents: ClaimModeIntent[] = []
     const model = {
+      purpose: 'claim',
       tool: 'rectangle',
       tools: [
         { tool: 'rectangle', group: 'shape', label: 'Rectangle', key: 'R', icon: 'toolRectangle' },
@@ -62,6 +63,45 @@ describe('claim and appearance intent boundaries', () => {
     await tick()
     ;(target.querySelector('[data-tool="ellipse"]') as HTMLButtonElement).click()
     expect(intents).toEqual([{ type: 'set-tool', tool: 'ellipse' }])
+  })
+
+  it('offers the capture actions instead of saving claims while capturing', async () => {
+    const intents: ClaimModeIntent[] = []
+    const model = {
+      purpose: 'capture',
+      tool: 'rectangle',
+      tools: [
+        { tool: 'rectangle', group: 'shape', label: 'Rectangle', key: 'M', icon: 'toolRectangle' },
+      ],
+      subtract: false,
+      items: 1,
+      pixels: 12,
+      template: null,
+      selected: false,
+      selectedCount: 0,
+      dirty: true,
+      pending: false,
+      options: { minCorners: 3, maxCorners: 12, maxWidth: 200 },
+      groups: [],
+    } satisfies ClaimModeModel
+    const target = document.body.appendChild(document.createElement('div'))
+    mounted.push(
+      mount(ClaimMode, {
+        target,
+        props: { model, onIntent: (intent: ClaimModeIntent) => intents.push(intent) },
+      }),
+    )
+    const button = (label: string) =>
+      [...target.querySelectorAll('button')].find(
+        (candidate) => candidate.textContent?.trim() === label,
+      )
+    expect(button('Save claims')).toBeUndefined()
+    button('Download PNG')?.click()
+    button('Use as template')?.click()
+    expect(intents).toEqual([
+      { type: 'capture', action: 'download' },
+      { type: 'capture', action: 'template' },
+    ])
   })
 
   it('separates slider preview from commit and respects group ownership', async () => {

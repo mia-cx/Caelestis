@@ -57,6 +57,7 @@ import playArrow from '@iconify-icons/material-symbols/play-arrow'
 import rectangleGlyph from '@iconify-icons/material-symbols/rectangle'
 import refresh from '@iconify-icons/material-symbols/refresh'
 import remove from '@iconify-icons/material-symbols/remove'
+import screenshotRegion from '@iconify-icons/material-symbols/screenshot-region'
 import search from '@iconify-icons/material-symbols/search'
 import settings from '@iconify-icons/material-symbols/settings'
 import shapesGlyph from '@iconify-icons/material-symbols/shapes'
@@ -121,6 +122,7 @@ export const ICONS = define({
   keyboard,
   lightMode,
   move: openWith,
+  screenshotRegion,
   shapes: shapesGlyph,
   toolSelect: arrowSelectorTool,
   toolDirect: nearMe,
