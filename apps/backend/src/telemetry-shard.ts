@@ -36,8 +36,17 @@ export class TelemetryShard extends DurableObject<Env> {
   importCounterRows(...args: Parameters<TelemetryCoordinator['importCounterRows']>) {
     return this.coordinator.importCounterRows(...args)
   }
-  discardCounterRows() {
-    return this.coordinator.discardCounterRows()
+  discardCounterRows(operationId: string) {
+    return this.coordinator.discardCounterRows(operationId)
+  }
+  beginCounterImport(operationId: string) {
+    return this.coordinator.beginCounterImport(operationId)
+  }
+  beginCounterDiscard(operationId: string) {
+    return this.coordinator.beginCounterDiscard(operationId)
+  }
+  closeCounterOperation(operationId: string) {
+    return this.coordinator.closeCounterOperation(operationId)
   }
   freeze(operationId: string) {
     return this.coordinator.freeze(operationId)

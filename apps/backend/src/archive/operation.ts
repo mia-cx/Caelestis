@@ -2,37 +2,54 @@ import { uuidV7 } from '@caelestis/shared'
 import { ArchiveError } from './format.js'
 import {
   ARCHIVE_SETTLE_MILLISECONDS,
+  type ArchiveLease,
   type ArchiveOperationRow,
+  acquireArchiveLease,
   closeProcessWrites,
   openProcessWrites,
   readArchiveOperation,
+  releaseArchiveLease,
 } from './gate.js'
 import type { ArchiveHost } from './port.js'
 
 /**
- * The archive operation lifecycle. The `archive_operation` row is the only durable record, and
- * its `state_json` carries the phase:
+ * The archive operation lifecycle. The `archive_operation` row is the durable record of the one
+ * operation a server runs, and its `state_json` carries the phase:
  *
  *   export:  freezing → frozen → releasing → (row deleted)
  *   import:  preparing → ready → releasing → (row deleted)
  *            preparing → releasing            (refused or cancelled before anything was restored)
  *            ready → discarding → releasing   (discard; ready includes the ended archive)
  *
- * One rule makes every transition safe against crashes and concurrent calls:
+ * Concurrency is closed in two layers, because a restore and its discard write to stores that
+ * cannot share one transaction:
  *
- * 1. Every transition is a compare-and-set on the whole prior row: operation id, position, and
+ * 1. The `archive_lease` row serializes requests: every lifecycle entry point that writes takes
+ *    it with one compare-and-set before doing anything, and hands it back in `finally`. A second
+ *    request gets 409. Each lease has a fence that bumps on every take-over and a TTL, so a
+ *    crashed holder can only stall work until the lease expires. Near its deadline a call saves
+ *    progress and returns, the way the chunked steps always could. Status reads stay lock-free.
+ * 2. Fences keep a stale call safe even after its lease is taken over. Every batch an archive
+ *    call writes leads with `archiveFence`: a constraint-violating insert that fires exactly
+ *    when the operation row no longer carries the expected state or the lease no longer carries
+ *    the call's fence, aborting the whole batch. The counter store keeps a per-operation state
+ *    (importing → cleaning → closed, never backwards) that imports and cleanup must move inside
+ *    their own transaction, and outside writes check the call's deadline first, so a stalled
+ *    caller stops before it can touch a store its lease no longer covers. Discard records the
+ *    template ids it must clean before it deletes the rows that carried them, and its final
+ *    pass checks that backfill state by id; a write that slipped past its own deadline is
+ *    found there and cleaned on the repeat pass.
+ * 3. Every transition is a compare-and-set on the whole prior row: operation id, position, and
  *    state. A caller whose read went stale changes nothing and gets 409.
- * 2. Work inside a phase is idempotent, so whoever finds a row in that phase may run it again:
- *    freezing re-freezes, preparing re-checks, releasing re-thaws. A side effect that cannot join
- *    the compare-and-set is verified against the row afterwards and undone if the row moved on
- *    (`holdFor`).
- * 3. Holds belong to the operation, keyed by its id, never to a call. Any call may add one while
+ * 4. Holds belong to the operation, keyed by its id, never to a call. Any call may add one while
  *    the row holds the server; only a call that has proven the operation no longer holds may
  *    remove one. In-memory copies only add on a hold and drop on that removal; no read replaces
  *    them. Each probe of the object store uses its own random key.
- * 4. Writes reopen last. Releasing clears the counter freeze, then deletes the row, then opens
- *    the process gate. A failure leaves the row in `releasing`, still holding the server, and the
- *    next lifecycle call finishes it.
+ * 5. Writes reopen last. Releasing closes the counter operation state, then deletes the row,
+ *    then thaws the freeze, then opens the process gate — so records and flushes stay refused
+ *    while the operation still holds, and a crash between the delete and the thaw leaves only a
+ *    freeze `clearStaleFreezes` drops on the next write. A failure earlier leaves the row in
+ *    `releasing`, still holding the server, and the next lifecycle call finishes it.
  */
 export type ArchivePhase =
   | 'freezing'
@@ -64,6 +81,42 @@ export const transition = async <State extends { readonly phase: ArchivePhase }>
 
 export const changedError = () =>
   new ArchiveError('Another request changed this archive operation. Check its status.', 409)
+
+/** The archive lease was already taken when this request asked. Distinct from `changedError`. */
+export const leaseBusyError = () =>
+  new ArchiveError('Another archive request is running. Retry shortly.', 409)
+
+/** The call reached its deadline; whatever it wrote outside the database stays idempotent. */
+export class ArchiveLeaseDeadline extends ArchiveError {
+  constructor() {
+    super('This archive request ran out of time. Send it again to continue.', 409)
+  }
+}
+
+/** Refuse an external write or delete once this call is inside its lease's margin. */
+export const checkArchiveDeadline = (lease: ArchiveLease): void => {
+  if (Date.now() >= lease.deadline) throw new ArchiveLeaseDeadline()
+}
+
+/**
+ * Run one archive lifecycle request holding the lease, so at most one writes at a time across
+ * every process the database serves. The lease is handed back whatever happens; a holder that
+ * dies is taken over when its TTL expires.
+ */
+export const withArchiveLease = async <T>(
+  host: ArchiveHost,
+  operation: (lease: ArchiveLease) => Promise<T>,
+): Promise<T> => {
+  const lease = await acquireArchiveLease(host.connection)
+  if (lease === null) throw leaseBusyError()
+  try {
+    return await operation(lease)
+  } finally {
+    // A failed release is harmless: the lease expires on its own, and masking the
+    // operation's own error would hide the real outcome.
+    await releaseArchiveLease(host.connection, lease).catch(() => {})
+  }
+}
 
 const HOLDING: ReadonlySet<ArchivePhase> = new Set([
   'freezing',
@@ -150,16 +203,27 @@ export const releaseServer = async (
   return true
 }
 
-/** Thaw, delete the row, then reopen this process's writes. Each step is safe to repeat. */
+/**
+ * Close the counter operation, delete the row, then thaw and reopen this process's writes.
+ * Counters close first so nothing the operation holds can write once it ends; the freeze stays
+ * until the row is gone, so records never slip into a `releasing` operation. A crash between
+ * the delete and the thaw leaves a freeze `clearStaleFreezes` drops when it sees the gate open.
+ */
 const completeRelease = async (host: ArchiveHost, operation: ArchiveOperationRow) => {
-  await host.counters.thaw(operation.operationId)
-  const deleted = await host.connection
+  await host.counters.closeCounterOperation(operation.operationId)
+  await host.connection
     .prepare(
       'DELETE FROM "archive_operation" WHERE "id" = 1 AND "operation_id" = ? AND "state_json" = ?',
     )
     .bind(operation.operationId, operation.stateJson)
     .run()
-  if (deleted.meta.changes === 1) openProcessWrites(host.connection, operation.operationId)
+  try {
+    await host.counters.thaw(operation.operationId)
+  } finally {
+    // The row is gone: this operation's in-process hold must end even when the thaw failed —
+    // the freeze it leaves behind is cleaned by `clearStaleFreezes`.
+    openProcessWrites(host.connection, operation.operationId)
+  }
 }
 
 /** Finish a release a crash interrupted, so the next operation starts from an open server. */

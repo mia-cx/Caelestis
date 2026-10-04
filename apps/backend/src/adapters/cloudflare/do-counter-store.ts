@@ -41,23 +41,41 @@ export class DurableObjectCounterStore implements CounterStore, CounterArchive {
     return this.shard.exportCounterRows(table, after, limit)
   }
 
-  async importCounterRows(
-    operationId: string,
-    table: CounterArchiveTable,
-    rows: readonly Readonly<Record<string, string | number>>[],
-  ): Promise<void> {
+  /** RPC errors arrive as plain Errors; restore the type the restore relies on. */
+  private static async call<T>(operation: () => Promise<T>): Promise<T> {
     try {
-      await this.shard.importCounterRows(operationId, table, rows)
+      return await operation()
     } catch (error) {
-      // RPC errors arrive as plain Errors; restore the type the restore relies on.
       if (error instanceof Error && error.message === new StaleArchiveOperationError().message)
         throw new StaleArchiveOperationError()
       throw error
     }
   }
 
-  async discardCounterRows(): Promise<void> {
-    await this.shard.discardCounterRows()
+  async importCounterRows(
+    operationId: string,
+    table: CounterArchiveTable,
+    rows: readonly Readonly<Record<string, string | number>>[],
+  ): Promise<void> {
+    await DurableObjectCounterStore.call(() =>
+      this.shard.importCounterRows(operationId, table, rows),
+    )
+  }
+
+  async discardCounterRows(operationId: string): Promise<void> {
+    await DurableObjectCounterStore.call(() => this.shard.discardCounterRows(operationId))
+  }
+
+  async beginCounterImport(operationId: string): Promise<void> {
+    await this.shard.beginCounterImport(operationId)
+  }
+
+  async beginCounterDiscard(operationId: string): Promise<void> {
+    await this.shard.beginCounterDiscard(operationId)
+  }
+
+  async closeCounterOperation(operationId: string): Promise<void> {
+    await this.shard.closeCounterOperation(operationId)
   }
 
   async freeze(operationId: string): Promise<void> {

@@ -27,6 +27,7 @@ import {
   phaseOf,
   releaseServer,
   transition,
+  withArchiveLease,
 } from './operation.js'
 import type { ArchiveHost } from './port.js'
 
@@ -138,7 +139,10 @@ const settleFreeze = async (
 }
 
 /** Freeze the server, or finish freezing it; pages are readable as soon as this returns. */
-export const startExport = async (host: ArchiveHost) => {
+export const startExport = async (host: ArchiveHost) =>
+  withArchiveLease(host, () => startExportHeld(host))
+
+const startExportHeld = async (host: ArchiveHost) => {
   const current = await finishPendingRelease(host)
   const operation =
     current?.kind === 'export' && phaseOf(current) === 'freezing'
@@ -149,7 +153,10 @@ export const startExport = async (host: ArchiveHost) => {
 }
 
 /** End an export and resume writes. A source being retired can stay frozen instead. */
-export const finishExport = async (host: ArchiveHost): Promise<boolean> => {
+export const finishExport = async (host: ArchiveHost): Promise<boolean> =>
+  withArchiveLease(host, () => finishExportHeld(host))
+
+const finishExportHeld = async (host: ArchiveHost): Promise<boolean> => {
   const operation = await readArchiveOperation(host.connection)
   if (operation?.kind !== 'export') return false
   if (!(await releaseServer(host, operation))) throw changedError()
@@ -161,6 +168,12 @@ export const finishExport = async (host: ArchiveHost): Promise<boolean> => {
  * an interrupted download resumes from the last cursor it saved.
  */
 export const exportPage = async (
+  host: ArchiveHost,
+  token: string | null,
+): Promise<{ readonly lines: readonly string[]; readonly next: string | null }> =>
+  withArchiveLease(host, () => exportPageHeld(host, token))
+
+const exportPageHeld = async (
   host: ArchiveHost,
   token: string | null,
 ): Promise<{ readonly lines: readonly string[]; readonly next: string | null }> => {

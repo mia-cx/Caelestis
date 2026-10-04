@@ -30,16 +30,28 @@ const ATTEMPTS = 5
 const sleep = (milliseconds: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, milliseconds))
 
-/** One request, retried across dropped connections and gateway errors, never across refusals. */
+const LEASE_BUSY = 'archive request is running'
+/** Longest wait for another archive request's lease to end or expire. */
+const LEASE_ATTEMPTS = 70
+
+/** One request, retried across dropped connections, gateway errors, and a held archive lease. */
 const request = async (client: ArchiveClient, path: string, init: RequestInit = {}) => {
   const send = client.fetch ?? fetch
   const wait = client.wait ?? sleep
+  let leaseWait = 0
   for (let attempt = 1; ; attempt += 1) {
     try {
       const response = await send(`${client.api}/admin/archive${path}`, {
         ...init,
         headers: { authorization: `Bearer ${client.token}`, ...init.headers },
       })
+      if (response.status === 409 && (await response.clone().text()).includes(LEASE_BUSY)) {
+        if (leaseWait < LEASE_ATTEMPTS) {
+          leaseWait += 1
+          await wait(2_000)
+          continue
+        }
+      }
       if (![502, 503, 504].includes(response.status) || attempt === ATTEMPTS) return response
     } catch (error) {
       if (attempt === ATTEMPTS) throw error

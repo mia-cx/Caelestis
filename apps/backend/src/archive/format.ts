@@ -131,7 +131,11 @@ export const ARCHIVE_TABLES: readonly ArchiveTable[] = [
  * Tables deliberately outside the archive. The GC cursor is an object-store listing token that
  * means nothing to another provider, so a restored server starts its scan from the beginning.
  */
-export const UNARCHIVED_TABLES = [schema.tileBlobGcState, schema.archiveOperation].map(getTableName)
+export const UNARCHIVED_TABLES = [
+  schema.tileBlobGcState,
+  schema.archiveOperation,
+  schema.archiveLease,
+].map(getTableName)
 
 /**
  * Object-store prefixes the server owns, social previews included. Bytes and metadata travel;

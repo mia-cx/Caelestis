@@ -1,8 +1,9 @@
-import { millis } from '@caelestis/shared'
+import { millis, sha256Hex } from '@caelestis/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MemoryBlobStore } from '../src/adapters/memory/memory-blob-store.js'
 import { MemorySqlStore } from '../src/adapters/memory/memory-sql-store.js'
 import { coordinatorDatabase } from '../src/adapters/node/coordinator-database.js'
+import { SqlCoordinatorStorage } from '../src/adapters/node/coordinator-storage.js'
 import { RelationalSqlStore } from '../src/adapters/relational-sql-store.js'
 import type {
   SqlConnection,
@@ -12,6 +13,11 @@ import type {
 } from '../src/adapters/sql-connection.js'
 import { exportPage, finishExport, startExport } from '../src/archive/export.js'
 import {
+  ARCHIVE_CHAIN_SEED,
+  ARCHIVE_OBJECT_PREFIXES,
+  ARCHIVE_TABLES,
+} from '../src/archive/format.js'
+import {
   ArchiveOperationActiveError,
   closeProcessWrites,
   fencedConnection,
@@ -20,7 +26,7 @@ import {
   StaleArchiveOperationError,
 } from '../src/archive/gate.js'
 import type { ArchiveHost } from '../src/archive/port.js'
-import { discardRestore } from '../src/archive/restore.js'
+import { appendRestore, beginRestore, discardRestore } from '../src/archive/restore.js'
 import { type BackfillStorage, TemplateBackfill } from '../src/backfill/import.js'
 import type { AlarmStorage } from '../src/coordination/database.js'
 import { TelemetryCoordinator } from '../src/coordination/telemetry.js'
@@ -68,6 +74,9 @@ const archiveHost = (connection: SqlConnection, visits: { count: number }): Arch
   objects: new MemoryObjectStorage(),
   counters: {
     exportCounterRows: async () => [],
+    beginCounterImport: async () => {},
+    beginCounterDiscard: async () => {},
+    closeCounterOperation: async () => {},
     importCounterRows: async () => {},
     discardCounterRows: async () => {},
     freeze: async () => {},
@@ -183,6 +192,7 @@ describe('archive snapshot boundary', () => {
     const coordinator = await open()
     const retained = { template_id: 'mural', bucket_start_s: 0, placed: 1, correct: 1, repairs: 0 }
     await coordinator.freeze('restore-1')
+    await coordinator.beginCounterImport('restore-1')
     await coordinator.importCounterRows('restore-1', 'retained_counters', [retained])
     await coordinator.thaw('restore-1')
     await holdRow(opened.connection, 'export-1')
@@ -380,8 +390,11 @@ describe('archive operation lifecycle', () => {
       ...archiveHost(opened.connection, visits),
       counters: {
         exportCounterRows: (...args) => coordinator.exportCounterRows(...args),
+        beginCounterImport: async (id) => coordinator.beginCounterImport?.(id),
+        beginCounterDiscard: async (id) => coordinator.beginCounterDiscard?.(id),
+        closeCounterOperation: async (id) => coordinator.closeCounterOperation?.(id),
         importCounterRows: (...args) => coordinator.importCounterRows(...args),
-        discardCounterRows: () => coordinator.discardCounterRows(),
+        discardCounterRows: (id) => coordinator.discardCounterRows(id),
         freeze: async (id) => {
           await coordinator.freeze(id)
           const delay = delayNextFreeze
@@ -428,6 +441,10 @@ describe('archive operation lifecycle', () => {
     const delayed = delayFreeze()
     const start = startExport(host)
     await delayed.reached
+    // The stalled start's lease expired, so the finish can take over and finish first.
+    await opened.connection
+      .prepare('UPDATE "archive_lease" SET "expires_at_ms" = 0 WHERE "id" = 1')
+      .run()
     expect(await finishExport(host)).toBe(true)
     delayed.reply()
     await expect(start).rejects.toThrow('Another request changed')
@@ -439,20 +456,16 @@ describe('archive operation lifecycle', () => {
     expect(await finishExport(host)).toBe(false)
   })
 
-  it('keeps a release that failed to thaw retryable and the server held until it finishes', async () => {
+  it('opens the server when a release dies between deleting the row and thawing', async () => {
     const { host, coordinator, opened, failNextThaw } = await coordinatorHost()
     await startExport(host)
     failNextThaw()
     await expect(finishExport(host)).rejects.toThrow('thaw RPC failed')
-    // Still held, and visibly releasing rather than idle.
-    expect(await readArchiveOperation(opened.connection)).toMatchObject({ kind: 'export' })
-    expect(await opened.sql.archiveOperationActive({ fresh: true })).toBe(true)
-    await expect(coordinator.record([delta as never])).rejects.toBeInstanceOf(
-      ArchiveOperationActiveError,
-    )
-    expect(await finishExport(host)).toBe(true)
+    // The operation row was already deleted: the leftover freeze clears itself, and the
+    // in-process gate was reopened because the operation no longer holds the server.
     expect(await readArchiveOperation(opened.connection)).toBeNull()
     await coordinator.record([delta as never])
+    await opened.sql.writeServerSettings({ name: 'Open again' })
   })
 
   it('lets the next start finish a release a crash left behind', async () => {
@@ -549,5 +562,307 @@ describe('archive operation lifecycle', () => {
     expect(JSON.parse((await readArchiveOperation(opened.connection))?.stateJson ?? '{}')).toEqual({
       phase: 'frozen',
     })
+  })
+})
+
+describe('archive request fencing', () => {
+  const relationalStore = async () => {
+    const opened = await relational()
+    const coordinator = new TelemetryCoordinator(
+      coordinatorDatabase(opened.connection),
+      { getAlarm: async () => null, setAlarm: async () => {}, deleteAlarm: async () => {} },
+      opened.sql,
+    )
+    await coordinator.initialize()
+    return { opened, coordinator }
+  }
+
+  /** Lets one wrapped host call stall until the test releases it; later calls pass through. */
+  const pauseOnce = <A extends unknown[], R>(fn: (...args: A) => Promise<R>) => {
+    let signal!: () => void
+    const reachedAt = new Promise<void>((resolve) => (signal = resolve))
+    let resume!: () => void
+    const held = new Promise<void>((resolve) => (resume = resolve))
+    let armed = true
+    return {
+      reachedAt,
+      resume,
+      wrap: async (...args: A): Promise<R> => {
+        if (armed) {
+          armed = false
+          signal()
+          await held
+        }
+        return fn(...args)
+      },
+    }
+  }
+
+  /** Expire the held lease; a no-op against code that predates the lease table. */
+  const expireLease = async (connection: SqlConnection) => {
+    await connection
+      .prepare('UPDATE "archive_lease" SET "expires_at_ms" = 0 WHERE "id" = 1')
+      .run()
+      .then(
+        () => {},
+        () => {},
+      )
+  }
+
+  /** A restore in `ready`, frozen under `operationId`, accepting records for `tables`. */
+  const readyRestore = async (
+    coordinator: TelemetryCoordinator,
+    connection: SqlConnection,
+    operationId: string,
+    tables: Readonly<Record<string, readonly string[]>> = {},
+  ) => {
+    await coordinator.freeze(operationId)
+    await coordinator.beginCounterImport?.(operationId)
+    await connection
+      .prepare(
+        'INSERT INTO "archive_operation" ("id", "kind", "operation_id", "started_at_ms", "position", "state_json") VALUES (1, \'import\', ?, 0, 1, ?)',
+      )
+      .bind(
+        operationId,
+        JSON.stringify({
+          archiveId: 'archive-1',
+          sourceServerId: 'source-1',
+          tables,
+          chain: ARCHIVE_CHAIN_SEED,
+          counts: {},
+          ended: false,
+          phase: 'ready',
+          preservedTokens: [],
+        }),
+      )
+      .run()
+  }
+
+  const DISCARD_STEP_COUNT =
+    2 +
+    ARCHIVE_TABLES.filter((table) => table.deferred.length > 0).length +
+    ARCHIVE_TABLES.filter((table) => !table.seeded).length +
+    ARCHIVE_OBJECT_PREFIXES.length
+
+  const discardStep = async (connection: SqlConnection) => {
+    const operation = await readArchiveOperation(connection)
+    if (operation === null) return null
+    return (JSON.parse(operation.stateJson) as { discard?: { step: number } }).discard?.step ?? 0
+  }
+
+  const hostFor = (opened: { connection: SqlConnection }, coordinator: TelemetryCoordinator) => {
+    const visits = { count: 0 }
+    const base = archiveHost(opened.connection, visits)
+    const host: ArchiveHost = {
+      ...base,
+      counters: {
+        exportCounterRows: (...args) => coordinator.exportCounterRows(...args),
+        beginCounterImport: async (id) => coordinator.beginCounterImport?.(id),
+        beginCounterDiscard: async (id) => coordinator.beginCounterDiscard?.(id),
+        closeCounterOperation: async (id) => coordinator.closeCounterOperation?.(id),
+        importCounterRows: (...args) => coordinator.importCounterRows(...args),
+        discardCounterRows: (id) => coordinator.discardCounterRows(id),
+        freeze: (id) => coordinator.freeze(id),
+        thaw: (id) => coordinator.thaw(id),
+      },
+    }
+    return host
+  }
+
+  it('refuses a second archive request while one holds the lease', async () => {
+    const { opened, coordinator } = await relationalStore()
+    const host = hostFor(opened, coordinator)
+    await readyRestore(coordinator, opened.connection, 'restore-1')
+    const bytes = new Uint8Array([1, 2, 3])
+    const objects = host.objects as MemoryObjectStorage
+    const paused = pauseOnce(objects.put.bind(objects))
+    objects.put = paused.wrap as typeof objects.put
+    const append = appendRestore(host, 1, [
+      JSON.stringify({
+        kind: 'object',
+        key: 'branding/late',
+        sha256: await sha256Hex(bytes),
+        data: Buffer.from(bytes).toString('base64'),
+        metadata: {},
+      }),
+    ])
+    await paused.reachedAt
+    await expect(discardRestore(host)).rejects.toThrow('archive request is running')
+    paused.resume()
+    expect(await append).toMatchObject({ position: 2 })
+  })
+
+  it('takes over an expired lease, then fences the stale holder out of its batch', async () => {
+    const { opened, coordinator } = await relationalStore()
+    const host = hostFor(opened, coordinator)
+    await readyRestore(coordinator, opened.connection, 'restore-1', {
+      tags: ['id', 'name', 'name_key'],
+    })
+    const paused = pauseOnce((statements: SqlStatement[]) => opened.connection.batch(statements))
+    const staleHost: ArchiveHost = {
+      ...host,
+      connection: {
+        dialect: 'sqlite',
+        prepare: (query) => opened.connection.prepare(query),
+        batch: <T = unknown>(statements: SqlStatement[]) =>
+          paused.wrap(statements) as Promise<SqlResult<T>[]>,
+      },
+    }
+    const append = appendRestore(staleHost, 1, [
+      JSON.stringify({
+        kind: 'row',
+        table: 'tags',
+        values: { id: 't1', name: 'Tag', name_key: 'tag' },
+      }),
+    ])
+    await paused.reachedAt
+    await expireLease(opened.connection)
+    for (;;) if (await discardRestore(host)) break
+    paused.resume()
+    await expect(append).rejects.toThrow('Another request changed')
+    expect(await opened.connection.prepare('SELECT 1 FROM "tags"').first()).toBeNull()
+    expect(await readArchiveOperation(opened.connection)).toBeNull()
+  })
+
+  it('refuses a stale append’s counter rows that land inside the discard’s final pass', async () => {
+    const { opened, coordinator } = await relationalStore()
+    const host = hostFor(opened, coordinator)
+    await readyRestore(coordinator, opened.connection, 'restore-1')
+    const paused = pauseOnce(coordinator.importCounterRows.bind(coordinator))
+    host.counters.importCounterRows = paused.wrap as typeof host.counters.importCounterRows
+    const append = appendRestore(host, 1, [
+      JSON.stringify({
+        kind: 'counter',
+        table: 'pending_counters',
+        values: { template_id: 'mural', bucket_start_s: 0, placed: 1, correct: 0, repairs: 0 },
+      }),
+    ])
+    await paused.reachedAt
+    await expireLease(opened.connection)
+    while (((await discardStep(opened.connection)) ?? DISCARD_STEP_COUNT) < DISCARD_STEP_COUNT)
+      await discardRestore(host)
+    // The next discard call runs the final pass: stall it after the counter checks.
+    const scanning = pauseOnce(host.objects.list.bind(host.objects))
+    ;(host.objects as MemoryObjectStorage).list = scanning.wrap as never
+    const finishing = discardRestore(host)
+    await scanning.reachedAt
+    paused.resume()
+    await expect(append).rejects.toThrow()
+    scanning.resume()
+    expect(await finishing).toBe(true)
+    expect(await readArchiveOperation(opened.connection)).toBeNull()
+    expect(await coordinator.exportCounterRows('pending_counters', null, 10)).toEqual([])
+    // End to end: the emptied server accepts a new restore.
+    const begun = await beginRestore(
+      host,
+      JSON.stringify({
+        kind: 'header',
+        format: 'caelestis-server-archive',
+        version: 1,
+        id: 'archive-2',
+        createdAt: 1,
+        source: { serverId: 'source-1' },
+        tables: {},
+        counters: {},
+        objects: [],
+      }),
+    )
+    expect(begun.position).toBe(1)
+  })
+
+  it('keeps live counters when a stale discard resumes after another released', async () => {
+    const { opened, coordinator } = await relationalStore()
+    const host = hostFor(opened, coordinator)
+    await readyRestore(coordinator, opened.connection, 'restore-1')
+    const paused = pauseOnce(coordinator.discardCounterRows.bind(coordinator))
+    host.counters.discardCounterRows = paused.wrap as typeof host.counters.discardCounterRows
+    const discardA = (async () => {
+      for (;;) if (await discardRestore(host)) return
+    })()
+    await paused.reachedAt
+    await expireLease(opened.connection)
+    for (;;) if (await discardRestore(host)) break
+    const delta = {
+      templateId: 'mural',
+      occurredAt: Math.floor(Date.now() / 1000),
+      placed: 1,
+      correct: 0,
+      repairs: 0,
+    }
+    await coordinator.record([delta as never])
+    paused.resume()
+    await expect(discardA).rejects.toThrow()
+    expect(await coordinator.exportCounterRows('pending_counters', null, 10)).toHaveLength(1)
+  })
+
+  it('cleans a late backfill write the final pass finds by recorded template ids', async () => {
+    const { opened, coordinator } = await relationalStore()
+    const host = hostFor(opened, coordinator)
+    const templateColumns = [
+      'id',
+      'season',
+      'name',
+      'created_with_token',
+      'created_at_ms',
+      'updated_at_ms',
+    ]
+    await readyRestore(coordinator, opened.connection, 'restore-1', {
+      templates: templateColumns,
+    })
+    await appendRestore(host, 1, [
+      JSON.stringify({
+        kind: 'row',
+        table: 'templates',
+        values: {
+          id: 'mural',
+          season: 0,
+          name: 'Mural',
+          created_with_token: 'a'.repeat(64),
+          created_at_ms: 1,
+          updated_at_ms: 1,
+        },
+      }),
+    ])
+    const storage = new SqlCoordinatorStorage(
+      coordinatorDatabase(opened.connection),
+      'backfill:mural',
+    )
+    await SqlCoordinatorStorage.initialize(coordinatorDatabase(opened.connection))
+    const paused = pauseOnce(async (page: readonly (readonly [string, unknown])[]) => {
+      for (const [key, value] of page) await storage.put(key, value)
+    })
+    const staleHost: ArchiveHost = {
+      ...host,
+      backfill: () => ({
+        exportState: async (_after: string | null, limit: number) => [
+          ...(await storage.list({ prefix: '', limit })).entries(),
+        ],
+        importState: paused.wrap,
+        discardState: async (limit: number) => {
+          const keys = [...(await storage.list({ prefix: '', limit })).keys()]
+          if (keys.length > 0) await storage.delete(keys)
+          return (await storage.list({ prefix: '', limit: 1 })).size === 0
+        },
+      }),
+    }
+    const append = appendRestore(staleHost, 2, [
+      JSON.stringify({
+        kind: 'backfill',
+        templateId: 'mural',
+        key: 'basis:v1',
+        value: { seed: 1 },
+      }),
+    ])
+    await paused.reachedAt
+    await expireLease(opened.connection)
+    // The discard claims, records 'mural', and passes its backfill step while the append
+    // still waits: the late write lands behind the step that would have cleaned it.
+    while (((await discardStep(opened.connection)) ?? DISCARD_STEP_COUNT) < 1)
+      await discardRestore(staleHost)
+    paused.resume()
+    await expect(append).rejects.toThrow()
+    for (;;) if (await discardRestore(staleHost)) break
+    expect([...(await storage.list({ prefix: '', limit: 10 })).keys()]).toEqual([])
+    expect(await readArchiveOperation(opened.connection)).toBeNull()
   })
 })

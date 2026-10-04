@@ -19,20 +19,25 @@ import {
   parseArchiveLine,
 } from './format.js'
 import {
+  type ArchiveLease,
   type ArchiveOperationRow,
+  archiveFence,
   readArchiveOperation,
   StaleArchiveOperationError,
 } from './gate.js'
 import {
+  ArchiveLeaseDeadline,
   archiveReadyAt,
   assertSettled,
   changedError,
+  checkArchiveDeadline,
   finishPendingRelease,
   holdFor,
   holdServer,
   phaseOf,
   releaseServer,
   transition,
+  withArchiveLease,
 } from './operation.js'
 import type { ArchiveHost } from './port.js'
 
@@ -57,8 +62,16 @@ interface RestoreState {
    * these rows.
    */
   readonly preservedTokens: readonly string[]
-  /** Discard progress through DISCARD_STEPS. */
-  readonly discard?: { readonly step: number; readonly after: string | null }
+  /**
+   * Discard progress through DISCARD_STEPS. `templates` records the ids whose backfill state
+   * the discard must clean, captured before any template rows are deleted so a late backfill
+   * write can still be found without them.
+   */
+  readonly discard?: {
+    readonly step: number
+    readonly after: string | null
+    readonly templates?: readonly string[]
+  }
 }
 
 const quoted = (name: string) => `"${name}"`
@@ -120,7 +133,10 @@ const assertCompatible = (header: ArchiveHeader) => {
 }
 
 /** What the destination already holds. A restore never merges into existing data. */
-const occupiedLocations = async (host: ArchiveHost): Promise<string[]> => {
+const occupiedLocations = async (
+  host: ArchiveHost,
+  backfillIds: readonly string[] = [],
+): Promise<string[]> => {
   const occupied: string[] = []
   for (const table of ARCHIVE_TABLES) {
     if (table.seeded || table.name === 'access_tokens') continue
@@ -142,6 +158,10 @@ const occupiedLocations = async (host: ArchiveHost): Promise<string[]> => {
       : rows.length > 0
     if (residue) occupied.push(table)
   }
+  // Backfill state survives its template's row, so the discard checks it by the ids it recorded.
+  for (const templateId of backfillIds)
+    if ((await host.backfill(templateId).exportState(null, 1)).length > 0)
+      occupied.push(`backfill:${templateId}`)
   for (const prefix of ARCHIVE_OBJECT_PREFIXES)
     if ((await host.objects.list(prefix, { limit: 1 })).keys.length > 0) occupied.push(prefix)
   return occupied
@@ -177,7 +197,10 @@ const probeObjects = async (host: ArchiveHost, operationId: string) => {
  * Begin restoring into this server, or resume the same archive's interrupted restore. The server
  * answers 503 to everything else until the restore is activated or discarded.
  */
-export const beginRestore = async (host: ArchiveHost, headerLine: string) => {
+export const beginRestore = async (host: ArchiveHost, headerLine: string) =>
+  withArchiveLease(host, (lease) => beginRestoreHeld(host, lease, headerLine))
+
+const beginRestoreHeld = async (host: ArchiveHost, lease: ArchiveLease, headerLine: string) => {
   const header = parseArchiveLine(headerLine, 0)
   if (header.kind !== 'header') throw new ArchiveError('An archive must start with its header.')
   assertCompatible(header)
@@ -197,7 +220,7 @@ export const beginRestore = async (host: ArchiveHost, headerLine: string) => {
     if (state.phase === 'discarding')
       throw new ArchiveError('This restore is being discarded. Finish discarding it first.', 409)
     // A preparation that crashed or is still running is finished here; it is idempotent.
-    const ready = state.phase === 'preparing' ? await prepare(host, current) : current
+    const ready = state.phase === 'preparing' ? await prepare(host, lease, current) : current
     return {
       id: ready.operationId,
       position: ready.position,
@@ -215,7 +238,7 @@ export const beginRestore = async (host: ArchiveHost, headerLine: string) => {
     phase: 'preparing',
     preservedTokens: [],
   }
-  const ready = await prepare(host, await holdServer(host, 'import', preparing))
+  const ready = await prepare(host, lease, await holdServer(host, 'import', preparing))
   return {
     id: ready.operationId,
     position: ready.position,
@@ -231,9 +254,12 @@ export const beginRestore = async (host: ArchiveHost, headerLine: string) => {
  */
 const prepare = async (
   host: ArchiveHost,
+  lease: ArchiveLease,
   operation: ArchiveOperationRow,
 ): Promise<ArchiveOperationRow> => {
   await holdFor(host, operation)
+  // From here this operation may import counters until its discard or release says otherwise.
+  await host.counters.beginCounterImport(operation.operationId)
   let preserved: string[]
   try {
     const occupied = await occupiedLocations(host)
@@ -251,6 +277,7 @@ const prepare = async (
         409,
       )
     preserved = tokens.results.map((row) => row.token_hash)
+    checkArchiveDeadline(lease)
     await probeObjects(host, operation.operationId)
   } catch (error) {
     // A refusal restored nothing, so cancelling hands the destination back as it was. The
@@ -288,6 +315,13 @@ const rowValues = (table: ArchiveTable, state: RestoreState, values: ArchiveRow,
  */
 export const appendRestore = async (
   host: ArchiveHost,
+  position: number,
+  lines: readonly string[],
+) => withArchiveLease(host, (lease) => appendRestoreHeld(host, lease, position, lines))
+
+const appendRestoreHeld = async (
+  host: ArchiveHost,
+  lease: ArchiveLease,
   position: number,
   lines: readonly string[],
 ) => {
@@ -418,6 +452,7 @@ export const appendRestore = async (
           throw new ArchiveError(
             `The archive is corrupt: object ${record.key} does not match its SHA-256. Export it again.`,
           )
+        checkArchiveDeadline(lease)
         await host.objects.put(record.key, bytes, {
           ...(record.contentType === undefined ? {} : { contentType: record.contentType }),
           metadata: record.metadata,
@@ -427,28 +462,37 @@ export const appendRestore = async (
     }
   }
 
-  // Counters refuse rows once their own operation's freeze is gone, so a stale append cannot
-  // reach an open server; one overlapping a discard is caught by the discard's final pass.
+  // Counter and backfill writes are idempotent; each is checked against the call's deadline,
+  // and counters also against the operation's own grant, so a stale call cannot repopulate.
   try {
-    for (const [table, rows] of counterRows)
+    for (const [table, rows] of counterRows) {
+      checkArchiveDeadline(lease)
       await host.counters.importCounterRows(operation.operationId, table, rows)
+    }
   } catch (error) {
     if (error instanceof StaleArchiveOperationError) throw changedError()
     throw error
   }
-  for (const [templateId, page] of backfillPages) await host.backfill(templateId).importState(page)
+  for (const [templateId, page] of backfillPages) {
+    checkArchiveDeadline(lease)
+    await host.backfill(templateId).importState(page)
+  }
 
   const next = position + lines.length
   const nextState: RestoreState = { ...state, chain, counts, ended }
-  // A concurrent or replayed append finds the position moved, and a discard finds the state
-  // changed; either way NULL violates NOT NULL and aborts the whole batch, rows included.
+  // The fence aborts the whole batch unless the operation still carries exactly this state and
+  // the lease is still this call's — a stale call commits nothing, rows included.
   const advance = host.connection
     .prepare(
-      'UPDATE "archive_operation" SET "position" = CASE WHEN "position" = ? AND "state_json" = ? THEN CAST(? AS BIGINT) ELSE NULL END, "state_json" = ? WHERE "id" = 1',
+      'UPDATE "archive_operation" SET "position" = ?, "state_json" = ? WHERE "id" = 1 AND "operation_id" = ? AND "position" = ? AND "state_json" = ?',
     )
-    .bind(position, operation.stateJson, next, JSON.stringify(nextState))
+    .bind(next, JSON.stringify(nextState), operation.operationId, position, operation.stateJson)
   try {
-    await host.connection.batch([advance, ...statements])
+    await host.connection.batch([
+      archiveFence(host.connection, operation, lease),
+      advance,
+      ...statements,
+    ])
   } catch (cause) {
     const current = await readArchiveOperation(host.connection)
     if (current?.stateJson !== operation.stateJson)
@@ -464,7 +508,10 @@ export const appendRestore = async (
 }
 
 /** Open the restored server once the archive's end record has verified every count and checksum. */
-export const activateRestore = async (host: ArchiveHost) => {
+export const activateRestore = async (host: ArchiveHost) =>
+  withArchiveLease(host, () => activateRestoreHeld(host))
+
+const activateRestoreHeld = async (host: ArchiveHost) => {
   const { operation, state } = await restoreOperation(host)
   if (state.discard !== undefined) {
     // A discard that already reached releasing is finished, never activated.
@@ -508,7 +555,10 @@ const DISCARD_STEPS: readonly DiscardStep[] = [
  * Undo a restore one bounded step per call, keeping the destination's own credentials. Returns
  * true when the server is empty and open again.
  */
-export const discardRestore = async (host: ArchiveHost): Promise<boolean> => {
+export const discardRestore = async (host: ArchiveHost): Promise<boolean> =>
+  withArchiveLease(host, (lease) => discardRestoreHeld(host, lease))
+
+const discardRestoreHeld = async (host: ArchiveHost, lease: ArchiveLease): Promise<boolean> => {
   const { operation, state } = await restoreOperation(host)
   // Nothing was restored before `ready`, and releasing only finishes: neither deletes anything.
   if (state.phase === 'preparing' || state.phase === 'releasing') {
@@ -520,79 +570,128 @@ export const discardRestore = async (host: ArchiveHost): Promise<boolean> => {
       throw changedError()
   }
   // Mark the discard before deleting anything, so activation can no longer open this state.
-  // The operation's own freeze stays in place until release, so only the compare-and-set
-  // decides which overlapping discard proceeds; a losing call acquired nothing to undo.
+  // The lease serializes discard callers, and the compare-and-set claim backs it up: a stale
+  // caller whose lease was taken over changes nothing.
   if (state.phase === 'ready') {
     await saveProgress({ step: 0, after: null })
+    // The claim won: from here this operation's counter imports are refused while its own
+    // cleanup may still run. A crash before this is covered at the top of the next call.
+    await host.counters.beginCounterDiscard(operation.operationId)
     return false
   }
   const progress = state.discard ?? { step: 0, after: null }
-  const step = DISCARD_STEPS[progress.step]
-  if (step === undefined) {
-    // An append that was already running when the discard began may have written objects or
-    // counters after their step; start over until a full pass finds nothing left.
-    if ((await occupiedLocations(host)).length > 0) {
-      await saveProgress({ step: 0, after: null })
+  // Idempotent: a discard that crashed right after claiming the row revokes imports here.
+  await host.counters.beginCounterDiscard(operation.operationId)
+  try {
+    const step = DISCARD_STEPS[progress.step]
+    if (step === undefined) {
+      // A cheap extra pass: an in-flight write that outlived its own lease deadline may have
+      // landed after its step ran, so check every location one more time before releasing.
+      if ((await occupiedLocations(host, progress.templates ?? [])).length > 0) {
+        // Restart from the recorded ids: the template rows are already gone, so the ids
+        // cannot be discovered again.
+        await saveProgress({
+          step: 0,
+          after: null,
+          ...(progress.templates === undefined ? {} : { templates: progress.templates }),
+        })
+        return false
+      }
+      if (!(await releaseServer(host, operation))) throw changedError()
+      return true
+    }
+    let next: NonNullable<RestoreState['discard']> = {
+      step: progress.step + 1,
+      after: null,
+      ...(progress.templates === undefined ? {} : { templates: progress.templates }),
+    }
+    switch (step.kind) {
+      case 'backfill': {
+        // Record the ids to clean before any template rows are deleted: a late backfill write
+        // outlives its row, and later steps can no longer discover the ids through the table.
+        if (progress.templates === undefined) {
+          const ids = await host.connection
+            .prepare('SELECT "id" FROM "templates" ORDER BY "id"')
+            .all<{ id: string }>()
+          next = {
+            step: progress.step,
+            after: null,
+            templates: ids.results.map((row) => row.id),
+          }
+          break
+        }
+        const index = progress.after === null ? 0 : progress.templates.indexOf(progress.after) + 1
+        const templateId = progress.templates[index]
+        if (templateId === undefined) break
+        checkArchiveDeadline(lease)
+        const done = await host.backfill(templateId).discardState(DISCARD_PAGE)
+        next = {
+          step: progress.step,
+          after: done ? templateId : progress.after,
+          templates: progress.templates,
+        }
+        break
+      }
+      case 'counters':
+        checkArchiveDeadline(lease)
+        try {
+          await host.counters.discardCounterRows(operation.operationId)
+        } catch (error) {
+          if (error instanceof StaleArchiveOperationError) throw changedError()
+          throw error
+        }
+        break
+      case 'unlink':
+        checkArchiveDeadline(lease)
+        await host.connection.batch([
+          archiveFence(host.connection, operation, lease),
+          host.connection.prepare(
+            `UPDATE ${quoted(step.table.name)} SET ${step.table.deferred.map((name) => `${quoted(name)} = NULL`).join(', ')}`,
+          ),
+        ])
+        break
+      case 'rows': {
+        const { table } = step
+        const kept = table.name === 'access_tokens' ? state.preservedTokens : []
+        const keys = await host.connection
+          .prepare(
+            `SELECT ${table.key.map(quoted).join(', ')} FROM ${quoted(table.name)}${kept.length === 0 ? '' : ` WHERE "token_hash" NOT IN (${kept.map(() => '?').join(', ')})`} LIMIT ${DISCARD_PAGE}`,
+          )
+          .bind(...kept)
+          .all<Record<string, unknown>>()
+        if (keys.results.length === 0) break
+        checkArchiveDeadline(lease)
+        await host.connection.batch([
+          archiveFence(host.connection, operation, lease),
+          ...keys.results.map((row) =>
+            host.connection
+              .prepare(
+                `DELETE FROM ${quoted(table.name)} WHERE ${table.key.map((name) => `${quoted(name)} = ?`).join(' AND ')}`,
+              )
+              .bind(...table.key.map((name) => row[name])),
+          ),
+        ])
+        next = progress
+        break
+      }
+      case 'objects': {
+        const page = await host.objects.list(step.prefix, { limit: DISCARD_PAGE })
+        if (page.keys.length === 0) break
+        checkArchiveDeadline(lease)
+        await host.objects.delete(page.keys)
+        next = progress
+        break
+      }
+    }
+    await saveProgress(next)
+  } catch (error) {
+    // Out of lease time: progress already saved is picked up by the next call.
+    if (error instanceof ArchiveLeaseDeadline) {
+      await saveProgress(progress)
       return false
     }
-    if (!(await releaseServer(host, operation))) throw changedError()
-    return true
+    throw error
   }
-  let next: { step: number; after: string | null } = { step: progress.step + 1, after: null }
-  switch (step.kind) {
-    case 'backfill': {
-      const template = await host.connection
-        .prepare(
-          `SELECT "id" FROM "templates"${progress.after === null ? '' : ' WHERE "id" > ?'} ORDER BY "id" LIMIT 1`,
-        )
-        .bind(...(progress.after === null ? [] : [progress.after]))
-        .first<{ id: string }>()
-      if (template === null) break
-      const done = await host.backfill(template.id).discardState(DISCARD_PAGE)
-      next = { step: progress.step, after: done ? template.id : progress.after }
-      break
-    }
-    case 'counters':
-      await host.counters.discardCounterRows()
-      break
-    case 'unlink':
-      await host.connection
-        .prepare(
-          `UPDATE ${quoted(step.table.name)} SET ${step.table.deferred.map((name) => `${quoted(name)} = NULL`).join(', ')}`,
-        )
-        .run()
-      break
-    case 'rows': {
-      const { table } = step
-      const kept = table.name === 'access_tokens' ? state.preservedTokens : []
-      const keys = await host.connection
-        .prepare(
-          `SELECT ${table.key.map(quoted).join(', ')} FROM ${quoted(table.name)}${kept.length === 0 ? '' : ` WHERE "token_hash" NOT IN (${kept.map(() => '?').join(', ')})`} LIMIT ${DISCARD_PAGE}`,
-        )
-        .bind(...kept)
-        .all<Record<string, unknown>>()
-      if (keys.results.length === 0) break
-      await host.connection.batch(
-        keys.results.map((row) =>
-          host.connection
-            .prepare(
-              `DELETE FROM ${quoted(table.name)} WHERE ${table.key.map((name) => `${quoted(name)} = ?`).join(' AND ')}`,
-            )
-            .bind(...table.key.map((name) => row[name])),
-        ),
-      )
-      next = progress
-      break
-    }
-    case 'objects': {
-      const page = await host.objects.list(step.prefix, { limit: DISCARD_PAGE })
-      if (page.keys.length === 0) break
-      await host.objects.delete(page.keys)
-      next = progress
-      break
-    }
-  }
-  await saveProgress(next)
   return false
 }
 

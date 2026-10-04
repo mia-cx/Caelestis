@@ -318,6 +318,56 @@ export class TelemetryCoordinator {
     )
   }
 
+  /**
+   * Advance `operationId`'s counter state, which only moves forward: importing (0), cleaning
+   * (1), closed (2). The row appears in state 0 for an operation that never opened — a discard
+   * or release of a restore that crashed before its first hold still closes it cleanly.
+   */
+  private async moveCounterOperation(operationId: string, to: number): Promise<void> {
+    await this.database.run(
+      'INSERT INTO counter_archive_operation (operation_id, state) VALUES (?1, 0) ON CONFLICT DO NOTHING',
+      operationId,
+    )
+    await this.database.run(
+      'UPDATE counter_archive_operation SET state = ?1 WHERE operation_id = ?2 AND state < ?1',
+      to,
+      operationId,
+    )
+  }
+
+  /** Open counter rows to `operationId`'s imports. */
+  async beginCounterImport(operationId: string): Promise<void> {
+    await this.moveCounterOperation(operationId, 0)
+  }
+
+  /** Stop `operationId`'s imports; its own discard may still clean the rows it wrote. */
+  async beginCounterDiscard(operationId: string): Promise<void> {
+    await this.moveCounterOperation(operationId, 1)
+  }
+
+  /** Close `operationId`'s counters: neither imports nor cleanup may write for it again. */
+  async closeCounterOperation(operationId: string): Promise<void> {
+    await this.moveCounterOperation(operationId, 2)
+  }
+
+  /**
+   * The fence every counter import or cleanup must move inside its own transaction: it really
+   * modifies the operation's row (MariaDB reports no-op updates as zero rows), so contending
+   * writers serialize on it and a revoked grant reports zero changes.
+   */
+  private async claimCounterState(
+    database: CoordinatorDatabase,
+    operationId: string,
+    state: number,
+  ): Promise<void> {
+    const claimed = await database.run(
+      'UPDATE counter_archive_operation SET uses = uses + 1 WHERE operation_id = ?1 AND state = ?2',
+      operationId,
+      state,
+    )
+    if (claimed.rowsWritten !== 1) throw new StaleArchiveOperationError()
+  }
+
   /** Restore archived rows over the seeded singletons, then wake the flush they may need. */
   async importCounterRows(
     operationId: string,
@@ -327,8 +377,9 @@ export class TelemetryCoordinator {
     const { key, columns } = COUNTER_ARCHIVE_TABLES[table]
     const updates = columns.filter((column) => !(key as readonly string[]).includes(column))
     await this.database.transaction(async (database) => {
-      // Checked in the same transaction as the writes: an append still running after its own
-      // operation's freeze is gone changes nothing, whatever a newer operation holds.
+      // Checked in the same transaction as the writes: once a discard or release moved this
+      // operation's counter state forward, its late imports change nothing.
+      await this.claimCounterState(database, operationId, 0)
       const held = await database.all(
         'SELECT 1 FROM counter_freeze WHERE operation_id = ?1',
         operationId,
@@ -344,8 +395,10 @@ export class TelemetryCoordinator {
   }
 
   /** Return to a new server's state after a discarded restore. */
-  async discardCounterRows(): Promise<void> {
+  async discardCounterRows(operationId: string): Promise<void> {
     await this.database.transaction(async (database) => {
+      // A stale discard cannot empty counters its operation already closed.
+      await this.claimCounterState(database, operationId, 1)
       for (const table of Object.keys(COUNTER_ARCHIVE_TABLES))
         await database.run(`DELETE FROM ${table}`)
     })
@@ -598,6 +651,11 @@ export class TelemetryCoordinator {
         ON applied_counter_events (seen_at_ms);
       CREATE TABLE IF NOT EXISTS counter_freeze (
         operation_id VARCHAR(128) PRIMARY KEY
+      );
+      CREATE TABLE IF NOT EXISTS counter_archive_operation (
+        operation_id VARCHAR(128) PRIMARY KEY,
+        state BIGINT NOT NULL,
+        uses BIGINT NOT NULL DEFAULT 0
       );
 `
       .split(';')

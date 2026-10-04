@@ -1,3 +1,4 @@
+import { uuidV7 } from '@caelestis/shared'
 import type { SqlConnection, SqlResult, SqlStatement } from '../adapters/sql-connection.js'
 
 /** How long one store trusts its last gate read before reading it again. */
@@ -31,6 +32,95 @@ export class StaleArchiveOperationError extends Error {
     super('This archive operation no longer holds the server')
   }
 }
+
+/** How long one archive request may hold the lease before another may take it over. */
+export const ARCHIVE_LEASE_TTL_MILLISECONDS = 120_000
+/** A call stops writing to outside stores this long before its lease would expire. */
+export const ARCHIVE_LEASE_MARGIN_MILLISECONDS = 15_000
+
+/**
+ * The lease one archive request holds. `fence` goes up on every take-over, so a stalled caller's
+ * guarded writes can always be told from the current holder's.
+ */
+export interface ArchiveLease {
+  readonly holder: string
+  readonly fence: number
+  readonly expiresAt: number
+  /** External writes and deletions must stop at `expiresAt` minus the margin. */
+  readonly deadline: number
+}
+
+/**
+ * Take the archive lease for one request, or null when a live request holds it. The fence is
+ * read back under the unique holder id, so a take-over can never borrow another holder's fence.
+ */
+export const acquireArchiveLease = async (
+  connection: SqlConnection,
+  now = Date.now(),
+): Promise<ArchiveLease | null> => {
+  const holder = uuidV7()
+  const expiresAt = now + ARCHIVE_LEASE_TTL_MILLISECONDS
+  const taken = await connection
+    .prepare(
+      'UPDATE "archive_lease" SET "holder" = ?, "fence" = "fence" + 1, "expires_at_ms" = ? WHERE "id" = 1 AND ("holder" IS NULL OR "expires_at_ms" < ?)',
+    )
+    .bind(holder, expiresAt, now)
+    .run()
+  if (taken.meta.changes !== 1) return null
+  const row = await connection
+    .prepare('SELECT "fence" FROM "archive_lease" WHERE "id" = 1 AND "holder" = ?')
+    .bind(holder)
+    .first<{ fence: number }>()
+  if (row === null) return null
+  return {
+    holder,
+    fence: Number(row.fence),
+    expiresAt,
+    deadline: expiresAt - ARCHIVE_LEASE_MARGIN_MILLISECONDS,
+  }
+}
+
+/** Give the lease back; only the same holder and fence can, so a take-over stays taken. */
+export const releaseArchiveLease = async (
+  connection: SqlConnection,
+  lease: ArchiveLease,
+): Promise<void> => {
+  await connection
+    .prepare(
+      'UPDATE "archive_lease" SET "holder" = NULL WHERE "id" = 1 AND "holder" = ? AND "fence" = ?',
+    )
+    .bind(lease.holder, lease.fence)
+    .run()
+}
+
+/**
+ * A batch statement that commits nothing unless the operation row still carries exactly
+ * `operation`'s state and `lease` is still this call's. It inserts a row that violates the
+ * table's CHECK constraints precisely when either check fails — a missing row, a moved-on state,
+ * or a taken-over lease all abort the batch. When both hold it inserts nothing.
+ */
+export const archiveFence = (
+  connection: SqlConnection,
+  operation: ArchiveOperationRow,
+  lease: ArchiveLease,
+): SqlStatement =>
+  connection
+    .prepare(
+      `INSERT INTO "archive_operation" ("id", "kind", "operation_id", "started_at_ms", "position", "state_json")
+       SELECT 0, '', '', 0, 0, ''
+       WHERE NOT EXISTS (
+         SELECT 1
+         FROM "archive_operation" AS operation, "archive_lease" AS lease
+         WHERE operation."id" = 1
+           AND operation."operation_id" = ?
+           AND operation."position" = ?
+           AND operation."state_json" = ?
+           AND lease."id" = 1
+           AND lease."holder" = ?
+           AND lease."fence" = ?
+       )`,
+    )
+    .bind(operation.operationId, operation.position, operation.stateJson, lease.holder, lease.fence)
 
 export const readArchiveOperation = async (
   connection: SqlConnection,

@@ -421,7 +421,7 @@ describe('server archives', { timeout: 60_000 }, () => {
     expect(manifest.status).toBe(200)
   })
 
-  it('lets a cancellation during preparation win over publishing ready', async () => {
+  it('refuses a cancellation racing preparation, then honours the retry', async () => {
     const file = await scratch()
     const source = await server()
     const archive = await exportServer(source, file('empty.ndjson'))
@@ -432,32 +432,44 @@ describe('server archives', { timeout: 60_000 }, () => {
       body: archive.split('\n')[0] ?? '',
     })
     await objects.probing
-    expect(
-      await (await admin(destination, '/admin/archive/import', { method: 'DELETE' })).json(),
-    ).toEqual({ done: true })
+    const cancelled = await admin(destination, '/admin/archive/import', { method: 'DELETE' })
+    expect(cancelled.status).toBe(409)
+    expect(await errorOf(cancelled)).toContain('archive request is running')
     objects.release()
-    const refused = await begin
-    expect(refused.status).toBe(409)
-    expect(await errorOf(refused)).toContain('Another request changed')
+    expect((await begin).status).toBe(201)
+    for (;;) {
+      const cancelling = (await (
+        await admin(destination, '/admin/archive/import', { method: 'DELETE' })
+      ).json()) as { done?: boolean }
+      if (cancelling.done === true) break
+    }
     expect(await (await admin(destination, '/admin/archive')).json()).toEqual({ operation: null })
   })
 
-  it('lets overlapping preparations probe the object store without disturbing each other', async () => {
+  it('serializes overlapping preparations on the archive lease', async () => {
     const file = await scratch()
     const source = await server()
     const archive = await exportServer(source, file('empty.ndjson'))
-    const objects = new OverlappingProbes()
+    const objects = new HeldProbe()
     const destination = await server({ objects })
     const header = archive.split('\n')[0] ?? ''
     const first = admin(destination, '/admin/archive/import', { method: 'POST', body: header })
-    await objects.firstDeleting
-    // The retry re-runs preparation while the first is still between its probe read and delete.
+    await objects.probing
+    // The retry arrives while the first still holds the lease, so it is refused, not run.
     const retry = await admin(destination, '/admin/archive/import', {
       method: 'POST',
       body: header,
     })
-    expect(retry.status).toBe(200)
+    expect(retry.status).toBe(409)
+    expect(await errorOf(retry)).toContain('archive request is running')
+    objects.release()
     expect((await first).status).toBe(201)
+    // Once the lease frees, the same request takes over and reports the running import.
+    const resumed = await admin(destination, '/admin/archive/import', {
+      method: 'POST',
+      body: header,
+    })
+    expect(resumed.status).toBe(200)
     expect(await (await admin(destination, '/admin/archive')).json()).toMatchObject({
       operation: { phase: 'ready' },
     })
@@ -479,45 +491,6 @@ describe('server archives', { timeout: 60_000 }, () => {
 })
 
 /** Holds the restore's object-store probe until released, so a test can race it. */
-/**
- * Interleaves two restore probes: the first deletes only after the second has written, and the
- * second reads only after that delete, as two overlapping preparations can.
- */
-class OverlappingProbes extends MemoryObjectStorage {
-  private puts = 0
-  private gets = 0
-  private deletes = 0
-  private signal = (): (() => void) & { readonly done: Promise<void> } => {
-    let resolve: () => void = () => {}
-    const done = new Promise<void>((settle) => {
-      resolve = settle
-    })
-    return Object.assign(() => resolve(), { done })
-  }
-  private readonly secondPut = this.signal()
-  private readonly firstDeleted = this.signal()
-  private readonly deleting = this.signal()
-  readonly firstDeleting = this.deleting.done
-  override async put(...args: Parameters<MemoryObjectStorage['put']>) {
-    const second = args[0].startsWith('archive-probe/') && ++this.puts === 2
-    const stored = await super.put(...args)
-    if (second) this.secondPut()
-    return stored
-  }
-  override async get(key: string) {
-    if (key.startsWith('archive-probe/') && ++this.gets === 2) await this.firstDeleted.done
-    return super.get(key)
-  }
-  override async delete(keys: readonly string[]) {
-    if (!keys.some((key) => key.startsWith('archive-probe/')) || ++this.deletes !== 1)
-      return super.delete(keys)
-    this.deleting()
-    await this.secondPut.done
-    await super.delete(keys)
-    this.firstDeleted()
-  }
-}
-
 class HeldProbe extends MemoryObjectStorage {
   private entered: () => void = () => {}
   readonly probing = new Promise<void>((resolve) => {
