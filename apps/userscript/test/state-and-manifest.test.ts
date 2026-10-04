@@ -56,6 +56,50 @@ describe('saved server state', () => {
 })
 
 describe('server manifest admission', () => {
+  it.each(['newer live manifest', 'replaced connection'] as const)(
+    'does not adopt release metadata from a poll superseded by a %s',
+    async (replacement) => {
+      const state = await loadState()
+      const server = {
+        url: 'https://example.test',
+        info: { id: serverId, name: 'Example', auth: 'none' as const, version: '0.8.0' },
+        token: null,
+        status: 'connected' as const,
+        isAdmin: false,
+        season: 1,
+      }
+      state.upsertServer(server)
+      const manifest = (version: string) => ({
+        version: 'manifest-revision',
+        season: 1,
+        server: { ...server.info, version },
+        nodes: [],
+        templates: [],
+        tiles: [],
+      })
+      let respond: ((response: Response) => void) | undefined
+      const response = new Promise<Response>((resolve) => {
+        respond = resolve
+      })
+      const fetch = vi.fn(() => response)
+      vi.stubGlobal('fetch', fetch)
+      window.fetch = fetch
+      const pending = state.listServerContents(server)
+      expect(fetch).toHaveBeenCalledOnce()
+      if (replacement === 'newer live manifest') {
+        expect(state.applyLiveServerManifest(server, manifest('0.9.0'))).not.toBeNull()
+      } else {
+        state.removeServer(server.url)
+        state.upsertServer({ ...server, info: { ...server.info, version: '0.9.0' } })
+        expect(state.applyLiveServerManifest(server, manifest('0.8.1'))).toBeNull()
+      }
+      if (respond === undefined) throw new Error('poll response was not initialized')
+      respond(Response.json(manifest('0.8.1')))
+      await pending
+      expect(state.getState().servers[0]?.info?.version).toBe('0.9.0')
+    },
+  )
+
   it('rejects duplicate tree paths and accepts valid server identity', async () => {
     const { parseServerInfo, parseTreeNodes } = await import('../src/server-manifest.js')
     expect(parseServerInfo({ id: serverId, name: 'Example', auth: 'none' })).toMatchObject({

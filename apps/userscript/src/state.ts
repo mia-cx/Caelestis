@@ -1629,6 +1629,25 @@ const awaitReadOrAbort = <T>(read: Promise<T>, signal: AbortSignal): Promise<T |
     )
   })
 
+const refreshServerRelease = (server: ConnectedServer, release: ServerInfo): ConnectedServer => {
+  if (
+    server.info === null ||
+    (server.info.version === release.version && server.info.build === release.build)
+  )
+    return server
+  const { version: _version, build: _build, ...info } = server.info
+  const updated = {
+    ...server,
+    info: {
+      ...info,
+      ...(release.version === undefined ? {} : { version: release.version }),
+      ...(release.build === undefined ? {} : { build: release.build }),
+    },
+  }
+  upsertServer(updated)
+  return updated
+}
+
 export const listServerContents = async (
   server: ConnectedServer,
   signal?: AbortSignal,
@@ -1682,9 +1701,10 @@ export const listServerContents = async (
           request > (latestManifestResponse.get(server.url) ?? 0)
         ) {
           latestManifestResponse.set(server.url, request)
+          const updated = refreshServerRelease(current, manifest.server)
           for (const listener of serverContentsListeners) {
             try {
-              listener(current, contents)
+              listener(updated, contents)
             } catch (error) {
               warn('install', 'could not publish fresh manifest contents', String(error))
             }
@@ -1721,9 +1741,10 @@ export const applyLiveServerManifest = (
   manifestResponseOf.set(contents, request)
   const current = getState().servers.find((candidate) => candidate.url === server.url)
   if (current === undefined || !isCurrentServerConnection(server)) return null
+  const updated = refreshServerRelease(current, manifest.server)
   for (const listener of serverContentsListeners) {
     try {
-      listener(current, contents)
+      listener(updated, contents)
     } catch (error) {
       warn('install', 'could not publish live manifest contents', String(error))
     }
