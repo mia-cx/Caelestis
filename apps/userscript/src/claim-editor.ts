@@ -67,10 +67,9 @@ import { dismissWplacePixelCard } from './wplace-pixel-card.js'
  * Claim mode: a small vector editor over the map.
  *
  * A claim is a document of shapes, each adding to or cutting from the claimed pixels, and every
- * shape stays editable. The drawer on the left holds the tools; the bar at the top holds the
- * options and the cancel or confirm buttons. Nothing sits over the map: pointer events are
- * watched at the window in the capture phase and consumed only when the tool in hand wants
- * them. Outside claim mode nothing here listens at all.
+ * shape stays editable. Desktop tools sit at the left and top; phones use one bottom toolbar.
+ * Window listeners consume drawing gestures before they reach the map. Outside the editor,
+ * gestures pass through untouched.
  *
  * Tools and keys follow Illustrator: selection (V: click, Shift-click to add, drag to move, drag
  * empty canvas for a marquee, handles to resize or rotate), direct selection (A: anchors and
@@ -892,12 +891,27 @@ const consume = (event: Event): void => {
   if (event.type === 'pointerdown') consumedPress = (event as PointerEvent).pointerId
 }
 
+let drawingTouch = false
+
+/** Wplace also listens to Touch Events, so consuming a pointer alone still lets the map pan. */
+const onTouch = (event: TouchEvent): void => {
+  if (event.type === 'touchstart' && active && consumedPress !== null) drawingTouch = true
+  if (!drawingTouch) return
+  consume(event)
+  if (event.touches.length === 0) drawingTouch = false
+}
+
 /** Eat the click that follows a consumed press, so Wplace never sees it as a pixel placement. */
 const swallowNextClick = (): void => {
   const swallow = (event: Event): void => {
     window.removeEventListener('click', swallow, true)
     clearTimeout(timer)
-    consume(event)
+    // Touch may emit no follow-up click. Never eat the user's next toolbar action instead.
+    if (
+      isMapInteractionTarget(event.target) ||
+      (event.target instanceof Node && overlay?.contains(event.target))
+    )
+      consume(event)
   }
   const timer = setTimeout(() => window.removeEventListener('click', swallow, true), 400)
   window.addEventListener('click', swallow, true)
@@ -2305,6 +2319,8 @@ export const installClaimEditor = (editorHost: ClaimEditorHost): void => {
   window.addEventListener('pointermove', onPointerMove, true)
   window.addEventListener('pointerup', onPointerEnd, true)
   window.addEventListener('pointercancel', onPointerCancel, true)
+  for (const type of ['touchstart', 'touchmove', 'touchend', 'touchcancel'] as const)
+    window.addEventListener(type, onTouch, { capture: true, passive: false })
   window.addEventListener('keydown', onKeydown, true)
   window.addEventListener('keyup', onKeyup, true)
   window.addEventListener('wheel', onWheel, { capture: true, passive: false })

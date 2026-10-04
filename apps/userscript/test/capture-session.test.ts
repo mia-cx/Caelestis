@@ -10,7 +10,7 @@ import {
 
 vi.mock('../src/main.js', () => ({
   canvasPixelAt: (x: number, y: number) => ({ x, y }),
-  isMapInteractionTarget: () => true,
+  isMapInteractionTarget: (target: EventTarget | null) => target instanceof HTMLCanvasElement,
   screenProjection: () => null,
 }))
 vi.mock('../src/map-handle.js', () => ({ getMap: () => null }))
@@ -20,6 +20,60 @@ vi.mock('../src/wplace-pixel-card.js', () => ({ dismissWplacePixelCard: () => {}
 afterEach(() => {
   stopClaimMode()
   document.body.replaceChildren()
+})
+
+it('owns touch drawing without swallowing the next toolbar action or Hand gesture', () => {
+  const canvas = document.body.appendChild(document.createElement('canvas'))
+  const mapTouch = vi.fn()
+  canvas.addEventListener('touchstart', mapTouch)
+  canvas.addEventListener('touchmove', mapTouch)
+  canvas.addEventListener('touchend', mapTouch)
+  installClaimEditor({
+    myRegions: () => [],
+    templateFor: () => null,
+    changed: () => {},
+    save: async () => ({ ids: [], error: null }),
+  })
+  startCaptureMode({ capture: async () => null })
+  const gesture = () => {
+    for (const [pointer, touch, x, down] of [
+      ['pointerdown', 'touchstart', 10, true],
+      ['pointermove', 'touchmove', 30, true],
+      ['pointerup', 'touchend', 30, false],
+    ] as const) {
+      canvas.dispatchEvent(
+        new PointerEvent(pointer, {
+          bubbles: true,
+          cancelable: true,
+          pointerId: 1,
+          pointerType: 'touch',
+          button: 0,
+          clientX: x,
+          clientY: x,
+        }),
+      )
+      canvas.dispatchEvent(
+        new TouchEvent(touch, {
+          bubbles: true,
+          cancelable: true,
+          touches: down
+            ? [new Touch({ identifier: 1, target: canvas, clientX: x, clientY: x })]
+            : [],
+        }),
+      )
+    }
+  }
+
+  gesture()
+  expect(claimModeModel().pixels).toBeGreaterThan(0)
+  expect(mapTouch).not.toHaveBeenCalled()
+
+  const hand = document.body.appendChild(document.createElement('button'))
+  hand.addEventListener('click', () => handleClaimModeIntent({ type: 'set-tool', tool: 'hand' }))
+  hand.click()
+  expect(claimModeModel().tool).toBe('hand')
+  gesture()
+  expect(mapTouch).toHaveBeenCalledTimes(3)
 })
 
 it('aborts a closed capture and leaves a newer selection intact when its result arrives', async () => {
