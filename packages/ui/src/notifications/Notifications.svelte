@@ -1,5 +1,6 @@
 <script lang="ts">
   import { tick } from 'svelte'
+  import { surfaceCloseDurationMs } from '../foundations/motion.js'
   import Button from '../foundations/Button.svelte'
   import Icon from '../foundations/Icon.svelte'
   import type { IconName } from '../foundations/icons.svelte.js'
@@ -71,11 +72,22 @@
     const intent: NotificationsIntent = { type: 'dismiss-toast', id }
     onIntent?.(intent)
   }
+
+  /**
+   * Keeps a dismissed toast mounted for its declared close duration while `data-state="closing"`
+   * runs the CSS exit. A bare `out:` duration is the retention; the visuals are the stylesheet's.
+   */
+  const toastOut = (node: HTMLElement): { duration: number } => {
+    node.dataset.state = 'closing'
+    const reduced =
+      typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+    return { duration: reduced ? 0 : surfaceCloseDurationMs(node) }
+  }
 </script>
 
 {#snippet toastItem(toast: ToastModel, behind: number)}
   {@const dismissLabel = toast.kind === 'error' ? 'Dismiss error' : 'Dismiss notification'}
-  <div class="toast caelestis-surface {toast.kind}" data-caelestis-toast={toast.kind}>
+  <div class="toast caelestis-surface {toast.kind}" data-caelestis-toast={toast.kind} out:toastOut>
     <Icon name={KIND_ICON[toast.kind]} class="kind" />
     <span class="message">{toast.message}</span>
     <span class="controls">
@@ -227,6 +239,10 @@
 
   /* The kind colours the icon, border, and tint; the message keeps the surface's text colour so it reads in every theme. */
   .toast {
+    --toast-open-dur: var(--caelestis-duration-fast);
+    --toast-close-dur: var(--caelestis-duration-quick);
+    --toast-ease: var(--caelestis-ease-smooth-out);
+    --caelestis-surface-close-duration: var(--toast-close-dur);
     position: relative;
     z-index: 1;
     display: flex;
@@ -270,16 +286,33 @@
     .toast-action:hover { background: color-mix(in oklab, currentColor 10%, var(--caelestis-raised-surface, transparent)); }
   }
 
-  @media (prefers-reduced-motion: no-preference) {
-    .toast { animation: toast-in var(--caelestis-motion-duration, 160ms) ease-out; }
-    .peek { transition: translate var(--caelestis-motion-duration, 160ms), scale var(--caelestis-motion-duration, 160ms), opacity var(--caelestis-motion-duration, 160ms); }
+  .toast {
+    transition:
+      opacity   var(--toast-open-dur) var(--toast-ease),
+      translate var(--toast-open-dur) var(--toast-ease),
+      scale     var(--toast-open-dur) var(--toast-ease);
+    @starting-style { opacity: 0; translate: 0 var(--caelestis-distance-base); }
+  }
+  .toast:global([data-state='closing']) {
+    opacity: 0;
+    translate: 0 var(--caelestis-distance-small);
+    scale: var(--caelestis-scale-tiny);
+    transition-duration: var(--toast-close-dur);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .toast { transition: opacity var(--toast-close-dur) ease-out; }
   }
 
-  @keyframes toast-in {
-    from { opacity: 0; translate: 0 0.5rem; }
+  @media (prefers-reduced-motion: no-preference) {
+    .peek { transition: translate var(--caelestis-duration-fast), scale var(--caelestis-duration-fast), opacity var(--caelestis-duration-fast); }
   }
 
   dialog {
+    --modal-open-dur: var(--caelestis-duration-fast);
+    --modal-close-dur: var(--caelestis-duration-quick);
+    --modal-scale: var(--caelestis-scale-large);
+    --modal-scale-close: var(--caelestis-scale-large);
+    --modal-ease: var(--caelestis-ease-smooth-out);
     inline-size: min(28rem, calc(100vw - 2rem));
     max-inline-size: none;
     max-block-size: min(85vh, 42rem);
@@ -291,9 +324,36 @@
     color: var(--caelestis-text, oklch(0.26 0.025 264));
     box-shadow: var(--caelestis-shadow, 0 24px 80px rgb(0 0 0 / 0.35));
     font: 500 0.95rem/1.45 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
+    transform-origin: center;
+    transform: scale(var(--modal-scale));
+    opacity: 0;
+    pointer-events: none;
+    transition:
+      transform var(--modal-close-dur) var(--modal-ease),
+      opacity   var(--modal-close-dur) var(--modal-ease),
+      overlay   var(--modal-close-dur) var(--modal-ease) allow-discrete,
+      display   var(--modal-close-dur) var(--modal-ease) allow-discrete;
+    will-change: transform, opacity;
   }
 
-  dialog::backdrop { background: rgb(0 0 0 / 0.45); backdrop-filter: blur(2px); }
+  dialog[open] {
+    transform: scale(1);
+    opacity: 1;
+    pointer-events: auto;
+    transition:
+      transform var(--modal-open-dur) var(--modal-ease),
+      opacity   var(--modal-open-dur) var(--modal-ease),
+      overlay   var(--modal-open-dur) var(--modal-ease) allow-discrete,
+      display   var(--modal-open-dur) var(--modal-ease) allow-discrete;
+    @starting-style { transform: scale(var(--modal-scale)); opacity: 0; }
+  }
+
+  dialog::backdrop { background: rgb(0 0 0 / 0.45); backdrop-filter: blur(2px); opacity: 0; transition: opacity var(--modal-close-dur) var(--modal-ease), overlay var(--modal-close-dur) var(--modal-ease) allow-discrete, display var(--modal-close-dur) var(--modal-ease) allow-discrete; }
+  dialog[open]::backdrop { opacity: 1; transition-duration: var(--modal-open-dur); @starting-style { opacity: 0; } }
+
+  @media (prefers-reduced-motion: reduce) {
+    dialog, dialog::backdrop { transition: none !important; }
+  }
 
   header {
     padding: 1rem 1.25rem;

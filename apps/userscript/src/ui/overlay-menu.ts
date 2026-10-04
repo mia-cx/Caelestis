@@ -15,6 +15,7 @@ import type {
   RailControlIntent,
   RailControlModel,
 } from '@caelestis/ui/elements'
+import { closeSurface, openSurface } from '@caelestis/ui/motion'
 import { allianceManifestFor, refreshAllianceManifest } from '../alliance-server-sync.js'
 import type { ActiveAllianceSurface } from '../alliance-surface.js'
 import { transferAuthoring } from '../application/template-authoring.js'
@@ -364,8 +365,13 @@ const overlayRailControl = (
 
 const removePlacementRail = (id: string): void => {
   const rail = placementRails.get(id)
-  rail?.apply.remove()
-  rail?.cancel.remove()
+  if (rail !== undefined) {
+    // Instant when the map detached them; the swap-out animates only while they are on the page.
+    if (rail.apply.isConnected) closeSurface(rail.apply, () => rail.apply.remove())
+    else rail.apply.remove()
+    if (rail.cancel.isConnected) closeSurface(rail.cancel, () => rail.cancel.remove())
+    else rail.cancel.remove()
+  }
   placementRails.delete(id)
 }
 
@@ -1631,6 +1637,8 @@ const placementRailFor = (id: string, host: HTMLElement): PlacementRail => {
   const rail = { apply, cancel }
   placementRails.set(id, rail)
   host.append(apply, cancel)
+  openSurface(apply)
+  openSurface(cancel)
   return rail
 }
 
@@ -1649,9 +1657,11 @@ const closeOverlayMenu = (): void => {
   // sends that release somewhere else.
   if (closing !== null) flushDrafts(closing)
   focusRequest = null
-  menuNode?.remove()
+  const node = menuNode
   menuNode = null
   menuOwner = null
+  // The close animates out; a reopen builds a fresh node, so nothing here has to wait for it.
+  if (node !== null) closeSurface(node, () => node.remove())
   removeRailActions()
 }
 
@@ -2211,6 +2221,9 @@ const renderControls = (
       // depends on what it draws, and anything kept in the old element is either lost or — worse —
       // re-parented under a different template.
       const previous = menuNode
+      // A same-template re-render mounts the replacement already open — an entrance transition on
+      // every signature change would flicker mid-edit. Only a genuinely new open animates in.
+      const opening = previous === null || previousOwner !== template.id || !onPage(previous)
       // Sampled before anything is discarded: removing the node takes the keyboard with it.
       const scrollTop = previous?.scrollTop ?? 0
       const active = deepActiveElement()
@@ -2231,7 +2244,9 @@ const renderControls = (
       // Stamped from what was just built, not from what was sampled.
       menuNode.dataset.caelestisSignature = menuSignature(template)
       menuOwner = template.id
+      if (!opening) menuNode.dataset.state = 'open'
       host.append(menuNode, ...railActions)
+      if (opening) openSurface(menuNode)
       // Svelte custom elements finish their first render after connection. The same-task geometry
       // pass can therefore see a zero-height host and cache that collapsed size for the viewport.
       // Measure once more after connection so a static map does not leave the menu invisible.
@@ -2292,6 +2307,8 @@ const renderControls = (
     const sideRoom = Math.max(0, openRight ? rightSpace : leftSpace)
     const appliedWidth = Math.min(menuBox.width, sideRoom)
     menuNode.style.width = `${appliedWidth}px`
+    // Grow out of the gear: the side it hangs from is the side it scales toward.
+    menuNode.style.transformOrigin = openRight ? 'left top' : 'right top'
     menuNode.style.left = openRight
       ? `${buttonLeft + MENU_BUTTON_SIZE + RAIL_GAP}px`
       : `${buttonLeft - RAIL_GAP - appliedWidth}px`

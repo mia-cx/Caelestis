@@ -26,4 +26,23 @@
 
 <style>
   :host { display: block; min-block-size: 0; }
+  /* The userscript mounts/removes this host directly; the JS helper drives it through data-state. */
+  :host {
+    --pane-open-dur: var(--caelestis-duration-fast);
+    --pane-close-dur: var(--caelestis-duration-quick);
+    --pane-shift: var(--caelestis-distance-medium);
+    --pane-ease: var(--caelestis-ease-smooth-out);
+    --caelestis-surface-close-duration: var(--pane-close-dur);
+    transform: translateX(var(--pane-shift));
+    opacity: 0;
+    transition:
+      transform var(--pane-open-dur) var(--pane-ease),
+      opacity   var(--pane-open-dur) var(--pane-ease);
+    will-change: transform, opacity;
+  }
+  :host([data-state='open']) { transform: translateX(0); opacity: 1; }
+  :host([data-state='closing']) { transform: translateX(var(--pane-shift)); opacity: 0; transition-duration: var(--pane-close-dur); }
+  @media (prefers-reduced-motion: reduce) {
+    :host { transition: none !important; }
+  }
 </style>

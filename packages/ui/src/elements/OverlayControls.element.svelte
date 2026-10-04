@@ -24,4 +24,33 @@
 
 <PixelStyles />
 
-<style>:host { display: block; max-block-size: inherit; }</style>
+<style>
+  :host { display: block; max-block-size: inherit; }
+  /* The userscript mounts/removes this host directly, so the transition lives on the host and the
+     JS helper drives it through data-state. */
+  :host {
+    --dropdown-open-dur: var(--caelestis-duration-fast);
+    --dropdown-close-dur: var(--caelestis-duration-quick);
+    --dropdown-pre-scale: var(--caelestis-scale-medium);
+    --dropdown-closing-scale: var(--caelestis-scale-tiny);
+    --dropdown-ease: var(--caelestis-ease-smooth-out);
+    --caelestis-surface-close-duration: var(--caelestis-duration-quick);
+    transform-origin: top right;
+    transform: scale(var(--dropdown-pre-scale));
+    opacity: 0;
+    pointer-events: none;
+    transition:
+      transform var(--dropdown-open-dur) var(--dropdown-ease),
+      opacity   var(--dropdown-open-dur) var(--dropdown-ease);
+    will-change: transform, opacity;
+  }
+  :host([data-state='open']) { transform: scale(1); opacity: 1; pointer-events: auto; }
+  :host([data-state='closing']) {
+    transform: scale(var(--dropdown-closing-scale));
+    opacity: 0;
+    transition-duration: var(--dropdown-close-dur);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    :host { transition: none !important; }
+  }
+</style>

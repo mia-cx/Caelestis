@@ -18,6 +18,7 @@ import type {
   SettingsIntent,
   SettingsModel,
 } from '@caelestis/ui/elements'
+import { cancelSurfaceClose, closeSurface, openSurface } from '@caelestis/ui/motion'
 import { onAllianceManifestChange } from '../alliance-server-sync.js'
 import {
   type ActiveAllianceSurface,
@@ -1373,7 +1374,7 @@ const setOpen = (next: boolean): void => {
   if (!panelOpen()) {
     cancelTreeActionSetup(new Error('panel closed'))
     mountNotificationsIn(null)
-    existing?.remove()
+    if (existing !== null) closeSurface(existing, () => existing.remove())
     if (panelSessions.scope() === 'alliance') {
       allianceDrawerInset.clear()
       const active = activeAllianceSurface()
@@ -1385,14 +1386,20 @@ const setOpen = (next: boolean): void => {
     syncToastPlacement(currentPanelId())
     return
   }
-  if (existing !== null) return
+  // A node still running its exit transition is reused so the reopen reverses in place.
+  if (existing !== null && !cancelSurfaceClose(existing)) return
+  if (existing !== null) existing.dataset.state = 'open'
   if (allianceStage !== null) {
     allianceDrawerInset.apply(allianceStage, panelWidthForViewport(getState().panelWidth), GAP)
     const active = activeAllianceSurface()
     if (active !== null) positionAllianceRail(active)
   }
   const host = panelHost ?? document.body
-  host.appendChild(buildSveltePanel())
+  if (existing === null) {
+    const panel = buildSveltePanel()
+    host.appendChild(panel)
+    openSurface(panel)
+  }
   showView(currentView())
   for (const listener of panelOpenListeners) listener()
   // The panel's measured left edge is now the map controls' right edge.

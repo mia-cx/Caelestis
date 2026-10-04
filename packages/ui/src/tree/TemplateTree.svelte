@@ -13,11 +13,13 @@
   import ProgressMeter from '../progress/ProgressMeter.svelte'
   import { tick } from 'svelte'
   import { SvelteMap } from 'svelte/reactivity'
+  import { cancelSurfaceClose, closeSurface, openSurface } from '../foundations/motion.js'
   import type {
     TemplateTreeIntent,
     TemplateTreeModel,
     TreeActionModel,
     TreeContextMenuItemModel,
+    TreeContextMenuModel,
     TreeProgressModel,
     TreeRowModel,
   } from '../types.js'
@@ -44,6 +46,59 @@
   let operationSelection = $state('')
   const grid = $derived(allowGrid && model.displayMode === 'grid')
   const progressEntry = $derived(model.entries.find((entry): entry is TreeRowModel => entry.type === 'row' && entry.key === progressKey && entry.progress !== undefined))
+
+  /**
+   * Context menu and progress pane keep their last model while the exit transition runs, so the
+   * `{#if}` does not unmount the element mid-close. `data-state` on the element is what the CSS
+   * reads; `closeSurface` owns the timing and clears the held model when it finishes.
+   */
+  let closingMenu = $state<TreeContextMenuModel>()
+  let lastContextMenu: TreeContextMenuModel | undefined
+  const shownMenu = $derived(model.contextMenu ?? closingMenu)
+  let closingProgress = $state<TreeRowModel>()
+  let lastProgressEntry: TreeRowModel | undefined
+  const shownProgress = $derived(progressEntry ?? closingProgress)
+
+  /** Drive a mounted surface's open state, reversing from the current frame on a mid-close reopen. */
+  const driveSurface = (element: HTMLElement): void => {
+    if (element.dataset.state === 'closing') {
+      cancelSurfaceClose(element)
+      element.dataset.state = 'open'
+    } else {
+      openSurface(element)
+    }
+  }
+
+  $effect(() => {
+    const current = model.contextMenu
+    if (current !== undefined) {
+      lastContextMenu = current
+      closingMenu = undefined
+      if (contextMenuElement !== undefined) driveSurface(contextMenuElement)
+      return
+    }
+    // `lastContextMenu` is consumed as the close starts so the post-unmount re-run of this effect
+    // — the element is still bound for a turn — cannot begin the same close a second time.
+    if (lastContextMenu !== undefined && contextMenuElement?.isConnected === true) {
+      closingMenu = lastContextMenu
+      lastContextMenu = undefined
+      closeSurface(contextMenuElement, () => { closingMenu = undefined })
+    }
+  })
+
+  $effect(() => {
+    if (progressEntry !== undefined) {
+      lastProgressEntry = progressEntry
+      closingProgress = undefined
+      if (progressPane !== undefined) driveSurface(progressPane)
+      return
+    }
+    if (lastProgressEntry !== undefined && progressPane?.isConnected === true) {
+      closingProgress = lastProgressEntry
+      lastProgressEntry = undefined
+      closeSurface(progressPane, () => { closingProgress = undefined })
+    }
+  })
   const minimumSplitWidth = 672
   const narrowDetails = $derived(browserWidth < minimumSplitWidth)
   $effect(() => { if (!grid || progressEntry === undefined) progressKey = null })
@@ -339,8 +394,11 @@
       const maxLeft = window.innerWidth - viewportMargin - node.offsetWidth
       const maxTop = window.innerHeight - viewportMargin - node.offsetHeight
       const top = current.y > maxTop ? current.y - node.offsetHeight : current.y
-      node.style.left = `${Math.max(viewportMargin, Math.min(current.x, maxLeft))}px`
+      const left = Math.max(viewportMargin, Math.min(current.x, maxLeft))
+      node.style.left = `${left}px`
       node.style.top = `${Math.max(viewportMargin, Math.min(top, maxTop))}px`
+      // Grow out of the pointer: the origin follows whichever corner the pointer ended up in.
+      node.style.transformOrigin = `${current.y > maxTop ? 'bottom' : 'top'} ${current.x > maxLeft ? 'right' : 'left'}`
     }
     window.addEventListener('resize', place)
     place()
@@ -471,7 +529,7 @@
   </section>
 {/if}
 
-{#if model.contextMenu !== undefined}
+{#if shownMenu !== undefined}
   <div
     bind:this={contextMenuElement}
     data-caelestis-context-menu
@@ -479,14 +537,14 @@
     role="menu"
     tabindex="-1"
     onkeydown={navigateContextMenu}
-    use:placeContextMenu={{ x: model.contextMenu.x, y: model.contextMenu.y }}
+    use:placeContextMenu={{ x: shownMenu.x, y: shownMenu.y }}
   >
-    {#each model.contextMenu.items as item, index (item.id)}
-      {#if index > 0 && item.group !== model.contextMenu.items[index - 1]?.group}
+    {#each shownMenu.items as item, index (item.id)}
+      {#if index > 0 && item.group !== shownMenu.items[index - 1]?.group}
         <div class="caelestis-menu-separator" role="separator"></div>
       {/if}
       {#if item.children === undefined}
-        {@render menuRow(item, model.contextMenu.id, true)}
+        {@render menuRow(item, shownMenu.id, true)}
       {:else}
         <div class="submenu-host" data-submenu={item.id}>
           <button class="caelestis-menu-item" type="button" role="menuitem" aria-haspopup="menu" aria-expanded={openSubmenuId === item.id} onclick={() => toggleSubmenu(item.id)} onpointerenter={(event) => hoverMenuRow(event, item)}>
@@ -497,7 +555,7 @@
           {#if openSubmenuId === item.id}
             <div class="submenu caelestis-menu" role="menu" aria-label={item.label} tabindex="-1" use:placeSubmenu>
               {#each item.children as child (child.id)}
-                {@render menuRow(child, model.contextMenu.id, false)}
+                {@render menuRow(child, shownMenu.id, false)}
               {/each}
             </div>
           {/if}
@@ -709,9 +767,9 @@
     {/each}
   </div>
 </div>
-{#if grid && progressEntry?.progress !== undefined}
+{#if grid && shownProgress?.progress !== undefined}
   <div class="progress-pane" class:overlaid={narrowDetails} bind:this={progressPane}>
-    <ProgressDetails name={progressEntry.name} progress={progressEntry.progress} colours={progressEntry.colourProgress} onClose={closeProgress} />
+    <ProgressDetails name={shownProgress.name} progress={shownProgress.progress} colours={shownProgress.colourProgress} onClose={closeProgress} />
   </div>
 {/if}
 </div>
@@ -728,10 +786,28 @@
   .search input { flex: 1; min-inline-size: 0; border: 0; outline: 0; background: transparent; color: inherit; font: inherit; }
   .browser { position: relative; display: flex; flex: 1; min-block-size: 0; min-inline-size: 0; overflow: hidden; }
   .scroller { flex: 1; min-block-size: 0; min-inline-size: 0; overflow: auto; container-type: inline-size; }
-  .progress-pane { flex: 0 0 20rem; min-block-size: 0; border-inline-start: 1px solid var(--caelestis-border); background: var(--caelestis-surface); }
+  .progress-pane {
+    --pane-open-dur: var(--caelestis-duration-fast);
+    --pane-close-dur: var(--caelestis-duration-quick);
+    --pane-shift: var(--caelestis-distance-medium);
+    --pane-ease: var(--caelestis-ease-smooth-out);
+    --caelestis-surface-close-duration: var(--pane-close-dur);
+    flex: 0 0 20rem; min-block-size: 0; border-inline-start: 1px solid var(--caelestis-border); background: var(--caelestis-surface);
+    transform: translateX(var(--pane-shift));
+    opacity: 0;
+    transition:
+      transform var(--pane-open-dur) var(--pane-ease),
+      opacity   var(--pane-open-dur) var(--pane-ease);
+    will-change: transform, opacity;
+  }
+  .progress-pane:global([data-state='open']) { transform: translateX(0); opacity: 1; }
+  .progress-pane:global([data-state='closing']) { transform: translateX(var(--pane-shift)); opacity: 0; transition-duration: var(--pane-close-dur); }
+  @media (prefers-reduced-motion: reduce) {
+    .context-menu, .progress-pane { transition: none !important; }
+  }
   .progress-pane.overlaid { position: absolute; inset: 0; z-index: 3; border-inline-start: 0; }
   .tree { display: flex; flex-direction: column; gap: 0.125rem; padding-block: 0.5rem; color: var(--caelestis-text); font: 400 0.875rem/1.25 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); }
-  .row { position: relative; display: flex; flex-direction: column; justify-content: center; gap: 0.25rem; min-block-size: 2rem; margin-inline: 0.5rem; padding: 0.25rem 0.5rem; border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); outline: none; }
+  .row { --icon-swap-dur: var(--caelestis-duration-quick); --icon-swap-ease: var(--caelestis-ease-smooth-out); --icon-swap-blur: var(--caelestis-blur-small); position: relative; display: flex; flex-direction: column; justify-content: center; gap: 0.25rem; min-block-size: 2rem; margin-inline: 0.5rem; padding: 0.25rem 0.5rem; border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); outline: none; }
   .row-heading { display: flex; flex-wrap: nowrap; align-items: center; gap: 0.25rem; min-inline-size: 0; white-space: nowrap; }
   .connector { position: absolute; inset-block: 0; inset-inline-start: 0.45rem; opacity: 0.28; pointer-events: none; }
   .connector-vertical, .connector-current { position: absolute; inset-block-start: 0; border-inline-start: 1px solid currentColor; }
@@ -753,13 +829,13 @@
   .row.drop-before { box-shadow: inset 0 2px var(--caelestis-primary); }
   .row.drop-after { box-shadow: inset 0 -2px var(--caelestis-primary); }
   .row.drop-inside { outline: 2px dashed var(--caelestis-primary); }
-  .caret { flex: 0 0 1rem; inline-size: 1rem; font-size: 1.25rem; text-align: center; transition: transform 120ms; }
+  .caret { flex: 0 0 1rem; inline-size: 1rem; font-size: 1.25rem; text-align: center; transition: transform var(--caelestis-duration-quick) var(--caelestis-ease-smooth-out); }
   .caret.open { transform: rotate(90deg); }
   .kind { display: inline-flex; flex: 0 0 auto; }
   .name { min-inline-size: 2rem; overflow: hidden; flex: 1; text-overflow: ellipsis; white-space: nowrap; }
   .rename { min-inline-size: 4rem; flex: 1; }
   .meta { color: var(--caelestis-muted-text); font-size: 0.75rem; }
-  .actions { display: flex; align-items: center; margin-inline-start: auto; transition: opacity 100ms ease-out; }
+  .actions { display: flex; align-items: center; margin-inline-start: auto; transition: opacity var(--icon-swap-dur) var(--icon-swap-ease), filter var(--icon-swap-dur) var(--icon-swap-ease); }
   .row-tail { display: grid; flex: 0 1 6.5rem; inline-size: 6.5rem; min-inline-size: min-content; align-items: center; }
   .row-tail > * { grid-area: 1 / 1; }
   .row-tail > .actions { justify-self: end; }
@@ -770,7 +846,7 @@
   .visibility > span { display: grid; place-items: center; inline-size: 1.5rem; block-size: 1.5rem; border: 1px solid color-mix(in oklab, currentColor 44%, transparent); border-radius: var(--caelestis-pill-radius, 999px); }
   .visibility :global(svg) { inline-size: 1rem; block-size: 1rem; fill: currentColor; }
   .visibility:focus-within { outline: 2px solid var(--caelestis-focus); border-radius: var(--caelestis-pill-radius, 999px); }
-  .progress { inline-size: 100%; min-inline-size: 0; transition: opacity 100ms ease-out; }
+  .progress { inline-size: 100%; min-inline-size: 0; transition: opacity var(--icon-swap-dur) var(--icon-swap-ease), filter var(--icon-swap-dur) var(--icon-swap-ease); }
   .progress-detail { display: flex; min-inline-size: 0; flex-direction: column; gap: 0.25rem; padding: 0.2rem 0 0.35rem; padding-inline-start: var(--progress-detail-offset); color: var(--caelestis-muted-text); font-size: 0.68rem; }
   .progress-disclosure { position: relative; display: flex; min-inline-size: 0; padding-inline-end: 1.625rem; }
   .progress-summary { container-type: inline-size; display: flex; flex: 1; min-inline-size: 0; flex-direction: column; gap: 0.2rem; }
@@ -811,16 +887,37 @@
   .operation button.primary { padding-inline: 0.75rem; background: var(--caelestis-primary); color: var(--caelestis-primary-text, white); }
   .operation button:disabled { cursor: wait; opacity: 0.55; }
   /* 12.5rem seats every current label on one line at 14px; wrapping stays as the fallback for long translations. */
-  .context-menu { position: fixed; z-index: 60; display: flex; inline-size: 12.5rem; max-inline-size: calc(100vw - 1rem); overflow: auto; flex-direction: column; }
+  .context-menu {
+    --dropdown-open-dur: var(--caelestis-duration-fast);
+    --dropdown-close-dur: var(--caelestis-duration-quick);
+    --dropdown-pre-scale: var(--caelestis-scale-medium);
+    --dropdown-closing-scale: var(--caelestis-scale-tiny);
+    --dropdown-ease: var(--caelestis-ease-smooth-out);
+    --caelestis-surface-close-duration: var(--dropdown-close-dur);
+    position: fixed; z-index: 60; display: flex; inline-size: 12.5rem; max-inline-size: calc(100vw - 1rem); overflow: auto; flex-direction: column;
+    transform-origin: top left;
+    transform: scale(var(--dropdown-pre-scale));
+    opacity: 0;
+    pointer-events: none;
+    transition:
+      transform var(--dropdown-open-dur) var(--dropdown-ease),
+      opacity   var(--dropdown-open-dur) var(--dropdown-ease);
+    will-change: transform, opacity;
+  }
+  .context-menu:global([data-state='open']) { transform: scale(1); opacity: 1; pointer-events: auto; }
+  .context-menu:global([data-state='closing']) { transform: scale(var(--dropdown-closing-scale)); opacity: 0; transition-duration: var(--dropdown-close-dur); }
   .context-menu button { inline-size: 100%; }
   .context-menu button.danger { color: var(--caelestis-danger); }
   .context-menu :global(.menu-trailing) { margin-inline-start: auto; opacity: 0.7; }
   .submenu-host { display: flex; flex: 0 0 auto; flex-direction: column; }
   .submenu { position: fixed; z-index: 61; display: flex; min-inline-size: 8rem; max-inline-size: calc(100vw - 1rem); flex-direction: column; }
   @media (hover: hover) {
-    .actions { opacity: 0; pointer-events: none; }
-    .row:hover .actions, .row:focus-within .actions { opacity: 1; pointer-events: auto; }
-    .row:hover .row-tail > .progress, .row:focus-within .row-tail > .progress { opacity: 0; pointer-events: none; }
+    .actions { opacity: 0; filter: blur(var(--icon-swap-blur)); pointer-events: none; }
+    .row:hover .actions, .row:focus-within .actions { opacity: 1; filter: blur(0); pointer-events: auto; }
+    .row:hover .row-tail > .progress, .row:focus-within .row-tail > .progress { opacity: 0; filter: blur(var(--icon-swap-blur)); pointer-events: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .actions, .progress { transition: none; }
   }
   /* Without hover there is no way to reveal row actions, so the context menu (press-and-hold) is the
      only action surface in tree mode: the meter and the icon buttons go, and the name gets the row. */
