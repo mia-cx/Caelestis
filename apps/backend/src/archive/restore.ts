@@ -27,7 +27,6 @@ import {
   archiveReadyAt,
   assertSettled,
   changedError,
-  discardToken,
   finishPendingRelease,
   holdFor,
   holdServer,
@@ -130,10 +129,18 @@ const occupiedLocations = async (host: ArchiveHost): Promise<string[]> => {
       .first()
     if (row !== null) occupied.push(table.name)
   }
-  for (const [table, { key }] of Object.entries(COUNTER_ARCHIVE_TABLES)) {
-    if (key[0] === 'singleton') continue
-    if ((await host.counters.exportCounterRows(table as CounterArchiveTable, null, 1)).length > 0)
-      occupied.push(table)
+  for (const [table, { key, columns }] of Object.entries(COUNTER_ARCHIVE_TABLES)) {
+    const rows = await host.counters.exportCounterRows(table as CounterArchiveTable, null, 1)
+    // A seeded singleton row always exists, so only a non-seed value counts as occupied.
+    const seeded = key[0] === 'singleton'
+    const residue = seeded
+      ? rows.some((row) =>
+          columns.some(
+            (column) => !(key as readonly string[]).includes(column) && Number(row[column]) !== 0,
+          ),
+        )
+      : rows.length > 0
+    if (residue) occupied.push(table)
   }
   for (const prefix of ARCHIVE_OBJECT_PREFIXES)
     if ((await host.objects.list(prefix, { limit: 1 })).keys.length > 0) occupied.push(prefix)
@@ -420,7 +427,8 @@ export const appendRestore = async (
     }
   }
 
-  // Counter rows carry this operation's token: once a discard has taken over, they are refused.
+  // Counters refuse rows once their own operation's freeze is gone, so a stale append cannot
+  // reach an open server; one overlapping a discard is caught by the discard's final pass.
   try {
     for (const [table, rows] of counterRows)
       await host.counters.importCounterRows(operation.operationId, table, rows)
@@ -512,26 +520,17 @@ export const discardRestore = async (host: ArchiveHost): Promise<boolean> => {
       throw changedError()
   }
   // Mark the discard before deleting anything, so activation can no longer open this state.
+  // The operation's own freeze stays in place until release, so only the compare-and-set
+  // decides which overlapping discard proceeds; a losing call acquired nothing to undo.
   if (state.phase === 'ready') {
-    // The discard takes the counters under its own token before it claims the row, and undoes
-    // that if the claim loses. Then the append token is dropped, refusing stale appends' counters.
-    await holdFor(host, operation, discardToken(operation.operationId))
-    try {
-      await saveProgress({ step: 0, after: null })
-    } catch (error) {
-      await host.counters.thaw(discardToken(operation.operationId))
-      throw error
-    }
-    await host.counters.thaw(operation.operationId)
+    await saveProgress({ step: 0, after: null })
     return false
   }
-  // Idempotent: a discard that crashed right after claiming the row drops the append token here.
-  await host.counters.thaw(operation.operationId)
   const progress = state.discard ?? { step: 0, after: null }
   const step = DISCARD_STEPS[progress.step]
   if (step === undefined) {
-    // An append that was already running when the discard began may have written objects after
-    // their step; start over until a full pass finds nothing left.
+    // An append that was already running when the discard began may have written objects or
+    // counters after their step; start over until a full pass finds nothing left.
     if ((await occupiedLocations(host)).length > 0) {
       await saveProgress({ step: 0, after: null })
       return false

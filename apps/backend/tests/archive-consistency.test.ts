@@ -17,8 +17,10 @@ import {
   fencedConnection,
   openProcessWrites,
   readArchiveOperation,
+  StaleArchiveOperationError,
 } from '../src/archive/gate.js'
 import type { ArchiveHost } from '../src/archive/port.js'
+import { discardRestore } from '../src/archive/restore.js'
 import { type BackfillStorage, TemplateBackfill } from '../src/backfill/import.js'
 import type { AlarmStorage } from '../src/coordination/database.js'
 import { TelemetryCoordinator } from '../src/coordination/telemetry.js'
@@ -460,6 +462,70 @@ describe('archive operation lifecycle', () => {
     await expect(finishExport(host)).rejects.toThrow('thaw RPC failed')
     const next = await startExport(host)
     expect(await readArchiveOperation(opened.connection)).toMatchObject({ operationId: next.id })
+  })
+
+  it('keeps a freeze whose row a stale read missed, refusing records until it thaws', async () => {
+    const { coordinator, opened } = await coordinatorHost()
+    await holdRow(opened.connection, 'export-1')
+    await coordinator.freeze('export-1')
+    // What a concurrent reader sees before this freeze's insert commits: an empty table. The
+    // in-memory hold is the truth, so records stay refused.
+    await opened.connection.prepare('DELETE FROM counter_freeze').run()
+    await expect(coordinator.record([delta as never])).rejects.toBeInstanceOf(
+      ArchiveOperationActiveError,
+    )
+  })
+
+  it('keeps counters frozen through overlapping discards of one restore', async () => {
+    const { host, coordinator, opened } = await coordinatorHost()
+    await coordinator.freeze('restore-1')
+    await opened.connection
+      .prepare(
+        'INSERT INTO "archive_operation" ("id", "kind", "operation_id", "started_at_ms", "position", "state_json") VALUES (1, \'import\', \'restore-1\', 0, 0, ?)',
+      )
+      .bind(
+        JSON.stringify({
+          archiveId: 'archive-1',
+          sourceServerId: 'source-1',
+          tables: {},
+          chain: '',
+          counts: {},
+          ended: false,
+          phase: 'ready',
+          preservedTokens: [],
+        }),
+      )
+      .run()
+    const [first, second] = await Promise.allSettled([discardRestore(host), discardRestore(host)])
+    // Exactly one claim wins; the loser changed nothing, so neither thawed the hold.
+    expect([first.status, second.status].sort()).toEqual(['fulfilled', 'rejected'])
+    expect(
+      JSON.parse((await readArchiveOperation(opened.connection))?.stateJson ?? '{}'),
+    ).toMatchObject({ phase: 'discarding' })
+    await expect(coordinator.record([delta as never])).rejects.toBeInstanceOf(
+      ArchiveOperationActiveError,
+    )
+    // Records stay refused until the discard's release finishes.
+    while (!(await discardRestore(host))) {
+      /* one bounded step per call */
+    }
+    await coordinator.record([delta as never])
+  })
+
+  it('refuses counter rows for an operation whose freeze is gone, under a newer freeze', async () => {
+    const { coordinator } = await coordinatorHost()
+    await coordinator.freeze('new-op')
+    const retained = {
+      template_id: 'mural',
+      bucket_start_s: 0,
+      placed: 1,
+      correct: 1,
+      repairs: 0,
+    }
+    await expect(
+      coordinator.importCounterRows('old-op', 'retained_counters', [retained]),
+    ).rejects.toBeInstanceOf(StaleArchiveOperationError)
+    expect(await coordinator.exportCounterRows('retained_counters', null, 10)).toEqual([])
   })
 
   it('finishes a freeze a crash interrupted before pages are read', async () => {

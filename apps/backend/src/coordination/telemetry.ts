@@ -85,7 +85,7 @@ const eventBucketStart = (occurredAt: Seconds): Seconds =>
 /** Shared durable counter validation, retry, retention, and cumulative bucket flushing. */
 export class TelemetryCoordinator {
   private alarmUpdates: Promise<void> = Promise.resolve()
-  /** Archive tokens holding this state; see `freeze`. Durable in `counter_freeze`. */
+  /** Archive operations holding this state; see `freeze`. Durable in `counter_freeze`. */
   private freezes: ReadonlySet<string> = new Set()
   /** Records and flushes that passed the freeze check and may still write. */
   private readonly admitted = new Set<Promise<void>>()
@@ -98,7 +98,8 @@ export class TelemetryCoordinator {
 
   async initialize(): Promise<void> {
     await this.initializeSchema()
-    this.freezes = await this.readFreezes()
+    // Union, not replace: a freeze taken while this read ran must survive it.
+    this.freezes = new Set([...this.freezes, ...(await this.readFreezes())])
     const now = this.clock()
     // Pruning would change state an archive is reading; a frozen coordinator prunes after thawing.
     if (this.freezes.size === 0) await this.pruneRetained(seconds(Math.floor(now / 1_000)))
@@ -124,7 +125,7 @@ export class TelemetryCoordinator {
   }
 
   async record(deltas: readonly CounterDelta[], idempotencyKey?: string): Promise<void> {
-    if (this.freezes.size > 0) await this.holding()
+    if (this.freezes.size > 0) await this.clearStaleFreezes()
     // Checked again with no await before admission, so a freeze cannot slip in between.
     if (this.freezes.size > 0) throw new ArchiveOperationActiveError()
     await this.admit(() => this.recordUnfrozen(deltas, idempotencyKey))
@@ -319,16 +320,19 @@ export class TelemetryCoordinator {
 
   /** Restore archived rows over the seeded singletons, then wake the flush they may need. */
   async importCounterRows(
-    token: string,
+    operationId: string,
     table: CounterArchiveTable,
     rows: readonly Readonly<Record<string, string | number>>[],
   ): Promise<void> {
     const { key, columns } = COUNTER_ARCHIVE_TABLES[table]
     const updates = columns.filter((column) => !(key as readonly string[]).includes(column))
     await this.database.transaction(async (database) => {
-      // Only the restore that froze these counters may write them; a stale append after its
-      // discard or release changes nothing.
-      const held = await database.all('SELECT 1 FROM counter_freeze WHERE operation_id = ?1', token)
+      // Checked in the same transaction as the writes: an append still running after its own
+      // operation's freeze is gone changes nothing, whatever a newer operation holds.
+      const held = await database.all(
+        'SELECT 1 FROM counter_freeze WHERE operation_id = ?1',
+        operationId,
+      )
       if (held.length === 0) throw new StaleArchiveOperationError()
       for (const row of rows)
         await database.run(
@@ -353,36 +357,38 @@ export class TelemetryCoordinator {
    * admitted finish first, so each one is either in the archive or refused. A refused paint is
    * retried by its client, and the retry re-records it wherever the server's data now lives.
    */
-  async freeze(token: string): Promise<void> {
-    this.freezes = new Set([...this.freezes, token])
-    // Each token adds its own row and never replaces another's, so a stale caller cannot take
-    // over or clear a newer operation's freeze.
+  /**
+   * A freeze belongs to an archive operation, keyed by its id, not to whichever call made it.
+   * The in-memory set only grows here and shrinks in `thaw` for the same id; no database read
+   * ever replaces it, so a stale read cannot reopen admission.
+   */
+  async freeze(operationId: string): Promise<void> {
+    this.freezes = new Set([...this.freezes, operationId])
     await this.database.run(
       'INSERT INTO counter_freeze (operation_id) VALUES (?1) ON CONFLICT DO NOTHING',
-      token,
+      operationId,
     )
     await Promise.allSettled([...this.admitted])
   }
 
-  /** Clear one token's freeze. A late call for an older operation leaves a newer one alone. */
-  async thaw(token: string): Promise<void> {
-    await this.database.run('DELETE FROM counter_freeze WHERE operation_id = ?1', token)
-    this.freezes = await this.readFreezes()
-    if (this.freezes.size === 0) await this.scheduleNextAlarm(this.clock())
+  /** Clear one operation's freeze; a late call for an older operation leaves a newer one alone. */
+  async thaw(operationId: string): Promise<void> {
+    await this.database.run('DELETE FROM counter_freeze WHERE operation_id = ?1', operationId)
+    const remaining = new Set(this.freezes)
+    remaining.delete(operationId)
+    this.freezes = remaining
+    if (remaining.size === 0) await this.scheduleNextAlarm(this.clock())
   }
 
   /**
-   * Whether an archive operation holds this state. A freeze whose operation no longer holds the
-   * server (its caller died between freezing and undoing) is cleared here: with the gate open,
-   * every token read before that check is stale, and a newer token appears only after its gate.
+   * Clear freezes whose operation no longer holds the server: a caller died between freezing and
+   * undoing. With the gate open, every id read before that check is stale, and a newer id is
+   * written only after its gate closed, so only stale ids are thawed, one by one.
    */
-  private async holding(): Promise<boolean> {
-    if (this.freezes.size === 0) return false
+  private async clearStaleFreezes(): Promise<void> {
     const observed = await this.readFreezes()
     if (observed.size > 0 && !(await this.sql.archiveOperationActive({ fresh: true })))
-      for (const token of observed) await this.thaw(token)
-    else this.freezes = observed
-    return this.freezes.size > 0
+      for (const operationId of observed) await this.thaw(operationId)
   }
 
   /**
@@ -392,7 +398,7 @@ export class TelemetryCoordinator {
    */
   async alarm(): Promise<void> {
     const nowMilliseconds = this.clock()
-    if (this.freezes.size > 0) await this.holding()
+    if (this.freezes.size > 0) await this.clearStaleFreezes()
     if (this.freezes.size > 0) {
       await this.updateAlarm(() =>
         this.alarms.setAlarm(millis(nowMilliseconds + ARCHIVE_RETRY_DELAY_MILLISECONDS)),

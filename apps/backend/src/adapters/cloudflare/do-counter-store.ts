@@ -42,12 +42,12 @@ export class DurableObjectCounterStore implements CounterStore, CounterArchive {
   }
 
   async importCounterRows(
-    token: string,
+    operationId: string,
     table: CounterArchiveTable,
     rows: readonly Readonly<Record<string, string | number>>[],
   ): Promise<void> {
     try {
-      await this.shard.importCounterRows(token, table, rows)
+      await this.shard.importCounterRows(operationId, table, rows)
     } catch (error) {
       // RPC errors arrive as plain Errors; restore the type the restore relies on.
       if (error instanceof Error && error.message === new StaleArchiveOperationError().message)
