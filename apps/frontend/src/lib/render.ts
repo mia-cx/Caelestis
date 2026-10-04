@@ -4,6 +4,7 @@ import {
   TILE_SIZE,
   type TileKey,
   tileKey,
+  timelapseCaptureRect,
   WORLD_PIXELS,
 } from '@caelestis/shared'
 import { chunkImageUrl, tileImageUrl } from '$lib/api/client'
@@ -179,6 +180,115 @@ export const chunkPlacements = (template: Template): ChunkPlacement[] => {
     })
   }
   return placements
+}
+
+/** One captured canvas tile in world pixels, with every template whose capture covers it. */
+export interface TimelapseTile {
+  readonly key: TileKey
+  readonly x: number
+  readonly y: number
+  readonly templates: readonly Template[]
+}
+
+/** Several templates' timelapse captures arranged on one world canvas. */
+export interface TimelapseLayout {
+  /** The union of every capture rectangle: the viewer's pan limit and opening view. */
+  readonly bounds: CanvasRect
+  /** The union of the artwork alone. */
+  readonly art: CanvasRect
+  /** Only the tiles some template captures, once each. Gaps between captures hold none. */
+  readonly tiles: readonly TimelapseTile[]
+  readonly chunks: readonly ChunkPlacement[]
+}
+
+/** Move x by whole worlds into [start, start + WORLD_PIXELS). */
+const wrapInto = (x: number, start: number): number =>
+  start + ((((x - start) % WORLD_PIXELS) + WORLD_PIXELS) % WORLD_PIXELS)
+
+const unionRect = (rects: readonly CanvasRect[]): CanvasRect => {
+  if (rects.length === 0) return { x: 0, y: 0, width: 0, height: 0 }
+  const x = Math.min(...rects.map((rect) => rect.x))
+  const y = Math.min(...rects.map((rect) => rect.y))
+  return {
+    x,
+    y,
+    width: Math.max(...rects.map((rect) => rect.x + rect.width)) - x,
+    height: Math.max(...rects.map((rect) => rect.y + rect.height)) - y,
+  }
+}
+
+/**
+ * Lay templates out on one world canvas from their own timelapse captures.
+ *
+ * Longitude wraps, so the layout starts after the widest empty span between captures. Templates on
+ * both sides of the world seam then sit next to each other instead of a world apart.
+ */
+export const timelapseLayout = (templates: readonly Template[]): TimelapseLayout => {
+  const captures = templates.map((template) => {
+    const rect = timelapseCaptureRect(template.bbox)
+    return { template, rect: { ...rect, x: wrapInto(rect.x, 0) } }
+  })
+  // Seeding the reach with the rightmost edge one world back makes the first gap the seam gap.
+  let reach =
+    captures.reduce((edge, { rect }) => Math.max(edge, rect.x + rect.width), 0) - WORLD_PIXELS
+  let start = 0
+  let widest = Number.NEGATIVE_INFINITY
+  for (const { rect } of captures.toSorted((left, right) => left.rect.x - right.rect.x)) {
+    if (rect.x - reach > widest) {
+      widest = rect.x - reach
+      start = rect.x
+    }
+    reach = Math.max(reach, rect.x + rect.width)
+  }
+  const placed = captures.map(({ template, rect }) => ({
+    template,
+    rect: rect.x < start ? { ...rect, x: rect.x + WORLD_PIXELS } : rect,
+  }))
+
+  const tiles = new Map<TileKey, { key: TileKey; x: number; y: number; templates: Template[] }>()
+  for (const { template, rect } of placed) {
+    for (const placement of tilesInRect(rect)) {
+      const tile = tiles.get(placement.key)
+      if (tile !== undefined) tile.templates.push(template)
+      else
+        tiles.set(placement.key, {
+          key: placement.key,
+          x: rect.x + placement.drawX,
+          y: rect.y + placement.drawY,
+          templates: [template],
+        })
+    }
+  }
+
+  return {
+    bounds: unionRect(placed.map(({ rect }) => rect)),
+    art: unionRect(
+      placed.map(({ template, rect }) => {
+        const art = templateRect(template)
+        return { ...art, x: wrapInto(art.x, rect.x) }
+      }),
+    ),
+    tiles: [...tiles.values()],
+    chunks: placed.flatMap(({ template, rect }) =>
+      template.chunks.flatMap((chunk) => {
+        const coord = parseTileKey(chunk.tile)
+        if (coord === null) return []
+        // A chunk is its tile clipped to the bbox, so only the tile holding the left edge starts
+        // at minX. Comparing tile columns keeps a seam-crossing chunk from snapping back to minX.
+        const left =
+          coord.x === Math.floor(template.bbox.minX / TILE_SIZE)
+            ? template.bbox.minX
+            : coord.x * TILE_SIZE
+        return [
+          {
+            hash: chunk.hash,
+            x: wrapInto(left, rect.x),
+            y: Math.max(coord.y * TILE_SIZE, template.bbox.minY),
+          },
+        ]
+      }),
+    ),
+  }
 }
 
 /**
