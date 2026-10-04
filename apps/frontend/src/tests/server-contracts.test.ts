@@ -15,6 +15,7 @@ import { socialImageKey } from '../lib/social-image'
 import { load } from '../routes/+layout.server'
 import { GET as proxy } from '../routes/api/[...path]/+server'
 import { GET as imageGet, HEAD as imageHead } from '../routes/social/template/[id].gif/+server'
+import { GET as legacyPageGet, HEAD as legacyPageHead } from '../routes/template/[id]/+server'
 import { adminToken, createTestBackend } from './backend'
 import { manifest, server, template } from './fixtures'
 
@@ -129,7 +130,7 @@ describe('public social metadata and stored image routes', () => {
   it('only published templates receive template metadata and strips private query parameters', async () => {
     const data = manifest()
     const context = { server: data.server, manifest: data, statuses: [] }
-    const url = new URL(`https://frontend.test/template/${template().id}?token=private`)
+    const url = new URL(`https://frontend.test/artwork/${template().id}?token=private`)
     const metadata = await socialMetadata(url, context)
     expect(metadata.title).toBe('Artwork · Test world')
     expect(metadata.url).not.toContain('?')
@@ -139,7 +140,7 @@ describe('public social metadata and stored image routes', () => {
     })
     expect(hidden.title).toBe('Test world · Caelestis')
     expect(
-      (await socialMetadata(new URL('https://frontend.test/template/%ZZ'), context)).imageType,
+      (await socialMetadata(new URL('https://frontend.test/artwork/%ZZ'), context)).imageType,
     ).toBe('image/png')
   })
 
@@ -200,7 +201,7 @@ describe('public social metadata and stored image routes', () => {
 
     it('shows published template progress over its timelapse, falling back to the site image', async () => {
       const data = manifest()
-      const url = new URL(`https://frontend.test/template/${template().id}`)
+      const url = new URL(`https://frontend.test/artwork/${template().id}`)
       const context = {
         server: data.server,
         manifest: data,
@@ -227,11 +228,52 @@ describe('public social metadata and stored image routes', () => {
     it('reveals nothing about an unpublished template', async () => {
       const data = manifest({ templates: [template({ published: false, name: 'Secret plan' })] })
       const metadata = await socialMetadata(
-        new URL(`https://frontend.test/template/${template().id}`),
+        new URL(`https://frontend.test/artwork/${template().id}`),
         { server: data.server, manifest: data, statuses: [] },
       )
       expect(metadata.discordEmbed).not.toContain('Secret plan')
       expect(text(embedOf(metadata))).toContain('## Test world · Caelestis')
+    })
+
+    it('keeps the legacy /template/ path anonymous', async () => {
+      const data = manifest()
+      const context = { server: data.server, manifest: data, statuses: [] }
+      const legacy = await socialMetadata(
+        new URL(`https://frontend.test/template/${template().id}`),
+        context,
+      )
+      expect(legacy.title).toBe('Test world · Caelestis')
+      expect(legacy.image).toContain('/social/site.png')
+      const moved = await socialMetadata(
+        new URL(`https://frontend.test/artwork/${template().id}`),
+        context,
+      )
+      expect(moved.title).toBe('Artwork · Test world')
+    })
+
+    it.each([
+      ['GET', legacyPageGet],
+      ['HEAD', legacyPageHead],
+    ] as const)('redirects /template/ %s requests to /artwork/', async (_method, handler) => {
+      const event = {
+        url: new URL('https://frontend.test/template/abc?x=1'),
+        params: { id: 'abc' },
+      } as Parameters<typeof handler>[0]
+      await expect(handler(event)).rejects.toMatchObject({
+        status: 308,
+        location: '/artwork/abc?x=1',
+      })
+    })
+
+    it('redirects encode unusual ids', async () => {
+      const event = {
+        url: new URL('https://frontend.test/template/a%2Fb%20c'),
+        params: { id: 'a/b c' },
+      } as Parameters<typeof legacyPageGet>[0]
+      await expect(legacyPageGet(event)).rejects.toMatchObject({
+        status: 308,
+        location: '/artwork/a%2Fb%20c',
+      })
     })
 
     it('renders operator content as plain text and drops payloads over the size limit', async () => {

@@ -175,7 +175,7 @@ separate [Chromium boundary checks](browser-evidence.md); there are no CSS-class
 | `apps/frontend/src/routes/api/[...path]/+server.ts` | Integration | HTTP credential boundary, configured/selected server isolation, version fallback, retry refusal, blob lifetime, live protocol negotiation. |
 | `apps/frontend/src/routes/folder/[id]/+page.svelte` | Integration | Mounted page/component interactions and displayed state; actual canvas/layout/timelapse behavior belongs to separate browser validation. |
 | `apps/frontend/src/routes/social/template/[id].gif/+server.ts` | Integration | SSR/proxy/storage boundary: public metadata, publication checks, conditional reads, credential stripping, partial recovery and portable environment wiring. |
-| `apps/frontend/src/routes/template/[id]/+page.svelte` | Integration | Mounted page/component interactions and displayed state; actual canvas/layout/timelapse behavior belongs to separate browser validation. |
+| `apps/frontend/src/routes/artwork/[id]/+page.svelte` | Integration | Mounted page/component interactions and displayed state; actual canvas/layout/timelapse behavior belongs to separate browser validation. |
 | `packages/ui/src/appearance/AppearanceEditor.svelte` | Integration | Mounted component emits public intents and exposes accessible controls for its model; pending/refusal and cleanup where applicable. |
 | `packages/ui/src/appearance/ColourInput.svelte` | Integration | Mounted component emits public intents and exposes accessible controls for its model; pending/refusal and cleanup where applicable. |
 | `packages/ui/src/backfill/Backfill.svelte` | Integration | Mounted component emits public intents and exposes accessible controls for its model; pending/refusal and cleanup where applicable. |

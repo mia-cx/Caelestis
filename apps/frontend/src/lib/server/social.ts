@@ -100,7 +100,7 @@ const pageMetadata = async (
         folder.description || `Follow the Wplace templates and painting progress in ${folder.name}.`
     }
   }
-  if (kind !== 'template') return metadata
+  if (kind !== 'artwork') return metadata
   const template = manifest?.templates.find((entry) => entry.id === id && entry.published)
   if (template === undefined || manifest === null) return metadata
   metadata.title = `${template.name} · ${siteName}`
