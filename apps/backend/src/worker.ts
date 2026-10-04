@@ -4,11 +4,7 @@ import { DurableObjectCounterStore } from './adapters/cloudflare/do-counter-stor
 import { DurableObjectStatusReadModel } from './adapters/cloudflare/do-status-read-model.js'
 import { R2BlobStore } from './adapters/cloudflare/r2-blob-store.js'
 import { type App, createApp } from './app.js'
-import {
-  deploymentVersion,
-  instrumentD1,
-  measureRequest,
-} from './metrics/request-metrics.js'
+import { deploymentVersion, instrumentD1, measureRequest } from './metrics/request-metrics.js'
 import { presenceRequest } from './presence/port.js'
 import { makeBackendContext } from './runtime/backend-runtime.js'
 import { derivedArtifactWriter } from './telemetry/derived-artifact-writer.js'

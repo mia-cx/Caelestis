@@ -57,6 +57,7 @@ import {
 import { onCanvasWrite } from '../canvas-write.js'
 import { isClaimModeActive, onClaimEditorChange } from '../claim-editor.js'
 import { claimRouter } from '../claim-routing.js'
+import { expectedBackendVersion, userscriptVersion } from '../client-metrics.js'
 import { isEnabled as isDebugEnabled, log, setEnabled as setDebugEnabled } from '../debug.js'
 import { onArtboardPixelsChange } from '../gl/artboard-pixels.js'
 import { consumeInvite } from '../invite.js'
@@ -112,6 +113,7 @@ import { focusedTemplate } from '../templates/nearest.js'
 import { forgetNodes, nodeScopeKey } from '../templates/server-nodes.js'
 import { endServerGeneration, forgetChunks, serverTemplateKey } from '../templates/server-sync.js'
 import { ensureLocalTags } from '../templates/tags.js'
+import { backendVersionOutdated } from '../userscript-update.js'
 import { ownedColours, refreshAccount } from '../wplace-account.js'
 import { isPaintOpen, onPaintSelectionChange, selectedColour } from '../wplace-paint.js'
 import {
@@ -588,12 +590,19 @@ const settingsModel = (): SettingsModel => {
   }
   const snapshot = isProfileEnabled() ? profileSnapshot() : null
   return {
+    userscriptVersion,
     servers: state.servers.map((server) => {
       const message = settingsMessages.get(server.url)
+      const info = server.info
+      const version = [info?.version, info?.build].filter(Boolean).join(' · ')
       return {
         url: server.url,
         name: server.info?.name ?? server.url,
         status: server.status,
+        ...(version === '' ? {} : { version }),
+        ...(backendVersionOutdated(info?.version, expectedBackendVersion)
+          ? { outdated: { expected: expectedBackendVersion } }
+          : {}),
         ...(server.error === undefined ? {} : { error: server.error }),
         expanded: expandedServers.has(server.url),
         tokenSaved: server.token !== null,

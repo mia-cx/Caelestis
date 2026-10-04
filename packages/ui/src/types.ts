@@ -314,6 +314,10 @@ export interface SettingsServerModel {
   readonly isAdmin: boolean
   readonly pending?: boolean
   readonly message?: string
+  /** Release text the server reported, e.g. `0.9.0 · a1b2c3d4e5f6`. */
+  readonly version?: string
+  /** Present when the server reports a backend version older than this userscript expects. */
+  readonly outdated?: { readonly expected: string }
   readonly accessTokens?: SettingsAccessTokensModel
 }
 
@@ -332,6 +336,8 @@ export interface SettingsWplacePatchModel {
 }
 
 export interface SettingsModel {
+  /** Installed userscript version shown in the settings header, e.g. `0.15.0`. */
+  readonly userscriptVersion?: string
   readonly servers: readonly SettingsServerModel[]
   readonly addServerPending?: boolean
   readonly addServerMessage?: string

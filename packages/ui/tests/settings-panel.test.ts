@@ -137,4 +137,69 @@ describe('settings panel intent boundary', () => {
     mounted.push(mount(SettingsPanel, { target: empty, props: { model: settings() } }))
     expect(empty.textContent).not.toContain('Wplace performance')
   })
+
+  it('shows release versions and warns only about an outdated server', () => {
+    const target = document.body.appendChild(document.createElement('div'))
+    mounted.push(
+      mount(SettingsPanel, {
+        target,
+        props: {
+          model: {
+            ...settings(),
+            userscriptVersion: '0.15.0',
+            servers: [
+              {
+                url: 'https://fresh.example.org',
+                name: 'Fresh',
+                status: 'connected',
+                expanded: false,
+                tokenSaved: true,
+                isAdmin: false,
+                version: '0.9.0 · a1b2c3d4e5f6',
+              },
+              {
+                url: 'https://stale.example.org',
+                name: 'Stale',
+                status: 'connected',
+                expanded: false,
+                tokenSaved: true,
+                isAdmin: false,
+                version: '0.8.0',
+                outdated: { expected: '0.9.0' },
+              },
+            ],
+          },
+        },
+      }),
+    )
+    expect(target.querySelector('.version-line')?.textContent).toContain('Userscript 0.15.0')
+    expect(target.textContent).toContain('0.9.0 · a1b2c3d4e5f6')
+    expect(target.textContent).toContain('Older than this userscript expects (0.9.0)')
+
+    const current = document.body.appendChild(document.createElement('div'))
+    mounted.push(
+      mount(SettingsPanel, {
+        target: current,
+        props: {
+          model: {
+            ...settings(),
+            servers: [
+              {
+                url: 'https://fresh.example.org',
+                name: 'Fresh',
+                status: 'connected',
+                expanded: false,
+                tokenSaved: true,
+                isAdmin: false,
+                version: '0.9.0',
+              },
+            ],
+          },
+        },
+      }),
+    )
+    expect(current.querySelector('.version-line')).toBeNull()
+    expect(current.textContent).not.toContain('Older than this userscript expects')
+    expect(current.textContent).toContain('0.9.0')
+  })
 })

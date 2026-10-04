@@ -19,7 +19,9 @@ export const backendVersionOutdated = (
   const advertised = parseVersion(serverVersion, VERSION)
   const baseline = parseVersion(expected, VERSION)
   return (
-    advertised !== null && baseline !== null && compareVersions(advertised.parts, baseline.parts) < 0
+    advertised !== null &&
+    baseline !== null &&
+    compareVersions(advertised.parts, baseline.parts) < 0
   )
 }
 const UPDATE_CHECK_DELAY_MS = 5_000
