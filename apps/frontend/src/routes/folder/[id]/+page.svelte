@@ -1,12 +1,14 @@
 <script lang="ts">
 import { page } from '$app/state'
-import { ProgressMeter } from '@caelestis/ui'
+import { MenuStyles, ProgressMeter } from '@caelestis/ui'
 import ColourProgress from '$lib/components/ColourProgress.svelte'
 import FolderSection from '$lib/components/FolderSection.svelte'
 import StatsPanel from '$lib/components/StatsPanel.svelte'
 import TemplateCard from '$lib/components/TemplateCard.svelte'
+import TimelapsePanel from '$lib/components/TimelapsePanel.svelte'
 import { Skeleton } from '$lib/components/ui/skeleton'
 import { useApp } from '$lib/state/app.svelte'
+import { TimelapsePlayer } from '$lib/timelapse-player.svelte'
 import { folderColourStatuses, folderTemplates, type TreeFolder } from '$lib/tree'
 
 const app = useApp()
@@ -25,6 +27,7 @@ const folder = $derived(
 )
 const templates = $derived(folder === null ? [] : folderTemplates(folder))
 const colours = $derived(folder === null ? null : folderColourStatuses(folder))
+const player = new TimelapsePlayer(() => templates)
 
 // Build linked breadcrumbs from the root to this folder.
 const ancestors = $derived.by(() => {
@@ -41,6 +44,8 @@ const ancestors = $derived.by(() => {
   return chain
 })
 </script>
+
+<MenuStyles />
 
 <svelte:head>
   <title>{folder === null ? 'Folder' : folder.node.name} · Caelestis</title>
@@ -87,12 +92,17 @@ const ancestors = $derived.by(() => {
     {/if}
 
     {#if templates.length > 0 && app.manifest !== null}
+      <TimelapsePanel {player} label={folder.node.name} />
+
       <StatsPanel
         {templates}
         season={app.manifest.season}
         liveDashboard={app.liveProtocol === 2}
         progress={folder.progress}
         subscribeDashboard={app.subscribeDashboard}
+        playhead={player.live ? null : player.playhead}
+        onSeek={player.timeline.length > 0 ? player.seekTo : undefined}
+        onScrubStart={player.beginScrub}
       />
     {/if}
 
