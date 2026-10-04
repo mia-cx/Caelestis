@@ -518,7 +518,7 @@
     .flyout {
       inset-block: auto calc(100% + 8px);
       inset-inline: 0 auto;
-      max-block-size: calc(100dvh - 20rem);
+      max-block-size: max(2.75rem, calc(100dvh - 20rem));
       overflow-y: auto;
     }
     .slot:nth-last-child(-n + 2) .flyout {
@@ -597,6 +597,12 @@
       max-block-size: 3.3rem;
       overflow-y: auto;
       white-space: normal;
+    }
+  }
+
+  @media (max-width: 40rem) and (max-height: 24rem) {
+    .flyout {
+      inset-block: 0 auto;
     }
   }
 </style>
