@@ -45,7 +45,7 @@ const DERIVED_ARTIFACT_DRAIN_TIMEOUT_MS = 10_000
 const backendVersion = (
   createRequire(import.meta.url)('../../package.json') as { version?: string }
 ).version
-const backendBuild = process.env.CAELESTIS_BUILD_ID?.slice(0, 12) ?? 'development'
+const backendBuild = process.env.CAELESTIS_BUILD_ID?.slice(0, 12) || 'development'
 
 const MIRROR_INTERVAL_MS = 6 * 60 * 60 * 1000
 const SOCIAL_INTERVAL_MS = 24 * 60 * 60 * 1000
