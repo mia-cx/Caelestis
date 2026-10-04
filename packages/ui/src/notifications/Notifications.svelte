@@ -164,6 +164,7 @@
 
   .sr-only {
     position: absolute;
+    inset: 0 auto auto 0;
     inline-size: 1px;
     block-size: 1px;
     overflow: hidden;
