@@ -438,7 +438,7 @@
     text-transform: uppercase;
     letter-spacing: 0.04em;
     opacity: 0;
-    transition: opacity 120ms ease-out;
+    transition: opacity var(--caelestis-duration-quick) var(--caelestis-ease-out);
   }
   .unsaved.visible {
     opacity: 1;

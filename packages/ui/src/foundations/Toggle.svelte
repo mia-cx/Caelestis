@@ -9,6 +9,8 @@
   }
 
   let { label, checked, disabled = false, compact = false, control, onChange }: Props = $props()
+  // The "off" keyframes must not play on mount — they only arm once the user has toggled.
+  let initiated = $state(false)
 </script>
 
 <input
@@ -16,10 +18,11 @@
   role="switch"
   aria-label={label}
   class:compact
+  class:is-init={initiated}
   {checked}
   {disabled}
   data-caelestis-control={control}
-  onchange={(event) => onChange?.(event.currentTarget.checked)}
+  onchange={(event) => { initiated = true; onChange?.(event.currentTarget.checked) }}
 />
 
 <style>
@@ -27,6 +30,12 @@
     --toggle-size: 1.25rem;
     --toggle-padding: calc(var(--toggle-size) * 0.125);
     --toggle-colour: color-mix(in oklab, var(--caelestis-text, var(--color-base-content, currentColor)) 50%, transparent);
+    /* The thumb's resting offset is the column it jumps to; --toggle-travel is that column's width. */
+    --toggle-dur: var(--caelestis-duration-fast);
+    --toggle-travel: calc(var(--toggle-size) - (var(--border, 1px) + var(--toggle-padding)) * 2);
+    --toggle-ov1: 1px;
+    --toggle-ov2: 0px;
+    --toggle-ease: var(--caelestis-ease-bounce);
     appearance: none;
     position: relative;
     display: inline-grid;
@@ -43,7 +52,7 @@
     color: var(--toggle-colour);
     box-shadow: 0 1px color-mix(in oklab, currentColor calc(var(--depth, 1) * 10%), transparent) inset;
     cursor: pointer;
-    transition: color 300ms, grid-template-columns 200ms;
+    transition: color var(--caelestis-duration-fast);
   }
 
   input::before {
@@ -56,6 +65,8 @@
     aspect-ratio: 1;
     border-radius: var(--caelestis-radius, calc(0.7rem + 1px));
     background: currentColor;
+    translate: 0 0;
+    will-change: translate;
     box-shadow:
       0 -1px oklch(0% 0 0 / calc(var(--depth, 1) * 10%)) inset,
       0 8px 0 -4px oklch(100% 0 0 / calc(var(--depth, 1) * 10%)) inset,
@@ -67,8 +78,27 @@
   input:disabled { cursor: not-allowed; opacity: 0.3; }
   input:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 
-  @media (prefers-reduced-motion: no-preference) {
-    input::before { transition: background-color 100ms, translate 200ms; }
+  /* The layout jump is instant; the keyframes replay it as a two-step overshoot so a mid-flight
+     retoggle continues from wherever the thumb actually is. */
+  input.is-init:checked::before { animation: toggle-thumb-on var(--toggle-dur) var(--toggle-ease) both; }
+  input.is-init:not(:checked)::before { animation: toggle-thumb-off var(--toggle-dur) var(--toggle-ease) both; }
+
+  @keyframes toggle-thumb-on {
+    0% { translate: calc(-1 * var(--toggle-travel)) 0; }
+    55% { translate: var(--toggle-ov1) 0; }
+    80% { translate: calc(-1 * var(--toggle-ov2)) 0; }
+    100% { translate: 0 0; }
+  }
+  @keyframes toggle-thumb-off {
+    0% { translate: var(--toggle-travel) 0; }
+    55% { translate: calc(-1 * var(--toggle-ov1)) 0; }
+    80% { translate: var(--toggle-ov2) 0; }
+    100% { translate: 0 0; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    input { transition: none; }
+    input::before { animation: none !important; }
   }
 
   /* Pixel chrome: Wplace's .toggle — well-shade track, square ink thumb, checked goes primary. */

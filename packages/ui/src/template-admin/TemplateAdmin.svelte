@@ -74,7 +74,7 @@
 
   @media (prefers-reduced-motion: no-preference) {
     button {
-      transition: transform 120ms, border-color 160ms, background-color 160ms;
+      transition: transform var(--caelestis-duration-quick), border-color var(--caelestis-duration-quick), background-color var(--caelestis-duration-quick);
     }
   }
 
