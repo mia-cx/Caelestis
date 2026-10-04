@@ -1,5 +1,47 @@
 # @caelestis/userscript
 
+## 0.16.0
+
+### Minor Changes
+
+- f9995fc: Hold Shift while painting to draw only unfinished template pixels that need the selected colour.
+
+### Patch Changes
+
+- c2468eb: Capture art from the canvas as a new template with Capture from canvas, beside Import template.
+  
+  - Select the art with the claim tools, then download it as a PNG or add it as a template and drag it into place.
+- ec401af: Keep captured artwork exact and preserve selections on placement failures without letting cancelled captures interrupt later edits.
+- 14b0bb8: Keep capture and claim toolbar actions visible and clickable above the docked panel.
+- cf509c3: Wrap capture toolbar actions on narrow screens so Cancel, Download PNG, and Add as template remain reachable.
+- 2cf4ef2: Add a "Claims only while painting" setting that hides region claims until Wplace's paint drawer is open.
+- 9ede931: Match Wplace template imports to their saved scale, palette, dithering, and transparency.
+- d6ba373: Draw region claims and painters' viewports more transparently, so the canvas underneath stays readable.
+- b6c0590: Keep retrying template markers on tiles that failed to load, even while the map stays still.
+- 8eaf697: Point update checks and repository links at the new `mia-cx/Caelestis` home.
+- f345268: Keep the canvas visible on phones by closing the sidebar when drawing starts and grouping claim and capture controls in a touch-friendly bottom toolbar.
+- 8566813: Keep claim and capture tool menus scrollable on short phone screens so alternative drawing tools remain reachable.
+- 92fc72d: Re-download only the Wplace tiles that changed, instead of every visible tile every few seconds.
+  
+  - Placing or erasing a draft pixel reloads only the tiles whose drafts changed.
+- 6c14757: Prevent hidden notification announcements from adding a page scrollbar.
+- 1a80760: Remove your drafts from other painters' screens when you submit or close Paint, even while your map stays still.
+- 0ec39bd: Claim temporary painting areas by holding Ctrl and dragging on the map.
+  
+  - Ctrl+click a quick claim to remove it.
+  - Closing the paint drawer or the tab clears your quick claims for everyone.
+- 7579932: Keep the sidebar and button rail aligned with Wplace's right-hand controls when the page has a scrollbar.
+- 9e91a7e: Update server and interface dependencies, including dialog focus and text selection fixes.
+- e1e5d7d: Skip re-reading a Wplace tile's pixels when a refresh returns the same image.
+- 3f4c9d0: Reject truncated PNG chunks before template import.
+- 1f9c159: Keep the map still while drawing claims or captures with a finger, while allowing the Hand tool to pan.
+- fda3b68: Declare the MCX License, copyright, and browser compatibility in the userscript metadata.
+- a3705a8: Stop Wplace's map from redrawing every frame while it sits still, cutting idle CPU and GPU use.
+  
+  - Pause Wplace's event-marker animations while the marker is hidden.
+  - Switch any Wplace patch off from the console with `__caelestis.wplacePatches.disable(name)`.
+- 6ea4a2f: Switch each Wplace performance fix off or on from a new Wplace performance section in Settings.
+
 ## 0.15.0
 
 ### Minor Changes

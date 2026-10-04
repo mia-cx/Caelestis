@@ -1,5 +1,14 @@
 # @caelestis/frontend
 
+## 0.7.2
+
+### Patch Changes
+
+- 8eaf697: Point update checks and repository links at the new `mia-cx/Caelestis` home.
+- 6c14757: Prevent hidden notification announcements from adding a page scrollbar.
+- 9e91a7e: Update server and interface dependencies, including dialog focus and text selection fixes.
+- 3f4c9d0: Reject truncated PNG chunks before template import.
+
 ## 0.7.1
 
 ### Patch Changes

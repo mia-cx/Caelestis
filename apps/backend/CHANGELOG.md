@@ -1,5 +1,18 @@
 # @caelestis/backend
 
+## 0.9.1
+
+### Patch Changes
+
+- 42caa5c: Durable jobs now claim a fenced, renewable lease before they run, so several processes sharing one database run each job once. Existing coordinator databases migrate in place on startup.
+- 0ec39bd: Claim temporary painting areas by holding Ctrl and dragging on the map.
+  
+  - Ctrl+click a quick claim to remove it.
+  - Closing the paint drawer or the tab clears your quick claims for everyone.
+- 9e91a7e: Update server and interface dependencies, including dialog focus and text selection fixes.
+- 27cc081: Run RustFS in the Compose S3 example, since MinIO no longer publishes its images. Existing stacks copy their MinIO data over on the next start and keep the old volume untouched until you delete it.
+- 3f4c9d0: Reject truncated PNG chunks before template import.
+
 ## 0.9.0
 
 ### Minor Changes
