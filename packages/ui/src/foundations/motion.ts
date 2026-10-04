@@ -26,8 +26,7 @@ const parseDurationMs = (value: string): number => {
 export const surfaceCloseDurationMs = (
   element: HTMLElement,
   property: string = SURFACE_CLOSE_DURATION,
-): number =>
-  parseDurationMs(getComputedStyle(element).getPropertyValue(property))
+): number => parseDurationMs(getComputedStyle(element).getPropertyValue(property))
 
 const pendingCloses = new WeakMap<HTMLElement, number>()
 
