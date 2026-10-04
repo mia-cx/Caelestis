@@ -184,13 +184,13 @@
               <input type="number" min={model.tool === 'pen' ? 0 : 1} max={model.options.maxWidth} value={model.options.width} disabled={model.pending} onchange={(event) => onIntent({ type: 'set-option', option: 'width', value: clamp(Number(event.currentTarget.value), model.tool === 'pen' ? 0 : 1, model.options.maxWidth) })} />
             </label>
           {/if}
-          {#if hasSubtract}
-            <label class="option">
-              <Toggle label="Subtract" compact checked={model.subtract} onChange={(subtract) => onIntent({ type: 'set-subtract', subtract })} />
-              <span>Subtract</span>
-            </label>
-          {/if}
         </div>
+        {#if hasSubtract}
+          <label class="option">
+            <Toggle label="Subtract" compact checked={model.subtract} onChange={(subtract) => onIntent({ type: 'set-subtract', subtract })} />
+            <span>Subtract</span>
+          </label>
+        {/if}
       </div>
 
       <div class="group status" aria-label={capture ? 'Selection' : 'Claims'}>
@@ -485,6 +485,118 @@
     .actions {
       flex-wrap: wrap;
       justify-content: flex-end;
+    }
+  }
+
+  /* Phones need one editing area below the canvas, clear of Wplace's bottom controls.
+     Keep the tools and their flyouts together instead of covering the drawing with a sidebar. */
+  @media (max-width: 40rem) {
+    .mode {
+      inset: auto max(8px, env(safe-area-inset-right)) calc(4.25rem + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+      display: flex;
+      flex-direction: column;
+      border: 1px solid var(--caelestis-border);
+      border-radius: var(--caelestis-radius, 0.7rem);
+      background: var(--caelestis-surface, white);
+      box-shadow: var(--caelestis-popover-shadow, 0 10px 24px -6px rgb(0 0 0 / 0.28));
+    }
+    .drawer {
+      position: static;
+      transform: none;
+      flex-direction: row;
+      justify-content: space-around;
+      border: 0;
+      border-block-end: 1px solid var(--caelestis-border);
+      border-radius: 0;
+      background: transparent;
+      box-shadow: none;
+    }
+    .tool {
+      inline-size: 2.75rem;
+      block-size: 2.75rem;
+    }
+    .flyout {
+      inset-block: auto calc(100% + 8px);
+      inset-inline: 0 auto;
+      max-block-size: calc(100dvh - 20rem);
+      overflow-y: auto;
+    }
+    .slot:nth-last-child(-n + 2) .flyout {
+      inset-inline: auto 0;
+    }
+    .choice {
+      min-block-size: 2.75rem;
+    }
+    .choice kbd {
+      display: none;
+    }
+    .bar {
+      position: static;
+      inline-size: 100%;
+      margin: 0;
+      padding: 0.25rem 0.5rem 0.5rem;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      box-shadow: none;
+    }
+    .row {
+      gap: 0;
+    }
+    .tool-group {
+      justify-content: space-between;
+      column-gap: 0.5rem;
+      row-gap: 0;
+    }
+    .option {
+      min-block-size: 2.75rem;
+    }
+    .option input {
+      block-size: 2.75rem;
+      box-sizing: border-box;
+    }
+    .options {
+      order: 1;
+      flex-basis: 100%;
+      gap: 0 0.5rem;
+    }
+    .status {
+      min-block-size: 2.75rem;
+    }
+    .delete {
+      margin-inline-start: auto;
+    }
+    .actions {
+      display: flex;
+      flex-wrap: nowrap;
+      gap: 0.25rem;
+    }
+    .actions :global(button), .delete :global(button) {
+      min-block-size: 2.75rem;
+      block-size: auto;
+      padding: 0.5rem;
+      font-size: 0.75rem;
+      line-height: 1.2;
+    }
+    .actions :global(button) {
+      flex: 1 1 0;
+      min-inline-size: 0;
+    }
+    .actions :global(button.ghost) {
+      flex: 0 0 auto;
+    }
+    .unsaved {
+      min-inline-size: 0;
+    }
+    .hint {
+      display: none;
+    }
+    .hint.message {
+      display: block;
+      block-size: auto;
+      max-block-size: 3.3rem;
+      overflow-y: auto;
+      white-space: normal;
     }
   }
 </style>

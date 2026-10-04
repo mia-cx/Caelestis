@@ -55,7 +55,7 @@ import {
   serverTemplateTreeKey,
 } from '../application/tree-server-state.js'
 import { onCanvasWrite } from '../canvas-write.js'
-import { onClaimEditorChange } from '../claim-editor.js'
+import { isClaimModeActive, onClaimEditorChange } from '../claim-editor.js'
 import { claimRouter } from '../claim-routing.js'
 import { isEnabled as isDebugEnabled, log, setEnabled as setDebugEnabled } from '../debug.js'
 import { onArtboardPixelsChange } from '../gl/artboard-pixels.js'
@@ -1377,6 +1377,12 @@ const setOpen = (next: boolean): void => {
 /** Open or close the panel for the canvas currently in front of the user. */
 export const togglePanel = (): void => setOpen(!panelOpen())
 
+/** Leave room to draw on phones, including when a desktop editing session is resized. */
+const closePanelForMobileDrawing = (): void => {
+  if (panelOpen() && isClaimModeActive() && window.matchMedia('(max-width: 40rem)').matches)
+    setOpen(false)
+}
+
 const togglePanelFor = (scope: PanelScope): void => {
   const next = !panelSessions.isOpen(scope)
   if (scope !== panelSessions.scope()) {
@@ -1673,6 +1679,7 @@ export const installPanel = (): void => {
   syncPresenceModeState()
   syncClaimToolState()
   onClaimEditorChange(syncClaimToolState)
+  onClaimEditorChange(closePanelForMobileDrawing)
   onPresenceChange(syncClaimToolState)
   // Headcounts and claims arrive over the socket; the Painters drawer has to follow them.
   onPresenceChange(() =>
@@ -1708,6 +1715,7 @@ export const installPanel = (): void => {
     subtree: true,
   })
   window.addEventListener('resize', () => {
+    closePanelForMobileDrawing()
     positionRail()
     positionChargeForecast()
     const panel = document.getElementById(currentPanelId()) as CaelestisPanel | null
