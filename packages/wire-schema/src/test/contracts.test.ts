@@ -14,6 +14,7 @@ import {
   PresenceClientEvent,
   PresenceDraft,
   RegionDocument,
+  ServerInfo,
   StatusDelta,
   StatusResponse,
   TemplateStatus,
@@ -133,6 +134,17 @@ describe('wire schema public contracts', () => {
         { ...manifest.nodes[0]!, id: '018f4f2a-1235-7abc-8def-0123456789ab', path: '/ATLAS' },
       ],
     })
+  })
+
+  it('round-trips bounded server version metadata and rejects unusable values', () => {
+    const base = { id, name: 'Example', auth: 'none' as const }
+    expect(decode(ServerInfo, base)).toEqual(base)
+    const reported = { ...base, version: '0.9.0', build: 'a1b2c3d4e5f6' }
+    expect(decode(ServerInfo, reported)).toEqual(reported)
+    invalid(ServerInfo, { ...base, version: '' })
+    invalid(ServerInfo, { ...base, build: '' })
+    invalid(ServerInfo, { ...base, version: 'x'.repeat(65) })
+    invalid(ServerInfo, { ...base, build: 'x'.repeat(65) })
   })
 
   it('keeps v1 and v2 live variants compatible while bounding subscriptions', () => {

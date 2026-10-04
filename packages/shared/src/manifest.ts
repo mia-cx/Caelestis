@@ -48,6 +48,10 @@ export interface ServerInfo {
   readonly livePaintParts?: 1
   /** Canonical `https://discord.gg/<code>` the public home page offers as a join action. */
   readonly discordInviteUrl?: string
+  /** Backend package version, e.g. `0.9.0`. Absent on deployments that predate reporting. */
+  readonly version?: string
+  /** Deploy/build identifier: the first 12 characters of the release SHA, or `development`. */
+  readonly build?: string
   /** Operator copy for the home page, in the bounded format `parseHomeCopy` accepts. */
   readonly homeCopy?: string
   /** Header text when no logo image is set. Absent means the server name. */
