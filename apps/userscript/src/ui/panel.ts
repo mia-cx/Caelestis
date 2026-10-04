@@ -59,6 +59,7 @@ import { isClaimModeActive, onClaimEditorChange } from '../claim-editor.js'
 import { claimRouter } from '../claim-routing.js'
 import { isEnabled as isDebugEnabled, log, setEnabled as setDebugEnabled } from '../debug.js'
 import { onArtboardPixelsChange } from '../gl/artboard-pixels.js'
+import { consumeInvite } from '../invite.js'
 import { redraw } from '../main.js'
 import { MARKER_BUDGET_OPTIONS } from '../marker-budget.js'
 import { onPresenceChange } from '../presence-client.js'
@@ -771,6 +772,30 @@ const updateServerToken = async (url: string, token: string): Promise<void> => {
     pendingServers.delete(url)
     refreshSettings()
   }
+}
+
+/**
+ * Consume an invite fragment left in the address bar, at startup and on `hashchange`.
+ *
+ * `history.replaceState` clears it without reloading, firing `hashchange` again, or disturbing
+ * Wplace's own query string and history state.
+ */
+export const openInviteFromLocation = async (): Promise<void> => {
+  await consumeInvite({
+    hash: location.hash,
+    clearHash: () => history.replaceState(history.state, '', location.pathname + location.search),
+    servers: () => getState().servers,
+    probe: (url, token) => probeServer(url, token),
+    upsert: (server) => upsertServer(server),
+    connected: (server, replacing) => {
+      if (replacing) cancelDestinationAdmissions(server.url)
+      claimRouter().connect(server)
+    },
+    notify: (message, tone) => toast(message, tone),
+    isBusy: (url) =>
+      pendingServers.has(url) || disconnectingServerUrls.has(url) || addServerPending,
+  })
+  refreshSettings()
 }
 
 const handleSettingsIntent = (intent: SettingsIntent): void => {
