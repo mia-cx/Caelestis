@@ -692,6 +692,9 @@ const hydrateCandidate = async (candidate: StoredCandidate): Promise<HydrationRe
   const { indices } = candidate
   if (indices === undefined) return await rebuildArtwork(candidate, 'invalid')
   if (isUint8Array(indices)) return await accept(indices)
+  // A wrong-sized cache can never be accepted. Rebuild before reading it, so its bytes are never
+  // charged against the restore budget, which only counts the expected output size.
+  if (indices.size !== pixels) return await rebuildArtwork(candidate, 'invalid')
   try {
     const buffer = await indices.arrayBuffer()
     if (buffer.byteLength !== indices.size) return await rebuildArtwork(candidate, 'invalid')

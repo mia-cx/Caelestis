@@ -210,6 +210,18 @@ describe('local template authoring', () => {
     )
   })
 
+  it('rebuilds an oversized cache without reading its bytes', async () => {
+    const { imported } = await importedAndSaved()
+    const stored = await rawRecord(imported.id)
+    const oversized = imported.indices.length + 1
+    await putRaw({ ...stored, indices: new Blob([new Uint8Array(oversized)]) })
+    const read = vi.spyOn(Blob.prototype, 'arrayBuffer')
+
+    expect([...(await loaded(imported.id)).indices]).toEqual([...imported.indices])
+    expect(read.mock.contexts.map((blob) => (blob as Blob).size)).not.toContain(oversized)
+    read.mockRestore()
+  })
+
   it('keeps a record whose source no longer reproduces its artwork', async () => {
     const { imported } = await importedAndSaved()
     const stored = await rawRecord(imported.id)
