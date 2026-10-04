@@ -135,7 +135,7 @@ export const consumeInvite = async (deps: InviteDeps): Promise<void> => {
   try {
     const probed = await deps.probe(invite.serverUrl, invite.token)
     if (probed.superseded === true) return
-    if (probed.status === 'connected') {
+    if (probed.status === 'connected' && probed.tokenUsable !== false) {
       if (!deps.upsert(probed)) {
         deps.notify(
           `Already connected to ${MAX_CONNECTED_SERVERS} servers. Disconnect one first.`,
@@ -150,7 +150,7 @@ export const consumeInvite = async (deps: InviteDeps): Promise<void> => {
     // An existing server keeps its stored credentials on either failure: the invite only ever
     // proves the token it carried, never that the old one stopped working.
     deps.notify(
-      probed.status === 'needs-token'
+      probed.status === 'needs-token' || probed.tokenUsable === false
         ? `${invite.serverUrl} didn't accept the invite's token.`
         : `Could not reach ${invite.serverUrl}.`,
       'error',

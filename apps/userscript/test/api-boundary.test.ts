@@ -388,6 +388,41 @@ describe('userscript to backend API boundary', () => {
     expect(manifestCredentials).toEqual(['Bearer stale-open-token', null])
   })
 
+  it.each([false, true])(
+    'rejects an invalid invite despite anonymous access (already connected: %s)',
+    async (alreadyConnected) => {
+      await installBackend({ openAccess: true })
+      const state = await import('../src/state.js')
+      if (alreadyConnected) await connect()
+      const servers = state.getState().servers
+      const saved = localStorage.getItem('caelestis.state.v2')
+      const { consumeInvite, encodeInvite } = await import('../src/invite.js')
+      const connected = vi.fn()
+      const notify = vi.fn()
+      const clearHash = vi.fn()
+
+      await consumeInvite({
+        hash: `#${encodeInvite(origin, 'rejected-invite-token')}`,
+        clearHash,
+        servers: () => state.getState().servers,
+        probe: state.probeServer,
+        upsert: state.upsertServer,
+        connected,
+        notify,
+        isBusy: () => false,
+      })
+
+      expect(clearHash).toHaveBeenCalledOnce()
+      expect(state.getState().servers).toEqual(servers)
+      expect(localStorage.getItem('caelestis.state.v2')).toBe(saved)
+      expect(connected).not.toHaveBeenCalled()
+      expect(notify).toHaveBeenCalledExactlyOnceWith(
+        `${origin} didn't accept the invite's token.`,
+        'error',
+      )
+    },
+  )
+
   it('loads a second real token page through the access-token controller', async () => {
     await installBackend()
     const { state, server } = await connect()
