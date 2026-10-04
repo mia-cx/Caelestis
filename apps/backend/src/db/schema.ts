@@ -1064,3 +1064,41 @@ export const templateAlarmStates = sqliteTable(
     ),
   ],
 )
+
+/**
+ * The one active server archive operation. While this row exists the server refuses writes and,
+ * for an import, every non-archive request. `position` is the next archive record an import
+ * expects; an out-of-sequence append sets it to NULL, which aborts that whole batch.
+ */
+export const archiveOperation = sqliteTable(
+  'archive_operation',
+  {
+    id: integer('id').primaryKey(),
+    kind: text('kind', { enum: ['export', 'import'] }).notNull(),
+    operationId: text('operation_id').notNull(),
+    startedAtMs: integer('started_at_ms').$type<Millis>().notNull(),
+    position: integer('position').notNull(),
+    stateJson: text('state_json').notNull(),
+  },
+  (table) => [
+    check('archive_operation_single_row_check', sql`${table.id} = 1`),
+    check('archive_operation_kind_check', sql`${table.kind} IN ('export', 'import')`),
+  ],
+)
+
+/**
+ * One archive request at a time, across every isolate and process the database serves. A call
+ * takes the row by setting `holder` while it is free or expired and bumps `fence`; write batches
+ * carry that fence so a stalled caller whose lease was taken over cannot commit. `holder` NULL
+ * means free; `expires_at_ms` bounds how long a crashed or stalled call can keep it.
+ */
+export const archiveLease = sqliteTable(
+  'archive_lease',
+  {
+    id: integer('id').primaryKey(),
+    holder: text('holder'),
+    fence: integer('fence').notNull(),
+    expiresAtMs: integer('expires_at_ms').$type<Millis>().notNull(),
+  },
+  (table) => [check('archive_lease_single_row_check', sql`${table.id} = 1`)],
+)

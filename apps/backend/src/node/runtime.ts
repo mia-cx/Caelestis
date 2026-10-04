@@ -19,6 +19,7 @@ import { ObjectBlobStore } from '../adapters/object-blob-store.js'
 import { RelationalSqlStore } from '../adapters/relational-sql-store.js'
 import { runAlarmWatcherCycle } from '../alarm-watcher-cycle.js'
 import { createApp } from '../app.js'
+import { closeProcessWrites, readArchiveOperation } from '../archive/gate.js'
 import { hashToken, mintToken } from '../auth/tokens.js'
 import { EralyonArchive } from '../backfill/eralyon.js'
 import { TemplateBackfill } from '../backfill/import.js'
@@ -78,6 +79,9 @@ export const openNodeRuntime = async (
             : '../../migrations',
       ),
     )
+    // A restart during an archive operation must not reopen writes the operation closed.
+    const held = await readArchiveOperation(connection)
+    if (held !== null) await closeProcessWrites(connection, held.operationId)
     const database = coordinatorDatabase(connection)
     await SqlCoordinatorStorage.initialize(database)
     const state = (actor: string) => new SqlCoordinatorStorage(database, actor)
@@ -202,6 +206,24 @@ export const openNodeRuntime = async (
       return created
     }
     const app = createApp(context, {
+      archive: {
+        connection,
+        objects,
+        counters,
+        backfill: (id) => {
+          const held = importer(id)
+          return {
+            // A step admitted before the gate finishes before its state is read.
+            exportState: (startAfter, limit) =>
+              held.exclusive(() => held.importer.exportState(startAfter, limit)),
+            importState: (page) => held.exclusive(() => held.importer.importState(page)),
+            discardState: (limit) => held.exclusive(() => held.importer.discardState(limit)),
+          }
+        },
+        serverId,
+        activated: scheduleAlarms,
+        settleMilliseconds: config.archiveSettleMilliseconds,
+      },
       bootstrapAdminToken: config.adminToken,
       currentSeason: config.season,
       openAccess: config.openAccess,

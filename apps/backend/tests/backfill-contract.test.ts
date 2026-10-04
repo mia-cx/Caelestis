@@ -33,16 +33,35 @@ class MemoryBackfillStorage implements BackfillStorage {
     this.values.set(key, value)
   }
 
-  async list<T>(options: { prefix: string }): Promise<Map<string, T>> {
+  async list<T>(options: {
+    prefix: string
+    startAfter?: string
+    limit?: number
+  }): Promise<Map<string, T>> {
     return new Map(
       [...this.values]
         .filter(([key]) => key.startsWith(options.prefix))
+        .filter(([key]) => options.startAfter === undefined || key > options.startAfter)
+        .sort(([left], [right]) => (left < right ? -1 : 1))
+        .slice(0, options.limit)
         .map(([key, value]) => [key, value as T]),
     )
   }
 
+  async delete(keys: string[]): Promise<number> {
+    return keys.filter((key) => this.values.delete(key)).length
+  }
+
+  async getAlarm(): Promise<number | null> {
+    return this.alarms.at(-1) ?? null
+  }
+
   async setAlarm(at: number): Promise<void> {
     this.alarms.push(at)
+  }
+
+  async deleteAlarm(): Promise<void> {
+    this.alarms.length = 0
   }
 }
 
