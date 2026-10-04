@@ -170,8 +170,8 @@
  * Chart tokens, validated per mode with the dataviz palette validator (CVD ΔE, lightness band,
  * contrast). Series colors are entities, not statuses: "placed" wears the canvas blue, "correct"
  * the canvas green, in both modes at that mode's legal lightness. The heat ramp is one hue,
- * light-to-dark, for the contribution heatmap. Painter lines take a hue from the painter's id and
- * this mode's lightness and chroma, so every painter sits in the same legible band as the rest.
+ * light-to-dark, for the contribution heatmap. Painter lines wear Wplace's ID colour in both modes;
+ * see `painterColour`.
  */
 :root,
 [data-theme='caelestis'] {
@@ -179,8 +179,6 @@
   --pace-short: oklch(52% 0.19 325);
   --pace-long: oklch(65% 0.16 265);
   --chart-correct: #0eb968;
-  --painter-l: 52%;
-  --painter-c: 0.16;
   --heat-1: oklch(90% 0.05 253);
   --heat-2: oklch(78% 0.09 253);
   --heat-3: oklch(66% 0.13 253);
@@ -200,8 +198,6 @@
   --pace-short: oklch(64% 0.18 325);
   --pace-long: oklch(84% 0.1 265);
   --chart-correct: #16a566;
-  --painter-l: 74%;
-  --painter-c: 0.14;
   --heat-1: oklch(44% 0.09 253);
   --heat-2: oklch(53% 0.11 253);
   --heat-3: oklch(62% 0.13 253);
@@ -222,8 +218,6 @@
     --pace-short: oklch(64% 0.18 325);
     --pace-long: oklch(84% 0.1 265);
     --chart-correct: #16a566;
-    --painter-l: 74%;
-    --painter-c: 0.14;
     --heat-1: oklch(44% 0.09 253);
     --heat-2: oklch(53% 0.11 253);
     --heat-3: oklch(62% 0.13 253);
