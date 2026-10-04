@@ -65,7 +65,7 @@ describe('claim and appearance intent boundaries', () => {
     expect(intents).toEqual([{ type: 'set-tool', tool: 'ellipse' }])
   })
 
-  it('offers capture actions only once the selection covers pixels', async () => {
+  it('offers capture and update actions only once the selection covers pixels', async () => {
     const intents: ClaimModeIntent[] = []
     const base = {
       purpose: 'capture',
@@ -106,9 +106,14 @@ describe('claim and appearance intent boundaries', () => {
     await tick()
     selected('Download PNG').click()
     selected('Add as template').click()
+    const update = render({ ...base, purpose: 'update', items: 1, pixels: 12, dirty: true })
+    await tick()
+    expect(update('Add as template')).toBeUndefined()
+    update('Update template').click()
     expect(intents).toEqual([
       { type: 'capture', action: 'download' },
       { type: 'capture', action: 'template' },
+      { type: 'capture', action: 'update' },
     ])
   })
 

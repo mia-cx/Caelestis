@@ -1,6 +1,6 @@
 import { TILE_SIZE, TRANSPARENT_INDEX, WORLD_PIXELS } from '@caelestis/shared'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { captureSelectedArtwork } from '../src/templates/current-artwork.js'
+import { captureSelectedArtwork, captureTemplateArea } from '../src/templates/current-artwork.js'
 import { loadCommittedTilePixels, UNPAINTED } from '../src/tile-transform.js'
 
 vi.mock('../src/tile-transform.js', async (importOriginal) => ({
@@ -80,5 +80,40 @@ describe('captureSelectedArtwork', () => {
     expect(indices[indices.length - 1]).toBe(9)
     expect(loadCommittedTilePixels).toHaveBeenCalledTimes(2)
     expect(loadCommittedTilePixels).not.toHaveBeenCalledWith({ x: 1, y: 0 })
+  })
+})
+
+describe('captureTemplateArea', () => {
+  // One row of four target pixels; the last one sits in tile 1/0, which never loads.
+  const template = {
+    originX: TILE_SIZE - 3,
+    originY: 0,
+    width: 4,
+    height: 1,
+    indices: new Uint8Array([1, 2, 3, 4]),
+  }
+
+  it('takes painted art inside the selection only, keeping unpainted and unselected targets', async () => {
+    paint(TILE_SIZE - 3, 0, 7)
+    paint(TILE_SIZE - 1, 0, 9)
+    // Selected from left of the template: the first two of its pixels, the second unpainted.
+    const indices = await captureTemplateArea(template, {
+      rect: { x: TILE_SIZE - 5, y: 0, w: 4, h: 1 },
+      mask: new Uint8Array([1, 1, 1, 1]),
+      count: 4,
+    })
+
+    expect(Array.from(indices)).toEqual([7, 2, 3, 4])
+    expect(loadCommittedTilePixels).not.toHaveBeenCalledWith({ x: 1, y: 0 })
+  })
+
+  it('refuses a selection that misses the template', async () => {
+    await expect(
+      captureTemplateArea(template, {
+        rect: { x: 0, y: 1, w: 1, h: 1 },
+        mask: new Uint8Array([1]),
+        count: 1,
+      }),
+    ).rejects.toThrow('Select part of the template')
   })
 })
