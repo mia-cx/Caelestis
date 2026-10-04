@@ -18,6 +18,54 @@ socket.addEventListener('message', ({ data }) => {
   if (response.id !== undefined) calls.get(response.id)?.(response)
   else if (response.method === 'Page.loadEventFired')
     eventWaiters.get('Page.loadEventFired')?.(response.params)
+  else if (
+    response.method === 'Runtime.bindingCalled' &&
+    response.params.name === 'contractInput'
+  ) {
+    const { id, input } = JSON.parse(response.params.payload)
+    void (async () => {
+      if (input.key) {
+        const code = { Enter: 13, Escape: 27, ArrowDown: 40, ArrowLeft: 37, ArrowRight: 39 }[
+          input.key
+        ]
+        await call('Input.dispatchKeyEvent', {
+          type: 'keyDown',
+          key: input.key,
+          code: input.key,
+          windowsVirtualKeyCode: code,
+          text: input.key === 'Enter' ? '\r' : undefined,
+        })
+        await call('Input.dispatchKeyEvent', {
+          type: 'keyUp',
+          key: input.key,
+          code: input.key,
+          windowsVirtualKeyCode: code,
+        })
+      } else {
+        const { x, y, button = 'left' } = input
+        await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y })
+        await call('Input.dispatchMouseEvent', {
+          type: 'mousePressed',
+          x,
+          y,
+          button,
+          clickCount: 1,
+        })
+        await call('Input.dispatchMouseEvent', {
+          type: 'mouseReleased',
+          x,
+          y,
+          button,
+          clickCount: 1,
+        })
+      }
+      await call('Runtime.evaluate', { expression: `window.contractInputDone(${id})` })
+    })().catch(async (error) => {
+      await call('Runtime.evaluate', {
+        expression: `window.contractInputDone(${id}, ${JSON.stringify(error.message)})`,
+      })
+    })
+  }
 })
 const call = (method, params = {}) =>
   new Promise((resolve, reject) => {
@@ -48,11 +96,33 @@ const onceEvent = (method) =>
   })
 
 const source = await readFile(bundle, 'utf8')
+// Page-side half of the `contractInput` binding: contracts await trusted CDP input through it.
+const inputBridge = `
+  let inputSequence = 0;
+  const inputs = new Map();
+  window.browserInput = (input) => new Promise((resolve, reject) => {
+    const id = ++inputSequence;
+    inputs.set(id, { resolve, reject });
+    window.contractInput(JSON.stringify({ id, input }));
+  });
+  window.contractInputDone = (id, error) => {
+    const pending = inputs.get(id);
+    inputs.delete(id);
+    if (error) pending.reject(new Error(error)); else pending.resolve();
+  };
+`
 const freshPage = async (url) => {
   const loaded = onceEvent('Page.loadEventFired')
   await call('Page.navigate', { url })
   await loaded
-  await call('Runtime.evaluate', { expression: source })
+  // Navigation drops the binding, so every fresh document needs it again.
+  await call('Runtime.addBinding', { name: 'contractInput' })
+  await call('Runtime.evaluate', { expression: inputBridge })
+  const evaluated = await call('Runtime.evaluate', { expression: source })
+  if (evaluated.exceptionDetails !== undefined)
+    throw new Error(
+      evaluated.exceptionDetails.exception?.description ?? evaluated.exceptionDetails.text,
+    )
 }
 const runContract = async (expression, url = 'about:blank') => {
   await freshPage(url)
@@ -87,6 +157,15 @@ try {
     )
   })
   await call('Emulation.setFocusEmulationEnabled', { enabled: true })
+  await call('Emulation.setDeviceMetricsOverride', {
+    width: 1280,
+    height: 900,
+    deviceScaleFactor: 1,
+    mobile: false,
+  })
+  await call('Emulation.setEmulatedMedia', {
+    features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }],
+  })
   await call('Page.enable')
 
   // Wplace renders in standards mode, where `html` is the scroller; about:blank is quirks mode.
@@ -104,6 +183,8 @@ try {
     production?.fontStacks !== true
   )
     throw new Error('production browser contracts returned an incomplete result')
+  if (production?.surfaces?.nativeDialogExits !== 4)
+    throw new Error('panel surface contracts returned an incomplete result')
 } finally {
   socket.close()
   await fetch(`http://127.0.0.1:${port}/json/close/${target.id}`, {

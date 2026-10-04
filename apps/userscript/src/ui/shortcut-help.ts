@@ -5,14 +5,16 @@ import {
 } from '@caelestis/ui/elements'
 import { activeShortcutBindings } from '../shortcut-bindings.js'
 import { currentShortcutPlatform, type ShortcutPlatform } from '../shortcuts.js'
+import { closeDialogHost } from './dialog.js'
 import { applyWplaceTheme } from './theme.js'
 
 const restoreTargets = new WeakMap<CaelestisShortcutHelp, HTMLElement | null>()
 
 const dismiss = (help: CaelestisShortcutHelp): void => {
+  if (!restoreTargets.has(help)) return
   const restoreFocusTo = restoreTargets.get(help)
   restoreTargets.delete(help)
-  help.remove()
+  closeDialogHost(help)
   if (restoreFocusTo?.isConnected === true) restoreFocusTo.focus()
 }
 
@@ -20,7 +22,9 @@ const dismiss = (help: CaelestisShortcutHelp): void => {
 export const toggleShortcutHelp = (
   platform: ShortcutPlatform = currentShortcutPlatform(),
 ): void => {
-  const current = document.querySelector<CaelestisShortcutHelp>(SHORTCUT_HELP_TAG)
+  const current = document.querySelector<CaelestisShortcutHelp>(
+    `${SHORTCUT_HELP_TAG}:not([data-state="closing"])`,
+  )
   if (current !== null) {
     dismiss(current)
     return

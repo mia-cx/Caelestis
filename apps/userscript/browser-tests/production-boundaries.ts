@@ -15,6 +15,7 @@ import {
 } from '../src/tile-transform.js'
 import { installWplaceCursors } from '../src/wplace-cursors.js'
 import { installWplaceFont } from '../src/wplace-font.js'
+import { runPanelSurfaceContracts } from './panel-surfaces.js'
 
 const tile = { x: 3, y: 4 }
 const TILE_SIZE = 1_000
@@ -45,6 +46,7 @@ const scan = (server: Uint8Array) =>
 
 /** Browser-only contracts: production worker transfer/cache lifecycle and browser canvas readback. */
 export const runProductionBrowserBoundaries = async () => {
+  const surfaces = await runPanelSurfaceContracts()
   // Simulate Wplace loading its map before the userscript installs its capture hooks.
   const tileUrl = 'https://backend.wplace.live/files/s3/tiles/3/4.png'
   const encoded = await encodeIndexedPng(
@@ -250,6 +252,7 @@ export const runProductionBrowserBoundaries = async () => {
     root.removeAttribute('data-standard-ui')
   }
   return {
+    surfaces,
     canvasCaptured: true,
     bitmapRgba: rgba,
     scans: [first.completed, cached.completed, afterForget.completed],

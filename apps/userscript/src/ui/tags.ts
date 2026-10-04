@@ -12,6 +12,7 @@ import {
   onServerContents,
 } from '../state.js'
 import { mutateLocalTag, onLocalTags, readLocalTags } from '../templates/tags.js'
+import { closeDialogHost } from './dialog.js'
 import { applyWplaceTheme } from './theme.js'
 import type { TreeTarget } from './tree.js'
 
@@ -49,6 +50,7 @@ export const openTagManager = (target: TreeTarget, rerender: () => void): void =
     revision: 0,
   }
   const update = (patch: Partial<TagManagerModel>): void => {
+    if (closed) return
     model = { ...model, ...patch }
     manager.model = model
   }
@@ -129,10 +131,11 @@ export const openTagManager = (target: TreeTarget, rerender: () => void): void =
         })
       : undefined
   const close = (): void => {
+    if (closed) return
     closed = true
     unsubscribe()
     unsubscribeLocal?.()
-    manager.remove()
+    closeDialogHost(manager)
     if (restoreFocus?.isConnected) restoreFocus.focus()
     if (closeManager === close) closeManager = undefined
   }
@@ -174,6 +177,7 @@ export const openTagManager = (target: TreeTarget, rerender: () => void): void =
   manager.model = model
   applyWplaceTheme(manager)
   manager.addEventListener('caelestis-tag-manager-intent', (event) => {
+    if (closed) return
     const intent = (event as CustomEvent<TagManagerIntent>).detail
     if (intent.type === 'close') {
       close()

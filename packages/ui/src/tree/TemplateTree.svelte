@@ -11,7 +11,7 @@
   import TemplateState from '../template-state/TemplateState.svelte'
   import TemplateLifecycle from '../template-state/TemplateLifecycle.svelte'
   import ProgressMeter from '../progress/ProgressMeter.svelte'
-  import { tick } from 'svelte'
+  import { onDestroy, tick } from 'svelte'
   import { SvelteMap } from 'svelte/reactivity'
   import { cancelSurfaceClose, closeSurface, openSurface } from '../foundations/motion.js'
   import type {
@@ -73,12 +73,11 @@
     const current = model.contextMenu
     if (current !== undefined) {
       lastContextMenu = current
-      closingMenu = undefined
+      closingMenu = current
       if (contextMenuElement !== undefined) driveSurface(contextMenuElement)
       return
     }
-    // `lastContextMenu` is consumed as the close starts so the post-unmount re-run of this effect
-    // — the element is still bound for a turn — cannot begin the same close a second time.
+    // Consume the last model so the effect cannot start the same close twice.
     if (lastContextMenu !== undefined && contextMenuElement?.isConnected === true) {
       closingMenu = lastContextMenu
       lastContextMenu = undefined
@@ -89,7 +88,7 @@
   $effect(() => {
     if (progressEntry !== undefined) {
       lastProgressEntry = progressEntry
-      closingProgress = undefined
+      closingProgress = progressEntry
       if (progressPane !== undefined) driveSurface(progressPane)
       return
     }
@@ -98,6 +97,10 @@
       lastProgressEntry = undefined
       closeSurface(progressPane, () => { closingProgress = undefined })
     }
+  })
+  onDestroy(() => {
+    if (contextMenuElement !== undefined) cancelSurfaceClose(contextMenuElement)
+    if (progressPane !== undefined) cancelSurfaceClose(progressPane)
   })
   const minimumSplitWidth = 672
   const narrowDetails = $derived(browserWidth < minimumSplitWidth)
@@ -388,6 +391,8 @@
 
   /** Place the menu at the pointer from its rendered size: it opens upward when the viewport ends first, and scrolls when taller than the viewport. */
   const placeContextMenu = (node: HTMLElement, anchor: { x: number; y: number }): { update: (next: { x: number; y: number }) => void; destroy: () => void } => {
+    // The top layer preserves viewport coordinates through animated, clipping panel ancestors.
+    node.showPopover()
     let current = anchor
     const place = (): void => {
       node.style.maxBlockSize = `${window.innerHeight - viewportMargin * 2}px`
@@ -418,6 +423,7 @@
     const trigger = node.parentElement?.querySelector('button')
     const parent = contextMenuElement
     if (!trigger || !parent) return
+    node.showPopover()
     const place = (): void => {
       const anchor = trigger.getBoundingClientRect()
       const width = node.offsetWidth
@@ -532,6 +538,7 @@
 {#if shownMenu !== undefined}
   <div
     bind:this={contextMenuElement}
+    popover="manual"
     data-caelestis-context-menu
     class="context-menu caelestis-menu"
     role="menu"
@@ -553,7 +560,7 @@
             <Icon name="chevronRight" class="menu-trailing" />
           </button>
           {#if openSubmenuId === item.id}
-            <div class="submenu caelestis-menu" role="menu" aria-label={item.label} tabindex="-1" use:placeSubmenu>
+            <div class="submenu caelestis-menu" popover="manual" role="menu" aria-label={item.label} tabindex="-1" use:placeSubmenu>
               {#each item.children as child (child.id)}
                 {@render menuRow(child, shownMenu.id, false)}
               {/each}
@@ -894,7 +901,7 @@
     --dropdown-closing-scale: var(--caelestis-scale-tiny);
     --dropdown-ease: var(--caelestis-ease-smooth-out);
     --caelestis-surface-close-duration: var(--dropdown-close-dur);
-    position: fixed; z-index: 60; display: flex; inline-size: 12.5rem; max-inline-size: calc(100vw - 1rem); overflow: auto; flex-direction: column;
+    position: fixed; inset: auto; margin: 0; z-index: 60; display: flex; inline-size: 12.5rem; max-inline-size: calc(100vw - 1rem); overflow: auto; flex-direction: column;
     transform-origin: top left;
     transform: scale(var(--dropdown-pre-scale));
     opacity: 0;
@@ -910,7 +917,7 @@
   .context-menu button.danger { color: var(--caelestis-danger); }
   .context-menu :global(.menu-trailing) { margin-inline-start: auto; opacity: 0.7; }
   .submenu-host { display: flex; flex: 0 0 auto; flex-direction: column; }
-  .submenu { position: fixed; z-index: 61; display: flex; min-inline-size: 8rem; max-inline-size: calc(100vw - 1rem); flex-direction: column; }
+  .submenu { position: fixed; inset: auto; margin: 0; z-index: 61; display: flex; min-inline-size: 8rem; max-inline-size: calc(100vw - 1rem); flex-direction: column; }
   @media (hover: hover) {
     .actions { opacity: 0; filter: blur(var(--icon-swap-blur)); pointer-events: none; }
     .row:hover .actions, .row:focus-within .actions { opacity: 1; filter: blur(0); pointer-events: auto; }

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import type { ServerDetailsIntent, ServerDetailsModel } from '@caelestis/ui/elements'
-import { beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { ConnectedServer } from '../state.js'
 
 const SERVER_ID = '019fed50-87a1-7523-a88c-bdeafad49681'
@@ -44,6 +44,34 @@ beforeEach(() => {
   vi.clearAllMocks()
   servers.list = []
   document.body.innerHTML = ''
+})
+
+afterEach(() => {
+  editor()?.dispatchEvent(
+    new CustomEvent('caelestis-server-details-intent', { detail: { type: 'close' } }),
+  )
+  vi.useRealTimers()
+  document.body.replaceChildren()
+})
+
+it('closes natively and rejects further work while retaining the editor host for its exit', () => {
+  vi.useFakeTimers()
+  const connected = server({ id: SERVER_ID, name: 'Allies', auth: 'none' })
+  servers.list = [connected]
+  openServerDetails(connected, vi.fn())
+  const shell = editor()
+  const dialog = shell.attachShadow({ mode: 'open' }).appendChild(document.createElement('dialog'))
+  dialog.style.setProperty('--modal-close-dur', '150ms')
+  dialog.showModal()
+  intend({ type: 'close' })
+  expect(dialog.open).toBe(false)
+  expect(shell.isConnected).toBe(true)
+  intend({ type: 'save', fields: { ...shell.model, name: 'Changed' } })
+  expect(updateServerDetails).not.toHaveBeenCalled()
+  vi.advanceTimersByTime(149)
+  expect(shell.isConnected).toBe(true)
+  vi.advanceTimersByTime(1)
+  expect(shell.isConnected).toBe(false)
 })
 
 it('seeds the form from public server info and patches only what changed', async () => {

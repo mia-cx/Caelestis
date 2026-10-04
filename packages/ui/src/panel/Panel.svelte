@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { tick } from 'svelte'
+  import { onDestroy, tick } from 'svelte'
+  import { cancelSurfaceClose, closeSurface } from '../foundations/motion.js'
   import Button from '../foundations/Button.svelte'
   import Icon from '../foundations/Icon.svelte'
   import AppearanceEditor from '../appearance/AppearanceEditor.svelte'
@@ -15,24 +16,33 @@
   let startX = 0
   let startWidth = 0
   let poppedOut = $state(false)
+  let closingPopout = $state(false)
   let dialog = $state<HTMLDialogElement>()
   let dockedPanel = $state<HTMLElement>()
 
   // The host hears about the modal after it opens and before it closes, so anything it needs to
   // show above the popout, such as toasts, can move into the dialog while it exists.
   $effect(() => {
-    if (poppedOut && dialog !== undefined && !dialog.open) {
+    if (poppedOut && !closingPopout && dialog != null && !dialog.open) {
       dialog.showModal()
       emit({ type: 'popout', open: true })
     }
   })
 
-  const dock = async (): Promise<void> => {
+  onDestroy(() => { if (dialog != null) cancelSurfaceClose(dialog) })
+
+  const dock = (): void => {
+    if (closingPopout || dialog == null) return
+    closingPopout = true
     emit({ type: 'popout', open: false })
-    dialog?.close()
-    poppedOut = false
-    await tick()
-    dockedPanel?.querySelector<HTMLButtonElement>('[aria-label="Pop out menu"]')?.focus()
+    dialog.close()
+    closeSurface(dialog, () => {
+      poppedOut = false
+      closingPopout = false
+      void tick().then(() => {
+        dockedPanel?.querySelector<HTMLButtonElement>('[aria-label="Pop out menu"]')?.focus()
+      })
+    })
   }
 
   const treeIntent = (intent: TemplateTreeIntent, work = false): void => {
@@ -170,31 +180,24 @@
   dialog {
     --modal-open-dur: var(--caelestis-duration-fast);
     --modal-close-dur: var(--caelestis-duration-quick);
-    --modal-scale: var(--caelestis-scale-large);
-    --modal-scale-close: var(--caelestis-scale-large);
+    --caelestis-surface-close-duration: var(--modal-close-dur);
     --modal-ease: var(--caelestis-ease-smooth-out);
     position: fixed; inset: 0; inline-size: 96vw; block-size: 96dvh; max-inline-size: none; max-block-size: none; margin: auto; padding: 0; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); overflow: visible; color: inherit; background: transparent;
-    transform-origin: center;
-    transform: scale(var(--modal-scale));
     opacity: 0;
     pointer-events: none;
     transition:
-      transform var(--modal-close-dur) var(--modal-ease),
       opacity   var(--modal-close-dur) var(--modal-ease),
       overlay   var(--modal-close-dur) var(--modal-ease) allow-discrete,
       display   var(--modal-close-dur) var(--modal-ease) allow-discrete;
-    will-change: transform, opacity;
   }
   dialog[open] {
-    transform: scale(1);
     opacity: 1;
     pointer-events: auto;
     transition:
-      transform var(--modal-open-dur) var(--modal-ease),
       opacity   var(--modal-open-dur) var(--modal-ease),
       overlay   var(--modal-open-dur) var(--modal-ease) allow-discrete,
       display   var(--modal-open-dur) var(--modal-ease) allow-discrete;
-    @starting-style { transform: scale(var(--modal-scale)); opacity: 0; }
+    @starting-style { opacity: 0; }
   }
   dialog::backdrop { background: rgb(0 0 0 / 0.4); opacity: 0; transition: opacity var(--modal-close-dur) var(--modal-ease), overlay var(--modal-close-dur) var(--modal-ease) allow-discrete, display var(--modal-close-dur) var(--modal-ease) allow-discrete; }
   dialog[open]::backdrop { opacity: 1; transition-duration: var(--modal-open-dur); @starting-style { opacity: 0; } }
