@@ -165,20 +165,21 @@ Concurrency is closed in two layers, because a restore and its discard write to 
 cannot share one transaction:
 
 1. **One request at a time.** Every lifecycle route that writes first takes the `archive_lease`
-   row with one compare-and-set. A second request gets `409 — another archive request is
-   running`; the client waits and retries. The lease carries a fence that bumps on every
+   row with one compare-and-set. A second request gets `409`, saying another archive request is
+   running; the client waits and retries. The lease carries a fence that bumps on every
    take-over and a 120-second TTL, so a crashed holder stalls work only until the lease expires.
-   Status reads stay lock-free. Near its deadline — expiry minus a safety margin — a call stops
+   Status reads stay lock-free. Near its deadline, expiry minus a safety margin, a call stops
    before the next external write or delete, saves progress, and returns the way chunked calls
    always could.
 2. **Fences stop a stale caller.** If a stalled request loses its lease to a take-over, its next
    SQL batch fails anyway: every batch an archive call writes leads with a fence that commits
    only while the operation row still carries the expected state and the lease still carries the
-   call's fence. In the counter store, each operation has a state that only moves forward —
-   importing, cleaning, closed — and imports and cleanup must move it inside their own write
+   call's fence. In the counter store, each operation has a state that only moves forward:
+   importing, cleaning, closed. Imports and cleanup must move it inside their own write
    transaction, so a late counter append or a stale discard is refused even after its caller's
    lease is gone. Discard records the template ids it must clean before deleting the rows that
-   carried them, and its final pass checks that backfill state by id.
+   carried them, and its final pass checks that backfill state by id, checkpointed across calls
+   so a large restore resumes where it stopped.
 
 Then the operation row's own rules:
 
@@ -193,14 +194,14 @@ Then the operation row's own rules:
    row afterwards and undone if the row moved on. Each probe of the object store uses its own
    random key.
 5. **Writes reopen last.** Releasing closes the operation's counter state, deletes the row,
-   thaws the counter freeze, then reopens the process gate — so records stay refused while the
+   thaws the counter freeze, then reopens the process gate, so records stay refused while the
    operation still holds the server. A crash between the delete and the thaw leaves only a
    freeze that clears itself on the next record; a failure earlier leaves the row in `releasing`,
    still holding the server, and the next lifecycle call finishes it. Counter freezes and
    process gates are keyed by operation id, so a late release of an old operation cannot
    unfreeze a newer one.
 
-A discard ends with a cheap extra pass over every location — SQL tables, counter tables,
+A discard ends with a cheap extra pass over every location: SQL tables, counter tables,
 recorded backfill ids, object prefixes. A write that outlived its own lease deadline and landed
 after its step ran is found there and cleaned on the repeat pass.
 

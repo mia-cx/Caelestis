@@ -650,6 +650,69 @@ describe('archive request fencing', () => {
     return (JSON.parse(operation.stateJson) as { discard?: { step: number } }).discard?.step ?? 0
   }
 
+  /** Real per-template coordinator storage, wired as the host's backfill archive. */
+  const backfillStores = async (connection: TransactionalSqlConnection) => {
+    const database = coordinatorDatabase(connection)
+    await SqlCoordinatorStorage.initialize(database)
+    const stores = new Map<string, SqlCoordinatorStorage>()
+    const storage = (id: string) => {
+      let store = stores.get(id)
+      if (store === undefined) {
+        store = new SqlCoordinatorStorage(database, `backfill:${id}`)
+        stores.set(id, store)
+      }
+      return store
+    }
+    const backfill = (id: string) => ({
+      exportState: async (_after: string | null, limit: number) => [
+        ...(await storage(id).list({ prefix: '', limit })).entries(),
+      ],
+      importState: async (page: readonly (readonly [string, unknown])[]) => {
+        for (const [key, value] of page) await storage(id).put(key, value)
+      },
+      discardState: async (limit: number) => {
+        const keys = [...(await storage(id).list({ prefix: '', limit })).keys()]
+        if (keys.length > 0) await storage(id).delete(keys)
+        return (await storage(id).list({ prefix: '', limit: 1 })).size === 0
+      },
+    })
+    return { backfill, storage }
+  }
+
+  /** A discard that already ran every deletion step and sits in its final pass. */
+  const finishingDiscard = async (
+    connection: SqlConnection,
+    operationId: string,
+    templates: readonly string[],
+  ) => {
+    await connection
+      .prepare(
+        'INSERT INTO "archive_operation" ("id", "kind", "operation_id", "started_at_ms", "position", "state_json") VALUES (1, \'import\', ?, 0, 1, ?)',
+      )
+      .bind(
+        operationId,
+        JSON.stringify({
+          archiveId: 'archive-1',
+          sourceServerId: 'source-1',
+          tables: {},
+          chain: ARCHIVE_CHAIN_SEED,
+          counts: {},
+          ended: true,
+          phase: 'discarding',
+          preservedTokens: [],
+          discard: { step: DISCARD_STEP_COUNT, after: null, templates },
+        }),
+      )
+      .run()
+  }
+
+  const discardProgress = async (connection: SqlConnection) =>
+    (
+      JSON.parse((await readArchiveOperation(connection))?.stateJson ?? '{}') as {
+        discard?: { step: number; verified?: number }
+      }
+    ).discard
+
   const hostFor = (opened: { connection: SqlConnection }, coordinator: TelemetryCoordinator) => {
     const visits = { count: 0 }
     const base = archiveHost(opened.connection, visits)
@@ -863,6 +926,36 @@ describe('archive request fencing', () => {
     await expect(append).rejects.toThrow()
     for (;;) if (await discardRestore(staleHost)) break
     expect([...(await storage.list({ prefix: '', limit: 10 })).keys()]).toEqual([])
+    expect(await readArchiveOperation(opened.connection)).toBeNull()
+  })
+
+  it('checkpoints the final backfill scan across calls', async () => {
+    const { opened, coordinator } = await relationalStore()
+    const { backfill } = await backfillStores(opened.connection)
+    const host: ArchiveHost = { ...hostFor(opened, coordinator), backfill }
+    await finishingDiscard(opened.connection, 'restore-1', ['t1', 't2', 't3', 't4', 't5'])
+    expect(await discardRestore(host, 2)).toBe(false)
+    expect((await discardProgress(opened.connection))?.verified).toBe(2)
+    expect(await discardRestore(host, 2)).toBe(false)
+    expect((await discardProgress(opened.connection))?.verified).toBe(4)
+    // The fifth id fits the third call's budget, so this call releases the server.
+    expect(await discardRestore(host, 2)).toBe(true)
+    expect(await readArchiveOperation(opened.connection)).toBeNull()
+  })
+
+  it('restarts cleanup when a later verification chunk finds residue', async () => {
+    const { opened, coordinator } = await relationalStore()
+    const { backfill } = await backfillStores(opened.connection)
+    const host: ArchiveHost = { ...hostFor(opened, coordinator), backfill }
+    await finishingDiscard(opened.connection, 'restore-1', ['t1', 't2', 't3', 't4'])
+    await backfill('t3').importState([['late', { seed: 1 }]])
+    expect(await discardRestore(host, 2)).toBe(false)
+    expect((await discardProgress(opened.connection))?.verified).toBe(2)
+    // 't3' sits in the second chunk; finding it restarts cleanup at step 0.
+    expect(await discardRestore(host, 2)).toBe(false)
+    expect(await discardProgress(opened.connection)).toMatchObject({ step: 0 })
+    for (;;) if (await discardRestore(host)) break
+    expect(await backfill('t3').exportState(null, 10)).toEqual([])
     expect(await readArchiveOperation(opened.connection)).toBeNull()
   })
 })

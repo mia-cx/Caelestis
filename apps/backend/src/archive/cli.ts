@@ -38,8 +38,11 @@ const LEASE_ATTEMPTS = 70
 const request = async (client: ArchiveClient, path: string, init: RequestInit = {}) => {
   const send = client.fetch ?? fetch
   const wait = client.wait ?? sleep
+  // Lease waits and real failures run out separately, so busy replies never push the failure
+  // counter past its own limit.
+  let attempt = 1
   let leaseWait = 0
-  for (let attempt = 1; ; attempt += 1) {
+  for (;;) {
     try {
       const response = await send(`${client.api}/admin/archive${path}`, {
         ...init,
@@ -57,6 +60,7 @@ const request = async (client: ArchiveClient, path: string, init: RequestInit = 
       if (attempt === ATTEMPTS) throw error
     }
     await wait(attempt * 2_000)
+    attempt += 1
   }
 }
 

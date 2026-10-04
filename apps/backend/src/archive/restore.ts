@@ -44,6 +44,8 @@ import type { ArchiveHost } from './port.js'
 /** One append stays inside a Worker request and a D1 batch. */
 export const MAX_RESTORE_LINES = 500
 const DISCARD_PAGE = 128
+/** Backfill ids one discard call verifies in its final pass; the rest resume on the next call. */
+const DISCARD_VERIFY_PAGE = 500
 /** A new server has its own few credentials; more means this is somebody's live server. */
 const MAX_PRESERVED_TOKENS = 100
 
@@ -71,6 +73,8 @@ interface RestoreState {
     readonly step: number
     readonly after: string | null
     readonly templates?: readonly string[]
+    /** Backfill ids already checked in the final pass, so a large restore resumes there. */
+    readonly verified?: number
   }
 }
 
@@ -133,10 +137,7 @@ const assertCompatible = (header: ArchiveHeader) => {
 }
 
 /** What the destination already holds. A restore never merges into existing data. */
-const occupiedLocations = async (
-  host: ArchiveHost,
-  backfillIds: readonly string[] = [],
-): Promise<string[]> => {
+const occupiedLocations = async (host: ArchiveHost): Promise<string[]> => {
   const occupied: string[] = []
   for (const table of ARCHIVE_TABLES) {
     if (table.seeded || table.name === 'access_tokens') continue
@@ -158,10 +159,6 @@ const occupiedLocations = async (
       : rows.length > 0
     if (residue) occupied.push(table)
   }
-  // Backfill state survives its template's row, so the discard checks it by the ids it recorded.
-  for (const templateId of backfillIds)
-    if ((await host.backfill(templateId).exportState(null, 1)).length > 0)
-      occupied.push(`backfill:${templateId}`)
   for (const prefix of ARCHIVE_OBJECT_PREFIXES)
     if ((await host.objects.list(prefix, { limit: 1 })).keys.length > 0) occupied.push(prefix)
   return occupied
@@ -555,10 +552,17 @@ const DISCARD_STEPS: readonly DiscardStep[] = [
  * Undo a restore one bounded step per call, keeping the destination's own credentials. Returns
  * true when the server is empty and open again.
  */
-export const discardRestore = async (host: ArchiveHost): Promise<boolean> =>
-  withArchiveLease(host, (lease) => discardRestoreHeld(host, lease))
+export const discardRestore = async (
+  host: ArchiveHost,
+  verifyPage = DISCARD_VERIFY_PAGE,
+): Promise<boolean> =>
+  withArchiveLease(host, (lease) => discardRestoreHeld(host, lease, verifyPage))
 
-const discardRestoreHeld = async (host: ArchiveHost, lease: ArchiveLease): Promise<boolean> => {
+const discardRestoreHeld = async (
+  host: ArchiveHost,
+  lease: ArchiveLease,
+  verifyPage: number,
+): Promise<boolean> => {
   const { operation, state } = await restoreOperation(host)
   // Nothing was restored before `ready`, and releasing only finishes: neither deletes anything.
   if (state.phase === 'preparing' || state.phase === 'releasing') {
@@ -587,13 +591,45 @@ const discardRestoreHeld = async (host: ArchiveHost, lease: ArchiveLease): Promi
     if (step === undefined) {
       // A cheap extra pass: an in-flight write that outlived its own lease deadline may have
       // landed after its step ran, so check every location one more time before releasing.
-      if ((await occupiedLocations(host, progress.templates ?? [])).length > 0) {
+      const occupied = await occupiedLocations(host)
+      const ids = progress.templates ?? []
+      const from = progress.verified ?? 0
+      let verified = from
+      try {
+        while (occupied.length === 0 && verified < ids.length) {
+          checkArchiveDeadline(lease)
+          const templateId = ids[verified]
+          if (templateId === undefined) break
+          if ((await host.backfill(templateId).exportState(null, 1)).length > 0)
+            occupied.push(`backfill:${templateId}`)
+          verified += 1
+          if (verified - from >= verifyPage) break
+        }
+      } catch (error) {
+        // Out of lease time: the checkpoint already made lets the next call resume here.
+        if (error instanceof ArchiveLeaseDeadline) {
+          await saveProgress({
+            step: DISCARD_STEPS.length,
+            after: null,
+            templates: ids,
+            verified,
+          })
+          return false
+        }
+        throw error
+      }
+      if (occupied.length > 0) {
         // Restart from the recorded ids: the template rows are already gone, so the ids
         // cannot be discovered again.
+        await saveProgress({ step: 0, after: null, templates: ids })
+        return false
+      }
+      if (verified < ids.length) {
         await saveProgress({
-          step: 0,
+          step: DISCARD_STEPS.length,
           after: null,
-          ...(progress.templates === undefined ? {} : { templates: progress.templates }),
+          templates: ids,
+          verified,
         })
         return false
       }

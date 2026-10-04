@@ -4,7 +4,13 @@ import { join } from 'node:path'
 import { getTableName, is } from 'drizzle-orm'
 import { getTableConfig, SQLiteTable } from 'drizzle-orm/sqlite-core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { discardImport, exportToFile, finishExport, importFromFile } from '../src/archive/cli.js'
+import {
+  type ArchiveClient,
+  discardImport,
+  exportToFile,
+  finishExport,
+  importFromFile,
+} from '../src/archive/cli.js'
 import { ARCHIVE_TABLES, chainLine, UNARCHIVED_TABLES } from '../src/archive/format.js'
 import {
   ARCHIVE_GATE_CACHE_MILLISECONDS,
@@ -508,3 +514,37 @@ class HeldProbe extends MemoryObjectStorage {
     return super.put(...args)
   }
 }
+
+describe('archive client retries', () => {
+  const busy = () =>
+    ({
+      status: 409,
+      clone: () => ({
+        text: async () =>
+          JSON.stringify({ error: 'Another archive request is running. Retry shortly.' }),
+      }),
+      text: async () =>
+        JSON.stringify({ error: 'Another archive request is running. Retry shortly.' }),
+    }) as unknown as Response
+  const failure = () => ({ status: 503, text: async () => 'unavailable' }) as unknown as Response
+  const done = () =>
+    ({ status: 200, text: async () => JSON.stringify({ done: true }) }) as unknown as Response
+
+  it('keeps the failure retry cap reachable after lease-busy replies', async () => {
+    let sends = 0
+    const client: ArchiveClient = {
+      api: 'https://example.test/v1',
+      token: 'token',
+      wait: async () => {},
+      fetch: async () => {
+        sends += 1
+        if (sends <= 5) return busy()
+        if (sends <= 15) return failure()
+        return done()
+      },
+    }
+    await expect(discardImport(client)).rejects.toThrow('503')
+    // Five lease-busy replies, then the five allowed gateway failures — never more.
+    expect(sends).toBe(10)
+  })
+})
