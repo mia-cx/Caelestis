@@ -213,7 +213,8 @@ const ALLIANCE_COLOUR_MODE_ID = 'caelestis-alliance-colour-mode'
 const ALLIANCE_MISMATCH_MODE_ID = 'caelestis-alliance-mismatch-mode'
 const ALLIANCE_PANEL_ID = 'caelestis-alliance-panel'
 
-const maximumPanelWidth = (): number => Math.min(720, Math.max(0, window.innerWidth - 96))
+const maximumPanelWidth = (): number =>
+  Math.min(720, Math.max(0, document.documentElement.clientWidth - 96))
 const minimumPanelWidth = (): number => Math.min(260, maximumPanelWidth())
 const panelWidthForViewport = (wanted: number): number =>
   Math.min(maximumPanelWidth(), Math.max(minimumPanelWidth(), wanted))
@@ -1594,12 +1595,14 @@ const positionRail = (): void => {
   const rail = railContainer()
   const theirs = findWplaceRail()?.getBoundingClientRect()
   const beside = theirs !== undefined && theirs.width > 0
+  // Fixed-position offsets use the layout viewport, which excludes the page scrollbar.
+  const viewportWidth = document.documentElement.clientWidth
   // Theirs is gone — the paint-drawer case — so ours takes its place at the same inset.
   const top = beside ? theirs.bottom + GAP : EDGE
-  const right = beside ? window.innerWidth - theirs.right : EDGE
+  const right = beside ? viewportWidth - theirs.right : EDGE
   rail.style.top = `${top}px`
   rail.style.right = `${right}px`
-  const columnRight = window.innerWidth - right
+  const columnRight = viewportWidth - right
   const below = wplaceButtonBelow({ left: columnRight - RAIL_BUTTON, right: columnRight, top })
   const floor = below === null ? window.innerHeight - EDGE : below - GAP
   const slots = Math.max(1, Math.floor((floor - top + GAP) / (RAIL_BUTTON + GAP)))
