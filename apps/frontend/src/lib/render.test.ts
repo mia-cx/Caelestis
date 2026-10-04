@@ -65,3 +65,21 @@ it('unrolls a template that crosses the seam without stacking its chunks', () =>
   ])
   expect(layout.tiles.find((tile) => tile.key === '0/0')?.x).toBe(WORLD_PIXELS)
 })
+
+it('draws a tile at both ends when captures span every longitude', () => {
+  const band = Array.from({ length: 51 }, (_, index) =>
+    template({
+      id: `band-${index}`,
+      bbox: { minX: 500 + index * 40_000, minY: 0, maxX: 40_500 + index * 40_000, maxY: 1 },
+    }),
+  )
+  const seam = template({
+    id: 'seam',
+    bbox: { minX: WORLD_PIXELS - 7_500, minY: 0, maxX: 500, maxY: 1 },
+  })
+  const layout = timelapseLayout([...band, seam])
+
+  const cut = layout.tiles.filter((tile) => tile.key === '0/0')
+  expect(cut.map((tile) => tile.x)).toEqual([0, WORLD_PIXELS])
+  expect(cut[1]?.templates).toEqual([seam])
+})

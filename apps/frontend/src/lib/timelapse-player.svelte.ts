@@ -164,8 +164,14 @@ export class TimelapsePlayer {
     this.frames = null
     this.archiveError = null
     this.playing = false
+    // A tile drawn at both ends of the layout still loads its history once.
+    const capturing = new Map<TileKey, Set<Template>>()
+    for (const { key, templates } of layout.tiles) {
+      capturing.set(key, new Set([...(capturing.get(key) ?? []), ...templates]))
+    }
     Promise.all(
-      layout.tiles.map(async ({ key, templates }) => {
+      [...capturing].map(async ([key, set]) => {
+        const templates = [...set]
         const tile = parseTileKey(key)
         if (tile === null) return [key, []] as const
         const from = Math.min(

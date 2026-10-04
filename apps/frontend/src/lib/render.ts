@@ -181,7 +181,10 @@ export interface TimelapseLayout {
   readonly bounds: CanvasRect
   /** The union of the artwork alone. */
   readonly art: CanvasRect
-  /** Only the tiles some template captures, once each. Gaps between captures hold none. */
+  /**
+   * Only the tiles some template captures, once per draw position. Gaps between captures hold
+   * none. A key repeats only when captures span every longitude and the tile is cut by the start.
+   */
   readonly tiles: readonly TimelapseTile[]
   readonly chunks: readonly ChunkPlacement[]
 }
@@ -230,18 +233,15 @@ export const timelapseLayout = (templates: readonly Template[]): TimelapseLayout
     rect: rect.x < start ? { ...rect, x: rect.x + WORLD_PIXELS } : rect,
   }))
 
-  const tiles = new Map<TileKey, { key: TileKey; x: number; y: number; templates: Template[] }>()
+  // Keyed by draw position: a tile cut by the layout's start also belongs at its far end.
+  const tiles = new Map<string, { key: TileKey; x: number; y: number; templates: Template[] }>()
   for (const { template, rect } of placed) {
     for (const placement of tilesInRect(rect)) {
-      const tile = tiles.get(placement.key)
+      const x = rect.x + placement.drawX
+      const y = rect.y + placement.drawY
+      const tile = tiles.get(`${x}/${y}`)
       if (tile !== undefined) tile.templates.push(template)
-      else
-        tiles.set(placement.key, {
-          key: placement.key,
-          x: rect.x + placement.drawX,
-          y: rect.y + placement.drawY,
-          templates: [template],
-        })
+      else tiles.set(`${x}/${y}`, { key: placement.key, x, y, templates: [template] })
     }
   }
 
