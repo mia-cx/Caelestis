@@ -1978,6 +1978,8 @@ export const handleClaimModeIntent = (intent: ClaimModeIntent): void => {
       break
     }
     case 'set-subtract': {
+      // A pending capture or save is using the current selection; a failure retries with it.
+      if (pending) return
       subtract = intent.subtract
       if (selectedIds.length > 0) {
         items = items.map((item) =>

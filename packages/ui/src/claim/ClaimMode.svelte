@@ -187,7 +187,7 @@
         </div>
         {#if hasSubtract}
           <label class="option">
-            <Toggle label="Subtract" compact checked={model.subtract} onChange={(subtract) => onIntent({ type: 'set-subtract', subtract })} />
+            <Toggle label="Subtract" compact checked={model.subtract} disabled={model.pending} onChange={(subtract) => onIntent({ type: 'set-subtract', subtract })} />
             <span>Subtract</span>
           </label>
         {/if}

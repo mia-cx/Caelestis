@@ -22,6 +22,26 @@ afterEach(() => {
   document.body.replaceChildren()
 })
 
+/** Drag a short mouse stroke across the canvas, drawing one shape. */
+const draw = (canvas: HTMLCanvasElement, x: number) => {
+  for (const [type, px] of [
+    ['pointerdown', x],
+    ['pointermove', x + 10],
+    ['pointerup', x + 10],
+  ] as const) {
+    canvas.dispatchEvent(
+      new PointerEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        pointerId: 1,
+        button: 0,
+        clientX: px,
+        clientY: 10,
+      }),
+    )
+  }
+}
+
 it('owns touch drawing without swallowing the next toolbar action or Hand gesture', () => {
   const canvas = document.body.appendChild(document.createElement('canvas'))
   const mapTouch = vi.fn()
@@ -78,24 +98,6 @@ it('owns touch drawing without swallowing the next toolbar action or Hand gestur
 
 it('aborts a closed capture and leaves a newer selection intact when its result arrives', async () => {
   const canvas = document.body.appendChild(document.createElement('canvas'))
-  const draw = (x: number) => {
-    for (const [type, px] of [
-      ['pointerdown', x],
-      ['pointermove', x + 10],
-      ['pointerup', x + 10],
-    ] as const) {
-      canvas.dispatchEvent(
-        new PointerEvent(type, {
-          bubbles: true,
-          cancelable: true,
-          pointerId: 1,
-          button: 0,
-          clientX: px,
-          clientY: 10,
-        }),
-      )
-    }
-  }
   installClaimEditor({
     myRegions: () => [],
     templateFor: () => null,
@@ -113,7 +115,7 @@ it('aborts a closed capture and leaves a newer selection intact when its result 
       return result
     },
   })
-  draw(10)
+  draw(canvas, 10)
   expect(claimModeModel().pixels).toBeGreaterThan(0)
   handleClaimModeIntent({ type: 'capture', action: 'template' })
   expect(claimModeModel().pending).toBe(true)
@@ -121,11 +123,32 @@ it('aborts a closed capture and leaves a newer selection intact when its result 
   stopClaimMode()
   expect(signal?.aborted).toBe(true)
   startCaptureMode({ capture: async () => null })
-  draw(30)
+  draw(canvas, 30)
   const newer = claimModeModel()
   finish(null)
   await result
 
   expect(isClaimModeActive()).toBe(true)
   expect(claimModeModel()).toEqual(newer)
+})
+
+it('keeps the selection a pending capture is using', () => {
+  const canvas = document.body.appendChild(document.createElement('canvas'))
+  installClaimEditor({
+    myRegions: () => [],
+    templateFor: () => null,
+    changed: () => {},
+    save: async () => ({ ids: [], error: null }),
+  })
+  startCaptureMode({ capture: () => new Promise(() => {}) })
+  draw(canvas, 10)
+  const selection = claimModeModel()
+  handleClaimModeIntent({ type: 'capture', action: 'template' })
+
+  handleClaimModeIntent({ type: 'set-subtract', subtract: true })
+  expect(claimModeModel()).toMatchObject({
+    subtract: false,
+    pixels: selection.pixels,
+    pending: true,
+  })
 })
