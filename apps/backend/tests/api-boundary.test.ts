@@ -31,6 +31,8 @@ const mint = async (backend: Backend, scope: 'read' | 'report', token = adminTok
 const reads = [
   '/manifest',
   `/chunks/${hash}`,
+  `/sources/${hash}`,
+  `/recipes/${id}`,
   `/tiles/${hash}`,
   `/archive/templates/${id}`,
   `/archive/tiles/${hash}`,

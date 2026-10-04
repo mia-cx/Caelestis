@@ -1,4 +1,5 @@
 import {
+  sha256Hex,
   type TemplateSurface,
   type TemplateTag,
   templateSurface,
@@ -9,10 +10,12 @@ import {
 import { warn } from '../debug.js'
 import { isStoredBlob, isUint8Array, type StoredBlob } from '../page-world.js'
 import type { Appearance, AppearanceGroup } from './appearance.js'
+import { storedAuthoring } from './authoring.js'
 import {
   type ImportedTemplate,
   MAX_TEMPLATE_ID_LENGTH,
   MAX_TEMPLATE_NAME_LENGTH,
+  processRecipe,
 } from './import.js'
 import {
   hasCurrentPalette,
@@ -490,19 +493,25 @@ export const deleteTemplate = async (
     'delete',
   )
 
-const boundedStoredCandidate = (
-  value: unknown,
-): value is Record<string, unknown> & {
-  indices: Uint8Array | StoredBlob
-} => {
+/** A stored record. Its artwork may be missing when a source and recipe can rebuild it. */
+type StoredCandidate = Record<string, unknown> & { indices?: Uint8Array | StoredBlob }
+
+const isRebuildable = (record: Record<string, unknown>): boolean =>
+  storedAuthoring(record.authoring, record) !== null
+
+const boundedStoredCandidate = (value: unknown): value is StoredCandidate => {
   if (typeof value !== 'object' || value === null) return false
   const record = value as Record<string, unknown>
   const indices = record.indices
-  const indexPixels = isUint8Array(indices)
+  const storedPixels = isUint8Array(indices)
     ? indices.length
     : isStoredBlob(indices)
       ? indices.size
       : -1
+  // Missing or wrong-sized artwork is lost, but a source and recipe can rebuild it on hydration.
+  const indexPixels = isRebuildable(record)
+    ? Number(record.width) * Number(record.height)
+    : storedPixels
   if (
     typeof record.id !== 'string' ||
     record.id.length === 0 ||
@@ -587,6 +596,8 @@ type HydrationResult =
       readonly status: 'loaded'
       readonly template: unknown
       readonly migrated?: Record<string, unknown>
+      /** A record whose lost artwork was rebuilt from its source and recipe. */
+      readonly repaired?: Record<string, unknown>
     }
   | { readonly status: 'invalid' }
   | { readonly status: 'unavailable' }
@@ -619,6 +630,16 @@ const candidateIndexPixels = (value: unknown): number => {
   return 0
 }
 
+const isLoadFailure = (
+  value: StoredCandidate | TemplateLoadFailure,
+): value is TemplateLoadFailure => value.kind === 'template-hydration-failure'
+
+/** Pixels a candidate holds once hydrated, counting artwork its recipe will rebuild. */
+const candidatePixels = (candidate: StoredCandidate): number =>
+  isRebuildable(candidate)
+    ? Number(candidate.width) * Number(candidate.height)
+    : candidateIndexPixels(candidate)
+
 const boundedPixelSum = (total: number, pixels: number): number =>
   pixels > Number.MAX_SAFE_INTEGER - total ? Number.MAX_SAFE_INTEGER : total + pixels
 
@@ -639,9 +660,7 @@ const loadBatch = (
   return templates as unknown as TemplateLoadBatch
 }
 
-const hydrateCandidate = async (
-  candidate: Record<string, unknown> & { indices: Uint8Array | StoredBlob },
-): Promise<HydrationResult> => {
+const hydrateCandidate = async (candidate: StoredCandidate): Promise<HydrationResult> => {
   const finish = (indices: Uint8Array): HydrationResult => {
     if (hasCurrentPalette(candidate)) {
       return {
@@ -661,17 +680,68 @@ const hydrateCandidate = async (
       migrated,
     }
   }
-  if (isUint8Array(candidate.indices)) {
-    return finish(candidate.indices)
-  }
+  const pixels = Number(candidate.width) * Number(candidate.height)
+  const authoring = storedAuthoring(candidate.authoring, candidate)
+  // Artwork with a recipe must still be the artwork that recipe produced. Processed-only records
+  // have nothing to check against and load as stored.
+  const accept = async (indices: Uint8Array): Promise<HydrationResult> =>
+    indices.length === pixels &&
+    (authoring === null || (await sha256Hex(indices)) === authoring.artwork)
+      ? finish(indices)
+      : await rebuildArtwork(candidate, 'invalid')
+  const { indices } = candidate
+  if (indices === undefined) return await rebuildArtwork(candidate, 'invalid')
+  if (isUint8Array(indices)) return await accept(indices)
+  // A wrong-sized cache can never be accepted. Rebuild before reading it, so its bytes are never
+  // charged against the restore budget, which only counts the expected output size.
+  if (indices.size !== pixels) return await rebuildArtwork(candidate, 'invalid')
   try {
-    const buffer = await candidate.indices.arrayBuffer()
-    if (buffer.byteLength !== candidate.indices.size) return { status: 'invalid' }
-    return finish(new Uint8Array(buffer))
+    const buffer = await indices.arrayBuffer()
+    if (buffer.byteLength !== indices.size) return await rebuildArtwork(candidate, 'invalid')
+    return await accept(new Uint8Array(buffer))
   } catch (error) {
     warn('install', `could not read local template ${String(candidate.id)}`, String(error))
+    return await rebuildArtwork(candidate, 'unavailable')
+  }
+}
+
+/**
+ * Rebuild lost artwork from the source and recipe stored beside it. The result must hash to the
+ * artwork the recipe originally produced. Otherwise the record stays, unloaded, so its source is
+ * never discarded and no other pixels are shown in its place.
+ */
+const rebuildArtwork = async (
+  candidate: Record<string, unknown>,
+  failure: 'invalid' | 'unavailable',
+): Promise<HydrationResult> => {
+  const authoring = storedAuthoring(candidate.authoring, candidate)
+  if (authoring === null) return { status: failure }
+  try {
+    const { indices } = await processRecipe(authoring.source, authoring.recipe, {
+      originX: Number(candidate.originX),
+      originY: Number(candidate.originY),
+    })
+    if ((await sha256Hex(indices)) !== authoring.artwork)
+      throw new Error('rebuilt artwork differs from the artwork its recipe produced')
+    return {
+      status: 'loaded',
+      template: { ...candidate, revision: candidate.revision ?? 0, indices },
+      repaired: markCurrentPalette({ ...candidate, indices: new Blob([indices.slice().buffer]) }),
+    }
+  } catch (error) {
+    warn('install', `could not rebuild local template ${String(candidate.id)}`, String(error))
     return { status: 'unavailable' }
   }
+}
+
+/** Write rebuilt artwork back, unless the record changed while it was being rebuilt. */
+const persistRepairedArtwork = async (
+  candidate: Record<string, unknown>,
+  repaired: Record<string, unknown>,
+): Promise<void> => {
+  const id = candidate.id
+  if (typeof id !== 'string') return
+  await writeVersioned(id, storedRevision(candidate), (templates) => templates.put(repaired), false)
 }
 
 const persistLoadedPaletteMigration = async (
@@ -747,7 +817,7 @@ export const loadTemplate = async (
       if (!boundedStoredCandidate(value)) {
         return { status: 'invalid', revision: storedRevision(value) }
       }
-      const pixels = isUint8Array(value.indices) ? value.indices.length : value.indices.size
+      const pixels = candidatePixels(value)
       if (pixels > maxIndexPixels) return { status: 'invalid', revision: storedRevision(value) }
       const hydrated = await hydrateCandidate(value)
       if (hydrated.status === 'invalid') {
@@ -755,6 +825,9 @@ export const loadTemplate = async (
       }
       if (hydrated.status === 'loaded' && hydrated.migrated !== undefined) {
         void persistLoadedPaletteMigration(value, hydrated.migrated)
+      }
+      if (hydrated.status === 'loaded' && hydrated.repaired !== undefined) {
+        void persistRepairedArtwork(value, hydrated.repaired)
       }
       return hydrated
     } finally {
@@ -775,19 +848,13 @@ export const loadTemplates = async (
     const db = await open()
     try {
       const batch = await new Promise<{
-        readonly candidates: readonly (
-          | (Record<string, unknown> & { indices: Uint8Array | StoredBlob })
-          | TemplateLoadFailure
-        )[]
+        readonly candidates: readonly (StoredCandidate | TemplateLoadFailure)[]
         readonly inspected: number
         readonly indexPixels: number
       }>((resolve, reject) => {
         const transaction = db.transaction(STORE, 'readonly')
         const request = transaction.objectStore(STORE).openCursor()
-        const templates: (
-          | (Record<string, unknown> & { indices: Uint8Array | StoredBlob })
-          | TemplateLoadFailure
-        )[] = []
+        const templates: (StoredCandidate | TemplateLoadFailure)[] = []
         let retainedPixels = 0
         let inspectedPixels = 0
         let inspected = 0
@@ -828,7 +895,7 @@ export const loadTemplates = async (
             return
           }
           inspected++
-          const pixels = isUint8Array(value.indices) ? value.indices.length : value.indices.size
+          const pixels = candidatePixels(value)
           inspectedPixels = boundedPixelSum(inspectedPixels, pixels)
           // An individually oversized or late non-fitting record must not permanently hide every
           // later valid key. Inspect a bounded number of records, retaining only those that fit.
@@ -873,7 +940,7 @@ export const loadTemplates = async (
       })
       const templates: unknown[] = []
       for (const candidate of batch.candidates) {
-        if (!('indices' in candidate)) {
+        if (isLoadFailure(candidate)) {
           templates.push(candidate)
           continue
         }
@@ -882,6 +949,9 @@ export const loadTemplates = async (
           if (hydrated.migrated !== undefined) {
             void persistLoadedPaletteMigration(candidate, hydrated.migrated)
           }
+          if (hydrated.repaired !== undefined) {
+            void persistRepairedArtwork(candidate, hydrated.repaired)
+          }
           templates.push(hydrated.template)
         } else {
           templates.push({
@@ -889,9 +959,7 @@ export const loadTemplates = async (
             status: hydrated.status,
             id: candidate.id as string,
             revision: storedRevision(candidate),
-            indexPixels: isUint8Array(candidate.indices)
-              ? candidate.indices.length
-              : candidate.indices.size,
+            indexPixels: candidatePixels(candidate),
           } satisfies TemplateLoadFailure)
         }
       }

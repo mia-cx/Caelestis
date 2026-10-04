@@ -7,6 +7,7 @@ import { PostgresConnection } from '../../src/adapters/node/postgres-connection.
 import { RelationalSqlStore } from '../../src/adapters/relational-sql-store.js'
 import { InvalidNodeParentError } from '../../src/ports/sql-store.js'
 import { schedulerContract } from '../support/scheduler-contract.js'
+import { contractRecipe } from '../support/sql-contract.js'
 
 const migrationRoot = process.cwd()
 const postgresUrl = process.env.CAELESTIS_TEST_POSTGRES_URL
@@ -144,7 +145,11 @@ describe('external relational adapter contract', () => {
       bbox: { minX: 0, minY: 0, maxX: 1, maxY: 1 },
       totalPixels: 1,
       chunks: [{ tileX: 0, tileY: 0, hash: 'a'.repeat(64) }],
+      recipe: contractRecipe,
     })
+    expect((await sql.readTemplateVersion('01890f3e-7b2c-7abc-8def-012345678905'))?.recipe).toEqual(
+      contractRecipe,
+    )
     await expect(
       sql.updateTemplate(
         '01890f3e-7b2c-7abc-8def-012345678904',

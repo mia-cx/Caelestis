@@ -1,8 +1,15 @@
 import {
   canvasPixelToLatLng,
+  decodeWplaceIndexedPng,
   latLngToCanvasPixel,
   MAX_MERCATOR_LATITUDE,
+  MAX_TEMPLATE_SOURCE_BYTES,
   PALETTE_RGB,
+  pngSize,
+  sha256Hex,
+  TEMPLATE_PROCESSORS,
+  TEMPLATE_RECIPE_FORMAT,
+  type TemplateRecipe,
   TILE_SIZE,
   TRANSPARENT_INDEX,
   uuidV7,
@@ -10,6 +17,9 @@ import {
   WORLD_TILES,
 } from '@caelestis/shared'
 import { log, warn } from '../debug.js'
+import { loadAccount, ownedColours } from '../wplace-account.js'
+import type { TemplateAuthoring } from './authoring.js'
+import { type CaelestisBlock, parseCaelestisBlock } from './caelestis-file.js'
 import type { NativeTemplate } from './native-store.js'
 import { resizeWplaceImage } from './wplace-resize.js'
 
@@ -46,7 +56,17 @@ export interface ImportedTemplate {
   /** How far the quantiser had to move things, for reporting to whoever imported it. */
   readonly moved: number
   readonly opaque: number
+  /** Source and recipe behind `indices`. Absent on Marble, server, and older templates. */
+  readonly authoring?: TemplateAuthoring
 }
+
+export interface TemplateOrigin {
+  readonly originX: number
+  readonly originY: number
+}
+
+/** Every palette index, for recipes that do not restrict colours. */
+const ALL_COLOURS: readonly number[] = PALETTE_RGB.map((_, index) => index)
 
 export const MAX_TEMPLATE_ID_LENGTH = 128
 export const MAX_TEMPLATE_NAME_LENGTH = 256
@@ -160,6 +180,7 @@ const blobFromDataUrl = async (dataUrl: string): Promise<Blob> =>
 const quantise = async (
   pixels: Uint8Array,
   trackMovedPixels = false,
+  palette: readonly number[] = ALL_COLOURS,
 ): Promise<{
   indices: Uint8Array
   moved: number
@@ -194,7 +215,9 @@ const quantise = async (
     if (packed === 0) {
       let best = 0
       let bestDistance = Number.POSITIVE_INFINITY
-      for (const [index, entry] of PALETTE_RGB.entries()) {
+      for (const index of palette) {
+        const entry = PALETTE_RGB[index]
+        if (entry === undefined) continue
         const dr = red - entry[0]
         const dg = green - entry[1]
         const db = blue - entry[2]
@@ -222,7 +245,7 @@ const quantise = async (
       } else {
         dense[key] = packed
       }
-      work += PALETTE_RGB.length
+      work += palette.length
     }
     const paletteIndex = (packed & 0xff) - 1
     const distance = packed >>> 8
@@ -240,6 +263,168 @@ const quantise = async (
   return { indices, moved, opaque, ...(movedPixels === undefined ? {} : { movedPixels }) }
 }
 
+const FREE_COLOURS = 31
+
+/**
+ * The palette a Wplace preset meant when this template was processed. Account presets resolve
+ * now, so the recipe still names the same colours after the account unlocks more.
+ */
+const wplacePalette = async (
+  mode: NonNullable<NativeTemplate['colorPaletteMode']>,
+  templateColorIdxs: readonly number[],
+): Promise<readonly number[]> => {
+  if (mode === 'all') return ALL_COLOURS
+  if (mode === 'template') return [...templateColorIdxs].map((id) => id - 1).sort((a, b) => a - b)
+  const free = ALL_COLOURS.slice(0, FREE_COLOURS)
+  if (mode === 'free') return free
+  await loadAccount()
+  return [...new Set([...free, ...(ownedColours() ?? [])])].sort((a, b) => a - b)
+}
+
+/** The native record that makes Wplace's worker run exactly this recipe at this placement. */
+const nativeRecipe = (recipe: TemplateRecipe, origin: TemplateOrigin): NativeTemplate => {
+  if (recipe.colorMetric === 'rgb') throw new Error('Wplace processing has no rgb colour metric')
+  const northWest = canvasPixelToLatLng({ x: origin.originX, y: origin.originY })
+  const southEast = canvasPixelToLatLng({
+    x: origin.originX + recipe.width,
+    y: origin.originY + recipe.height,
+  })
+  const everyColour = recipe.palette.length === ALL_COLOURS.length
+  return {
+    id: newId(),
+    name: '',
+    bounds: {
+      north: northWest.lat,
+      south: southEast.lat,
+      west: northWest.lng,
+      east: southEast.lng,
+    },
+    originalWidth: recipe.source.width,
+    originalHeight: recipe.source.height,
+    colorMetric: recipe.colorMetric,
+    dithering: recipe.dithering,
+    useLegacyColors: recipe.legacyDecode,
+    // An explicit full palette is Wplace's `all` preset; passing it as a list could differ.
+    colorPaletteMode: everyColour ? 'all' : 'template',
+    templateColorIdxs: everyColour ? [] : recipe.palette.map((index) => index + 1),
+    opacity: 1,
+    visible: true,
+    locked: false,
+    hasPlaced: true,
+    order: 0,
+    updatedAt: Date.now(),
+  }
+}
+
+/**
+ * Turn a source into palette indices. Imports and cache rebuilds both run this, so rebuilt
+ * artwork is the artwork the import produced.
+ */
+export const processRecipe = async (
+  source: Blob,
+  recipe: TemplateRecipe,
+  origin: TemplateOrigin,
+): Promise<{ indices: Uint8Array; moved: number; opaque: number }> => {
+  if (recipe.processorVersion !== TEMPLATE_PROCESSORS[recipe.processor])
+    throw new Error(`this build cannot run ${recipe.processor} version ${recipe.processorVersion}`)
+  if ((await sha256Hex(new Uint8Array(await source.arrayBuffer()))) !== recipe.source.sha256)
+    throw new Error('source image does not match its recipe')
+  if (recipe.processor === 'caelestis-nearest') {
+    const decoded = await decodeToRgba(source)
+    if (decoded.width !== recipe.width || decoded.height !== recipe.height)
+      throw new Error('caelestis-nearest does not resize')
+    return await quantise(decoded.pixels, false, recipe.palette)
+  }
+  const { connectNativeTemplates } = await import('./native-store.js')
+  const native = await connectNativeTemplates({ resize: resizeWplaceImage })
+  const processed = await native.pixels({ template: nativeRecipe(recipe, origin), image: source })
+  if (processed.width !== recipe.width || processed.height !== recipe.height)
+    throw new Error('Wplace returned unexpected template dimensions')
+  return processed
+}
+
+/** Keep the source beside the artwork it produced, unless it is too large to retain. */
+const authoringFor = async (
+  source: Blob,
+  recipe: TemplateRecipe,
+  indices: Uint8Array,
+): Promise<{ authoring?: TemplateAuthoring }> =>
+  source.size > MAX_TEMPLATE_SOURCE_BYTES
+    ? {}
+    : { authoring: { source, recipe, artwork: await sha256Hex(indices) } }
+
+/** The exported artwork, if it is intact. */
+const cachedArtwork = async (
+  dataUrl: string,
+  block: CaelestisBlock,
+): Promise<Uint8Array | null> => {
+  try {
+    const bytes = new Uint8Array(await (await blobFromDataUrl(dataUrl)).arrayBuffer())
+    // The header must match the block before decoding allocates whatever size it declares.
+    const size = pngSize(bytes)
+    if (size.width !== block.width || size.height !== block.height) return null
+    const image = await decodeWplaceIndexedPng(bytes)
+    if (image === null || image.width !== block.width || image.height !== block.height) return null
+    return (await sha256Hex(image.indices)) === block.artwork ? image.indices : null
+  } catch {
+    return null
+  }
+}
+
+/** The file's source and recipe, if they are whole and describe this artwork. */
+const blockAuthoring = async (block: CaelestisBlock): Promise<TemplateAuthoring | null> => {
+  if (block.authoring === undefined) return null
+  const { recipe } = block.authoring
+  const source = await blobFromDataUrl(block.authoring.source)
+  if (
+    source.size <= MAX_TEMPLATE_SOURCE_BYTES &&
+    recipe.width === block.width &&
+    recipe.height === block.height &&
+    (await sha256Hex(new Uint8Array(await source.arrayBuffer()))) === recipe.source.sha256
+  )
+    return { source, recipe, artwork: block.artwork }
+  warn('install', 'the source image in this file is damaged or too large to keep')
+  return null
+}
+
+/**
+ * Caelestis exports carry their processed artwork, so an intact one imports with no processing.
+ * Damaged artwork is rebuilt from the source, and must hash to the artwork its recipe first
+ * produced; otherwise the import fails rather than showing different pixels.
+ */
+const importCaelestis = async (
+  file: Record<string, unknown>,
+  block: CaelestisBlock,
+  name: string,
+  artworkUrl: string,
+): Promise<ImportedTemplate[]> => {
+  const origin = { originX: block.originX, originY: block.originY }
+  const authoring = await blockAuthoring(block)
+  let indices = await cachedArtwork(artworkUrl, block)
+  if (indices === null) {
+    if (authoring === null) throw new Error('the artwork in this file is damaged')
+    ;({ indices } = await processRecipe(authoring.source, authoring.recipe, origin))
+    if ((await sha256Hex(indices)) !== block.artwork)
+      throw new Error('the artwork in this file is damaged, and its source does not reproduce it')
+  }
+  return [
+    {
+      id: newId(),
+      name,
+      source: 'wplace',
+      sortOrder:
+        typeof file.order === 'number' && Number.isSafeInteger(file.order) ? file.order : 0,
+      ...origin,
+      width: block.width,
+      height: block.height,
+      indices,
+      moved: 0,
+      opaque: indices.reduce((count, index) => count + Number(index !== TRANSPARENT_INDEX), 0),
+      ...(authoring === null ? {} : { authoring }),
+    },
+  ]
+}
+
 const importWplace = async (file: Record<string, unknown>): Promise<ImportedTemplate[]> => {
   const image = isRecord(file.image) ? file.image : null
   const bounds = isRecord(file.bounds) ? file.bounds : null
@@ -252,6 +437,8 @@ const importWplace = async (file: Record<string, unknown>): Promise<ImportedTemp
   if (!/^data:image\/png;base64,/i.test(dataUrl)) {
     throw new Error('.wplace image must be an embedded PNG data URL')
   }
+  if (file.caelestis !== undefined)
+    return await importCaelestis(file, parseCaelestisBlock(file.caelestis), name, dataUrl)
   const { north, west } = bounds
   if (
     typeof north !== 'number' ||
@@ -284,7 +471,7 @@ const importWplace = async (file: Record<string, unknown>): Promise<ImportedTemp
     warn('install', 'skipping .wplace template: incomplete geographic bounds')
     return []
   }
-  const { connectNativeTemplates, nativePlacement } = await import('./native-store.js')
+  const { nativePlacement } = await import('./native-store.js')
   const geographicBounds = { north, south, west, east }
   let placement: ReturnType<typeof nativePlacement>
   try {
@@ -322,30 +509,40 @@ const importWplace = async (file: Record<string, unknown>): Promise<ImportedTemp
       : file.colorPaletteMode === 'template' && templateColorIdxs.length > 0
         ? 'template'
         : 'all'
-  const template: NativeTemplate = {
-    id: newId(),
-    name,
-    bounds: geographicBounds,
-    originalWidth: dimensions.width,
-    originalHeight: dimensions.height,
+  const recipe: TemplateRecipe = {
+    format: TEMPLATE_RECIPE_FORMAT,
+    processor: 'wplace-native',
+    processorVersion: TEMPLATE_PROCESSORS['wplace-native'],
+    source: {
+      sha256: await sha256Hex(new Uint8Array(await blob.arrayBuffer())),
+      width: dimensions.width,
+      height: dimensions.height,
+    },
+    width: placement.width,
+    height: placement.height,
     colorMetric:
       file.colorMetric === 'compuphase' || file.colorMetric === 'ciede2000'
         ? file.colorMetric
         : 'lab',
     dithering: file.dithering === true,
-    useLegacyColors: file.useLegacyColors === true,
-    colorPaletteMode,
-    templateColorIdxs,
-    opacity: 1,
-    visible: true,
-    locked: false,
-    hasPlaced: true,
-    order: typeof file.order === 'number' && Number.isSafeInteger(file.order) ? file.order : 0,
-    updatedAt: Date.now(),
+    legacyDecode: file.useLegacyColors === true,
+    palette: await wplacePalette(colorPaletteMode, templateColorIdxs),
   }
-  const native = await connectNativeTemplates({ resize: resizeWplaceImage })
-  const imported = await native.pixels({ template, image: blob })
-  return [{ ...imported, id: template.id }]
+  const { indices, opaque } = await processRecipe(blob, recipe, placement)
+  return [
+    {
+      id: newId(),
+      name,
+      source: 'wplace',
+      sortOrder:
+        typeof file.order === 'number' && Number.isSafeInteger(file.order) ? file.order : 0,
+      ...placement,
+      indices,
+      moved: 0,
+      opaque,
+      ...(await authoringFor(blob, recipe, indices)),
+    },
+  ]
 }
 
 interface MarbleFile {
@@ -629,9 +826,20 @@ const importImage = async (
   name: string,
   centre: { x: number; y: number },
 ): Promise<ImportedTemplate[]> => {
-  const dimensions = await pngDimensions(blob)
-  const { width, height, pixels } = await decodeToRgba(blob, dimensions)
-  const { indices, moved, opaque } = await quantise(pixels)
+  const { width, height } = await pngDimensions(blob)
+  const recipe: TemplateRecipe = {
+    format: TEMPLATE_RECIPE_FORMAT,
+    processor: 'caelestis-nearest',
+    processorVersion: TEMPLATE_PROCESSORS['caelestis-nearest'],
+    source: { sha256: await sha256Hex(new Uint8Array(await blob.arrayBuffer())), width, height },
+    width,
+    height,
+    colorMetric: 'rgb',
+    dithering: false,
+    legacyDecode: false,
+    palette: ALL_COLOURS,
+  }
+  const { indices, moved, opaque } = await processRecipe(blob, recipe, { originX: 0, originY: 0 })
   if (!Number.isFinite(centre.x) || !Number.isFinite(centre.y)) return []
   const originX = Math.min(Math.max(0, Math.round(centre.x - width / 2)), WORLD_PIXELS - width)
   const originY = Math.min(Math.max(0, Math.round(centre.y - height / 2)), WORLD_PIXELS - height)
@@ -648,6 +856,7 @@ const importImage = async (
       indices,
       moved,
       opaque,
+      ...(await authoringFor(blob, recipe, indices)),
     },
   ]
 }

@@ -21,6 +21,7 @@ export {
   encodeIndexedPng,
   type IndexedImage,
   PngError,
+  pngSize,
   type RgbaImage,
 } from './png.js'
 export * from './presence.js'
@@ -45,6 +46,7 @@ export * from './slug.js'
 export * from './tags.js'
 export * from './telemetry.js'
 export * from './template-filters.js'
+export * from './template-recipe.js'
 export * from './template-sort.js'
 export * from './template-surface.js'
 export * from './tiles.js'

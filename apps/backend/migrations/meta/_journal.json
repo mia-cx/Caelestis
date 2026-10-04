@@ -211,6 +211,13 @@
       "when": 1789869318190,
       "tag": "0029_server_branding",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "6",
+      "when": 1790868969090,
+      "tag": "0030_template_authoring",
+      "breakpoints": true
     }
   ]
 }

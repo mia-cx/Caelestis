@@ -4,9 +4,11 @@ import {
   type Millis,
   PALETTE_SIZE,
   type PixelBounds,
+  parseTemplateRecipe,
   type Seconds,
   type ServerAssetContentType,
   seconds,
+  type TemplateRecipe,
   type TemplateStatus,
   type TemplateSurface,
   TILE_SIZE,
@@ -504,6 +506,8 @@ export const assertValidTemplateVersion = (version: TemplateVersionRecord): void
     }
     if (total !== version.totalPixels) fail('colour totals do not sum to total pixels')
   }
+  if (version.recipe !== undefined && parseTemplateRecipe(version.recipe) === null)
+    fail('recipe is not a valid template recipe')
   const minTile =
     surfaceBounds === null
       ? { x: 0, y: 0 }
@@ -599,6 +603,11 @@ export interface TemplateVersionRecord {
     readonly tileY: number
     readonly hash: string
   }[]
+  /**
+   * How the uploading client produced these chunks. The original PNG is in the `sources` blob
+   * namespace under `recipe.source.sha256`. Absent on processed-only uploads.
+   */
+  readonly recipe?: TemplateRecipe
 }
 
 /** A template's own row: what it is called and where it sits, with no pixels attached. */

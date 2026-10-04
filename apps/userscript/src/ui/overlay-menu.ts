@@ -17,6 +17,7 @@ import type {
 } from '@caelestis/ui/elements'
 import { allianceManifestFor, refreshAllianceManifest } from '../alliance-server-sync.js'
 import type { ActiveAllianceSurface } from '../alliance-surface.js'
+import { transferAuthoring } from '../application/template-authoring.js'
 import {
   isUpdatingTemplateArtwork,
   requestTemplateArtworkUpdate,
@@ -1098,6 +1099,12 @@ const moveServerDraft = async (id: string, originX: number, originY: number): Pr
     return false
   }
   const png = await templateAsPng(before)
+  // Moving keeps the pixels, so the new version keeps the source and recipe that made them.
+  const carried = await transferAuthoring(before)
+  if ('message' in carried) {
+    recordFailure(id, 'move', () => carried.message)
+    return false
+  }
   const current = templateFor(id)
   const currentTarget = current === undefined ? null : serverActionTargetFor(current)
   if (
@@ -1118,6 +1125,7 @@ const moveServerDraft = async (id: string, originX: number, originY: number): Pr
     originY,
     name: current.name,
     png,
+    authoring: carried.authoring,
   })
   if (!result.ok) {
     recordFailure(id, 'move', () => result.message)

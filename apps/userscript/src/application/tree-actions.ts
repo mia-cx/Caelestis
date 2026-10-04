@@ -84,6 +84,7 @@ import {
 import { importTemplatesToServer } from './import-to-server.js'
 import { runWhileBusy } from './operation-lock.js'
 import { serverDestinations } from './server-destinations.js'
+import { authoringOf, transferAuthoring } from './template-authoring.js'
 import {
   copyCurrentLocalTemplateToServer,
   copyLocalTemplateToServer,
@@ -330,7 +331,7 @@ const exportTemplate = async (target: TreeTarget): Promise<void> => {
 
   toast(`Preparing “${template.name}”…`)
   try {
-    const file = await templateAsWplace(template)
+    const file = await templateAsWplace(template, await authoringOf(template))
     if (file === null) {
       toast(`“${template.name}” changed while it was being exported. Try again.`, 'warning')
       return
@@ -918,6 +919,12 @@ const replaceServerArtwork = async (target: TreeTarget, rerender: () => void): P
             closeOperation(id)
             return
           }
+          const carried = await transferAuthoring(source)
+          if ('message' in carried) {
+            toast(carried.message, 'error')
+            closeOperation(id)
+            return
+          }
           if (!isCurrentTemplate(source) || movingId() === source.id) {
             toast(`“${source.name}” changed while it was being encoded — try again.`, 'warning')
             return
@@ -938,6 +945,7 @@ const replaceServerArtwork = async (target: TreeTarget, rerender: () => void): P
             originY: source.originY,
             name: source.name,
             png,
+            authoring: carried.authoring,
           })
           closeOperation(id)
           if (result.ok) toast(`Replaced the artwork for “${target.name}”.`)
