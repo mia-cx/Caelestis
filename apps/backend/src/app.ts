@@ -10,7 +10,13 @@ import { createNodeRoutes } from './routes/nodes.js'
 import { createServerAdminRoutes, createServerRoutes } from './routes/server.js'
 import { createTagRoutes } from './routes/tags.js'
 import { createTelemetryRoutes } from './routes/telemetry.js'
-import { createChunkRoutes, createTemplateRoutes, createTileRoutes } from './routes/templates.js'
+import {
+  createChunkRoutes,
+  createRecipeRoutes,
+  createSourceRoutes,
+  createTemplateRoutes,
+  createTileRoutes,
+} from './routes/templates.js'
 import { createTokenRoutes } from './routes/tokens.js'
 import { createWorkRoutes } from './routes/work.js'
 import { type BackendContext, createBackendRuntime } from './runtime/backend-runtime.js'
@@ -143,6 +149,8 @@ export const createApp = (context: BackendContext, options: AppOptions = {}) => 
   v1Routes.route('/admin/templates', createTemplateRoutes(runtime, auth))
   v1Routes.route('/admin/tags', createTagRoutes(runtime, auth, currentSeason))
   v1Routes.route('/chunks', createChunkRoutes(runtime, auth))
+  v1Routes.route('/sources', createSourceRoutes(runtime, auth))
+  v1Routes.route('/recipes', createRecipeRoutes(runtime, auth))
   v1Routes.route('/tiles', createTileRoutes(runtime, auth))
   v1Routes.route(
     '/telemetry',

@@ -35,6 +35,7 @@ import {
 } from '../templates/local-store.js'
 import { movingId } from '../templates/move.js'
 import { serverTemplateKey } from '../templates/server-sync.js'
+import { transferAuthoring } from './template-authoring.js'
 
 /**
  * Moving a whole branch of the tree somewhere else — to another server, or into Local.
@@ -261,6 +262,8 @@ export const copyLocalTemplateToServer = async (
 ): Promise<LocalTemplateCopyResult> => {
   const png = await templateAsPng(template)
   if (png === null) return { ok: false, message: 'Could not encode that template.' }
+  const carried = await transferAuthoring(template)
+  if ('message' in carried) return { ok: false, message: carried.message }
   if (!isCurrentTemplate(template) || movingId() === template.id) {
     return {
       ok: false,
@@ -284,6 +287,7 @@ export const copyLocalTemplateToServer = async (
     originY: template.originY,
     png,
     surface: template.surface ?? WORLD_TEMPLATE_SURFACE,
+    authoring: carried.authoring,
   })
   // The write result is useful immediately. Reconciliation still belongs to this transaction, but
   // a slow manifest must not keep a completed upload looking stuck behind its 120-second timeout.
@@ -344,9 +348,11 @@ export const moveServerTemplateToLocal = async (
       message: 'That template has not finished loading its current version yet.',
     }
   }
+  const carried = await transferAuthoring(drawn)
+  if ('message' in carried) return { ok: false, tone: 'error', message: carried.message }
   let copied: PlacedTemplate
   try {
-    copied = await copyAsLocalTemplate(drawn, localId())
+    copied = await copyAsLocalTemplate(drawn, localId(), carried.authoring)
   } catch (error) {
     return {
       ok: false,
@@ -444,6 +450,8 @@ export const moveServerTemplateToServer = async (
   }
   const png = await templateAsPng(drawn)
   if (png === null) return { ok: false, tone: 'error', message: 'Could not encode that template.' }
+  const carried = await transferAuthoring(drawn)
+  if ('message' in carried) return { ok: false, tone: 'error', message: carried.message }
   const ready = currentServerTemplate(source, published.id)
   if (ready === null || !sameServerTemplateRevision(current, ready)) {
     return {
@@ -466,6 +474,7 @@ export const moveServerTemplateToServer = async (
     originY: drawn.originY,
     png,
     surface: drawn.surface ?? WORLD_TEMPLATE_SURFACE,
+    authoring: carried.authoring,
   })
   if (!uploaded.ok) {
     void reconcileServer(destination)
@@ -966,6 +975,8 @@ const transplantWhileDestinationHeld = async (
           message: `Could not encode “${carried.template.name}”.`,
         }
       }
+      const authoring = await transferAuthoring(carried.template)
+      if ('message' in authoring) return { ok: false, nodes, templates, message: authoring.message }
       if (!isCurrentTemplate(carried.template) || movingId() === carried.template.id) {
         return {
           ok: false,
@@ -984,6 +995,7 @@ const transplantWhileDestinationHeld = async (
         originY: carried.template.originY,
         png,
         surface: carried.template.surface ?? WORLD_TEMPLATE_SURFACE,
+        authoring: authoring.authoring,
       })
       if (!uploaded.ok) return { ok: false, nodes, templates, message: uploaded.message }
       if (carried.sourceRevision?.published === true) {
@@ -1007,9 +1019,11 @@ const transplantWhileDestinationHeld = async (
         published: carried.sourceRevision?.published === true,
       })
     } else {
+      const authoring = await transferAuthoring(carried.template)
+      if ('message' in authoring) return { ok: false, nodes, templates, message: authoring.message }
       let copied: PlacedTemplate
       try {
-        copied = await copyAsLocalTemplate(carried.template, localId())
+        copied = await copyAsLocalTemplate(carried.template, localId(), authoring.authoring)
       } catch (error) {
         return {
           ok: false,

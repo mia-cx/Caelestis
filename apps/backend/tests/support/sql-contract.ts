@@ -1,4 +1,4 @@
-import { millis, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
+import { millis, type TemplateRecipe, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import type { SqlStore } from '../../src/ports/sql-store.js'
 
 const ids = {
@@ -15,6 +15,20 @@ const ids = {
 
 const createdAt = millis(1_000)
 const hash = 'a'.repeat(64)
+
+/** Authoring inputs a version must keep exactly, whatever the adapter. */
+export const contractRecipe: TemplateRecipe = {
+  format: 1,
+  processor: 'wplace-native',
+  processorVersion: 1,
+  source: { sha256: 'b'.repeat(64), width: 4, height: 4 },
+  width: 1,
+  height: 1,
+  colorMetric: 'ciede2000',
+  dithering: true,
+  legacyDecode: false,
+  palette: [0, 4, 31],
+}
 
 const node = (id: string, parentId: string | null, path: string, name: string, season = 1) => ({
   id,
@@ -69,6 +83,8 @@ export const nodeTemplateContractExpected = {
   staleDeleteRefused: true,
   guardedDelete: true,
   guardedTemplateRemoved: true,
+  recipe: contractRecipe,
+  processedOnly: true,
 } as const
 
 /** Exercise node and template guards through any production SqlStore adapter. */
@@ -78,7 +94,12 @@ export const runNodeTemplateContract = async (sql: SqlStore) => {
   await sql.insertNode(node(ids.child, ids.root, '/root/child', 'Child'))
   await sql.insertNode(node(ids.otherSeason, null, '/other-season', 'Other season', 2))
   await sql.insertTemplateVersion(version(ids.cascadeTemplate, ids.cascadeVersion, ids.child))
-  await sql.insertTemplateVersion(version(ids.guardedTemplate, ids.guardedVersion, ids.root))
+  await sql.insertTemplateVersion({
+    ...version(ids.guardedTemplate, ids.guardedVersion, ids.root),
+    recipe: contractRecipe,
+  })
+  const recipe = (await sql.readTemplateVersion(ids.guardedVersion))?.recipe
+  const processedOnly = (await sql.readTemplateVersion(ids.cascadeVersion))?.recipe === undefined
 
   await sql.renameNode(ids.root, 'Renamed', 'renamed')
   const childPath = (await sql.readNode(ids.child))?.path
@@ -130,5 +151,7 @@ export const runNodeTemplateContract = async (sql: SqlStore) => {
     staleDeleteRefused,
     guardedDelete,
     guardedTemplateRemoved: (await sql.readTemplate(ids.guardedTemplate)) === null,
+    recipe,
+    processedOnly,
   }
 }

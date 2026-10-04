@@ -132,6 +132,20 @@ it('samples the projected footprint before processing the embedded recipe and pe
     opaque: 2,
   })
   if (!imported) throw new Error('Missing imported template')
+  // The recipe names the colours Wplace was allowed, as palette indices, beside the embedded PNG.
+  expect(imported.authoring?.recipe).toMatchObject({
+    processor: 'wplace-native',
+    source: { width: 4, height: 2 },
+    width: 3,
+    height: 1,
+    colorMetric: 'ciede2000',
+    dithering: true,
+    legacyDecode: false,
+    palette: [1, 2, 3],
+  })
+  expect(new Uint8Array(await (imported.authoring?.source ?? new Blob()).arrayBuffer())).toEqual(
+    await encodeIndexedPng(4, 2, new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8])),
+  )
   const store = await import('../src/templates/local-store.js')
   const saved = await store.addLocalTemplate(imported, undefined, true)
   try {

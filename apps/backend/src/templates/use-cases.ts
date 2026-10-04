@@ -24,7 +24,12 @@ import {
   repairCommittedStatusProjection,
 } from '../status-read-model/port.js'
 import { readTileBlob } from '../telemetry/tile-blobs.js'
-import { type StoredTemplate, StoreTemplateError, storeTemplate } from './store.js'
+import {
+  type StoredTemplate,
+  StoreTemplateError,
+  storeTemplate,
+  type TemplateAuthoringInput,
+} from './store.js'
 
 type TemplateError =
   | RequestValidationError
@@ -93,6 +98,7 @@ export interface CreateTemplateInput {
   readonly originX: number
   readonly originY: number
   readonly png: Uint8Array
+  readonly authoring?: TemplateAuthoringInput
 }
 
 export const createTemplate = (
@@ -139,6 +145,7 @@ export const createTemplate = (
           originX: input.originX,
           originY: input.originY,
           png: input.png,
+          ...(input.authoring === undefined ? {} : { authoring: input.authoring }),
         }),
       catch: (cause) => templateFailure('storeTemplate', cause),
     })
@@ -152,6 +159,7 @@ export const replaceTemplateVersion = (input: {
   readonly originX: unknown
   readonly originY: unknown
   readonly png: Uint8Array
+  readonly authoring?: TemplateAuthoringInput
 }): Effect.Effect<
   StoredTemplate,
   TemplateError,
@@ -194,6 +202,7 @@ export const replaceTemplateVersion = (input: {
           originX,
           originY,
           png: input.png,
+          ...(input.authoring === undefined ? {} : { authoring: input.authoring }),
         }),
       catch: (cause) => templateFailure('replaceTemplateVersion', cause),
     })
@@ -344,8 +353,21 @@ export const deleteTemplate = (
     )
   })
 
+/** The recipe behind one immutable version. Processed-only versions have none. */
+export const readTemplateRecipe = (versionId: string) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlStoreService
+    const version = yield* Effect.tryPromise({
+      try: () => sql.readTemplateVersion(versionId),
+      catch: (cause) => new BackendStorageError({ operation: 'readTemplateVersion', cause }),
+    })
+    if (version?.recipe === undefined)
+      return yield* Effect.fail(new ResourceNotFoundError({ message: 'not found' }))
+    return { templateId: version.templateId, versionId, recipe: version.recipe }
+  })
+
 export const readBlob = (
-  namespace: 'chunks' | 'tiles',
+  namespace: 'chunks' | 'sources' | 'tiles',
   hash: string,
 ): Effect.Effect<
   Uint8Array,

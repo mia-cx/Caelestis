@@ -12,6 +12,7 @@ import {
 import type { MoveReservation } from '../templates/move.js'
 import { movingId } from '../templates/move.js'
 import { toast } from '../ui/toast.js'
+import { authoringOf } from './template-authoring.js'
 
 type RefreshServer = (server: ConnectedServer, rerender: () => void) => Promise<void>
 
@@ -55,6 +56,7 @@ const uploadAdmitted = async (
       originY: template.originY,
       png,
       surface,
+      authoring: await authoringOf(template),
     })
     if (!result.ok) {
       failures.push(`${template.name}: ${result.message}`)

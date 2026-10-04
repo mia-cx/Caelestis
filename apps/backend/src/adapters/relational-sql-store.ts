@@ -3,14 +3,17 @@ import {
   type ContributionDay,
   type Millis,
   millis,
+  parseTemplateRecipe,
   type Seconds,
   sameTemplateSurface,
   seconds,
+  type TemplateRecipe,
   type TemplateSurface,
   type TemplateTag,
   type TileCoord,
   type TileHistoryFrame,
   tagNameKey,
+  templateRecipeJson,
   templateSurface,
   timelapseCaptureIncludesTile,
   WORLD_PIXELS,
@@ -201,6 +204,13 @@ const parseColourTotals = (
   return Array.isArray(parsed)
     ? (parsed as readonly { readonly index: number; readonly total: number }[])
     : undefined
+}
+
+const parseStoredRecipe = (versionId: string, value: string | null): TemplateRecipe | undefined => {
+  if (value === null) return undefined
+  const recipe = parseTemplateRecipe(JSON.parse(value))
+  if (recipe === null) throw new Error(`template version ${versionId} has an invalid recipe`)
+  return recipe
 }
 
 const parseColourStatuses = (value: string): readonly ColourStatus[] => {
@@ -1000,6 +1010,8 @@ export class RelationalSqlStore implements SqlStore {
         totalPixels: version.totalPixels,
         colourTotalsJson:
           version.colourTotals === undefined ? null : JSON.stringify(version.colourTotals),
+        sourceHash: version.recipe?.source.sha256 ?? null,
+        recipeJson: version.recipe === undefined ? null : templateRecipeJson(version.recipe),
       }),
       // Tiles go in as multi-row inserts, not one statement each. D1 allows 50 queries per Worker
       // invocation on the free plan, so a 48-chunk template — a 48,000x1 upload reaches that without
@@ -1062,6 +1074,7 @@ export class RelationalSqlStore implements SqlStore {
         maxY: templateVersions.maxY,
         totalPixels: templateVersions.totalPixels,
         colourTotalsJson: templateVersions.colourTotalsJson,
+        recipeJson: templateVersions.recipeJson,
       })
       .from(templateVersions)
       .innerJoin(templates, eq(templates.id, templateVersions.templateId))
@@ -1072,6 +1085,7 @@ export class RelationalSqlStore implements SqlStore {
     const surface = templateSurface(row.surfaceKind, row.allianceId)
     if (surface === null) throw new Error(`template ${row.templateId} has an invalid surface`)
     const colourTotals = parseColourTotals(row.colourTotalsJson)
+    const recipe = parseStoredRecipe(row.versionId, row.recipeJson)
 
     const chunks = await this.database
       .select({ tileX: versionTiles.tileX, tileY: versionTiles.tileY, hash: versionTiles.hash })
@@ -1093,6 +1107,7 @@ export class RelationalSqlStore implements SqlStore {
       totalPixels: row.totalPixels,
       ...(colourTotals === undefined ? {} : { colourTotals }),
       chunks,
+      ...(recipe === undefined ? {} : { recipe }),
     }
   }
 

@@ -16,6 +16,7 @@ import {
   type TemplateFilters,
   type TemplateSurface,
   type TemplateTag,
+  templateRecipeJson,
   templateSurface,
   templateSurfaceKey,
   WORLD_TEMPLATE_SURFACE,
@@ -55,6 +56,7 @@ import {
   DEFAULT_APPEARANCE,
   normaliseAppearance,
 } from './templates/appearance.js'
+import type { TemplateAuthoring } from './templates/authoring.js'
 import { remapPaletteColours, remapStoredAppearance } from './templates/palette-migration.js'
 import { DEFAULT_SORT, type SortOrder } from './ui/sort.js'
 
@@ -1380,6 +1382,18 @@ export const listNodes = async (server: ConnectedServer): Promise<NodeListResult
   return result
 }
 
+/** The optional source and recipe parts of a template upload. */
+const setAuthoringParts = async (
+  form: FormData,
+  authoring: TemplateAuthoring | null | undefined,
+): Promise<void> => {
+  if (authoring == null) return
+  // Re-wrapped: a stored source is a page-realm Blob that this realm's FormData refuses.
+  const source = new Blob([await authoring.source.arrayBuffer()], { type: 'image/png' })
+  form.set('source', source, 'source.png')
+  form.set('recipe', templateRecipeJson(authoring.recipe))
+}
+
 /**
  * Publish a local template to a server.
  *
@@ -1396,6 +1410,8 @@ export const uploadTemplate = async (
     originY: number
     png: Blob
     surface?: TemplateSurface
+    /** The source and recipe behind `png`, kept by the server with this version. */
+    authoring?: TemplateAuthoring | null
   },
 ): Promise<{ ok: true; id: string; version: string } | UploadFailure> => {
   const begun = beginUpload(server)
@@ -1403,6 +1419,7 @@ export const uploadTemplate = async (
   try {
     const form = new FormData()
     form.set('png', input.png, `${input.name}.png`)
+    await setAuthoringParts(form, input.authoring)
     if (input.nodeId !== null) form.set('nodeId', input.nodeId)
     if (server.season === null) return { ok: false, message: 'Refresh this server first.' }
     form.set('season', String(server.season))
@@ -2143,13 +2160,21 @@ export const deleteTemplate = async (
 export const uploadTemplateVersion = async (
   server: ConnectedServer,
   templateId: string,
-  input: { originX: number; originY: number; png: Blob; name: string },
+  input: {
+    originX: number
+    originY: number
+    png: Blob
+    name: string
+    /** Omitted for canvas artwork, which no recipe produced. */
+    authoring?: TemplateAuthoring | null
+  },
 ): Promise<{ ok: true; versionId: string } | UploadFailure> => {
   const begun = beginUpload(server)
   if ('failure' in begun) return begun.failure
   try {
     const form = new FormData()
     form.set('png', input.png, `${input.name}.png`)
+    await setAuthoringParts(form, input.authoring)
     form.set('originX', String(input.originX))
     form.set('originY', String(input.originY))
     const { response, body } = await requestServerUpload(
