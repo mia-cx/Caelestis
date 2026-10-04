@@ -85,9 +85,10 @@ const eventBucketStart = (occurredAt: Seconds): Seconds =>
 /** Shared durable counter validation, retry, retention, and cumulative bucket flushing. */
 export class TelemetryCoordinator {
   private alarmUpdates: Promise<void> = Promise.resolve()
-  /** An archive operation holds this state; see `freeze`. Durable in `counter_freeze`. */
-  private frozen = false
-  private readonly recording = new Set<Promise<void>>()
+  /** The archive operation holding this state; see `freeze`. Durable in `counter_freeze`. */
+  private frozenBy: string | null = null
+  /** Records and flushes that passed the freeze check and may still write. */
+  private readonly admitted = new Set<Promise<void>>()
   constructor(
     private readonly database: CoordinatorDatabase,
     private readonly alarms: AlarmStorage,
@@ -97,22 +98,34 @@ export class TelemetryCoordinator {
 
   async initialize(): Promise<void> {
     await this.initializeSchema()
-    this.frozen = (await this.database.all('SELECT singleton FROM counter_freeze')).length > 0
+    this.frozenBy = await this.readFreeze()
     const now = this.clock()
     // Pruning would change state an archive is reading; a frozen coordinator prunes after thawing.
-    if (!this.frozen) await this.pruneRetained(seconds(Math.floor(now / 1_000)))
+    if (this.frozenBy === null) await this.pruneRetained(seconds(Math.floor(now / 1_000)))
     await this.scheduleNextAlarm(now)
   }
 
-  async record(deltas: readonly CounterDelta[], idempotencyKey?: string): Promise<void> {
-    if (this.frozen) throw new ArchiveOperationActiveError()
-    const running = this.recordUnfrozen(deltas, idempotencyKey)
-    this.recording.add(running)
+  private async readFreeze(): Promise<string | null> {
+    const [row] = await this.database.all<{ operation_id: string }>(
+      'SELECT operation_id FROM counter_freeze',
+    )
+    return row?.operation_id ?? null
+  }
+
+  /** Track mutating work from its freeze check to its last write, so `freeze` can wait for it. */
+  private async admit(work: () => Promise<void>): Promise<void> {
+    const running = work()
+    this.admitted.add(running)
     try {
       await running
     } finally {
-      this.recording.delete(running)
+      this.admitted.delete(running)
     }
+  }
+
+  async record(deltas: readonly CounterDelta[], idempotencyKey?: string): Promise<void> {
+    if (this.frozenBy !== null) throw new ArchiveOperationActiveError()
+    await this.admit(() => this.recordUnfrozen(deltas, idempotencyKey))
   }
 
   private async recordUnfrozen(
@@ -333,32 +346,41 @@ export class TelemetryCoordinator {
    * admitted finish first, so each one is either in the archive or refused. A refused paint is
    * retried by its client, and the retry re-records it wherever the server's data now lives.
    */
-  async freeze(): Promise<void> {
-    this.frozen = true
+  async freeze(operationId: string): Promise<void> {
+    this.frozenBy = operationId
+    // The operation holding the server owns the freeze; any older one was left by a lost release.
     await this.database.run(
-      'INSERT INTO counter_freeze (singleton) VALUES (1) ON CONFLICT DO NOTHING',
+      'INSERT INTO counter_freeze (singleton, operation_id) VALUES (1, ?1) ON CONFLICT (singleton) DO UPDATE SET operation_id = excluded.operation_id',
+      operationId,
     )
-    await Promise.allSettled([...this.recording])
+    await Promise.allSettled([...this.admitted])
   }
 
-  async thaw(): Promise<void> {
-    await this.database.run('DELETE FROM counter_freeze')
-    this.frozen = false
-    await this.scheduleNextAlarm(this.clock())
+  /** Clear `operationId`'s freeze. A late call for an older operation leaves a newer one alone. */
+  async thaw(operationId: string): Promise<void> {
+    await this.database.run('DELETE FROM counter_freeze WHERE operation_id = ?1', operationId)
+    this.frozenBy = await this.readFreeze()
+    if (this.frozenBy === null) await this.scheduleNextAlarm(this.clock())
   }
 
+  /**
+   * Flushing moves pending counters before it writes buckets. During an archive operation that
+   * would change the state being exported or restored, so a frozen coordinator only re-arms, and
+   * a flush admitted earlier is part of what `freeze` waits for.
+   */
   async alarm(): Promise<void> {
     const nowMilliseconds = this.clock()
-    const nowSeconds = seconds(Math.floor(nowMilliseconds / 1_000))
-    // A flush moves pending counters before it writes buckets. During an archive operation that
-    // would change the state being exported or restored, so wait for the operation to end.
-    if (this.frozen) {
+    if (this.frozenBy !== null) {
       await this.updateAlarm(() =>
         this.alarms.setAlarm(millis(nowMilliseconds + ARCHIVE_RETRY_DELAY_MILLISECONDS)),
       )
       return
     }
+    await this.admit(() => this.flushDue(nowMilliseconds))
+  }
 
+  private async flushDue(nowMilliseconds: Millis): Promise<void> {
+    const nowSeconds = seconds(Math.floor(nowMilliseconds / 1_000))
     await this.pruneRetained(nowSeconds)
     await this.pruneZeroPending()
     let rows = await this.readFlushBatch()
@@ -546,7 +568,8 @@ export class TelemetryCoordinator {
       CREATE INDEX IF NOT EXISTS applied_counter_events_seen_at_idx
         ON applied_counter_events (seen_at_ms);
       CREATE TABLE IF NOT EXISTS counter_freeze (
-        singleton BIGINT PRIMARY KEY CHECK (singleton = 1)
+        singleton BIGINT PRIMARY KEY CHECK (singleton = 1),
+        operation_id TEXT NOT NULL
       );
 `
       .split(';')

@@ -16,9 +16,10 @@ export interface CounterArchive {
   ): Promise<void>
   /** Empty every table and reseed the singletons, as on a new server. */
   discardCounterRows(): Promise<void>
-  /** Refuse new records and wait for admitted ones; flushes and pruning wait too. */
-  freeze(): Promise<void>
-  thaw(): Promise<void>
+  /** Refuse new records and flushes for `operationId`, then wait for admitted ones. */
+  freeze(operationId: string): Promise<void>
+  /** Clear `operationId`'s freeze only; idempotent. */
+  thaw(operationId: string): Promise<void>
 }
 
 /** One template's resumable import state, wherever the runtime keeps it. */

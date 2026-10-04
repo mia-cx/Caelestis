@@ -80,7 +80,8 @@ export const openNodeRuntime = async (
       ),
     )
     // A restart during an archive operation must not reopen writes the operation closed.
-    if ((await readArchiveOperation(connection)) !== null) await closeProcessWrites(connection)
+    const held = await readArchiveOperation(connection)
+    if (held !== null) await closeProcessWrites(connection, held.operationId)
     const database = coordinatorDatabase(connection)
     await SqlCoordinatorStorage.initialize(database)
     const state = (actor: string) => new SqlCoordinatorStorage(database, actor)

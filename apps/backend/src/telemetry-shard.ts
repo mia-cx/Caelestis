@@ -39,11 +39,11 @@ export class TelemetryShard extends DurableObject<Env> {
   discardCounterRows() {
     return this.coordinator.discardCounterRows()
   }
-  freeze() {
-    return this.coordinator.freeze()
+  freeze(operationId: string) {
+    return this.coordinator.freeze(operationId)
   }
-  thaw() {
-    return this.coordinator.thaw()
+  thaw(operationId: string) {
+    return this.coordinator.thaw(operationId)
   }
   override alarm() {
     return this.coordinator.alarm()

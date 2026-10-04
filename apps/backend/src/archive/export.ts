@@ -18,8 +18,16 @@ import {
   decodeBase64,
   encodeBase64,
 } from './format.js'
-import { readArchiveOperation } from './gate.js'
-import { holdServer, releaseServer } from './operation.js'
+import { type ArchiveOperationRow, readArchiveOperation } from './gate.js'
+import {
+  changedError,
+  finishPendingRelease,
+  holdServer,
+  phaseOf,
+  releaseServer,
+  resumeHold,
+  transition,
+} from './operation.js'
 import type { ArchiveHost } from './port.js'
 
 type Step =
@@ -109,16 +117,43 @@ const logicalRow = (table: ArchiveTable, raw: Record<string, unknown>, only: Set
       }),
   ) as ArchiveRow
 
-/** Freeze the server; pages are readable as soon as this returns. */
+/**
+ * Complete `freezing`, whether this call created it or a crashed or concurrent start left it.
+ * Freezing again is harmless, and only one caller's compare-and-set publishes `frozen`.
+ */
+const settleFreeze = async (
+  host: ArchiveHost,
+  operation: ArchiveOperationRow,
+): Promise<ArchiveOperationRow> => {
+  if (phaseOf(operation) === 'frozen') return operation
+  if (phaseOf(operation) !== 'freezing')
+    throw new ArchiveError('This export is finishing. Start a new one.', 409)
+  await resumeHold(host, operation)
+  const frozen = await transition(host, operation, { phase: 'frozen' })
+  if (frozen !== null) return frozen
+  const current = await readArchiveOperation(host.connection)
+  if (current?.operationId === operation.operationId && phaseOf(current) === 'frozen')
+    return current
+  throw changedError()
+}
+
+/** Freeze the server, or finish freezing it; pages are readable as soon as this returns. */
 export const startExport = async (host: ArchiveHost) => {
-  const { operationId, startedAt } = await holdServer(host, 'export', '{}', 0)
-  return { id: operationId, readyAt: startedAt }
+  const current = await finishPendingRelease(host)
+  const operation =
+    current?.kind === 'export' && phaseOf(current) === 'freezing'
+      ? current
+      : await holdServer(host, 'export', { phase: 'freezing' })
+  const frozen = await settleFreeze(host, operation)
+  return { id: frozen.operationId, readyAt: frozen.startedAt }
 }
 
 /** End an export and resume writes. A source being retired can stay frozen instead. */
 export const finishExport = async (host: ArchiveHost): Promise<boolean> => {
   const operation = await readArchiveOperation(host.connection)
-  return operation?.kind === 'export' && (await releaseServer(host, operation.operationId))
+  if (operation?.kind !== 'export') return false
+  if (!(await releaseServer(host, operation))) throw changedError()
+  return true
 }
 
 /**
@@ -129,9 +164,10 @@ export const exportPage = async (
   host: ArchiveHost,
   token: string | null,
 ): Promise<{ readonly lines: readonly string[]; readonly next: string | null }> => {
-  const operation = await readArchiveOperation(host.connection)
-  if (operation?.kind !== 'export')
+  const current = await readArchiveOperation(host.connection)
+  if (current?.kind !== 'export')
     throw new ArchiveError('Start an export before reading pages.', 409)
+  const operation = await settleFreeze(host, current)
   let cursor: ExportCursor =
     token === null
       ? {

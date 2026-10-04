@@ -1,5 +1,5 @@
 import { millis } from '@caelestis/shared'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MemoryBlobStore } from '../src/adapters/memory/memory-blob-store.js'
 import { MemorySqlStore } from '../src/adapters/memory/memory-sql-store.js'
 import { coordinatorDatabase } from '../src/adapters/node/coordinator-database.js'
@@ -10,12 +10,13 @@ import type {
   SqlStatement,
   TransactionalSqlConnection,
 } from '../src/adapters/sql-connection.js'
-import { exportPage, startExport } from '../src/archive/export.js'
+import { exportPage, finishExport, startExport } from '../src/archive/export.js'
 import {
   ArchiveOperationActiveError,
   closeProcessWrites,
   fencedConnection,
   openProcessWrites,
+  readArchiveOperation,
 } from '../src/archive/gate.js'
 import type { ArchiveHost } from '../src/archive/port.js'
 import { type BackfillStorage, TemplateBackfill } from '../src/backfill/import.js'
@@ -106,7 +107,7 @@ describe('archive snapshot boundary', () => {
     const fenced = fencedConnection(connection)
     const admitted = fenced.prepare('INSERT INTO tags (id) VALUES (1)').run()
     let drained = false
-    const draining = closeProcessWrites(connection).then(() => {
+    const draining = closeProcessWrites(connection, 'export-1').then(() => {
       drained = true
     })
     await settle()
@@ -118,7 +119,12 @@ describe('archive snapshot boundary', () => {
       ArchiveOperationActiveError,
     )
     expect(await fenced.prepare('SELECT 1').first()).toBeNull()
-    openProcessWrites(connection)
+    // A late release of an older operation must not reopen writes this one closed.
+    openProcessWrites(connection, 'export-0')
+    await expect(fenced.prepare('UPDATE tags SET id = 2').run()).rejects.toBeInstanceOf(
+      ArchiveOperationActiveError,
+    )
+    openProcessWrites(connection, 'export-1')
     expect(await fenced.prepare('UPDATE tags SET id = 2').run()).toMatchObject({
       meta: { changes: 1 },
     })
@@ -166,7 +172,7 @@ describe('archive snapshot boundary', () => {
     const coordinator = await open()
     const retained = { template_id: 'mural', bucket_start_s: 0, placed: 1, correct: 1, repairs: 0 }
     await coordinator.importCounterRows('retained_counters', [retained])
-    await coordinator.freeze()
+    await coordinator.freeze('export-1')
     const delta = { templateId: 'mural', occurredAt: 99, placed: 1, correct: 1, repairs: 0 }
     await expect(coordinator.record([delta as never])).rejects.toBeInstanceOf(
       ArchiveOperationActiveError,
@@ -179,9 +185,72 @@ describe('archive snapshot boundary', () => {
     await expect(restarted.record([delta as never])).rejects.toBeInstanceOf(
       ArchiveOperationActiveError,
     )
-    await restarted.thaw()
+    // A late thaw for an older operation leaves this freeze in place.
+    await restarted.thaw('export-0')
+    await expect(restarted.record([delta as never])).rejects.toBeInstanceOf(
+      ArchiveOperationActiveError,
+    )
+    await restarted.thaw('export-1')
     await open()
     expect(await restarted.exportCounterRows('retained_counters', null, 10)).toEqual([])
+  })
+
+  it('waits for a flush admitted before the freeze, through its failure path', async () => {
+    const opened = await relational()
+    let entered: () => void = () => {}
+    const flushing = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    let fail: () => void = () => {}
+    const failed = new Promise<void>((resolve) => {
+      fail = resolve
+    })
+    /** Holds the bucket write so the flush is mid-flight when the freeze arrives. */
+    class HeldFlush extends RelationalSqlStore {
+      override async appendBuckets(): Promise<never> {
+        entered()
+        await failed
+        throw new Error('bucket write failed after the freeze')
+      }
+    }
+    const alarms: AlarmStorage = {
+      getAlarm: async () => null,
+      setAlarm: async () => {},
+      deleteAlarm: async () => {},
+    }
+    const coordinator = new TelemetryCoordinator(
+      coordinatorDatabase(opened.connection),
+      alarms,
+      new HeldFlush(opened.connection),
+      () => millis(100_000),
+    )
+    await coordinator.initialize()
+    const delta = { templateId: 'mural', occurredAt: 0, placed: 3, correct: 2, repairs: 1 }
+    await coordinator.record([delta as never], 'delivery-1')
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const flush = coordinator.alarm()
+    await flushing
+    let frozen = false
+    const freezing = coordinator.freeze('export-1').then(() => {
+      frozen = true
+    })
+    await settle()
+    expect(frozen).toBe(false)
+    fail()
+    await flush
+    await freezing
+    const snapshot = async () =>
+      Promise.all(
+        (['pending_counters', 'flush_batch', 'flush_retry_state'] as const).map((table) =>
+          coordinator.exportCounterRows(table, null, 10),
+        ),
+      )
+    const archived = await snapshot()
+    // The failure path already ran before freeze returned; a frozen alarm only re-arms.
+    expect(archived[2]).toEqual([{ singleton: 1, consecutive_failures: 1 }])
+    await coordinator.alarm()
+    expect(await snapshot()).toEqual(archived)
+    errors.mockRestore()
   })
 
   it('pauses an Eralyon import without changing the state an export reads', async () => {
@@ -265,5 +334,90 @@ describe('archive export budgets', () => {
       .filter((line) => line.startsWith('{"kind":"row","table":"applied_events"'))
     expect(events).toHaveLength(12)
     expect(new Set(events.map((line) => JSON.parse(line).values.event_id)).size).toBe(12)
+  })
+})
+
+describe('archive operation lifecycle', () => {
+  const coordinatorHost = async () => {
+    const opened = await relational()
+    const alarms: AlarmStorage = {
+      getAlarm: async () => null,
+      setAlarm: async () => {},
+      deleteAlarm: async () => {},
+    }
+    const coordinator = new TelemetryCoordinator(
+      coordinatorDatabase(opened.connection),
+      alarms,
+      opened.sql,
+    )
+    await coordinator.initialize()
+    const visits = { count: 0 }
+    let thawFailures = 0
+    const host: ArchiveHost = {
+      ...archiveHost(opened.connection, visits),
+      counters: {
+        exportCounterRows: (...args) => coordinator.exportCounterRows(...args),
+        importCounterRows: (...args) => coordinator.importCounterRows(...args),
+        discardCounterRows: () => coordinator.discardCounterRows(),
+        freeze: (id) => coordinator.freeze(id),
+        thaw: async (id) => {
+          if (thawFailures > 0) {
+            thawFailures -= 1
+            throw new Error('thaw RPC failed')
+          }
+          await coordinator.thaw(id)
+        },
+      },
+    }
+    return { host, coordinator, opened, failNextThaw: () => (thawFailures = 1) }
+  }
+  const delta = { templateId: 'mural', occurredAt: 99, placed: 1, correct: 1, repairs: 0 }
+
+  it('keeps a release that failed to thaw retryable and the server held until it finishes', async () => {
+    const { host, coordinator, opened, failNextThaw } = await coordinatorHost()
+    await startExport(host)
+    failNextThaw()
+    await expect(finishExport(host)).rejects.toThrow('thaw RPC failed')
+    // Still held, and visibly releasing rather than idle.
+    expect(await readArchiveOperation(opened.connection)).toMatchObject({ kind: 'export' })
+    expect(await opened.sql.archiveOperationActive({ fresh: true })).toBe(true)
+    await expect(coordinator.record([delta as never])).rejects.toBeInstanceOf(
+      ArchiveOperationActiveError,
+    )
+    expect(await finishExport(host)).toBe(true)
+    expect(await readArchiveOperation(opened.connection)).toBeNull()
+    await coordinator.record([delta as never])
+  })
+
+  it('lets the next start finish a release a crash left behind', async () => {
+    const { host, opened, failNextThaw } = await coordinatorHost()
+    await startExport(host)
+    failNextThaw()
+    await expect(finishExport(host)).rejects.toThrow('thaw RPC failed')
+    const next = await startExport(host)
+    expect(await readArchiveOperation(opened.connection)).toMatchObject({ operationId: next.id })
+  })
+
+  it('finishes a freeze a crash interrupted before pages are read', async () => {
+    const opened = await relational()
+    const frozen: string[] = []
+    const visits = { count: 0 }
+    const base = archiveHost(opened.connection, visits)
+    const host: ArchiveHost = {
+      ...base,
+      counters: { ...base.counters, freeze: async (id) => void frozen.push(id) },
+    }
+    // The row a process leaves when it dies between closing the gate and freezing counters.
+    await opened.connection
+      .prepare(
+        'INSERT INTO "archive_operation" ("id", "kind", "operation_id", "started_at_ms", "position", "state_json") VALUES (1, \'export\', \'crashed\', 0, 0, ?)',
+      )
+      .bind(JSON.stringify({ phase: 'freezing' }))
+      .run()
+    await exportPage(host, null)
+    expect(frozen).toEqual(['crashed'])
+    expect(JSON.parse((await readArchiveOperation(opened.connection))?.stateJson ?? '{}')).toEqual({
+      phase: 'frozen',
+    })
   })
 })

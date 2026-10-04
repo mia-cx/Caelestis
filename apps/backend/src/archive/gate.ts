@@ -56,34 +56,40 @@ export const readArchiveOperation = async (
  * the guard statement instead: a D1 batch either commits before the gate row or fails.
  */
 interface ProcessWrites {
-  closed: boolean
+  /** The archive operation holding writes closed, if any. */
+  closedBy: string | null
   readonly inFlight: Set<Promise<unknown>>
 }
 const processWrites = new WeakMap<SqlConnection, ProcessWrites>()
 const writesThrough = (connection: SqlConnection): ProcessWrites => {
   const existing = processWrites.get(connection)
   if (existing !== undefined) return existing
-  const created: ProcessWrites = { closed: false, inFlight: new Set() }
+  const created: ProcessWrites = { closedBy: null, inFlight: new Set() }
   processWrites.set(connection, created)
   return created
 }
 
 /** Refuse new writes through `connection` at once, then wait for every admitted write to end. */
-export const closeProcessWrites = async (connection: SqlConnection): Promise<void> => {
+export const closeProcessWrites = async (
+  connection: SqlConnection,
+  operationId: string,
+): Promise<void> => {
   const writes = writesThrough(connection)
-  writes.closed = true
+  writes.closedBy = operationId
   await Promise.allSettled([...writes.inFlight])
 }
 
-export const openProcessWrites = (connection: SqlConnection): void => {
-  writesThrough(connection).closed = false
+/** Reopen writes only if `operationId` closed them; a late release leaves a newer hold alone. */
+export const openProcessWrites = (connection: SqlConnection, operationId: string): void => {
+  const writes = writesThrough(connection)
+  if (writes.closedBy === operationId) writes.closedBy = null
 }
 
 /** A briefly cached answer to "is an archive operation holding this server?". */
 export const archiveGate = (connection: SqlConnection) => {
   let cached: { readonly active: boolean; readonly until: number } | undefined
   return async (options: { readonly fresh?: boolean } = {}): Promise<boolean> => {
-    if (writesThrough(connection).closed) return true
+    if (writesThrough(connection).closedBy !== null) return true
     const at = Date.now()
     if (!options.fresh && cached !== undefined && cached.until > at) return cached.active
     const active = (await readArchiveOperation(connection)) !== null
@@ -164,7 +170,7 @@ export const fencedConnection = (connection: SqlConnection): SqlConnection => {
   const writes = writesThrough(connection)
   const fence: Fence = {
     async admit(write) {
-      if (writes.closed) throw new ArchiveOperationActiveError()
+      if (writes.closedBy !== null) throw new ArchiveOperationActiveError()
       const running = write()
       writes.inFlight.add(running)
       try {

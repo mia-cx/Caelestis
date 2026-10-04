@@ -139,6 +139,45 @@ started, activation is refused; only finishing the discard reopens the server.
 - **Rolling back a move:** the source still holds its data, frozen. Run `finish-export` on it and
   point clients back.
 
+## Operation lifecycle
+
+The `archive_operation` row is the operation's only durable record. While it exists, the server
+is held. Its state names a phase:
+
+| Kind | Phases |
+| --- | --- |
+| Export | `freezing` → `frozen` → `releasing` → row deleted |
+| Restore | `preparing` → `ready` → `releasing` → row deleted |
+| Restore, refused or cancelled before any record | `preparing` → `releasing` → row deleted |
+| Restore, discarded | `ready` → `discarding` → `releasing` → row deleted |
+
+| Transition | Durable write | Work in the phase it enters |
+| --- | --- | --- |
+| start export | insert row, `freezing` | close the process gate, drain writes, freeze counters |
+| freeze done | `freezing` → `frozen` | none; pages read the frozen data |
+| begin restore | insert row, `preparing` | close and drain, freeze counters, check emptiness and credentials, probe objects |
+| preparation done | `preparing` → `ready` | none; records arrive |
+| append records | position and state advance with the rows, in one batch | none |
+| discard starts | `ready` → `discarding` | one bounded deletion per call, progress saved each time |
+| finish, activate, cancel, or discard done | → `releasing` | thaw counters, delete the row, reopen the process gate |
+
+One rule covers every transition:
+
+1. **Each transition is a compare-and-set on the whole prior row:** operation id, position, and
+   state. A call that read a stale row changes nothing and gets 409. So activation can never open
+   a restore whose discard started, and a cancelled preparation can never publish `ready`.
+2. **Work inside a phase is idempotent, and whoever finds the phase may run it again.** A crash
+   mid-phase leaves the row in that phase. The next call finishes it: `export` or an export page
+   re-freezes, the restore header re-runs preparation, and any lifecycle call completes
+   `releasing`. Cancelling `preparing` deletes nothing, because no record was accepted.
+3. **Writes reopen last.** Releasing thaws the counters, then deletes the row, then reopens the
+   process gate. If the thaw fails, the row stays in `releasing`, the server stays held, and
+   `status` shows it. Counter freezes and process gates are keyed by operation id, so a late
+   release of an old operation cannot unfreeze a newer one.
+
+Admitted work drains before a freeze returns: relational writes in the process, and counter
+records and flushes in the telemetry coordinator.
+
 ## Adapter requirements
 
 Archives depend only on the portable storage contracts, so a new adapter such as PlanetScale or

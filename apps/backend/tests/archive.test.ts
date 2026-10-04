@@ -377,6 +377,71 @@ describe('server archives', { timeout: 60_000 }, () => {
     expect(await (await admin(destination, '/manifest')).json()).toMatchObject({ templates: [] })
   })
 
+  it('resumes a preparation a crash left behind, or cancels it without touching the destination', async () => {
+    const file = await scratch()
+    const source = await server()
+    await seedServer(source.fetch, source.api)
+    const archive = await exportServer(source, file('source.ndjson'))
+    const [headerLine = ''] = archive.split('\n')
+    const header = JSON.parse(headerLine)
+    // The row a restore leaves when its process dies before the destination checks finish.
+    const crashedPreparation = async (destination: Server) =>
+      destination.runtime.connection
+        .prepare(
+          'INSERT INTO "archive_operation" ("id", "kind", "operation_id", "started_at_ms", "position", "state_json") VALUES (1, \'import\', \'crashed\', 0, 1, ?)',
+        )
+        .bind(
+          JSON.stringify({
+            archiveId: header.id,
+            sourceServerId: header.source.serverId,
+            tables: header.tables,
+            chain: await chainLine('0'.repeat(64), headerLine),
+            counts: {},
+            ended: false,
+            phase: 'preparing',
+            preservedTokens: [],
+          }),
+        )
+        .run()
+
+    const resumed = await server()
+    await crashedPreparation(resumed)
+    expect(
+      await importFromFile(archiveClient(resumed.fetch, resumed.api), file('source.ndjson')),
+    ).toMatchObject({ sourceServerId: header.source.serverId })
+
+    const cancelled = await server()
+    await crashedPreparation(cancelled)
+    await discardImport(archiveClient(cancelled.fetch, cancelled.api))
+    expireGateReads()
+    // Nothing was restored, so cancelling deletes nothing, the destination's own token included.
+    const manifest = await cancelled.fetch(`${cancelled.api}/manifest`, {
+      headers: { authorization: `Bearer ${cancelled.runtime.readToken}` },
+    })
+    expect(manifest.status).toBe(200)
+  })
+
+  it('lets a cancellation during preparation win over publishing ready', async () => {
+    const file = await scratch()
+    const source = await server()
+    const archive = await exportServer(source, file('empty.ndjson'))
+    const objects = new HeldProbe()
+    const destination = await server({ objects })
+    const begin = admin(destination, '/admin/archive/import', {
+      method: 'POST',
+      body: archive.split('\n')[0] ?? '',
+    })
+    await objects.probing
+    expect(
+      await (await admin(destination, '/admin/archive/import', { method: 'DELETE' })).json(),
+    ).toEqual({ done: true })
+    objects.release()
+    const refused = await begin
+    expect(refused.status).toBe(409)
+    expect(await errorOf(refused)).toContain('Another request changed')
+    expect(await (await admin(destination, '/admin/archive')).json()).toEqual({ operation: null })
+  })
+
   it('keeps a credential both servers already share', async () => {
     const file = await scratch()
     const shared = { env: { CAELESTIS_READ_TOKEN: 'SHARED-FRONTEND-READ-TOKEN' } }

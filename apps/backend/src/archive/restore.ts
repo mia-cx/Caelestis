@@ -19,7 +19,17 @@ import {
   parseArchiveLine,
 } from './format.js'
 import { type ArchiveOperationRow, readArchiveOperation } from './gate.js'
-import { archiveReadyAt, assertSettled, holdServer, releaseServer } from './operation.js'
+import {
+  archiveReadyAt,
+  assertSettled,
+  changedError,
+  finishPendingRelease,
+  holdServer,
+  phaseOf,
+  releaseServer,
+  resumeHold,
+  transition,
+} from './operation.js'
 import type { ArchiveHost } from './port.js'
 
 /** One append stays inside a Worker request and a D1 batch. */
@@ -35,8 +45,8 @@ interface RestoreState {
   readonly chain: string
   readonly counts: Readonly<Record<string, number>>
   readonly ended: boolean
-  /** False while `beginRestore` still checks the closed destination. */
-  readonly ready: boolean
+  /** See the lifecycle in operation.ts. Records arrive only while `ready`. */
+  readonly phase: 'preparing' | 'ready' | 'discarding' | 'releasing'
   /**
    * Credentials the destination held before the restore. An archived row with the same hash is the
    * same secret: the destination's row wins, so restoring never changes its scope. A discard keeps
@@ -155,22 +165,27 @@ export const beginRestore = async (host: ArchiveHost, headerLine: string) => {
   const header = parseArchiveLine(headerLine, 0)
   if (header.kind !== 'header') throw new ArchiveError('An archive must start with its header.')
   assertCompatible(header)
-  const current = await readArchiveOperation(host.connection)
+  const current = await finishPendingRelease(host)
   if (current !== null) {
-    const state = current.kind === 'import' ? decodeState(current) : null
-    if (state?.discard !== undefined)
-      throw new ArchiveError('This restore is being discarded. Finish discarding it first.', 409)
-    if (state?.archiveId !== header.id)
+    if (current.kind !== 'import')
       throw new ArchiveError(
-        current.kind === 'import'
-          ? 'A different archive is being restored. Discard it before starting another.'
-          : 'This server is exporting. Finish the export before restoring into it.',
+        'This server is exporting. Finish the export before restoring into it.',
         409,
       )
+    const state = decodeState(current)
+    if (state.archiveId !== header.id)
+      throw new ArchiveError(
+        'A different archive is being restored. Discard it before starting another.',
+        409,
+      )
+    if (state.phase === 'discarding')
+      throw new ArchiveError('This restore is being discarded. Finish discarding it first.', 409)
+    // A preparation that crashed or is still running is finished here; it is idempotent.
+    const ready = state.phase === 'preparing' ? await prepare(host, current) : current
     return {
-      id: current.operationId,
-      position: current.position,
-      readyAt: archiveReadyAt(host, current.startedAt),
+      id: ready.operationId,
+      position: ready.position,
+      readyAt: archiveReadyAt(host, ready.startedAt),
       resumed: true,
     }
   }
@@ -181,11 +196,29 @@ export const beginRestore = async (host: ArchiveHost, headerLine: string) => {
     chain: await chainLine(ARCHIVE_CHAIN_SEED, headerLine),
     counts: {},
     ended: false,
-    ready: false,
+    phase: 'preparing',
     preservedTokens: [],
   }
-  // Decide on emptiness only once no other writer can change the answer.
-  const { operationId, startedAt } = await holdServer(host, 'import', JSON.stringify(preparing), 1)
+  const ready = await prepare(host, await holdServer(host, 'import', preparing))
+  return {
+    id: ready.operationId,
+    position: ready.position,
+    readyAt: archiveReadyAt(host, ready.startedAt),
+    resumed: false,
+  }
+}
+
+/**
+ * Establish, behind the closed gate, that the destination is empty and which credentials are
+ * its own, then publish `ready`. Every step only reads or probes, so any caller may repeat it;
+ * the compare-and-set lets exactly one publish, and loses to a cancellation that came first.
+ */
+const prepare = async (
+  host: ArchiveHost,
+  operation: ArchiveOperationRow,
+): Promise<ArchiveOperationRow> => {
+  await resumeHold(host, operation)
+  let preserved: string[]
   try {
     const occupied = await occupiedLocations(host)
     if (occupied.length > 0)
@@ -193,32 +226,32 @@ export const beginRestore = async (host: ArchiveHost, headerLine: string) => {
         `Restore into a new server. This one already has data in ${occupied.join(', ')}.`,
         409,
       )
-    const preserved = await host.connection
+    const tokens = await host.connection
       .prepare(`SELECT "token_hash" FROM "access_tokens" LIMIT ${MAX_PRESERVED_TOKENS + 1}`)
       .all<{ token_hash: string }>()
-    if (preserved.results.length > MAX_PRESERVED_TOKENS)
+    if (tokens.results.length > MAX_PRESERVED_TOKENS)
       throw new ArchiveError(
         'Restore into a new server. This one already has many credentials.',
         409,
       )
-    await probeObjects(host, operationId)
-    const ready: RestoreState = {
-      ...preparing,
-      ready: true,
-      preservedTokens: preserved.results.map((row) => row.token_hash),
-    }
-    await host.connection
-      .prepare(
-        'UPDATE "archive_operation" SET "state_json" = ? WHERE "id" = 1 AND "operation_id" = ?',
-      )
-      .bind(JSON.stringify(ready), operationId)
-      .run()
+    preserved = tokens.results.map((row) => row.token_hash)
+    await probeObjects(host, operation.operationId)
   } catch (error) {
-    // Nothing was restored, so reopening hands the destination back exactly as it was.
-    await releaseServer(host, operationId)
+    // A refusal restored nothing, so cancelling hands the destination back as it was. The
+    // compare-and-set keeps a cancellation or another preparer's outcome intact.
+    if (error instanceof ArchiveError) await releaseServer(host, operation)
     throw error
   }
-  return { id: operationId, position: 1, readyAt: archiveReadyAt(host, startedAt), resumed: false }
+  const ready = await transition(host, operation, {
+    ...decodeState(operation),
+    phase: 'ready',
+    preservedTokens: preserved,
+  })
+  if (ready !== null) return ready
+  const current = await readArchiveOperation(host.connection)
+  if (current?.operationId === operation.operationId && decodeState(current).phase === 'ready')
+    return current
+  throw changedError()
 }
 
 const rowValues = (table: ArchiveTable, state: RestoreState, values: ArchiveRow, at: number) => {
@@ -246,10 +279,13 @@ export const appendRestore = async (
     throw new ArchiveError(`Send at most ${MAX_RESTORE_LINES} archive lines per request.`, 413)
   const { operation, state } = await restoreOperation(host)
   assertSettled(host, operation.startedAt)
-  if (state.discard !== undefined)
-    throw new ArchiveError('This restore is being discarded. Finish discarding it first.', 409)
-  if (!state.ready)
-    throw new ArchiveError('The restore is still checking the destination. Retry shortly.', 409)
+  if (state.phase === 'preparing')
+    throw new ArchiveError(
+      'The restore is still checking the destination. Send the header again to finish that.',
+      409,
+    )
+  if (state.phase !== 'ready')
+    throw new ArchiveError('This restore is being discarded or released. Check its status.', 409)
   if (position !== operation.position)
     throw new ArchiveError(
       `The server expects archive record ${operation.position}; resume from there.`,
@@ -406,16 +442,19 @@ export const appendRestore = async (
 /** Open the restored server once the archive's end record has verified every count and checksum. */
 export const activateRestore = async (host: ArchiveHost) => {
   const { operation, state } = await restoreOperation(host)
-  if (state.discard !== undefined)
+  if (state.discard !== undefined) {
+    // A discard that already reached releasing is finished, never activated.
+    if (state.phase === 'releasing') await releaseServer(host, operation)
     throw new ArchiveError('This restore is being discarded. Finish discarding it first.', 409)
+  }
   if (!state.ended)
     throw new ArchiveError(
       `The archive is incomplete: ${operation.position} records restored and no end record yet.`,
       409,
     )
-  // Opens only the exact state just verified, so a discard that starts meanwhile wins.
-  if (!(await releaseServer(host, operation.operationId, operation.stateJson)))
-    throw new ArchiveError('Another request changed this restore. Check its status.', 409)
+  // Moves only the exact state just verified, so a discard that starts meanwhile wins. A release
+  // that an earlier activation left half done is finished here instead.
+  if (!(await releaseServer(host, operation))) throw changedError()
   await host.activated()
   return { sourceServerId: state.sourceServerId, counts: state.counts }
 }
@@ -447,25 +486,24 @@ const DISCARD_STEPS: readonly DiscardStep[] = [
  */
 export const discardRestore = async (host: ArchiveHost): Promise<boolean> => {
   const { operation, state } = await restoreOperation(host)
+  // Nothing was restored before `ready`, and releasing only finishes: neither deletes anything.
+  if (state.phase === 'preparing' || state.phase === 'releasing') {
+    if (!(await releaseServer(host, operation))) throw changedError()
+    return true
+  }
   const saveProgress = async (discard: NonNullable<RestoreState['discard']>) => {
-    const saved = await host.connection
-      .prepare(
-        'UPDATE "archive_operation" SET "state_json" = ? WHERE "id" = 1 AND "operation_id" = ? AND "state_json" = ?',
-      )
-      .bind(JSON.stringify({ ...state, discard }), operation.operationId, operation.stateJson)
-      .run()
-    if (saved.meta.changes === 0)
-      throw new ArchiveError('Another request changed this restore. Check its status.', 409)
+    if ((await transition(host, operation, { ...state, phase: 'discarding', discard })) === null)
+      throw changedError()
   }
   // Mark the discard before deleting anything, so activation can no longer open this state.
-  if (state.discard === undefined) {
+  if (state.phase === 'ready') {
     await saveProgress({ step: 0, after: null })
     return false
   }
-  const progress = state.discard
+  const progress = state.discard ?? { step: 0, after: null }
   const step = DISCARD_STEPS[progress.step]
   if (step === undefined) {
-    await releaseServer(host, operation.operationId)
+    if (!(await releaseServer(host, operation))) throw changedError()
     return true
   }
   let next: { step: number; after: string | null } = { step: progress.step + 1, after: null }
@@ -535,6 +573,8 @@ export const archiveStatus = async (host: ArchiveHost) => {
     id: operation.operationId,
     startedAt: operation.startedAt,
     readyAt: archiveReadyAt(host, operation.startedAt),
+    // `releasing` still holds the server; any lifecycle call finishes it.
+    phase: phaseOf(operation),
   }
   if (operation.kind === 'export') return { operation: base }
   const state = decodeState(operation)

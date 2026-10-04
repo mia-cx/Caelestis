@@ -2,6 +2,7 @@ import { uuidV7 } from '@caelestis/shared'
 import { ArchiveError } from './format.js'
 import {
   ARCHIVE_SETTLE_MILLISECONDS,
+  type ArchiveOperationRow,
   closeProcessWrites,
   openProcessWrites,
   readArchiveOperation,
@@ -9,59 +10,145 @@ import {
 import type { ArchiveHost } from './port.js'
 
 /**
- * Close the gate and wait until nothing else can change the dataset. The gate row makes every
- * relational write fail inside its own transaction; this process's admitted writes and counter
- * records then drain. Only after that does the caller read or check data.
+ * The archive operation lifecycle. The `archive_operation` row is the only durable record, and
+ * its `state_json` carries the phase:
+ *
+ *   export:  freezing → frozen → releasing → (row deleted)
+ *   import:  preparing → ready → releasing → (row deleted)
+ *            preparing → releasing            (refused or cancelled before anything was restored)
+ *            ready → discarding → releasing   (discard; ready includes the ended archive)
+ *
+ * One rule makes every transition safe against crashes and concurrent calls:
+ *
+ * 1. Every transition is a compare-and-set on the whole prior row: operation id, position, and
+ *    state. A caller whose read went stale changes nothing and gets 409.
+ * 2. Work inside a phase is idempotent, so whoever finds a row in that phase may run it again:
+ *    freezing re-freezes, preparing re-checks, releasing re-thaws.
+ * 3. Writes reopen last. Releasing clears the counter freeze, then deletes the row, then opens
+ *    the process gate. A failure leaves the row in `releasing`, still holding the server, and the
+ *    next lifecycle call finishes it. Freezes and process gates are keyed by operation id, so a
+ *    late release can never thaw a newer operation.
+ */
+export type ArchivePhase =
+  | 'freezing'
+  | 'frozen'
+  | 'preparing'
+  | 'ready'
+  | 'discarding'
+  | 'releasing'
+
+export const phaseOf = (operation: ArchiveOperationRow): ArchivePhase =>
+  (JSON.parse(operation.stateJson) as { phase: ArchivePhase }).phase
+
+/** Replace exactly `from` with `state`; null when another request changed the operation first. */
+export const transition = async <State extends { readonly phase: ArchivePhase }>(
+  host: ArchiveHost,
+  from: ArchiveOperationRow,
+  state: State,
+  position = from.position,
+): Promise<ArchiveOperationRow | null> => {
+  const stateJson = JSON.stringify(state)
+  const changed = await host.connection
+    .prepare(
+      'UPDATE "archive_operation" SET "state_json" = ?, "position" = ? WHERE "id" = 1 AND "operation_id" = ? AND "position" = ? AND "state_json" = ?',
+    )
+    .bind(stateJson, position, from.operationId, from.position, from.stateJson)
+    .run()
+  return changed.meta.changes === 1 ? { ...from, stateJson, position } : null
+}
+
+export const changedError = () =>
+  new ArchiveError('Another request changed this archive operation. Check its status.', 409)
+
+/** Stop every writer for `operation`. Idempotent, so a resumed phase simply runs it again. */
+const freeze = async (host: ArchiveHost, operation: ArchiveOperationRow) => {
+  await closeProcessWrites(host.connection, operation.operationId)
+  await host.counters.freeze(operation.operationId)
+}
+
+/**
+ * Create the operation row, which closes the gate, then wait until nothing else can change the
+ * dataset. A crash leaves the row in its first phase; the caller's retry resumes it.
  */
 export const holdServer = async (
   host: ArchiveHost,
   kind: 'export' | 'import',
-  state: string,
-  position: number,
+  state: { readonly phase: ArchivePhase },
 ) => {
-  const startedAt = Date.now()
-  const operationId = uuidV7()
+  await finishPendingRelease(host)
+  const operation: ArchiveOperationRow = {
+    kind,
+    operationId: uuidV7(),
+    startedAt: Date.now(),
+    position: kind === 'export' ? 0 : 1,
+    stateJson: JSON.stringify(state),
+  }
   try {
     await host.connection
       .prepare(
         'INSERT INTO "archive_operation" ("id", "kind", "operation_id", "started_at_ms", "position", "state_json") VALUES (1, ?, ?, ?, ?, ?)',
       )
-      .bind(kind, operationId, startedAt, position, state)
+      .bind(
+        kind,
+        operation.operationId,
+        operation.startedAt,
+        operation.position,
+        operation.stateJson,
+      )
       .run()
   } catch (cause) {
     if ((await readArchiveOperation(host.connection)) !== null)
       throw new ArchiveError('Another archive operation is in progress.', 409)
     throw cause
   }
-  try {
-    await closeProcessWrites(host.connection)
-    await host.counters.freeze()
-  } catch (error) {
-    await releaseServer(host, operationId)
-    throw error
-  }
-  return { operationId, startedAt }
+  await resumeHold(host, operation)
+  return operation
 }
 
+/** Run a holding phase's freeze again, for a row a crashed or concurrent caller left behind. */
+export const resumeHold = (host: ArchiveHost, operation: ArchiveOperationRow) =>
+  freeze(host, operation)
+
 /**
- * Reopen the server if `operationId` still holds it and, when given, its state is unchanged.
- * Returns false when another request changed the operation first.
+ * Move `operation` to releasing, then release it. Returns false when another request changed the
+ * operation first; the caller reports that instead of reopening anything.
  */
 export const releaseServer = async (
   host: ArchiveHost,
-  operationId: string,
-  expectedState?: string,
+  operation: ArchiveOperationRow,
 ): Promise<boolean> => {
-  const released = await host.connection
-    .prepare(
-      `DELETE FROM "archive_operation" WHERE "id" = 1 AND "operation_id" = ?${expectedState === undefined ? '' : ' AND "state_json" = ?'}`,
-    )
-    .bind(operationId, ...(expectedState === undefined ? [] : [expectedState]))
-    .run()
-  if (released.meta.changes === 0) return false
-  openProcessWrites(host.connection)
-  await host.counters.thaw()
+  const releasing =
+    phaseOf(operation) === 'releasing'
+      ? operation
+      : await transition(host, operation, {
+          ...(JSON.parse(operation.stateJson) as object),
+          phase: 'releasing',
+        })
+  if (releasing === null) return false
+  await completeRelease(host, releasing)
   return true
+}
+
+/** Thaw, delete the row, then reopen this process's writes. Each step is safe to repeat. */
+const completeRelease = async (host: ArchiveHost, operation: ArchiveOperationRow) => {
+  await host.counters.thaw(operation.operationId)
+  const deleted = await host.connection
+    .prepare(
+      'DELETE FROM "archive_operation" WHERE "id" = 1 AND "operation_id" = ? AND "state_json" = ?',
+    )
+    .bind(operation.operationId, operation.stateJson)
+    .run()
+  if (deleted.meta.changes === 1) openProcessWrites(host.connection, operation.operationId)
+}
+
+/** Finish a release a crash interrupted, so the next operation starts from an open server. */
+export const finishPendingRelease = async (
+  host: ArchiveHost,
+): Promise<ArchiveOperationRow | null> => {
+  const operation = await readArchiveOperation(host.connection)
+  if (operation === null || phaseOf(operation) !== 'releasing') return operation
+  await completeRelease(host, operation)
+  return readArchiveOperation(host.connection)
 }
 
 /** When a restore may accept records: other isolates' cached gate reads have expired. */
