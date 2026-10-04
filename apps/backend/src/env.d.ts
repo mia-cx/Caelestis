@@ -50,6 +50,12 @@ declare namespace Cloudflare {
 
     /** `dry-run` inventories candidates; `delete` also performs fenced physical reclamation. */
     TILE_BLOB_GC_MODE?: string
+
+    /**
+     * Seconds a restore waits before accepting records, so other isolates' cached gate reads
+     * expire first. Defaults to 2. Writes never depend on it.
+     */
+    ARCHIVE_SETTLE_SECONDS?: string
   }
 }
 
@@ -60,6 +66,7 @@ interface Env {
   readonly BASE_PATH?: string
   readonly ROOT_HOST?: string
   readonly TILE_BLOB_GC_MODE?: string
+  readonly ARCHIVE_SETTLE_SECONDS?: string
 }
 
 /** Replaced with the deployment Git SHA by Wrangler in production. */

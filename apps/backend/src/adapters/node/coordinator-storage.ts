@@ -93,11 +93,17 @@ export class SqlCoordinatorStorage implements CoordinatorStorage {
     return typeof keys === 'string' ? count > 0 : count
   }
 
-  async list<T>(options: { prefix: string; limit?: number }): Promise<Map<string, T>> {
+  async list<T>(options: {
+    prefix: string
+    startAfter?: string
+    limit?: number
+  }): Promise<Map<string, T>> {
+    const collation = `COLLATE "${this.database.dialect === 'postgres' ? 'C' : 'BINARY'}"`
     const rows = await this.database.all<{ key: string; value: string }>(
-      `SELECT key, value FROM runtime_values WHERE actor = ?1 AND substr(key, 1, length(?2)) = ?2 ORDER BY key COLLATE "${this.database.dialect === 'postgres' ? 'C' : 'BINARY'}"${options.limit === undefined ? '' : ' LIMIT ?3'}`,
+      `SELECT key, value FROM runtime_values WHERE actor = ?1 AND substr(key, 1, length(?2)) = ?2${options.startAfter === undefined ? '' : ` AND key ${collation} > ?3`} ORDER BY key ${collation}${options.limit === undefined ? '' : ` LIMIT ?${options.startAfter === undefined ? 3 : 4}`}`,
       this.actor,
       options.prefix,
+      ...(options.startAfter === undefined ? [] : [options.startAfter]),
       ...(options.limit === undefined ? [] : [options.limit]),
     )
     return new Map(rows.map((row) => [row.key, JSON.parse(row.value) as T]))

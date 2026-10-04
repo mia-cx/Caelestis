@@ -14,9 +14,10 @@ contracts remain responsible for their own persistence and network guarantees.
 | Frontend → backend | [Frontend API operations](frontend-api-evidence.md) |
 | Userscript → backend | [Userscript API operations](userscript-api-evidence.md) and [reporting and work](userscript-telemetry-evidence.md) |
 | Backend trust boundary | `apps/backend/tests/api-boundary.test.ts`, existing HTTP/work/SQLite contracts, and separate runtime/D1 contracts |
+| Archive client → backend | `apps/backend/tests/archive.test.ts` drives every archive route through the real client; `tests/worker/archive.test.ts` and `tests/integration/archive.test.ts` repeat the round trip on Cloudflare, PostgreSQL, MariaDB, and S3 |
 
 The backend matrix checks authentication on all 20 protected read shapes at root and `/v1`.
-It checks all 26 administrative method/path combinations against anonymous, read, and report callers,
+It checks all 34 administrative method/path combinations against anonymous, read, and report callers,
 and all six reporting mutations against anonymous and read callers. These are permission contracts;
 they do not claim successful decoding or mutation coverage for those operations.
 

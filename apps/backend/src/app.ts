@@ -1,9 +1,11 @@
 import type { ServerInfo } from '@caelestis/shared'
-import { Effect } from 'effect'
+import { Effect, Context as Services } from 'effect'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
+import type { ArchiveHost } from './archive/port.js'
 import type { BackfillClients } from './backfill/port.js'
 import type { ConnectPresence, PresenceOnline } from './presence/port.js'
+import { createArchiveAdminRoutes } from './routes/archive.js'
 import { createArchiveRoutes, createBackfillAdminRoutes } from './routes/backfill.js'
 import { createManifestRoutes } from './routes/manifest.js'
 import { createNodeRoutes } from './routes/nodes.js'
@@ -19,7 +21,12 @@ import {
 } from './routes/templates.js'
 import { createTokenRoutes } from './routes/tokens.js'
 import { createWorkRoutes } from './routes/work.js'
-import { type BackendContext, createBackendRuntime } from './runtime/backend-runtime.js'
+import {
+  type BackendContext,
+  createBackendRuntime,
+  SqlStoreService,
+  StatusReadModelService,
+} from './runtime/backend-runtime.js'
 import { runBackendHttp } from './runtime/hono.js'
 
 /**
@@ -31,6 +38,8 @@ import { runBackendHttp } from './runtime/hono.js'
  * @see https://github.com/mia-cx/Caelestis/issues/12
  */
 export interface AppOptions {
+  /** Relational runtimes can export and restore complete server archives. */
+  readonly archive?: ArchiveHost
   readonly connectPresence?: ConnectPresence
   readonly presenceOnline?: PresenceOnline
   readonly backfillClients?: BackfillClients
@@ -131,6 +140,17 @@ export const createApp = (context: BackendContext, options: AppOptions = {}) => 
   // rather than a promise to be kept.
   app.use('/*', cors({ origin: '*', exposeHeaders: ['ETag'], maxAge: 86_400 }))
 
+  // While an archive operation holds the server, only health, identity, and the archive routes
+  // answer. An export keeps the dataset still; a restore keeps a partial dataset out of sight.
+  const sql = Services.get(context, SqlStoreService)
+  app.use('/*', async (c, next) => {
+    const path = c.req.path.replace(/^\/v1(?=\/)/, '')
+    if (path === '/health' || path === '/server' || path.startsWith('/admin/archive')) return next()
+    if (!(await sql.archiveOperationActive())) return next()
+    c.header('retry-after', '60')
+    return c.json({ error: 'This server is being archived or restored. Try again later.' }, 503)
+  })
+
   app.get('/health', (c) =>
     runBackendHttp(c, runtime, Effect.succeed({ ok: true }), (health) => c.json(health)),
   )
@@ -138,6 +158,14 @@ export const createApp = (context: BackendContext, options: AppOptions = {}) => 
   v1Routes.route('/admin/server', createServerAdminRoutes(runtime, auth, currentSeason))
   v1Routes.route('/manifest', createManifestRoutes(runtime, auth, { server, currentSeason }))
 
+  v1Routes.route(
+    '/admin/archive',
+    // Manifests cached while the server was empty are dropped; live clients reconnect into the
+    // restored revisions, which continue from the source's.
+    createArchiveAdminRoutes(runtime, auth, options.archive, async () => {
+      await Services.get(context, StatusReadModelService).notifyManifestChange?.(currentSeason)
+    }),
+  )
   v1Routes.route('/admin/tokens', createTokenRoutes(runtime, auth, currentSeason))
   v1Routes.route(
     '/admin/backfill',

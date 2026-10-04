@@ -44,6 +44,7 @@ const json = (body: unknown): RequestInit => ({
 
 class MemoryBackfillStorage implements BackfillStorage {
   private readonly values = new Map<string, unknown>()
+  private alarm: number | null = null
 
   async get<T>(key: string): Promise<T | undefined> {
     return this.values.get(key) as T | undefined
@@ -53,15 +54,36 @@ class MemoryBackfillStorage implements BackfillStorage {
     this.values.set(key, value)
   }
 
-  async list<T>(options: { prefix: string }): Promise<Map<string, T>> {
+  async list<T>(options: {
+    prefix: string
+    startAfter?: string
+    limit?: number
+  }): Promise<Map<string, T>> {
     return new Map(
       [...this.values]
         .filter(([key]) => key.startsWith(options.prefix))
+        .filter(([key]) => options.startAfter === undefined || key > options.startAfter)
+        .sort(([left], [right]) => (left < right ? -1 : 1))
+        .slice(0, options.limit)
         .map(([key, value]) => [key, value as T]),
     )
   }
 
-  async setAlarm(_at: number): Promise<void> {}
+  async delete(keys: string[]): Promise<number> {
+    return keys.filter((key) => this.values.delete(key)).length
+  }
+
+  async getAlarm(): Promise<number | null> {
+    return this.alarm
+  }
+
+  async setAlarm(at: number): Promise<void> {
+    this.alarm = at
+  }
+
+  async deleteAlarm(): Promise<void> {
+    this.alarm = null
+  }
 }
 
 beforeEach(() => {

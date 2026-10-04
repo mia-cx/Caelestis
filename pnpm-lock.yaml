@@ -169,6 +169,9 @@ importers:
         specifier: ^8.21.3
         version: 8.21.3
     devDependencies:
+      '@aws-sdk/client-s3':
+        specifier: ^3.1140.0
+        version: 3.1140.0
       '@cloudflare/workers-types':
         specifier: ^5.20260925.1
         version: 5.20260925.1

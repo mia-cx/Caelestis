@@ -22,7 +22,8 @@ export interface CoordinatorTransaction extends AlarmStorage {
   put<T>(key: string, value: T): Promise<void>
   delete(key: string): Promise<boolean>
   delete(keys: string[]): Promise<number>
-  list<T>(options: { prefix: string; limit?: number }): Promise<Map<string, T>>
+  /** Keys in byte order; `startAfter` resumes after an earlier page's last key. */
+  list<T>(options: { prefix: string; startAfter?: string; limit?: number }): Promise<Map<string, T>>
 }
 
 export interface CoordinatorStorage extends CoordinatorTransaction {

@@ -1064,3 +1064,24 @@ export const templateAlarmStates = sqliteTable(
     ),
   ],
 )
+
+/**
+ * The one active server archive operation. While this row exists the server refuses writes and,
+ * for an import, every non-archive request. `position` is the next archive record an import
+ * expects; an out-of-sequence append sets it to NULL, which aborts that whole batch.
+ */
+export const archiveOperation = sqliteTable(
+  'archive_operation',
+  {
+    id: integer('id').primaryKey(),
+    kind: text('kind', { enum: ['export', 'import'] }).notNull(),
+    operationId: text('operation_id').notNull(),
+    startedAtMs: integer('started_at_ms').$type<Millis>().notNull(),
+    position: integer('position').notNull(),
+    stateJson: text('state_json').notNull(),
+  },
+  (table) => [
+    check('archive_operation_single_row_check', sql`${table.id} = 1`),
+    check('archive_operation_kind_check', sql`${table.kind} IN ('export', 'import')`),
+  ],
+)

@@ -1,4 +1,5 @@
 import { type Millis, millis, type Seconds, seconds } from '@caelestis/shared'
+import { ArchiveOperationActiveError } from '../archive/gate.js'
 import type { SqlStore } from '../ports/index.js'
 import {
   addCounters,
@@ -22,6 +23,23 @@ const MAX_FLUSH_RETRY_DELAY_MILLISECONDS = 60_000
 // The counters query binds every id twice. Stay below SQLite's conservative 999-variable default,
 // not merely workerd's current higher limit, so large manifest groups remain portable.
 const READ_PENDING_CHUNK_SIZE = 400
+
+const ARCHIVE_RETRY_DELAY_MILLISECONDS = 60_000
+
+const COUNTER_COLUMNS = ['template_id', 'bucket_start_s', 'placed', 'correct', 'repairs'] as const
+const COUNTER_KEY = ['template_id', 'bucket_start_s'] as const
+
+/** Durable coordinator tables in archive order. Each key orders its keyset pages. */
+export const COUNTER_ARCHIVE_TABLES = {
+  pending_counters: { key: COUNTER_KEY, columns: COUNTER_COLUMNS },
+  flush_batch: { key: COUNTER_KEY, columns: COUNTER_COLUMNS },
+  retained_counters: { key: COUNTER_KEY, columns: COUNTER_COLUMNS },
+  counter_meta: { key: ['template_id'], columns: ['template_id', 'flushed_at'] },
+  counter_stats: { key: ['singleton'], columns: ['singleton', 'dropped_late_deltas'] },
+  flush_retry_state: { key: ['singleton'], columns: ['singleton', 'consecutive_failures'] },
+  applied_counter_events: { key: ['event_id'], columns: ['event_id', 'seen_at_ms'] },
+} as const satisfies Record<string, { key: readonly string[]; columns: readonly string[] }>
+export type CounterArchiveTable = keyof typeof COUNTER_ARCHIVE_TABLES
 
 const flushRetryDelay = (failureCount: number): number =>
   Math.min(
@@ -67,6 +85,9 @@ const eventBucketStart = (occurredAt: Seconds): Seconds =>
 /** Shared durable counter validation, retry, retention, and cumulative bucket flushing. */
 export class TelemetryCoordinator {
   private alarmUpdates: Promise<void> = Promise.resolve()
+  /** An archive operation holds this state; see `freeze`. Durable in `counter_freeze`. */
+  private frozen = false
+  private readonly recording = new Set<Promise<void>>()
   constructor(
     private readonly database: CoordinatorDatabase,
     private readonly alarms: AlarmStorage,
@@ -76,12 +97,28 @@ export class TelemetryCoordinator {
 
   async initialize(): Promise<void> {
     await this.initializeSchema()
+    this.frozen = (await this.database.all('SELECT singleton FROM counter_freeze')).length > 0
     const now = this.clock()
-    await this.pruneRetained(seconds(Math.floor(now / 1_000)))
+    // Pruning would change state an archive is reading; a frozen coordinator prunes after thawing.
+    if (!this.frozen) await this.pruneRetained(seconds(Math.floor(now / 1_000)))
     await this.scheduleNextAlarm(now)
   }
 
   async record(deltas: readonly CounterDelta[], idempotencyKey?: string): Promise<void> {
+    if (this.frozen) throw new ArchiveOperationActiveError()
+    const running = this.recordUnfrozen(deltas, idempotencyKey)
+    this.recording.add(running)
+    try {
+      await running
+    } finally {
+      this.recording.delete(running)
+    }
+  }
+
+  private async recordUnfrozen(
+    deltas: readonly CounterDelta[],
+    idempotencyKey?: string,
+  ): Promise<void> {
     const nowMilliseconds = this.clock()
     const nowSeconds = seconds(Math.floor(nowMilliseconds / 1_000))
     // A successful flush leaves retained reconciliation state but no alarm. The next write is a
@@ -251,9 +288,76 @@ export class TelemetryCoordinator {
     ).count
   }
 
+  /** One keyset page of a coordinator table, for server archives. */
+  async exportCounterRows(
+    table: CounterArchiveTable,
+    after: readonly (string | number)[] | null,
+    limit: number,
+  ): Promise<Record<string, string | number>[]> {
+    const { key } = COUNTER_ARCHIVE_TABLES[table]
+    const columns = key.join(', ')
+    return this.database.all<Record<string, string | number>>(
+      `SELECT * FROM ${table}${after === null ? '' : ` WHERE (${columns}) > (${key.map(() => '?').join(', ')})`} ORDER BY ${columns} LIMIT ${Math.trunc(limit)}`,
+      ...(after ?? []),
+    )
+  }
+
+  /** Restore archived rows over the seeded singletons, then wake the flush they may need. */
+  async importCounterRows(
+    table: CounterArchiveTable,
+    rows: readonly Readonly<Record<string, string | number>>[],
+  ): Promise<void> {
+    const { key, columns } = COUNTER_ARCHIVE_TABLES[table]
+    const updates = columns.filter((column) => !(key as readonly string[]).includes(column))
+    await this.database.transaction(async (database) => {
+      for (const row of rows)
+        await database.run(
+          `INSERT INTO ${table} (${columns.join(', ')}) VALUES (${columns.map((_, index) => `?${index + 1}`).join(', ')}) ON CONFLICT (${key.join(', ')}) DO UPDATE SET ${updates.map((column) => `${column} = excluded.${column}`).join(', ')}`,
+          ...columns.map((column) => row[column] ?? null),
+        )
+    })
+    await this.scheduleNextAlarm(this.clock())
+  }
+
+  /** Return to a new server's state after a discarded restore. */
+  async discardCounterRows(): Promise<void> {
+    await this.database.transaction(async (database) => {
+      for (const table of Object.keys(COUNTER_ARCHIVE_TABLES))
+        await database.run(`DELETE FROM ${table}`)
+    })
+    await this.initializeSchema()
+  }
+
+  /**
+   * Hold this state still for an archive operation. New records fail at once and records already
+   * admitted finish first, so each one is either in the archive or refused. A refused paint is
+   * retried by its client, and the retry re-records it wherever the server's data now lives.
+   */
+  async freeze(): Promise<void> {
+    this.frozen = true
+    await this.database.run(
+      'INSERT INTO counter_freeze (singleton) VALUES (1) ON CONFLICT DO NOTHING',
+    )
+    await Promise.allSettled([...this.recording])
+  }
+
+  async thaw(): Promise<void> {
+    await this.database.run('DELETE FROM counter_freeze')
+    this.frozen = false
+    await this.scheduleNextAlarm(this.clock())
+  }
+
   async alarm(): Promise<void> {
     const nowMilliseconds = this.clock()
     const nowSeconds = seconds(Math.floor(nowMilliseconds / 1_000))
+    // A flush moves pending counters before it writes buckets. During an archive operation that
+    // would change the state being exported or restored, so wait for the operation to end.
+    if (this.frozen) {
+      await this.updateAlarm(() =>
+        this.alarms.setAlarm(millis(nowMilliseconds + ARCHIVE_RETRY_DELAY_MILLISECONDS)),
+      )
+      return
+    }
 
     await this.pruneRetained(nowSeconds)
     await this.pruneZeroPending()
@@ -441,6 +545,9 @@ export class TelemetryCoordinator {
       );
       CREATE INDEX IF NOT EXISTS applied_counter_events_seen_at_idx
         ON applied_counter_events (seen_at_ms);
+      CREATE TABLE IF NOT EXISTS counter_freeze (
+        singleton BIGINT PRIMARY KEY CHECK (singleton = 1)
+      );
 `
       .split(';')
       .filter((part) => part.trim()))
