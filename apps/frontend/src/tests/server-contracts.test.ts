@@ -1,17 +1,22 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { Manifest, TemplateStatus } from '@caelestis/shared'
+import type { ObjectInfo } from '@caelestis/storage'
 import { FilesystemObjectStorage } from '@caelestis/storage/filesystem'
 import type { RequestEvent } from '@sveltejs/kit'
+import { render } from 'svelte/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import SocialMetadata from '../lib/components/SocialMetadata.svelte'
 import { fetchBackend } from '../lib/server/backend'
+import { COMPONENT_EMBED_MAX_BYTES } from '../lib/server/discord-embed'
 import { socialMetadata } from '../lib/server/social'
 import { socialImageKey } from '../lib/social-image'
 import { load } from '../routes/+layout.server'
 import { GET as proxy } from '../routes/api/[...path]/+server'
 import { GET as imageGet, HEAD as imageHead } from '../routes/social/template/[id].gif/+server'
 import { adminToken, createTestBackend } from './backend'
-import { manifest, template } from './fixtures'
+import { manifest, server, template } from './fixtures'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -136,6 +141,142 @@ describe('public social metadata and stored image routes', () => {
     expect(
       (await socialMetadata(new URL('https://frontend.test/template/%ZZ'), context)).imageType,
     ).toBe('image/png')
+  })
+
+  describe('Discord component embed', () => {
+    const invite = 'https://discord.gg/caelestis'
+    const embedOf = (metadata: { discordEmbed: string | null }) => {
+      expect(metadata.discordEmbed).not.toBeNull()
+      expect(metadata.discordEmbed).not.toContain('<')
+      return JSON.parse(metadata.discordEmbed ?? '') as {
+        component: { type: number; components: { type: number; [key: string]: unknown }[] }
+      }
+    }
+    const text = (embed: ReturnType<typeof embedOf>) =>
+      embed.component.components.find((component) => component.type === 10)?.content
+    const gallery = (embed: ReturnType<typeof embedOf>) =>
+      embed.component.components.find((component) => component.type === 12)?.items
+    const buttons = (embed: ReturnType<typeof embedOf>) =>
+      embed.component.components.find((component) => component.type === 1)?.components
+
+    it('lays out the home page with a canonical action and the configured invite', async () => {
+      const data = manifest({ server: { ...server, discordInviteUrl: invite } })
+      const metadata = await socialMetadata(
+        new URL('https://user:secret@frontend.test/?token=private#fragment'),
+        { server: data.server, manifest: data, statuses: [] },
+      )
+      const embed = embedOf(metadata)
+      expect(embed.component.type).toBe(17)
+      expect(text(embed)).toBe(`## Test world · Caelestis\n${metadata.description}`)
+      expect(gallery(embed)).toEqual([
+        { media: { url: metadata.image }, description: metadata.imageAlt },
+      ])
+      expect(buttons(embed)).toEqual([
+        { type: 2, style: 5, url: 'https://frontend.test/', label: 'Open in Caelestis' },
+        { type: 2, style: 5, url: invite, label: 'Join Discord' },
+      ])
+    })
+
+    it('names the folder and leaves out the invite when none is configured', async () => {
+      const folder = { id: 'folder-1', parentId: null, path: '/folder-1', name: 'Skyline' }
+      const data = manifest({ nodes: [folder as Manifest['nodes'][number]] })
+      const embed = embedOf(
+        await socialMetadata(new URL('https://frontend.test/folder/folder-1'), {
+          server: data.server,
+          manifest: data,
+          statuses: [],
+        }),
+      )
+      expect(text(embed)).toContain('## Skyline · Test world')
+      expect(buttons(embed)).toEqual([
+        {
+          type: 2,
+          style: 5,
+          url: 'https://frontend.test/folder/folder-1',
+          label: 'Open in Caelestis',
+        },
+      ])
+    })
+
+    it('shows published template progress over its timelapse, falling back to the site image', async () => {
+      const data = manifest()
+      const url = new URL(`https://frontend.test/template/${template().id}`)
+      const context = {
+        server: data.server,
+        manifest: data,
+        statuses: [{ templateId: template().id, correct: 2, total: 4 } as TemplateStatus],
+      }
+      const images = { head: async () => ({ etag: 'gif-1' }) as ObjectInfo }
+      const animated = embedOf(await socialMetadata(url, context, images))
+      expect(text(animated)).toContain('4 pixels on Wplace. 50% painted correctly.')
+      expect(gallery(animated)).toEqual([
+        {
+          media: { url: `https://frontend.test/social/template/${template().id}.gif?v=gif-1` },
+          description: 'Painting timelapse of Artwork on Wplace',
+        },
+      ])
+      const still = embedOf(await socialMetadata(url, context, { head: async () => null }))
+      expect(gallery(still)).toEqual([
+        {
+          media: { url: 'https://frontend.test/social/site.png' },
+          description: expect.any(String),
+        },
+      ])
+    })
+
+    it('reveals nothing about an unpublished template', async () => {
+      const data = manifest({ templates: [template({ published: false, name: 'Secret plan' })] })
+      const metadata = await socialMetadata(
+        new URL(`https://frontend.test/template/${template().id}`),
+        { server: data.server, manifest: data, statuses: [] },
+      )
+      expect(metadata.discordEmbed).not.toContain('Secret plan')
+      expect(text(embedOf(metadata))).toContain('## Test world · Caelestis')
+    })
+
+    it('renders operator content as plain text and drops payloads over the size limit', async () => {
+      const data = manifest({
+        server: {
+          ...server,
+          name: '</script><!-- [Free nitro](https://evil.test) @everyone',
+          description: `# Heading\n> quote ${'🎨'.repeat(400)}`,
+        },
+      })
+      const context = { server: data.server, manifest: data, statuses: [] }
+      const metadata = await socialMetadata(new URL('https://frontend.test/'), context)
+      const content = text(embedOf(metadata))
+      expect(content).toContain(
+        '\\</script\\>\\<!\\-\\- \\[Free nitro\\]\\(https://evil.test\\) \\@everyone',
+      )
+      expect(content).toContain('\\# Heading \\> quote')
+      expect(content).toMatch(/…$/)
+      expect(new TextEncoder().encode(metadata.discordEmbed ?? '').length).toBeLessThanOrEqual(
+        COMPONENT_EMBED_MAX_BYTES,
+      )
+      const long = new URL(`https://frontend.test/folder/${'x'.repeat(COMPONENT_EMBED_MAX_BYTES)}`)
+      const fallback = await socialMetadata(long, context)
+      expect(fallback.discordEmbed).toBeNull()
+      expect(fallback.title).toBe(metadata.title)
+    })
+
+    it('server-renders the payload as an inline script beside the Open Graph tags', async () => {
+      const data = manifest()
+      const metadata = await socialMetadata(new URL('https://frontend.test/'), {
+        server: data.server,
+        manifest: data,
+        statuses: [],
+      })
+      const { head } = render(SocialMetadata, { props: { metadata } })
+      expect(head).toContain(
+        `<script id="discord:component-embed" type="application/vnd.discord.component-embed+json">${metadata.discordEmbed}</script>`,
+      )
+      expect(head).toContain('<meta property="og:title" content="Test world · Caelestis"')
+      const fallback = render(SocialMetadata, {
+        props: { metadata: { ...metadata, discordEmbed: null } },
+      })
+      expect(fallback.head).not.toContain('discord:component-embed')
+      expect(fallback.head).toContain('<meta property="og:image"')
+    })
   })
 
   it('revalidates publication even for conditional requests and serves HEAD without a body', async () => {

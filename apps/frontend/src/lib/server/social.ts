@@ -7,6 +7,7 @@ import {
   SOCIAL_IMAGE_WIDTH,
   socialImageKey,
 } from '$lib/social-image.js'
+import { discordComponentEmbed } from './discord-embed.js'
 
 interface SocialContext {
   server: ServerInfo | null
@@ -41,8 +42,24 @@ const configuredPreview = (url: URL, server: ServerInfo | null): SocialImage | n
   }
 }
 
-/** Build public, crawler-readable metadata without depending on browser credentials or state. */
+/**
+ * Build public, crawler-readable metadata without depending on browser credentials or state,
+ * plus the Discord component embed derived from it.
+ */
 export const socialMetadata = async (
+  url: URL,
+  context: SocialContext,
+  images?: Pick<ObjectStorage, 'head'>,
+  ensureImage?: (template: Template) => Promise<ObjectInfo | null>,
+) => {
+  const metadata = await pageMetadata(url, context, images, ensureImage)
+  return {
+    ...metadata,
+    discordEmbed: discordComponentEmbed(metadata, context.server?.discordInviteUrl),
+  }
+}
+
+const pageMetadata = async (
   url: URL,
   context: SocialContext,
   images?: Pick<ObjectStorage, 'head'>,
