@@ -47,17 +47,32 @@ export const painterLabel = (
 ): string => painter.displayName || `user ${painter.wplaceUserId}`
 
 /**
- * A hue that depends on nothing but the painter's id, so the same painter keeps the same colour
- * across ranges, metrics, scopes, and reloads. Golden-angle steps keep neighbouring ids apart.
+ * The Tailwind v4 `500` shades Wplace colours a `#ID` with, in Wplace's order: red, orange, yellow,
+ * lime, emerald, teal, cyan, sky, indigo, violet, purple, fuchsia, pink, rose.
  */
-export const painterHue = (wplaceUserId: WplaceUserId): number => {
-  const hashed = (Math.imul(wplaceUserId | 0, 0x9e3779b1) >>> 0) % 360
-  return Math.round(((hashed * 137.508) % 360) * 10) / 10
-}
+const WPLACE_ID_COLOURS = [
+  'oklch(63.7% 0.237 25.331)',
+  'oklch(70.5% 0.213 47.604)',
+  'oklch(79.5% 0.184 86.047)',
+  'oklch(76.8% 0.233 130.85)',
+  'oklch(69.6% 0.17 162.48)',
+  'oklch(70.4% 0.14 182.503)',
+  'oklch(71.5% 0.143 215.221)',
+  'oklch(68.5% 0.169 237.323)',
+  'oklch(58.5% 0.233 277.117)',
+  'oklch(60.6% 0.25 292.717)',
+  'oklch(62.7% 0.265 303.9)',
+  'oklch(66.7% 0.295 322.15)',
+  'oklch(65.6% 0.241 354.308)',
+  'oklch(64.5% 0.246 16.439)',
+] as const
 
-/** The stroke colour for a painter, with the theme choosing a legible lightness and chroma. */
+/**
+ * The colour Wplace shows beside a painter's `#ID`, used for their line, picker swatch, and tooltip
+ * dot. It depends on nothing but the id, so it survives ranges, scopes, reloads, and renames.
+ */
 export const painterColour = (wplaceUserId: WplaceUserId): string =>
-  `oklch(var(--painter-l) var(--painter-c) ${painterHue(wplaceUserId)})`
+  WPLACE_ID_COLOURS[wplaceUserId % WPLACE_ID_COLOURS.length]
 
 /**
  * A subsequence match score, or null when `query` is not a subsequence of `text`. Higher is

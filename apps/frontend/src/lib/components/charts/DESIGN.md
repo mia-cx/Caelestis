@@ -1,5 +1,7 @@
 The pace picker shares the painter picker's searchable, multi-select popover and menu styling. Keep the legend compact, with solid green and red swatches for correct and mismatched pixels. Painter lines show placements.
 
+Each painter wears the colour Wplace shows beside their `#ID`: Tailwind's `500` shade at `palette[id % 14]`, the same in both themes. Lines, picker swatches, and tooltip dots share it. Painters whose ids collide share a colour; never reassign by chart order.
+
 Short pace windows use darker magenta; longer windows become lighter blue, never cyan. Interpolate the theme's `--pace-short` and `--pace-long` endpoints in OKLCH along the shorter hue arc. The light theme uses a lower lightness range to retain contrast. Use the same colours for lines, picker swatches, and tooltip dots.
 
 Imported daily and longer pace segments are dashed and connect to solid reported segments at a shared endpoint. Saved native observations supply the progress handoff; current totals never reconstruct past values. Keep coverage gaps explicit. Imported progress keeps dashed green and red boundaries. The chart has no separate snapshot table.

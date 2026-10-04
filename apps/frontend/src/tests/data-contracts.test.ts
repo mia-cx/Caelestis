@@ -8,6 +8,7 @@ import {
 } from '../lib/archive-history'
 import { completionPace } from '../lib/completion-pace'
 import {
+  painterColour,
   rankPainters,
   selectAllPainters,
   togglePainterSelection,
@@ -148,6 +149,28 @@ describe('pace and chart windows', () => {
     expect(togglePainterSelection({}, new Set([1]), 2, 1)).toEqual({})
     expect(togglePainterSelection({}, new Set([1]), 1, 1)).toEqual({ 1: false })
     expect(rankPainters(options, '2').map((p) => p.wplaceUserId)).toEqual([2])
+  })
+
+  it("painter colours follow Wplace's palette[id % 14] Tailwind 500 table", () => {
+    // Copied from Wplace's deployed CSS, so a transcription or ordering slip fails here.
+    const wplace = [
+      'oklch(63.7% 0.237 25.331)', // red
+      'oklch(70.5% 0.213 47.604)', // orange
+      'oklch(79.5% 0.184 86.047)', // yellow
+      'oklch(76.8% 0.233 130.85)', // lime
+      'oklch(69.6% 0.17 162.48)', // emerald
+      'oklch(70.4% 0.14 182.503)', // teal
+      'oklch(71.5% 0.143 215.221)', // cyan
+      'oklch(68.5% 0.169 237.323)', // sky
+      'oklch(58.5% 0.233 277.117)', // indigo
+      'oklch(60.6% 0.25 292.717)', // violet
+      'oklch(62.7% 0.265 303.9)', // purple
+      'oklch(66.7% 0.295 322.15)', // fuchsia
+      'oklch(65.6% 0.241 354.308)', // pink
+      'oklch(64.5% 0.246 16.439)', // rose
+    ]
+    const ids = Array.from({ length: 2 * wplace.length }, (_, id) => id)
+    expect(ids.map(painterColour)).toEqual([...wplace, ...wplace])
   })
 })
 
