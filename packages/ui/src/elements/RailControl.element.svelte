@@ -31,7 +31,7 @@
     will-change: transform, opacity;
   }
   :host([data-caelestis-placement-action][data-state='open']) { transform: scale(1); opacity: 1; }
-  :host([data-caelestis-placement-action][data-state='closing']) { transform: scale(var(--caelestis-scale-tiny)); opacity: 0; }
+  :host([data-caelestis-placement-action][data-state='closing']) { transform: scale(var(--caelestis-scale-tiny)); opacity: 0; pointer-events: none; }
   @media (prefers-reduced-motion: reduce) {
     :host([data-caelestis-placement-action]) { transition: none !important; }
   }

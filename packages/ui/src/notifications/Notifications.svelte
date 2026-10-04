@@ -295,6 +295,7 @@
   }
   .toast:global([data-state='closing']) {
     opacity: 0;
+    pointer-events: none;
     translate: 0 var(--caelestis-distance-small);
     scale: var(--caelestis-scale-tiny);
     transition-duration: var(--toast-close-dur);

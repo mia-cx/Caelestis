@@ -801,7 +801,7 @@
     will-change: transform, opacity;
   }
   .progress-pane:global([data-state='open']) { transform: translateX(0); opacity: 1; }
-  .progress-pane:global([data-state='closing']) { transform: translateX(var(--pane-shift)); opacity: 0; transition-duration: var(--pane-close-dur); }
+  .progress-pane:global([data-state='closing']) { transform: translateX(var(--pane-shift)); opacity: 0; pointer-events: none; transition-duration: var(--pane-close-dur); }
   @media (prefers-reduced-motion: reduce) {
     .context-menu, .progress-pane { transition: none !important; }
   }
@@ -905,7 +905,7 @@
     will-change: transform, opacity;
   }
   .context-menu:global([data-state='open']) { transform: scale(1); opacity: 1; pointer-events: auto; }
-  .context-menu:global([data-state='closing']) { transform: scale(var(--dropdown-closing-scale)); opacity: 0; transition-duration: var(--dropdown-close-dur); }
+  .context-menu:global([data-state='closing']) { transform: scale(var(--dropdown-closing-scale)); opacity: 0; pointer-events: none; transition-duration: var(--dropdown-close-dur); }
   .context-menu button { inline-size: 100%; }
   .context-menu button.danger { color: var(--caelestis-danger); }
   .context-menu :global(.menu-trailing) { margin-inline-start: auto; opacity: 0.7; }

@@ -41,7 +41,7 @@
     will-change: transform, opacity;
   }
   :host([data-state='open']) { transform: translateX(0); opacity: 1; }
-  :host([data-state='closing']) { transform: translateX(var(--pane-shift)); opacity: 0; transition-duration: var(--pane-close-dur); }
+  :host([data-state='closing']) { transform: translateX(var(--pane-shift)); opacity: 0; pointer-events: none; transition-duration: var(--pane-close-dur); }
   @media (prefers-reduced-motion: reduce) {
     :host { transition: none !important; }
   }

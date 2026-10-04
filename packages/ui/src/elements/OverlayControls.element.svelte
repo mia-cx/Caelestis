@@ -48,6 +48,7 @@
   :host([data-state='closing']) {
     transform: scale(var(--dropdown-closing-scale));
     opacity: 0;
+    pointer-events: none;
     transition-duration: var(--dropdown-close-dur);
   }
   @media (prefers-reduced-motion: reduce) {
