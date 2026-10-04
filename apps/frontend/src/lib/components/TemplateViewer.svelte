@@ -125,7 +125,8 @@
     }
 
     // Draw the basemap across the viewport, including areas beyond the mirrored canvas.
-    const z = osmZoomFor(scale)
+    // No detail floor: a folder spread across the world needs the coarsest levels to stay cheap.
+    const z = osmZoomFor(scale, 0)
     const span = osmSpan(z)
     ctx.imageSmoothingEnabled = true
     ctx.imageSmoothingQuality = 'high'
