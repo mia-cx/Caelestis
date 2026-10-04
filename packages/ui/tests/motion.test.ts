@@ -78,6 +78,24 @@ describe('openSurface', () => {
     vi.advanceTimersByTime(10_000)
     expect(finish).not.toHaveBeenCalled()
   })
+
+  it('does not let a queued open frame overwrite a close that started first', () => {
+    vi.useFakeTimers()
+    const frames = new Map<number, FrameRequestCallback>()
+    vi.stubGlobal('requestAnimationFrame', (run: FrameRequestCallback) => {
+      frames.set(frames.size + 1, run)
+      return frames.size
+    })
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id))
+    const el = element()
+    const finish = vi.fn()
+    openSurface(el)
+    closeSurface(el, finish)
+    for (const run of frames.values()) run(0)
+    expect(el.dataset.state).toBe('closing')
+    vi.advanceTimersByTime(150)
+    expect(finish).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('surfaceCloseDurationMs', () => {

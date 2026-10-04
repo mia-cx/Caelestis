@@ -29,6 +29,14 @@ export const surfaceCloseDurationMs = (
 ): number => parseDurationMs(getComputedStyle(element).getPropertyValue(property))
 
 const pendingCloses = new WeakMap<HTMLElement, number>()
+const pendingOpens = new WeakMap<HTMLElement, number>()
+
+const cancelSurfaceOpen = (element: HTMLElement): void => {
+  const frame = pendingOpens.get(element)
+  if (frame === undefined) return
+  cancelAnimationFrame(frame)
+  pendingOpens.delete(element)
+}
 
 /** Cancel a pending close on `element`, if one is running. Returns whether there was one. */
 export const cancelSurfaceClose = (element: HTMLElement): boolean => {
@@ -46,11 +54,16 @@ export const cancelSurfaceClose = (element: HTMLElement): boolean => {
  * wherever the animation currently is.
  */
 export const openSurface = (element: HTMLElement): void => {
+  cancelSurfaceOpen(element)
   cancelSurfaceClose(element)
   element.removeAttribute('data-state')
-  requestAnimationFrame(() => {
-    element.dataset.state = 'open'
-  })
+  pendingOpens.set(
+    element,
+    requestAnimationFrame(() => {
+      pendingOpens.delete(element)
+      element.dataset.state = 'open'
+    }),
+  )
 }
 
 /**
@@ -65,6 +78,7 @@ export const closeSurface = (
   finish: () => void,
   durationProperty?: string,
 ): (() => void) => {
+  cancelSurfaceOpen(element)
   cancelSurfaceClose(element)
   const duration = surfaceCloseDurationMs(element, durationProperty)
   if (duration <= 0 || prefersReducedMotion()) {
