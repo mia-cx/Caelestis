@@ -25,6 +25,13 @@ export class ArchiveOperationActiveError extends Error {
   }
 }
 
+/** Archive work arrived for an operation that no longer holds the server. */
+export class StaleArchiveOperationError extends Error {
+  constructor() {
+    super('This archive operation no longer holds the server')
+  }
+}
+
 export const readArchiveOperation = async (
   connection: SqlConnection,
 ): Promise<ArchiveOperationRow | null> => {
@@ -56,15 +63,15 @@ export const readArchiveOperation = async (
  * the guard statement instead: a D1 batch either commits before the gate row or fails.
  */
 interface ProcessWrites {
-  /** The archive operation holding writes closed, if any. */
-  closedBy: string | null
+  /** Operations holding writes closed. Each releases only its own hold. */
+  readonly closedBy: Set<string>
   readonly inFlight: Set<Promise<unknown>>
 }
 const processWrites = new WeakMap<SqlConnection, ProcessWrites>()
 const writesThrough = (connection: SqlConnection): ProcessWrites => {
   const existing = processWrites.get(connection)
   if (existing !== undefined) return existing
-  const created: ProcessWrites = { closedBy: null, inFlight: new Set() }
+  const created: ProcessWrites = { closedBy: new Set(), inFlight: new Set() }
   processWrites.set(connection, created)
   return created
 }
@@ -75,21 +82,20 @@ export const closeProcessWrites = async (
   operationId: string,
 ): Promise<void> => {
   const writes = writesThrough(connection)
-  writes.closedBy = operationId
+  writes.closedBy.add(operationId)
   await Promise.allSettled([...writes.inFlight])
 }
 
-/** Reopen writes only if `operationId` closed them; a late release leaves a newer hold alone. */
+/** Drop `operationId`'s hold; writes reopen once no operation holds them. */
 export const openProcessWrites = (connection: SqlConnection, operationId: string): void => {
-  const writes = writesThrough(connection)
-  if (writes.closedBy === operationId) writes.closedBy = null
+  writesThrough(connection).closedBy.delete(operationId)
 }
 
 /** A briefly cached answer to "is an archive operation holding this server?". */
 export const archiveGate = (connection: SqlConnection) => {
   let cached: { readonly active: boolean; readonly until: number } | undefined
   return async (options: { readonly fresh?: boolean } = {}): Promise<boolean> => {
-    if (writesThrough(connection).closedBy !== null) return true
+    if (writesThrough(connection).closedBy.size > 0) return true
     const at = Date.now()
     if (!options.fresh && cached !== undefined && cached.until > at) return cached.active
     const active = (await readArchiveOperation(connection)) !== null
@@ -170,7 +176,7 @@ export const fencedConnection = (connection: SqlConnection): SqlConnection => {
   const writes = writesThrough(connection)
   const fence: Fence = {
     async admit(write) {
-      if (writes.closedBy !== null) throw new ArchiveOperationActiveError()
+      if (writes.closedBy.size > 0) throw new ArchiveOperationActiveError()
       const running = write()
       writes.inFlight.add(running)
       try {

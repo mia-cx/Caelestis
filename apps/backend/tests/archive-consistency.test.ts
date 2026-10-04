@@ -38,6 +38,15 @@ const settle = async () => {
   for (let turn = 0; turn < 20; turn += 1) await Promise.resolve()
 }
 
+/** The gate row of a live operation, for coordinator tests that freeze on its behalf. */
+const holdRow = (connection: SqlConnection, operationId: string) =>
+  connection
+    .prepare(
+      'INSERT INTO "archive_operation" ("id", "kind", "operation_id", "started_at_ms", "position", "state_json") VALUES (1, \'export\', ?, 0, 0, \'{"phase":"frozen"}\')',
+    )
+    .bind(operationId)
+    .run()
+
 /** Every export page, with the backfill visits each page made. */
 const exportAll = async (host: ArchiveHost, visits: { count: number }) => {
   await startExport(host)
@@ -171,7 +180,10 @@ describe('archive snapshot boundary', () => {
     }
     const coordinator = await open()
     const retained = { template_id: 'mural', bucket_start_s: 0, placed: 1, correct: 1, repairs: 0 }
-    await coordinator.importCounterRows('retained_counters', [retained])
+    await coordinator.freeze('restore-1')
+    await coordinator.importCounterRows('restore-1', 'retained_counters', [retained])
+    await coordinator.thaw('restore-1')
+    await holdRow(opened.connection, 'export-1')
     await coordinator.freeze('export-1')
     const delta = { templateId: 'mural', occurredAt: 99, placed: 1, correct: 1, repairs: 0 }
     await expect(coordinator.record([delta as never])).rejects.toBeInstanceOf(
@@ -193,6 +205,11 @@ describe('archive snapshot boundary', () => {
     await restarted.thaw('export-1')
     await open()
     expect(await restarted.exportCounterRows('retained_counters', null, 10)).toEqual([])
+
+    // A freeze whose holder died before undoing it, with no operation left, clears itself.
+    await restarted.freeze('crashed-resume')
+    await opened.connection.prepare('DELETE FROM "archive_operation"').run()
+    await restarted.record([delta as never])
   })
 
   it('waits for a flush admitted before the freeze, through its failure path', async () => {
@@ -230,6 +247,7 @@ describe('archive snapshot boundary', () => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
     const flush = coordinator.alarm()
     await flushing
+    await holdRow(opened.connection, 'export-1')
     let frozen = false
     const freezing = coordinator.freeze('export-1').then(() => {
       frozen = true
@@ -353,13 +371,23 @@ describe('archive operation lifecycle', () => {
     await coordinator.initialize()
     const visits = { count: 0 }
     let thawFailures = 0
+    /** When set, the next freeze completes but its reply waits for this promise. */
+    let delayNextFreeze: { readonly reply: Promise<void>; readonly frozen: () => void } | null =
+      null
     const host: ArchiveHost = {
       ...archiveHost(opened.connection, visits),
       counters: {
         exportCounterRows: (...args) => coordinator.exportCounterRows(...args),
         importCounterRows: (...args) => coordinator.importCounterRows(...args),
         discardCounterRows: () => coordinator.discardCounterRows(),
-        freeze: (id) => coordinator.freeze(id),
+        freeze: async (id) => {
+          await coordinator.freeze(id)
+          const delay = delayNextFreeze
+          delayNextFreeze = null
+          if (delay === null) return
+          delay.frozen()
+          await delay.reply
+        },
         thaw: async (id) => {
           if (thawFailures > 0) {
             thawFailures -= 1
@@ -369,9 +397,45 @@ describe('archive operation lifecycle', () => {
         },
       },
     }
-    return { host, coordinator, opened, failNextThaw: () => (thawFailures = 1) }
+    const delayFreeze = () => {
+      let frozen: () => void = () => {}
+      const reached = new Promise<void>((resolve) => {
+        frozen = resolve
+      })
+      let reply: () => void = () => {}
+      delayNextFreeze = {
+        reply: new Promise<void>((resolve) => {
+          reply = resolve
+        }),
+        frozen,
+      }
+      return { reached, reply }
+    }
+    return {
+      host,
+      coordinator,
+      opened,
+      failNextThaw: () => (thawFailures = 1),
+      delayFreeze,
+    }
   }
   const delta = { templateId: 'mural', occurredAt: 99, placed: 1, correct: 1, repairs: 0 }
+
+  it('undoes a delayed freeze whose export was already finished', async () => {
+    const { host, coordinator, opened, delayFreeze } = await coordinatorHost()
+    const delayed = delayFreeze()
+    const start = startExport(host)
+    await delayed.reached
+    expect(await finishExport(host)).toBe(true)
+    delayed.reply()
+    await expect(start).rejects.toThrow('Another request changed')
+    // Nothing is left holding the server: relational writes and counters both work.
+    expect(await readArchiveOperation(opened.connection)).toBeNull()
+    expect(await opened.sql.archiveOperationActive({ fresh: true })).toBe(false)
+    await coordinator.record([delta as never])
+    await opened.sql.writeServerSettings({ name: 'Open again' })
+    expect(await finishExport(host)).toBe(false)
+  })
 
   it('keeps a release that failed to thaw retryable and the server held until it finishes', async () => {
     const { host, coordinator, opened, failNextThaw } = await coordinatorHost()

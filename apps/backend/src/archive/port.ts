@@ -10,7 +10,9 @@ export interface CounterArchive {
     after: readonly (string | number)[] | null,
     limit: number,
   ): Promise<Record<string, string | number>[]>
+  /** Rejects with StaleArchiveOperationError unless `token` still freezes the counters. */
   importCounterRows(
+    token: string,
     table: CounterArchiveTable,
     rows: readonly Readonly<Record<string, string | number>>[],
   ): Promise<void>

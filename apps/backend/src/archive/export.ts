@@ -22,10 +22,10 @@ import { type ArchiveOperationRow, readArchiveOperation } from './gate.js'
 import {
   changedError,
   finishPendingRelease,
+  holdFor,
   holdServer,
   phaseOf,
   releaseServer,
-  resumeHold,
   transition,
 } from './operation.js'
 import type { ArchiveHost } from './port.js'
@@ -128,7 +128,7 @@ const settleFreeze = async (
   if (phaseOf(operation) === 'frozen') return operation
   if (phaseOf(operation) !== 'freezing')
     throw new ArchiveError('This export is finishing. Start a new one.', 409)
-  await resumeHold(host, operation)
+  await holdFor(host, operation)
   const frozen = await transition(host, operation, { phase: 'frozen' })
   if (frozen !== null) return frozen
   const current = await readArchiveOperation(host.connection)

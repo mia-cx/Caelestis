@@ -1,5 +1,5 @@
 import { type Millis, millis, type Seconds, seconds } from '@caelestis/shared'
-import { ArchiveOperationActiveError } from '../archive/gate.js'
+import { ArchiveOperationActiveError, StaleArchiveOperationError } from '../archive/gate.js'
 import type { SqlStore } from '../ports/index.js'
 import {
   addCounters,
@@ -85,8 +85,8 @@ const eventBucketStart = (occurredAt: Seconds): Seconds =>
 /** Shared durable counter validation, retry, retention, and cumulative bucket flushing. */
 export class TelemetryCoordinator {
   private alarmUpdates: Promise<void> = Promise.resolve()
-  /** The archive operation holding this state; see `freeze`. Durable in `counter_freeze`. */
-  private frozenBy: string | null = null
+  /** Archive tokens holding this state; see `freeze`. Durable in `counter_freeze`. */
+  private freezes: ReadonlySet<string> = new Set()
   /** Records and flushes that passed the freeze check and may still write. */
   private readonly admitted = new Set<Promise<void>>()
   constructor(
@@ -98,18 +98,18 @@ export class TelemetryCoordinator {
 
   async initialize(): Promise<void> {
     await this.initializeSchema()
-    this.frozenBy = await this.readFreeze()
+    this.freezes = await this.readFreezes()
     const now = this.clock()
     // Pruning would change state an archive is reading; a frozen coordinator prunes after thawing.
-    if (this.frozenBy === null) await this.pruneRetained(seconds(Math.floor(now / 1_000)))
+    if (this.freezes.size === 0) await this.pruneRetained(seconds(Math.floor(now / 1_000)))
     await this.scheduleNextAlarm(now)
   }
 
-  private async readFreeze(): Promise<string | null> {
-    const [row] = await this.database.all<{ operation_id: string }>(
+  private async readFreezes(): Promise<ReadonlySet<string>> {
+    const rows = await this.database.all<{ operation_id: string }>(
       'SELECT operation_id FROM counter_freeze',
     )
-    return row?.operation_id ?? null
+    return new Set(rows.map((row) => row.operation_id))
   }
 
   /** Track mutating work from its freeze check to its last write, so `freeze` can wait for it. */
@@ -124,7 +124,9 @@ export class TelemetryCoordinator {
   }
 
   async record(deltas: readonly CounterDelta[], idempotencyKey?: string): Promise<void> {
-    if (this.frozenBy !== null) throw new ArchiveOperationActiveError()
+    if (this.freezes.size > 0) await this.holding()
+    // Checked again with no await before admission, so a freeze cannot slip in between.
+    if (this.freezes.size > 0) throw new ArchiveOperationActiveError()
     await this.admit(() => this.recordUnfrozen(deltas, idempotencyKey))
   }
 
@@ -317,12 +319,17 @@ export class TelemetryCoordinator {
 
   /** Restore archived rows over the seeded singletons, then wake the flush they may need. */
   async importCounterRows(
+    token: string,
     table: CounterArchiveTable,
     rows: readonly Readonly<Record<string, string | number>>[],
   ): Promise<void> {
     const { key, columns } = COUNTER_ARCHIVE_TABLES[table]
     const updates = columns.filter((column) => !(key as readonly string[]).includes(column))
     await this.database.transaction(async (database) => {
+      // Only the restore that froze these counters may write them; a stale append after its
+      // discard or release changes nothing.
+      const held = await database.all('SELECT 1 FROM counter_freeze WHERE operation_id = ?1', token)
+      if (held.length === 0) throw new StaleArchiveOperationError()
       for (const row of rows)
         await database.run(
           `INSERT INTO ${table} (${columns.join(', ')}) VALUES (${columns.map((_, index) => `?${index + 1}`).join(', ')}) ON CONFLICT (${key.join(', ')}) DO UPDATE SET ${updates.map((column) => `${column} = excluded.${column}`).join(', ')}`,
@@ -346,21 +353,36 @@ export class TelemetryCoordinator {
    * admitted finish first, so each one is either in the archive or refused. A refused paint is
    * retried by its client, and the retry re-records it wherever the server's data now lives.
    */
-  async freeze(operationId: string): Promise<void> {
-    this.frozenBy = operationId
-    // The operation holding the server owns the freeze; any older one was left by a lost release.
+  async freeze(token: string): Promise<void> {
+    this.freezes = new Set([...this.freezes, token])
+    // Each token adds its own row and never replaces another's, so a stale caller cannot take
+    // over or clear a newer operation's freeze.
     await this.database.run(
-      'INSERT INTO counter_freeze (singleton, operation_id) VALUES (1, ?1) ON CONFLICT (singleton) DO UPDATE SET operation_id = excluded.operation_id',
-      operationId,
+      'INSERT INTO counter_freeze (operation_id) VALUES (?1) ON CONFLICT DO NOTHING',
+      token,
     )
     await Promise.allSettled([...this.admitted])
   }
 
-  /** Clear `operationId`'s freeze. A late call for an older operation leaves a newer one alone. */
-  async thaw(operationId: string): Promise<void> {
-    await this.database.run('DELETE FROM counter_freeze WHERE operation_id = ?1', operationId)
-    this.frozenBy = await this.readFreeze()
-    if (this.frozenBy === null) await this.scheduleNextAlarm(this.clock())
+  /** Clear one token's freeze. A late call for an older operation leaves a newer one alone. */
+  async thaw(token: string): Promise<void> {
+    await this.database.run('DELETE FROM counter_freeze WHERE operation_id = ?1', token)
+    this.freezes = await this.readFreezes()
+    if (this.freezes.size === 0) await this.scheduleNextAlarm(this.clock())
+  }
+
+  /**
+   * Whether an archive operation holds this state. A freeze whose operation no longer holds the
+   * server (its caller died between freezing and undoing) is cleared here: with the gate open,
+   * every token read before that check is stale, and a newer token appears only after its gate.
+   */
+  private async holding(): Promise<boolean> {
+    if (this.freezes.size === 0) return false
+    const observed = await this.readFreezes()
+    if (observed.size > 0 && !(await this.sql.archiveOperationActive({ fresh: true })))
+      for (const token of observed) await this.thaw(token)
+    else this.freezes = observed
+    return this.freezes.size > 0
   }
 
   /**
@@ -370,7 +392,8 @@ export class TelemetryCoordinator {
    */
   async alarm(): Promise<void> {
     const nowMilliseconds = this.clock()
-    if (this.frozenBy !== null) {
+    if (this.freezes.size > 0) await this.holding()
+    if (this.freezes.size > 0) {
       await this.updateAlarm(() =>
         this.alarms.setAlarm(millis(nowMilliseconds + ARCHIVE_RETRY_DELAY_MILLISECONDS)),
       )
@@ -568,8 +591,7 @@ export class TelemetryCoordinator {
       CREATE INDEX IF NOT EXISTS applied_counter_events_seen_at_idx
         ON applied_counter_events (seen_at_ms);
       CREATE TABLE IF NOT EXISTS counter_freeze (
-        singleton BIGINT PRIMARY KEY CHECK (singleton = 1),
-        operation_id TEXT NOT NULL
+        operation_id VARCHAR(128) PRIMARY KEY
       );
 `
       .split(';')

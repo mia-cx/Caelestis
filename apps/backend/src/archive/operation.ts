@@ -23,7 +23,10 @@ import type { ArchiveHost } from './port.js'
  * 1. Every transition is a compare-and-set on the whole prior row: operation id, position, and
  *    state. A caller whose read went stale changes nothing and gets 409.
  * 2. Work inside a phase is idempotent, so whoever finds a row in that phase may run it again:
- *    freezing re-freezes, preparing re-checks, releasing re-thaws.
+ *    freezing re-freezes, preparing re-checks, releasing re-thaws. A side effect that cannot join
+ *    the compare-and-set is verified against the row afterwards and undone if the row moved on
+ *    (`holdFor`), and every write into stores outside the database carries the token that the
+ *    current phase holds, so a stale caller's write is refused.
  * 3. Writes reopen last. Releasing clears the counter freeze, then deletes the row, then opens
  *    the process gate. A failure leaves the row in `releasing`, still holding the server, and the
  *    next lifecycle call finishes it. Freezes and process gates are keyed by operation id, so a
@@ -60,10 +63,36 @@ export const transition = async <State extends { readonly phase: ArchivePhase }>
 export const changedError = () =>
   new ArchiveError('Another request changed this archive operation. Check its status.', 409)
 
-/** Stop every writer for `operation`. Idempotent, so a resumed phase simply runs it again. */
-const freeze = async (host: ArchiveHost, operation: ArchiveOperationRow) => {
+/** The counter token a discard holds instead, so a stale append can no longer write counters. */
+export const discardToken = (operationId: string) => `${operationId}/discard`
+
+const HOLDING: ReadonlySet<ArchivePhase> = new Set([
+  'freezing',
+  'frozen',
+  'preparing',
+  'ready',
+  'discarding',
+])
+
+/**
+ * Stop every writer for `operation`, then prove it still holds the server. A freeze is a side
+ * effect that cannot join the row's compare-and-set, so it is checked afterwards and undone when
+ * it lost: a stale or delayed resume never leaves a freeze behind. Repeating it is harmless.
+ */
+export const holdFor = async (
+  host: ArchiveHost,
+  operation: ArchiveOperationRow,
+  token = operation.operationId,
+): Promise<void> => {
   await closeProcessWrites(host.connection, operation.operationId)
-  await host.counters.freeze(operation.operationId)
+  await host.counters.freeze(token)
+  const current = await readArchiveOperation(host.connection)
+  const ours = current?.operationId === operation.operationId
+  if (ours && current !== null && HOLDING.has(phaseOf(current))) return
+  await host.counters.thaw(token)
+  // A release of this operation still in progress reopens writes itself, after its delete.
+  if (!ours) openProcessWrites(host.connection, operation.operationId)
+  throw changedError()
 }
 
 /**
@@ -101,13 +130,9 @@ export const holdServer = async (
       throw new ArchiveError('Another archive operation is in progress.', 409)
     throw cause
   }
-  await resumeHold(host, operation)
+  await holdFor(host, operation)
   return operation
 }
-
-/** Run a holding phase's freeze again, for a row a crashed or concurrent caller left behind. */
-export const resumeHold = (host: ArchiveHost, operation: ArchiveOperationRow) =>
-  freeze(host, operation)
 
 /**
  * Move `operation` to releasing, then release it. Returns false when another request changed the
@@ -132,6 +157,7 @@ export const releaseServer = async (
 /** Thaw, delete the row, then reopen this process's writes. Each step is safe to repeat. */
 const completeRelease = async (host: ArchiveHost, operation: ArchiveOperationRow) => {
   await host.counters.thaw(operation.operationId)
+  await host.counters.thaw(discardToken(operation.operationId))
   const deleted = await host.connection
     .prepare(
       'DELETE FROM "archive_operation" WHERE "id" = 1 AND "operation_id" = ? AND "state_json" = ?',

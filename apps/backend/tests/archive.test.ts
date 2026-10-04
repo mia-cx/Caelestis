@@ -442,6 +442,27 @@ describe('server archives', { timeout: 60_000 }, () => {
     expect(await (await admin(destination, '/admin/archive')).json()).toEqual({ operation: null })
   })
 
+  it('lets overlapping preparations probe the object store without disturbing each other', async () => {
+    const file = await scratch()
+    const source = await server()
+    const archive = await exportServer(source, file('empty.ndjson'))
+    const objects = new OverlappingProbes()
+    const destination = await server({ objects })
+    const header = archive.split('\n')[0] ?? ''
+    const first = admin(destination, '/admin/archive/import', { method: 'POST', body: header })
+    await objects.firstDeleting
+    // The retry re-runs preparation while the first is still between its probe read and delete.
+    const retry = await admin(destination, '/admin/archive/import', {
+      method: 'POST',
+      body: header,
+    })
+    expect(retry.status).toBe(200)
+    expect((await first).status).toBe(201)
+    expect(await (await admin(destination, '/admin/archive')).json()).toMatchObject({
+      operation: { phase: 'ready' },
+    })
+  })
+
   it('keeps a credential both servers already share', async () => {
     const file = await scratch()
     const shared = { env: { CAELESTIS_READ_TOKEN: 'SHARED-FRONTEND-READ-TOKEN' } }
@@ -458,6 +479,45 @@ describe('server archives', { timeout: 60_000 }, () => {
 })
 
 /** Holds the restore's object-store probe until released, so a test can race it. */
+/**
+ * Interleaves two restore probes: the first deletes only after the second has written, and the
+ * second reads only after that delete, as two overlapping preparations can.
+ */
+class OverlappingProbes extends MemoryObjectStorage {
+  private puts = 0
+  private gets = 0
+  private deletes = 0
+  private signal = (): (() => void) & { readonly done: Promise<void> } => {
+    let resolve: () => void = () => {}
+    const done = new Promise<void>((settle) => {
+      resolve = settle
+    })
+    return Object.assign(() => resolve(), { done })
+  }
+  private readonly secondPut = this.signal()
+  private readonly firstDeleted = this.signal()
+  private readonly deleting = this.signal()
+  readonly firstDeleting = this.deleting.done
+  override async put(...args: Parameters<MemoryObjectStorage['put']>) {
+    const second = args[0].startsWith('archive-probe/') && ++this.puts === 2
+    const stored = await super.put(...args)
+    if (second) this.secondPut()
+    return stored
+  }
+  override async get(key: string) {
+    if (key.startsWith('archive-probe/') && ++this.gets === 2) await this.firstDeleted.done
+    return super.get(key)
+  }
+  override async delete(keys: readonly string[]) {
+    if (!keys.some((key) => key.startsWith('archive-probe/')) || ++this.deletes !== 1)
+      return super.delete(keys)
+    this.deleting()
+    await this.secondPut.done
+    await super.delete(keys)
+    this.firstDeleted()
+  }
+}
+
 class HeldProbe extends MemoryObjectStorage {
   private entered: () => void = () => {}
   readonly probing = new Promise<void>((resolve) => {

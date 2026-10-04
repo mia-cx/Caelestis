@@ -1,3 +1,4 @@
+import { StaleArchiveOperationError } from '../../archive/gate.js'
 import type { CounterArchive } from '../../archive/port.js'
 import type { CounterArchiveTable } from '../../coordination/telemetry.js'
 import type { CounterDelta, CounterStore, PendingCounters } from '../../ports/index.js'
@@ -41,10 +42,18 @@ export class DurableObjectCounterStore implements CounterStore, CounterArchive {
   }
 
   async importCounterRows(
+    token: string,
     table: CounterArchiveTable,
     rows: readonly Readonly<Record<string, string | number>>[],
   ): Promise<void> {
-    await this.shard.importCounterRows(table, rows)
+    try {
+      await this.shard.importCounterRows(token, table, rows)
+    } catch (error) {
+      // RPC errors arrive as plain Errors; restore the type the restore relies on.
+      if (error instanceof Error && error.message === new StaleArchiveOperationError().message)
+        throw new StaleArchiveOperationError()
+      throw error
+    }
   }
 
   async discardCounterRows(): Promise<void> {

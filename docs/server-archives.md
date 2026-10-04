@@ -169,11 +169,19 @@ One rule covers every transition:
 2. **Work inside a phase is idempotent, and whoever finds the phase may run it again.** A crash
    mid-phase leaves the row in that phase. The next call finishes it: `export` or an export page
    re-freezes, the restore header re-runs preparation, and any lifecycle call completes
-   `releasing`. Cancelling `preparing` deletes nothing, because no record was accepted.
+   `releasing`. Cancelling `preparing` deletes nothing, because no record was accepted. A side
+   effect that cannot join the compare-and-set, such as freezing counters, is checked against the
+   row afterwards and undone if the row moved on. Writes to stores outside the database carry the
+   token of the phase that made them, so counters refuse a stale append once a discard takes
+   over, and each probe of the object store uses its own key.
 3. **Writes reopen last.** Releasing thaws the counters, then deletes the row, then reopens the
    process gate. If the thaw fails, the row stays in `releasing`, the server stays held, and
    `status` shows it. Counter freezes and process gates are keyed by operation id, so a late
-   release of an old operation cannot unfreeze a newer one.
+   release of an old operation cannot unfreeze a newer one. A counter freeze whose operation no
+   longer exists, left by a process that died before undoing it, clears itself on the next record.
+
+A discard ends with a check that the destination is empty again. If an append that was already
+running wrote objects after their step, the discard starts over.
 
 Admitted work drains before a freeze returns: relational writes in the process, and counter
 records and flushes in the telemetry coordinator.

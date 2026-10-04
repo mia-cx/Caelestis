@@ -18,16 +18,21 @@ import {
   decodeBase64,
   parseArchiveLine,
 } from './format.js'
-import { type ArchiveOperationRow, readArchiveOperation } from './gate.js'
+import {
+  type ArchiveOperationRow,
+  readArchiveOperation,
+  StaleArchiveOperationError,
+} from './gate.js'
 import {
   archiveReadyAt,
   assertSettled,
   changedError,
+  discardToken,
   finishPendingRelease,
+  holdFor,
   holdServer,
   phaseOf,
   releaseServer,
-  resumeHold,
   transition,
 } from './operation.js'
 import type { ArchiveHost } from './port.js'
@@ -135,8 +140,12 @@ const occupiedLocations = async (host: ArchiveHost): Promise<string[]> => {
   return occupied
 }
 
-/** Prove the object store keeps bytes and metadata before any archive data lands in it. */
-const probeObjects = async (host: ArchiveHost, id: string) => {
+/**
+ * Prove the object store keeps bytes and metadata before any archive data lands in it. Each
+ * attempt owns its key, so preparations that overlap cannot delete each other's probe.
+ */
+const probeObjects = async (host: ArchiveHost, operationId: string) => {
+  const id = `${operationId}/${crypto.randomUUID()}`
   const key = `archive-probe/${id}`
   const bytes = new Uint8Array([0xca, 0xe1, 0xe5])
   await host.objects.put(key, bytes, {
@@ -217,7 +226,7 @@ const prepare = async (
   host: ArchiveHost,
   operation: ArchiveOperationRow,
 ): Promise<ArchiveOperationRow> => {
-  await resumeHold(host, operation)
+  await holdFor(host, operation)
   let preserved: string[]
   try {
     const occupied = await occupiedLocations(host)
@@ -411,7 +420,14 @@ export const appendRestore = async (
     }
   }
 
-  for (const [table, rows] of counterRows) await host.counters.importCounterRows(table, rows)
+  // Counter rows carry this operation's token: once a discard has taken over, they are refused.
+  try {
+    for (const [table, rows] of counterRows)
+      await host.counters.importCounterRows(operation.operationId, table, rows)
+  } catch (error) {
+    if (error instanceof StaleArchiveOperationError) throw changedError()
+    throw error
+  }
   for (const [templateId, page] of backfillPages) await host.backfill(templateId).importState(page)
 
   const next = position + lines.length
@@ -497,12 +513,29 @@ export const discardRestore = async (host: ArchiveHost): Promise<boolean> => {
   }
   // Mark the discard before deleting anything, so activation can no longer open this state.
   if (state.phase === 'ready') {
-    await saveProgress({ step: 0, after: null })
+    // The discard takes the counters under its own token before it claims the row, and undoes
+    // that if the claim loses. Then the append token is dropped, refusing stale appends' counters.
+    await holdFor(host, operation, discardToken(operation.operationId))
+    try {
+      await saveProgress({ step: 0, after: null })
+    } catch (error) {
+      await host.counters.thaw(discardToken(operation.operationId))
+      throw error
+    }
+    await host.counters.thaw(operation.operationId)
     return false
   }
+  // Idempotent: a discard that crashed right after claiming the row drops the append token here.
+  await host.counters.thaw(operation.operationId)
   const progress = state.discard ?? { step: 0, after: null }
   const step = DISCARD_STEPS[progress.step]
   if (step === undefined) {
+    // An append that was already running when the discard began may have written objects after
+    // their step; start over until a full pass finds nothing left.
+    if ((await occupiedLocations(host)).length > 0) {
+      await saveProgress({ step: 0, after: null })
+      return false
+    }
     if (!(await releaseServer(host, operation))) throw changedError()
     return true
   }
