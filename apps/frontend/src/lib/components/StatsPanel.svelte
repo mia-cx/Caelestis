@@ -59,7 +59,7 @@ import { persisted } from '$lib/persisted.svelte'
     progress: Progress
     /** The page's timelapse position, when it has one, for the chart to draw as a playhead. */
     playhead?: number | null
-    /** Lets the chart seek that timelapse. Folders and other unlinked scopes leave it unset. */
+    /** Lets the chart seek that timelapse. Scopes without one leave it unset. */
     onSeek?: (t: number) => void
     /** Supplies cancellation rollback for the linked timelapse's playhead drag. */
     onScrubStart?: () => () => void
