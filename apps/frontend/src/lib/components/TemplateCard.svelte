@@ -16,7 +16,7 @@ const { template } = $derived(entry)
 </script>
 
 <a
-  href="/template/{template.id}"
+  href="/artwork/{template.id}"
   class="group flex flex-col overflow-hidden pixel-card bg-base-100 focus-visible:outline-2 focus-visible:outline-primary"
 >
   <div class="flex h-44 justify-center overflow-hidden border-b-[1.5px] border-base-300">
