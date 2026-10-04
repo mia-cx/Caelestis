@@ -24,4 +24,8 @@
   <meta name="twitter:description" content={metadata.description} />
   <meta name="twitter:image" content={metadata.image} />
   <meta name="twitter:image:alt" content={metadata.imageAlt} />
+  {#if metadata.discordEmbed !== null}
+    <!-- discordComponentEmbed escapes `<`, so the payload cannot close this element. -->
+    {@html `<script id="discord:component-embed" type="application/vnd.discord.component-embed+json">${metadata.discordEmbed}</script>`}
+  {/if}
 </svelte:head>
