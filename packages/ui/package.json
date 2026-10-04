@@ -16,6 +16,10 @@
     "./theme": {
       "types": "./dist/theme.d.ts",
       "default": "./dist/theme.js"
+    },
+    "./motion": {
+      "types": "./dist/foundations/motion.d.ts",
+      "default": "./dist/foundations/motion.js"
     }
   },
   "main": "./dist/index.js",

@@ -36,6 +36,31 @@ export interface CaelestisThemeTokens {
   readonly pixelWell: string
   readonly pixelWellShade: string
   readonly pixelThumb: string
+  readonly durationStagger: string
+  readonly durationMicro: string
+  readonly durationQuick: string
+  readonly durationFast: string
+  readonly durationMedium: string
+  readonly durationSlow: string
+  readonly durationVerySlow: string
+  readonly easeSmoothOut: string
+  readonly easeInOut: string
+  readonly easeOut: string
+  readonly easeLinear: string
+  readonly easeBounce: string
+  readonly easeBounceStrong: string
+  readonly distanceMicro: string
+  readonly distanceSmall: string
+  readonly distanceBase: string
+  readonly distanceMedium: string
+  readonly distanceLarge: string
+  readonly scaleLarge: string
+  readonly scaleMedium: string
+  readonly scaleSmall: string
+  readonly scaleTiny: string
+  readonly blurSmall: string
+  readonly blurMedium: string
+  readonly blurLarge: string
 }
 
 export type CaelestisThemeToken = keyof CaelestisThemeTokens
@@ -73,6 +98,31 @@ const PROPERTIES: Record<CaelestisThemeToken, `--caelestis-${string}`> = {
   pixelWell: '--caelestis-pixel-well',
   pixelWellShade: '--caelestis-pixel-well-shade',
   pixelThumb: '--caelestis-pixel-thumb',
+  durationStagger: '--caelestis-duration-stagger',
+  durationMicro: '--caelestis-duration-micro',
+  durationQuick: '--caelestis-duration-quick',
+  durationFast: '--caelestis-duration-fast',
+  durationMedium: '--caelestis-duration-medium',
+  durationSlow: '--caelestis-duration-slow',
+  durationVerySlow: '--caelestis-duration-very-slow',
+  easeSmoothOut: '--caelestis-ease-smooth-out',
+  easeInOut: '--caelestis-ease-in-out',
+  easeOut: '--caelestis-ease-out',
+  easeLinear: '--caelestis-ease-linear',
+  easeBounce: '--caelestis-ease-bounce',
+  easeBounceStrong: '--caelestis-ease-bounce-strong',
+  distanceMicro: '--caelestis-distance-micro',
+  distanceSmall: '--caelestis-distance-small',
+  distanceBase: '--caelestis-distance-base',
+  distanceMedium: '--caelestis-distance-medium',
+  distanceLarge: '--caelestis-distance-large',
+  scaleLarge: '--caelestis-scale-large',
+  scaleMedium: '--caelestis-scale-medium',
+  scaleSmall: '--caelestis-scale-small',
+  scaleTiny: '--caelestis-scale-tiny',
+  blurSmall: '--caelestis-blur-small',
+  blurMedium: '--caelestis-blur-medium',
+  blurLarge: '--caelestis-blur-large',
 }
 
 export const themeProperty = (token: CaelestisThemeToken): `--caelestis-${string}` =>
