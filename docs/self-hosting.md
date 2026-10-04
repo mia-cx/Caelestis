@@ -294,6 +294,7 @@ Use a direct connection to one writable primary. MySQL and PlanetScale are separ
 | `CAELESTIS_READ_TOKEN` | required for separate containers | Shared private read-only credential, distinct from `ADMIN_TOKEN` |
 | `BASE_PATH` | `/backend` | Backend mount; `/backend` remains a compatibility alias |
 | `TILE_BLOB_GC_MODE` | `dry-run` | Set `delete` to enable deletion of unreferenced tile blobs |
+| `ARCHIVE_SETTLE_SECONDS` | `35` | How long a [server archive](server-archives.md) waits for in-flight writes |
 | `REPLICAS`, `SHARD_STRATEGY` | `1`, `single` | Other values fail startup |
 
 Keep databases and buckets dedicated to one server. Sharing a bucket across unrelated database instances is unsupported.
@@ -400,7 +401,8 @@ Rollback requires restoring the pre-upgrade database and matching object backup,
 A Helm rollback alone does not reverse database changes. PVCs carry Helm's keep policy and survive uninstall.
 Stop the application before copying SQLite and filesystem data. For PostgreSQL/S3, back up both while writes are stopped.
 Include coordinator tables and tokens when backing up PostgreSQL. A CNPG database backup alone does not include application objects.
-Portable admin export/import across providers is tracked separately and is not part of this release.
+To move a server between Cloudflare, Node, Bun, databases, or object stores, use a
+[server archive](server-archives.md). It works without access to the source provider afterwards.
 
 ## Versions and development checks
 

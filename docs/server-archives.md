@@ -1,0 +1,169 @@
+# Server archives
+
+A server archive is one file that holds a whole Caelestis server. Restore it on any deployment
+target, database, or object store. The archive stays usable after the old provider is gone.
+
+## Move a server
+
+1. Provision the destination: a new deployment with an empty database and an empty bucket or
+   object directory. Configure its secrets as for any new server.
+2. Build the archive client from this repository with `pnpm --filter @caelestis/backend build`.
+   The portable image already contains it at the same path.
+3. Export the source with the source's admin token:
+
+   ```sh
+   ADMIN_TOKEN=... node apps/backend/dist/archive/cli.js export https://old.example.com/backend/v1 server.ndjson
+   ```
+
+4. Restore into the destination with the destination's admin token:
+
+   ```sh
+   ADMIN_TOKEN=... node apps/backend/dist/archive/cli.js import https://new.example.com/backend/v1 server.ndjson
+   ```
+
+5. Point DNS or clients at the destination.
+
+The source stays frozen after the export, so nothing it accepts later can miss the move. For a
+backup instead of a move, run the client's `finish-export <source-url>` to resume its writes.
+`status <url>` shows the operation in progress.
+
+The client streams the file line by line. Memory stays bounded by one page, whatever the size of
+the server.
+
+## Directions
+
+Every direction uses the same archive. The API URL is the server's API root, such as
+`https://example.com/backend/v1`.
+
+| From | To | Tested in |
+| --- | --- | --- |
+| Cloudflare (D1, R2, Durable Objects) | Node or Bun with SQLite and a filesystem | `tests/worker/archive.test.ts` |
+| Node with SQLite and a filesystem | a new Cloudflare deployment | `tests/worker/archive.test.ts` |
+| Node with SQLite and a filesystem | Node with SQLite and a filesystem | `tests/archive.test.ts` |
+| SQLite and a filesystem | PostgreSQL or MariaDB with S3, and back | `tests/integration/archive.test.ts` |
+
+Cloudflare to Cloudflare and PostgreSQL to MariaDB work the same way: the archive holds no
+provider identifiers, so any exporter pairs with any importer.
+
+## What an archive holds
+
+- Every row of every server table: settings, credentials and revocations, folders, tags,
+  templates and versions with their sources and recipes, work items and activity, telemetry,
+  attribution, contributions, retained tile history, mirrored tiles, alarms and deadlines, live
+  revisions, and deduplication records.
+- The telemetry coordinator's state: pending counters, flush batches, retained counters, counter
+  idempotency keys, and its statistics.
+- Every in-progress Eralyon import with its progress and wakeup.
+- Every object under the server's prefixes, social previews included, with content type and
+  custom metadata. Each object carries its SHA-256.
+
+An archive leaves out:
+
+- Deployment configuration and secrets: `ADMIN_TOKEN`, the stored frontend read token,
+  database, S3, and R2 credentials, `SERVER_ID`, `SERVER_NAME`, and `SEASON`. Configure them on
+  the destination before you restore.
+- The tile garbage collector's listing cursor. It belongs to one object store, so the restored
+  server starts its scan from the beginning.
+- Caches and sessions that rebuild themselves: manifest caches, presence rooms, open sockets,
+  and scheduled wakeups that the restored data recomputes.
+
+## Consistency
+
+`export` closes a gate on the server. While it is closed:
+
+- Every route except `/health`, `/server`, and `/admin/archive` answers 503 with `Retry-After: 60`.
+- Every database write fails, whether it comes from HTTP, a live socket, an alarm, or a scheduled
+  job. Telemetry flushes and Eralyon imports wait without touching their state.
+
+The export then waits `ARCHIVE_SETTLE_SECONDS`, 35 by default. That covers each store's one-second
+gate cache and the 30-second statement limit, so no write that started earlier can still land.
+Raise it if you run longer jobs. Pages read a dataset that no longer changes.
+
+An event the source accepted before the gate is in the archive with its deduplication key, so a
+client that replays it to the destination gets `duplicate`. An event sent after the gate was
+refused, so the client retries it and the destination applies it once.
+
+## Restore policy
+
+**New servers only.** A restore refuses a destination with rows in any server table, objects
+under any server prefix, or telemetry state. The error names each location. It never merges or
+overwrites. Two kinds of rows are allowed: the destination's own credentials, and rows the
+migrations seed.
+
+**Credentials.** Token hashes, scopes, labels, and revocations arrive unchanged. A revoked token
+stays revoked. The destination keeps its own tokens beside them. An archive holds hashes only,
+never a usable token.
+
+**Identity.** The destination keeps the identity it is configured with. To keep clients treating it
+as the same server, set its `SERVER_ID` to the source's. The import prints that as
+`sourceServerId`.
+
+**Revisions and reconnects.** Live revisions continue from the source's. During a restore, clients
+get 503 and retry. After activation they reconnect with their last revision and receive what
+changed.
+
+## Verification
+
+Each check runs before anything is served:
+
+1. The header names a format version and every table and column. A newer version, an unknown
+   column, or a missing required column fails with the fix to apply.
+2. The destination object store must return the bytes, content type, and metadata of a probe
+   object.
+3. Each object must match its SHA-256 when it arrives.
+4. Each line extends a SHA-256 chain. The final `end` record states the chain and the count of every
+   record kind, so an edited, reordered, or truncated archive fails.
+5. The database enforces every foreign key as rows arrive.
+
+Only `import/activate`, after a verified `end` record, opens the server.
+
+## Recovery and rollback
+
+- **Interrupted export:** run the same command again. It resumes from `server.ndjson.cursor`.
+- **Interrupted import:** run the same command again. It resumes from the record the server has.
+- **Rejected archive:** run the client's `discard <destination-url>`. It removes the restored data
+  step by step, keeps the destination's own credentials, and reopens the empty server.
+- **Rolling back a move:** the source still holds its data, frozen. Run `finish-export` on it and
+  point clients back.
+
+## Adapter requirements
+
+Archives depend only on the portable storage contracts, so a new adapter such as PlanetScale or
+UploadThing works without a format change once it meets these:
+
+- **Database:** a `SqlConnection` with atomic batches, foreign keys, row-value comparisons for
+  keyset paging, and upserts. MariaDB gets `ON CONFLICT` through its translation layer. Tested on
+  D1, SQLite, PostgreSQL 17, and MariaDB 11.8.
+- **Object store:** an `ObjectStorage` that keeps content type and custom metadata and lists keys
+  in byte order with its own cursors. A restore probes this first. Tested on R2, S3 (RustFS and
+  VersityGW), and the filesystem. S3 reports `application/octet-stream` for objects stored without
+  a type; archives treat both as "no type".
+
+## Format
+
+Version 1 is newline-delimited JSON, one record per line:
+
+| Kind | Holds |
+| --- | --- |
+| `header` | format, version, archive id, source server id, and the column list of every table |
+| `row` | one table row, keyed by column name |
+| `link` | a self or cyclic reference, applied once every row exists |
+| `counter` | one telemetry coordinator row |
+| `backfill`, `backfill-alarm` | one Eralyon import key or wakeup |
+| `object` | key, SHA-256, content type, metadata, and base64 bytes |
+| `end` | the chain value and the count of each record kind |
+
+## API
+
+The client wraps these admin routes. Every response is JSON except export pages.
+
+| Route | Does |
+| --- | --- |
+| `GET /admin/archive` | The operation in progress, if any |
+| `POST /admin/archive/export` | Close the gate; returns `readyAt` |
+| `GET /admin/archive/export?cursor=` | One NDJSON page; the `caelestis-archive-next` header holds the next cursor |
+| `DELETE /admin/archive/export` | Reopen the source |
+| `POST /admin/archive/import` | Send the header line; begins or resumes a restore |
+| `POST /admin/archive/import/records?position=` | Send up to 500 lines starting at `position` |
+| `POST /admin/archive/import/activate` | Open the restored server |
+| `DELETE /admin/archive/import` | Discard one bounded step; repeat until `done` |
