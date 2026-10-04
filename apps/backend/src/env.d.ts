@@ -52,8 +52,8 @@ declare namespace Cloudflare {
     TILE_BLOB_GC_MODE?: string
 
     /**
-     * Seconds an archive export or restore waits for in-flight writes before it touches data.
-     * Defaults to 35, which covers the gate cache and the 30-second statement limit.
+     * Seconds a restore waits before accepting records, so other isolates' cached gate reads
+     * expire first. Defaults to 2. Writes never depend on it.
      */
     ARCHIVE_SETTLE_SECONDS?: string
   }

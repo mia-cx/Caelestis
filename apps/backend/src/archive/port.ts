@@ -16,6 +16,9 @@ export interface CounterArchive {
   ): Promise<void>
   /** Empty every table and reseed the singletons, as on a new server. */
   discardCounterRows(): Promise<void>
+  /** Refuse new records and wait for admitted ones; flushes and pruning wait too. */
+  freeze(): Promise<void>
+  thaw(): Promise<void>
 }
 
 /** One template's resumable import state, wherever the runtime keeps it. */
@@ -38,6 +41,6 @@ export interface ArchiveHost {
   readonly serverId: string
   /** Re-arm wakeups that read restored data, such as alarm probes. */
   readonly activated: () => Promise<void>
-  /** Overrides ARCHIVE_SETTLE_MILLISECONDS; operators lengthen it for slow jobs. */
+  /** Overrides ARCHIVE_SETTLE_MILLISECONDS, the restore's wait for cached gate reads. */
   readonly settleMilliseconds?: number
 }

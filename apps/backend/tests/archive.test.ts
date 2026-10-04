@@ -20,6 +20,7 @@ import {
   MemoryObjectStorage,
   openPortableServer,
   paint,
+  runningImport,
   seedServer,
 } from './support/archive.js'
 
@@ -82,9 +83,8 @@ describe('server archives', { timeout: 60_000 }, () => {
     const file = await scratch()
     const source = await server()
     const seeded = await seedServer(source.fetch, source.api)
-    await backfillState(source, seeded.templateId).put('job', { summary: { status: 'running' } })
+    await backfillState(source, seeded.templateId).put('job', runningImport(seeded.templateId))
     await backfillState(source, seeded.templateId).put('sample:v:1', { at: 1, correct: 2 })
-    await backfillState(source, seeded.templateId).setAlarm(4_102_444_800_000)
     const manifest = await (await admin(source, '/manifest')).json()
     const pending = await source.runtime.counters.readPending([seeded.templateId])
 
@@ -95,9 +95,10 @@ describe('server archives', { timeout: 60_000 }, () => {
     expect(await (await admin(destination, '/manifest')).json()).toEqual(manifest)
     expect(await destination.runtime.counters.readPending([seeded.templateId])).toEqual(pending)
     const restored = backfillState(destination, seeded.templateId)
-    expect(await restored.get('job')).toEqual({ summary: { status: 'running' } })
+    expect(await restored.get('job')).toEqual(runningImport(seeded.templateId))
     expect(await restored.get('sample:v:1')).toEqual({ at: 1, correct: 2 })
-    expect(await restored.getAlarm()).toBe(4_102_444_800_000)
+    // The running import wakes on the destination; it waits out the restore and then resumes.
+    expect(await restored.getAlarm()).toBeLessThanOrEqual(Date.now() + 60_000)
     // The source's report credential still works, and the event it already reported stays applied.
     expect(
       await paint(destination.fetch, destination.api, seeded.reportToken, seeded.event),
@@ -106,7 +107,7 @@ describe('server archives', { timeout: 60_000 }, () => {
     await finishExport(archiveClient(source.fetch, source.api))
     const again = await exportServer(destination, file('destination.ndjson'))
     expect(archiveData(again)).toEqual(archiveData(archive))
-    for (const kind of ['row', 'counter', 'backfill', 'backfill-alarm', 'object', 'link'])
+    for (const kind of ['row', 'counter', 'backfill', 'object', 'link'])
       expect(archive, kind).toContain(`"kind":"${kind}"`)
   })
 
@@ -318,6 +319,94 @@ describe('server archives', { timeout: 60_000 }, () => {
     expect(await errorOf(refused)).toMatch(
       /^Restore into a new server\. This one already has data in .*templates/,
     )
-    expect((await admin(destination, '/manifest')).status).toBe(200)
+    // The refusal reopens the destination untouched.
+    expect(await (await admin(destination, '/admin/archive')).json()).toEqual({ operation: null })
+    const tag = await admin(destination, '/admin/tags', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'still-writable' }),
+    })
+    expect(tag.status).toBe(201)
+  })
+
+  it('checks emptiness only after the gate closes, so no write slips in during a restore start', async () => {
+    const file = await scratch()
+    const source = await server()
+    const archive = await exportServer(source, file('empty.ndjson'))
+    const objects = new HeldProbe()
+    const destination = await server({ objects })
+    const begin = admin(destination, '/admin/archive/import', {
+      method: 'POST',
+      body: archive.split('\n')[0] ?? '',
+    })
+    await objects.probing
+    const tag = await admin(destination, '/admin/tags', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'raced' }),
+    })
+    expect(tag.status).toBe(503)
+    objects.release()
+    expect((await begin).status).toBe(201)
+    await discardImport(archiveClient(destination.fetch, destination.api))
+    expireGateReads()
+    expect(await (await admin(destination, '/admin/tags')).json()).toMatchObject({ tags: [] })
+  })
+
+  it('refuses activation once a discard has started deleting the restore', async () => {
+    const file = await scratch()
+    const source = await server()
+    await seedServer(source.fetch, source.api)
+    const lines = (await exportServer(source, file('source.ndjson'))).trimEnd().split('\n')
+    const destination = await server()
+    await admin(destination, '/admin/archive/import', { method: 'POST', body: lines[0] ?? '' })
+    const restored = await admin(destination, '/admin/archive/import/records?position=1', {
+      method: 'POST',
+      body: lines.slice(1).join('\n'),
+    })
+    expect(await restored.json()).toMatchObject({ ended: true })
+    for (let step = 0; step < 4; step += 1)
+      expect(
+        await (await admin(destination, '/admin/archive/import', { method: 'DELETE' })).json(),
+      ).toEqual({ done: false })
+    const activate = await admin(destination, '/admin/archive/import/activate', { method: 'POST' })
+    expect(activate.status).toBe(409)
+    expect(await errorOf(activate)).toContain('being discarded')
+    await discardImport(archiveClient(destination.fetch, destination.api))
+    expireGateReads()
+    expect(await (await admin(destination, '/manifest')).json()).toMatchObject({ templates: [] })
+  })
+
+  it('keeps a credential both servers already share', async () => {
+    const file = await scratch()
+    const shared = { env: { CAELESTIS_READ_TOKEN: 'SHARED-FRONTEND-READ-TOKEN' } }
+    const source = await server(shared)
+    await seedServer(source.fetch, source.api)
+    await exportServer(source, file('source.ndjson'))
+    const destination = await server(shared)
+    await importFromFile(archiveClient(destination.fetch, destination.api), file('source.ndjson'))
+    const manifest = await destination.fetch(`${destination.api}/manifest`, {
+      headers: { authorization: 'Bearer SHARED-FRONTEND-READ-TOKEN' },
+    })
+    expect(manifest.status).toBe(200)
   })
 })
+
+/** Holds the restore's object-store probe until released, so a test can race it. */
+class HeldProbe extends MemoryObjectStorage {
+  private entered: () => void = () => {}
+  readonly probing = new Promise<void>((resolve) => {
+    this.entered = resolve
+  })
+  release: () => void = () => {}
+  private readonly held = new Promise<void>((resolve) => {
+    this.release = resolve
+  })
+  override async put(...args: Parameters<MemoryObjectStorage['put']>) {
+    if (args[0].startsWith('archive-probe/')) {
+      this.entered()
+      await this.held
+    }
+    return super.put(...args)
+  }
+}

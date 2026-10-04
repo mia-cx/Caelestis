@@ -46,7 +46,6 @@ export type ArchiveRecord =
       readonly key: string
       readonly value: ArchiveJson
     }
-  | { readonly kind: 'backfill-alarm'; readonly templateId: string; readonly at: number }
   | {
       readonly kind: 'object'
       readonly key: string
@@ -237,10 +236,6 @@ export const parseArchiveLine = (line: string, position: number): ArchiveRecord 
       )
         throw invalid('the import state is incomplete')
       return value as unknown as ArchiveRecord
-    case 'backfill-alarm':
-      if (typeof value.templateId !== 'string' || typeof value.at !== 'number')
-        throw invalid('the import alarm is incomplete')
-      return { kind: value.kind, templateId: value.templateId, at: value.at }
     case 'object':
       if (
         typeof value.key !== 'string' ||
@@ -274,7 +269,6 @@ export const countKey = (record: ArchiveRecord): string | null => {
     case 'counter':
       return `${record.kind}:${record.table}`
     case 'backfill':
-    case 'backfill-alarm':
     case 'object':
       return record.kind
     default:

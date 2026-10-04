@@ -971,9 +971,10 @@ export interface SqlStore extends TagStore {
   readonly work: import('../work/store.js').WorkStore
   /**
    * Whether a server archive export or import currently holds the server. Relational adapters
-   * cache the answer for at most a second and refuse every write while it is true.
+   * cache the answer for at most a second unless `fresh` asks for a read. Their writes never
+   * depend on the cache: each one fails inside its own transaction while the gate is closed.
    */
-  archiveOperationActive(): Promise<boolean>
+  archiveOperationActive(options?: { readonly fresh?: boolean }): Promise<boolean>
 
   /** The operator's overrides. Nulls throughout when nobody has set anything. */
   readServerSettings(): Promise<ServerSettings>

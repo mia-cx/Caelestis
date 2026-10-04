@@ -1,4 +1,4 @@
-import { sha256Hex, uuidV7 } from '@caelestis/shared'
+import { sha256Hex } from '@caelestis/shared'
 import { COUNTER_ARCHIVE_TABLES, type CounterArchiveTable } from '../coordination/telemetry.js'
 import {
   ARCHIVE_CHAIN_SEED,
@@ -18,19 +18,9 @@ import {
   decodeBase64,
   encodeBase64,
 } from './format.js'
-import { ARCHIVE_SETTLE_MILLISECONDS, readArchiveOperation } from './gate.js'
+import { readArchiveOperation } from './gate.js'
+import { holdServer, releaseServer } from './operation.js'
 import type { ArchiveHost } from './port.js'
-
-/** When an operation that closed the gate at `startedAt` may touch data. */
-export const archiveReadyAt = (host: ArchiveHost, startedAt: number): number =>
-  startedAt + (host.settleMilliseconds ?? ARCHIVE_SETTLE_MILLISECONDS)
-
-/** Refuse data access until every cached gate read and in-flight write has expired. */
-export const assertSettled = (host: ArchiveHost, startedAt: number): void => {
-  const readyAt = archiveReadyAt(host, startedAt)
-  if (Date.now() < readyAt)
-    throw new ArchiveError('In-flight writes are still settling. Retry shortly.', 409, readyAt)
-}
 
 type Step =
   | { readonly kind: 'header' }
@@ -68,10 +58,16 @@ interface ExportCursor {
   readonly counts: Readonly<Record<string, number>>
 }
 
-/** Pages stay well inside Worker memory and subrequest limits. */
+/**
+ * Pages stay well inside Worker memory and invocation limits. Operations count every query,
+ * Durable Object call, and object read, including ones that emit nothing.
+ */
 const PAGE_RECORDS = 500
 const PAGE_BYTES = 8 * 1024 * 1024
+const PAGE_OPERATIONS = 400
 const ROW_PAGE = 200
+/** Column names, quotes, and separators around a row's text values. */
+const ROW_OVERHEAD_BYTES = 512
 const OBJECT_PAGE = 50
 const UNKNOWN_CONTENT_TYPE = 'application/octet-stream'
 
@@ -94,10 +90,8 @@ const decodeCursor = (token: string): ExportCursor => {
 }
 
 const quoted = (name: string) => `"${name}"`
-const after = (key: readonly string[], values: ArchiveJson) =>
-  Array.isArray(values)
-    ? ` WHERE (${key.map(quoted).join(', ')}) > (${key.map(() => '?').join(', ')})`
-    : ''
+const where = (conditions: readonly string[]) =>
+  conditions.length === 0 ? '' : ` WHERE ${conditions.join(' AND ')}`
 
 /** Logical values: booleans as booleans and integers as numbers on every dialect. */
 const logicalRow = (table: ArchiveTable, raw: Record<string, unknown>, only: Set<string>) =>
@@ -115,32 +109,17 @@ const logicalRow = (table: ArchiveTable, raw: Record<string, unknown>, only: Set
       }),
   ) as ArchiveRow
 
+/** Freeze the server; pages are readable as soon as this returns. */
 export const startExport = async (host: ArchiveHost) => {
-  const now = Date.now()
-  const operationId = uuidV7()
-  try {
-    await host.connection
-      .prepare(
-        'INSERT INTO "archive_operation" ("id", "kind", "operation_id", "started_at_ms", "position", "state_json") VALUES (1, ?, ?, ?, 0, ?)',
-      )
-      .bind('export', operationId, now, '{}')
-      .run()
-  } catch (cause) {
-    if ((await readArchiveOperation(host.connection)) !== null)
-      throw new ArchiveError('Another archive operation is in progress.', 409)
-    throw cause
-  }
-  return { id: operationId, readyAt: archiveReadyAt(host, now) }
+  const { operationId, startedAt } = await holdServer(host, 'export', '{}', 0)
+  return { id: operationId, readyAt: startedAt }
 }
 
 /** End an export and resume writes. A source being retired can stay frozen instead. */
-export const finishExport = async (host: ArchiveHost): Promise<boolean> =>
-  (
-    await host.connection
-      .prepare('DELETE FROM "archive_operation" WHERE "id" = 1 AND "kind" = ?')
-      .bind('export')
-      .run()
-  ).meta.changes > 0
+export const finishExport = async (host: ArchiveHost): Promise<boolean> => {
+  const operation = await readArchiveOperation(host.connection)
+  return operation?.kind === 'export' && (await releaseServer(host, operation.operationId))
+}
 
 /**
  * One bounded page of the frozen dataset. Repeating a cursor repeats its page byte for byte, so
@@ -153,7 +132,6 @@ export const exportPage = async (
   const operation = await readArchiveOperation(host.connection)
   if (operation?.kind !== 'export')
     throw new ArchiveError('Start an export before reading pages.', 409)
-  assertSettled(host, operation.startedAt)
   let cursor: ExportCursor =
     token === null
       ? {
@@ -183,8 +161,12 @@ export const exportPage = async (
     const key = countKey(record)
     if (key !== null) counts[key] = (counts[key] ?? 0) + 1
   }
+  /** Database queries, Durable Object calls, and object reads made for this page. */
+  let operations = 0
+  /** Set when the next row would not fit in what is left of this page. */
+  let pageFull = false
   const room = () => PAGE_RECORDS - lines.length
-  const full = () => room() <= 0 || bytes >= PAGE_BYTES
+  const full = () => pageFull || room() <= 0 || bytes >= PAGE_BYTES || operations >= PAGE_OPERATIONS
   const advance = (patch: Partial<ExportCursor>) => {
     cursor = { ...cursor, ...patch }
   }
@@ -213,16 +195,54 @@ export const exportPage = async (
         const limit = Math.min(room(), ROW_PAGE)
         const selected =
           step.kind === 'rows' ? [...table.columns.keys()] : [...table.key, ...table.deferred]
-        const linked = table.deferred.map((column) => `${quoted(column)} IS NOT NULL`).join(' OR ')
-        const keyset = after(table.key, cursor.after)
-        const where =
-          step.kind === 'rows' ? keyset : `${keyset ? `${keyset} AND` : ' WHERE'} (${linked})`
+        const key = table.key.map(quoted).join(', ')
+        const conditions = [
+          ...(Array.isArray(cursor.after)
+            ? [`(${key}) > (${table.key.map(() => '?').join(', ')})`]
+            : []),
+          ...(step.kind === 'links'
+            ? [`(${table.deferred.map((column) => `${quoted(column)} IS NOT NULL`).join(' OR ')})`]
+            : []),
+        ]
+        const lower = Array.isArray(cursor.after) ? cursor.after : []
+        // Measure before fetching: lengths carry no payload, so only rows that fit are read.
+        const text = selected.filter((name) => table.columns.get(name)?.columnType === 'SQLiteText')
+        const size = text.length
+          ? text.map((name) => `COALESCE(LENGTH(${quoted(name)}), 0)`).join(' + ')
+          : '0'
+        const sized = await host.connection
+          .prepare(
+            `SELECT ${key}, ${size} AS "archive_size" FROM ${quoted(table.name)}${where(conditions)} ORDER BY ${key} LIMIT ${limit}`,
+          )
+          .bind(...lower)
+          .all<Record<string, unknown>>()
+        operations += 1
+        let space = PAGE_BYTES - bytes
+        let take = 0
+        for (const row of sized.results) {
+          const cost = Number(row.archive_size) + ROW_OVERHEAD_BYTES
+          // A row larger than a whole page still goes out, alone on an otherwise empty page.
+          if ((take > 0 || lines.length > 0) && cost > space) break
+          space -= cost
+          take += 1
+        }
+        if (sized.results.length === 0) {
+          next()
+          break
+        }
+        const last = sized.results[take - 1]
+        if (last === undefined) {
+          pageFull = true
+          break
+        }
+        const upper = table.key.map((name) => last[name] as string | number)
         const result = await host.connection
           .prepare(
-            `SELECT ${selected.map(quoted).join(', ')} FROM ${quoted(table.name)}${where} ORDER BY ${table.key.map(quoted).join(', ')} LIMIT ${limit}`,
+            `SELECT ${selected.map(quoted).join(', ')} FROM ${quoted(table.name)}${where([...conditions, `(${key}) <= (${table.key.map(() => '?').join(', ')})`])} ORDER BY ${key}`,
           )
-          .bind(...(Array.isArray(cursor.after) ? cursor.after : []))
+          .bind(...lower, ...upper)
           .all<Record<string, unknown>>()
+        operations += 1
         for (const raw of result.results) {
           const values = logicalRow(table, raw, new Set(selected))
           await emit({
@@ -234,9 +254,8 @@ export const exportPage = async (
                 : values,
           })
         }
-        const last = result.results.at(-1)
-        if (result.results.length < limit || last === undefined) next()
-        else advance({ after: table.key.map((name) => last[name] as string | number) })
+        if (sized.results.length < limit && take === sized.results.length) next()
+        else advance({ after: upper })
         break
       }
       case 'counters': {
@@ -246,6 +265,7 @@ export const exportPage = async (
           Array.isArray(cursor.after) ? (cursor.after as (string | number)[]) : null,
           limit,
         )
+        operations += 1
         for (const values of rows) await emit({ kind: 'counter', table: step.table, values })
         const last = rows.at(-1)
         if (rows.length < limit || last === undefined) next()
@@ -266,19 +286,21 @@ export const exportPage = async (
               .bind(...(typeof cursor.after === 'string' ? [cursor.after] : []))
               .first<{ id: string }>()
           )?.id
+        if (cursor.template === null) operations += 1
         if (templateId === undefined) {
           next()
           break
         }
         const limit = Math.min(room(), ROW_PAGE)
         const startAfter = cursor.template === null ? null : (cursor.after as string)
-        const page = await host.backfill(templateId).exportState(startAfter, limit)
-        for (const [key, value] of page.entries)
+        // Most templates never ran an import; each visit still costs a call, so it counts.
+        const entries = await host.backfill(templateId).exportState(startAfter, limit)
+        operations += 1
+        for (const [key, value] of entries)
           await emit({ kind: 'backfill', templateId, key, value: value as ArchiveJson })
-        if (page.alarm !== null) await emit({ kind: 'backfill-alarm', templateId, at: page.alarm })
-        const last = page.entries.at(-1)
+        const last = entries.at(-1)
         // Between templates `after` holds the finished template's id; within one, its last key.
-        if (page.entries.length < limit || last === undefined)
+        if (entries.length < limit || last === undefined)
           advance({ template: null, after: templateId })
         else advance({ template: templateId, after: last[0] })
         break
@@ -289,10 +311,12 @@ export const exportPage = async (
           ...(position.cursor === undefined ? {} : { cursor: position.cursor }),
           limit: OBJECT_PAGE,
         })
+        operations += 1
         let skip = position.skip ?? 0
         for (const key of page.keys.slice(skip)) {
           if (full()) break
           const object = await host.objects.get(key)
+          operations += 1
           if (object === null)
             throw new ArchiveError(
               `Object ${key} disappeared during the export. Restart the export.`,

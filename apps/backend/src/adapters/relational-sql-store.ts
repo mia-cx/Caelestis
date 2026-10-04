@@ -361,11 +361,11 @@ export class RelationalSqlStore implements SqlStore {
   private readonly syntax: ReturnType<typeof sqlDialect>
   private readonly database: ReturnType<typeof relationalDatabase>
   private readonly client: SqlConnection
-  readonly archiveOperationActive: () => Promise<boolean>
+  readonly archiveOperationActive: SqlStore['archiveOperationActive']
 
   constructor(connection: SqlConnection) {
     this.archiveOperationActive = archiveGate(connection)
-    const database = fencedConnection(connection, this.archiveOperationActive)
+    const database = fencedConnection(connection)
     this.syntax = sqlDialect(database.dialect)
     this.work = new RelationalWorkStore(database)
     this.regions = new RelationalRegionStore(database)

@@ -53,7 +53,8 @@ provider identifiers, so any exporter pairs with any importer.
   revisions, and deduplication records.
 - The telemetry coordinator's state: pending counters, flush batches, retained counters, counter
   idempotency keys, and its statistics.
-- Every in-progress Eralyon import with its progress and wakeup.
+- Every in-progress Eralyon import with its progress. A running import wakes up on the
+  destination after activation.
 - Every object under the server's prefixes, social previews included, with content type and
   custom metadata. Each object carries its SHA-256.
 
@@ -73,26 +74,37 @@ An archive leaves out:
 
 - Every route except `/health`, `/server`, and `/admin/archive` answers 503 with `Retry-After: 60`.
 - Every database write fails, whether it comes from HTTP, a live socket, an alarm, or a scheduled
-  job. Telemetry flushes and Eralyon imports wait without touching their state.
+  job. Each write checks the gate inside its own transaction, so it either commits before the
+  gate closes or fails.
+- The telemetry coordinator refuses new counter records and waits for the ones it already
+  admitted. Flushes and pruning wait too.
+- An Eralyon import step that started earlier finishes before its state is read. Later steps
+  only re-arm their wakeup.
 
-The export then waits `ARCHIVE_SETTLE_SECONDS`, 35 by default. That covers each store's one-second
-gate cache and the 30-second statement limit, so no write that started earlier can still land.
-Raise it if you run longer jobs. Pages read a dataset that no longer changes.
+A portable server also waits for every write its process already admitted. Then the export reads
+a dataset that no longer changes. Caches that nothing references, such as derived artifacts and
+social previews, can still appear; an archive with or without them restores the same server.
 
 An event the source accepted before the gate is in the archive with its deduplication key, so a
-client that replays it to the destination gets `duplicate`. An event sent after the gate was
-refused, so the client retries it and the destination applies it once.
+client that replays it to the destination gets `duplicate`. A paint whose counters were refused
+fails, so its client retries it. The destination applies it once, re-recording the counters from
+the stored classification.
+
+A restore also waits `ARCHIVE_SETTLE_SECONDS`, 2 by default, before it accepts records. That lets
+other Worker isolates' one-second gate caches expire, so no request reads a partial dataset.
 
 ## Restore policy
 
 **New servers only.** A restore refuses a destination with rows in any server table, objects
 under any server prefix, or telemetry state. The error names each location. It never merges or
 overwrites. Two kinds of rows are allowed: the destination's own credentials, and rows the
-migrations seed.
+migrations seed. The check runs after the gate closes, so nothing can land between the check and
+the restore.
 
 **Credentials.** Token hashes, scopes, labels, and revocations arrive unchanged. A revoked token
-stays revoked. The destination keeps its own tokens beside them. An archive holds hashes only,
-never a usable token.
+stays revoked. The destination keeps its own tokens beside them. When both hold the same token, for
+example a shared `CAELESTIS_READ_TOKEN`, the destination's row stays as it is, scope included.
+An archive holds hashes only, never a usable token.
 
 **Identity.** The destination keeps the identity it is configured with. To keep clients treating it
 as the same server, set its `SERVER_ID` to the source's. The import prints that as
@@ -115,7 +127,8 @@ Each check runs before anything is served:
    record kind, so an edited, reordered, or truncated archive fails.
 5. The database enforces every foreign key as rows arrive.
 
-Only `import/activate`, after a verified `end` record, opens the server.
+Only `import/activate`, after a verified `end` record, opens the server. Once a discard has
+started, activation is refused; only finishing the discard reopens the server.
 
 ## Recovery and rollback
 
@@ -149,7 +162,7 @@ Version 1 is newline-delimited JSON, one record per line:
 | `row` | one table row, keyed by column name |
 | `link` | a self or cyclic reference, applied once every row exists |
 | `counter` | one telemetry coordinator row |
-| `backfill`, `backfill-alarm` | one Eralyon import key or wakeup |
+| `backfill` | one Eralyon import key |
 | `object` | key, SHA-256, content type, metadata, and base64 bytes |
 | `end` | the chain value and the count of each record kind |
 
@@ -160,7 +173,7 @@ The client wraps these admin routes. Every response is JSON except export pages.
 | Route | Does |
 | --- | --- |
 | `GET /admin/archive` | The operation in progress, if any |
-| `POST /admin/archive/export` | Close the gate; returns `readyAt` |
+| `POST /admin/archive/export` | Close the gate and wait for admitted writes |
 | `GET /admin/archive/export?cursor=` | One NDJSON page; the `caelestis-archive-next` header holds the next cursor |
 | `DELETE /admin/archive/export` | Reopen the source |
 | `POST /admin/archive/import` | Send the header line; begins or resumes a restore |

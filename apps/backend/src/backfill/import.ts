@@ -23,19 +23,15 @@ export interface BackfillStorage {
   put<T>(key: string, value: T): Promise<void>
   list<T>(options: { prefix: string; startAfter?: string; limit?: number }): Promise<Map<string, T>>
   delete(keys: string[]): Promise<number>
-  getAlarm(): Promise<number | null>
   setAlarm(at: number): Promise<void>
   deleteAlarm(): Promise<void>
 }
 
 /**
- * One bounded page of an import's durable state; the alarm accompanies the first page. Values are
- * JSON, as every coordinator storage adapter requires.
+ * One bounded page of an import's durable keys. Values are JSON, as every coordinator storage
+ * adapter requires. Wakeups stay out: a paused job keeps re-arming while an archive is read.
  */
-export interface BackfillStatePage {
-  readonly entries: readonly (readonly [string, unknown])[]
-  readonly alarm: number | null
-}
+export type BackfillStatePage = readonly (readonly [string, unknown])[]
 
 export interface ArchiveSource {
   snapshots(): Promise<readonly ArchiveSnapshot[]>
@@ -171,21 +167,20 @@ export class TemplateBackfill {
 
   /** Keys sort the same way on every adapter, so `startAfter` resumes a page exactly. */
   async exportState(startAfter: string | null, limit: number): Promise<BackfillStatePage> {
-    const entries = await this.storage.list<unknown>({
-      prefix: '',
-      ...(startAfter === null ? {} : { startAfter }),
-      limit,
-    })
-    return {
-      entries: [...entries],
-      alarm: startAfter === null ? await this.storage.getAlarm() : null,
-    }
+    return [
+      ...(await this.storage.list<unknown>({
+        prefix: '',
+        ...(startAfter === null ? {} : { startAfter }),
+        limit,
+      })),
+    ]
   }
 
-  /** Restore archived state verbatim; a running job resumes from its archived alarm. */
+  /** Restore archived state verbatim and wake a running job, which waits out the restore. */
   async importState(page: BackfillStatePage): Promise<void> {
-    for (const [key, value] of page.entries) await this.storage.put(key, value)
-    if (page.alarm !== null) await this.storage.setAlarm(page.alarm)
+    for (const [key, value] of page) await this.storage.put(key, value)
+    const job = page.find(([key]) => key === 'job')?.[1] as StoredJob | undefined
+    if (job?.summary.status === 'running') await this.storage.setAlarm(this.now() + 100)
   }
 
   /** Remove up to `limit` keys of a discarded restore; true once the state and alarm are gone. */
@@ -240,8 +235,9 @@ export class TemplateBackfill {
     const { summary, tiles, snapshots } = held
     // Rearm before external storage reads too, so a transient D1 failure cannot strand the job.
     await this.storage.setAlarm(this.now() + 60_000)
-    // An archive operation is exporting or restoring this state; resume once it ends.
-    if (await this.sql.archiveOperationActive()) return
+    // An archive operation is exporting or restoring this state; resume once it ends. The read is
+    // fresh because a cached "open" could let this step write after its state was archived.
+    if (await this.sql.archiveOperationActive({ fresh: true })) return
     const template = await this.sql.readTemplate(summary.basis.templateId)
     if (template === null) {
       await this.cancel()

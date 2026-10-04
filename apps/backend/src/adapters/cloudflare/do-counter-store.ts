@@ -50,4 +50,12 @@ export class DurableObjectCounterStore implements CounterStore, CounterArchive {
   async discardCounterRows(): Promise<void> {
     await this.shard.discardCounterRows()
   }
+
+  async freeze(): Promise<void> {
+    await this.shard.freeze()
+  }
+
+  async thaw(): Promise<void> {
+    await this.shard.thaw()
+  }
 }

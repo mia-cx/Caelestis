@@ -109,6 +109,13 @@ export class MemoryObjectStorage implements ObjectStorage {
   }
 }
 
+/** A running Eralyon import with no tiles left to fetch, so its wakeups end quietly. */
+export const runningImport = (templateId: string) => ({
+  summary: { status: 'running', completed: 0, basis: { templateId } },
+  snapshots: [],
+  tiles: [],
+})
+
 /** One template's resumable import state on a portable server. */
 export const backfillState = (
   server: Awaited<ReturnType<typeof openPortableServer>>,

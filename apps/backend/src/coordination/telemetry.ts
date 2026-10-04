@@ -1,4 +1,5 @@
 import { type Millis, millis, type Seconds, seconds } from '@caelestis/shared'
+import { ArchiveOperationActiveError } from '../archive/gate.js'
 import type { SqlStore } from '../ports/index.js'
 import {
   addCounters,
@@ -84,6 +85,9 @@ const eventBucketStart = (occurredAt: Seconds): Seconds =>
 /** Shared durable counter validation, retry, retention, and cumulative bucket flushing. */
 export class TelemetryCoordinator {
   private alarmUpdates: Promise<void> = Promise.resolve()
+  /** An archive operation holds this state; see `freeze`. Durable in `counter_freeze`. */
+  private frozen = false
+  private readonly recording = new Set<Promise<void>>()
   constructor(
     private readonly database: CoordinatorDatabase,
     private readonly alarms: AlarmStorage,
@@ -93,12 +97,28 @@ export class TelemetryCoordinator {
 
   async initialize(): Promise<void> {
     await this.initializeSchema()
+    this.frozen = (await this.database.all('SELECT singleton FROM counter_freeze')).length > 0
     const now = this.clock()
-    await this.pruneRetained(seconds(Math.floor(now / 1_000)))
+    // Pruning would change state an archive is reading; a frozen coordinator prunes after thawing.
+    if (!this.frozen) await this.pruneRetained(seconds(Math.floor(now / 1_000)))
     await this.scheduleNextAlarm(now)
   }
 
   async record(deltas: readonly CounterDelta[], idempotencyKey?: string): Promise<void> {
+    if (this.frozen) throw new ArchiveOperationActiveError()
+    const running = this.recordUnfrozen(deltas, idempotencyKey)
+    this.recording.add(running)
+    try {
+      await running
+    } finally {
+      this.recording.delete(running)
+    }
+  }
+
+  private async recordUnfrozen(
+    deltas: readonly CounterDelta[],
+    idempotencyKey?: string,
+  ): Promise<void> {
     const nowMilliseconds = this.clock()
     const nowSeconds = seconds(Math.floor(nowMilliseconds / 1_000))
     // A successful flush leaves retained reconciliation state but no alarm. The next write is a
@@ -308,12 +328,31 @@ export class TelemetryCoordinator {
     await this.initializeSchema()
   }
 
+  /**
+   * Hold this state still for an archive operation. New records fail at once and records already
+   * admitted finish first, so each one is either in the archive or refused. A refused paint is
+   * retried by its client, and the retry re-records it wherever the server's data now lives.
+   */
+  async freeze(): Promise<void> {
+    this.frozen = true
+    await this.database.run(
+      'INSERT INTO counter_freeze (singleton) VALUES (1) ON CONFLICT DO NOTHING',
+    )
+    await Promise.allSettled([...this.recording])
+  }
+
+  async thaw(): Promise<void> {
+    await this.database.run('DELETE FROM counter_freeze')
+    this.frozen = false
+    await this.scheduleNextAlarm(this.clock())
+  }
+
   async alarm(): Promise<void> {
     const nowMilliseconds = this.clock()
     const nowSeconds = seconds(Math.floor(nowMilliseconds / 1_000))
     // A flush moves pending counters before it writes buckets. During an archive operation that
     // would change the state being exported or restored, so wait for the operation to end.
-    if (await this.sql.archiveOperationActive()) {
+    if (this.frozen) {
       await this.updateAlarm(() =>
         this.alarms.setAlarm(millis(nowMilliseconds + ARCHIVE_RETRY_DELAY_MILLISECONDS)),
       )
@@ -506,6 +545,9 @@ export class TelemetryCoordinator {
       );
       CREATE INDEX IF NOT EXISTS applied_counter_events_seen_at_idx
         ON applied_counter_events (seen_at_ms);
+      CREATE TABLE IF NOT EXISTS counter_freeze (
+        singleton BIGINT PRIMARY KEY CHECK (singleton = 1)
+      );
 `
       .split(';')
       .filter((part) => part.trim()))

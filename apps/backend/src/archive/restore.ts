@@ -1,9 +1,7 @@
-import { sha256Hex, uuidV7 } from '@caelestis/shared'
+import { sha256Hex } from '@caelestis/shared'
 import { validateObjectKey } from '@caelestis/storage'
 import type { SqlStatement } from '../adapters/sql-connection.js'
-import type { BackfillStatePage } from '../backfill/import.js'
 import { COUNTER_ARCHIVE_TABLES, type CounterArchiveTable } from '../coordination/telemetry.js'
-import { archiveReadyAt, assertSettled } from './export.js'
 import {
   ARCHIVE_CHAIN_SEED,
   ARCHIVE_OBJECT_PREFIXES,
@@ -21,6 +19,7 @@ import {
   parseArchiveLine,
 } from './format.js'
 import { type ArchiveOperationRow, readArchiveOperation } from './gate.js'
+import { archiveReadyAt, assertSettled, holdServer, releaseServer } from './operation.js'
 import type { ArchiveHost } from './port.js'
 
 /** One append stays inside a Worker request and a D1 batch. */
@@ -36,7 +35,13 @@ interface RestoreState {
   readonly chain: string
   readonly counts: Readonly<Record<string, number>>
   readonly ended: boolean
-  /** Credentials the destination held before the restore; a discard keeps them. */
+  /** False while `beginRestore` still checks the closed destination. */
+  readonly ready: boolean
+  /**
+   * Credentials the destination held before the restore. An archived row with the same hash is the
+   * same secret: the destination's row wins, so restoring never changes its scope. A discard keeps
+   * these rows.
+   */
   readonly preservedTokens: readonly string[]
   /** Discard progress through DISCARD_STEPS. */
   readonly discard?: { readonly step: number; readonly after: string | null }
@@ -169,42 +174,51 @@ export const beginRestore = async (host: ArchiveHost, headerLine: string) => {
       resumed: true,
     }
   }
-  const occupied = await occupiedLocations(host)
-  if (occupied.length > 0)
-    throw new ArchiveError(
-      `Restore into a new server. This one already has data in ${occupied.join(', ')}.`,
-      409,
-    )
-  const preserved = await host.connection
-    .prepare(`SELECT "token_hash" FROM "access_tokens" LIMIT ${MAX_PRESERVED_TOKENS + 1}`)
-    .all<{ token_hash: string }>()
-  if (preserved.results.length > MAX_PRESERVED_TOKENS)
-    throw new ArchiveError('Restore into a new server. This one already has many credentials.', 409)
-  const operationId = uuidV7()
-  await probeObjects(host, operationId)
-  const now = Date.now()
-  const state: RestoreState = {
+  const preparing: RestoreState = {
     archiveId: header.id,
     sourceServerId: header.source.serverId,
     tables: header.tables,
     chain: await chainLine(ARCHIVE_CHAIN_SEED, headerLine),
     counts: {},
     ended: false,
-    preservedTokens: preserved.results.map((row) => row.token_hash),
+    ready: false,
+    preservedTokens: [],
   }
+  // Decide on emptiness only once no other writer can change the answer.
+  const { operationId, startedAt } = await holdServer(host, 'import', JSON.stringify(preparing), 1)
   try {
+    const occupied = await occupiedLocations(host)
+    if (occupied.length > 0)
+      throw new ArchiveError(
+        `Restore into a new server. This one already has data in ${occupied.join(', ')}.`,
+        409,
+      )
+    const preserved = await host.connection
+      .prepare(`SELECT "token_hash" FROM "access_tokens" LIMIT ${MAX_PRESERVED_TOKENS + 1}`)
+      .all<{ token_hash: string }>()
+    if (preserved.results.length > MAX_PRESERVED_TOKENS)
+      throw new ArchiveError(
+        'Restore into a new server. This one already has many credentials.',
+        409,
+      )
+    await probeObjects(host, operationId)
+    const ready: RestoreState = {
+      ...preparing,
+      ready: true,
+      preservedTokens: preserved.results.map((row) => row.token_hash),
+    }
     await host.connection
       .prepare(
-        'INSERT INTO "archive_operation" ("id", "kind", "operation_id", "started_at_ms", "position", "state_json") VALUES (1, ?, ?, ?, 1, ?)',
+        'UPDATE "archive_operation" SET "state_json" = ? WHERE "id" = 1 AND "operation_id" = ?',
       )
-      .bind('import', operationId, now, JSON.stringify(state))
+      .bind(JSON.stringify(ready), operationId)
       .run()
-  } catch (cause) {
-    if ((await readArchiveOperation(host.connection)) !== null)
-      throw new ArchiveError('Another archive operation started at the same time.', 409)
-    throw cause
+  } catch (error) {
+    // Nothing was restored, so reopening hands the destination back exactly as it was.
+    await releaseServer(host, operationId)
+    throw error
   }
-  return { id: operationId, position: 1, readyAt: archiveReadyAt(host, now), resumed: false }
+  return { id: operationId, position: 1, readyAt: archiveReadyAt(host, startedAt), resumed: false }
 }
 
 const rowValues = (table: ArchiveTable, state: RestoreState, values: ArchiveRow, at: number) => {
@@ -234,6 +248,8 @@ export const appendRestore = async (
   assertSettled(host, operation.startedAt)
   if (state.discard !== undefined)
     throw new ArchiveError('This restore is being discarded. Finish discarding it first.', 409)
+  if (!state.ready)
+    throw new ArchiveError('The restore is still checking the destination. Retry shortly.', 409)
   if (position !== operation.position)
     throw new ArchiveError(
       `The server expects archive record ${operation.position}; resume from there.`,
@@ -248,7 +264,7 @@ export const appendRestore = async (
   const statements: SqlStatement[] = []
   // Coordinator state is grouped so a request makes one call per table or template.
   const counterRows = new Map<CounterArchiveTable, Readonly<Record<string, string | number>>[]>()
-  const backfillPages = new Map<string, BackfillStatePage>()
+  const backfillPages = new Map<string, [string, unknown][]>()
   for (const [index, line] of lines.entries()) {
     const at = position + index
     if (ended) throw new ArchiveError(`Archive record ${at} follows the end record.`)
@@ -279,6 +295,12 @@ export const appendRestore = async (
           throw new ArchiveError(`Archive record ${at} names undeclared table ${record.table}.`)
         const names = Object.keys(record.values)
         const values = rowValues(table, state, record.values, at)
+        // The destination already holds this secret; its own row stays as it is.
+        if (
+          table.name === 'access_tokens' &&
+          state.preservedTokens.includes(String(record.values.token_hash))
+        )
+          break
         const updates = names.filter((name) => !table.key.includes(name))
         statements.push(
           host.connection
@@ -326,15 +348,10 @@ export const appendRestore = async (
         counterRows.set(table, rows)
         break
       }
-      case 'backfill':
-      case 'backfill-alarm': {
-        const page = backfillPages.get(record.templateId) ?? { entries: [], alarm: null }
-        backfillPages.set(
-          record.templateId,
-          record.kind === 'backfill'
-            ? { ...page, entries: [...page.entries, [record.key, record.value]] }
-            : { ...page, alarm: record.at },
-        )
+      case 'backfill': {
+        const page = backfillPages.get(record.templateId) ?? []
+        page.push([record.key, record.value])
+        backfillPages.set(record.templateId, page)
         break
       }
       case 'object': {
@@ -363,20 +380,20 @@ export const appendRestore = async (
 
   const next = position + lines.length
   const nextState: RestoreState = { ...state, chain, counts, ended }
-  // A concurrent or replayed append finds the position moved; NULL violates NOT NULL and aborts
-  // the whole batch, rows included.
+  // A concurrent or replayed append finds the position moved, and a discard finds the state
+  // changed; either way NULL violates NOT NULL and aborts the whole batch, rows included.
   const advance = host.connection
     .prepare(
-      'UPDATE "archive_operation" SET "position" = CASE WHEN "position" = ? THEN CAST(? AS BIGINT) ELSE NULL END, "state_json" = ? WHERE "id" = 1',
+      'UPDATE "archive_operation" SET "position" = CASE WHEN "position" = ? AND "state_json" = ? THEN CAST(? AS BIGINT) ELSE NULL END, "state_json" = ? WHERE "id" = 1',
     )
-    .bind(position, next, JSON.stringify(nextState))
+    .bind(position, operation.stateJson, next, JSON.stringify(nextState))
   try {
     await host.connection.batch([advance, ...statements])
   } catch (cause) {
     const current = await readArchiveOperation(host.connection)
-    if (current?.position !== position)
+    if (current?.stateJson !== operation.stateJson)
       throw new ArchiveError(
-        `Another request restored these records. Resume from record ${current?.position ?? position}.`,
+        `Another request changed this restore. Resume from record ${current?.position ?? position}.`,
         409,
       )
     throw new ArchiveError(
@@ -389,15 +406,16 @@ export const appendRestore = async (
 /** Open the restored server once the archive's end record has verified every count and checksum. */
 export const activateRestore = async (host: ArchiveHost) => {
   const { operation, state } = await restoreOperation(host)
+  if (state.discard !== undefined)
+    throw new ArchiveError('This restore is being discarded. Finish discarding it first.', 409)
   if (!state.ended)
     throw new ArchiveError(
       `The archive is incomplete: ${operation.position} records restored and no end record yet.`,
       409,
     )
-  await host.connection
-    .prepare('DELETE FROM "archive_operation" WHERE "id" = 1 AND "operation_id" = ?')
-    .bind(operation.operationId)
-    .run()
+  // Opens only the exact state just verified, so a discard that starts meanwhile wins.
+  if (!(await releaseServer(host, operation.operationId, operation.stateJson)))
+    throw new ArchiveError('Another request changed this restore. Check its status.', 409)
   await host.activated()
   return { sourceServerId: state.sourceServerId, counts: state.counts }
 }
@@ -429,13 +447,25 @@ const DISCARD_STEPS: readonly DiscardStep[] = [
  */
 export const discardRestore = async (host: ArchiveHost): Promise<boolean> => {
   const { operation, state } = await restoreOperation(host)
-  const progress = state.discard ?? { step: 0, after: null }
+  const saveProgress = async (discard: NonNullable<RestoreState['discard']>) => {
+    const saved = await host.connection
+      .prepare(
+        'UPDATE "archive_operation" SET "state_json" = ? WHERE "id" = 1 AND "operation_id" = ? AND "state_json" = ?',
+      )
+      .bind(JSON.stringify({ ...state, discard }), operation.operationId, operation.stateJson)
+      .run()
+    if (saved.meta.changes === 0)
+      throw new ArchiveError('Another request changed this restore. Check its status.', 409)
+  }
+  // Mark the discard before deleting anything, so activation can no longer open this state.
+  if (state.discard === undefined) {
+    await saveProgress({ step: 0, after: null })
+    return false
+  }
+  const progress = state.discard
   const step = DISCARD_STEPS[progress.step]
   if (step === undefined) {
-    await host.connection
-      .prepare('DELETE FROM "archive_operation" WHERE "id" = 1 AND "operation_id" = ?')
-      .bind(operation.operationId)
-      .run()
+    await releaseServer(host, operation.operationId)
     return true
   }
   let next: { step: number; after: string | null } = { step: progress.step + 1, after: null }
@@ -492,12 +522,7 @@ export const discardRestore = async (host: ArchiveHost): Promise<boolean> => {
       break
     }
   }
-  await host.connection
-    .prepare(
-      'UPDATE "archive_operation" SET "state_json" = ? WHERE "id" = 1 AND "operation_id" = ?',
-    )
-    .bind(JSON.stringify({ ...state, discard: next }), operation.operationId)
-    .run()
+  await saveProgress(next)
   return false
 }
 

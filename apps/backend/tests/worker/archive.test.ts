@@ -14,6 +14,7 @@ import {
   type Fetch,
   openPortableServer,
   paint,
+  runningImport,
   seedServer,
 } from '../support/archive.js'
 
@@ -123,8 +124,8 @@ describe('Cloudflare server archives', { timeout: 120_000 }, () => {
     })
     // A resumable import in progress, so the trip back exercises the import Durable Object.
     const imports = backfillState(node, seeded.templateId)
-    await imports.put('job', { summary: { status: 'running' } })
-    await imports.setAlarm(4_102_444_800_000)
+    await imports.put('job', runningImport(seeded.templateId))
+    await imports.put('sample:v:1', { at: 1, correct: 2 })
     await exportToFile(archiveClient(node.fetch, node.api), file('portable.ndjson'))
     const moved = archiveData(await readFile(file('portable.ndjson'), 'utf8'))
     expect(moved.filter((line) => !line.startsWith('{"kind":"backfill'))).toEqual(

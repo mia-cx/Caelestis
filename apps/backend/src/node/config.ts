@@ -101,8 +101,8 @@ export const readNodeConfig = (env: Environment = process.env) => {
   const liveSubscriberLimit = integer(env, 'CAELESTIS_LIVE_SUBSCRIBER_LIMIT', MAX_LIVE_SUBSCRIBERS)
   if (liveSubscriberLimit < 1) throw new Error('CAELESTIS_LIVE_SUBSCRIBER_LIMIT must be at least 1')
   return {
-    /** How long an archive operation waits for in-flight writes before it touches data. */
-    archiveSettleMilliseconds: integer(env, 'ARCHIVE_SETTLE_SECONDS', 35) * 1_000,
+    /** How long a restore waits for cached gate reads to expire before accepting records. */
+    archiveSettleMilliseconds: integer(env, 'ARCHIVE_SETTLE_SECONDS', 2) * 1_000,
     liveSubscriberLimit,
     adapter,
     port,

@@ -294,7 +294,7 @@ Use a direct connection to one writable primary. MySQL and PlanetScale are separ
 | `CAELESTIS_READ_TOKEN` | required for separate containers | Shared private read-only credential, distinct from `ADMIN_TOKEN` |
 | `BASE_PATH` | `/backend` | Backend mount; `/backend` remains a compatibility alias |
 | `TILE_BLOB_GC_MODE` | `dry-run` | Set `delete` to enable deletion of unreferenced tile blobs |
-| `ARCHIVE_SETTLE_SECONDS` | `35` | How long a [server archive](server-archives.md) waits for in-flight writes |
+| `ARCHIVE_SETTLE_SECONDS` | `2` | How long a [server archive](server-archives.md) restore waits for cached gate reads |
 | `REPLICAS`, `SHARD_STRATEGY` | `1`, `single` | Other values fail startup |
 
 Keep databases and buckets dedicated to one server. Sharing a bucket across unrelated database instances is unsupported.
