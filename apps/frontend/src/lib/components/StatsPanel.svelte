@@ -21,7 +21,9 @@
   import { archiveContributionDays, combineArchiveSamples } from '$lib/archive-history'
   import { combineProgressSamples, mergeObservedProgress } from '$lib/progress-history'
   import { completionPace } from '$lib/completion-pace'
+  import PainterFilter from '$lib/components/charts/PainterFilter.svelte'
   import {
+    contributionPainters,
     defaultVisiblePainters,
     MAX_PAINTER_OPTIONS,
     MAX_SELECTED_PAINTERS,
@@ -174,6 +176,16 @@ import { persisted } from '$lib/persisted.svelte'
     }
   })
   let contributions = $state<readonly ContributionDay[] | null>(null)
+  /** Whose contributions the heatmap shows, by Wplace id; null is everyone. */
+  let contributionPainter = $state<number | null>(null)
+  let contributionScope: string | undefined
+  const contributionOptions = $derived(contributionPainters(contributions ?? []))
+  // One painter's view holds only their reported rows: imported estimates have no painter.
+  const shownContributions = $derived(
+    contributionPainter === null
+      ? contributions
+      : (contributions?.filter((day) => day.wplaceUserId === contributionPainter) ?? null),
+  )
   let leaderboard = $state<readonly LeaderboardEntry[] | null>(null)
   /** The rolling pace windows the chart draws; shared so painter lines are fetched for the same. */
   const storedWindows = persisted<string[]>('caelestis:pace-windows', ['1h', '6h'])
@@ -243,6 +255,11 @@ import { persisted } from '$lib/persisted.svelte'
     const ids = [...templateIds]
     contributions = null
     leaderboard = null
+    const scope = ids.join('\0')
+    if (contributionScope !== scope) {
+      contributionScope = scope
+      contributionPainter = null
+    }
     // The heatmap draws up to a year of weeks, and that is all this read is for: painter pace comes from
     // the bucket ladder below, at whatever range the scope has.
     const contributionsFrom = Math.floor(Date.now() / 1_000) - 86_400 * 7 * 53
@@ -459,11 +476,26 @@ import { persisted } from '$lib/persisted.svelte'
   </section>
 
   <section class="pixel-card bg-base-100 p-4">
-    <h2 class="mb-3 font-semibold">Contributions</h2>
-    {#if contributions === null}
+    <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+      <h2 class="font-semibold">Contributions</h2>
+      {#if contributionOptions.length > 0}
+        <div class="flex items-center gap-2 text-xs" role="group" aria-label="whose contributions">
+          <span class="text-base-content/65">who</span>
+          <PainterFilter
+            options={contributionOptions}
+            selected={contributionPainter}
+            onSelect={(wplaceUserId) => { contributionPainter = wplaceUserId }}
+          />
+        </div>
+      {/if}
+    </div>
+    {#if shownContributions === null}
       <Skeleton class="h-28 w-full" />
     {:else}
-      <ContributionHeatmap days={contributions} imported={importedContributions} />
+      <ContributionHeatmap
+        days={shownContributions}
+        imported={contributionPainter === null ? importedContributions : new Map()}
+      />
     {/if}
   </section>
 </div>
