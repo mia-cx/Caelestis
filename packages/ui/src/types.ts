@@ -204,9 +204,10 @@ export interface ClaimToolOptions {
 /**
  * Claim mode: a tool drawer on the left, a cancel-or-confirm bar at the top. Capture mode is the
  * same editor selecting committed art to download or add as a template instead of claiming it.
+ * Update mode selects the parts of an existing template to replace with committed art.
  */
 export interface ClaimModeModel {
-  readonly purpose: 'claim' | 'capture'
+  readonly purpose: 'claim' | 'capture' | 'update'
   readonly tool: ClaimTool
   readonly tools: readonly ClaimToolEntry[]
   readonly groups: readonly ClaimToolGroup[]
@@ -240,8 +241,8 @@ export type ClaimModeIntent =
   | { readonly type: 'capture'; readonly action: CaptureAction }
   | { readonly type: 'cancel' }
 
-/** What capture mode does with the selected art. */
-export type CaptureAction = 'download' | 'template'
+/** What capture or update mode does with the selected art. */
+export type CaptureAction = 'download' | 'template' | 'update'
 
 export type PanelIntent =
   | { readonly type: 'work-retry' }

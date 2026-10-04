@@ -107,7 +107,10 @@ import {
   templatesForServer,
   templatesOfNode,
 } from './tree-server-state.js'
-import { requestTemplateArtworkUpdate } from './update-template-artwork.js'
+import {
+  requestTemplateAreaUpdate,
+  requestTemplateArtworkUpdate,
+} from './update-template-artwork.js'
 
 type ContextAction = { readonly id: string; readonly run: () => void }
 type MenuEntry = {
@@ -1080,13 +1083,25 @@ export const openContextMenu = (
   surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
 ): void => {
   const templateId = localTemplateId(target)
+  const artworkId =
+    target.server !== null && target.templateId !== undefined
+      ? serverTemplateKey(target.server.url, target.templateId, surfaceOf(target))
+      : templateId
   const updateArtwork = (): void => {
-    const id =
-      target.server !== null && target.templateId !== undefined
-        ? serverTemplateKey(target.server.url, target.templateId, surfaceOf(target))
-        : templateId
-    if (id !== null) requestTemplateArtworkUpdate(id, rerender)
+    if (artworkId !== null) requestTemplateArtworkUpdate(artworkId, rerender)
   }
+  // Area updates select with the capture editor, which only works over the world canvas.
+  const updateArea: MenuEntry | null =
+    surfaceOf(target).kind === 'world'
+      ? {
+          icon: 'fitScreen',
+          label: 'Update an area',
+          returnToCanvas: true,
+          run: () => {
+            if (artworkId !== null) requestTemplateAreaUpdate(artworkId, rerender)
+          },
+        }
+      : null
   const rename: MenuEntry = {
     icon: 'rename',
     label: 'Rename',
@@ -1203,6 +1218,7 @@ export const openContextMenu = (
                 run: () => void replaceServerArtwork(target, rerender),
               },
               { icon: 'reset', label: 'Use canvas artwork', run: updateArtwork },
+              updateArea,
               surfaceOf(target).kind === 'world' && target.server.season === 0
                 ? {
                     icon: 'download',
@@ -1273,7 +1289,10 @@ export const openContextMenu = (
               },
               exportEntry,
             ],
-            artwork: [{ icon: 'reset', label: 'Use canvas artwork', run: updateArtwork }],
+            artwork: [
+              { icon: 'reset', label: 'Use canvas artwork', run: updateArtwork },
+              updateArea,
+            ],
             edit: [rename],
             danger: [remove],
           }
@@ -1512,6 +1531,7 @@ export const captureTemplate = (target: TreeTarget, rerender: () => void): void 
     return
   }
   const started = startCaptureMode({
+    purpose: 'capture',
     capture: async (selection, action, signal) => {
       signal.throwIfAborted()
       const reservation = action === 'template' ? reserveMove() : null

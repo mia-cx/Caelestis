@@ -80,7 +80,8 @@ import { dismissWplacePixelCard } from './wplace-pixel-card.js'
  * shared rasteriser decides membership by pixel centre.
  *
  * Capture mode is the same editor with another purpose: it starts empty, and the shapes select
- * art to capture instead of a region to claim. The whole document is one selection mask.
+ * art to capture instead of a region to claim. The whole document is one selection mask. Update
+ * mode is capture mode aimed at an existing template: the mask picks the parts to replace.
  */
 
 const OVERLAY_ID = 'caelestis-claim-overlay'
@@ -220,6 +221,8 @@ export interface ClaimEditorHost {
 }
 
 export interface ClaimCaptureHost {
+  /** Capture new art, or update parts of an existing template. Enter runs the matching action. */
+  readonly purpose: 'capture' | 'update'
   /**
    * Capture the art under the selection mask, then download it or add it as a template. Resolves
    * to null when done, which leaves capture mode, or to a message that keeps the selection open.
@@ -488,7 +491,7 @@ export const claimModeModel = (): ClaimModeModel => {
   const pixels = claimEditorPixels()
   const status = message ?? (!active || pixelCache === null ? null : pixelCache.error)
   return {
-    purpose: captureHost === null ? 'claim' : 'capture',
+    purpose: captureHost?.purpose ?? 'claim',
     tool,
     tools: CLAIM_TOOLS,
     groups: GROUPS.map((group) => ({
@@ -1739,8 +1742,20 @@ const isTyping = (target: EventTarget | null): boolean => {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
 }
 
+/** Keys inside an open dialog, such as an update's confirmation, belong to that dialog. */
+const inDialog = (event: Event): boolean =>
+  event.composedPath().some((node) => node instanceof HTMLDialogElement && node.open)
+
 const onKeydown = (event: KeyboardEvent): void => {
-  if (!active || isTyping(event.target) || event.metaKey || event.ctrlKey || event.altKey) return
+  if (
+    !active ||
+    isTyping(event.target) ||
+    inDialog(event) ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.altKey
+  )
+    return
   if (pending) {
     // A save is in flight with a snapshot of the document; an edit now would be lost with it.
     consume(event)
@@ -1902,7 +1917,7 @@ const capture = async (action: CaptureAction): Promise<void> => {
  * set releases everything. Removed shapes are simply absent from what is written.
  */
 const confirm = async (): Promise<void> => {
-  if (captureHost !== null) return capture('template')
+  if (captureHost !== null) return capture(captureHost.purpose === 'update' ? 'update' : 'template')
   if (!active || pending || host === null) return
   if (pen !== null) commitPen(false)
   if (!dirty) {
