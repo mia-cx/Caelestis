@@ -2,6 +2,9 @@ import {
   flattenPath,
   MAX_PATH_NODES,
   MAX_RASTER_BITS,
+  MAX_REGION_DOCUMENT_PIXELS,
+  MAX_REGION_DOCUMENT_WORK,
+  MAX_REGION_ITEMS,
   MAX_REGION_SHAPE_CORNERS,
   MAX_REGION_SHAPE_EXTENT,
   MAX_STROKE_WIDTH,
@@ -15,6 +18,7 @@ import {
   type RegionShapePixels,
   rasterShapeFrom,
   regionDocumentBounds,
+  regionDocumentWork,
   regionShapeBounds,
   regionShapeCentre,
   regionShapeContainsPixel,
@@ -24,6 +28,7 @@ import {
   WORLD_PIXELS,
 } from '@caelestis/shared'
 import {
+  type CaptureAction,
   CLAIM_MODE_TAG,
   type ClaimModeIntent,
   type ClaimModeModel,
@@ -62,10 +67,9 @@ import { dismissWplacePixelCard } from './wplace-pixel-card.js'
  * Claim mode: a small vector editor over the map.
  *
  * A claim is a document of shapes, each adding to or cutting from the claimed pixels, and every
- * shape stays editable. The drawer on the left holds the tools; the bar at the top holds the
- * options and the cancel or confirm buttons. Nothing sits over the map: pointer events are
- * watched at the window in the capture phase and consumed only when the tool in hand wants
- * them. Outside claim mode nothing here listens at all.
+ * shape stays editable. Desktop tools sit at the left and top; phones use one bottom toolbar.
+ * Window listeners consume drawing gestures before they reach the map. Outside the editor,
+ * gestures pass through untouched.
  *
  * Tools and keys follow Illustrator: selection (V: click, Shift-click to add, drag to move, drag
  * empty canvas for a marquee, handles to resize or rotate), direct selection (A: anchors and
@@ -74,6 +78,9 @@ import { dismissWplacePixelCard } from './wplace-pixel-card.js'
  * star, and the hand (H, or hold Space) which is the one tool that lets a drag pan the map. The
  * wheel pans, Shift+wheel pans sideways, and Alt/Option or Ctrl/Cmd+wheel zooms. Everything the tools produce is whole pixels once rasterised, because the
  * shared rasteriser decides membership by pixel centre.
+ *
+ * Capture mode is the same editor with another purpose: it starts empty, and the shapes select
+ * art to capture instead of a region to claim. The whole document is one selection mask.
  */
 
 const OVERLAY_ID = 'caelestis-claim-overlay'
@@ -212,7 +219,24 @@ export interface ClaimEditorHost {
   readonly changed: () => void
 }
 
+export interface ClaimCaptureHost {
+  /**
+   * Capture the art under the selection mask, then download it or add it as a template. Resolves
+   * to null when done, which leaves capture mode, or to a message that keeps the selection open.
+   * The signal aborts when the editor closes. The host must discard cancelled work, including
+   * any temporary template admission, before it can start placement or download a file.
+   */
+  readonly capture: (
+    selection: RegionShapePixels,
+    action: CaptureAction,
+    signal: AbortSignal,
+  ) => Promise<string | null>
+}
+
 let host: ClaimEditorHost | null = null
+/** Set while the editor selects art to capture rather than regions to claim. */
+let captureHost: ClaimCaptureHost | null = null
+let captureController: AbortController | null = null
 let installed = false
 let active = false
 let tool: ClaimTool = 'select'
@@ -329,7 +353,10 @@ export const onClaimEditorChange = (listener: () => void): void => {
   listeners.push(listener)
 }
 
+/** Whether the editor is open, for claims or for a capture. */
 export const isClaimModeActive = (): boolean => active
+
+export const isCaptureModeActive = (): boolean => active && captureHost !== null
 
 export const claimEditorTool = (): ClaimTool => tool
 
@@ -367,6 +394,19 @@ const previewItem = (): RegionItem | null => {
   return null
 }
 
+/**
+ * Whether a document is past the shape limits: per claim in claim mode, where each touching group
+ * saves as its own claim, and for the whole selection in capture mode, which rasterises as one.
+ */
+const limitError = (document: RegionDocument): string | null => {
+  if (captureHost === null) return claimDocumentsLimitError(claimDocuments(document))
+  if (document.items.length > MAX_REGION_ITEMS)
+    return `A selection holds at most ${MAX_REGION_ITEMS} shapes.`
+  if (regionDocumentWork(document) > MAX_REGION_DOCUMENT_WORK)
+    return 'This selection is too complex to draw; shrink or remove some shapes.'
+  return null
+}
+
 const workingDocument = (): RegionDocument => {
   const preview = previewItem()
   return { items: preview === null ? items : [...items, preview] }
@@ -379,6 +419,28 @@ const workingDocument = (): RegionDocument => {
  */
 export const claimEditorPixels = (): ClaimEditorPixels | null => {
   if (!active) return null
+  if (pixelCache?.version !== version && captureHost !== null) {
+    const document = workingDocument()
+    const rect = regionDocumentBounds(document)
+    const error =
+      limitError(document) ??
+      (rect !== null && rect.w * rect.h > MAX_REGION_DOCUMENT_PIXELS
+        ? 'This selection spans too much of the canvas. Select a smaller area.'
+        : null)
+    const selection = error === null ? claimDocumentPixels(document) : null
+    const parts = selection === null || selection.count === 0 ? [] : [selection]
+    pixelCache = {
+      version,
+      document,
+      documents: [],
+      error:
+        error ??
+        (document.items.length > 0 && parts.length === 0
+          ? 'This selection contains no pixels. Adjust or remove its subtracting shapes.'
+          : null),
+      pixels: rect === null ? null : { rect, parts, count: selection?.count ?? 0 },
+    }
+  }
   if (pixelCache?.version !== version) {
     const document = workingDocument()
     const grouped = claimDocuments(document)
@@ -426,6 +488,7 @@ export const claimModeModel = (): ClaimModeModel => {
   const pixels = claimEditorPixels()
   const status = message ?? (!active || pixelCache === null ? null : pixelCache.error)
   return {
+    purpose: captureHost === null ? 'claim' : 'capture',
     tool,
     tools: CLAIM_TOOLS,
     groups: GROUPS.map((group) => ({
@@ -531,7 +594,7 @@ const replaceItem = (id: string, shape: RegionShape): void => {
 
 const addItem = (shape: RegionShape): void => {
   const item: RegionItem = { id: nextItemId(), shape, op: subtract ? 'subtract' : 'add' }
-  const error = claimDocumentsLimitError(claimDocuments({ items: [...items, item] }))
+  const error = limitError({ items: [...items, item] })
   if (error !== null) {
     message = error
     return
@@ -777,7 +840,7 @@ const finishErase = (): void => {
   let area: ReturnType<typeof strokeArea> | null = null
   const next: RegionItem[] = []
   let changed = false
-  let limitError: string | null = null
+  let refused: string | null = null
   for (const [index, item] of items.entries()) {
     if (item.shape.kind === 'pixels') {
       const left = eraseFromRaster(item.shape, set)
@@ -795,18 +858,16 @@ const finishErase = (): void => {
     area ??= strokeArea(line, eraserWidth)
     const pieces = splitItem(item, area, nextItemId)
     // What is kept so far, plus these pieces, plus every item still to come, must fit per claim.
-    const error = claimDocumentsLimitError(
-      claimDocuments({ items: [...next, ...pieces, ...items.slice(index + 1)] }),
-    )
+    const error = limitError({ items: [...next, ...pieces, ...items.slice(index + 1)] })
     if (error !== null) {
-      limitError = error
+      refused = error
       next.push(item)
       continue
     }
     changed = true
     next.push(...pieces)
   }
-  if (limitError !== null) message = limitError
+  if (refused !== null) message = refused
   if (changed) {
     items = next
     select([])
@@ -830,12 +891,27 @@ const consume = (event: Event): void => {
   if (event.type === 'pointerdown') consumedPress = (event as PointerEvent).pointerId
 }
 
+let drawingTouch = false
+
+/** Wplace also listens to Touch Events, so consuming a pointer alone still lets the map pan. */
+const onTouch = (event: TouchEvent): void => {
+  if (event.type === 'touchstart' && active && consumedPress !== null) drawingTouch = true
+  if (!drawingTouch) return
+  consume(event)
+  if (event.touches.length === 0) drawingTouch = false
+}
+
 /** Eat the click that follows a consumed press, so Wplace never sees it as a pixel placement. */
 const swallowNextClick = (): void => {
   const swallow = (event: Event): void => {
     window.removeEventListener('click', swallow, true)
     clearTimeout(timer)
-    consume(event)
+    // Touch may emit no follow-up click. Never eat the user's next toolbar action instead.
+    if (
+      isMapInteractionTarget(event.target) ||
+      (event.target instanceof Node && overlay?.contains(event.target))
+    )
+      consume(event)
   }
   const timer = setTimeout(() => window.removeEventListener('click', swallow, true), 400)
   window.addEventListener('click', swallow, true)
@@ -1785,6 +1861,40 @@ const setTool = (next: ClaimTool): void => {
   notify()
 }
 
+/** Hand the selection to the capture host. A failure keeps the selection so it can be retried. */
+const capture = async (action: CaptureAction): Promise<void> => {
+  if (!active || pending || captureHost === null) return
+  if (pen !== null) commitPen(false)
+  const selection = claimEditorPixels()?.parts[0]
+  if (pixelCache?.error != null || selection === undefined) {
+    message = pixelCache?.error ?? 'Draw around the art to capture first.'
+    notify()
+    return
+  }
+  const mine = session
+  const target = captureHost
+  const controller = new AbortController()
+  captureController = controller
+  pending = true
+  message = undefined
+  notify()
+  let error: string | null
+  try {
+    error = await target.capture(selection, action, controller.signal)
+  } catch (failure) {
+    error = failure instanceof Error ? failure.message : String(failure)
+  }
+  if (captureController === controller) captureController = null
+  if (session !== mine || controller.signal.aborted) return
+  pending = false
+  if (!active) return
+  if (error === null) stopClaimMode()
+  else {
+    message = error
+    notify()
+  }
+}
+
 /**
  * Save writes your whole set of regions back: every independent group of touching shapes
  * becomes its own claim, saved under the id it came from where one survives, and loaded claims
@@ -1792,6 +1902,7 @@ const setTool = (next: ClaimTool): void => {
  * set releases everything. Removed shapes are simply absent from what is written.
  */
 const confirm = async (): Promise<void> => {
+  if (captureHost !== null) return capture('template')
   if (!active || pending || host === null) return
   if (pen !== null) commitPen(false)
   if (!dirty) {
@@ -1867,6 +1978,8 @@ export const handleClaimModeIntent = (intent: ClaimModeIntent): void => {
       break
     }
     case 'set-subtract': {
+      // A pending capture or save is using the current selection; a failure retries with it.
+      if (pending) return
       subtract = intent.subtract
       if (selectedIds.length > 0) {
         items = items.map((item) =>
@@ -1881,6 +1994,9 @@ export const handleClaimModeIntent = (intent: ClaimModeIntent): void => {
       return
     case 'confirm':
       void confirm()
+      return
+    case 'capture':
+      void capture(intent.action)
       return
     case 'cancel':
       stopClaimMode()
@@ -1899,7 +2015,8 @@ const ensureMode = (): void => {
   Object.assign(element.style, {
     position: 'fixed',
     inset: '0',
-    zIndex: '26',
+    // Editor actions must stay above the docked panel (30), below its popovers (40).
+    zIndex: '31',
     pointerEvents: 'none',
   } satisfies Partial<CSSStyleDeclaration>)
   applyWplaceTheme(element)
@@ -2204,6 +2321,8 @@ export const installClaimEditor = (editorHost: ClaimEditorHost): void => {
   window.addEventListener('pointermove', onPointerMove, true)
   window.addEventListener('pointerup', onPointerEnd, true)
   window.addEventListener('pointercancel', onPointerCancel, true)
+  for (const type of ['touchstart', 'touchmove', 'touchend', 'touchcancel'] as const)
+    window.addEventListener(type, onTouch, { capture: true, passive: false })
   window.addEventListener('keydown', onKeydown, true)
   window.addEventListener('keyup', onKeyup, true)
   window.addEventListener('wheel', onWheel, { capture: true, passive: false })
@@ -2213,16 +2332,34 @@ export const installClaimEditor = (editorHost: ClaimEditorHost): void => {
 export const startClaimMode = (initialTool?: ClaimTool): void => {
   if (host === null) return
   if (active) {
-    if (initialTool !== undefined) setTool(initialTool)
+    if (initialTool !== undefined && captureHost === null) setTool(initialTool)
     return
   }
+  enter(initialTool ?? 'select', host.myRegions(), null)
+}
+
+/**
+ * Enter capture mode with the rectangle in hand and nothing loaded. False while the editor is
+ * already open, so unsaved claims or another capture are never thrown away.
+ */
+export const startCaptureMode = (target: ClaimCaptureHost): boolean => {
+  if (host === null || active) return false
+  enter('rectangle', [], target)
+  return true
+}
+
+const enter = (
+  initialTool: ClaimTool,
+  saved: ReturnType<ClaimEditorHost['myRegions']>,
+  capturing: ClaimCaptureHost | null,
+): void => {
   active = true
   session++
-  tool = initialTool ?? 'select'
+  captureHost = capturing
+  tool = initialTool
   shown = { ...defaultShown(), [groupOf(tool)]: tool }
   // Whatever pixel Wplace had selected is stale now that clicks belong to the editor.
   dismissWplacePixelCard()
-  const saved = host.myRegions()
   // Claims saved separately may reuse item ids; every item needs its own here, or a later
   // edit could address the wrong one and the written documents would be refused.
   const seen = new Set<string>()
@@ -2262,10 +2399,13 @@ export const startClaimMode = (initialTool?: ClaimTool): void => {
   notify()
 }
 
-/** Leave claim mode. Nothing unsaved survives this. */
+/** Leave claim or capture mode. Nothing unsaved survives this. */
 export const stopClaimMode = (): void => {
   if (!active) return
   active = false
+  captureController?.abort()
+  captureController = null
+  captureHost = null
   items = []
   select([])
   marquee = null

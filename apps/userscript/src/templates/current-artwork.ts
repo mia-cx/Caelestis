@@ -1,4 +1,5 @@
 import {
+  type RegionShapePixels,
   sameTemplateSurface,
   TILE_SIZE,
   TRANSPARENT_INDEX,
@@ -81,7 +82,15 @@ export const captureCurrentArtwork = async (template: PlacedTemplate): Promise<U
       throw new Error('The alliance canvas changed. Try again.')
     return compositeCommittedArtwork(template, readArtboardPixels(active, geometry))
   }
+  return captureWorldArtwork(template)
+}
 
+/** Composite committed world art over a placement, loading every tile it touches first. */
+const captureWorldArtwork = async (
+  template: Pick<PlacedTemplate, 'originX' | 'originY' | 'width' | 'height' | 'indices'>,
+  mask?: Uint8Array,
+  signal?: AbortSignal,
+): Promise<Uint8Array> => {
   const indices = template.indices.slice()
   for (let y = 0; y < template.height; ) {
     const worldY = template.originY + y
@@ -89,8 +98,21 @@ export const captureCurrentArtwork = async (template: PlacedTemplate): Promise<U
     for (let x = 0; x < template.width; ) {
       const worldX = (template.originX + x) % WORLD_PIXELS
       const width = Math.min(TILE_SIZE - (worldX % TILE_SIZE), template.width - x)
+      let selected = mask === undefined
+      for (let row = 0; !selected && row < height; row++) {
+        selected =
+          mask
+            ?.subarray((y + row) * template.width + x, (y + row) * template.width + x + width)
+            .includes(1) === true
+      }
+      if (!selected) {
+        x += width
+        continue
+      }
       const tile = { x: Math.floor(worldX / TILE_SIZE), y: Math.floor(worldY / TILE_SIZE) }
+      signal?.throwIfAborted()
       const pixels = await loadCommittedTilePixels(tile)
+      signal?.throwIfAborted()
       if (pixels === null)
         throw new Error(
           `Could not load committed Wplace tile ${tile.x}/${tile.y}. Load that area and try again.`,
@@ -116,5 +138,31 @@ export const captureCurrentArtwork = async (template: PlacedTemplate): Promise<U
     }
     y += height
   }
+  return indices
+}
+
+/**
+ * Committed world art under a selection, one image pixel per canvas pixel over the selection's
+ * bounds and transparent outside its mask. Only tiles with selected pixels need to load; a missing
+ * selected tile fails the capture rather than reading as transparent.
+ */
+export const captureSelectedArtwork = async (
+  { rect, mask }: RegionShapePixels,
+  signal?: AbortSignal,
+): Promise<Uint8Array> => {
+  if (rect.x < 0 || rect.y < 0 || rect.x + rect.w > WORLD_PIXELS || rect.y + rect.h > WORLD_PIXELS)
+    throw new Error('Keep the capture selection inside the world canvas.')
+  const indices = await captureWorldArtwork(
+    {
+      originX: rect.x,
+      originY: rect.y,
+      width: rect.w,
+      height: rect.h,
+      indices: new Uint8Array(rect.w * rect.h).fill(TRANSPARENT_INDEX),
+    },
+    mask,
+    signal,
+  )
+  for (let at = 0; at < indices.length; at++) if (mask[at] !== 1) indices[at] = TRANSPARENT_INDEX
   return indices
 }

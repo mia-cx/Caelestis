@@ -201,8 +201,12 @@ export interface ClaimToolOptions {
   readonly maxWidth: number
 }
 
-/** Claim mode: a tool drawer on the left, a cancel-or-confirm bar at the top. */
+/**
+ * Claim mode: a tool drawer on the left, a cancel-or-confirm bar at the top. Capture mode is the
+ * same editor selecting committed art to download or add as a template instead of claiming it.
+ */
 export interface ClaimModeModel {
+  readonly purpose: 'claim' | 'capture'
   readonly tool: ClaimTool
   readonly tools: readonly ClaimToolEntry[]
   readonly groups: readonly ClaimToolGroup[]
@@ -233,7 +237,11 @@ export type ClaimModeIntent =
   | { readonly type: 'set-subtract'; readonly subtract: boolean }
   | { readonly type: 'delete-item' }
   | { readonly type: 'confirm' }
+  | { readonly type: 'capture'; readonly action: CaptureAction }
   | { readonly type: 'cancel' }
+
+/** What capture mode does with the selected art. */
+export type CaptureAction = 'download' | 'template'
 
 export type PanelIntent =
   | { readonly type: 'work-retry' }
@@ -518,6 +526,7 @@ export type TreeIcon = Extract<
   | 'expandLess'
   | 'reset'
   | 'download'
+  | 'fitScreen'
   | 'flag'
   | 'snowflake'
   | 'taskAlt'

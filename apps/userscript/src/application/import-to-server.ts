@@ -92,27 +92,29 @@ export const importTemplatesToServer = async (
   rerender: () => void,
   refreshServer: RefreshServer,
   surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
-): Promise<void> => {
+  signal?: AbortSignal,
+): Promise<boolean> => {
   if (!server.isAdmin) {
     reservation?.release()
     toast('This server needs an admin code before it can accept templates.', 'warning')
-    return
+    return false
   }
 
   const first = imported[0]
   if (first === undefined) {
     reservation?.release()
-    return
+    return false
   }
   if (first.source === 'image' && reservation === null) {
     toast('Finish the current placement, then import this image again.', 'warning')
-    return
+    return false
   }
 
   const admitted: string[] = []
   const failures: string[] = []
   try {
     for (const template of imported) {
+      signal?.throwIfAborted()
       try {
         await addLocalTemplate(template, surface)
         admitted.push(template.id)
@@ -120,11 +122,13 @@ export const importTemplatesToServer = async (
         failures.push(`${template.name}: ${String(error)}`)
       }
     }
+    signal?.throwIfAborted()
     rerender()
     if (failures.length > 0) toast(failures.join('. '), 'error')
-    if (!admitted.includes(first.id)) return
+    if (!admitted.includes(first.id)) return false
 
     if (first.source === 'image') {
+      signal?.throwIfAborted()
       const started = reservation?.start(first.id, () => {
         rerender()
         void uploadAdmitted(server, nodeId, admitted, rerender, refreshServer, surface)
@@ -133,13 +137,20 @@ export const importTemplatesToServer = async (
         for (const templateId of admitted) await removeLocalTemplate(templateId)
         rerender()
         toast('Another placement started. Import the image again when it is finished.', 'warning')
-        return
+        return false
       }
       toast(`Place “${first.name}”, then Apply to upload it.`, 'warning')
-      return
+      return true
     }
 
     await uploadAdmitted(server, nodeId, admitted, rerender, refreshServer, surface)
+    return true
+  } catch (error) {
+    if (signal?.aborted) {
+      for (const id of admitted) await removeLocalTemplate(id)
+      rerender()
+    }
+    throw error
   } finally {
     reservation?.release()
   }

@@ -1,6 +1,6 @@
 import type { CaelestisRailControl, RailControlIntent } from '@caelestis/ui/elements'
 import { activeAllianceSurface } from '../alliance-surface.js'
-import { isClaimModeActive, stopClaimMode } from '../claim-editor.js'
+import { isCaptureModeActive, isClaimModeActive, stopClaimMode } from '../claim-editor.js'
 import { redraw } from '../main.js'
 import { presenceView } from '../presence-client.js'
 import { shortcutHint } from '../shortcut-bindings.js'
@@ -56,17 +56,24 @@ export const syncClaimToolState = (): void => {
   const button = document.getElementById(CLAIM_TOOL_ID) as CaelestisRailControl | null
   if (button === null) return
   const active = isClaimModeActive()
+  const capturing = isCaptureModeActive()
   const view = presenceView()
   // Alliance artboards have no presence room, so claims only exist on the world canvas.
   const ready = view.connected && view.me !== null && activeAllianceSurface() === null
   button.model = {
     id: 'claim',
-    label: active ? 'Leave claim mode (Esc)' : `Claim a region${shortcutHint('claim-mode')}`,
+    label: capturing
+      ? 'Leave capture mode (Esc)'
+      : active
+        ? 'Leave claim mode (Esc)'
+        : `Claim a region${shortcutHint('claim-mode')}`,
     title:
       ready || active
-        ? active
-          ? 'Leave claim mode without saving (Esc)'
-          : `Claim a region: draw shapes, paths, and strokes over the map${shortcutHint('claim-mode')}`
+        ? capturing
+          ? 'Leave capture mode without capturing (Esc)'
+          : active
+            ? 'Leave claim mode without saving (Esc)'
+            : `Claim a region: draw shapes, paths, and strokes over the map${shortcutHint('claim-mode')}`
         : 'Claim a region. Needs a connected server with painter presence and a Wplace sign-in.',
     pressed: active,
     ...(ready || active ? {} : { disabled: true }),

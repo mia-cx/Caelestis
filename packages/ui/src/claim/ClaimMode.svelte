@@ -12,8 +12,10 @@
 
   const clamp = (value: number, min: number, max: number): number =>
     Math.min(max, Math.max(min, Math.round(value)))
+  const capture = $derived(model.purpose === 'capture')
   const hint = $derived.by(() => {
     if (model.message) return model.message
+    if (capture && model.items === 0) return 'Draw around the art to capture. Enter adds it as a template.'
     switch (model.tool) {
       case 'select':
         return 'Shift-click adds to the selection. Drag empty canvas to select several.'
@@ -102,8 +104,8 @@
 
 <svelte:window onkeydowncapture={onWindowKeydown} />
 
-<div class="mode" aria-label="Claim mode">
-  <nav class="drawer" aria-label="Claim tools">
+<div class="mode" aria-label={capture ? 'Capture mode' : 'Claim mode'}>
+  <nav class="drawer" aria-label={capture ? 'Selection tools' : 'Claim tools'}>
     {#each model.groups as group (group.id)}
       {@const entry = entryFor(group)}
       <div class="slot">
@@ -152,7 +154,7 @@
     {/each}
   </nav>
 
-  <div class="bar" role="toolbar" aria-label="Claims">
+  <div class="bar" role="toolbar" aria-label={capture ? 'Capture' : 'Claims'}>
     <div class="row">
       <div class="group tool-group" aria-label="Tool">
         <span class="tool-name"><Icon name={current.icon} size="1rem" />{current.label}</span>
@@ -182,16 +184,16 @@
               <input type="number" min={model.tool === 'pen' ? 0 : 1} max={model.options.maxWidth} value={model.options.width} disabled={model.pending} onchange={(event) => onIntent({ type: 'set-option', option: 'width', value: clamp(Number(event.currentTarget.value), model.tool === 'pen' ? 0 : 1, model.options.maxWidth) })} />
             </label>
           {/if}
-          {#if hasSubtract}
-            <label class="option">
-              <Toggle label="Subtract" compact checked={model.subtract} onChange={(subtract) => onIntent({ type: 'set-subtract', subtract })} />
-              <span>Subtract</span>
-            </label>
-          {/if}
         </div>
+        {#if hasSubtract}
+          <label class="option">
+            <Toggle label="Subtract" compact checked={model.subtract} disabled={model.pending} onChange={(subtract) => onIntent({ type: 'set-subtract', subtract })} />
+            <span>Subtract</span>
+          </label>
+        {/if}
       </div>
 
-      <div class="group status" aria-label="Claims">
+      <div class="group status" aria-label={capture ? 'Selection' : 'Claims'}>
         <span class="count">{model.items} {model.items === 1 ? 'shape' : 'shapes'}</span>
         <span class="dot" aria-hidden="true"></span>
         <span class="count">{model.pixels.toLocaleString()} px</span>
@@ -201,9 +203,15 @@
       </div>
 
       <div class="group actions">
-        <span class="unsaved" class:visible={model.dirty} aria-live="polite">{model.dirty ? 'Unsaved' : ''}</span>
-        <Button label="Cancel" size="compact" kind="ghost" disabled={model.pending} onclick={() => onIntent({ type: 'cancel' })} />
-        <Button label="Save claims" size="compact" kind="primary" disabled={model.pending || !model.dirty} onclick={() => onIntent({ type: 'confirm' })} />
+        {#if capture}
+          <Button label="Cancel" size="compact" kind="ghost" disabled={model.pending} onclick={() => onIntent({ type: 'cancel' })} />
+          <Button label="Download PNG" size="compact" disabled={model.pending || model.pixels === 0} onclick={() => onIntent({ type: 'capture', action: 'download' })} />
+          <Button label="Add as template" size="compact" kind="primary" disabled={model.pending || model.pixels === 0} onclick={() => onIntent({ type: 'capture', action: 'template' })} />
+        {:else}
+          <span class="unsaved" class:visible={model.dirty} aria-live="polite">{model.dirty ? 'Unsaved' : ''}</span>
+          <Button label="Cancel" size="compact" kind="ghost" disabled={model.pending} onclick={() => onIntent({ type: 'cancel' })} />
+          <Button label="Save claims" size="compact" kind="primary" disabled={model.pending || !model.dirty} onclick={() => onIntent({ type: 'confirm' })} />
+        {/if}
       </div>
     </div>
     <p class="hint" class:message={model.message !== undefined} role="status" title={hint}>{hint}</p>
@@ -475,7 +483,126 @@
       border-inline: 0;
     }
     .actions {
+      flex-wrap: wrap;
       justify-content: flex-end;
+    }
+  }
+
+  /* Phones need one editing area below the canvas, clear of Wplace's bottom controls.
+     Keep the tools and their flyouts together instead of covering the drawing with a sidebar. */
+  @media (max-width: 40rem) {
+    .mode {
+      inset: auto max(8px, env(safe-area-inset-right)) calc(4.25rem + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+      display: flex;
+      flex-direction: column;
+      border: 1px solid var(--caelestis-border);
+      border-radius: var(--caelestis-radius, 0.7rem);
+      background: var(--caelestis-surface, white);
+      box-shadow: var(--caelestis-popover-shadow, 0 10px 24px -6px rgb(0 0 0 / 0.28));
+    }
+    .drawer {
+      position: static;
+      transform: none;
+      flex-direction: row;
+      justify-content: space-around;
+      border: 0;
+      border-block-end: 1px solid var(--caelestis-border);
+      border-radius: 0;
+      background: transparent;
+      box-shadow: none;
+    }
+    .tool {
+      inline-size: 2.75rem;
+      block-size: 2.75rem;
+    }
+    .flyout {
+      inset-block: auto calc(100% + 8px);
+      inset-inline: 0 auto;
+      max-block-size: max(2.75rem, calc(100dvh - 20rem));
+      overflow-y: auto;
+    }
+    .slot:nth-last-child(-n + 2) .flyout {
+      inset-inline: auto 0;
+    }
+    .choice {
+      min-block-size: 2.75rem;
+    }
+    .choice kbd {
+      display: none;
+    }
+    .bar {
+      position: static;
+      inline-size: 100%;
+      margin: 0;
+      padding: 0.25rem 0.5rem 0.5rem;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      box-shadow: none;
+    }
+    .row {
+      gap: 0;
+    }
+    .tool-group {
+      justify-content: space-between;
+      column-gap: 0.5rem;
+      row-gap: 0;
+    }
+    .option {
+      min-block-size: 2.75rem;
+    }
+    .option input {
+      block-size: 2.75rem;
+      box-sizing: border-box;
+    }
+    .options {
+      order: 1;
+      flex-basis: 100%;
+      gap: 0 0.5rem;
+    }
+    .status {
+      min-block-size: 2.75rem;
+    }
+    .delete {
+      margin-inline-start: auto;
+    }
+    .actions {
+      display: flex;
+      flex-wrap: nowrap;
+      gap: 0.25rem;
+    }
+    .actions :global(button), .delete :global(button) {
+      min-block-size: 2.75rem;
+      block-size: auto;
+      padding: 0.5rem;
+      font-size: 0.75rem;
+      line-height: 1.2;
+    }
+    .actions :global(button) {
+      flex: 1 1 0;
+      min-inline-size: 0;
+    }
+    .actions :global(button.ghost) {
+      flex: 0 0 auto;
+    }
+    .unsaved {
+      min-inline-size: 0;
+    }
+    .hint {
+      display: none;
+    }
+    .hint.message {
+      display: block;
+      block-size: auto;
+      max-block-size: 3.3rem;
+      overflow-y: auto;
+      white-space: normal;
+    }
+  }
+
+  @media (max-width: 40rem) and (max-height: 24rem) {
+    .flyout {
+      inset-block: 0 auto;
     }
   }
 </style>
