@@ -79,6 +79,14 @@ const adminOperations = [
   ['GET', `/admin/backfill/${id}/job`],
   ['POST', `/admin/backfill/${id}/start`],
   ['POST', `/admin/backfill/${id}/cancel`],
+  ['GET', '/admin/archive'],
+  ['POST', '/admin/archive/export'],
+  ['GET', '/admin/archive/export'],
+  ['DELETE', '/admin/archive/export'],
+  ['POST', '/admin/archive/import'],
+  ['POST', '/admin/archive/import/records?position=1'],
+  ['POST', '/admin/archive/import/activate'],
+  ['DELETE', '/admin/archive/import'],
 ] as const
 const reportOperations = [
   ['POST', '/telemetry/paints'],
