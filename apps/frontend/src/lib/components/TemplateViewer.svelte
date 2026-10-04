@@ -1,42 +1,39 @@
 <script lang="ts">
-  import {
-    TILE_SIZE,
-    type Template,
-    type TileKey,
-    timelapseCaptureRect,
-  } from '@caelestis/shared'
+  import { TILE_SIZE, type TileKey } from '@caelestis/shared'
   import { Icon } from '@caelestis/ui'
+  import { untrack } from 'svelte'
   import {
     type CanvasRect,
     chunkImage,
-    chunkPlacements,
     osmImage,
     osmSpan,
     osmTileDrawRect,
     osmZoomFor,
-    templateRect,
+    type TimelapseLayout,
     tileImage,
-    tilesInRect,
   } from '$lib/render'
   import { cn } from '$lib/utils'
 
   let {
-    template,
+    layout,
+    label,
     hashFor,
     overlayAlpha = 1,
     class: className,
   }: {
-    template: Template
+    /** Matches the server's capture plan, so every tile this viewer draws has snapshots. */
+    layout: TimelapseLayout
+    /** Names the artwork for the accessible label. */
+    label: string
     /** Select the live canvas or a timelapse frame for each tile. */
     hashFor: (key: TileKey) => string | undefined
     overlayAlpha?: number
     class?: string
   } = $props()
 
-  // Match the server's capture plan, so every tile this viewer exposes has historical snapshots.
-  const world = $derived.by<CanvasRect>(() => timelapseCaptureRect(template.bbox))
-  const art = $derived(templateRect(template))
-  const chunks = $derived(chunkPlacements(template))
+  const world = $derived(layout.bounds)
+  const art = $derived(layout.art)
+  const chunks = $derived(layout.chunks)
 
   let container = $state<HTMLDivElement | null>(null)
   let visible = $state<HTMLCanvasElement | null>(null)
@@ -156,27 +153,25 @@
     // wplace's own answer to moiré, measured off its GL calls: LINEAR below 1:1, NEAREST above.
     ctx.imageSmoothingEnabled = scale < 1
 
-    for (const placement of tilesInRect(world)) {
-      const drawX = world.x + placement.drawX
-      const drawY = world.y + placement.drawY
+    for (const tile of layout.tiles) {
       if (
-        drawX + TILE_SIZE < visibleRect.x ||
-        drawX > visibleRect.x + visibleRect.width ||
-        drawY + TILE_SIZE < visibleRect.y ||
-        drawY > visibleRect.y + visibleRect.height
+        tile.x + TILE_SIZE < visibleRect.x ||
+        tile.x > visibleRect.x + visibleRect.width ||
+        tile.y + TILE_SIZE < visibleRect.y ||
+        tile.y > visibleRect.y + visibleRect.height
       )
         continue
-      const hash = hashFor(placement.key)
+      const hash = hashFor(tile.key)
       const loaded = hash === undefined ? null : ensure(`tile:${hash}`, () => tileImage(hash))
       if (hash !== undefined && loaded !== null) {
-        presentedTiles.set(placement.key, loaded)
+        presentedTiles.set(tile.key, loaded)
       }
       // A requested frame becomes visible only after it decoded. Pending, missing, and failed blobs
       // keep the last valid observation instead of exposing the basemap as a false blank. An
       // undefined hash means the selected time predates this tile's first observation, so a live or
       // later image must not leak backwards into that historical frame.
-      const image = hash === undefined ? null : (loaded ?? presentedTiles.get(placement.key) ?? null)
-      if (image !== null) ctx.drawImage(image, drawX, drawY)
+      const image = hash === undefined ? null : (loaded ?? presentedTiles.get(tile.key) ?? null)
+      if (image !== null) ctx.drawImage(image, tile.x, tile.y)
     }
 
     if (overlayAlpha > 0) {
@@ -227,8 +222,14 @@
     void originY
     void overlayAlpha
     void hashFor
-    void template
+    void layout
     schedulePresent()
+  })
+
+  // A route that swaps its templates (a folder link to a subfolder) reuses this viewer, so reframe.
+  $effect(() => {
+    void layout
+    untrack(fitToSurroundings)
   })
 
   const zoomAt = (screenX: number, screenY: number, factor: number): void => {
@@ -301,7 +302,7 @@
   bind:this={container}
   class={cn('relative touch-none overflow-hidden bg-base-200 select-none', className)}
   role="application"
-  aria-label="pannable view of {template.name} on the canvas"
+  aria-label="pannable view of {label} on the canvas"
   onwheel={onWheel}
   onpointerdown={onPointerDown}
   onpointermove={onPointerMove}
@@ -318,7 +319,7 @@
     <button class="btn btn-xs btn-circle border-base-300 bg-base-100/90" aria-label="zoom out" onclick={() => zoomAt(viewWidth / 2, viewHeight / 2, 1 / 1.5)}>
       <Icon name="remove" class="size-4.5" />
     </button>
-    <button class="btn btn-xs btn-circle border-base-300 bg-base-100/90" aria-label="fit template" onclick={() => { fitToArt(); }}>
+    <button class="btn btn-xs btn-circle border-base-300 bg-base-100/90" aria-label="fit artwork" onclick={() => { fitToArt(); }}>
       <Icon name="fitScreen" class="size-4.5" />
     </button>
   </div>

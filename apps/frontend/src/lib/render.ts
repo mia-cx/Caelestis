@@ -167,21 +167,6 @@ export interface ChunkPlacement {
   readonly y: number
 }
 
-export const chunkPlacements = (template: Template): ChunkPlacement[] => {
-  const placements: ChunkPlacement[] = []
-  for (const chunk of template.chunks) {
-    const coord = parseTileKey(chunk.tile)
-    if (coord === null) continue
-    // A chunk is the intersection of its bounding box and tile. Its top-left uses the later start.
-    placements.push({
-      hash: chunk.hash,
-      x: Math.max(coord.x * TILE_SIZE, template.bbox.minX),
-      y: Math.max(coord.y * TILE_SIZE, template.bbox.minY),
-    })
-  }
-  return placements
-}
-
 /** One captured canvas tile in world pixels, with every template whose capture covers it. */
 export interface TimelapseTile {
   readonly key: TileKey

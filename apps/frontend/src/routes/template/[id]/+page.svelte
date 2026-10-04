@@ -1,22 +1,13 @@
 <script lang="ts">
-  import {
-    canvasPixelToLatLng,
-    timelapseCaptureRect,
-    type TileKey,
-  } from '@caelestis/shared'
+  import { canvasPixelToLatLng } from '@caelestis/shared'
   import { Icon, MenuStyles, ProgressMeter, TemplateState } from '@caelestis/ui'
   import { page } from '$app/state'
-  import { getArchiveHistory, getTileHistory } from '$lib/api/client'
-  import { mergeArchiveFrames, type PlaybackFrame } from '$lib/archive-history'
   import ColourProgress from '$lib/components/ColourProgress.svelte'
   import StatsPanel from '$lib/components/StatsPanel.svelte'
-  import TemplateViewer from '$lib/components/TemplateViewer.svelte'
+  import TimelapsePanel from '$lib/components/TimelapsePanel.svelte'
   import { Skeleton } from '$lib/components/ui/skeleton'
-  import { Slider } from '$lib/components/ui/slider'
-  import { tilesInRect } from '$lib/render'
   import { useApp } from '$lib/state/app.svelte'
-  import { persisted } from '$lib/persisted.svelte'
-  import { frameAt, TimelapseClock, transportScale } from '$lib/timelapse'
+  import { TimelapsePlayer } from '$lib/timelapse-player.svelte'
   import { progressFromStatus } from '$lib/tree'
 
   const app = useApp()
@@ -44,142 +35,7 @@
     return `https://wplace.live/?lat=${lat.toFixed(5)}&lng=${lng.toFixed(5)}&zoom=13`
   })
 
-  // The canvas as it is comes first; the template art is opt-in via the slider.
-const storedOverlay = persisted<number>('caelestis:overlay-alpha', 0)
-const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
-
-  // ── Timelapse ────────────────────────────────────────────────────────────────────────────────
-  let frames = $state<ReadonlyMap<TileKey, readonly PlaybackFrame[]> | null>(null)
-  let archiveError = $state<string | null>(null)
-  let historyEnd = $state(0)
-  // The scrub position: 0..timeline.length, where the last stop is "live".
-  let scrub = $state(0)
-  let playhead = $state(0)
-  let playing = $state(false)
-  $effect(() => {
-    const target = template
-    const season = app.manifest?.season
-    if (target === null || season === undefined) return
-    const generation = { cancelled: false }
-    const from = Math.floor(target.createdAt / 1_000)
-    historyEnd = Math.floor((target.finishedAt ?? Date.now()) / 1_000)
-    const to = historyEnd + 1
-    frames = null
-    archiveError = null
-    playing = false
-    Promise.all(
-      tilesInRect(timelapseCaptureRect(target.bbox)).map(async (placement) => {
-        const [x, y] = placement.key.split('/').map(Number)
-        try {
-          const tile = { x: x ?? 0, y: y ?? 0 }
-          const archive = await getArchiveHistory(target.id, target.version, tile).catch(() => {
-            if (!generation.cancelled) archiveError = 'Imported timelapse history could not load.'
-            return null
-          })
-          const response = await getTileHistory(tile.x, tile.y, season, from, to).catch(() => {
-            if (!generation.cancelled) archiveError = 'Some timelapse history could not load.'
-            return { frames: [] }
-          })
-          return [placement.key, mergeArchiveFrames(response, (archive?.frames ?? []).filter((frame) => frame.at < to))] as const
-        } catch {
-          return [placement.key, []] as const
-        }
-      }),
-    ).then((entries) => {
-      if (generation.cancelled) return
-      frames = new Map(entries)
-      scrub = timelineOf(new Map(entries)).length
-      playhead = historyEnd
-    })
-    return () => {
-      generation.cancelled = true
-    }
-  })
-
-  const timelineOf = (map: ReadonlyMap<TileKey, readonly PlaybackFrame[]>): number[] => {
-    const starts = new Set<number>()
-    for (const tileFrames of map.values()) {
-      for (const frame of tileFrames) starts.add(frame.bucketStart)
-    }
-    return [...starts].sort((a, b) => a - b)
-  }
-
-  const timeline = $derived(frames === null ? [] : timelineOf(frames))
-  const playback = $derived(new TimelapseClock(timeline, historyEnd))
-  // The slider walks a bounded step domain: stepping through recorded seconds made bits-ui build a
-  // list of every second in the range on each playhead move, which stalled playback and exhausted
-  // memory on phones.
-  const transport = $derived(transportScale(timeline[0] ?? historyEnd, historyEnd))
-  const live = $derived(scrub >= timeline.length)
-  const scrubTime = $derived(live ? null : timeline[scrub])
-
-  // Each tile shows its live state or its newest snapshot at the scrub time. Missing snapshots keep
-  // the tile's last known state.
-  const hashFor = $derived.by(() => {
-    const map = frames
-    const t = scrubTime
-    const canvas = app.canvas
-    if (t == null || map === null) {
-      return (key: TileKey) => canvas.get(key)?.hash
-    }
-    return (key: TileKey): string | undefined => {
-      const tileFrames = map.get(key)
-      if (tileFrames === undefined) return undefined
-      let hash: string | undefined
-      for (const frame of tileFrames) {
-        if (frame.bucketStart > t) break
-        if (!frame.missing) hash = frame.hash
-      }
-      return hash
-    }
-  })
-
-  /** Playback rate: 1× is one recorded hour per 350 ms, independent of snapshot density. */
-  const SPEED_PRESETS = [0.25, 0.5, 0.75, 1, 1.5, 2, 4] as const
-  const storedSpeed = persisted<number>('caelestis:timelapse-speed', 1)
-  const speed = $derived(Number.isFinite(storedSpeed.value) ? Math.min(4, Math.max(0.05, storedSpeed.value)) : 1)
-
-  $effect(() => {
-    if (!playing) return
-    const clock = playback
-    const end = timeline.length
-    clock.play(speed, (index, time) => {
-      scrub = index
-      playhead = Math.floor(time)
-      if (index >= end) playing = false
-    })
-    return () => clock.pause()
-  })
-
-  /**
-   * Move the timelapse to a recorded time and pause. The transport and the pace chart both seek
-   * through here: times outside the retained history clamp to its ends, and the end stays live.
-   */
-  const seekTo = (time: number): void => {
-    const value = Math.floor(Math.min(historyEnd, Math.max(timeline[0] ?? historyEnd, time)))
-    playhead = value
-    scrub = value >= historyEnd ? timeline.length : frameAt(timeline, value)
-    playback.seek(value)
-    playing = false
-  }
-
-  /** A browser-canceled scrub restores both the position and whether playback was running. */
-  const beginScrub = (): (() => void) => {
-    const position = playhead
-    const wasPlaying = playing
-    return () => {
-      seekTo(position)
-      playing = wasPlaying
-    }
-  }
-
-  const formatFrame = (t: number): string =>
-    new Date(t * 1000).toLocaleString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
+  const player = new TimelapsePlayer(() => (template === null ? [] : [template]))
 </script>
 
 <MenuStyles />
@@ -233,120 +89,13 @@ const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
     </header>
 
     <ProgressMeter {progress} griefWatch={alarm !== undefined} />
-    {#if archiveError}<p class="text-sm text-error" role="alert">{archiveError}</p>{/if}
     {#if progress.known < progress.total}
       <p class="-mt-2 text-xs text-base-content/50">
         {Math.round((progress.known / Math.max(1, progress.total)) * 100)}% of pixels scanned.
       </p>
     {/if}
 
-    <section class="overflow-hidden pixel-card bg-base-100">
-      <TemplateViewer {template} {hashFor} {overlayAlpha} class="h-[28rem] w-full" />
-
-      <div class="flex flex-wrap items-center gap-x-4 gap-y-2 border-t-[1.5px] border-base-300 px-4 py-3">
-        <span class="shrink-0 text-sm text-base-content/70">Template overlay</span>
-        <Slider
-          type="single"
-          min={0}
-          max={1}
-          step={0.05}
-          value={overlayAlpha}
-          onValueChange={(value: number) => (storedOverlay.value = value)}
-          class="max-w-44 flex-1"
-          aria-label="template overlay opacity"
-        />
-        <span class="w-9 text-end text-xs tabular-nums text-base-content/50">
-          {Math.round(overlayAlpha * 100)}%
-        </span>
-      </div>
-
-      <div class="flex flex-wrap items-center gap-x-3 gap-y-2 border-t-[1.5px] border-base-300 px-4 py-3">
-        {#if frames === null}
-          <Skeleton class="h-6 w-full" />
-        {:else if timeline.length === 0}
-          <span class="text-sm text-base-content/50">
-            No tile snapshots yet. New snapshots appear after the next six-hour canvas scan.
-          </span>
-        {:else}
-          <button
-            class="btn btn-sm btn-circle btn-primary"
-            onclick={() => {
-              if (!playing && scrub >= timeline.length) {
-                scrub = 0
-                playhead = timeline[0] ?? historyEnd
-                playback.seek(playhead)
-              }
-              playing = !playing
-            }}
-            aria-label={playing ? 'pause timelapse' : 'play timelapse'}
-          >
-            {#if playing}<Icon name="pause" class="size-4.5" />{:else}<Icon name="play" class="size-4.5" />{/if}
-          </button>
-          <div class="dropdown dropdown-top group">
-            <button
-              tabindex="0"
-              class="btn btn-sm btn-ghost w-14 tabular-nums"
-              aria-label="playback speed, currently {speed.toFixed(2)}×"
-            >
-              {speed.toFixed(2).replace(/0$/, '')}×
-            </button>
-            <div
-              class="caelestis-menu dropdown-content pointer-events-none z-20 mb-1 flex w-64 flex-col gap-3 group-focus-within:pointer-events-auto"
-            >
-              <div class="flex items-center gap-2">
-                <Slider
-                  type="single"
-                  min={0.05}
-                  max={4}
-                  step={0.05}
-                  value={speed}
-                  onValueChange={(value: number) => (storedSpeed.value = value)}
-                  class="flex-1"
-                  aria-label="playback speed"
-                />
-                <span class="w-12 text-end text-xs tabular-nums text-base-content/70">
-                  {speed.toFixed(2)}×
-                </span>
-              </div>
-              <div class="grid grid-cols-4 gap-1">
-                {#each SPEED_PRESETS as preset (preset)}
-                  <button
-                    class="btn btn-xs {speed === preset ? 'btn-primary' : 'btn-ghost'} tabular-nums"
-                    onclick={() => (storedSpeed.value = preset)}
-                  >
-                    {preset}×
-                  </button>
-                {/each}
-              </div>
-            </div>
-          </div>
-          <Slider
-            type="single"
-            min={0}
-            max={transport.steps}
-            step={1}
-            value={transport.toStep(playhead)}
-            onValueChange={(step: number) => seekTo(transport.toTime(step))}
-            class="min-w-40 flex-1"
-            aria-label="timelapse position"
-            aria-valuetext={formatFrame(playhead)}
-            data-playhead={playhead}
-          />
-          <span class="w-32 shrink-0 text-end text-xs tabular-nums text-base-content/70">
-            {#if live}
-              <span class="badge badge-success badge-xs align-middle">{template.finished ? 'current' : 'live'}</span>
-            {:else if scrubTime !== undefined && scrubTime !== null}
-              {formatFrame(playhead)}
-            {/if}
-          </span>
-        {/if}
-      </div>
-      {#if template.timelapseFrozen}
-        <div class="border-t-[1.5px] border-base-300 px-4 py-2">
-          <TemplateState compact frozen />
-        </div>
-      {/if}
-    </section>
+    <TimelapsePanel {player} label={template.name} />
 
     <StatsPanel
       templates={[template]}
@@ -354,9 +103,9 @@ const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
       liveDashboard={app.liveProtocol === 2}
       {progress}
       subscribeDashboard={app.subscribeDashboard}
-      playhead={live ? null : playhead}
-      onSeek={timeline.length > 0 ? seekTo : undefined}
-      onScrubStart={beginScrub}
+      playhead={player.live ? null : player.playhead}
+      onSeek={player.timeline.length > 0 ? player.seekTo : undefined}
+      onScrubStart={player.beginScrub}
     />
 
     {#if status?.colours !== undefined && status.colours.length > 0}
