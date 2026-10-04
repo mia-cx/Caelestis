@@ -24,6 +24,8 @@ export const mergeServerInfo = (base: ServerInfo, settings: ServerSettings): Ser
     ...(base.liveTileOffers === undefined ? {} : { liveTileOffers: base.liveTileOffers }),
     ...(base.presence === undefined ? {} : { presence: base.presence }),
     ...(base.livePaintParts === undefined ? {} : { livePaintParts: base.livePaintParts }),
+    ...(base.version === undefined ? {} : { version: base.version }),
+    ...(base.build === undefined ? {} : { build: base.build }),
   }
   return description === undefined || description === null ? resolved : { ...resolved, description }
 }

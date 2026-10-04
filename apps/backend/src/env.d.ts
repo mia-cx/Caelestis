@@ -72,5 +72,8 @@ interface Env {
 /** Replaced with the deployment Git SHA by Wrangler in production. */
 declare const __CAELESTIS_DEPLOYMENT_VERSION__: string
 
+/** Replaced with the backend package version by Wrangler in production. */
+declare const __CAELESTIS_BACKEND_VERSION__: string
+
 /** Replaced with exact released userscript versions from Changesets history in production. */
 declare const __CAELESTIS_USERSCRIPT_VERSIONS__: readonly string[]

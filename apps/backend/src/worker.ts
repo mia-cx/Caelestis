@@ -4,7 +4,11 @@ import { DurableObjectCounterStore } from './adapters/cloudflare/do-counter-stor
 import { DurableObjectStatusReadModel } from './adapters/cloudflare/do-status-read-model.js'
 import { R2BlobStore } from './adapters/cloudflare/r2-blob-store.js'
 import { type App, createApp } from './app.js'
-import { instrumentD1, measureRequest } from './metrics/request-metrics.js'
+import {
+  deploymentVersion,
+  instrumentD1,
+  measureRequest,
+} from './metrics/request-metrics.js'
 import { presenceRequest } from './presence/port.js'
 import { makeBackendContext } from './runtime/backend-runtime.js'
 import { derivedArtifactWriter } from './telemetry/derived-artifact-writer.js'
@@ -116,6 +120,10 @@ const appFor = (env: Env): App => {
     bootstrapAdminToken: env.ADMIN_TOKEN,
     serverId: env.SERVER_ID,
     serverName: env.SERVER_NAME,
+    ...(typeof __CAELESTIS_BACKEND_VERSION__ === 'string'
+      ? { version: __CAELESTIS_BACKEND_VERSION__ }
+      : {}),
+    build: deploymentVersion,
     serverDescription: env.SERVER_DESCRIPTION,
     // Without the season, every deployment answers as season 0. Without openAccess, a server that
     // advertises anonymous reads still rejects its manifest. Keep both in the prepared app config.
