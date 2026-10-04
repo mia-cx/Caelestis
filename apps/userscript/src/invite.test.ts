@@ -214,7 +214,7 @@ describe('consumeInvite', () => {
     expect(order).toEqual(['probe:1'])
   })
 
-  it('ignores a second invite while one is in flight', async () => {
+  it('clears but does not connect a second invite while one is in flight', async () => {
     const other = encodeInvite('https://other.example', 'other-token')
     let release!: () => void
     const blocker = new Promise<void>((resolve) => (release = resolve))
@@ -229,6 +229,10 @@ describe('consumeInvite', () => {
     const second = fakeDeps({ hash: `#${other}` })
     await consumeInvite(second.deps)
     expect(second.probes).toHaveLength(0)
+    expect(second.cleared).toEqual(['cleared'])
+    expect(second.notices.map(({ message }) => message)).toEqual([
+      'Still connecting to https://other.example. Open the invite again in a moment.',
+    ])
     release()
     await first
   })

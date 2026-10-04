@@ -109,13 +109,19 @@ let inviteInFlight = false
  */
 export const consumeInvite = async (deps: InviteDeps): Promise<void> => {
   const invite = readInvite(deps.hash)
-  if (invite === null || inviteInFlight) return
+  if (invite === null) return
   deps.clearHash()
   if (invite === 'malformed') {
     deps.notify("That invite link isn't valid.", 'error')
     return
   }
-  if (deps.isBusy(invite.serverUrl)) return
+  if (inviteInFlight || deps.isBusy(invite.serverUrl)) {
+    deps.notify(
+      `Still connecting to ${invite.serverUrl}. Open the invite again in a moment.`,
+      'error',
+    )
+    return
+  }
   const existing = deps.servers().find((server) => server.url === invite.serverUrl)
   if (
     existing !== undefined &&
