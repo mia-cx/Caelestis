@@ -74,4 +74,31 @@ describe('server manifest admission', () => {
       ]),
     ).toBeNull()
   })
+
+  it('keeps bounded server version metadata and drops unusable values', async () => {
+    const { parseServerInfo } = await import('../src/server-manifest.js')
+    const base = { id: serverId, name: 'Example', auth: 'none' }
+    expect(parseServerInfo({ ...base, version: '0.9.0', build: 'a1b2c3d4e5f6' })).toMatchObject({
+      version: '0.9.0',
+      build: 'a1b2c3d4e5f6',
+    })
+    for (const value of ['', 'x'.repeat(65), 9, null]) {
+      expect(parseServerInfo({ ...base, version: value, build: value })).toMatchObject(base)
+    }
+  })
+
+  it.each([
+    ['0.8.9', true],
+    ['0.9.0', false],
+    ['0.9.1', false],
+    [undefined, false],
+    ['development', false],
+    ['0.9', false],
+  ] as const)(
+    'flags a server version %s against expectation 0.9.0 only when strictly lower',
+    async (advertised, expected) => {
+      const { backendVersionOutdated } = await import('../src/userscript-update.js')
+      expect(backendVersionOutdated(advertised, '0.9.0')).toBe(expected)
+    },
+  )
 })
