@@ -77,8 +77,39 @@
 
 <style>
   .sort-trigger { display: grid; place-items: center; flex: 0 0 2rem; inline-size: 2rem; block-size: 2rem; padding: 0; border: var(--border, 1px) solid color-mix(in oklab, var(--caelestis-text) 20%, transparent); border-radius: 0.5rem; background: var(--caelestis-surface); color: inherit; box-shadow: 0 1px color-mix(in oklab, var(--caelestis-text) 10%, transparent) inset; cursor: pointer; }
-  .sort-menu { position: fixed; inset: auto; margin: 0; z-index: 60; inline-size: 11rem; max-inline-size: calc(100vw - 1rem); max-block-size: calc(100vh - 1rem); overflow: auto; }
-  .sort-menu:popover-open { display: flex; flex-direction: column; }
+  .sort-menu {
+    --dropdown-open-dur: var(--caelestis-duration-fast);
+    --dropdown-close-dur: var(--caelestis-duration-quick);
+    --dropdown-pre-scale: var(--caelestis-scale-medium);
+    --dropdown-closing-scale: var(--caelestis-scale-tiny);
+    --dropdown-ease: var(--caelestis-ease-smooth-out);
+    position: fixed; inset: auto; margin: 0; z-index: 60; inline-size: 11rem; max-inline-size: calc(100vw - 1rem); max-block-size: calc(100vh - 1rem); overflow: auto;
+    transform-origin: top right;
+    transform: scale(var(--dropdown-pre-scale));
+    opacity: 0;
+    pointer-events: none;
+    transition:
+      transform var(--dropdown-close-dur) var(--dropdown-ease),
+      opacity   var(--dropdown-close-dur) var(--dropdown-ease),
+      overlay   var(--dropdown-close-dur) var(--dropdown-ease) allow-discrete,
+      display   var(--dropdown-close-dur) var(--dropdown-ease) allow-discrete;
+    will-change: transform, opacity;
+  }
+  .sort-menu:popover-open {
+    display: flex; flex-direction: column;
+    transform: scale(1);
+    opacity: 1;
+    pointer-events: auto;
+    transition:
+      transform var(--dropdown-open-dur) var(--dropdown-ease),
+      opacity   var(--dropdown-open-dur) var(--dropdown-ease),
+      overlay   var(--dropdown-open-dur) var(--dropdown-ease) allow-discrete,
+      display   var(--dropdown-open-dur) var(--dropdown-ease) allow-discrete;
+    @starting-style { transform: scale(var(--dropdown-pre-scale)); opacity: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .sort-menu { transition: none !important; }
+  }
   .sort-menu button { inline-size: 100%; }
   .sort-trigger:hover { background: var(--caelestis-raised-surface); }
   .check { display: flex; flex: 0 0 1rem; inline-size: 1rem; }

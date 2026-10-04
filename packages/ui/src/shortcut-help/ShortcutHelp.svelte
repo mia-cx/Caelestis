@@ -429,15 +429,47 @@
 
 <style>
   :global(*) { box-sizing: border-box; }
-  dialog { position: fixed; inset: 0; inline-size: 100%; max-inline-size: none; block-size: 100%; max-block-size: none; margin: 0; padding: 0; border: 0; background: transparent; color: var(--caelestis-text); font: 400 0.875rem/1.35 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); }
-  dialog[open] { display: grid; place-items: center; }
-  dialog::backdrop { background: rgb(0 0 0 / 0.4); }
+  dialog {
+    --modal-open-dur: var(--caelestis-duration-fast);
+    --modal-close-dur: var(--caelestis-duration-quick);
+    --modal-scale: var(--caelestis-scale-large);
+    --modal-scale-close: var(--caelestis-scale-large);
+    --modal-ease: var(--caelestis-ease-smooth-out);
+    position: fixed; inset: 0; inline-size: 100%; max-inline-size: none; block-size: 100%; max-block-size: none; margin: 0; padding: 0; border: 0; background: transparent; color: var(--caelestis-text); font: 400 0.875rem/1.35 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
+    transform-origin: center;
+    transform: scale(var(--modal-scale));
+    opacity: 0;
+    pointer-events: none;
+    transition:
+      transform var(--modal-close-dur) var(--modal-ease),
+      opacity   var(--modal-close-dur) var(--modal-ease),
+      overlay   var(--modal-close-dur) var(--modal-ease) allow-discrete,
+      display   var(--modal-close-dur) var(--modal-ease) allow-discrete;
+    will-change: transform, opacity;
+  }
+  dialog[open] {
+    display: grid; place-items: center;
+    transform: scale(1);
+    opacity: 1;
+    pointer-events: auto;
+    transition:
+      transform var(--modal-open-dur) var(--modal-ease),
+      opacity   var(--modal-open-dur) var(--modal-ease),
+      overlay   var(--modal-open-dur) var(--modal-ease) allow-discrete,
+      display   var(--modal-open-dur) var(--modal-ease) allow-discrete;
+    @starting-style { transform: scale(var(--modal-scale)); opacity: 0; }
+  }
+  dialog::backdrop { background: rgb(0 0 0 / 0.4); opacity: 0; transition: opacity var(--modal-close-dur) var(--modal-ease), overlay var(--modal-close-dur) var(--modal-ease) allow-discrete, display var(--modal-close-dur) var(--modal-ease) allow-discrete; }
+  dialog[open]::backdrop { opacity: 1; transition-duration: var(--modal-open-dur); @starting-style { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) {
+    dialog, dialog::backdrop { transition: none !important; }
+  }
   .caelestis-shortcut-box { --caelestis-shortcut-max-height: 91.666dvh; display: flex; inline-size: min(91.666vw, 62rem); max-block-size: var(--caelestis-shortcut-max-height); flex-direction: column; overflow: hidden; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-surface); box-shadow: var(--caelestis-shadow); }
   header { position: sticky; z-index: 4; inset-block-start: 0; display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; padding: 1rem 1.5rem; border-block-end: 1px solid color-mix(in oklab, var(--caelestis-text) 10%, transparent); background: color-mix(in oklab, var(--caelestis-surface) 88%, transparent); backdrop-filter: blur(12px); }
   h2 { margin: 0; font-size: 1.25rem; font-weight: 700; line-height: 1.4; }
   .content { display: flex; min-block-size: 0; flex: 1; flex-direction: column; overflow-x: hidden; overflow-y: auto; padding: 1rem 1.5rem; }
   .caelestis-shortcut-layout { display: grid; flex: none; grid-template-columns: minmax(20rem, 0.82fr) minmax(27rem, 1.18fr); align-items: stretch; overflow: hidden; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: color-mix(in oklab, var(--caelestis-raised-surface) 58%, transparent); }
-  .caelestis-keymap { --tt-in-dur: 150ms; --tt-out-dur: 50ms; --tt-scale: 0.98; --tt-delay: 80ms; position: relative; isolation: isolate; display: grid; flex: none; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(6.75rem, auto); gap: 1.5rem; align-items: center; margin: 0; padding: clamp(1.25rem, 2.5vw, 2rem); border-inline-start: 1px solid var(--caelestis-border); background: color-mix(in oklab, var(--caelestis-surface) 30%, transparent); overflow: hidden; }
+  .caelestis-keymap { --tt-in-dur: var(--caelestis-duration-quick); --tt-out-dur: var(--caelestis-duration-micro); --tt-scale: var(--caelestis-scale-small); --tt-delay: var(--caelestis-duration-micro); position: relative; isolation: isolate; display: grid; flex: none; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(6.75rem, auto); gap: 1.5rem; align-items: center; margin: 0; padding: clamp(1.25rem, 2.5vw, 2rem); border-inline-start: 1px solid var(--caelestis-border); background: color-mix(in oklab, var(--caelestis-surface) 30%, transparent); overflow: hidden; }
   .caelestis-keymap-keyboard { --caelestis-key-gap: 0.4em; position: relative; z-index: 2; display: flex; inline-size: 100%; flex-direction: column; gap: var(--caelestis-key-gap); font-size: clamp(0.625rem, 1.1vw, 0.8125rem); }
   .caelestis-keymap-row { display: flex; inline-size: 100%; gap: var(--caelestis-key-gap); }
   .caelestis-keymap-key { display: inline-flex; min-inline-size: 0; block-size: 3em; flex: var(--caelestis-key-units) 1 0; align-items: center; justify-content: center; overflow: hidden; padding: 0 0.125rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-surface); box-shadow: 0 1px 0 var(--caelestis-border), inset 0 -1px 0 color-mix(in oklab, var(--caelestis-text) 8%, transparent); color: var(--caelestis-text); font: 700 1em/1 var(--caelestis-mono-font, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace); white-space: nowrap; opacity: 0.3; transition: opacity var(--tt-in-dur) ease-out, transform var(--tt-in-dur) ease-out; }

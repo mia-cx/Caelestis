@@ -173,7 +173,8 @@
   onclick={show}
 ></button>
 
-{#if open}
+  <!-- Mounted permanently: a manual popover's exit transition only runs while the node exists, so
+       the top layer owns its lifetime and `hidePopover()` animates the close itself. -->
   <div bind:this={popover} class="picker caelestis-cp caelestis-surface" data-caelestis-colour-picker popover="manual" role="dialog" aria-label={label} tabindex="-1" onpointerdown={(event) => event.stopPropagation()}>
     <div
       bind:this={square}
@@ -228,13 +229,44 @@
       />
     </div>
   </div>
-{/if}
 
 <style>
   .swatch, .preview { display: block; inline-size: 1.75rem; block-size: 1.75rem; flex: 0 0 auto; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); }
   .swatch { padding: 0; cursor: pointer; }
   .swatch:disabled { cursor: not-allowed; opacity: 0.45; }
-  .picker { position: fixed; inset: auto; z-index: 50; inline-size: min(15rem, calc(100vw - 1rem)); margin: 0; padding: 1rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-surface); color: var(--caelestis-text); box-shadow: var(--caelestis-popover-shadow, 0 1px 2px rgb(0 0 0 / 0.12), 0 10px 24px -6px rgb(0 0 0 / 0.28)); }
+  .picker {
+    --dropdown-open-dur: var(--caelestis-duration-fast);
+    --dropdown-close-dur: var(--caelestis-duration-quick);
+    --dropdown-pre-scale: var(--caelestis-scale-medium);
+    --dropdown-closing-scale: var(--caelestis-scale-tiny);
+    --dropdown-ease: var(--caelestis-ease-smooth-out);
+    position: fixed; inset: auto; z-index: 50; inline-size: min(15rem, calc(100vw - 1rem)); margin: 0; padding: 1rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-surface); color: var(--caelestis-text); box-shadow: var(--caelestis-popover-shadow, 0 1px 2px rgb(0 0 0 / 0.12), 0 10px 24px -6px rgb(0 0 0 / 0.28));
+    /* The picker opens above the swatch it edits. */
+    transform-origin: bottom center;
+    transform: scale(var(--dropdown-pre-scale));
+    opacity: 0;
+    pointer-events: none;
+    transition:
+      transform var(--dropdown-close-dur) var(--dropdown-ease),
+      opacity   var(--dropdown-close-dur) var(--dropdown-ease),
+      overlay   var(--dropdown-close-dur) var(--dropdown-ease) allow-discrete,
+      display   var(--dropdown-close-dur) var(--dropdown-ease) allow-discrete;
+    will-change: transform, opacity;
+  }
+  .picker:popover-open {
+    transform: scale(1);
+    opacity: 1;
+    pointer-events: auto;
+    transition:
+      transform var(--dropdown-open-dur) var(--dropdown-ease),
+      opacity   var(--dropdown-open-dur) var(--dropdown-ease),
+      overlay   var(--dropdown-open-dur) var(--dropdown-ease) allow-discrete,
+      display   var(--dropdown-open-dur) var(--dropdown-ease) allow-discrete;
+    @starting-style { transform: scale(var(--dropdown-pre-scale)); opacity: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .picker { transition: none !important; }
+  }
   .sv { position: relative; inline-size: 100%; aspect-ratio: 1.35; overflow: hidden; border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); cursor: crosshair; touch-action: none; }
   .handle { position: absolute; inline-size: 0.8rem; block-size: 0.8rem; border: 2px solid white; border-radius: 50%; box-shadow: 0 0 0 1px black; transform: translate(-50%, -50%); pointer-events: none; }
   .hue { inline-size: 100%; margin-block: 0.65rem 0.35rem; accent-color: var(--caelestis-primary); }

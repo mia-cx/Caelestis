@@ -167,9 +167,41 @@
 
 <style>
   .docked { block-size: 100%; min-block-size: 0; }
-  dialog { position: fixed; inset: 0; inline-size: 96vw; block-size: 96dvh; max-inline-size: none; max-block-size: none; margin: auto; padding: 0; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); overflow: visible; color: inherit; background: transparent; }
+  dialog {
+    --modal-open-dur: var(--caelestis-duration-fast);
+    --modal-close-dur: var(--caelestis-duration-quick);
+    --modal-scale: var(--caelestis-scale-large);
+    --modal-scale-close: var(--caelestis-scale-large);
+    --modal-ease: var(--caelestis-ease-smooth-out);
+    position: fixed; inset: 0; inline-size: 96vw; block-size: 96dvh; max-inline-size: none; max-block-size: none; margin: auto; padding: 0; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); overflow: visible; color: inherit; background: transparent;
+    transform-origin: center;
+    transform: scale(var(--modal-scale));
+    opacity: 0;
+    pointer-events: none;
+    transition:
+      transform var(--modal-close-dur) var(--modal-ease),
+      opacity   var(--modal-close-dur) var(--modal-ease),
+      overlay   var(--modal-close-dur) var(--modal-ease) allow-discrete,
+      display   var(--modal-close-dur) var(--modal-ease) allow-discrete;
+    will-change: transform, opacity;
+  }
+  dialog[open] {
+    transform: scale(1);
+    opacity: 1;
+    pointer-events: auto;
+    transition:
+      transform var(--modal-open-dur) var(--modal-ease),
+      opacity   var(--modal-open-dur) var(--modal-ease),
+      overlay   var(--modal-open-dur) var(--modal-ease) allow-discrete,
+      display   var(--modal-open-dur) var(--modal-ease) allow-discrete;
+    @starting-style { transform: scale(var(--modal-scale)); opacity: 0; }
+  }
+  dialog::backdrop { background: rgb(0 0 0 / 0.4); opacity: 0; transition: opacity var(--modal-close-dur) var(--modal-ease), overlay var(--modal-close-dur) var(--modal-ease) allow-discrete, display var(--modal-close-dur) var(--modal-ease) allow-discrete; }
+  dialog[open]::backdrop { opacity: 1; transition-duration: var(--modal-open-dur); @starting-style { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) {
+    dialog, dialog::backdrop { transition: none !important; }
+  }
   dialog .panel { border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); }
-  dialog::backdrop { background: rgb(0 0 0 / 0.4); }
   .panel { container: panel / inline-size; }
   .panel { --caelestis-content-inset: 1rem; position: relative; display: flex; flex-direction: column; min-block-size: 0; block-size: 100%; overflow: hidden; border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-surface, oklch(0.97 0.01 264)); color: var(--caelestis-text, oklch(0.26 0.025 264)); box-shadow: var(--caelestis-shadow, 0 24px 80px rgb(0 0 0 / 0.35)); }
   header { display: flex; flex: 0 0 auto; align-items: center; gap: 0.5rem; padding: 1rem 1.5rem; border-block-end: 1px solid var(--caelestis-border, oklch(0.78 0.025 264 / 0.7)); }
