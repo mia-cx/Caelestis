@@ -39,6 +39,17 @@ const parseCoords = (value: string): readonly [number, number, number, number] =
 const base64Bytes = (value: string): Uint8Array =>
   new Uint8Array(Buffer.from(value.replace(/^data:image\/png;base64,/i, ''), 'base64'))
 
+// The oracle and the stubbed browser decoder read the same 3x-scaled tiles. Decoding them was most
+// of this test's runtime, and doing it twice pushed contended CI runners past the timeout.
+const decodedPngs = new Map<string, ReturnType<typeof decodePng>>()
+
+const decodePngOnce = (bytes: Uint8Array): ReturnType<typeof decodePng> => {
+  const key = Buffer.from(bytes).toString('base64')
+  const decoded = decodedPngs.get(key) ?? decodePng(bytes)
+  decodedPngs.set(key, decoded)
+  return decoded
+}
+
 const decodeMarblePixels = async (
   source: string,
 ): Promise<{
@@ -46,7 +57,7 @@ const decodeMarblePixels = async (
   readonly height: number
   readonly pixels: Uint8Array
 }> => {
-  const encoded = await decodePng(base64Bytes(source))
+  const encoded = await decodePngOnce(base64Bytes(source))
   if (encoded.width % 3 !== 0 || encoded.height % 3 !== 0) {
     throw new Error('fixture tile does not use Blue Marble 3x encoding')
   }
@@ -80,7 +91,7 @@ const installImageDecoder = (): void => {
   })
 
   vi.stubGlobal('createImageBitmap', async (blob: Blob): Promise<DecodedBitmap> => {
-    const image = await decodePng(new Uint8Array(await blob.arrayBuffer()))
+    const image = await decodePngOnce(new Uint8Array(await blob.arrayBuffer()))
     return { ...image, close: () => {} }
   })
 
