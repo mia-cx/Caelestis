@@ -33,6 +33,15 @@ export class TemplateBackfillObject extends DurableObject<Env> {
       backfillReply(() => this.importer.start(templateId, versionId, snapshotId)),
     )
   }
+  exportState(...args: Parameters<TemplateBackfill['exportState']>) {
+    return this.importer.exportState(...args)
+  }
+  importState(...args: Parameters<TemplateBackfill['importState']>) {
+    return this.ctx.blockConcurrencyWhile(() => this.importer.importState(...args))
+  }
+  discardState(...args: Parameters<TemplateBackfill['discardState']>) {
+    return this.ctx.blockConcurrencyWhile(() => this.importer.discardState(...args))
+  }
   async cancel() {
     return this.ctx.blockConcurrencyWhile(() => backfillReply(() => this.importer.cancel()))
   }

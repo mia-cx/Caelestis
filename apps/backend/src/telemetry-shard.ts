@@ -30,6 +30,15 @@ export class TelemetryShard extends DurableObject<Env> {
   readFlushFailureCount() {
     return this.coordinator.readFlushFailureCount()
   }
+  exportCounterRows(...args: Parameters<TelemetryCoordinator['exportCounterRows']>) {
+    return this.coordinator.exportCounterRows(...args)
+  }
+  importCounterRows(...args: Parameters<TelemetryCoordinator['importCounterRows']>) {
+    return this.coordinator.importCounterRows(...args)
+  }
+  discardCounterRows() {
+    return this.coordinator.discardCounterRows()
+  }
   override alarm() {
     return this.coordinator.alarm()
   }

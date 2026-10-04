@@ -21,8 +21,20 @@ import type { BlobStore, SqlStore, TemplateRecord } from '../ports/index.js'
 export interface BackfillStorage {
   get<T>(key: string): Promise<T | undefined>
   put<T>(key: string, value: T): Promise<void>
-  list<T>(options: { prefix: string }): Promise<Map<string, T>>
+  list<T>(options: { prefix: string; startAfter?: string; limit?: number }): Promise<Map<string, T>>
+  delete(keys: string[]): Promise<number>
+  getAlarm(): Promise<number | null>
   setAlarm(at: number): Promise<void>
+  deleteAlarm(): Promise<void>
+}
+
+/**
+ * One bounded page of an import's durable state; the alarm accompanies the first page. Values are
+ * JSON, as every coordinator storage adapter requires.
+ */
+export interface BackfillStatePage {
+  readonly entries: readonly (readonly [string, unknown])[]
+  readonly alarm: number | null
 }
 
 export interface ArchiveSource {
@@ -157,6 +169,34 @@ export class TemplateBackfill {
     return summary
   }
 
+  /** Keys sort the same way on every adapter, so `startAfter` resumes a page exactly. */
+  async exportState(startAfter: string | null, limit: number): Promise<BackfillStatePage> {
+    const entries = await this.storage.list<unknown>({
+      prefix: '',
+      ...(startAfter === null ? {} : { startAfter }),
+      limit,
+    })
+    return {
+      entries: [...entries],
+      alarm: startAfter === null ? await this.storage.getAlarm() : null,
+    }
+  }
+
+  /** Restore archived state verbatim; a running job resumes from its archived alarm. */
+  async importState(page: BackfillStatePage): Promise<void> {
+    for (const [key, value] of page.entries) await this.storage.put(key, value)
+    if (page.alarm !== null) await this.storage.setAlarm(page.alarm)
+  }
+
+  /** Remove up to `limit` keys of a discarded restore; true once the state and alarm are gone. */
+  async discardState(limit: number): Promise<boolean> {
+    const keys = [...(await this.storage.list({ prefix: '', limit })).keys()]
+    if (keys.length > 0) await this.storage.delete(keys)
+    if (keys.length === limit) return false
+    await this.storage.deleteAlarm()
+    return true
+  }
+
   async cancel(): Promise<BackfillJob | null> {
     const held = await this.storage.get<StoredJob>('job')
     if (held === undefined || held.summary.status !== 'running') return held?.summary ?? null
@@ -200,6 +240,8 @@ export class TemplateBackfill {
     const { summary, tiles, snapshots } = held
     // Rearm before external storage reads too, so a transient D1 failure cannot strand the job.
     await this.storage.setAlarm(this.now() + 60_000)
+    // An archive operation is exporting or restoring this state; resume once it ends.
+    if (await this.sql.archiveOperationActive()) return
     const template = await this.sql.readTemplate(summary.basis.templateId)
     if (template === null) {
       await this.cancel()

@@ -1,3 +1,4 @@
+import { R2ObjectStorage } from '@caelestis/storage/r2'
 import { D1SqlStore } from './adapters/cloudflare/d1-sql-store.js'
 import { DurableObjectCounterStore } from './adapters/cloudflare/do-counter-store.js'
 import { DurableObjectStatusReadModel } from './adapters/cloudflare/do-status-read-model.js'
@@ -54,6 +55,12 @@ const requestAtBasePath = (
   return new Request(url.href, request)
 }
 
+const archiveSettle = (value: string): number => {
+  if (!/^(?:0|[1-9]\d{0,5})$/.test(value))
+    throw new Error(`ARCHIVE_SETTLE_SECONDS is not a number of seconds: ${JSON.stringify(value)}`)
+  return Number(value) * 1_000
+}
+
 const tileBlobGcMode = (value: string | undefined): TileBlobGcMode => {
   if (value === undefined || value === 'dry-run') return 'dry-run'
   if (value === 'delete') return 'delete'
@@ -94,6 +101,17 @@ const appFor = (env: Env): App => {
     },
   )
   const app = createApp(context, {
+    archive: {
+      connection: env.DB,
+      objects: new R2ObjectStorage(env.BLOBS),
+      counters: new DurableObjectCounterStore(env.TELEMETRY),
+      backfill: (templateId) => env.TEMPLATE_BACKFILL.getByName(templateId),
+      serverId: env.SERVER_ID,
+      activated: () => env.ALARM_WATCHER.getByName('global').schedule(),
+      ...(env.ARCHIVE_SETTLE_SECONDS === undefined
+        ? {}
+        : { settleMilliseconds: archiveSettle(env.ARCHIVE_SETTLE_SECONDS) }),
+    },
     backfillClients: (templateId) => env.TEMPLATE_BACKFILL.getByName(templateId),
     bootstrapAdminToken: env.ADMIN_TOKEN,
     serverId: env.SERVER_ID,

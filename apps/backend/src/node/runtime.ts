@@ -202,6 +202,22 @@ export const openNodeRuntime = async (
       return created
     }
     const app = createApp(context, {
+      archive: {
+        connection,
+        objects,
+        counters,
+        backfill: (id) => {
+          const held = importer(id)
+          return {
+            exportState: (startAfter, limit) => held.importer.exportState(startAfter, limit),
+            importState: (page) => held.exclusive(() => held.importer.importState(page)),
+            discardState: (limit) => held.exclusive(() => held.importer.discardState(limit)),
+          }
+        },
+        serverId,
+        activated: scheduleAlarms,
+        settleMilliseconds: config.archiveSettleMilliseconds,
+      },
       bootstrapAdminToken: config.adminToken,
       currentSeason: config.season,
       openAccess: config.openAccess,
