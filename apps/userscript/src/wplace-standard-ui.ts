@@ -1,7 +1,7 @@
 /**
  * Keeps Wplace's standard (non-pixel) UI applied from a saved Caelestis choice.
  *
- * Wplace's `standard` flag is a getter-only derived value — true only on the dashboard routes —
+ * Wplace's `standard` flag is a getter-only derived value, true only on the dashboard routes,
  * with no setter and no setting, so the only way to opt in elsewhere is the `data-standard-ui`
  * attribute its root layout toggles. That layout effect re-runs on every navigation and clears
  * the attribute on non-dashboard pages, so a MutationObserver re-applies it whenever it goes
@@ -66,7 +66,7 @@ const wplaceSettingsOfferStandard = (): boolean => {
  * Installs the saved Standard UI choice and the settings toggle. Applies the attribute
  * synchronously so it is set before first paint, then watches for Wplace's layout effect
  * clearing it and for the settings panel opening. Returns a disposer that disconnects the
- * observer and removes our row — used by tests.
+ * observer and removes our row, for tests.
  */
 export const installStandardUi = (): (() => void) => {
   let enabled = readEnabled()
