@@ -29,6 +29,40 @@ const NATIVE_LABEL = /standard|pixel\w*\s+(ui|interface|style)/i
 /** The same, for keys inside `wplace:settings:v1` ("standardUi", "pixelUi", ...). */
 const NATIVE_SETTINGS_KEY = /standard|pixel(ated)?ui/i
 
+/**
+ * Wplace's `--cursor-*` custom properties (key = the suffix after `--cursor-`), each mapped to
+ * the browser cursor keyword Wplace's own pixel-art SVG falls back to. Under standard UI the
+ * pixel art is out of place, so the custom property is set straight to the keyword and the
+ * derived aliases (`--cursor-pencil`, `--cursor-auto`, `--cursor-col-resize`) follow along.
+ */
+const CURSOR_KEYWORDS = {
+  default: 'default',
+  pointer: 'pointer',
+  crosshair: 'crosshair',
+  grab: 'grab',
+  grabbing: 'grabbing',
+  move: 'move',
+  text: 'text',
+  'not-allowed': 'not-allowed',
+  wait: 'wait',
+  help: 'help',
+  copy: 'copy',
+  'zoom-in': 'zoom-in',
+  'zoom-out': 'zoom-out',
+  'ew-resize': 'ew-resize',
+  'ns-resize': 'ns-resize',
+  'nesw-resize': 'nesw-resize',
+  'nwse-resize': 'nwse-resize',
+  eraser: 'crosshair',
+  'color-picker': 'crosshair',
+} as const
+
+const CURSOR_STYLE_ID = 'caelestis-standard-ui-cursors'
+// `html:root` outranks Wplace's `:root[data-theme=dark]`, where the pixel cursors are defined.
+const CURSOR_CSS = `html:root[${ATTRIBUTE}]{${Object.entries(CURSOR_KEYWORDS)
+  .map(([suffix, keyword]) => `--cursor-${suffix}:${keyword}`)
+  .join(';')}}`
+
 // biome-ignore lint/suspicious/noExplicitAny: userscript-manager APIs exist only in their sandbox
 const gm = globalThis as any
 
@@ -81,6 +115,12 @@ export const installStandardUi = (): (() => void) => {
   const apply = (): void => {
     const root = document.documentElement
     if (root === null) return
+    if (document.getElementById(CURSOR_STYLE_ID) === null) {
+      const style = document.createElement('style')
+      style.id = CURSOR_STYLE_ID
+      style.textContent = CURSOR_CSS
+      root.append(style)
+    }
     if (enabled && !native && !root.hasAttribute(ATTRIBUTE)) root.setAttribute(ATTRIBUTE, '')
   }
 
@@ -154,5 +194,6 @@ export const installStandardUi = (): (() => void) => {
   return () => {
     observer.disconnect()
     ourRow()?.remove()
+    document.getElementById(CURSOR_STYLE_ID)?.remove()
   }
 }

@@ -42,6 +42,7 @@ afterEach(() => {
   for (const dispose of disposers.splice(0)) dispose()
   document.documentElement.removeAttribute(ATTRIBUTE)
   document.body.replaceChildren()
+  document.head.replaceChildren()
   localStorage.clear()
   history.replaceState({}, '', '/')
 })
@@ -56,6 +57,22 @@ describe('Pixelated UI switch', () => {
     document.documentElement.toggleAttribute(ATTRIBUTE, false)
     await flush()
     expect(document.documentElement.hasAttribute(ATTRIBUTE)).toBe(true)
+  })
+
+  it("falls back to the browser's own cursors under standard UI", () => {
+    const sheet = document.createElement('style')
+    // Wplace's pixel cursor shape: an SVG data URL with the keyword as fallback.
+    sheet.textContent = ':root{--cursor-pointer:url("data:image/svg+xml,x") 1 1, pointer}'
+    document.head.append(sheet)
+    localStorage.setItem(STORAGE_KEY, '1')
+    install()
+
+    const cursorValue = (): string =>
+      getComputedStyle(document.documentElement).getPropertyValue('--cursor-pointer').trim()
+    expect(cursorValue()).toBe('pointer')
+
+    document.documentElement.removeAttribute(ATTRIBUTE)
+    expect(cursorValue()).toContain('url(')
   })
 
   it('adds a Pixelated UI switch under Pixelated fonts that switches and persists', async () => {
