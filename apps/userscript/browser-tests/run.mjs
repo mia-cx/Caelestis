@@ -54,7 +54,7 @@ try {
     format: 'iife',
     target: 'es2022',
     platform: 'browser',
-    loader: { '.woff2': 'dataurl' },
+    loader: { '.woff2': 'dataurl', '.png': 'dataurl' },
     logLevel: 'silent',
   })
   let port = process.env.CDP_PORT

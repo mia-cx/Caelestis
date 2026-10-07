@@ -13,6 +13,7 @@ import {
   loadTilePixels,
   registerDraftCanvas,
 } from '../src/tile-transform.js'
+import { installWplaceCursors } from '../src/wplace-cursors.js'
 import { installWplaceFont } from '../src/wplace-font.js'
 
 const tile = { x: 3, y: 4 }
@@ -211,6 +212,42 @@ export const runProductionBrowserBoundaries = async () => {
     root.removeAttribute('data-caelestis-falsetype')
     if (originalLang === null) root.removeAttribute('lang')
     else root.setAttribute('lang', originalLang)
+  }
+
+  // Cursor contract against Wplace's cursor rules as shipped: pixel art on :root and redefined
+  // under :root[data-theme=dark], plain keywords under :root[data-standard-ui] or
+  // :root[data-native-cursor]. Ours must beat the dark-theme rule and step aside for the rest.
+  const cursorStyle = document.createElement('style')
+  cursorStyle.textContent =
+    ':root{--cursor-pointer:url("data:image/svg+xml,x") 12 7, pointer}' +
+    ':root[data-theme=dark]{--cursor-pointer:url("data:image/svg+xml,y") 12 7, pointer}' +
+    ':root[data-standard-ui],:root[data-native-cursor]{--cursor-pointer:pointer}'
+  document.head.append(cursorStyle)
+  installWplaceCursors()
+  try {
+    root.setAttribute('data-theme', 'dark')
+    const cursor = () => getComputedStyle(root).getPropertyValue('--cursor-pointer').trim()
+    const expectCursor = (condition: string, expected: string) => {
+      const actual = cursor()
+      if (actual !== expected)
+        throw new Error(`cursor override ${condition}: is ${JSON.stringify(actual)}`)
+    }
+    if (!cursor().startsWith('image-set('))
+      throw new Error(`cursor override by default: is ${JSON.stringify(cursor())}`)
+    root.setAttribute('data-caelestis-cursors', 'off')
+    expectCursor('with data-caelestis-cursors=off', 'url("data:image/svg+xml,y") 12 7, pointer')
+    root.removeAttribute('data-caelestis-cursors')
+    root.setAttribute('data-native-cursor', '')
+    expectCursor('with data-native-cursor', 'pointer')
+    root.removeAttribute('data-native-cursor')
+    root.setAttribute('data-standard-ui', '')
+    expectCursor('with data-standard-ui', 'pointer')
+  } finally {
+    cursorStyle.remove()
+    root.removeAttribute('data-theme')
+    root.removeAttribute('data-caelestis-cursors')
+    root.removeAttribute('data-native-cursor')
+    root.removeAttribute('data-standard-ui')
   }
   return {
     canvasCaptured: true,

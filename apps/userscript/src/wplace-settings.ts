@@ -3,7 +3,7 @@
  *
  * Wplace's own switches (Legacy UI, Pixelated fonts, Use native OS cursor) live in the same
  * panel; ours are clones of its row so they look native. Each switch maps to an opt-out
- * attribute on `<html>` (like `data-caelestis-falsetype="off"`), so the default-on behaviour
+ * attribute on `<html>` (`data-caelestis-falsetype="off"`, `data-caelestis-cursors="off"`), so the default-on behaviour
  * needs no JS timing: the matching stylesheet simply skips while the attribute is present.
  *
  * Wplace's rows are found structurally, not by label text, so the lookup survives its UI
@@ -15,6 +15,7 @@
  */
 
 import { log } from './debug.js'
+import { CURSORS_ATTRIBUTE } from './wplace-cursors.js'
 import { FALSETYPE_ATTRIBUTE } from './wplace-font.js'
 
 const STORAGE_KEY = 'caelestis.wplace-options.v1'
@@ -83,6 +84,14 @@ const ROWS: readonly Row[] = [
     hint: '<span class="text-base-content/80 mt-1 block text-sm leading-relaxed"><a class="link" href="https://github.com/patchstep/FalseType" target="_blank" rel="noopener noreferrer">patchstep/FalseType</a></span>',
     disabled: (root) =>
       root.hasAttribute('data-standard-ui') || root.getAttribute('data-pixel-fonts') === 'false',
+  },
+  {
+    key: 'cursors',
+    label: 'Caelestis cursors',
+    afterWplaceRow: 2, // directly after Use native OS cursor
+    attribute: CURSORS_ATTRIBUTE,
+    disabled: (root) =>
+      root.hasAttribute('data-standard-ui') || root.hasAttribute('data-native-cursor'),
   },
 ]
 

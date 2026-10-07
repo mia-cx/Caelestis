@@ -5,6 +5,7 @@ import { installWplaceSettings } from './wplace-settings.js'
 
 const STORAGE_KEY = 'caelestis.wplace-options.v1'
 const FALSETYPE_ATTRIBUTE = 'data-caelestis-falsetype'
+const CURSORS_ATTRIBUTE = 'data-caelestis-cursors'
 
 /** Wplace's own Accessibility row markup, lifted verbatim from the live bundle. */
 const wplaceRow = (label: string): string =>
@@ -50,7 +51,7 @@ afterEach(() => {
     'data-pixel-fonts',
     'data-native-cursor',
     FALSETYPE_ATTRIBUTE,
-    'data-caelestis-cursors',
+    CURSORS_ATTRIBUTE,
   ])
     document.documentElement.removeAttribute(attribute)
   document.body.replaceChildren()
@@ -59,7 +60,7 @@ afterEach(() => {
 })
 
 describe('Wplace settings rows', () => {
-  it('inserts the FalseType row between Wplace’s Pixelated fonts and native cursor rows', async () => {
+  it('inserts our rows between Wplace’s, matching its look', async () => {
     install()
     mountPanel()
     await flush()
@@ -69,62 +70,82 @@ describe('Wplace settings rows', () => {
       'Pixelated fonts',
       'FalseType font',
       'Use native OS cursor',
+      'Caelestis cursors',
     ])
 
     const pixelFonts = [...document.querySelectorAll('#settings-panel-accessibility label')].find(
       (label) => !label.hasAttribute('data-caelestis-option'),
     )
     expect(pixelFonts).toBeDefined()
-    expect(ourRow('falseType').className).toBe(pixelFonts?.className)
-    expect(ourInput('falseType').checked).toBe(true)
+    for (const key of ['falseType', 'cursors']) {
+      expect(ourRow(key).className).toBe(pixelFonts?.className)
+      expect(ourInput(key).checked).toBe(true)
+    }
     expect(ourRow('falseType').querySelector('a.link')?.getAttribute('href')).toBe(
       'https://github.com/patchstep/FalseType',
     )
     expect(document.documentElement.hasAttribute(FALSETYPE_ATTRIBUTE)).toBe(false)
+    expect(document.documentElement.hasAttribute(CURSORS_ATTRIBUTE)).toBe(false)
   })
 
-  it('switches off with an opt-out attribute and persists across installs', async () => {
+  it('switches each row off with an opt-out attribute and persists across installs', async () => {
     install()
     mountPanel()
     await flush()
 
     ourInput('falseType').click()
+    ourInput('cursors').click()
     expect(ourInput('falseType').checked).toBe(false)
+    expect(ourInput('cursors').checked).toBe(false)
     expect(document.documentElement.getAttribute(FALSETYPE_ATTRIBUTE)).toBe('off')
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}').falseType).toBe(false)
+    expect(document.documentElement.getAttribute(CURSORS_ATTRIBUTE)).toBe('off')
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')
+    expect(stored.falseType).toBe(false)
+    expect(stored.cursors).toBe(false)
 
-    // A fresh install after dispose restores the choice before any panel exists.
+    // A fresh install after dispose restores the choices before any panel exists.
     for (const dispose of disposers.splice(0)) dispose()
     document.body.replaceChildren()
     install()
     expect(document.documentElement.getAttribute(FALSETYPE_ATTRIBUTE)).toBe('off')
+    expect(document.documentElement.getAttribute(CURSORS_ATTRIBUTE)).toBe('off')
     mountPanel()
     await flush()
     expect(ourInput('falseType').checked).toBe(false)
+    expect(ourInput('cursors').checked).toBe(false)
   })
 
-  it('disables the row while its dependencies are off and restores it after', async () => {
+  it('disables rows while their dependencies are off and restores them after', async () => {
     install()
     mountPanel()
     await flush()
 
-    document.documentElement.setAttribute('data-pixel-fonts', 'false')
+    const root = document.documentElement
+    const disabled = (key: string): boolean =>
+      ourInput(key).disabled && ourRow(key).classList.contains('opacity-60')
+
+    root.setAttribute('data-pixel-fonts', 'false')
     await flush()
-    const row = ourRow('falseType')
-    expect(ourInput('falseType').disabled).toBe(true)
+    expect(disabled('falseType')).toBe(true)
     expect(ourInput('falseType').checked).toBe(false)
-    expect(row.classList.contains('opacity-60')).toBe(true)
+    expect(disabled('cursors')).toBe(false)
 
-    document.documentElement.removeAttribute('data-pixel-fonts')
+    root.removeAttribute('data-pixel-fonts')
     await flush()
-    expect(ourInput('falseType').disabled).toBe(false)
+    expect(disabled('falseType')).toBe(false)
     expect(ourInput('falseType').checked).toBe(true)
-    expect(row.classList.contains('opacity-60')).toBe(false)
 
-    document.documentElement.setAttribute('data-standard-ui', '')
+    root.setAttribute('data-native-cursor', '')
     await flush()
-    expect(ourInput('falseType').disabled).toBe(true)
-    expect(row.classList.contains('opacity-60')).toBe(true)
+    expect(disabled('cursors')).toBe(true)
+    expect(ourInput('cursors').checked).toBe(false)
+    expect(disabled('falseType')).toBe(false)
+
+    root.removeAttribute('data-native-cursor')
+    root.setAttribute('data-standard-ui', '')
+    await flush()
+    expect(disabled('falseType')).toBe(true)
+    expect(disabled('cursors')).toBe(true)
   })
 
   it('injects nothing when fewer than three Wplace rows are present', async () => {

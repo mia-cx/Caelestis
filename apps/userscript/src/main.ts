@@ -106,6 +106,7 @@ import {
 } from './wplace-patches.js'
 import { installColourPicker } from './wplace-picker.js'
 import { installWplaceSettings } from './wplace-settings.js'
+import { installWplaceCursors } from './wplace-cursors.js'
 import { getWplaceState, installWplaceStateCapture } from './wplace-state.js'
 import { installServiceWorkerTap, watchCaptureScope } from './wplace-tile-refresh.js'
 
@@ -289,6 +290,7 @@ const step = (what: string, run: () => void): void => {
 export const startUserscript = (): void => {
   step('shared UI', registerCaelestisUi)
   step('FalseType font', installWplaceFont)
+  step('Caelestis cursors', installWplaceCursors)
   registerProfileContextSource(readProfileContext)
   step('performance profile', installProfile)
   registerProfileMemorySource('Template pixels', templateIndexMemoryBytes)
