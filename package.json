@@ -35,12 +35,12 @@
     "test:release": "node .github/scripts/check-userscript-release-notes.mjs && node --test .github/scripts/*.test.mjs"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.14",
+    "@biomejs/biome": "^2.5.15",
     "@changesets/cli": "3.0.3",
-    "@vitest/coverage-v8": "5.0.1",
-    "sharp": "^0.35.4",
-    "turbo": "^2.11.4",
+    "@vitest/coverage-v8": "5.0.3",
+    "sharp": "^0.35.5",
+    "turbo": "^2.11.6",
     "typescript": "^7.0.2",
-    "vitest": "5.0.1"
+    "vitest": "5.0.3"
   }
 }

@@ -30,7 +30,7 @@
     "@caelestis/shared": "workspace:*",
     "@iconify-icons/material-symbols": "2.0.4",
     "@iconify-icons/pixelarticons": "2.0.0",
-    "@iconify-icons/simple-icons": "^2.0.4"
+    "@iconify-icons/simple-icons": "^2.0.5"
   },
   "peerDependencies": {
     "svelte": "^5.57.1"
@@ -43,7 +43,7 @@
     "svelte": "^5.57.1",
     "svelte-check": "^4.7.6",
     "typescript": "~6.0.3",
-    "vite": "^8.3.1",
-    "vitest": "^5.0.1"
+    "vite": "^8.3.2",
+    "vitest": "^5.0.3"
   }
 }
