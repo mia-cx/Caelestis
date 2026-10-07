@@ -16,7 +16,8 @@ let sequence = 0
 socket.addEventListener('message', ({ data }) => {
   const response = JSON.parse(data)
   if (response.id !== undefined) calls.get(response.id)?.(response)
-  else if (response.method !== undefined) eventWaiters.get(response.method)?.(response.params)
+  else if (response.method === 'Page.loadEventFired')
+    eventWaiters.get('Page.loadEventFired')?.(response.params)
 })
 const call = (method, params = {}) =>
   new Promise((resolve, reject) => {
