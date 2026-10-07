@@ -2,6 +2,7 @@
 
 <script lang="ts">
   import { resolveShortcutBindings } from '@caelestis/shared'
+  import PixelStyles from '../foundations/PixelStyles.svelte'
   import ShortcutHelp from '../shortcut-help/ShortcutHelp.svelte'
   import type { ShortcutHelpIntent, ShortcutHelpModel } from '../types.js'
 
@@ -14,5 +15,7 @@
 </script>
 
 <ShortcutHelp {model} onIntent={emit} />
+
+<PixelStyles />
 
 <style>:host { display: block; }</style>

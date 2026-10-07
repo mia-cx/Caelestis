@@ -11,6 +11,7 @@
 
 <script lang="ts">
   import TemplateAdmin from '../template-admin/TemplateAdmin.svelte'
+  import PixelStyles from '../foundations/PixelStyles.svelte'
   import type { TemplateAdminProps, TemplateLifecycleChangeDetail } from '../types.js'
 
   let { finished = false, frozen = false, busy = false }: TemplateAdminProps = $props()
@@ -28,6 +29,8 @@
   onFinishedChange={(detail) => emit('caelestis-finished-change', detail)}
   onFrozenChange={(detail) => emit('caelestis-frozen-change', detail)}
 />
+
+<PixelStyles />
 
 <style>
   :host {

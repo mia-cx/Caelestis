@@ -430,7 +430,7 @@
 
 {#if toolbar}
 <div class="toolbar">
-  <label class="search">
+  <label class="search caelestis-field">
     <Icon name="search" />
     <input type="search" placeholder="Search templates" aria-label="Search templates" value={query} oninput={search} />
   </label>
@@ -607,7 +607,7 @@
               {/each}
             {/if}
             {#if model.renamingKey === entry.key}
-              <input use:focusRename class="rename" data-caelestis-rename aria-label={`Rename ${entry.name}`} bind:value={renameDraft} onkeydown={(event) => { event.stopPropagation(); if (event.key === 'Enter') commitRename(entry); if (event.key === 'Escape') { event.preventDefault(); emit({ type: 'cancel-rename', key: entry.key }) } }} />
+              <input use:focusRename class="rename caelestis-field" data-caelestis-rename aria-label={`Rename ${entry.name}`} bind:value={renameDraft} onkeydown={(event) => { event.stopPropagation(); if (event.key === 'Enter') commitRename(entry); if (event.key === 'Escape') { event.preventDefault(); emit({ type: 'cancel-rename', key: entry.key }) } }} />
             {:else}
               <span class="name" title={entry.name}>{entry.name}</span>
             {/if}
@@ -730,7 +730,7 @@
   .scroller { flex: 1; min-block-size: 0; min-inline-size: 0; overflow: auto; container-type: inline-size; }
   .progress-pane { flex: 0 0 20rem; min-block-size: 0; border-inline-start: 1px solid var(--caelestis-border); background: var(--caelestis-surface); }
   .progress-pane.overlaid { position: absolute; inset: 0; z-index: 3; border-inline-start: 0; }
-  .tree { display: flex; flex-direction: column; gap: 0.125rem; padding-block: 0.5rem; color: var(--caelestis-text); font: 400 0.875rem/1.25 ui-sans-serif, system-ui, sans-serif; }
+  .tree { display: flex; flex-direction: column; gap: 0.125rem; padding-block: 0.5rem; color: var(--caelestis-text); font: 400 0.875rem/1.25 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); }
   .row { position: relative; display: flex; flex-direction: column; justify-content: center; gap: 0.25rem; min-block-size: 2rem; margin-inline: 0.5rem; padding: 0.25rem 0.5rem; border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); outline: none; }
   .row-heading { display: flex; flex-wrap: nowrap; align-items: center; gap: 0.25rem; min-inline-size: 0; white-space: nowrap; }
   .connector { position: absolute; inset-block: 0; inset-inline-start: 0.45rem; opacity: 0.28; pointer-events: none; }
@@ -742,7 +742,7 @@
   .row.tall-heading .connector-elbow { top: 20px; }
   .row:hover, .row:focus-visible { background: var(--caelestis-raised-surface); }
   .row.focused-template { background: color-mix(in oklab, var(--caelestis-primary) 12%, transparent); }
-  .row.focused-template::before { content: ''; position: absolute; inset-block: 0.25rem; inset-inline-start: 0; inline-size: 3px; border-radius: 999px; background: var(--caelestis-primary); }
+  .row.focused-template::before { content: ''; position: absolute; inset-block: 0.25rem; inset-inline-start: 0; inline-size: 3px; border-radius: var(--caelestis-pill-radius, 999px); background: var(--caelestis-primary); }
   .row.regression-alarm { --row-alarm-color: oklch(from var(--caelestis-warning) l c 55); }
   .row.grief-alarm { --row-alarm-color: var(--caelestis-danger); }
   .row.regression-alarm, .row.grief-alarm { background: color-mix(in oklab, var(--row-alarm-color) 14%, transparent); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--row-alarm-color) 65%, transparent); }
@@ -763,13 +763,13 @@
   .row-tail { display: grid; flex: 0 1 6.5rem; inline-size: 6.5rem; min-inline-size: min-content; align-items: center; }
   .row-tail > * { grid-area: 1 / 1; }
   .row-tail > .actions { justify-self: end; }
-  .icon-action { display: grid; place-items: center; inline-size: 2rem; block-size: 2rem; min-inline-size: 2rem; min-block-size: 2rem; padding: 0; border: 0; border-radius: 999px; background: transparent; color: inherit; cursor: pointer; }
+  .icon-action { display: grid; place-items: center; inline-size: 2rem; block-size: 2rem; min-inline-size: 2rem; min-block-size: 2rem; padding: 0; border: 0; border-radius: var(--caelestis-pill-radius, 999px); background: transparent; color: inherit; cursor: pointer; }
   .icon-action:hover { background: color-mix(in oklch, currentColor 8%, transparent); }
   .visibility { position: relative; display: grid; flex: 0 0 1.5rem; place-items: center; inline-size: 1.5rem; block-size: 1.5rem; cursor: pointer; }
   .visibility input { position: absolute; inline-size: 1px; block-size: 1px; opacity: 0; pointer-events: none; }
-  .visibility > span { display: grid; place-items: center; inline-size: 1.5rem; block-size: 1.5rem; border: 1px solid color-mix(in oklab, currentColor 44%, transparent); border-radius: 999px; }
+  .visibility > span { display: grid; place-items: center; inline-size: 1.5rem; block-size: 1.5rem; border: 1px solid color-mix(in oklab, currentColor 44%, transparent); border-radius: var(--caelestis-pill-radius, 999px); }
   .visibility :global(svg) { inline-size: 1rem; block-size: 1rem; fill: currentColor; }
-  .visibility:focus-within { outline: 2px solid var(--caelestis-focus); border-radius: 999px; }
+  .visibility:focus-within { outline: 2px solid var(--caelestis-focus); border-radius: var(--caelestis-pill-radius, 999px); }
   .progress { inline-size: 100%; min-inline-size: 0; transition: opacity 100ms ease-out; }
   .progress-detail { display: flex; min-inline-size: 0; flex-direction: column; gap: 0.25rem; padding: 0.2rem 0 0.35rem; padding-inline-start: var(--progress-detail-offset); color: var(--caelestis-muted-text); font-size: 0.68rem; }
   .progress-disclosure { position: relative; display: flex; min-inline-size: 0; padding-inline-end: 1.625rem; }
@@ -778,7 +778,7 @@
   .progress-detail-action { position: absolute; inset-block-start: -0.4375rem; inset-inline-end: 0; inline-size: 1.5rem; block-size: 1.5rem; min-inline-size: 1.5rem; min-block-size: 1.5rem; }
   .progress-legend { display: flex; min-inline-size: 0; align-items: center; gap: 0.625rem; font-size: 0.625rem; font-variant-numeric: tabular-nums; }
   .progress-legend span { display: inline-flex; flex-shrink: 0; align-items: center; gap: 0.2rem; white-space: nowrap; }
-  .progress-legend span::before { content: ''; inline-size: 0.375rem; block-size: 0.375rem; border-radius: 999px; background: currentColor; }
+  .progress-legend span::before { content: ''; inline-size: 0.375rem; block-size: 0.375rem; border-radius: var(--caelestis-pill-radius, 999px); background: currentColor; }
   .progress-legend .completed { color: var(--caelestis-success); }
   .progress-legend .mismatched { color: var(--caelestis-danger); }
   .progress-legend .unpainted { opacity: 0.62; }
@@ -794,7 +794,7 @@
   }
   .colour-progress { display: flex; min-inline-size: 0; flex-direction: column; gap: 0.25rem; }
   .colour-progress-row { display: flex; min-inline-size: 0; align-items: center; gap: 0.375rem; }
-  .colour-swatch { flex: 0 0 0.625rem; inline-size: 0.625rem; block-size: 0.625rem; border-radius: 999px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.12); }
+  .colour-swatch { flex: 0 0 0.625rem; inline-size: 0.625rem; block-size: 0.625rem; border-radius: var(--caelestis-pill-radius, 999px); box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.12); }
   .colour-name { flex: 0 0 5rem; overflow: hidden; font-size: 0.625rem; line-height: 1; opacity: 0.68; text-overflow: ellipsis; white-space: nowrap; }
   .colour-progress-row :global(.meter-wrap) { flex: 1; }
   .notice { display: flex; align-items: center; gap: 0.5rem; min-block-size: 1.75rem; padding-inline-end: 0.75rem; color: var(--caelestis-muted-text); font-size: 0.72rem; }
@@ -803,7 +803,7 @@
   .standalone.ghost { justify-content: center; padding: 0.5rem 0.75rem 0; }
   .standalone-icon { display: inline-flex; flex: 0 0 auto; opacity: 0.6; }
   .notice button { border: 0; border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-raised-surface); color: inherit; cursor: pointer; }
-  .operation { display: flex; flex: 0 0 auto; flex-direction: column; gap: 0.5rem; margin: 0 0.5rem 0.5rem; padding: 0.625rem 0.75rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-raised-surface); font: 500 0.75rem/1.35 ui-sans-serif, system-ui, sans-serif; }
+  .operation { display: flex; flex: 0 0 auto; flex-direction: column; gap: 0.5rem; margin: 0 0.5rem 0.5rem; padding: 0.625rem 0.75rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-raised-surface); font: 500 0.75rem/1.35 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); }
   .operation select { inline-size: 100%; }
   .operation small { color: var(--caelestis-muted-text); }
   .operation-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }

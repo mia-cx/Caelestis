@@ -108,6 +108,7 @@
 
 <dialog
   bind:this={dialog}
+  class="caelestis-panel-surface"
   aria-labelledby="server-details-title"
   aria-describedby="server-details-owner"
   oncancel={(event) => { event.preventDefault(); emit({ type: 'close' }) }}
@@ -129,26 +130,26 @@
 
       <label>
         <span>Name</span>
-        <input bind:value={name} maxlength="256" required disabled={model.busy} autocomplete="off" />
+        <input class="caelestis-field" bind:value={name} maxlength="256" required disabled={model.busy} autocomplete="off" />
       </label>
       <label>
         <span>Description</span>
-        <textarea bind:value={description} rows="2" maxlength="4096" disabled={model.busy}></textarea>
+        <textarea class="caelestis-field" bind:value={description} rows="2" maxlength="4096" disabled={model.busy}></textarea>
         <small>Shown in link previews. Leave empty for the Caelestis default.</small>
       </label>
       <label>
         <span>Discord invite</span>
-        <input bind:value={discordInviteUrl} type="url" inputmode="url" placeholder="https://discord.gg/yourcode" disabled={model.busy} autocomplete="off" />
+        <input class="caelestis-field" bind:value={discordInviteUrl} type="url" inputmode="url" placeholder="https://discord.gg/yourcode" disabled={model.busy} autocomplete="off" />
         <small>Adds a join button to the site header.</small>
       </label>
       <label>
         <span>Home page copy</span>
-        <textarea bind:value={homeCopy} rows="5" maxlength={MAX_HOME_COPY_LENGTH} disabled={model.busy}></textarea>
+        <textarea class="caelestis-field" bind:value={homeCopy} rows="5" maxlength={MAX_HOME_COPY_LENGTH} disabled={model.busy}></textarea>
         <small>Shown above the template list. Blank lines start paragraphs; ## headings, - bullets, **bold**, *italic* and [links](https://…) work.</small>
       </label>
       <label>
         <span>Logo text</span>
-        <input bind:value={logoText} maxlength={MAX_LOGO_TEXT_LENGTH} placeholder={name || 'Server name'} disabled={model.busy} autocomplete="off" />
+        <input class="caelestis-field" bind:value={logoText} maxlength={MAX_LOGO_TEXT_LENGTH} placeholder={name || 'Server name'} disabled={model.busy} autocomplete="off" />
         <small>Header text when no logo image is set. Leave empty to use the name.</small>
       </label>
 
@@ -203,7 +204,7 @@
 </dialog>
 
 <style>
-  dialog { box-sizing: border-box; inline-size: min(32rem, calc(100vw - 2rem)); max-block-size: calc(100dvh - 2rem); padding: 0; border: 1px solid color-mix(in oklab, var(--caelestis-text) 20%, transparent); border-radius: var(--caelestis-box-radius, 1rem); background: var(--caelestis-surface, white); color: var(--caelestis-text, #222); box-shadow: 0 1rem 3rem #0004; font: 0.875rem/1.4 ui-sans-serif, system-ui, sans-serif; }
+  dialog { box-sizing: border-box; inline-size: min(32rem, calc(100vw - 2rem)); max-block-size: calc(100dvh - 2rem); padding: 0; border: 1px solid color-mix(in oklab, var(--caelestis-text) 20%, transparent); border-radius: var(--caelestis-box-radius, var(--caelestis-radius, 1rem)); background: var(--caelestis-surface, white); color: var(--caelestis-text, #222); box-shadow: 0 1rem 3rem #0004; font: 0.875rem/1.4 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); }
   dialog::backdrop { background: #0006; }
   .content { display: flex; flex-direction: column; max-block-size: calc(100dvh - 2rem); margin: 0; }
   header { display: flex; align-items: start; justify-content: space-between; gap: 0.75rem; padding: 1rem; border-block-end: 1px solid color-mix(in oklab, currentColor 12%, transparent); }

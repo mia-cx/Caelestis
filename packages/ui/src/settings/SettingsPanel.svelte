@@ -123,7 +123,7 @@
 <div class="settings" data-caelestis-scroller>
   <SectionHeader title="Servers" icon="server" />
   <div class="connect">
-    <input data-caelestis-draft="add-server" type="url" bind:value={addServer} placeholder="https://templates.example.org" aria-label="Server address" onkeydown={(event) => { if (event.key === 'Enter') submitServer() }} />
+    <input class="caelestis-field" data-caelestis-draft="add-server" type="url" bind:value={addServer} placeholder="https://templates.example.org" aria-label="Server address" onkeydown={(event) => { if (event.key === 'Enter') submitServer() }} />
     <Button label="Add" kind="primary" size="small" disabled={model.addServerPending === true} onclick={submitServer} />
   </div>
   {#if model.addServerMessage !== undefined}<p class="message" role="status">{model.addServerMessage}</p>{/if}
@@ -134,13 +134,13 @@
         <button class="server-head" type="button" aria-expanded={server.expanded} onpointerenter={() => emit({ type: 'prefetch-server', url: server.url })} onclick={() => emit({ type: 'toggle-server', url: server.url, expanded: !server.expanded })}>
           <span class:open={server.expanded} class="caret" aria-hidden="true">›</span>
           <span class="server-name" title={server.url}>{server.name}</span>
-          {#if server.status !== 'connected'}<span class:warning={server.status === 'needs-token'} class="badge">{server.status === 'needs-token' ? 'token' : 'offline'}</span>{/if}
+          {#if server.status !== 'connected'}<span class:warning={server.status === 'needs-token'} class="badge caelestis-badge">{server.status === 'needs-token' ? 'token' : 'offline'}</span>{/if}
         </button>
         {#if !server.expanded && server.status === 'unreachable' && server.error !== undefined}<p class="subtle">{server.error}</p>{/if}
         {#if server.expanded}
           <div class="server-body">
             <div class="token-row">
-              <input data-caelestis-draft={`token:${server.url}`} type="password" autocomplete="off" value={tokenDrafts[server.url] ?? ''} oninput={(event) => tokenDrafts[server.url] = event.currentTarget.value} placeholder={server.tokenSaved ? '••••••••' : 'Access token'} aria-label="Your access token for this server" onkeydown={(event) => { if (event.key === 'Enter') submitToken(server) }} />
+              <input class="caelestis-field" data-caelestis-draft={`token:${server.url}`} type="password" autocomplete="off" value={tokenDrafts[server.url] ?? ''} oninput={(event) => tokenDrafts[server.url] = event.currentTarget.value} placeholder={server.tokenSaved ? '••••••••' : 'Access token'} aria-label="Your access token for this server" onkeydown={(event) => { if (event.key === 'Enter') submitToken(server) }} />
               <Button label={server.status === 'connected' ? 'Update' : 'Connect'} kind="primary" size="small" disabled={server.pending === true} onclick={() => submitToken(server)} />
             </div>
             <p class:error={server.message !== undefined} class="subtle" role="status">{tokenStatus(server)}</p>
@@ -166,7 +166,7 @@
                 {#if server.accessTokens.hasMore}<Button label="Load more" kind="ghost" size="compact" disabled={server.accessTokens.loadingMore === true} onclick={() => emit({ type: 'load-more-access-tokens', url: server.url })} />{/if}
                 <div class="new-token">
                   <div class="new-token-row">
-                    <input data-caelestis-draft={`token-label:${server.url}`} type="text" maxlength="128" value={accessLabelDrafts[server.url] ?? ''} oninput={(event) => accessLabelDrafts[server.url] = event.currentTarget.value} placeholder="Who is it for?" aria-label="New token label" onkeydown={(event) => { if (event.key === 'Enter') submitAccessToken(server) }} />
+                    <input class="caelestis-field" data-caelestis-draft={`token-label:${server.url}`} type="text" maxlength="128" value={accessLabelDrafts[server.url] ?? ''} oninput={(event) => accessLabelDrafts[server.url] = event.currentTarget.value} placeholder="Who is it for?" aria-label="New token label" onkeydown={(event) => { if (event.key === 'Enter') submitAccessToken(server) }} />
                     <select class="caelestis-select" aria-label="New token scope" value={accessScopeDrafts[server.url] ?? 'report'} onchange={(event) => accessScopeDrafts[server.url] = event.currentTarget.value as AccessTokenScope}><option value="read">Read</option><option value="report">Report</option><option value="admin">Admin</option></select>
                     <Button label="Create" kind="primary" size="small" disabled={server.accessTokens.creating === true} onclick={() => submitAccessToken(server)} />
                   </div>
@@ -219,7 +219,7 @@
           <span class="shortcut-label">{action.label}</span>
           <button
             type="button"
-            class="shortcut-key"
+            class="shortcut-key caelestis-bevel"
             class:recording={isRecording}
             data-caelestis-shortcut={action.id}
             aria-label={keyControlName(action.label, action.id)}
@@ -260,7 +260,7 @@
 </div>
 
 <style>
-  .settings { flex: 1; min-block-size: 0; overflow-y: auto; padding-block-end: 0.75rem; color: var(--caelestis-text); font: 400 0.875rem/1.35 ui-sans-serif, system-ui, sans-serif; }
+  .settings { flex: 1; min-block-size: 0; overflow-y: auto; padding-block-end: 0.75rem; color: var(--caelestis-text); font: 400 0.875rem/1.35 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); }
   .connect, .token-row { display: flex; gap: 0.5rem; padding: 0 var(--caelestis-content-inset, 1rem); }
   input { min-inline-size: 0; block-size: 2rem; border: var(--border, 1px) solid color-mix(in oklab, var(--caelestis-text) 20%, transparent); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-surface); color: inherit; box-shadow: 0 1px color-mix(in oklab, var(--caelestis-text) 10%, transparent) inset; font: inherit; }
   input { flex: 1; padding-inline: 0.6rem; }
@@ -274,7 +274,7 @@
   .server-head { display: flex; inline-size: 100%; align-items: center; gap: 0.5rem; min-block-size: 2rem; padding: 0; border: 0; background: transparent; color: inherit; }
   .caret { font-size: 1.2rem; transition: transform 120ms; }.caret.open { transform: rotate(90deg); }
   .server-name { min-inline-size: 0; flex: 1; overflow: hidden; text-align: start; text-overflow: ellipsis; white-space: nowrap; }
-  .badge { padding: 0.15rem 0.4rem; border-radius: 999px; background: color-mix(in oklch, var(--caelestis-danger) 15%, transparent); color: var(--caelestis-danger); font-size: 0.65rem; }.badge.warning { background: color-mix(in oklch, var(--caelestis-warning) 18%, transparent); color: var(--caelestis-warning); }
+  .badge { padding: 0.15rem 0.4rem; border-radius: var(--caelestis-pill-radius, 999px); background: color-mix(in oklch, var(--caelestis-danger) 15%, transparent); color: var(--caelestis-danger); font-size: 0.65rem; }.badge.warning { background: color-mix(in oklch, var(--caelestis-warning) 18%, transparent); color: var(--caelestis-warning); }
   .server-body { display: flex; flex-direction: column; gap: 0.35rem; padding: 0.45rem 0 0.35rem 1.25rem; }.server-body .token-row { padding: 0; }
   .access-tokens { margin-block-start: 0.35rem; }
   .access-tokens h3 { margin: 0 0 0.3rem; color: var(--caelestis-muted-text); font-size: 0.72rem; }
@@ -294,7 +294,7 @@
   .shortcut-row { display: flex; align-items: center; gap: 0.5rem; min-block-size: 2.25rem; }
   .shortcut-label { flex: 1; min-inline-size: 0; }
   .shortcut-key { display: inline-flex; min-inline-size: 5.5rem; block-size: 1.75rem; flex: 0 0 auto; align-items: center; justify-content: center; gap: 0.35rem; padding-inline: 0.5rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-raised-surface); color: inherit; font: inherit; cursor: pointer; }
-  .shortcut-key kbd { font: 700 0.75rem/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+  .shortcut-key kbd { font: 700 0.75rem/1 var(--caelestis-mono-font, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace); }
   .shortcut-key.recording { border-color: var(--caelestis-primary); box-shadow: 0 0 0 2px color-mix(in oklab, var(--caelestis-primary) 35%, transparent); }
   .shortcut-or, .shortcut-unset, .shortcut-prompt { color: var(--caelestis-muted-text); font-size: 0.75rem; }
   .shortcut-clear { display: inline-flex; flex: 0 0 auto; }

@@ -2,6 +2,7 @@
 
 <script lang="ts">
   import OverlayControls from '../overlay/OverlayControls.svelte'
+  import PixelStyles from '../foundations/PixelStyles.svelte'
   import type { OverlayControlsIntent, OverlayControlsModel } from '../types.js'
 
   const DEFAULT_MODEL: OverlayControlsModel = {
@@ -20,5 +21,7 @@
 </script>
 
 <OverlayControls {model} onIntent={emit} />
+
+<PixelStyles />
 
 <style>:host { display: block; max-block-size: inherit; }</style>

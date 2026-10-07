@@ -14,6 +14,7 @@
 
 <script lang="ts">
   import TemplateState from '../template-state/TemplateState.svelte'
+  import PixelStyles from '../foundations/PixelStyles.svelte'
   import type { TemplateStateProps } from '../types.js'
 
   let {
@@ -27,6 +28,8 @@
 </script>
 
 <TemplateState {finished} {frozen} {griefed} {alarmKind} {pixelsLost} {compact} />
+
+<PixelStyles />
 
 <style>
   :host {

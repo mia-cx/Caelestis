@@ -16,7 +16,7 @@
   }
 </script>
 
-<div class="dialog" role="dialog" aria-label={`${model.name} display options`} tabindex="-1" onkeydown={onKeydown}>
+<div class="dialog caelestis-panel-surface" role="dialog" aria-label={`${model.name} display options`} tabindex="-1" onkeydown={onKeydown}>
   <header>
     <div class="title">
       <strong title={model.name}>{model.name}</strong>
@@ -44,7 +44,7 @@
 </div>
 
 <style>
-  .dialog { --caelestis-content-inset: 1rem; display: flex; max-block-size: inherit; flex-direction: column; overflow-y: auto; padding: var(--caelestis-content-inset); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-surface); color: var(--caelestis-text); box-shadow: var(--caelestis-shadow, 0 16px 48px rgb(0 0 0 / 0.3)); font: 400 0.875rem/1.35 ui-sans-serif, system-ui, sans-serif; }
+  .dialog { --caelestis-content-inset: 1rem; display: flex; max-block-size: inherit; flex-direction: column; overflow-y: auto; padding: var(--caelestis-content-inset); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-surface); color: var(--caelestis-text); box-shadow: var(--caelestis-shadow, 0 16px 48px rgb(0 0 0 / 0.3)); font: 400 0.875rem/1.35 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); }
   header { display: flex; flex: 0 0 auto; align-items: center; gap: 0.25rem; }
   .title { display: flex; flex: 1; min-inline-size: 0; align-items: center; gap: 0.25rem; }
   header strong { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; }

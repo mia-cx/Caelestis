@@ -96,7 +96,7 @@
 <svelte:window onpointermove={pointermove} onpointerup={commit} onpointercancel={commit} />
 
 {#snippet contents()}
-<section class="panel" aria-label="Caelestis">
+<section class="panel caelestis-panel-surface" aria-label="Caelestis">
   {#if !poppedOut}
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -173,10 +173,10 @@
   .panel { container: panel / inline-size; }
   .panel { --caelestis-content-inset: 1rem; position: relative; display: flex; flex-direction: column; min-block-size: 0; block-size: 100%; overflow: hidden; border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-surface, oklch(0.97 0.01 264)); color: var(--caelestis-text, oklch(0.26 0.025 264)); box-shadow: var(--caelestis-shadow, 0 24px 80px rgb(0 0 0 / 0.35)); }
   header { display: flex; flex: 0 0 auto; align-items: center; gap: 0.5rem; padding: 1rem 1.5rem; border-block-end: 1px solid var(--caelestis-border, oklch(0.78 0.025 264 / 0.7)); }
-  h2 { flex: 1; margin: 0; font: 600 0.875rem/1.25 ui-sans-serif, system-ui, sans-serif; }
+  h2 { flex: 1; margin: 0; font: 600 0.875rem/1.25 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); }
   .body { display: flex; flex: 1; flex-direction: column; min-block-size: 0; }
   .resize { position: absolute; inset-block: 0; inset-inline-start: 0; z-index: 1; inline-size: 6px; cursor: ew-resize; }
-  .resize:hover::after, .resize.resizing::after, .resize:focus-visible::after { content: ''; position: absolute; inset: 0 2px 0 1px; border-radius: 999px; background: var(--caelestis-primary, currentColor); opacity: 0.5; }
+  .resize:hover::after, .resize.resizing::after, .resize:focus-visible::after { content: ''; position: absolute; inset: 0 2px 0 1px; border-radius: var(--caelestis-pill-radius, 999px); background: var(--caelestis-primary, currentColor); opacity: 0.5; }
   .resize:focus-visible { outline: none; }
   @container panel (max-width: 24rem) {
     header { gap: 0.25rem; padding-inline: 0.75rem; }

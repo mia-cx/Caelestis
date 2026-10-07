@@ -75,7 +75,7 @@
 
 {#snippet toastItem(toast: ToastModel, behind: number)}
   {@const dismissLabel = toast.kind === 'error' ? 'Dismiss error' : 'Dismiss notification'}
-  <div class="toast {toast.kind}" data-caelestis-toast={toast.kind}>
+  <div class="toast caelestis-surface {toast.kind}" data-caelestis-toast={toast.kind}>
     <Icon name={KIND_ICON[toast.kind]} class="kind" />
     <span class="message">{toast.message}</span>
     <span class="controls">
@@ -112,7 +112,7 @@
   {:else if top !== undefined}
     <div class="pile">
       {#each stack.slice(1, 3) as peek, index (peek.id)}
-        <div class="peek" style:--depth={index + 1} aria-hidden="true"></div>
+        <div class="peek caelestis-surface" style:--depth={index + 1} aria-hidden="true"></div>
       {/each}
       {@render toastItem(top, stack.length - 1)}
     </div>
@@ -120,16 +120,16 @@
 </div>
 
 {#if model.oneTimeSecret !== undefined && model.oneTimeSecret !== null}
-  <dialog bind:this={secretDialog} oncancel={(event) => event.preventDefault()} aria-labelledby="secret-title">
+  <dialog bind:this={secretDialog} class="caelestis-panel-surface" oncancel={(event) => event.preventDefault()} aria-labelledby="secret-title">
     <div class="dialog-box">
       <header><h2 id="secret-title">Copy this access token</h2></header>
       <div class="dialog-body">
         <p class="lead">The token for {model.oneTimeSecret.label}.</p>
         <p class="note">It is shown once. The server stores only a hash, so there is no way to see it again — if it is lost, revoke it and make another.</p>
-        <input bind:this={secretField} class="secret" aria-label="Access token" readonly value={model.oneTimeSecret.value} onfocus={(event) => event.currentTarget.select()} />
+        <input bind:this={secretField} class="secret caelestis-field" aria-label="Access token" readonly value={model.oneTimeSecret.value} onfocus={(event) => event.currentTarget.select()} />
         <div class="dialog-actions">
-          <button class="button quiet" type="button" onclick={() => onIntent?.({ type: 'resolve-one-time-secret', id: model.oneTimeSecret?.id ?? '' })}>I have copied it</button>
-          <button bind:this={copySecret} class:success={model.oneTimeSecret.copyStatus === 'copied'} class:warning={model.oneTimeSecret.copyStatus === 'unavailable'} class="button primary" type="button" onclick={() => {
+          <button class="button quiet caelestis-bevel" type="button" onclick={() => onIntent?.({ type: 'resolve-one-time-secret', id: model.oneTimeSecret?.id ?? '' })}>I have copied it</button>
+          <button bind:this={copySecret} class:success={model.oneTimeSecret.copyStatus === 'copied'} class:warning={model.oneTimeSecret.copyStatus === 'unavailable'} class="button primary caelestis-bevel" type="button" onclick={() => {
             if (model.oneTimeSecret?.copyStatus === 'unavailable') secretField?.focus()
             else onIntent?.({ type: 'copy-one-time-secret', id: model.oneTimeSecret?.id ?? '' })
           }}>{model.oneTimeSecret.copyStatus === 'copied' ? 'Copied' : model.oneTimeSecret.copyStatus === 'unavailable' ? 'Select it and copy' : 'Copy'}</button>
@@ -140,17 +140,17 @@
 {/if}
 
 {#if model.confirm !== null}
-  <dialog bind:this={dialog} onclose={close} onclick={backdrop} aria-labelledby="confirm-title">
+  <dialog bind:this={dialog} class="caelestis-panel-surface" onclose={close} onclick={backdrop} aria-labelledby="confirm-title">
     <div class="dialog-box">
       <header><h2 id="confirm-title">{model.confirm.title}</h2></header>
       <div class="dialog-body">
         <p class="lead">{model.confirm.body}</p>
         <p class="note">{model.confirm.note}</p>
         <div class="dialog-actions">
-          <button bind:this={cancel} class="button quiet" type="button" onclick={() => answer(false)}>
+          <button bind:this={cancel} class="button quiet caelestis-bevel" type="button" onclick={() => answer(false)}>
             Cancel
           </button>
-          <button class="button danger" type="button" onclick={() => answer(true)}>
+          <button class="button danger caelestis-bevel" type="button" onclick={() => answer(true)}>
             {model.confirm.confirmLabel}
           </button>
         </div>
@@ -189,7 +189,7 @@
     inline-size: var(--caelestis-toasts-inline-size, min(24rem, calc(100vw - 4.25rem)));
     max-block-size: calc(100dvh - 1rem);
     color: var(--caelestis-text, oklch(0.26 0.025 264));
-    font: 500 0.8125rem/1.35 ui-sans-serif, system-ui, sans-serif;
+    font: 500 0.8125rem/1.35 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
     pointer-events: none;
   }
 
@@ -290,7 +290,7 @@
     background: var(--caelestis-surface, oklch(0.97 0.01 264));
     color: var(--caelestis-text, oklch(0.26 0.025 264));
     box-shadow: var(--caelestis-shadow, 0 24px 80px rgb(0 0 0 / 0.35));
-    font: 500 0.95rem/1.45 ui-sans-serif, system-ui, sans-serif;
+    font: 500 0.95rem/1.45 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
   }
 
   dialog::backdrop { background: rgb(0 0 0 / 0.45); backdrop-filter: blur(2px); }
@@ -325,7 +325,7 @@
   .button.primary { min-inline-size: 8rem; border-color: transparent; background: var(--caelestis-primary, oklch(0.58 0.17 252)); color: white; }
   .button.success { background: var(--caelestis-success, oklch(0.63 0.16 154)); }
   .button.warning { background: var(--caelestis-warning, oklch(0.68 0.15 75)); color: black; }
-  .secret { inline-size: 100%; min-block-size: 2.5rem; margin-block-start: 1rem; padding-inline: 0.65rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-raised-surface, color-mix(in oklab, var(--caelestis-surface) 88%, black)); color: inherit; font: 500 0.85rem ui-monospace, monospace; }
+  .secret { inline-size: 100%; min-block-size: 2.5rem; margin-block-start: 1rem; padding-inline: 0.65rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-raised-surface, color-mix(in oklab, var(--caelestis-surface) 88%, black)); color: inherit; font: 500 0.85rem var(--caelestis-mono-font, ui-monospace, monospace); }
   .button:focus-visible, .toast-action:focus-visible { outline: 2px solid var(--caelestis-focus, oklch(0.62 0.17 252)); outline-offset: 2px; }
 
   @media (forced-colors: active) {
@@ -333,4 +333,10 @@
     .toast :global(.kind) { color: CanvasText; }
     .button.danger { background: Highlight; color: HighlightText; }
   }
+
+  :host([data-caelestis-style='pixel']) .button.primary { --bevel-color: var(--caelestis-primary); --bevel-light: var(--caelestis-pixel-primary-light); --bevel-dark: var(--caelestis-pixel-primary-shade); }
+  :host([data-caelestis-style='pixel']) .button:is(.danger, .success, .warning) { --bevel-light: color-mix(in srgb, var(--bevel-color) 65%, white); --bevel-dark: color-mix(in srgb, var(--bevel-color) 62%, black); }
+  :host([data-caelestis-style='pixel']) .button.danger { --bevel-color: var(--caelestis-danger); }
+  :host([data-caelestis-style='pixel']) .button.success { --bevel-color: var(--caelestis-success); }
+  :host([data-caelestis-style='pixel']) .button.warning { --bevel-color: var(--caelestis-warning); color: var(--color-warning-content, black); }
 </style>

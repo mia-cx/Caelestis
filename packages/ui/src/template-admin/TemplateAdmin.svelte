@@ -35,7 +35,7 @@
     gap: 0.5rem;
     max-inline-size: 100%;
     color: var(--_text);
-    font: 600 0.8rem/1.2 ui-sans-serif, system-ui, sans-serif;
+    font: 600 0.8rem/1.2 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
   }
 
   button {

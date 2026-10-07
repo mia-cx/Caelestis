@@ -33,7 +33,7 @@
   const focusInput = (input: HTMLInputElement): void => { input.focus(); input.select() }
 </script>
 
-<dialog bind:this={dialog} aria-labelledby="tag-title" aria-describedby="tag-owner" oncancel={(event) => { event.preventDefault(); emit({ type: 'close' }) }} onpointerdown={(event) => { backdropPress = event.target === dialog }} onclick={(event) => { if (backdropPress && event.target === dialog) emit({ type: 'close' }); backdropPress = false }}>
+<dialog bind:this={dialog} class="caelestis-panel-surface" aria-labelledby="tag-title" aria-describedby="tag-owner" oncancel={(event) => { event.preventDefault(); emit({ type: 'close' }) }} onpointerdown={(event) => { backdropPress = event.target === dialog }} onclick={(event) => { if (backdropPress && event.target === dialog) emit({ type: 'close' }); backdropPress = false }}>
   <div class="content">
     <header>
       <div><h2 id="tag-title">{model.targetName === undefined ? 'Manage tags' : `Tags for ${model.targetName}`}</h2><p id="tag-owner">{model.owner}</p></div>
@@ -49,7 +49,7 @@
           <li>
             {#if editing === tag.id}
               <form class="row" onsubmit={(event) => { event.preventDefault(); save(rename, tag.id) }}>
-                <input use:focusInput aria-label={`Rename ${tag.name}`} bind:value={rename} maxlength="64" disabled={disabled} onkeydown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); editing = null; validation = '' } }} />
+                <input class="caelestis-field" use:focusInput aria-label={`Rename ${tag.name}`} bind:value={rename} maxlength="64" disabled={disabled} onkeydown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); editing = null; validation = '' } }} />
                 <Button label="Save" size="small" disabled={disabled} onclick={() => save(rename, tag.id)} />
                 <Button label="Cancel rename" size="small" kind="ghost" disabled={disabled} onclick={() => { editing = null; validation = '' }} />
               </form>
@@ -66,7 +66,7 @@
         {/each}
       </ul>
       <form class="create" onsubmit={(event) => { event.preventDefault(); save(draft) }}>
-        <input aria-label="New tag name" placeholder="New tag" bind:value={draft} maxlength="64" disabled={disabled} />
+        <input class="caelestis-field" aria-label="New tag name" placeholder="New tag" bind:value={draft} maxlength="64" disabled={disabled} />
         <Button label="Create tag" size="small" kind="primary" disabled={disabled || draft.trim() === ''} onclick={() => save(draft)} />
       </form>
       {#if model.busy}<p class="saving" role="status">Saving…</p>{/if}
@@ -75,7 +75,7 @@
 </dialog>
 
 <style>
-  dialog { box-sizing: border-box; inline-size: min(28rem, calc(100vw - 2rem)); max-block-size: calc(100dvh - 2rem); padding: 0; border: 1px solid color-mix(in oklab, var(--caelestis-text) 20%, transparent); border-radius: var(--caelestis-box-radius, 1rem); background: var(--caelestis-surface, white); color: var(--caelestis-text, #222); box-shadow: 0 1rem 3rem #0004; font: 0.875rem/1.4 ui-sans-serif, system-ui, sans-serif; }
+  dialog { box-sizing: border-box; inline-size: min(28rem, calc(100vw - 2rem)); max-block-size: calc(100dvh - 2rem); padding: 0; border: 1px solid color-mix(in oklab, var(--caelestis-text) 20%, transparent); border-radius: var(--caelestis-box-radius, var(--caelestis-radius, 1rem)); background: var(--caelestis-surface, white); color: var(--caelestis-text, #222); box-shadow: 0 1rem 3rem #0004; font: 0.875rem/1.4 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); }
   dialog::backdrop { background: #0006; }
   .content { overflow: hidden; }
   header { display: flex; align-items: start; justify-content: space-between; gap: 0.75rem; padding: 1rem; border-block-end: 1px solid color-mix(in oklab, currentColor 12%, transparent); }
