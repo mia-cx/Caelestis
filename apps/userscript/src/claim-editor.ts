@@ -36,6 +36,7 @@ import {
   type ClaimToolEntry,
   type ClaimToolGroupId,
 } from '@caelestis/ui/elements'
+import { cancelSurfaceClose, closeSurface, openSurface } from '@caelestis/ui/motion'
 import {
   claimDocumentError,
   claimDocumentPixels,
@@ -303,6 +304,8 @@ let dirty = false
 let cursor = ''
 let overlay: SVGSVGElement | null = null
 let mode: (HTMLElement & { model: ClaimModeModel }) | null = null
+/** A mode element still running its exit transition — reclaimable if the editor restarts. */
+let closingMode: (HTMLElement & { model: ClaimModeModel }) | null = null
 let version = 0
 interface ClaimEditorPixels {
   readonly rect: PresenceRect
@@ -2025,6 +2028,14 @@ export const handleClaimModeIntent = (intent: ClaimModeIntent): void => {
 
 const ensureMode = (): void => {
   if (mode?.isConnected) return
+  // A restart while the old element is still closing reclaims it — never two nodes with one id.
+  if (closingMode?.isConnected && cancelSurfaceClose(closingMode)) {
+    mode = closingMode
+    closingMode = null
+    openSurface(mode)
+    return
+  }
+  closingMode = null
   const element = document.createElement(CLAIM_MODE_TAG) as HTMLElement & { model: ClaimModeModel }
   element.id = MODE_ID
   Object.assign(element.style, {
@@ -2040,13 +2051,21 @@ const ensureMode = (): void => {
   })
   element.model = claimModeModel()
   document.body.appendChild(element)
+  openSurface(element)
   mode = element
 }
 
 const syncMode = (): void => {
   if (!active) {
-    mode?.remove()
-    mode = null
+    if (mode !== null) {
+      const leaving = mode
+      mode = null
+      closingMode = leaving
+      closeSurface(leaving, () => {
+        if (closingMode === leaving) closingMode = null
+        leaving.remove()
+      })
+    }
     return
   }
   ensureMode()

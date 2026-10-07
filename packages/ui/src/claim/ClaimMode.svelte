@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { shift, tokenized } from '../foundations/motion.js'
   import Button from '../foundations/Button.svelte'
   import Icon from '../foundations/Icon.svelte'
   import Toggle from '../foundations/Toggle.svelte'
@@ -101,6 +102,12 @@
       open = null
     }
   }
+
+  /** Flyout menus pop out of the group's left-top corner: scale + fade + a blur that lifts. */
+  const flyoutIn = tokenized(shift, '--caelestis-duration-fast')
+  const flyoutOut = tokenized(shift, '--caelestis-duration-quick')
+  /** Status text swaps in place: the old line exits upward while the new one arrives from below. */
+  const hintSwap = tokenized(shift, '--caelestis-duration-quick')
 </script>
 
 <svelte:window onkeydowncapture={onWindowKeydown} />
@@ -133,7 +140,7 @@
           {#if group.tools.length > 1}<span class="corner" aria-hidden="true"></span>{/if}
         </button>
         {#if open === group.id}
-          <div class="flyout caelestis-surface" role="menu" aria-label={group.label}>
+          <div class="flyout caelestis-surface" role="menu" aria-label={group.label} in:flyoutIn|global={{ scale: '--caelestis-scale-large', blur: '--caelestis-blur-small' }} out:flyoutOut|global={{ scale: '--caelestis-scale-large', blur: '--caelestis-blur-small' }}>
             {#each group.tools as held (held.tool)}
               <button
                 type="button"
@@ -219,23 +226,37 @@
         {/if}
       </div>
     </div>
-    <p class="hint" class:message={model.message !== undefined} role="status" title={hint}>{hint}</p>
+    <p class="hint" class:message={model.message !== undefined} role="status" title={hint}>{#each [hint] as text (text)}<span class="hint-text" in:hintSwap|global={{ distance: '--caelestis-distance-micro', dy: 1, blur: '--caelestis-blur-small' }} out:hintSwap|global={{ distance: '--caelestis-distance-micro', dy: -1, blur: '--caelestis-blur-small' }}>{text}</span>{/each}</p>
   </div>
 </div>
 
 <style>
   .mode {
+    --mode-open-dur: var(--caelestis-duration-medium);
+    --mode-close-dur: var(--caelestis-duration-fast);
+    --mode-ease: var(--caelestis-ease-smooth-out);
     position: fixed;
     inset: 0;
     pointer-events: none;
     font: 0.8125rem/1.4 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
     color: var(--caelestis-text, #222);
   }
+  /*
+   * Enter/exit: the userscript drives the custom-element host through data-state. Movement rides
+   * the `translate` property so `transform` stays free for centring. The drawer comes from off the
+   * left edge; the bar drops from above. Closing surfaces stop taking input immediately.
+   */
   .drawer {
+    --rest-translate: 0 -50%;
+    --hidden-translate: calc(-100% - 12px) -50%;
     position: absolute;
     inset-inline-start: 12px;
     inset-block-start: 50%;
-    transform: translateY(-50%);
+    translate: var(--hidden-translate);
+    opacity: 0;
+    transition:
+      translate var(--mode-open-dur) var(--mode-ease),
+      opacity   var(--mode-open-dur) var(--mode-ease);
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -245,6 +266,13 @@
     background: var(--caelestis-surface, white);
     box-shadow: var(--caelestis-popover-shadow, 0 10px 24px -6px rgb(0 0 0 / 0.28));
     pointer-events: auto;
+  }
+  :host([data-state='open']) .drawer { translate: var(--rest-translate); opacity: 1; }
+  :host([data-state='closing']) .drawer {
+    translate: var(--hidden-translate);
+    opacity: 0;
+    pointer-events: none;
+    transition-duration: var(--mode-close-dur);
   }
   .slot {
     position: relative;
@@ -260,6 +288,12 @@
     background: transparent;
     color: inherit;
     cursor: pointer;
+  }
+  /* The active-tool highlight cross-fades rather than snapping between buttons. */
+  .tool, .choice {
+    transition:
+      background-color var(--caelestis-duration-quick) var(--caelestis-ease-smooth-out, ease-out),
+      color var(--caelestis-duration-quick) var(--caelestis-ease-smooth-out, ease-out);
   }
   .tool:hover:not(:disabled, .active) {
     background: color-mix(in oklab, currentColor 10%, transparent);
@@ -292,6 +326,7 @@
     position: absolute;
     inset-inline-start: calc(100% + 6px);
     inset-block-start: 0;
+    transform-origin: top left;
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -337,6 +372,11 @@
     /* Centred with auto margins rather than a 50% offset: an absolutely positioned box offset
        to the middle only gets half the viewport as available width, which would cap fit-content
        at half the screen and clip the row. */
+    translate: 0 calc(-100% - 12px);
+    opacity: 0;
+    transition:
+      translate var(--mode-open-dur) var(--mode-ease),
+      opacity   var(--mode-open-dur) var(--mode-ease);
     position: absolute;
     inset-block-start: 12px;
     inset-inline: 8rem;
@@ -350,6 +390,13 @@
     background: var(--caelestis-surface, white);
     box-shadow: var(--caelestis-popover-shadow, 0 10px 24px -6px rgb(0 0 0 / 0.28));
     pointer-events: auto;
+  }
+  :host([data-state='open']) .bar { translate: 0 0; opacity: 1; }
+  :host([data-state='closing']) .bar {
+    translate: 0 calc(-100% - 12px);
+    opacity: 0;
+    pointer-events: none;
+    transition-duration: var(--mode-close-dur);
   }
   /* One row, three groups, one height: the tool and its options, the claims, the actions. */
   .row {
@@ -423,9 +470,17 @@
   /* The delete control keeps its place whether or not anything is selected. */
   .delete {
     margin-inline-start: 0.25rem;
+    transition:
+      opacity var(--caelestis-duration-quick) var(--caelestis-ease-smooth-out, ease-out),
+      filter var(--caelestis-duration-quick) var(--caelestis-ease-smooth-out, ease-out),
+      scale var(--caelestis-duration-quick) var(--caelestis-ease-smooth-out, ease-out),
+      visibility var(--caelestis-duration-quick);
   }
   .delete.hidden {
     visibility: hidden;
+    opacity: 0;
+    filter: blur(var(--caelestis-blur-small, 2px));
+    scale: var(--caelestis-scale-tiny, 0.99);
   }
   .actions {
     gap: 0.35rem;
@@ -438,13 +493,22 @@
     text-transform: uppercase;
     letter-spacing: 0.04em;
     opacity: 0;
-    transition: opacity var(--caelestis-duration-quick) var(--caelestis-ease-out);
+    filter: blur(var(--caelestis-blur-small, 2px));
+    scale: var(--caelestis-scale-tiny, 0.99);
+    transition:
+      opacity var(--caelestis-duration-quick) var(--caelestis-ease-smooth-out, ease-out),
+      filter var(--caelestis-duration-quick) var(--caelestis-ease-smooth-out, ease-out),
+      scale var(--caelestis-duration-quick) var(--caelestis-ease-smooth-out, ease-out);
   }
   .unsaved.visible {
     opacity: 1;
+    filter: none;
+    scale: 1;
   }
-  /* One line, always the same height; the full text is the title. */
+  /* One line, always the same height; the full text is the title. Outgoing and incoming text
+     share one grid cell while the swap runs. */
   .hint {
+    display: grid;
     margin: 0.3rem 0 0;
     inline-size: 0;
     min-inline-size: 100%;
@@ -454,7 +518,13 @@
     font-size: 0.72rem;
     line-height: 1.1rem;
     white-space: nowrap;
+  }
+  .hint-text {
+    grid-area: 1 / 1;
+    min-inline-size: 0;
+    overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .hint.message {
     color: var(--caelestis-text);
@@ -494,7 +564,9 @@
   }
 
   /* Phones need one editing area below the canvas, clear of Wplace's bottom controls.
-     Keep the tools and their flyouts together instead of covering the drawing with a sidebar. */
+     Keep the tools and their flyouts together instead of covering the drawing with a sidebar.
+     Here the whole card is the surface: it rises from below the viewport as one unit while the
+     children inside stay put. */
   @media (max-width: 40rem) {
     .mode {
       inset: auto max(8px, env(safe-area-inset-right)) calc(4.25rem + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
@@ -504,10 +576,20 @@
       border-radius: var(--caelestis-radius, 0.7rem);
       background: var(--caelestis-surface, white);
       box-shadow: var(--caelestis-popover-shadow, 0 10px 24px -6px rgb(0 0 0 / 0.28));
+      translate: 0 calc(100% + 4.25rem + env(safe-area-inset-bottom));
+      opacity: 0;
+      transition:
+        translate var(--mode-open-dur) var(--mode-ease),
+        opacity   var(--mode-open-dur) var(--mode-ease);
+    }
+    :host([data-state='open']) .mode { translate: 0 0; opacity: 1; }
+    :host([data-state='closing']) .mode {
+      translate: 0 calc(100% + 4.25rem + env(safe-area-inset-bottom));
+      opacity: 0;
+      transition-duration: var(--mode-close-dur);
     }
     .drawer {
       position: static;
-      transform: none;
       flex-direction: row;
       justify-content: space-around;
       border: 0;
@@ -515,6 +597,12 @@
       border-radius: 0;
       background: transparent;
       box-shadow: none;
+    }
+    .drawer, .bar { translate: none; opacity: 1; transition: none; }
+    :host([data-state='closing']) .drawer, :host([data-state='closing']) .bar {
+      translate: none;
+      opacity: 1;
+      pointer-events: none;
     }
     .tool {
       inline-size: 2.75rem;
@@ -525,9 +613,11 @@
       inset-inline: 0 auto;
       max-block-size: max(2.75rem, calc(100dvh - 20rem));
       overflow-y: auto;
+      transform-origin: bottom left;
     }
     .slot:nth-last-child(-n + 2) .flyout {
       inset-inline: auto 0;
+      transform-origin: bottom right;
     }
     .choice {
       min-block-size: 2.75rem;
@@ -597,7 +687,7 @@
       display: none;
     }
     .hint.message {
-      display: block;
+      display: grid;
       block-size: auto;
       max-block-size: 3.3rem;
       overflow-y: auto;
@@ -609,5 +699,9 @@
     .flyout {
       inset-block: 0 auto;
     }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .drawer, .bar, .tool, .choice, .delete, .unsaved { transition: none !important; }
   }
 </style>
