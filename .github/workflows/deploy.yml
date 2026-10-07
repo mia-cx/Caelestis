@@ -65,4 +65,5 @@ jobs:
           userscript_versions_json="$(node .github/scripts/userscript-metric-versions.mjs)"
           pnpm --dir apps/backend exec wrangler deploy \
             --define "__CAELESTIS_DEPLOYMENT_VERSION__:\"$CAELESTIS_BUILD_ID\"" \
+            --define "__CAELESTIS_BACKEND_VERSION__:\"$(node -p "require('./apps/backend/package.json').version")\"" \
             --define "__CAELESTIS_USERSCRIPT_VERSIONS__:$userscript_versions_json"

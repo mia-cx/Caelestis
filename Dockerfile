@@ -29,7 +29,7 @@ LABEL org.opencontainers.image.source="https://github.com/mia-cx/Caelestis" \
       org.opencontainers.image.revision=$CAELESTIS_BUILD_ID \
       cx.mia.caelestis.runtime="node" \
       cx.mia.caelestis.runtime.version="24.20.0"
-ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000 DATA_DIRECTORY=/data
+ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000 DATA_DIRECTORY=/data CAELESTIS_BUILD_ID=$CAELESTIS_BUILD_ID
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends --only-upgrade libpcre2-8-0 \
     && rm -rf /var/lib/apt/lists/* /usr/local/lib/node_modules/npm /opt/yarn-* \

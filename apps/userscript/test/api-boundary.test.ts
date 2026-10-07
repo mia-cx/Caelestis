@@ -113,6 +113,42 @@ describe('template authoring through the backend', () => {
 })
 
 describe('userscript to backend API boundary', () => {
+  it.each(['poll', 'live'] as const)(
+    'refreshes Settings release metadata from a %s manifest without replacing the connection',
+    async (transport) => {
+      await installBackend({ version: '0.8.0', build: 'old-build' })
+      const { state, server } = await connect()
+      const identity = state.serverConnectionIdentity(server)
+      const signal = state.serverConnectionSignal(server)
+      const { backendVersionOutdated } = await import('../src/userscript-update.js')
+      expect(backendVersionOutdated(server.info?.version, '0.9.0')).toBe(true)
+      const changed = vi.fn()
+      state.onStateChange(changed)
+
+      await installBackend({ version: '0.9.0', build: 'new-build' })
+      if (transport === 'poll') {
+        expect(await state.listServerContents(server)).not.toBeNull()
+      } else {
+        const response = await fetch(`${origin}/v1/manifest?season=3`, {
+          headers: { authorization: `Bearer ${adminToken}` },
+        })
+        expect(response.ok).toBe(true)
+        expect(state.applyLiveServerManifest(server, await response.json())).not.toBeNull()
+      }
+
+      const current = state.getState().servers.find((candidate) => candidate.url === origin)
+      if (current === undefined) throw new Error('connected server was lost')
+      expect(current.info).toEqual({ ...server.info, version: '0.9.0', build: 'new-build' })
+      expect(backendVersionOutdated(current.info?.version, '0.9.0')).toBe(false)
+      expect(changed).toHaveBeenCalledOnce()
+      expect(state.serverConnectionIdentity(current)).toBe(identity)
+      expect(state.isCurrentServerConnection(server)).toBe(true)
+      expect(signal.aborted).toBe(false)
+      expect(current.token).toBe(server.token)
+      expect(current.isAdmin).toBe(server.isAdmin)
+    },
+  )
+
   it('edits sparse public branding and refreshes asset metadata through the real backend', async () => {
     await installBackend()
     const { state, server } = await connect()

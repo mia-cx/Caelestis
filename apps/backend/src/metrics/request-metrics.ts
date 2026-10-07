@@ -66,7 +66,7 @@ const d1UsageStorage = new AsyncLocalStorage<{
   measuredQueries: number
   unmeasuredQueries: number
 }>()
-const deploymentVersion =
+export const deploymentVersion =
   typeof __CAELESTIS_DEPLOYMENT_VERSION__ === 'string'
     ? __CAELESTIS_DEPLOYMENT_VERSION__.slice(0, 12)
     : 'development'

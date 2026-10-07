@@ -168,6 +168,8 @@ const assembleManifestWithSql = async (
     ...(server.presence === undefined ? {} : { presence: server.presence }),
     ...(server.livePaintParts === undefined ? {} : { livePaintParts: server.livePaintParts }),
     ...(server.discordInviteUrl === undefined ? {} : { discordInviteUrl: server.discordInviteUrl }),
+    ...(server.version === undefined ? {} : { version: server.version }),
+    ...(server.build === undefined ? {} : { build: server.build }),
     ...(server.homeCopy === undefined ? {} : { homeCopy: server.homeCopy }),
     ...(server.logoText === undefined ? {} : { logoText: server.logoText }),
     ...(server.logoImage === undefined

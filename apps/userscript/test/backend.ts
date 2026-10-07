@@ -29,7 +29,14 @@ export const backendFetch =
   }
 
 /** Exercise the built backend package without loading its compiler environment into Vitest. */
-export const createTestBackend = async ({ openAccess = false }: { openAccess?: boolean } = {}) => {
+export const createTestBackend = async ({
+  openAccess = false,
+  ...release
+}: {
+  openAccess?: boolean
+  version?: string
+  build?: string
+} = {}) => {
   const sql = new MemorySqlStore()
   const blobs = new MemoryBlobStore()
   const counters = new MemoryCounterStore(sql)
@@ -63,6 +70,7 @@ export const createTestBackend = async ({ openAccess = false }: { openAccess?: b
       serverName: 'Userscript contract server',
       currentSeason: 3,
       openAccess,
+      ...release,
     }),
   }
 }

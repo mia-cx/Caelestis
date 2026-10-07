@@ -3,6 +3,9 @@ import { readFileSync } from 'node:fs'
 import { build, context } from 'esbuild'
 
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
+const backendPkg = JSON.parse(
+  readFileSync(new URL('../backend/package.json', import.meta.url), 'utf8'),
+)
 const development = process.argv.includes('--watch') || process.argv.includes('--development')
 let revision = null
 let dirty = null
@@ -64,6 +67,7 @@ const options = {
   loader: { '.woff2': 'dataurl', '.png': 'dataurl' },
   define: {
     __CAELESTIS_USERSCRIPT_VERSION__: JSON.stringify(pkg.version),
+    __CAELESTIS_EXPECTED_BACKEND_VERSION__: JSON.stringify(backendPkg.version),
     __CAELESTIS_BUILD__: JSON.stringify({ revision, dirty, development }),
   },
   banner: { js: metadata },

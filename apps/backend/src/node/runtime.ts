@@ -1,4 +1,5 @@
 import { mkdir } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import {
   millis,
@@ -39,6 +40,12 @@ import { sqliteConnection } from './database.js'
 import { NodeLiveHost } from './live.js'
 
 const DERIVED_ARTIFACT_DRAIN_TIMEOUT_MS = 10_000
+
+// `../../package.json` resolves to apps/backend/package.json from both `src/node/` and `dist/node/`.
+const backendVersion = (
+  createRequire(import.meta.url)('../../package.json') as { version?: string }
+).version
+const backendBuild = process.env.CAELESTIS_BUILD_ID?.slice(0, 12) || 'development'
 
 const MIRROR_INTERVAL_MS = 6 * 60 * 60 * 1000
 const SOCIAL_INTERVAL_MS = 24 * 60 * 60 * 1000
@@ -230,6 +237,8 @@ export const openNodeRuntime = async (
       serverId,
       serverName: config.serverName,
       serverDescription: config.serverDescription,
+      version: backendVersion,
+      build: backendBuild,
       connectStatusLive: (request, connection) => status.connectLive(request, connection),
       presenceOnline: (season, surface) => presenceRoom(season, surface).online(),
       connectPresence: async (request, connection) => {

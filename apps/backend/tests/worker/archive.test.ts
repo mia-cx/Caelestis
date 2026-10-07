@@ -36,6 +36,7 @@ beforeAll(async () => {
     external: ['cloudflare:workers', 'node:*'],
     define: {
       __CAELESTIS_DEPLOYMENT_VERSION__: '"test"',
+      __CAELESTIS_BACKEND_VERSION__: '"test"',
       __CAELESTIS_USERSCRIPT_VERSIONS__: '[]',
     },
     write: false,

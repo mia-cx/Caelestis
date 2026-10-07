@@ -32,10 +32,31 @@ export interface ServerInfo {
   readonly livePaintParts?: 1
   /** Public presentation an admin configured. See `@caelestis/shared` server branding. */
   readonly discordInviteUrl?: string
+  /** Backend package version, e.g. `0.9.0`. */
+  readonly version?: string
+  /** Deploy/build identifier the server reports. */
+  readonly build?: string
   readonly homeCopy?: string
   readonly logoText?: string
   readonly logoImage?: ServerAsset
   readonly previewImage?: ServerAsset
+}
+
+/**
+ * Release metadata is informational, so an unusable value is dropped rather than making the whole
+ * server unparseable.
+ */
+const parseServerVersion = (
+  value: Record<string, unknown>,
+): Pick<ServerInfo, 'version' | 'build'> => {
+  const bounded = (field: unknown): string | null =>
+    typeof field === 'string' && field.length >= 1 && field.length <= 64 ? field : null
+  const version = bounded(value.version)
+  const build = bounded(value.build)
+  return {
+    ...(version === null ? {} : { version }),
+    ...(build === null ? {} : { build }),
+  }
 }
 
 /**
@@ -141,6 +162,7 @@ export const parseServerInfo = (value: unknown): ServerInfo | null => {
     ...(value.liveTileOffers === 1 ? { liveTileOffers: 1 as const } : {}),
     ...(value.presence === 1 ? { presence: 1 as const } : {}),
     ...(value.livePaintParts === 1 ? { livePaintParts: 1 as const } : {}),
+    ...parseServerVersion(value),
     ...parseServerPresentation(value),
   }
 }

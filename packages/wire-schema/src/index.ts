@@ -410,6 +410,8 @@ export const ServerInfo = Schema.Struct({
   presence: Schema.optionalKey(Schema.Literal(1)),
   livePaintParts: Schema.optionalKey(Schema.Literal(1)),
   discordInviteUrl: Schema.optionalKey(DiscordInviteUrl),
+  version: Schema.optionalKey(boundedString(64)),
+  build: Schema.optionalKey(boundedString(64)),
   homeCopy: Schema.optionalKey(HomeCopy),
   logoText: Schema.optionalKey(boundedString(MAX_LOGO_TEXT_LENGTH)),
   logoImage: Schema.optionalKey(ServerAsset),

@@ -44,6 +44,24 @@ const compareVersions = (left: VersionParts, right: VersionParts): number => {
   return 0
 }
 
+/**
+ * A server is stale only when both versions parse as x.y.z and the server's is lower. Missing or
+ * unparseable version fields say nothing about age, so they are never flagged.
+ */
+export const backendVersionOutdated = (
+  serverVersion: string | undefined,
+  expected: string,
+): boolean => {
+  if (serverVersion === undefined) return false
+  const advertised = parseVersion(serverVersion, VERSION)
+  const baseline = parseVersion(expected, VERSION)
+  return (
+    advertised !== null &&
+    baseline !== null &&
+    compareVersions(advertised.parts, baseline.parts) < 0
+  )
+}
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 

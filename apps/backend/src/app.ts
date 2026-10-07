@@ -51,6 +51,10 @@ export interface AppOptions {
   readonly serverId?: string | undefined
   readonly serverName?: string | undefined
   readonly serverDescription?: string | undefined
+  /** Backend package version reported on `/server`. */
+  readonly version?: string | undefined
+  /** Deploy/build identifier reported on `/server`, e.g. the first 12 characters of the release SHA. */
+  readonly build?: string | undefined
   readonly openAccess?: boolean | undefined
   readonly currentSeason?: number | undefined
   readonly connectStatusLive?:
@@ -101,6 +105,8 @@ export const createApp = (context: BackendContext, options: AppOptions = {}) => 
       'serverName',
     ),
     auth: options.openAccess === true ? 'none' : 'access_token',
+    ...(options.version === undefined ? {} : { version: options.version }),
+    ...(options.build === undefined ? {} : { build: options.build }),
     ...(options.connectPresence === undefined ? {} : { presence: 1 as const }),
     ...(options.connectStatusLive === undefined
       ? {}

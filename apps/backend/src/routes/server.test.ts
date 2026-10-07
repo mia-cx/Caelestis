@@ -18,7 +18,7 @@ import { DirectStatusReadModel } from '../status-read-model/port.js'
 const token = 'bootstrap-operator-token'
 const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 const gif = new TextEncoder().encode('GIF89a')
-const harness = (openAccess = true) => {
+const harness = (openAccess = true, options: Parameters<typeof createApp>[1] = {}) => {
   const sql = new MemorySqlStore()
   const blobs = new MemoryBlobStore()
   const readModel = new DirectStatusReadModel(sql)
@@ -30,7 +30,7 @@ const harness = (openAccess = true) => {
       new MemoryCounterStore(sql, () => millis(Date.now())),
       readModel,
     ),
-    { bootstrapAdminToken: token, openAccess },
+    { bootstrapAdminToken: token, openAccess, ...options },
   )
   const patch = (body: unknown, credential = token) =>
     app.request('/v1/admin/server', {
@@ -105,6 +105,29 @@ describe('public server branding', () => {
     expect(await server()).toEqual({ ...empty, name: 'Community' })
     expect((await manifest()).server).toEqual({ ...empty, name: 'Community' })
     expect(notify).toHaveBeenCalledTimes(6)
+  })
+
+  it('reports the backend version and build, and keeps them through settings changes', async () => {
+    const { patch, server, manifest } = harness(true, {
+      version: '0.9.0',
+      build: 'a1b2c3d4e5f6',
+    })
+    const reported = await server()
+    expect(reported.version).toBe('0.9.0')
+    expect(reported.build).toBe('a1b2c3d4e5f6')
+    expect((await patch({ name: 'Renamed' })).status).toBe(200)
+    const renamed = await server()
+    expect(renamed.name).toBe('Renamed')
+    expect(renamed.version).toBe('0.9.0')
+    expect(renamed.build).toBe('a1b2c3d4e5f6')
+    expect((await manifest()).server).toEqual(renamed)
+  })
+
+  it('omits version metadata when the runtime does not provide it', async () => {
+    const { server } = harness()
+    const reported = await server()
+    expect(reported).not.toHaveProperty('version')
+    expect(reported).not.toHaveProperty('build')
   })
 
   it.each([
