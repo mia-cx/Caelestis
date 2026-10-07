@@ -3,6 +3,7 @@ node_modules/
 dist/
 .turbo/
 .svelte-kit/
+.svelte-check/
 *.tsbuildinfo
 
 .env

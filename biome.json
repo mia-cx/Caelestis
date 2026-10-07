@@ -19,6 +19,7 @@
       "!**/migrations/**/*.sql",
       "!fixtures/berrycamp/wplace-templates",
       "!**/.svelte-kit",
+      "!**/.svelte-check",
       "!**/*.svelte",
       "!apps/frontend/src/app.css"
     ]
