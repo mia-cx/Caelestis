@@ -123,7 +123,8 @@ export const runProductionBrowserBoundaries = async () => {
   const WPLACE_FONT_RULES =
     '@layer theme{:root,:host{--font-sans:"Pixelify Sans", "WPlace Pixel Mono", "Fusion Pixel Chinese", ui-sans-serif, system-ui, sans-serif;--font-mono:"WPlace Pixel Mono", "Pixelify Sans", "Fusion Pixel Chinese", ui-monospace, monospace}}' +
     ':root:lang(ja),:root:lang(jp){--font-sans:"Pixelify Sans", "WPlace Pixel Mono", "Fusion Pixel Japanese", ui-sans-serif, system-ui, sans-serif;--font-mono:"WPlace Pixel Mono", "Pixelify Sans", "Fusion Pixel Japanese", ui-monospace, monospace}' +
-    ':root[data-pixel-fonts=false],:root[data-standard-ui]{--font-sans:"Geist", ui-sans-serif, system-ui, sans-serif;--font-mono:"Geist Mono", ui-monospace, monospace}'
+    ':root[data-pixel-fonts=false],:root[data-standard-ui]{--font-sans:"Geist", ui-sans-serif, system-ui, sans-serif;--font-mono:"Geist Mono", ui-monospace, monospace}' +
+    ':root:not([data-pixel-fonts=false]):not([data-standard-ui]){-webkit-font-smoothing:none}'
   const wplaceStyle = document.createElement('style')
   wplaceStyle.textContent = WPLACE_FONT_RULES
   document.head.append(wplaceStyle)
@@ -147,6 +148,11 @@ export const runProductionBrowserBoundaries = async () => {
     `"FalseType", "WPlace Pixel Mono", "Pixelify Sans", "${cjk}", ui-monospace, monospace`
   const GEIST_SANS = '"Geist", ui-sans-serif, system-ui, sans-serif'
   const GEIST_MONO = '"Geist Mono", ui-monospace, monospace'
+  const expectSmoothing = (condition: string) => {
+    const actual = getComputedStyle(root).webkitFontSmoothing
+    if (actual !== 'auto')
+      throw new Error(`font override ${condition}: -webkit-font-smoothing is ${actual}`)
+  }
   installWplaceFont()
   try {
     expectStacks(
@@ -154,6 +160,7 @@ export const runProductionBrowserBoundaries = async () => {
       falseTypeSans('Fusion Pixel Chinese'),
       falseTypeMono('Fusion Pixel Chinese'),
     )
+    expectSmoothing('on a default root')
     for (const lang of ['ja', 'jp']) {
       root.setAttribute('lang', lang)
       expectStacks(
@@ -161,6 +168,7 @@ export const runProductionBrowserBoundaries = async () => {
         falseTypeSans('Fusion Pixel Japanese'),
         falseTypeMono('Fusion Pixel Japanese'),
       )
+      expectSmoothing(`with lang=${lang}`)
     }
     root.removeAttribute('lang')
     root.setAttribute('data-pixel-fonts', 'false')
@@ -171,6 +179,7 @@ export const runProductionBrowserBoundaries = async () => {
       falseTypeSans('Fusion Pixel Chinese'),
       falseTypeMono('Fusion Pixel Chinese'),
     )
+    expectSmoothing('with data-pixel-fonts=true')
     root.removeAttribute('data-pixel-fonts')
     root.setAttribute('data-standard-ui', '')
     expectStacks('with data-standard-ui', GEIST_SANS, GEIST_MONO)
@@ -183,6 +192,7 @@ export const runProductionBrowserBoundaries = async () => {
       falseTypeSans('Fusion Pixel Chinese'),
       falseTypeMono('Fusion Pixel Chinese'),
     )
+    expectSmoothing('after restoring the root')
     const faces = await document.fonts.load('12px "FalseType"')
     if (faces.length !== 1) throw new Error('the bundled FalseType face did not load')
   } finally {

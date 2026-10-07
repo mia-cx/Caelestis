@@ -8,13 +8,16 @@ import falseType from './fonts/FalseType.woff2'
  * rule applies untouched when either is set. Wplace's own stacks follow FalseType, copied from its
  * `:root` theme and `:lang(ja)` rules, so glyphs FalseType lacks still come from their fonts.
  * The override is unlayered and more specific than Wplace's rules, so it wins while it matches.
+ * It also keeps `-webkit-font-smoothing` on, since Wplace switches it off for its pixel fonts and
+ * FalseType's size-adjusted pixels need smoothing to stay legible.
  */
 const PIXEL_FONTS = ':root:not([data-pixel-fonts=false]):not([data-standard-ui])'
 
 const override = (selector: string, cjk: string): string =>
   `${selector}{` +
   `--font-sans:"FalseType", "Pixelify Sans", "WPlace Pixel Mono", "${cjk}", ui-sans-serif, system-ui, sans-serif;` +
-  `--font-mono:"FalseType", "WPlace Pixel Mono", "Pixelify Sans", "${cjk}", ui-monospace, monospace}`
+  `--font-mono:"FalseType", "WPlace Pixel Mono", "Pixelify Sans", "${cjk}", ui-monospace, monospace;` +
+  `-webkit-font-smoothing:auto}`
 
 // One weight covers 100–900 so the browser never fakes bold from it. `size-adjust` draws it a little
 // larger than Wplace's sizes ask for, since its 8px caps read small next to Pixelify Sans.
