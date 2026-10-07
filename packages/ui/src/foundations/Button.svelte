@@ -145,15 +145,6 @@
       background: var(--bevel-stack);
     }
   }
-  /* Wplace .game-button[aria-pressed=true]: a soft primary fill under a primary frame. */
-  :host([data-caelestis-style='pixel']) button[aria-pressed='true']:not(:is(.ghost, .danger-ghost)) {
-    --bevel-color: color-mix(in srgb, var(--caelestis-primary) 18%, var(--caelestis-surface));
-    --bevel-light: color-mix(in srgb, var(--caelestis-primary) 35%, var(--caelestis-surface));
-    --bevel-dark: color-mix(in srgb, var(--caelestis-primary) 80%, black);
-    --bevel-frame: var(--caelestis-primary);
-    color: var(--caelestis-text);
-    background: var(--bevel-stack);
-  }
   :host([data-caelestis-style='pixel']) button:focus-visible {
     outline: 2px solid var(--caelestis-primary);
     outline-offset: 2px;

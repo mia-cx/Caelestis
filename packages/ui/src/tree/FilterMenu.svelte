@@ -111,6 +111,14 @@
   .choice:has(:focus-visible) { background: color-mix(in oklab, var(--caelestis-text) 10%, transparent); }
   .choice span { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+  /* Filters-applied is not a pressed toggle; pixel mode marks it with a primary frame. */
+  :host([data-caelestis-style='pixel']) .filter-trigger.active {
+    --bevel-frame: var(--caelestis-primary);
+    color: var(--caelestis-primary);
+    background: var(--bevel-stack);
+    box-shadow: none;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .filter-trigger, .clear, .choice { transition: none; }
   }

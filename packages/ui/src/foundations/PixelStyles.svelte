@@ -88,13 +88,24 @@
     text-shadow: none;
     transition-property: color, opacity;
   }
-  :global(:host([data-caelestis-style='pixel']) .caelestis-bevel:hover:not(:disabled, [disabled], [aria-disabled='true'])) {
+  :global(:host([data-caelestis-style='pixel']) .caelestis-bevel:hover:not(:disabled, [disabled], [aria-disabled='true'], [aria-pressed='true'])) {
     --bevel-fill: color-mix(in srgb, var(--bevel-color) 90%, white);
     background: var(--bevel-stack);
   }
-  :global(:host([data-caelestis-style='pixel']) .caelestis-bevel:is(:active, [aria-pressed='true']):not(:disabled, [disabled], [aria-disabled='true'])) {
+  :global(:host([data-caelestis-style='pixel']) .caelestis-bevel:active:not(:disabled, [disabled], [aria-disabled='true'])) {
     --bevel-top: var(--bevel-dark);
     --bevel-bottom: var(--bevel-light);
+    background: var(--bevel-stack);
+  }
+  /* Wplace .game-button[aria-pressed=true]: a soft primary fill under a primary frame. */
+  :global(:host([data-caelestis-style='pixel']) .caelestis-bevel[aria-pressed='true']:not(:disabled, [disabled], [aria-disabled='true'])) {
+    --bevel-color: color-mix(in srgb, var(--caelestis-primary) 18%, var(--caelestis-surface));
+    --bevel-light: color-mix(in srgb, var(--caelestis-primary) 35%, var(--caelestis-surface));
+    --bevel-dark: color-mix(in srgb, var(--caelestis-primary) 80%, black);
+    --bevel-frame: var(--caelestis-primary);
+    --bevel-top: var(--bevel-dark);
+    --bevel-bottom: var(--bevel-light);
+    color: var(--caelestis-text);
     background: var(--bevel-stack);
   }
   :global(:host([data-caelestis-style='pixel']) .caelestis-bevel:is(:disabled, [disabled], [aria-disabled='true'])) {
@@ -120,13 +131,14 @@
       color: CanvasText;
       box-shadow: none;
     }
-    :global(:host([data-caelestis-style='pixel']) .caelestis-bevel) {
+    :global(:host([data-caelestis-style='pixel']) .caelestis-bevel),
+    :global(:host([data-caelestis-style='pixel']) .caelestis-bevel:hover:not(:disabled, [disabled], [aria-disabled='true'], [aria-pressed='true'])) {
       border: 2px solid ButtonText;
       background: ButtonFace;
       color: ButtonText;
       box-shadow: none;
     }
-    :global(:host([data-caelestis-style='pixel']) .caelestis-bevel:is(:active, [aria-pressed='true'])) {
+    :global(:host([data-caelestis-style='pixel']) .caelestis-bevel:is(:active, [aria-pressed='true']):not(:disabled, [disabled], [aria-disabled='true'])) {
       background: Highlight;
       color: HighlightText;
     }

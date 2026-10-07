@@ -80,7 +80,8 @@
     border-radius: 0;
     box-shadow: 3px 3px 0 var(--caelestis-pixel-shadow);
   }
-  :host([data-caelestis-style='pixel']) button.pressed {
+  /* The rail's own pressed look is solid primary; it out-specifies the shared pressed rule. */
+  :host([data-caelestis-style='pixel']) button.pressed[aria-pressed='true']:not([aria-disabled='true']) {
     --bevel-color: var(--caelestis-primary);
     --bevel-light: var(--caelestis-pixel-primary-light);
     --bevel-dark: var(--caelestis-pixel-primary-shade);

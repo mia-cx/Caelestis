@@ -126,7 +126,7 @@
           {#snippet children()}
             <div class="same-colour">
               <ColourInput label="Colour for other colours" value={model.values.otherColour ?? model.values.markerColour} disabled={!model.values.markMismatch || !model.values.dimOthers} onPreview={(value) => emit({ type: 'preview-colour', key: 'otherColour', value })} onCommit={(value) => emit({ type: 'commit-colour', key: 'otherColour', value })} />
-              <button class="choice caelestis-bevel" type="button" class:active={model.values.otherColour === null} disabled={!model.values.markMismatch || !model.values.dimOthers} onclick={() => emit({ type: 'set-colour', key: 'otherColour', value: null })}>Same</button>
+              <button class="choice caelestis-bevel" type="button" class:active={model.values.otherColour === null} aria-pressed={model.values.otherColour === null} disabled={!model.values.markMismatch || !model.values.dimOthers} onclick={() => emit({ type: 'set-colour', key: 'otherColour', value: null })}>Same</button>
             </div>
           {/snippet}
         </SettingRow>
@@ -173,7 +173,7 @@
     <div class="colour-toolbar">
       <div class="presets" role="group" aria-label="Colour presets">
         {#each model.colourPresets as preset (preset.id)}
-          <button class="choice" type="button" data-caelestis-preset={preset.id} class:active={preset.active} disabled={preset.disabled} aria-pressed={preset.active} onclick={() => emit({ type: 'colour-preset', id: preset.id })}>{preset.label}</button>
+          <button class="choice caelestis-bevel" type="button" data-caelestis-preset={preset.id} class:active={preset.active} disabled={preset.disabled} aria-pressed={preset.active} onclick={() => emit({ type: 'colour-preset', id: preset.id })}>{preset.label}</button>
         {/each}
       </div>
       {#if model.showOnlySelectedColour !== false}
@@ -244,8 +244,6 @@
   button:disabled, button[aria-disabled='true'] { pointer-events: none; cursor: not-allowed; opacity: 0.3; }
   @media (forced-colors: active) { .palette-swatch[data-on='true'] { outline: 3px solid CanvasText; } }
 
-  /* Pressed choices keep text ink on the gray bevel instead of the classic white-on-primary. */
-  :host([data-caelestis-style='pixel']) :is(.pixel-preset, .choice).active { color: var(--caelestis-text); }
   /* The "use defaults" checkboxes are Toggle-style switches: give them the pixel switch look. */
   :host([data-caelestis-style='pixel']) .defaults input {
     border: 2px solid var(--caelestis-pixel-ink);
