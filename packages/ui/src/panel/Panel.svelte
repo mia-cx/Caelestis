@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, tick } from 'svelte'
-  import { cancelSurfaceClose, closeSurface, shift, tokenized } from '../foundations/motion.js'
+  import { cancelSurfaceClose, closeSurface, prefersReducedMotion, shift, surfaceCloseDurationMs, tokenized } from '../foundations/motion.js'
   import Button from '../foundations/Button.svelte'
   import Icon from '../foundations/Icon.svelte'
   import AppearanceEditor from '../appearance/AppearanceEditor.svelte'
@@ -20,12 +20,38 @@
   let dialog = $state<HTMLDialogElement>()
   let dockedPanel = $state<HTMLElement>()
 
+  /**
+   * Morph between the dialog's box and the docked panel's box. The dialog's parent is `.pane`,
+   * which sits exactly where the docked panel is, so `from` maps the current box onto it:
+   * forward grows the popout out of the docked spot, reverse lands it back on it just as the
+   * docked panel re-renders there. `reverse` fills forwards to hold the docked box through the
+   * CSS close. Opacity stays 1 so the `@starting-style` fade doesn't ghost it.
+   */
+  const morph = (target: HTMLDialogElement, reverse: boolean): void => {
+    const parent = target.parentElement
+    if (prefersReducedMotion() || parent === null) return
+    const style = getComputedStyle(target)
+    const duration = surfaceCloseDurationMs(target, reverse ? '--modal-close-dur' : '--modal-open-dur')
+    const docked = parent.getBoundingClientRect()
+    if (duration <= 0 || docked.width === 0 || docked.height === 0) return
+    const box = target.getBoundingClientRect()
+    const transform = `translate(${docked.left - box.left}px, ${docked.top - box.top}px) scale(${docked.width / box.width}, ${docked.height / box.height})`
+    const at = { transform, transformOrigin: 'top left', opacity: 1 }
+    const rest = { transform: 'none', transformOrigin: 'top left', opacity: 1 }
+    target.animate(reverse ? [rest, at] : [at, rest], {
+      duration,
+      easing: style.getPropertyValue('--modal-ease') || 'ease-out',
+      fill: reverse ? 'forwards' : 'both',
+    })
+  }
+
   // The host hears about the modal after it opens and before it closes, so anything it needs to
   // show above the popout, such as toasts, can move into the dialog while it exists.
   $effect(() => {
     if (poppedOut && !closingPopout && dialog != null && !dialog.open) {
       dialog.showModal()
       emit({ type: 'popout', open: true })
+      morph(dialog, false)
     }
   })
 
@@ -35,6 +61,7 @@
     if (closingPopout || dialog == null) return
     closingPopout = true
     emit({ type: 'popout', open: false })
+    morph(dialog, true)
     dialog.close()
     closeSurface(dialog, () => {
       poppedOut = false
@@ -193,8 +220,8 @@
 <style>
   .docked { block-size: 100%; min-block-size: 0; }
   dialog {
-    --modal-open-dur: var(--caelestis-duration-fast);
-    --modal-close-dur: var(--caelestis-duration-quick);
+    --modal-open-dur: var(--caelestis-duration-medium);
+    --modal-close-dur: var(--caelestis-duration-fast);
     --caelestis-surface-close-duration: var(--modal-close-dur);
     --modal-ease: var(--caelestis-ease-smooth-out);
     position: fixed; inset: 0; inline-size: 96vw; block-size: 96dvh; max-inline-size: none; max-block-size: none; margin: auto; padding: 0; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); overflow: visible; color: inherit; background: transparent;
