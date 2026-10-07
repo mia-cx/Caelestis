@@ -165,7 +165,6 @@ export const runProductionBrowserBoundaries = async () => {
     bitmapRgba: rgba,
     scans: [first.completed, cached.completed, afterForget.completed],
     fontStacks: true,
-    computedSans: fontVar('--font-sans'),
   }
 }
 

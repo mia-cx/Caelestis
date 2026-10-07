@@ -68,7 +68,6 @@ try {
     result.result.value?.fontStacks !== true
   )
     throw new Error('production browser contracts returned an incomplete result')
-  console.log('computed --font-sans:', result.result.value?.computedSans)
 } finally {
   socket.close()
   await fetch(`http://127.0.0.1:${port}/json/close/${target.id}`, {
