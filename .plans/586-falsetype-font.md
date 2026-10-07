@@ -16,7 +16,8 @@ Wplace's pixel UI sets `--font-sans` and `--font-mono` to Pixelify Sans and VT32
 
 - [x] Vendor `FalseType.woff2` and its OFL licence, inline the font as a data URL in the build, and append the licence to the built userscript.
       Validated: `pnpm --filter @caelestis/userscript build` succeeds and the bundle ends with the OFL legal comment (`tail -c 200`); `pnpm --filter @caelestis/userscript check` clean.
-- [ ] Install the scoped `--font-sans` / `--font-mono` override at startup.
+- [x] Install the scoped `--font-sans` / `--font-mono` override at startup.
+      Validated: `pnpm check` clean, `pnpm test` 186/186 passed, `pnpm biome check` clean, release build succeeds (bundle 1,147,040 bytes, +10,749 vs 1,136,291 baseline).
 - [ ] Browser contract: the override follows the pixel-font, standard-UI, and `:lang(ja)` conditions, and the bundled face loads.
 - [ ] Userscript Changeset.
 - [ ] Live check on wplace.live in a background debug Chromium: default, both opt-outs toggled live, `lang=ja`, CJK fallback.
