@@ -9,12 +9,12 @@
  *
  * The choice is surfaced as a "Pixelated UI" switch cloned into Wplace's Accessibility settings
  * panel, directly above "Pixelated fonts". It is checked by default (Wplace's look anyway) and
- * switching it off applies the standard UI. Pixelated fonts is left alone: the attribute already
- * switches `--font-sans` to Geist. Cursors follow instantly through the keyword fallbacks of
- * Wplace's own `--cursor-*` properties; icons are Wplace's own Material Symbols, reached by
- * widening its `standard` getter from the page world, so they follow on the next load or route
- * change. Once Wplace ships its own option for this, the switch steps aside and the attribute
- * stops being forced.
+ * switching it off applies the standard UI. Pixelated fonts stays Wplace's own independent
+ * setting: `wplace-font.ts` keys the pixel font on `data-pixel-fonts` only. Cursors follow
+ * instantly through the keyword fallbacks of Wplace's own `--cursor-*` properties; icons are
+ * Wplace's own Material Symbols, reached by widening its `standard` getter from the page world,
+ * so they follow on the next load or route change. Once Wplace ships its own option for this,
+ * the switch steps aside and the attribute stops being forced.
  */
 
 import { log } from './debug.js'

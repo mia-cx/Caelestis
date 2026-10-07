@@ -183,10 +183,22 @@ export const runProductionBrowserBoundaries = async () => {
     expectSmoothing('with data-pixel-fonts=true')
     root.removeAttribute('data-pixel-fonts')
     root.setAttribute('data-standard-ui', '')
-    expectStacks('with data-standard-ui', GEIST_SANS, GEIST_MONO)
+    // Under standard UI the pixel font still follows Wplace's Pixelated fonts switch.
+    expectStacks(
+      'with data-standard-ui',
+      falseTypeSans('Fusion Pixel Chinese'),
+      falseTypeMono('Fusion Pixel Chinese'),
+    )
     root.setAttribute('lang', 'ja')
-    expectStacks('with data-standard-ui and lang=ja', GEIST_SANS, GEIST_MONO)
+    expectStacks(
+      'with data-standard-ui and lang=ja',
+      falseTypeSans('Fusion Pixel Japanese'),
+      falseTypeMono('Fusion Pixel Japanese'),
+    )
     root.removeAttribute('lang')
+    root.setAttribute('data-pixel-fonts', 'false')
+    expectStacks('with data-standard-ui and data-pixel-fonts=false', GEIST_SANS, GEIST_MONO)
+    root.removeAttribute('data-pixel-fonts')
     root.removeAttribute('data-standard-ui')
     expectStacks(
       'after restoring the root',
