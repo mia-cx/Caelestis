@@ -105,7 +105,7 @@
 </label>
 
 <style>
-  label { display: grid; grid-template-columns: minmax(5rem, auto) minmax(0, 1fr); align-items: center; gap: 0.75rem; min-block-size: 0; padding: 0.5rem 0; color: var(--caelestis-text, inherit); font: 400 0.875rem/1.2 ui-sans-serif, system-ui, sans-serif; }
+  label { display: grid; grid-template-columns: minmax(5rem, auto) minmax(0, 1fr); align-items: center; gap: 0.75rem; min-block-size: 0; padding: 0.5rem 0; color: var(--caelestis-text, inherit); font: 400 0.875rem/1.2 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); }
   label.compact { grid-template-columns: minmax(3.5rem, auto) minmax(0, 1fr); gap: 0.5rem; font-size: 0.75rem; }
   label.disabled { opacity: 0.45; }
   .control { display: flex; min-inline-size: 0; align-items: center; gap: 0.75rem; }
@@ -118,7 +118,7 @@
   input::-moz-range-thumb { inline-size: 0.5rem; block-size: 0.5rem; border: 0.25rem solid currentColor; border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-surface, var(--color-base-100, white)); }
   .readout { flex: 0 0 2.75rem; color: var(--caelestis-muted-text, color-mix(in oklch, currentColor 60%, transparent)); text-align: end; font-size: 0.72rem; font-variant-numeric: tabular-nums; }
   .compact .readout { flex-basis: 2.5rem; }
-  button { display: grid; flex: 0 0 1.5rem; place-items: center; inline-size: 1.5rem; block-size: 1.5rem; padding: 0; border: 0; border-radius: 999px; background: transparent; color: inherit; cursor: pointer; }
+  button { display: grid; flex: 0 0 1.5rem; place-items: center; inline-size: 1.5rem; block-size: 1.5rem; padding: 0; border: 0; border-radius: var(--caelestis-pill-radius, 999px); background: transparent; color: inherit; cursor: pointer; }
   button[hidden] { visibility: hidden; }
   button:hover { background: color-mix(in oklab, currentColor 10%, transparent); }
   button:focus-visible, input:focus-visible { outline: 2px solid var(--caelestis-focus, currentColor); outline-offset: 2px; }
@@ -126,4 +126,59 @@
   .hierarchy .control { gap: 0.5rem; }
   .hierarchy.compact { grid-template-columns: minmax(0, 1fr) 8.5rem; padding-block: 0.25rem; }
   .hierarchy:is([data-depth='1'], [data-depth='2']) .name { font-size: 0.75rem; opacity: 0.8; }
+
+  /* Pixel chrome: Wplace's input[type=range] — 8px ink-framed track, square 16px thumb. */
+  :host([data-caelestis-style='pixel']) input {
+    border-radius: 0;
+    background: none;
+    overflow: visible;
+  }
+  :host([data-caelestis-style='pixel']) input::-webkit-slider-runnable-track {
+    box-sizing: border-box;
+    block-size: 8px;
+    border: 2px solid var(--caelestis-pixel-ink);
+    border-radius: 0;
+    background: linear-gradient(to right, var(--caelestis-primary) var(--fill), var(--caelestis-pixel-well-shade) var(--fill));
+  }
+  :host([data-caelestis-style='pixel']) input::-webkit-slider-thumb {
+    appearance: none;
+    box-sizing: border-box;
+    inline-size: 16px;
+    block-size: 16px;
+    border: 2px solid var(--caelestis-pixel-ink);
+    border-radius: 0;
+    background: var(--caelestis-pixel-thumb);
+    box-shadow: inset -2px -2px 0 var(--caelestis-pixel-button-shade);
+  }
+  :host([data-caelestis-style='pixel']) input::-moz-range-track {
+    box-sizing: border-box;
+    block-size: 8px;
+    border: 2px solid var(--caelestis-pixel-ink);
+    border-radius: 0;
+    background: linear-gradient(to right, var(--caelestis-primary) var(--fill), var(--caelestis-pixel-well-shade) var(--fill));
+  }
+  :host([data-caelestis-style='pixel']) input::-moz-range-progress {
+    block-size: 4px;
+    background: var(--caelestis-primary);
+  }
+  :host([data-caelestis-style='pixel']) input::-moz-range-thumb {
+    box-sizing: border-box;
+    inline-size: 16px;
+    block-size: 16px;
+    border: 2px solid var(--caelestis-pixel-ink);
+    border-radius: 0;
+    background: var(--caelestis-pixel-thumb);
+    box-shadow: inset -2px -2px 0 var(--caelestis-pixel-button-shade);
+  }
+  :host([data-caelestis-style='pixel']) input:disabled { opacity: 0.55; cursor: not-allowed; }
+  :host([data-caelestis-style='pixel']) input:focus-visible {
+    outline: 2px solid var(--caelestis-primary);
+    outline-offset: 2px;
+  }
+  @media (forced-colors: active) {
+    :host([data-caelestis-style='pixel']) input::-webkit-slider-runnable-track { border-color: CanvasText; background: Canvas; }
+    :host([data-caelestis-style='pixel']) input::-moz-range-track { border-color: CanvasText; background: Canvas; }
+    :host([data-caelestis-style='pixel']) input::-webkit-slider-thumb { border-color: CanvasText; background: Highlight; box-shadow: none; }
+    :host([data-caelestis-style='pixel']) input::-moz-range-thumb { border-color: CanvasText; background: Highlight; box-shadow: none; }
+  }
 </style>
