@@ -2,6 +2,7 @@
 
 <script lang="ts">
   import Panel from '../panel/Panel.svelte'
+  import PixelStyles from '../foundations/PixelStyles.svelte'
   import type { PanelIntent, PanelModel } from '../types.js'
 
   const DEFAULT_MODEL: PanelModel = { view: 'tree', width: 360, minWidth: 260, maxWidth: 720 }
@@ -20,6 +21,8 @@
 
 {#snippet content()}<svelte:element this={'slot'} />{/snippet}
 <Panel {model} onIntent={emit} children={content} />
+
+<PixelStyles />
 
 <style>
   :host { display: block; min-block-size: 0; }

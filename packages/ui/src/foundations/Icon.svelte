@@ -1,9 +1,9 @@
 <script lang="ts" module>
-  export type { IconName } from './icons.js'
+  export type { IconName } from './icons.svelte.js'
 </script>
 
 <script lang="ts">
-  import { activeIcons, activeIconSet, type IconName } from './icons.js'
+  import { activeIcons, activeIconSet, type IconName } from './icons.svelte.js'
 
   let { name, size, class: className }: { name: IconName; size?: string | undefined; class?: string | undefined } = $props()
   const icon = $derived(activeIcons()[name])

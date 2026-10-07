@@ -78,7 +78,7 @@
     ;(popup.querySelector<HTMLElement>('.action') ?? popup.querySelector<HTMLElement>('button') ?? popup).focus()
   }}>
   {@render children()}
-  {#if model.people.length > 0}<span class="claim-count" class:mine={model.mine} aria-hidden="true">{model.people.length > 99 ? '99+' : model.people.length}</span>{/if}
+  {#if model.people.length > 0}<span class="claim-count caelestis-badge" class:mine={model.mine} aria-hidden="true">{model.people.length > 99 ? '99+' : model.people.length}</span>{/if}
 </button>
 <div bind:this={popup} id={popupId} class="claims caelestis-menu" popover="auto" role="dialog" tabindex="-1" aria-label={`Claims for ${name}`}
   style:left={`${left}px`} style:top={`${top}px`}
@@ -172,7 +172,7 @@
   .claim-marker::before { content: ''; position: absolute; inset: -0.375rem -0.25rem; border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); }
   .claim-marker:hover::before, .claim-marker[aria-expanded='true']::before { background: color-mix(in oklab, currentColor 10%, transparent); }
   .claim-marker:focus-visible { outline: 2px solid var(--caelestis-focus); outline-offset: 3px; }
-  .claim-count { position: absolute; inset-inline-end: -0.25rem; inset-block-start: -0.375rem; display: grid; place-items: center; inline-size: 1.125rem; block-size: 0.75rem; border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-raised-surface); color: var(--caelestis-text); outline: 1px solid var(--caelestis-surface); font: 600 0.5rem/1 ui-sans-serif, system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+  .claim-count { position: absolute; inset-inline-end: -0.25rem; inset-block-start: -0.375rem; display: grid; place-items: center; inline-size: 1.125rem; block-size: 0.75rem; border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-raised-surface); color: var(--caelestis-text); outline: 1px solid var(--caelestis-surface); font: 600 0.5rem/1 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); font-variant-numeric: tabular-nums; }
   .claim-count.mine { color: var(--caelestis-primary); }
   .head {
     display: flex;
@@ -262,7 +262,7 @@
     min-inline-size: 0;
     block-size: 1.75rem;
     padding: 0 0.5rem;
-    font: 400 0.75rem/1 ui-sans-serif, system-ui, sans-serif;
+    font: 400 0.75rem/1 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
     color: var(--caelestis-text);
     background: var(--caelestis-surface);
     border: 1px solid var(--caelestis-border);

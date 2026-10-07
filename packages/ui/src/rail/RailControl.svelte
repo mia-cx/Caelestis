@@ -25,6 +25,7 @@
 
 <button
   type="button"
+  class="caelestis-bevel"
   class:pressed={model.pressed}
   class:danger={model.danger}
   title={model.title ?? model.label}
@@ -55,7 +56,7 @@
     block-size: var(--caelestis-touch-target, 2.5rem);
     padding: 0;
     border: var(--border, 1px) solid color-mix(in oklab, var(--button-colour), #000 calc(var(--depth, 1) * 5%));
-    border-radius: 999px;
+    border-radius: var(--caelestis-pill-radius, 999px);
     outline-color: var(--button-colour);
     background: var(--button-colour);
     color: var(--caelestis-text, oklch(0.91 0.015 264));
@@ -70,6 +71,35 @@
   @media (hover: hover) { button:hover:not([aria-disabled='true']) { --button-colour: color-mix(in oklab, var(--button-base-colour), #000 7%); } }
   button:active:not([aria-disabled='true']) { translate: 0 0.5px; box-shadow: none; }
   button:focus-visible { outline: 2px solid var(--button-colour, var(--caelestis-focus, currentColor)); outline-offset: 2px; }
-  .badge { position: absolute; inset-block-start: -0.35rem; inset-inline-end: -0.35rem; display: grid; place-items: center; min-inline-size: 1.2rem; block-size: 1.2rem; padding-inline: 0.25rem; border: 2px solid var(--button-colour); border-radius: 999px; background: var(--caelestis-danger, oklch(0.72 0.18 27)); color: white; font: 800 0.65rem/1 ui-sans-serif, system-ui, sans-serif; }
+  .badge { position: absolute; inset-block-start: -0.35rem; inset-inline-end: -0.35rem; display: grid; place-items: center; min-inline-size: 1.2rem; block-size: 1.2rem; padding-inline: 0.25rem; border: 2px solid var(--button-colour); border-radius: var(--caelestis-pill-radius, 999px); background: var(--caelestis-danger, oklch(0.72 0.18 27)); color: white; font: 800 0.65rem/1 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); }
   @media (prefers-reduced-motion: no-preference) { button { transition: color 200ms, background-color 200ms, border-color 200ms, box-shadow 200ms, translate 200ms; } }
+
+  /* Pixel chrome: square bevel flush with Wplace's own rail buttons. */
+  :host([data-caelestis-style='pixel']) button {
+    --bevel-size: var(--caelestis-touch-target, 2.5rem);
+    border-radius: 0;
+    box-shadow: 3px 3px 0 var(--caelestis-pixel-shadow);
+  }
+  /* The rail's own pressed look is solid primary; it out-specifies the shared pressed rule. */
+  :host([data-caelestis-style='pixel']) button.pressed[aria-pressed='true']:not([aria-disabled='true']) {
+    --bevel-color: var(--caelestis-primary);
+    --bevel-light: var(--caelestis-pixel-primary-light);
+    --bevel-dark: var(--caelestis-pixel-primary-shade);
+    color: var(--color-primary-content, white);
+    background: var(--bevel-stack);
+  }
+  :host([data-caelestis-style='pixel']) button.danger { color: var(--caelestis-danger); }
+  :host([data-caelestis-style='pixel']) button:focus-visible {
+    outline: 2px solid var(--caelestis-primary);
+    outline-offset: 2px;
+  }
+  :host([data-caelestis-style='pixel']) .badge {
+    border-color: var(--caelestis-pixel-ink);
+    border-radius: 0;
+  }
+  @media (forced-colors: active) {
+    :host([data-caelestis-style='pixel']) button { border: 2px solid ButtonText; }
+    /* As specific as the pixel pressed rule above, so the system colours win over its bevel. */
+    :host([data-caelestis-style='pixel']) button.pressed[aria-pressed='true']:not([aria-disabled='true']) { background: Highlight; color: HighlightText; }
+  }
 </style>

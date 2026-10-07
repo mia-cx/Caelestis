@@ -342,7 +342,7 @@
   onclose={() => emit({ type: 'close' })}
   onclick={(event) => { if (event.target === dialog) emit({ type: 'close' }) }}
 >
-  <div class="caelestis-shortcut-box">
+  <div class="caelestis-shortcut-box caelestis-panel-surface">
     <header>
       <h2 id="caelestis-shortcut-help-title">Keyboard shortcuts</h2>
       <span bind:this={closeControl}><Button label="Close" kind="ghost" size="small" onclick={() => emit({ type: 'close' })}>Close</Button></span>
@@ -429,7 +429,7 @@
 
 <style>
   :global(*) { box-sizing: border-box; }
-  dialog { position: fixed; inset: 0; inline-size: 100%; max-inline-size: none; block-size: 100%; max-block-size: none; margin: 0; padding: 0; border: 0; background: transparent; color: var(--caelestis-text); font: 400 0.875rem/1.35 ui-sans-serif, system-ui, sans-serif; }
+  dialog { position: fixed; inset: 0; inline-size: 100%; max-inline-size: none; block-size: 100%; max-block-size: none; margin: 0; padding: 0; border: 0; background: transparent; color: var(--caelestis-text); font: 400 0.875rem/1.35 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); }
   dialog[open] { display: grid; place-items: center; }
   dialog::backdrop { background: rgb(0 0 0 / 0.4); }
   .caelestis-shortcut-box { --caelestis-shortcut-max-height: 91.666dvh; display: flex; inline-size: min(91.666vw, 62rem); max-block-size: var(--caelestis-shortcut-max-height); flex-direction: column; overflow: hidden; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-surface); box-shadow: var(--caelestis-shadow); }
@@ -440,7 +440,7 @@
   .caelestis-keymap { --tt-in-dur: 150ms; --tt-out-dur: 50ms; --tt-scale: 0.98; --tt-delay: 80ms; position: relative; isolation: isolate; display: grid; flex: none; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(6.75rem, auto); gap: 1.5rem; align-items: center; margin: 0; padding: clamp(1.25rem, 2.5vw, 2rem); border-inline-start: 1px solid var(--caelestis-border); background: color-mix(in oklab, var(--caelestis-surface) 30%, transparent); overflow: hidden; }
   .caelestis-keymap-keyboard { --caelestis-key-gap: 0.4em; position: relative; z-index: 2; display: flex; inline-size: 100%; flex-direction: column; gap: var(--caelestis-key-gap); font-size: clamp(0.625rem, 1.1vw, 0.8125rem); }
   .caelestis-keymap-row { display: flex; inline-size: 100%; gap: var(--caelestis-key-gap); }
-  .caelestis-keymap-key { display: inline-flex; min-inline-size: 0; block-size: 3em; flex: var(--caelestis-key-units) 1 0; align-items: center; justify-content: center; overflow: hidden; padding: 0 0.125rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-surface); box-shadow: 0 1px 0 var(--caelestis-border), inset 0 -1px 0 color-mix(in oklab, var(--caelestis-text) 8%, transparent); color: var(--caelestis-text); font: 700 1em/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; white-space: nowrap; opacity: 0.3; transition: opacity var(--tt-in-dur) ease-out, transform var(--tt-in-dur) ease-out; }
+  .caelestis-keymap-key { display: inline-flex; min-inline-size: 0; block-size: 3em; flex: var(--caelestis-key-units) 1 0; align-items: center; justify-content: center; overflow: hidden; padding: 0 0.125rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-surface); box-shadow: 0 1px 0 var(--caelestis-border), inset 0 -1px 0 color-mix(in oklab, var(--caelestis-text) 8%, transparent); color: var(--caelestis-text); font: 700 1em/1 var(--caelestis-mono-font, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace); white-space: nowrap; opacity: 0.3; transition: opacity var(--tt-in-dur) ease-out, transform var(--tt-in-dur) ease-out; }
   button.caelestis-keymap-key { cursor: help; }
   .caelestis-keymap-key--bound { border-color: color-mix(in oklab, var(--caelestis-primary) 55%, transparent); background: color-mix(in oklab, var(--caelestis-primary) 18%, var(--caelestis-surface)); opacity: 1; }
   .caelestis-keymap-key--bound:focus-visible { outline: 2px solid var(--caelestis-focus); outline-offset: 2px; }
@@ -463,8 +463,8 @@
   .caelestis-shortcut-list { display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: center; gap: 0.25rem 0.75rem; margin: 0; }
   .caelestis-shortcut-list dt, .caelestis-shortcut-list dd { margin: 0; }
   .caelestis-shortcut-list dt { display: flex; justify-content: flex-end; }
-  .caelestis-shortcut-list kbd { display: inline-flex; inline-size: fit-content; min-inline-size: 2rem; min-block-size: 1.625rem; align-items: center; justify-content: center; padding-inline: 0.5rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-raised-surface); box-shadow: 0 1px 0 var(--caelestis-border); font: 700 0.75rem/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; white-space: nowrap; }
-  .caelestis-shortcut-list kbd.caelestis-shortcut-unset { border-style: dashed; background: transparent; box-shadow: none; color: var(--caelestis-muted-text); font: 400 0.75rem/1 ui-sans-serif, system-ui, sans-serif; }
+  .caelestis-shortcut-list kbd { display: inline-flex; inline-size: fit-content; min-inline-size: 2rem; min-block-size: 1.625rem; align-items: center; justify-content: center; padding-inline: 0.5rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-raised-surface); box-shadow: 0 1px 0 var(--caelestis-border); font: 700 0.75rem/1 var(--caelestis-mono-font, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace); white-space: nowrap; }
+  .caelestis-shortcut-list kbd.caelestis-shortcut-unset { border-style: dashed; background: transparent; box-shadow: none; color: var(--caelestis-muted-text); font: 400 0.75rem/1 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); }
   .caelestis-shortcut-list dd { font-size: 0.875rem; line-height: 1.25rem; }
   .caelestis-shortcut-note { margin-block: 1.25rem 0; color: var(--caelestis-muted-text); font-size: 0.75rem; }
   @media (max-width: 53rem) { .caelestis-shortcut-box { --caelestis-shortcut-max-height: 85dvh; } .caelestis-shortcut-layout { grid-template-columns: 1fr; } .caelestis-keymap { display: none; } }

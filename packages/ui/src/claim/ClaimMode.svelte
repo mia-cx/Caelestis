@@ -106,7 +106,7 @@
 <svelte:window onkeydowncapture={onWindowKeydown} />
 
 <div class="mode" aria-label={capture ? 'Capture mode' : 'Claim mode'}>
-  <nav class="drawer" aria-label={capture ? 'Selection tools' : 'Claim tools'}>
+  <nav class="drawer caelestis-surface" aria-label={capture ? 'Selection tools' : 'Claim tools'}>
     {#each model.groups as group (group.id)}
       {@const entry = entryFor(group)}
       <div class="slot">
@@ -133,7 +133,7 @@
           {#if group.tools.length > 1}<span class="corner" aria-hidden="true"></span>{/if}
         </button>
         {#if open === group.id}
-          <div class="flyout" role="menu" aria-label={group.label}>
+          <div class="flyout caelestis-surface" role="menu" aria-label={group.label}>
             {#each group.tools as held (held.tool)}
               <button
                 type="button"
@@ -155,7 +155,7 @@
     {/each}
   </nav>
 
-  <div class="bar" role="toolbar" aria-label={capture ? 'Capture' : 'Claims'}>
+  <div class="bar caelestis-surface" role="toolbar" aria-label={capture ? 'Capture' : 'Claims'}>
     <div class="row">
       <div class="group tool-group" aria-label="Tool">
         <span class="tool-name"><Icon name={current.icon} size="1rem" />{current.label}</span>
@@ -164,6 +164,7 @@
             <label class="option">
               <span>{model.tool === 'polygon' ? 'Corners' : 'Points'}</span>
               <input
+                class="caelestis-field"
                 type="number"
                 min={model.options.minCorners}
                 max={model.options.maxCorners}
@@ -176,13 +177,13 @@
           {#if model.tool === 'star'}
             <label class="option">
               <span>Inner %</span>
-              <input type="number" min="5" max="95" value={model.options.inner} disabled={model.pending} onchange={(event) => onIntent({ type: 'set-option', option: 'inner', value: clamp(Number(event.currentTarget.value), 5, 95) })} />
+              <input class="caelestis-field" type="number" min="5" max="95" value={model.options.inner} disabled={model.pending} onchange={(event) => onIntent({ type: 'set-option', option: 'inner', value: clamp(Number(event.currentTarget.value), 5, 95) })} />
             </label>
           {/if}
           {#if hasWidth}
             <label class="option">
               <span>Width</span>
-              <input type="number" min={model.tool === 'pen' ? 0 : 1} max={model.options.maxWidth} value={model.options.width} disabled={model.pending} onchange={(event) => onIntent({ type: 'set-option', option: 'width', value: clamp(Number(event.currentTarget.value), model.tool === 'pen' ? 0 : 1, model.options.maxWidth) })} />
+              <input class="caelestis-field" type="number" min={model.tool === 'pen' ? 0 : 1} max={model.options.maxWidth} value={model.options.width} disabled={model.pending} onchange={(event) => onIntent({ type: 'set-option', option: 'width', value: clamp(Number(event.currentTarget.value), model.tool === 'pen' ? 0 : 1, model.options.maxWidth) })} />
             </label>
           {/if}
         </div>
@@ -227,7 +228,7 @@
     position: fixed;
     inset: 0;
     pointer-events: none;
-    font: 0.8125rem/1.4 ui-sans-serif, system-ui, sans-serif;
+    font: 0.8125rem/1.4 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
     color: var(--caelestis-text, #222);
   }
   .drawer {
@@ -240,7 +241,7 @@
     gap: 2px;
     padding: 4px;
     border: 1px solid var(--caelestis-border);
-    border-radius: var(--caelestis-box-radius, 1rem);
+    border-radius: var(--caelestis-box-radius, var(--caelestis-radius, 1rem));
     background: var(--caelestis-surface, white);
     box-shadow: var(--caelestis-popover-shadow, 0 10px 24px -6px rgb(0 0 0 / 0.28));
     pointer-events: auto;
@@ -329,7 +330,7 @@
     flex: 1;
   }
   .choice kbd {
-    font: 0.7rem/1 ui-monospace, monospace;
+    font: 0.7rem/1 var(--caelestis-mono-font, ui-monospace, monospace);
     opacity: 0.7;
   }
   .bar {
@@ -345,7 +346,7 @@
     max-inline-size: calc(100vw - 16rem);
     padding: 0.5rem 0.75rem 0.45rem;
     border: 1px solid var(--caelestis-border);
-    border-radius: var(--caelestis-box-radius, 1rem);
+    border-radius: var(--caelestis-box-radius, var(--caelestis-radius, 1rem));
     background: var(--caelestis-surface, white);
     box-shadow: var(--caelestis-popover-shadow, 0 10px 24px -6px rgb(0 0 0 / 0.28));
     pointer-events: auto;

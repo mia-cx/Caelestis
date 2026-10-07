@@ -174,7 +174,7 @@
 ></button>
 
 {#if open}
-  <div bind:this={popover} class="picker caelestis-cp" data-caelestis-colour-picker popover="manual" role="dialog" aria-label={label} tabindex="-1" onpointerdown={(event) => event.stopPropagation()}>
+  <div bind:this={popover} class="picker caelestis-cp caelestis-surface" data-caelestis-colour-picker popover="manual" role="dialog" aria-label={label} tabindex="-1" onpointerdown={(event) => event.stopPropagation()}>
     <div
       bind:this={square}
       class="sv caelestis-cp-sv"
@@ -214,7 +214,7 @@
     <div class="bottom">
       <span class="preview" style:background={current}></span>
       <input
-        class="hex"
+        class="hex caelestis-field"
         aria-label="Hex value"
         value={hex}
         spellcheck="false"
@@ -239,6 +239,6 @@
   .handle { position: absolute; inline-size: 0.8rem; block-size: 0.8rem; border: 2px solid white; border-radius: 50%; box-shadow: 0 0 0 1px black; transform: translate(-50%, -50%); pointer-events: none; }
   .hue { inline-size: 100%; margin-block: 0.65rem 0.35rem; accent-color: var(--caelestis-primary); }
   .bottom { display: flex; align-items: center; gap: 0.5rem; }
-  .hex { min-inline-size: 0; flex: 1; block-size: 2rem; padding-inline: 0.5rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-raised-surface); color: inherit; font: 500 0.8rem ui-monospace, monospace; }
+  .hex { min-inline-size: 0; flex: 1; block-size: 2rem; padding-inline: 0.5rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-raised-surface); color: inherit; font: 500 0.8rem var(--caelestis-mono-font, ui-monospace, monospace); }
   .swatch:focus-visible, .sv:focus-visible, .hue:focus-visible, .hex:focus-visible { outline: 3px solid color-mix(in oklch, var(--caelestis-focus) 55%, transparent); outline-offset: 2px; }
 </style>

@@ -2,6 +2,7 @@
 
 <script lang="ts">
   import RailControl from '../rail/RailControl.svelte'
+  import PixelStyles from '../foundations/PixelStyles.svelte'
   import type { RailControlIntent, RailControlModel } from '../types.js'
 
   const DEFAULT_MODEL: RailControlModel = { id: 'panel', label: 'Caelestis', pressed: false }
@@ -13,5 +14,7 @@
 </script>
 
 <RailControl {model} onIntent={emit} />
+
+<PixelStyles />
 
 <style>:host { display: block; }</style>

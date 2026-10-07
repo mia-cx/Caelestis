@@ -1,5 +1,5 @@
 import type { AlarmKind, Template } from '@caelestis/shared'
-import type { IconName } from './foundations/icons.js'
+import type { IconName } from './foundations/icons.svelte.js'
 
 export type TemplateLifecycleState = Pick<
   Template,

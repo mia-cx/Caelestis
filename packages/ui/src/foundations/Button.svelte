@@ -36,6 +36,7 @@
 
 <button
   {type}
+  class="caelestis-bevel"
   class:icon-only={iconOnly}
   class:compact={size === 'compact'}
   class:small={size === 'small'}
@@ -80,7 +81,7 @@
       0 0.5px 0 0.5px oklch(100% 0 0 / calc(var(--depth, 1) * 6%)) inset,
       0 3px 2px -2px color-mix(in oklab, var(--button-colour) calc(var(--depth, 1) * 30%), transparent),
       0 4px 3px -2px color-mix(in oklab, var(--button-colour) calc(var(--depth, 1) * 30%), transparent);
-    font: 600 var(--button-font-size)/1 ui-sans-serif, system-ui, sans-serif;
+    font: 600 var(--button-font-size)/1 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
     cursor: pointer;
     touch-action: manipulation;
     user-select: none;
@@ -88,7 +89,7 @@
 
   button.compact { --button-size: 1.5rem; --button-padding: 0.5rem; --button-font-size: 0.6875rem; }
   button.small { --button-size: 2rem; --button-padding: 0.75rem; --button-font-size: 0.75rem; }
-  button.icon-only { inline-size: var(--button-size); padding-inline: 0; border-radius: 999px; }
+  button.icon-only { inline-size: var(--button-size); padding-inline: 0; border-radius: var(--caelestis-pill-radius, 999px); }
   button.primary { --button-colour: var(--caelestis-primary, var(--color-primary, oklch(0.58 0.17 252))); --button-foreground: var(--color-primary-content, white); }
   button.danger { --button-colour: var(--caelestis-danger, var(--color-error, oklch(0.59 0.2 27))); --button-foreground: var(--color-error-content, white); }
   button.ghost, button.danger-ghost { border-color: transparent; background: transparent; box-shadow: none; }
@@ -109,5 +110,43 @@
   @media (forced-colors: active) {
     button { border-color: ButtonText; }
     button.primary, button.danger { background: Highlight; color: HighlightText; }
+  }
+
+  /* Pixel chrome: the .caelestis-bevel stack from PixelStyles does the drawing; these rules only
+     steer its --bevel-* inputs and re-assert the stack over the classic backgrounds. */
+  :host([data-caelestis-style='pixel']) button {
+    --bevel-size: var(--button-size);
+    border-radius: 0;
+  }
+  :host([data-caelestis-style='pixel']) button.primary {
+    --bevel-color: var(--caelestis-primary);
+    --bevel-light: var(--caelestis-pixel-primary-light);
+    --bevel-dark: var(--caelestis-pixel-primary-shade);
+    --button-foreground: var(--color-primary-content, white);
+    background: var(--bevel-stack);
+  }
+  :host([data-caelestis-style='pixel']) button.danger {
+    --bevel-color: var(--caelestis-danger);
+    --bevel-light: color-mix(in srgb, var(--bevel-color) 65%, white);
+    --bevel-dark: color-mix(in srgb, var(--bevel-color) 62%, black);
+    --button-foreground: var(--color-error-content, white);
+    background: var(--bevel-stack);
+  }
+  :host([data-caelestis-style='pixel']) button:is(.ghost, .danger-ghost) {
+    --bevel-fill: transparent;
+    --bevel-frame: transparent;
+    --bevel-top: transparent;
+    --bevel-bottom: transparent;
+    background: var(--bevel-stack);
+  }
+  @media (hover: hover) {
+    :host([data-caelestis-style='pixel']) button:is(.ghost, .danger-ghost):hover:not(:disabled, [aria-disabled='true']) {
+      --bevel-fill: color-mix(in oklab, currentColor 10%, transparent);
+      background: var(--bevel-stack);
+    }
+  }
+  :host([data-caelestis-style='pixel']) button:focus-visible {
+    outline: 2px solid var(--caelestis-primary);
+    outline-offset: 2px;
   }
 </style>

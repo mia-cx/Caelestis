@@ -70,4 +70,37 @@
   @media (prefers-reduced-motion: no-preference) {
     input::before { transition: background-color 100ms, translate 200ms; }
   }
+
+  /* Pixel chrome: Wplace's .toggle — well-shade track, square ink thumb, checked goes primary. */
+  :host([data-caelestis-style='pixel']) input {
+    --border: 2px;
+    border: 2px solid var(--caelestis-pixel-ink);
+    border-radius: 0;
+    background: var(--caelestis-pixel-well-shade);
+    box-shadow: inset 3px 3px 0 var(--caelestis-pixel-field-shade);
+    transition-timing-function: steps(2, end);
+  }
+  :host([data-caelestis-style='pixel']) input::before {
+    box-sizing: border-box;
+    border: 2px solid var(--caelestis-pixel-ink);
+    border-radius: 0;
+    background: var(--caelestis-pixel-thumb);
+    box-shadow: inset -2px -2px 0 var(--caelestis-pixel-button-shade);
+    transition-timing-function: steps(2, end);
+  }
+  :host([data-caelestis-style='pixel']) input:checked {
+    background: var(--caelestis-primary);
+    box-shadow: inset 3px 3px 0 var(--caelestis-pixel-primary-shade);
+    color: var(--color-primary-content, white);
+  }
+  :host([data-caelestis-style='pixel']) input:focus-visible {
+    outline: 2px solid var(--caelestis-primary);
+    outline-offset: 2px;
+  }
+  @media (forced-colors: active) {
+    :host([data-caelestis-style='pixel']) input { border-color: CanvasText; background: Canvas; box-shadow: none; }
+    :host([data-caelestis-style='pixel']) input::before { border-color: CanvasText; background: Canvas; box-shadow: none; }
+    :host([data-caelestis-style='pixel']) input:checked { background: Highlight; box-shadow: none; }
+    :host([data-caelestis-style='pixel']) input:checked::before { background: HighlightText; }
+  }
 </style>

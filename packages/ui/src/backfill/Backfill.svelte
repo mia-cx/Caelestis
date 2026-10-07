@@ -13,7 +13,7 @@
   const cancel = (): void => onIntent({ type: running ? 'cancel' : 'close' })
 </script>
 
-<dialog bind:this={dialog} aria-labelledby="backfill-title" oncancel={(event) => { event.preventDefault(); onIntent({ type: 'close' }) }}>
+<dialog bind:this={dialog} class="caelestis-panel-surface" aria-labelledby="backfill-title" oncancel={(event) => { event.preventDefault(); onIntent({ type: 'close' }) }}>
   <header>
     <h2 id="backfill-title">Backfill template tiles and progress data</h2>
     <Button label="Close backfill" kind="ghost" size="small" iconOnly onclick={() => onIntent({ type: 'close' })}>×</Button>
@@ -26,7 +26,7 @@
     {#if model.loading}<p role="status">Loading available snapshots…</p>{/if}
     {#if model.preview}
       <label for="backfill-from">Backfill from</label>
-      <select id="backfill-from" value={model.selectedSnapshot ?? ''} disabled={model.busy || running || model.loading}
+      <select id="backfill-from" class="caelestis-field" value={model.selectedSnapshot ?? ''} disabled={model.busy || running || model.loading}
         onchange={(event) => onIntent({ type: 'select', snapshotId: Number(event.currentTarget.value) })}>
         {#each model.preview.snapshots as snapshot (snapshot.id)}<option value={snapshot.id}>{date(snapshot.at)}</option>{/each}
       </select>
@@ -61,7 +61,7 @@
 </dialog>
 
 <style>
-  dialog { box-sizing: border-box; inline-size: min(32rem, calc(100vw - 2rem)); max-block-size: calc(100dvh - 2rem); padding: 0; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-box-radius, 1rem); background: var(--caelestis-surface, white); color: var(--caelestis-text, #222); box-shadow: var(--caelestis-shadow); font: 0.875rem/1.45 ui-sans-serif, system-ui, sans-serif; }
+  dialog { box-sizing: border-box; inline-size: min(32rem, calc(100vw - 2rem)); max-block-size: calc(100dvh - 2rem); padding: 0; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-box-radius, var(--caelestis-radius, 1rem)); background: var(--caelestis-surface, white); color: var(--caelestis-text, #222); box-shadow: var(--caelestis-shadow); font: 0.875rem/1.45 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); }
   dialog::backdrop { background: #0008; }
   header, footer { display: flex; align-items: center; gap: 0.75rem; padding: 1rem; }
   header { align-items: start; border-block-end: 1px solid var(--caelestis-border); }

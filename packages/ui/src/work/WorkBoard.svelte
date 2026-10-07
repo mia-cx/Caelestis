@@ -258,7 +258,7 @@
         error = ''
         void refresh()
       }}>Refresh</button
-    >{#if collection.canPlan}<button class="primary" disabled={busy} onclick={() => edit(null)}
+    >{#if collection.canPlan}<button class="primary caelestis-bevel" disabled={busy} onclick={() => edit(null)}
         >New work item</button
       >{/if}
   </header>
@@ -271,13 +271,13 @@
       </div>
     {:else}<div class="identity-fields">
         <label
-          >Wplace username<input
+          >Wplace username<input class="caelestis-field"
             bind:value={username}
             maxlength="128"
             autocomplete="off"
           /></label
         ><label
-          >Wplace #id<input
+          >Wplace #id<input class="caelestis-field"
             bind:value={userId}
             inputmode="numeric"
             pattern="[0-9]+"
@@ -289,37 +289,37 @@
       Connect with a report or admin token to claim work.
     </p>{/if}
   <div class="filters">
-    <input
+    <input class="caelestis-field"
       aria-label="Search work"
       placeholder="Search work"
       bind:value={search}
       type="search"
     />
-    <select aria-label="Work status" bind:value={statusFilter}
+    <select class="caelestis-field" aria-label="Work status" bind:value={statusFilter}
       ><option value="all">All statuses</option><option value="open">Open</option><option
         value="claimed">Claimed</option
       ><option value="blocked">Blocked</option><option value="completed">Completed</option
       ></select
     >
-    {#if !model.nodeId}<select aria-label="Filter folder" bind:value={folderId}
+    {#if !model.nodeId}<select class="caelestis-field" aria-label="Filter folder" bind:value={folderId}
         ><option value="">All folders</option>{#each model.nodes as node (node.id)}<option
             value={node.id}>{node.name}</option
           >{/each}</select
       >{/if}
-    {#if !model.templateId}<select aria-label="Filter template" bind:value={templateFilter}
+    {#if !model.templateId}<select class="caelestis-field" aria-label="Filter template" bind:value={templateFilter}
         ><option value="">All templates</option
         >{#each model.templates as template (template.id)}<option value={template.id}
             >{template.name}</option
           >{/each}</select
       >{/if}
-    <select aria-label="Filter painter" bind:value={claimantId}
+    <select class="caelestis-field" aria-label="Filter painter" bind:value={claimantId}
       ><option value="">All painters</option
       >{#each painters as painter (painter.wplaceUserId)}<option
           value={String(painter.wplaceUserId)}
           >{painter.displayName} #{painter.wplaceUserId}</option
         >{/each}</select
     >
-    <select aria-label="Filter tag" bind:value={tag}
+    <select class="caelestis-field" aria-label="Filter tag" bind:value={tag}
       ><option value="">All tags</option>{#each tags as value (value)}<option {value}
           >{value}</option
         >{/each}</select
@@ -598,9 +598,7 @@
     --muted: var(--caelestis-muted-text, color-mix(in srgb, var(--text) 65%, transparent));
     color: var(--text);
     font:
-      400 13px/1.45 ui-sans-serif,
-      system-ui,
-      sans-serif;
+      400 13px/1.45 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
     display: grid;
     gap: 12px;
     min-width: 0;
@@ -838,5 +836,11 @@
     select {
       min-height: 40px;
     }
+  }
+
+  :host([data-caelestis-style='pixel']) .primary {
+    --bevel-color: var(--caelestis-primary);
+    --bevel-light: var(--caelestis-pixel-primary-light);
+    --bevel-dark: var(--caelestis-pixel-primary-shade);
   }
 </style>

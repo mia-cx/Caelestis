@@ -58,4 +58,25 @@
     .checkbox:checked { background: Highlight; }
     .checkbox:checked::before { background: HighlightText; }
   }
+
+  /* Pixel chrome: Wplace's .checkbox — field-shaded square, primary with sunken shade when on. */
+  :host([data-caelestis-style='pixel']) .checkbox {
+    border: 2px solid var(--caelestis-pixel-ink);
+    border-radius: 0;
+    background: var(--caelestis-surface);
+    box-shadow: inset 3px 3px 0 var(--caelestis-pixel-field-shade);
+  }
+  :host([data-caelestis-style='pixel']) .checkbox::before { border-radius: 0; }
+  :host([data-caelestis-style='pixel']) .checkbox:checked {
+    background: var(--caelestis-primary);
+    box-shadow: inset 3px 3px 0 var(--caelestis-pixel-primary-shade);
+  }
+  :host([data-caelestis-style='pixel']) .checkbox:focus-visible {
+    outline: 2px solid var(--caelestis-primary);
+    outline-offset: 2px;
+  }
+  @media (forced-colors: active) {
+    :host([data-caelestis-style='pixel']) .checkbox { border-color: CanvasText; background: Canvas; box-shadow: none; }
+    :host([data-caelestis-style='pixel']) .checkbox:checked { background: Highlight; box-shadow: none; }
+  }
 </style>

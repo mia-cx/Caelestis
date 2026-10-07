@@ -195,9 +195,7 @@
     border-block-start: 1px solid var(--caelestis-border);
     flex: 0 0 auto;
     font:
-      400 13px/1.4 ui-sans-serif,
-      system-ui,
-      sans-serif;
+      400 13px/1.4 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
   }
   .t-acc-head {
     display: flex;

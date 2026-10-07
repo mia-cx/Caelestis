@@ -77,7 +77,7 @@
 </aside>
 
 <style>
-  aside { display: flex; flex-direction: column; block-size: 100%; min-block-size: 0; overflow-y: auto; overscroll-behavior: contain; color: var(--caelestis-text); font: 400 0.75rem/1.4 ui-sans-serif, system-ui, sans-serif; }
+  aside { display: flex; flex-direction: column; block-size: 100%; min-block-size: 0; overflow-y: auto; overscroll-behavior: contain; color: var(--caelestis-text); font: 400 0.75rem/1.4 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); }
   header { display: flex; flex: 0 0 auto; align-items: flex-start; gap: 0.75rem; padding: 1rem; }
   header > div { flex: 1; min-inline-size: 0; }
   h3 { margin: 0; overflow-wrap: anywhere; font-size: 0.875rem; font-weight: 600; }

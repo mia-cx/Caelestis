@@ -7,6 +7,7 @@
 
 <script lang="ts">
   import Notifications from '../notifications/Notifications.svelte'
+  import PixelStyles from '../foundations/PixelStyles.svelte'
   import type { NotificationsIntent, NotificationsModel } from '../types.js'
 
   const EMPTY_MODEL = { toasts: [], confirm: null } as const
@@ -25,6 +26,8 @@
 </script>
 
 <Notifications {model} onIntent={emit} />
+
+<PixelStyles />
 
 <style>
   :host { display: contents; }

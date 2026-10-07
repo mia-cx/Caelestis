@@ -11,7 +11,7 @@
     box-sizing: border-box;
     color: var(--menu-text);
     /* A host on its own type sets --menu-font; the userscript keeps the system face over Wplace. */
-    font: var(--menu-font, 400 0.875rem/1.35 ui-sans-serif, system-ui, sans-serif);
+    font: var(--menu-font, 400 0.875rem/1.35 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif));
   }
   :global(select.caelestis-select) {
     appearance: none;

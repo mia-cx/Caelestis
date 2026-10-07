@@ -63,7 +63,7 @@
 
 <svelte:window onresize={() => close()} />
 
-<button bind:this={trigger} class="sort-trigger" type="button" popovertarget={menuId} aria-label={label} title={label} aria-haspopup="menu" aria-expanded={open} onclick={(event) => { event.preventDefault(); open ? close(true) : show() }} onkeydown={triggerKeydown}>
+<button bind:this={trigger} class="sort-trigger caelestis-bevel" type="button" popovertarget={menuId} aria-label={label} title={label} aria-haspopup="menu" aria-expanded={open} onclick={(event) => { event.preventDefault(); open ? close(true) : show() }} onkeydown={triggerKeydown}>
   <Icon name="sort" />
 </button>
 <div bind:this={menu} id={menuId} class="sort-menu caelestis-menu" popover="auto" role="menu" aria-label="Sort templates" tabindex="-1" style:left={`${left}px`} style:top={`${top}px`} onbeforetoggle={(event) => open = event.newState === 'open'} onkeydown={menuKeydown}>

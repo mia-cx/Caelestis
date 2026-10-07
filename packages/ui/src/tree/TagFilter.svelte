@@ -79,10 +79,10 @@
 <svelte:window onresize={close} />
 <div class="tag-filter" onfocusout={(event) => { if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) close() }}>
   <label class="title" for={id}>Tags</label>
-  <div class="box" bind:this={box}>
+  <div class="box caelestis-field" bind:this={box}>
     {#each selected as tagId (tagId)}
       {@const option = options.find(option => option.id === tagId)}
-      <span class="chip" title={option?.owner}>
+      <span class="chip caelestis-badge" title={option?.owner}>
         <span>{option?.name ?? 'Unavailable tag'}</span>
         <button type="button" aria-label={`Remove ${option?.name ?? 'unavailable tag'}`} onclick={() => remove(tagId)}><Icon name="close" size="0.875rem" /></button>
       </span>
