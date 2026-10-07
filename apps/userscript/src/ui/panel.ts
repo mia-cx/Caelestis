@@ -1409,10 +1409,13 @@ const setOpen = (next: boolean): void => {
     host.appendChild(panel)
     openSurface(panel)
   }
+  // The panel's measured left edge is now the map controls' right edge; they glide over to it.
+  // Armed before showView and the open listeners, which already reposition the controls. Read from
+  // the theme token Panel.element's --pane-open-dur points at: a fresh host's shadow styles attach
+  // a microtask after connection, so --pane-open-dur itself still reads empty here.
+  glideOverlayControls(surfaceCloseDurationMs(panel, '--caelestis-duration-medium'))
   showView(currentView())
   for (const listener of panelOpenListeners) listener()
-  // The panel's measured left edge is now the map controls' right edge; they glide over to it.
-  glideOverlayControls(surfaceCloseDurationMs(panel, '--pane-open-dur'))
   redraw()
   syncToastPlacement(currentPanelId())
 }
