@@ -11,10 +11,13 @@ if (!target.webSocketDebuggerUrl) throw new Error('Could not create an owned CDP
 
 const socket = new WebSocket(target.webSocketDebuggerUrl)
 const calls = new Map()
+const eventWaiters = new Map()
 let sequence = 0
 socket.addEventListener('message', ({ data }) => {
   const response = JSON.parse(data)
   if (response.id !== undefined) calls.get(response.id)?.(response)
+  else if (response.method === 'Page.loadEventFired')
+    eventWaiters.get('Page.loadEventFired')?.(response.params)
 })
 const call = (method, params = {}) =>
   new Promise((resolve, reject) => {
@@ -31,6 +34,37 @@ const call = (method, params = {}) =>
     })
     socket.send(JSON.stringify({ id, method, params }))
   })
+const onceEvent = (method) =>
+  new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      eventWaiters.delete(method)
+      reject(new Error(`CDP ${method} timed out`))
+    }, 15000)
+    eventWaiters.set(method, (params) => {
+      clearTimeout(timeout)
+      eventWaiters.delete(method)
+      resolve(params)
+    })
+  })
+
+const source = await readFile(bundle, 'utf8')
+const freshPage = async (url) => {
+  const loaded = onceEvent('Page.loadEventFired')
+  await call('Page.navigate', { url })
+  await loaded
+  await call('Runtime.evaluate', { expression: source })
+}
+const runContract = async (expression, url = 'about:blank') => {
+  await freshPage(url)
+  const result = await call('Runtime.evaluate', {
+    expression,
+    awaitPromise: true,
+    returnByValue: true,
+  })
+  if (result.exceptionDetails !== undefined)
+    throw new Error(result.exceptionDetails.exception?.description ?? result.exceptionDetails.text)
+  return result.result.value
+}
 
 try {
   await new Promise((resolve, reject) => {
@@ -54,18 +88,20 @@ try {
   })
   await call('Emulation.setFocusEmulationEnabled', { enabled: true })
   await call('Page.enable')
-  await call('Page.navigate', { url: 'about:blank' })
-  await call('Runtime.evaluate', { expression: await readFile(bundle, 'utf8') })
-  const result = await call('Runtime.evaluate', {
-    expression: 'runProductionBrowserBoundaries()',
-    awaitPromise: true,
-    returnByValue: true,
-  })
-  if (result.exceptionDetails !== undefined) throw new Error(result.exceptionDetails.text)
+
+  // Wplace renders in standards mode, where `html` is the scroller; about:blank is quirks mode.
+  const menu = await runContract(
+    'runOpenMenuBoundary()',
+    'data:text/html,<!doctype html><title>open menu</title>',
+  )
+  if (typeof menu?.innerHeight !== 'number')
+    throw new Error('open menu contract returned an incomplete result')
+
+  const production = await runContract('runProductionBrowserBoundaries()')
   if (
-    result.result.value?.canvasCaptured !== true ||
-    result.result.value?.scans?.length !== 3 ||
-    result.result.value?.fontStacks !== true
+    production?.canvasCaptured !== true ||
+    production?.scans?.length !== 3 ||
+    production?.fontStacks !== true
   )
     throw new Error('production browser contracts returned an incomplete result')
 } finally {

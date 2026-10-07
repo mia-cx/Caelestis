@@ -1,4 +1,5 @@
 import { encodeIndexedPng } from '@caelestis/shared'
+import './open-menu.js'
 import {
   forgetInWorker,
   mismatchWorkerMemoryBytes,
