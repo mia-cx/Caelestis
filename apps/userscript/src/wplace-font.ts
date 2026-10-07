@@ -16,9 +16,10 @@ const override = (selector: string, cjk: string): string =>
   `--font-sans:"FalseType", "Pixelify Sans", "WPlace Pixel Mono", "${cjk}", ui-sans-serif, system-ui, sans-serif;` +
   `--font-mono:"FalseType", "WPlace Pixel Mono", "Pixelify Sans", "${cjk}", ui-monospace, monospace}`
 
-// One weight covers 100–900 so the browser never fakes bold from it.
+// One weight covers 100–900 so the browser never fakes bold from it. `size-adjust` draws it a little
+// larger than Wplace's sizes ask for, since its 8px caps read small next to Pixelify Sans.
 const CSS =
-  `@font-face{font-family:"FalseType";src:url(${falseType}) format("woff2");font-weight:100 900;font-display:block}` +
+  `@font-face{font-family:"FalseType";src:url(${falseType}) format("woff2");font-weight:100 900;size-adjust:112.5%;font-display:block}` +
   override(PIXEL_FONTS, 'Fusion Pixel Chinese') +
   override(`${PIXEL_FONTS}:is(:lang(ja),:lang(jp))`, 'Fusion Pixel Japanese')
 
