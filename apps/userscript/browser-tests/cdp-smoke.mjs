@@ -98,7 +98,11 @@ try {
     throw new Error('open menu contract returned an incomplete result')
 
   const production = await runContract('runProductionBrowserBoundaries()')
-  if (production?.canvasCaptured !== true || production?.scans?.length !== 3)
+  if (
+    production?.canvasCaptured !== true ||
+    production?.scans?.length !== 3 ||
+    production?.fontStacks !== true
+  )
     throw new Error('production browser contracts returned an incomplete result')
 } finally {
   socket.close()
