@@ -105,6 +105,7 @@ import {
   wplacePatchSettings,
 } from './wplace-patches.js'
 import { installColourPicker } from './wplace-picker.js'
+import { installWplaceSettings } from './wplace-settings.js'
 import { getWplaceState, installWplaceStateCapture } from './wplace-state.js'
 import { installServiceWorkerTap, watchCaptureScope } from './wplace-tile-refresh.js'
 
@@ -304,6 +305,7 @@ export const startUserscript = (): void => {
   // These traps must be armed before Wplace's modules evaluate or MapLibre constructs its Map.
   step('service-worker tile refresh tap', () => installServiceWorkerTap())
   step('wplace state capture', installWplaceStateCapture)
+  step('Wplace settings', installWplaceSettings)
   step('map capture', installMapCapture)
   step('alliance surface observer', installAllianceSurfaceObserver)
   step('debug API', () => {

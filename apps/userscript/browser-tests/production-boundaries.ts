@@ -154,6 +154,10 @@ export const runProductionBrowserBoundaries = async () => {
     if (actual !== 'auto')
       throw new Error(`font override ${condition}: -webkit-font-smoothing is ${actual}`)
   }
+  const PIXEL_SANS =
+    '"Pixelify Sans", "WPlace Pixel Mono", "Fusion Pixel Chinese", ui-sans-serif, system-ui, sans-serif'
+  const PIXEL_MONO =
+    '"WPlace Pixel Mono", "Pixelify Sans", "Fusion Pixel Chinese", ui-monospace, monospace'
   installWplaceFont()
   try {
     expectStacks(
@@ -188,6 +192,10 @@ export const runProductionBrowserBoundaries = async () => {
     expectStacks('with data-standard-ui and lang=ja', GEIST_SANS, GEIST_MONO)
     root.removeAttribute('lang')
     root.removeAttribute('data-standard-ui')
+    // Our own FalseType switch opts out through an attribute: Wplace's stack comes back.
+    root.setAttribute('data-caelestis-falsetype', 'off')
+    expectStacks('with data-caelestis-falsetype=off', PIXEL_SANS, PIXEL_MONO)
+    root.removeAttribute('data-caelestis-falsetype')
     expectStacks(
       'after restoring the root',
       falseTypeSans('Fusion Pixel Chinese'),
@@ -200,6 +208,7 @@ export const runProductionBrowserBoundaries = async () => {
     wplaceStyle.remove()
     root.removeAttribute('data-pixel-fonts')
     root.removeAttribute('data-standard-ui')
+    root.removeAttribute('data-caelestis-falsetype')
     if (originalLang === null) root.removeAttribute('lang')
     else root.setAttribute('lang', originalLang)
   }
