@@ -778,7 +778,7 @@
   .progress-detail-action { position: absolute; inset-block-start: -0.4375rem; inset-inline-end: 0; inline-size: 1.5rem; block-size: 1.5rem; min-inline-size: 1.5rem; min-block-size: 1.5rem; }
   .progress-legend { display: flex; min-inline-size: 0; align-items: center; gap: 0.625rem; font-size: 0.625rem; font-variant-numeric: tabular-nums; }
   .progress-legend span { display: inline-flex; flex-shrink: 0; align-items: center; gap: 0.2rem; white-space: nowrap; }
-  .progress-legend span::before { content: ''; inline-size: 0.375rem; block-size: 0.375rem; border-radius: var(--caelestis-pill-radius, 999px); background: currentColor; }
+  .progress-legend span::before { content: ''; inline-size: 0.375rem; block-size: 0.375rem; border-radius: 999px; background: currentColor; }
   .progress-legend .completed { color: var(--caelestis-success); }
   .progress-legend .mismatched { color: var(--caelestis-danger); }
   .progress-legend .unpainted { opacity: 0.62; }

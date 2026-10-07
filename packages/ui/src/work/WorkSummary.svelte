@@ -262,7 +262,7 @@
     flex: 0 0 auto;
     inline-size: 0.625rem;
     block-size: 0.625rem;
-    border-radius: var(--caelestis-pill-radius, 50%);
+    border-radius: 50%;
     outline: 1px solid color-mix(in oklab, currentColor 25%, transparent);
   }
   .player-text {
