@@ -6,7 +6,8 @@ import falseType from './fonts/FalseType.woff2'
  * Wplace sets `--font-sans` and `--font-mono` on its root, and turns the pixel fonts off with
  * `data-pixel-fonts=false` or `data-standard-ui`; `data-caelestis-falsetype=off` is our own
  * opt-out, set by the FalseType font switch in `wplace-settings.ts`. The override matches none of
- * them, so Wplace's Geist rule applies untouched in every case. Wplace's own stacks follow
+ * them, so Wplace's own rules apply untouched: Geist for the first two, its pixel fonts for the
+ * opt-out. Wplace's own stacks follow
  * FalseType, copied from its `:root` theme and `:lang(ja)` rules, so glyphs FalseType lacks
  * still come from their fonts. The override is unlayered and more specific than Wplace's rules,
  * so it wins while it matches. It also keeps `-webkit-font-smoothing` on, since Wplace switches
