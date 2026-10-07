@@ -12,6 +12,7 @@ import {
   loadTilePixels,
   registerDraftCanvas,
 } from '../src/tile-transform.js'
+import { installWplaceFont } from '../src/wplace-font.js'
 
 const tile = { x: 3, y: 4 }
 const TILE_SIZE = 1_000
@@ -116,10 +117,55 @@ export const runProductionBrowserBoundaries = async () => {
     throw new Error('production mismatch worker changed the scan result across cache lifecycle')
   if (mismatchWorkerMemoryBytes() !== 0)
     throw new Error('forgetInWorker retained browser test pixels')
+
+  // Font override contract on a page with no Wplace CSS: `--font-sans`/`--font-mono` follow the
+  // pixel-font and standard-UI conditions, and the bundled FalseType face loads from its data URL.
+  const root = document.documentElement
+  const originalLang = root.getAttribute('lang')
+  const fontVar = (name: string) =>
+    getComputedStyle(root).getPropertyValue(name).trim().replace(/\s+/g, ' ')
+  const expectSans = (condition: string, expected: string) => {
+    const actual = fontVar('--font-sans')
+    if (actual !== expected)
+      throw new Error(`font override ${condition}: --font-sans is ${JSON.stringify(actual)}`)
+  }
+  const DEFAULT_SANS =
+    '"FalseType", "Pixelify Sans", "WPlace Pixel Mono", "Fusion Pixel Chinese", ui-sans-serif, system-ui, sans-serif'
+  installWplaceFont()
+  try {
+    expectSans('on a default root', DEFAULT_SANS)
+    if (!fontVar('--font-mono').startsWith('"FalseType", "WPlace Pixel Mono"'))
+      throw new Error(`font override: --font-mono is ${JSON.stringify(fontVar('--font-mono'))}`)
+    for (const lang of ['ja', 'jp']) {
+      root.setAttribute('lang', lang)
+      const sans = fontVar('--font-sans')
+      if (!sans.startsWith('"FalseType"') || !sans.includes('Fusion Pixel Japanese'))
+        throw new Error(`font override lang=${lang}: --font-sans is ${JSON.stringify(sans)}`)
+    }
+    root.removeAttribute('lang')
+    root.setAttribute('data-pixel-fonts', 'false')
+    expectSans('with data-pixel-fonts=false', '')
+    root.setAttribute('data-pixel-fonts', 'true')
+    expectSans('with data-pixel-fonts=true', DEFAULT_SANS)
+    root.removeAttribute('data-pixel-fonts')
+    root.setAttribute('data-standard-ui', '')
+    expectSans('with data-standard-ui', '')
+    root.removeAttribute('data-standard-ui')
+    expectSans('after restoring the root', DEFAULT_SANS)
+    const faces = await document.fonts.load('12px "FalseType"')
+    if (faces.length !== 1) throw new Error('the bundled FalseType face did not load')
+  } finally {
+    root.removeAttribute('data-pixel-fonts')
+    root.removeAttribute('data-standard-ui')
+    if (originalLang === null) root.removeAttribute('lang')
+    else root.setAttribute('lang', originalLang)
+  }
   return {
     canvasCaptured: true,
     bitmapRgba: rgba,
     scans: [first.completed, cached.completed, afterForget.completed],
+    fontStacks: true,
+    computedSans: fontVar('--font-sans'),
   }
 }
 
