@@ -25,8 +25,7 @@ const pixelRow = (): HTMLElement => {
   return row
 }
 
-const ourRow = (): HTMLElement | null =>
-  document.querySelector('label[data-caelestis-standard-ui]')
+const ourRow = (): HTMLElement | null => document.querySelector('label[data-caelestis-standard-ui]')
 
 const ourInput = (): HTMLInputElement => {
   const input = ourRow()?.querySelector('input[type="checkbox"]')
