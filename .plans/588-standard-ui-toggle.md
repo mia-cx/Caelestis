@@ -17,7 +17,7 @@ its own option. How Caelestis restyles under the attribute is #585.
 
 ## TODOs
 
-- [ ] Persist the Standard UI choice and keep `data-standard-ui` applied from document-start, re-applying it when Wplace's layout effect clears it.
+- [x] Persist the Standard UI choice and keep `data-standard-ui` applied from document-start, re-applying it when Wplace's layout effect clears it.
 - [ ] Add the Standard UI toggle under Pixelated fonts, and hide it once Wplace offers its own option.
 - [ ] Add the userscript Changeset.
 - [ ] Verify on wplace.live in background Chromium: look in both themes and styles, reload, in-app navigation.
