@@ -66,6 +66,8 @@
   let enteringKeys = $state<ReadonlySet<string>>(new Set())
   let lastEntries: typeof model.entries | undefined
   let toggleTimer: ReturnType<typeof setTimeout> | undefined
+  /** Pre-change row/card rects for the grid FLIP, captured while the old DOM is still laid out. */
+  let gridRects: Map<string, DOMRect> | null = null
   $effect.pre(() => {
     if (model.entries === lastEntries) return
     const previous = lastEntries
@@ -88,14 +90,20 @@
     animatingToggle = toggle
     leavingKeys = new Set(toggle.leaving.filter((entry) => !nextKeys.has(entry.key)).map((entry) => entry.key))
     enteringKeys = new Set([...descendants].filter((key) => !toggle.descendants.has(key)))
-    void tick().then(animateRows)
+    // Grid mode needs FLIP rects from before the DOM updates — the old layout is still in place.
+    gridRects = grid && treeElement !== undefined
+      ? new Map([...treeElement.querySelectorAll<HTMLElement>('[data-caelestis-tree-key]')].map((row) => [row.dataset.caelestisTreeKey ?? '', row.getBoundingClientRect()]))
+      : null
+    void tick().then(grid ? animateGrid : animateRows)
     const duration = surfaceCloseDurationMs(treeElement ?? document.documentElement, '--caelestis-duration-fast')
+    // The hold covers the longest animation: in grid, the stagger-capped entering cascade.
+    const stagger = grid ? Math.min(enteringKeys.size * surfaceCloseDurationMs(treeElement ?? document.documentElement, '--caelestis-duration-stagger'), duration) : 0
     clearTimeout(toggleTimer)
     toggleTimer = setTimeout(() => {
       animatingToggle = null
       leavingKeys = new Set()
       enteringKeys = new Set()
-    }, duration + SETTLE_MARGIN_MS)
+    }, duration + stagger + SETTLE_MARGIN_MS)
   })
 
   /** The entries plus any rows still shrinking out from the consumed collapse. */
@@ -156,6 +164,70 @@
         easing,
         fill: 'both',
       })
+    }
+  }
+
+  /**
+   * Grid-mode counterpart: leaving cards pop out of flow at their old rect and fade/scale/blur
+   * away; entering cards fade/scale/blur in on a stagger; everything else FLIPs so the grid
+   * reflows without snapping.
+   */
+  const animateGrid = (): void => {
+    if (prefersReducedMotion() || treeElement === undefined || gridRects === null) return
+    const previous = gridRects
+    gridRects = null
+    const style = getComputedStyle(treeElement)
+    const duration = surfaceCloseDurationMs(treeElement, '--caelestis-duration-fast')
+    if (duration <= 0) return
+    const stagger = surfaceCloseDurationMs(treeElement, '--caelestis-duration-stagger')
+    const scale = Number.parseFloat(style.getPropertyValue('--caelestis-scale-large')) || 1
+    const blur = Number.parseFloat(style.getPropertyValue('--caelestis-blur-small')) || 0
+    const easing = style.getPropertyValue('--caelestis-ease-smooth-out') || 'ease-out'
+    const treeBox = treeElement.getBoundingClientRect()
+    let enteringIndex = 0
+    for (const row of treeElement.querySelectorAll<HTMLElement>('[data-caelestis-tree-key]')) {
+      const key = row.dataset.caelestisTreeKey ?? ''
+      const box = row.getBoundingClientRect()
+      const before = previous.get(key)
+      if (leavingKeys.has(key)) {
+        // Out of flow at the old spot so the grid reflows underneath it at once.
+        if (before !== undefined) {
+          Object.assign(row.style, {
+            position: 'absolute',
+            left: `${before.left - treeBox.left}px`,
+            top: `${before.top - treeBox.top}px`,
+            inlineSize: `${before.width}px`,
+            blockSize: `${before.height}px`,
+            margin: '0',
+          })
+        }
+        row.animate(
+          [
+            { opacity: 1, scale: 1, filter: 'blur(0px)' },
+            { opacity: 0, scale, filter: `blur(${blur}px)` },
+          ],
+          { duration, easing, fill: 'both' },
+        )
+      } else if (enteringKeys.has(key)) {
+        const delay = Math.min(enteringIndex * stagger, duration)
+        enteringIndex += 1
+        row.animate(
+          [
+            { opacity: 0, scale, filter: `blur(${blur}px)` },
+            { opacity: 1, scale: 1, filter: 'blur(0px)' },
+          ],
+          { duration, delay, easing, fill: 'both' },
+        )
+      } else if (before !== undefined) {
+        const dx = before.left - box.left
+        const dy = before.top - box.top
+        if (dx !== 0 || dy !== 0) {
+          row.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], {
+            duration,
+            easing,
+          })
+        }
+      }
     }
   }
 
@@ -940,7 +1012,7 @@
   }
   /* Entering rows start collapsed so the grow reads from the first painted frame. */
   @media (prefers-reduced-motion: no-preference) {
-    .row.entering { min-block-size: 0; block-size: 0; padding-block: 0; margin-block-start: calc(-1 * var(--tree-row-gap)); overflow: hidden; opacity: 0; }
+    .tree:not(.preview-grid) .row.entering { min-block-size: 0; block-size: 0; padding-block: 0; margin-block-start: calc(-1 * var(--tree-row-gap)); overflow: hidden; opacity: 0; }
   }
   .progress-pane.overlaid { position: absolute; inset: 0; z-index: 3; border-inline-start: 0; }
   .tree { --tree-row-gap: 0.125rem; display: flex; flex-direction: column; gap: var(--tree-row-gap); padding-block: 0.5rem; color: var(--caelestis-text); font: 400 0.875rem/1.25 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); }
@@ -1063,7 +1135,7 @@
     .row { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
     .row input { -webkit-user-select: text; user-select: text; }
   }
-  .tree.preview-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 13rem), 1fr)); align-content: start; align-items: start; gap: 0.5rem; padding: 0.5rem; }
+  .tree.preview-grid { position: relative; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 13rem), 1fr)); align-content: start; align-items: start; gap: 0.5rem; padding: 0.5rem; }
   .preview-grid > :not(.preview-card) { grid-column: 1 / -1; min-inline-size: 0; margin-inline: 0; }
   .preview-grid .folder-heading { border-block-end: 1px solid var(--caelestis-border); border-radius: 0; }
   .row.preview-card { min-inline-size: 0; margin: 0; padding: 0.5rem; gap: 0.5rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-surface); }
