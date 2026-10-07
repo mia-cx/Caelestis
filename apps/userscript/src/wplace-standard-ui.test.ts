@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { installStandardUi } from './wplace-standard-ui.js'
 
 const ATTRIBUTE = 'data-standard-ui'
+const FORCE_ATTRIBUTE = 'data-caelestis-standard'
 const STORAGE_KEY = 'caelestis.standard-ui.v1'
 const WPLACE_SETTINGS_KEY = 'wplace:settings:v1'
 
@@ -41,6 +42,7 @@ const install = (): void => {
 afterEach(() => {
   for (const dispose of disposers.splice(0)) dispose()
   document.documentElement.removeAttribute(ATTRIBUTE)
+  document.documentElement.removeAttribute(FORCE_ATTRIBUTE)
   document.body.replaceChildren()
   document.head.replaceChildren()
   localStorage.clear()
@@ -73,6 +75,20 @@ describe('Pixelated UI switch', () => {
 
     document.documentElement.removeAttribute(ATTRIBUTE)
     expect(cursorValue()).toContain('url(')
+  })
+
+  it('marks <html> for the page world while standard UI is on', async () => {
+    localStorage.setItem(STORAGE_KEY, '1')
+    install()
+    pixelRow()
+    await flush()
+
+    expect(document.documentElement.hasAttribute(FORCE_ATTRIBUTE)).toBe(true)
+
+    // Switching back to pixel clears the bridge attribute.
+    ourInput().click()
+    expect(document.documentElement.hasAttribute(FORCE_ATTRIBUTE)).toBe(false)
+    expect(document.documentElement.hasAttribute(ATTRIBUTE)).toBe(false)
   })
 
   it('adds a Pixelated UI switch under Pixelated fonts that switches and persists', async () => {

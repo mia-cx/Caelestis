@@ -10,8 +10,11 @@
  * The choice is surfaced as a "Pixelated UI" switch cloned into Wplace's Accessibility settings
  * panel, directly under "Pixelated fonts". It is checked by default (Wplace's look anyway) and
  * switching it off applies the standard UI. Pixelated fonts is left alone: the attribute already
- * switches `--font-sans` to Geist, and Wplace's icons stay pixel icons either way. Once Wplace
- * ships its own option for this, the switch steps aside and the attribute stops being forced.
+ * switches `--font-sans` to Geist. Cursors follow instantly through the keyword fallbacks of
+ * Wplace's own `--cursor-*` properties; icons are Wplace's own Material Symbols, reached by
+ * widening its `standard` getter from the page world, so they follow on the next load or route
+ * change. Once Wplace ships its own option for this, the switch steps aside and the attribute
+ * stops being forced.
  */
 
 import { log } from './debug.js'
@@ -57,6 +60,11 @@ const CURSOR_KEYWORDS = {
   'color-picker': 'crosshair',
 } as const
 
+/**
+ * Marks `<html>` while the saved choice is standard UI. Wplace never touches it: it bridges to
+ * the page world, where the widened `standard` getter reads it to render Material Symbols.
+ */
+const FORCE_ATTRIBUTE = 'data-caelestis-standard'
 const CURSOR_STYLE_ID = 'caelestis-standard-ui-cursors'
 // `html:root` outranks Wplace's `:root[data-theme=dark]`, where the pixel cursors are defined.
 const CURSOR_CSS = `html:root[${ATTRIBUTE}]{${Object.entries(CURSOR_KEYWORDS)
@@ -85,6 +93,43 @@ const writeEnabled = (enabled: boolean): void => {
     else globalThis.localStorage?.setItem(STORAGE_KEY, raw)
   } catch {
     // The switch still applies for this session.
+  }
+}
+
+/**
+ * Runs in the page world: finds the module alias the root layout reads `standard` from, imports
+ * that module, and widens the getter to also honour the force attribute, so Wplace's icon
+ * components render their Material Symbols variant under standard UI. Self-contained on purpose:
+ * it is serialised with `.toString()` into a page script and cannot reference anything outside
+ * its body.
+ */
+const overrideWplaceStandard = async (layoutUrl: string, forceAttribute: string): Promise<void> => {
+  try {
+    const source = await (await fetch(layoutUrl)).text()
+    const alias = source.match(/toggleAttribute\(`data-standard-ui`,([\w$]+)\.standard\)/)?.[1]
+    if (alias === undefined) throw new Error('root layout no longer reads standard')
+    const escaped = alias.replace(/\$/g, '\\$')
+    const specifier = source.match(
+      new RegExp(`import\\{[^}]*\\bt as ${escaped}\\b[^}]*\\}from"([^"]+)"`),
+    )?.[1]
+    if (specifier === undefined) throw new Error('standard module import not found')
+    const module: Record<string, unknown> = await import(new URL(specifier, layoutUrl).href)
+    const owner = Object.values(module).find(
+      (value): value is object =>
+        typeof value === 'object' &&
+        value !== null &&
+        typeof Object.getOwnPropertyDescriptor(value, 'standard')?.get === 'function',
+    )
+    const original = owner && Object.getOwnPropertyDescriptor(owner, 'standard')?.get
+    if (owner === undefined || original === undefined) throw new Error('standard getter not found')
+    Object.defineProperty(owner, 'standard', {
+      configurable: true,
+      get(this: object) {
+        return original.call(this) || document.documentElement.hasAttribute(forceAttribute)
+      },
+    })
+  } catch (error) {
+    console.debug('[caelestis] Wplace standard icons unavailable', error)
   }
 }
 
@@ -121,7 +166,28 @@ export const installStandardUi = (): (() => void) => {
       style.textContent = CURSOR_CSS
       root.append(style)
     }
-    if (enabled && !native && !root.hasAttribute(ATTRIBUTE)) root.setAttribute(ATTRIBUTE, '')
+    if (enabled && !native) {
+      if (!root.hasAttribute(ATTRIBUTE)) root.setAttribute(ATTRIBUTE, '')
+      if (!root.hasAttribute(FORCE_ATTRIBUTE)) root.setAttribute(FORCE_ATTRIBUTE, '')
+    }
+  }
+
+  // Injected regardless of the saved choice, so a later switch also takes effect on the next
+  // render. Runs once the root layout's modulepreload link exists, which doubles as the signal
+  // that Wplace's modules are about to load.
+  let iconsOverridden = false
+  const armIconOverride = (): void => {
+    if (iconsOverridden) return
+    const link = document.querySelector<HTMLLinkElement>(
+      'link[rel="modulepreload"][href*="/nodes/0."]',
+    )
+    const root = document.documentElement
+    if (link === null || root === null) return
+    iconsOverridden = true
+    // A page script runs in the page world even when the userscript itself is sandboxed.
+    const script = document.createElement('script')
+    script.textContent = `(${overrideWplaceStandard.toString()})(${JSON.stringify(link.href)}, ${JSON.stringify(FORCE_ATTRIBUTE)})`
+    root.append(script)
   }
 
   const ourRow = (): HTMLElement | null =>
@@ -139,6 +205,7 @@ export const installStandardUi = (): (() => void) => {
       )
     if (nativeLabel) {
       ourRow()?.remove()
+      document.documentElement?.removeAttribute(FORCE_ATTRIBUTE)
       native = true
       return
     }
@@ -168,8 +235,11 @@ export const installStandardUi = (): (() => void) => {
       enabled = !input.checked
       writeEnabled(enabled)
       if (enabled) apply()
-      else if (!DASHBOARD_PATH.test(location.pathname))
-        document.documentElement?.removeAttribute(ATTRIBUTE)
+      else {
+        document.documentElement?.removeAttribute(FORCE_ATTRIBUTE)
+        if (!DASHBOARD_PATH.test(location.pathname))
+          document.documentElement?.removeAttribute(ATTRIBUTE)
+      }
       log('install', `standard UI ${enabled ? 'on' : 'off'}`)
     })
     anchor.after(row)
@@ -177,10 +247,12 @@ export const installStandardUi = (): (() => void) => {
 
   apply()
   syncToggle()
+  armIconOverride()
 
   const observer = new MutationObserver(() => {
     apply()
     syncToggle()
+    armIconOverride()
   })
   // Observing `document` (not `<html>`, which can still be null at document-start) also
   // catches the element being inserted, so apply() runs as soon as there is a root.
@@ -195,5 +267,6 @@ export const installStandardUi = (): (() => void) => {
     observer.disconnect()
     ourRow()?.remove()
     document.getElementById(CURSOR_STYLE_ID)?.remove()
+    document.documentElement?.removeAttribute(FORCE_ATTRIBUTE)
   }
 }
