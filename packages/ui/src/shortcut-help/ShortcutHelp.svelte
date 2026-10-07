@@ -436,6 +436,10 @@
     --modal-scale-close: var(--caelestis-scale-large);
     --modal-ease: var(--caelestis-ease-smooth-out);
     position: fixed; inset: 0; inline-size: 100%; max-inline-size: none; block-size: 100%; max-block-size: none; margin: 0; padding: 0; border: 0; background: transparent; color: var(--caelestis-text); font: 400 0.875rem/1.35 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
+    /* Only `display` is gated on [open]; layout that survives the exit stays on the base rule,
+       because allow-discrete holds `display` but not `place-items` — a closing dialog would
+       otherwise snap to the top-left for the whole fade. */
+    place-items: center;
     transform-origin: center;
     transform: scale(var(--modal-scale));
     opacity: 0;
@@ -448,7 +452,7 @@
     will-change: transform, opacity;
   }
   dialog[open] {
-    display: grid; place-items: center;
+    display: grid;
     transform: scale(1);
     opacity: 1;
     pointer-events: auto;

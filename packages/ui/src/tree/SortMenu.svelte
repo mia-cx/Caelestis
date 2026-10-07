@@ -83,7 +83,7 @@
     --dropdown-pre-scale: var(--caelestis-scale-medium);
     --dropdown-closing-scale: var(--caelestis-scale-tiny);
     --dropdown-ease: var(--caelestis-ease-smooth-out);
-    position: fixed; inset: auto; margin: 0; z-index: 60; inline-size: 11rem; max-inline-size: calc(100vw - 1rem); max-block-size: calc(100vh - 1rem); overflow: auto;
+    position: fixed; inset: auto; margin: 0; z-index: 60; inline-size: 11rem; max-inline-size: calc(100vw - 1rem); max-block-size: calc(100vh - 1rem); overflow: auto; flex-direction: column;
     transform-origin: top right;
     transform: scale(var(--dropdown-pre-scale));
     opacity: 0;
@@ -96,7 +96,7 @@
     will-change: transform, opacity;
   }
   .sort-menu:popover-open {
-    display: flex; flex-direction: column;
+    display: flex;
     transform: scale(1);
     opacity: 1;
     pointer-events: auto;
