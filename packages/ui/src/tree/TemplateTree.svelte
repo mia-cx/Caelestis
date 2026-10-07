@@ -13,13 +13,16 @@
   import ProgressMeter from '../progress/ProgressMeter.svelte'
   import { onDestroy, tick } from 'svelte'
   import { SvelteMap } from 'svelte/reactivity'
-  import { cancelSurfaceClose, closeSurface, openSurface } from '../foundations/motion.js'
+  import { slide, type EasingFunction, type TransitionConfig } from 'svelte/transition'
+  import { cancelSurfaceClose, closeSurface, openSurface, prefersReducedMotion, SETTLE_MARGIN_MS, surfaceCloseDurationMs, tokenized } from '../foundations/motion.js'
+  import { descendantKeys } from './descendants.js'
   import type {
     TemplateTreeIntent,
     TemplateTreeModel,
     TreeActionModel,
     TreeContextMenuItemModel,
     TreeContextMenuModel,
+    TreeEntryModel,
     TreeProgressModel,
     TreeRowModel,
   } from '../types.js'
@@ -46,6 +49,125 @@
   let operationSelection = $state('')
   const grid = $derived(allowGrid && model.displayMode === 'grid')
   const progressEntry = $derived(model.entries.find((entry): entry is TreeRowModel => entry.type === 'row' && entry.key === progressKey && entry.progress !== undefined))
+
+  /**
+   * Grow/shrink for expand and collapse. `pendingToggle` snapshots the toggled key, its
+   * descendant keys, and the descendant rows themselves (covering collapse, whose rows
+   * leave the next model). The next `entries` change consumes it: rows that left stay
+   * rendered (inert) for one close duration while rows that arrived animate in; anything
+   * else snaps — never a search, a filter, a server refresh, a reorder, or the first
+   * render. Row animation is WAAPI rather than a Svelte transition because each-item
+   * outros do not survive this host's constant model stream inside the custom element.
+   */
+  type TreeToggle = { key: string; descendants: Set<string>; leaving: TreeEntryModel[] }
+  let pendingToggle: TreeToggle | null = null
+  let animatingToggle = $state<TreeToggle | null>(null)
+  let leavingKeys = $state<ReadonlySet<string>>(new Set())
+  let enteringKeys = $state<ReadonlySet<string>>(new Set())
+  let lastEntries: typeof model.entries | undefined
+  let toggleTimer: ReturnType<typeof setTimeout> | undefined
+  $effect.pre(() => {
+    if (model.entries === lastEntries) return
+    const previous = lastEntries
+    lastEntries = model.entries
+    const toggle = pendingToggle
+    // Progress ticks rebuild entries every ~50ms; only a pending toggle earns the key-set work.
+    if (toggle === null) return
+    const previousKeys = new Set(previous?.map((entry) => entry.key) ?? [])
+    const nextKeys = new Set(model.entries.map((entry) => entry.key))
+    const changed = new Set([...previousKeys, ...nextKeys].filter((key) => previousKeys.has(key) !== nextKeys.has(key)))
+    const descendants = descendantKeys(model.entries, toggle.key)
+    // Content ticks (progress, refresh) keep the same keys — they must not consume the
+    // toggle. A change elsewhere in the tree is unrelated, so the pending snapshot dies.
+    const touched = [...changed].some((key) => toggle.descendants.has(key) || descendants.has(key))
+    if (!touched) {
+      if (changed.size > 0) pendingToggle = null
+      return
+    }
+    pendingToggle = null
+    animatingToggle = toggle
+    leavingKeys = new Set(toggle.leaving.filter((entry) => !nextKeys.has(entry.key)).map((entry) => entry.key))
+    enteringKeys = new Set([...descendants].filter((key) => !toggle.descendants.has(key)))
+    void tick().then(animateRows)
+    const duration = surfaceCloseDurationMs(treeElement ?? document.documentElement, '--caelestis-duration-fast')
+    clearTimeout(toggleTimer)
+    toggleTimer = setTimeout(() => {
+      animatingToggle = null
+      leavingKeys = new Set()
+      enteringKeys = new Set()
+    }, duration + SETTLE_MARGIN_MS)
+  })
+
+  /** The entries plus any rows still shrinking out from the consumed collapse. */
+  const visibleEntries = $derived.by(() => {
+    const toggle = animatingToggle
+    const kept = toggle?.leaving.filter((entry) => leavingKeys.has(entry.key)) ?? []
+    if (toggle === null || kept.length === 0) return model.entries
+    const index = model.entries.findIndex((entry) => entry.key === toggle.key)
+    const merged = [...model.entries]
+    merged.splice(index === -1 ? merged.length : index + 1, 0, ...kept)
+    return merged
+  })
+
+  const toggleExpanded = (key: string): void => {
+    const descendants = descendantKeys(model.entries, key)
+    pendingToggle = {
+      key,
+      descendants,
+      leaving: model.entries.filter((entry) => entry.type === 'row' && descendants.has(entry.key)),
+    }
+    emit({ type: 'toggle-expanded', key })
+  }
+
+  /** WAAPI grow/shrink for rows a user toggle added or removed; everything else snaps. */
+  const animateRows = (): void => {
+    if (grid || prefersReducedMotion() || treeElement === undefined) return
+    const duration = surfaceCloseDurationMs(treeElement, '--caelestis-duration-fast')
+    if (duration <= 0) return
+    const easing = getComputedStyle(treeElement).getPropertyValue('--caelestis-ease-smooth-out') || 'ease-out'
+    // `.tree` is a gapped flex column, so a zero-height row still holds its share of the gap —
+    // a negative block-start margin pulls that back or the list snaps by gap × rows.
+    const rowGap = getComputedStyle(treeElement).rowGap
+    for (const row of treeElement.querySelectorAll<HTMLElement>('.row.leaving, .row.entering')) {
+      // `.entering` collapses the row so it paints at zero — drop it before measuring; the
+      // animation's fill still covers the first frame.
+      const entering = row.classList.contains('entering')
+      if (entering) row.classList.remove('entering')
+      const style = getComputedStyle(row)
+      const hidden = {
+        height: '0px',
+        minBlockSize: '0px',
+        paddingTop: '0px',
+        paddingBottom: '0px',
+        marginBlockStart: `-${rowGap}`,
+        opacity: 0,
+        overflow: 'hidden',
+      }
+      const shown = {
+        height: `${row.offsetHeight}px`,
+        minBlockSize: style.minBlockSize,
+        paddingTop: style.paddingTop,
+        paddingBottom: style.paddingBottom,
+        opacity: 1,
+        overflow: 'hidden',
+      }
+      row.animate(entering ? [hidden, shown] : [shown, hidden], {
+        duration,
+        easing,
+        fill: 'both',
+      })
+    }
+  }
+
+  /** Height plus opacity, merged so `slide`'s height choreography keeps its shape. */
+  const slideFade = (
+    node: Element,
+    params?: { duration?: number; easing?: EasingFunction },
+  ): TransitionConfig => {
+    const base = slide(node, params)
+    return { ...base, css: (t, u) => `${base.css?.(t, u) ?? ''} opacity: ${t};` }
+  }
+  const disclose = tokenized(slideFade, '--caelestis-duration-fast')
 
   /**
    * Context menu and progress pane keep their last model while the exit transition runs, so the
@@ -99,6 +221,7 @@
     }
   })
   onDestroy(() => {
+    clearTimeout(toggleTimer)
     if (contextMenuElement !== undefined) cancelSurfaceClose(contextMenuElement)
     if (progressPane !== undefined) cancelSurfaceClose(progressPane)
   })
@@ -202,7 +325,7 @@
     if (event.target instanceof Element && event.target.closest('.visibility') !== null) return
     if (isLongPressEvent(event)) { event.preventDefault(); return }
     activeKey = row.key
-    if (row.container && !row.forceExpanded) emit({ type: 'toggle-expanded', key: row.key })
+    if (row.container && !row.forceExpanded) toggleExpanded(row.key)
   }
 
   /**
@@ -291,9 +414,9 @@
     else if (event.key === 'Home') next = rows[0]
     else if (event.key === 'End') next = rows.at(-1)
     else if (event.key === 'ArrowRight' && row.container && !row.expanded) {
-      event.preventDefault(); emit({ type: 'toggle-expanded', key: row.key }); return
+      event.preventDefault(); toggleExpanded(row.key); return
     } else if (event.key === 'ArrowLeft' && row.container && row.expanded && !row.forceExpanded) {
-      event.preventDefault(); emit({ type: 'toggle-expanded', key: row.key }); return
+      event.preventDefault(); toggleExpanded(row.key); return
     }
     if (next === undefined) return
     event.preventDefault()
@@ -583,7 +706,7 @@
 <div class="browser" bind:clientWidth={browserWidth}>
 <div class="scroller" data-caelestis-scroller inert={progressEntry !== undefined && narrowDetails}>
   <div bind:this={treeElement} class="tree" class:preview-grid={grid} role="tree" aria-label="Templates" tabindex="-1" ondrop={drop} ondragend={endDrag}>
-    {#each model.entries as entry (entry.key)}
+    {#each visibleEntries as entry (entry.key)}
       {#if entry.type === 'row'}
         {@const requestedDisclosure = disclosures.get(entry.key)}
         {@const canShowExpandedProgress = entry.progress !== undefined && (!entry.container || entry.expanded)}
@@ -628,6 +751,9 @@
           onpointercancel={releaseRow}
           ondragstart={(event) => startDrag(event, entry)}
           ondragover={(event) => dragOver(event, entry)}
+          class:leaving={leavingKeys.has(entry.key)}
+          class:entering={enteringKeys.has(entry.key)}
+          inert={leavingKeys.has(entry.key)}
         >
           {#if card && entry.preview !== undefined}
             {@const navigation = entry.leadingActions?.find((item) => item.icon === 'search')}
@@ -688,7 +814,7 @@
                       <Icon name={item.icon} />
                     </button>
                   {/each}
-                  <button class="icon-action" type="button" title={grid ? `View progress for ${entry.name}` : 'Expand progress'} aria-label={grid ? `View progress for ${entry.name}` : 'Expand progress'} aria-expanded={grid ? progressKey === entry.key : undefined} onclick={(event) => { event.stopPropagation(); if (grid) { void showProgress(entry); return }; if (entry.container && !entry.expanded) emit({ type: 'toggle-expanded', key: entry.key }); disclosures.set(entry.key, 'expanded'); void focusRowAction(entry.key, 'Collapse progress') }}>
+                  <button class="icon-action" type="button" title={grid ? `View progress for ${entry.name}` : 'Expand progress'} aria-label={grid ? `View progress for ${entry.name}` : 'Expand progress'} aria-expanded={grid ? progressKey === entry.key : undefined} onclick={(event) => { event.stopPropagation(); if (grid) { void showProgress(entry); return }; if (entry.container && !entry.expanded) toggleExpanded(entry.key); disclosures.set(entry.key, 'expanded'); void focusRowAction(entry.key, 'Collapse progress') }}>
                     <Icon name="expandMore" />
                   </button>
                 </span>
@@ -723,7 +849,7 @@
             </button>
           {/if}
           {#if disclosure !== undefined && entry.progress !== undefined}
-            <div class="progress-detail">
+            <div class="progress-detail" transition:disclose|global>
               <div class="progress-disclosure">
                 <div class="progress-summary">
                   <ProgressMeter progress={entry.progress} size="sm" />
@@ -812,8 +938,12 @@
   @media (prefers-reduced-motion: reduce) {
     .context-menu, .progress-pane { transition: none !important; }
   }
+  /* Entering rows start collapsed so the grow reads from the first painted frame. */
+  @media (prefers-reduced-motion: no-preference) {
+    .row.entering { min-block-size: 0; block-size: 0; padding-block: 0; margin-block-start: calc(-1 * var(--tree-row-gap)); overflow: hidden; opacity: 0; }
+  }
   .progress-pane.overlaid { position: absolute; inset: 0; z-index: 3; border-inline-start: 0; }
-  .tree { display: flex; flex-direction: column; gap: 0.125rem; padding-block: 0.5rem; color: var(--caelestis-text); font: 400 0.875rem/1.25 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); }
+  .tree { --tree-row-gap: 0.125rem; display: flex; flex-direction: column; gap: var(--tree-row-gap); padding-block: 0.5rem; color: var(--caelestis-text); font: 400 0.875rem/1.25 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); }
   .row { --icon-swap-dur: var(--caelestis-duration-quick); --icon-swap-ease: var(--caelestis-ease-smooth-out); --icon-swap-blur: var(--caelestis-blur-small); position: relative; display: flex; flex-direction: column; justify-content: center; gap: 0.25rem; min-block-size: 2rem; margin-inline: 0.5rem; padding: 0.25rem 0.5rem; border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); outline: none; }
   .row-heading { display: flex; flex-wrap: nowrap; align-items: center; gap: 0.25rem; min-inline-size: 0; white-space: nowrap; }
   .connector { position: absolute; inset-block: 0; inset-inline-start: 0.45rem; opacity: 0.28; pointer-events: none; }
