@@ -7,10 +7,11 @@
  * the attribute on non-dashboard pages, so a MutationObserver re-applies it whenever it goes
  * missing while the user has it switched on.
  *
- * The choice is surfaced as a "Standard UI" toggle cloned into Wplace's Accessibility settings
- * panel, directly under "Pixelated fonts". Pixelated fonts is left alone: the attribute already
+ * The choice is surfaced as a "Pixelated UI" switch cloned into Wplace's Accessibility settings
+ * panel, directly under "Pixelated fonts". It is checked by default (Wplace's look anyway) and
+ * switching it off applies the standard UI. Pixelated fonts is left alone: the attribute already
  * switches `--font-sans` to Geist, and Wplace's icons stay pixel icons either way. Once Wplace
- * ships its own standard-UI option, the toggle steps aside and the attribute stops being forced.
+ * ships its own option for this, the switch steps aside and the attribute stops being forced.
  */
 
 import { log } from './debug.js'
@@ -19,10 +20,14 @@ const STORAGE_KEY = 'caelestis.standard-ui.v1'
 const ATTRIBUTE = 'data-standard-ui'
 const PANEL_ID = 'settings-panel-accessibility'
 const WPLACE_SETTINGS_KEY = 'wplace:settings:v1'
-const LABEL = 'Standard UI'
+const LABEL = 'Pixelated UI'
 const ROW_MARKER = 'data-caelestis-standard-ui'
 /** URL paths where Wplace's own `standard` flag is true (the dashboard is standard UI anyway). */
 const DASHBOARD_PATH = /^\/dashboard(\/|$)/
+/** Wplace's own version of this switch, however named ("Standard UI", "Pixelated style", ...). */
+const NATIVE_LABEL = /standard|pixel\w*\s+(ui|interface|style)/i
+/** The same, for keys inside `wplace:settings:v1` ("standardUi", "pixelUi", ...). */
+const NATIVE_SETTINGS_KEY = /standard|pixel(ated)?ui/i
 
 // biome-ignore lint/suspicious/noExplicitAny: userscript-manager APIs exist only in their sandbox
 const gm = globalThis as any
@@ -56,7 +61,7 @@ const wplaceSettingsOfferStandard = (): boolean => {
     if (!raw) return false
     const parsed: unknown = JSON.parse(raw)
     if (typeof parsed !== 'object' || parsed === null) return false
-    return Object.keys(parsed).some((key) => /standard/i.test(key))
+    return Object.keys(parsed).some((key) => NATIVE_SETTINGS_KEY.test(key))
   } catch {
     return false
   }
@@ -86,11 +91,11 @@ export const installStandardUi = (): (() => void) => {
     const panel = document.getElementById(PANEL_ID)
     if (!panel) return
 
-    // A native option for standard UI: any toggle row that is not ours mentioning "standard".
+    // A native version of this switch: any row that is not ours whose label fits the bill.
     const nativeLabel =
       native ||
       [...panel.querySelectorAll('label')].some(
-        (label) => !label.hasAttribute(ROW_MARKER) && /standard/i.test(label.textContent ?? ''),
+        (label) => !label.hasAttribute(ROW_MARKER) && NATIVE_LABEL.test(label.textContent ?? ''),
       )
     if (nativeLabel) {
       ourRow()?.remove()
@@ -117,9 +122,10 @@ export const installStandardUi = (): (() => void) => {
     }
     const input = row.querySelector('input[type="checkbox"]')
     if (!(input instanceof HTMLInputElement)) return
-    input.checked = enabled
+    // The switch shows the pixel UI, so it is checked while `enabled` (standard UI) is off.
+    input.checked = !enabled
     input.addEventListener('change', () => {
-      enabled = input.checked
+      enabled = !input.checked
       writeEnabled(enabled)
       if (enabled) apply()
       else if (!DASHBOARD_PATH.test(location.pathname))

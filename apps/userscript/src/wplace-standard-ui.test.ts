@@ -29,7 +29,7 @@ const ourRow = (): HTMLElement | null => document.querySelector('label[data-cael
 
 const ourInput = (): HTMLInputElement => {
   const input = ourRow()?.querySelector('input[type="checkbox"]')
-  if (!(input instanceof HTMLInputElement)) throw new Error('no Standard UI toggle')
+  if (!(input instanceof HTMLInputElement)) throw new Error('no Pixelated UI switch')
   return input
 }
 
@@ -46,7 +46,7 @@ afterEach(() => {
   history.replaceState({}, '', '/')
 })
 
-describe('Standard UI toggle', () => {
+describe('Pixelated UI switch', () => {
   it('restores a saved choice before first paint and re-applies it after Wplace clears it', async () => {
     localStorage.setItem(STORAGE_KEY, '1')
     install()
@@ -58,7 +58,7 @@ describe('Standard UI toggle', () => {
     expect(document.documentElement.hasAttribute(ATTRIBUTE)).toBe(true)
   })
 
-  it('adds a Standard UI toggle under Pixelated fonts that switches and persists', async () => {
+  it('adds a Pixelated UI switch under Pixelated fonts that switches and persists', async () => {
     install()
     const pixel = pixelRow()
     await flush()
@@ -66,24 +66,27 @@ describe('Standard UI toggle', () => {
     const row = ourRow()
     expect(row).toBe(pixel.nextElementSibling)
     expect(row?.className).toBe(pixel.className)
-    expect(row?.textContent).toContain('Standard UI')
-    expect(ourInput().checked).toBe(false)
+    expect(row?.textContent).toContain('Pixelated UI')
+    expect(ourInput().checked).toBe(true)
 
+    // Unchecking the switch applies the standard UI.
     ourInput().click()
+    expect(ourInput().checked).toBe(false)
     expect(document.documentElement.hasAttribute(ATTRIBUTE)).toBe(true)
     expect(localStorage.getItem(STORAGE_KEY)).toBe('1')
 
-    // A fresh install after dispose reads the saved choice and checks the toggle.
+    // A fresh install after dispose reads the saved choice and unchecks the switch.
     for (const dispose of disposers.splice(0)) dispose()
     install()
-    expect(ourInput().checked).toBe(true)
+    expect(ourInput().checked).toBe(false)
 
     ourInput().click()
+    expect(ourInput().checked).toBe(true)
     expect(document.documentElement.hasAttribute(ATTRIBUTE)).toBe(false)
     expect(localStorage.getItem(STORAGE_KEY)).toBe('0')
   })
 
-  it("leaves Wplace's own attribute alone when switched off on the dashboard", async () => {
+  it("leaves Wplace's own attribute alone when re-checked on the dashboard", async () => {
     history.replaceState({}, '', '/dashboard')
     localStorage.setItem(STORAGE_KEY, '1')
     install()
@@ -92,6 +95,7 @@ describe('Standard UI toggle', () => {
 
     ourInput().click()
 
+    expect(ourInput().checked).toBe(true)
     expect(localStorage.getItem(STORAGE_KEY)).toBe('0')
     expect(document.documentElement.hasAttribute(ATTRIBUTE)).toBe(true)
   })
@@ -104,6 +108,16 @@ describe('Standard UI toggle', () => {
         const native = pixelRow().cloneNode(true) as HTMLElement
         const text = native.querySelector('.font-medium')
         if (text) text.textContent = 'Standard UI'
+        pixelRow().after(native)
+      },
+    ],
+    [
+      'a native Pixelated UI label in the panel',
+      () => {},
+      () => {
+        const native = pixelRow().cloneNode(true) as HTMLElement
+        const text = native.querySelector('.font-medium')
+        if (text) text.textContent = 'Pixelated UI'
         pixelRow().after(native)
       },
     ],
