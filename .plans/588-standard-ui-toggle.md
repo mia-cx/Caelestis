@@ -9,18 +9,18 @@ its own option. How Caelestis restyles under the attribute is #585.
 
 ## Acceptance criteria
 
-- [ ] The toggle appears under Wplace's pixel fonts toggle and matches its look in both themes and both UI styles.
-- [ ] Turning it on removes Wplace's pixel styles without a reload (Caelestis follows via #585).
-- [ ] The setting survives a reload and in-app navigation.
-- [ ] With the Caelestis userscript removed, Wplace is unaffected.
-- [ ] A userscript Changeset entry.
+- [x] The toggle appears under Wplace's pixel fonts toggle and matches its look in both themes and both UI styles.
+- [x] Turning it on removes Wplace's pixel styles without a reload (Caelestis follows via #585).
+- [x] The setting survives a reload and in-app navigation.
+- [x] With the Caelestis userscript removed, Wplace is unaffected.
+- [x] A userscript Changeset entry.
 
 ## TODOs
 
 - [x] Persist the Standard UI choice and keep `data-standard-ui` applied from document-start, re-applying it when Wplace's layout effect clears it.
 - [x] Add the Standard UI toggle under Pixelated fonts, and hide it once Wplace offers its own option.
 - [x] Add the userscript Changeset.
-- [ ] Verify on wplace.live in background Chromium: look in both themes and styles, reload, in-app navigation.
+- [x] Verify on wplace.live in background Chromium: look in both themes and styles, reload, in-app navigation.
 
 ## Notes
 
@@ -35,3 +35,11 @@ its own option. How Caelestis restyles under the attribute is #585.
 - Settings live in `wplace:settings:v1` (localStorage), a fixed whitelist without any standard key.
   "Pixelated fonts" is the first toggle in `#settings-panel-accessibility`.
 - The settings dialog opens while logged out.
+- Live check (background Chromium, isolated profile, bundle via `addScriptToEvaluateOnNewDocument`):
+  toggle renders under Pixelated fonts and matches it in light/dark × pixel/standard; a CDP click
+  switches the style live; after reload the attribute is set at the first animation frame, before
+  `data-game-ui`; client-side navigation `/` → `/appeals` → back keeps it (8 reset/re-apply
+  records); a `standardUi` key in `wplace:settings:v1` hides the row and stops forcing; without
+  the bundle the attribute stays off and Wplace's settings are untouched.
+- First live run caught `document.documentElement` being null at document-start; the observer
+  now watches `document`.
