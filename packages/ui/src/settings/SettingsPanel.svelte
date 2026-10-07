@@ -279,7 +279,7 @@
   .server-head { display: flex; inline-size: 100%; align-items: center; gap: 0.5rem; min-block-size: 2rem; padding: 0; border: 0; background: transparent; color: inherit; }
   .caret { font-size: 1.2rem; transition: transform 120ms; }.caret.open { transform: rotate(90deg); }
   .server-name { min-inline-size: 0; flex: 1; overflow: hidden; text-align: start; text-overflow: ellipsis; white-space: nowrap; }
-  .server-version { flex: 0 0 auto; color: var(--caelestis-muted-text); font-size: 0.7rem; }
+  .server-version { flex: 0 1 auto; min-inline-size: 0; max-inline-size: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--caelestis-muted-text); font-size: 0.7rem; }
   .version-line { margin-block-start: 0.6rem; }
   .subtle.warn { color: var(--caelestis-warning); }
   .badge { padding: 0.15rem 0.4rem; border-radius: var(--caelestis-pill-radius, 999px); background: color-mix(in oklch, var(--caelestis-danger) 15%, transparent); color: var(--caelestis-danger); font-size: 0.65rem; }.badge.warning { background: color-mix(in oklch, var(--caelestis-warning) 18%, transparent); color: var(--caelestis-warning); }
