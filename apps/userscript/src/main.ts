@@ -90,7 +90,7 @@ import {
 } from './tile-transform.js'
 import { installChargeForecast } from './ui/charge-forecast.js'
 import { renderOverlayControls } from './ui/overlay-menu.js'
-import { installPanel, refreshTemplateTreeFocus } from './ui/panel.js'
+import { installPanel, openInviteFromLocation, refreshTemplateTreeFocus } from './ui/panel.js'
 import { installClaimToolHost } from './ui/presence-actions.js'
 import { installUserscriptUpdateCheck } from './userscript-update.js'
 import { loadAccount } from './wplace-account.js'
@@ -510,6 +510,19 @@ export const startUserscript = (): void => {
       document.addEventListener('DOMContentLoaded', installPanel, { once: true })
     } else {
       installPanel()
+    }
+  })
+  // Invite links ride in the fragment. Consume one only once the panel exists — its toast is how
+  // the outcome is reported — and again whenever the fragment changes in an open tab. Registering
+  // after the panel's own DOMContentLoaded hook keeps that ordering when the page is still loading.
+  step('invite links', () => {
+    window.addEventListener('hashchange', () => void openInviteFromLocation())
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => void openInviteFromLocation(), {
+        once: true,
+      })
+    } else {
+      void openInviteFromLocation()
     }
   })
   step('userscript update check', installUserscriptUpdateCheck)
