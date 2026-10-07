@@ -64,17 +64,19 @@ const wplaceSettingsOfferStandard = (): boolean => {
 
 /**
  * Installs the saved Standard UI choice and the settings toggle. Applies the attribute
- * synchronously so it is set before first paint, then watches for Wplace's layout effect
- * clearing it and for the settings panel opening. Returns a disposer that disconnects the
- * observer and removes our row, for tests.
+ * immediately when `<html>` exists, or as soon as it is inserted at document-start, so it is
+ * set before first paint. Then watches for Wplace's layout effect clearing it and for the
+ * settings panel opening. Returns a disposer that disconnects the observer and removes our
+ * row, for tests.
  */
 export const installStandardUi = (): (() => void) => {
   let enabled = readEnabled()
   let native = wplaceSettingsOfferStandard()
 
   const apply = (): void => {
-    if (enabled && !native && !document.documentElement.hasAttribute(ATTRIBUTE))
-      document.documentElement.setAttribute(ATTRIBUTE, '')
+    const root = document.documentElement
+    if (root === null) return
+    if (enabled && !native && !root.hasAttribute(ATTRIBUTE)) root.setAttribute(ATTRIBUTE, '')
   }
 
   const ourRow = (): HTMLElement | null =>
@@ -121,7 +123,7 @@ export const installStandardUi = (): (() => void) => {
       writeEnabled(enabled)
       if (enabled) apply()
       else if (!DASHBOARD_PATH.test(location.pathname))
-        document.documentElement.removeAttribute(ATTRIBUTE)
+        document.documentElement?.removeAttribute(ATTRIBUTE)
       log('install', `standard UI ${enabled ? 'on' : 'off'}`)
     })
     anchor.after(row)
@@ -134,7 +136,9 @@ export const installStandardUi = (): (() => void) => {
     apply()
     syncToggle()
   })
-  observer.observe(document.documentElement, {
+  // Observing `document` (not `<html>`, which can still be null at document-start) also
+  // catches the element being inserted, so apply() runs as soon as there is a root.
+  observer.observe(document, {
     attributes: true,
     attributeFilter: [ATTRIBUTE],
     childList: true,
