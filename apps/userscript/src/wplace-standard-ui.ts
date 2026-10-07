@@ -8,7 +8,7 @@
  * missing while the user has it switched on.
  *
  * The choice is surfaced as a "Pixelated UI" switch cloned into Wplace's Accessibility settings
- * panel, directly under "Pixelated fonts". It is checked by default (Wplace's look anyway) and
+ * panel, directly above "Pixelated fonts". It is checked by default (Wplace's look anyway) and
  * switching it off applies the standard UI. Pixelated fonts is left alone: the attribute already
  * switches `--font-sans` to Geist. Cursors follow instantly through the keyword fallbacks of
  * Wplace's own `--cursor-*` properties; icons are Wplace's own Material Symbols, reached by
@@ -242,7 +242,7 @@ export const installStandardUi = (): (() => void) => {
       }
       log('install', `standard UI ${enabled ? 'on' : 'off'}`)
     })
-    anchor.after(row)
+    anchor.before(row)
   }
 
   apply()

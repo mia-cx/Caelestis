@@ -91,13 +91,13 @@ describe('Pixelated UI switch', () => {
     expect(document.documentElement.hasAttribute(ATTRIBUTE)).toBe(false)
   })
 
-  it('adds a Pixelated UI switch under Pixelated fonts that switches and persists', async () => {
+  it('adds a Pixelated UI switch above Pixelated fonts that switches and persists', async () => {
     install()
     const pixel = pixelRow()
     await flush()
 
     const row = ourRow()
-    expect(row).toBe(pixel.nextElementSibling)
+    expect(row).toBe(pixel.previousElementSibling)
     expect(row?.className).toBe(pixel.className)
     expect(row?.textContent).toContain('Pixelated UI')
     expect(ourInput().checked).toBe(true)
