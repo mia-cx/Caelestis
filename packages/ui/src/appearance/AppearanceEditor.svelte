@@ -1,5 +1,6 @@
 <script lang="ts">
   import MenuStyles from '../foundations/MenuStyles.svelte'
+  import { prefersReducedMotion } from '../foundations/motion.js'
   import SettingRow from '../foundations/SettingRow.svelte'
   import SectionHeader from '../foundations/SectionHeader.svelte'
   import SliderRow from '../foundations/SliderRow.svelte'
@@ -46,7 +47,12 @@
   })
   const toggleGroup = (key: AppearanceGroupKey): void => {
     expanded[key] = !expanded[key]
-    emit({ type: 'layout' })
+    // Without motion no transitionend follows, so the toggle itself is the settle.
+    emit({ type: 'layout', settled: prefersReducedMotion() })
+  }
+  /** The accordion settled — the host re-measures the menu's final natural height. */
+  const groupSettled = (event: TransitionEvent): void => {
+    if (event.propertyName === 'grid-template-rows') emit({ type: 'layout', settled: true })
   }
 </script>
 
@@ -61,7 +67,9 @@
         {/if}
       {/snippet}
     </SectionHeader>
-    <fieldset hidden={!expanded.pixels} disabled={groupDisabled('pixels')}>
+    <div class="acc" data-open={String(expanded.pixels)}>
+      <div class="acc-panel" inert={!expanded.pixels} aria-hidden={!expanded.pixels} ontransitionend={groupSettled}>
+    <fieldset class="acc-inner" disabled={groupDisabled('pixels')}>
     <SettingRow label="Pixel style" {compact}>
       {#snippet children()}
         <div class="presets" role="group" aria-label="Pixel style">
@@ -84,6 +92,8 @@
       {/each}
     </div>
     </fieldset>
+      </div>
+    </div>
   </section>
 
   {#if model.showMarkers !== false}
@@ -95,7 +105,9 @@
         {/if}
       {/snippet}
     </SectionHeader>
-    <fieldset hidden={!expanded.markers} disabled={groupDisabled('markers')}>
+    <div class="acc" data-open={String(expanded.markers)}>
+      <div class="acc-panel" inert={!expanded.markers} aria-hidden={!expanded.markers} ontransitionend={groupSettled}>
+    <fieldset class="acc-inner" disabled={groupDisabled('markers')}>
     <div class="marker-settings">
     <SettingRow label="Mark mismatched pixels" {compact} depth={0}>
       {#snippet children()}
@@ -158,6 +170,8 @@
       </SettingRow>
     {/if}
     </fieldset>
+      </div>
+    </div>
   </section>
   {/if}
 
@@ -169,7 +183,9 @@
         {/if}
       {/snippet}
     </SectionHeader>
-    <fieldset hidden={!expanded.colours} disabled={groupDisabled('colours')}>
+    <div class="acc" data-open={String(expanded.colours)}>
+      <div class="acc-panel" inert={!expanded.colours} aria-hidden={!expanded.colours} ontransitionend={groupSettled}>
+    <fieldset class="acc-inner" disabled={groupDisabled('colours')}>
     <div class="colour-toolbar">
       <div class="presets" role="group" aria-label="Colour presets">
         {#each model.colourPresets as preset (preset.id)}
@@ -192,6 +208,8 @@
       </div>
     </div>
     </fieldset>
+      </div>
+    </div>
   </section>
 </div>
 
@@ -205,6 +223,15 @@
   .defaults input:checked { grid-template-columns: 1fr 1fr 0fr; background: var(--caelestis-surface); color: var(--caelestis-primary); }
   fieldset { min-inline-size: 0; margin: 0; padding: 0; border: 0; }
   fieldset:disabled { opacity: 0.7; pointer-events: none; }
+  /* Compact groups accord in and out of their header (transitions.dev 21): grid rows carry the
+     height, the inner wrapper clips and fades. Non-compact never toggles, so this is scoped. */
+  .compact .acc-panel { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--caelestis-duration-quick) var(--caelestis-ease-smooth-out); }
+  .compact .acc[data-open='true'] .acc-panel { grid-template-rows: 1fr; transition-duration: var(--caelestis-duration-fast); }
+  .compact .acc-inner { overflow: hidden; min-block-size: 0; opacity: 0; filter: blur(var(--caelestis-blur-small)); transition: opacity var(--caelestis-duration-quick) var(--caelestis-ease-smooth-out), filter var(--caelestis-duration-quick) var(--caelestis-ease-smooth-out); }
+  .compact .acc[data-open='true'] .acc-inner { opacity: 1; filter: none; transition-duration: var(--caelestis-duration-fast); }
+  @media (prefers-reduced-motion: reduce) {
+    .acc-panel, .acc-inner { transition: none !important; }
+  }
   .sliders, .marker-settings { padding-inline: var(--caelestis-content-inset, 1rem); }
   .sliders { display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr); column-gap: 0.75rem; }
   .sliders :global(label) { grid-column: 1 / -1; grid-template-columns: subgrid; }

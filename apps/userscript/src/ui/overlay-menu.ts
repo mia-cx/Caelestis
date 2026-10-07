@@ -1027,7 +1027,10 @@ const handleOverlayAppearance = (
 ): void => {
   switch (intent.type) {
     case 'layout':
-      invalidateMenuMeasurement()
+      // A group accordion is animating: re-measuring now would cache a mid-animation height, so
+      // uncap the menu and let the box follow its content until the settle event re-measures.
+      if (intent.settled === true) invalidateMenuMeasurement()
+      else menuBox.height = window.innerHeight
       rerender()
       break
     case 'preview-number':
