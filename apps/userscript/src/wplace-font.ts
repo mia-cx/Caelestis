@@ -4,14 +4,17 @@ import falseType from './fonts/FalseType.woff2'
  * FalseType in front of Wplace's pixel font stacks.
  *
  * Wplace sets `--font-sans` and `--font-mono` on its root, and turns the pixel fonts off with
- * `data-pixel-fonts=false` or `data-standard-ui`. The override matches neither, so Wplace's Geist
- * rule applies untouched when either is set. Wplace's own stacks follow FalseType, copied from its
- * `:root` theme and `:lang(ja)` rules, so glyphs FalseType lacks still come from their fonts.
- * The override is unlayered and more specific than Wplace's rules, so it wins while it matches.
- * It also keeps `-webkit-font-smoothing` on, since Wplace switches it off for its pixel fonts and
- * FalseType's size-adjusted pixels need smoothing to stay legible.
+ * `data-pixel-fonts=false` or `data-standard-ui`; `data-caelestis-falsetype=off` is our own
+ * opt-out, set by the FalseType font switch in `wplace-settings.ts`. The override matches none of
+ * them, so Wplace's own rules apply untouched: Geist for the first two, its pixel fonts for the
+ * opt-out. Wplace's own stacks follow
+ * FalseType, copied from its `:root` theme and `:lang(ja)` rules, so glyphs FalseType lacks
+ * still come from their fonts. The override is unlayered and more specific than Wplace's rules,
+ * so it wins while it matches. It also keeps `-webkit-font-smoothing` on, since Wplace switches
+ * it off for its pixel fonts and FalseType's size-adjusted pixels need smoothing to stay legible.
  */
-const PIXEL_FONTS = ':root:not([data-pixel-fonts=false]):not([data-standard-ui])'
+export const FALSETYPE_ATTRIBUTE = 'data-caelestis-falsetype'
+const PIXEL_FONTS = `:root:not([data-pixel-fonts=false]):not([data-standard-ui]):not([${FALSETYPE_ATTRIBUTE}=off])`
 
 const override = (selector: string, cjk: string): string =>
   `${selector}{` +

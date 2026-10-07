@@ -94,6 +94,7 @@ import { installPanel, refreshTemplateTreeFocus } from './ui/panel.js'
 import { installClaimToolHost } from './ui/presence-actions.js'
 import { installUserscriptUpdateCheck } from './userscript-update.js'
 import { loadAccount } from './wplace-account.js'
+import { installWplaceCursors } from './wplace-cursors.js'
 import { installWplaceFont } from './wplace-font.js'
 import { isPaintOpen, onPaintSelectionChange, watchPaintSelection } from './wplace-paint.js'
 import {
@@ -105,6 +106,7 @@ import {
   wplacePatchSettings,
 } from './wplace-patches.js'
 import { installColourPicker } from './wplace-picker.js'
+import { installWplaceSettings } from './wplace-settings.js'
 import { getWplaceState, installWplaceStateCapture } from './wplace-state.js'
 import { installServiceWorkerTap, watchCaptureScope } from './wplace-tile-refresh.js'
 
@@ -288,6 +290,7 @@ const step = (what: string, run: () => void): void => {
 export const startUserscript = (): void => {
   step('shared UI', registerCaelestisUi)
   step('FalseType font', installWplaceFont)
+  step('Caelestis cursors', installWplaceCursors)
   registerProfileContextSource(readProfileContext)
   step('performance profile', installProfile)
   registerProfileMemorySource('Template pixels', templateIndexMemoryBytes)
@@ -304,6 +307,7 @@ export const startUserscript = (): void => {
   // These traps must be armed before Wplace's modules evaluate or MapLibre constructs its Map.
   step('service-worker tile refresh tap', () => installServiceWorkerTap())
   step('wplace state capture', installWplaceStateCapture)
+  step('Wplace settings', installWplaceSettings)
   step('map capture', installMapCapture)
   step('alliance surface observer', installAllianceSurfaceObserver)
   step('debug API', () => {

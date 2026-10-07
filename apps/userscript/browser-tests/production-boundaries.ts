@@ -13,6 +13,7 @@ import {
   loadTilePixels,
   registerDraftCanvas,
 } from '../src/tile-transform.js'
+import { installWplaceCursors } from '../src/wplace-cursors.js'
 import { installWplaceFont } from '../src/wplace-font.js'
 
 const tile = { x: 3, y: 4 }
@@ -154,6 +155,10 @@ export const runProductionBrowserBoundaries = async () => {
     if (actual !== 'auto')
       throw new Error(`font override ${condition}: -webkit-font-smoothing is ${actual}`)
   }
+  const PIXEL_SANS =
+    '"Pixelify Sans", "WPlace Pixel Mono", "Fusion Pixel Chinese", ui-sans-serif, system-ui, sans-serif'
+  const PIXEL_MONO =
+    '"WPlace Pixel Mono", "Pixelify Sans", "Fusion Pixel Chinese", ui-monospace, monospace'
   installWplaceFont()
   try {
     expectStacks(
@@ -188,6 +193,10 @@ export const runProductionBrowserBoundaries = async () => {
     expectStacks('with data-standard-ui and lang=ja', GEIST_SANS, GEIST_MONO)
     root.removeAttribute('lang')
     root.removeAttribute('data-standard-ui')
+    // Our own FalseType switch opts out through an attribute: Wplace's stack comes back.
+    root.setAttribute('data-caelestis-falsetype', 'off')
+    expectStacks('with data-caelestis-falsetype=off', PIXEL_SANS, PIXEL_MONO)
+    root.removeAttribute('data-caelestis-falsetype')
     expectStacks(
       'after restoring the root',
       falseTypeSans('Fusion Pixel Chinese'),
@@ -200,8 +209,45 @@ export const runProductionBrowserBoundaries = async () => {
     wplaceStyle.remove()
     root.removeAttribute('data-pixel-fonts')
     root.removeAttribute('data-standard-ui')
+    root.removeAttribute('data-caelestis-falsetype')
     if (originalLang === null) root.removeAttribute('lang')
     else root.setAttribute('lang', originalLang)
+  }
+
+  // Cursor contract against Wplace's cursor rules as shipped: pixel art on :root and redefined
+  // under :root[data-theme=dark], plain keywords under :root[data-standard-ui] or
+  // :root[data-native-cursor]. Ours must beat the dark-theme rule and step aside for the rest.
+  const cursorStyle = document.createElement('style')
+  cursorStyle.textContent =
+    ':root{--cursor-pointer:url("data:image/svg+xml,x") 12 7, pointer}' +
+    ':root[data-theme=dark]{--cursor-pointer:url("data:image/svg+xml,y") 12 7, pointer}' +
+    ':root[data-standard-ui],:root[data-native-cursor]{--cursor-pointer:pointer}'
+  document.head.append(cursorStyle)
+  installWplaceCursors()
+  try {
+    root.setAttribute('data-theme', 'dark')
+    const cursor = () => getComputedStyle(root).getPropertyValue('--cursor-pointer').trim()
+    const expectCursor = (condition: string, expected: string) => {
+      const actual = cursor()
+      if (actual !== expected)
+        throw new Error(`cursor override ${condition}: is ${JSON.stringify(actual)}`)
+    }
+    if (!cursor().startsWith('image-set('))
+      throw new Error(`cursor override by default: is ${JSON.stringify(cursor())}`)
+    root.setAttribute('data-caelestis-cursors', 'off')
+    expectCursor('with data-caelestis-cursors=off', 'url("data:image/svg+xml,y") 12 7, pointer')
+    root.removeAttribute('data-caelestis-cursors')
+    root.setAttribute('data-native-cursor', '')
+    expectCursor('with data-native-cursor', 'pointer')
+    root.removeAttribute('data-native-cursor')
+    root.setAttribute('data-standard-ui', '')
+    expectCursor('with data-standard-ui', 'pointer')
+  } finally {
+    cursorStyle.remove()
+    root.removeAttribute('data-theme')
+    root.removeAttribute('data-caelestis-cursors')
+    root.removeAttribute('data-native-cursor')
+    root.removeAttribute('data-standard-ui')
   }
   return {
     canvasCaptured: true,

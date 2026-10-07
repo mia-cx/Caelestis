@@ -61,7 +61,7 @@ const options = {
   bundle: true,
   format: 'iife',
   target: 'es2022',
-  loader: { '.woff2': 'dataurl' },
+  loader: { '.woff2': 'dataurl', '.png': 'dataurl' },
   define: {
     __CAELESTIS_USERSCRIPT_VERSION__: JSON.stringify(pkg.version),
     __CAELESTIS_BUILD__: JSON.stringify({ revision, dirty, development }),
