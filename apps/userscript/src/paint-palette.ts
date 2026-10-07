@@ -39,6 +39,7 @@ import {
 } from './tile-transform.js'
 import { canvasWriteTouchesArtboard } from './ui/panel-progress.js'
 import { applyColourProgressDelta } from './ui/progress.js'
+import { applyWplaceTheme } from './ui/theme.js'
 import {
   isPaintOpen,
   onPaintSelectionChange,
@@ -579,6 +580,7 @@ const render = (): void => {
     element.title = `${originalTitle ? `${originalTitle}. ` : ''}${formatPixels(remaining)} left in the focused template`
     const badge = existing ?? document.createElement('caelestis-palette-progress')
     badge.className = 'caelestis-palette-progress'
+    if (existing === null) applyWplaceTheme(badge)
     const text = formatCount(remaining)
     if (badge.model?.value !== text) badge.model = { value: text }
     if (existing === null) element.appendChild(badge)

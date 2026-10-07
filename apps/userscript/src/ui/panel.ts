@@ -123,7 +123,7 @@ import { positionChargeForecast } from './charge-forecast.js'
 import { activeColourPreset, type ColourPresetId, hiddenForPreset } from './colours.js'
 import { setTemplateDisplayMode } from './display-mode.js'
 import { frameQueue } from './frame-queue.js'
-import { CLEAR_OF_RAIL, EDGE, GAP, RAIL_BUTTON, SURFACE_RADIUS } from './metrics.js'
+import { CLEAR_OF_RAIL, EDGE, GAP, RAIL_BUTTON } from './metrics.js'
 import { mountNotificationsIn, syncToastPlacement } from './notification-host.js'
 import { refreshOverlayMenu } from './overlay-menu.js'
 import { panelWidthAfterMount } from './panel-geometry.js'
@@ -1131,7 +1131,7 @@ const buildSveltePanel = (): CaelestisPanel => {
     display: 'block',
     minHeight: '0',
     overflow: 'hidden',
-    borderRadius: SURFACE_RADIUS,
+    borderRadius: 'var(--caelestis-radius)',
   } satisfies Partial<CSSStyleDeclaration>)
   panel.model = panelModel()
   applyWplaceTheme(panel)
