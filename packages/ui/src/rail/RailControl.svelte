@@ -99,6 +99,7 @@
   }
   @media (forced-colors: active) {
     :host([data-caelestis-style='pixel']) button { border: 2px solid ButtonText; }
-    :host([data-caelestis-style='pixel']) button.pressed { background: Highlight; color: HighlightText; }
+    /* As specific as the pixel pressed rule above, so the system colours win over its bevel. */
+    :host([data-caelestis-style='pixel']) button.pressed[aria-pressed='true']:not([aria-disabled='true']) { background: Highlight; color: HighlightText; }
   }
 </style>
