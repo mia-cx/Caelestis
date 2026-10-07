@@ -3,8 +3,9 @@
  *
  * Wplace's own switches (Legacy UI, Pixelated fonts, Use native OS cursor) live in the same
  * panel; ours are clones of its row so they look native. Each switch maps to an opt-out
- * attribute on `<html>` (`data-caelestis-falsetype="off"`, `data-caelestis-cursors="off"`), so the default-on behaviour
- * needs no JS timing: the matching stylesheet simply skips while the attribute is present.
+ * attribute on `<html>` (`data-caelestis-falsetype="off"`, `data-caelestis-cursors="off"`), so
+ * the default-on behaviour needs no JS timing: the matching stylesheet skips while the attribute
+ * is present.
  *
  * Wplace's rows are found structurally, not by label text, so the lookup survives its UI
  * translations: the panel's toggle labels that are not ours, in order, are Legacy UI,

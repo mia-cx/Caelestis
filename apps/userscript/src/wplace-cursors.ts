@@ -18,8 +18,8 @@ import text from '../../frontend/static/cursors/text.png'
 /**
  * Caelestis's pixel cursors for Wplace, through its own `--cursor-*` properties.
  *
- * The rule applies only while all of Wplace's own cursor choices are off — no Legacy UI
- * (`data-standard-ui`), no Use native OS cursor (`data-native-cursor`) — and our own Caelestis
+ * The rule applies only while all of Wplace's own cursor choices are off (no Legacy UI
+ * `data-standard-ui`, no Use native OS cursor `data-native-cursor`) and our own Caelestis
  * cursors switch in `wplace-settings.ts` has not set `data-caelestis-cursors=off`. Otherwise
  * Wplace's rules stand: its pixel cursors on `:root[data-theme=dark]`, or the plain keywords of
  * its `:root[data-standard-ui],:root[data-native-cursor]` rule. `html:root` (0,4,1) outranks
