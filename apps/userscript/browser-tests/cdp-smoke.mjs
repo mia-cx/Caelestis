@@ -62,7 +62,11 @@ try {
     returnByValue: true,
   })
   if (result.exceptionDetails !== undefined) throw new Error(result.exceptionDetails.text)
-  if (result.result.value?.canvasCaptured !== true || result.result.value?.scans?.length !== 3)
+  if (
+    result.result.value?.canvasCaptured !== true ||
+    result.result.value?.scans?.length !== 3 ||
+    result.result.value?.fontStacks !== true
+  )
     throw new Error('production browser contracts returned an incomplete result')
 } finally {
   socket.close()

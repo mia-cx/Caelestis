@@ -51,17 +51,23 @@ const metadata = `// ==UserScript==
 // ==/UserScript==
 `
 
+// The OFL requires each copy of the font to carry its copyright notice and licence, and the woff2
+// binary has no such metadata, so the licence rides along as a legal comment at the end.
+const ofl = readFileSync(new URL('./src/fonts/OFL.txt', import.meta.url), 'utf8')
+
 const options = {
   entryPoints: ['src/entry.ts'],
   outfile: 'dist/wplace-template-server.user.js',
   bundle: true,
   format: 'iife',
   target: 'es2022',
+  loader: { '.woff2': 'dataurl' },
   define: {
     __CAELESTIS_USERSCRIPT_VERSION__: JSON.stringify(pkg.version),
     __CAELESTIS_BUILD__: JSON.stringify({ revision, dirty, development }),
   },
   banner: { js: metadata },
+  footer: { js: `/*! FalseType font, bundled under the SIL Open Font License 1.1:\n\n${ofl}*/` },
   legalComments: 'eof',
   // Keep watch output readable for browser debugging. Release builds should not make every user
   // download and parse the development representation of the same program.

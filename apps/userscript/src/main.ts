@@ -94,6 +94,7 @@ import { installPanel, refreshTemplateTreeFocus } from './ui/panel.js'
 import { installClaimToolHost } from './ui/presence-actions.js'
 import { installUserscriptUpdateCheck } from './userscript-update.js'
 import { loadAccount } from './wplace-account.js'
+import { installWplaceFont } from './wplace-font.js'
 import { isPaintOpen, onPaintSelectionChange, watchPaintSelection } from './wplace-paint.js'
 import {
   applyWplacePatches,
@@ -286,6 +287,7 @@ const step = (what: string, run: () => void): void => {
 /** Install the userscript once when its browser entrypoint runs. */
 export const startUserscript = (): void => {
   step('shared UI', registerCaelestisUi)
+  step('FalseType font', installWplaceFont)
   registerProfileContextSource(readProfileContext)
   step('performance profile', installProfile)
   registerProfileMemorySource('Template pixels', templateIndexMemoryBytes)
