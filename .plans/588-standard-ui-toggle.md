@@ -1,29 +1,27 @@
-# #588 Add a standard UI toggle to Wplace's settings until Wplace ships one
+# #588 Caelestis switches inside Wplace's settings
 
 ## Summary
 
-Wplace already has a standard (DaisyUI) style behind `data-standard-ui`, but nothing exposes it.
-Add a native-looking "Standard UI" toggle under Wplace's "Pixelated fonts" toggle that sets the
-attribute, persists the choice, applies it before first paint, and steps aside once Wplace ships
-its own option. How Caelestis restyles under the attribute is #585.
+Wplace shipped its own "Legacy UI" and "Use native OS cursor" switches in Settings ›
+Accessibility, so Caelestis no longer needs a standard-UI switch of its own. What remains is
+two Caelestis rows cloned into the same panel: **FalseType font** (after Pixelated fonts) and
+**Caelestis cursors** (after Use native OS cursor), each defaulting on and mapping to an opt-out
+attribute on `<html>` so no JS timing is involved.
 
 ## Acceptance criteria
 
-- [x] The toggle appears under Wplace's pixel fonts toggle and matches its look in both themes and both UI styles.
-- [x] Turning it on removes Wplace's pixel styles without a reload (Caelestis follows via #585).
-- [x] The setting survives a reload and in-app navigation.
+- [x] Both rows sit flat among Wplace's own rows, match their look, and are found structurally (label order), not by text.
+- [x] Each switch persists (`caelestis.wplace-options.v1`) and takes effect without a reload.
+- [x] Each row is disabled (`opacity-60` + `input.disabled`, effective value shown) while its dependencies are off.
 - [x] With the Caelestis userscript removed, Wplace is unaffected.
-- [x] A userscript Changeset entry.
+- [x] A userscript Changeset entry per feature.
 
 ## TODOs
 
-- [x] Persist the Standard UI choice and keep `data-standard-ui` applied from document-start, re-applying it when Wplace's layout effect clears it.
-- [x] Add the Standard UI toggle under Pixelated fonts, and hide it once Wplace offers its own option.
-- [x] Add the userscript Changeset.
-- [x] Verify on wplace.live in background Chromium: look in both themes and styles, reload, in-app navigation.
-- [x] Present the switch as "Pixelated UI" (on by default, off = standard UI).
-- [x] Use the browser's own cursors under standard UI.
-- [x] Bring back Wplace's Material Symbols icons under standard UI.
+- [x] Drop the Pixelated UI switch now that Wplace ships Legacy UI.
+- [x] Add a FalseType font switch (`data-caelestis-falsetype=off`), disabled under `data-standard-ui` or `data-pixel-fonts=false`.
+- [x] Add a Caelestis cursors switch (`data-caelestis-cursors=off`), disabled under `data-standard-ui` or `data-native-cursor`.
+- [x] Changesets and live verification on wplace.live.
 
 ## Notes
 
@@ -54,3 +52,9 @@ its own option. How Caelestis restyles under the attribute is #585.
   before hydration, so icons are Material Symbols from first paint. A mid-session flip changes
   icons on the next load or route change; the getter is not reactive to our attribute. Icons
   without a Material variant (gear, palette, bug, alliance) stay as they are.
+- Wplace shipped Legacy UI and Use native OS cursor on 2026-10-07 (`wplace:settings:v1` gained
+  `oldUi` and `nativeCursor`; `standard` is now `oldUi || dashboard`), so Caelestis's own
+  Pixelated UI switch was removed. The Accessibility panel now opens with Legacy UI, Pixelated
+  fonts, Use native OS cursor. Attribute contract: `data-caelestis-falsetype=off` and
+  `data-caelestis-cursors=off` opt out; `wplace-font.ts` and `wplace-cursors.ts` scope their
+  rules to Wplace's own conditions plus the opt-out.
