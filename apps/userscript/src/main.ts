@@ -94,6 +94,7 @@ import { installPanel, refreshTemplateTreeFocus } from './ui/panel.js'
 import { installClaimToolHost } from './ui/presence-actions.js'
 import { installUserscriptUpdateCheck } from './userscript-update.js'
 import { loadAccount } from './wplace-account.js'
+import { installWplaceCursors } from './wplace-cursors.js'
 import { installWplaceFont } from './wplace-font.js'
 import { isPaintOpen, onPaintSelectionChange, watchPaintSelection } from './wplace-paint.js'
 import {
@@ -106,7 +107,6 @@ import {
 } from './wplace-patches.js'
 import { installColourPicker } from './wplace-picker.js'
 import { installWplaceSettings } from './wplace-settings.js'
-import { installWplaceCursors } from './wplace-cursors.js'
 import { getWplaceState, installWplaceStateCapture } from './wplace-state.js'
 import { installServiceWorkerTap, watchCaptureScope } from './wplace-tile-refresh.js'
 
