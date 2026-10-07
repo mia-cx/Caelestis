@@ -23,6 +23,8 @@ import TemplateAdminElement from './TemplateAdmin.element.svelte'
 import TemplateStateElement from './TemplateState.element.svelte'
 import WorkElement from './Work.element.svelte'
 
+// The userscript bundles this entry as a separate module instance, so it needs its own export.
+export { type IconSet, useIconSet } from '../foundations/icons.svelte.js'
 export type * from '../types.js'
 export type { WorkModel } from '../work/model.js'
 export type CaelestisWork = HTMLElement & { model: WorkModel }

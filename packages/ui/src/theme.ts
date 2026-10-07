@@ -1,3 +1,8 @@
+/**
+ * The stable theme contract every Caelestis surface reads. The `pixel*` tokens mirror Wplace's
+ * own `--pixel-*` palette; only the pixel-style rules read them, so classic surfaces can ignore
+ * them entirely.
+ */
 export interface CaelestisThemeTokens {
   readonly surface: string
   readonly raisedSurface: string
@@ -12,11 +17,25 @@ export interface CaelestisThemeTokens {
   readonly finished: string
   readonly frozen: string
   readonly radius: string
+  readonly pillRadius: string
+  readonly font: string
+  readonly monoFont: string
   readonly compactTarget: string
   readonly touchTarget: string
   readonly shadow: string
   readonly popoverShadow: string
   readonly motionDuration: string
+  readonly pixelInk: string
+  readonly pixelShadow: string
+  readonly pixelButton: string
+  readonly pixelButtonLight: string
+  readonly pixelButtonShade: string
+  readonly pixelPrimaryLight: string
+  readonly pixelPrimaryShade: string
+  readonly pixelFieldShade: string
+  readonly pixelWell: string
+  readonly pixelWellShade: string
+  readonly pixelThumb: string
 }
 
 export type CaelestisThemeToken = keyof CaelestisThemeTokens
@@ -35,11 +54,25 @@ const PROPERTIES: Record<CaelestisThemeToken, `--caelestis-${string}`> = {
   finished: '--caelestis-finished',
   frozen: '--caelestis-frozen',
   radius: '--caelestis-radius',
+  pillRadius: '--caelestis-pill-radius',
+  font: '--caelestis-font',
+  monoFont: '--caelestis-mono-font',
   compactTarget: '--caelestis-compact-target',
   touchTarget: '--caelestis-touch-target',
   shadow: '--caelestis-shadow',
   popoverShadow: '--caelestis-popover-shadow',
   motionDuration: '--caelestis-motion-duration',
+  pixelInk: '--caelestis-pixel-ink',
+  pixelShadow: '--caelestis-pixel-shadow',
+  pixelButton: '--caelestis-pixel-button',
+  pixelButtonLight: '--caelestis-pixel-button-light',
+  pixelButtonShade: '--caelestis-pixel-button-shade',
+  pixelPrimaryLight: '--caelestis-pixel-primary-light',
+  pixelPrimaryShade: '--caelestis-pixel-primary-shade',
+  pixelFieldShade: '--caelestis-pixel-field-shade',
+  pixelWell: '--caelestis-pixel-well',
+  pixelWellShade: '--caelestis-pixel-well-shade',
+  pixelThumb: '--caelestis-pixel-thumb',
 }
 
 export const themeProperty = (token: CaelestisThemeToken): `--caelestis-${string}` =>

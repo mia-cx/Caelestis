@@ -2,7 +2,7 @@
   import { tick } from 'svelte'
   import Button from '../foundations/Button.svelte'
   import Icon from '../foundations/Icon.svelte'
-  import type { IconName } from '../foundations/icons.js'
+  import type { IconName } from '../foundations/icons.svelte.js'
   import type { NotificationsIntent, NotificationsProps, ToastKind, ToastModel } from '../types.js'
 
   const EMPTY_MODEL = { toasts: [], confirm: null } as const
