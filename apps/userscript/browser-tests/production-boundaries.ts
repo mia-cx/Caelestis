@@ -118,43 +118,75 @@ export const runProductionBrowserBoundaries = async () => {
   if (mismatchWorkerMemoryBytes() !== 0)
     throw new Error('forgetInWorker retained browser test pixels')
 
-  // Font override contract on a page with no Wplace CSS: `--font-sans`/`--font-mono` follow the
-  // pixel-font and standard-UI conditions, and the bundled FalseType face loads from its data URL.
+  // Font override contract against Wplace's own font rules as shipped (copied verbatim from
+  // wplace.live's `0.DYOXtsdE.css`), so the override is tested against the cascade it has to win.
+  const WPLACE_FONT_RULES =
+    '@layer theme{:root,:host{--font-sans:"Pixelify Sans", "WPlace Pixel Mono", "Fusion Pixel Chinese", ui-sans-serif, system-ui, sans-serif;--font-mono:"WPlace Pixel Mono", "Pixelify Sans", "Fusion Pixel Chinese", ui-monospace, monospace}}' +
+    ':root:lang(ja),:root:lang(jp){--font-sans:"Pixelify Sans", "WPlace Pixel Mono", "Fusion Pixel Japanese", ui-sans-serif, system-ui, sans-serif;--font-mono:"WPlace Pixel Mono", "Pixelify Sans", "Fusion Pixel Japanese", ui-monospace, monospace}' +
+    ':root[data-pixel-fonts=false],:root[data-standard-ui]{--font-sans:"Geist", ui-sans-serif, system-ui, sans-serif;--font-mono:"Geist Mono", ui-monospace, monospace}'
+  const wplaceStyle = document.createElement('style')
+  wplaceStyle.textContent = WPLACE_FONT_RULES
+  document.head.append(wplaceStyle)
   const root = document.documentElement
   const originalLang = root.getAttribute('lang')
   const fontVar = (name: string) =>
     getComputedStyle(root).getPropertyValue(name).trim().replace(/\s+/g, ' ')
-  const expectSans = (condition: string, expected: string) => {
-    const actual = fontVar('--font-sans')
-    if (actual !== expected)
-      throw new Error(`font override ${condition}: --font-sans is ${JSON.stringify(actual)}`)
+  const expectStacks = (condition: string, sans: string, mono: string) => {
+    for (const [name, expected] of [
+      ['--font-sans', sans],
+      ['--font-mono', mono],
+    ]) {
+      const actual = fontVar(name)
+      if (actual !== expected)
+        throw new Error(`font override ${condition}: ${name} is ${JSON.stringify(actual)}`)
+    }
   }
-  const DEFAULT_SANS =
-    '"FalseType", "Pixelify Sans", "WPlace Pixel Mono", "Fusion Pixel Chinese", ui-sans-serif, system-ui, sans-serif'
+  const falseTypeSans = (cjk: string) =>
+    `"FalseType", "Pixelify Sans", "WPlace Pixel Mono", "${cjk}", ui-sans-serif, system-ui, sans-serif`
+  const falseTypeMono = (cjk: string) =>
+    `"FalseType", "WPlace Pixel Mono", "Pixelify Sans", "${cjk}", ui-monospace, monospace`
+  const GEIST_SANS = '"Geist", ui-sans-serif, system-ui, sans-serif'
+  const GEIST_MONO = '"Geist Mono", ui-monospace, monospace'
   installWplaceFont()
   try {
-    expectSans('on a default root', DEFAULT_SANS)
-    if (!fontVar('--font-mono').startsWith('"FalseType", "WPlace Pixel Mono"'))
-      throw new Error(`font override: --font-mono is ${JSON.stringify(fontVar('--font-mono'))}`)
+    expectStacks(
+      'on a default root',
+      falseTypeSans('Fusion Pixel Chinese'),
+      falseTypeMono('Fusion Pixel Chinese'),
+    )
     for (const lang of ['ja', 'jp']) {
       root.setAttribute('lang', lang)
-      const sans = fontVar('--font-sans')
-      if (!sans.startsWith('"FalseType"') || !sans.includes('Fusion Pixel Japanese'))
-        throw new Error(`font override lang=${lang}: --font-sans is ${JSON.stringify(sans)}`)
+      expectStacks(
+        `with lang=${lang}`,
+        falseTypeSans('Fusion Pixel Japanese'),
+        falseTypeMono('Fusion Pixel Japanese'),
+      )
     }
     root.removeAttribute('lang')
     root.setAttribute('data-pixel-fonts', 'false')
-    expectSans('with data-pixel-fonts=false', '')
+    expectStacks('with data-pixel-fonts=false', GEIST_SANS, GEIST_MONO)
     root.setAttribute('data-pixel-fonts', 'true')
-    expectSans('with data-pixel-fonts=true', DEFAULT_SANS)
+    expectStacks(
+      'with data-pixel-fonts=true',
+      falseTypeSans('Fusion Pixel Chinese'),
+      falseTypeMono('Fusion Pixel Chinese'),
+    )
     root.removeAttribute('data-pixel-fonts')
     root.setAttribute('data-standard-ui', '')
-    expectSans('with data-standard-ui', '')
+    expectStacks('with data-standard-ui', GEIST_SANS, GEIST_MONO)
+    root.setAttribute('lang', 'ja')
+    expectStacks('with data-standard-ui and lang=ja', GEIST_SANS, GEIST_MONO)
+    root.removeAttribute('lang')
     root.removeAttribute('data-standard-ui')
-    expectSans('after restoring the root', DEFAULT_SANS)
+    expectStacks(
+      'after restoring the root',
+      falseTypeSans('Fusion Pixel Chinese'),
+      falseTypeMono('Fusion Pixel Chinese'),
+    )
     const faces = await document.fonts.load('12px "FalseType"')
     if (faces.length !== 1) throw new Error('the bundled FalseType face did not load')
   } finally {
+    wplaceStyle.remove()
     root.removeAttribute('data-pixel-fonts')
     root.removeAttribute('data-standard-ui')
     if (originalLang === null) root.removeAttribute('lang')
