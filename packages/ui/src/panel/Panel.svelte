@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, tick } from 'svelte'
-  import { cancelSurfaceClose, closeSurface } from '../foundations/motion.js'
+  import { cancelSurfaceClose, closeSurface, shift, tokenized } from '../foundations/motion.js'
   import Button from '../foundations/Button.svelte'
   import Icon from '../foundations/Icon.svelte'
   import AppearanceEditor from '../appearance/AppearanceEditor.svelte'
@@ -65,6 +65,17 @@
     Math.min(model.maxWidth, Math.max(model.minWidth, Math.round(value)))
 
   const emit = (intent: PanelIntent): void => onIntent?.(intent)
+
+  /**
+   * Side-by-side page slide between views (transitions.dev 08). Forward — tree → anything, or
+   * settings ↔ appearance — enters from +distance-large and exits toward -distance-large; coming
+   * back to the tree reverses it. `dir` reads the current view, so the outgoing page picks the
+   * same direction as the incoming one. Distance and blur come from the motion tokens; the
+   * duration is resolved per node by `tokenized`.
+   */
+  const page = tokenized(shift, '--caelestis-duration-fast')
+  const pageDir = $derived(model.view === 'tree' ? -1 : 1)
+
   const navigate = (view: PanelView): void => {
     emit({ type: 'navigate', view: model.view === view ? 'tree' : view })
   }
@@ -151,18 +162,22 @@
   </header>
 
   <div class="body">
-    {#if model.view === 'tree' && model.tree !== undefined}
-      <TemplateTree model={model.tree} allowGrid={poppedOut} onIntent={treeIntent} />
-      {#if model.work !== undefined}
-        <WorkSummary model={model.work} showOtherClaims={model.showOtherClaims ?? false} onshowothers={(showOtherClaims) => emit({ type: 'work-visibility', showOtherClaims })} onIntent={(intent) => treeIntent(intent, true)} onretry={() => emit({ type: 'work-retry' })} onclaimregion={() => { if (poppedOut) void dock(); emit({ type: 'region-claim' }) }} onflyto={(key) => { if (poppedOut) void dock(); emit({ type: 'presence-fly', key }) }} onflytoclaim={(key) => { if (poppedOut) void dock(); emit({ type: 'claim-fly', key }) }} onclearclaim={(key) => emit({ type: 'claim-clear', key })} />
-      {/if}
-    {:else if model.view === 'appearance' && model.appearance !== undefined}
-      <AppearanceEditor model={model.appearance} onIntent={(intent) => emit({ type: 'appearance', intent })} />
-    {:else if model.view === 'settings' && model.settings !== undefined}
-      <SettingsPanel model={model.settings} onIntent={(intent) => emit({ type: 'settings', intent })} />
-    {:else if children !== undefined}
-      {@render children()}
-    {/if}
+    {#each [model.view] as view (view)}
+      <div class="page" in:page|global={{ distance: '--caelestis-distance-large', dx: pageDir, blur: '--caelestis-blur-small' }} out:page|global={{ distance: '--caelestis-distance-large', dx: -pageDir, blur: '--caelestis-blur-small' }}>
+        {#if view === 'tree' && model.tree !== undefined}
+          <TemplateTree model={model.tree} allowGrid={poppedOut} onIntent={treeIntent} />
+          {#if model.work !== undefined}
+            <WorkSummary model={model.work} showOtherClaims={model.showOtherClaims ?? false} onshowothers={(showOtherClaims) => emit({ type: 'work-visibility', showOtherClaims })} onIntent={(intent) => treeIntent(intent, true)} onretry={() => emit({ type: 'work-retry' })} onclaimregion={() => { if (poppedOut) void dock(); emit({ type: 'region-claim' }) }} onflyto={(key) => { if (poppedOut) void dock(); emit({ type: 'presence-fly', key }) }} onflytoclaim={(key) => { if (poppedOut) void dock(); emit({ type: 'claim-fly', key }) }} onclearclaim={(key) => emit({ type: 'claim-clear', key })} />
+          {/if}
+        {:else if view === 'appearance' && model.appearance !== undefined}
+          <AppearanceEditor model={model.appearance} onIntent={(intent) => emit({ type: 'appearance', intent })} />
+        {:else if view === 'settings' && model.settings !== undefined}
+          <SettingsPanel model={model.settings} onIntent={(intent) => emit({ type: 'settings', intent })} />
+        {:else if children !== undefined}
+          {@render children()}
+        {/if}
+      </div>
+    {/each}
   </div>
 </section>
 {/snippet}
@@ -209,7 +224,9 @@
   .panel { --caelestis-content-inset: 1rem; position: relative; display: flex; flex-direction: column; min-block-size: 0; block-size: 100%; overflow: hidden; border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-surface, oklch(0.97 0.01 264)); color: var(--caelestis-text, oklch(0.26 0.025 264)); box-shadow: var(--caelestis-shadow, 0 24px 80px rgb(0 0 0 / 0.35)); }
   header { display: flex; flex: 0 0 auto; align-items: center; gap: 0.5rem; padding: 1rem 1.5rem; border-block-end: 1px solid var(--caelestis-border, oklch(0.78 0.025 264 / 0.7)); }
   h2 { flex: 1; margin: 0; font: 600 0.875rem/1.25 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); }
-  .body { display: flex; flex: 1; flex-direction: column; min-block-size: 0; }
+  .body { display: grid; flex: 1; min-block-size: 0; }
+  /* Outgoing and incoming pages share one grid cell so the swap never shifts layout. */
+  .page { grid-area: 1 / 1; display: flex; flex-direction: column; min-block-size: 0; min-inline-size: 0; }
   .resize { position: absolute; inset-block: 0; inset-inline-start: 0; z-index: 1; inline-size: 6px; cursor: ew-resize; }
   .resize:hover::after, .resize.resizing::after, .resize:focus-visible::after { content: ''; position: absolute; inset: 0 2px 0 1px; border-radius: var(--caelestis-pill-radius, 999px); background: var(--caelestis-primary, currentColor); opacity: 0.5; }
   .resize:focus-visible { outline: none; }
