@@ -31,23 +31,24 @@
   :host {
     --dropdown-open-dur: var(--caelestis-duration-fast);
     --dropdown-close-dur: var(--caelestis-duration-quick);
-    --dropdown-pre-scale: var(--caelestis-scale-medium);
-    --dropdown-closing-scale: var(--caelestis-scale-tiny);
     --dropdown-ease: var(--caelestis-ease-smooth-out);
-    --caelestis-surface-close-duration: var(--caelestis-duration-quick);
+    --caelestis-surface-close-duration: var(--dropdown-close-dur);
     transform-origin: top right;
-    transform: scale(var(--dropdown-pre-scale));
+    transform: scale(var(--caelestis-scale-large));
     opacity: 0;
+    filter: blur(var(--caelestis-blur-small));
     pointer-events: none;
     transition:
       transform var(--dropdown-open-dur) var(--dropdown-ease),
-      opacity   var(--dropdown-open-dur) var(--dropdown-ease);
+      opacity   var(--dropdown-open-dur) var(--dropdown-ease),
+      filter    var(--dropdown-open-dur) var(--dropdown-ease);
     will-change: transform, opacity;
   }
-  :host([data-state='open']) { transform: scale(1); opacity: 1; pointer-events: auto; }
+  :host([data-state='open']) { transform: scale(1); opacity: 1; filter: none; pointer-events: auto; }
   :host([data-state='closing']) {
-    transform: scale(var(--dropdown-closing-scale));
+    transform: scale(var(--caelestis-scale-large));
     opacity: 0;
+    filter: blur(var(--caelestis-blur-small));
     pointer-events: none;
     transition-duration: var(--dropdown-close-dur);
   }

@@ -1699,7 +1699,8 @@ const closeOverlayMenu = (): void => {
   menuOwner = null
   // The close animates out; a reopen builds a fresh node, so nothing here has to wait for it.
   if (node !== null) closeSurface(node, () => node.remove())
-  removeRailActions()
+  for (const action of railActions) closeSurface(action, () => action.remove())
+  railActions = []
 }
 
 /**
@@ -2281,9 +2282,18 @@ const renderControls = (
       // Stamped from what was just built, not from what was sampled.
       menuNode.dataset.caelestisSignature = menuSignature(template)
       menuOwner = template.id
-      if (!opening) menuNode.dataset.state = 'open'
+      if (!opening) {
+        menuNode.dataset.state = 'open'
+        for (const action of railActions) action.dataset.state = 'open'
+      }
       host.append(menuNode, ...railActions)
-      if (opening) openSurface(menuNode)
+      if (opening) {
+        openSurface(menuNode)
+        for (const [index, action] of railActions.entries()) {
+          action.style.setProperty('--rail-action-index', String(index))
+          openSurface(action)
+        }
+      }
       // Svelte custom elements finish their first render after connection. The same-task geometry
       // pass can therefore see a zero-height host and cache that collapsed size for the viewport.
       // Measure once more after connection so a static map does not leave the menu invisible.

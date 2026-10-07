@@ -81,12 +81,17 @@ export const shift = (node: Element, params?: ShiftParams): TransitionConfig => 
 
 const pendingCloses = new WeakMap<HTMLElement, number>()
 const pendingOpens = new WeakMap<HTMLElement, number>()
+/** Frames `openSurface` waits for a custom element's shadow styles before opening it anyway. */
+const MAX_STYLE_WAIT_FRAMES = 40
 
 const cancelSurfaceOpen = (element: HTMLElement): void => {
   const frame = pendingOpens.get(element)
   if (frame === undefined) return
   cancelAnimationFrame(frame)
   pendingOpens.delete(element)
+  // The pending open may still be holding the element hidden and transition-less.
+  element.style.visibility = ''
+  element.style.transition = ''
 }
 
 /** Cancel a pending close on `element`, if one is running. Returns whether there was one. */
@@ -106,15 +111,36 @@ export const cancelSurfaceClose = (element: HTMLElement): boolean => {
  */
 export const openSurface = (element: HTMLElement): void => {
   cancelSurfaceOpen(element)
-  cancelSurfaceClose(element)
+  // Reopening a still-closing element continues from the current frame, so it stays visible.
+  const reuse = cancelSurfaceClose(element)
+  if (!reuse) {
+    // A custom element's shadow styles attach a task or more after connection, and the jump from
+    // unstyled to styled-hidden is itself a transition — flipping data-state before it settles
+    // lands mid-attach and the entrance never runs. Hold the element invisible with transitions
+    // off until the styles exist and a frame has rendered the hidden state, then unhide, restore
+    // transitions, and flip. A plain element is ready immediately.
+    element.style.visibility = 'hidden'
+    element.style.transition = 'none'
+  }
   element.removeAttribute('data-state')
-  pendingOpens.set(
-    element,
-    requestAnimationFrame(() => {
-      pendingOpens.delete(element)
-      element.dataset.state = 'open'
-    }),
-  )
+  let attempts = 0
+  const open = (): void => {
+    pendingOpens.delete(element)
+    const styled = element.shadowRoot === null || element.shadowRoot.querySelector('style') !== null
+    // `reuse` renders already and reverses the closing animation where it is; a fresh element
+    // needs one rendered frame of the hidden style or the flip has no start state.
+    const ready = styled && (reuse || attempts > 0)
+    if (!ready && attempts < MAX_STYLE_WAIT_FRAMES) {
+      attempts += 1
+      pendingOpens.set(element, requestAnimationFrame(open))
+      return
+    }
+    element.style.visibility = ''
+    element.style.transition = ''
+    void getComputedStyle(element).opacity
+    element.dataset.state = 'open'
+  }
+  pendingOpens.set(element, requestAnimationFrame(open))
 }
 
 /**
