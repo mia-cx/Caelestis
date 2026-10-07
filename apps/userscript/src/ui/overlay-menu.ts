@@ -15,7 +15,12 @@ import type {
   RailControlIntent,
   RailControlModel,
 } from '@caelestis/ui/elements'
-import { closeSurface, openSurface } from '@caelestis/ui/motion'
+import {
+  closeSurface,
+  openSurface,
+  prefersReducedMotion,
+  SETTLE_MARGIN_MS,
+} from '@caelestis/ui/motion'
 import { allianceManifestFor, refreshAllianceManifest } from '../alliance-server-sync.js'
 import type { ActiveAllianceSurface } from '../alliance-surface.js'
 import { transferAuthoring } from '../application/template-authoring.js'
@@ -168,7 +173,9 @@ const localControlsRightEdge = (): number => {
   }
   const panel =
     document.getElementById('caelestis-alliance-panel') ?? document.getElementById(PANEL_ID)
-  if (panel === null) return railEdge
+  // A closing panel has already given its room back; measuring it would pin controls against a
+  // box that is sliding away and then snap them once it is removed.
+  if (panel === null || panel.dataset.state === 'closing') return railEdge
   return Math.max(
     VIEWPORT_EDGE + MENU_BUTTON_SIZE,
     Math.min(railEdge, panel.getBoundingClientRect().left - RAIL_GAP),
@@ -214,6 +221,36 @@ const positionFloatingControl = (control: HTMLElement, x: number, y: number): vo
   const top = `${y}px`
   if (control.style.left !== left) control.style.left = left
   if (control.style.top !== top) control.style.top = top
+}
+
+let glideTimer: number | undefined
+
+/**
+ * Brief window in which the controls `localControlsRightEdge` clamps — gear buttons, the open
+ * menu, rail actions, placement apply/cancel — tween `left`/`top` instead of teleporting, so they
+ * follow the panel drawer in lockstep. Outside the window the property is left untouched: map
+ * pans must keep tracking exactly, which a lingering transition would smear.
+ */
+export const glideOverlayControls = (durationMs: number): void => {
+  if (glideTimer !== undefined) {
+    clearTimeout(glideTimer)
+    glideTimer = undefined
+  }
+  const controls = [
+    ...buttons.values(),
+    ...railActions,
+    ...(menuNode === null ? [] : [menuNode]),
+    ...[...placementRails.values()].flatMap((rail) => [rail.apply, rail.cancel]),
+  ]
+  if (durationMs <= 0 || prefersReducedMotion() || controls.length === 0) return
+  const transition = `left ${durationMs}ms var(--caelestis-ease-smooth-out, ease-out), top ${durationMs}ms var(--caelestis-ease-smooth-out, ease-out)`
+  for (const control of controls) control.style.transition = transition
+  glideTimer = window.setTimeout(() => {
+    glideTimer = undefined
+    for (const control of controls) {
+      if (control.isConnected) control.style.transition = ''
+    }
+  }, durationMs + SETTLE_MARGIN_MS)
 }
 /** The controls the last build produced, so a host swapping or removing one is a rebuild. */
 let railActions: HTMLElement[] = []

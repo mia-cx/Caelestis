@@ -18,7 +18,12 @@ import type {
   SettingsIntent,
   SettingsModel,
 } from '@caelestis/ui/elements'
-import { cancelSurfaceClose, closeSurface, openSurface } from '@caelestis/ui/motion'
+import {
+  cancelSurfaceClose,
+  closeSurface,
+  openSurface,
+  surfaceCloseDurationMs,
+} from '@caelestis/ui/motion'
 import { onAllianceManifestChange } from '../alliance-server-sync.js'
 import {
   type ActiveAllianceSurface,
@@ -127,7 +132,7 @@ import { setTemplateDisplayMode } from './display-mode.js'
 import { frameQueue } from './frame-queue.js'
 import { CLEAR_OF_RAIL, EDGE, GAP, RAIL_BUTTON } from './metrics.js'
 import { mountNotificationsIn, syncToastPlacement } from './notification-host.js'
-import { refreshOverlayMenu } from './overlay-menu.js'
+import { glideOverlayControls, refreshOverlayMenu } from './overlay-menu.js'
 import { panelWidthAfterMount } from './panel-geometry.js'
 import { canvasWritesTouchArtboard } from './panel-progress.js'
 import {
@@ -1159,6 +1164,9 @@ const buildSveltePanel = (): CaelestisPanel => {
     overflow: 'hidden',
     borderRadius: 'var(--caelestis-radius)',
   } satisfies Partial<CSSStyleDeclaration>)
+  // The drawer slide runs on the inner pane, which must clear the host's right offset to leave
+  // the viewport entirely: CLEAR_OF_RAIL for the world panel, nothing for the alliance drawer.
+  panel.style.setProperty('--pane-inset', alliance ? '0px' : `${CLEAR_OF_RAIL}px`)
   panel.model = panelModel()
   applyWplaceTheme(panel)
   panel.addEventListener('caelestis-panel-intent', (event) => {
@@ -1381,7 +1389,8 @@ const setOpen = (next: boolean): void => {
       if (active !== null) positionAllianceRail(active)
     }
     syncProfileTimer()
-    // Give map-anchored controls the reclaimed width immediately, even while the map is still.
+    // Map-anchored controls glide into the reclaimed width in lockstep with the drawer.
+    glideOverlayControls(existing === null ? 0 : surfaceCloseDurationMs(existing))
     redraw()
     syncToastPlacement(currentPanelId())
     return
@@ -1395,14 +1404,15 @@ const setOpen = (next: boolean): void => {
     if (active !== null) positionAllianceRail(active)
   }
   const host = panelHost ?? document.body
+  const panel = existing ?? buildSveltePanel()
   if (existing === null) {
-    const panel = buildSveltePanel()
     host.appendChild(panel)
     openSurface(panel)
   }
   showView(currentView())
   for (const listener of panelOpenListeners) listener()
-  // The panel's measured left edge is now the map controls' right edge.
+  // The panel's measured left edge is now the map controls' right edge; they glide over to it.
+  glideOverlayControls(surfaceCloseDurationMs(panel, '--pane-open-dur'))
   redraw()
   syncToastPlacement(currentPanelId())
 }

@@ -10,9 +10,15 @@
  * reverse from the current frame instead of snapping back to the closing scale.
  */
 
+import { quintOut } from 'svelte/easing'
+import type { EasingFunction, TransitionConfig } from 'svelte/transition'
+
 export const SURFACE_CLOSE_DURATION = '--caelestis-surface-close-duration'
 
-const prefersReducedMotion = (): boolean =>
+/** Tail margin after a transition's duration before held state (closing rows, control glides) is released. */
+export const SETTLE_MARGIN_MS = 50
+
+export const prefersReducedMotion = (): boolean =>
   typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
 
 const parseDurationMs = (value: string): number => {
@@ -27,6 +33,51 @@ export const surfaceCloseDurationMs = (
   element: HTMLElement,
   property: string = SURFACE_CLOSE_DURATION,
 ): number => parseDurationMs(getComputedStyle(element).getPropertyValue(property))
+
+/** Wrap a Svelte transition so its duration comes from `token` on the node (0 under reduced motion) and it eases with quintOut, which is --caelestis-ease-smooth-out's curve. */
+export const tokenized =
+  <P extends { duration?: number; easing?: EasingFunction }>(
+    transition: (node: Element, params?: P) => TransitionConfig,
+    token: string,
+  ) =>
+  (node: Element, params?: P): TransitionConfig =>
+    transition(node, {
+      easing: quintOut,
+      ...params,
+      duration: prefersReducedMotion() ? 0 : surfaceCloseDurationMs(node as HTMLElement, token),
+    } as P)
+
+interface ShiftParams {
+  /** Token holding the travel distance, read from the node. */
+  distance?: string
+  /** -1/0/1 multiplier on `distance` along each axis. */
+  dx?: number
+  dy?: number
+  /** Token holding the hidden-state scale, read from the node (1 = none). */
+  scale?: string
+  /** Token holding the hidden-state blur, read from the node. */
+  blur?: string
+  duration?: number
+  easing?: EasingFunction
+}
+
+/** Fade with an optional token-sized translate (dx/dy are -1/0/1 multipliers of `distance`), scale and blur. Wrap with `tokenized` for the duration. */
+export const shift = (node: Element, params?: ShiftParams): TransitionConfig => {
+  const { distance, dx = 0, dy = 0, scale, blur, duration = 0, easing } = params ?? {}
+  const style = getComputedStyle(node as HTMLElement)
+  const travel =
+    distance === undefined ? 0 : Number.parseFloat(style.getPropertyValue(distance)) || 0
+  const from = scale === undefined ? 1 : Number.parseFloat(style.getPropertyValue(scale)) || 1
+  const blurPx = blur === undefined ? 0 : Number.parseFloat(style.getPropertyValue(blur)) || 0
+  const x = dx * travel
+  const y = dy * travel
+  return {
+    duration,
+    ...(easing === undefined ? {} : { easing }),
+    css: (t, u) =>
+      `opacity: ${t}; transform: translate(${u * x}px, ${u * y}px) scale(${1 - (1 - from) * u}); filter: blur(${(1 - t) * blurPx}px)`,
+  }
+}
 
 const pendingCloses = new WeakMap<HTMLElement, number>()
 const pendingOpens = new WeakMap<HTMLElement, number>()
