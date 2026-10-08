@@ -270,12 +270,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.userscript.outputs.tag }}
           SHA256: ${{ steps.userscript.outputs.sha256 }}
+          RETRY: ${{ inputs.retry_userscript_announcement }}
         run: |
           download="$(mktemp -d)"
           gh release download "$TAG" --dir "$download"
+          (cd "$download" && sha256sum --check SHA256SUMS)
+          # Builds embed their commit, so a retry from a later main cannot reproduce the published bytes.
+          [ "$RETRY" = true ] && exit 0
           test "$(sha256sum "$download/caelestis.user.js" | cut -d ' ' -f 1)" = "$SHA256"
           test "$(sha256sum "$download/caelestis-v"*.user.js | cut -d ' ' -f 1)" = "$SHA256"
-          (cd "$download" && sha256sum --check SHA256SUMS)
 
       - name: Announce userscript release in Discord
         if: >-
