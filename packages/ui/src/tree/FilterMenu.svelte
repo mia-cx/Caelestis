@@ -97,8 +97,8 @@
   .filter-trigger.active:hover { background: color-mix(in oklab, var(--caelestis-primary) 16%, var(--caelestis-surface)); }
   .filter-trigger:focus-visible { outline: 2px solid var(--caelestis-focus); outline-offset: 2px; }
   .badge { position: absolute; inset-block-start: 0; inset-inline-end: 0; display: inline-flex; align-items: center; justify-content: center; block-size: 1rem; min-inline-size: 1rem; padding-inline: calc(0.5rem - var(--border, 1px)); border: var(--border, 1px) solid var(--caelestis-primary); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-primary); color: var(--color-primary-content, white); box-shadow: 0 0 0 2px var(--caelestis-surface); font: 600 0.625rem/1 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); translate: 40% -40%; pointer-events: none; }
-  .filter-menu { position: fixed; inset: auto; margin: 0; z-index: 60; inline-size: 15rem; max-inline-size: calc(100vw - 1rem); max-block-size: calc(100vh - 1rem); overflow: auto; }
-  .filter-menu:popover-open { display: flex; flex-direction: column; }
+  .filter-menu { position: fixed; inset: auto; margin: 0; z-index: 60; inline-size: 15rem; max-inline-size: calc(100vw - 1rem); max-block-size: calc(100vh - 1rem); overflow: auto; flex-direction: column; }
+  .filter-menu:popover-open { display: flex; }
   .heading { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.25rem 0.25rem 0.5rem 0.75rem; border-block-end: 1px solid color-mix(in oklab, var(--caelestis-text) 10%, transparent); }
   .title { font-weight: 600; }
   .clear { display: inline-flex; align-items: center; block-size: 1.5rem; padding-inline: 0.5rem; border: var(--border, 1px) solid transparent; border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: transparent; color: var(--caelestis-primary); font: 600 0.6875rem/1 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); cursor: pointer; transition: background-color 200ms, color 200ms; }

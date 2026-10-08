@@ -61,8 +61,40 @@
 </dialog>
 
 <style>
-  dialog { box-sizing: border-box; inline-size: min(32rem, calc(100vw - 2rem)); max-block-size: calc(100dvh - 2rem); padding: 0; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-box-radius, var(--caelestis-radius, 1rem)); background: var(--caelestis-surface, white); color: var(--caelestis-text, #222); box-shadow: var(--caelestis-shadow); font: 0.875rem/1.45 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); }
-  dialog::backdrop { background: #0008; }
+  dialog {
+    --modal-open-dur: var(--caelestis-duration-fast);
+    --modal-close-dur: var(--caelestis-duration-quick);
+    --modal-scale: var(--caelestis-scale-large);
+    --modal-scale-close: var(--caelestis-scale-large);
+    --modal-ease: var(--caelestis-ease-smooth-out);
+    box-sizing: border-box; inline-size: min(32rem, calc(100vw - 2rem)); max-block-size: calc(100dvh - 2rem); padding: 0; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-box-radius, var(--caelestis-radius, 1rem)); background: var(--caelestis-surface, white); color: var(--caelestis-text, #222); box-shadow: var(--caelestis-shadow); font: 0.875rem/1.45 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
+    transform-origin: center;
+    transform: scale(var(--modal-scale));
+    opacity: 0;
+    pointer-events: none;
+    transition:
+      transform var(--modal-close-dur) var(--modal-ease),
+      opacity   var(--modal-close-dur) var(--modal-ease),
+      overlay   var(--modal-close-dur) var(--modal-ease) allow-discrete,
+      display   var(--modal-close-dur) var(--modal-ease) allow-discrete;
+    will-change: transform, opacity;
+  }
+  dialog[open] {
+    transform: scale(1);
+    opacity: 1;
+    pointer-events: auto;
+    transition:
+      transform var(--modal-open-dur) var(--modal-ease),
+      opacity   var(--modal-open-dur) var(--modal-ease),
+      overlay   var(--modal-open-dur) var(--modal-ease) allow-discrete,
+      display   var(--modal-open-dur) var(--modal-ease) allow-discrete;
+    @starting-style { transform: scale(var(--modal-scale)); opacity: 0; }
+  }
+  dialog::backdrop { background: #0008; opacity: 0; transition: opacity var(--modal-close-dur) var(--modal-ease), overlay var(--modal-close-dur) var(--modal-ease) allow-discrete, display var(--modal-close-dur) var(--modal-ease) allow-discrete; }
+  dialog[open]::backdrop { opacity: 1; transition-duration: var(--modal-open-dur); @starting-style { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) {
+    dialog, dialog::backdrop { transition: none !important; }
+  }
   header, footer { display: flex; align-items: center; gap: 0.75rem; padding: 1rem; }
   header { align-items: start; border-block-end: 1px solid var(--caelestis-border); }
   h2 { margin: 0; flex: 1; font-size: 1.15rem; line-height: 1.3; }

@@ -188,10 +188,11 @@
 
 <style>
   .drawer {
-    --acc-expand: 250ms;
-    --acc-collapse: 250ms;
-    --acc-chevron: 250ms;
-    --acc-ease: cubic-bezier(0.22, 1, 0.36, 1);
+    --acc-expand: var(--caelestis-duration-fast);
+    --acc-collapse: var(--caelestis-duration-fast);
+    --acc-chevron: var(--caelestis-duration-fast);
+    --acc-ease: var(--caelestis-ease-smooth-out);
+    --acc-blur: var(--caelestis-blur-small);
     border-block-start: 1px solid var(--caelestis-border);
     flex: 0 0 auto;
     font:
@@ -359,7 +360,7 @@
   .t-acc-panel-inner {
     overflow: hidden;
     opacity: 0;
-    filter: blur(2px);
+    filter: blur(var(--acc-blur));
     transition:
       opacity var(--acc-collapse) var(--acc-ease),
       filter var(--acc-collapse) var(--acc-ease);

@@ -1,9 +1,19 @@
 import { mount, tick, unmount } from 'svelte'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import TemplateTree from '../src/tree/TemplateTree.svelte'
 import type { TemplateTreeIntent, TemplateTreeModel } from '../src/types.js'
 
 const mounted: object[] = []
+// Happy DOM has no top layer; real positioning and popover behavior are browser contracts.
+const showPopover = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'showPopover')
+beforeAll(() => {
+  Object.defineProperty(HTMLElement.prototype, 'showPopover', { configurable: true, value() {} })
+})
+afterAll(() => {
+  if (showPopover !== undefined)
+    Object.defineProperty(HTMLElement.prototype, 'showPopover', showPopover)
+  else Reflect.deleteProperty(HTMLElement.prototype, 'showPopover')
+})
 afterEach(async () => {
   await Promise.all(mounted.splice(0).map((component) => unmount(component)))
   document.body.replaceChildren()

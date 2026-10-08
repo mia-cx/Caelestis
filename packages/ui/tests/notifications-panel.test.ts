@@ -1,5 +1,5 @@
 import { mount, tick, unmount } from 'svelte'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import Notifications from '../src/notifications/Notifications.svelte'
 import Panel from '../src/panel/Panel.svelte'
 import type { NotificationsIntent, PanelIntent } from '../src/types.js'
@@ -8,9 +8,50 @@ const mounted: object[] = []
 afterEach(async () => {
   await Promise.all(mounted.splice(0).map((component) => unmount(component)))
   document.body.replaceChildren()
+  vi.useRealTimers()
 })
 
 describe('notification and panel interactions', () => {
+  it.each(['button', 'escape'] as const)(
+    'releases panel modality on %s but retains its exit shell',
+    async (path) => {
+      vi.useFakeTimers()
+      const intents: PanelIntent[] = []
+      const target = document.body.appendChild(document.createElement('div'))
+      mounted.push(
+        mount(Panel, {
+          target,
+          props: {
+            model: { view: 'tree', width: 320, minWidth: 280, maxWidth: 400 },
+            onIntent: (intent: PanelIntent) => intents.push(intent),
+          },
+        }),
+      )
+      await tick()
+      ;(target.querySelector('[aria-label="Pop out menu"]') as HTMLButtonElement).click()
+      await tick()
+      const dialog = target.querySelector('dialog') as HTMLDialogElement
+      dialog.style.setProperty('--caelestis-surface-close-duration', '150ms')
+      expect(dialog.open).toBe(true)
+      if (path === 'escape') dialog.dispatchEvent(new Event('cancel', { cancelable: true }))
+      else (dialog.querySelector('[aria-label="Return to sidebar"]') as HTMLButtonElement).click()
+      expect(dialog.open).toBe(false)
+      expect(intents).toEqual([
+        { type: 'popout', open: true },
+        { type: 'popout', open: false },
+      ])
+      await tick()
+      expect(dialog.isConnected).toBe(true)
+      vi.advanceTimersByTime(149)
+      await tick()
+      expect(dialog.isConnected).toBe(true)
+      vi.advanceTimersByTime(1)
+      await tick()
+      expect(dialog.isConnected).toBe(false)
+      expect(target.querySelector('[aria-label="Pop out menu"]')).not.toBeNull()
+    },
+  )
+
   it('resolves a confirmation once and dismisses the visible toast', async () => {
     const intents: NotificationsIntent[] = []
     const target = document.body.appendChild(document.createElement('div'))

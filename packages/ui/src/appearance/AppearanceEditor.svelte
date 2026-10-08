@@ -1,5 +1,6 @@
 <script lang="ts">
   import MenuStyles from '../foundations/MenuStyles.svelte'
+  import { prefersReducedMotion } from '../foundations/motion.js'
   import SettingRow from '../foundations/SettingRow.svelte'
   import SectionHeader from '../foundations/SectionHeader.svelte'
   import SliderRow from '../foundations/SliderRow.svelte'
@@ -46,7 +47,12 @@
   })
   const toggleGroup = (key: AppearanceGroupKey): void => {
     expanded[key] = !expanded[key]
-    emit({ type: 'layout' })
+    // Without motion no transitionend follows, so the toggle itself is the settle.
+    emit({ type: 'layout', settled: prefersReducedMotion() })
+  }
+  /** The accordion settled — the host re-measures the menu's final natural height. */
+  const groupSettled = (event: TransitionEvent): void => {
+    if (event.propertyName === 'grid-template-rows') emit({ type: 'layout', settled: true })
   }
 </script>
 
@@ -57,11 +63,13 @@
     <SectionHeader title={compact ? 'Pixels' : 'Appearance'} icon={compact ? undefined : 'tune'} expanded={expanded.pixels} onToggle={compact ? () => toggleGroup('pixels') : undefined}>
       {#snippet actions()}
         {#if group('pixels') !== undefined}
-        <label class="defaults"><input type="checkbox" aria-label="Use default pixels" checked={!group('pixels')?.owned} disabled={model.disabled || group('pixels')?.locked} onchange={(event) => emit({ type: 'set-group-owned', group: 'pixels', owned: !event.currentTarget.checked })} /> Use defaults</label>
+        <label class="defaults"><Toggle label="Use default pixels" compact checked={!group('pixels')?.owned} disabled={model.disabled || group('pixels')?.locked === true} onChange={(checked) => emit({ type: 'set-group-owned', group: 'pixels', owned: !checked })} /> Use defaults</label>
         {/if}
       {/snippet}
     </SectionHeader>
-    <fieldset hidden={!expanded.pixels} disabled={groupDisabled('pixels')}>
+    <div class="acc" data-open={String(expanded.pixels)}>
+      <div class="acc-panel" inert={!expanded.pixels} aria-hidden={!expanded.pixels} ontransitionend={groupSettled}>
+    <fieldset class="acc-inner" disabled={groupDisabled('pixels')}>
     <SettingRow label="Pixel style" {compact}>
       {#snippet children()}
         <div class="presets" role="group" aria-label="Pixel style">
@@ -84,6 +92,8 @@
       {/each}
     </div>
     </fieldset>
+      </div>
+    </div>
   </section>
 
   {#if model.showMarkers !== false}
@@ -91,11 +101,13 @@
     <SectionHeader title="Markers" icon={compact ? undefined : 'search'} expanded={expanded.markers} onToggle={compact ? () => toggleGroup('markers') : undefined}>
       {#snippet actions()}
         {#if group('markers') !== undefined}
-        <label class="defaults"><input type="checkbox" aria-label="Use default markers" checked={!group('markers')?.owned} disabled={model.disabled || group('markers')?.locked} onchange={(event) => emit({ type: 'set-group-owned', group: 'markers', owned: !event.currentTarget.checked })} /> Use defaults</label>
+        <label class="defaults"><Toggle label="Use default markers" compact checked={!group('markers')?.owned} disabled={model.disabled || group('markers')?.locked === true} onChange={(checked) => emit({ type: 'set-group-owned', group: 'markers', owned: !checked })} /> Use defaults</label>
         {/if}
       {/snippet}
     </SectionHeader>
-    <fieldset hidden={!expanded.markers} disabled={groupDisabled('markers')}>
+    <div class="acc" data-open={String(expanded.markers)}>
+      <div class="acc-panel" inert={!expanded.markers} aria-hidden={!expanded.markers} ontransitionend={groupSettled}>
+    <fieldset class="acc-inner" disabled={groupDisabled('markers')}>
     <div class="marker-settings">
     <SettingRow label="Mark mismatched pixels" {compact} depth={0}>
       {#snippet children()}
@@ -158,6 +170,8 @@
       </SettingRow>
     {/if}
     </fieldset>
+      </div>
+    </div>
   </section>
   {/if}
 
@@ -165,11 +179,13 @@
     <SectionHeader title="Colours" icon={compact ? undefined : 'palette'} expanded={expanded.colours} onToggle={compact ? () => toggleGroup('colours') : undefined}>
       {#snippet actions()}
         {#if group('colours') !== undefined}
-        <label class="defaults"><input type="checkbox" aria-label="Use default colours" checked={!group('colours')?.owned} disabled={model.disabled || group('colours')?.locked} onchange={(event) => emit({ type: 'set-group-owned', group: 'colours', owned: !event.currentTarget.checked })} /> Use defaults</label>
+        <label class="defaults"><Toggle label="Use default colours" compact checked={!group('colours')?.owned} disabled={model.disabled || group('colours')?.locked === true} onChange={(checked) => emit({ type: 'set-group-owned', group: 'colours', owned: !checked })} /> Use defaults</label>
         {/if}
       {/snippet}
     </SectionHeader>
-    <fieldset hidden={!expanded.colours} disabled={groupDisabled('colours')}>
+    <div class="acc" data-open={String(expanded.colours)}>
+      <div class="acc-panel" inert={!expanded.colours} aria-hidden={!expanded.colours} ontransitionend={groupSettled}>
+    <fieldset class="acc-inner" disabled={groupDisabled('colours')}>
     <div class="colour-toolbar">
       <div class="presets" role="group" aria-label="Colour presets">
         {#each model.colourPresets as preset (preset.id)}
@@ -192,6 +208,8 @@
       </div>
     </div>
     </fieldset>
+      </div>
+    </div>
   </section>
 </div>
 
@@ -200,11 +218,17 @@
   .editor.compact { padding: 0; font-size: 0.75rem; }
   .editor:not(.compact) > section { max-inline-size: 48rem; margin-inline: auto; }
   .defaults { display: flex; align-items: center; gap: 0.5rem; color: var(--caelestis-muted-text); font-size: 0.75rem; font-weight: 400; white-space: nowrap; }
-  .defaults input { --toggle-size: 1rem; --toggle-padding: calc(var(--toggle-size) * 0.125); appearance: none; display: inline-grid; flex-shrink: 0; grid-template-columns: 0fr 1fr 1fr; place-content: center; inline-size: calc((var(--toggle-size) * 2) - (var(--border, 1px) + var(--toggle-padding)) * 2); block-size: var(--toggle-size); margin: 0; padding: var(--toggle-padding); border: var(--border, 1px) solid currentColor; border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); color: color-mix(in oklab, var(--caelestis-text) 50%, transparent); cursor: pointer; }
-  .defaults input::before { content: ''; position: relative; grid-column: 2; grid-row: 1; inline-size: 100%; block-size: 100%; aspect-ratio: 1; border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: currentColor; }
-  .defaults input:checked { grid-template-columns: 1fr 1fr 0fr; background: var(--caelestis-surface); color: var(--caelestis-primary); }
   fieldset { min-inline-size: 0; margin: 0; padding: 0; border: 0; }
   fieldset:disabled { opacity: 0.7; pointer-events: none; }
+  /* Compact groups accord in and out of their header (transitions.dev 21): grid rows carry the
+     height, the inner wrapper clips and fades. Non-compact never toggles, so this is scoped. */
+  .compact .acc-panel { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--caelestis-duration-quick) var(--caelestis-ease-smooth-out); }
+  .compact .acc[data-open='true'] .acc-panel { grid-template-rows: 1fr; transition-duration: var(--caelestis-duration-fast); }
+  .compact .acc-inner { overflow: hidden; min-block-size: 0; opacity: 0; filter: blur(var(--caelestis-blur-small)); transition: opacity var(--caelestis-duration-quick) var(--caelestis-ease-smooth-out), filter var(--caelestis-duration-quick) var(--caelestis-ease-smooth-out); }
+  .compact .acc[data-open='true'] .acc-inner { opacity: 1; filter: none; transition-duration: var(--caelestis-duration-fast); }
+  @media (prefers-reduced-motion: reduce) {
+    .acc-panel, .acc-inner { transition: none !important; }
+  }
   .sliders, .marker-settings { padding-inline: var(--caelestis-content-inset, 1rem); }
   .sliders { display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr); column-gap: 0.75rem; }
   .sliders :global(label) { grid-column: 1 / -1; grid-template-columns: subgrid; }
@@ -243,24 +267,4 @@
   button:focus-visible { outline: 2px solid var(--caelestis-focus); outline-offset: 2px; }
   button:disabled, button[aria-disabled='true'] { pointer-events: none; cursor: not-allowed; opacity: 0.3; }
   @media (forced-colors: active) { .palette-swatch[data-on='true'] { outline: 3px solid CanvasText; } }
-
-  /* The "use defaults" checkboxes are Toggle-style switches: give them the pixel switch look. */
-  :host([data-caelestis-style='pixel']) .defaults input {
-    border: 2px solid var(--caelestis-pixel-ink);
-    border-radius: 0;
-    background: var(--caelestis-pixel-well-shade);
-    box-shadow: inset 2px 2px 0 var(--caelestis-pixel-field-shade);
-    color: var(--caelestis-pixel-ink);
-  }
-  :host([data-caelestis-style='pixel']) .defaults input::before {
-    border: 2px solid var(--caelestis-pixel-ink);
-    border-radius: 0;
-    background: var(--caelestis-pixel-thumb);
-    box-shadow: inset -2px -2px 0 var(--caelestis-pixel-button-shade);
-    transition-timing-function: steps(2, end);
-  }
-  :host([data-caelestis-style='pixel']) .defaults input:checked {
-    background: var(--caelestis-primary);
-    box-shadow: inset 2px 2px 0 var(--caelestis-pixel-primary-shade);
-  }
 </style>

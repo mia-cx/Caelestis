@@ -37,7 +37,7 @@
   .compact { gap: 0.5rem; padding: 0.5rem 0 0.25rem; }
   .compact button { display: flex; flex: 1; align-items: center; gap: 0.25rem; min-inline-size: 0; padding: 0; border: 0; background: transparent; color: inherit; cursor: pointer; text-align: start; }
   .compact h2 { color: color-mix(in srgb, currentColor 60%, transparent); font-size: 0.75rem; font-weight: 600; letter-spacing: 0.025em; text-transform: uppercase; }
-  .caret { display: grid; flex: 0 0 auto; place-items: center; opacity: 0.6; transition: transform 120ms ease-out; }
+  .caret { display: grid; flex: 0 0 auto; place-items: center; opacity: 0.6; transition: transform var(--caelestis-duration-quick) var(--caelestis-ease-smooth-out); }
   .caret.open { transform: rotate(90deg); }
   .compact button:focus-visible { border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); outline: 2px solid var(--caelestis-focus, currentColor); outline-offset: 2px; }
 </style>

@@ -9,6 +9,7 @@ import {
 } from '../state.js'
 import { templateAsPng, templateById } from '../templates/local-store.js'
 import { serverTemplateKey } from '../templates/server-sync.js'
+import { closeDialogHost } from './dialog.js'
 import { applyWplaceTheme } from './theme.js'
 import type { TreeTarget } from './tree.js'
 
@@ -127,10 +128,11 @@ export const openTemplateBackfill = (target: TreeTarget): void => {
     poll()
   }
   const close = (): void => {
+    if (closed) return
     closed = true
     clearTimeout(timer)
     controller.abort()
-    element.remove()
+    closeDialogHost(element)
     if (imageUrl !== null) URL.revokeObjectURL(imageUrl)
     if (restoreFocus?.isConnected) restoreFocus.focus()
     if (closeBackfill === close) closeBackfill = undefined
@@ -164,6 +166,7 @@ export const openTemplateBackfill = (target: TreeTarget): void => {
   element.model = model
   applyWplaceTheme(element)
   element.addEventListener('caelestis-backfill-intent', (event) => {
+    if (closed) return
     const intent = (event as CustomEvent<BackfillIntent>).detail
     if (intent.type === 'close') close()
     else if (intent.type === 'select') update({ selectedSnapshot: intent.snapshotId })

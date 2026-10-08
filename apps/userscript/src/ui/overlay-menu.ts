@@ -15,6 +15,12 @@ import type {
   RailControlIntent,
   RailControlModel,
 } from '@caelestis/ui/elements'
+import {
+  closeSurface,
+  openSurface,
+  prefersReducedMotion,
+  SETTLE_MARGIN_MS,
+} from '@caelestis/ui/motion'
 import { allianceManifestFor, refreshAllianceManifest } from '../alliance-server-sync.js'
 import type { ActiveAllianceSurface } from '../alliance-surface.js'
 import { transferAuthoring } from '../application/template-authoring.js'
@@ -167,7 +173,9 @@ const localControlsRightEdge = (): number => {
   }
   const panel =
     document.getElementById('caelestis-alliance-panel') ?? document.getElementById(PANEL_ID)
-  if (panel === null) return railEdge
+  // A closing panel has already given its room back; measuring it would pin controls against a
+  // box that is sliding away and then snap them once it is removed.
+  if (panel === null || panel.dataset.state === 'closing') return railEdge
   return Math.max(
     VIEWPORT_EDGE + MENU_BUTTON_SIZE,
     Math.min(railEdge, panel.getBoundingClientRect().left - RAIL_GAP),
@@ -189,7 +197,8 @@ let openFor: string | null = null
 /** The menu we built, held by reference — identity is ours to keep, not to look up by id. */
 let menuNode: HTMLElement | null = null
 const isAnyColourPickerOpen = (): boolean =>
-  (menuNode?.shadowRoot?.querySelector('[data-caelestis-colour-picker]') ?? null) !== null
+  (menuNode?.shadowRoot?.querySelector('[data-caelestis-colour-picker]:popover-open') ?? null) !==
+  null
 /**
  * Which template {@link menuNode} was built for.
  *
@@ -213,6 +222,36 @@ const positionFloatingControl = (control: HTMLElement, x: number, y: number): vo
   const top = `${y}px`
   if (control.style.left !== left) control.style.left = left
   if (control.style.top !== top) control.style.top = top
+}
+
+let glideTimer: number | undefined
+
+/**
+ * Brief window in which the controls `localControlsRightEdge` clamps — gear buttons, the open
+ * menu, rail actions, placement apply/cancel — tween `left`/`top` instead of teleporting, so they
+ * follow the panel drawer in lockstep. Outside the window the property is left untouched: map
+ * pans must keep tracking exactly, which a lingering transition would smear.
+ */
+export const glideOverlayControls = (durationMs: number): void => {
+  if (glideTimer !== undefined) {
+    clearTimeout(glideTimer)
+    glideTimer = undefined
+  }
+  const controls = [
+    ...buttons.values(),
+    ...railActions,
+    ...(menuNode === null ? [] : [menuNode]),
+    ...[...placementRails.values()].flatMap((rail) => [rail.apply, rail.cancel]),
+  ]
+  if (durationMs <= 0 || prefersReducedMotion() || controls.length === 0) return
+  const transition = `left ${durationMs}ms var(--caelestis-ease-smooth-out, ease-out), top ${durationMs}ms var(--caelestis-ease-smooth-out, ease-out)`
+  for (const control of controls) control.style.transition = transition
+  glideTimer = window.setTimeout(() => {
+    glideTimer = undefined
+    for (const control of controls) {
+      if (control.isConnected) control.style.transition = ''
+    }
+  }, durationMs + SETTLE_MARGIN_MS)
 }
 /** The controls the last build produced, so a host swapping or removing one is a rebuild. */
 let railActions: HTMLElement[] = []
@@ -364,8 +403,13 @@ const overlayRailControl = (
 
 const removePlacementRail = (id: string): void => {
   const rail = placementRails.get(id)
-  rail?.apply.remove()
-  rail?.cancel.remove()
+  if (rail !== undefined) {
+    // Instant when the map detached them; the swap-out animates only while they are on the page.
+    if (rail.apply.isConnected) closeSurface(rail.apply, () => rail.apply.remove())
+    else rail.apply.remove()
+    if (rail.cancel.isConnected) closeSurface(rail.cancel, () => rail.cancel.remove())
+    else rail.cancel.remove()
+  }
   placementRails.delete(id)
 }
 
@@ -984,7 +1028,10 @@ const handleOverlayAppearance = (
 ): void => {
   switch (intent.type) {
     case 'layout':
-      invalidateMenuMeasurement()
+      // A group accordion is animating: re-measuring now would cache a mid-animation height, so
+      // uncap the menu and let the box follow its content until the settle event re-measures.
+      if (intent.settled === true) invalidateMenuMeasurement()
+      else menuBox.height = window.innerHeight
       rerender()
       break
     case 'preview-number':
@@ -1631,6 +1678,8 @@ const placementRailFor = (id: string, host: HTMLElement): PlacementRail => {
   const rail = { apply, cancel }
   placementRails.set(id, rail)
   host.append(apply, cancel)
+  openSurface(apply)
+  openSurface(cancel)
   return rail
 }
 
@@ -1649,10 +1698,13 @@ const closeOverlayMenu = (): void => {
   // sends that release somewhere else.
   if (closing !== null) flushDrafts(closing)
   focusRequest = null
-  menuNode?.remove()
+  const node = menuNode
   menuNode = null
   menuOwner = null
-  removeRailActions()
+  // The close animates out; a reopen builds a fresh node, so nothing here has to wait for it.
+  if (node !== null) closeSurface(node, () => node.remove())
+  for (const action of railActions) closeSurface(action, () => action.remove())
+  railActions = []
 }
 
 /**
@@ -2211,6 +2263,9 @@ const renderControls = (
       // depends on what it draws, and anything kept in the old element is either lost or — worse —
       // re-parented under a different template.
       const previous = menuNode
+      // A same-template re-render mounts the replacement already open — an entrance transition on
+      // every signature change would flicker mid-edit. Only a genuinely new open animates in.
+      const opening = previous === null || previousOwner !== template.id || !onPage(previous)
       // Sampled before anything is discarded: removing the node takes the keyboard with it.
       const scrollTop = previous?.scrollTop ?? 0
       const active = deepActiveElement()
@@ -2231,7 +2286,18 @@ const renderControls = (
       // Stamped from what was just built, not from what was sampled.
       menuNode.dataset.caelestisSignature = menuSignature(template)
       menuOwner = template.id
+      if (!opening) {
+        menuNode.dataset.state = 'open'
+        for (const action of railActions) action.dataset.state = 'open'
+      }
       host.append(menuNode, ...railActions)
+      if (opening) {
+        openSurface(menuNode)
+        for (const [index, action] of railActions.entries()) {
+          action.style.setProperty('--rail-action-index', String(index))
+          openSurface(action)
+        }
+      }
       // Svelte custom elements finish their first render after connection. The same-task geometry
       // pass can therefore see a zero-height host and cache that collapsed size for the viewport.
       // Measure once more after connection so a static map does not leave the menu invisible.
@@ -2292,6 +2358,8 @@ const renderControls = (
     const sideRoom = Math.max(0, openRight ? rightSpace : leftSpace)
     const appliedWidth = Math.min(menuBox.width, sideRoom)
     menuNode.style.width = `${appliedWidth}px`
+    // Grow out of the gear: the side it hangs from is the side it scales toward.
+    menuNode.style.transformOrigin = openRight ? 'left top' : 'right top'
     menuNode.style.left = openRight
       ? `${buttonLeft + MENU_BUTTON_SIZE + RAIL_GAP}px`
       : `${buttonLeft - RAIL_GAP - appliedWidth}px`

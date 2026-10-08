@@ -18,6 +18,12 @@ import type {
   SettingsIntent,
   SettingsModel,
 } from '@caelestis/ui/elements'
+import {
+  cancelSurfaceClose,
+  closeSurface,
+  openSurface,
+  surfaceCloseDurationMs,
+} from '@caelestis/ui/motion'
 import { onAllianceManifestChange } from '../alliance-server-sync.js'
 import {
   type ActiveAllianceSurface,
@@ -128,7 +134,7 @@ import { setTemplateDisplayMode } from './display-mode.js'
 import { frameQueue } from './frame-queue.js'
 import { CLEAR_OF_RAIL, EDGE, GAP, RAIL_BUTTON } from './metrics.js'
 import { mountNotificationsIn, syncToastPlacement } from './notification-host.js'
-import { refreshOverlayMenu } from './overlay-menu.js'
+import { glideOverlayControls, refreshOverlayMenu } from './overlay-menu.js'
 import { panelWidthAfterMount } from './panel-geometry.js'
 import { canvasWritesTouchArtboard } from './panel-progress.js'
 import {
@@ -435,7 +441,8 @@ const refreshView = (): void => {
   const root = document.getElementById(currentPanelId())
   if (root === null) return
   const held =
-    (root.shadowRoot?.querySelector('[data-caelestis-colour-picker]') ?? null) !== null ||
+    (root.shadowRoot?.querySelector('[data-caelestis-colour-picker]:popover-open') ?? null) !==
+      null ||
     isTreeDragActive() ||
     heldPanelPointers.size > 0 ||
     (root.contains(document.activeElement) && document.activeElement instanceof HTMLInputElement)
@@ -1167,6 +1174,9 @@ const buildSveltePanel = (): CaelestisPanel => {
     overflow: 'hidden',
     borderRadius: 'var(--caelestis-radius)',
   } satisfies Partial<CSSStyleDeclaration>)
+  // The drawer slide runs on the inner pane, which must clear the host's right offset to leave
+  // the viewport entirely: CLEAR_OF_RAIL for the world panel, nothing for the alliance drawer.
+  panel.style.setProperty('--pane-inset', alliance ? '0px' : `${CLEAR_OF_RAIL}px`)
   panel.model = panelModel()
   applyWplaceTheme(panel)
   panel.addEventListener('caelestis-panel-intent', (event) => {
@@ -1382,29 +1392,40 @@ const setOpen = (next: boolean): void => {
   if (!panelOpen()) {
     cancelTreeActionSetup(new Error('panel closed'))
     mountNotificationsIn(null)
-    existing?.remove()
+    if (existing !== null) closeSurface(existing, () => existing.remove())
     if (panelSessions.scope() === 'alliance') {
       allianceDrawerInset.clear()
       const active = activeAllianceSurface()
       if (active !== null) positionAllianceRail(active)
     }
     syncProfileTimer()
-    // Give map-anchored controls the reclaimed width immediately, even while the map is still.
+    // Map-anchored controls glide into the reclaimed width in lockstep with the drawer.
+    glideOverlayControls(existing === null ? 0 : surfaceCloseDurationMs(existing))
     redraw()
     syncToastPlacement(currentPanelId())
     return
   }
-  if (existing !== null) return
+  // A node still running its exit transition is reused so the reopen reverses in place.
+  if (existing !== null && !cancelSurfaceClose(existing)) return
+  if (existing !== null) existing.dataset.state = 'open'
   if (allianceStage !== null) {
     allianceDrawerInset.apply(allianceStage, panelWidthForViewport(getState().panelWidth), GAP)
     const active = activeAllianceSurface()
     if (active !== null) positionAllianceRail(active)
   }
   const host = panelHost ?? document.body
-  host.appendChild(buildSveltePanel())
+  const panel = existing ?? buildSveltePanel()
+  if (existing === null) {
+    host.appendChild(panel)
+    openSurface(panel)
+  }
+  // The panel's measured left edge is now the map controls' right edge; they glide over to it.
+  // Armed before showView and the open listeners, which already reposition the controls. Read from
+  // the theme token Panel.element's --pane-open-dur points at: a fresh host's shadow styles attach
+  // a microtask after connection, so --pane-open-dur itself still reads empty here.
+  glideOverlayControls(surfaceCloseDurationMs(panel, '--caelestis-duration-medium'))
   showView(currentView())
   for (const listener of panelOpenListeners) listener()
-  // The panel's measured left edge is now the map controls' right edge.
   redraw()
   syncToastPlacement(currentPanelId())
 }

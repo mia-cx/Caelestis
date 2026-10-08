@@ -277,7 +277,7 @@
   .servers { display: flex; flex-direction: column; }
   .server { padding: 0.35rem var(--caelestis-content-inset, 1rem); }
   .server-head { display: flex; inline-size: 100%; align-items: center; gap: 0.5rem; min-block-size: 2rem; padding: 0; border: 0; background: transparent; color: inherit; }
-  .caret { font-size: 1.2rem; transition: transform 120ms; }.caret.open { transform: rotate(90deg); }
+  .caret { font-size: 1.2rem; transition: transform var(--caelestis-duration-quick) var(--caelestis-ease-smooth-out); }.caret.open { transform: rotate(90deg); }
   .server-name { min-inline-size: 0; flex: 1; overflow: hidden; text-align: start; text-overflow: ellipsis; white-space: nowrap; }
   .server-version { flex: 0 1 auto; min-inline-size: 0; max-inline-size: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--caelestis-muted-text); font-size: 0.7rem; }
   .version-line { margin-block-start: 0.6rem; }

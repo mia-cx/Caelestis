@@ -1,9 +1,10 @@
 <script lang="ts">
   import { tick } from 'svelte'
+  import { cancelSurfaceClose, closeSurface, surfaceCloseDurationMs } from '../foundations/motion.js'
   import Button from '../foundations/Button.svelte'
   import Icon from '../foundations/Icon.svelte'
   import type { IconName } from '../foundations/icons.svelte.js'
-  import type { NotificationsIntent, NotificationsProps, ToastKind, ToastModel } from '../types.js'
+  import type { ConfirmDialogModel, NotificationsIntent, NotificationsProps, OneTimeSecretDialogModel, ToastKind, ToastModel } from '../types.js'
 
   const EMPTY_MODEL = { toasts: [], confirm: null } as const
   const KIND_ICON: Record<ToastKind, IconName> = { info: 'info', warning: 'warning', error: 'error' }
@@ -15,7 +16,13 @@
   let copySecret = $state<HTMLButtonElement>()
   let secretField = $state<HTMLInputElement>()
   let resolvedId: string | null = null
+  let resolvedSecretId: string | null = null
+  // Live models resolve immediately; these copies only retain the closing visual shells.
+  let confirm = $state<ConfirmDialogModel | null>(null)
+  let secret = $state<OneTimeSecretDialogModel | null>(null)
   let expanded = $state(false)
+  const liveConfirm = $derived(model.confirm)
+  const liveSecret = $derived(model.oneTimeSecret ?? null)
 
   // Errors are announced at once and stay until dismissed; everything else waits its turn.
   const errors = $derived(model.toasts.filter((toast) => toast.kind === 'error'))
@@ -33,13 +40,16 @@
     const current = model.confirm
     if (current === null || resolvedId === current.id) return
     resolvedId = current.id
-    onIntent?.({ type: 'resolve-confirm', id: current.id, value })
     if (dialog?.open === true) dialog.close()
+    onIntent?.({ type: 'resolve-confirm', id: current.id, value })
   }
 
-  const close = (): void => {
-    const current = model.confirm
-    if (current !== null && resolvedId !== current.id) answer(false)
+  const resolveSecret = (): void => {
+    const current = model.oneTimeSecret
+    if (current == null || resolvedSecretId === current.id) return
+    resolvedSecretId = current.id
+    secretDialog?.close()
+    onIntent?.({ type: 'resolve-one-time-secret', id: current.id })
   }
 
   const backdrop = (event: MouseEvent): void => {
@@ -47,35 +57,65 @@
   }
 
   $effect(() => {
-    const current = model.confirm
-    if (current === null || dialog === undefined) return
-    resolvedId = null
+    const current = liveConfirm
+    if (current === null) {
+      if (dialog == null) return
+      dialog.close()
+      return closeSurface(dialog, () => { confirm = null })
+    }
+    confirm = current
+    if (dialog == null) return
     const currentDialog = dialog
+    cancelSurfaceClose(currentDialog)
+    let active = true
     void tick().then(() => {
+      if (!active || resolvedId === current.id) return
       if (!currentDialog.open) currentDialog.showModal()
       cancel?.focus()
     })
+    return () => { active = false }
   })
 
   $effect(() => {
-    const current = model.oneTimeSecret ?? null
-    if (current === null || secretDialog === undefined) return
+    const current = liveSecret
+    if (current === null) {
+      if (secretDialog == null) return
+      secretDialog.close()
+      return closeSurface(secretDialog, () => { secret = null })
+    }
+    secret = current
+    if (secretDialog == null) return
     const currentDialog = secretDialog
+    cancelSurfaceClose(currentDialog)
+    let active = true
     void tick().then(() => {
+      if (!active || resolvedSecretId === current.id) return
       if (!currentDialog.open) currentDialog.showModal()
       copySecret?.focus()
     })
+    return () => { active = false }
   })
 
   const dismiss = (id: string): void => {
     const intent: NotificationsIntent = { type: 'dismiss-toast', id }
     onIntent?.(intent)
   }
+
+  /**
+   * Keeps a dismissed toast mounted for its declared close duration while `data-state="closing"`
+   * runs the CSS exit. A bare `out:` duration is the retention; the visuals are the stylesheet's.
+   */
+  const toastOut = (node: HTMLElement): { duration: number } => {
+    node.dataset.state = 'closing'
+    const reduced =
+      typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+    return { duration: reduced ? 0 : surfaceCloseDurationMs(node) }
+  }
 </script>
 
 {#snippet toastItem(toast: ToastModel, behind: number)}
   {@const dismissLabel = toast.kind === 'error' ? 'Dismiss error' : 'Dismiss notification'}
-  <div class="toast caelestis-surface {toast.kind}" data-caelestis-toast={toast.kind}>
+  <div class="toast caelestis-surface {toast.kind}" data-caelestis-toast={toast.kind} out:toastOut>
     <Icon name={KIND_ICON[toast.kind]} class="kind" />
     <span class="message">{toast.message}</span>
     <span class="controls">
@@ -119,39 +159,39 @@
   {/if}
 </div>
 
-{#if model.oneTimeSecret !== undefined && model.oneTimeSecret !== null}
+{#if secret !== null}
   <dialog bind:this={secretDialog} class="caelestis-panel-surface" oncancel={(event) => event.preventDefault()} aria-labelledby="secret-title">
     <div class="dialog-box">
       <header><h2 id="secret-title">Copy this access token</h2></header>
       <div class="dialog-body">
-        <p class="lead">The token for {model.oneTimeSecret.label}.</p>
+        <p class="lead">The token for {secret.label}.</p>
         <p class="note">It is shown once. The server stores only a hash, so there is no way to see it again — if it is lost, revoke it and make another.</p>
-        <input bind:this={secretField} class="secret caelestis-field" aria-label="Access token" readonly value={model.oneTimeSecret.value} onfocus={(event) => event.currentTarget.select()} />
+        <input bind:this={secretField} class="secret caelestis-field" aria-label="Access token" readonly value={secret.value} onfocus={(event) => event.currentTarget.select()} />
         <div class="dialog-actions">
-          <button class="button quiet caelestis-bevel" type="button" onclick={() => onIntent?.({ type: 'resolve-one-time-secret', id: model.oneTimeSecret?.id ?? '' })}>I have copied it</button>
-          <button bind:this={copySecret} class:success={model.oneTimeSecret.copyStatus === 'copied'} class:warning={model.oneTimeSecret.copyStatus === 'unavailable'} class="button primary caelestis-bevel" type="button" onclick={() => {
+          <button class="button quiet caelestis-bevel" type="button" onclick={resolveSecret}>I have copied it</button>
+          <button bind:this={copySecret} class:success={secret.copyStatus === 'copied'} class:warning={secret.copyStatus === 'unavailable'} class="button primary caelestis-bevel" type="button" onclick={() => {
             if (model.oneTimeSecret?.copyStatus === 'unavailable') secretField?.focus()
             else onIntent?.({ type: 'copy-one-time-secret', id: model.oneTimeSecret?.id ?? '' })
-          }}>{model.oneTimeSecret.copyStatus === 'copied' ? 'Copied' : model.oneTimeSecret.copyStatus === 'unavailable' ? 'Select it and copy' : 'Copy'}</button>
+          }}>{secret.copyStatus === 'copied' ? 'Copied' : secret.copyStatus === 'unavailable' ? 'Select it and copy' : 'Copy'}</button>
         </div>
       </div>
     </div>
   </dialog>
 {/if}
 
-{#if model.confirm !== null}
-  <dialog bind:this={dialog} class="caelestis-panel-surface" onclose={close} onclick={backdrop} aria-labelledby="confirm-title">
+{#if confirm !== null}
+  <dialog bind:this={dialog} class="caelestis-panel-surface" oncancel={(event) => { event.preventDefault(); answer(false) }} onclick={backdrop} aria-labelledby="confirm-title">
     <div class="dialog-box">
-      <header><h2 id="confirm-title">{model.confirm.title}</h2></header>
+      <header><h2 id="confirm-title">{confirm.title}</h2></header>
       <div class="dialog-body">
-        <p class="lead">{model.confirm.body}</p>
-        <p class="note">{model.confirm.note}</p>
+        <p class="lead">{confirm.body}</p>
+        <p class="note">{confirm.note}</p>
         <div class="dialog-actions">
           <button bind:this={cancel} class="button quiet caelestis-bevel" type="button" onclick={() => answer(false)}>
             Cancel
           </button>
           <button class="button danger caelestis-bevel" type="button" onclick={() => answer(true)}>
-            {model.confirm.confirmLabel}
+            {confirm.confirmLabel}
           </button>
         </div>
       </div>
@@ -227,6 +267,10 @@
 
   /* The kind colours the icon, border, and tint; the message keeps the surface's text colour so it reads in every theme. */
   .toast {
+    --toast-open-dur: var(--caelestis-duration-fast);
+    --toast-close-dur: var(--caelestis-duration-quick);
+    --toast-ease: var(--caelestis-ease-smooth-out);
+    --caelestis-surface-close-duration: var(--toast-close-dur);
     position: relative;
     z-index: 1;
     display: flex;
@@ -270,16 +314,35 @@
     .toast-action:hover { background: color-mix(in oklab, currentColor 10%, var(--caelestis-raised-surface, transparent)); }
   }
 
-  @media (prefers-reduced-motion: no-preference) {
-    .toast { animation: toast-in var(--caelestis-motion-duration, 160ms) ease-out; }
-    .peek { transition: translate var(--caelestis-motion-duration, 160ms), scale var(--caelestis-motion-duration, 160ms), opacity var(--caelestis-motion-duration, 160ms); }
+  .toast {
+    transition:
+      opacity   var(--toast-open-dur) var(--toast-ease),
+      translate var(--toast-open-dur) var(--toast-ease),
+      scale     var(--toast-open-dur) var(--toast-ease);
+    @starting-style { opacity: 0; translate: 0 var(--caelestis-distance-base); }
+  }
+  .toast:global([data-state='closing']) {
+    opacity: 0;
+    pointer-events: none;
+    translate: 0 var(--caelestis-distance-small);
+    scale: var(--caelestis-scale-tiny);
+    transition-duration: var(--toast-close-dur);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .toast { transition: opacity var(--toast-close-dur) ease-out; }
   }
 
-  @keyframes toast-in {
-    from { opacity: 0; translate: 0 0.5rem; }
+  @media (prefers-reduced-motion: no-preference) {
+    .peek { transition: translate var(--caelestis-duration-fast), scale var(--caelestis-duration-fast), opacity var(--caelestis-duration-fast); }
   }
 
   dialog {
+    --modal-open-dur: var(--caelestis-duration-fast);
+    --modal-close-dur: var(--caelestis-duration-quick);
+    --caelestis-surface-close-duration: var(--modal-close-dur);
+    --modal-scale: var(--caelestis-scale-large);
+    --modal-scale-close: var(--caelestis-scale-large);
+    --modal-ease: var(--caelestis-ease-smooth-out);
     inline-size: min(28rem, calc(100vw - 2rem));
     max-inline-size: none;
     max-block-size: min(85vh, 42rem);
@@ -291,9 +354,36 @@
     color: var(--caelestis-text, oklch(0.26 0.025 264));
     box-shadow: var(--caelestis-shadow, 0 24px 80px rgb(0 0 0 / 0.35));
     font: 500 0.95rem/1.45 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
+    transform-origin: center;
+    transform: scale(var(--modal-scale));
+    opacity: 0;
+    pointer-events: none;
+    transition:
+      transform var(--modal-close-dur) var(--modal-ease),
+      opacity   var(--modal-close-dur) var(--modal-ease),
+      overlay   var(--modal-close-dur) var(--modal-ease) allow-discrete,
+      display   var(--modal-close-dur) var(--modal-ease) allow-discrete;
+    will-change: transform, opacity;
   }
 
-  dialog::backdrop { background: rgb(0 0 0 / 0.45); backdrop-filter: blur(2px); }
+  dialog[open] {
+    transform: scale(1);
+    opacity: 1;
+    pointer-events: auto;
+    transition:
+      transform var(--modal-open-dur) var(--modal-ease),
+      opacity   var(--modal-open-dur) var(--modal-ease),
+      overlay   var(--modal-open-dur) var(--modal-ease) allow-discrete,
+      display   var(--modal-open-dur) var(--modal-ease) allow-discrete;
+    @starting-style { transform: scale(var(--modal-scale)); opacity: 0; }
+  }
+
+  dialog::backdrop { background: rgb(0 0 0 / 0.45); backdrop-filter: blur(2px); opacity: 0; transition: opacity var(--modal-close-dur) var(--modal-ease), overlay var(--modal-close-dur) var(--modal-ease) allow-discrete, display var(--modal-close-dur) var(--modal-ease) allow-discrete; }
+  dialog[open]::backdrop { opacity: 1; transition-duration: var(--modal-open-dur); @starting-style { opacity: 0; } }
+
+  @media (prefers-reduced-motion: reduce) {
+    dialog, dialog::backdrop { transition: none !important; }
+  }
 
   header {
     padding: 1rem 1.25rem;

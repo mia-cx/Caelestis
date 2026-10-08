@@ -15,6 +15,7 @@ import {
   updateServerDetails,
   uploadServerAsset,
 } from '../state.js'
+import { closeDialogHost } from './dialog.js'
 import { applyWplaceTheme } from './theme.js'
 
 let closeEditor: (() => void) | undefined
@@ -73,6 +74,7 @@ export const openServerDetails = (server: ConnectedServer, rerender: () => void)
     revision: 0,
   }
   const update = (patch: Partial<ServerDetailsModel>): void => {
+    if (closed) return
     model = { ...model, ...patch }
     editor.model = model
   }
@@ -90,8 +92,9 @@ export const openServerDetails = (server: ConnectedServer, rerender: () => void)
   }
   let closed = false
   const close = (): void => {
+    if (closed) return
     closed = true
-    editor.remove()
+    closeDialogHost(editor)
     if (restoreFocus?.isConnected) restoreFocus.focus()
     if (closeEditor === close) closeEditor = undefined
   }
@@ -126,6 +129,7 @@ export const openServerDetails = (server: ConnectedServer, rerender: () => void)
   editor.model = model
   applyWplaceTheme(editor)
   editor.addEventListener('caelestis-server-details-intent', (event) => {
+    if (closed) return
     const intent = (event as CustomEvent<ServerDetailsIntent>).detail
     switch (intent.type) {
       case 'close':

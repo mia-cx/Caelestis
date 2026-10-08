@@ -108,8 +108,8 @@
   .chip button { display: grid; place-items: center; flex: 0 0 1.5rem; inline-size: 1.5rem; block-size: 1.5rem; padding: 0; border: 0; background: transparent; color: inherit; cursor: pointer; }
   input { flex: 1 1 7rem; inline-size: 7rem; min-inline-size: 0; block-size: 1.5rem; padding: 0; border: 0; outline: 0; background: transparent; color: inherit; font: inherit; font-size: 0.8125rem; }
   input::placeholder { color: var(--caelestis-muted-text); }
-  .suggestions { position: fixed; inset: auto; margin: 0; max-block-size: 10rem; overflow-y: auto; }
-  .suggestions:popover-open { display: flex; flex-direction: column; }
+  .suggestions { position: fixed; inset: auto; margin: 0; max-block-size: 10rem; overflow-y: auto; flex-direction: column; }
+  .suggestions:popover-open { display: flex; }
   .suggestions button { flex-direction: column; align-items: flex-start; flex-shrink: 0; gap: 0.125rem; overflow-wrap: anywhere; }
   .suggestions button.highlighted { background: var(--menu-hover); }
   small, .empty { color: var(--caelestis-muted-text); font-size: 0.6875rem; }

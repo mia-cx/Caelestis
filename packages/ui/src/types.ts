@@ -834,7 +834,7 @@ export interface AppearanceEditorModel {
 }
 
 export type AppearanceEditorIntent =
-  | { readonly type: 'layout' }
+  | { readonly type: 'layout'; readonly settled?: boolean }
   | {
       readonly type: 'preview-number'
       readonly key: AppearanceNumberKey

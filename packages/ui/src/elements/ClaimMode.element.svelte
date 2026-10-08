@@ -10,4 +10,11 @@
 <ClaimMode {model} onIntent={emit} />
 <PixelStyles />
 
-<style>:host { display: block; }</style>
+<style>
+  /* The userscript mounts/removes this host directly; the JS helper drives it through data-state.
+     The close duration is the children's, so the element outlives its exit transition. */
+  :host {
+    display: block;
+    --caelestis-surface-close-duration: var(--caelestis-duration-fast);
+  }
+</style>
