@@ -174,12 +174,11 @@ jobs:
 
   userscript:
     name: Release userscript
-    needs: [version, deploy]
+    needs: version
     if: >-
-      !cancelled() &&
-      ((needs.deploy.result == 'success' &&
+      (needs.version.outputs.release == 'true' &&
       needs.version.outputs.has_userscript_changesets == 'false') ||
-      inputs.retry_userscript_announcement)
+      inputs.retry_userscript_announcement
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -244,7 +243,7 @@ jobs:
         run: test "$EXISTS" = true
 
       - name: Create userscript GitHub release
-        if: needs.deploy.result == 'success' && steps.userscript-existing.outputs.exists == 'false'
+        if: needs.version.outputs.release == 'true' && steps.userscript-existing.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.userscript.outputs.tag }}
