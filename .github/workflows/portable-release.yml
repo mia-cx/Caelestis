@@ -92,11 +92,13 @@ jobs:
           FRONTEND_RELEASED: ${{ inputs.frontend_released }}
           BACKEND_RELEASED: ${{ inputs.backend_released }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
           RELEASE_SHA: ${{ inputs.release_sha }}
         run: |
           chart_registry="ghcr.io/${GITHUB_REPOSITORY,,}/charts"
           test -n "${DOCKERHUB_TOKEN:?Configure the DOCKERHUB_TOKEN repository secret}"
-          echo "$DOCKERHUB_TOKEN" | docker login docker.io --username miacx --password-stdin
+          test -n "${DOCKERHUB_USERNAME:?Configure the DOCKERHUB_USERNAME repository variable}"
+          echo "$DOCKERHUB_TOKEN" | docker login docker.io --username "$DOCKERHUB_USERNAME" --password-stdin
           echo "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
           echo "$GH_TOKEN" | helm registry login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
           for arch in amd64 arm64; do

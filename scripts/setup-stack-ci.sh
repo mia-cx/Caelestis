@@ -232,10 +232,15 @@ note "The test environment has no review or wait-time gate. Production credentia
 stage "Docker Hub publishing"
 open_url "https://hub.docker.com/repositories/miacx"
 step "Create two public repositories under miacx: caelestis-backend and caelestis-frontend."
+step "Give your account Read & Write access to both, through the miacx organization or one of its teams."
 pause "Press Enter when both repositories exist."
 open_url "https://app.docker.com/settings/personal-access-tokens"
 step "Generate a personal access token named Caelestis releases, with Read and Write permissions."
 step "Copy the token. Docker's token documentation is linked in docs/stack-testing.md."
+ask DOCKERHUB_USERNAME "Your Docker Hub username (the token's owner, not miacx):"
+[[ -n "$DOCKERHUB_USERNAME" ]] || { say "A username is required."; exit 1; }
+write_env DOCKERHUB_USERNAME "$DOCKERHUB_USERNAME"
+set_var DOCKERHUB_USERNAME "$DOCKERHUB_USERNAME"
 ask_secret DOCKERHUB_TOKEN "Docker Hub token:"
 [[ -n "$DOCKERHUB_TOKEN" ]] || { say "A token is required."; exit 1; }
 write_env DOCKERHUB_TOKEN "$DOCKERHUB_TOKEN"

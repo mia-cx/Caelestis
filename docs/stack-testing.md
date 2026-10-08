@@ -61,6 +61,7 @@ The wizard writes the following configuration:
 | `CLOUDFLARE_TEST_ACCOUNT_ID` | GitHub repository variable |
 | `CLOUDFLARE_TEST_API_TOKEN` | GitHub `stack-tests` environment secret |
 | `DOCKERHUB_TOKEN` | GitHub repository secret |
+| `DOCKERHUB_USERNAME` | GitHub repository variable |
 
 It also keeps a private, git-ignored `.env.stack-ci` file for reruns. The test environment permits only `main` and has no reviewer or wait-time gate. The existing production Cloudflare token is separate.
 
