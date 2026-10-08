@@ -197,7 +197,8 @@ let openFor: string | null = null
 /** The menu we built, held by reference — identity is ours to keep, not to look up by id. */
 let menuNode: HTMLElement | null = null
 const isAnyColourPickerOpen = (): boolean =>
-  (menuNode?.shadowRoot?.querySelector('[data-caelestis-colour-picker]') ?? null) !== null
+  (menuNode?.shadowRoot?.querySelector('[data-caelestis-colour-picker]:popover-open') ?? null) !==
+  null
 /**
  * Which template {@link menuNode} was built for.
  *

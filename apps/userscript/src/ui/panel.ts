@@ -439,7 +439,8 @@ const refreshView = (): void => {
   const root = document.getElementById(currentPanelId())
   if (root === null) return
   const held =
-    (root.shadowRoot?.querySelector('[data-caelestis-colour-picker]') ?? null) !== null ||
+    (root.shadowRoot?.querySelector('[data-caelestis-colour-picker]:popover-open') ?? null) !==
+      null ||
     isTreeDragActive() ||
     heldPanelPointers.size > 0 ||
     (root.contains(document.activeElement) && document.activeElement instanceof HTMLInputElement)
