@@ -14,8 +14,8 @@ on:
         description: Retry the current frontend version's Discord announcement
         type: boolean
         default: false
-      retry_portable_release_commit:
-        description: Retry portable publication for this 40-character release merge commit
+      retry_release_commit:
+        description: Retry deployment and server publication for this 40-character release merge commit
         type: string
         default: ''
 
@@ -35,9 +35,9 @@ jobs:
       release: ${{ steps.release.outputs.release }}
       frontend_released: ${{ steps.released.outputs.frontend }}
       backend_released: ${{ steps.released.outputs.backend }}
-      portable_release_sha: ${{ steps.portable.outputs.release_sha }}
-      portable_frontend_released: ${{ steps.portable.outputs.frontend }}
-      portable_backend_released: ${{ steps.portable.outputs.backend }}
+      target_release_sha: ${{ steps.target.outputs.release_sha }}
+      target_frontend_released: ${{ steps.target.outputs.frontend }}
+      target_backend_released: ${{ steps.target.outputs.backend }}
       has_userscript_changesets: ${{ steps.pending.outputs.userscript }}
       has_frontend_changesets: ${{ steps.pending.outputs.frontend }}
       has_backend_changesets: ${{ steps.pending.outputs.backend }}
@@ -97,12 +97,12 @@ jobs:
             fi
           done
 
-      - name: Resolve portable release commit
-        id: portable
+      - name: Resolve release commit
+        id: target
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          RETRY_SHA: ${{ inputs.retry_portable_release_commit }}
+          RETRY_SHA: ${{ inputs.retry_release_commit }}
           FRONTEND_RELEASED: ${{ steps.released.outputs.frontend }}
           BACKEND_RELEASED: ${{ steps.released.outputs.backend }}
         run: |
@@ -113,7 +113,7 @@ jobs:
             exit
           fi
           if ! [[ "$RETRY_SHA" =~ ^[a-f0-9]{40}$ ]]; then
-            echo 'retry_portable_release_commit must be a full commit SHA' >&2
+            echo 'retry_release_commit must be a full commit SHA' >&2
             exit 1
           fi
           git cat-file -e "$RETRY_SHA^{commit}"
@@ -146,10 +146,10 @@ jobs:
   deploy:
     name: Deploy approved release
     needs: version
-    if: needs.version.outputs.release == 'true'
+    if: needs.version.outputs.release == 'true' || inputs.retry_release_commit != ''
     uses: ./.github/workflows/deploy.yml
     with:
-      release_sha: ${{ github.sha }}
+      release_sha: ${{ needs.version.outputs.target_release_sha }}
     secrets: inherit
     permissions:
       contents: read
@@ -161,12 +161,12 @@ jobs:
       (needs.version.outputs.release == 'true' &&
       needs.version.outputs.has_frontend_changesets == 'false' &&
       needs.version.outputs.has_backend_changesets == 'false') ||
-      inputs.retry_portable_release_commit != ''
+      inputs.retry_release_commit != ''
     uses: ./.github/workflows/portable-release.yml
     with:
-      release_sha: ${{ needs.version.outputs.portable_release_sha }}
-      frontend_released: ${{ needs.version.outputs.portable_frontend_released == 'true' }}
-      backend_released: ${{ needs.version.outputs.portable_backend_released == 'true' }}
+      release_sha: ${{ needs.version.outputs.target_release_sha }}
+      frontend_released: ${{ needs.version.outputs.target_frontend_released == 'true' }}
+      backend_released: ${{ needs.version.outputs.target_backend_released == 'true' }}
     secrets: inherit
     permissions:
       contents: write
@@ -310,6 +310,8 @@ jobs:
       inputs.retry_frontend_announcement)
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      RELEASE_SHA: ${{ needs.version.outputs.target_release_sha }}
     permissions:
       contents: write
     steps:
@@ -360,7 +362,7 @@ jobs:
         run: |
           if target="$(git rev-list -n 1 "refs/tags/$TAG" 2>/dev/null)" && [ -n "$target" ]; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
-            if [ "$target" = "$GITHUB_SHA" ]; then
+            if [ "$target" = "$RELEASE_SHA" ]; then
               echo "matches_sha=true" >> "$GITHUB_OUTPUT"
             else
               echo "matches_sha=false" >> "$GITHUB_OUTPUT"
@@ -397,7 +399,7 @@ jobs:
         env:
           TAG: ${{ steps.frontend.outputs.tag }}
         run: |
-          git tag "$TAG" "$GITHUB_SHA"
+          git tag "$TAG" "$RELEASE_SHA"
           git push origin "refs/tags/$TAG"
 
       - name: Create backend version tag
@@ -408,7 +410,7 @@ jobs:
         env:
           TAG: ${{ steps.backend.outputs.tag }}
         run: |
-          git tag "$TAG" "$GITHUB_SHA"
+          git tag "$TAG" "$RELEASE_SHA"
           git push origin "refs/tags/$TAG"
 
       - name: Announce frontend release in Discord
