@@ -418,8 +418,9 @@ The `*-dockerhub-image.txt` and `*-ghcr-image.txt` assets contain immutable refe
 The legacy `*-image.txt` assets continue to identify the Docker Hub images.
 The workflow refuses to replace an existing artifact with different content.
 Before the first release, create the public `miacx/caelestis-backend` and `miacx/caelestis-frontend` repositories on Docker Hub.
-Add a Docker Hub access token with write access as the GitHub repository secret `DOCKERHUB_TOKEN`.
-The image workflow signs in as `miacx`. It publishes the linked GHCR packages and Helm chart with the workflow's GitHub token.
+Add a personal Docker Hub access token with write access to both repositories as the GitHub repository
+secret `DOCKERHUB_TOKEN`, and its owner's Docker Hub username as the repository variable `DOCKERHUB_USERNAME`.
+The images still publish under `miacx`. The workflow publishes the linked GHCR packages and Helm chart with the workflow's GitHub token.
 GitHub creates new personal GHCR packages as private. The first image release pushes both packages, then stops if anonymous pulls fail.
 Open each package's settings, change its visibility to Public, and rerun the release workflow.
 The retry verifies the existing images before publishing the GitHub Release.
