@@ -29,11 +29,14 @@ request. That pull request consumes pending Changesets and updates each affected
 changelog independently. Ordinary merges to `main` do not deploy or publish. The release PR stays
 open until a maintainer chooses to merge it.
 
-Merging the release pull request runs the production checks and deploys its exact merge commit.
-Only after deployment succeeds does the workflow publish the affected app tags:
+Merging the release pull request publishes `userscript-vX.Y.Z` after the userscript's own build,
+typecheck, and tests pass. It remains the repository's latest release and includes both installers
+plus their checksums. The userscript runs without Caelestis servers, so it does not wait for
+deployment.
 
-- `userscript-vX.Y.Z` remains the repository's latest release and includes both installers plus
-  their checksums.
+The same merge runs the production checks and deploys its exact merge commit. Only after deployment
+succeeds does the workflow publish the server app tags:
+
 - `frontend-vX.Y.Z` tags the deployed commit and posts to `DISCORD_RELEASE_WEBHOOK_URL`.
 - `backend-vX.Y.Z` tags the deployed commit and does not post to Discord.
 
