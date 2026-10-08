@@ -232,6 +232,7 @@ note "The test environment has no review or wait-time gate. Production credentia
 stage "Docker Hub publishing"
 open_url "https://hub.docker.com/repositories/miacx"
 step "Create two public repositories under miacx: caelestis-backend and caelestis-frontend."
+step "Give your account Read & Write access to both, through the miacx organization or one of its teams."
 pause "Press Enter when both repositories exist."
 open_url "https://app.docker.com/settings/personal-access-tokens"
 step "Generate a personal access token named Caelestis releases, with Read and Write permissions."

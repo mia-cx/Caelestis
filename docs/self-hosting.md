@@ -420,6 +420,7 @@ The workflow refuses to replace an existing artifact with different content.
 Before the first release, create the public `miacx/caelestis-backend` and `miacx/caelestis-frontend` repositories on Docker Hub.
 Add a personal Docker Hub access token with write access to both repositories as the GitHub repository
 secret `DOCKERHUB_TOKEN`, and its owner's Docker Hub username as the repository variable `DOCKERHUB_USERNAME`.
+The token's owner also needs Read & Write access to both repositories through the `miacx` organization or one of its teams.
 The images still publish under `miacx`. The workflow publishes the linked GHCR packages and Helm chart with the workflow's GitHub token.
 GitHub creates new personal GHCR packages as private. The first image release pushes both packages, then stops if anonymous pulls fail.
 Open each package's settings, change its visibility to Public, and rerun the release workflow.
