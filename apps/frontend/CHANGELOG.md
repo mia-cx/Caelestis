@@ -1,5 +1,19 @@
 # @caelestis/frontend
 
+## 0.7.2
+
+### Patch Changes
+
+- b6fdd29: Template pages now live at /artwork/ so Discord previews their links without a trailing slash. Old /template/ links redirect.
+- 0de8d8b: Show home, folder, and template links in Discord as component embeds with the preview image or timelapse, an Open in Caelestis button, and the community Discord invite when one is set.
+- 539ffee: Folder pages play one timelapse of every published template in the folder and its subfolders, on one zoomable canvas.
+- 5b62797: The contribution heatmap has a "who" picker to show one painter's contributions or everyone's.
+- 8eaf697: Point update checks and repository links at the new `mia-cx/Caelestis` home.
+- 6c14757: Prevent hidden notification announcements from adding a page scrollbar.
+- 9e91a7e: Update server and interface dependencies, including dialog focus and text selection fixes.
+- 3f4c9d0: Reject truncated PNG chunks before template import.
+- 604a5d2: Per-user pace lines, picker swatches, and tooltip dots now use the colour Wplace shows beside each painter's ID.
+
 ## 0.7.1
 
 ### Patch Changes

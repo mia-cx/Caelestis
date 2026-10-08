@@ -1,5 +1,70 @@
 # @caelestis/userscript
 
+## 0.16.0
+
+### Minor Changes
+
+- f9995fc: Hold Shift while painting to draw only unfinished template pixels that need the selected colour.
+
+### Patch Changes
+
+- b845f81: Caelestis now draws its own pixel cursors on Wplace, with a Caelestis cursors switch under Use native OS cursor in Wplace's Accessibility settings to turn them off.
+- c2468eb: Capture art from the canvas as a new template with Capture from canvas, beside Import template.
+  
+  - Select the art with the claim tools, then download it as a PNG or add it as a template and drag it into place.
+- ec401af: Keep captured artwork exact and preserve selections on placement failures without letting cancelled captures interrupt later edits.
+- 14b0bb8: Keep capture and claim toolbar actions visible and clickable above the docked panel.
+- cf509c3: Wrap capture toolbar actions on narrow screens so Cancel, Download PNG, and Add as template remain reachable.
+- ffdecb0: Claim mode tools and the toolbar animate in and out.
+- 2cf4ef2: Add a "Claims only while painting" setting that hides region claims until Wplace's paint drawer is open.
+- cccbda8: Replace Wplace's pixel font with FalseType while Wplace's pixel fonts are on.
+- 88cd4b1: FalseType stays smooth and legible after Wplace turned off font smoothing for its pixel fonts.
+- b845f81: Turn off the new FalseType font switch, under Pixelated fonts in Wplace's Accessibility settings, to get Wplace's own pixel font back.
+- 9ede931: Match Wplace template imports to their saved scale, palette, dithering, and transparency.
+- 04a1269: In grid view, folder cards fade in and out on expand and collapse while the rest of the grid glides into place.
+- 58a1a20: Opening a Caelestis invite link on Wplace connects to the server automatically.
+- d6ba373: Draw region claims and painters' viewports more transparently, so the canvas underneath stays readable.
+- b6c0590: Keep retrying template markers on tiles that failed to load, even while the map stays still.
+- 5c6592c: Switching between the menu's pages slides them across each other.
+- 8eaf697: Point update checks and repository links at the new `mia-cx/Caelestis` home.
+- f345268: Keep the canvas visible on phones by closing the sidebar when drawing starts and grouping claim and capture controls in a touch-friendly bottom toolbar.
+- 8566813: Keep claim and capture tool menus scrollable on short phone screens so alternative drawing tools remain reachable.
+- 92fc72d: Re-download only the Wplace tiles that changed, instead of every visible tile every few seconds.
+  
+  - Placing or erasing a draft pixel reloads only the tiles whose drafts changed.
+- 6c14757: Prevent hidden notification announcements from adding a page scrollbar.
+- 2e87405: The template menu and its action buttons animate in and out.
+- e4d5679: The menu panel slides in and out as a drawer, and map controls beside it glide with it.
+- e85abf9: Caelestis matches Wplace's pixel UI and switches back to its classic look when Wplace's standard UI is on, without a reload.
+- b8325d2: The popped-out menu grows out of the sidebar and shrinks back into it when docked.
+- 1a80760: Remove your drafts from other painters' screens when you submit or close Paint, even while your map stays still.
+- 0ec39bd: Claim temporary painting areas by holding Ctrl and dragging on the map.
+  
+  - Ctrl+click a quick claim to remove it.
+  - Closing the paint drawer or the tab clears your quick claims for everyone.
+- 7579932: Keep the sidebar and button rail aligned with Wplace's right-hand controls when the page has a scrollbar.
+- 9e91a7e: Update server and interface dependencies, including dialog focus and text selection fixes.
+- 806b477: Settings shows the installed userscript version and each server's backend version, and warns when a server is older than this userscript expects.
+- e1e5d7d: Skip re-reading a Wplace tile's pixels when a refresh returns the same image.
+- df29d30: Menus, dialogs, panels and toasts now open and close with short transitions.
+- 7b68dbe: Pixels, Markers and Colours in the template menu grow and shrink when expanded or collapsed.
+- ec39a6a: Keep each imported template's original image and processing settings beside its artwork.
+  
+  - Exported `.wplace` files carry both, and importing one restores the exact artwork without reprocessing it.
+  - Uploads, copies, and moves between Local and servers keep them.
+  - Saved artwork that is damaged is rebuilt from its original image instead of being deleted.
+- 3f4c9d0: Reject truncated PNG chunks before template import.
+- 1f9c159: Keep the map still while drawing claims or captures with a finger, while allowing the Hand tool to pan.
+- 55cb259: Tree folders grow and shrink rows when expanded or collapsed.
+- b95c90c: Take canvas art as correct in just part of a template with Update an area, beside Use canvas artwork.
+- e27bb68: The template menu's Use defaults switches match the other toggles, so on and off are easy to tell apart in the pixel theme.
+- fda3b68: Declare the MCX License, copyright, and browser compatibility in the userscript metadata.
+- a3705a8: Stop Wplace's map from redrawing every frame while it sits still, cutting idle CPU and GPU use.
+  
+  - Pause Wplace's event-marker animations while the marker is hidden.
+  - Switch any Wplace patch off from the console with `__caelestis.wplacePatches.disable(name)`.
+- 6ea4a2f: Switch each Wplace performance fix off or on from a new Wplace performance section in Settings.
+
 ## 0.15.0
 
 ### Minor Changes

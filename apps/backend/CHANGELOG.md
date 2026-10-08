@@ -1,5 +1,21 @@
 # @caelestis/backend
 
+## 0.9.1
+
+### Patch Changes
+
+- 42caa5c: Durable jobs now claim a fenced, renewable lease before they run, so several processes sharing one database run each job once. Existing coordinator databases migrate in place on startup.
+- 0ec39bd: Claim temporary painting areas by holding Ctrl and dragging on the map.
+  
+  - Ctrl+click a quick claim to remove it.
+  - Closing the paint drawer or the tab clears your quick claims for everyone.
+- 9e91a7e: Update server and interface dependencies, including dialog focus and text selection fixes.
+- 27cc081: Run RustFS in the Compose S3 example, since MinIO no longer publishes its images. Existing stacks copy their MinIO data over on the next start and keep the old volume untouched until you delete it.
+- b797bf0: Export a whole server to one archive file and restore it on any deployment, database, or object store, from Cloudflare to self-hosted and back.
+- 806b477: `/server` now reports the backend package version and build identifier.
+- ec39a6a: Store the original image and processing recipe with each template version, and serve them from `/v1/recipes` and `/v1/sources`.
+- 3f4c9d0: Reject truncated PNG chunks before template import.
+
 ## 0.9.0
 
 ### Minor Changes
