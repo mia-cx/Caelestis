@@ -11,7 +11,11 @@ const CURSORS_ATTRIBUTE = 'data-caelestis-cursors'
 const wplaceRow = (label: string): string =>
   `<label class="border-base-content/10 flex min-h-14 cursor-pointer items-center justify-between gap-4 border-b py-3 text-sm"><span class="min-w-0"><span class="font-medium">${label}</span><!----></span> <input class="toggle toggle-primary toggle-sm shrink-0" type="checkbox"></label>`
 
-const PANEL_HTML = `<div id="settings-panel-accessibility"><!---->${wplaceRow('Legacy UI')}<!---->${wplaceRow('Pixelated fonts')}<!---->${wplaceRow('Use native OS cursor')}<!----> <div class="border-base-content/10 border-b py-4"><label for="settings-colorblind-mode" class="mb-2 block text-sm font-medium">Colorblind filter</label> <select id="settings-colorblind-mode" class="select min-h-11 w-full"></select></div></div>`
+const panel = (...rows: string[]): string =>
+  `<div id="settings-panel-accessibility"><!---->${rows.map(wplaceRow).join('<!---->')}<!----> <div class="border-base-content/10 border-b py-4"><label for="settings-colorblind-mode" class="mb-2 block text-sm font-medium">Colorblind filter</label> <select id="settings-colorblind-mode" class="select min-h-11 w-full"></select></div></div>`
+
+/** Wplace's Accessibility panel as it ships today. */
+const PANEL_HTML = panel('Legacy UI', 'Use native OS cursor')
 
 const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
 
@@ -48,7 +52,6 @@ afterEach(() => {
   for (const dispose of disposers.splice(0)) dispose()
   for (const attribute of [
     'data-standard-ui',
-    'data-pixel-fonts',
     'data-native-cursor',
     FALSETYPE_ATTRIBUTE,
     CURSORS_ATTRIBUTE,
@@ -67,18 +70,17 @@ describe('Wplace settings rows', () => {
 
     expect(labels()).toEqual([
       'Legacy UI',
-      'Pixelated fonts',
       'FalseType font',
       'Use native OS cursor',
       'Caelestis cursors',
     ])
 
-    const pixelFonts = [...document.querySelectorAll('#settings-panel-accessibility label')].find(
+    const legacyUi = [...document.querySelectorAll('#settings-panel-accessibility label')].find(
       (label) => !label.hasAttribute('data-caelestis-option'),
     )
-    expect(pixelFonts).toBeDefined()
+    expect(legacyUi).toBeDefined()
     for (const key of ['falseType', 'cursors']) {
-      expect(ourRow(key).className).toBe(pixelFonts?.className)
+      expect(ourRow(key).className).toBe(legacyUi?.className)
       expect(ourInput(key).checked).toBe(true)
     }
     expect(ourRow('falseType').querySelector('a.link')?.getAttribute('href')).toBe(
@@ -124,17 +126,6 @@ describe('Wplace settings rows', () => {
     const disabled = (key: string): boolean =>
       ourInput(key).disabled && ourRow(key).classList.contains('opacity-60')
 
-    root.setAttribute('data-pixel-fonts', 'false')
-    await flush()
-    expect(disabled('falseType')).toBe(true)
-    expect(ourInput('falseType').checked).toBe(false)
-    expect(disabled('cursors')).toBe(false)
-
-    root.removeAttribute('data-pixel-fonts')
-    await flush()
-    expect(disabled('falseType')).toBe(false)
-    expect(ourInput('falseType').checked).toBe(true)
-
     root.setAttribute('data-native-cursor', '')
     await flush()
     expect(disabled('cursors')).toBe(true)
@@ -146,13 +137,30 @@ describe('Wplace settings rows', () => {
     await flush()
     expect(disabled('falseType')).toBe(true)
     expect(disabled('cursors')).toBe(true)
+
+    root.removeAttribute('data-standard-ui')
+    await flush()
+    expect(disabled('falseType')).toBe(false)
+    expect(ourInput('falseType').checked).toBe(true)
   })
 
-  it('injects nothing when fewer than three Wplace rows are present', async () => {
+  it('keeps its places when Wplace adds a row between Legacy UI and native cursor', async () => {
     install()
-    mountPanel(
-      `<div id="settings-panel-accessibility">${wplaceRow('Legacy UI')}${wplaceRow('Pixelated fonts')}</div>`,
-    )
+    mountPanel(panel('Legacy UI', 'Pixelated fonts', 'Use native OS cursor'))
+    await flush()
+
+    expect(labels()).toEqual([
+      'Legacy UI',
+      'FalseType font',
+      'Pixelated fonts',
+      'Use native OS cursor',
+      'Caelestis cursors',
+    ])
+  })
+
+  it('injects nothing when fewer than two Wplace rows are present', async () => {
+    install()
+    mountPanel(panel('Legacy UI'))
     await flush()
 
     expect(document.querySelector('label[data-caelestis-option]')).toBeNull()
