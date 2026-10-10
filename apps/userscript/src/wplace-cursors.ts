@@ -14,6 +14,7 @@ import pointer2x from '../../frontend/static/cursors/pointer@2x.png'
 import pointer from '../../frontend/static/cursors/pointer.png'
 import text2x from '../../frontend/static/cursors/text@2x.png'
 import text from '../../frontend/static/cursors/text.png'
+import { addDocumentStyle } from './document-style.js'
 
 /**
  * Caelestis's pixel cursors for Wplace, through its own `--cursor-*` properties.
@@ -52,9 +53,5 @@ const CSS =
     .join(';') +
   '}'
 
-/** Adopt the cursor sheet on the document. Safe at `document-start`, before `<html>` exists. */
-export const installWplaceCursors = (): void => {
-  const sheet = new CSSStyleSheet()
-  sheet.replaceSync(CSS)
-  document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet]
-}
+/** Add the cursor stylesheet. Safe at `document-start`, before `<html>` exists. */
+export const installWplaceCursors = (): void => addDocumentStyle(CSS)
