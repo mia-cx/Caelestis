@@ -1,5 +1,13 @@
 # @caelestis/userscript
 
+## 0.16.1
+
+### Patch Changes
+
+- 54db9f0: FalseType replaces all of Wplace's text, and the FalseType font and Caelestis cursors switches are back in Wplace's Accessibility settings, under Legacy UI and Use native OS cursor.
+- ae749ac: FalseType and Caelestis cursors now load in Tampermonkey and other userscript managers that run Caelestis in a sandbox.
+- 303c39d: Fix colour picking from local templates when Wplace uses a translated language with Legacy UI.
+
 ## 0.16.0
 
 ### Minor Changes
