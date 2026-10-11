@@ -151,10 +151,10 @@ export const worldPaintIndexAt = (x: number, y: number): number | null => placed
 
 /**
  * Wplace exposes no picker state, but its rendered control does: the active tool is `btn-primary`.
- * Prefer the visible tooltip label; the icon fallback keeps this working if the label's markup is
- * rearranged while the material-symbol path remains the one Wplace currently ships.
+ * Prefer the visible tooltip label; both native icon themes identify the tool when Wplace
+ * translates that label. Legacy UI uses the pixel icon instead of the material-symbol icon.
  */
-const PICKER_ICON_PREFIX = 'M120-120v-190'
+const PICKER_ICON_PREFIXES = ['M120-120v-190', 'M3 21h2v2H1v-4h2v2Z']
 
 const nativePickerButton = (): HTMLButtonElement | null => {
   const labelled = document.querySelector<HTMLButtonElement>('button[aria-label="Color Picker"]')
@@ -166,7 +166,8 @@ const nativePickerButton = (): HTMLButtonElement | null => {
     if (button instanceof HTMLButtonElement) return button
   }
   for (const path of document.querySelectorAll('button path')) {
-    if (!path.getAttribute('d')?.startsWith(PICKER_ICON_PREFIX)) continue
+    const outline = path.getAttribute('d')
+    if (!PICKER_ICON_PREFIXES.some((prefix) => outline?.startsWith(prefix))) continue
     const button = path.closest('button')
     if (button instanceof HTMLButtonElement) return button
   }
