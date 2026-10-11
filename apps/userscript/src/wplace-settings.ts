@@ -1,18 +1,18 @@
 /**
  * Caelestis's own rows inside Wplace's Settings › Accessibility panel.
  *
- * Wplace's own switches (Legacy UI, Pixelated fonts, Use native OS cursor) live in the same
- * panel; ours are clones of its row so they look native. Each switch maps to an opt-out
+ * Wplace's own switches (Legacy UI, Use native OS cursor) live in the same panel; ours are clones
+ * of its row so they look native. Each switch maps to an opt-out
  * attribute on `<html>` (`data-caelestis-falsetype="off"`, `data-caelestis-cursors="off"`), so
  * the default-on behaviour needs no JS timing: the matching stylesheet skips while the attribute
  * is present.
  *
  * Wplace's rows are found structurally, not by label text, so the lookup survives its UI
- * translations: the panel's toggle labels that are not ours, in order, are Legacy UI,
- * Pixelated fonts and Use native OS cursor. If fewer than three are there, nothing is injected.
- * A row is disabled under the same conditions as Wplace's own dependencies (Legacy UI's
- * `data-standard-ui`, native cursor's `data-native-cursor`, pixel fonts' `data-pixel-fonts`),
- * and a disabled row shows its effective value, like Wplace's do.
+ * translations: among the panel's toggle labels that are not ours, Legacy UI comes first and Use
+ * native OS cursor last, so rows Wplace adds or removes between them don't move ours. If fewer
+ * than two are there, nothing is injected. A row is disabled under the same conditions as
+ * Wplace's own dependencies (Legacy UI's `data-standard-ui`, native cursor's
+ * `data-native-cursor`), and a disabled row shows its effective value, like Wplace's do.
  */
 
 import { log } from './debug.js'
@@ -66,8 +66,8 @@ interface Row {
   /** Prefs key this row reads and writes. */
   readonly key: keyof Prefs
   readonly label: string
-  /** Index into the panel's Wplace toggle rows; our row is inserted after it. */
-  readonly afterWplaceRow: number
+  /** Which of the panel's Wplace toggle rows ours is inserted after. */
+  readonly after: 'first' | 'last'
   /** Opt-out attribute set on `<html>` while the pref is off. */
   readonly attribute: string
   /** Extra caption markup inside the label's text span, like Wplace's own hints. */
@@ -80,16 +80,15 @@ const ROWS: readonly Row[] = [
   {
     key: 'falseType',
     label: 'FalseType font',
-    afterWplaceRow: 1, // directly after Pixelated fonts
+    after: 'first', // Legacy UI
     attribute: FALSETYPE_ATTRIBUTE,
     hint: '<span class="text-base-content/80 mt-1 block text-sm leading-relaxed"><a class="link" href="https://github.com/patchstep/FalseType" target="_blank" rel="noopener noreferrer">patchstep/FalseType</a></span>',
-    disabled: (root) =>
-      root.hasAttribute('data-standard-ui') || root.getAttribute('data-pixel-fonts') === 'false',
+    disabled: (root) => root.hasAttribute('data-standard-ui'),
   },
   {
     key: 'cursors',
     label: 'Caelestis cursors',
-    afterWplaceRow: 2, // directly after Use native OS cursor
+    after: 'last', // Use native OS cursor
     attribute: CURSORS_ATTRIBUTE,
     disabled: (root) =>
       root.hasAttribute('data-standard-ui') || root.hasAttribute('data-native-cursor'),
@@ -121,17 +120,16 @@ export const installWplaceSettings = (): (() => void) => {
     const root = document.documentElement
     if (!panel || !root) return
 
-    // Wplace's rows are its toggle labels that are not ours, in order:
-    // Legacy UI, Pixelated fonts, Use native OS cursor.
+    // Wplace's rows are its toggle labels that are not ours: Legacy UI first, native cursor last.
     const wplaceRows = [...panel.querySelectorAll('label')].filter(
       (label) =>
         !label.hasAttribute(ROW_MARKER) &&
         label.querySelector('input.toggle[type="checkbox"]') !== null,
     )
-    if (wplaceRows.length < 3) return
+    if (wplaceRows.length < 2) return
 
     for (const def of ROWS) {
-      const anchor = wplaceRows[def.afterWplaceRow]
+      const anchor = def.after === 'first' ? wplaceRows[0] : wplaceRows.at(-1)
       if (anchor === undefined) continue
       let row = ourRow(def.key)
       if (row === null) {
@@ -177,7 +175,7 @@ export const installWplaceSettings = (): (() => void) => {
   })
   observer.observe(document, {
     attributes: true,
-    attributeFilter: ['data-standard-ui', 'data-pixel-fonts', 'data-native-cursor'],
+    attributeFilter: ['data-standard-ui', 'data-native-cursor'],
     childList: true,
     subtree: true,
   })

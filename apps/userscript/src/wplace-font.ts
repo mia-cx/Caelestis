@@ -1,37 +1,41 @@
+import { addDocumentStyle } from './document-style.js'
 import falseType from './fonts/FalseType.woff2'
 
 /**
- * FalseType in front of Wplace's pixel font stacks.
+ * FalseType for all of Wplace's text.
  *
- * Wplace sets `--font-sans` and `--font-mono` on its root, and turns the pixel fonts off with
- * `data-pixel-fonts=false` or `data-standard-ui`; `data-caelestis-falsetype=off` is our own
- * opt-out, set by the FalseType font switch in `wplace-settings.ts`. The override matches none of
- * them, so Wplace's own rules apply untouched: Geist for the first two, its pixel fonts for the
- * opt-out. Wplace's own stacks follow
- * FalseType, copied from its `:root` theme and `:lang(ja)` rules, so glyphs FalseType lacks
- * still come from their fonts. The override is unlayered and more specific than Wplace's rules,
- * so it wins while it matches. It also keeps `-webkit-font-smoothing` on, since Wplace switches
- * it off for its pixel fonts and FalseType's size-adjusted pixels need smoothing to stay legible.
+ * Wplace draws its text from four font properties on its root: `--font-sans` and `--font-mono`
+ * (Geist), and `--font-pixel` and `--font-pixel-display` (Pixelify Sans, on `.font-pixel`
+ * elements). `.font-readable` resets `--font-sans` to Geist on its subtree, so the override
+ * repeats there. Wplace's Legacy UI (`data-standard-ui`) and our FalseType font switch in
+ * `wplace-settings.ts` (`data-caelestis-falsetype=off`) both leave Wplace's fonts untouched.
+ *
+ * Wplace's own fonts follow FalseType in each stack, with the CJK pixel font from its `:lang(ja)`
+ * rules, so glyphs FalseType lacks still come from them. The override is unlayered and more
+ * specific than Wplace's rules, so it wins while it matches. It also keeps
+ * `-webkit-font-smoothing` on, since FalseType's size-adjusted pixels need smoothing to stay
+ * legible.
  */
 export const FALSETYPE_ATTRIBUTE = 'data-caelestis-falsetype'
-const PIXEL_FONTS = `:root:not([data-pixel-fonts=false]):not([data-standard-ui]):not([${FALSETYPE_ATTRIBUTE}=off])`
+const ROOT = `:root:not([data-standard-ui]):not([${FALSETYPE_ATTRIBUTE}=off])`
+const JAPANESE = `${ROOT}:is(:lang(ja),:lang(jp))`
 
-const override = (selector: string, cjk: string): string =>
-  `${selector}{` +
-  `--font-sans:"FalseType", "Pixelify Sans", "WPlace Pixel Mono", "${cjk}", ui-sans-serif, system-ui, sans-serif;` +
-  `--font-mono:"FalseType", "WPlace Pixel Mono", "Pixelify Sans", "${cjk}", ui-monospace, monospace;` +
-  `-webkit-font-smoothing:auto}`
+const override = (selector: string, cjk: string): string => {
+  const sans = `"FalseType", "Pixelify Sans", "WPlace Pixel Mono", "${cjk}", ui-sans-serif, system-ui, sans-serif`
+  return (
+    `${selector}{` +
+    `--font-sans:${sans};--font-pixel:${sans};--font-pixel-display:${sans};` +
+    `--font-mono:"FalseType", "WPlace Pixel Mono", "Pixelify Sans", "${cjk}", ui-monospace, monospace;` +
+    `-webkit-font-smoothing:auto}`
+  )
+}
 
 // One weight covers 100–900 so the browser never fakes bold from it. `size-adjust` draws it a little
 // larger than Wplace's sizes ask for, since its 8px caps read small next to Pixelify Sans.
 const CSS =
   `@font-face{font-family:"FalseType";src:url(${falseType}) format("woff2");font-weight:100 900;size-adjust:112.5%;font-display:block}` +
-  override(PIXEL_FONTS, 'Fusion Pixel Chinese') +
-  override(`${PIXEL_FONTS}:is(:lang(ja),:lang(jp))`, 'Fusion Pixel Japanese')
+  override(`${ROOT},${ROOT} .font-readable`, 'Fusion Pixel Chinese') +
+  override(`${JAPANESE},${JAPANESE} .font-readable`, 'Fusion Pixel Japanese')
 
-/** Adopt the font sheet on the document. Safe at `document-start`, before `<html>` exists. */
-export const installWplaceFont = (): void => {
-  const sheet = new CSSStyleSheet()
-  sheet.replaceSync(CSS)
-  document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet]
-}
+/** Add the font stylesheet. Safe at `document-start`, before `<html>` exists. */
+export const installWplaceFont = (): void => addDocumentStyle(CSS)
