@@ -1,5 +1,12 @@
 # @caelestis/userscript
 
+## 0.16.2
+
+### Patch Changes
+
+- ff6cc04: A template's right-click menu takes keyboard focus when it opens, so arrow keys and Enter work right away.
+- 6ed9542: A template's right-click menu stays steady while template progress updates, instead of flickering and replaying its opening animation.
+
 ## 0.16.1
 
 ### Patch Changes

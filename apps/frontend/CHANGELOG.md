@@ -1,5 +1,11 @@
 # @caelestis/frontend
 
+## 0.7.3
+
+### Patch Changes
+
+- 11e10c8: Keep recorded progress visible across template artwork updates without counting artwork changes as painting progress.
+
 ## 0.7.2
 
 ### Patch Changes
