@@ -26,7 +26,11 @@ const until = async (condition: () => boolean, message: string) => {
     await frame()
   }
 }
-const settled = async (node: HTMLElement) => {
+const settled = async (node: HTMLElement, surface = false) => {
+  // openSurface flips data-state a frame or more after mount; finishing animations before that
+  // leaves the entrance to start afterward and keep running through later steps.
+  if (surface)
+    await until(() => node.dataset.state === 'open', 'Surface never reached the open state')
   await frame()
   for (const animation of node.getAnimations({ subtree: true })) animation.finish()
   await frame()
@@ -77,7 +81,7 @@ const removalClock = () => {
   }
 }
 
-const sampleExit = async (node: HTMLElement, label: string) => {
+const sampleExit = async (node: HTMLElement, label: string, exit: 'fade' | 'morph' = 'fade') => {
   const duration = surfaceCloseDurationMs(node)
   assert(duration > 0, `${label}: production close duration is missing`)
   await frame()
@@ -86,20 +90,32 @@ const sampleExit = async (node: HTMLElement, label: string) => {
     `${label}: original closing node was unmounted`,
   )
   const animations = node.getAnimations()
-  const fade = animations.find(
-    (animation) => animation instanceof CSSTransition && animation.transitionProperty === 'opacity',
-  )
-  assert(
-    fade?.effect?.getComputedTiming().duration === duration,
-    `${label}: CSS exit and removal deadline disagree`,
-  )
+  // 'morph' exits (the popout dialog's dock animation) hold opacity at 1 via Web Animations, so no
+  // opacity CSSTransition is produced; check the deadline against any exit animation instead.
+  if (exit === 'morph') {
+    assert(
+      animations.some((animation) => animation.effect?.getComputedTiming().duration === duration),
+      `${label}: CSS exit and removal deadline disagree`,
+    )
+  } else {
+    const fade = animations.find(
+      (animation) =>
+        animation instanceof CSSTransition && animation.transitionProperty === 'opacity',
+    )
+    assert(
+      fade?.effect?.getComputedTiming().duration === duration,
+      `${label}: CSS exit and removal deadline disagree`,
+    )
+  }
   for (const animation of animations) {
     animation.pause()
     animation.currentTime = duration / 2
   }
   const opacity = Number(getComputedStyle(node).opacity)
+  const fading = opacity > 0 && opacity < 1
+  const moving = exit === 'morph' && getComputedStyle(node).transform !== 'none'
   assert(
-    opacity > 0 && opacity < 1 && node.getBoundingClientRect().height > 0,
+    (fading || moving) && node.getBoundingClientRect().height > 0,
     `${label}: exit shell is not visibly transitioning (${opacity})`,
   )
   assert(
@@ -115,7 +131,8 @@ export const runPanelSurfaceContracts = async () => {
   const host = document.createElement('caelestis-panel')
   host.id = 'caelestis-panel'
   host.dataset.state = 'open'
-  host.style.cssText = 'position:fixed;left:260px;top:150px;height:430px;overflow:hidden'
+  host.style.cssText =
+    'position:fixed;left:260px;top:150px;height:430px;overflow:hidden;transform:translate(0,0)'
   applyWplaceTheme(host)
   let tree: TemplateTreeModel = {
     query: '',
@@ -224,11 +241,8 @@ export const runPanelSurfaceContracts = async () => {
     await until(() => !node.isConnected, `${label}: retained after CSS close deadline`)
   }
   try {
-    await settled(host)
-    assert(
-      getComputedStyle(host).transform !== 'none',
-      'Fixture lost the production transformed host',
-    )
+    await settled(host, true)
+    assert(getComputedStyle(host).transform !== 'none', 'Fixture lost its transformed host')
     assert(
       host.getBoundingClientRect().left > 0 && getComputedStyle(host).overflow === 'hidden',
       'Fixture must exercise an offset, clipping panel',
@@ -242,10 +256,12 @@ export const runPanelSurfaceContracts = async () => {
         )
         await settled(find('dialog'))
       }
-      const row = find('[role="treeitem"]')
+      // While popped out the docked copy of the tree is leaving (inert outro), so target the
+      // row inside the dialog, not the first DOM match.
+      const row = find(poppedOut ? 'dialog [role="treeitem"]' : '[role="treeitem"]')
       await click(row, 'right')
       const menu = find('[data-caelestis-context-menu]')
-      await settled(menu)
+      await settled(menu, true)
       const anchor = tree.contextMenu
       assert(anchor !== undefined, 'Context-menu intent did not update the model')
       const rect = menu.getBoundingClientRect()
@@ -282,6 +298,45 @@ export const runPanelSurfaceContracts = async () => {
         'Submenu escaped the viewport',
       )
       assert(root.activeElement === child, 'Submenu did not receive keyboard focus')
+      const flickers: MutationRecord[] = []
+      const flickerWatch = new MutationObserver((records) => {
+        for (const record of records)
+          if (menu.style.visibility === 'hidden' || menu.dataset.state !== 'open')
+            flickers.push(record)
+      })
+      flickerWatch.observe(menu, { attributes: true, attributeFilter: ['style', 'data-state'] })
+      for (let refresh = 0; refresh < 5; refresh += 1) {
+        update({
+          entries: tree.entries.map((entry) =>
+            entry.type === 'row' && entry.progress
+              ? {
+                  ...entry,
+                  progress: { ...entry.progress, completed: entry.progress.completed + 1 },
+                }
+              : entry,
+          ),
+        })
+        await frame()
+        await frame()
+      }
+      flickerWatch.disconnect()
+      assert(
+        flickers.length === 0,
+        `Model refresh replayed the open menu's entrance: ${flickers
+          .map(
+            (record) => `${record.attributeName}=${menu.getAttribute(record.attributeName ?? '')}`,
+          )
+          .join(', ')}`,
+      )
+      assert(
+        find('[data-caelestis-context-menu]') === menu && menu.dataset.state === 'open',
+        'Model refresh replaced or closed the open menu',
+      )
+      assert(
+        root.querySelector('[role="menu"][aria-label="Move to"]') !== null,
+        'Model refresh dropped the open submenu',
+      )
+      assert(root.activeElement === child, 'Model refresh moved focus out of the submenu')
       await key('ArrowLeft')
       assert(root.activeElement === trigger, 'Submenu close did not restore trigger focus')
       await key('ArrowRight')
@@ -289,6 +344,9 @@ export const runPanelSurfaceContracts = async () => {
         () => root.querySelector('[role="menu"][aria-label="Move to"]') !== null,
         'Keyboard did not reopen submenu',
       )
+      // A slow CDP loop can leave the entrance interpolating here; settle it fully so the
+      // exit runs from the open resting value instead of a mid-flight reversal.
+      await settled(menu, true)
       await click(find('[role="menu"][aria-label="Move to"] button'))
       assert(actions.at(-1) === 'folder', 'Submenu click did not reach the model owner')
       const duration = await sampleExit(menu, 'Menu dismissal')
@@ -299,7 +357,7 @@ export const runPanelSurfaceContracts = async () => {
         'Menu reopen replaced the retained node instead of cancelling close',
       )
       clock.advance(duration + 1)
-      await settled(menu)
+      await settled(menu, true)
       assert(menu.isConnected, 'Cancelled menu close removed the reopened menu')
       assert(
         root.activeElement === rename,
@@ -311,7 +369,7 @@ export const runPanelSurfaceContracts = async () => {
       await removed(menu, duration, 'Menu')
       await click(row, 'right')
       const dismissed = find('[data-caelestis-context-menu]')
-      await settled(dismissed)
+      await settled(dismissed, true)
       await key('Escape')
       assert(tree.contextMenu === undefined, 'Escape did not dismiss the live menu model')
       if (poppedOut)
@@ -327,7 +385,7 @@ export const runPanelSurfaceContracts = async () => {
     await frame()
     await click(button('View progress for Artwork'))
     const pane = find('.progress-pane')
-    await settled(pane)
+    await settled(pane, true)
     await click(button('Close progress'))
     const paneDuration = await sampleExit(pane, 'Progress close')
     await click(button('View progress for Artwork'))
@@ -337,7 +395,7 @@ export const runPanelSurfaceContracts = async () => {
       'Progress reopen did not retain and reverse the original pane',
     )
     clock.advance(paneDuration + 1)
-    await settled(pane)
+    await settled(pane, true)
     assert(pane.isConnected, 'Cancelled progress close removed the reopened pane')
     await key('Escape')
     await sampleExit(pane, 'Progress Escape')
@@ -352,7 +410,7 @@ export const runPanelSurfaceContracts = async () => {
         !dialog.open && !dialog.matches(':modal') && popouts.at(-1) === false,
         `${path}: popout modality/owner remained active during exit`,
       )
-      const duration = await sampleExit(dialog, `Popout ${path}`)
+      const duration = await sampleExit(dialog, `Popout ${path}`, 'morph')
       await removed(dialog, duration, `Popout ${path}`)
       await until(() => root.activeElement === button('Pop out menu'), 'Dock did not restore focus')
       if (path === 'button') {

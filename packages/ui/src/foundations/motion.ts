@@ -82,7 +82,7 @@ export const shift = (node: Element, params?: ShiftParams): TransitionConfig => 
 const pendingCloses = new WeakMap<HTMLElement, number>()
 const pendingOpens = new WeakMap<HTMLElement, number>()
 /** Frames `openSurface` waits for a custom element's shadow styles before opening it anyway. */
-const MAX_STYLE_WAIT_FRAMES = 40
+export const MAX_STYLE_WAIT_FRAMES = 40
 
 const cancelSurfaceOpen = (element: HTMLElement): void => {
   const frame = pendingOpens.get(element)
@@ -107,10 +107,11 @@ export const cancelSurfaceClose = (element: HTMLElement): boolean => {
 /**
  * Mark a freshly mounted surface as open on the next frame so the entrance transition runs from
  * its resting (closed) style. Cancels an in-flight close first: reopening mid-close continues from
- * wherever the animation currently is.
+ * wherever the animation currently is. Calling it again on a surface that is already open or
+ * already opening does nothing, so an unrelated model update cannot replay the entrance.
  */
 export const openSurface = (element: HTMLElement): void => {
-  cancelSurfaceOpen(element)
+  if (element.dataset.state === 'open' || pendingOpens.has(element)) return
   // Reopening a still-closing element continues from the current frame, so it stays visible.
   const reuse = cancelSurfaceClose(element)
   if (!reuse) {
