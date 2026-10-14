@@ -14,7 +14,7 @@
   import { onDestroy, tick } from 'svelte'
   import { SvelteMap } from 'svelte/reactivity'
   import { slide, type EasingFunction, type TransitionConfig } from 'svelte/transition'
-  import { cancelSurfaceClose, closeSurface, openSurface, prefersReducedMotion, SETTLE_MARGIN_MS, surfaceCloseDurationMs, tokenized } from '../foundations/motion.js'
+  import { cancelSurfaceClose, closeSurface, MAX_STYLE_WAIT_FRAMES, openSurface, prefersReducedMotion, SETTLE_MARGIN_MS, surfaceCloseDurationMs, tokenized } from '../foundations/motion.js'
   import { descendantKeys } from './descendants.js'
   import type {
     TemplateTreeIntent,
@@ -347,7 +347,21 @@
     if (next !== undefined) {
       menuInvoker = activeTreeElement()
       void tick().then(() => {
-        if (model.contextMenu?.id === next) contextMenuElement?.querySelector<HTMLButtonElement>('button')?.focus()
+        // openSurface holds a fresh menu hidden for a couple of frames; focusing then is a
+        // no-op, so wait for the open state before taking keyboard focus.
+        let attempts = 0
+        const focusMenu = (): void => {
+          if (model.contextMenu?.id !== next || contextMenuElement?.isConnected !== true) return
+          if (contextMenuElement.dataset.state !== 'open' && attempts < MAX_STYLE_WAIT_FRAMES) {
+            attempts += 1
+            requestAnimationFrame(focusMenu)
+            return
+          }
+          // Focus already inside the menu (e.g. an open submenu) is left alone.
+          if (contextMenuElement.contains(activeTreeElement())) return
+          contextMenuElement.querySelector<HTMLButtonElement>('button')?.focus()
+        }
+        focusMenu()
       })
     } else if (previous !== undefined) {
       const target = menuInvoker
