@@ -50,6 +50,8 @@ export interface ArchiveProgressSample {
   readonly correct: number | null
   readonly mismatched: number | null
   readonly total: number
+  /** Composite artwork basis when several imported histories are combined. */
+  readonly revision?: string
 }
 
 export interface ArchiveTileFrame {

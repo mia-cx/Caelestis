@@ -1400,12 +1400,13 @@ export interface SqlStore extends TagStore {
     hashes: readonly string[],
   ): Promise<readonly TileMeasurement[]>
 
-  /** Read a whole version's winning frames and measurements in one bounded database query. */
+  /** Read winning frames, optionally excluding observations outside the artwork's active lifetime. */
   readTemplateProgressFrames(
     versionId: string,
     from: Seconds,
     to: Seconds,
     resolution: number,
+    lifetime?: { readonly fromSeconds: Seconds; readonly toSeconds: Seconds },
   ): Promise<readonly MeasuredTileFrame[]>
 
   /** Insert missing measurements, preserving existing counts and all live/placement records. */

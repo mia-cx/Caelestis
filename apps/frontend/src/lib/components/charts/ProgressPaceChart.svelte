@@ -102,7 +102,7 @@
     onScrubStart?: () => () => void
   } = $props()
 
-  const firstLive = $derived(Math.min(...progressSamples.map(sample => sample.at), (live || finished) ? to : Infinity))
+  const firstLive = $derived(Math.min(...progressSamples.filter(sample => !sample.boundary).map(sample => sample.at), (live || finished) ? to : Infinity))
   const archiveSamples = $derived(importedSamples.filter(sample => sample.at < firstLive))
 
   /**

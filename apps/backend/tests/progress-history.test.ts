@@ -1,4 +1,9 @@
-import { millis, seconds, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
+import {
+  millis,
+  seconds,
+  type TemplateProgressHistoryResponse,
+  WORLD_TEMPLATE_SURFACE,
+} from '@caelestis/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MemorySqlStore } from '../src/adapters/memory/memory-sql-store.js'
 import type { SqlStore, TemplateVersionRecord } from '../src/ports/sql-store.js'
@@ -106,7 +111,14 @@ describe.each(['memory', 'sqlite'] as const)('template lifetime progress through
       resolution: 0,
       samples: expect.arrayContaining([
         { at: start + 30, correct: 7, mismatched: 3, total: 10, revision: originalId },
-        { at: start + 180, correct: null, mismatched: null, total: 20, revision: updatedId },
+        {
+          at: start + 180,
+          correct: null,
+          mismatched: null,
+          total: 20,
+          revision: updatedId,
+          boundary: true,
+        },
         { at: start + 210, correct: null, mismatched: null, total: 20, revision: updatedId },
         { at: start + 240, correct: 17, mismatched: 3, total: 20, revision: updatedId },
       ]),
@@ -127,6 +139,42 @@ describe.each(['memory', 'sqlite'] as const)('template lifetime progress through
         { at: start + 30, correct: null, mismatched: null, total: 20 },
       ]),
     })
+  })
+
+  it('preserves observations on each side of a replacement when daily history is selected and folded', async () => {
+    const day = Math.floor(start / 86_400) * 86_400
+    const now = day + 40 * 86_400
+    vi.spyOn(Date, 'now').mockReturnValue(now * 1_000)
+    const store = adapter === 'sqlite' ? await openRelationalStore() : null
+    if (store !== null) closers.push(store.close)
+    const backend = await createTestBackend({ sql: store?.sql ?? new MemorySqlStore() })
+    await backend.sql.insertTemplateVersion(version(originalId, day, 10, [0]))
+    const hash = await observe(backend.sql, originalId, 0, day + 600, 5, 5)
+    await backend.sql.insertTemplateVersion(version(updatedId, day + 1800, 10, [0]))
+    await backend.sql.writeTileMeasurements(updatedId, { x: 0, y: 0 }, [
+      { hash, correct: 1, wrong: 9, blank: 0 },
+    ])
+    const read = async () => {
+      const response = await backend.app.fetch(
+        authorized(`/telemetry/progress/${templateId}?from=${day}&to=${now}`),
+      )
+      expect(response.status).toBe(200)
+      return response.json() as Promise<TemplateProgressHistoryResponse>
+    }
+    const assertHistory = (history: Awaited<ReturnType<typeof read>>) => {
+      expect(history.resolution).toBe(86_400)
+      expect(history.samples).toContainEqual(
+        expect.objectContaining({ revision: originalId, correct: 5 }),
+      )
+      expect(
+        history.samples.filter(
+          (sample) => sample.revision === updatedId && sample.correct !== null,
+        ),
+      ).toEqual([])
+    }
+    assertHistory(await read())
+    await backend.sql.foldTileHistory(3, { x: 0, y: 0 }, seconds(now))
+    assertHistory(await read())
   })
 
   it('preserves the publication boundary for the complete history', async () => {

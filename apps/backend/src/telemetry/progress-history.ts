@@ -15,6 +15,7 @@ export const readProgressHistory = (
   version: TemplateVersionRecord,
   range: HistoryRange,
   resolution = selectTileHistoryResolution(range),
+  lifetime?: HistoryRange,
 ): Effect.Effect<ProgressHistoryResponse, SqlStoreReadError, SqlStoreService> =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
@@ -28,13 +29,16 @@ export const readProgressHistory = (
           range.fromSeconds,
           range.toSeconds,
           resolution,
+          lifetime,
         ),
       catch: (cause) => new SqlStoreReadError({ operation: 'readTemplateProgressFrames', cause }),
     })
     for (const frame of frames) {
       // Folded frames represent an observation somewhere within the bucket. Stamp its end so
       // pixels from later in the interval are never attributed to its start or a moving "now".
-      const at = frame.bucketStart + resolution
+      // A replacement can split the selected display bucket. The query filters source
+      // observations before downsampling, so its predecessor's final bucket stays before it.
+      const at = Math.min(frame.bucketStart + resolution, (lifetime?.toSeconds ?? Infinity) - 1)
       if (at >= range.toSeconds) continue
       const entries = changes.get(at) ?? new Map<string, MeasuredTileFrame>()
       entries.set(`${frame.tileX}/${frame.tileY}`, frame)
@@ -76,6 +80,12 @@ export const readTemplateProgressHistory = (
     for (const [index, revision] of versions.entries()) {
       const start = Math.max(range.fromSeconds, Math.floor(revision.createdAt / 1_000))
       const next = versions[index + 1]
+      const lifetime = {
+        fromSeconds: seconds(Math.floor(revision.createdAt / 1_000)),
+        toSeconds: seconds(
+          next === undefined ? Number.MAX_SAFE_INTEGER : Math.floor(next.createdAt / 1_000),
+        ),
+      }
       const end = Math.min(
         range.toSeconds,
         next === undefined ? Infinity : Math.floor(next.createdAt / 1_000),
@@ -93,6 +103,7 @@ export const readTemplateProgressHistory = (
         mismatched: null,
         total: version.totalPixels,
         revision: revision.versionId,
+        boundary: true,
       })
       const from = resolution === 0 ? start : Math.floor(start / resolution) * resolution
       const history = yield* readProgressHistory(
@@ -102,6 +113,7 @@ export const readTemplateProgressHistory = (
           toSeconds: seconds(end),
         },
         resolution,
+        lifetime,
       )
       for (const sample of history.samples) {
         if (sample.at >= start && sample.at < end)

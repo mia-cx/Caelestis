@@ -97,9 +97,30 @@ describe('observed progress and archive precedence', () => {
       { correct: null, total: 20 },
       { correct: null, total: 20 },
     ])
+    const imported = combineArchiveSamples([
+      { ...histories[0], samples: [archive(0, 2), archive(3600, 4)] },
+    ])
+    const native = combineProgressSamples([[{ ...sample(7200, 6), revision: basis.versionId }]])
+    const current = { ...sample(14400, 8), revision: JSON.stringify([basis.versionId]) }
+    expect(completionPace(mergeObservedProgress(imported, native, current), 14400, null)).toEqual({
+      correct: 1.5,
+      hours: 4,
+    })
+    expect(completionPace(mergeObservedProgress(imported, [], current), 14400, null)).toEqual({
+      correct: 1.5,
+      hours: 4,
+    })
     expect(
       combineArchiveSamples([{ source: 'eralyon', basis: null, samples: [], frames: [] }]),
     ).toEqual([])
+  })
+
+  it('keeps imported observations after creation until an actual native observation begins', () => {
+    const imported = [archive(0, 2), archive(3600, 4), archive(10800, 6)]
+    const creation = { ...sample(7200, null), revision: 'artwork', boundary: true as const }
+    expect(
+      mergeObservedProgress(imported, [creation]).map(({ at, correct }) => ({ at, correct })),
+    ).toEqual(imported.map(({ at, correct }) => ({ at, correct })))
   })
 
   it('retains signed regressions and does not invent activity across missing capture days', () => {

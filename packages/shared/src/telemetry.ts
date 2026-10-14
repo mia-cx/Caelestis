@@ -374,6 +374,8 @@ export interface ProgressSample {
   readonly total: number
   /** Artwork basis for these counts. A change starts a new net-progress interval. */
   readonly revision?: string
+  /** Resets artwork coverage without claiming that a native tile observation occurred. */
+  readonly boundary?: true
 }
 
 export interface ProgressHistoryResponse {

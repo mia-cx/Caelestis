@@ -56,6 +56,9 @@ export const combineProgressSamples = (
           ? held.reduce((sum, sample) => sum + (sample?.mismatched ?? 0), 0)
           : null,
         total: held.reduce((sum, sample) => sum + (sample?.total ?? 0), 0),
+        ...([...entries.values()].every((sample) => sample.boundary)
+          ? { boundary: true as const }
+          : {}),
         ...(held.some((sample) => sample.revision !== undefined)
           ? {
               revision: JSON.stringify(
@@ -67,19 +70,23 @@ export const combineProgressSamples = (
     })
 }
 
-/** Keep archive observations strictly before native history, including explicit native gaps. */
+/** Keep archives until an actual native observation, including an observed coverage gap. */
 export const mergeObservedProgress = (
   archive: readonly ArchiveProgressSample[],
   observed: readonly ProgressSample[],
   current?: Omit<ProgressSample, 'total'>,
 ): readonly ObservedProgressSample[] => {
-  const firstLive = Math.min(current?.at ?? Infinity, ...observed.map((sample) => sample.at))
+  const firstLive = Math.min(
+    current?.at ?? Infinity,
+    ...observed.filter((sample) => !sample.boundary).map((sample) => sample.at),
+  )
   const byTime = new Map<number, ObservedProgressSample>(
     archive
       .filter((sample) => sample.at < firstLive)
       .map((sample) => [sample.at, { ...sample, archive: true }]),
   )
   for (const sample of observed) {
+    if (sample.boundary && sample.at < firstLive && archive.length > 0) continue
     byTime.set(sample.at, { ...sample, archive: false })
   }
   if (current !== undefined)
