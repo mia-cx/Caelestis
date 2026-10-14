@@ -58,6 +58,7 @@ export const combineArchiveSamples = (
         at,
         snapshotId,
         total: histories.reduce((sum, history) => sum + (history.basis?.total ?? 0), 0),
+        revision: JSON.stringify(histories.map((history) => history.basis?.versionId)),
         correct: complete ? samples.reduce((sum, sample) => sum + (sample?.correct ?? 0), 0) : null,
         mismatched: complete
           ? samples.reduce((sum, sample) => sum + (sample?.mismatched ?? 0), 0)

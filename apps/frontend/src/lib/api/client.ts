@@ -16,6 +16,7 @@ import {
   type ServerInfo,
   type StatusResponse,
   serverAssetPath,
+  type TemplateProgressHistoryResponse,
   type TileHistoryResponse,
   uuidV7,
 } from '@caelestis/shared'
@@ -217,6 +218,14 @@ export const getProgressHistory = (
   json(
     `/telemetry/progress/${encodeURIComponent(templateId)}?version=${encodeURIComponent(versionId)}&from=${from}&to=${to}`,
   )
+
+/** Read the observations recorded throughout a template's life, across artwork replacements. */
+export const getTemplateProgressHistory = (
+  templateId: string,
+  from: number,
+  to: number,
+): Promise<TemplateProgressHistoryResponse> =>
+  json(`/telemetry/progress/${encodeURIComponent(templateId)}?from=${from}&to=${to}`)
 
 export const getHistory = (
   templateIds: readonly string[],

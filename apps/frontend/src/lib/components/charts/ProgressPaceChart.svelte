@@ -48,6 +48,7 @@
     to,
     anchorCorrect,
     anchorMismatched,
+    anchorRevision,
     finished = false,
     live = false,
     painters = [],
@@ -83,6 +84,8 @@
      */
     anchorCorrect: number
     anchorMismatched: number
+    /** The current artwork basis, shared with the historical scope revision identifiers. */
+    anchorRevision?: string
     /** A finished scope has a frozen final observation, even though it has no live pulse. */
     finished?: boolean
     /** The right edge is now: the canvas is still being painted, so the last point is live. */
@@ -99,7 +102,7 @@
     onScrubStart?: () => () => void
   } = $props()
 
-  const firstLive = $derived(Math.min(...progressSamples.map(sample => sample.at), (live || finished) ? to : Infinity))
+  const firstLive = $derived(Math.min(...progressSamples.filter(sample => !sample.boundary).map(sample => sample.at), (live || finished) ? to : Infinity))
   const archiveSamples = $derived(importedSamples.filter(sample => sample.at < firstLive))
 
   /**
@@ -197,7 +200,7 @@
     mergeObservedProgress(
       archiveSamples,
       progressSamples,
-      live || finished ? { at: to, correct: anchorCorrect, mismatched: anchorMismatched } : undefined,
+      live || finished ? { at: to, correct: anchorCorrect, mismatched: anchorMismatched, revision: anchorRevision } : undefined,
     ),
   )
   const observedPaces = $derived(observedProgressIntervals(chartSamples))

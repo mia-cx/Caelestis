@@ -1059,6 +1059,14 @@ export class RelationalSqlStore implements SqlStore {
     }
   }
 
+  async listTemplateVersions(templateId: string) {
+    return this.database
+      .select({ versionId: templateVersions.id, createdAt: templateVersions.createdAtMs })
+      .from(templateVersions)
+      .where(eq(templateVersions.templateId, templateId))
+      .orderBy(asc(templateVersions.createdAtMs), asc(templateVersions.id))
+  }
+
   async readTemplateVersion(versionId: string): Promise<TemplateVersionRecord | null> {
     const rows = await this.database
       .select({
@@ -1568,6 +1576,7 @@ export class RelationalSqlStore implements SqlStore {
     from: Seconds,
     to: Seconds,
     resolution: number,
+    lifetime?: { readonly fromSeconds: Seconds; readonly toSeconds: Seconds },
   ): Promise<readonly MeasuredTileFrame[]> {
     const result = await this.client
       .prepare(`
@@ -1581,6 +1590,9 @@ export class RelationalSqlStore implements SqlStore {
           AND history.tile_x = chunk.tile_x AND history.tile_y = chunk.tile_y
         WHERE chunk.version_id = ?1 AND history.resolution_s <= ?4
           AND history.bucket_start_s >= ?2 AND history.bucket_start_s < ?3
+          AND history.bucket_start_s >= ?5
+            AND history.bucket_start_s < ?6
+            AND history.bucket_start_s + history.resolution_s <= ?6
         GROUP BY history.tile_x, history.tile_y, history.resolution_s, history.bucket_start_s, history.sha256
       ), ranked AS (
         SELECT *, ROW_NUMBER() OVER (
@@ -1604,7 +1616,14 @@ export class RelationalSqlStore implements SqlStore {
         AND measurement.tile_y = frame.tile_y AND measurement.sha256 = frame.sha256
       WHERE frame.frame_rank = 1 ORDER BY frame.target_start, frame.tile_x, frame.tile_y
     `)
-      .bind(versionId, from, to, resolution)
+      .bind(
+        versionId,
+        from,
+        to,
+        resolution,
+        lifetime?.fromSeconds ?? from,
+        lifetime?.toSeconds ?? Number.MAX_SAFE_INTEGER,
+      )
       .all<MeasuredTileFrame>()
     return result.results
   }
@@ -2539,6 +2558,8 @@ export class RelationalSqlStore implements SqlStore {
     )
 
     for (const edge of TILE_HISTORY_DECAY_EDGES) {
+      // Keep detail around artwork changes, including tiles removed by the replacement.
+      // Otherwise folding erases which side of the change supplied an observation.
       const targetStart = `CAST(history.bucket_start_s / ${edge.target} AS BIGINT) * ${edge.target}`
       const chosen = `
         SELECT ${targetStart} AS target_start
@@ -2546,6 +2567,16 @@ export class RelationalSqlStore implements SqlStore {
         WHERE history.season = ? AND history.tile_x = ? AND history.tile_y = ?
           AND history.resolution_s = ${edge.source}
           AND ${targetStart} + ${edge.target} <= ?
+          AND NOT EXISTS (
+            SELECT 1 FROM version_tiles AS chunk
+            INNER JOIN template_versions AS covered ON covered.id = chunk.version_id
+            INNER JOIN template_versions AS version ON version.template_id = covered.template_id
+            INNER JOIN templates AS template ON template.id = version.template_id
+            WHERE template.season = history.season
+              AND chunk.tile_x = history.tile_x AND chunk.tile_y = history.tile_y
+              AND version.created_at_ms >= (${targetStart} + 1) * 1000
+              AND version.created_at_ms < (${targetStart} + ${edge.target}) * 1000
+          )
           AND NOT EXISTS (
             SELECT 1 FROM tile_history AS finer
             WHERE finer.season = history.season

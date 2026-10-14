@@ -28,6 +28,7 @@ import {
   getProgressHistory,
   getServer,
   getStatus,
+  getTemplateProgressHistory,
   getTileHistory,
   tileImageUrl,
   writeConnection,
@@ -313,6 +314,42 @@ describe('frontend API client against the built backend', () => {
       `https://backend.test/v1/chunks/${template.chunks[0]?.hash}`,
     ])
     expect(requests[1]?.headers.get('authorization')).toBe(`Bearer ${adminToken}`)
+  })
+
+  it('reads earlier progress through the lifetime client after artwork replacement', async () => {
+    vi.mocked(Date.now).mockReturnValue((fixtureNow - 1_000) * 1_000)
+    const { backend, template } = await createPublishedTemplate()
+    vi.mocked(Date.now).mockReturnValue(fixtureNow * 1_000)
+    await seedTelemetry(backend, template)
+    vi.mocked(Date.now).mockReturnValue((fixtureNow - 100) * 1_000)
+    const png = await encodeIndexedPng(1, 1, new Uint8Array([2]))
+    const body = new FormData()
+    body.set('png', new File([Uint8Array.from(png)], 'updated.png'))
+    body.set('originX', '4')
+    body.set('originY', '8')
+    const replaced = await backend.app.fetch(
+      authorized(`/admin/templates/${template.templateId}/versions`, {
+        method: 'POST',
+        body,
+      }),
+    )
+    expect(replaced.status).toBe(201)
+    const requests: Request[] = []
+    vi.stubGlobal('fetch', frontendFetch(backend.app, requests))
+    const history = await getTemplateProgressHistory(
+      template.templateId,
+      fixtureNow - 1_000,
+      fixtureNow + 600,
+    )
+    expect(history.templateId).toBe(template.templateId)
+    expect(history.samples).toContainEqual({
+      at: fixtureNow - 600,
+      correct: 1,
+      mismatched: 0,
+      total: 1,
+      revision: template.versionId,
+    })
+    expect(new URL(requests[0]?.url ?? '').searchParams.has('version')).toBe(false)
   })
 
   it('reads populated telemetry from real canvas and paint reports', async () => {

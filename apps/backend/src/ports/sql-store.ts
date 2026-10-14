@@ -1057,6 +1057,11 @@ export interface SqlStore extends TagStore {
   /** A version with its template metadata and complete tile index, or null if absent. */
   readTemplateVersion(versionId: string): Promise<TemplateVersionRecord | null>
 
+  /** Artwork revisions in creation order, so a template's observations survive pixel replacements. */
+  listTemplateVersions(
+    templateId: string,
+  ): Promise<readonly Pick<TemplateVersionRecord, 'versionId' | 'createdAt'>[]>
+
   /**
    * A template's own row, without a version or a tile index.
    *
@@ -1395,12 +1400,13 @@ export interface SqlStore extends TagStore {
     hashes: readonly string[],
   ): Promise<readonly TileMeasurement[]>
 
-  /** Read a whole version's winning frames and measurements in one bounded database query. */
+  /** Read winning frames, optionally excluding observations outside the artwork's active lifetime. */
   readTemplateProgressFrames(
     versionId: string,
     from: Seconds,
     to: Seconds,
     resolution: number,
+    lifetime?: { readonly fromSeconds: Seconds; readonly toSeconds: Seconds },
   ): Promise<readonly MeasuredTileFrame[]>
 
   /** Insert missing measurements, preserving existing counts and all live/placement records. */
