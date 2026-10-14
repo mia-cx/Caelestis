@@ -1,5 +1,11 @@
 # @caelestis/backend
 
+## 0.9.2
+
+### Patch Changes
+
+- 11e10c8: Keep recorded progress visible across template artwork updates without counting artwork changes as painting progress.
+
 ## 0.9.1
 
 ### Patch Changes
