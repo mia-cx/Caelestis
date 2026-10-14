@@ -12,7 +12,7 @@
     getArchiveHistory,
     getContributions,
     getHistory,
-    getProgressHistory,
+    getTemplateProgressHistory,
     getLeaderboard,
     getPainterHistory,
     getPainterTotals,
@@ -71,6 +71,7 @@ import { persisted } from '$lib/persisted.svelte'
   } = $props()
 
   const templateIds = $derived(templates.map((template) => template.id))
+  const progressRevision = $derived(JSON.stringify(templates.map((template) => template.version)))
   const remainingPixels = $derived(progress.total - progress.completed)
 
   const DAY_SECONDS = 86_400
@@ -146,12 +147,12 @@ import { persisted } from '$lib/persisted.svelte'
       const histories: (readonly ProgressSample[])[] = []
       for (const template of scope) {
         if (cancelled) return
-        const history = await getProgressHistory(template.id, template.version, start, end)
+        const history = await getTemplateProgressHistory(template.id, start, end)
         // A lifetime read can be daily; retain hourly measurements for recent zoom windows.
         const recentStart = Math.floor((end - 6 * DAY_SECONDS) / 3600) * 3600
         const samples = new Map(history.samples.map(sample => [sample.at, sample]))
         if (start < recentStart) {
-          const recent = await getProgressHistory(template.id, template.version, recentStart, end)
+          const recent = await getTemplateProgressHistory(template.id, recentStart, end)
           let covered = false
           for (const sample of recent.samples) {
             if (sample.correct !== null) covered = true
@@ -381,16 +382,8 @@ import { persisted } from '$lib/persisted.svelte'
   const pace = $derived.by(() => {
     if (archives === null || progressSamples === null) return null
     const observations = mergeObservedProgress(archiveSamples, progressSamples, {
-      at: to, correct: progress.completed, mismatched: progress.mismatched,
+      at: to, correct: progress.completed, mismatched: progress.mismatched, revision: progressRevision,
     })
-    if (estimatePeriod.key === 'all') {
-      // Overall pace uses the full elapsed lifetime, including gaps, as specified in issue #352.
-      // Timed windows below average only adjacent known observation intervals.
-      const first = observations.find(sample => sample.correct !== null && sample.at < to)
-      if (first?.correct == null) return null
-      const hours = (to - first.at) / 3_600
-      return { correct: (progress.completed - first.correct) / hours, hours }
-    }
     return completionPace(observations, to, estimatePeriod.seconds)
   })
 
@@ -449,6 +442,7 @@ import { persisted } from '$lib/persisted.svelte'
         {to}
         anchorCorrect={progress.completed}
         anchorMismatched={progress.mismatched}
+        anchorRevision={progressRevision}
         live={templates.some((template) => template.finishedAt === null)}
         finished={!hasLiveTemplate}
         {painters}

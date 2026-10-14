@@ -1057,6 +1057,11 @@ export interface SqlStore extends TagStore {
   /** A version with its template metadata and complete tile index, or null if absent. */
   readTemplateVersion(versionId: string): Promise<TemplateVersionRecord | null>
 
+  /** Artwork revisions in creation order, so a template's observations survive pixel replacements. */
+  listTemplateVersions(
+    templateId: string,
+  ): Promise<readonly Pick<TemplateVersionRecord, 'versionId' | 'createdAt'>[]>
+
   /**
    * A template's own row, without a version or a tile index.
    *

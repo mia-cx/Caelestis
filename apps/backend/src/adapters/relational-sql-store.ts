@@ -1059,6 +1059,14 @@ export class RelationalSqlStore implements SqlStore {
     }
   }
 
+  async listTemplateVersions(templateId: string) {
+    return this.database
+      .select({ versionId: templateVersions.id, createdAt: templateVersions.createdAtMs })
+      .from(templateVersions)
+      .where(eq(templateVersions.templateId, templateId))
+      .orderBy(asc(templateVersions.createdAtMs), asc(templateVersions.id))
+  }
+
   async readTemplateVersion(versionId: string): Promise<TemplateVersionRecord | null> {
     const rows = await this.database
       .select({

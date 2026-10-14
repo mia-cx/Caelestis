@@ -39,7 +39,7 @@ import {
   recordPaint,
   uploadTile,
 } from '../telemetry/ingest.js'
-import { readProgressHistory } from '../telemetry/progress-history.js'
+import { readProgressHistory, readTemplateProgressHistory } from '../telemetry/progress-history.js'
 import {
   readAlarms,
   readCanvas,
@@ -482,12 +482,20 @@ export const createTelemetryRoutes = (
     const id = c.req.param('templateId')
     const versionId = c.req.query('version')
     const range = parseRange(c.req.query('from'), c.req.query('to'))
-    if (!UUID_V7.test(id) || versionId === undefined || !UUID_V7.test(versionId) || range === null)
-      return c.json({ error: 'Choose a template version and valid time range.' }, 400)
+    if (
+      !UUID_V7.test(id) ||
+      (versionId !== undefined && !UUID_V7.test(versionId)) ||
+      range === null
+    )
+      return c.json({ error: 'Choose a template, optional version, and valid time range.' }, 400)
     const sql = Services.get(runtime.context, SqlStoreService)
     const template = await sql.readTemplate(id)
     if (template === null || (c.get('caller').scope !== 'admin' && !template.published))
       return c.json({ error: 'Template not found.' }, 404)
+    if (versionId === undefined)
+      return runBackendHttp(c, runtime, readTemplateProgressHistory(id, range), (response) =>
+        c.json(response),
+      )
     const version = await sql.readTemplateVersion(versionId)
     if (version?.templateId !== id) return c.json({ error: 'Template version not found.' }, 404)
     return runBackendHttp(c, runtime, readProgressHistory(version, range), (response) =>

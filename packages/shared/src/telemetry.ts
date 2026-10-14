@@ -372,10 +372,19 @@ export interface ProgressSample {
   readonly correct: number | null
   readonly mismatched: number | null
   readonly total: number
+  /** Artwork basis for these counts. A change starts a new net-progress interval. */
+  readonly revision?: string
 }
 
 export interface ProgressHistoryResponse {
   readonly versionId: string
+  readonly resolution: number
+  readonly samples: readonly ProgressSample[]
+}
+
+/** Recorded progress across the artwork revisions active during a template's lifetime. */
+export interface TemplateProgressHistoryResponse {
+  readonly templateId: string
   readonly resolution: number
   readonly samples: readonly ProgressSample[]
 }

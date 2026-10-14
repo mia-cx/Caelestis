@@ -33,6 +33,21 @@ const sample = (at: number, correct: number | null) => ({
 const archive = (at: number, correct: number | null) => ({ ...sample(at, correct), snapshotId: at })
 
 describe('observed progress and archive precedence', () => {
+  it('keeps historical levels but excludes artwork revisions from rolling and lifetime painting pace', () => {
+    const history = combineProgressSamples([
+      [
+        { ...sample(0, 2), revision: 'original' },
+        { ...sample(3600, 8), revision: 'original' },
+        { ...sample(7200, 100), mismatched: 100, total: 200, revision: 'replacement' },
+        { ...sample(10800, 104), mismatched: 96, total: 200, revision: 'replacement' },
+      ],
+    ])
+    const observed = mergeObservedProgress([], history)
+    expect(observed.map(({ correct }) => correct)).toEqual([2, 8, 100, 104])
+    expect(completionPace(observed, 10800, 10800)).toEqual({ correct: 5, hours: 2 })
+    expect(completionPace(observed, 10800, null)).toEqual({ correct: 10 / 3, hours: 3 })
+  })
+
   it('keeps incomplete scopes unknown and carries each scope forward only after its first observation', () => {
     expect(combineProgressSamples([[sample(10, 2), sample(30, null)], [sample(20, 3)]])).toEqual([
       sample(10, null),
@@ -106,6 +121,7 @@ describe('pace and chart windows', () => {
     expect(completionPace(samples, 7200, 7200)).toEqual({ correct: 1.5, hours: 2 })
     expect(completionPace(samples, 7200, 3600)).toEqual({ correct: -3, hours: 1 })
     expect(completionPace(samples, 14400, 3600)).toBeNull()
+    expect(completionPace(samples, 14400, null)).toEqual({ correct: 7 / 4, hours: 4 })
     expect(completionPace(samples, 3600, 3600)).toEqual({ correct: 6, hours: 1 })
     expect(completionPace([], 7200, 3600)).toBeNull()
   })

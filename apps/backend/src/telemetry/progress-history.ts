@@ -1,4 +1,9 @@
-import { type ProgressHistoryResponse, type ProgressSample, seconds } from '@caelestis/shared'
+import {
+  type ProgressHistoryResponse,
+  type ProgressSample,
+  seconds,
+  type TemplateProgressHistoryResponse,
+} from '@caelestis/shared'
 import { Effect } from 'effect'
 import type { MeasuredTileFrame, TemplateVersionRecord } from '../ports/sql-store.js'
 import { SqlStoreService } from '../runtime/backend-runtime.js'
@@ -9,10 +14,10 @@ import { type HistoryRange, selectTileHistoryResolution } from './queries.js'
 export const readProgressHistory = (
   version: TemplateVersionRecord,
   range: HistoryRange,
+  resolution = selectTileHistoryResolution(range),
 ): Effect.Effect<ProgressHistoryResponse, SqlStoreReadError, SqlStoreService> =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
-    const resolution = selectTileHistoryResolution(range)
     if (version.surface.kind !== 'world')
       return { versionId: version.versionId, resolution, samples: [] }
     const changes = new Map<number, Map<string, MeasuredTileFrame>>()
@@ -53,4 +58,55 @@ export const readProgressHistory = (
       })
     }
     return { versionId: version.versionId, resolution, samples }
+  })
+
+/** Preserve measurements against the artwork that was active then, rather than today's pixels. */
+export const readTemplateProgressHistory = (
+  templateId: string,
+  range: HistoryRange,
+): Effect.Effect<TemplateProgressHistoryResponse, SqlStoreReadError, SqlStoreService> =>
+  Effect.gen(function* () {
+    const sql = yield* SqlStoreService
+    const resolution = selectTileHistoryResolution(range)
+    const versions = yield* Effect.tryPromise({
+      try: () => sql.listTemplateVersions(templateId),
+      catch: (cause) => new SqlStoreReadError({ operation: 'listTemplateVersions', cause }),
+    })
+    const samples: ProgressSample[] = []
+    for (const [index, revision] of versions.entries()) {
+      const start = Math.max(range.fromSeconds, Math.floor(revision.createdAt / 1_000))
+      const next = versions[index + 1]
+      const end = Math.min(
+        range.toSeconds,
+        next === undefined ? Infinity : Math.floor(next.createdAt / 1_000),
+      )
+      if (start >= end) continue
+      const version = yield* Effect.tryPromise({
+        try: () => sql.readTemplateVersion(revision.versionId),
+        catch: (cause) => new SqlStoreReadError({ operation: 'readTemplateVersion', cause }),
+      })
+      if (version === null || version.surface.kind !== 'world') continue
+      // Replacements need their own coverage. An old version's held tiles cannot fill a new one.
+      samples.push({
+        at: start,
+        correct: null,
+        mismatched: null,
+        total: version.totalPixels,
+        revision: revision.versionId,
+      })
+      const from = resolution === 0 ? start : Math.floor(start / resolution) * resolution
+      const history = yield* readProgressHistory(
+        version,
+        {
+          fromSeconds: seconds(from),
+          toSeconds: seconds(end),
+        },
+        resolution,
+      )
+      for (const sample of history.samples) {
+        if (sample.at >= start && sample.at < end)
+          samples.push({ ...sample, revision: revision.versionId })
+      }
+    }
+    return { templateId, resolution, samples }
   })

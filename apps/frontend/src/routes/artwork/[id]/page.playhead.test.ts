@@ -17,7 +17,7 @@ const fixture = vi.hoisted(() => ({
     getArchiveHistory: vi.fn(),
     getContributions: vi.fn(),
     getHistory: vi.fn(),
-    getProgressHistory: vi.fn(),
+    getTemplateProgressHistory: vi.fn(),
     getLeaderboard: vi.fn(),
     getPainterHistory: vi.fn(),
     getPainterTotals: vi.fn(),
@@ -75,7 +75,7 @@ beforeEach(() => {
     .mockReset()
     .mockResolvedValue({ source: 'eralyon', basis: null, samples: [], frames: [] })
   fixture.api.getHistory.mockReset().mockResolvedValue({ buckets: [] })
-  fixture.api.getProgressHistory.mockReset().mockResolvedValue({
+  fixture.api.getTemplateProgressHistory.mockReset().mockResolvedValue({
     samples: [{ at: start + 60, correct: 1, mismatched: 0, total: 1 }],
   })
   fixture.api.getContributions.mockReset().mockResolvedValue({ days: [] })

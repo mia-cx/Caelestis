@@ -9,7 +9,13 @@ export interface ObservedProgressSample extends ProgressSample {
 export const observedProgressIntervals = (samples: readonly ObservedProgressSample[]) =>
   samples.flatMap((sample, index) => {
     const before = samples[index - 1]
-    if (before?.correct == null || sample.correct === null || sample.at <= before.at) return []
+    if (
+      before?.correct == null ||
+      sample.correct === null ||
+      sample.at <= before.at ||
+      before.revision !== sample.revision
+    )
+      return []
     const interval = { from: before.at, to: sample.at }
     return [
       {
@@ -50,6 +56,13 @@ export const combineProgressSamples = (
           ? held.reduce((sum, sample) => sum + (sample?.mismatched ?? 0), 0)
           : null,
         total: held.reduce((sum, sample) => sum + (sample?.total ?? 0), 0),
+        ...(held.some((sample) => sample.revision !== undefined)
+          ? {
+              revision: JSON.stringify(
+                histories.map((_, scope) => latest.get(scope)?.revision ?? null),
+              ),
+            }
+          : {}),
       }
     })
 }
