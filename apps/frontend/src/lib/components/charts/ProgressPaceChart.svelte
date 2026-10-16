@@ -102,8 +102,15 @@
     onScrubStart?: () => () => void
   } = $props()
 
-  const firstLive = $derived(Math.min(...progressSamples.filter(sample => !sample.boundary).map(sample => sample.at), (live || finished) ? to : Infinity))
-  const archiveSamples = $derived(importedSamples.filter(sample => sample.at < firstLive))
+  // The full-range series depend only on the data, so dragging the window never recomputes them.
+  const chartSamples = $derived(
+    mergeObservedProgress(
+      importedSamples,
+      progressSamples,
+      live || finished ? { at: to, correct: anchorCorrect, mismatched: anchorMismatched, revision: anchorRevision } : undefined,
+    ),
+  )
+  const archiveSamples = $derived(chartSamples.filter(sample => sample.archive))
 
   /**
    * Saved observations supply completion areas and combined net progress pace on the
@@ -195,14 +202,6 @@
   })
 
 
-  // The full-range series depend only on the data, so dragging the window never recomputes them.
-  const chartSamples = $derived(
-    mergeObservedProgress(
-      archiveSamples,
-      progressSamples,
-      live || finished ? { at: to, correct: anchorCorrect, mismatched: anchorMismatched, revision: anchorRevision } : undefined,
-    ),
-  )
   const observedPaces = $derived(observedProgressIntervals(chartSamples))
   const paceWindows = $derived(
     PACE_WINDOWS.map((pace) => {

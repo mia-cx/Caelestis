@@ -2,6 +2,7 @@
 import {
   encodeIndexedPng,
   millis,
+  seconds,
   sha256Hex,
   TRANSPARENT_INDEX,
   WORLD_TEMPLATE_SURFACE,
@@ -33,6 +34,8 @@ import {
   tileImageUrl,
   writeConnection,
 } from '../lib/api/client'
+import { combineArchiveSamples } from '../lib/archive-history'
+import { combineProgressSamples, mergeObservedProgress } from '../lib/progress-history'
 import { adminToken, authorized, createTestBackend, frontendFetch } from './backend'
 
 const fixtureNow = 1_700_010_000
@@ -350,6 +353,59 @@ describe('frontend API client against the built backend', () => {
       revision: template.versionId,
     })
     expect(new URL(requests[0]?.url ?? '').searchParams.has('version')).toBe(false)
+  })
+
+  it('keeps retained-state revision boundaries when merging imported history without later reports', async () => {
+    const backfill = backfillClients()
+    const backend = await createTestBackend({ backfillClients: backfill.client })
+    const importer = await seedArchive(backend)
+    backfill.importers.set(archiveTemplateId, importer)
+    const job = await importer.start(archiveTemplateId, archiveVersionId, archiveSnapshot.id)
+    for (let step = 0; step < job.total; step += 1) await importer.step()
+    const hash = 'd'.repeat(64)
+    await backend.sql.recordTileObservation(
+      {
+        season: 0,
+        tile: { x: 0, y: 0 },
+        hash,
+        observedAt: millis((fixtureNow - 3_600) * 1_000),
+        reportedAt: seconds(fixtureNow - 3_600),
+        reportedWithToken: 'a'.repeat(64),
+        reportedByUserId: 42,
+      },
+      [],
+    )
+    await backend.sql.writeTileMeasurements(archiveVersionId, { x: 0, y: 0 }, [
+      { hash, correct: 1, wrong: 0, blank: 0 },
+    ])
+    const original = await backend.sql.readTemplateVersion(archiveVersionId)
+    if (original === null) throw new Error('Missing archive artwork')
+    const replacementId = '01890f3e-7b2c-7abc-8def-012345678913'
+    await backend.sql.insertTemplateVersion({
+      ...original,
+      versionId: replacementId,
+      createdAt: millis((fixtureNow + 300) * 1_000),
+      chunks: [{ tileX: 0, tileY: 0, hash: 'e'.repeat(64) }],
+    })
+    await backend.sql.writeTileMeasurements(replacementId, { x: 0, y: 0 }, [
+      { hash, correct: 0, wrong: 1, blank: 0 },
+    ])
+    vi.stubGlobal('fetch', frontendFetch(backend.app))
+    const imported = await getArchiveHistory(archiveTemplateId, archiveVersionId)
+    const native = await getTemplateProgressHistory(
+      archiveTemplateId,
+      fixtureNow - 8_000,
+      fixtureNow + 600,
+    )
+    const merged = mergeObservedProgress(
+      combineArchiveSamples([imported]),
+      combineProgressSamples([native.samples]),
+    )
+    expect(merged.map(({ at, correct, archive }) => [at, correct, archive])).toEqual([
+      [archiveSnapshot.at, 1, true],
+      [fixtureNow, 1, false],
+      [fixtureNow + 300, 0, false],
+    ])
   })
 
   it('reads populated telemetry from real canvas and paint reports', async () => {
