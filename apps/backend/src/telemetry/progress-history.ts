@@ -1,22 +1,29 @@
 import {
   type ProgressHistoryResponse,
   type ProgressSample,
+  type Seconds,
   seconds,
   type TemplateProgressHistoryResponse,
 } from '@caelestis/shared'
 import { Effect } from 'effect'
 import type { MeasuredTileFrame, TemplateVersionRecord } from '../ports/sql-store.js'
-import { SqlStoreService } from '../runtime/backend-runtime.js'
-import { SqlStoreReadError } from '../runtime/errors.js'
+import { BlobStoreService, SqlStoreService } from '../runtime/backend-runtime.js'
+import { SqlStoreReadError, TelemetryStorageError } from '../runtime/errors.js'
+import { readHistoricalTileMeasurement } from './ingest.js'
 import { type HistoryRange, selectTileHistoryResolution } from './queries.js'
 
-/** Replay saved tile classifications; placement totals and current status never enter this read. */
+/** Replay retained canvas images, caching missing classifications against their historical artwork. */
 export const readProgressHistory = (
   version: TemplateVersionRecord,
   range: HistoryRange,
   resolution = selectTileHistoryResolution(range),
   lifetime?: HistoryRange,
-): Effect.Effect<ProgressHistoryResponse, SqlStoreReadError, SqlStoreService> =>
+  initialAt?: Seconds,
+): Effect.Effect<
+  ProgressHistoryResponse,
+  SqlStoreReadError | TelemetryStorageError,
+  SqlStoreService | BlobStoreService
+> =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
     if (version.surface.kind !== 'world')
@@ -33,18 +40,71 @@ export const readProgressHistory = (
         ),
       catch: (cause) => new SqlStoreReadError({ operation: 'readTemplateProgressFrames', cause }),
     })
-    for (const frame of frames) {
-      // Folded frames represent an observation somewhere within the bucket. Stamp its end so
-      // pixels from later in the interval are never attributed to its start or a moving "now".
-      // A replacement can split the selected display bucket. The query filters source
-      // observations before downsampling, so its predecessor's final bucket stays before it.
+    // Canvas observations survive artwork updates. Reclassify the last known frame on each
+    // tile against the new artwork instead of waiting for every tile to be reported again.
+    const initial =
+      initialAt === undefined
+        ? []
+        : yield* Effect.tryPromise({
+            try: () => sql.readTemplateProgressAt(version.versionId, initialAt),
+            catch: (cause) => new SqlStoreReadError({ operation: 'readTemplateProgressAt', cause }),
+          })
+    const blobs = yield* BlobStoreService
+    const classified = new Map<MeasuredTileFrame, MeasuredTileFrame>()
+    for (const chunk of version.chunks) {
+      const target = {
+        ...chunk,
+        templateId: version.templateId,
+        versionId: version.versionId,
+        bbox: version.bbox,
+      }
+      for (const frame of [...initial, ...frames]) {
+        if (
+          frame.tileX !== chunk.tileX ||
+          frame.tileY !== chunk.tileY ||
+          (frame.correct !== null && frame.wrong !== null)
+        )
+          continue
+        const measurement = yield* Effect.tryPromise({
+          try: async () => {
+            const measurement = await readHistoricalTileMeasurement(
+              { blobs, sql },
+              target,
+              frame.hash,
+              frame.bucketStart * 1_000,
+            )
+            if (measurement !== null)
+              await sql.writeTileMeasurements(
+                version.versionId,
+                { x: chunk.tileX, y: chunk.tileY },
+                [measurement],
+              )
+            return measurement
+          },
+          catch: (cause) =>
+            new TelemetryStorageError({ operation: 'classifyProgressHistory', cause }),
+        })
+        if (measurement !== null)
+          classified.set(frame, {
+            ...frame,
+            correct: measurement.correct,
+            wrong: measurement.wrong,
+          })
+      }
+    }
+    for (const storedFrame of frames) {
+      const frame = classified.get(storedFrame) ?? storedFrame
+      // Folded observations are stamped at the bucket's end, within this artwork's lifetime.
       const at = Math.min(frame.bucketStart + resolution, (lifetime?.toSeconds ?? Infinity) - 1)
       if (at >= range.toSeconds) continue
       const entries = changes.get(at) ?? new Map<string, MeasuredTileFrame>()
       entries.set(`${frame.tileX}/${frame.tileY}`, frame)
       changes.set(at, entries)
     }
-    const held = new Map<string, MeasuredTileFrame>()
+    const held = new Map(
+      initial.map((frame) => [`${frame.tileX}/${frame.tileY}`, classified.get(frame) ?? frame]),
+    )
+    if (initialAt !== undefined && !changes.has(initialAt)) changes.set(initialAt, new Map())
     const samples: ProgressSample[] = []
     for (const [at, entries] of [...changes].sort(([a], [b]) => a - b)) {
       for (const [key, value] of entries) held.set(key, value)
@@ -59,6 +119,7 @@ export const readProgressHistory = (
         correct: complete ? correct : null,
         mismatched: complete ? mismatched : null,
         total: version.totalPixels,
+        ...(at === initialAt ? { boundary: true as const } : {}),
       })
     }
     return { versionId: version.versionId, resolution, samples }
@@ -68,7 +129,11 @@ export const readProgressHistory = (
 export const readTemplateProgressHistory = (
   templateId: string,
   range: HistoryRange,
-): Effect.Effect<TemplateProgressHistoryResponse, SqlStoreReadError, SqlStoreService> =>
+): Effect.Effect<
+  TemplateProgressHistoryResponse,
+  SqlStoreReadError | TelemetryStorageError,
+  SqlStoreService | BlobStoreService
+> =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
     const resolution = selectTileHistoryResolution(range)
@@ -96,15 +161,6 @@ export const readTemplateProgressHistory = (
         catch: (cause) => new SqlStoreReadError({ operation: 'readTemplateVersion', cause }),
       })
       if (version === null || version.surface.kind !== 'world') continue
-      // Replacements need their own coverage. An old version's held tiles cannot fill a new one.
-      samples.push({
-        at: start,
-        correct: null,
-        mismatched: null,
-        total: version.totalPixels,
-        revision: revision.versionId,
-        boundary: true,
-      })
       const from = resolution === 0 ? start : Math.floor(start / resolution) * resolution
       const history = yield* readProgressHistory(
         version,
@@ -114,6 +170,7 @@ export const readTemplateProgressHistory = (
         },
         resolution,
         lifetime,
+        seconds(start),
       )
       for (const sample of history.samples) {
         if (sample.at >= start && sample.at < end)

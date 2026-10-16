@@ -338,6 +338,7 @@
   const progressSegments = $derived.by(() => {
     const segments: ProgressPoint[][] = []
     let segment: ProgressPoint[] | null = null
+    let revision: string | undefined
     for (const sample of chartSamples) {
       if (sample.correct === null || sample.mismatched === null) {
         segment = null
@@ -355,9 +356,13 @@
         segment = [previous]
         segments.push(segment)
       }
+      // A revision changes the artwork at an instant; hold the preceding level until then.
+      if (previous !== undefined && revision !== sample.revision)
+        segment.push({ ...previous, t: sample.at })
       segment.push({
         t: sample.at, v: sample.correct, mismatched: sample.mismatched, archive: sample.archive,
       })
+      revision = sample.revision
     }
     return segments
   })

@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { type HistoryBucket, seconds } from '@caelestis/shared'
+import { type HistoryBucket, type ProgressSample, seconds } from '@caelestis/shared'
 import { flushSync, mount, unmount } from 'svelte'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import ProgressPaceChart from './ProgressPaceChart.svelte'
@@ -45,7 +45,11 @@ const bucket = (bucketStart: number): HistoryBucket => ({
 })
 
 const mountThreeDays = (
-  extra: { playhead?: number | null; onSeek?: (t: number) => void } = {},
+  extra: {
+    playhead?: number | null
+    onSeek?: (t: number) => void
+    progressSamples?: readonly ProgressSample[]
+  } = {},
 ): void => {
   mounted = mount(ProgressPaceChart, {
     target: document.body,
@@ -108,6 +112,23 @@ const key = (init: KeyboardEventInit): void => {
 }
 
 describe('timelapse playhead', () => {
+  it('keeps the progress line continuous and draws artwork revisions as changes at their boundary', () => {
+    mountThreeDays({
+      progressSamples: [
+        { at: 0, correct: 5, mismatched: 5, total: 10, revision: 'original' },
+        { at: DAY, correct: 8, mismatched: 12, total: 20, revision: 'replacement', boundary: true },
+        { at: THREE_DAYS, correct: 9, mismatched: 11, total: 20, revision: 'replacement' },
+      ],
+    })
+    const lines = document.querySelectorAll('[data-archive-progress]')
+    expect(lines).toHaveLength(1)
+    const boundaryX = px(DAY).toFixed(1)
+    const points = [...(lines[0]?.getAttribute('d') ?? '').matchAll(/[ML]([\d.]+),([\d.]+)/g)]
+    const atBoundary = points.filter((point) => point[1] === boundaryX)
+    expect(atBoundary).toHaveLength(2)
+    expect(atBoundary[0]?.[2]).not.toBe(atBoundary[1]?.[2])
+  })
+
   it('draws the playhead where the shown window maps its time, in the plot and the strip', () => {
     mountThreeDays({ playhead: DAY, onSeek: vi.fn() })
 

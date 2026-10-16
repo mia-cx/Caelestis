@@ -1,7 +1,10 @@
 import {
+  encodeIndexedPng,
   millis,
   seconds,
+  sha256Hex,
   type TemplateProgressHistoryResponse,
+  TILE_SIZE,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -141,6 +144,102 @@ describe.each(['memory', 'sqlite'] as const)('template lifetime progress through
     })
   })
 
+  it('keeps known tile coverage when an artwork update reuses previously observed canvas tiles', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue((start + 600) * 1_000)
+    const store = adapter === 'sqlite' ? await openRelationalStore() : null
+    if (store !== null) closers.push(store.close)
+    const backend = await createTestBackend({ sql: store?.sql ?? new MemorySqlStore() })
+    await backend.sql.insertTemplateVersion(version(originalId, start, 10, [0, 1]))
+    const left = await observe(backend.sql, originalId, 0, start + 30, 3, 2)
+    const right = await observe(backend.sql, originalId, 1, start + 30, 4, 1)
+    await backend.sql.insertTemplateVersion(version(updatedId, start + 180, 20, [0, 1]))
+    await backend.sql.writeTileMeasurements(updatedId, { x: 0, y: 0 }, [
+      { hash: left, correct: 8, wrong: 2, blank: 0 },
+    ])
+    await backend.sql.writeTileMeasurements(updatedId, { x: 1, y: 0 }, [
+      { hash: right, correct: 9, wrong: 1, blank: 0 },
+    ])
+    await observe(backend.sql, updatedId, 0, start + 210, 9, 1)
+
+    const response = await backend.app.fetch(
+      authorized(`/v1/telemetry/progress/${templateId}?from=${start}&to=${start + 600}`),
+    )
+    expect(response.status).toBe(200)
+    const result = (await response.json()) as TemplateProgressHistoryResponse
+    expect(result.samples).toContainEqual({
+      at: start + 30,
+      correct: 7,
+      mismatched: 3,
+      total: 10,
+      revision: originalId,
+    })
+    expect(result.samples).toContainEqual({
+      at: start + 180,
+      correct: 17,
+      mismatched: 3,
+      total: 20,
+      revision: updatedId,
+      boundary: true,
+    })
+  })
+
+  it.each([true, false])(
+    'classifies uncached history only when its tile image is retained (%s)',
+    async (retained) => {
+      vi.spyOn(Date, 'now').mockReturnValue((start + 600) * 1_000)
+      const store = adapter === 'sqlite' ? await openRelationalStore() : null
+      if (store !== null) closers.push(store.close)
+      const backend = await createTestBackend({ sql: store?.sql ?? new MemorySqlStore() })
+      const canvas = await encodeIndexedPng(
+        TILE_SIZE,
+        TILE_SIZE,
+        new Uint8Array(TILE_SIZE * TILE_SIZE).fill(retained ? 1 : 3),
+      )
+      const canvasHash = await sha256Hex(canvas)
+      const chunk = await encodeIndexedPng(1, 1, new Uint8Array([2]))
+      const chunkHash = await sha256Hex(chunk)
+      if (retained) await backend.blobs.put('tiles', canvasHash, canvas)
+      await backend.blobs.put('chunks', chunkHash, chunk)
+      await backend.sql.insertTemplateVersion(version(originalId, start, 1, [0]))
+      await backend.sql.recordTileObservation(
+        {
+          season: 3,
+          tile: { x: 0, y: 0 },
+          hash: canvasHash,
+          observedAt: millis((start + 30) * 1_000),
+          reportedAt: seconds(start + 30),
+          reportedWithToken: tokenHash,
+          reportedByUserId: 42,
+        },
+        [],
+      )
+      await backend.sql.writeTileMeasurements(originalId, { x: 0, y: 0 }, [
+        { hash: canvasHash, correct: 1, wrong: 0, blank: 0 },
+      ])
+      await backend.sql.insertTemplateVersion({
+        ...version(updatedId, start + 180, 1, [0]),
+        chunks: [{ tileX: 0, tileY: 0, hash: chunkHash }],
+      })
+      const latest = await backend.sql.readLatestTile(3, { x: 0, y: 0 })
+      const response = await backend.app.fetch(
+        authorized(`/v1/telemetry/progress/${templateId}?from=${start}&to=${start + 600}`),
+      )
+      expect(response.status).toBe(200)
+      expect(((await response.json()) as TemplateProgressHistoryResponse).samples).toContainEqual({
+        at: start + 180,
+        correct: retained ? 0 : null,
+        mismatched: retained ? 1 : null,
+        total: 1,
+        revision: updatedId,
+        boundary: true,
+      })
+      expect(
+        await backend.sql.readTileMeasurements(updatedId, { x: 0, y: 0 }, [canvasHash]),
+      ).toEqual(retained ? [{ hash: canvasHash, correct: 0, wrong: 1, blank: 0 }] : [])
+      expect(await backend.sql.readLatestTile(3, { x: 0, y: 0 })).toEqual(latest)
+    },
+  )
+
   it('preserves observations on each side of a replacement when daily history is selected and folded', async () => {
     const day = Math.floor(start / 86_400) * 86_400
     const now = day + 40 * 86_400
@@ -170,7 +269,16 @@ describe.each(['memory', 'sqlite'] as const)('template lifetime progress through
         history.samples.filter(
           (sample) => sample.revision === updatedId && sample.correct !== null,
         ),
-      ).toEqual([])
+      ).toEqual([
+        {
+          at: day + 1800,
+          correct: 1,
+          mismatched: 9,
+          total: 10,
+          revision: updatedId,
+          boundary: true,
+        },
+      ])
     }
     assertHistory(await read())
     await backend.sql.foldTileHistory(3, { x: 0, y: 0 }, seconds(now))
