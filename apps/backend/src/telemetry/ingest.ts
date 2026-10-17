@@ -27,6 +27,7 @@ import {
   type SqlStore,
   type TelemetryTarget,
   type TemplateTileStatusRecord,
+  type TileMeasurement,
   type TileObservation,
 } from '../ports/index.js'
 import {
@@ -158,7 +159,12 @@ interface ChunkRect {
   readonly height: number
 }
 
-const chunkRect = (target: TelemetryTarget): ChunkRect | null => {
+type ClassificationTarget = Pick<
+  TelemetryTarget,
+  'templateId' | 'versionId' | 'bbox' | 'tileX' | 'tileY' | 'hash'
+>
+
+const chunkRect = (target: ClassificationTarget): ChunkRect | null => {
   const tileLeft = target.tileX * TILE_SIZE
   const tileTop = target.tileY * TILE_SIZE
   const spans =
@@ -249,7 +255,7 @@ const persistMismatchArtifact = async (
  */
 const classifyTarget = async (
   ports: BlobStores,
-  target: TelemetryTarget,
+  target: ClassificationTarget,
   canvas: Uint8Array,
   canvasHash: string,
   observedAt: number,
@@ -292,6 +298,21 @@ const classifyTarget = async (
     },
     mask: shared.mask,
   }
+}
+
+/** Derive counts for a retained canvas image against one artwork revision. */
+export const readHistoricalTileMeasurement = async (
+  ports: BlobSqlStores,
+  target: ClassificationTarget,
+  hash: string,
+  observedAt: number,
+): Promise<TileMeasurement | null> => {
+  const canvas = await readDecodedCanvas(ports, hash)
+  if (canvas === null) return null
+  const classified = await classifyTarget(ports, target, canvas, hash, observedAt)
+  if (classified === null) return null
+  const { correct, wrong, blank } = classified.status
+  return { hash, correct, wrong, blank }
 }
 
 export type MismatchMaskRead =

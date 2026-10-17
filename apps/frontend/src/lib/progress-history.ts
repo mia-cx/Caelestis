@@ -70,7 +70,7 @@ export const combineProgressSamples = (
     })
 }
 
-/** Keep archives until an actual native observation, including an observed coverage gap. */
+/** Native observations and known retained states supersede archives; empty boundaries do not. */
 export const mergeObservedProgress = (
   archive: readonly ArchiveProgressSample[],
   observed: readonly ProgressSample[],
@@ -78,7 +78,11 @@ export const mergeObservedProgress = (
 ): readonly ObservedProgressSample[] => {
   const firstLive = Math.min(
     current?.at ?? Infinity,
-    ...observed.filter((sample) => !sample.boundary).map((sample) => sample.at),
+    ...observed
+      .filter(
+        (sample) => !sample.boundary || (sample.correct !== null && sample.mismatched !== null),
+      )
+      .map((sample) => sample.at),
   )
   const byTime = new Map<number, ObservedProgressSample>(
     archive

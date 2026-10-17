@@ -102,8 +102,15 @@
     onScrubStart?: () => () => void
   } = $props()
 
-  const firstLive = $derived(Math.min(...progressSamples.filter(sample => !sample.boundary).map(sample => sample.at), (live || finished) ? to : Infinity))
-  const archiveSamples = $derived(importedSamples.filter(sample => sample.at < firstLive))
+  // The full-range series depend only on the data, so dragging the window never recomputes them.
+  const chartSamples = $derived(
+    mergeObservedProgress(
+      importedSamples,
+      progressSamples,
+      live || finished ? { at: to, correct: anchorCorrect, mismatched: anchorMismatched, revision: anchorRevision } : undefined,
+    ),
+  )
+  const archiveSamples = $derived(chartSamples.filter(sample => sample.archive))
 
   /**
    * Saved observations supply completion areas and combined net progress pace on the
@@ -195,14 +202,6 @@
   })
 
 
-  // The full-range series depend only on the data, so dragging the window never recomputes them.
-  const chartSamples = $derived(
-    mergeObservedProgress(
-      archiveSamples,
-      progressSamples,
-      live || finished ? { at: to, correct: anchorCorrect, mismatched: anchorMismatched, revision: anchorRevision } : undefined,
-    ),
-  )
   const observedPaces = $derived(observedProgressIntervals(chartSamples))
   const paceWindows = $derived(
     PACE_WINDOWS.map((pace) => {
@@ -338,6 +337,7 @@
   const progressSegments = $derived.by(() => {
     const segments: ProgressPoint[][] = []
     let segment: ProgressPoint[] | null = null
+    let revision: string | undefined
     for (const sample of chartSamples) {
       if (sample.correct === null || sample.mismatched === null) {
         segment = null
@@ -355,9 +355,13 @@
         segment = [previous]
         segments.push(segment)
       }
+      // A revision changes the artwork at an instant; hold the preceding level until then.
+      if (previous !== undefined && revision !== sample.revision)
+        segment.push({ ...previous, t: sample.at })
       segment.push({
         t: sample.at, v: sample.correct, mismatched: sample.mismatched, archive: sample.archive,
       })
+      revision = sample.revision
     }
     return segments
   })
