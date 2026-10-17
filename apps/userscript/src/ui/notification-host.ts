@@ -139,25 +139,27 @@ const handleIntent = (intent: NotificationsIntent): void => {
       finishConfirmation(intent.id, intent.value)
       break
     case 'copy-one-time-secret':
+    case 'copy-one-time-invite': {
       if (oneTimeSecret?.id !== intent.id) break
-      if (navigator.clipboard === undefined) {
-        oneTimeSecret = { ...oneTimeSecret, copyStatus: 'unavailable' }
+      const invite = intent.type === 'copy-one-time-invite'
+      const value = invite ? oneTimeSecret.inviteUrl : oneTimeSecret.value
+      if (value === undefined) break
+      const statusKey = invite ? 'inviteCopyStatus' : 'copyStatus'
+      const updateStatus = (status: NonNullable<OneTimeSecretDialogModel['copyStatus']>): void => {
+        if (oneTimeSecret?.id !== intent.id) return
+        oneTimeSecret = { ...oneTimeSecret, [statusKey]: status }
         render()
+      }
+      if (navigator.clipboard === undefined) {
+        updateStatus('unavailable')
         break
       }
-      void navigator.clipboard.writeText(oneTimeSecret.value).then(
-        () => {
-          if (oneTimeSecret?.id !== intent.id) return
-          oneTimeSecret = { ...oneTimeSecret, copyStatus: 'copied' }
-          render()
-        },
-        () => {
-          if (oneTimeSecret?.id !== intent.id) return
-          oneTimeSecret = { ...oneTimeSecret, copyStatus: 'unavailable' }
-          render()
-        },
+      void navigator.clipboard.writeText(value).then(
+        () => updateStatus('copied'),
+        () => updateStatus('unavailable'),
       )
       break
+    }
     case 'resolve-one-time-secret':
       finishSecret(intent.id)
       break
@@ -306,11 +308,16 @@ export const requestConfirmation = (request: ConfirmationRequest): Promise<boole
   })
 }
 
-export const showOneTimeSecret = (label: string, value: string): Promise<void> => {
+/** Show newly created credentials and their optional invite together until acknowledged. */
+export const showOneTimeSecret = (
+  label: string,
+  value: string,
+  inviteUrl?: string,
+): Promise<void> => {
   ensureRoot()
   if (pendingSecret !== undefined) finishSecret(pendingSecret.id)
   const id = `secret-${++sequence}`
-  oneTimeSecret = { id, label, value }
+  oneTimeSecret = { id, label, value, ...(inviteUrl === undefined ? {} : { inviteUrl }) }
   render()
   return new Promise((resolve) => {
     pendingSecret = { id, resolve }

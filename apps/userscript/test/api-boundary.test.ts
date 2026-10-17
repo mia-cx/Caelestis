@@ -66,6 +66,55 @@ const authored = async () => {
   }
 }
 
+describe('access token creation through the backend', () => {
+  it('offers a working invite and the new token together, with separate copy actions', async () => {
+    await installBackend()
+    const { server, state } = await connect()
+    const { registerCaelestisUi } = await import('@caelestis/ui/elements')
+    const { createServerAccessToken } = await import('../src/application/access-tokens.js')
+    const { readInvite } = await import('../src/invite.js')
+    registerCaelestisUi()
+    const copied: string[] = []
+    vi.spyOn(navigator.clipboard, 'writeText').mockImplementation(async (value) => {
+      copied.push(value)
+    })
+    createServerAccessToken(server, 'Invite reader', 'read', () => {})
+    try {
+      await vi.waitFor(() => {
+        expect(
+          document
+            .querySelector('caelestis-notifications')
+            ?.shadowRoot?.querySelector('input[aria-label="Invite link"]'),
+        ).toBeInstanceOf(HTMLInputElement)
+      })
+      const root = document.querySelector('caelestis-notifications')?.shadowRoot
+      const token = root?.querySelector<HTMLInputElement>('input[aria-label="Access token"]')
+      const invite = root?.querySelector<HTMLInputElement>('input[aria-label="Invite link"]')
+      if (root === null || root === undefined || token == null || invite == null)
+        throw new Error('Missing token creation result')
+      expect(readInvite(new URL(invite.value).hash)).toEqual({
+        serverUrl: server.url,
+        token: token.value,
+      })
+      expect(await state.probeServer(server.url, token.value)).toMatchObject({
+        status: 'connected',
+        token: token.value,
+        isAdmin: false,
+      })
+      const copyToken = root.querySelector<HTMLButtonElement>('[aria-label="Copy token"]')
+      const copyInvite = root.querySelector<HTMLButtonElement>('[aria-label="Copy invite link"]')
+      if (copyToken === null || copyInvite === null) throw new Error('Missing copy actions')
+      copyToken.click()
+      await vi.waitFor(() => expect(copied).toEqual([token.value]))
+      copyInvite.click()
+      await vi.waitFor(() => expect(copied).toEqual([token.value, invite.value]))
+      root.querySelector<HTMLButtonElement>('.quiet')?.click()
+    } finally {
+      document.body.replaceChildren()
+    }
+  })
+})
+
 describe('template authoring through the backend', () => {
   it('keeps source and recipe with an uploaded version for any reader', async () => {
     await installBackend()

@@ -5,6 +5,9 @@ server address and access token into Settings. It is a stopgap until accounts ar
 deliberately static: the link itself carries everything needed, and the server keeps no invite
 records.
 
+In userscript Settings, open your server and create an access token. The result shows both the
+token and its invite link, with a copy button for each, before you close the dialog.
+
 ## Format
 
 ```text

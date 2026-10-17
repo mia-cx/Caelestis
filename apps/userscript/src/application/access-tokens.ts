@@ -1,4 +1,5 @@
 import type { AccessTokenScope, SettingsAccessTokensModel } from '@caelestis/ui/elements'
+import { encodeInvite } from '../invite.js'
 import {
   type AccessToken,
   type AccessTokenPage,
@@ -256,6 +257,7 @@ export const loadMoreAccessTokens = (server: ConnectedServer, onChange: () => vo
   })
 }
 
+/** Create credentials and show both the token and invite before refreshing the inventory. */
 export const createServerAccessToken = (
   server: ConnectedServer,
   label: string,
@@ -278,7 +280,11 @@ export const createServerAccessToken = (
     }
     state.created += 1
     notify(state)
-    await showOneTimeSecret(label, result.token)
+    await showOneTimeSecret(
+      label,
+      result.token,
+      `https://wplace.live/#${encodeInvite(server.url, result.token)}`,
+    )
     if (connections.get(server.url) !== state) return
     reloadAccessTokens(server, onChange, true)
   })
