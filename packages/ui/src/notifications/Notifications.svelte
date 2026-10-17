@@ -168,7 +168,7 @@
 {#if secret !== null}
   {@const tokenCopyLabel = secret.copyStatus === 'copied' ? 'Copied token' : secret.copyStatus === 'unavailable' ? 'Select token' : 'Copy token'}
   {@const inviteCopyLabel = secret.inviteCopyStatus === 'copied' ? 'Copied link' : secret.inviteCopyStatus === 'unavailable' ? 'Select link' : 'Copy invite link'}
-  <dialog bind:this={secretDialog} class="caelestis-panel-surface" oncancel={(event) => event.preventDefault()} aria-labelledby="secret-title">
+  <dialog bind:this={secretDialog} class="caelestis-panel-surface token-dialog" oncancel={(event) => event.preventDefault()} aria-labelledby="secret-title">
     <div class="dialog-box">
       <header><h2 id="secret-title">Access token created</h2></header>
       <div class="dialog-body">
@@ -418,6 +418,10 @@
 
   h2 { margin: 0; font-size: 1.25rem; line-height: 1.2; }
   .dialog-body { padding: 1rem 1.25rem 1.25rem; overflow: auto; }
+  .token-dialog[open] { display: flex; flex-direction: column; }
+  .token-dialog .dialog-box { display: flex; flex: 1 1 auto; min-block-size: 0; flex-direction: column; }
+  .token-dialog header { flex-shrink: 0; }
+  .token-dialog .dialog-body { flex: 1 1 auto; min-block-size: 0; }
   p { margin: 0; }
   .lead { font-size: 1.05rem; }
   .note { margin-block-start: 0.25rem; color: var(--caelestis-muted-text, color-mix(in oklab, currentColor 68%, transparent)); white-space: pre-line; }
@@ -445,6 +449,11 @@
   .secret-row .button { flex: 0 0 9.5rem; min-block-size: 2.75rem; padding-inline: 0.5rem; white-space: nowrap; }
   .secret { inline-size: 100%; min-inline-size: 0; min-block-size: 2.5rem; padding-inline: 0.65rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-raised-surface, color-mix(in oklab, var(--caelestis-surface) 88%, black)); color: inherit; font: 500 0.85rem var(--caelestis-mono-font, ui-monospace, monospace); }
   .button:focus-visible, .toast-action:focus-visible { outline: 2px solid var(--caelestis-focus, oklch(0.62 0.17 252)); outline-offset: 2px; }
+
+  @media (max-width: 26rem) {
+    .secret-row { flex-direction: column; }
+    .secret-row .button { flex-basis: auto; min-inline-size: 0; min-block-size: 3rem; white-space: normal; }
+  }
 
   @media (forced-colors: active) {
     .toast, .toast-action, .peek, dialog, .button { border-color: CanvasText; }
