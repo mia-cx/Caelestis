@@ -15,8 +15,10 @@
   let secretDialog = $state<HTMLDialogElement>()
   let copySecret = $state<HTMLButtonElement>()
   let secretField = $state<HTMLInputElement>()
+  let inviteField = $state<HTMLInputElement>()
   let resolvedId: string | null = null
   let resolvedSecretId: string | null = null
+  let focusedSecretId: string | null = null
   // Live models resolve immediately; these copies only retain the closing visual shells.
   let confirm = $state<ConfirmDialogModel | null>(null)
   let secret = $state<OneTimeSecretDialogModel | null>(null)
@@ -91,7 +93,11 @@
     void tick().then(() => {
       if (!active || resolvedSecretId === current.id) return
       if (!currentDialog.open) currentDialog.showModal()
-      copySecret?.focus()
+      // Clipboard feedback updates this model; only a new dialog should move focus.
+      if (focusedSecretId !== current.id) {
+        focusedSecretId = current.id
+        copySecret?.focus()
+      }
     })
     return () => { active = false }
   })
@@ -160,19 +166,38 @@
 </div>
 
 {#if secret !== null}
+  {@const tokenCopyLabel = secret.copyStatus === 'copied' ? 'Copied token' : secret.copyStatus === 'unavailable' ? 'Select token' : 'Copy token'}
+  {@const inviteCopyLabel = secret.inviteCopyStatus === 'copied' ? 'Copied link' : secret.inviteCopyStatus === 'unavailable' ? 'Select link' : 'Copy invite link'}
   <dialog bind:this={secretDialog} class="caelestis-panel-surface" oncancel={(event) => event.preventDefault()} aria-labelledby="secret-title">
     <div class="dialog-box">
-      <header><h2 id="secret-title">Copy this access token</h2></header>
+      <header><h2 id="secret-title">Access token created</h2></header>
       <div class="dialog-body">
-        <p class="lead">The token for {secret.label}.</p>
-        <p class="note">It is shown once. The server stores only a hash, so there is no way to see it again — if it is lost, revoke it and make another.</p>
-        <input bind:this={secretField} class="secret caelestis-field" aria-label="Access token" readonly value={secret.value} onfocus={(event) => event.currentTarget.select()} />
+        <p class="lead">For {secret.label}.</p>
+        <p class="note">Copy the token or invite link before closing.</p>
+        <div class="secret-value">
+          <label for="access-token-value">Access token</label>
+          <div class="secret-row">
+            <input id="access-token-value" bind:this={secretField} class="secret caelestis-field" aria-label="Access token" readonly value={secret.value} onfocus={(event) => event.currentTarget.select()} />
+            <button bind:this={copySecret} aria-label={tokenCopyLabel} aria-live="polite" class:success={secret.copyStatus === 'copied'} class:warning={secret.copyStatus === 'unavailable'} class="button primary caelestis-bevel" type="button" onclick={() => {
+              if (model.oneTimeSecret?.copyStatus === 'unavailable') { secretField?.focus(); secretField?.select() }
+              else onIntent?.({ type: 'copy-one-time-secret', id: model.oneTimeSecret?.id ?? '' })
+            }}>{tokenCopyLabel}</button>
+          </div>
+        </div>
+        {#if secret.inviteUrl !== undefined}
+          <div class="secret-value">
+            <label for="invite-link-value">Invite link</label>
+            <div class="secret-row">
+              <input id="invite-link-value" bind:this={inviteField} class="secret caelestis-field" aria-label="Invite link" readonly value={secret.inviteUrl} onfocus={(event) => event.currentTarget.select()} />
+              <button aria-label={inviteCopyLabel} aria-live="polite" class:success={secret.inviteCopyStatus === 'copied'} class:warning={secret.inviteCopyStatus === 'unavailable'} class="button primary caelestis-bevel" type="button" onclick={() => {
+                if (model.oneTimeSecret?.inviteCopyStatus === 'unavailable') { inviteField?.focus(); inviteField?.select() }
+                else onIntent?.({ type: 'copy-one-time-invite', id: model.oneTimeSecret?.id ?? '' })
+              }}>{inviteCopyLabel}</button>
+            </div>
+          </div>
+        {/if}
         <div class="dialog-actions">
-          <button class="button quiet caelestis-bevel" type="button" onclick={resolveSecret}>I have copied it</button>
-          <button bind:this={copySecret} class:success={secret.copyStatus === 'copied'} class:warning={secret.copyStatus === 'unavailable'} class="button primary caelestis-bevel" type="button" onclick={() => {
-            if (model.oneTimeSecret?.copyStatus === 'unavailable') secretField?.focus()
-            else onIntent?.({ type: 'copy-one-time-secret', id: model.oneTimeSecret?.id ?? '' })
-          }}>{secret.copyStatus === 'copied' ? 'Copied' : secret.copyStatus === 'unavailable' ? 'Select it and copy' : 'Copy'}</button>
+          <button class="button quiet caelestis-bevel" type="button" onclick={resolveSecret}>Done</button>
         </div>
       </div>
     </div>
@@ -415,7 +440,10 @@
   .button.primary { min-inline-size: 8rem; border-color: transparent; background: var(--caelestis-primary, oklch(0.58 0.17 252)); color: white; }
   .button.success { background: var(--caelestis-success, oklch(0.63 0.16 154)); }
   .button.warning { background: var(--caelestis-warning, oklch(0.68 0.15 75)); color: black; }
-  .secret { inline-size: 100%; min-block-size: 2.5rem; margin-block-start: 1rem; padding-inline: 0.65rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-raised-surface, color-mix(in oklab, var(--caelestis-surface) 88%, black)); color: inherit; font: 500 0.85rem var(--caelestis-mono-font, ui-monospace, monospace); }
+  .secret-value { display: grid; gap: 0.375rem; margin-block-start: 1rem; }
+  .secret-row { display: flex; gap: 0.5rem; }
+  .secret-row .button { flex: 0 0 9.5rem; min-block-size: 2.75rem; padding-inline: 0.5rem; white-space: nowrap; }
+  .secret { inline-size: 100%; min-inline-size: 0; min-block-size: 2.5rem; padding-inline: 0.65rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-raised-surface, color-mix(in oklab, var(--caelestis-surface) 88%, black)); color: inherit; font: 500 0.85rem var(--caelestis-mono-font, ui-monospace, monospace); }
   .button:focus-visible, .toast-action:focus-visible { outline: 2px solid var(--caelestis-focus, oklch(0.62 0.17 252)); outline-offset: 2px; }
 
   @media (forced-colors: active) {

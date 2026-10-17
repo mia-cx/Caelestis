@@ -62,6 +62,8 @@ export interface OneTimeSecretDialogModel {
   readonly label: string
   readonly value: string
   readonly copyStatus?: 'copied' | 'unavailable'
+  readonly inviteUrl?: string
+  readonly inviteCopyStatus?: 'copied' | 'unavailable'
 }
 
 export interface NotificationsModel {
@@ -78,6 +80,7 @@ export type NotificationsIntent =
       readonly value: boolean
     }
   | { readonly type: 'copy-one-time-secret'; readonly id: string }
+  | { readonly type: 'copy-one-time-invite'; readonly id: string }
   | { readonly type: 'resolve-one-time-secret'; readonly id: string }
 
 export interface NotificationsProps {
