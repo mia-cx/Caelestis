@@ -1,5 +1,11 @@
 # @caelestis/frontend
 
+## 0.7.4
+
+### Patch Changes
+
+- af65334: Keep progress charts continuous across artwork updates using retained tile images and show revision changes as steps.
+
 ## 0.7.3
 
 ### Patch Changes
