@@ -151,7 +151,7 @@ importers:
         specifier: 0.45.3
         version: 0.45.3(@cloudflare/workers-types@5.20261002.1)(@types/pg@8.23.1)(bun-types@1.4.2)(pg@8.23.1)
       effect:
-        specifier: 4.0.0-rc.117
+        specifier: 4.0.0
         version: 4.0.0-rc.117
       fzstd:
         specifier: 0.1.1
@@ -408,7 +408,7 @@ importers:
         specifier: workspace:*
         version: link:../shared
       effect:
-        specifier: 4.0.0-rc.117
+        specifier: 4.0.0
         version: 4.0.0-rc.117
     devDependencies:
       typescript:
