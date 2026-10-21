@@ -88,10 +88,17 @@ describe('show only this', () => {
     // The search lists only Target; its peers must be hidden by folder, not by what is listed.
     chooseShowOnly(`local:${target}`, 'target')
 
-    await vi.waitFor(() => expect(shown(target)).toBe(true))
-    expect([peer, deep, outerPeer].map(shown)).toEqual([false, false, false])
-    expect(shown(elsewhere)).toBe(true)
-    expect(shown(stillHidden)).toBe(false)
+    // Shown: the target and the template outside its path. Hidden: its peers and what was hidden.
+    await vi.waitFor(() =>
+      expect([target, elsewhere, peer, deep, outerPeer, stillHidden].map(shown)).toEqual([
+        true,
+        true,
+        false,
+        false,
+        false,
+        false,
+      ]),
+    )
     expect(toast).not.toHaveBeenCalled()
 
     // A hidden subfolder keeps its own arrangement for when it is switched back on.
