@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM node:24.20.0-bookworm-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e AS build
+FROM node:24.22.1-bookworm-slim@sha256:1681862882da07ee5476fee047bcf34138833f1df42633bb25bcb0f438d5bf3d AS build
 WORKDIR /build
 RUN npm install --global pnpm@12.3.4
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
@@ -23,7 +23,7 @@ RUN pnpm --filter @caelestis/backend deploy --prod --legacy /output/apps/backend
 RUN pnpm --filter @caelestis/frontend deploy --prod --legacy /output/apps/frontend
 RUN cp -R apps/frontend/build /output/apps/frontend/build
 
-FROM node:24.20.0-bookworm-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e AS runtime
+FROM node:24.22.1-bookworm-slim@sha256:1681862882da07ee5476fee047bcf34138833f1df42633bb25bcb0f438d5bf3d AS runtime
 ARG CAELESTIS_BUILD_ID=development
 LABEL org.opencontainers.image.source="https://github.com/mia-cx/Caelestis" \
       org.opencontainers.image.revision=$CAELESTIS_BUILD_ID \
