@@ -110,7 +110,7 @@
         <div
           class="caelestis-menu dropdown-content pointer-events-none z-20 mb-1 flex w-64 flex-col gap-3 group-focus-within:pointer-events-auto"
         >
-          <label class="input input-sm w-full tabular-nums">
+          <label class="input input-sm w-full text-base tabular-nums sm:text-sm">
             <!-- Commit on change, not input, so clearing the field to type a new value keeps playing. -->
             <input
               type="number"
