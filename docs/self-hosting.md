@@ -28,7 +28,7 @@ Each server release publishes matching backend variants for `linux/amd64` and `l
 | --- | --- | --- |
 | `latest`, `1`, `1.2`, `1.2.3` | Bun 1.4.2 | Default |
 | `latest-bun`, `1-bun`, `1.2-bun`, `1.2.3-bun` | Bun 1.4.2 | Explicit Bun |
-| `latest-node`, `1-node`, `1.2-node`, `1.2.3-node` | Node 24.20.0 | Explicit Node |
+| `latest-node`, `1-node`, `1.2-node`, `1.2.3-node` | Node 24.22.1 | Explicit Node |
 
 The frontend publishes `latest`, major, minor, and patch tags for its own version.
 Patch tags stay immutable. Latest, major, and minor aliases move only when that app receives a release.
@@ -427,7 +427,7 @@ Open each package's settings, change its visibility to Public, and rerun the rel
 The retry verifies the existing images before publishing the GitHub Release.
 Chart or shared-package changes that affect the server need a Changeset for the affected backend/frontend app.
 
-From source, use Node 24.20.0 and the repository's pinned pnpm:
+From source, use Node 24.22.1 and the repository's pinned pnpm:
 
 ```sh
 pnpm install --frozen-lockfile
