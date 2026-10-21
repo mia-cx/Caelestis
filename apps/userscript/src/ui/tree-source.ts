@@ -61,6 +61,15 @@ export interface TreeItem {
     | undefined
 }
 
+/** A row and the folder it is listed in; `null` is the source's top level. */
+export interface TreeEntry {
+  readonly parentId: string | null
+  readonly item: TreeItem
+}
+
+/** A row's own on/off switch, or a source root's. */
+export type VisibilitySwitch = Pick<TreeItem, 'visible' | 'setVisible'>
+
 /**
  * A hierarchy independent of where its rows came from.
  *
@@ -69,23 +78,55 @@ export interface TreeItem {
  */
 export interface TreeSource {
   readonly children: (parentId: string | null) => readonly TreeItem[]
+  /**
+   * Make one row the only thing drawn in its folder, using the ordinary visibility switches.
+   *
+   * Every sibling switches off, sibling folders included; their contents keep their own switches
+   * for when the folder comes back. Each hidden container on the path up to `root` switches on with
+   * its other children off, so the row appears without revealing anything else. Rows off that
+   * path keep their switches. Membership comes from the source, never from search or filters.
+   * False when the row is unknown or any switch failed to save.
+   */
+  readonly showOnly: (key: string, root: VisibilitySwitch) => Promise<boolean>
   readonly progress: (parentId: string | null) => TemplateProgress | undefined
   readonly colourProgress: (
     parentId: string | null,
   ) => readonly TemplateColourProgress[] | undefined
 }
 
-export const groupedTreeSource = (
-  entries: ReadonlyArray<{
-    readonly parentId: string | null
-    readonly item: TreeItem
-  }>,
-): TreeSource => {
+export const groupedTreeSource = (entries: ReadonlyArray<TreeEntry>): TreeSource => {
   const byParent = new Map<string | null, TreeItem[]>()
-  for (const { parentId, item } of entries) {
+  const byKey = new Map<string, TreeEntry>()
+  const folders = new Map<string, TreeItem>()
+  for (const entry of entries) {
+    const { parentId, item } = entry
     const siblings = byParent.get(parentId) ?? []
     siblings.push(item)
     byParent.set(parentId, siblings)
+    byKey.set(item.key, entry)
+    if (item.childrenOf !== null) folders.set(item.childrenOf, item)
+  }
+  const showOnly = async (key: string, root: VisibilitySwitch): Promise<boolean> => {
+    const writes: Array<() => boolean | Promise<boolean>> = []
+    let at: TreeEntry | undefined = byKey.get(key)
+    if (at === undefined) return false
+    // Bounded by the row count: a manifest is outside data, and a parent cycle must not hang.
+    for (let depth = 0; at !== undefined && depth <= entries.length; depth++) {
+      const { parentId, item }: TreeEntry = at
+      const folder: TreeItem | undefined = parentId === null ? undefined : folders.get(parentId)
+      if (parentId !== null && folder === undefined) return false
+      const container = folder ?? root
+      if (depth === 0 || !container.visible) {
+        for (const sibling of byParent.get(parentId) ?? []) {
+          if (sibling !== item && sibling.visible) writes.push(() => sibling.setVisible(false))
+        }
+      }
+      if (!item.visible) writes.push(() => item.setVisible(true))
+      if (folder === undefined && !root.visible) writes.push(() => root.setVisible(true))
+      at = folder === undefined ? undefined : byKey.get(folder.key)
+    }
+    const results = await Promise.allSettled(writes.map(async (write) => await write()))
+    return results.every((result) => result.status === 'fulfilled' && result.value)
   }
   const totals = new Map<string | null, TemplateProgress | undefined>()
   const completedForSort = new Map<string | null, number>()
@@ -240,6 +281,7 @@ export const groupedTreeSource = (
           ...(hasColours ? { colourProgress: () => colourProgress(item.childrenOf) ?? [] } : {}),
         }
       }),
+    showOnly,
     progress,
     colourProgress,
   }

@@ -1129,6 +1129,19 @@ export const openContextMenu = (
     label: 'Export .wplace',
     run: () => void exportTemplate(target),
   }
+  const showOnly = target.showOnly
+  const showOnlyEntry: MenuEntry | null =
+    showOnly === undefined
+      ? null
+      : {
+          icon: 'eye',
+          label: 'Show only this',
+          run: () =>
+            void showOnly().then((saved) => {
+              if (!saved) toast(`Could not change visibility for “${target.name}”.`, 'error')
+              rerender()
+            }),
+        }
   const published = publishedStateOf(target)
   const lifecycle = templateStateOf(target)
   const alarm =
@@ -1273,6 +1286,7 @@ export const openContextMenu = (
                 returnToCanvas: true,
                 run: () => goToLocalTemplate(templateId),
               },
+              showOnlyEntry,
             ],
             organise: [
               {
@@ -1307,17 +1321,17 @@ export const openContextMenu = (
   const claimed = hasOwnTemplateClaim(target)
   const groups: MenuGroups = {
     // Fly-to leads every template menu: on touch the menu is the only way to reach it.
-    navigate:
+    navigate: [
       lifecycle === null
-        ? []
-        : [
-            {
-              icon: 'search',
-              label: 'Go to',
-              returnToCanvas: true,
-              run: () => goToServerTemplate(lifecycle.bbox, surfaceOf(target)),
-            },
-          ],
+        ? null
+        : {
+            icon: 'search',
+            label: 'Go to',
+            returnToCanvas: true,
+            run: () => goToServerTemplate(lifecycle.bbox, surfaceOf(target)),
+          },
+      showOnlyEntry,
+    ],
     work:
       (target.templateId !== undefined || templateId !== null) && canClaimTemplate(target)
         ? [
