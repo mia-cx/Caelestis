@@ -195,3 +195,54 @@ it('moves the transport evenly through dense and sparse sections', async () => {
   await advance(3_500)
   expect(position()).toBeCloseTo(3_600, -1)
 })
+
+it('plays a typed speed above 4×, keeps it across a reload, and ignores invalid entries', async () => {
+  await show()
+  const field = document.querySelector<HTMLInputElement>('input[aria-label="playback speed"]')
+  const enter = (value: string) => {
+    if (field === null) throw new Error('no speed field')
+    field.value = value
+    field.dispatchEvent(new Event('change', { bubbles: true }))
+    flushSync()
+  }
+  enter('40')
+  for (const invalid of ['', '0', '-3', '1e400']) enter(invalid)
+  expect(field?.value).toBe('40')
+  expect(localStorage.getItem('caelestis:timelapse-speed')).toBe('40')
+
+  // Two recorded hours take 175 ms at 4×; at 40× they are done well within 20 ms.
+  click('play timelapse')
+  await advance(20)
+  expect(position()).toBe(7_200)
+
+  if (mounted) await unmount(mounted)
+  await show()
+  expect(
+    document.querySelector('button[aria-label="playback speed, currently 40×"]'),
+  ).not.toBeNull()
+})
+
+it('plays the whole history in about ten seconds from its preset', async () => {
+  vi.setSystemTime((start + 604_800) * 1_000)
+  await show()
+  const preset = [...document.querySelectorAll('button')].find(
+    (button) => button.textContent?.trim() === '10 s',
+  )
+  preset?.click()
+  flushSync()
+  expect(localStorage.getItem('caelestis:timelapse-speed')).toBe('5.9')
+  click('play timelapse')
+  await advance(9_800)
+  expect(position()).toBeLessThan(604_800)
+  await advance(200)
+  expect(position()).toBe(604_800)
+})
+
+it.each(['0', '"fast"'])('plays at 1× from a corrupt saved speed %s', async (saved) => {
+  localStorage.setItem('caelestis:timelapse-speed', saved)
+  await show()
+  expect(document.querySelector('button[aria-label="playback speed, currently 1×"]')).not.toBeNull()
+  click('play timelapse')
+  await advance(350)
+  expect(position()).toBeCloseTo(3_600, -1)
+})

@@ -41,6 +41,24 @@ export const transportScale = (start: number, end: number): TransportScale => {
 const RECORDED_SECONDS_PER_MS = 3_600 / 350
 const PLAYHEAD_UPDATE_MS = 1_000 / 60
 
+/** The slowest playback speed; anything slower holds one snapshot for minutes. Faster is unbounded. */
+export const MIN_SPEED = 0.05
+
+/** A speed the player can keep: null for non-positive or non-finite input, otherwise at least MIN_SPEED. */
+export const playbackSpeed = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? Math.max(MIN_SPEED, value)
+    : null
+
+/**
+ * The speed that plays `span` recorded seconds in about `ms`, rounded to two significant digits so
+ * it reads as a preset. Null when that would be slower than MIN_SPEED, including an empty span.
+ */
+export const speedToFit = (span: number, ms: number): number | null => {
+  const speed = Number((span / (ms * RECORDED_SECONDS_PER_MS)).toPrecision(2))
+  return speed >= MIN_SPEED ? speed : null
+}
+
 /**
  * A recorded-time clock with variable frame deadlines. Late callbacks skip to the current frame
  * instead of slowing dense sections down. Pause and speed changes preserve time within a frame.
@@ -73,7 +91,8 @@ export class TimelapseClock {
     this.pause()
     const from = this.position
     const started = performance.now()
-    const rate = RECORDED_SECONDS_PER_MS * speed
+    // Speed has no upper cap, so an overflowing rate saturates and playback jumps to live.
+    const rate = Math.min(Number.MAX_VALUE, RECORDED_SECONDS_PER_MS * speed)
     let timer: ReturnType<typeof setTimeout> | undefined
     const updatePosition = () => {
       this.position = Math.min(this.end, from + (performance.now() - started) * rate)
