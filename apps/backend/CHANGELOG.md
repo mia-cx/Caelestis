@@ -1,5 +1,11 @@
 # @caelestis/backend
 
+## 0.9.5
+
+### Patch Changes
+
+- 094a382: Label the Node images with their real Node.js version, 24.22.1, so release validation accepts them.
+
 ## 0.9.4
 
 ### Patch Changes
