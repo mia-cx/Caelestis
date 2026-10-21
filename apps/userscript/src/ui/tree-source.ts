@@ -82,10 +82,11 @@ export interface TreeSource {
    * Make one row the only thing drawn in its folder, using the ordinary visibility switches.
    *
    * Every sibling switches off, sibling folders included; their contents keep their own switches
-   * for when the folder comes back. Each hidden container on the path up to `root` switches on with
-   * its other children off, so the row appears without revealing anything else. Rows off that
-   * path keep their switches. Membership comes from the source, never from search or filters.
-   * False when the row is unknown or any switch failed to save.
+   * for when the folder comes back. Each container on the path up to `root` that was not drawn,
+   * whether switched off itself or under a switch that is, keeps only the path's row: hidden
+   * switches turn on and its other children turn off, so the row appears without revealing anything
+   * else. Already drawn rows off that path keep their switches. Membership comes from the source,
+   * never from search or filters. False when the row is unknown or any switch failed to save.
    */
   readonly showOnly: (key: string, root: VisibilitySwitch) => Promise<boolean>
   readonly progress: (parentId: string | null) => TemplateProgress | undefined
@@ -107,23 +108,28 @@ export const groupedTreeSource = (entries: ReadonlyArray<TreeEntry>): TreeSource
     if (item.childrenOf !== null) folders.set(item.childrenOf, item)
   }
   const showOnly = async (key: string, root: VisibilitySwitch): Promise<boolean> => {
-    const writes: Array<() => boolean | Promise<boolean>> = []
-    let at: TreeEntry | undefined = byKey.get(key)
-    if (at === undefined) return false
+    // The row's path, top first, each step with the switch of the container it is listed in.
+    const path: Array<TreeEntry & { readonly container: VisibilitySwitch }> = []
     // Bounded by the row count: a manifest is outside data, and a parent cycle must not hang.
-    for (let depth = 0; at !== undefined && depth <= entries.length; depth++) {
-      const { parentId, item }: TreeEntry = at
-      const folder: TreeItem | undefined = parentId === null ? undefined : folders.get(parentId)
-      if (parentId !== null && folder === undefined) return false
-      const container = folder ?? root
-      if (depth === 0 || !container.visible) {
+    for (let at = byKey.get(key); at !== undefined && path.length <= entries.length; ) {
+      const folder = at.parentId === null ? undefined : folders.get(at.parentId)
+      if (at.parentId !== null && folder === undefined) return false
+      path.unshift({ ...at, container: folder ?? root })
+      at = folder === undefined ? undefined : byKey.get(folder.key)
+    }
+    if (path.length === 0) return false
+    const writes: Array<() => boolean | Promise<boolean>> = []
+    // A container's rows are drawn only while every switch above them is on.
+    let drawn = true
+    for (const [depth, { parentId, item, container }] of path.entries()) {
+      drawn &&= container.visible
+      if (depth === path.length - 1 || !drawn) {
         for (const sibling of byParent.get(parentId) ?? []) {
           if (sibling !== item && sibling.visible) writes.push(() => sibling.setVisible(false))
         }
       }
       if (!item.visible) writes.push(() => item.setVisible(true))
-      if (folder === undefined && !root.visible) writes.push(() => root.setVisible(true))
-      at = folder === undefined ? undefined : byKey.get(folder.key)
+      if (container === root && !root.visible) writes.push(() => root.setVisible(true))
     }
     const results = await Promise.allSettled(writes.map(async (write) => await write()))
     return results.every((result) => result.status === 'fulfilled' && result.value)

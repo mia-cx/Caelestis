@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createLocalFolder, setLocalFolderVisible } from '../src/local-folders.js'
+import { setScopeVisible } from '../src/state.js'
 import * as store from '../src/templates/local-store.js'
 import { toast } from '../src/ui/toast.js'
 import { type TreeCallbacks, type TreeTarget, templateTreeAdapter } from '../src/ui/tree.js'
@@ -66,6 +67,7 @@ const chooseShowOnly = (key: string, query = ''): void => {
 }
 
 afterEach(async () => {
+  setScopeVisible('local', true)
   for (const placed of store.localTemplates()) await store.removeLocalTemplate(placed.id)
 })
 
@@ -104,6 +106,34 @@ describe('show only this', () => {
     // A hidden subfolder keeps its own arrangement for when it is switched back on.
     setLocalFolderVisible(nested, true)
     expect(shown(deep)).toBe(true)
+  })
+
+  // Outer and Inner are switched on, but nothing in them is drawn until the switch above is on.
+  it.each([
+    [
+      'the Local source',
+      (): null => {
+        setScopeVisible('local', false)
+        return null
+      },
+    ],
+    [
+      'a distant folder',
+      (): string => {
+        const top = folder('Top')
+        setLocalFolderVisible(top, false)
+        return top
+      },
+    ],
+  ])('keeps a switched-on folder quiet when %s above it was hiding it', async (_, hiddenAbove) => {
+    const outer = folder('Outer', hiddenAbove())
+    const inner = folder('Inner', outer)
+    const target = await template('Target', inner)
+    const outerPeer = await template('Outer peer', outer)
+
+    chooseShowOnly(`local:${target}`)
+
+    await vi.waitFor(() => expect([target, outerPeer].map(shown)).toEqual([true, false]))
   })
 
   it('reports a switch that could not be saved', async () => {
