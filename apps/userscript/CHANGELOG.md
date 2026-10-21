@@ -1,5 +1,11 @@
 # @caelestis/userscript
 
+## 0.16.3
+
+### Patch Changes
+
+- 8f7df15: Show a copyable invite link alongside each newly created access token.
+
 ## 0.16.2
 
 ### Patch Changes

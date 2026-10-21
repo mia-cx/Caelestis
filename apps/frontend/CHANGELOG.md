@@ -1,5 +1,11 @@
 # @caelestis/frontend
 
+## 0.7.5
+
+### Patch Changes
+
+- cc8f4a2: Run on Node.js 24.22.1, which fixes the October 2026 Node.js security release vulnerabilities, including the Brotli decoder out-of-bounds write (CVE-2026-111497).
+
 ## 0.7.4
 
 ### Patch Changes
