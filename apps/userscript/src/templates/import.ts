@@ -1,6 +1,7 @@
 import {
   canvasPixelToLatLng,
   decodeWplaceIndexedPng,
+  type ImportTemplateRecipe,
   latLngToCanvasPixel,
   MAX_MERCATOR_LATITUDE,
   MAX_TEMPLATE_SOURCE_BYTES,
@@ -282,7 +283,7 @@ const wplacePalette = async (
 }
 
 /** The native record that makes Wplace's worker run exactly this recipe at this placement. */
-const nativeRecipe = (recipe: TemplateRecipe, origin: TemplateOrigin): NativeTemplate => {
+const nativeRecipe = (recipe: ImportTemplateRecipe, origin: TemplateOrigin): NativeTemplate => {
   if (recipe.colorMetric === 'rgb') throw new Error('Wplace processing has no rgb colour metric')
   const northWest = canvasPixelToLatLng({ x: origin.originX, y: origin.originY })
   const southEast = canvasPixelToLatLng({
@@ -335,6 +336,7 @@ export const processRecipe = async (
       throw new Error('caelestis-nearest does not resize')
     return await quantise(decoded.pixels, false, recipe.palette)
   }
+  if (recipe.processor === 'ditherette') throw new Error('this build cannot run ditherette')
   const { connectNativeTemplates } = await import('./native-store.js')
   const native = await connectNativeTemplates({ resize: resizeWplaceImage })
   const processed = await native.pixels({ template: nativeRecipe(recipe, origin), image: source })
