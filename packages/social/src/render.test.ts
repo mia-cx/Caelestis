@@ -4,12 +4,17 @@ import { expect, it } from 'vitest'
 import { encodeTimelapseGif } from './gif.js'
 import { renderTimelapse, sampleTimeline } from './render.js'
 
+const source = (frames: readonly Uint8Array[]) =>
+  async function* (indices: readonly number[]) {
+    for (const index of indices) yield frames[index]
+  }
+
 it('encodes view-backed frames with visible changes and a fifteen-second playback', async () => {
   const backing = new Uint8Array(24).fill(99)
   const red = backing.subarray(4, 12)
   red.set([255, 0, 0, 255, 255, 0, 0, 255])
   const blue = new Uint8Array([0, 0, 255, 255, 255, 0, 0, 255])
-  const gif = await encodeTimelapseGif([red, red, blue, blue], 2, 1)
+  const gif = await encodeTimelapseGif(source([red, red, blue, blue]), 2, 1, [0, 1, 2, 3])
   const metadata = await sharp(gif, { animated: true }).metadata()
   expect(metadata.width).toBe(2)
   expect(metadata.pageHeight).toBe(1)
@@ -65,7 +70,7 @@ it('allocates GIF holds by recorded time across dense and sparse observations', 
     [255, 255, 255, 255],
   ]
   const bytes = await encodeTimelapseGif(
-    colors.map((color) => new Uint8Array(color)),
+    source(colors.map((color) => new Uint8Array(color))),
     1,
     1,
     [0, 60, 3600, 7200],

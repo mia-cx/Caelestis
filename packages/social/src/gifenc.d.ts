@@ -17,5 +17,7 @@ declare module 'gifenc/dist/gifenc.esm.js' {
     ): void
     finish(): void
     bytes(): Uint8Array
+    /** The encoded bytes so far, without copying. */
+    bytesView(): Uint8Array
   }
 }

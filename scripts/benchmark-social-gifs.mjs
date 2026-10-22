@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import sharp from 'sharp'
-import { encodeTimelapseGif, stampMapAttribution } from '../packages/social/dist/index.js'
+import { encodeTimelapseGif, mapAttributionStamp } from '../packages/social/dist/index.js'
 import gifenc from '../packages/social/node_modules/gifenc/dist/gifenc.js'
 
 const { GIFEncoder, quantize, applyPalette } = gifenc
@@ -89,7 +89,7 @@ async function framesFor(scene, width, height) {
         .toBuffer(),
     )
   }
-  await stampMapAttribution(frames, width, height)
+  frames.forEach(await mapAttributionStamp(width, height))
   return frames
 }
 
@@ -173,7 +173,14 @@ async function runCase(scene, width, strategy, colors) {
           })
           .toBuffer()
       : strategy === 'selected'
-        ? encodeTimelapseGif(frames, width, height)
+        ? await encodeTimelapseGif(
+            async function* (indices) {
+              for (const index of indices) yield frames[index]
+            },
+            width,
+            height,
+            frames.map((_, index) => index),
+          )
         : encode(frames, width, height, strategy, colors)
   if (strategy === 'baseline') {
     let selected = frames

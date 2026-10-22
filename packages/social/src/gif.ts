@@ -6,14 +6,20 @@ const MIN_FRAME_DELAY_MS = 20
 const LIVE_PAUSE_MS = 5000
 const MAX_GIF_BYTES = 4_500_000
 
-function encodeFrames(
-  frames: readonly Uint8Array[],
+/**
+ * Yields the RGBA frames at `indices`, in order, one at a time. Each frame must be its own buffer:
+ * the encoder compares it with the one before. Streaming keeps a render to a few frames of memory.
+ */
+export type FrameSource = (indices: readonly number[]) => AsyncIterable<Uint8Array>
+
+async function encodeFrames(
+  frames: AsyncIterable<Uint8Array>,
   width: number,
   height: number,
   times: readonly number[],
 ) {
   const gif = GIFEncoder()
-  const historyFrames = frames.length - 1
+  const historyFrames = times.length - 1
   const historyTicks = (HISTORY_PLAYBACK_SECONDS * 1000) / GIF_TICK_MS
   const start = times[0]
   const span = times[historyFrames] - start
@@ -40,7 +46,9 @@ function encodeFrames(
       dispose: 1,
     })
   }
-  for (const [index, frame] of frames.entries()) {
+  let index = -1
+  for await (const frame of frames) {
+    index++
     const final = index === historyFrames
     let delay = final ? LIVE_PAUSE_MS : tickAt(index + 1) * GIF_TICK_MS - elapsed
     // Always show the first state. Later deadlines repay this minimum hold rather than
@@ -74,6 +82,8 @@ function encodeFrames(
       continue
     }
     flush()
+    // Stop rendering a pass that is already over the limit; the caller retries with fewer frames.
+    if (gif.bytesView().length > MAX_GIF_BYTES) return null
     if (!hasChanges) {
       // Keep the final hold explicit without encoding another full, identical canvas.
       pending = {
@@ -114,26 +124,31 @@ function encodeFrames(
   }
   flush()
   gif.finish()
-  return gif.bytes()
+  const bytes = gif.bytes()
+  return bytes.length <= MAX_GIF_BYTES ? bytes : null
 }
 
-/** Encode ten seconds of recorded history and a five-second live hold. Times include the live boundary. */
-export function encodeTimelapseGif(
-  frames: readonly Uint8Array[],
+/**
+ * Encode ten seconds of recorded history and a five-second live hold. `times` holds one entry per
+ * frame and ends with the live boundary. An oversized result drops every other history frame and
+ * asks `frames` for the survivors again, retaining both endpoints.
+ */
+export async function encodeTimelapseGif(
+  frames: FrameSource,
   width: number,
   height: number,
-  times: readonly number[] = frames.map((_, index) => index),
-): Uint8Array {
-  let selected = frames
-  let selectedTimes = times
+  times: readonly number[],
+): Promise<Uint8Array> {
+  let selected = times.map((_, index) => index)
   while (true) {
-    const bytes = encodeFrames(selected, width, height, selectedTimes)
-    if (bytes.length <= MAX_GIF_BYTES) return bytes
+    const bytes = await encodeFrames(
+      frames(selected),
+      width,
+      height,
+      selected.map((index) => times[index]),
+    )
+    if (bytes !== null) return bytes
     if (selected.length <= 3) throw new Error('Timelapse exceeds the share image size limit')
     selected = [...selected.slice(0, -2).filter((_, i) => i % 2 === 0), ...selected.slice(-2)]
-    selectedTimes = [
-      ...selectedTimes.slice(0, -2).filter((_, i) => i % 2 === 0),
-      ...selectedTimes.slice(-2),
-    ]
   }
 }

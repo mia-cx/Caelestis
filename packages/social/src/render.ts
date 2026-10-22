@@ -7,7 +7,7 @@ import {
   timelapseCaptureRect,
   WORLD_PIXELS,
 } from '@caelestis/shared'
-import { stampMapAttribution } from './attribution.js'
+import { mapAttributionStamp } from './attribution.js'
 import { type ReadMapTile, renderBasemap } from './basemap.js'
 import { encodeTimelapseGif, HISTORY_PLAYBACK_SECONDS } from './gif.js'
 import { SOCIAL_IMAGE_HEIGHT, SOCIAL_IMAGE_WIDTH } from './image.js'
@@ -94,57 +94,71 @@ export const renderTimelapse = async ({
     frameLimit,
   )
   const times = [...timeline, null]
-  const background = readMapTile
-    ? await renderBasemap(template.bbox, width, height, readMapTile)
-    : Uint8Array.from({ length: width * height * 4 }, (_, i) => BACKGROUND[i % 4])
-  const frames = times.map(() => background.slice())
-  let observed = false
-  for (const [key, samples] of samplesByTile) {
+  const tiles = [...samplesByTile].map(([key, samples]) => {
     const history = [...(histories.get(key) ?? [])].sort((a, b) => a.bucketStart - b.bucketStart)
     const latest = template.finished
       ? history.at(-1)?.hash
       : (canvas.get(key) ?? history.at(-1)?.hash)
-    const byHash = new Map<string, Uint8Array[]>()
-    for (const [index, time] of times.entries()) {
-      const hash =
-        time === null ? latest : history.findLast((frame) => frame.bucketStart <= time)?.hash
-      if (hash === undefined) continue
-      const destinations = byHash.get(hash) ?? []
-      destinations.push(frames[index])
-      byHash.set(hash, destinations)
-    }
-    for (const [hash, destinations] of byHash) {
-      const image = await decodePng(await readTile(hash))
-      if (!artwork && (image.width !== TILE_SIZE || image.height !== TILE_SIZE))
-        throw new Error(`Unexpected tile dimensions for ${hash}`)
-      const [tileX, tileY] = key.split('/').map(Number)
-      const offsetX =
+    const [tileX, tileY] = key.split('/').map(Number)
+    return {
+      samples,
+      hashes: times.map((time) =>
+        time === null ? latest : history.findLast((frame) => frame.bucketStart <= time)?.hash,
+      ),
+      offsetX:
         artwork && tileX === Math.floor(template.bbox.minX / TILE_SIZE)
           ? template.bbox.minX % TILE_SIZE
-          : 0
-      const offsetY =
+          : 0,
+      offsetY:
         artwork && tileY === Math.floor(template.bbox.minY / TILE_SIZE)
           ? template.bbox.minY % TILE_SIZE
-          : 0
-      observed = true
-      for (const destination of destinations) {
-        for (const [target, source] of samples) {
-          const x = ((source / 4) % TILE_SIZE) - offsetX
-          const y = Math.floor(source / 4 / TILE_SIZE) - offsetY
-          if (x < 0 || y < 0 || x >= image.width || y >= image.height) continue
-          const pixel = (y * image.width + x) * 4
-          const alpha = image.pixels[pixel + 3] / 255
-          for (let channel = 0; channel < 3; channel++) {
-            destination[target + channel] = Math.round(
-              image.pixels[pixel + channel] * alpha + destination[target + channel] * (1 - alpha),
-            )
-          }
-        }
+          : 0,
+    }
+  })
+  if (!tiles.some((tile) => tile.hashes.some((hash) => hash !== undefined))) return null
+  const background = readMapTile
+    ? await renderBasemap(template.bbox, width, height, readMapTile)
+    : Uint8Array.from({ length: width * height * 4 }, (_, i) => BACKGROUND[i % 4])
+  const stamp = readMapTile ? await mapAttributionStamp(width, height) : undefined
+
+  /** Redraw one tile's output pixels: its image over the background, or the background alone. */
+  const paint = async (canvas: Uint8Array, tile: (typeof tiles)[number], hash?: string) => {
+    for (const [target] of tile.samples) canvas.set(background.subarray(target, target + 4), target)
+    if (hash === undefined) return
+    const image = await decodePng(await readTile(hash))
+    if (!artwork && (image.width !== TILE_SIZE || image.height !== TILE_SIZE))
+      throw new Error(`Unexpected tile dimensions for ${hash}`)
+    for (const [target, source] of tile.samples) {
+      const x = ((source / 4) % TILE_SIZE) - tile.offsetX
+      const y = Math.floor(source / 4 / TILE_SIZE) - tile.offsetY
+      if (x < 0 || y < 0 || x >= image.width || y >= image.height) continue
+      const pixel = (y * image.width + x) * 4
+      const alpha = image.pixels[pixel + 3] / 255
+      for (let channel = 0; channel < 3; channel++) {
+        canvas[target + channel] = Math.round(
+          image.pixels[pixel + channel] * alpha + canvas[target + channel] * (1 - alpha),
+        )
       }
     }
   }
-  if (!observed) return null
-  if (readMapTile) await stampMapAttribution(frames, width, height)
+
+  // Tiles cover disjoint output pixels, so one canvas carries forward and only changed tiles redraw.
+  async function* frames(indices: readonly number[]) {
+    const canvas = background.slice()
+    const shown = new Map<(typeof tiles)[number], string | undefined>()
+    for (const index of indices) {
+      for (const tile of tiles) {
+        const hash = tile.hashes[index]
+        if (shown.get(tile) === hash) continue
+        shown.set(tile, hash)
+        await paint(canvas, tile, hash)
+      }
+      const frame = canvas.slice()
+      stamp?.(frame)
+      yield frame
+    }
+  }
+
   return encodeTimelapseGif(frames, width, height, [
     ...timeline,
     historyEnd ?? (timeline.at(-1) ?? 0) + 1,
