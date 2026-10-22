@@ -100,6 +100,7 @@ import {
   treeMatcher as matcherFor,
   type TreeItem,
   type TreeSource,
+  type VisibilitySwitch,
 } from './tree-source.js'
 import {
   currentRenamingKey,
@@ -161,6 +162,8 @@ export interface TreeTarget {
   /** Revision shown when this destructive action became available. */
   readonly templateVersion?: string
   readonly templateUpdatedAt?: number
+  /** Present on a template row listed in its folder: make it the only one that folder draws. */
+  readonly showOnly?: () => Promise<boolean>
 }
 
 export interface TreeCallbacks {
@@ -615,6 +618,10 @@ const buildTree = <Result>(
       key,
       name: isLocal ? 'Local' : (server?.info?.name ?? server?.url ?? ''),
     }
+    const rootSwitch: VisibilitySwitch = {
+      visible: isScopeVisible(key),
+      setVisible: (on) => setScopeVisible(key, on),
+    }
     // Only where the code can actually act. Offering create to someone who will only ever get a
     // 403 is worse than not offering it — Local always can, since nothing gates it.
     const canCreate = isLocal || (server?.isAdmin ?? false)
@@ -902,6 +909,10 @@ const buildTree = <Result>(
             templateId: template.id,
             templateVersion: template.version,
             templateUpdatedAt: template.updatedAt,
+            // The claimed list is flat, so its rows have no folder to show them alone in.
+            ...(templateKeys === undefined
+              ? { showOnly: () => source.showOnly(templateKey, rootSwitch) }
+              : {}),
           }
           entries.push({
             parentId:
@@ -1111,6 +1122,9 @@ const buildTree = <Result>(
           nodeId: null,
           key: `local:${template.id}`,
           name: template.name,
+          ...(templateKeys === undefined
+            ? { showOnly: () => source.showOnly(`local:${template.id}`, rootSwitch) }
+            : {}),
         }
         entries.push({
           parentId: templateKeys === undefined ? (template.folderId ?? null) : null,
