@@ -1,5 +1,11 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import { frameAt, TimelapseClock, TRANSPORT_STEPS, transportScale } from './timelapse.js'
+import {
+  frameAt,
+  speedToFit,
+  TimelapseClock,
+  TRANSPORT_STEPS,
+  transportScale,
+} from './timelapse.js'
 
 afterEach(() => vi.useRealTimers())
 
@@ -125,4 +131,31 @@ it('moves recorded time uniformly during sparse holds and seeks between snapshot
   expect(time).toBeGreaterThan(5_200)
   expect(time).toBeLessThanOrEqual(5_400)
   clock.pause()
+})
+
+it.each([
+  { span: 604_800, ms: 10_000, speed: 5.9 },
+  { span: 604_800, ms: 60_000, speed: 0.98 },
+  { span: 86_400, ms: 60_000, speed: 0.14 },
+  { span: 7_200, ms: 10_000, speed: 0.07 },
+  // Slower than the minimum speed, or nothing to play.
+  { span: 7_200, ms: 30_000, speed: null },
+  { span: 0, ms: 10_000, speed: null },
+])('fits $span recorded seconds into $ms ms at $speed×', ({ span, ms, speed }) => {
+  expect(speedToFit(span, ms)).toBe(speed)
+})
+
+it('starts from the first frame and reaches live at a speed whose rate overflows', () => {
+  vi.useFakeTimers()
+  const clock = new TimelapseClock([0, 3_600], 7_200)
+  const shown = vi.fn()
+  // A browser clock can read the same instant twice, so playback starts with no elapsed time.
+  const now = vi.spyOn(performance, 'now').mockReturnValue(0)
+  clock.play(Number.MAX_VALUE, shown)
+  expect(shown).toHaveBeenLastCalledWith(0, 0)
+  now.mockReturnValue(1)
+  vi.advanceTimersToNextTimer()
+  expect(shown).toHaveBeenLastCalledWith(2, 7_200)
+  expect(vi.getTimerCount()).toBe(0)
+  now.mockRestore()
 })

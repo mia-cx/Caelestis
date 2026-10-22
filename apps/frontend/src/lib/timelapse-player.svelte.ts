@@ -5,7 +5,7 @@ import { mergeArchiveFrames, type PlaybackFrame } from '$lib/archive-history'
 import { persisted } from '$lib/persisted.svelte'
 import { type TimelapseLayout, timelapseLayout } from '$lib/render'
 import { useApp } from '$lib/state/app.svelte'
-import { frameAt, TimelapseClock, transportScale } from '$lib/timelapse'
+import { frameAt, playbackSpeed, TimelapseClock, transportScale } from '$lib/timelapse'
 
 const timelineOf = (map: ReadonlyMap<TileKey, readonly PlaybackFrame[]>): number[] => {
   const starts = new Set<number>()
@@ -82,11 +82,9 @@ export class TimelapsePlayer {
 
   /** Playback rate: 1× is one recorded hour per 350 ms, independent of snapshot density. */
   readonly #storedSpeed = persisted<number>('caelestis:timelapse-speed', 1)
-  readonly speed = $derived(
-    Number.isFinite(this.#storedSpeed.value)
-      ? Math.min(4, Math.max(0.05, this.#storedSpeed.value))
-      : 1,
-  )
+  readonly speed = $derived(playbackSpeed(this.#storedSpeed.value) ?? 1)
+  /** Recorded seconds that playback covers, from the first snapshot to the live end. */
+  readonly span = $derived(this.historyEnd - (this.timeline[0] ?? this.historyEnd))
 
   constructor(templates: () => readonly Template[]) {
     this.#templates = templates
@@ -115,8 +113,10 @@ export class TimelapsePlayer {
     return this.#templates()
   }
 
+  /** Keep a valid speed; invalid input leaves the current speed in place. */
   setSpeed(value: number): void {
-    this.#storedSpeed.value = value
+    const speed = playbackSpeed(value)
+    if (speed !== null) this.#storedSpeed.value = speed
   }
 
   /** Play from the start after the live stop; otherwise toggle playback in place. */

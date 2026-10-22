@@ -4,6 +4,7 @@
   import { Skeleton } from '$lib/components/ui/skeleton'
   import { Slider } from '$lib/components/ui/slider'
   import { persisted } from '$lib/persisted.svelte'
+  import { MIN_SPEED, speedToFit } from '$lib/timelapse'
   import type { TimelapsePlayer } from '$lib/timelapse-player.svelte'
 
   let {
@@ -14,6 +15,7 @@
     /** Names the artwork for the viewer's accessible label. */
     label: string
   } = $props()
+  const uid = $props.id()
 
   // The canvas as it is comes first; the template art is opt-in via the slider.
   const storedOverlay = persisted<number>('caelestis:overlay-alpha', 0)
@@ -23,6 +25,27 @@
   const frozen = $derived(player.templates.every((template) => template.timelapseFrozen))
 
   const SPEED_PRESETS = [0.25, 0.5, 0.75, 1, 1.5, 2, 4] as const
+  /** Presets that play the whole recorded history in a fixed time, whatever its length. */
+  const HISTORY_FITS = [
+    { label: '10 s', ms: 10_000 },
+    { label: '30 s', ms: 30_000 },
+    { label: '1 min', ms: 60_000 },
+  ] as const
+  const fits = $derived(
+    HISTORY_FITS.flatMap(({ label, ms }) => {
+      const speed = speedToFit(player.span, ms)
+      return speed === null ? [] : [{ label, speed }]
+    }),
+  )
+
+  // Compact notation stops at trillions, so enormous custom speeds switch to scientific.
+  const compact = new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 2 })
+  const scientific = new Intl.NumberFormat(undefined, {
+    notation: 'scientific',
+    maximumFractionDigits: 1,
+  })
+  const formatSpeed = (speed: number): string =>
+    `${(speed < 1e15 ? compact : scientific).format(speed)}×`
 
   const formatFrame = (t: number): string =>
     new Date(t * 1000).toLocaleString(undefined, {
@@ -79,39 +102,56 @@
       <div class="dropdown dropdown-top group">
         <button
           tabindex="0"
-          class="btn btn-sm btn-ghost w-14 tabular-nums"
-          aria-label="playback speed, currently {player.speed.toFixed(2)}×"
+          class="btn btn-sm btn-ghost min-w-14 tabular-nums"
+          aria-label="playback speed, currently {formatSpeed(player.speed)}"
         >
-          {player.speed.toFixed(2).replace(/0$/, '')}×
+          {formatSpeed(player.speed)}
         </button>
         <div
           class="caelestis-menu dropdown-content pointer-events-none z-20 mb-1 flex w-64 flex-col gap-3 group-focus-within:pointer-events-auto"
         >
-          <div class="flex items-center gap-2">
-            <Slider
-              type="single"
-              min={0.05}
-              max={4}
-              step={0.05}
+          <label class="input input-sm w-full text-base tabular-nums sm:text-sm">
+            <!-- Commit on change, not input, so clearing the field to type a new value keeps playing. -->
+            <input
+              type="number"
+              inputmode="decimal"
+              min={MIN_SPEED}
+              step="any"
               value={player.speed}
-              onValueChange={(value: number) => player.setSpeed(value)}
-              class="flex-1"
+              onchange={(event) => {
+                player.setSpeed(event.currentTarget.valueAsNumber)
+                event.currentTarget.value = String(player.speed)
+              }}
               aria-label="playback speed"
             />
-            <span class="w-12 text-end text-xs tabular-nums text-base-content/70">
-              {player.speed.toFixed(2)}×
-            </span>
-          </div>
+            <span class="text-base-content/70">×</span>
+          </label>
           <div class="grid grid-cols-4 gap-1">
             {#each SPEED_PRESETS as preset (preset)}
               <button
                 class="btn btn-xs {player.speed === preset ? 'btn-primary' : 'btn-ghost'} tabular-nums"
                 onclick={() => player.setSpeed(preset)}
               >
-                {preset}×
+                {formatSpeed(preset)}
               </button>
             {/each}
           </div>
+          {#if fits.length > 0}
+            <div class="flex flex-col gap-1" role="group" aria-labelledby="{uid}-fits">
+              <span id="{uid}-fits" class="text-xs text-base-content/70">Whole history in</span>
+              <div class="grid grid-cols-3 gap-1">
+                {#each fits as fit (fit.label)}
+                  <button
+                    class="btn btn-xs {player.speed === fit.speed ? 'btn-primary' : 'btn-ghost'}"
+                    title={formatSpeed(fit.speed)}
+                    onclick={() => player.setSpeed(fit.speed)}
+                  >
+                    {fit.label}
+                  </button>
+                {/each}
+              </div>
+            </div>
+          {/if}
         </div>
       </div>
       <Slider
