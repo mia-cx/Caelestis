@@ -77,6 +77,7 @@ import {
 } from './templates/local-store.js'
 import { pixelAccounting } from './templates/mismatch.js'
 import { mismatchWorkerMemoryBytes } from './templates/mismatch-worker.js'
+import { installOfficialEvents, syncOfficialOverlays } from './templates/official-overlays.js'
 import { installPersonalTemplates } from './templates/personal-sync.js'
 import { installServerSync } from './templates/server-sync.js'
 import {
@@ -193,6 +194,7 @@ const attachOverlayLayer = (): void => {
     installOverlayLayer()
     installPresenceLayer()
     syncPaintCursorMap(getMap())
+    syncOfficialOverlays(getMap())
     applyWplacePatches(getMap() as PatchableMap | null)
   }
   onWplacePatchChange(() => applyWplacePatches(getMap() as PatchableMap | null))
@@ -397,6 +399,8 @@ export const startUserscript = (): void => {
   step('settings', () => void loadState())
   // Templates outlive a page load, which is what makes navigating to one survivable at all.
   step('local templates', () => void installPersonalTemplates())
+  // Wplace's own event overlays, such as the Seven Seals, listed read-only under Events.
+  step('official events', () => void installOfficialEvents())
   // Server templates do not: they are re-fetched, because the server is where they live and a copy
   // kept here would outlive its deletion. Chunks are immutable and cached, so this is cheap.
   step('server templates', installServerSync)

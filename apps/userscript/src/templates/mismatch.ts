@@ -45,6 +45,7 @@ import { type MismatchMarks, packMismatchMark } from './mismatch-marks.js'
 import { type ScanJob, type ScanOutcome, scanTile } from './mismatch-scan.js'
 import { forgetInWorker, hasWorker, scanInWorker } from './mismatch-worker.js'
 import { horizontalSpans, sourceXAt, wrappedDeltaX } from './placement.js'
+import { measuresLocally } from './wplace-owned.js'
 
 const worldTemplates = (): readonly PlacedTemplate[] =>
   displayTemplates().filter((template) =>
@@ -691,9 +692,10 @@ export const wantsTilePixels = (tile?: TileCoord): boolean => {
     // A server template's marker list comes from its server mismatch mask and its progress comes
     // from telemetry. Capturing the underlying Wplace tile as a fallback makes every newly visible
     // tile perform a million-pixel canvas read during a pan, precisely when the map needs its frame
-    // budget most. Local templates have neither server source, so they keep exact-pixel capture for
-    // both mismatch markers and progress (including when their marker switches are off).
-    return template.serverUrl === undefined
+    // budget most. Local and Wplace-owned templates have neither server source, so they keep
+    // exact-pixel capture for both mismatch markers and progress (including when their marker
+    // switches are off).
+    return measuresLocally(template)
   })
   if (tile === undefined)
     return (
@@ -742,7 +744,7 @@ export const onCaptureScopeChange = (listener: () => void): (() => void) => {
 export const captureScopeKeys = (): string[] => [
   ...pendingProgressPixels,
   ...worldTemplates()
-    .filter((template) => template.serverUrl === undefined && isTemplateVisible(template))
+    .filter((template) => measuresLocally(template) && isTemplateVisible(template))
     .map((template) => `${template.id}@${template.originX},${template.originY}`),
 ]
 
@@ -772,7 +774,7 @@ const signature = (template: PlacedTemplate): string =>
  * exact capture remains bounded by tile-transform's chase limit and wakes this queue as tiles land.
  */
 const queueIncompleteLocalProgress = (template: PlacedTemplate): void => {
-  if (template.serverUrl !== undefined || template.opaque <= 0) return
+  if (!measuresLocally(template) || template.opaque <= 0) return
   const key = progressSignature(template)
   const total = progressTotals.get(template.id)
   if (

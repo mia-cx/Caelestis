@@ -30,6 +30,7 @@ import {
 } from './templates/mismatch.js'
 import { navigateTo } from './templates/navigate.js'
 import { focusedTemplate } from './templates/nearest.js'
+import { measuresLocally } from './templates/wplace-owned.js'
 import {
   onAcceptedPaint,
   onPaintSubmission,
@@ -286,7 +287,11 @@ const progressForTemplate = (
 ): readonly TemplateColourProgress[] => {
   if (template === null) return []
   const accounting = pixelAccounting.read(template)
-  if (template.serverUrl === undefined || template.serverTemplateId === undefined)
+  if (
+    measuresLocally(template) ||
+    template.serverUrl === undefined ||
+    template.serverTemplateId === undefined
+  )
     return accounting.colours
   const server = servers.get(template.serverUrl)
   if (server === undefined) return []

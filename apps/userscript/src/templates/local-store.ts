@@ -1070,7 +1070,9 @@ export const putServerTemplate = async (
     }
     const visible = existing?.visible ?? isScopeVisible(template.id)
     const preference = existing === undefined ? serverTemplatePreference(template.id) : undefined
-    const tiles = new Set<string>()
+    // Without server-reported coverage, colour navigation and full progress scans need the tiles.
+    const tiles =
+      template.serverTileKeys === undefined ? await paintedTileKeys(template) : new Set<string>()
     if (!isCurrent()) return false
     const priorPixels = existing?.indices.length ?? 0
     const pixelIncrease = template.indices.length - priorPixels

@@ -14,6 +14,7 @@ import {
 import { pixelAccounting } from '../templates/mismatch.js'
 import type { MismatchMarks } from '../templates/mismatch-marks.js'
 import { horizontalSpans } from '../templates/placement.js'
+import { measuresLocally } from '../templates/wplace-owned.js'
 import {
   currentQuads,
   isDrawingTiles,
@@ -244,7 +245,7 @@ const drawVisible = (
     const { template, appearance } = rendered
     const hasSelectedFade = selectedFades.some(({ fade }) => fade > 0)
     if (
-      template.serverUrl === undefined &&
+      measuresLocally(template) &&
       isTemplateVisible(template) &&
       mismatchFade === 0 &&
       !hasSelectedFade
