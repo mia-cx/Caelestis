@@ -204,12 +204,32 @@ export const releaseServer = async (
 }
 
 /**
+ * A restore begun before archives stopped carrying credentials may have imported the archive's
+ * tokens, and its state lists the destination's own in `preservedTokens`. Releasing it, whether
+ * activated, discarded or resumed after a crash, deletes the rest, so a token revoked after the
+ * snapshot stays revoked. Position 1 is the header alone: nothing was imported. Idempotent.
+ */
+const dropLegacyCredentials = async (host: ArchiveHost, operation: ArchiveOperationRow) => {
+  if (operation.kind !== 'import' || operation.position <= 1) return
+  const kept = (JSON.parse(operation.stateJson) as { preservedTokens?: readonly string[] })
+    .preservedTokens
+  if (kept === undefined) return
+  await host.connection
+    .prepare(
+      `DELETE FROM "access_tokens"${kept.length === 0 ? '' : ` WHERE "token_hash" NOT IN (${kept.map(() => '?').join(', ')})`}`,
+    )
+    .bind(...kept)
+    .run()
+}
+
+/**
  * Close the counter operation, delete the row, then thaw and reopen this process's writes.
  * Counters close first so nothing the operation holds can write once it ends; the freeze stays
  * until the row is gone, so records never slip into a `releasing` operation. A crash between
  * the delete and the thaw leaves a freeze `clearStaleFreezes` drops when it sees the gate open.
  */
 const completeRelease = async (host: ArchiveHost, operation: ArchiveOperationRow) => {
+  await dropLegacyCredentials(host, operation)
   await host.counters.closeCounterOperation(operation.operationId)
   await host.connection
     .prepare(
