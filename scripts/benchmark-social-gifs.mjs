@@ -3,9 +3,8 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import sharp from 'sharp'
-import gifenc from '../apps/frontend/node_modules/gifenc/dist/gifenc.js'
-import { stampMapAttribution } from '../apps/frontend/src/lib/social-attribution.ts'
-import { encodeTimelapseGif } from '../apps/frontend/src/lib/social-gif.ts'
+import { encodeTimelapseGif, stampMapAttribution } from '../packages/social/dist/index.js'
+import gifenc from '../packages/social/node_modules/gifenc/dist/gifenc.js'
 
 const { GIFEncoder, quantize, applyPalette } = gifenc
 const output = resolve('.scratch/social-images/benchmark-357')

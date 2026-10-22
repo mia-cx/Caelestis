@@ -85,7 +85,7 @@ jobs:
           fi
           cat > "$RUNNER_TEMP/server-paths" <<'EOF'
           ^apps/(backend|frontend)/
-          ^packages/(shared|storage|ui|wire-schema)/
+          ^packages/(shared|social|storage|ui|wire-schema)/
           ^deploy/
           ^fixtures/stack-tests/
           ^scripts/stack-tests/

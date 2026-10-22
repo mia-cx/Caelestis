@@ -7,11 +7,11 @@ import {
   timelapseCaptureRect,
   WORLD_PIXELS,
 } from '@caelestis/shared'
-import { mergeArchiveFrames, type PlaybackFrame } from './archive-history.ts'
-import { stampMapAttribution } from './social-attribution.ts'
-import { type ReadMapTile, renderBasemap } from './social-basemap.ts'
-import { encodeTimelapseGif, HISTORY_PLAYBACK_SECONDS } from './social-gif.ts'
-import { SOCIAL_IMAGE_HEIGHT, SOCIAL_IMAGE_WIDTH } from './social-image.ts'
+import { stampMapAttribution } from './attribution.js'
+import { type ReadMapTile, renderBasemap } from './basemap.js'
+import { encodeTimelapseGif, HISTORY_PLAYBACK_SECONDS } from './gif.js'
+import { SOCIAL_IMAGE_HEIGHT, SOCIAL_IMAGE_WIDTH } from './image.js'
+import { mergeArchiveFrames, type PlaybackFrame } from './playback.js'
 
 const MAX_FPS = 30
 const MAX_FRAMES = MAX_FPS * HISTORY_PLAYBACK_SECONDS

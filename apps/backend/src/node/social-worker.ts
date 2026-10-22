@@ -1,23 +1,19 @@
-import { resolve } from 'node:path'
-import { pathToFileURL } from 'node:url'
 import { workerData } from 'node:worker_threads'
+import { httpApi, refreshSocialImages, storedMapTiles } from '@caelestis/social'
 import { nodeObjectStorage } from '@caelestis/storage/node'
 import { S3ObjectStorage } from '@caelestis/storage/s3'
 
 const storage = nodeObjectStorage(process.env)
-const options: { site: string; output: string; apiPath?: string; readToken?: string } = workerData
+const { api, readToken }: { api: string; readToken: string } = workerData
 try {
-  const social: {
-    buildSocialImages(options: {
-      site: string
-      output: string
-      storage: typeof storage
-      publish: boolean
-      apiPath?: string
-      readToken?: string
-    }): Promise<void>
-  } = await import(pathToFileURL(resolve('scripts/social-images.mjs')).href)
-  await social.buildSocialImages({ ...options, publish: true, storage })
+  await refreshSocialImages({
+    read: httpApi(new URL(api), readToken),
+    readMapTile: storedMapTiles(storage),
+    save: async (key, gif, template) => {
+      await storage.put(key, gif, { contentType: 'image/gif' })
+      console.log(`${template.id}: ${gif.length} bytes, published`)
+    },
+  })
 } finally {
   if (storage instanceof S3ObjectStorage) storage.close()
 }

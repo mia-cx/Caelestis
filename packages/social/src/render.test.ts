@@ -1,9 +1,8 @@
 import { encodeIndexedPng, PALETTE_RGB } from '@caelestis/shared'
 import sharp from 'sharp'
 import { expect, it } from 'vitest'
-import { encodeTimelapseGif } from '../lib/social-gif.js'
-import { renderTimelapse, sampleTimeline } from '../lib/social-render.js'
-import { template } from './fixtures.js'
+import { encodeTimelapseGif } from './gif.js'
+import { renderTimelapse, sampleTimeline } from './render.js'
 
 it('encodes view-backed frames with visible changes and a fifteen-second playback', async () => {
   const backing = new Uint8Array(24).fill(99)
@@ -34,7 +33,7 @@ it('renders saved PNG history and holds live pixels unless the template is finis
     throw new Error(`Unexpected tile ${hash}`)
   }
   const options = {
-    template: template({ bbox: { minX: 499, minY: 499, maxX: 501, maxY: 501 } }),
+    template: { bbox: { minX: 499, minY: 499, maxX: 501, maxY: 501 }, finished: false },
     histories: new Map([['0/0', [{ bucketStart: 1, hash: 'history' }]]]),
     canvas: new Map([['0/0', 'live']]),
     readTile,

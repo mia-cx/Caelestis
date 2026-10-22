@@ -1,12 +1,12 @@
 import type { Manifest, ServerInfo, Template, TemplateStatus } from '@caelestis/shared'
 import { serverAssetPath } from '@caelestis/shared'
-import type { ObjectInfo, ObjectStorage } from '@caelestis/storage'
 import {
   DEFAULT_SOCIAL_IMAGE,
   SOCIAL_IMAGE_HEIGHT,
   SOCIAL_IMAGE_WIDTH,
   socialImageKey,
-} from '#lib/social-image.js'
+} from '@caelestis/social'
+import type { ObjectInfo, ObjectStorage } from '@caelestis/storage'
 import { discordComponentEmbed } from './discord-embed.js'
 
 interface SocialContext {

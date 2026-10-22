@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    // The renderer runs in workerd and Node; fetch, atob and AbortSignal are web globals.
+    "lib": ["ES2023", "DOM"],
+    // Pixel loops index typed arrays by computed offsets on every line. Checked indexing would add
+    // a guard per sample without catching anything, so this package keeps the frontend's settings.
+    "noUncheckedIndexedAccess": false,
+    "exactOptionalPropertyTypes": false
+  },
+  "include": ["src"],
+  "exclude": ["**/*.test.ts"]
+}

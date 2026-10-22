@@ -1,0 +1,32 @@
+{
+  "name": "@caelestis/social",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.check.json",
+    "clean": "rm -rf dist .turbo",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@caelestis/shared": "workspace:*",
+    "@caelestis/storage": "workspace:*",
+    "fast-png": "^8.0.0",
+    "gifenc": "^1.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
+  }
+}

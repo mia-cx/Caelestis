@@ -9,7 +9,7 @@ import {
 } from '@caelestis/shared'
 import { chunkImageUrl, tileImageUrl } from '#lib/api/client.js'
 
-export { OSM_TILE_SIZE, osmSpan, osmZoomFor } from './osm-geometry.js'
+export { OSM_TILE_SIZE, osmSpan, osmZoomFor } from '@caelestis/social'
 
 /**
  * A template's bounding box as a drawable rectangle.

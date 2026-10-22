@@ -1,6 +1,6 @@
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { fetchMapTile, MAP_CACHE_MS } from '../apps/frontend/src/lib/social-basemap.ts'
+import { fetchMapTile, MAP_CACHE_MS } from '../packages/social/dist/index.js'
 
 /** Keep downloaded OSM tiles for seven days across local and scheduled GIF runs. */
 export const cachedMapTiles = (directory) => async (z, x, y) => {

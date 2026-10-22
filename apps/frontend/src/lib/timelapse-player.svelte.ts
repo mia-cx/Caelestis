@@ -1,7 +1,7 @@
 import { parseTileKey, type Template, type TileKey } from '@caelestis/shared'
+import { mergeArchiveFrames, type PlaybackFrame } from '@caelestis/social'
 import { untrack } from 'svelte'
 import { getArchiveHistory, getTileHistory } from '#lib/api/client.js'
-import { mergeArchiveFrames, type PlaybackFrame } from '#lib/archive-history.js'
 import { persisted } from '#lib/persisted.svelte.js'
 import { type TimelapseLayout, timelapseLayout } from '#lib/render.js'
 import { useApp } from '#lib/state/app.svelte.js'
