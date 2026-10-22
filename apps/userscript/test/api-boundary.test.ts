@@ -116,7 +116,7 @@ describe('access token creation through the backend', () => {
 })
 
 describe('template authoring through the backend', () => {
-  it('keeps source and recipe with an uploaded version for any reader', async () => {
+  it('keeps source and recipe with a published version for any reader', async () => {
     await installBackend()
     const { state, server } = await connect()
     const { indices, png, source, recipe, artwork } = await authored()
@@ -147,6 +147,10 @@ describe('template authoring through the backend', () => {
       authoring: { source: new Blob([source]), recipe, artwork },
     })
     if (!moved.ok) throw new Error(moved.message)
+
+    for (const id of [withSource.id, processedOnly.id]) {
+      expect(await state.patchTemplate(server, id, { published: true })).toEqual({ ok: true })
+    }
 
     const reader = await connect(readToken)
     const { readServerAuthoring } = await import('../src/application/template-authoring.js')
