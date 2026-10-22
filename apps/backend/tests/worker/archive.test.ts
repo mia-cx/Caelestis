@@ -13,7 +13,7 @@ import {
   backfillState,
   type Fetch,
   openPortableServer,
-  paint,
+  replay,
   runningImport,
   seedServer,
 } from '../support/archive.js'
@@ -119,7 +119,7 @@ describe('Cloudflare server archives', { timeout: 120_000 }, () => {
     // Cloudflare → portable: D1, R2, and Durable Object state into SQLite and a filesystem.
     const node = await portable()
     await importFromFile(archiveClient(node.fetch, node.api), file('cloudflare.ndjson'))
-    expect(await paint(node.fetch, node.api, seeded.reportToken, seeded.event)).toEqual({
+    expect(await replay(node.fetch, node.api, seeded.event)).toEqual({
       accepted: false,
       duplicate: true,
     })
@@ -138,7 +138,7 @@ describe('Cloudflare server archives', { timeout: 120_000 }, () => {
     await finishExport(archiveClient(cloudflare.fetch, cloudflare.api))
     const restored = await openCloudflare()
     await importFromFile(archiveClient(restored.fetch, restored.api), file('portable.ndjson'))
-    expect(await paint(restored.fetch, restored.api, seeded.reportToken, seeded.event)).toEqual({
+    expect(await replay(restored.fetch, restored.api, seeded.event)).toEqual({
       accepted: false,
       duplicate: true,
     })

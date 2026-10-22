@@ -17,6 +17,7 @@ import {
   countKey,
   decodeBase64,
   parseArchiveLine,
+  UNARCHIVED_TABLES,
 } from './format.js'
 import {
   type ArchiveLease,
@@ -46,8 +47,6 @@ export const MAX_RESTORE_LINES = 500
 const DISCARD_PAGE = 128
 /** Backfill ids one discard call verifies in its final pass; the rest resume on the next call. */
 const DISCARD_VERIFY_PAGE = 500
-/** A new server has its own few credentials; more means this is somebody's live server. */
-const MAX_PRESERVED_TOKENS = 100
 
 interface RestoreState {
   readonly archiveId: string
@@ -58,12 +57,6 @@ interface RestoreState {
   readonly ended: boolean
   /** See the lifecycle in operation.ts. Records arrive only while `ready`. */
   readonly phase: 'preparing' | 'ready' | 'discarding' | 'releasing'
-  /**
-   * Credentials the destination held before the restore. An archived row with the same hash is the
-   * same secret: the destination's row wins, so restoring never changes its scope. A discard keeps
-   * these rows.
-   */
-  readonly preservedTokens: readonly string[]
   /**
    * Discard progress through DISCARD_STEPS. `templates` records the ids whose backfill state
    * the discard must clean, captured before any template rows are deleted so a late backfill
@@ -105,6 +98,7 @@ const assertCompatible = (header: ArchiveHeader) => {
     )
   if (header.version < 1) throw new ArchiveError(`Archive version ${header.version} is not valid.`)
   for (const [name, columns] of Object.entries(header.tables)) {
+    if (UNARCHIVED_TABLES.includes(name)) continue
     const table = archiveTable(name)
     const unknown = columns.filter((column) => !table?.columns.has(column))
     if (table === undefined || unknown.length > 0)
@@ -140,7 +134,7 @@ const assertCompatible = (header: ArchiveHeader) => {
 const occupiedLocations = async (host: ArchiveHost): Promise<string[]> => {
   const occupied: string[] = []
   for (const table of ARCHIVE_TABLES) {
-    if (table.seeded || table.name === 'access_tokens') continue
+    if (table.seeded) continue
     const row = await host.connection
       .prepare(`SELECT 1 AS present FROM ${quoted(table.name)} LIMIT 1`)
       .first()
@@ -233,7 +227,6 @@ const beginRestoreHeld = async (host: ArchiveHost, lease: ArchiveLease, headerLi
     counts: {},
     ended: false,
     phase: 'preparing',
-    preservedTokens: [],
   }
   const ready = await prepare(host, lease, await holdServer(host, 'import', preparing))
   return {
@@ -245,8 +238,7 @@ const beginRestoreHeld = async (host: ArchiveHost, lease: ArchiveLease, headerLi
 }
 
 /**
- * Establish, behind the closed gate, that the destination is empty and which credentials are
- * its own, then publish `ready`. Every step only reads or probes, so any caller may repeat it;
+ * Establish, behind the closed gate, that the destination is empty, then publish `ready`. Every step only reads or probes, so any caller may repeat it;
  * the compare-and-set lets exactly one publish, and loses to a cancellation that came first.
  */
 const prepare = async (
@@ -257,7 +249,6 @@ const prepare = async (
   await holdFor(host, operation)
   // From here this operation may import counters until its discard or release says otherwise.
   await host.counters.beginCounterImport(operation.operationId)
-  let preserved: string[]
   try {
     const occupied = await occupiedLocations(host)
     if (occupied.length > 0)
@@ -265,15 +256,6 @@ const prepare = async (
         `Restore into a new server. This one already has data in ${occupied.join(', ')}.`,
         409,
       )
-    const tokens = await host.connection
-      .prepare(`SELECT "token_hash" FROM "access_tokens" LIMIT ${MAX_PRESERVED_TOKENS + 1}`)
-      .all<{ token_hash: string }>()
-    if (tokens.results.length > MAX_PRESERVED_TOKENS)
-      throw new ArchiveError(
-        'Restore into a new server. This one already has many credentials.',
-        409,
-      )
-    preserved = tokens.results.map((row) => row.token_hash)
     checkArchiveDeadline(lease)
     await probeObjects(host, operation.operationId)
   } catch (error) {
@@ -285,7 +267,6 @@ const prepare = async (
   const ready = await transition(host, operation, {
     ...decodeState(operation),
     phase: 'ready',
-    preservedTokens: preserved,
   })
   if (ready !== null) return ready
   const current = await readArchiveOperation(host.connection)
@@ -373,17 +354,13 @@ const appendRestoreHeld = async (
       case 'header':
         throw new ArchiveError(`Archive record ${at} is a second header.`)
       case 'row': {
+        if (UNARCHIVED_TABLES.includes(record.table) && state.tables[record.table] !== undefined)
+          break
         const table = archiveTable(record.table)
         if (table === undefined || state.tables[table.name] === undefined)
           throw new ArchiveError(`Archive record ${at} names undeclared table ${record.table}.`)
         const names = Object.keys(record.values)
         const values = rowValues(table, state, record.values, at)
-        // The destination already holds this secret; its own row stays as it is.
-        if (
-          table.name === 'access_tokens' &&
-          state.preservedTokens.includes(String(record.values.token_hash))
-        )
-          break
         const updates = names.filter((name) => !table.key.includes(name))
         statements.push(
           host.connection
@@ -688,12 +665,10 @@ const discardRestoreHeld = async (
         break
       case 'rows': {
         const { table } = step
-        const kept = table.name === 'access_tokens' ? state.preservedTokens : []
         const keys = await host.connection
           .prepare(
-            `SELECT ${table.key.map(quoted).join(', ')} FROM ${quoted(table.name)}${kept.length === 0 ? '' : ` WHERE "token_hash" NOT IN (${kept.map(() => '?').join(', ')})`} LIMIT ${DISCARD_PAGE}`,
+            `SELECT ${table.key.map(quoted).join(', ')} FROM ${quoted(table.name)} LIMIT ${DISCARD_PAGE}`,
           )
-          .bind(...kept)
           .all<Record<string, unknown>>()
         if (keys.results.length === 0) break
         checkArchiveDeadline(lease)
