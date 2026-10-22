@@ -15,13 +15,13 @@ Decided with Mia (2026-10-22):
   editing and export load pixels on demand.
 
 ## Acceptance criteria
-- [ ] IndexedDB holds any number of Local templates; no count or pixel cap on disk.
-- [ ] Only resident pixels count toward the 64M budget; a new template evicts others instead of
+- [x] IndexedDB holds any number of Local templates; no count or pixel cap on disk.
+- [x] Only resident pixels count toward the 64M budget; a new template evicts others instead of
       failing.
-- [ ] Hidden and off-screen templates reload when they show or come into view.
-- [ ] Progress bars keep their counts across eviction.
-- [ ] Colour navigation, nearest pixel, edit, move, export and copy work on evicted templates.
-- [ ] The mismatch worker and GPU store release evicted pixels.
+- [x] Hidden and off-screen templates reload when they show or come into view.
+- [x] Progress bars keep their counts across eviction.
+- [x] Colour navigation, nearest pixel, edit, move, export and copy work on evicted templates.
+- [x] The mismatch worker and GPU store release evicted pixels.
 
 ## TODOs
 - [x] Artwork token: replace `PlacedTemplate.indices` with a stable `artwork` whose pixels may be
@@ -33,7 +33,7 @@ Decided with Mia (2026-10-22):
 - [x] Server templates: IndexedDB pixel cache with re-download fallback; no budget refusal.
 - [x] On-demand readers: colour nav, nearest, picker, edit/move/export/copy/authoring, tree preview.
 - [x] Worker and GPU store drop evicted pixels.
-- [ ] Contract tests for eviction/reload and restoring past 64 templates; changeset.
+- [x] Contract tests for eviction/reload and restoring past 64 templates; changeset.
 
 ## Notes
 - Shell PATH lacks Homebrew here: prefix `PATH=/opt/homebrew/bin:$PATH`. Tests need
