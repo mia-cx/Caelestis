@@ -1,5 +1,6 @@
 import { TRANSPARENT_INDEX } from '@caelestis/shared'
 import { describe, expect, it, vi } from 'vitest'
+import { PIXEL_CHUNK_SIZE } from '../src/templates/sparse-pixels.js'
 
 /** 4096 × 4096: four of these fill the 64M-pixel memory budget, so a fifth must evict. */
 const EDGE = 4096
@@ -7,10 +8,19 @@ const EDGE = 4096
 /** Filling the real budget stores 80M pixels; CI runners take several times longer than a laptop. */
 const FILL_BUDGET_TIMEOUT_MS = 30_000
 
-/** A large, nearly transparent template whose one painted pixel identifies it. */
+/**
+ * A large template painted in one colour that identifies it, one pixel in every 1000-pixel chunk,
+ * so every chunk is stored and it costs its whole area.
+ */
 const large = (id: string, paint: number) => {
   const indices = new Uint8Array(EDGE * EDGE).fill(TRANSPARENT_INDEX)
-  indices[0] = paint
+  let opaque = 0
+  for (let y = 0; y < EDGE; y += PIXEL_CHUNK_SIZE) {
+    for (let x = 0; x < EDGE; x += PIXEL_CHUNK_SIZE) {
+      indices[y * EDGE + x] = paint
+      opaque++
+    }
+  }
   return {
     id,
     name: id,
@@ -21,58 +31,66 @@ const large = (id: string, paint: number) => {
     height: EDGE,
     indices,
     moved: 0,
-    opaque: 1,
+    opaque,
   }
 }
 
 describe('resident templates', () => {
-  it('evicts the least recently used template for a new one, and reloads it from IndexedDB', async () => {
-    vi.resetModules()
-    const store = await import('../src/templates/local-store.js')
-    const ids = [1, 2, 3, 4, 5].map((paint) => `resident-${paint}-${crypto.randomUUID()}`)
-    try {
-      for (const [at, id] of ids.entries()) {
-        await store.addLocalTemplate(large(id, at + 1), undefined, true)
-      }
-      const oldest = store.templateById(ids[0] as string)
-      if (oldest === undefined) throw new Error('the oldest template left the catalog')
-      expect(oldest.artwork.indices).toBeNull()
-      expect(store.templateIndexMemoryBytes()).toBeLessThanOrEqual(64 * 1024 * 1024)
+  it(
+    'evicts the least recently used template for a new one, and reloads it from IndexedDB',
+    async () => {
+      vi.resetModules()
+      const store = await import('../src/templates/local-store.js')
+      const ids = [1, 2, 3, 4, 5].map((paint) => `resident-${paint}-${crypto.randomUUID()}`)
+      try {
+        for (const [at, id] of ids.entries()) {
+          await store.addLocalTemplate(large(id, at + 1), undefined, true)
+        }
+        const oldest = store.templateById(ids[0] as string)
+        if (oldest === undefined) throw new Error('the oldest template left the catalog')
+        expect(oldest.artwork.pixels).toBeNull()
+        expect(store.templateIndexMemoryBytes()).toBeLessThanOrEqual(64 * 1024 * 1024)
 
-      expect((await store.templatePixels(oldest))[0]).toBe(1)
-      expect(store.templateById(ids[1] as string)?.artwork.indices).toBeNull()
-    } finally {
-      for (const id of ids) await store.removeLocalTemplate(id)
-    }
-  }, FILL_BUDGET_TIMEOUT_MS)
-
-  it('reloads an evicted server template from its disk copy without downloading it', async () => {
-    vi.resetModules()
-    const store = await import('../src/templates/local-store.js')
-    const serverId = `srv:resident:${crypto.randomUUID()}`
-    const ids = [2, 3, 4, 5].map((paint) => `resident-${paint}-${crypto.randomUUID()}`)
-    try {
-      await store.putServerTemplate({
-        ...large(serverId, 1),
-        serverUrl: 'https://resident.example',
-        serverTemplateId: 'art',
-        serverNodeId: null,
-        serverVersion: 'v1',
-        serverTileKeys: ['0/0'],
-      })
-      for (const [at, id] of ids.entries()) {
-        await store.addLocalTemplate(large(id, at + 2), undefined, true)
+        expect((await store.templatePixels(oldest))[0]).toBe(1)
+        expect(store.templateById(ids[1] as string)?.artwork.pixels).toBeNull()
+      } finally {
+        for (const id of ids) await store.removeLocalTemplate(id)
       }
-      const server = store.templateById(serverId)
-      if (server === undefined) throw new Error('the server template left the catalog')
-      expect(server.artwork.indices).toBeNull()
-      // The test network refuses every request, so these pixels can only come from disk.
-      expect((await store.templatePixels(server))[0]).toBe(1)
-    } finally {
-      await store.forgetServerTemplate(serverId)
-      for (const id of ids) await store.removeLocalTemplate(id)
-    }
-  }, FILL_BUDGET_TIMEOUT_MS)
+    },
+    FILL_BUDGET_TIMEOUT_MS,
+  )
+
+  it(
+    'reloads an evicted server template from its disk copy without downloading it',
+    async () => {
+      vi.resetModules()
+      const store = await import('../src/templates/local-store.js')
+      const serverId = `srv:resident:${crypto.randomUUID()}`
+      const ids = [2, 3, 4, 5].map((paint) => `resident-${paint}-${crypto.randomUUID()}`)
+      try {
+        await store.putServerTemplate({
+          ...large(serverId, 1),
+          serverUrl: 'https://resident.example',
+          serverTemplateId: 'art',
+          serverNodeId: null,
+          serverVersion: 'v1',
+          serverTileKeys: ['0/0'],
+        })
+        for (const [at, id] of ids.entries()) {
+          await store.addLocalTemplate(large(id, at + 2), undefined, true)
+        }
+        const server = store.templateById(serverId)
+        if (server === undefined) throw new Error('the server template left the catalog')
+        expect(server.artwork.pixels).toBeNull()
+        // The test network refuses every request, so these pixels can only come from disk.
+        expect((await store.templatePixels(server))[0]).toBe(1)
+      } finally {
+        await store.forgetServerTemplate(serverId)
+        for (const id of ids) await store.removeLocalTemplate(id)
+      }
+    },
+    FILL_BUDGET_TIMEOUT_MS,
+  )
 
   it('restores more templates than the old 64-template cap', async () => {
     vi.resetModules()

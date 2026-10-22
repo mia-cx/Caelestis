@@ -100,6 +100,26 @@ export const pixelAt = (pixels: SparsePixels, x: number, y: number): number => {
   return chunk.indices[(y - chunk.y) * chunk.width + (x - chunk.x)] ?? TRANSPARENT_INDEX
 }
 
+/**
+ * Visit every pixel of every painted chunk, with its row-major offset in the whole template.
+ *
+ * Pixels in chunks left out are transparent and never visited, which is the point.
+ */
+export const forEachPixel = (
+  pixels: SparsePixels,
+  visit: (index: number, at: number) => void,
+): void => {
+  for (const chunk of pixels.chunks.values()) {
+    for (let row = 0; row < chunk.height; row++) {
+      const from = row * chunk.width
+      const at = (chunk.y + row) * pixels.width + chunk.x
+      for (let column = 0; column < chunk.width; column++) {
+        visit(chunk.indices[from + column] as number, at + column)
+      }
+    }
+  }
+}
+
 /** Pixels held in memory, which is what the resident budget counts. */
 export const storedArea = (pixels: SparsePixels): number => {
   let area = 0

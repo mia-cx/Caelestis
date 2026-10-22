@@ -162,20 +162,16 @@ const overlapsArtboardFrame = (
 /** Project one shared GPU chunk, including only the outer outline halo, into an artboard. */
 export const artboardGpuTilePlacement = (
   template: Pick<PlacedTemplate, 'originX' | 'originY' | 'width' | 'height'>,
-  source: Pick<
-    TemplateGpuTile,
-    'x' | 'y' | 'width' | 'height' | 'textureWidth' | 'textureHeight' | 'inset'
-  >,
+  source: Omit<TemplateGpuTile, 'texture'>,
   geometry: ArtboardGeometry,
   viewport: ArtboardViewport,
   margin: number,
 ) => {
-  const leftMargin = source.x === 0 ? Math.min(margin, source.inset) : 0
-  const topMargin = source.y === 0 ? Math.min(margin, source.inset) : 0
-  const rightMargin =
-    source.x + source.width === template.width ? Math.min(margin, source.inset) : 0
-  const bottomMargin =
-    source.y + source.height === template.height ? Math.min(margin, source.inset) : 0
+  const halo = Math.min(margin, source.inset)
+  const leftMargin = source.openLeft ? halo : 0
+  const topMargin = source.openTop ? halo : 0
+  const rightMargin = source.openRight ? halo : 0
+  const bottomMargin = source.openBottom ? halo : 0
   return {
     box: artboardDevicePlacement(
       {
@@ -765,8 +761,8 @@ class ArtboardRenderer {
     let comparedMarkerPixels = 0
     // Markers compare pixels, so they cover only templates whose pixels are in memory.
     const resident = templateScene.templates.flatMap(({ template, appearance }) => {
-      const indices = template.artwork.indices
-      return indices === null ? [] : [{ template: { ...template, indices }, appearance }]
+      const pixels = template.artwork.pixels
+      return pixels === null ? [] : [{ template: { ...template, pixels }, appearance }]
     })
     const residentIds = new Set(resident.map(({ template }) => template.id))
     const staleMarkerIds = new Set(

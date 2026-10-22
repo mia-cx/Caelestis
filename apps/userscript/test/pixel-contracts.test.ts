@@ -8,6 +8,7 @@ import { draftedPixelsIn } from '../src/templates/drafted.js'
 import type { PlacedTemplate } from '../src/templates/local-store.js'
 import { markLocalX, markLocalY, markWanted } from '../src/templates/mismatch-marks.js'
 import { type PixelScanJob, scanTile } from '../src/templates/mismatch-scan.js'
+import { cutPixels } from '../src/templates/sparse-pixels.js'
 
 const UNPAINTED = 255
 
@@ -55,7 +56,7 @@ const template = (overrides: Partial<PlacedTemplate> = {}): PlacedTemplate => ({
   originY: 20,
   width: 3,
   height: 1,
-  artwork: { indices: new Uint8Array([5, 6, 7]) },
+  artwork: { pixels: cutPixels(3, 1, new Uint8Array([5, 6, 7])) },
   moved: 0,
   opaque: 3,
   tiles: new Set(),

@@ -21,12 +21,17 @@ Decided with Mia (2026-10-22):
 
 ## TODOs
 - [x] `sparse-pixels.ts`: chunk type, cut, join, pixel and rectangle reads, pack/unpack; unit test.
-- [ ] Store: artwork holds `SparsePixels`; residency counts stored area; readers move over.
+- [x] Store, mismatch and GPU together (one commit, since none builds without the others):
+  - artwork holds `SparsePixels`; residency counts stored area; readers move over;
+  - scans read the tile's window from chunks; the worker caches one window per tile;
+  - one texture per painted chunk with neighbour halos; open sides draw outline margins.
 - [ ] Disk: records and server cache store packed chunks; legacy dense records cut on load.
-- [ ] Mismatch: scans read the tile's rectangle from chunks; worker caches per tile.
-- [ ] GPU: one texture per painted chunk with neighbour halos; open edges draw outline margins.
 - [ ] Contract test: a sparse template costs its painted chunks and reloads intact; changeset.
 
 ## Notes
 - Shell PATH lacks Homebrew: prefix `PATH=/opt/homebrew/bin:$PATH`. Tests need
   `NODE_OPTIONS=--localstorage-file=/tmp/639-ls`.
+- Store/mismatch/GPU: disk stays dense for now (cut on load, joined on save). `templatePixels` now
+  returns a dense copy for whole-image actions; `templateChunks` returns the chunks. Alliance marker
+  indexes still allocate bbox-sized classification arrays while a template is on screen.
+  Validation: typecheck clean, 260/260 tests.

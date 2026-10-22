@@ -1,5 +1,5 @@
-import { TRANSPARENT_INDEX } from '@caelestis/shared'
 import { type PlacedTemplate, peekTemplatePixels, type TemplateArtwork } from './local-store.js'
+import { joinPixels, pixelAt, type SparsePixels } from './sparse-pixels.js'
 
 /** Longest edge of a preview thumbnail. A tree card shows art at most 8rem tall. */
 const THUMBNAIL_EDGE = 128
@@ -14,23 +14,23 @@ export interface TemplateThumbnail {
 /** Kept per artwork, so a preview survives its template's eviction. */
 const thumbnails = new WeakMap<TemplateArtwork, TemplateThumbnail>()
 
-const thumbnailOf = (
-  artwork: TemplateArtwork,
-  width: number,
-  height: number,
-  indices: Uint8Array,
-) => {
+const thumbnailOf = (artwork: TemplateArtwork, pixels: SparsePixels) => {
+  const { width, height } = pixels
   const scale = Math.min(1, THUMBNAIL_EDGE / Math.max(width, height))
   const thumbnailWidth = Math.max(1, Math.round(width * scale))
   const thumbnailHeight = Math.max(1, Math.round(height * scale))
-  let thumbnail: TemplateThumbnail = { width, height, indices }
-  if (scale < 1) {
+  let thumbnail: TemplateThumbnail
+  if (scale === 1) thumbnail = { width, height, indices: joinPixels(pixels) }
+  else {
     const sampled = new Uint8Array(thumbnailWidth * thumbnailHeight)
     for (let y = 0; y < thumbnailHeight; y++) {
-      const row = Math.floor((y * height) / thumbnailHeight) * width
+      const sourceY = Math.floor((y * height) / thumbnailHeight)
       for (let x = 0; x < thumbnailWidth; x++) {
-        sampled[y * thumbnailWidth + x] =
-          indices[row + Math.floor((x * width) / thumbnailWidth)] ?? TRANSPARENT_INDEX
+        sampled[y * thumbnailWidth + x] = pixelAt(
+          pixels,
+          Math.floor((x * width) / thumbnailWidth),
+          sourceY,
+        )
       }
     }
     thumbnail = { width: thumbnailWidth, height: thumbnailHeight, indices: sampled }
@@ -43,10 +43,8 @@ const thumbnailOf = (
 export const templateThumbnail = (template: PlacedTemplate): TemplateThumbnail | undefined => {
   const cached = thumbnails.get(template.artwork)
   if (cached !== undefined) return cached
-  const indices = template.artwork.indices
-  return indices === null
-    ? undefined
-    : thumbnailOf(template.artwork, template.width, template.height, indices)
+  const pixels = template.artwork.pixels
+  return pixels === null ? undefined : thumbnailOf(template.artwork, pixels)
 }
 
 /** A thumbnail for a preview scrolled into view, reading evicted pixels without evicting others. */
@@ -55,8 +53,6 @@ export const loadTemplateThumbnail = async (
 ): Promise<TemplateThumbnail | undefined> => {
   const cached = templateThumbnail(template)
   if (cached !== undefined) return cached
-  const indices = await peekTemplatePixels(template)
-  return indices === null
-    ? undefined
-    : thumbnailOf(template.artwork, template.width, template.height, indices)
+  const pixels = await peekTemplatePixels(template)
+  return pixels === null ? undefined : thumbnailOf(template.artwork, pixels)
 }

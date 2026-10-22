@@ -21,6 +21,12 @@ const image = (paint: readonly (readonly [number, number, number])[]): Uint8Arra
   return dense
 }
 
+/** Byte equality for megapixel arrays, which a deep equality matcher walks too slowly. */
+const same = (left: Uint8Array, right: Uint8Array): boolean =>
+  Buffer.from(left.buffer, left.byteOffset, left.byteLength).equals(
+    Buffer.from(right.buffer, right.byteOffset, right.byteLength),
+  )
+
 describe('sparse pixels', () => {
   it('keeps only painted chunks and round trips the image', () => {
     const dense = image([
@@ -31,7 +37,7 @@ describe('sparse pixels', () => {
     const pixels = cutPixels(WIDTH, HEIGHT, dense)
     // Top-left full chunk, bottom-left 1000 × 200 chunk, bottom-right 500 × 200 chunk.
     expect(storedArea(pixels)).toBe(PIXEL_CHUNK_SIZE ** 2 + 1000 * 200 + 500 * 200)
-    expect(joinPixels(pixels)).toEqual(dense)
+    expect(same(joinPixels(pixels), dense)).toBe(true)
     expect(pixelAt(pixels, 2499, 1199)).toBe(7)
     expect(pixelAt(pixels, 1500, 500)).toBe(TRANSPARENT_INDEX)
   })
@@ -57,7 +63,9 @@ describe('sparse pixels', () => {
   it('unpacks what it packed, and refuses bytes that do not fit the layout', () => {
     const pixels = cutPixels(WIDTH, HEIGHT, image([[2000, 100, 3]]))
     const packed = packPixels(pixels)
-    expect(joinPixels(unpackPixels(WIDTH, HEIGHT, packed) ?? pixels)).toEqual(joinPixels(pixels))
+    const unpacked = unpackPixels(WIDTH, HEIGHT, packed)
+    if (unpacked === null) throw new Error('packed pixels did not unpack')
+    expect(same(joinPixels(unpacked), joinPixels(pixels))).toBe(true)
     expect(unpackPixels(WIDTH, HEIGHT, { ...packed, bytes: packed.bytes.subarray(1) })).toBeNull()
     expect(unpackPixels(WIDTH, HEIGHT, { ...packed, chunks: [6] })).toBeNull()
   })
