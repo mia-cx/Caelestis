@@ -1078,8 +1078,13 @@ const setServerFolderPublished = async (
   }
 }
 
-/** Whether a folder row is drawn, and whether the folder holding it is. */
-const folderVisibility = (target: TreeTarget): readonly [drawn: boolean, parentDrawn: boolean] => {
+/**
+ * Whether a row is drawn, and whether the row holding it is, read from its switches alone.
+ *
+ * For folders, and for server templates whose pixels have not downloaded: their rows and switches
+ * exist before any render copy does.
+ */
+const rowVisibility = (target: TreeTarget): readonly [drawn: boolean, parentDrawn: boolean] => {
   if (target.server === null) {
     const id = localFolderIdOf(target)
     const folder = getState().localFolders.find((candidate) => candidate.id === id)
@@ -1087,11 +1092,19 @@ const folderVisibility = (target: TreeTarget): readonly [drawn: boolean, parentD
     return [localFolderChainVisible(folder.id), localFolderChainVisible(folder.parentId)]
   }
   const { url } = target.server
-  if (!isScopeVisible(`server:${url}`)) return [false, target.nodeId === null]
-  if (target.nodeId === null) return [true, true]
   const surface = surfaceOf(target)
+  const serverShown = isScopeVisible(`server:${url}`)
+  if (target.templateId !== undefined) {
+    const parentDrawn = serverShown && nodeChainVisible(url, target.nodeId, surface)
+    const own = isScopeVisible(serverTemplateKey(url, target.templateId, surface))
+    return [parentDrawn && own, parentDrawn]
+  }
+  if (target.nodeId === null) return [serverShown, true]
   const parent = serverNodeParents(url, surface).find(([id]) => id === target.nodeId)?.[1] ?? null
-  return [nodeChainVisible(url, target.nodeId, surface), nodeChainVisible(url, parent, surface)]
+  return [
+    serverShown && nodeChainVisible(url, target.nodeId, surface),
+    serverShown && nodeChainVisible(url, parent, surface),
+  ]
 }
 
 /**
@@ -1104,7 +1117,7 @@ const folderVisibility = (target: TreeTarget): readonly [drawn: boolean, parentD
 const hiddenNotice = (target: TreeTarget, template?: PlacedTemplate): string | null => {
   const [drawn, parentDrawn] =
     template === undefined
-      ? folderVisibility(target)
+      ? rowVisibility(target)
       : [isTemplateVisible(template), isTemplateVisible({ ...template, visible: true })]
   if (drawn) return null
   return parentDrawn
@@ -1136,8 +1149,7 @@ export const openContextMenu = (
   /** Run an edit to the template's placement or art unless the map hides it. */
   const whenDrawn = (edit: (id: string) => void) => (): void => {
     if (artworkId === null) return
-    const template = templateById(artworkId)
-    const notice = template === undefined ? null : hiddenNotice(target, template)
+    const notice = hiddenNotice(target, templateById(artworkId))
     if (notice === null) edit(artworkId)
     else toast(notice, 'warning')
   }

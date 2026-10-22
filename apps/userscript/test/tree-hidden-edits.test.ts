@@ -1,7 +1,10 @@
+import { WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createLocalFolder, setLocalFolderVisible } from '../src/local-folders.js'
+import { type ConnectedServer, setScopeVisible } from '../src/state.js'
 import * as store from '../src/templates/local-store.js'
 import { abort, movingId } from '../src/templates/move.js'
+import { serverTemplateKey } from '../src/templates/server-sync.js'
 import { toast } from '../src/ui/toast.js'
 import { type TreeCallbacks, type TreeTarget, templateTreeAdapter } from '../src/ui/tree.js'
 
@@ -60,7 +63,14 @@ const choose = (key: string, label: string): void => {
   })
 }
 
+const MANIFEST_ONLY_KEY = serverTemplateKey(
+  'https://hidden-edits.test',
+  'manifest-only',
+  WORLD_TEMPLATE_SURFACE,
+)
+
 afterEach(async () => {
+  setScopeVisible(MANIFEST_ONLY_KEY, true)
   await abort()
   for (const placed of store.localTemplates()) await store.removeLocalTemplate(placed.id)
   vi.mocked(toast).mockClear()
@@ -90,6 +100,38 @@ describe('hidden templates and folders', () => {
       'warning',
     )
     expect(movingId()).toBeNull()
+  })
+
+  it('refuses new artwork for a hidden server template whose pixels have not arrived', () => {
+    const server: ConnectedServer = {
+      url: 'https://hidden-edits.test',
+      info: null,
+      token: 'admin',
+      status: 'connected',
+      isAdmin: true,
+      season: 0,
+    }
+    setScopeVisible(MANIFEST_ONLY_KEY, false)
+    const target: TreeTarget = {
+      server,
+      nodeId: null,
+      key: 'manifest-only',
+      name: 'Pending',
+      templateId: 'manifest-only',
+    }
+
+    openContextMenu(target, new MouseEvent('contextmenu'), () => {})
+    const menu = treeActionPresentation().contextMenu
+    const item = menu?.items.find((candidate) => candidate.label === 'Replace artwork')
+    if (menu === undefined || item === undefined) throw new Error('Replace artwork is not offered')
+    handleTreeActionPresentationIntent({
+      type: 'context-menu-action',
+      menuId: menu.id,
+      actionId: item.id,
+    })
+
+    expect(toast).toHaveBeenCalledWith('“Pending” is hidden. Show it first.', 'warning')
+    expect(document.querySelector('input[type="file"]')).toBeNull()
   })
 
   it('adds nothing under a folder whose parent is hidden', () => {
