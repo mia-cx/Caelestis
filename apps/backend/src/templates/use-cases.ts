@@ -353,8 +353,11 @@ export const deleteTemplate = (
     )
   })
 
-/** The recipe behind one immutable version. Processed-only versions have none. */
-export const readTemplateRecipe = (versionId: string) =>
+/**
+ * The recipe behind one immutable version. Processed-only versions have none, and an unpublished
+ * template's recipes are admin-only.
+ */
+export const readTemplateRecipe = (versionId: string, includeUnpublished: boolean) =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
     const version = yield* Effect.tryPromise({
@@ -363,12 +366,25 @@ export const readTemplateRecipe = (versionId: string) =>
     })
     if (version?.recipe === undefined)
       return yield* Effect.fail(new ResourceNotFoundError({ message: 'not found' }))
+    if (!includeUnpublished) {
+      const template = yield* Effect.tryPromise({
+        try: () => sql.readTemplate(version.templateId),
+        catch: (cause) => new BackendStorageError({ operation: 'readTemplate', cause }),
+      })
+      if (template?.published !== true)
+        return yield* Effect.fail(new ResourceNotFoundError({ message: 'not found' }))
+    }
     return { templateId: version.templateId, versionId, recipe: version.recipe }
   })
 
+/**
+ * A blob's bytes. Chunks and sources that only unpublished templates name answer 404 unless
+ * `includeUnpublished`, the same as if they were absent; mirrored canvas tiles are always public.
+ */
 export const readBlob = (
   namespace: 'chunks' | 'sources' | 'tiles',
   hash: string,
+  includeUnpublished: boolean,
 ): Effect.Effect<
   Uint8Array,
   ResourceNotFoundError | BackendStorageError,
@@ -377,6 +393,13 @@ export const readBlob = (
   Effect.gen(function* () {
     const blobs = yield* BlobStoreService
     const sql = yield* SqlStoreService
+    if (namespace !== 'tiles' && !includeUnpublished) {
+      const published = yield* Effect.tryPromise({
+        try: () => sql.isPublishedArtwork(namespace, hash),
+        catch: (cause) => new BackendStorageError({ operation: 'isPublishedArtwork', cause }),
+      })
+      if (!published) return yield* Effect.fail(new ResourceNotFoundError({ message: 'not found' }))
+    }
     const bytes = yield* Effect.tryPromise({
       try: () =>
         namespace === 'tiles' ? readTileBlob({ blobs, sql }, hash) : blobs.get(namespace, hash),

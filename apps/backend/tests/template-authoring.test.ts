@@ -5,7 +5,7 @@ import {
   templateRecipeJson,
 } from '@caelestis/shared'
 import { afterEach, describe, expect, it } from 'vitest'
-import { authorized, createTestBackend } from './support/backend.js'
+import { adminToken, authorized, createTestBackend } from './support/backend.js'
 import { openRelationalStore } from './support/relational.js'
 
 type Backend = Awaited<ReturnType<typeof createTestBackend>>
@@ -110,6 +110,58 @@ describe('template authoring inputs', () => {
     expect(processedOnly.status).toBe(201)
     const latest = (await processedOnly.json()) as { versionId: string }
     expect((await recipeOf(server, latest.versionId)).status).toBe(404)
+  })
+
+  it('serves an unpublished template’s chunks, source, and recipe to admins only', async () => {
+    const server = await backend()
+    const art = await fixture()
+    const created = await create(server, { ...art, recipe: templateRecipeJson(art.recipe) })
+    const { templateId, versionId } = (await created.json()) as {
+      templateId: string
+      versionId: string
+    }
+    const minted = await server.app.fetch(
+      authorized('/admin/tokens', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ label: 'reader', scope: 'read' }),
+      }),
+    )
+    const { token } = (await minted.json()) as { token: string }
+    const chunk = (await server.sql.readTemplateVersion(versionId))?.chunks[0]?.hash
+    const paths = [
+      `/chunks/${chunk}`,
+      `/sources/${art.recipe.source.sha256}`,
+      `/recipes/${versionId}`,
+    ]
+    const statuses = async (bearer: string) =>
+      await Promise.all(
+        paths.map(
+          async (path) =>
+            (
+              await server.app.fetch(
+                new Request(`https://backend.test${path}`, {
+                  headers: { authorization: `Bearer ${bearer}` },
+                }),
+              )
+            ).status,
+        ),
+      )
+    const publish = async (published: boolean) =>
+      await server.app.fetch(
+        authorized(`/admin/templates/${templateId}`, {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ published }),
+        }),
+      )
+
+    expect(await statuses(token)).toEqual([404, 404, 404])
+    expect(await statuses(adminToken)).toEqual([200, 200, 200])
+    expect((await publish(true)).status).toBe(200)
+    expect(await statuses(token)).toEqual([200, 200, 200])
+    expect((await publish(false)).status).toBe(200)
+    expect(await statuses(token)).toEqual([404, 404, 404])
   })
 
   it('refuses authoring that does not describe the uploaded pixels', async () => {

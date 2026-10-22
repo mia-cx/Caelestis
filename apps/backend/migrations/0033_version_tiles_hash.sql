@@ -1,0 +1,1 @@
+CREATE INDEX `version_tiles_hash_idx` ON `version_tiles` (`hash`);

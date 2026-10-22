@@ -433,6 +433,8 @@ export const versionTiles = sqliteTable(
     ),
     primaryKey({ columns: [table.versionId, table.tileX, table.tileY] }),
     index('version_tiles_tile_idx').on(table.tileX, table.tileY),
+    // A chunk read checks that some published template names its hash.
+    index('version_tiles_hash_idx').on(table.hash),
   ],
 )
 
