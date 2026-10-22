@@ -182,15 +182,15 @@ export const synchronizePersonalTemplates = (): Promise<void> =>
   exclusive(async () => {
     if (native === null) return
     const api = native
-    const known = new Map<string, StoredTemplate>()
-    // One record at a time, so syncing never holds more than one template's pixels.
+    // Native ids only: one record at a time, so syncing never holds more than one template's pixels.
+    const known = new Set<string>()
     for (const localId of await disk.loadTemplateIds()) {
       const template = loadedTemplate(await disk.loadTemplate(localId))
       if (template === null || !isWorld(template)) continue
-      if (template.native !== undefined) known.set(template.native.id, template)
+      if (template.native !== undefined) known.add(template.native.id)
       try {
         const current = await synchronizeOne(api, template)
-        if (current?.native !== undefined) known.set(current.native.id, current)
+        if (current?.native !== undefined) known.add(current.native.id)
       } catch (error) {
         warn('install', `could not sync personal template ${template.name}`, String(error))
       }
