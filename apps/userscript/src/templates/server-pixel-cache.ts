@@ -1,6 +1,7 @@
 import { warn } from '../debug.js'
 import { isStoredBlob } from '../page-world.js'
 import { openTemplateDatabase, SERVER_PIXELS_STORE } from './persist.js'
+import { cutPixels, packPixels, type SparsePixels, unpackPixels } from './sparse-pixels.js'
 
 /**
  * Server template pixels kept on disk, so an evicted copy reloads without downloading it again.
@@ -14,7 +15,17 @@ interface CachedServerPixels {
   readonly key: string
   readonly version: string
   readonly opaque: number
+  /** Painted chunks packed back to back; the whole image in entries written before chunks. */
   readonly indices: Blob
+  /** Which chunks `indices` holds; absent in entries written before chunks. */
+  readonly chunks?: readonly number[]
+}
+
+/** What a cached version costs and holds, known without reading its pixels. */
+export interface CachedServerCopy {
+  readonly opaque: number
+  /** Painted chunk area, or the whole box for an entry written before chunks. */
+  readonly area: number
 }
 
 /** Run one transaction; `run` queues its requests and returns how to read the result once committed. */
@@ -47,7 +58,8 @@ const cachedEntry = async (key: string, version: string): Promise<CachedServerPi
   const entry = value as Partial<CachedServerPixels>
   return entry.version === version &&
     Number.isSafeInteger(entry.opaque) &&
-    isStoredBlob(entry.indices)
+    isStoredBlob(entry.indices) &&
+    (entry.chunks === undefined || Array.isArray(entry.chunks))
     ? (entry as CachedServerPixels)
     : null
 }
@@ -56,15 +68,17 @@ const cachedEntry = async (key: string, version: string): Promise<CachedServerPi
 export const saveServerPixels = async (
   key: string,
   version: string,
-  indices: Uint8Array,
+  pixels: SparsePixels,
   opaque: number,
 ): Promise<void> => {
   try {
+    const packed = packPixels(pixels)
     const entry: CachedServerPixels = {
       key,
       version,
       opaque,
-      indices: new Blob([indices.slice().buffer]),
+      indices: new Blob([packed.bytes.buffer as ArrayBuffer]),
+      chunks: packed.chunks,
     }
     await transact('readwrite', (store) => {
       store.put(entry)
@@ -75,26 +89,34 @@ export const saveServerPixels = async (
   }
 }
 
-/** The opaque pixel count of a cached version, without reading its pixels. Null on a miss. */
-export const cachedServerOpaque = async (key: string, version: string): Promise<number | null> => {
+/** A cached version's opaque count and stored area, without reading its pixels. Null on a miss. */
+export const cachedServerCopy = async (
+  key: string,
+  version: string,
+): Promise<CachedServerCopy | null> => {
   try {
-    return (await cachedEntry(key, version))?.opaque ?? null
+    const entry = await cachedEntry(key, version)
+    return entry === null ? null : { opaque: entry.opaque, area: entry.indices.size }
   } catch (error) {
     warn('install', `could not read cached server template ${key}`, String(error))
     return null
   }
 }
 
-/** The cached pixels of this version, or null on a miss or a wrong-sized entry. */
+/** The cached pixels of this version, or null on a miss or an entry that does not fit its size. */
 export const readServerPixels = async (
   key: string,
   version: string,
-  area: number,
-): Promise<Uint8Array | null> => {
+  width: number,
+  height: number,
+): Promise<SparsePixels | null> => {
   try {
     const entry = await cachedEntry(key, version)
-    if (entry === null || entry.indices.size !== area) return null
-    return new Uint8Array(await entry.indices.arrayBuffer())
+    if (entry === null) return null
+    const bytes = new Uint8Array(await entry.indices.arrayBuffer())
+    if (entry.chunks !== undefined)
+      return unpackPixels(width, height, { bytes, chunks: entry.chunks })
+    return bytes.length === width * height ? cutPixels(width, height, bytes) : null
   } catch (error) {
     warn('install', `could not read cached server template ${key}`, String(error))
     return null

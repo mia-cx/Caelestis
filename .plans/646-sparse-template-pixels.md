@@ -25,7 +25,7 @@ Decided with Mia (2026-10-22):
   - artwork holds `SparsePixels`; residency counts stored area; readers move over;
   - scans read the tile's window from chunks; the worker caches one window per tile;
   - one texture per painted chunk with neighbour halos; open sides draw outline margins.
-- [ ] Disk: records and server cache store packed chunks; legacy dense records cut on load.
+- [x] Disk: records and server cache store packed chunks; legacy dense records cut on load.
 - [ ] Contract test: a sparse template costs its painted chunks and reloads intact; changeset.
 
 ## Notes
@@ -35,3 +35,9 @@ Decided with Mia (2026-10-22):
   returns a dense copy for whole-image actions; `templateChunks` returns the chunks. Alliance marker
   indexes still allocate bbox-sized classification arrays while a template is on screen.
   Validation: typecheck clean, 260/260 tests.
+- Disk: a record's `indices` Blob holds packed chunk bytes and `chunks` their grid keys; no
+  `chunks` means a dense record from before, cut on load and written back packed under the same
+  revision. Hydrated records carry `pixels`. Restore learns a packed record's cost from its Blob
+  size. Server cache entries pack the same way; `cachedServerCopy` reports opaque count and area.
+  Downloads and native Wplace images are still assembled dense, then cut. Validation: typecheck
+  clean, 262/262 tests.

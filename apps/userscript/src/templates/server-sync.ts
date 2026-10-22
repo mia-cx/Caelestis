@@ -38,7 +38,7 @@ import {
   updateServerTemplateMetadata,
 } from './local-store.js'
 import { rememberNodes } from './server-nodes.js'
-import { cachedServerOpaque, retainServerPixels } from './server-pixel-cache.js'
+import { cachedServerCopy, retainServerPixels } from './server-pixel-cache.js'
 
 /**
  * Bringing a server's published templates onto the canvas.
@@ -567,14 +567,12 @@ const syncServerTemplatesOnce = async (
     const stillWanted = (): boolean => current() && latestVersion(key) === template.version
     try {
       // Cached at this version: install without downloading, and read the pixels when needed.
-      const cachedOpaque = await cachedServerOpaque(key, template.version)
+      const cached = await cachedServerCopy(key, template.version)
       if (!current()) return
-      if (cachedOpaque !== null) {
+      if (cached !== null) {
         const row = serverTemplateRow(server, template, key, surface, width, height)
-        if (
-          !(await putServerTemplate({ ...row, indices: null, opaque: cachedOpaque }, stillWanted))
-        )
-          return
+        const copy = { ...row, indices: null, opaque: cached.opaque, cachedArea: cached.area }
+        if (!(await putServerTemplate(copy, stillWanted))) return
         count('server:template restored from disk')
         continue
       }

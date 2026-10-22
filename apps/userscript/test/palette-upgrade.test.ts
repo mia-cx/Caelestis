@@ -1,6 +1,11 @@
 import { IDBFactory } from 'fake-indexeddb'
 import { beforeEach, expect, it, vi } from 'vitest'
-import { loadTemplate, openTemplateDatabase } from '../src/templates/persist.js'
+import {
+  loadTemplate,
+  openTemplateDatabase,
+  type StoredTemplate,
+} from '../src/templates/persist.js'
+import { joinPixels } from '../src/templates/sparse-pixels.js'
 
 beforeEach(() => vi.stubGlobal('indexedDB', new IDBFactory()))
 
@@ -36,13 +41,10 @@ it('upgrades Blob-backed legacy artwork past a corrupt row without remapping it 
   legacy.close()
   for (let reopen = 0; reopen < 2; reopen++) {
     const loaded = await loadTemplate('b-art')
-    expect(loaded).toMatchObject({
-      status: 'loaded',
-      template: {
-        indices: new Uint8Array([19, 17, 35, 63]),
-        appearance: { hiddenColours: [19, 35] },
-      },
-    })
+    if (loaded.status !== 'loaded') throw new Error(`template did not load: ${loaded.status}`)
+    const template = loaded.template as StoredTemplate
+    expect(joinPixels(template.pixels)).toEqual(new Uint8Array([19, 17, 35, 63]))
+    expect(template).toMatchObject({ appearance: { hiddenColours: [19, 35] } })
   }
 })
 

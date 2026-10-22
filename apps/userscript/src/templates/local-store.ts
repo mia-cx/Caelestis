@@ -13,7 +13,7 @@ import {
 } from '@caelestis/shared'
 import { log, warn } from '../debug.js'
 import { leaseLocalFolder, localFolderChainVisible } from '../local-folders.js'
-import { isUint8Array, pageWindow } from '../page-world.js'
+import { pageWindow } from '../page-world.js'
 import {
   type ConnectedServer,
   getState,
@@ -40,6 +40,7 @@ import {
   MAX_TEMPLATE_NAME_LENGTH,
 } from './import.js'
 import {
+  catalogStoredArea,
   catalogTileKeys,
   deleteTemplate,
   discardTemplate,
@@ -476,18 +477,20 @@ const loadServerPixels = async (
   evict: boolean,
 ): Promise<SparsePixels> => {
   const version = template.serverVersion ?? ''
-  const area = areaOf(template)
-  let indices = await readServerPixels(template.id, version, area)
-  const downloaded = indices === null
-  indices ??= (await serverPixelSource?.(template)) ?? null
-  if (indices === null || indices.length !== area) {
-    throw new Error('Could not load this server template. Try again.')
+  const cached = await readServerPixels(template.id, version, template.width, template.height)
+  let pixels = cached
+  if (pixels === null) {
+    // Downloads arrive as one dense image.
+    const indices = (await serverPixelSource?.(template)) ?? null
+    if (indices !== null && indices.length === areaOf(template)) {
+      pixels = cutPixels(template.width, template.height, indices)
+    }
   }
+  if (pixels === null) throw new Error('Could not load this server template. Try again.')
   if (templates.get(template.id)?.artwork !== template.artwork) {
     throw new Error('That template changed while it was loading. Try again.')
   }
-  if (downloaded) void saveServerPixels(template.id, version, indices, template.opaque)
-  const pixels = cutPixels(template.width, template.height, indices)
+  if (cached === null) void saveServerPixels(template.id, version, pixels, template.opaque)
   installLoaded(template, pixels, evict)
   return pixels
 }
@@ -503,9 +506,8 @@ const loadPixels = async (template: PlacedTemplate, evict: boolean): Promise<Spa
   const stored = loaded.status === 'loaded' ? storedOrNull(loaded.template) : null
   if (stored !== null && current?.artwork === template.artwork) {
     if (stored.revision === current.revision) {
-      const pixels = cutPixels(stored.width, stored.height, stored.indices)
-      installLoaded(current, pixels, evict)
-      return pixels
+      installLoaded(current, stored.pixels, evict)
+      return stored.pixels
     }
   }
   // Disk no longer holds what this tab shows: another tab or Wplace changed it. Take the winner.
@@ -930,7 +932,7 @@ const isAppearance = (value: unknown): value is Appearance => {
   )
 }
 
-type StoredMetadata = Omit<StoredTemplate, 'indices'>
+type StoredMetadata = Omit<StoredTemplate, 'pixels'>
 
 /** Validate a stored record's metadata; its pixels stay wherever they are. */
 const normaliseStoredMetadata = (value: unknown): StoredMetadata => {
@@ -1064,11 +1066,12 @@ const normaliseStoredMetadata = (value: unknown): StoredMetadata => {
 
 const normaliseStoredTemplate = (value: unknown): StoredTemplate => {
   const metadata = normaliseStoredMetadata(value)
-  const indices = isRecord(value) ? value.indices : undefined
-  if (!isUint8Array(indices) || indices.length !== areaOf(metadata)) {
+  // Hydration built these from the stored bytes; only their size can disagree with the record.
+  const pixels = isRecord(value) ? (value.pixels as SparsePixels | undefined) : undefined
+  if (pixels?.width !== metadata.width || pixels.height !== metadata.height) {
     throw new RangeError('template pixels are invalid')
   }
-  return { ...metadata, indices }
+  return { ...metadata, pixels }
 }
 
 /** A loaded record, or null when it is invalid; reconciliation then discards it with a warning. */
@@ -1172,8 +1175,7 @@ const persist = async (placed: PlacedTemplate): Promise<SaveResult> => {
   if (pixels === null) throw new RangeError('a new template has no pixels in memory')
   return await writeInOrder(
     placed.id,
-    async () =>
-      await saveTemplate({ ...rest, tileKeys: [...tiles], indices: joinPixels(pixels) }, null),
+    async () => await saveTemplate({ ...rest, tileKeys: [...tiles], pixels }, null),
   )
 }
 
@@ -1194,8 +1196,7 @@ const savePlaced = async (
       ...rest,
       visible,
       tileKeys: [...tiles],
-      indices:
-        expectedRevision === null && artwork.pixels !== null ? joinPixels(artwork.pixels) : null,
+      pixels: expectedRevision === null ? artwork.pixels : null,
     },
     expectedRevision,
   )
@@ -1281,8 +1282,7 @@ const reconcileConflictExclusive = async (id: string): Promise<void> => {
     // Unchanged on disk: keep this artwork, so progress and textures keyed on it survive.
     if (winner.revision === existing.revision) return
     // Split the pixels off, so the catalog entry holds them only through its artwork.
-    const { indices, ...metadata } = winner
-    const pixels = cutPixels(metadata.width, metadata.height, indices)
+    const { pixels, ...metadata } = winner
     let tiles: ReadonlySet<string>
     try {
       tiles = await paintedTileKeys(metadata, pixels)
@@ -1353,11 +1353,13 @@ export const hasRoomForServerTemplate = (id: string, nextPixels: number): boolea
  * them. Everything else — the name, where it sits, the pixels — comes from the server.
  *
  * Downloaded pixels are cached on disk and stay in memory if they fit. Null indices install a copy
- * whose pixels are already cached at this version, without reading them.
+ * whose pixels are already cached at this version, without reading them; `cachedArea` is what that
+ * copy will cost once loaded.
  */
 export const putServerTemplate = async (
   template: Omit<ImportedTemplate, 'indices'> & {
     indices: Uint8Array | null
+    cachedArea?: number
     surface?: TemplateSurface
     serverUrl: string
     serverTemplateId: string
@@ -1381,7 +1383,7 @@ export const putServerTemplate = async (
     }
     const visible = existing?.visible ?? isScopeVisible(template.id)
     const preference = existing === undefined ? serverTemplatePreference(template.id) : undefined
-    const { indices, ...metadata } = template
+    const { indices, cachedArea, ...metadata } = template
     const pixels = indices === null ? null : cutPixels(template.width, template.height, indices)
     // Without server-reported coverage, colour navigation and full progress scans need the tiles.
     let tiles: ReadonlySet<string> = new Set<string>()
@@ -1390,12 +1392,12 @@ export const putServerTemplate = async (
       tiles = await paintedTileKeys(metadata, pixels)
     }
     // On disk before it can be evicted, so dropping it from memory never loses it.
-    if (indices !== null) {
-      await saveServerPixels(template.id, template.serverVersion, indices, template.opaque)
+    if (pixels !== null) {
+      await saveServerPixels(template.id, template.serverVersion, pixels, template.opaque)
     }
     if (!isCurrent()) return false
     if (existing !== undefined) setPixels(existing, null)
-    const area = pixels === null ? undefined : storedArea(pixels)
+    const area = pixels === null ? cachedArea : storedArea(pixels)
     const resident = pixels !== null && makeRoom(storedArea(pixels), template.id)
     templates.set(template.id, {
       ...metadata,
@@ -1736,9 +1738,9 @@ const restoreRecord = async (
     }
     const stored = loaded.status === 'loaded' ? storedOrNull(loaded.template) : null
     if (stored === null) return await discardRecord(id, recordRevision, seen)
-    const { indices, ...metadata } = stored
+    const { pixels: storedPixels, ...metadata } = stored
     source = metadata
-    pixels = cutPixels(stored.width, stored.height, indices)
+    pixels = storedPixels
   }
   let template: StoredMetadata
   try {
@@ -1793,8 +1795,12 @@ const restoreRecord = async (
     warn('install', `could not restore ${template.name}: local template id already exists`)
     return 'skipped'
   }
-  const area = pixels === null ? undefined : storedArea(pixels)
-  const resident = area !== undefined && fitsResident(area)
+  if (pixels === null) {
+    templates.set(id, placedFromStored(template, tiles, null, catalogStoredArea(record)))
+    return 'restored'
+  }
+  const area = storedArea(pixels)
+  const resident = fitsResident(area)
   templates.set(id, placedFromStored(template, tiles, resident ? pixels : null, area))
   if (resident) retainedIndexPixels += area
   return 'restored'
@@ -2171,7 +2177,6 @@ export const replaceLocalArtwork = async (
     const { authoring: _authoring, artwork: _artwork, tiles: _tiles, ...processedOnly } = expected
     const next = {
       ...processedOnly,
-      indices,
       opaque: indices.reduce((count, index) => count + Number(index !== TRANSPARENT_INDEX), 0),
       moved: 0,
       updatedAt: Date.now(),
@@ -2179,7 +2184,11 @@ export const replaceLocalArtwork = async (
     const pixels = cutPixels(next.width, next.height, indices)
     const tiles = await paintedTileKeys(next, pixels)
     checkCurrent()
-    const result = await saveTemplate({ ...next, tileKeys: [...tiles] }, expected.revision, true)
+    const result = await saveTemplate(
+      { ...next, pixels, tileKeys: [...tiles] },
+      expected.revision,
+      true,
+    )
     if (result.status === 'limit') {
       throw new Error(
         'Local version history is full. Remove an unused local template to free its history, then try again.',
@@ -2196,9 +2205,8 @@ export const replaceLocalArtwork = async (
     setPixels(expected, null)
     const area = storedArea(pixels)
     const resident = makeRoom(area, expected.id)
-    const { indices: _indices, ...metadata } = next
     templates.set(expected.id, {
-      ...metadata,
+      ...next,
       artwork: newArtwork(resident ? pixels : null, area),
       tiles,
       revision: result.revision,

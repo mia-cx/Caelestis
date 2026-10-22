@@ -143,21 +143,46 @@ export const packPixels = (pixels: SparsePixels): PackedPixels => {
   return { bytes, chunks: [...pixels.chunks.keys()] }
 }
 
+/** How many bytes the listed chunks pack into; null when the list does not fit the grid. */
+export const packedLength = (width: number, height: number, keys: unknown): number | null => {
+  if (!Array.isArray(keys)) return null
+  const limit = columnsOf(width) * Math.ceil(height / PIXEL_CHUNK_SIZE)
+  const seen = new Set<number>()
+  let length = 0
+  for (const key of keys) {
+    if (!Number.isInteger(key) || key < 0 || key >= limit || seen.has(key)) return null
+    seen.add(key)
+    const rect = chunkRect(width, height, key)
+    length += rect.width * rect.height
+  }
+  return length
+}
+
 /** Read packed bytes back without copying them; null when they do not fit the layout. */
 export const unpackPixels = (
   width: number,
   height: number,
   { bytes, chunks: keys }: PackedPixels,
 ): SparsePixels | null => {
+  if (packedLength(width, height, keys) !== bytes.length) return null
   const chunks = new Map<number, PixelChunk>()
-  const limit = columnsOf(width) * Math.ceil(height / PIXEL_CHUNK_SIZE)
   let offset = 0
   for (const key of keys) {
-    if (!Number.isInteger(key) || key < 0 || key >= limit || chunks.has(key)) return null
     const rect = chunkRect(width, height, key)
     const area = rect.width * rect.height
     chunks.set(key, { ...rect, indices: bytes.subarray(offset, offset + area) })
     offset += area
   }
-  return offset === bytes.length ? { width, height, chunks } : null
+  return { width, height, chunks }
+}
+
+/** Whether two images hold the same pixels; a chunk with nothing painted never differs. */
+export const samePixels = (a: SparsePixels, b: SparsePixels): boolean => {
+  if (a.width !== b.width || a.height !== b.height || a.chunks.size !== b.chunks.size) return false
+  for (const [key, chunk] of a.chunks) {
+    const other = b.chunks.get(key)?.indices
+    if (other === undefined || other.length !== chunk.indices.length) return false
+    for (let at = 0; at < other.length; at++) if (other[at] !== chunk.indices[at]) return false
+  }
+  return true
 }
