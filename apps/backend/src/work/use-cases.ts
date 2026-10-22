@@ -66,12 +66,18 @@ export const listWork = (
 ) =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
-    const page = yield* storage(() => sql.work.list(season, surface, after))
-    // The cursor comes from the unfiltered page, so hidden items never end pagination early.
-    const nextCursor = page.length === MAX_WORK_ITEMS ? (page.at(-1)?.id ?? null) : null
-    if (includeUnpublished) return { items: page, nextCursor }
-    const visible = yield* visibleWork(sql, season, surface)
-    return { items: page.filter(visible), nextCursor }
+    const visible = includeUnpublished ? () => true : yield* visibleWork(sql, season, surface)
+    // Clients continue from the last item they were given, so the cursor must name a visible one.
+    // Read past pages that are entirely hidden rather than ending early or naming a hidden id.
+    let cursor = after
+    while (true) {
+      const page = yield* storage(() => sql.work.list(season, surface, cursor))
+      const items = page.filter(visible)
+      if (page.length < MAX_WORK_ITEMS) return { items, nextCursor: null }
+      const last = items.at(-1)
+      if (last !== undefined) return { items, nextCursor: last.id }
+      cursor = page.at(-1)?.id ?? cursor
+    }
   })
 
 /** Read activity newest first, with revision-based pagination. */
