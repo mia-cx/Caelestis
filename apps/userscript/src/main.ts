@@ -97,6 +97,7 @@ import { installUserscriptUpdateCheck } from './userscript-update.js'
 import { loadAccount } from './wplace-account.js'
 import { installWplaceCursors } from './wplace-cursors.js'
 import { installWplaceFont } from './wplace-font.js'
+import { installWplaceMessages } from './wplace-messages.js'
 import { isPaintOpen, onPaintSelectionChange, watchPaintSelection } from './wplace-paint.js'
 import {
   applyWplacePatches,
@@ -310,6 +311,7 @@ export const startUserscript = (): void => {
   step('service-worker tile refresh tap', () => installServiceWorkerTap())
   step('wplace state capture', installWplaceStateCapture)
   step('Wplace settings', installWplaceSettings)
+  step('Wplace messages', () => void installWplaceMessages())
   step('map capture', installMapCapture)
   step('alliance surface observer', installAllianceSurfaceObserver)
   step('debug API', () => {

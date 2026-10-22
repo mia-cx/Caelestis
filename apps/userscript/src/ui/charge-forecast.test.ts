@@ -20,10 +20,11 @@ const chip = (): HTMLElement => document.getElementById('caelestis-charge-foreca
 
 const mountPaintDock = (rect: Partial<DOMRect>): HTMLButtonElement => {
   const dock = document.createElement('div')
-  dock.className = 'absolute left-1/2 -translate-x-1/2 bottom-3'
+  // Wplace's dock as rendered for a French reader; the label is translated after load.
+  dock.className = 'bottom-safe-min-3 absolute left-1/2 z-30 -translate-x-1/2'
   const button = document.createElement('button')
-  button.className = 'btn btn-primary btn-lg'
-  button.textContent = 'Paint 12'
+  button.className = 'btn btn-lg sm:btn-xl relative btn-primary z-30 pixel-ui'
+  button.textContent = 'Peindre'
   button.getBoundingClientRect = () =>
     ({ left: 0, top: 0, width: 0, height: 0, ...rect }) as DOMRect
   dock.append(button)

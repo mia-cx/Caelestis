@@ -1,12 +1,13 @@
-import { PALETTE_SIZE, TRANSPARENT_INDEX, WPLACE_PALETTE } from '@caelestis/shared'
+import { PALETTE_RGB, PALETTE_SIZE, TRANSPARENT_INDEX } from '@caelestis/shared'
 import { activeAllianceEditorStage } from './alliance-surface.js'
 import { log } from './debug.js'
+import { findWplaceLabelled, wplaceLabel } from './wplace-messages.js'
 
 /**
  * Which colour wplace currently has selected, and whether its paint drawer is open at all.
  *
  * Read from their rendered swatches rather than from any state of theirs. World swatches use
- * `color-N` and `ring-primary`. Alliance swatches use their colour name and `aria-pressed`.
+ * `color-N` and `ring-primary`. Alliance swatches use their inline colour and `aria-pressed`.
  *
  * The drawer existing *is* the signal that painting has started. There is no separate flag to read,
  * and there does not need to be: the swatches are only in the document while it is open.
@@ -39,15 +40,14 @@ export const selectPaintColour = (index: number): boolean => {
 
 const paintControl = (
   root: ParentNode,
-  label: 'Undo' | 'Redo' | 'Close',
-): HTMLButtonElement | null =>
-  root.querySelector(`button[aria-label="${label}"], button[title="${label}"]`)
+  label: 'undo' | 'redo' | 'close',
+): HTMLButtonElement | null => findWplaceLabelled(root, 'button', label)
 
 /** Find the smallest palette ancestor containing native history controls, within the active root. */
 const paintDrawerOf = (swatch: Element, root: ParentNode): HTMLElement | null => {
   for (let drawer = swatch.parentElement; drawer !== null; drawer = drawer.parentElement) {
     if (drawer === document.body || drawer === document.documentElement) return null
-    if (paintControl(drawer, 'Undo') !== null && paintControl(drawer, 'Redo') !== null)
+    if (paintControl(drawer, 'undo') !== null && paintControl(drawer, 'redo') !== null)
       return drawer
     if (drawer === root) return null
   }
@@ -56,11 +56,9 @@ const paintDrawerOf = (swatch: Element, root: ParentNode): HTMLElement | null =>
 
 /** Prefer native Close labels; retain the unlabeled header control used by older Wplace drawers. */
 const paintDrawerCloseButton = (drawer: HTMLElement): HTMLButtonElement | null => {
-  const close = paintControl(drawer, 'Close')
+  const close = paintControl(drawer, 'close')
   if (close !== null) return close
-  const header = Array.from(drawer.children).find(
-    (child) => child.querySelector('button[title="Undo"]') !== null,
-  )
+  const header = Array.from(drawer.children).find((child) => paintControl(child, 'undo') !== null)
   if (header === undefined) return null
   const directButtons = Array.from(header.children).filter(
     (child): child is HTMLButtonElement =>
@@ -72,12 +70,25 @@ const paintDrawerCloseButton = (drawer: HTMLElement): HTMLButtonElement | null =
   return directButtons.length === 1 ? (directButtons[0] ?? null) : null
 }
 
+/** A countdown Wplace appends to its Paint label, as in "Paint (0:25)". */
+const PAINT_COUNTDOWN = /^\s*\([^)]*\)$/
+
 /** Match only the drawer's Paint action, including its optional countdown, without layout classes. */
 const paintDrawerCommitButton = (drawer: HTMLElement): HTMLButtonElement | null => {
+  const paint = wplaceLabel('paint').toLowerCase()
   const candidates = [...drawer.querySelectorAll<HTMLButtonElement>('button')].filter((button) => {
-    const label =
-      button.getAttribute('aria-label') ?? button.getAttribute('title') ?? button.textContent
-    return /^paint(?:\s*\([^)]*\))?$/i.test(label?.trim() ?? '')
+    const label = (
+      button.getAttribute('aria-label') ??
+      button.getAttribute('title') ??
+      button.textContent ??
+      ''
+    )
+      .trim()
+      .toLowerCase()
+    return (
+      label.startsWith(paint) &&
+      (label === paint || PAINT_COUNTDOWN.test(label.slice(paint.length)))
+    )
   })
   return candidates.length === 1 ? (candidates[0] ?? null) : null
 }
@@ -90,9 +101,9 @@ const paintDrawerCommitButton = (drawer: HTMLElement): HTMLButtonElement | null 
  * resulting canvas writes then flow through our canonical pixel-accounting interception exactly
  * like a hand-painted pixel.
  */
-const movePaintHistory = (title: 'Undo' | 'Redo', root: ParentNode): boolean => {
+const movePaintHistory = (control: 'undo' | 'redo', root: ParentNode): boolean => {
   const drawer = nativePaintPanel(root)
-  const button = drawer === null ? null : paintControl(drawer, title)
+  const button = drawer === null ? null : paintControl(drawer, control)
   if (button === null || button.disabled) return false
   button.click()
   return true
@@ -100,38 +111,28 @@ const movePaintHistory = (title: 'Undo' | 'Redo', root: ParentNode): boolean => 
 
 /** Undo the most recently drafted pixel, if Wplace currently has one. */
 export const undoPaintDraft = (root: ParentNode = document): boolean =>
-  movePaintHistory('Undo', root)
+  movePaintHistory('undo', root)
 
 /** Redo the most recently undone draft pixel, if Wplace currently has one. */
 export const redoPaintDraft = (root: ParentNode = document): boolean =>
-  movePaintHistory('Redo', root)
+  movePaintHistory('redo', root)
 
-/** Wplace's bottom-centre Paint button, whichever height its dock currently sits at. */
+/**
+ * Wplace's bottom-centre Paint button, found by its horizontally centred dock. Wplace translates
+ * the label ("Peindre" in French) once its locale loads, so matching the text loses the button
+ * a moment after page load for anyone not reading English (issue #624).
+ */
 export const paintDockButton = (root: ParentNode = document): HTMLButtonElement | null => {
-  let visiblePaint: HTMLButtonElement | null = null
-  for (const button of root.querySelectorAll<HTMLButtonElement>('button.btn-primary')) {
-    const dock = button.parentElement
+  for (const button of root.querySelectorAll<HTMLButtonElement>('button.btn-primary.btn-lg')) {
+    const dock = button.parentElement?.classList
     if (
-      dock?.classList.contains('absolute') === true &&
-      dock.classList.contains('left-1/2') &&
-      dock.classList.contains('-translate-x-1/2') &&
-      (dock.classList.contains('bottom-3') || dock.classList.contains('bottom-14')) &&
-      button.textContent?.trim().toLowerCase().startsWith('paint') === true
-    ) {
+      dock?.contains('absolute') === true &&
+      dock.contains('left-1/2') &&
+      dock.contains('-translate-x-1/2')
+    )
       return button
-    }
-    const rect = button.getBoundingClientRect()
-    if (
-      visiblePaint === null &&
-      rect.width > 0 &&
-      rect.height > 0 &&
-      button.classList.contains('btn-lg') &&
-      button.textContent?.trim().toLowerCase().startsWith('paint') === true
-    ) {
-      visiblePaint = button
-    }
   }
-  return visiblePaint
+  return null
 }
 
 /**
@@ -147,7 +148,9 @@ export const performPaintAction = (root: ParentNode = document): boolean => {
     commit.click()
     return true
   }
-  const labels = new Set(['paint', 'open paint', 'paint pixel'])
+  const labels = new Set(
+    [wplaceLabel('paint'), wplaceLabel('paint_pixel')].map((label) => label.toLowerCase()),
+  )
   for (const button of root.querySelectorAll<HTMLButtonElement>('button')) {
     const label = (button.getAttribute('aria-label') ?? button.getAttribute('title') ?? '')
       .trim()
@@ -177,29 +180,35 @@ export const onPaintSelectionChange = (listener: () => void): void => {
   listeners.push(listener)
 }
 
+/** Alliance swatches paint their colour inline, as `background: rgb(60 60 60)`. */
+const SWATCH_RGB = /rgb\((\d+)[\s,]+(\d+)[\s,]+(\d+)/
+
 /**
- * `color-N` carries their array index, where 0 is Transparent and 1 is our 0.
+ * `color-N` carries their array index, where 0 is Transparent and 1 is our 0. Alliance swatches
+ * have no id, and their label is the translated colour name, so their inline colour identifies them.
  *
  * Transparent is deliberately not mapped to a selection. It is paintable for them, but as a
  * template colour it means "may be anything", so "show only the selected colour" has nothing to
- * show for it.
+ * show for it. Its swatch shows a checkerboard image rather than a colour.
  */
 export const paintPaletteIndexOf = (element: Element): number | null => {
   const raw = Number(element.id.slice('color-'.length))
-  const label = element.getAttribute('aria-label')?.split('. ', 1)[0]?.toLowerCase()
+  const rgb = element.getAttribute('style')?.match(SWATCH_RGB)?.slice(1).map(Number)
   const index =
     Number.isInteger(raw) && raw > 0
       ? raw - 1
-      : (WPLACE_PALETTE.find((colour) => colour.name.toLowerCase() === label)?.index ?? -1)
+      : rgb === undefined
+        ? -1
+        : PALETTE_RGB.findIndex((colour) => colour.every((channel, at) => channel === rgb[at]))
   if (index < 0 || index >= PALETTE_SIZE || index === TRANSPARENT_INDEX) return null
   return index
 }
 
-const alliancePaletteSwatches = (root: ParentNode): HTMLButtonElement[] =>
-  [...root.querySelectorAll<HTMLButtonElement>('button[aria-label][aria-pressed]')].filter(
-    (button) =>
-      paintPaletteIndexOf(button) !== null || button.getAttribute('aria-label') === 'Transparent',
-  )
+const alliancePaletteSwatches = (root: ParentNode): HTMLButtonElement[] => [
+  ...root.querySelectorAll<HTMLButtonElement>(
+    'button.game-color-swatch[aria-pressed]:not([id^="color-"])',
+  ),
+]
 
 const activePaintRoot = (): ParentNode =>
   activeAllianceEditorStage()?.closest('dialog[open]') ?? document

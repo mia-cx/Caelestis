@@ -2,6 +2,7 @@ import { WORLD_PIXELS } from '@caelestis/shared'
 import { activeAllianceSurface } from './alliance-surface.js'
 import { forwardPaintKey, forwardPaintMove, isForwardedPaintKey } from './paint-cursor.js'
 import { isMoving } from './templates/move.js'
+import { hasWplaceLabel } from './wplace-messages.js'
 import { isPaintOpen, paintPaletteIndexOf, paintPaletteSwatches } from './wplace-paint.js'
 import { overlayIndexAt, pickerPointAt, worldPaintIndexAt } from './wplace-picker.js'
 
@@ -19,8 +20,8 @@ export const installShiftPaint = (): void => {
     activeAllianceSurface() === null &&
     isPaintOpen() &&
     !isMoving() &&
-    !document.querySelector(
-      'button[aria-label="Eraser"][aria-pressed="true"], button[aria-label="Eraser"].btn-primary, button[aria-label="Color Picker"][aria-pressed="true"], button[aria-label="Color Picker"].btn-primary',
+    ![...document.querySelectorAll('button[aria-pressed="true"], button.btn-primary')].some(
+      (button) => hasWplaceLabel(button, 'eraser') || hasWplaceLabel(button, 'color_picker'),
     )
 
   const targetAt = (position: Position): Element | null =>
