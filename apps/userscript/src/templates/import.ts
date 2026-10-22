@@ -336,7 +336,20 @@ export const processRecipe = async (
       throw new Error('caelestis-nearest does not resize')
     return await quantise(decoded.pixels, false, recipe.palette)
   }
-  if (recipe.processor === 'ditherette') throw new Error('this build cannot run ditherette')
+  if (recipe.processor === 'ditherette') {
+    const decoded = await decodeToRgba(source)
+    const { runDitherette } = await import('./ditherette.js')
+    return {
+      ...(await runDitherette({
+        recipe,
+        source: {
+          key: recipe.source.sha256,
+          image: { width: decoded.width, height: decoded.height, data: decoded.pixels },
+        },
+      })),
+      moved: 0,
+    }
+  }
   const { connectNativeTemplates } = await import('./native-store.js')
   const native = await connectNativeTemplates({ resize: resizeWplaceImage })
   const processed = await native.pixels({ template: nativeRecipe(recipe, origin), image: source })

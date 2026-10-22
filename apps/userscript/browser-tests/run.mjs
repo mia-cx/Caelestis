@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { build } from 'esbuild'
+import { ditherettePlugin } from '../ditherette-plugin.mjs'
 
 const profile = await mkdtemp(join(tmpdir(), 'caelestis-browser-test-'))
 const artifacts = await mkdtemp(join(tmpdir(), 'caelestis-browser-artifacts-'))
@@ -55,6 +56,7 @@ try {
     target: 'es2022',
     platform: 'browser',
     loader: { '.woff2': 'dataurl', '.png': 'dataurl' },
+    plugins: [ditherettePlugin({ minify: false })],
     logLevel: 'silent',
   })
   let port = process.env.CDP_PORT
