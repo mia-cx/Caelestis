@@ -1,6 +1,10 @@
 import { canvasPixelToLatLng, PALETTE_RGB } from '@caelestis/shared'
 import { describe, expect, it, vi } from 'vitest'
-import { localTemplates } from '../src/templates/local-store.js'
+import {
+  localTemplates,
+  type PlacedTemplate,
+  templateTileKeys,
+} from '../src/templates/local-store.js'
 import { syncOfficialOverlays } from '../src/templates/official-overlays.js'
 
 const LAYER = 'seven-seals-template-2'
@@ -79,8 +83,28 @@ describe('official overlays', () => {
     })
     expect([...(mirrors()[0]?.indices ?? [])]).toEqual([1, 2, 3, 4])
     expect(map.visibility.get(LAYER)).toBe('none')
+    // Colour navigation and full progress scans walk these tiles.
+    expect([...templateTileKeys(mirrors()[0] as PlacedTemplate)]).toEqual(['1466/920'])
 
     map.removeLayer(LAYER)
     await vi.waitFor(() => expect(mirrors()).toEqual([]))
+  })
+
+  it('keeps the mirror when Wplace recreates the layer before queued work drains', async () => {
+    const map = fakeMap()
+    syncOfficialOverlays(map)
+    const art = { pixels: sealArt(), coordinates: [corner(1_466_000, 920_000)] }
+    map.addLayer(LAYER)
+    map.layer(LAYER)?.setData(art)
+    await vi.waitFor(() => expect(mirrors()).toHaveLength(1))
+
+    map.layer(LAYER)?.setData(art)
+    map.removeLayer(LAYER)
+    map.addLayer(LAYER)
+    map.layer(LAYER)?.setData(art)
+
+    await vi.waitFor(() => expect(map.visibility.get(LAYER)).toBe('none'))
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(mirrors()).toHaveLength(1)
   })
 })

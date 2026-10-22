@@ -22,6 +22,8 @@ import { OFFICIAL_OVERLAY_OWNER } from './wplace-owned.js'
 export const OFFICIAL_EVENTS_TREE_KEY = 'official-events'
 const SEAL_LAYER = /^seven-seals-template-(\d+)$/
 const REFRESH_MS = 5 * 60_000
+/** Longer `setTimeout` delays overflow and fire at once. */
+const MAX_TIMEOUT_MS = 2 ** 31 - 1
 
 export interface OfficialGroup {
   /** Folder id, unique across events. */
@@ -181,10 +183,13 @@ export const installOfficialEvents = async (): Promise<void> => {
   const scheduleOpening = (): void => {
     const next = event?.fragments.find((fragment) => fragment.opensAt > Date.now())
     if (next === undefined) return
-    setTimeout(() => {
-      notify()
-      scheduleOpening()
-    }, next.opensAt - Date.now())
+    setTimeout(
+      () => {
+        notify()
+        scheduleOpening()
+      },
+      Math.min(next.opensAt - Date.now(), MAX_TIMEOUT_MS),
+    )
   }
   scheduleOpening()
   const refresh = (): void => {
@@ -303,8 +308,10 @@ const sync = (map: OverlayMap): void => {
   for (const [layerId] of mirrored) {
     const match = SEAL_LAYER.exec(layerId)
     if (present.has(layerId) || match === null) continue
-    mirrored.delete(layerId)
-    queue(() => forgetServerTemplate(templateIdOf(Number(match[1]))))
+    // Forget in queue order: a mirror queued before the removal may still re-mark it as mirrored.
+    queue(async () => {
+      if (mirrored.delete(layerId)) await forgetServerTemplate(templateIdOf(Number(match[1])))
+    })
   }
 }
 
