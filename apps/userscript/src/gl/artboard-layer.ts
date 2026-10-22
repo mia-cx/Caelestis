@@ -143,7 +143,7 @@ export const artboardDevicePlacement = (
   }
 }
 
-/** Whether a template, grown by `margin` cells, overlaps the artboard's visible frame. */
+/** Whether a template, grown by `margin` cells, shows: inside the frame and on the stage's buffer. */
 const overlapsArtboardFrame = (
   template: Pick<PlacedTemplate, 'originX' | 'originY' | 'width' | 'height'>,
   geometry: ArtboardGeometry,
@@ -152,10 +152,10 @@ const overlapsArtboardFrame = (
 ): boolean => {
   const box = artboardDevicePlacement(template, geometry, viewport, margin)
   return (
-    box.right > viewport.frameLeft &&
-    box.bottom > viewport.frameTop &&
-    box.left < viewport.frameLeft + viewport.frameWidth &&
-    box.top < viewport.frameTop + viewport.frameHeight
+    box.right > Math.max(0, viewport.frameLeft) &&
+    box.bottom > Math.max(0, viewport.frameTop) &&
+    box.left < Math.min(viewport.bufferWidth, viewport.frameLeft + viewport.frameWidth) &&
+    box.top < Math.min(viewport.bufferHeight, viewport.frameTop + viewport.frameHeight)
   )
 }
 
@@ -739,8 +739,10 @@ class ArtboardRenderer {
           this.overlay.canvas,
         ),
       )
-    )
+    ) {
+      noteTemplatesInView(this.surface, new Set())
       return
+    }
     const all = displayTemplatesForSurface(this.surface)
     this.renderGeneration++
     const ids = new Set(all.map(({ id }) => id))
@@ -752,9 +754,8 @@ class ArtboardRenderer {
       ({ fade, palette }) => fade > 0 && palette !== null,
     )
     // Only templates overlapping the frame count as in view, matching what the passes draw.
-    const inFrame = templates.filter(
-      ({ template }) =>
-        viewport !== null && overlapsArtboardFrame(template, this.geometry, viewport),
+    const inFrame = templates.filter(({ template }) =>
+      overlapsArtboardFrame(template, this.geometry, viewport),
     )
     noteTemplatesInView(this.surface, new Set(inFrame.map(({ template }) => template.id)))
     let animating = templateScene.animating
