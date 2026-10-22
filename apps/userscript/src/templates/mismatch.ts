@@ -36,6 +36,7 @@ import { claimedHiddenFor } from './colour-filter.js'
 import {
   appearanceOf,
   displayTemplates,
+  isTemplateDraft,
   isTemplateVisible,
   onLocalChange,
   type PlacedTemplate,
@@ -47,9 +48,12 @@ import { forgetInWorker, hasWorker, scanInWorker } from './mismatch-worker.js'
 import { horizontalSpans, sourceXAt, wrappedDeltaX } from './placement.js'
 import { measuresLocally } from './wplace-owned.js'
 
+// The editor's draft changes with every setting and has no progress worth scanning.
 const worldTemplates = (): readonly PlacedTemplate[] =>
-  displayTemplates().filter((template) =>
-    sameTemplateSurface(template.surface ?? WORLD_TEMPLATE_SURFACE, WORLD_TEMPLATE_SURFACE),
+  displayTemplates().filter(
+    (template) =>
+      !isTemplateDraft(template) &&
+      sameTemplateSurface(template.surface ?? WORLD_TEMPLATE_SURFACE, WORLD_TEMPLATE_SURFACE),
   )
 
 // A native observation replaces the mask held at that moment, not future server corrections.

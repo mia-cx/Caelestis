@@ -431,13 +431,60 @@ export const displayTemplates = (): readonly PlacedTemplate[] => {
       templates: displayOrder(),
     }
   }
-  if (previewOrigins.size === 0) return displayOrderCache.templates
-  return displayOrderCache.templates.map((template) => {
-    const preview = previewOrigins.get(template.id)
-    return preview === undefined
-      ? template
-      : { ...template, originX: preview.x, originY: preview.y }
-  })
+  const ordered =
+    previewOrigins.size === 0
+      ? displayOrderCache.templates
+      : displayOrderCache.templates.map((template) => {
+          const preview = previewOrigins.get(template.id)
+          return preview === undefined
+            ? template
+            : { ...template, originX: preview.x, originY: preview.y }
+        })
+  return draft === null ? ordered : [...ordered, draft]
+}
+
+/**
+ * The template editor's unsaved artwork. It draws above every template and is never stored, so
+ * the catalog, the tree, and every sync see none of it.
+ */
+let draft: PlacedTemplate | null = null
+
+export const templateDraft = (): PlacedTemplate | null => draft
+
+/** Whether this is the editor's draft rather than a catalog entry. */
+export const isTemplateDraft = (template: PlacedTemplate): boolean => template.id === draft?.id
+
+/** Show new draft artwork. Its painted tiles are not tracked: nothing scans or navigates a draft. */
+export const setTemplateDraft = (
+  next: ImportedTemplate | null,
+  surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
+): void => {
+  if (next !== null) validatePlacement({ ...next, surface })
+  draft =
+    next === null
+      ? null
+      : {
+          ...next,
+          surface,
+          tiles: new Set(),
+          visible: true,
+          everPlaced: true,
+          appearance: null,
+          owns: [],
+          revision: 0,
+          folderId: null,
+        }
+  notifyPreview()
+}
+
+/** Move the draft without replacing its artwork, as placement previews do. */
+export const moveTemplateDraft = (originX: number, originY: number): boolean => {
+  if (draft === null) return false
+  const moved = { ...draft, originX: Math.round(originX), originY: Math.round(originY) }
+  validatePlacement(moved)
+  draft = moved
+  notifyPreview()
+  return true
 }
 
 /** The renderer and editor menu for one canvas must never see templates from another surface. */
@@ -476,6 +523,8 @@ export const clearLocalPreview = (id: string): boolean => {
  */
 export const isTemplateVisible = (template: PlacedTemplate): boolean => {
   if (!template.visible) return false
+  // The editor's draft belongs to no folder, and it is the thing being looked at.
+  if (isTemplateDraft(template)) return true
   // A server's template answers to that server's switch, not to Local's. Sharing this store meant
   // it inherited the local chain by default, so switching Local off hid every server's templates
   // too, and a server's own switch did nothing to them.
