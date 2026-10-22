@@ -29,7 +29,7 @@ Decided with Mia (2026-10-22):
 - [x] Persistence: drop disk caps, store painted tile keys, metadata-only saves keep stored pixels.
 - [x] Store: resident budget with LRU eviction, on-demand reload for Local templates, restore
       catalog metadata for every record.
-- [ ] Viewport residency: the renderer reports its view; in-view visible templates load.
+- [x] Viewport residency: the renderer reports its view; in-view visible templates load.
 - [ ] Server templates: IndexedDB pixel cache with re-download fallback; no budget refusal.
 - [ ] On-demand readers: colour nav, nearest, picker, edit/move/export/copy/authoring, tree preview.
 - [ ] Worker and GPU store drop evicted pixels.

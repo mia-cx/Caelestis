@@ -6,6 +6,7 @@ import {
   TRANSPARENT_INDEX,
   templateSurface,
   templateSurfaceBounds,
+  templateSurfaceKey,
   WORLD_PIXELS,
   WORLD_TEMPLATE_SURFACE,
   WPLACE_PALETTE,
@@ -184,8 +185,29 @@ const setPixels = (template: PlacedTemplate, indices: Uint8Array | null): void =
 }
 
 /** Templates whose pixels must stay: unsaved placements and server copies, which have no disk record. */
+/** Templates each surface's renderer drew last frame, keyed by surface. */
+const inView = new Map<string, ReadonlySet<string>>()
+
+const isInView = (id: string): boolean => {
+  for (const ids of inView.values()) if (ids.has(id)) return true
+  return false
+}
+
+/**
+ * Templates whose pixels must stay: ones on screen, unsaved placements, and server copies, which
+ * have no disk record.
+ */
 const isPinned = (template: PlacedTemplate): boolean =>
-  isPendingImage(template) || isServerTemplate(template)
+  isInView(template.id) || isPendingImage(template) || isServerTemplate(template)
+
+/** Whether `area` could become resident by evicting everything evictable except `keep`. */
+const couldFit = (area: number, keep?: string): boolean => {
+  let evictable = 0
+  for (const template of templates.values()) {
+    if (template.id !== keep && !isPinned(template)) evictable += residentArea(template)
+  }
+  return fitsResident(area - evictable)
+}
 
 /**
  * Evict until `area` more pixels fit: hidden templates first, then the least recently used.
@@ -487,6 +509,53 @@ const fillResidentSet = async (): Promise<void> => {
       warn('install', `could not load ${template.name}`, String(error))
     }
   }
+}
+
+/** Templates on screen waiting for their pixels, loaded one at a time. */
+const viewLoads = new Set<string>()
+/** Artwork that failed to load stays unloaded until it changes, rather than retrying every frame. */
+const failedLoads = new WeakSet<TemplateArtwork>()
+let loadingInView = false
+
+const loadInView = async (): Promise<void> => {
+  loadingInView = true
+  try {
+    for (const id of viewLoads) {
+      viewLoads.delete(id)
+      const template = templates.get(id)
+      if (
+        template === undefined ||
+        template.artwork.indices !== null ||
+        failedLoads.has(template.artwork) ||
+        !isInView(id) ||
+        !couldFit(areaOf(template), id)
+      )
+        continue
+      try {
+        await residentPixels(template, true)
+      } catch (error) {
+        failedLoads.add(template.artwork)
+        warn('install', `could not load ${template.name}`, String(error))
+      }
+    }
+  } finally {
+    loadingInView = false
+  }
+}
+
+/**
+ * Tell the store which templates a surface drew this frame.
+ *
+ * Those stay in memory, count as just used, and load if they were evicted. Renderers call this every
+ * frame; an unchanged view costs one pass over the drawn templates.
+ */
+export const noteTemplatesInView = (surface: TemplateSurface, ids: ReadonlySet<string>): void => {
+  inView.set(templateSurfaceKey(surface), ids)
+  for (const id of ids) {
+    touch(id)
+    if (templates.get(id)?.artwork.indices === null) viewLoads.add(id)
+  }
+  if (viewLoads.size > 0 && !loadingInView) void loadInView()
 }
 
 /** Indexed template pixels currently owned by the catalog. */
@@ -1184,12 +1253,8 @@ export const hasRoomForServerTemplate = (id: string, nextPixels: number): boolea
   const existing = templates.get(id)
   if (existing !== undefined && !isServerTemplate(existing)) return false
   // Counting what eviction could free, without evicting anything for a download that may not come.
-  let evictable = 0
-  for (const template of templates.values()) {
-    if (template.id !== id && !isPinned(template)) evictable += residentArea(template)
-  }
   const prior = existing === undefined ? 0 : residentArea(existing)
-  return fitsResident(nextPixels - prior - evictable)
+  return couldFit(nextPixels - prior, id)
 }
 
 /**

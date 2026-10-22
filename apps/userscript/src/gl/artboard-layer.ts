@@ -13,6 +13,7 @@ import { getState, onlySelectedColourFor, onStateChange } from '../state.js'
 import { isPlain, toRgbUnit } from '../templates/appearance.js'
 import {
   displayTemplatesForSurface,
+  noteTemplatesInView,
   onLocalChange,
   onLocalPreviewChange,
   type PlacedTemplate,
@@ -740,6 +741,8 @@ class ArtboardRenderer {
     const templates = templateScene.templates.filter(
       ({ fade, palette }) => fade > 0 && palette !== null,
     )
+    // An alliance canvas is small enough that everything drawn on it counts as in view.
+    noteTemplatesInView(this.surface, new Set(templates.map(({ template }) => template.id)))
     let animating = templateScene.animating
     const selected = isPaintOpen() ? selectedColour() : null
     const markerScene = this.scene.advanceMarkers(templateScene.templates, selected, now)
@@ -936,6 +939,7 @@ class ArtboardRenderer {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
+    noteTemplatesInView(this.surface, new Set())
     this.observer.disconnect()
     this.resizeObserver?.disconnect()
     detachOverlayControls()
