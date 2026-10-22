@@ -521,6 +521,21 @@ export const templatePixels = async (template: PlacedTemplate): Promise<Uint8Arr
   await residentPixels(template, true)
 
 /**
+ * Pixels for a passing look, such as a preview: read without evicting anything, kept only if memory
+ * is free. Null when they cannot be read; that artwork is not tried again.
+ */
+export const peekTemplatePixels = async (template: PlacedTemplate): Promise<Uint8Array | null> => {
+  if (failedLoads.has(template.artwork)) return null
+  try {
+    return await residentPixels(template, false)
+  } catch (error) {
+    failedLoads.add(template.artwork)
+    warn('install', `could not load ${template.name}`, String(error))
+    return null
+  }
+}
+
+/**
  * Load evicted templates while memory allows, visible ones first, without evicting anything.
  *
  * Runs after restore so a catalog that fits in memory behaves as if nothing were ever evicted.

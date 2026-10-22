@@ -31,7 +31,7 @@ Decided with Mia (2026-10-22):
       catalog metadata for every record.
 - [x] Viewport residency: the renderer reports its view; in-view visible templates load.
 - [x] Server templates: IndexedDB pixel cache with re-download fallback; no budget refusal.
-- [ ] On-demand readers: colour nav, nearest, picker, edit/move/export/copy/authoring, tree preview.
+- [x] On-demand readers: colour nav, nearest, picker, edit/move/export/copy/authoring, tree preview.
 - [ ] Worker and GPU store drop evicted pixels.
 - [ ] Contract tests for eviction/reload and restoring past 64 templates; changeset.
 
@@ -53,3 +53,7 @@ Decided with Mia (2026-10-22):
   `downloadAgain` from the newest manifest entry. Wplace mirrors have no re-download; a cache miss
   leaves them evicted until the next mirror. `hasRoomForServerTemplate` only refuses templates
   larger than the whole budget, which fixes the Seven Seals mirrors.
+- TODO 6: readers wired in TODO 1 (`templatePixels` for colour nav, edit, move, export, copy,
+  authoring; nearest falls back to bounds; picker reads resident only). Tree previews take
+  `art` (128-edge thumbnail kept per artwork) plus `loadArt`, which reads evicted pixels without
+  evicting others (`peekTemplatePixels`).
