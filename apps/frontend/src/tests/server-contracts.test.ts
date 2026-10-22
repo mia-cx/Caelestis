@@ -7,6 +7,8 @@ import { FilesystemObjectStorage } from '@caelestis/storage/filesystem'
 import type { RequestEvent } from '@sveltejs/kit'
 import { render } from 'svelte/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { getPlatformProxy } from 'wrangler'
+import { handle } from '../hooks.server'
 import SocialMetadata from '../lib/components/SocialMetadata.svelte'
 import { fetchBackend } from '../lib/server/backend'
 import { COMPONENT_EMBED_MAX_BYTES } from '../lib/server/discord-embed'
@@ -18,6 +20,9 @@ import { GET as imageGet, HEAD as imageHead } from '../routes/social/template/[i
 import { GET as legacyPageGet, HEAD as legacyPageHead } from '../routes/template/[id]/+server'
 import { adminToken, createTestBackend } from './backend'
 import { manifest, server, template } from './fixtures'
+
+const workers = vi.hoisted(() => ({ env: {} as App.HostEnv }))
+vi.mock('cloudflare:workers', () => workers)
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -83,6 +88,41 @@ describe('server-side read boundaries', () => {
     expect(requests[0].headers.get('cookie')).toBeNull()
     expect(requests[0].headers.get('authorization')).toBe(`Bearer ${adminToken}`)
     expect(requests[0].headers.get('accept')).toContain('frontend')
+  })
+
+  it('reads the backend and image bucket from Worker bindings on Cloudflare', async () => {
+    // Local bindings from the real wrangler.toml, so a renamed binding fails here too.
+    const platform = await getPlatformProxy<App.HostEnv>({ persist: false })
+    try {
+      const gif = new Uint8Array([71, 73, 70])
+      await platform.env.SOCIAL_IMAGES?.put(socialImageKey(1, template()), gif)
+      const backendRequests: Request[] = []
+      workers.env = {
+        SOCIAL_IMAGES: platform.env.SOCIAL_IMAGES,
+        CAELESTIS_READ_TOKEN: adminToken,
+        CAELESTIS_BACKEND: {
+          fetch: async (request) => {
+            backendRequests.push(request)
+            return Response.json(manifest())
+          },
+        },
+      }
+      const url = `https://frontend.test/social/template/${template().id}.gif`
+      // Cloudflare's adapter passes no platform, so the hook alone fills locals.
+      const event = Object.assign(requestEvent(url, fetch), {
+        params: { id: template().id },
+        route: { id: '/social/template/[id].gif' as const },
+        locals: {} as App.Locals,
+      })
+      const response = await handle({ event, resolve: async () => imageGet(event) })
+      expect(response.status).toBe(200)
+      expect(new Uint8Array(await response.arrayBuffer())).toEqual(gif)
+      expect(backendRequests.map((request) => request.headers.get('authorization'))).toEqual([
+        `Bearer ${adminToken}`,
+      ])
+    } finally {
+      await platform.dispose()
+    }
   })
 
   it('proxy forwards conditional reads but removes headers describing compressed upstream bytes', async () => {

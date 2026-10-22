@@ -40,13 +40,15 @@ export default defineConfig(({ command }) => {
       __CAELESTIS_FRONTEND_VERSION__: JSON.stringify(deploymentVersion),
     },
     resolve: {
-      alias: node
-        ? {
-            'cloudflare:workers': fileURLToPath(
-              new URL('./node/cloudflare-workers.js', import.meta.url),
-            ),
-          }
-        : undefined,
+      // Node builds and tests run outside workerd, so they get a stub with no bindings.
+      alias:
+        node || process.env.VITEST === 'true'
+          ? {
+              'cloudflare:workers': fileURLToPath(
+                new URL('./node/cloudflare-workers.js', import.meta.url),
+              ),
+            }
+          : undefined,
       // Component tests run in happy-dom and need Svelte's client entry point rather than its SSR
       // default. Production browser builds already select this condition themselves.
       conditions: process.env.VITEST === 'true' ? ['browser'] : undefined,
