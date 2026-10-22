@@ -620,3 +620,82 @@ describe('admin drafts and page-readable storage', () => {
     expect((await cached())?.nodes.map((node) => node.id)).toEqual([folder.node.id])
   })
 })
+
+describe('server cache saved by an older version', () => {
+  it('drops drafts from a cached admin manifest on read, and writes it back without them', async () => {
+    const { cacheServer, loadServerCache } = await import('../src/server-cache.js')
+    const url = 'https://legacy-cache.test'
+    const node = (id: string, name: string) => ({
+      id,
+      parentId: null,
+      path: `/${name}`,
+      name,
+      createdAt: Date.now(),
+    })
+    const publicFolder = '01890f3e-7b2c-7abc-8def-0000000000a1'
+    const draftsFolder = '01890f3e-7b2c-7abc-8def-0000000000a2'
+    const publicArt = '01890f3e-7b2c-7abc-8def-0000000000b1'
+    const draftArt = '01890f3e-7b2c-7abc-8def-0000000000b2'
+    const template = (id: string, nodeId: string, published: boolean) => ({
+      id,
+      nodeId,
+      name: id,
+      version: '01890f3e-7b2c-7abc-8def-000000000001',
+      published,
+      updatedAt: 1,
+      bbox: { minX: 0, minY: 0, maxX: 1, maxY: 1 },
+      chunks: [{ tile: '0/0', hash: 'a'.repeat(64) }],
+    })
+    const entry = {
+      url,
+      serverId: '01890f3e-7b2c-7abc-8def-0000000000aa',
+      season: 3,
+      fetchedAt: 1,
+      nodes: [node(publicFolder, 'public'), node(draftsFolder, 'drafts')],
+      templates: [template(publicArt, publicFolder, true), template(draftArt, draftsFolder, false)],
+    }
+    // Creates the store, then overwrites the entry the way the previous version saved it.
+    await cacheServer(entry)
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('caelestis')
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction('server-cache', 'readwrite')
+      transaction.objectStore('server-cache').put(entry)
+      transaction.oncomplete = () => resolve()
+      transaction.onerror = () => reject(transaction.error)
+    })
+    db.close()
+
+    const kept = { nodes: [publicFolder], templates: [publicArt] }
+    const ids = async () => {
+      const [read] = await loadServerCache([url])
+      return {
+        nodes: read?.nodes.map((held) => held.id),
+        templates: read?.templates?.map((held) => held.id),
+      }
+    }
+    expect(await ids()).toEqual(kept)
+    // The rewrite is in the background; once done, the disk holds no draft either.
+    await vi.waitFor(async () => {
+      const stored = await new Promise<{ templates: { id: string }[] }>((resolve, reject) => {
+        const request = indexedDB.open('caelestis')
+        request.onsuccess = () => {
+          const read = request.result
+            .transaction('server-cache')
+            .objectStore('server-cache')
+            .get(url)
+          read.onsuccess = () => {
+            request.result.close()
+            resolve(read.result)
+          }
+          read.onerror = () => reject(read.error)
+        }
+        request.onerror = () => reject(request.error)
+      })
+      expect(stored.templates.map((held) => held.id)).toEqual(kept.templates)
+    })
+  })
+})
