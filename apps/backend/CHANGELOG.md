@@ -1,5 +1,11 @@
 # @caelestis/backend
 
+## 0.10.0
+
+### Minor Changes
+
+- 35a52f1: Cloudflare servers refresh every published template's share GIF daily on their own, with no GitHub Actions workflow.
+
 ## 0.9.5
 
 ### Patch Changes
