@@ -14,16 +14,16 @@ const fixture = vi.hoisted(() => ({
   archive: vi.fn(),
 }))
 vi.mock('$app/state', () => ({ page: { params: { id: 'dense' } } }))
-vi.mock('$lib/state/app.svelte', () => ({ useApp: () => fixture.app }))
-vi.mock('$lib/api/client', () => ({
+vi.mock('#lib/state/app.svelte.js', () => ({ useApp: () => fixture.app }))
+vi.mock('#lib/api/client.js', () => ({
   getTileHistory: fixture.history,
   getArchiveHistory: fixture.archive,
 }))
-vi.mock('$lib/components/StatsPanel.svelte', async () => ({
-  default: (await import('$lib/components/ui/skeleton')).Skeleton,
+vi.mock('#lib/components/StatsPanel.svelte', async () => ({
+  default: (await import('#lib/components/ui/skeleton/index.js')).Skeleton,
 }))
-vi.mock('$lib/components/TemplateViewer.svelte', async () => ({
-  default: (await import('$lib/components/ui/skeleton')).Skeleton,
+vi.mock('#lib/components/TemplateViewer.svelte', async () => ({
+  default: (await import('#lib/components/ui/skeleton/index.js')).Skeleton,
 }))
 
 import Page from './+page.svelte'

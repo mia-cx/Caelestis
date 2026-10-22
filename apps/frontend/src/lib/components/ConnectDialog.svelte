@@ -4,10 +4,10 @@ import {
   readToken,
   serverUrlIsConfigured,
   writeConnection,
-} from '$lib/api/client'
-import { Button } from '$lib/components/ui/button'
-import * as Dialog from '$lib/components/ui/dialog'
-import { useApp } from '$lib/state/app.svelte'
+} from '#lib/api/client.js'
+import { Button } from '#lib/components/ui/button/index.js'
+import * as Dialog from '#lib/components/ui/dialog/index.js'
+import { useApp } from '#lib/state/app.svelte.js'
 
 const app = useApp()
 

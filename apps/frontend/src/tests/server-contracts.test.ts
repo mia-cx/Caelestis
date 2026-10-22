@@ -50,6 +50,9 @@ const requestEvent = (url: string, fetcher: typeof fetch, init: RequestInit = {}
       serialize: () => {
         throw new Error('unexpected cookie serialization')
       },
+      parse: () => {
+        throw new Error('unexpected cookie parsing')
+      },
     },
     getClientAddress: () => '127.0.0.1',
     setHeaders: () => {

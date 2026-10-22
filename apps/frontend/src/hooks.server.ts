@@ -1,5 +1,5 @@
-import type { Handle } from '@sveltejs/kit'
-import { dev } from '$app/environment'
+import type { Handle } from '@sveltejs/kit/hooks'
+import { dev } from '$app/env'
 
 /** Preserve the public HTTPS origin when cloudflared forwards to Vite over HTTP. */
 export const handle: Handle = ({ event, resolve }) => {

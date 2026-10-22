@@ -13,10 +13,10 @@ import {
   serverAssetUrl,
   serverUrlIsConfigured,
   usesServerReadProxy,
-} from '$lib/api/client'
-import ConnectDialog from '$lib/components/ConnectDialog.svelte'
-import SocialMetadata from '$lib/components/SocialMetadata.svelte'
-import { provideApp } from '$lib/state/app.svelte'
+} from '#lib/api/client.js'
+import ConnectDialog from '#lib/components/ConnectDialog.svelte'
+import SocialMetadata from '#lib/components/SocialMetadata.svelte'
+import { provideApp } from '#lib/state/app.svelte.js'
 import '../app.css'
 import type { LayoutProps } from './$types'
 

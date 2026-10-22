@@ -1,11 +1,11 @@
 import { parseTileKey, type Template, type TileKey } from '@caelestis/shared'
 import { untrack } from 'svelte'
-import { getArchiveHistory, getTileHistory } from '$lib/api/client'
-import { mergeArchiveFrames, type PlaybackFrame } from '$lib/archive-history'
-import { persisted } from '$lib/persisted.svelte'
-import { type TimelapseLayout, timelapseLayout } from '$lib/render'
-import { useApp } from '$lib/state/app.svelte'
-import { frameAt, playbackSpeed, TimelapseClock, transportScale } from '$lib/timelapse'
+import { getArchiveHistory, getTileHistory } from '#lib/api/client.js'
+import { mergeArchiveFrames, type PlaybackFrame } from '#lib/archive-history.js'
+import { persisted } from '#lib/persisted.svelte.js'
+import { type TimelapseLayout, timelapseLayout } from '#lib/render.js'
+import { useApp } from '#lib/state/app.svelte.js'
+import { frameAt, playbackSpeed, TimelapseClock, transportScale } from '#lib/timelapse.js'
 
 const timelineOf = (map: ReadonlyMap<TileKey, readonly PlaybackFrame[]>): number[] => {
   const starts = new Set<number>()

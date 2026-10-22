@@ -1,9 +1,9 @@
 <script lang="ts">
-import FolderSection from '$lib/components/FolderSection.svelte'
-import HomeCopy from '$lib/components/HomeCopy.svelte'
-import TemplateCard from '$lib/components/TemplateCard.svelte'
-import { Skeleton } from '$lib/components/ui/skeleton'
-import { useApp } from '$lib/state/app.svelte'
+import FolderSection from '#lib/components/FolderSection.svelte'
+import HomeCopy from '#lib/components/HomeCopy.svelte'
+import TemplateCard from '#lib/components/TemplateCard.svelte'
+import { Skeleton } from '#lib/components/ui/skeleton/index.js'
+import { useApp } from '#lib/state/app.svelte.js'
 
 const app = useApp()
 const tree = $derived(app.tree)

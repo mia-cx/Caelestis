@@ -1,5 +1,5 @@
 import type { RequestEvent } from '@sveltejs/kit'
-import { frontendClientAccept } from '$lib/api/client-metrics.js'
+import { frontendClientAccept } from '#lib/api/client-metrics.js'
 
 type BackendEvent = Pick<RequestEvent, 'fetch' | 'platform' | 'url'> & { locals?: App.Locals }
 

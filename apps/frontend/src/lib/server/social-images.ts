@@ -1,8 +1,8 @@
 import type { Template } from '@caelestis/shared'
 import type { RequestEvent } from '@sveltejs/kit'
-import { fetchMapTile, MAP_CACHE_MS, type ReadMapTile } from '$lib/social-basemap.js'
-import { socialImageKey } from '$lib/social-image.js'
-import { renderTimelapse } from '$lib/social-render.js'
+import { fetchMapTile, MAP_CACHE_MS, type ReadMapTile } from '#lib/social-basemap.js'
+import { socialImageKey } from '#lib/social-image.js'
+import { renderTimelapse } from '#lib/social-render.js'
 import { fetchBackend } from './backend.js'
 import { imageStorageFor } from './image-storage.js'
 

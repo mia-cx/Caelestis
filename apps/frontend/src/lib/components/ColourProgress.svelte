@@ -1,8 +1,8 @@
 <script lang="ts">
 import type { TemplateColourStatus } from '@caelestis/shared'
 import { COLOUR_PROGRESS_SORTS, ColourProgress, type ColourProgressSort } from '@caelestis/ui'
-import * as Select from '$lib/components/ui/select'
-import { persisted } from '$lib/persisted.svelte'
+import * as Select from '#lib/components/ui/select/index.js'
+import { persisted } from '#lib/persisted.svelte.js'
 
 let { colours }: { colours: readonly TemplateColourStatus[] } = $props()
 const storedSort = persisted<ColourProgressSort>('caelestis:colour-sort', 'index')

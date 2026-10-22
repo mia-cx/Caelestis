@@ -1,15 +1,15 @@
 <script lang="ts">
 import { page } from '$app/state'
 import { MenuStyles, ProgressMeter } from '@caelestis/ui'
-import ColourProgress from '$lib/components/ColourProgress.svelte'
-import FolderSection from '$lib/components/FolderSection.svelte'
-import StatsPanel from '$lib/components/StatsPanel.svelte'
-import TemplateCard from '$lib/components/TemplateCard.svelte'
-import TimelapsePanel from '$lib/components/TimelapsePanel.svelte'
-import { Skeleton } from '$lib/components/ui/skeleton'
-import { useApp } from '$lib/state/app.svelte'
-import { TimelapsePlayer } from '$lib/timelapse-player.svelte'
-import { folderColourStatuses, folderTemplates, type TreeFolder } from '$lib/tree'
+import ColourProgress from '#lib/components/ColourProgress.svelte'
+import FolderSection from '#lib/components/FolderSection.svelte'
+import StatsPanel from '#lib/components/StatsPanel.svelte'
+import TemplateCard from '#lib/components/TemplateCard.svelte'
+import TimelapsePanel from '#lib/components/TimelapsePanel.svelte'
+import { Skeleton } from '#lib/components/ui/skeleton/index.js'
+import { useApp } from '#lib/state/app.svelte.js'
+import { TimelapsePlayer } from '#lib/timelapse-player.svelte.js'
+import { folderColourStatuses, folderTemplates, type TreeFolder } from '#lib/tree.js'
 
 const app = useApp()
 

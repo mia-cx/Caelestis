@@ -7,7 +7,7 @@ import {
   timelapseCaptureRect,
   WORLD_PIXELS,
 } from '@caelestis/shared'
-import { chunkImageUrl, tileImageUrl } from '$lib/api/client'
+import { chunkImageUrl, tileImageUrl } from '#lib/api/client.js'
 
 export { OSM_TILE_SIZE, osmSpan, osmZoomFor } from './osm-geometry.js'
 

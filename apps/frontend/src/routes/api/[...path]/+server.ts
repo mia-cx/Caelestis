@@ -1,4 +1,4 @@
-import { fetchBackend } from '$lib/server/backend.js'
+import { fetchBackend } from '#lib/server/backend.js'
 import type { RequestHandler } from './$types'
 
 const proxyRead: RequestHandler = async (event) => {

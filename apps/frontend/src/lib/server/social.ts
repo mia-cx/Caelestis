@@ -6,7 +6,7 @@ import {
   SOCIAL_IMAGE_HEIGHT,
   SOCIAL_IMAGE_WIDTH,
   socialImageKey,
-} from '$lib/social-image.js'
+} from '#lib/social-image.js'
 import { discordComponentEmbed } from './discord-embed.js'
 
 interface SocialContext {
