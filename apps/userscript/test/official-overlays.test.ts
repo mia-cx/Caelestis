@@ -70,6 +70,8 @@ describe('official overlays', () => {
     // Wplace adds the layer first and hands over the art once its image has loaded.
     map.addLayer(LAYER)
     expect(mirrors()).toEqual([])
+    // Hidden before Caelestis has mirrored anything, so Wplace's copy never shows.
+    expect(map.visibility.get(LAYER)).toBe('none')
     map.layer(LAYER)?.setData({ pixels: sealArt(), coordinates: [corner(1_466_000, 920_000)] })
 
     await vi.waitFor(() => expect(mirrors()).toHaveLength(1))

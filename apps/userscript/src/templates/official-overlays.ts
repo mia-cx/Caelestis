@@ -252,36 +252,43 @@ const mirror = async (map: OverlayMap, layerId: string, index: number): Promise<
   // The event can load after the first mirror; its name and folder then replace the fallback.
   const version = `${originX},${originY},${pixels.width}x${pixels.height},${fragment?.group.id}`
   const id = templateIdOf(index)
-  if (mirrored.get(layerId) !== version) {
-    if (!hasRoomForServerTemplate(id, pixels.width * pixels.height)) return
-    let art = decoded.get(pixels)
-    if (art === undefined) {
-      art = paletteIndices(pixels)
-      decoded.set(pixels, art)
-    }
-    const stored = await putServerTemplate(
-      {
-        id,
-        name: fragment?.name ?? `Official overlay ${index}`,
-        source: 'wplace',
-        originX,
-        originY,
-        width: pixels.width,
-        height: pixels.height,
-        ...art,
-        moved: 0,
-        serverUrl: OFFICIAL_OVERLAY_OWNER,
-        serverTemplateId: layerId,
-        serverNodeId: fragment?.group.id ?? null,
-        serverVersion: version,
-      },
-      () => map.getLayer(layerId) !== undefined,
-    )
-    if (!stored) return
-    mirrored.set(layerId, version)
+  if (mirrored.get(layerId) === version) return
+  if (!hasRoomForServerTemplate(id, pixels.width * pixels.height)) {
+    warn('install', 'official overlay over the template memory budget', layerId)
+    return
   }
-  // Wplace's `setData` replaces its own hidden flag, but never touches layout visibility. Setting it
-  // is itself a style change, so only set it once.
+  let art = decoded.get(pixels)
+  if (art === undefined) {
+    art = paletteIndices(pixels)
+    decoded.set(pixels, art)
+  }
+  const stored = await putServerTemplate(
+    {
+      id,
+      name: fragment?.name ?? `Official overlay ${index}`,
+      source: 'wplace',
+      originX,
+      originY,
+      width: pixels.width,
+      height: pixels.height,
+      ...art,
+      moved: 0,
+      serverUrl: OFFICIAL_OVERLAY_OWNER,
+      serverTemplateId: layerId,
+      serverNodeId: fragment?.group.id ?? null,
+      serverVersion: version,
+    },
+    () => map.getLayer(layerId) !== undefined,
+  )
+  if (stored) mirrored.set(layerId, version)
+}
+
+/**
+ * Wplace's copy never shows, mirrored or not: its mismatch dots and colour picking fight
+ * Caelestis's. Wplace's `setData` replaces its own hidden flag, but never touches layout
+ * visibility. Setting it is itself a style change, so only set it once.
+ */
+const hideNative = (map: OverlayMap, layerId: string): void => {
   if (map.getLayoutProperty(layerId, 'visibility') !== 'none')
     map.setLayoutProperty(layerId, 'visibility', 'none')
 }
@@ -293,6 +300,7 @@ const sync = (map: OverlayMap): void => {
     if (match !== null) present.set(layerId, Number(match[1]))
   }
   for (const [layerId, index] of present) {
+    hideNative(map, layerId)
     const layer = map.getLayer(layerId)?.implementation
     // Wplace adds the layer before its art has loaded, then hands the art over through `setData`.
     if (layer !== undefined && !wrapped.has(layer)) {
