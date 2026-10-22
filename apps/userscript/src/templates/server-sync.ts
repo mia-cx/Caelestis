@@ -15,6 +15,7 @@ import { userscriptClientHeaders } from '../client-metrics.js'
 import { count, warn } from '../debug.js'
 import type { ServerTemplate } from '../server-cache.js'
 import { invalidateServerMismatches } from '../server-mismatch.js'
+import { deleteCachedServerMismatches } from '../server-mismatch-cache.js'
 import { registerServerSyncResource } from '../server-sync-coordinator.js'
 import { serverEndpoint } from '../server-url.js'
 import {
@@ -577,6 +578,8 @@ const syncServerTemplatesOnce = async (
     }
     inFlight.set(key, generation)
     const stillWanted = (): boolean => current() && latestVersion(key) === template.version
+    // A draft keeps no saved masks, including ones a public copy saved in an earlier session.
+    const wasPublic = !template.published && held?.serverUnpublished !== true
     try {
       // Cached at this version: install without downloading, and read the pixels when needed.
       const cachedOpaque = await cachedServerOpaque(key, template.version)
@@ -626,6 +629,12 @@ const syncServerTemplatesOnce = async (
       warn('install', `could not sync server template ${template.name}`, String(error))
     } finally {
       if (inFlight.get(key) === generation) inFlight.delete(key)
+      // After the install, so the row already says draft: a public row of an older version may
+      // have requests in flight, which only a server-wide invalidation fences.
+      if (wasPublic) {
+        if (held === undefined) void deleteCachedServerMismatches(server.url, template.id)
+        else invalidateServerMismatches(server.url)
+      }
     }
   }
 }
