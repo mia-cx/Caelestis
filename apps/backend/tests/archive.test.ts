@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { millis } from '@caelestis/shared'
 import { getTableName, is } from 'drizzle-orm'
 import { getTableConfig, SQLiteTable } from 'drizzle-orm/sqlite-core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -125,6 +126,29 @@ describe('server archives', { timeout: 60_000 }, () => {
     expect(archiveData(again)).toEqual(archiveData(archive))
     for (const kind of ['row', 'counter', 'backfill', 'object', 'link'])
       expect(archive, kind).toContain(`"kind":"${kind}"`)
+  })
+
+  it('refuses to resume an export cursor issued before the table layout changed', async () => {
+    const source = await server()
+    await seedServer(source.fetch, source.api)
+    const started = await admin(source, '/admin/archive/export', { method: 'POST' })
+    const { id } = (await started.json()) as { id: string }
+    // Shaped like a cursor issued before the layout was recorded, one step into the export.
+    const legacy = {
+      operationId: id,
+      step: 1,
+      after: null,
+      template: null,
+      chain: '0'.repeat(64),
+      counts: {},
+    }
+    const stale = Buffer.from(JSON.stringify(legacy))
+      .toString('base64')
+      .replaceAll('+', '-')
+      .replaceAll('/', '_')
+    const resumed = await admin(source, `/admin/archive/export?cursor=${encodeURIComponent(stale)}`)
+    expect(resumed.status).toBe(409)
+    await finishExport(archiveClient(source.fetch, source.api))
   })
 
   it('freezes every writer during an export and hides a restore until it activates', async () => {
@@ -529,6 +553,54 @@ describe('server archives', { timeout: 60_000 }, () => {
       headers: { authorization: `Bearer ${seeded.reportToken}` },
     })
     expect(manifest.status).toBe(401)
+  })
+
+  it('removes credentials a restore begun before the upgrade imported, keeping its own', async () => {
+    const file = await scratch()
+    const source = await server()
+    const [headerLine = ''] = (await exportServer(source, file('empty.ndjson'))).split('\n')
+    const header = JSON.parse(headerLine)
+    const destination = await server()
+    const own = await destination.runtime.connection
+      .prepare('SELECT "token_hash" FROM "access_tokens"')
+      .all<{ token_hash: string }>()
+    // What the older importer left: an archived token alongside the destination's own, and a
+    // ready restore that recorded which ones were the destination's.
+    await destination.runtime.sql.insertAccessToken({
+      tokenHash: await hashToken('REVOKED-ON-THE-SOURCE'),
+      label: 'archived',
+      scope: 'admin',
+      createdWithToken: '0'.repeat(64),
+      createdAt: millis(0),
+    })
+    await destination.runtime.connection
+      .prepare(
+        'INSERT INTO "archive_operation" ("id", "kind", "operation_id", "started_at_ms", "position", "state_json") VALUES (1, \'import\', \'legacy\', 0, 1, ?)',
+      )
+      .bind(
+        JSON.stringify({
+          archiveId: header.id,
+          sourceServerId: header.source.serverId,
+          tables: header.tables,
+          chain: await chainLine('0'.repeat(64), headerLine),
+          counts: {},
+          ended: false,
+          phase: 'ready',
+          preservedTokens: own.results.map((row) => row.token_hash),
+        }),
+      )
+      .run()
+
+    await discardImport(archiveClient(destination.fetch, destination.api))
+    expireGateReads()
+    const status = async (token: string) =>
+      (
+        await destination.fetch(`${destination.api}/manifest`, {
+          headers: { authorization: `Bearer ${token}` },
+        })
+      ).status
+    expect(await status('REVOKED-ON-THE-SOURCE')).toBe(401)
+    expect(await status(destination.runtime.readToken)).toBe(200)
   })
 
   it('keeps a credential both servers already share', async () => {
