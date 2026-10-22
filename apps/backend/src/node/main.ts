@@ -40,10 +40,8 @@ try {
       new Promise<void>((resolveJob, rejectJob) => {
         const worker = new Worker(new URL('./social-worker.js', import.meta.url), {
           workerData: {
-            site: `http://127.0.0.1:${listeningPort}`,
-            apiPath: `${config.basePath}/v1/`,
+            api: `http://127.0.0.1:${listeningPort}${config.basePath}/v1/`,
             readToken: rendererReadToken,
-            output: resolve(process.env.DATA_DIRECTORY ?? './data', 'social-cache'),
           },
         })
         worker.once('error', rejectJob)

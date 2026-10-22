@@ -52,6 +52,12 @@ declare namespace Cloudflare {
     TILE_BLOB_GC_MODE?: string
 
     /**
+     * The daily share-GIF refresh: the cron enqueues one message per published template and this
+     * Worker's Queue consumer renders it. Without the binding, share images keep their first poster.
+     */
+    SOCIAL_REFRESH?: Queue<{ templateId: string }>
+
+    /**
      * Seconds a restore waits before accepting records, so other isolates' cached gate reads
      * expire first. Defaults to 2. Writes never depend on it.
      */

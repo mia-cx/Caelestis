@@ -99,6 +99,25 @@ enabled = true
 
 # The server's own tile mirror: every 6 hours it refetches the tiles templates live on plus a
 # one-tile ring of surroundings, so timelapses keep moving and the frontend viewer has real canvas
-# context even when no userscript user has passed over the area.
+# context even when no userscript user has passed over the area. At 07:37 UTC it queues each
+# published template's share GIF for rendering.
 [triggers]
-crons = ["0 */6 * * *"]
+crons = ["0 */6 * * *", "37 7 * * *"]
+
+[[queues.producers]]
+binding = "SOCIAL_REFRESH"
+queue = "caelestis-social-refresh"
+
+# One render at a time per isolate: a render can use most of its 128 MB.
+[[queues.consumers]]
+queue = "caelestis-social-refresh"
+max_batch_size = 1
+max_concurrency = 1
+max_retries = 3
+
+# A share GIF decodes up to 4,096 canvas tiles, which takes minutes of CPU, not the default 30 s.
+# In-process API reads still spend D1 and R2 subrequests: up to 1,000 capture tiles × 6 history
+# queries, 2 calls per tile image, and a halved retry pass come to ~25,000, past the 10,000 default.
+[limits]
+cpu_ms = 300000
+subrequests = 50000

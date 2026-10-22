@@ -2,19 +2,22 @@
 
 The frontend serves Open Graph and Twitter summary card metadata in the initial HTML.
 Home and folder links use `apps/frontend/static/social/site.png`. On first access, a published
-template gets an artwork GIF stored in R2. The daily workflow renders its history and replaces that
-object. Requests keep serving the stored GIF during refreshes, including across artwork updates.
-The site image remains a fallback if the binding or initial generation is unavailable.
+template gets an artwork GIF stored in object storage. The backend's daily refresh renders its
+history and replaces that object. Requests keep serving the stored GIF during refreshes, including
+across artwork updates. The site image remains a fallback if storage or initial generation is unavailable.
 
-`Refresh share images` runs daily at 07:37 UTC and supports manual dispatch. It reads the public
-frontend API and uploads GIFs with the existing `CLOUDFLARE_API_TOKEN` secret. That token needs R2
-object write access to `caelestis-blobs`. Deploy the frontend with its `SOCIAL_IMAGES` binding before
-dispatching the first generation. The workflow runs from the default branch on its daily schedule.
+Every backend owns its refresh, using the renderer in `packages/social`:
+
+- **Cloudflare:** the `37 7 * * *` cron queues each published template on `SOCIAL_REFRESH`. The
+  backend Worker's Queue consumer renders one template per invocation, reading its own API
+  in-process, and writes to `BLOBS`. A failed render throws, so the queue retries it.
+- **Docker and Helm:** a durable daily wakeup renders every template in a backend worker thread,
+  which reads the backend over loopback with its private read token.
 
 Render locally without uploading:
 
 ```sh
-pnpm --filter @caelestis/shared build
+pnpm --filter @caelestis/social... build
 node scripts/social-images.mjs --site http://localhost:5173 --template TEMPLATE_ID
 ```
 
@@ -27,8 +30,9 @@ To refresh the running development frontend's local R2 binding:
 node scripts/social-images.mjs --site http://127.0.0.1:5173 --template TEMPLATE_ID --publish --local
 ```
 
-Full history renders in the workflow, outside Worker request limits. Failed refreshes retain the previous
-object. Conditional writes prevent a first-image request from replacing an existing GIF.
+Full history renders in the refresh, outside frontend request limits. Frames stream into the encoder,
+so a render holds a few frames rather than all 301 and fits a Worker's 128 MB. Failed refreshes retain
+the previous object. Conditional writes prevent a first-image request from replacing an existing GIF.
 
 GIFs use the viewer's 16:9 capture bounds and native pixel sampling. History plays for ten seconds,
 followed by five seconds on the latest state. Up to 300 historical frames keep playback within 30 fps.
@@ -41,16 +45,16 @@ GIF transparency, with an explicit five-second final hold. Dimensions remain 640
 retain the existing 128-color quantization. See [the benchmark and samples](../docs/timelapse-gif-size.md)
 for measured sizes and encoder tradeoffs.
 Real OpenStreetMap tiles remain visible through transparent and
-unobserved canvas pixels. Every frame includes map attribution. The Worker caches map tiles in R2;
-the CLI uses `.scratch/social-images/.osm`, retained between workflow runs. Both cache for seven days
+unobserved canvas pixels. Every frame includes map attribution. Servers cache map tiles in object
+storage under `social/osm/`; the CLI uses `.scratch/social-images/.osm`. All cache for seven days
 and identify the renderer in tile requests. Finished templates end at their archived history.
 Imported observations join native history, with native buckets taking precedence and missing coverage
 revealing the map. Before observations exist, the stored first GIF shows the template artwork.
 The renderer reduces the frame count if needed to stay below 4.5 MB. A template failure preserves
-its previous image, lets other templates finish, and fails the workflow visibly.
+its previous image, lets other templates finish, and reports the failure.
 
-Each season and template has one replaceable R2 object under `social/v2/`. Byte-identical
-outputs skip uploading. Metadata uses the object's ETag as its image URL version. The serving route
+Each season and template has one replaceable object under `social/v2/`. The CLI skips uploading
+byte-identical outputs. Metadata uses the object's ETag as its image URL version. The serving route
 checks the current manifest, so old links cannot retrieve deleted or unpublished template images.
 Already copied images in Discord or other platforms remain subject to those platforms' caching.
 Animation and autoplay depend on the receiving platform and the reader's settings.

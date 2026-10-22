@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@caelestis/shared": "workspace:*",
+    "@caelestis/social": "workspace:*",
     "@caelestis/storage": "workspace:*",
     "@caelestis/wire-schema": "workspace:*",
     "@hono/node-server": "^2.1.3",

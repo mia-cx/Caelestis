@@ -15,12 +15,11 @@
   },
   "dependencies": {
     "@caelestis/shared": "workspace:*",
+    "@caelestis/social": "workspace:*",
     "@caelestis/storage": "workspace:*",
     "@caelestis/ui": "workspace:*",
     "bits-ui": "^2.19.4",
     "clsx": "^2.1.1",
-    "fast-png": "^8.0.0",
-    "gifenc": "^1.0.3",
     "tailwind-merge": "^3.7.0",
     "tailwind-variants": "^3.3.0"
   },

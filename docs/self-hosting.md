@@ -50,6 +50,10 @@ PostgreSQL, MariaDB, and S3 use the existing drivers under Bun. Bun.SQL does not
 and Bun's S3 API lacks the conditional writes and custom metadata required by the object-storage contract.
 Filesystem atomic writes and the social renderer use Bun's implementations of the existing filesystem and worker APIs.
 Cloudflare Workers remain a separate deployment target. Miniflare is development and test tooling.
+On Cloudflare, the backend Worker refreshes share GIFs itself. A daily cron queues each published template,
+and its Queue consumer renders one per invocation. Create the queue named in
+`apps/backend/wrangler.self-hosted.example.toml` before the first deploy. Renders need up to five minutes of CPU,
+so this requires the Workers Paid plan.
 
 To pin a published Bun backend in Compose, set these references in `.env`:
 
@@ -352,7 +356,7 @@ Create `storage.s3.existingSecret` with the standard AWS credential variable nam
 Secret contents belong in Kubernetes Secrets or your external secret manager, outside Helm values.
 The chart also supports `extraEnv` entries with `secretKeyRef` for other credentials.
 For filesystem storage or SQLite, leave persistence enabled and configure your storage class or existing claim.
-For PostgreSQL plus S3, `/data` only holds disposable social-rendering cache, so persistence may be disabled.
+For PostgreSQL plus S3, `/data` holds nothing persistent, so persistence may be disabled.
 
 ```sh
 helm upgrade --install caelestis deploy/helm/caelestis \
@@ -376,6 +380,7 @@ Coordinator format 1 includes durable JSON state, scheduled wakeups, counters, a
 Counter acceptance and flush acknowledgements retain the existing retry semantics.
 Backfills, alarm verification, tile mirroring, garbage collection, and daily social rendering resume from durable wakeups.
 The social renderer runs in a backend worker thread and reads the backend directly using its private read token.
+It caches OpenStreetMap tiles in object storage beside the GIFs.
 It keeps working when the frontend is stopped. Other jobs run in the main process with bounded concurrency.
 
 For an upgrade, stop the old application and take a consistent database-and-object backup first.

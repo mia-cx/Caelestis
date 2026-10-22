@@ -1,6 +1,7 @@
 import { type Template, timelapseCaptureRect, WORLD_PIXELS } from '@caelestis/shared'
+import type { ObjectStorage } from '@caelestis/storage'
 import { convertIndexedToRgb, decode } from 'fast-png'
-import { OSM_TILE_SIZE, osmSpan, osmZoomFor } from './osm-geometry.ts'
+import { OSM_TILE_SIZE, osmSpan, osmZoomFor } from './osm-geometry.js'
 
 export type ReadMapTile = (z: number, x: number, y: number) => Promise<Uint8Array>
 export const MAP_CACHE_MS = 7 * 24 * 60 * 60 * 1000
@@ -16,6 +17,18 @@ export const fetchMapTile: ReadMapTile = async (z, x, y) => {
   if (!response.ok) throw new Error(`OpenStreetMap tile ${z}/${x}/${y}: HTTP ${response.status}`)
   return new Uint8Array(await response.arrayBuffer())
 }
+
+/** Cache OSM tiles beside the share images, under `social/osm/`, for seven days. */
+export const storedMapTiles =
+  (storage: Pick<ObjectStorage, 'get' | 'put'>): ReadMapTile =>
+  async (z, x, y) => {
+    const key = `social/osm/${z}/${x}/${y}.png`
+    const cached = await storage.get(key)
+    if (cached && Date.now() - cached.uploadedAt < MAP_CACHE_MS) return cached.bytes
+    const bytes = await fetchMapTile(z, x, y)
+    await storage.put(key, bytes, { contentType: 'image/png' })
+    return bytes
+  }
 
 /** Rasterize the same Web Mercator map beneath the viewer at the GIF's capture bounds. */
 export const renderBasemap = async (

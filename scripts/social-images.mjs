@@ -4,75 +4,35 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
-import { socialImageKey } from '../apps/frontend/src/lib/social-image.ts'
-import { renderTemplateHistory } from '../apps/frontend/src/lib/social-render.ts'
+import { httpApi, refreshSocialImages } from '../packages/social/dist/index.js'
 import { cachedMapTiles } from './osm-tiles.mjs'
 
-export {
-  captureSamples,
-  renderTimelapse,
-  sampleTimeline,
-} from '../apps/frontend/src/lib/social-render.ts'
-
-/** Build locally by default. Publishing uses the supplied storage adapter or the Cloudflare CLI. */
+/** Build locally by default. Publishing uploads changed GIFs with the Cloudflare CLI. */
 export const buildSocialImages = async ({
   site,
   output,
   publish = false,
   local = false,
   bucket = 'caelestis-blobs',
-  storage,
   templateId,
-  apiPath = '/api/v1/',
-  readToken,
-  readMapTile = cachedMapTiles(resolve(output, '.osm')),
 }) => {
-  const api = new URL(apiPath, site)
-  const read = async (path, init) => {
-    const response = await fetch(new URL(path, api), {
-      signal: AbortSignal.timeout(60_000),
-      ...init,
-      ...(readToken ? { headers: { ...init?.headers, authorization: `Bearer ${readToken}` } } : {}),
-    })
-    if (!response.ok) throw new Error(`${path}: HTTP ${response.status}`)
-    return response
-  }
-  const manifest = await (await read('manifest')).json()
-  const canvasResponse = await (await read(`telemetry/canvas?season=${manifest.season}`)).json()
-  const canvas = new Map(canvasResponse.tiles.map((tile) => [tile.tile, tile.hash]))
   await mkdir(output, { recursive: true })
-  const failures = []
-  for (const template of manifest.templates.filter(
-    (entry) => entry.published && (!templateId || entry.id === templateId),
-  )) {
-    try {
-      const gif = await renderTemplateHistory(template, manifest.season, canvas, read, readMapTile)
-      if (gif === null) {
-        console.log(`${template.id}: no snapshots yet`)
-        continue
-      }
+  await refreshSocialImages({
+    read: httpApi(new URL('/api/v1/', site)),
+    readMapTile: cachedMapTiles(resolve(output, '.osm')),
+    templateId,
+    save: async (key, gif, template) => {
       const file = resolve(output, `${encodeURIComponent(template.id)}.gif`)
       await writeFile(file, gif)
       if (publish) {
-        if (storage) {
-          await storage.put(socialImageKey(manifest.season, template), gif, {
-            contentType: 'image/gif',
-          })
-          console.log(`${template.id}: ${gif.length} bytes, published`)
-          continue
-        }
         const previous = await fetch(
           new URL(`/social/template/${encodeURIComponent(template.id)}.gif`, site),
-          {
-            method: 'HEAD',
-            redirect: 'manual',
-            signal: AbortSignal.timeout(60_000),
-          },
+          { method: 'HEAD', redirect: 'manual', signal: AbortSignal.timeout(60_000) },
         )
         const etag = `"${createHash('md5').update(gif).digest('hex')}"`
         if (previous.ok && previous.headers.get('etag') === etag) {
           console.log(`${template.id}: unchanged`)
-          continue
+          return
         }
         execFileSync(
           'pnpm',
@@ -84,7 +44,7 @@ export const buildSocialImages = async ({
             'r2',
             'object',
             'put',
-            `${bucket}/${socialImageKey(manifest.season, template)}`,
+            `${bucket}/${key}`,
             local ? '--local' : '--remote',
             '--file',
             file,
@@ -95,12 +55,8 @@ export const buildSocialImages = async ({
         )
       }
       console.log(`${template.id}: ${gif.length} bytes${publish ? ', published' : ''}`)
-    } catch (error) {
-      console.error(`${template.id}:`, error)
-      failures.push(template.id)
-    }
-  }
-  if (failures.length > 0) throw new Error(`Preview generation failed for ${failures.join(', ')}`)
+    },
+  })
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

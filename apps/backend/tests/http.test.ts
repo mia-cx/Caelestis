@@ -55,6 +55,25 @@ describe('HTTP application contracts', () => {
     ).toBe(200)
   })
 
+  it('lets only in-process requests read a closed server without a token', async () => {
+    const { app } = await createTestBackend()
+    const { IN_PROCESS_READ } = await import('../src/auth/middleware.js')
+    const inProcess = { [IN_PROCESS_READ]: true }
+
+    expect((await app.fetch(new Request('https://backend.test/manifest'))).status).toBe(401)
+    expect((await app.fetch(new Request('https://backend.test/manifest'), inProcess)).status).toBe(
+      200,
+    )
+    expect(
+      (
+        await app.fetch(
+          new Request('https://backend.test/admin/server', { method: 'PATCH', body: '{}' }),
+          inProcess,
+        )
+      ).status,
+    ).toBe(401)
+  })
+
   it('rejects a revoked credential and makes a retried partial paint idempotent through the route', async () => {
     const { app, sql } = await createTestBackend()
     const reportToken = 'REPORT-TEST-TOKEN'

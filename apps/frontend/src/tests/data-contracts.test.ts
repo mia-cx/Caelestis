@@ -1,10 +1,10 @@
 import { millis, seconds, WORLD_PIXELS } from '@caelestis/shared'
+import { mergeArchiveFrames } from '@caelestis/social'
 import { describe, expect, it } from 'vitest'
 import {
   archiveContributionDays,
   archiveIntervals,
   combineArchiveSamples,
-  mergeArchiveFrames,
 } from '../lib/archive-history'
 import { completionPace } from '../lib/completion-pace'
 import {

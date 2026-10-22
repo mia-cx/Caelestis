@@ -76,4 +76,19 @@ TILE_BLOB_GC_MODE = "dry-run"
 enabled = true
 
 [triggers]
-crons = ["0 */6 * * *"]
+crons = ["0 */6 * * *", "37 7 * * *"]
+
+# Create the queue first: `wrangler queues create caelestis-example-social-refresh`.
+[[queues.producers]]
+binding = "SOCIAL_REFRESH"
+queue = "caelestis-example-social-refresh"
+
+[[queues.consumers]]
+queue = "caelestis-example-social-refresh"
+max_batch_size = 1
+max_concurrency = 1
+max_retries = 3
+
+[limits]
+cpu_ms = 300000
+subrequests = 50000

@@ -184,7 +184,7 @@ try {
     import { Worker } from 'node:worker_threads';
     import { once } from 'node:events';
     const worker = new Worker('/app/apps/backend/dist/node/social-worker.js', { execArgv: [], workerData: {
-      site: 'http://127.0.0.1:3000', apiPath: '/backend/v1/', readToken: process.env.CAELESTIS_READ_TOKEN, output: '/data/social-smoke'
+      api: 'http://127.0.0.1:3000/backend/v1/', readToken: process.env.CAELESTIS_READ_TOKEN
     } });
     const [code] = await once(worker, 'exit');
     if (code !== 0) throw new Error('Packaged social worker failed');

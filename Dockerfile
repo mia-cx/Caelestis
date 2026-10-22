@@ -6,6 +6,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY apps/backend/package.json apps/backend/package.json
 COPY apps/frontend/package.json apps/frontend/package.json
 COPY packages/shared/package.json packages/shared/package.json
+COPY packages/social/package.json packages/social/package.json
 COPY packages/storage/package.json packages/storage/package.json
 COPY packages/ui/package.json packages/ui/package.json
 COPY packages/wire-schema/package.json packages/wire-schema/package.json
@@ -13,6 +14,7 @@ RUN pnpm install --frozen-lockfile --ignore-scripts
 COPY apps/backend apps/backend
 COPY apps/frontend apps/frontend
 COPY packages/shared packages/shared
+COPY packages/social packages/social
 COPY packages/storage packages/storage
 COPY packages/ui packages/ui
 COPY packages/wire-schema packages/wire-schema
@@ -41,11 +43,6 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=30s CMD ["node", "-e", "f
 
 FROM runtime AS backend
 COPY --from=build /output/apps/backend ./apps/backend
-# The scheduled renderer shares these source modules and dependencies with the frontend.
-COPY --from=build /output/apps/frontend/node_modules ./apps/frontend/node_modules
-COPY apps/frontend/package.json ./apps/frontend/package.json
-COPY apps/frontend/src/lib/social-*.ts apps/frontend/src/lib/archive-history.ts apps/frontend/src/lib/osm-geometry.ts ./apps/frontend/src/lib/
-COPY scripts/social-images.mjs scripts/osm-tiles.mjs ./scripts/
 CMD ["node", "apps/backend/dist/node/main.js"]
 
 FROM oven/bun:1.4.2-debian@sha256:4f6e31d1a54d6a3dd312daef655fc998101b5043d52e12592ac293ef04b9bc73 AS bun

@@ -85,7 +85,7 @@ jobs:
           fi
           cat > "$RUNNER_TEMP/server-paths" <<'EOF'
           ^apps/(backend|frontend)/
-          ^packages/(shared|storage|ui|wire-schema)/
+          ^packages/(shared|social|storage|ui|wire-schema)/
           ^deploy/
           ^fixtures/stack-tests/
           ^scripts/stack-tests/
@@ -237,7 +237,7 @@ jobs:
           node scripts/test-services.mjs --bun
           pnpm test:runtime
           CAELESTIS_PERFORMANCE=1 pnpm --filter @caelestis/backend exec bun --bun node_modules/vitest/vitest.mjs run src/telemetry/classify-chunk.test.ts
-          pnpm --filter @caelestis/frontend exec bun --bun node_modules/vitest/vitest.mjs run src/tests/raster-contracts.test.ts
+          pnpm --filter @caelestis/social exec bun --bun node_modules/vitest/vitest.mjs run
       - name: Build the Cloudflare deployment
         run: |
           pnpm --filter @caelestis/frontend build

@@ -1,9 +1,12 @@
+import type { Manifest } from '@caelestis/shared'
+import { type ReadApi, refreshSocialImages, storedMapTiles } from '@caelestis/social'
 import { R2ObjectStorage } from '@caelestis/storage/r2'
 import { D1SqlStore } from './adapters/cloudflare/d1-sql-store.js'
 import { DurableObjectCounterStore } from './adapters/cloudflare/do-counter-store.js'
 import { DurableObjectStatusReadModel } from './adapters/cloudflare/do-status-read-model.js'
 import { R2BlobStore } from './adapters/cloudflare/r2-blob-store.js'
 import { type App, createApp } from './app.js'
+import { IN_PROCESS_READ } from './auth/middleware.js'
 import { deploymentVersion, instrumentD1, measureRequest } from './metrics/request-metrics.js'
 import { presenceRequest } from './presence/port.js'
 import { makeBackendContext } from './runtime/backend-runtime.js'
@@ -146,6 +149,33 @@ const appFor = (env: Env): App => {
   return app
 }
 
+/** The daily entry in wrangler.toml `[triggers]`; the other cron is the 6-hour tile mirror. */
+const SOCIAL_REFRESH_CRON = '37 7 * * *'
+/** Cloudflare's limit on messages per `sendBatch`. */
+const QUEUE_BATCH_LIMIT = 100
+
+/** Read this deployment's own API in-process: no network hop and no stored token. */
+const readSelf =
+  (env: Env): ReadApi =>
+  async (path) => {
+    const response = await appFor(env).fetch(
+      new Request(new URL(path, 'https://self.invalid/v1/').href),
+      { [IN_PROCESS_READ]: true },
+    )
+    if (!response.ok) throw new Error(`${path}: HTTP ${response.status}`)
+    return response
+  }
+
+/** Queue one share-GIF render per published template. */
+const enqueueSocialRefresh = async (env: Env, queue: NonNullable<Env['SOCIAL_REFRESH']>) => {
+  const manifest = (await (await readSelf(env)('manifest')).json()) as Manifest
+  const messages = manifest.templates
+    .filter((template) => template.published)
+    .map((template) => ({ body: { templateId: template.id } }))
+  for (let start = 0; start < messages.length; start += QUEUE_BATCH_LIMIT)
+    await queue.sendBatch(messages.slice(start, start + QUEUE_BATCH_LIMIT))
+}
+
 export default {
   // Workers always pass the execution context; unit tests call fetch without one.
   async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
@@ -177,8 +207,14 @@ export default {
     }
   },
 
-  // The 6-hour tile mirror — see [triggers] in wrangler.toml and telemetry/fetcher.ts.
-  async scheduled(_controller, env, ctx): Promise<void> {
+  // The 6-hour tile mirror — see [triggers] in wrangler.toml and telemetry/fetcher.ts — and the
+  // daily share-GIF refresh.
+  async scheduled(controller, env, ctx): Promise<void> {
+    if (controller.cron === SOCIAL_REFRESH_CRON) {
+      if (env.SOCIAL_REFRESH !== undefined)
+        ctx.waitUntil(enqueueSocialRefresh(env, env.SOCIAL_REFRESH))
+      return
+    }
     const stores = {
       blobs: new R2BlobStore(env.BLOBS),
       sql: new D1SqlStore(instrumentD1(env.DB)),
@@ -196,6 +232,22 @@ export default {
     ctx.waitUntil(runTileBlobGc(stores, { mode: gcMode }).then(() => undefined))
     ctx.waitUntil(stores.sql.regions.expireRegions(Date.now()))
   },
-} satisfies ExportedHandler<Env>
+
+  // One template per batch (max_batch_size = 1). A throw retries it, and its previous GIF stays.
+  async queue(batch, env): Promise<void> {
+    const storage = new R2ObjectStorage(env.BLOBS)
+    for (const message of batch.messages) {
+      await refreshSocialImages({
+        read: readSelf(env),
+        readMapTile: storedMapTiles(storage),
+        templateId: message.body.templateId,
+        save: async (key, gif, template) => {
+          await storage.put(key, gif, { contentType: 'image/gif' })
+          console.log(`${template.id}: ${gif.length} bytes, published`)
+        },
+      })
+    }
+  },
+} satisfies ExportedHandler<Env, { templateId: string }>
 
 import { templateSurfaceKey } from '@caelestis/shared'

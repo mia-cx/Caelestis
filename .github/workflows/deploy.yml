@@ -60,6 +60,12 @@ jobs:
       - name: Deploy frontend
         run: pnpm --dir apps/frontend exec wrangler deploy
 
+      # The backend binds the share-GIF queue, and a deploy fails if it does not exist yet.
+      - name: Ensure share image queue
+        run: |
+          pnpm --dir apps/backend exec wrangler queues info caelestis-social-refresh \
+            || pnpm --dir apps/backend exec wrangler queues create caelestis-social-refresh
+
       - name: Deploy backend
         run: |
           userscript_versions_json="$(node .github/scripts/userscript-metric-versions.mjs)"

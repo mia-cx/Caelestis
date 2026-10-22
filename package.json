@@ -13,7 +13,7 @@
     "test": "pnpm test:tooling && turbo test --concurrency=1",
     "test:tooling": "turbo build --filter=@caelestis/shared && node --test .github/scripts/*.test.mjs scripts/*.test.mjs scripts/stack-tests/*.test.mjs scripts/runtime-benchmark/*.test.mjs",
     "test:progress": "turbo build --filter=@caelestis/shared && node --test scripts/progress-contract.test.mjs",
-    "test:social": "turbo build --filter=@caelestis/shared && pnpm --filter @caelestis/frontend test src/tests/raster-contracts.test.ts",
+    "test:social": "turbo build --filter=@caelestis/social && pnpm --filter @caelestis/social test",
     "test:shuffle": "pnpm test:tooling && turbo test --concurrency=1 --force -- --sequence.shuffle --sequence.seed=76",
     "test:coverage": "node scripts/test-coverage.mjs",
     "test:worker": "pnpm --filter @caelestis/backend test:worker && pnpm --filter @caelestis/backend test:d1",
