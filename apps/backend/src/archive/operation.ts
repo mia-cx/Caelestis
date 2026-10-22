@@ -214,11 +214,13 @@ const dropLegacyCredentials = async (host: ArchiveHost, operation: ArchiveOperat
   const kept = (JSON.parse(operation.stateJson) as { preservedTokens?: readonly string[] })
     .preservedTokens
   if (kept === undefined) return
+  // Fenced in the statement itself: once any caller finishes this release the row is gone and
+  // writes reopen, so a caller that stalled past its lease must not delete tokens issued since.
   await host.connection
     .prepare(
-      `DELETE FROM "access_tokens"${kept.length === 0 ? '' : ` WHERE "token_hash" NOT IN (${kept.map(() => '?').join(', ')})`}`,
+      `DELETE FROM "access_tokens" WHERE EXISTS (SELECT 1 FROM "archive_operation" WHERE "id" = 1 AND "operation_id" = ? AND "state_json" = ?)${kept.length === 0 ? '' : ` AND "token_hash" NOT IN (${kept.map(() => '?').join(', ')})`}`,
     )
-    .bind(...kept)
+    .bind(operation.operationId, operation.stateJson, ...kept)
     .run()
 }
 
