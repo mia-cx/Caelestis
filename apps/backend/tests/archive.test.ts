@@ -558,49 +558,64 @@ describe('server archives', { timeout: 60_000 }, () => {
   it('removes credentials a restore begun before the upgrade imported, keeping its own', async () => {
     const file = await scratch()
     const source = await server()
-    const [headerLine = ''] = (await exportServer(source, file('empty.ndjson'))).split('\n')
+    const archive = await exportServer(source, file('source.ndjson'))
+    const [headerLine = ''] = archive.split('\n')
     const header = JSON.parse(headerLine)
-    const destination = await server()
-    const own = await destination.runtime.connection
-      .prepare('SELECT "token_hash" FROM "access_tokens"')
-      .all<{ token_hash: string }>()
-    // What the older importer left: an archived token alongside the destination's own, and a
-    // ready restore that recorded which ones were the destination's.
-    await destination.runtime.sql.insertAccessToken({
-      tokenHash: await hashToken('REVOKED-ON-THE-SOURCE'),
-      label: 'archived',
-      scope: 'admin',
-      createdWithToken: '0'.repeat(64),
-      createdAt: millis(0),
-    })
-    await destination.runtime.connection
-      .prepare(
-        'INSERT INTO "archive_operation" ("id", "kind", "operation_id", "started_at_ms", "position", "state_json") VALUES (1, \'import\', \'legacy\', 0, 1, ?)',
-      )
-      .bind(
-        JSON.stringify({
-          archiveId: header.id,
-          sourceServerId: header.source.serverId,
-          tables: header.tables,
-          chain: await chainLine('0'.repeat(64), headerLine),
-          counts: {},
-          ended: false,
-          phase: 'ready',
-          preservedTokens: own.results.map((row) => row.token_hash),
-        }),
-      )
-      .run()
-
-    await discardImport(archiveClient(destination.fetch, destination.api))
-    expireGateReads()
-    const status = async (token: string) =>
-      (
+    /** A destination holding what the older importer persisted, at one point of its lifecycle. */
+    const legacy = async (phase: 'preparing' | 'ready' | 'releasing', imported: boolean) => {
+      const destination = await server()
+      const own = await destination.runtime.connection
+        .prepare('SELECT "token_hash" FROM "access_tokens"')
+        .all<{ token_hash: string }>()
+      if (imported)
+        await destination.runtime.sql.insertAccessToken({
+          tokenHash: await hashToken('REVOKED-ON-THE-SOURCE'),
+          label: 'archived',
+          scope: 'admin',
+          createdWithToken: '0'.repeat(64),
+          createdAt: millis(0),
+        })
+      await destination.runtime.connection
+        .prepare(
+          'INSERT INTO "archive_operation" ("id", "kind", "operation_id", "started_at_ms", "position", "state_json") VALUES (1, \'import\', \'legacy\', 0, ?, ?)',
+        )
+        .bind(
+          imported ? 2 : 1,
+          JSON.stringify({
+            archiveId: header.id,
+            sourceServerId: header.source.serverId,
+            tables: header.tables,
+            chain: await chainLine('0'.repeat(64), headerLine),
+            counts: {},
+            ended: phase === 'releasing',
+            phase,
+            // The older importer wrote an empty placeholder until preparation finished.
+            preservedTokens: phase === 'preparing' ? [] : own.results.map((row) => row.token_hash),
+          }),
+        )
+        .run()
+      return destination
+    }
+    const status = async (destination: Server, token: string) => {
+      expireGateReads()
+      return (
         await destination.fetch(`${destination.api}/manifest`, {
           headers: { authorization: `Bearer ${token}` },
         })
       ).status
-    expect(await status('REVOKED-ON-THE-SOURCE')).toBe(401)
-    expect(await status(destination.runtime.readToken)).toBe(200)
+    }
+
+    // Discarded once ready, and resumed after an activation that crashed mid-release.
+    for (const phase of ['ready', 'releasing'] as const) {
+      const destination = await legacy(phase, true)
+      await discardImport(archiveClient(destination.fetch, destination.api))
+      expect(await status(destination, 'REVOKED-ON-THE-SOURCE'), phase).toBe(401)
+      expect(await status(destination, destination.runtime.readToken), phase).toBe(200)
+    }
+    // A preparation from before the upgrade, resumed into a full restore, keeps the destination's.
+    const resumed = await legacy('preparing', false)
+    await importFromFile(archiveClient(resumed.fetch, resumed.api), file('source.ndjson'))
+    expect(await status(resumed, resumed.runtime.readToken)).toBe(200)
   })
 
   it('keeps a credential both servers already share', async () => {
