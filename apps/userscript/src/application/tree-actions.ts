@@ -53,7 +53,9 @@ import {
   localTemplates as allLocal,
   canCopyAsLocalTemplate,
   isCurrentTemplate,
+  isTemplateVisible,
   removeLocalTemplate,
+  setLocalVisible,
   setTemplateFolder,
   setTemplatesFolder,
   templateAsPng,
@@ -62,6 +64,7 @@ import {
 } from '../templates/local-store.js'
 import {
   beginMove,
+  isMoving,
   type MoveReservation,
   movingId,
   reserveMove,
@@ -1074,6 +1077,35 @@ const setServerFolderPublished = async (
   }
 }
 
+const MOVE_IN_PROGRESS = 'Finish the placement already in progress, then move this one.'
+
+/**
+ * Start placing a Local template from the panel, showing it first when it is switched off.
+ *
+ * A placement over a hidden overlay has no outline to drag and no Apply or Cancel, so Move looked
+ * like it did nothing and then refused every other Move. The overlay's own Move shows the template
+ * the same way. A hidden folder is left alone: switching it on would show everything else in it.
+ */
+const moveLocalTemplate = async (id: string, rerender: () => void): Promise<void> => {
+  const template = templateById(id)
+  if (template === undefined) return
+  if (isMoving()) {
+    toast(MOVE_IN_PROGRESS, 'warning')
+    return
+  }
+  if (!isTemplateVisible({ ...template, visible: true })) {
+    toast(`“${template.name}” is in a hidden folder. Show the folder to move it.`, 'warning')
+    return
+  }
+  if (!(await setLocalVisible(id, true))) {
+    toast(`Could not show “${template.name}” to move it.`, 'error')
+    return
+  }
+  // `beginMove` also refuses while the template is mid-delete or gone. Dropping that answer made
+  // the menu entry do nothing at all, with no placement and no explanation.
+  if (!beginMove(id, rerender)) toast(MOVE_IN_PROGRESS, 'warning')
+}
+
 /**
  * A right-click menu carrying the row's actions plus the ones deliberately kept off it.
  *
@@ -1293,16 +1325,7 @@ export const openContextMenu = (
                 icon: 'move',
                 label: 'Move',
                 returnToCanvas: true,
-                run: () => {
-                  // `beginMove` refuses while another placement is running, while the template is
-                  // mid-delete, and when it has gone. Dropping that answer made the menu entry do
-                  // nothing at all, with no placement and no explanation.
-                  if (!beginMove(templateId, rerender))
-                    toast(
-                      'Finish the placement already in progress, then move this one.',
-                      'warning',
-                    )
-                },
+                run: () => void moveLocalTemplate(templateId, rerender),
               },
               {
                 icon: 'uploadFile',
