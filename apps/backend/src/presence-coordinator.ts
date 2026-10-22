@@ -39,6 +39,7 @@ import {
   ingestTimings,
 } from './telemetry/ingest-timing.js'
 import type { RegionOwner } from './work/region-store.js'
+import { withPublishedHints } from './work/regions.js'
 
 interface Attachment extends PresenceConnection {
   readonly sessionId: string
@@ -271,8 +272,11 @@ export class PresenceCoordinator<Client> {
         const regions =
           attachment === undefined
             ? []
-            : await this.timings.timed('claims', 'list', () =>
-                this.sql.regions.listRegions(attachment.season, attachment.surface),
+            : await this.timings.timed('claims', 'list', async () =>
+                withPublishedHints(
+                  this.sql,
+                  await this.sql.regions.listRegions(attachment.season, attachment.surface),
+                ),
               )
         const now = Date.now()
         for (const socket of this.sockets()) {
@@ -438,7 +442,10 @@ export class PresenceCoordinator<Client> {
         if (anonymous === '0')
           await this.sql.regions.renewRegions(tokenHash, painter.wplaceUserId, Date.now())
         // Share the fence with region publication so ready cannot arrive after a newer regions event.
-        regions = await this.sql.regions.listRegions(season, surface)
+        regions = await withPublishedHints(
+          this.sql,
+          await this.sql.regions.listRegions(season, surface),
+        )
         await this.rememberRegionExpiry(season, surface, regions)
         return true
       },
@@ -598,8 +605,8 @@ export class PresenceCoordinator<Client> {
     await this.sessions.revoke(async () =>
       this.timings.timed('claims', 'total', async () => {
         this.timings.record('claims', 'queue', performance.now() - queued)
-        const regions = await this.timings.timed('claims', 'list', () =>
-          this.sql.regions.listRegions(season, surface),
+        const regions = await this.timings.timed('claims', 'list', async () =>
+          withPublishedHints(this.sql, await this.sql.regions.listRegions(season, surface)),
         )
         await this.rememberRegionExpiry(season, surface, regions)
         const owners = await this.timings.timed('claims', 'owners', () =>

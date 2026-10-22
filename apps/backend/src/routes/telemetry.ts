@@ -697,7 +697,12 @@ export const createTelemetryRoutes = (
         ? options.currentSeason
         : wholeNumber(c.req.query('season'))
     if (season === null) return c.json({ error: 'season must be a non-negative integer' }, 400)
-    return runBackendHttp(c, runtime, readCanvas(season), (response) => c.json(response))
+    return runBackendHttp(
+      c,
+      runtime,
+      readCanvas(season, c.get('caller').scope === 'admin'),
+      (response) => c.json(response),
+    )
   })
 
   // GET here, PUT with a trailing `:hash` above — Hono matches on method and path together, so the
@@ -737,6 +742,7 @@ export const createTelemetryRoutes = (
         tile: { x, y },
         range,
         ...(typeof legacyResolution === 'number' ? { legacyResolution } : {}),
+        includeUnpublished: c.get('caller').scope === 'admin',
       }),
       (response) => c.json(response),
     )
