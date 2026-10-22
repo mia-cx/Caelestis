@@ -442,6 +442,13 @@ export const templateIdsInLocalFolder = (folderId: string): readonly string[] =>
 
 const pixelLoads = new WeakMap<TemplateArtwork, Promise<Uint8Array>>()
 
+/** How long artwork that failed to load waits before automatic loads try it again. */
+const LOAD_RETRY_MS = 30_000
+/** When each artwork last failed to load, so a broken one is not retried every frame. */
+const failedLoads = new WeakMap<TemplateArtwork, number>()
+const recentlyFailed = (artwork: TemplateArtwork): boolean =>
+  performance.now() - (failedLoads.get(artwork) ?? Number.NEGATIVE_INFINITY) < LOAD_RETRY_MS
+
 type ServerPixelSource = (template: PlacedTemplate) => Promise<Uint8Array | null>
 let serverPixelSource: ServerPixelSource | null = null
 
@@ -522,14 +529,14 @@ export const templatePixels = async (template: PlacedTemplate): Promise<Uint8Arr
 
 /**
  * Pixels for a passing look, such as a preview: read without evicting anything, kept only if memory
- * is free. Null when they cannot be read; that artwork is not tried again.
+ * is free. Null when they cannot be read, or failed to a moment ago.
  */
 export const peekTemplatePixels = async (template: PlacedTemplate): Promise<Uint8Array | null> => {
-  if (failedLoads.has(template.artwork)) return null
+  if (recentlyFailed(template.artwork)) return null
   try {
     return await residentPixels(template, false)
   } catch (error) {
-    failedLoads.add(template.artwork)
+    failedLoads.set(template.artwork, performance.now())
     warn('install', `could not load ${template.name}`, String(error))
     return null
   }
@@ -556,8 +563,6 @@ const fillResidentSet = async (): Promise<void> => {
 
 /** Templates on screen waiting for their pixels, loaded one at a time. */
 const viewLoads = new Set<string>()
-/** Artwork that failed to load stays unloaded until it changes, rather than retrying every frame. */
-const failedLoads = new WeakSet<TemplateArtwork>()
 let loadingInView = false
 
 const loadInView = async (): Promise<void> => {
@@ -569,7 +574,7 @@ const loadInView = async (): Promise<void> => {
       if (
         template === undefined ||
         template.artwork.indices !== null ||
-        failedLoads.has(template.artwork) ||
+        recentlyFailed(template.artwork) ||
         !isInView(id) ||
         !couldFit(areaOf(template), id)
       )
@@ -577,7 +582,7 @@ const loadInView = async (): Promise<void> => {
       try {
         await residentPixels(template, true)
       } catch (error) {
-        failedLoads.add(template.artwork)
+        failedLoads.set(template.artwork, performance.now())
         warn('install', `could not load ${template.name}`, String(error))
       }
     }
@@ -1257,9 +1262,11 @@ const reconcileConflictExclusive = async (id: string): Promise<void> => {
     // The winner stays in memory only where the stale copy was, or where it fits for free.
     const wasResident = existing.artwork.indices !== null
     setPixels(existing, null)
-    const area = winner.indices.length
+    // Split the pixels off, so the catalog entry holds them only through its artwork.
+    const { indices, ...metadata } = winner
+    const area = indices.length
     const resident = wasResident ? makeRoom(area, id) : fitsResident(area)
-    templates.set(id, placedFromStored(winner, tiles, resident ? winner.indices : null))
+    templates.set(id, placedFromStored(metadata, tiles, resident ? indices : null))
     if (resident) retainedIndexPixels += area
     noteReconciliation(id)
     notify()
@@ -2134,8 +2141,17 @@ export const replaceLocalArtwork = async (
           : 'Could not save the new version in this browser. Check available storage and try again.',
       )
     }
-    templates.set(expected.id, { ...withArtwork(next), tiles, revision: result.revision })
-    retainedIndexPixels += areaOf(next) - residentArea(expected)
+    // The old pixels go; the new ones stay in memory only if the budget allows, like any load.
+    setPixels(expected, null)
+    const resident = makeRoom(areaOf(next), expected.id)
+    const { indices: _indices, ...metadata } = next
+    templates.set(expected.id, {
+      ...metadata,
+      artwork: { indices: resident ? indices : null },
+      tiles,
+      revision: result.revision,
+    })
+    if (resident) retainedIndexPixels += areaOf(next)
     notify()
   })
 }
