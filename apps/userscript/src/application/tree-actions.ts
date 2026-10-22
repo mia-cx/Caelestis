@@ -21,7 +21,7 @@ import { refreshAllianceManifest } from '../alliance-server-sync.js'
 import { activeAllianceSurface } from '../alliance-surface.js'
 import { startCaptureMode } from '../claim-editor.js'
 import { warn } from '../debug.js'
-import { createLocalFolder, removeLocalFolder } from '../local-folders.js'
+import { createLocalFolder, localFolderChainVisible, removeLocalFolder } from '../local-folders.js'
 import { viewportCentre } from '../main.js'
 import type { ServerTemplate } from '../server-cache.js'
 import { requestServerSync } from '../server-sync-coordinator.js'
@@ -35,6 +35,7 @@ import {
   getState,
   hasServerAdminToken,
   isCurrentServerConnection,
+  isScopeVisible,
   type LocalFolder,
   listServerNodes,
   MAX_LOCAL_FOLDERS,
@@ -53,6 +54,8 @@ import {
   localTemplates as allLocal,
   canCopyAsLocalTemplate,
   isCurrentTemplate,
+  isTemplateVisible,
+  type PlacedTemplate,
   removeLocalTemplate,
   setTemplateFolder,
   setTemplatesFolder,
@@ -68,6 +71,7 @@ import {
   stopMoveForDeletion,
 } from '../templates/move.js'
 import { centreOf, navigateTo } from '../templates/navigate.js'
+import { nodeChainVisible, serverNodeParents } from '../templates/server-nodes.js'
 import { serverTemplateKey } from '../templates/server-sync.js'
 import { templateAsWplace, wplaceFilename } from '../templates/wplace-export.js'
 import { openTemplateBackfill } from '../ui/backfill.js'
@@ -1075,6 +1079,53 @@ const setServerFolderPublished = async (
 }
 
 /**
+ * Whether a row is drawn, and whether the row holding it is, read from its switches alone.
+ *
+ * For folders, and for server templates whose pixels have not downloaded: their rows and switches
+ * exist before any render copy does.
+ */
+const rowVisibility = (target: TreeTarget): readonly [drawn: boolean, parentDrawn: boolean] => {
+  if (target.server === null) {
+    const id = localFolderIdOf(target)
+    const folder = getState().localFolders.find((candidate) => candidate.id === id)
+    if (folder === undefined) return [isScopeVisible('local'), true]
+    return [localFolderChainVisible(folder.id), localFolderChainVisible(folder.parentId)]
+  }
+  const { url } = target.server
+  const surface = surfaceOf(target)
+  const serverShown = isScopeVisible(`server:${url}`)
+  if (target.templateId !== undefined) {
+    const parentDrawn = serverShown && nodeChainVisible(url, target.nodeId, surface)
+    const own = isScopeVisible(serverTemplateKey(url, target.templateId, surface))
+    return [parentDrawn && own, parentDrawn]
+  }
+  if (target.nodeId === null) return [serverShown, true]
+  const parent = serverNodeParents(url, surface).find(([id]) => id === target.nodeId)?.[1] ?? null
+  return [
+    serverShown && nodeChainVisible(url, target.nodeId, surface),
+    serverShown && nodeChainVisible(url, parent, surface),
+  ]
+}
+
+/**
+ * The warning for a row the map does not draw, or null when it does.
+ *
+ * Moving, re-capturing, or adding templates under a hidden row changes art nobody can see: a
+ * placement with no outline and no Apply or Cancel looked like Move did nothing, then blocked every
+ * other Move. These refuse instead, and say which switch to turn on.
+ */
+const hiddenNotice = (target: TreeTarget, template?: PlacedTemplate): string | null => {
+  const [drawn, parentDrawn] =
+    template === undefined
+      ? rowVisibility(target)
+      : [isTemplateVisible(template), isTemplateVisible({ ...template, visible: true })]
+  if (drawn) return null
+  return parentDrawn
+    ? `“${target.name}” is hidden. Show it first.`
+    : `“${target.name}” is in a hidden folder. Show the folder first.`
+}
+
+/**
  * A right-click menu carrying the row's actions plus the ones deliberately kept off it.
  *
  * Move and Delete are here rather than on the row because a row action sits under the cursor
@@ -1095,9 +1146,14 @@ export const openContextMenu = (
     target.server !== null && target.templateId !== undefined
       ? serverTemplateKey(target.server.url, target.templateId, surfaceOf(target))
       : templateId
-  const updateArtwork = (): void => {
-    if (artworkId !== null) requestTemplateArtworkUpdate(artworkId, rerender)
+  /** Run an edit to the template's placement or art unless the map hides it. */
+  const whenDrawn = (edit: (id: string) => void) => (): void => {
+    if (artworkId === null) return
+    const notice = hiddenNotice(target, templateById(artworkId))
+    if (notice === null) edit(artworkId)
+    else toast(notice, 'warning')
   }
+  const updateArtwork = whenDrawn((id) => requestTemplateArtworkUpdate(id, rerender))
   // Area updates select with the capture editor, which only works over the world canvas.
   const updateArea: MenuEntry | null =
     surfaceOf(target).kind === 'world'
@@ -1105,9 +1161,7 @@ export const openContextMenu = (
           icon: 'fitScreen',
           label: 'Update an area',
           returnToCanvas: true,
-          run: () => {
-            if (artworkId !== null) requestTemplateAreaUpdate(artworkId, rerender)
-          },
+          run: whenDrawn((id) => requestTemplateAreaUpdate(id, rerender)),
         }
       : null
   const rename: MenuEntry = {
@@ -1236,7 +1290,7 @@ export const openContextMenu = (
               {
                 icon: 'uploadFile',
                 label: 'Replace artwork',
-                run: () => void replaceServerArtwork(target, rerender),
+                run: whenDrawn(() => void replaceServerArtwork(target, rerender)),
               },
               { icon: 'reset', label: 'Use canvas artwork', run: updateArtwork },
               updateArea,
@@ -1293,16 +1347,16 @@ export const openContextMenu = (
                 icon: 'move',
                 label: 'Move',
                 returnToCanvas: true,
-                run: () => {
+                run: whenDrawn((id) => {
                   // `beginMove` refuses while another placement is running, while the template is
                   // mid-delete, and when it has gone. Dropping that answer made the menu entry do
                   // nothing at all, with no placement and no explanation.
-                  if (!beginMove(templateId, rerender))
+                  if (!beginMove(id, rerender))
                     toast(
                       'Finish the placement already in progress, then move this one.',
                       'warning',
                     )
-                },
+                }),
               },
               {
                 icon: 'uploadFile',
@@ -1410,6 +1464,11 @@ export const importTemplate = async (
   rerender: () => void,
   surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
 ): Promise<void> => {
+  const notice = hiddenNotice(target)
+  if (notice !== null) {
+    toast(notice, 'warning')
+    return
+  }
   const picker = document.createElement('input')
   picker.type = 'file'
   // iOS disables custom extensions such as .wplace when an accept filter is present.
@@ -1548,6 +1607,11 @@ const importTemplateData = async (
  * starting over the source so it can be dragged onto the damaged copy.
  */
 export const captureTemplate = (target: TreeTarget, rerender: () => void): void => {
+  const notice = hiddenNotice(target)
+  if (notice !== null) {
+    toast(notice, 'warning')
+    return
+  }
   if (activeAllianceSurface() !== null) {
     toast('Capture works on the world canvas. Leave the alliance canvas first.', 'warning')
     return
