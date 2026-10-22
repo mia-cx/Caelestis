@@ -1,8 +1,15 @@
 import { createServer, request as httpRequest } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 
-/** Serve SvelteKit and forward backend requests, including streaming WebSocket upgrades. */
-export const createFrontendServer = (handler, { backend, readToken, objects }) => {
+/** adapter-node reads the request protocol from the header named by `PROTOCOL_HEADER`. */
+export const ORIGIN_PROTOCOL_HEADER = 'x-caelestis-origin-protocol'
+
+/**
+ * Serve SvelteKit and forward backend requests, including streaming WebSocket upgrades.
+ * A public `origin` overrides each request's host and protocol, since adapter-node only takes one
+ * at build time. Set `PROTOCOL_HEADER` to `ORIGIN_PROTOCOL_HEADER` before loading the handler.
+ */
+export const createFrontendServer = (handler, { backend, readToken, objects, origin }) => {
   const base = new URL(backend)
   if (!['http:', 'https:'].includes(base.protocol) || base.username || base.password)
     throw new Error('CAELESTIS_SERVER must be an HTTP(S) backend URL without credentials')
@@ -108,6 +115,10 @@ export const createFrontendServer = (handler, { backend, readToken, objects }) =
     request.caelestis = {
       env: { CAELESTIS_SERVER: base.href, CAELESTIS_READ_TOKEN: readToken },
       objectStorage: objects,
+    }
+    if (origin !== undefined) {
+      request.headers.host = origin.host
+      request.headers[ORIGIN_PROTOCOL_HEADER] = origin.protocol.slice(0, -1)
     }
     const failed = (error) => {
       if (error) console.error('Frontend request failed', error)
