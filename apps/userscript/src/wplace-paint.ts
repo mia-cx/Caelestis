@@ -106,32 +106,22 @@ export const undoPaintDraft = (root: ParentNode = document): boolean =>
 export const redoPaintDraft = (root: ParentNode = document): boolean =>
   movePaintHistory('Redo', root)
 
-/** Wplace's bottom-centre Paint button, whichever height its dock currently sits at. */
+/**
+ * Wplace's bottom-centre Paint button, found by its horizontally centred dock. Wplace translates
+ * the label ("Peindre" in French) once its locale loads, so matching the text loses the button
+ * a moment after page load for anyone not reading English (issue #624).
+ */
 export const paintDockButton = (root: ParentNode = document): HTMLButtonElement | null => {
-  let visiblePaint: HTMLButtonElement | null = null
-  for (const button of root.querySelectorAll<HTMLButtonElement>('button.btn-primary')) {
-    const dock = button.parentElement
+  for (const button of root.querySelectorAll<HTMLButtonElement>('button.btn-primary.btn-lg')) {
+    const dock = button.parentElement?.classList
     if (
-      dock?.classList.contains('absolute') === true &&
-      dock.classList.contains('left-1/2') &&
-      dock.classList.contains('-translate-x-1/2') &&
-      (dock.classList.contains('bottom-3') || dock.classList.contains('bottom-14')) &&
-      button.textContent?.trim().toLowerCase().startsWith('paint') === true
-    ) {
+      dock?.contains('absolute') === true &&
+      dock.contains('left-1/2') &&
+      dock.contains('-translate-x-1/2')
+    )
       return button
-    }
-    const rect = button.getBoundingClientRect()
-    if (
-      visiblePaint === null &&
-      rect.width > 0 &&
-      rect.height > 0 &&
-      button.classList.contains('btn-lg') &&
-      button.textContent?.trim().toLowerCase().startsWith('paint') === true
-    ) {
-      visiblePaint = button
-    }
   }
-  return visiblePaint
+  return null
 }
 
 /**
