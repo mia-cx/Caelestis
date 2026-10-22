@@ -247,6 +247,8 @@ export const overlayLayer = {
     // A later `onAdd` has already taken this state over for its own context. Those handles are not
     // ours to delete, and the context we are being removed from cleans up its own on teardown.
     if (owner !== gl) return
+    // Nothing is drawn any more, so nothing stays pinned in memory for this layer.
+    noteTemplatesInView(WORLD_TEMPLATE_SURFACE, NOTHING_IN_VIEW)
     clearGpuProfile(gl)
     owner = null
     gpu?.dispose()
