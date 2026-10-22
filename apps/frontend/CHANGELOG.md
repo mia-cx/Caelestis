@@ -1,5 +1,11 @@
 # @caelestis/frontend
 
+## 0.8.0
+
+### Minor Changes
+
+- 5b7b57d: Timelapse playback speed takes any value above 4×, with presets that play the whole history in 10 seconds, 30 seconds, or a minute.
+
 ## 0.7.6
 
 ### Patch Changes
