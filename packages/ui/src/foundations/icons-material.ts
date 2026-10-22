@@ -18,7 +18,10 @@ import check from '@iconify-icons/material-symbols/check'
 import chevronRight from '@iconify-icons/material-symbols/chevron-right'
 import circleGlyph from '@iconify-icons/material-symbols/circle'
 import close from '@iconify-icons/material-symbols/close'
+import contentPaste from '@iconify-icons/material-symbols/content-paste'
+import contrast from '@iconify-icons/material-symbols/contrast'
 import createNewFolder from '@iconify-icons/material-symbols/create-new-folder'
+import crop from '@iconify-icons/material-symbols/crop'
 import darkMode from '@iconify-icons/material-symbols/dark-mode'
 import deleteOutline from '@iconify-icons/material-symbols/delete-outline'
 import dns from '@iconify-icons/material-symbols/dns'
@@ -31,6 +34,7 @@ import filterAltOutline from '@iconify-icons/material-symbols/filter-alt-outline
 import fitScreen from '@iconify-icons/material-symbols/fit-screen'
 import flag from '@iconify-icons/material-symbols/flag'
 import folder from '@iconify-icons/material-symbols/folder'
+import gradient from '@iconify-icons/material-symbols/gradient'
 import gridView from '@iconify-icons/material-symbols/grid-view'
 import groups from '@iconify-icons/material-symbols/groups'
 import image from '@iconify-icons/material-symbols/image'
@@ -96,8 +100,11 @@ export const ICONS = define({
   check,
   chevronRight,
   close,
+  colourMatch: contrast,
   createFolder: createNewFolder,
+  crop,
   darkMode,
+  dither: gradient,
   discord,
   dock: viewSidebarOutline,
   download,
@@ -138,6 +145,7 @@ export const ICONS = define({
   toolPolygon: pentagonGlyph,
   toolStar: starGlyph,
   palette,
+  paste: contentPaste,
   pause,
   play: playArrow,
   popout: openInNew,

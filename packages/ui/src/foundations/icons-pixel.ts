@@ -13,11 +13,15 @@ import chevronRight from '@iconify-icons/pixelarticons/chevron-right'
 import chevronUp from '@iconify-icons/pixelarticons/chevron-up'
 import chevronsVertical from '@iconify-icons/pixelarticons/chevrons-vertical'
 import circle from '@iconify-icons/pixelarticons/circle'
+import clipboard from '@iconify-icons/pixelarticons/clipboard'
 import close from '@iconify-icons/pixelarticons/close'
 import closeBox from '@iconify-icons/pixelarticons/close-box'
 import colorsSwatch from '@iconify-icons/pixelarticons/colors-swatch'
+import crop from '@iconify-icons/pixelarticons/crop'
 import discord from '@iconify-icons/pixelarticons/discord'
 import download from '@iconify-icons/pixelarticons/download'
+import dropArea from '@iconify-icons/pixelarticons/drop-area'
+import dropHalf from '@iconify-icons/pixelarticons/drop-half'
 import edit from '@iconify-icons/pixelarticons/edit'
 import eraser from '@iconify-icons/pixelarticons/eraser'
 import expand from '@iconify-icons/pixelarticons/expand'
@@ -84,8 +88,11 @@ export const PIXEL_ICONS: Readonly<Record<IconName, IconData>> = define({
   check,
   chevronRight,
   close,
+  colourMatch: dropHalf,
   createFolder: folderPlus,
+  crop,
   darkMode: moon,
+  dither: dropArea,
   discord,
   dock: layoutSidebarRight,
   download,
@@ -126,6 +133,7 @@ export const PIXEL_ICONS: Readonly<Record<IconName, IconData>> = define({
   toolPolygon: sharpCorner,
   toolStar: star,
   palette: colorsSwatch,
+  paste: clipboard,
   pause,
   play,
   popout: externalLink,

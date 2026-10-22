@@ -244,6 +244,126 @@ export type ClaimModeIntent =
   | { readonly type: 'capture'; readonly action: CaptureAction }
   | { readonly type: 'cancel' }
 
+/** The template editor's tool windows, in drawer order. */
+export type TemplateEditorTool = 'image' | 'crop' | 'place' | 'palette' | 'match' | 'dither'
+
+export interface TemplateEditorRect {
+  readonly x: number
+  readonly y: number
+  readonly width: number
+  readonly height: number
+}
+
+export type TemplateEditorResize = 'nearest' | 'area' | 'bilinear' | 'lanczos3'
+
+export type TemplateEditorMatching =
+  | 'oklab-euclidean'
+  | 'cielab-ciede2000'
+  | 'cielab-euclidean'
+  | 'srgb-compuphase'
+  | 'srgb-euclidean'
+
+export type TemplateEditorDitherMethod =
+  | 'none'
+  | 'floyd-steinberg'
+  | 'atkinson'
+  | 'sierra'
+  | 'sierra-lite'
+  | 'bayer'
+  | 'blue-noise'
+  | 'yliluoma'
+
+export interface TemplateEditorDither {
+  readonly method: TemplateEditorDitherMethod
+  /** Bayer and Yliluoma matrix size. */
+  readonly size: '2' | '4' | '8' | '16'
+  /** Error diffusion's share of the error, or a noise field's amplitude, from 0 to 1. */
+  readonly strength: number
+  /** Error diffusion scans alternate rows in reverse. */
+  readonly serpentine: boolean
+}
+
+export type TemplateEditorPaletteScope = 'owned' | 'free' | 'premium' | 'all'
+
+/**
+ * The template editor: one view over the live map. A drawer opens one tool window at a time;
+ * the bar names the artwork and saves it. Every value here stays editable until Save or Cancel.
+ */
+export interface TemplateEditorModel {
+  /** Saving creates a new template, or a new version of the named template. */
+  readonly target:
+    | { readonly kind: 'create'; readonly destination: string }
+    | { readonly kind: 'replace'; readonly template: string }
+  readonly tool: TemplateEditorTool | null
+  readonly name: string
+  /** The decoded image, with an object URL the crop window draws. Null until one loads. */
+  readonly source: {
+    readonly name: string
+    readonly width: number
+    readonly height: number
+    readonly url: string
+  } | null
+  readonly loadingSource: boolean
+  readonly crop: TemplateEditorRect
+  readonly size: {
+    readonly width: number
+    readonly height: number
+    readonly keepProportions: boolean
+    /** A replacement keeps its template's size. */
+    readonly locked: boolean
+    readonly resize: TemplateEditorResize
+  }
+  /** Top-left corner on the canvas. */
+  readonly origin: { readonly x: number; readonly y: number }
+  readonly palette: {
+    /** Null when the selection matches no scope. */
+    readonly scope: TemplateEditorPaletteScope | null
+    /** Owned needs the account's colours, which may not have loaded. */
+    readonly ownedKnown: boolean
+    readonly colours: readonly {
+      readonly index: number
+      readonly name: string
+      readonly hex: string
+      readonly kind: 'free' | 'premium'
+      readonly selected: boolean
+    }[]
+  }
+  readonly matching: TemplateEditorMatching
+  /** Alpha below this becomes transparent, from 0 to 255. */
+  readonly threshold: number
+  readonly dither: TemplateEditorDither
+  /** Ditherette cannot run here: only placement and palette apply, with nearest colours. */
+  readonly limited: boolean
+  readonly processing:
+    | { readonly state: 'idle' }
+    | { readonly state: 'working'; readonly progress: number | null }
+    | { readonly state: 'ready'; readonly pixels: number; readonly colours: number }
+    | { readonly state: 'failed'; readonly message: string }
+  /** Saving. Every control waits for it. */
+  readonly pending: boolean
+  readonly message?: string
+}
+
+export type TemplateEditorIntent =
+  | { readonly type: 'tool'; readonly tool: TemplateEditorTool | null }
+  | { readonly type: 'name'; readonly name: string }
+  | { readonly type: 'file'; readonly file: File }
+  | { readonly type: 'paste' }
+  | { readonly type: 'url'; readonly url: string }
+  | { readonly type: 'crop'; readonly crop: TemplateEditorRect }
+  | { readonly type: 'origin'; readonly x: number; readonly y: number }
+  | { readonly type: 'centre' }
+  | { readonly type: 'size'; readonly width: number; readonly height: number }
+  | { readonly type: 'keep-proportions'; readonly keep: boolean }
+  | { readonly type: 'resize'; readonly resize: TemplateEditorResize }
+  | { readonly type: 'scope'; readonly scope: TemplateEditorPaletteScope }
+  | { readonly type: 'colour'; readonly index: number; readonly selected: boolean }
+  | { readonly type: 'matching'; readonly matching: TemplateEditorMatching }
+  | { readonly type: 'threshold'; readonly threshold: number }
+  | { readonly type: 'dither'; readonly dither: Partial<TemplateEditorDither> }
+  | { readonly type: 'save' }
+  | { readonly type: 'cancel' }
+
 /** What capture or update mode does with the selected art. */
 export type CaptureAction = 'download' | 'template' | 'update'
 
