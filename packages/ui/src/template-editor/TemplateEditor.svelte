@@ -392,7 +392,7 @@
         {:else if model.tool === 'palette'}
           <div class="scopes" role="group" aria-label="Palette">
             {#each SCOPES as scope (scope.id)}
-              <button type="button" class="choice caelestis-bevel" class:active={model.palette.scope === scope.id} aria-pressed={model.palette.scope === scope.id} disabled={scope.id === 'owned' && !model.palette.ownedKnown} onclick={() => onIntent({ type: 'scope', scope: scope.id })}>{scope.label}</button>
+              <button type="button" class="choice caelestis-bevel" class:active={model.palette.scope === scope.id} aria-pressed={model.palette.scope === scope.id} onclick={() => onIntent({ type: 'scope', scope: scope.id })}>{scope.label}</button>
             {/each}
           </div>
           <div class="swatches" role="group" aria-label="Colours">

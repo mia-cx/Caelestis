@@ -318,8 +318,6 @@ export interface TemplateEditorModel {
   readonly palette: {
     /** Null when the selection matches no scope. */
     readonly scope: TemplateEditorPaletteScope | null
-    /** Owned needs the account's colours, which may not have loaded. */
-    readonly ownedKnown: boolean
     readonly colours: readonly {
       readonly index: number
       readonly name: string
