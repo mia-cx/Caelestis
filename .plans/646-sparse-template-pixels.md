@@ -13,11 +13,11 @@ Decided with Mia (2026-10-22):
   needs it.
 
 ## Acceptance criteria
-- [ ] A template's resident cost is the area of its painted chunks.
-- [ ] IndexedDB records and the server pixel cache store only painted chunks; old dense records
+- [x] A template's resident cost is the area of its painted chunks.
+- [x] IndexedDB records and the server pixel cache store only painted chunks; old dense records
       still load.
-- [ ] The GPU uploads no texture for an empty chunk, and outlines still draw at chunk edges.
-- [ ] Mismatch scans, markers, nearest, picker, previews, edit, move, export and copy behave as before.
+- [x] The GPU uploads no texture for an empty chunk, and outlines still draw at chunk edges.
+- [x] Mismatch scans, markers, nearest, picker, previews, edit, move, export and copy behave as before.
 
 ## TODOs
 - [x] `sparse-pixels.ts`: chunk type, cut, join, pixel and rectangle reads, pack/unpack; unit test.
@@ -27,7 +27,7 @@ Decided with Mia (2026-10-22):
   - one texture per painted chunk with neighbour halos; open sides draw outline margins.
 - [x] Disk: records and server cache store packed chunks; legacy dense records cut on load.
 - [x] Contract test: a sparse template costs its painted chunks and reloads intact; changeset.
-- [ ] Visual QA: outlines at chunk edges match main in a real Wplace tab.
+- [x] Visual QA: outlines at chunk edges match main in a real Wplace tab.
 
 ## Notes
 - Shell PATH lacks Homebrew: prefix `PATH=/opt/homebrew/bin:$PATH`. Tests need
@@ -42,3 +42,7 @@ Decided with Mia (2026-10-22):
   size. Server cache entries pack the same way; `cachedServerCopy` reports opaque count and area.
   Downloads and native Wplace images are still assembled dense, then cut. Validation: typecheck
   clean, 262/262 tests.
+- Final: 263/263 tests, `test:browser` passes (one earlier run hit a CDP connect timeout; main and
+  this branch both pass on retry). Visual QA in background Chromium (port 9336): a 2000×2000
+  template with a square ending on an empty chunk and a bar crossing two chunks renders the same on
+  main and the branch; the largest colour difference is 3/255, which is anti-aliasing.
