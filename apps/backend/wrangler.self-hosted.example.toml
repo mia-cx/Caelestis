@@ -91,3 +91,4 @@ max_retries = 3
 
 [limits]
 cpu_ms = 300000
+subrequests = 50000
