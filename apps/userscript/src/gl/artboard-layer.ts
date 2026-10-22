@@ -13,6 +13,7 @@ import { getState, onlySelectedColourFor, onStateChange } from '../state.js'
 import { isPlain, toRgbUnit } from '../templates/appearance.js'
 import {
   displayTemplatesForSurface,
+  noteTemplatesInView,
   onLocalChange,
   onLocalPreviewChange,
   type PlacedTemplate,
@@ -140,6 +141,22 @@ export const artboardDevicePlacement = (
     right: viewport.frameLeft + (placement.right + margin) * scaleX,
     bottom: viewport.frameTop + (placement.bottom + margin) * scaleY,
   }
+}
+
+/** Whether a template, grown by `margin` cells, shows: inside the frame and on the stage's buffer. */
+const overlapsArtboardFrame = (
+  template: Pick<PlacedTemplate, 'originX' | 'originY' | 'width' | 'height'>,
+  geometry: ArtboardGeometry,
+  viewport: ArtboardViewport,
+  margin = 0,
+): boolean => {
+  const box = artboardDevicePlacement(template, geometry, viewport, margin)
+  return (
+    box.right > Math.max(0, viewport.frameLeft) &&
+    box.bottom > Math.max(0, viewport.frameTop) &&
+    box.left < Math.min(viewport.bufferWidth, viewport.frameLeft + viewport.frameWidth) &&
+    box.top < Math.min(viewport.bufferHeight, viewport.frameTop + viewport.frameHeight)
+  )
 }
 
 /** Project one shared GPU chunk, including only the outer outline halo, into an artboard. */
@@ -387,13 +404,7 @@ class ArtboardPass {
     const margin = this.kind === 'outline' ? 1 : 0
     const visible = templates.filter(({ template, outlineFade }) => {
       if (this.kind === 'outline' && outlineFade <= 0) return false
-      const box = artboardDevicePlacement(template, geometry, viewport, margin)
-      return (
-        box.right > viewport.frameLeft &&
-        box.bottom > viewport.frameTop &&
-        box.left < viewport.frameLeft + viewport.frameWidth &&
-        box.top < viewport.frameTop + viewport.frameHeight
-      )
+      return overlapsArtboardFrame(template, geometry, viewport, margin)
     })
     this.gpu?.collect(allIds, new Set(visible.map(({ template }) => template.id)))
     const scissorLeft = Math.max(0, Math.floor(viewport.frameLeft))
@@ -728,8 +739,10 @@ class ArtboardRenderer {
           this.overlay.canvas,
         ),
       )
-    )
+    ) {
+      noteTemplatesInView(this.surface, new Set())
       return
+    }
     const all = displayTemplatesForSurface(this.surface)
     this.renderGeneration++
     const ids = new Set(all.map(({ id }) => id))
@@ -740,13 +753,24 @@ class ArtboardRenderer {
     const templates = templateScene.templates.filter(
       ({ fade, palette }) => fade > 0 && palette !== null,
     )
+    // Only templates overlapping the frame count as in view, matching what the passes draw.
+    const inFrame = templates.filter(({ template }) =>
+      overlapsArtboardFrame(template, this.geometry, viewport),
+    )
+    noteTemplatesInView(this.surface, new Set(inFrame.map(({ template }) => template.id)))
     let animating = templateScene.animating
     const selected = isPaintOpen() ? selectedColour() : null
     const markerScene = this.scene.advanceMarkers(templateScene.templates, selected, now)
     if (markerScene.animating) animating = true
     let comparedMarkerPixels = 0
+    // Markers compare pixels, so they cover only templates whose pixels are in memory.
+    const resident = templateScene.templates.flatMap(({ template, appearance }) => {
+      const indices = template.artwork.indices
+      return indices === null ? [] : [{ template: { ...template, indices }, appearance }]
+    })
+    const residentIds = new Set(resident.map(({ template }) => template.id))
     const staleMarkerIds = new Set(
-      templateScene.templates
+      resident
         .filter(({ template, appearance }) => {
           const held = this.markerWork.get(template.id)
           return held === undefined || !held.index.isCurrent(template, appearance)
@@ -755,7 +779,7 @@ class ArtboardRenderer {
     )
     if (this.markerPixelsDirty || this.markerDirtyRects.length > 0 || staleMarkerIds.size > 0) {
       const regions = readArtboardPixels(this.active, this.geometry)
-      for (const { template, appearance } of templateScene.templates) {
+      for (const { template, appearance } of resident) {
         const held = this.markerWork.get(template.id)
         const stale = staleMarkerIds.has(template.id)
         const rebuild =
@@ -783,7 +807,7 @@ class ArtboardRenderer {
       this.markerPixelsDirty = false
       this.markerDirtyRects.length = 0
     }
-    for (const id of this.markerWork.keys()) if (!ids.has(id)) this.markerWork.delete(id)
+    for (const id of this.markerWork.keys()) if (!residentIds.has(id)) this.markerWork.delete(id)
     const selectedLayers: Omit<RenderMarker, 'sampleRate'>[] = []
     const mismatchLayers: Omit<RenderMarker, 'sampleRate'>[] = []
     const state = getState()
@@ -930,6 +954,7 @@ class ArtboardRenderer {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
+    noteTemplatesInView(this.surface, new Set())
     this.observer.disconnect()
     this.resizeObserver?.disconnect()
     detachOverlayControls()

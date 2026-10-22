@@ -83,7 +83,7 @@ describe('official overlays', () => {
       height: 2,
       opaque: 4,
     })
-    expect([...(mirrors()[0]?.indices ?? [])]).toEqual([1, 2, 3, 4])
+    expect([...(mirrors()[0]?.artwork.indices ?? [])]).toEqual([1, 2, 3, 4])
     expect(map.visibility.get(LAYER)).toBe('none')
     // Colour navigation and full progress scans walk these tiles.
     expect([...templateTileKeys(mirrors()[0] as PlacedTemplate)]).toEqual(['1466/920'])

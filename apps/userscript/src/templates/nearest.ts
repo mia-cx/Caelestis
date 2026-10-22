@@ -96,14 +96,16 @@ export const focusedTemplate = (options: FocusedTemplateOptions = {}): PlacedTem
     const sourceY = centre.y - template.originY
     const cellX = sourceX === null ? -1 : Math.floor(sourceX)
     const cellY = Math.floor(sourceY)
-    const centreIndex =
-      sourceX !== null && sourceY >= 0 && sourceY < template.height
-        ? template.indices[cellY * template.width + cellX]
-        : undefined
+    const inside = sourceX !== null && sourceY >= 0 && sourceY < template.height
+    const indices = template.artwork.indices
+    const centreIndex = inside ? indices?.[cellY * template.width + cellX] : undefined
+    // An evicted template has no pixels to test, so its bounds stand in for them.
     const containsClaimedPixel =
-      centreIndex !== undefined &&
-      centreIndex !== TRANSPARENT_INDEX &&
-      !claimedHiddenFor(appearanceOf(template)).includes(centreIndex)
+      indices === null
+        ? inside
+        : centreIndex !== undefined &&
+          centreIndex !== TRANSPARENT_INDEX &&
+          !claimedHiddenFor(appearanceOf(template)).includes(centreIndex)
     if (containsClaimedPixel) {
       if (visible) containingVisible = template
       else if (!template.visible) containingHidden = template

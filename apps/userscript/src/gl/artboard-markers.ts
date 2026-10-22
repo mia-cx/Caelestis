@@ -5,7 +5,7 @@ import {
   nativePixelWindow,
 } from '../native-pixels.js'
 import type { Appearance } from '../templates/appearance.js'
-import type { PlacedTemplate } from '../templates/local-store.js'
+import type { PlacedPixels, PlacedTemplate } from '../templates/local-store.js'
 import { packMismatchMark } from '../templates/mismatch-marks.js'
 
 const MARKER_CHUNK_SIZE = 1_024
@@ -60,7 +60,7 @@ export interface ArtboardColourTarget {
 
 /** Known native artboard pixels that still need one palette colour. */
 export const artboardColourTargets = (
-  template: Pick<PlacedTemplate, 'originX' | 'originY' | 'width' | 'height' | 'indices'>,
+  template: PlacedPixels,
   pixels: NativePixelSnapshot,
   index: number,
 ): readonly ArtboardColourTarget[] => {
@@ -80,7 +80,7 @@ export const artboardColourTargets = (
 
 /** Per-colour progress from the native artboard pixels Wplace has loaded. */
 export const artboardColourProgress = (
-  template: Pick<PlacedTemplate, 'originX' | 'originY' | 'width' | 'height' | 'indices'>,
+  template: PlacedPixels,
   pixels: NativePixelSnapshot,
 ): readonly ArtboardColourProgress[] => {
   const actual = artboardActualPixels(template, pixels)
@@ -112,10 +112,7 @@ export const artboardColourProgress = (
 }
 
 /** Overall progress for one artboard template, derived from the same per-colour counts. */
-export const artboardTemplateProgress = (
-  template: Pick<PlacedTemplate, 'originX' | 'originY' | 'width' | 'height' | 'indices'>,
-  pixels: NativePixelSnapshot,
-) => {
+export const artboardTemplateProgress = (template: PlacedPixels, pixels: NativePixelSnapshot) => {
   const colours = artboardColourProgress(template, pixels)
   return colours.reduce(
     (total, colour) => ({
@@ -131,7 +128,7 @@ export const artboardTemplateProgress = (
 
 /** Palette colours with at least one artboard pixel that still differs from the template. */
 export const artboardRemainingColours = (
-  template: Pick<PlacedTemplate, 'originX' | 'originY' | 'width' | 'height' | 'indices'>,
+  template: PlacedPixels,
   pixels: NativePixelSnapshot,
 ): ReadonlySet<number> => {
   const actual = artboardActualPixels(template, pixels)
@@ -266,10 +263,7 @@ export class ArtboardMarkerIndex {
   private entry: MarkerIndexEntry | null = null
   private compared = 0
 
-  private create(
-    template: Pick<PlacedTemplate, 'originX' | 'originY' | 'width' | 'height' | 'indices'>,
-    appearance: Appearance,
-  ): MarkerIndexEntry {
+  private create(template: PlacedPixels, appearance: Appearance): MarkerIndexEntry {
     const hiddenKey = hiddenKeyFor(appearance)
     return {
       source: template.indices,
@@ -293,7 +287,7 @@ export class ArtboardMarkerIndex {
 
   private matchesPixels(
     entry: MarkerIndexEntry,
-    template: Pick<PlacedTemplate, 'originX' | 'originY' | 'width' | 'height' | 'indices'>,
+    template: PlacedPixels,
     appearance: Appearance,
   ): boolean {
     return (
@@ -306,10 +300,7 @@ export class ArtboardMarkerIndex {
     )
   }
 
-  isCurrent(
-    template: Pick<PlacedTemplate, 'originX' | 'originY' | 'width' | 'height' | 'indices'>,
-    appearance: Appearance,
-  ): boolean {
+  isCurrent(template: PlacedPixels, appearance: Appearance): boolean {
     if (this.entry === null || !this.matchesPixels(this.entry, template, appearance)) return false
     const includeUnpainted =
       appearance.markUnpainted &&
@@ -318,16 +309,13 @@ export class ArtboardMarkerIndex {
     return this.entry.cached !== null && this.entry.cachedIncludeUnpainted === includeUnpainted
   }
 
-  hasCurrentPixels(
-    template: Pick<PlacedTemplate, 'originX' | 'originY' | 'width' | 'height' | 'indices'>,
-    appearance: Appearance,
-  ): boolean {
+  hasCurrentPixels(template: PlacedPixels, appearance: Appearance): boolean {
     return this.entry !== null && this.matchesPixels(this.entry, template, appearance)
   }
 
   private patch(
     entry: MarkerIndexEntry,
-    template: Pick<PlacedTemplate, 'originX' | 'originY' | 'width' | 'height' | 'indices'>,
+    template: PlacedPixels,
     pixels: NativePixelSnapshot,
     dirty: NativePixelRect,
   ): void {
@@ -373,7 +361,7 @@ export class ArtboardMarkerIndex {
   }
 
   update(
-    template: Pick<PlacedTemplate, 'originX' | 'originY' | 'width' | 'height' | 'indices'>,
+    template: PlacedPixels,
     pixels: NativePixelSnapshot,
     appearance: Appearance,
     dirty: readonly NativePixelRect[] | null,
@@ -437,7 +425,7 @@ export class ArtboardMarkerIndex {
 
 /** Compare one alliance template with Wplace's native art, using the world marker semantics. */
 export const artboardMarkerWork = (
-  template: Pick<PlacedTemplate, 'originX' | 'originY' | 'width' | 'height' | 'indices'>,
+  template: PlacedPixels,
   pixels: NativePixelSnapshot,
   appearance: Appearance,
 ): ArtboardMarkerWork => {

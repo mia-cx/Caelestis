@@ -10,17 +10,25 @@ import {
   nativeLocalId,
   nativeMetadata,
 } from './native-store.js'
-import type { SaveResult, StoredTemplate } from './persist.js'
+import type { SaveResult, StoredTemplate, TemplateSave } from './persist.js'
 import * as disk from './persist.js'
 import { connectLocalTagSync, synchronizeLocalTemplateTags } from './tags.js'
 
 export type {
   SaveResult,
+  StoredRecord,
   StoredTemplate,
-  TemplateLoadBatch,
+  TemplateCatalog,
   TemplateLoadFailure,
 } from './persist.js'
-export { deleteTemplate as discardTemplate, saveTemplateFolders } from './persist.js'
+export {
+  catalogTileKeys,
+  deleteTemplate as discardTemplate,
+  hydrateStoredTemplate,
+  loadTemplateCatalog,
+  saveTemplateFolders,
+  saveTemplateTileKeys,
+} from './persist.js'
 
 let native: NativeTemplates | null = null
 let onMutation: (() => void) | undefined
@@ -37,7 +45,7 @@ const exclusive = <T>(operation: () => Promise<T>): Promise<T> => {
   return pending
 }
 
-const isWorld = (template: StoredTemplate): boolean =>
+const isWorld = (template: TemplateSave): boolean =>
   (template.surface ?? WORLD_TEMPLATE_SURFACE).kind === 'world'
 
 const loadedTemplate = (loaded: disk.LoadTemplateResult): StoredTemplate | null =>
@@ -72,8 +80,10 @@ const project = async (
     previous === null ||
     (previous.native?.status === 'linked' && previous.native.opacity !== snapshot.template.opacity)
   const owns = previous?.owns ?? (previous?.appearance != null ? APPEARANCE_GROUPS : [])
+  // Wplace may have moved or redrawn it, so the painted tiles are recounted on restore.
+  const { tileKeys: _staleTiles, ...kept } = previous ?? {}
   const template: StoredTemplate = {
-    ...previous,
+    ...kept,
     ...pixels,
     id: previous?.id ?? pixels.id,
     // An existing import keeps its source attribution and quantization report.
@@ -172,16 +182,15 @@ export const synchronizePersonalTemplates = (): Promise<void> =>
   exclusive(async () => {
     if (native === null) return
     const api = native
-    const rows = await disk.loadTemplates()
-    const known = new Map<string, StoredTemplate>()
-    for (const value of rows) {
-      if (typeof value !== 'object' || value === null || !('indices' in value)) continue
-      const template = value as StoredTemplate
-      if (!isWorld(template)) continue
-      if (template.native !== undefined) known.set(template.native.id, template)
+    // Native ids only: one record at a time, so syncing never holds more than one template's pixels.
+    const known = new Set<string>()
+    for (const localId of await disk.loadTemplateIds()) {
+      const template = loadedTemplate(await disk.loadTemplate(localId))
+      if (template === null || !isWorld(template)) continue
+      if (template.native !== undefined) known.add(template.native.id)
       try {
         const current = await synchronizeOne(api, template)
-        if (current?.native !== undefined) known.set(current.native.id, current)
+        if (current?.native !== undefined) known.add(current.native.id)
       } catch (error) {
         warn('install', `could not sync personal template ${template.name}`, String(error))
       }
@@ -226,14 +235,15 @@ export const loadTemplate = async (
   })
 }
 
-export const loadTemplates = disk.loadTemplates
-
 /** Commit supported personal edits through Wplace, then retain the derived pixels and Caelestis metadata. */
 export const saveTemplate = async (
-  template: StoredTemplate,
+  template: TemplateSave,
   expectedRevision: number | null,
   archiveCurrent = false,
 ): Promise<SaveResult> => {
+  if (archiveCurrent && template.indices === null) {
+    throw new RangeError('a new version needs its pixels')
+  }
   if (!isWorld(template) || (native === null && template.native === undefined))
     return archiveCurrent
       ? await disk.saveTemplate(template, expectedRevision, true)
@@ -250,9 +260,12 @@ export const saveTemplate = async (
       )
         return { status: 'conflict' }
       if (previous === null) {
+        const { indices } = template
+        // A metadata save needs a stored record to keep the pixels of, and another tab removed it.
+        if (indices === null) return { status: 'conflict' }
         const saved = await disk.saveTemplate(template, null)
         if (saved.status !== 'saved') return saved
-        const linked = await migrate(api, { ...template, revision: saved.revision })
+        const linked = await migrate(api, { ...template, indices, revision: saved.revision })
         return { status: 'saved', revision: linked.revision }
       }
       let linked = await migrate(api, previous)
@@ -302,10 +315,12 @@ export const saveTemplate = async (
                   : {}),
               },
               snapshot,
-              archiveCurrent ? await nativeImage(template) : undefined,
+              archiveCurrent && template.indices !== null
+                ? await nativeImage({ ...template, indices: template.indices })
+                : undefined,
             )
           : snapshot
-      const next: StoredTemplate = {
+      const next: TemplateSave = {
         ...template,
         native: {
           id: nativeId,

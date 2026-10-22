@@ -83,7 +83,8 @@ export const overlayIndexAt = (surface: TemplateSurface, x: number, y: number): 
     if (localX === null || localY < 0 || localY >= template.height) continue
     const cellX = Math.floor(localX)
     const cellY = Math.floor(localY)
-    const index = template.indices[cellY * template.width + cellX]
+    // A visible template under the pointer is resident; one still loading has nothing to pick.
+    const index = template.artwork.indices?.[cellY * template.width + cellX]
     if (index === undefined || index === TRANSPARENT_INDEX) continue
     if (claimedHiddenFor(appearanceOf(template)).includes(index)) continue
     found = index

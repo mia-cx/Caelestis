@@ -89,6 +89,7 @@ export type {
   TreeEntryModel,
   TreeOperationModel,
   TreeOperationOptionModel,
+  TreePreviewArt,
   TreeProgressModel,
   TreeRowModel,
   TreeSortModel,

@@ -2,6 +2,7 @@ import {
   sha256Hex,
   type TemplateSurface,
   type TemplateTag,
+  TILE_SIZE,
   templateSurface,
   templateSurfaceBounds,
   WORLD_PIXELS,
@@ -41,11 +42,11 @@ import { LOCAL_TAG_STORE, upgradeLocalTags } from './tag-schema.js'
 
 const DB_NAME = 'caelestis'
 const STORE = 'local-templates'
-// Shared with server-cache.ts: one database, one version, both stores created in either upgrade.
-const VERSION = 6
+// Shared with server-cache.ts: one database, one version, every store created in either upgrade.
+const VERSION = 7
 const VERSIONS_STORE = 'local-template-versions'
-const MAX_PERSISTED_TEMPLATES = 64
-const MAX_PERSISTED_INDEX_PIXELS = 64 * 1024 * 1024
+/** Server template pixels on disk, so an evicted copy reloads without downloading it again. */
+export const SERVER_PIXELS_STORE = 'server-pixels'
 const MAX_ARCHIVED_VERSIONS = 256
 const MAX_ARCHIVED_INDEX_PIXELS = 64 * 1024 * 1024
 let blockedOpenRequest: IDBOpenDBRequest | null = null
@@ -99,6 +100,11 @@ export interface StoredTemplate extends ImportedTemplate {
   readonly owns?: readonly AppearanceGroup[]
   /** Which Local folder this is in. Absent means the top level, as it did before folders existed. */
   readonly folderId?: string | null
+  /**
+   * Painted world tiles (`x/y`) at this placement, so a template can join the catalog without its
+   * pixels in memory. Absent on records written before eviction, which restore by reading them.
+   */
+  readonly tileKeys?: readonly string[]
 }
 
 const open = (): Promise<IDBDatabase> => {
@@ -117,6 +123,9 @@ const open = (): Promise<IDBDatabase> => {
       }
       if (!db.objectStoreNames.contains('server-cache')) {
         db.createObjectStore('server-cache', { keyPath: 'url' })
+      }
+      if (!db.objectStoreNames.contains(SERVER_PIXELS_STORE)) {
+        db.createObjectStore(SERVER_PIXELS_STORE, { keyPath: 'key' })
       }
       if (event.oldVersion < 4) {
         const templates = request.transaction?.objectStore(STORE)
@@ -196,7 +205,6 @@ const writeVersioned = async (
     transaction: IDBTransaction,
   ) => void,
   incrementRevision = true,
-  creationPixels: number | null = null,
   history?: 'archive' | 'delete',
 ): Promise<SaveResult> => {
   try {
@@ -258,42 +266,7 @@ const writeVersioned = async (
               reject(cursorRequest.error ?? new Error('indexedDB history cursor failed'))
             return
           }
-          if (expectedRevision !== null || creationPixels === null) {
-            commit()
-            return
-          }
-          // Read-write transactions on one object store are serialized across every connection.
-          // Scanning and inserting inside this transaction makes the aggregate limits cross-tab
-          // atomic without a second ledger that could drift from the records it accounts for.
-          let records = 0
-          let pixels = 0
-          const cursorRequest = templates.openCursor()
-          cursorRequest.onsuccess = () => {
-            const cursor = cursorRequest.result
-            if (cursor === null) {
-              if (
-                records < MAX_PERSISTED_TEMPLATES &&
-                pixels + creationPixels <= MAX_PERSISTED_INDEX_PIXELS
-              ) {
-                commit()
-              } else {
-                result = { status: 'limit' }
-              }
-              return
-            }
-            records++
-            pixels = boundedPixelSum(pixels, candidateIndexPixels(cursor.value))
-            if (
-              records >= MAX_PERSISTED_TEMPLATES ||
-              pixels + creationPixels > MAX_PERSISTED_INDEX_PIXELS
-            ) {
-              result = { status: 'limit' }
-              return
-            }
-            cursor.continue()
-          }
-          cursorRequest.onerror = () =>
-            reject(cursorRequest.error ?? new Error('indexedDB cursor failed'))
+          commit()
         }
         request.onerror = () => reject(request.error ?? new Error('indexedDB request failed'))
         transaction.oncomplete = () => resolve(result)
@@ -317,14 +290,20 @@ export type SaveResult =
   | { readonly status: 'limit' }
   | { readonly status: 'unavailable' }
 
+/** A record to save. Null indices keep the stored pixels, so an evicted template can save metadata. */
+export type TemplateSave = Omit<StoredTemplate, 'indices'> & { readonly indices: Uint8Array | null }
+
 /** Save metadata, archive and replace artwork, or replace a derived image after its history was reserved. */
 export const saveTemplate = async (
-  template: StoredTemplate,
+  template: TemplateSave,
   expectedRevision: number | null,
   archiveCurrent = false,
   replaceArtwork = false,
 ): Promise<SaveResult> => {
   const { indices, ...metadata } = template
+  if (indices === null && (expectedRevision === null || archiveCurrent || replaceArtwork)) {
+    throw new RangeError('only a metadata save may keep the stored pixels')
+  }
   return await writeVersioned(
     template.id,
     expectedRevision,
@@ -346,11 +325,12 @@ export const saveTemplate = async (
           ? current.indices
           : undefined
       const reusable =
-        !archiveCurrent &&
-        !replaceArtwork &&
-        hasCurrentPalette(current) &&
-        (isUint8Array(currentIndices) || isStoredBlob(currentIndices)) &&
-        candidateIndexPixels(current) === indices.length
+        indices === null ||
+        (!archiveCurrent &&
+          !replaceArtwork &&
+          hasCurrentPalette(current) &&
+          (isUint8Array(currentIndices) || isStoredBlob(currentIndices)) &&
+          candidateIndexPixels(current) === indices.length)
       if (reusable) {
         // Metadata-only mutations keep the already-cloned durable value. Re-wrapping a multi-MB
         // ArrayBuffer in a Blob copies it and makes every move/toggle/appearance change rewrite all
@@ -376,7 +356,6 @@ export const saveTemplate = async (
       }
     },
     true,
-    expectedRevision === null ? indices.length : null,
     archiveCurrent ? 'archive' : undefined,
   )
 }
@@ -489,17 +468,16 @@ export const deleteTemplate = async (
       // expected revision, so deleted IDs need no permanent side-store entry.
     },
     false,
-    null,
     'delete',
   )
 
 /** A stored record. Its artwork may be missing when a source and recipe can rebuild it. */
-type StoredCandidate = Record<string, unknown> & { indices?: Uint8Array | StoredBlob }
+export type StoredRecord = Record<string, unknown> & { indices?: Uint8Array | StoredBlob }
 
 const isRebuildable = (record: Record<string, unknown>): boolean =>
   storedAuthoring(record.authoring, record) !== null
 
-const boundedStoredCandidate = (value: unknown): value is StoredCandidate => {
+const boundedStoredRecord = (value: unknown): value is StoredRecord => {
   if (typeof value !== 'object' || value === null) return false
   const record = value as Record<string, unknown>
   const indices = record.indices
@@ -602,23 +580,17 @@ type HydrationResult =
   | { readonly status: 'invalid' }
   | { readonly status: 'unavailable' }
 
-interface TemplateLoadFailureBase {
-  readonly kind: 'template-hydration-failure'
-  readonly status: 'invalid' | 'unavailable' | 'skipped'
-  readonly revision: number
-  /** Bytes materialised/attempted for this candidate, charged to the whole restore operation. */
-  readonly indexPixels: number
-}
+/** A stored record that failed validation, identified well enough to discard it. */
+export type TemplateLoadFailure = { readonly revision: number } & (
+  | { readonly id: string }
+  | { readonly key: IDBValidKey }
+)
 
-export type TemplateLoadFailure = TemplateLoadFailureBase &
-  ({ readonly id: string } | { readonly status: 'invalid'; readonly key: IDBValidKey })
-
-export type TemplateLoadBatch = readonly unknown[] & {
-  /** Non-excluded cursor rows inspected, including malformed and oversized records. */
-  readonly inspected: number
-  /** Pixel bytes represented by every inspected row whose size was cheaply knowable. */
-  readonly indexPixels: number
-  /** Resolves once a blocked native open has settled and one bounded restore retry may be attempted. */
+/** Every stored template: valid records with their pixels still unread, and records to discard. */
+export interface TemplateCatalog {
+  readonly records: readonly StoredRecord[]
+  readonly invalid: readonly TemplateLoadFailure[]
+  /** Resolves once a blocked native open has settled and one restore retry may be attempted. */
   readonly retryAfterUnavailable: Promise<void> | null
 }
 
@@ -630,37 +602,10 @@ const candidateIndexPixels = (value: unknown): number => {
   return 0
 }
 
-const isLoadFailure = (
-  value: StoredCandidate | TemplateLoadFailure,
-): value is TemplateLoadFailure => value.kind === 'template-hydration-failure'
-
-/** Pixels a candidate holds once hydrated, counting artwork its recipe will rebuild. */
-const candidatePixels = (candidate: StoredCandidate): number =>
-  isRebuildable(candidate)
-    ? Number(candidate.width) * Number(candidate.height)
-    : candidateIndexPixels(candidate)
-
 const boundedPixelSum = (total: number, pixels: number): number =>
   pixels > Number.MAX_SAFE_INTEGER - total ? Number.MAX_SAFE_INTEGER : total + pixels
 
-const loadBatch = (
-  templates: unknown[],
-  inspected: number,
-  indexPixels: number,
-  retryAfterUnavailable: Promise<void> | null = null,
-): TemplateLoadBatch => {
-  // Keep the metrics out of array iteration and equality: callers that only need the candidates
-  // remain ordinary array consumers, while restore can account for cursor work that produced no
-  // candidate at all.
-  Object.defineProperties(templates, {
-    inspected: { value: inspected, enumerable: false },
-    indexPixels: { value: indexPixels, enumerable: false },
-    retryAfterUnavailable: { value: retryAfterUnavailable, enumerable: false },
-  })
-  return templates as unknown as TemplateLoadBatch
-}
-
-const hydrateCandidate = async (candidate: StoredCandidate): Promise<HydrationResult> => {
+const hydrateCandidate = async (candidate: StoredRecord): Promise<HydrationResult> => {
   const finish = (indices: Uint8Array): HydrationResult => {
     if (hasCurrentPalette(candidate)) {
       return {
@@ -814,22 +759,10 @@ export const loadTemplate = async (
           reject(transaction.error ?? new Error('indexedDB transaction aborted'))
       })
       if (value === undefined) return { status: 'missing' }
-      if (!boundedStoredCandidate(value)) {
+      if (!boundedStoredRecord(value)) {
         return { status: 'invalid', revision: storedRevision(value) }
       }
-      const pixels = candidatePixels(value)
-      if (pixels > maxIndexPixels) return { status: 'invalid', revision: storedRevision(value) }
-      const hydrated = await hydrateCandidate(value)
-      if (hydrated.status === 'invalid') {
-        return { status: 'invalid', revision: storedRevision(value) }
-      }
-      if (hydrated.status === 'loaded' && hydrated.migrated !== undefined) {
-        void persistLoadedPaletteMigration(value, hydrated.migrated)
-      }
-      if (hydrated.status === 'loaded' && hydrated.repaired !== undefined) {
-        void persistRepairedArtwork(value, hydrated.repaired)
-      }
-      return hydrated
+      return await hydrateStoredTemplate(value, maxIndexPixels)
     } finally {
       db.close()
     }
@@ -839,136 +772,139 @@ export const loadTemplate = async (
   }
 }
 
-export const loadTemplates = async (
-  maxTemplates = 64,
+/**
+ * Read one catalog record's pixels: validated against its recipe, rebuilt when lost, and migrated
+ * to the current palette, with any repair written back.
+ */
+export const hydrateStoredTemplate = async (
+  record: StoredRecord,
   maxIndexPixels = 64 * 1024 * 1024,
-  excludedRevisions: ReadonlyMap<string, number> = new Map(),
-): Promise<TemplateLoadBatch> => {
+): Promise<LoadTemplateResult> => {
+  if (Number(record.width) * Number(record.height) > maxIndexPixels) {
+    return { status: 'invalid', revision: storedRevision(record) }
+  }
+  const hydrated = await hydrateCandidate(record)
+  if (hydrated.status === 'invalid') return { status: 'invalid', revision: storedRevision(record) }
+  if (hydrated.status === 'loaded' && hydrated.migrated !== undefined) {
+    void persistLoadedPaletteMigration(record, hydrated.migrated)
+  }
+  if (hydrated.status === 'loaded' && hydrated.repaired !== undefined) {
+    void persistRepairedArtwork(record, hydrated.repaired)
+  }
+  return hydrated
+}
+
+const TILE_KEY = /^\d{1,5}\/\d{1,5}$/
+
+/**
+ * The painted tiles a record carries, or null when restore has to read its pixels: records from
+ * before tiles were stored, on an older palette, or whose artwork must be rebuilt.
+ */
+export const catalogTileKeys = (record: StoredRecord): readonly string[] | null => {
+  const { tileKeys, indices } = record
+  const width = Number(record.width)
+  const height = Number(record.height)
+  const maxTiles = (Math.ceil(width / TILE_SIZE) + 1) * (Math.ceil(height / TILE_SIZE) + 1)
+  if (
+    !hasCurrentPalette(record) ||
+    !isStoredBlob(indices) ||
+    indices.size !== width * height ||
+    !Array.isArray(tileKeys) ||
+    tileKeys.length > maxTiles ||
+    !tileKeys.every((key) => typeof key === 'string' && TILE_KEY.test(key))
+  )
+    return null
+  return tileKeys
+}
+
+/**
+ * Record the painted tiles a restore had to count from pixels, so the next one need not.
+ *
+ * Skipped when the record changed since it was read: whoever changed it wrote its own tiles.
+ */
+export const saveTemplateTileKeys = async (
+  id: string,
+  revision: number,
+  tileKeys: readonly string[],
+): Promise<void> => {
+  await writeVersioned(
+    id,
+    revision,
+    (templates, _revision, current) => {
+      if (typeof current !== 'object' || current === null) return
+      templates.put({ ...current, tileKeys })
+    },
+    false,
+  )
+}
+
+/** Every stored template's id, for walking the store one record at a time. */
+export const loadTemplateIds = async (): Promise<readonly string[]> => {
   try {
     const db = await open()
     try {
-      const batch = await new Promise<{
-        readonly candidates: readonly (StoredCandidate | TemplateLoadFailure)[]
-        readonly inspected: number
-        readonly indexPixels: number
-      }>((resolve, reject) => {
-        const transaction = db.transaction(STORE, 'readonly')
-        const request = transaction.objectStore(STORE).openCursor()
-        const templates: (StoredCandidate | TemplateLoadFailure)[] = []
-        let retainedPixels = 0
-        let inspectedPixels = 0
-        let inspected = 0
-        let retainedTemplates = 0
-        const maxInspected = Math.max(maxTemplates, maxTemplates * 4)
-        request.onsuccess = () => {
-          const cursor = request.result
-          if (cursor === null) return
-          const value: unknown = cursor.value
-          if (!boundedStoredCandidate(value)) {
-            const identity = loadFailureIdentity(value, cursor.primaryKey)
-            if (
-              identity !== null &&
-              'id' in identity &&
-              excludedRevisions.get(identity.id) === identity.revision
-            ) {
-              cursor.continue()
-              return
-            }
-            inspected++
-            const pixels = candidateIndexPixels(value)
-            inspectedPixels = boundedPixelSum(inspectedPixels, pixels)
-            if (identity !== null) {
-              templates.push({
-                kind: 'template-hydration-failure',
-                status: 'invalid',
-                ...identity,
-                indexPixels: pixels,
-              })
-            }
-            if (inspected >= maxInspected) return
-            cursor.continue()
-            return
-          }
-          const revision = storedRevision(value)
-          if (excludedRevisions.get(value.id as string) === revision) {
-            cursor.continue()
-            return
-          }
-          inspected++
-          const pixels = candidatePixels(value)
-          inspectedPixels = boundedPixelSum(inspectedPixels, pixels)
-          // An individually oversized or late non-fitting record must not permanently hide every
-          // later valid key. Inspect a bounded number of records, retaining only those that fit.
-          if (pixels > 64 * 1024 * 1024) {
-            templates.push({
-              kind: 'template-hydration-failure',
-              status: 'invalid',
-              id: value.id as string,
-              revision,
-              indexPixels: pixels,
-            })
-            if (inspected >= maxInspected) return
-            cursor.continue()
-            return
-          }
-          if (pixels > maxIndexPixels || retainedPixels + pixels > maxIndexPixels) {
-            templates.push({
-              kind: 'template-hydration-failure',
-              status: 'skipped',
-              id: value.id as string,
-              revision,
-              indexPixels: pixels,
-            })
-            if (inspected >= maxInspected) return
-            cursor.continue()
-            return
-          }
-          templates.push(value)
-          retainedTemplates++
-          retainedPixels += pixels
-          if (retainedTemplates >= maxTemplates) return
-          if (inspected >= maxInspected) return
-          cursor.continue()
-        }
-        request.onerror = () => reject(request.error ?? new Error('indexedDB cursor failed'))
-        transaction.oncomplete = () =>
-          resolve({ candidates: templates, inspected, indexPixels: inspectedPixels })
-        transaction.onerror = () =>
-          reject(transaction.error ?? new Error('indexedDB transaction failed'))
-        transaction.onabort = () =>
-          reject(transaction.error ?? new Error('indexedDB transaction aborted'))
+      return await new Promise<readonly string[]>((resolve, reject) => {
+        const request = db.transaction(STORE, 'readonly').objectStore(STORE).getAllKeys()
+        request.onsuccess = () =>
+          resolve(request.result.filter((key): key is string => typeof key === 'string'))
+        request.onerror = () => reject(request.error ?? new Error('indexedDB request failed'))
       })
-      const templates: unknown[] = []
-      for (const candidate of batch.candidates) {
-        if (isLoadFailure(candidate)) {
-          templates.push(candidate)
-          continue
-        }
-        const hydrated = await hydrateCandidate(candidate)
-        if (hydrated.status === 'loaded') {
-          if (hydrated.migrated !== undefined) {
-            void persistLoadedPaletteMigration(candidate, hydrated.migrated)
-          }
-          if (hydrated.repaired !== undefined) {
-            void persistRepairedArtwork(candidate, hydrated.repaired)
-          }
-          templates.push(hydrated.template)
-        } else {
-          templates.push({
-            kind: 'template-hydration-failure',
-            status: hydrated.status,
-            id: candidate.id as string,
-            revision: storedRevision(candidate),
-            indexPixels: candidatePixels(candidate),
-          } satisfies TemplateLoadFailure)
-        }
-      }
-      return loadBatch(templates, batch.inspected, batch.indexPixels)
     } finally {
       db.close()
     }
   } catch (error) {
     warn('install', 'local template storage unavailable', String(error))
-    return loadBatch([], 0, 0, blockedOpenRecovery)
+    return []
+  }
+}
+
+/**
+ * Every stored template, without reading any pixels.
+ *
+ * Valid records come back raw with their artwork still a Blob, so the whole catalog costs only its
+ * metadata. Pixels load per record through {@link hydrateStoredTemplate}. Records at a revision in
+ * `excludedRevisions` were already handled by this restore and are skipped.
+ */
+export const loadTemplateCatalog = async (
+  excludedRevisions: ReadonlyMap<string, number> = new Map(),
+): Promise<TemplateCatalog> => {
+  try {
+    const db = await open()
+    try {
+      return await new Promise<TemplateCatalog>((resolve, reject) => {
+        const transaction = db.transaction(STORE, 'readonly')
+        const request = transaction.objectStore(STORE).openCursor()
+        const records: StoredRecord[] = []
+        const invalid: TemplateLoadFailure[] = []
+        request.onsuccess = () => {
+          const cursor = request.result
+          if (cursor === null) return
+          const value: unknown = cursor.value
+          if (boundedStoredRecord(value)) {
+            if (excludedRevisions.get(value.id as string) !== storedRevision(value))
+              records.push(value)
+          } else {
+            const identity = loadFailureIdentity(value, cursor.primaryKey)
+            if (
+              identity !== null &&
+              !('id' in identity && excludedRevisions.get(identity.id) === identity.revision)
+            )
+              invalid.push(identity)
+          }
+          cursor.continue()
+        }
+        request.onerror = () => reject(request.error ?? new Error('indexedDB cursor failed'))
+        transaction.oncomplete = () => resolve({ records, invalid, retryAfterUnavailable: null })
+        transaction.onerror = () =>
+          reject(transaction.error ?? new Error('indexedDB transaction failed'))
+        transaction.onabort = () =>
+          reject(transaction.error ?? new Error('indexedDB transaction aborted'))
+      })
+    } finally {
+      db.close()
+    }
+  } catch (error) {
+    warn('install', 'local template storage unavailable', String(error))
+    return { records: [], invalid: [], retryAfterUnavailable: blockedOpenRecovery }
   }
 }

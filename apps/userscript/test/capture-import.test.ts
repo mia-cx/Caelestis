@@ -71,7 +71,7 @@ describe('capture template import', () => {
       originY: 0,
       width: 2,
       height: 1,
-      indices: new Uint8Array([5, 9]),
+      artwork: { indices: new Uint8Array([5, 9]) },
       opaque: 2,
       moved: 0,
       everPlaced: false,

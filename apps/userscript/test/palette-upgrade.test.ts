@@ -56,14 +56,14 @@ it('recovers a blocked upgrade and closes the abandoned connection before the ne
   }
   // This queued open completes after the abandoned upgrade has delivered its success event.
   const settled = await new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open('caelestis', 6)
+    const request = indexedDB.open('caelestis', 7)
     request.onsuccess = () => resolve(request.result)
     request.onerror = () => reject(request.error)
   })
   settled.close()
   expect(await loadTemplate('b-art')).toMatchObject({ status: 'loaded' })
   await new Promise<void>((resolve, reject) => {
-    const request = indexedDB.open('caelestis', 7)
+    const request = indexedDB.open('caelestis', 8)
     request.onblocked = () => reject(new Error('Abandoned connection still holds the database'))
     request.onerror = () => reject(request.error)
     request.onsuccess = () => {

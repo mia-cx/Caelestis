@@ -10,7 +10,11 @@ import {
   recordProfileWorkload,
 } from '../profile.js'
 import { isPlain } from '../templates/appearance.js'
-import { displayTemplatesForSurface, type PlacedTemplate } from '../templates/local-store.js'
+import {
+  displayTemplatesForSurface,
+  noteTemplatesInView,
+  type PlacedTemplate,
+} from '../templates/local-store.js'
 import { type HorizontalSpan, horizontalSpans } from '../templates/placement.js'
 import { currentQuads, isDrawingTiles, type TileQuad, underlayQuads } from '../tile-transform.js'
 import { prefersReducedMotion } from './appearance-transition.js'
@@ -49,6 +53,7 @@ import {
  * against them is the entire visibility test.
  */
 
+const NOTHING_IN_VIEW: ReadonlySet<string> = new Set()
 const LAYER_ID = 'caelestis-overlay'
 const OUTLINE_LAYER_ID = 'caelestis-outline'
 const PIXEL_ART_LAYER = 'pixel-art-layer'
@@ -242,6 +247,8 @@ export const overlayLayer = {
     // A later `onAdd` has already taken this state over for its own context. Those handles are not
     // ours to delete, and the context we are being removed from cleans up its own on teardown.
     if (owner !== gl) return
+    // Nothing is drawn any more, so nothing stays pinned in memory for this layer.
+    noteTemplatesInView(WORLD_TEMPLATE_SURFACE, NOTHING_IN_VIEW)
     clearGpuProfile(gl)
     owner = null
     gpu?.dispose()
@@ -279,11 +286,13 @@ export const overlayLayer = {
     if (peek.opacity <= 0 && peek.done) return
     // Stop where wplace stops. A layer renders every frame whatever the zoom, so without this the
     // overlay stayed on screen past the point their canvas disappears — annotating nothing.
-    if (!isDrawingTiles()) return
     // Their tiles, where they put them this frame. Also the culling: wplace only draws the tiles in
     // view, so intersecting against these is the whole visibility test.
-    const tiles = currentQuads()
-    if (tiles.length === 0) return
+    const tiles = isDrawingTiles() ? currentQuads() : []
+    if (tiles.length === 0) {
+      noteTemplatesInView(WORLD_TEMPLATE_SURFACE, NOTHING_IN_VIEW)
+      return
+    }
     const bufferWidth = gl.drawingBufferWidth
     const bufferHeight = gl.drawingBufferHeight
 
@@ -324,6 +333,7 @@ export const overlayLayer = {
     // panning back uploads them lazily again.
     const visibleIds = new Set(visible.map(({ rendered }) => rendered.template.id))
     store.collect(ids, visibleIds)
+    noteTemplatesInView(WORLD_TEMPLATE_SURFACE, visibleIds)
     /**
      * MapLibre renders on demand, so a frame nobody asked for is a frame that never happens.
      * Without this a ramp would advance only as far as the next pan.
@@ -376,7 +386,7 @@ export const overlayLayer = {
       const entry = store.entry(template.id)
       const complete =
         entry !== null &&
-        entry.source === template.indices &&
+        entry.source === template.artwork &&
         entry.width === template.width &&
         entry.height === template.height
       return total + (complete ? 0 : 1)

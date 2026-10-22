@@ -12,6 +12,7 @@ import {
   hasRoomForServerTemplate,
   localTemplates,
   putServerTemplate,
+  templatePixels,
 } from './local-store.js'
 import {
   type NativeAllianceTarget,
@@ -314,7 +315,7 @@ export const copyWplaceTemplate = async (id: string): Promise<void> => {
       originY: source.originY,
       width: source.width,
       height: source.height,
-      indices: source.indices,
+      indices: await templatePixels(source),
       moved: source.moved,
       opaque: source.opaque,
     },

@@ -218,7 +218,8 @@ describe('Blue Marble import contract', () => {
         everPlaced: true,
       })
       if (restored === undefined) throw new Error('Persisted template did not restore')
-      expect(Buffer.compare(restored.indices, expected.indices)).toBe(0)
+      const pixels = await restoredStore.templatePixels(restored)
+      expect(Buffer.compare(pixels, expected.indices)).toBe(0)
     } finally {
       await restoredStore.removeLocalTemplate(admitted.id)
     }

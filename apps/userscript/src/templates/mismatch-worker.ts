@@ -253,6 +253,13 @@ export const forgetInWorker = (id: string): void => {
   worker?.postMessage({ forget: true, templateKey: id })
 }
 
+/** Drop an evicted template's pixels from the worker, if it holds them or a queued scan will send them. */
+export const releaseInWorker = (id: string): void => {
+  if (sent.has(id) || queuedScans.some((queued) => queued.job.templateKey === id)) {
+    forgetInWorker(id)
+  }
+}
+
 export const mismatchWorkerMemoryBytes = (): number => {
   let bytes = [...sent.values()].reduce((total, indices) => total + indices.byteLength, 0)
   for (const queued of queuedScans) {
