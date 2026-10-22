@@ -98,7 +98,6 @@ const describe = (
  */
 export const ARCHIVE_TABLES: readonly ArchiveTable[] = [
   describe(schema.serverSettings),
-  describe(schema.accessTokens),
   describe(schema.tags),
   describe(schema.nodes, { deferred: ['parent_id'] }),
   describe(schema.nodeTags),
@@ -130,8 +129,11 @@ export const ARCHIVE_TABLES: readonly ArchiveTable[] = [
 /**
  * Tables deliberately outside the archive. The GC cursor is an object-store listing token that
  * means nothing to another provider, so a restored server starts its scan from the beginning.
+ * Credentials stay with the server that issued them: restoring them would bring back every token
+ * revoked after the snapshot. A restore reads past these tables' rows in older archives.
  */
-export const UNARCHIVED_TABLES = [
+export const UNARCHIVED_TABLES: readonly string[] = [
+  schema.accessTokens,
   schema.tileBlobGcState,
   schema.archiveOperation,
   schema.archiveLease,

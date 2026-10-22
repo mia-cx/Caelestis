@@ -16,6 +16,7 @@ import {
   ARCHIVE_GATE_CACHE_MILLISECONDS,
   ArchiveOperationActiveError,
 } from '../src/archive/gate.js'
+import { hashToken } from '../src/auth/tokens.js'
 import * as schema from '../src/db/schema.js'
 import {
   ARCHIVE_ADMIN,
@@ -25,7 +26,7 @@ import {
   type Fetch,
   MemoryObjectStorage,
   openPortableServer,
-  paint,
+  replay,
   runningImport,
   seedServer,
 } from './support/archive.js'
@@ -105,10 +106,19 @@ describe('server archives', { timeout: 60_000 }, () => {
     expect(await restored.get('sample:v:1')).toEqual({ at: 1, correct: 2 })
     // The running import wakes on the destination; it waits out the restore and then resumes.
     expect(await restored.getAlarm()).toBeLessThanOrEqual(Date.now() + 60_000)
-    // The source's report credential still works, and the event it already reported stays applied.
+    // Credentials stay behind, so the source's report token is refused. A reporter given a fresh
+    // token finds the event it already reported still applied.
     expect(
-      await paint(destination.fetch, destination.api, seeded.reportToken, seeded.event),
-    ).toEqual({ accepted: false, duplicate: true })
+      (
+        await destination.fetch(`${destination.api}/manifest`, {
+          headers: { authorization: `Bearer ${seeded.reportToken}` },
+        })
+      ).status,
+    ).toBe(401)
+    expect(await replay(destination.fetch, destination.api, seeded.event)).toEqual({
+      accepted: false,
+      duplicate: true,
+    })
 
     await finishExport(archiveClient(source.fetch, source.api))
     const again = await exportServer(destination, file('destination.ndjson'))
@@ -168,16 +178,12 @@ describe('server archives', { timeout: 60_000 }, () => {
     expireGateReads()
     expect((await admin(destination, '/manifest')).status).toBe(200)
     // The refused event was never accepted, so the destination accepts it exactly once.
-    expect(await paint(destination.fetch, destination.api, seeded.reportToken, late)).toMatchObject(
-      {
-        accepted: true,
-      },
-    )
-    expect(await paint(destination.fetch, destination.api, seeded.reportToken, late)).toMatchObject(
-      {
-        duplicate: true,
-      },
-    )
+    expect(await replay(destination.fetch, destination.api, late)).toMatchObject({
+      accepted: true,
+    })
+    expect(await replay(destination.fetch, destination.api, late)).toMatchObject({
+      duplicate: true,
+    })
   })
 
   it('resumes an interrupted export and import without repeating or losing a record', async () => {
@@ -280,7 +286,7 @@ describe('server archives', { timeout: 60_000 }, () => {
     expect(await (await admin(destination, '/admin/archive')).json()).toEqual({ operation: null })
     expireGateReads()
     expect(await (await admin(destination, '/manifest')).json()).toMatchObject({ templates: [] })
-    // The destination's own credentials survive the discard; the archive's do not.
+    // The destination's own credentials survive the discard.
     const manifestWith = async (token: string) =>
       (
         await destination.fetch(`${destination.api}/manifest`, {
@@ -405,7 +411,6 @@ describe('server archives', { timeout: 60_000 }, () => {
             counts: {},
             ended: false,
             phase: 'preparing',
-            preservedTokens: [],
           }),
         )
         .run()
@@ -479,6 +484,51 @@ describe('server archives', { timeout: 60_000 }, () => {
     expect(await (await admin(destination, '/admin/archive')).json()).toMatchObject({
       operation: { phase: 'ready' },
     })
+  })
+
+  it('leaves credentials out, and reads past those an older archive carries', async () => {
+    const file = await scratch()
+    const source = await server()
+    const seeded = await seedServer(source.fetch, source.api)
+    const lines = (await exportServer(source, file('source.ndjson'))).trimEnd().split('\n')
+    expect(lines.some((line) => line.includes('"table":"access_tokens"'))).toBe(false)
+
+    // Rebuild the archive as an older exporter wrote it: the report token's row rides along.
+    const [headerLine = '', ...records] = lines
+    const header = JSON.parse(headerLine) as { tables: Record<string, string[]> }
+    const columns = ['token_hash', 'label', 'scope', 'created_with_token', 'created_at_ms']
+    const legacyHeader = JSON.stringify({
+      ...header,
+      tables: { ...header.tables, access_tokens: columns },
+    })
+    const tokenRow = JSON.stringify({
+      kind: 'row',
+      table: 'access_tokens',
+      values: {
+        token_hash: await hashToken(seeded.reportToken),
+        label: 'reporter',
+        scope: 'report',
+        created_with_token: '0'.repeat(64),
+        created_at_ms: 0,
+      },
+    })
+    const end = JSON.parse(records.pop() ?? '') as { counts: Record<string, number> }
+    const body = [legacyHeader, tokenRow, ...records]
+    let chain = '0'.repeat(64)
+    for (const line of body) chain = await chainLine(chain, line)
+    const legacyEnd = JSON.stringify({
+      ...end,
+      chain,
+      counts: { ...end.counts, 'row:access_tokens': 1 },
+    })
+    await writeFile(file('legacy.ndjson'), `${[...body, legacyEnd].join('\n')}\n`)
+
+    const destination = await server()
+    await importFromFile(archiveClient(destination.fetch, destination.api), file('legacy.ndjson'))
+    const manifest = await destination.fetch(`${destination.api}/manifest`, {
+      headers: { authorization: `Bearer ${seeded.reportToken}` },
+    })
+    expect(manifest.status).toBe(401)
   })
 
   it('keeps a credential both servers already share', async () => {

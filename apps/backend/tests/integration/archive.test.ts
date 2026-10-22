@@ -12,7 +12,7 @@ import {
   archiveClient,
   archiveData,
   openPortableServer,
-  paint,
+  replay,
   seedServer,
 } from '../support/archive.js'
 
@@ -103,7 +103,7 @@ describe('server archives across relational adapters', { timeout: 120_000 }, () 
     })
     cleanups.push(external.close)
     await importFromFile(archiveClient(external.fetch, external.api), file('sqlite.ndjson'))
-    expect(await paint(external.fetch, external.api, seeded.reportToken, seeded.event)).toEqual({
+    expect(await replay(external.fetch, external.api, seeded.event)).toEqual({
       accepted: false,
       duplicate: true,
     })
