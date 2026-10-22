@@ -1,9 +1,12 @@
 import type { AllianceTemplateSurfaceKind, PixelBounds, TemplateSurface } from '@caelestis/shared'
 import { pageWindow } from './page-world.js'
+import { findWplaceLabelled } from './wplace-messages.js'
 import { captureFetchUrlGetters, urlForFetchInput } from './wplace-raster.js'
 
-const HQ_STAGE = 'dialog[open] [role="application"][aria-label="Headquarters canvas"]'
-const ASSET_STAGE = 'dialog[open] [role="application"][aria-label="Alliance asset canvas"]'
+const EDITOR_STAGE = 'dialog[open] [role="application"]'
+/** The open alliance editor whose stage carries Wplace's `label`, in the reader's language. */
+const stage = (label: 'alliance_hq_canvas' | 'alliance_asset_canvas'): HTMLElement | null =>
+  findWplaceLabelled<HTMLElement>(pageWindow().document, EDITOR_STAGE, label)
 const ARTBOARD_FRAME = '.artboard-frame'
 const BACKEND_ORIGIN = 'https://backend.wplace.live'
 const DRAFT_CANVAS = /^\/alliance\/assets\/drafts\/(\d+)\/canvas$/
@@ -133,8 +136,7 @@ const publish = (next: ActiveAllianceSurface | null): void => {
 
 const reconcile = (): void => {
   reconcileQueued = false
-  const realm = pageWindow()
-  const hqStage = realm.document.querySelector<HTMLElement>(HQ_STAGE)
+  const hqStage = stage('alliance_hq_canvas')
   const hqAllianceId = headquarters?.allianceId ?? memberAllianceId
   if (hqStage !== null && hqAllianceId !== null) {
     const frame = hqStage.querySelector<HTMLElement>(ARTBOARD_FRAME)
@@ -150,7 +152,7 @@ const reconcile = (): void => {
     }
   }
 
-  const assetStage = realm.document.querySelector<HTMLElement>(ASSET_STAGE)
+  const assetStage = stage('alliance_asset_canvas')
   if (assetStage !== null && memberAllianceId !== null) {
     const frame = assetStage.querySelector<HTMLElement>(ARTBOARD_FRAME)
     if (frame !== null) {
@@ -466,7 +468,7 @@ export const activeAllianceSurface = (): ActiveAllianceSurface | null => active
 
 /** The open alliance editor stage, even while its exact asset surface is still being validated. */
 export const activeAllianceEditorStage = (): HTMLElement | null =>
-  pageWindow().document.querySelector<HTMLElement>(`${HQ_STAGE}, ${ASSET_STAGE}`)
+  stage('alliance_hq_canvas') ?? stage('alliance_asset_canvas')
 
 export const onActiveAllianceSurfaceChange = (listener: Listener): (() => void) => {
   listeners.add(listener)

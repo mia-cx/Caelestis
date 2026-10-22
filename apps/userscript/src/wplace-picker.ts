@@ -25,6 +25,7 @@ import { isMoving } from './templates/move.js'
 import { sourceXAt } from './templates/placement.js'
 import { ensureTilePixels } from './tile-transform.js'
 import { worldNativePixels } from './world-native-pixels.js'
+import { findWplaceLabelled, wplaceLabel } from './wplace-messages.js'
 import { isPaintOpen, selectPaintColour } from './wplace-paint.js'
 
 /**
@@ -157,11 +158,12 @@ export const worldPaintIndexAt = (x: number, y: number): number | null => placed
 const PICKER_ICON_PREFIXES = ['M120-120v-190', 'M3 21h2v2H1v-4h2v2Z']
 
 const nativePickerButton = (): HTMLButtonElement | null => {
-  const labelled = document.querySelector<HTMLButtonElement>('button[aria-label="Color Picker"]')
+  const labelled = findWplaceLabelled(document, 'button', 'color_picker')
   if (labelled !== null) return labelled
+  const picker = wplaceLabel('color_picker')
   for (const tooltip of document.querySelectorAll('.tooltip')) {
     const label = tooltip.querySelector('.tooltip-content')?.textContent ?? ''
-    if (!label.includes('Color Picker')) continue
+    if (!label.includes(picker)) continue
     const button = tooltip.querySelector('button')
     if (button instanceof HTMLButtonElement) return button
   }
@@ -185,11 +187,11 @@ const exitNativePicker = (): void => {
     const button = nativePickerButton()
     if (!button?.classList.contains('btn-primary')) return
     const root = button.closest('dialog[open]') ?? document
-    const eraser = root.querySelector<HTMLButtonElement>('button[aria-label="Eraser"]')
+    const eraser = findWplaceLabelled(root, 'button', 'eraser')
     if (eraser === null) return
     eraser.click()
     requestAnimationFrame(() => {
-      const current = root.querySelector<HTMLButtonElement>('button[aria-label="Eraser"]')
+      const current = findWplaceLabelled(root, 'button', 'eraser')
       if (current?.getAttribute('aria-pressed') === 'true') current.click()
     })
   })

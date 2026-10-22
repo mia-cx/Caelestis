@@ -6,12 +6,14 @@
  * The card is not a dialog. Its close control is a round `Close` button, which is what tells it
  * apart from the settings and other modals, whose close buttons live inside a `<dialog>`.
  */
+import { findWplaceLabelled, wplaceLabel } from './wplace-messages.js'
+
 const insidePaintDrawer = (button: Element): boolean => {
   for (let node = button.parentElement; node !== null; node = node.parentElement) {
     if (node === document.body) return false
     if (
-      node.querySelector('button[aria-label="Undo"], button[title="Undo"]') !== null &&
-      node.querySelector('button[aria-label="Redo"], button[title="Redo"]') !== null
+      findWplaceLabelled(node, 'button', 'undo') !== null &&
+      findWplaceLabelled(node, 'button', 'redo') !== null
     )
       return true
   }
@@ -19,7 +21,10 @@ const insidePaintDrawer = (button: Element): boolean => {
 }
 
 export const dismissWplacePixelCard = (root: ParentNode = document): boolean => {
-  const buttons = root.querySelectorAll<HTMLButtonElement>('button[aria-label="Close"]')
+  const close = wplaceLabel('close')
+  const buttons = [...root.querySelectorAll<HTMLButtonElement>('button[aria-label]')].filter(
+    (button) => button.getAttribute('aria-label') === close,
+  )
   let closed = false
   for (const button of buttons) {
     if (button.closest('dialog,[role="dialog"]') !== null) continue
