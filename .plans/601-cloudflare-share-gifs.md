@@ -17,7 +17,9 @@ template per message), share one renderer package between both backends, and del
 - [x] Stream frames into the GIF encoder so a render holds O(1) frames, not 301.
 - [x] Cloudflare backend: daily cron enqueues published templates; Queue consumer renders in-process and writes `BLOBS`.
 - [x] Remove `.github/workflows/social-images.yml`; update `scripts/social-images.md`, `docs/self-hosting.md`, CI paths, Dockerfile; changeset.
-- [ ] Final validation: lint, check, tests, local Cloudflare stack.
+- [x] Final validation: lint, check, tests, local Cloudflare stack.
+      `pnpm lint`, `pnpm check`, `turbo test` (14/14), `pnpm test:worker`, `scripts/test-cloudflare-stack.mjs`,
+      plus `.scratch/601/node-smoke.mjs`: the Node worker thread stores the GIF and OSM cache in object storage.
 
 ## Notes
 - Measured before changes (`.scratch/601/measure.mjs`, Node 26, synthetic 1-tile template with 300
