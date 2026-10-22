@@ -10,6 +10,7 @@ import { claimedHiddenFor } from './colour-filter.js'
 import {
   appearanceOf,
   displayTemplatesForSurface,
+  isTemplateDraft,
   isTemplateVisible,
   type PlacedTemplate,
 } from './local-store.js'
@@ -92,6 +93,8 @@ export const focusedTemplate = (options: FocusedTemplateOptions = {}): PlacedTem
   let containingHidden: PlacedTemplate | null = null
   let nearestVisible: { template: PlacedTemplate; distance: number } | null = null
   for (const template of displayTemplatesForSurface(surface)) {
+    // Shortcuts and panels act on catalog templates; the editor's draft is not one yet.
+    if (isTemplateDraft(template)) continue
     const visible = isTemplateVisible(template)
     const sourceX = sourceXAt(template, centre.x)
     const sourceY = centre.y - template.originY
