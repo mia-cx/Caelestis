@@ -1,4 +1,5 @@
 import {
+  createWorkClient,
   encodeIndexedPng,
   millis,
   seconds,
@@ -317,5 +318,67 @@ describe('template authoring inputs', () => {
     ]
     for (const files of refusals) expect((await create(server, files)).status).toBe(400)
     expect(await server.blobs.get('sources', recipe.source.sha256)).toBeNull()
+  })
+})
+
+describe('work hidden behind an unpublished template', () => {
+  it('pages past hidden work so the work client still loads everything visible', async () => {
+    const server = await backend()
+    const art = await fixture()
+    const created = await create(server, { ...art, recipe: templateRecipeJson(art.recipe) })
+    const { templateId } = (await created.json()) as { templateId: string }
+    const actor = { wplaceUserId: 42, displayName: 'Painter' }
+    // 499 visible, then more hidden work than one page holds, then one more visible item.
+    const hidden = (n: number) => n >= 500 && n <= 1000
+    for (let n = 1; n <= 1001; n++) {
+      const item = {
+        id: `01890f3e-7b2c-7abc-8def-${n.toString(16).padStart(12, '0')}`,
+        season: 3,
+        surface: { kind: 'world', allianceId: null },
+        title: `Work ${n}`,
+        description: '',
+        status: 'open',
+        priority: 'normal',
+        tags: [],
+        blockerIds: [],
+        nodeId: null,
+        templateIds: hidden(n) ? [templateId] : [],
+        claimant: null,
+        revision: 1,
+        createdAt: n,
+        updatedAt: n,
+      } as const
+      await server.sql.work.save(
+        item,
+        0,
+        { id: item.id, action: 'create', actor, item },
+        'a'.repeat(64),
+      )
+    }
+    const minted = await server.app.fetch(
+      authorized('/admin/tokens', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ label: 'reader', scope: 'read' }),
+      }),
+    )
+    const { token } = (await minted.json()) as { token: string }
+    const reader = createWorkClient(
+      async (path, init) =>
+        await server.app.fetch(
+          new Request(`https://backend.test${path}`, {
+            ...init,
+            headers: { authorization: `Bearer ${token}` },
+          }),
+        ),
+      3,
+      { kind: 'world', allianceId: null },
+    )
+    const { items } = await reader.list()
+    expect(items.map((item) => item.title)).toEqual(
+      Array.from({ length: 1001 }, (_, at) => at + 1)
+        .filter((n) => !hidden(n))
+        .map((n) => `Work ${n}`),
+    )
   })
 })

@@ -548,10 +548,7 @@ const syncServerTemplatesOnce = async (
     // rebuild. Names and folder membership still arrive through the manifest because neither
     // changes the pixel version.
     if (held !== undefined && held.serverVersion === template.version) {
-      // Masks saved while it was public describe it too.
-      if (!template.published && held.serverUnpublished !== true) {
-        invalidateServerMismatches(server.url)
-      }
+      const unpublishing = !template.published && held.serverUnpublished !== true
       await updateServerTemplateMetadata(
         key,
         template.name,
@@ -559,6 +556,9 @@ const syncServerTemplatesOnce = async (
         !template.published,
         server,
       )
+      // Masks saved while it was public describe it too. Cleared only once the row says draft, so
+      // a request started in between cannot save another; any older one is fenced off here.
+      if (unpublishing) invalidateServerMismatches(server.url)
       if (!current()) return
       continue
     }

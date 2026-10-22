@@ -483,8 +483,14 @@ const loadServerPixels = async (template: PlacedTemplate, evict: boolean): Promi
   if (templates.get(template.id)?.artwork !== template.artwork) {
     throw new Error('That template changed while it was loading. Try again.')
   }
-  if (downloaded && template.serverUnpublished !== true) {
-    void saveServerPixels(template.id, version, indices, template.opaque)
+  // Queued behind metadata updates and judged by the live row, so a download that started while
+  // the template was public cannot write it back after unpublishing cleared the disk.
+  if (downloaded) {
+    const loaded = indices
+    void writeInOrder(template.id, async () => {
+      if (templates.get(template.id)?.serverUnpublished === true) return
+      await saveServerPixels(template.id, version, loaded, template.opaque)
+    })
   }
   installLoaded(template, indices, evict)
   return indices
