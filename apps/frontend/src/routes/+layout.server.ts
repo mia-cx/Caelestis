@@ -6,7 +6,6 @@ import type {
   StatusResponse,
 } from '@caelestis/shared'
 import { readBackendJson } from '#lib/server/backend.js'
-import { imageStorageFor } from '#lib/server/image-storage.js'
 import { socialMetadata } from '#lib/server/social.js'
 import { ensureSocialImage } from '#lib/server/social-images.js'
 import { sanitizeServerInfo } from '#lib/server-info.js'
@@ -34,7 +33,7 @@ export const load: LayoutServerLoad = async (event) => {
       social = await socialMetadata(
         event.url,
         bootstrap,
-        imageStorageFor(event),
+        event.locals.objectStorage,
         manifest ? (template) => ensureSocialImage(event, manifest.season, template) : undefined,
       )
     } catch (error) {
