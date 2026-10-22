@@ -45,7 +45,7 @@ import {
 } from './local-store.js'
 import { type MismatchMarks, packMismatchMark } from './mismatch-marks.js'
 import { type ScanJob, type ScanOutcome, scanTile } from './mismatch-scan.js'
-import { forgetInWorker, hasWorker, scanInWorker } from './mismatch-worker.js'
+import { forgetInWorker, hasWorker, releaseInWorker, scanInWorker } from './mismatch-worker.js'
 import { horizontalSpans, sourceXAt, wrappedDeltaX } from './placement.js'
 import { measuresLocally } from './wplace-owned.js'
 
@@ -2104,11 +2104,16 @@ export const forgetMismatches = (id: string): void => {
 
 let knownTemplateIds = new Set<string>()
 onLocalChange(() => {
-  const current = new Set(worldTemplates().map((template) => template.id))
+  const templates = worldTemplates()
+  const current = new Set(templates.map((template) => template.id))
   for (const id of knownTemplateIds) {
     if (!current.has(id)) forgetMismatches(id)
   }
   knownTemplateIds = current
+  // Evicted pixels leave the worker as well; answers and progress keyed on the artwork stay.
+  for (const template of templates) {
+    if (template.artwork.indices === null) releaseInWorker(template.id)
+  }
 })
 
 /**

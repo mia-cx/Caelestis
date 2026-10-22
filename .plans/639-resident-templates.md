@@ -32,7 +32,7 @@ Decided with Mia (2026-10-22):
 - [x] Viewport residency: the renderer reports its view; in-view visible templates load.
 - [x] Server templates: IndexedDB pixel cache with re-download fallback; no budget refusal.
 - [x] On-demand readers: colour nav, nearest, picker, edit/move/export/copy/authoring, tree preview.
-- [ ] Worker and GPU store drop evicted pixels.
+- [x] Worker and GPU store drop evicted pixels.
 - [ ] Contract tests for eviction/reload and restoring past 64 templates; changeset.
 
 ## Notes
@@ -57,3 +57,6 @@ Decided with Mia (2026-10-22):
   authoring; nearest falls back to bounds; picker reads resident only). Tree previews take
   `art` (128-edge thumbnail kept per artwork) plus `loadArt`, which reads evicted pixels without
   evicting others (`peekTemplatePixels`).
+- TODO 7: the worker's copy (and the main thread's `sent` reference) drop on eviction via
+  `releaseInWorker`; GPU entries hold no CPU copy since TODO 1. One full-suite run failed
+  `template-authoring > round trips artwork` once; it passed alone 3/3 and in two more full runs.
