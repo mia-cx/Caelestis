@@ -142,6 +142,26 @@ export const nativeMetadata = (
   }
 }
 
+const PALETTE = new Map(PALETTE_RGB.map(([r, g, b], index) => [(r << 16) | (g << 8) | b, index]))
+
+/** Read palette indices from pixels Wplace has already quantised. Any other colour is refused. */
+export const paletteIndices = (image: ImageData): { indices: Uint8Array; opaque: number } => {
+  const { data } = image
+  const indices = new Uint8Array(image.width * image.height).fill(TRANSPARENT_INDEX)
+  let opaque = 0
+  for (let pixel = 0; pixel < indices.length; pixel++) {
+    const at = pixel * 4
+    if ((data[at + 3] ?? 0) < 16) continue
+    const index = PALETTE.get(
+      ((data[at] ?? 0) << 16) | ((data[at + 1] ?? 0) << 8) | (data[at + 2] ?? 0),
+    )
+    if (index === undefined) throw new Error('Wplace returned an unsupported palette colour')
+    indices[pixel] = index
+    opaque++
+  }
+  return { indices, opaque }
+}
+
 const hash = async (bytes: ArrayBuffer): Promise<string> =>
   [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
     .map((byte) => byte.toString(16).padStart(2, '0'))
@@ -266,31 +286,13 @@ export class NativeTemplates {
     const rendered = await this.images.render(image, template, deriveTemplatePalette)
     if (rendered.width !== placement.width || rendered.height !== placement.height)
       throw new Error('Wplace returned unexpected template dimensions')
-    const palette = new Map(
-      PALETTE_RGB.map(([r, g, b], index) => [(r << 16) | (g << 8) | b, index]),
-    )
-    const indices = new Uint8Array(placement.width * placement.height).fill(TRANSPARENT_INDEX)
-    let opaque = 0
-    for (let pixel = 0; pixel < indices.length; pixel++) {
-      const at = pixel * 4
-      if ((rendered.data[at + 3] ?? 0) < 16) continue
-      const index = palette.get(
-        ((rendered.data[at] ?? 0) << 16) |
-          ((rendered.data[at + 1] ?? 0) << 8) |
-          (rendered.data[at + 2] ?? 0),
-      )
-      if (index === undefined) throw new Error('Wplace returned an unsupported palette colour')
-      indices[pixel] = index
-      opaque++
-    }
     return {
       id: await nativeLocalId(template.id),
       name: template.name,
       source: 'wplace',
       sortOrder: template.order,
       ...placement,
-      indices,
-      opaque,
+      ...paletteIndices(rendered),
       moved: 0,
     }
   }
@@ -400,17 +402,16 @@ const nativeFunction = <T>(module: NativeModule, matches: (source: string) => bo
 }
 
 /**
- * Discover content-hashed native modules without pinning filenames or evaluating downloaded source.
+ * Discover content-hashed Wplace modules by their source, without pinning filenames.
  *
  * The `import()`s below evaluate Wplace's own chunks, which read Wplace's message catalog at module
  * top level. Before Wplace's `init` hook has loaded that catalog the evaluation throws, the chunk is
  * then failed for good, and Wplace's own import of it fails too: no map, ever (#416). So nothing
  * here starts until Wplace has built its map, which only happens after `init` resolved.
- * File imports can supply exact sampling before native palette conversion and dithering.
  */
-export const connectNativeTemplates = async (
-  processing: { resize?: typeof resizeWplaceImage } = {},
-): Promise<NativeTemplates> => {
+export const findWplaceModules = async <Key extends string>(
+  wanted: Record<Key, (source: string) => boolean>,
+): Promise<Partial<Record<Key, { readonly module: NativeModule; readonly source: string }>>> => {
   await whenWplaceMapReady()
   const page = pageWindow()
   const candidates = new Set(
@@ -420,15 +421,9 @@ export const connectNativeTemplates = async (
   )
   for (const entry of page.performance.getEntriesByType('resource')) candidates.add(entry.name)
   const visited = new Set<string>()
-  let metadataModule: NativeModule | undefined
-  let imageModule: NativeModule | undefined
-  let imageModuleSource = ''
-  let allianceModule: NativeModule | undefined
-  while (
-    candidates.size > 0 &&
-    visited.size < 384 &&
-    (!metadataModule || !imageModule || !allianceModule)
-  ) {
+  const keys = Object.keys(wanted) as Key[]
+  const found: Partial<Record<Key, { module: NativeModule; source: string }>> = {}
+  while (candidates.size > 0 && visited.size < 384 && keys.some((key) => !found[key])) {
     const batch = [...candidates].slice(0, 6)
     for (const url of batch) candidates.delete(url)
     await Promise.all(
@@ -442,19 +437,11 @@ export const connectNativeTemplates = async (
         )
           return
         const response = await page.fetch(parsed.href, { cache: 'force-cache' })
-        if (!response.ok) throw new Error('Could not inspect Wplace template APIs')
+        if (!response.ok) throw new Error('Could not inspect Wplace modules')
         const source = await response.text()
-        if (source.includes('template-overlays') && source.includes('subscribeChange'))
-          metadataModule = await import(/* @vite-ignore */ parsed.href)
-        if (
-          source.includes('wplace-templates') &&
-          source.includes('Template blob change listener failed.')
-        ) {
-          imageModuleSource = source
-          imageModule = await import(/* @vite-ignore */ parsed.href)
-        }
-        if (source.includes('async getAllianceTemplates('))
-          allianceModule = await import(/* @vite-ignore */ parsed.href)
+        for (const key of keys)
+          if (wanted[key](source))
+            found[key] = { module: await import(/* @vite-ignore */ parsed.href), source }
         for (const match of source.matchAll(/["']((?:\.\.\/|\.\/)[^"']+\.js)["']/g)) {
           const dependency = new URL(match[1] ?? '', parsed).href
           if (!visited.has(dependency)) candidates.add(dependency)
@@ -462,6 +449,26 @@ export const connectNativeTemplates = async (
       }),
     )
   }
+  return found
+}
+
+/** File imports can supply exact sampling before native palette conversion and dithering. */
+export const connectNativeTemplates = async (
+  processing: { resize?: typeof resizeWplaceImage } = {},
+): Promise<NativeTemplates> => {
+  const found = await findWplaceModules({
+    metadata: (source) =>
+      source.includes('template-overlays') && source.includes('subscribeChange'),
+    image: (source) =>
+      source.includes('wplace-templates') &&
+      source.includes('Template blob change listener failed.'),
+    alliance: (source) => source.includes('async getAllianceTemplates('),
+  })
+  const page = pageWindow()
+  const metadataModule = found.metadata?.module
+  const imageModule = found.image?.module
+  const imageModuleSource = found.image?.source ?? ''
+  const allianceModule = found.alliance?.module
   if (!metadataModule || !imageModule) throw new Error('Wplace template APIs are unavailable')
   const store = Object.values(metadataModule).find(
     (value): value is NativeMetadataStore =>
@@ -487,13 +494,20 @@ export const connectNativeTemplates = async (
   const decode = nativeFunction<(blob: Blob) => Promise<ImageData>>(imageModule, (source) =>
     source.includes('Canvas 2D is unavailable.'),
   )
+  // Wplace's overlay renderer: worker first, main thread when the worker is unavailable.
   const render = nativeFunction<
-    (payload: Record<string, unknown>) => Promise<{ displayPixels: ImageData }> | undefined
-  >(
-    imageModule,
-    (source) =>
-      source.includes('Unexpected overlay worker response.') && source.includes('displayPixels:'),
-  )
+    (
+      options: {
+        source: ImageData
+        bounds: { width: number; height: number }
+        colorMetric: NativeTemplate['colorMetric']
+        dithering: boolean
+        colorPaletteMode: NonNullable<NativeTemplate['colorPaletteMode']>
+        templateColorIdxs?: readonly number[]
+      },
+      betterPalette: boolean,
+    ) => Promise<{ displayPixels: ImageData }>
+  >(imageModule, (source) => source.includes('betterPalette:') && source.includes('displayPixels:'))
   const paletteForSource = nativeFunction<
     (source: ImageData, metric: NativeTemplate['colorMetric']) => number[]
   >(
@@ -565,16 +579,19 @@ export const connectNativeTemplates = async (
                 : undefined
         // File imports own their sampling while native processing retains exact palette/dither behavior.
         if (processing.resize) source = await processing.resize(source, width, height)
-        const pending = render({
-          source: { pixels: source.data, width: source.width, height: source.height },
-          targetWidth: width,
-          targetHeight: height,
-          colorMetric: template.colorMetric,
-          dithering: template.dithering,
-          allowedColorIdxs,
-        })
-        if (!pending) throw new Error('Wplace image processing is unavailable')
-        return (await pending).displayPixels
+        // Wplace honours explicit colours only in template mode; pass every restriction that way.
+        const { displayPixels } = await render(
+          {
+            source,
+            bounds: { width, height },
+            colorMetric: template.colorMetric,
+            dithering: template.dithering,
+            colorPaletteMode: allowedColorIdxs === undefined ? 'all' : 'template',
+            ...(allowedColorIdxs === undefined ? {} : { templateColorIdxs: allowedColorIdxs }),
+          },
+          false,
+        )
+        return displayPixels
       },
     },
     alliance,
