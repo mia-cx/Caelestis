@@ -116,6 +116,7 @@ import { hiddenColoursFor } from '../templates/colour-filter.js'
 import { forgetServerTemplates, onLocalChange } from '../templates/local-store.js'
 import { pixelAccounting } from '../templates/mismatch.js'
 import { focusedTemplate } from '../templates/nearest.js'
+import { onOfficialOverlaysChange } from '../templates/official-overlays.js'
 import { forgetNodes, nodeScopeKey } from '../templates/server-nodes.js'
 import { endServerGeneration, forgetChunks, serverTemplateKey } from '../templates/server-sync.js'
 import { ensureLocalTags } from '../templates/tags.js'
@@ -1803,6 +1804,11 @@ export const installPanel = (): void => {
   onLocalChange(
     frameQueue(() => {
       if (currentView() === 'tree') refreshView()
+    }),
+  )
+  onOfficialOverlaysChange(
+    frameQueue(() => {
+      if (currentView() === 'tree' && panelSurface.kind === 'world') refreshView()
     }),
   )
   let pendingCanvasWrites = new Set<object>()

@@ -69,14 +69,17 @@ import {
   type TemplateColourProgress,
   type TemplateProgress,
 } from '../templates/mismatch.js'
+import { copyWplaceTemplate, NATIVE_ALLIANCE_TREE_KEY } from '../templates/native-alliance.js'
+import { centreOf, navigateTo } from '../templates/navigate.js'
 import {
-  copyNativeAllianceTemplate,
-  NATIVE_ALLIANCE_OWNER,
-  NATIVE_ALLIANCE_TREE_KEY,
-} from '../templates/native-alliance.js'
+  OFFICIAL_EVENTS_TREE_KEY,
+  officialEvent,
+  officialProgress,
+} from '../templates/official-overlays.js'
 import { nodeChainVisible, nodeScopeKey } from '../templates/server-nodes.js'
 import { serverTemplateKey } from '../templates/server-sync.js'
 import { localFolderTags, localTagCatalog, localTemplateTags } from '../templates/tags.js'
+import { NATIVE_ALLIANCE_OWNER, OFFICIAL_OVERLAY_OWNER } from '../templates/wplace-owned.js'
 import { templateDisplayMode } from './display-mode.js'
 import {
   emptyProgress,
@@ -118,6 +121,7 @@ export const templateTreeKeyFor = (
   servers: readonly ConnectedServer[],
 ): string | undefined => {
   if (template === null) return undefined
+  if (template.serverUrl === OFFICIAL_OVERLAY_OWNER) return `event:${template.id}`
   if (template.serverUrl === NATIVE_ALLIANCE_OWNER) return `native:${template.id}`
   if (template.serverUrl === undefined) return `local:${template.id}`
   if (template.serverTemplateId === undefined) return undefined
@@ -1221,6 +1225,153 @@ const buildTree = <Result>(
     }
   }
 
+  /** A root whose contents Wplace owns: no rename, reorder, import, or folder creation. */
+  const renderReadOnlyRoot = (
+    key: string,
+    name: string,
+    scope: string,
+    source: ReturnType<typeof groupedSource>,
+  ): void => {
+    const matches = matcherFor(source, needle, filters)
+    if (!source.children(null).some(matches)) return
+    hasFilteredMatches = true
+    output.row({
+      key,
+      name,
+      kind: 'server',
+      depth: 0,
+      container: true,
+      forceExpanded: reveal,
+      siblings: [],
+      parentKey: null,
+      canReparent: false,
+      rerender,
+      onError: reportTreeError,
+      checked: isScopeVisible(scope),
+      onToggleChecked: (on) => {
+        setScopeVisible(scope, on)
+        rerender()
+      },
+    })
+    if (includeCollapsed || reveal || isExpanded(key))
+      renderLevel(
+        output,
+        source,
+        null,
+        1,
+        key,
+        [],
+        rerender,
+        reveal,
+        rank,
+        matches,
+        budget,
+        reportTreeError,
+        siblingLevels,
+        includeCollapsed,
+      )
+  }
+
+  const copyAction = (id: string): RowAction => ({
+    icon: 'download',
+    label: 'Copy to Local',
+    run: () => {
+      void copyWplaceTemplate(id).then(rerender, (error) => reportTreeError(String(error)))
+    },
+  })
+
+  const events = surface.kind === 'world' ? officialEvent() : null
+  if (events !== null && events.fragments.length > 0) {
+    const folder = (id: string, name: string, parentId: string | null) => {
+      const scope = nodeScopeKey(OFFICIAL_OVERLAY_OWNER, id)
+      return {
+        parentId,
+        item: {
+          key: `event:${id}`,
+          name,
+          kind: 'folder',
+          childrenOf: id,
+          filterFacts: {
+            source: 'server',
+            visible: nodeChainVisible(OFFICIAL_OVERLAY_OWNER, id),
+            tags: [],
+          },
+          visible: isScopeVisible(scope),
+          setVisible: (on: boolean) => setScopeVisible(scope, on),
+          canReparent: false,
+        } satisfies TreeItem,
+      }
+    }
+    const opened = new Set(events.fragments.map((fragment) => fragment.group.id))
+    const source = groupedSource([
+      folder(events.id, events.name, null),
+      ...events.groups
+        .filter((group) => opened.has(group.id))
+        .map((group) => folder(group.id, group.name, events.id)),
+      ...events.fragments.map((fragment) => {
+        // Pixels exist only while Wplace draws the fragment nearby; the row exists regardless.
+        const mirror = drawnTemplates.find((template) => template.id === fragment.templateId)
+        const visible = mirror?.visible ?? isScopeVisible(fragment.templateId)
+        const progress =
+          officialProgress(fragment) ?? (mirror === undefined ? undefined : drawnProgress(mirror))
+        return {
+          parentId: fragment.group.id,
+          item: {
+            key: `event:${fragment.templateId}`,
+            name: fragment.shortName,
+            kind: 'image',
+            childrenOf: null,
+            meta: `${fragment.width}×${fragment.height}`,
+            ...(mirror === undefined
+              ? {}
+              : {
+                  preview: {
+                    width: mirror.width,
+                    height: mirror.height,
+                    indices: mirror.indices,
+                    ownership: 'Wplace',
+                  },
+                  colourProgress: () => drawnColourProgress(mirror),
+                }),
+            filterFacts: {
+              source: 'server',
+              visible:
+                visible &&
+                isScopeVisible(`server:${OFFICIAL_OVERLAY_OWNER}`) &&
+                nodeChainVisible(OFFICIAL_OVERLAY_OWNER, fragment.group.id),
+              tags: [],
+            },
+            ...(progress === undefined
+              ? {}
+              : { totalPixels: progress.total, progress, progressReader: () => progress }),
+            visible,
+            setVisible: (on: boolean) =>
+              mirror === undefined
+                ? setScopeVisible(fragment.templateId, on)
+                : setLocalVisible(mirror.id, on),
+            canReparent: false,
+            leadingActions: [
+              {
+                icon: 'search',
+                label: 'Go to',
+                returnToCanvas: true,
+                run: () =>
+                  navigateTo(centreOf({ ...fragment, originX: fragment.x, originY: fragment.y })),
+              },
+            ],
+            ...(mirror === undefined ? {} : { actions: [copyAction(mirror.id)] }),
+          } satisfies TreeItem,
+        }
+      }),
+    ])
+    renderReadOnlyRoot(
+      OFFICIAL_EVENTS_TREE_KEY,
+      'Events',
+      `server:${OFFICIAL_OVERLAY_OWNER}`,
+      source,
+    )
+  }
+
   const nativeTemplates = drawnTemplates.filter(
     (template) => template.serverUrl === NATIVE_ALLIANCE_OWNER,
   )
@@ -1256,60 +1407,16 @@ const buildTree = <Result>(
               run: () => goToLocalTemplate(template.id),
             },
           ],
-          actions: [
-            {
-              icon: 'download',
-              label: 'Copy to Local',
-              run: () => {
-                void copyNativeAllianceTemplate(template.id).then(rerender, (error) =>
-                  reportTreeError(String(error)),
-                )
-              },
-            },
-          ],
+          actions: [copyAction(template.id)],
         } satisfies TreeItem,
       })),
     )
-    const matches = matcherFor(source, needle, filters)
-    if (source.children(null).some(matches)) {
-      hasFilteredMatches = true
-      const scope = `server:${NATIVE_ALLIANCE_OWNER}`
-      output.row({
-        key: NATIVE_ALLIANCE_TREE_KEY,
-        name: 'Wplace',
-        kind: 'server',
-        depth: 0,
-        container: true,
-        forceExpanded: reveal,
-        siblings: [],
-        parentKey: null,
-        canReparent: false,
-        rerender,
-        onError: reportTreeError,
-        checked: isScopeVisible(scope),
-        onToggleChecked: (on) => {
-          setScopeVisible(scope, on)
-          rerender()
-        },
-      })
-      if (includeCollapsed || reveal || isExpanded(NATIVE_ALLIANCE_TREE_KEY))
-        renderLevel(
-          output,
-          source,
-          null,
-          1,
-          NATIVE_ALLIANCE_TREE_KEY,
-          [],
-          rerender,
-          reveal,
-          rank,
-          matches,
-          budget,
-          reportTreeError,
-          siblingLevels,
-          includeCollapsed,
-        )
-    }
+    renderReadOnlyRoot(
+      NATIVE_ALLIANCE_TREE_KEY,
+      'Wplace',
+      `server:${NATIVE_ALLIANCE_OWNER}`,
+      source,
+    )
   }
 
   if (filtering && !hasFilteredMatches)

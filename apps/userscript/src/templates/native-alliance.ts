@@ -20,9 +20,8 @@ import {
   nativeLocalId,
   nativeMetadata,
 } from './native-store.js'
+import { isWplaceOwned, NATIVE_ALLIANCE_OWNER } from './wplace-owned.js'
 
-/** Native alliance records stay owned by Wplace. Extra Caelestis records never enter its capped API. */
-export const NATIVE_ALLIANCE_OWNER = 'https://backend.wplace.live'
 export const NATIVE_ALLIANCE_TREE_KEY = 'native-alliance'
 
 interface AlliancePlacement {
@@ -301,9 +300,9 @@ export const installNativeAllianceTemplates = (native: NativeTemplates): (() => 
 }
 
 /** Make an explicitly requested independent copy while leaving Wplace's shared source owned by Wplace. */
-export const copyNativeAllianceTemplate = async (id: string): Promise<void> => {
+export const copyWplaceTemplate = async (id: string): Promise<void> => {
   const source = localTemplates().find(
-    (template) => template.id === id && template.serverUrl === NATIVE_ALLIANCE_OWNER,
+    (template) => template.id === id && isWplaceOwned(template.serverUrl),
   )
   if (source === undefined) throw new Error('The Wplace template is no longer available')
   await addLocalTemplate(
