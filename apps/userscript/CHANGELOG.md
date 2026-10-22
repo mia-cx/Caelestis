@@ -1,5 +1,23 @@
 # @caelestis/userscript
 
+## 0.17.0
+
+### Minor Changes
+
+- 2c8ddcd: Draw Wplace's official Seven Seals overlays with Caelestis styling, and list every open fragment in a read-only Events folder.
+  
+  - Each fragment row shows Wplace's progress and offers Go to, show/hide, and Copy to Local.
+  - Shift+Space painting, middle-click picking, markers, and palette counts work on the seals.
+
+### Patch Changes
+
+- c178740: Keep the charge countdown above Wplace's Paint button when Wplace is shown in a language other than English.
+- 7cc3751: Refuse to move or change the art of a hidden template, or to add templates to a hidden folder, with a warning that names what to show first.
+- e6f9248: Add Show only this to a template’s menu to hide everything else in its folder.
+- 340430b: Colour navigation and full progress counts now reach Wplace alliance templates.
+- c972ca5: Show Wplace personal and alliance templates again after Wplace's latest update changed its overlay renderer.
+- a358fe5: Paint shortcuts, Shift+Space painting, colour picking, and alliance editors work when Wplace is shown in a language other than English.
+
 ## 0.16.3
 
 ### Patch Changes
