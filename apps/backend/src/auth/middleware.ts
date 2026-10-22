@@ -99,7 +99,8 @@ export interface AuthOptions {
  * says nothing about any credential the caller does not already hold.
  */
 /**
- * The digest recorded for an anonymous caller on an open server. Not a credential and cannot be one:
+ * The digest recorded for a tokenless reader: an anonymous caller on an open server, or the server
+ * reading itself in-process. Not a credential and cannot be one:
  * no token hashes to all zeroes, so it can never collide with a real one, and the author columns
  * still receive something of the right shape.
  */
@@ -155,11 +156,24 @@ export const authenticateRequest = (
     return { scope: token.scope, token, tokenHash: token.tokenHash }
   })
 
+/**
+ * Marks a request the server makes to its own app, such as the share-image renderer reading the
+ * API it serves: `app.fetch(request, { [IN_PROCESS_READ]: true })`. It grants `read` without a
+ * stored token. A symbol key in Hono's per-request env cannot arrive over the network — no host
+ * adapter puts one there — so only code holding this export can claim it.
+ */
+export const IN_PROCESS_READ = Symbol('in-process read')
+
 /** Effect-backed scope middleware for routes migrated off hand-passed SQL authentication. */
 export const requireScopeEffect =
   (runtime: BackendRuntime, config: AuthOptions, required: Scope): MiddlewareHandler =>
-  async (c, next) =>
-    runBackendMiddleware(
+  async (c, next) => {
+    const env: { [IN_PROCESS_READ]?: boolean } | undefined = c.env
+    if (required === 'read' && env?.[IN_PROCESS_READ] === true) {
+      c.set('caller', { scope: 'read', token: null, tokenHash: OPEN_ACCESS_HASH })
+      return next()
+    }
+    return runBackendMiddleware(
       c,
       runtime,
       authenticateRequest(c.req.header('authorization'), config, required),
@@ -168,3 +182,4 @@ export const requireScopeEffect =
         return next()
       },
     )
+  }
