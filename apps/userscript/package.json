@@ -19,6 +19,7 @@
   "dependencies": {
     "@caelestis/shared": "workspace:*",
     "@caelestis/ui": "workspace:*",
+    "ditherette": "0.1.0-rc.0",
     "polygon-clipping": "0.15.7"
   },
   "devDependencies": {

@@ -1,3 +1,4 @@
+import type { RecipeV1 } from 'ditherette'
 import { sha256Hex } from './hash.js'
 import { TRANSPARENT_INDEX } from './palette.js'
 import { WORLD_PIXELS } from './tiles.js'
@@ -25,34 +26,65 @@ export const MAX_TEMPLATE_PIXELS = 64 * 1024 * 1024
 /**
  * `caelestis-nearest` is the plain-PNG importer: exact RGB nearest colour, no dithering.
  * `wplace-native` is Wplace's own worker, after Caelestis's floor nearest-neighbour resize.
+ * `ditherette` is the template editor: a crop, then Ditherette's resize, matching, and dither.
+ * Version 1 is the exact `ditherette@0.1.0-rc.0` build.
  * Bump a version whenever the same recipe would produce different indices.
  */
-export const TEMPLATE_PROCESSORS = { 'caelestis-nearest': 1, 'wplace-native': 1 } as const
+export const TEMPLATE_PROCESSORS = {
+  'caelestis-nearest': 1,
+  'wplace-native': 1,
+  ditherette: 1,
+} as const
 
 export type TemplateProcessor = keyof typeof TEMPLATE_PROCESSORS
 
 export type TemplateColorMetric = 'rgb' | 'lab' | 'compuphase' | 'ciede2000'
 
-export interface TemplateRecipe {
+interface RecipeBase {
   readonly format: typeof TEMPLATE_RECIPE_FORMAT
-  readonly processor: TemplateProcessor
   readonly processorVersion: number
   /** The original PNG, stored beside the recipe. */
   readonly source: { readonly sha256: string; readonly width: number; readonly height: number }
-  /** Output size after the top-left, floor-based nearest-neighbour resize. */
+  /** Output size of the processed artwork. */
   readonly width: number
   readonly height: number
-  readonly colorMetric: TemplateColorMetric
-  readonly dithering: boolean
-  /** Decode through the browser's colour-managed path, as Wplace's legacy colours option does. */
-  readonly legacyDecode: boolean
   /** Palette indices the quantiser may choose, ascending. Account presets are already resolved. */
   readonly palette: readonly number[]
 }
 
+/** The importers' recipes. Output follows the top-left, floor-based nearest-neighbour resize. */
+export interface ImportTemplateRecipe extends RecipeBase {
+  readonly processor: 'caelestis-nearest' | 'wplace-native'
+  readonly colorMetric: TemplateColorMetric
+  readonly dithering: boolean
+  /** Decode through the browser's colour-managed path, as Wplace's legacy colours option does. */
+  readonly legacyDecode: boolean
+}
+
+/** A source rectangle, in source pixels. */
+export interface TemplateCrop {
+  readonly x: number
+  readonly y: number
+  readonly width: number
+  readonly height: number
+}
+
+/**
+ * The template editor's recipe. Ditherette runs `ditherette` on the cropped source; its output
+ * size is the recipe's. Servers cannot run Ditherette, so they check the shape and store it;
+ * Ditherette validates every setting when a client replays it.
+ */
+export interface DitheretteTemplateRecipe extends RecipeBase {
+  readonly processor: 'ditherette'
+  readonly crop: TemplateCrop
+  readonly ditherette: RecipeV1
+}
+
+export type TemplateRecipe = ImportTemplateRecipe | DitheretteTemplateRecipe
+
 const SHA256_HEX = /^[0-9a-f]{64}$/
 const COLOR_METRICS: readonly string[] = ['rgb', 'lab', 'compuphase', 'ciede2000']
-const RECIPE_KEYS = [
+const IMPORT_KEYS = [
   'format',
   'processor',
   'processorVersion',
@@ -64,6 +96,22 @@ const RECIPE_KEYS = [
   'legacyDecode',
   'palette',
 ] as const
+const DITHERETTE_KEYS = [
+  'format',
+  'processor',
+  'processorVersion',
+  'source',
+  'crop',
+  'width',
+  'height',
+  'palette',
+  'ditherette',
+] as const
+/** A Ditherette recipe is a handful of tags and numbers; anything larger is not one. */
+const MAX_DITHERETTE_JSON_BYTES = 2048
+const MAX_DITHERETTE_DEPTH = 6
+
+type Json = null | boolean | number | string | readonly Json[] | { readonly [key: string]: Json }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -91,9 +139,52 @@ const isPalette = (value: unknown): value is readonly number[] =>
       (position === 0 || index > value[position - 1]),
   )
 
+const isJson = (value: unknown, depth = 0): value is Json => {
+  if (depth > MAX_DITHERETTE_DEPTH) return false
+  if (value === null || typeof value === 'boolean' || typeof value === 'string') return true
+  if (typeof value === 'number') return Number.isFinite(value)
+  if (Array.isArray(value)) return value.every((item) => isJson(item, depth + 1))
+  return (
+    isRecord(value) &&
+    Object.getPrototypeOf(value) === Object.prototype &&
+    Object.values(value).every((item) => isJson(item, depth + 1))
+  )
+}
+
+/** Sorted keys at every level, so equal settings serialise to equal bytes. */
+const canonicalJson = <T>(value: T): T => {
+  if (Array.isArray(value)) return value.map(canonicalJson) as T
+  if (!isRecord(value)) return value
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, canonicalJson(value[key])]),
+  ) as T
+}
+
+const isCrop = (value: unknown, source: { width: number; height: number }): boolean =>
+  isRecord(value) &&
+  hasExactly(value, ['x', 'y', 'width', 'height']) &&
+  Number.isSafeInteger(value.x) &&
+  Number.isSafeInteger(value.y) &&
+  Number(value.x) >= 0 &&
+  Number(value.y) >= 0 &&
+  isSize(value.width, value.height) &&
+  Number(value.x) + Number(value.width) <= source.width &&
+  Number(value.y) + Number(value.height) <= source.height
+
+/** The output a Ditherette recipe declares must be the template's own size. */
+const isDitheretteRecipe = (value: unknown, width: unknown, height: unknown): boolean => {
+  if (!isRecord(value) || value.version !== 1 || !isJson(value)) return false
+  if (new TextEncoder().encode(JSON.stringify(value)).byteLength > MAX_DITHERETTE_JSON_BYTES)
+    return false
+  const { output } = value
+  return isRecord(output) && output.width === width && output.height === height
+}
+
 /** Validate a recipe from a file or request. Unknown fields are refused, not ignored. */
 export const parseTemplateRecipe = (value: unknown): TemplateRecipe | null => {
-  if (!isRecord(value) || !hasExactly(value, RECIPE_KEYS)) return null
+  if (!isRecord(value)) return null
   const { source } = value
   if (
     value.format !== TEMPLATE_RECIPE_FORMAT ||
@@ -107,33 +198,64 @@ export const parseTemplateRecipe = (value: unknown): TemplateRecipe | null => {
     !SHA256_HEX.test(source.sha256) ||
     !isSize(source.width, source.height) ||
     !isSize(value.width, value.height) ||
-    typeof value.colorMetric !== 'string' ||
-    !COLOR_METRICS.includes(value.colorMetric) ||
-    typeof value.dithering !== 'boolean' ||
-    typeof value.legacyDecode !== 'boolean' ||
     !isPalette(value.palette)
   )
     return null
-  return templateRecipe(value as unknown as TemplateRecipe)
+  if (value.processor === 'ditherette') {
+    return hasExactly(value, DITHERETTE_KEYS) &&
+      isCrop(value.crop, { width: Number(source.width), height: Number(source.height) }) &&
+      isDitheretteRecipe(value.ditherette, value.width, value.height)
+      ? templateRecipe(value as unknown as DitheretteTemplateRecipe)
+      : null
+  }
+  if (
+    !hasExactly(value, IMPORT_KEYS) ||
+    typeof value.colorMetric !== 'string' ||
+    !COLOR_METRICS.includes(value.colorMetric) ||
+    typeof value.dithering !== 'boolean' ||
+    typeof value.legacyDecode !== 'boolean'
+  )
+    return null
+  return templateRecipe(value as unknown as ImportTemplateRecipe)
 }
 
 /** A copy with keys in canonical order, so equal recipes serialise to equal bytes. */
-export const templateRecipe = (recipe: TemplateRecipe): TemplateRecipe => ({
-  format: recipe.format,
-  processor: recipe.processor,
-  processorVersion: recipe.processorVersion,
-  source: {
+export const templateRecipe = (recipe: TemplateRecipe): TemplateRecipe => {
+  const source = {
     sha256: recipe.source.sha256,
     width: recipe.source.width,
     height: recipe.source.height,
-  },
-  width: recipe.width,
-  height: recipe.height,
-  colorMetric: recipe.colorMetric,
-  dithering: recipe.dithering,
-  legacyDecode: recipe.legacyDecode,
-  palette: [...recipe.palette],
-})
+  }
+  if (recipe.processor === 'ditherette')
+    return {
+      format: recipe.format,
+      processor: recipe.processor,
+      processorVersion: recipe.processorVersion,
+      source,
+      crop: {
+        x: recipe.crop.x,
+        y: recipe.crop.y,
+        width: recipe.crop.width,
+        height: recipe.crop.height,
+      },
+      width: recipe.width,
+      height: recipe.height,
+      palette: [...recipe.palette],
+      ditherette: canonicalJson(recipe.ditherette),
+    }
+  return {
+    format: recipe.format,
+    processor: recipe.processor,
+    processorVersion: recipe.processorVersion,
+    source,
+    width: recipe.width,
+    height: recipe.height,
+    colorMetric: recipe.colorMetric,
+    dithering: recipe.dithering,
+    legacyDecode: recipe.legacyDecode,
+    palette: [...recipe.palette],
+  }
+}
 
 /** Canonical JSON, as stored by servers and written into `.caelestis` files. */
 export const templateRecipeJson = (recipe: TemplateRecipe): string =>
