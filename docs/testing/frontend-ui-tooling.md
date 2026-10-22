@@ -41,7 +41,7 @@ separate [Chromium boundary checks](browser-evidence.md); there are no CSS-class
 | `apps/frontend/node/main.mjs` | Integration | SSR/proxy/storage boundary: public metadata, publication checks, conditional reads, credential stripping, partial recovery and portable environment wiring. |
 | `apps/frontend/node/server.mjs` | Integration | SSR/proxy/storage boundary: public metadata, publication checks, conditional reads, credential stripping, partial recovery and portable environment wiring. |
 | `apps/frontend/src/app.d.ts` | Declarative | Type declarations and export wiring; package check/build resolves consumers. No standalone execution assertions. |
-| `apps/frontend/src/gifenc.d.ts` | Declarative | Type declarations and export wiring; package check/build resolves consumers. No standalone execution assertions. |
+| `packages/social/src/gifenc.d.ts` | Declarative | Type declarations and export wiring; package check/build resolves consumers. No standalone execution assertions. |
 | `apps/frontend/src/hooks.server.ts` | Integration | SSR/proxy/storage boundary: public metadata, publication checks, conditional reads, credential stripping, partial recovery and portable environment wiring. |
 | `apps/frontend/src/lib/api/client-metrics.ts` | Integration | HTTP credential boundary, configured/selected server isolation, version fallback, retry refusal, blob lifetime, live protocol negotiation. |
 | `apps/frontend/src/lib/api/client.ts` | Integration | HTTP credential boundary, configured/selected server isolation, version fallback, retry refusal, blob lifetime, live protocol negotiation. |
@@ -152,7 +152,7 @@ separate [Chromium boundary checks](browser-evidence.md); there are no CSS-class
 | `apps/frontend/src/lib/components/ui/tooltip/tooltip-trigger.svelte` | Declarative | Vendored presentation wrappers; check/build and consuming component interactions. Do not retest the upstream library. |
 | `apps/frontend/src/lib/components/ui/tooltip/tooltip.svelte` | Declarative | Vendored presentation wrappers; check/build and consuming component interactions. Do not retest the upstream library. |
 | `apps/frontend/src/lib/index.ts` | Declarative | Type declarations and export wiring; package check/build resolves consumers. No standalone execution assertions. |
-| `apps/frontend/src/lib/osm-geometry.ts` | Unit | Production-derived history/pace/tree/render contracts; real raster encode/decode for image boundaries, no algorithm-mirroring assertions. |
+| `packages/social/src/osm-geometry.ts` | Unit | Production-derived history/pace/tree/render contracts; real raster encode/decode for image boundaries, no algorithm-mirroring assertions. |
 | `apps/frontend/src/lib/persisted.svelte.ts` | Integration | Real API client and reactive state: bootstrap, latest load wins, auth refusal, socket reconciliation/reconnect/stop, persisted preference recovery. |
 | `apps/frontend/src/lib/progress-history.ts` | Unit | Production-derived history/pace/tree/render contracts; real raster encode/decode for image boundaries, no algorithm-mirroring assertions. |
 | `apps/frontend/src/lib/render.ts` | Unit | Production-derived history/pace/tree/render contracts; real raster encode/decode for image boundaries, no algorithm-mirroring assertions. |
@@ -160,11 +160,13 @@ separate [Chromium boundary checks](browser-evidence.md); there are no CSS-class
 | `apps/frontend/src/lib/server/image-storage.ts` | Integration | SSR/proxy/storage boundary: public metadata, publication checks, conditional reads, credential stripping, partial recovery and portable environment wiring. |
 | `apps/frontend/src/lib/server/social-images.ts` | Integration | SSR/proxy/storage boundary: public metadata, publication checks, conditional reads, credential stripping, partial recovery and portable environment wiring. |
 | `apps/frontend/src/lib/server/social.ts` | Integration | SSR/proxy/storage boundary: public metadata, publication checks, conditional reads, credential stripping, partial recovery and portable environment wiring. |
-| `apps/frontend/src/lib/social-attribution.ts` | Unit | Production-derived history/pace/tree/render contracts; real raster encode/decode for image boundaries, no algorithm-mirroring assertions. |
-| `apps/frontend/src/lib/social-basemap.ts` | Unit | Production-derived history/pace/tree/render contracts; real raster encode/decode for image boundaries, no algorithm-mirroring assertions. |
-| `apps/frontend/src/lib/social-gif.ts` | Unit | Production-derived history/pace/tree/render contracts; real raster encode/decode for image boundaries, no algorithm-mirroring assertions. |
-| `apps/frontend/src/lib/social-image.ts` | Unit | Production-derived history/pace/tree/render contracts; real raster encode/decode for image boundaries, no algorithm-mirroring assertions. |
-| `apps/frontend/src/lib/social-render.ts` | Unit | Production-derived history/pace/tree/render contracts; real raster encode/decode for image boundaries, no algorithm-mirroring assertions. |
+| `packages/social/src/attribution.ts` | Unit | Production-derived history/pace/tree/render contracts; real raster encode/decode for image boundaries, no algorithm-mirroring assertions. |
+| `packages/social/src/basemap.ts` | Unit | Production-derived history/pace/tree/render contracts; real raster encode/decode for image boundaries, no algorithm-mirroring assertions. |
+| `packages/social/src/gif.ts` | Unit | Production-derived history/pace/tree/render contracts; real raster encode/decode for image boundaries, no algorithm-mirroring assertions. |
+| `packages/social/src/image.ts` | Unit | Production-derived history/pace/tree/render contracts; real raster encode/decode for image boundaries, no algorithm-mirroring assertions. |
+| `packages/social/src/render.ts` | Unit | Production-derived history/pace/tree/render contracts; real raster encode/decode for image boundaries, no algorithm-mirroring assertions. |
+| `packages/social/src/playback.ts` | Unit | Production-derived history/pace/tree/render contracts; real raster encode/decode for image boundaries, no algorithm-mirroring assertions. |
+| `packages/social/src/refresh.ts` | Integration | Shared refresh loop; exercised through the Cloudflare Queue consumer and the Node worker thread. |
 | `apps/frontend/src/lib/state/app.svelte.ts` | Integration | Real API client and reactive state: bootstrap, latest load wins, auth refusal, socket reconciliation/reconnect/stop, persisted preference recovery. |
 | `apps/frontend/src/lib/tree.ts` | Unit | Production-derived history/pace/tree/render contracts; real raster encode/decode for image boundaries, no algorithm-mirroring assertions. |
 | `apps/frontend/src/lib/utils.ts` | Unit | Production-derived history/pace/tree/render contracts; real raster encode/decode for image boundaries, no algorithm-mirroring assertions. |
