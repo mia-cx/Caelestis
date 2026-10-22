@@ -134,6 +134,11 @@ export interface PlacedTemplate extends Omit<ImportedTemplate, 'indices'> {
   readonly serverNodeId?: string | null
   /** The version these pixels came from, so a sync knows whether to re-download them. */
   readonly serverVersion?: string
+  /**
+   * An unpublished copy, which only an admin token can read. Wplace's own scripts can read this
+   * page's IndexedDB and Cache Storage, so nothing of it is written there.
+   */
+  readonly serverUnpublished?: boolean
   /** The source continues at x=0 after reaching the world's east edge. Server templates only. */
   readonly wrapX?: boolean
   /** Painted world tiles advertised by the server manifest. Server templates only. */
@@ -478,7 +483,9 @@ const loadServerPixels = async (template: PlacedTemplate, evict: boolean): Promi
   if (templates.get(template.id)?.artwork !== template.artwork) {
     throw new Error('That template changed while it was loading. Try again.')
   }
-  if (downloaded) void saveServerPixels(template.id, version, indices, template.opaque)
+  if (downloaded && template.serverUnpublished !== true) {
+    void saveServerPixels(template.id, version, indices, template.opaque)
+  }
   installLoaded(template, indices, evict)
   return indices
 }
@@ -1322,6 +1329,7 @@ export const putServerTemplate = async (
     serverTemplateId: string
     serverNodeId: string | null
     serverVersion: string
+    serverUnpublished?: boolean
     sourceOpacity?: number
     serverConnection?: ConnectedServer
     serverTileKeys?: readonly string[]
@@ -1347,8 +1355,10 @@ export const putServerTemplate = async (
       if (indices === null) throw new RangeError('a cached server template needs its painted tiles')
       tiles = await paintedTileKeys({ ...template, indices })
     }
-    // On disk before it can be evicted, so dropping it from memory never loses it.
-    if (indices !== null) {
+    // On disk before it can be evicted, so dropping it from memory never loses it. A draft stays off
+    // disk and downloads again instead.
+    if (template.serverUnpublished === true) await forgetServerPixels([template.id])
+    else if (indices !== null) {
       await saveServerPixels(template.id, template.serverVersion, indices, template.opaque)
     }
     if (!isCurrent()) return false
@@ -1379,6 +1389,7 @@ export const updateServerTemplateMetadata = async (
   id: string,
   name: string,
   serverNodeId: string | null,
+  serverUnpublished: boolean,
   serverConnection?: ConnectedServer,
 ): Promise<boolean> =>
   await writeInOrder(id, async () => {
@@ -1388,13 +1399,17 @@ export const updateServerTemplateMetadata = async (
     if (
       existing.name === name &&
       existing.serverNodeId === serverNodeId &&
+      (existing.serverUnpublished === true) === serverUnpublished &&
       (serverConnection === undefined || existing.serverConnection === serverConnection)
     )
       return true
+    // Unpublished since its pixels were saved: take them back off disk.
+    if (serverUnpublished && existing.serverUnpublished !== true) await forgetServerPixels([id])
     templates.set(id, {
       ...existing,
       name,
       serverNodeId,
+      serverUnpublished,
       ...(serverConnection === undefined ? {} : { serverConnection }),
     })
     notify()

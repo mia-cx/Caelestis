@@ -14,6 +14,7 @@ import {
 import { userscriptClientHeaders } from '../client-metrics.js'
 import { count, warn } from '../debug.js'
 import type { ServerTemplate } from '../server-cache.js'
+import { invalidateServerMismatches } from '../server-mismatch.js'
 import { registerServerSyncResource } from '../server-sync-coordinator.js'
 import { serverEndpoint } from '../server-url.js'
 import {
@@ -439,6 +440,7 @@ const serverTemplateRow = (
   serverTemplateId: template.id,
   serverNodeId: template.nodeId,
   serverVersion: template.version,
+  serverUnpublished: !template.published,
   serverConnection: server,
   serverTileKeys: template.chunks.map((chunk) => chunk.tile),
   wrapX: surface.kind === 'world' && template.bbox.minX > template.bbox.maxX,
@@ -546,7 +548,17 @@ const syncServerTemplatesOnce = async (
     // rebuild. Names and folder membership still arrive through the manifest because neither
     // changes the pixel version.
     if (held !== undefined && held.serverVersion === template.version) {
-      await updateServerTemplateMetadata(key, template.name, template.nodeId, server)
+      // Masks saved while it was public describe it too.
+      if (!template.published && held.serverUnpublished !== true) {
+        invalidateServerMismatches(server.url)
+      }
+      await updateServerTemplateMetadata(
+        key,
+        template.name,
+        template.nodeId,
+        !template.published,
+        server,
+      )
       if (!current()) return
       continue
     }
