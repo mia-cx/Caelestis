@@ -44,17 +44,16 @@ const activityAction = (action: WorkMutation['action']): WorkAction => {
 }
 
 /**
- * Which work a caller below admin may see. Work copies template names and links, so an item linking
- * a template that is now unpublished would still describe it.
+ * Which work a caller below admin may see: items whose every linked template is published. Work
+ * copies template names and links, so an item linking an unpublished or deleted template would
+ * still describe it.
  */
 const visibleWork = (sql: SqlStore, season: number, surface: TemplateSurface) =>
   storage(async () => {
-    const unpublished = new Set(
-      (await sql.listManifestTemplates({ season, surface }, true))
-        .filter((template) => !template.published)
-        .map((template) => template.id),
+    const published = new Set(
+      (await sql.listManifestTemplates({ season, surface }, false)).map((template) => template.id),
     )
-    return (item: WorkItem) => !item.templateIds.some((id) => unpublished.has(id))
+    return (item: WorkItem) => item.templateIds.every((id) => published.has(id))
   })
 
 /** Read a bounded page of work in one drawing scope, ordered by stable ID. */

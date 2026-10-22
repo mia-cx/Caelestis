@@ -58,6 +58,11 @@ interface RestoreState {
   /** See the lifecycle in operation.ts. Records arrive only while `ready`. */
   readonly phase: 'preparing' | 'ready' | 'discarding' | 'releasing'
   /**
+   * Only in a restore begun before archives stopped carrying credentials: the destination's own
+   * token hashes. That restore may already have imported the archive's tokens.
+   */
+  readonly preservedTokens?: readonly string[]
+  /**
    * Discard progress through DISCARD_STEPS. `templates` records the ids whose backfill state
    * the discard must clean, captured before any template rows are deleted so a late backfill
    * write can still be found without them.
@@ -83,6 +88,30 @@ const databaseReason = (error: unknown): string =>
 
 const decodeState = (operation: ArchiveOperationRow) =>
   JSON.parse(operation.stateJson) as RestoreState
+
+/**
+ * Delete the tokens a pre-upgrade restore imported, keeping the destination's own, so a token
+ * revoked after the snapshot stays revoked whether the restore is activated or discarded.
+ * Idempotent, and a no-op for restores begun since.
+ */
+const dropLegacyCredentials = async (
+  host: ArchiveHost,
+  operation: ArchiveOperationRow,
+  state: RestoreState,
+  lease: ArchiveLease,
+) => {
+  const kept = state.preservedTokens
+  if (kept === undefined) return
+  checkArchiveDeadline(lease)
+  await host.connection.batch([
+    archiveFence(host.connection, operation, lease),
+    host.connection
+      .prepare(
+        `DELETE FROM "access_tokens"${kept.length === 0 ? '' : ` WHERE "token_hash" NOT IN (${kept.map(() => '?').join(', ')})`}`,
+      )
+      .bind(...kept),
+  ])
+}
 
 const restoreOperation = async (host: ArchiveHost) => {
   const operation = await readArchiveOperation(host.connection)
@@ -483,9 +512,9 @@ const appendRestoreHeld = async (
 
 /** Open the restored server once the archive's end record has verified every count and checksum. */
 export const activateRestore = async (host: ArchiveHost) =>
-  withArchiveLease(host, () => activateRestoreHeld(host))
+  withArchiveLease(host, (lease) => activateRestoreHeld(host, lease))
 
-const activateRestoreHeld = async (host: ArchiveHost) => {
+const activateRestoreHeld = async (host: ArchiveHost, lease: ArchiveLease) => {
   const { operation, state } = await restoreOperation(host)
   if (state.discard !== undefined) {
     // A discard that already reached releasing is finished, never activated.
@@ -497,6 +526,7 @@ const activateRestoreHeld = async (host: ArchiveHost) => {
       `The archive is incomplete: ${operation.position} records restored and no end record yet.`,
       409,
     )
+  await dropLegacyCredentials(host, operation, state, lease)
   // Moves only the exact state just verified, so a discard that starts meanwhile wins. A release
   // that an earlier activation left half done is finished here instead.
   if (!(await releaseServer(host, operation))) throw changedError()
@@ -546,6 +576,7 @@ const discardRestoreHeld = async (
     if (!(await releaseServer(host, operation))) throw changedError()
     return true
   }
+  await dropLegacyCredentials(host, operation, state, lease)
   const saveProgress = async (discard: NonNullable<RestoreState['discard']>) => {
     if ((await transition(host, operation, { ...state, phase: 'discarding', discard })) === null)
       throw changedError()
