@@ -376,7 +376,7 @@ export const overlayLayer = {
       const entry = store.entry(template.id)
       const complete =
         entry !== null &&
-        entry.source === template.indices &&
+        entry.source === template.artwork &&
         entry.width === template.width &&
         entry.height === template.height
       return total + (complete ? 0 : 1)

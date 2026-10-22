@@ -3,7 +3,7 @@ import { userscriptClientHeaders } from '../client-metrics.js'
 import { serverEndpoint } from '../server-url.js'
 import { activeServerToken, type ConnectedServer, getState } from '../state.js'
 import { currentAuthoring, type TemplateAuthoring } from '../templates/authoring.js'
-import { isServerTemplate, type PlacedTemplate } from '../templates/local-store.js'
+import { isServerTemplate, type PlacedTemplate, templatePixels } from '../templates/local-store.js'
 
 const AUTHORING_FETCH_TIMEOUT_MS = 30_000
 
@@ -56,10 +56,13 @@ export const readServerAuthoring = async (
  * record, or on the server version it was loaded from.
  */
 export const authoringOf = async (template: PlacedTemplate): Promise<TemplateAuthoring | null> => {
-  if (!isServerTemplate(template)) return await currentAuthoring(template)
+  if (!isServerTemplate(template)) {
+    if (template.authoring === undefined) return null
+    return await currentAuthoring({ ...template, indices: await templatePixels(template) })
+  }
   const server = getState().servers.find((candidate) => candidate.url === template.serverUrl)
   if (server === undefined || template.serverVersion === undefined) return null
-  return await readServerAuthoring(server, template.serverVersion, template.indices)
+  return await readServerAuthoring(server, template.serverVersion, await templatePixels(template))
 }
 
 /**

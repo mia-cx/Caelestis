@@ -63,6 +63,7 @@ import {
   renameLocalTemplate,
   setLocalVisible,
   setTemplateFolder,
+  type TemplateArtwork,
 } from '../templates/local-store.js'
 import {
   pixelAccounting,
@@ -193,6 +194,12 @@ export interface TreeCallbacks {
 }
 
 const reportTreeError = (message: string): void => toast(message, 'error')
+
+/** Alliance progress last counted per artwork, shown while that template's pixels are evicted. */
+const lastAllianceProgress = new WeakMap<
+  TemplateArtwork,
+  { progress: TemplateProgress; colours: readonly TemplateColourProgress[] }
+>()
 
 const openServerDetails = (server: ConnectedServer, rerender: () => void): void => {
   void import('./server-details.js')
@@ -499,10 +506,18 @@ const buildTree = <Result>(
           })
         : { committed: [], draft: [] }
     for (const template of drawnTemplates) {
-      allianceProgress.set(template.id, {
-        progress: artboardTemplateProgress(template, regions),
-        colours: artboardColourProgress(template, regions),
-      })
+      const indices = template.artwork.indices
+      // An evicted template keeps the counts it had when its pixels were last in memory.
+      const counts =
+        indices === null
+          ? lastAllianceProgress.get(template.artwork)
+          : {
+              progress: artboardTemplateProgress({ ...template, indices }, regions),
+              colours: artboardColourProgress({ ...template, indices }, regions),
+            }
+      if (counts === undefined) continue
+      lastAllianceProgress.set(template.artwork, counts)
+      allianceProgress.set(template.id, counts)
     }
   }
   const drawnProgress = (template: PlacedTemplate): TemplateProgress =>
@@ -938,7 +953,10 @@ const buildTree = <Result>(
                     ? template.bbox.maxX - template.bbox.minX
                     : WORLD_PIXELS - template.bbox.minX + template.bbox.maxX,
                 height: template.bbox.maxY - template.bbox.minY,
-                indices: drawn?.serverVersion === template.version ? drawn.indices : undefined,
+                indices:
+                  drawn?.serverVersion === template.version
+                    ? (drawn.artwork.indices ?? undefined)
+                    : undefined,
                 ownership: `Server · ${server.info?.name ?? server.url}`,
               },
               createdAt: template.updatedAt,
@@ -1138,7 +1156,7 @@ const buildTree = <Result>(
             preview: {
               width: template.width,
               height: template.height,
-              indices: template.indices,
+              indices: template.artwork.indices ?? undefined,
               ownership: 'Local',
             },
             filterFacts: {
@@ -1342,7 +1360,7 @@ const buildTree = <Result>(
                   preview: {
                     width: mirror.width,
                     height: mirror.height,
-                    indices: mirror.indices,
+                    indices: mirror.artwork.indices ?? undefined,
                     ownership: 'Wplace',
                   },
                   colourProgress: () => drawnColourProgress(mirror),
@@ -1402,7 +1420,7 @@ const buildTree = <Result>(
           preview: {
             width: template.width,
             height: template.height,
-            indices: template.indices,
+            indices: template.artwork.indices ?? undefined,
             ownership: 'Wplace',
           },
           filterFacts: { source: 'server', visible: isTemplateVisible(template), tags: [] },

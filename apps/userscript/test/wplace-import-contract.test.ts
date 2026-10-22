@@ -150,7 +150,9 @@ it('samples the projected footprint before processing the embedded recipe and pe
   const saved = await store.addLocalTemplate(imported, undefined, true)
   try {
     await store.restoreLocalTemplates()
-    expect(store.templateById(saved.id)?.indices).toEqual(new Uint8Array([TRANSPARENT_INDEX, 2, 3]))
+    expect(store.templateById(saved.id)?.artwork.indices).toEqual(
+      new Uint8Array([TRANSPARENT_INDEX, 2, 3]),
+    )
     expect(processor.render).toHaveBeenCalledTimes(1)
   } finally {
     await store.removeLocalTemplate(saved.id)

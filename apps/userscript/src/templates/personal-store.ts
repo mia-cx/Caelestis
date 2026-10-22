@@ -10,7 +10,7 @@ import {
   nativeLocalId,
   nativeMetadata,
 } from './native-store.js'
-import type { SaveResult, StoredTemplate } from './persist.js'
+import type { SaveResult, StoredTemplate, TemplateSave } from './persist.js'
 import * as disk from './persist.js'
 import { connectLocalTagSync, synchronizeLocalTemplateTags } from './tags.js'
 
@@ -37,7 +37,7 @@ const exclusive = <T>(operation: () => Promise<T>): Promise<T> => {
   return pending
 }
 
-const isWorld = (template: StoredTemplate): boolean =>
+const isWorld = (template: TemplateSave): boolean =>
   (template.surface ?? WORLD_TEMPLATE_SURFACE).kind === 'world'
 
 const loadedTemplate = (loaded: disk.LoadTemplateResult): StoredTemplate | null =>
@@ -230,10 +230,13 @@ export const loadTemplates = disk.loadTemplates
 
 /** Commit supported personal edits through Wplace, then retain the derived pixels and Caelestis metadata. */
 export const saveTemplate = async (
-  template: StoredTemplate,
+  template: TemplateSave,
   expectedRevision: number | null,
   archiveCurrent = false,
 ): Promise<SaveResult> => {
+  if (archiveCurrent && template.indices === null) {
+    throw new RangeError('a new version needs its pixels')
+  }
   if (!isWorld(template) || (native === null && template.native === undefined))
     return archiveCurrent
       ? await disk.saveTemplate(template, expectedRevision, true)
@@ -250,9 +253,12 @@ export const saveTemplate = async (
       )
         return { status: 'conflict' }
       if (previous === null) {
+        const { indices } = template
+        // A metadata save needs a stored record to keep the pixels of, and another tab removed it.
+        if (indices === null) return { status: 'conflict' }
         const saved = await disk.saveTemplate(template, null)
         if (saved.status !== 'saved') return saved
-        const linked = await migrate(api, { ...template, revision: saved.revision })
+        const linked = await migrate(api, { ...template, indices, revision: saved.revision })
         return { status: 'saved', revision: linked.revision }
       }
       let linked = await migrate(api, previous)
@@ -302,10 +308,12 @@ export const saveTemplate = async (
                   : {}),
               },
               snapshot,
-              archiveCurrent ? await nativeImage(template) : undefined,
+              archiveCurrent && template.indices !== null
+                ? await nativeImage({ ...template, indices: template.indices })
+                : undefined,
             )
           : snapshot
-      const next: StoredTemplate = {
+      const next: TemplateSave = {
         ...template,
         native: {
           id: nativeId,

@@ -60,7 +60,20 @@ import { nodeChainVisible, serverNodeParents, serverNodesRevision } from './serv
  * manifest.
  */
 
-export interface PlacedTemplate extends ImportedTemplate {
+/**
+ * A template's pixels, held in memory only while the template is resident.
+ *
+ * Its identity changes only when the pixels do, so caches keyed on it (progress, colour totals)
+ * survive eviction and reload. Read `indices` for synchronous work that may skip an evicted template;
+ * await {@link templatePixels} for work that needs the pixels.
+ */
+export interface TemplateArtwork {
+  /** One palette index per pixel, row-major; null while evicted. */
+  readonly indices: Uint8Array | null
+}
+
+export interface PlacedTemplate extends Omit<ImportedTemplate, 'indices'> {
+  readonly artwork: TemplateArtwork
   readonly native?: NonNullable<StoredTemplate['native']>
   /** Wplace's alliance opacity, used until this browser takes ownership of the pixels appearance. */
   readonly sourceOpacity?: number
@@ -121,6 +134,11 @@ export interface PlacedTemplate extends ImportedTemplate {
   readonly wrapX?: boolean
   /** Painted world tiles advertised by the server manifest. Server templates only. */
   readonly serverTileKeys?: readonly string[]
+}
+
+/** A placement with its pixels in hand, for work that reads them. */
+export type PlacedPixels = Pick<PlacedTemplate, 'originX' | 'originY' | 'width' | 'height'> & {
+  readonly indices: Uint8Array
 }
 
 /** Whether this template is a copy of something a server publishes. */
@@ -378,6 +396,13 @@ export const templateIdsInLocalFolder = (folderId: string): readonly string[] =>
     .filter((template) => !isServerTemplate(template) && template.folderId === folderId)
     .map((template) => template.id)
 
+/** A template's pixels, for work that needs them even when the template is not resident. */
+export const templatePixels = async (template: PlacedTemplate): Promise<Uint8Array> => {
+  const indices = template.artwork.indices
+  if (indices !== null) return indices
+  throw new Error('template pixels are not in memory')
+}
+
 /** Indexed template pixels currently owned by the catalog. */
 export const templateIndexMemoryBytes = (): number => retainedIndexPixels
 
@@ -546,8 +571,32 @@ const yieldToBrowser = async (): Promise<void> => {
   await new Promise<void>((resolve) => setTimeout(resolve, 0))
 }
 
+/** Where a template sits, without its pixels. */
+type Placement = Pick<ImportedTemplate, 'originX' | 'originY' | 'width' | 'height'> & {
+  readonly surface?: TemplateSurface
+  readonly wrapX?: boolean
+  readonly serverUrl?: string
+}
+
+/** Pixels in memory count against the resident budget by area, transparent ones included. */
+const areaOf = (template: Pick<ImportedTemplate, 'width' | 'height'>): number =>
+  template.width * template.height
+
+/** What a template currently holds against the resident budget. */
+const residentArea = (template: PlacedTemplate): number =>
+  template.artwork.indices === null ? 0 : areaOf(template)
+
+/** A new artwork for these pixels, so caches keyed on the previous one see the change. */
+const withArtwork = <T extends { readonly indices: Uint8Array }>({
+  indices,
+  ...rest
+}: T): Omit<T, 'indices'> & { readonly artwork: TemplateArtwork } => ({
+  ...rest,
+  artwork: { indices },
+})
+
 const validatePlacement = (
-  template: ImportedTemplate & { readonly surface?: TemplateSurface },
+  template: Placement & { readonly indices?: Uint8Array },
   originX = template.originX,
   originY = template.originY,
 ): void => {
@@ -559,7 +608,7 @@ const validatePlacement = (
     !Number.isSafeInteger(template.height) ||
     template.width <= 0 ||
     template.height <= 0 ||
-    template.indices.length !== template.width * template.height
+    (template.indices !== undefined && template.indices.length !== areaOf(template))
   ) {
     throw new RangeError('template dimensions do not match its pixels')
   }
@@ -580,9 +629,7 @@ const validatePlacement = (
   if (originX < 0 || originY < 0) throw new RangeError('template origin is outside the canvas')
   if (originX + template.width > WORLD_PIXELS) {
     if (
-      !('wrapX' in template) ||
       template.wrapX !== true ||
-      !('serverUrl' in template) ||
       typeof template.serverUrl !== 'string' ||
       template.width >= WORLD_PIXELS ||
       originX + template.width > WORLD_PIXELS * 2
@@ -793,11 +840,7 @@ const normaliseStoredTemplate = (value: unknown): StoredTemplate => {
 
 /** Validate indexed pixels and retain only the painted world-tile keys downstream work needs. */
 const paintedTileKeys = async (
-  template: ImportedTemplate & {
-    readonly surface?: TemplateSurface
-    readonly wrapX?: boolean
-    readonly serverUrl?: string
-  },
+  template: Placement & Pick<ImportedTemplate, 'indices' | 'opaque'>,
 ): Promise<ReadonlySet<string>> => {
   validatePlacement(template)
   await yieldToBrowser()
@@ -876,8 +919,11 @@ const persist = async (placed: PlacedTemplate): Promise<SaveResult> => {
       ? { status: 'saved', revision: placed.revision }
       : { status: 'limit' }
   }
-  const { tiles: _tiles, ...rest } = placed
-  return await writeInOrder(placed.id, async () => await saveTemplate(rest, null))
+  const { tiles: _tiles, artwork, ...rest } = placed
+  // A new record has nothing stored yet, so its pixels are always the ones just imported.
+  const indices = artwork.indices
+  if (indices === null) throw new RangeError('a new template has no pixels in memory')
+  return await writeInOrder(placed.id, async () => await saveTemplate({ ...rest, indices }, null))
 }
 
 const savePlaced = async (
@@ -890,8 +936,12 @@ const savePlaced = async (
       ? { status: 'saved', revision: placed.revision }
       : { status: 'limit' }
   }
-  const { tiles: _tiles, ...rest } = placed
-  return await saveTemplate({ ...rest, visible }, expectedRevision)
+  // A metadata change on a stored record keeps its pixels, so it never needs them in memory.
+  const { tiles: _tiles, artwork, ...rest } = placed
+  return await saveTemplate(
+    { ...rest, visible, indices: expectedRevision === null ? artwork.indices : null },
+    expectedRevision,
+  )
 }
 
 // A plain image has no meaningful position until its first placement is applied. Keep it local
@@ -900,8 +950,18 @@ const savePlaced = async (
 const isPendingImage = (template: PlacedTemplate): boolean =>
   template.source === 'image' && !template.everPlaced
 
+const placedFromStored = (stored: StoredTemplate, tiles: ReadonlySet<string>): PlacedTemplate => ({
+  ...withArtwork(stored),
+  surface: stored.surface ?? WORLD_TEMPLATE_SURFACE,
+  appearance: stored.appearance ?? null,
+  owns: stored.owns ?? (stored.appearance != null ? APPEARANCE_GROUPS : []),
+  folderId: stored.folderId ?? null,
+  visible: stored.visible,
+  tiles,
+})
+
 const removeStaleLocalState = (existing: PlacedTemplate): void => {
-  retainedIndexPixels -= existing.indices.length
+  retainedIndexPixels -= residentArea(existing)
   previewOrigins.delete(existing.id)
   templates.delete(existing.id)
   noteReconciliation(existing.id)
@@ -954,7 +1014,7 @@ const reconcileConflictExclusive = async (id: string): Promise<void> => {
       return
     }
     const releaseIndexReservation = reserveIndexIncrease(
-      existing.indices.length,
+      residentArea(existing),
       winner.indices.length,
     )
     if (releaseIndexReservation === null) {
@@ -980,16 +1040,8 @@ const reconcileConflictExclusive = async (id: string): Promise<void> => {
         return
       }
       previewOrigins.delete(id)
-      templates.set(id, {
-        ...winner,
-        surface: winner.surface ?? WORLD_TEMPLATE_SURFACE,
-        appearance: winner.appearance ?? null,
-        owns: winner.owns ?? (winner.appearance != null ? APPEARANCE_GROUPS : []),
-        folderId: winner.folderId ?? null,
-        visible: winner.visible,
-        tiles,
-      })
-      retainedIndexPixels += winner.indices.length - existing.indices.length
+      templates.set(id, placedFromStored(winner, tiles))
+      retainedIndexPixels += winner.indices.length - residentArea(existing)
       noteReconciliation(id)
       notify()
       return
@@ -1031,7 +1083,7 @@ export const hasRoomForServerTemplate = (id: string, nextPixels: number): boolea
     indexIncreaseWithinBudget(
       retainedIndexPixels,
       pendingIndexPixels,
-      existing?.indices.length ?? 0,
+      existing === undefined ? 0 : residentArea(existing),
       nextPixels,
       MAX_LOCAL_INDEX_PIXELS,
     ) !== null
@@ -1074,13 +1126,13 @@ export const putServerTemplate = async (
     const tiles =
       template.serverTileKeys === undefined ? await paintedTileKeys(template) : new Set<string>()
     if (!isCurrent()) return false
-    const priorPixels = existing?.indices.length ?? 0
+    const priorPixels = existing === undefined ? 0 : residentArea(existing)
     const pixelIncrease = template.indices.length - priorPixels
     if (retainedIndexPixels + pendingIndexPixels + pixelIncrease > MAX_LOCAL_INDEX_PIXELS) {
       throw new RangeError('server templates exceed the local rendering budget')
     }
     templates.set(template.id, {
-      ...template,
+      ...withArtwork(template),
       surface: template.surface ?? WORLD_TEMPLATE_SURFACE,
       tiles,
       // Whether someone else's template is on *your* canvas is your decision and nobody else's, so
@@ -1130,7 +1182,7 @@ export const forgetServerTemplate = async (id: string): Promise<void> =>
   await writeInOrder(id, async () => {
     const existing = templates.get(id)
     if (existing === undefined || !isServerTemplate(existing)) return
-    retainedIndexPixels -= existing.indices.length
+    retainedIndexPixels -= residentArea(existing)
     previewOrigins.delete(id)
     templates.delete(id)
     notify()
@@ -1154,7 +1206,7 @@ export const forgetServerTemplates = async (serverUrl: string): Promise<void> =>
     for (const id of ids) {
       const template = templates.get(id)
       if (template === undefined || template.serverUrl !== serverUrl) continue
-      retainedIndexPixels -= template.indices.length
+      retainedIndexPixels -= residentArea(template)
       previewOrigins.delete(template.id)
       templates.delete(template.id)
       removed = true
@@ -1215,7 +1267,7 @@ export const addLocalTemplate = async (
   try {
     const tiles = await paintedTileKeys(scoped)
     const placed: PlacedTemplate = {
-      ...template,
+      ...withArtwork(template),
       updatedAt: Date.now(),
       surface,
       tiles,
@@ -1280,7 +1332,7 @@ export const copyAsLocalTemplate = async (
     originY: template.originY,
     width: template.width,
     height: template.height,
-    indices: template.indices,
+    indices: await templatePixels(template),
     moved: template.moved,
     opaque: template.opaque,
     ...(authoring === null ? {} : { authoring }),
@@ -1307,7 +1359,7 @@ export const copyAsLocalTemplate = async (
     const source = templates.get(template.id)
     if (source !== template) throw new Error('server template changed while it was being copied')
     if (
-      retainedIndexPixels - source.indices.length + pendingIndexPixels + imported.indices.length >
+      retainedIndexPixels - residentArea(source) + pendingIndexPixels + imported.indices.length >
       MAX_LOCAL_INDEX_PIXELS
     ) {
       throw new RangeError('local templates exceed the persisted pixel budget')
@@ -1317,7 +1369,7 @@ export const copyAsLocalTemplate = async (
     try {
       const tiles = await paintedTileKeys({ ...imported, surface })
       const placed: PlacedTemplate = {
-        ...imported,
+        ...withArtwork(imported),
         updatedAt: Date.now(),
         surface,
         tiles,
@@ -1341,6 +1393,7 @@ export const copyAsLocalTemplate = async (
       previewOrigins.delete(template.id)
       templates.delete(template.id)
       templates.set(id, copied)
+      retainedIndexPixels += areaOf(copied) - residentArea(source)
       notify()
       return copied
     } finally {
@@ -1508,15 +1561,7 @@ const restoreStoredTemplates = async (): Promise<void> => {
         pendingAdds.add(template.id)
         pendingIndexPixels += template.indices.length
         reserved = template
-        templates.set(template.id, {
-          ...template,
-          surface: template.surface ?? WORLD_TEMPLATE_SURFACE,
-          appearance: template.appearance ?? null,
-          owns: template.owns ?? (template.appearance != null ? APPEARANCE_GROUPS : []),
-          folderId: template.folderId ?? null,
-          visible: template.visible,
-          tiles,
-        })
+        templates.set(template.id, placedFromStored(template, tiles))
         retainedIndexPixels += template.indices.length
         restored++
       } catch (error) {
@@ -1614,8 +1659,12 @@ const drainMoves = async (id: string, queue: MoveQueue): Promise<void> => {
       continue
     }
     try {
-      const moved = { ...existing, originX: target.originX, originY: target.originY }
-      let tiles = await paintedTileKeys(moved)
+      let tiles = await paintedTileKeys({
+        ...existing,
+        originX: target.originX,
+        originY: target.originY,
+        indices: await templatePixels(existing),
+      })
       // Pointer events can arrive faster than a large index scan. Do not install stale intermediate
       // work; immediately scan only the newest requested position.
       const pendingAfterScan = queue.pending as MoveTarget | null
@@ -1637,7 +1686,7 @@ const drainMoves = async (id: string, queue: MoveQueue): Promise<void> => {
         if (latest === undefined || deleting.has(id)) return false
         validatePlacement(latest, target.originX, target.originY)
         const sourceChanged =
-          latest.indices !== existing.indices ||
+          latest.artwork !== existing.artwork ||
           latest.width !== existing.width ||
           latest.height !== existing.height
         if (sourceChanged) {
@@ -1645,6 +1694,7 @@ const drainMoves = async (id: string, queue: MoveQueue): Promise<void> => {
             ...latest,
             originX: target.originX,
             originY: target.originY,
+            indices: await templatePixels(latest),
           })
         }
         const next = {
@@ -1886,7 +1936,7 @@ export const replaceLocalArtwork = async (
     }
     checkCurrent()
     // Canvas artwork does not come from the recipe, so this version is processed-only.
-    const { authoring: _authoring, ...processedOnly } = expected
+    const { authoring: _authoring, artwork: _artwork, tiles: _tiles, ...processedOnly } = expected
     const next = {
       ...processedOnly,
       indices,
@@ -1896,8 +1946,7 @@ export const replaceLocalArtwork = async (
     }
     const tiles = await paintedTileKeys(next)
     checkCurrent()
-    const { tiles: _tiles, ...stored } = next
-    const result = await saveTemplate(stored, expected.revision, true)
+    const result = await saveTemplate(next, expected.revision, true)
     if (result.status === 'limit') {
       throw new Error(
         'Local version history is full. Remove an unused local template to free its history, then try again.',
@@ -1910,7 +1959,8 @@ export const replaceLocalArtwork = async (
           : 'Could not save the new version in this browser. Check available storage and try again.',
       )
     }
-    templates.set(expected.id, { ...next, tiles, revision: result.revision })
+    templates.set(expected.id, { ...withArtwork(next), tiles, revision: result.revision })
+    retainedIndexPixels += areaOf(next) - residentArea(expected)
     notify()
   })
 }
@@ -1989,7 +2039,7 @@ export const removeLocalTemplate = async (id: string): Promise<boolean> => {
             return false
           }
         }
-        retainedIndexPixels -= current.indices.length
+        retainedIndexPixels -= residentArea(current)
         previewOrigins.delete(id)
         templates.delete(id)
         notify()
@@ -2148,7 +2198,11 @@ export const setOwnsGroup = async (
  */
 export const templateAsPng = async (template: PlacedTemplate): Promise<Blob | null> => {
   if (!isCurrentTemplate(template)) return null
-  const encoded = await encodeIndexedPng(template.width, template.height, template.indices)
+  const encoded = await encodeIndexedPng(
+    template.width,
+    template.height,
+    await templatePixels(template),
+  )
   if (!isCurrentTemplate(template)) return null
   return new Blob([Uint8Array.from(encoded)], { type: 'image/png' })
 }

@@ -6,7 +6,7 @@ import {
   recordProfileCounter,
   recordProfileWorkload,
 } from '../profile.js'
-import type { PlacedTemplate } from '../templates/local-store.js'
+import type { PlacedTemplate, TemplateArtwork } from '../templates/local-store.js'
 import { gpuCacheEvictions } from './gpu-cache.js'
 
 export const TEMPLATE_GPU_CACHE_BYTES = 64 * 1024 * 1024
@@ -44,7 +44,9 @@ interface PendingTemplateGpu {
   readonly palette: WebGLTexture
   readonly width: number
   readonly height: number
-  readonly source: Uint8Array
+  readonly source: TemplateArtwork
+  /** Held only while uploading; a finished entry keeps no CPU copy of the pixels. */
+  readonly pixels: Uint8Array
   lastUsed: number
 }
 
@@ -53,7 +55,8 @@ export interface TemplateGpuEntry {
   readonly palette: WebGLTexture
   readonly width: number
   readonly height: number
-  readonly source: Uint8Array
+  /** The artwork uploaded. Textures stay valid while the template's pixels are evicted. */
+  readonly source: TemplateArtwork
   lastUsed: number
   paletteData: Uint8Array | null
 }
@@ -64,7 +67,7 @@ export interface TemplateGpuAdvance {
   readonly uploadedPixels: number
 }
 
-type TemplateSource = Pick<PlacedTemplate, 'id' | 'width' | 'height' | 'indices'>
+type TemplateSource = Pick<PlacedTemplate, 'id' | 'width' | 'height' | 'artwork'>
 
 const entryBytes = (entry: TemplateGpuEntry | PendingTemplateGpu): number =>
   PALETTE_SIZE * 4 +
@@ -110,7 +113,7 @@ export class TemplateGpuStore {
     const entry = this.complete.get(template.id)
     return (
       entry !== undefined &&
-      entry.source === template.indices &&
+      entry.source === template.artwork &&
       entry.width === template.width &&
       entry.height === template.height
     )
@@ -205,7 +208,7 @@ export class TemplateGpuStore {
       if (sourceRight <= sourceLeft) continue
       const source = sourceY * pending.width + sourceLeft
       pixels.set(
-        pending.source.subarray(source, source + sourceRight - sourceLeft),
+        pending.pixels.subarray(source, source + sourceRight - sourceLeft),
         destination + sourceLeft - requestedLeft,
       )
     }
@@ -297,11 +300,11 @@ export class TemplateGpuStore {
     let pending = this.pending.get(template.id)
     const changed =
       (entry !== undefined &&
-        (entry.source !== template.indices ||
+        (entry.source !== template.artwork ||
           entry.width !== template.width ||
           entry.height !== template.height)) ||
       (pending !== undefined &&
-        (pending.source !== template.indices ||
+        (pending.source !== template.artwork ||
           pending.width !== template.width ||
           pending.height !== template.height))
     if (changed) {
@@ -314,6 +317,9 @@ export class TemplateGpuStore {
       return { entry, status: 'complete', uploadedPixels: 0 }
     }
     if (pending === undefined) {
+      const pixels = template.artwork.indices
+      // Evicted and never uploaded: nothing to draw until the pixels are back in memory.
+      if (pixels === null) return { entry: null, status: 'pending', uploadedPixels: 0 }
       const palette = this.gl.createTexture()
       if (palette === null) return { entry: null, status: 'failed', uploadedPixels: 0 }
       pending = {
@@ -325,7 +331,8 @@ export class TemplateGpuStore {
         palette,
         width: template.width,
         height: template.height,
-        source: template.indices,
+        source: template.artwork,
+        pixels,
         lastUsed: generation,
       }
       this.pending.set(template.id, pending)

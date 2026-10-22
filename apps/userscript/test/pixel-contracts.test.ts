@@ -55,7 +55,7 @@ const template = (overrides: Partial<PlacedTemplate> = {}): PlacedTemplate => ({
   originY: 20,
   width: 3,
   height: 1,
-  indices: new Uint8Array([5, 6, 7]),
+  artwork: { indices: new Uint8Array([5, 6, 7]) },
   moved: 0,
   opaque: 3,
   tiles: new Set(),
@@ -143,19 +143,22 @@ describe('pixel accounting contracts', () => {
   })
 
   it('uses committed artwork where known and preserves template pixels through committed transparency', () => {
-    const artwork = compositeCommittedArtwork(template(), {
-      committed: [
-        {
-          x: 10,
-          y: 20,
-          width: 3,
-          height: 1,
-          pixels: new Uint8Array([9, UNPAINTED, 3]),
-          emptyIndex: UNPAINTED,
-        },
-      ],
-      draft: [],
-    })
+    const artwork = compositeCommittedArtwork(
+      { ...template(), indices: new Uint8Array([5, 6, 7]) },
+      {
+        committed: [
+          {
+            x: 10,
+            y: 20,
+            width: 3,
+            height: 1,
+            pixels: new Uint8Array([9, UNPAINTED, 3]),
+            emptyIndex: UNPAINTED,
+          },
+        ],
+        draft: [],
+      },
+    )
 
     expect(Array.from(artwork)).toEqual([9, 6, 3])
   })

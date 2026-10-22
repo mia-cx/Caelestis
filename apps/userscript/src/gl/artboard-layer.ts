@@ -745,8 +745,14 @@ class ArtboardRenderer {
     const markerScene = this.scene.advanceMarkers(templateScene.templates, selected, now)
     if (markerScene.animating) animating = true
     let comparedMarkerPixels = 0
+    // Markers compare pixels, so they cover only templates whose pixels are in memory.
+    const resident = templateScene.templates.flatMap(({ template, appearance }) => {
+      const indices = template.artwork.indices
+      return indices === null ? [] : [{ template: { ...template, indices }, appearance }]
+    })
+    const residentIds = new Set(resident.map(({ template }) => template.id))
     const staleMarkerIds = new Set(
-      templateScene.templates
+      resident
         .filter(({ template, appearance }) => {
           const held = this.markerWork.get(template.id)
           return held === undefined || !held.index.isCurrent(template, appearance)
@@ -755,7 +761,7 @@ class ArtboardRenderer {
     )
     if (this.markerPixelsDirty || this.markerDirtyRects.length > 0 || staleMarkerIds.size > 0) {
       const regions = readArtboardPixels(this.active, this.geometry)
-      for (const { template, appearance } of templateScene.templates) {
+      for (const { template, appearance } of resident) {
         const held = this.markerWork.get(template.id)
         const stale = staleMarkerIds.has(template.id)
         const rebuild =
@@ -783,7 +789,7 @@ class ArtboardRenderer {
       this.markerPixelsDirty = false
       this.markerDirtyRects.length = 0
     }
-    for (const id of this.markerWork.keys()) if (!ids.has(id)) this.markerWork.delete(id)
+    for (const id of this.markerWork.keys()) if (!residentIds.has(id)) this.markerWork.delete(id)
     const selectedLayers: Omit<RenderMarker, 'sampleRate'>[] = []
     const mismatchLayers: Omit<RenderMarker, 'sampleRate'>[] = []
     const state = getState()

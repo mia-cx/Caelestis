@@ -317,14 +317,20 @@ export type SaveResult =
   | { readonly status: 'limit' }
   | { readonly status: 'unavailable' }
 
+/** A record to save. Null indices keep the stored pixels, so an evicted template can save metadata. */
+export type TemplateSave = Omit<StoredTemplate, 'indices'> & { readonly indices: Uint8Array | null }
+
 /** Save metadata, archive and replace artwork, or replace a derived image after its history was reserved. */
 export const saveTemplate = async (
-  template: StoredTemplate,
+  template: TemplateSave,
   expectedRevision: number | null,
   archiveCurrent = false,
   replaceArtwork = false,
 ): Promise<SaveResult> => {
   const { indices, ...metadata } = template
+  if (indices === null && (expectedRevision === null || archiveCurrent || replaceArtwork)) {
+    throw new RangeError('only a metadata save may keep the stored pixels')
+  }
   return await writeVersioned(
     template.id,
     expectedRevision,
@@ -346,11 +352,12 @@ export const saveTemplate = async (
           ? current.indices
           : undefined
       const reusable =
-        !archiveCurrent &&
-        !replaceArtwork &&
-        hasCurrentPalette(current) &&
-        (isUint8Array(currentIndices) || isStoredBlob(currentIndices)) &&
-        candidateIndexPixels(current) === indices.length
+        indices === null ||
+        (!archiveCurrent &&
+          !replaceArtwork &&
+          hasCurrentPalette(current) &&
+          (isUint8Array(currentIndices) || isStoredBlob(currentIndices)) &&
+          candidateIndexPixels(current) === indices.length)
       if (reusable) {
         // Metadata-only mutations keep the already-cloned durable value. Re-wrapping a multi-MB
         // ArrayBuffer in a Blob copies it and makes every move/toggle/appearance change rewrite all
@@ -376,7 +383,7 @@ export const saveTemplate = async (
       }
     },
     true,
-    expectedRevision === null ? indices.length : null,
+    expectedRevision === null ? (indices?.length ?? null) : null,
     archiveCurrent ? 'archive' : undefined,
   )
 }
