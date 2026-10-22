@@ -39,16 +39,18 @@ import {
   MAX_TEMPLATE_NAME_LENGTH,
 } from './import.js'
 import {
+  catalogTileKeys,
   deleteTemplate,
   discardTemplate,
+  hydrateStoredTemplate,
   loadTemplate,
-  loadTemplates,
+  loadTemplateCatalog,
   type SaveResult,
+  type StoredRecord,
   type StoredTemplate,
   saveTemplate,
   saveTemplateFolders,
-  type TemplateLoadBatch,
-  type TemplateLoadFailure,
+  saveTemplateTileKeys,
 } from './personal-store.js'
 import { nodeChainVisible, serverNodeParents, serverNodesRevision } from './server-nodes.js'
 
@@ -153,10 +155,9 @@ const deletionLeases = new Map<string, number>()
 const pendingAdds = new Set<string>()
 const listeners: Array<() => void> = []
 const previewListeners: Array<() => void> = []
-const MAX_LOCAL_TEMPLATES = 64
-const MAX_LOCAL_INDEX_PIXELS = 64 * 1024 * 1024
-const MAX_RESTORE_CANDIDATES = MAX_LOCAL_TEMPLATES * 4
-const MAX_RESTORE_HYDRATED_PIXELS = MAX_LOCAL_INDEX_PIXELS * 2
+/** Pixels held in memory across every resident template, by area. Disk holds the rest. */
+const MAX_RESIDENT_PIXELS = 64 * 1024 * 1024
+const MAX_RESTORE_PASSES = 4
 let retainedIndexPixels = 0
 let pendingIndexPixels = 0
 let restoreInFlight: Promise<void> | null = null
@@ -166,31 +167,54 @@ let templateRevision = 0
 let orderedCacheRevision = -1
 let orderedCache: readonly PlacedTemplate[] = []
 
-/** @internal Pure arithmetic seam for proving concurrent aggregate-budget reservations. */
-export const indexIncreaseWithinBudget = (
-  retained: number,
-  pending: number,
-  current: number,
-  next: number,
-  limit: number,
-): number | null => {
-  const increase = Math.max(0, next - current)
-  return retained + pending + increase <= limit ? increase : null
+/** When each template was last needed, so eviction can take the least recently used first. */
+const lastUsed = new Map<string, number>()
+let useClock = 0
+const touch = (id: string): void => {
+  lastUsed.set(id, ++useClock)
 }
 
-const reserveIndexIncrease = (currentPixels: number, nextPixels: number): (() => void) | null => {
-  const increase = indexIncreaseWithinBudget(
-    retainedIndexPixels,
-    pendingIndexPixels,
-    currentPixels,
-    nextPixels,
-    MAX_LOCAL_INDEX_PIXELS,
-  )
-  if (increase === null) return null
-  pendingIndexPixels += increase
-  return () => {
-    pendingIndexPixels -= increase
+const fitsResident = (area: number): boolean =>
+  retainedIndexPixels + pendingIndexPixels + area <= MAX_RESIDENT_PIXELS
+
+/** Install or drop a template's pixels. This module owns every artwork, so it alone writes them. */
+const setPixels = (template: PlacedTemplate, indices: Uint8Array | null): void => {
+  retainedIndexPixels += (indices === null ? 0 : areaOf(template)) - residentArea(template)
+  ;(template.artwork as { indices: Uint8Array | null }).indices = indices
+}
+
+/** Templates whose pixels must stay: unsaved placements and server copies, which have no disk record. */
+const isPinned = (template: PlacedTemplate): boolean =>
+  isPendingImage(template) || isServerTemplate(template)
+
+/**
+ * Evict until `area` more pixels fit: hidden templates first, then the least recently used.
+ *
+ * Returns whether the area fits. Evicted templates stay in the catalog and reload on demand.
+ */
+const makeRoom = (area: number, keep?: string): boolean => {
+  if (fitsResident(area)) return true
+  const evictable = [...templates.values()]
+    .filter(
+      (template) =>
+        template.id !== keep && template.artwork.indices !== null && !isPinned(template),
+    )
+    .sort(
+      (a, b) =>
+        Number(isTemplateVisible(a)) - Number(isTemplateVisible(b)) ||
+        (lastUsed.get(a.id) ?? 0) - (lastUsed.get(b.id) ?? 0),
+    )
+  let evicted = 0
+  for (const template of evictable) {
+    if (fitsResident(area)) break
+    setPixels(template, null)
+    evicted++
   }
+  if (evicted > 0) {
+    log('install', `evicted ${evicted} templates from memory`)
+    notify()
+  }
+  return fitsResident(area)
 }
 
 export const onLocalReconciliation = (id: string, observer: () => void): (() => void) => {
@@ -396,11 +420,73 @@ export const templateIdsInLocalFolder = (folderId: string): readonly string[] =>
     .filter((template) => !isServerTemplate(template) && template.folderId === folderId)
     .map((template) => template.id)
 
-/** A template's pixels, for work that needs them even when the template is not resident. */
-export const templatePixels = async (template: PlacedTemplate): Promise<Uint8Array> => {
+const pixelLoads = new WeakMap<TemplateArtwork, Promise<Uint8Array>>()
+
+/** Read evicted pixels back from disk, keeping them if `evict` or free memory allows. */
+const loadPixels = async (template: PlacedTemplate, evict: boolean): Promise<Uint8Array> => {
+  if (isServerTemplate(template)) throw new Error('This server template has not loaded yet.')
+  const loaded = await loadTemplate(template.id, MAX_RESIDENT_PIXELS)
+  if (loaded.status === 'unavailable') {
+    throw new Error('Could not read this template from browser storage. Try again.')
+  }
+  const current = templates.get(template.id)
+  const stored = loaded.status === 'loaded' ? storedOrNull(loaded.template) : null
+  if (stored !== null && current?.artwork === template.artwork) {
+    if (stored.revision === current.revision) {
+      const area = areaOf(current)
+      if (evict ? makeRoom(area, current.id) : fitsResident(area)) {
+        setPixels(current, stored.indices)
+        notify()
+      }
+      return stored.indices
+    }
+  }
+  // Disk no longer holds what this tab shows: another tab or Wplace changed it. Take the winner.
+  await reconcileConflict(template.id)
+  throw new Error('That template changed while it was loading. Try again.')
+}
+
+const residentPixels = async (template: PlacedTemplate, evict: boolean): Promise<Uint8Array> => {
+  touch(template.id)
   const indices = template.artwork.indices
   if (indices !== null) return indices
-  throw new Error('template pixels are not in memory')
+  const running = pixelLoads.get(template.artwork)
+  if (running !== undefined) return await running
+  const load = loadPixels(template, evict)
+  pixelLoads.set(template.artwork, load)
+  try {
+    return await load
+  } finally {
+    if (pixelLoads.get(template.artwork) === load) pixelLoads.delete(template.artwork)
+  }
+}
+
+/**
+ * A template's pixels, read back from disk when it was evicted.
+ *
+ * Loaded pixels become resident, evicting the least recently used templates to make room. Throws
+ * when the template changed while loading or can no longer be read.
+ */
+export const templatePixels = async (template: PlacedTemplate): Promise<Uint8Array> =>
+  await residentPixels(template, true)
+
+/**
+ * Load evicted templates while memory allows, visible ones first, without evicting anything.
+ *
+ * Runs after restore so a catalog that fits in memory behaves as if nothing were ever evicted.
+ */
+const fillResidentSet = async (): Promise<void> => {
+  const waiting = orderedTemplates()
+    .filter((template) => template.artwork.indices === null)
+    .sort((a, b) => Number(isTemplateVisible(b)) - Number(isTemplateVisible(a)))
+  for (const template of waiting) {
+    if (!isCurrentTemplate(template) || !fitsResident(areaOf(template))) continue
+    try {
+      await residentPixels(template, false)
+    } catch (error) {
+      warn('install', `could not load ${template.name}`, String(error))
+    }
+  }
 }
 
 /** Indexed template pixels currently owned by the catalog. */
@@ -644,16 +730,6 @@ const validatePlacement = (
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
-const isTemplateLoadFailure = (value: unknown): value is TemplateLoadFailure =>
-  isRecord(value) &&
-  !('indices' in value) &&
-  value.kind === 'template-hydration-failure' &&
-  (value.status === 'invalid' || value.status === 'unavailable' || value.status === 'skipped') &&
-  (typeof value.id === 'string' || 'key' in value) &&
-  Number.isSafeInteger(value.revision) &&
-  Number.isSafeInteger(value.indexPixels) &&
-  (value.indexPixels as number) >= 0
-
 const isAppearance = (value: unknown): value is Appearance => {
   if (!isRecord(value)) return false
   const {
@@ -706,7 +782,10 @@ const isAppearance = (value: unknown): value is Appearance => {
   )
 }
 
-const normaliseStoredTemplate = (value: unknown): StoredTemplate => {
+type StoredMetadata = Omit<StoredTemplate, 'indices'>
+
+/** Validate a stored record's metadata; its pixels stay wherever they are. */
+const normaliseStoredMetadata = (value: unknown): StoredMetadata => {
   if (!isRecord(value)) throw new RangeError('template record is not an object')
   const {
     id,
@@ -717,7 +796,6 @@ const normaliseStoredTemplate = (value: unknown): StoredTemplate => {
     originY,
     width,
     height,
-    indices,
     moved,
     opaque,
     visible,
@@ -743,14 +821,13 @@ const normaliseStoredTemplate = (value: unknown): StoredTemplate => {
   if (sortOrder !== undefined && !Number.isSafeInteger(sortOrder)) {
     throw new RangeError('template sort order is invalid')
   }
-  if (!isUint8Array(indices)) throw new RangeError('template pixels are invalid')
   if (
     !Number.isSafeInteger(moved) ||
     !Number.isSafeInteger(opaque) ||
     (moved as number) < 0 ||
     ((opaque as number) <= 0 && !((opaque as number) === 0 && native !== undefined)) ||
     (moved as number) > (opaque as number) ||
-    (opaque as number) > indices.length
+    (opaque as number) > Number(width) * Number(height)
   ) {
     throw new RangeError('template pixel counts are invalid')
   }
@@ -801,7 +878,7 @@ const normaliseStoredTemplate = (value: unknown): StoredTemplate => {
   // The artwork is still good; only the inputs behind it are unusable.
   if (rawAuthoring !== undefined && authoring === null)
     warn('install', `dropping unreadable source and recipe of ${name}`)
-  const normalised: StoredTemplate = {
+  const normalised: StoredMetadata = {
     ...(native === undefined ? {} : { native: native as NonNullable<StoredTemplate['native']> }),
     id,
     name,
@@ -810,7 +887,6 @@ const normaliseStoredTemplate = (value: unknown): StoredTemplate => {
     originY: originY as number,
     width: width as number,
     height: height as number,
-    indices,
     moved: moved as number,
     opaque: opaque as number,
     visible,
@@ -836,6 +912,24 @@ const normaliseStoredTemplate = (value: unknown): StoredTemplate => {
   }
   validatePlacement(normalised)
   return normalised
+}
+
+const normaliseStoredTemplate = (value: unknown): StoredTemplate => {
+  const metadata = normaliseStoredMetadata(value)
+  const indices = isRecord(value) ? value.indices : undefined
+  if (!isUint8Array(indices) || indices.length !== areaOf(metadata)) {
+    throw new RangeError('template pixels are invalid')
+  }
+  return { ...metadata, indices }
+}
+
+/** A loaded record, or null when it is invalid; reconciliation then discards it with a warning. */
+const storedOrNull = (value: unknown): StoredTemplate | null => {
+  try {
+    return normaliseStoredTemplate(value)
+  } catch {
+    return null
+  }
 }
 
 /** Validate indexed pixels and retain only the painted world-tile keys downstream work needs. */
@@ -958,8 +1052,14 @@ const savePlaced = async (
 const isPendingImage = (template: PlacedTemplate): boolean =>
   template.source === 'image' && !template.everPlaced
 
-const placedFromStored = (stored: StoredTemplate, tiles: ReadonlySet<string>): PlacedTemplate => ({
-  ...withArtwork(stored),
+/** A catalog entry for a stored record. The caller accounts for any pixels it installs. */
+const placedFromStored = (
+  stored: StoredMetadata,
+  tiles: ReadonlySet<string>,
+  indices: Uint8Array | null,
+): PlacedTemplate => ({
+  ...stored,
+  artwork: { indices },
   surface: stored.surface ?? WORLD_TEMPLATE_SURFACE,
   appearance: stored.appearance ?? null,
   owns: stored.owns ?? (stored.appearance != null ? APPEARANCE_GROUPS : []),
@@ -982,7 +1082,7 @@ const reconcileConflictExclusive = async (id: string): Promise<void> => {
   for (let attempt = 0; attempt < MAX_RECONCILIATION_ATTEMPTS; attempt++) {
     const existing = templates.get(id)
     if (existing === undefined) return
-    const loaded = await loadTemplate(id, MAX_LOCAL_INDEX_PIXELS)
+    const loaded = await loadTemplate(id, MAX_RESIDENT_PIXELS)
     if (loaded.status === 'unavailable') return
     if (loaded.status === 'missing') {
       removeStaleLocalState(existing)
@@ -1021,41 +1121,37 @@ const reconcileConflictExclusive = async (id: string): Promise<void> => {
       )
       return
     }
-    const releaseIndexReservation = reserveIndexIncrease(
-      residentArea(existing),
-      winner.indices.length,
-    )
-    if (releaseIndexReservation === null) {
-      warn('install', `could not reconcile stale local template ${existing.name}: pixel budget`)
-      return
-    }
+    // Unchanged on disk: keep this artwork, so progress and textures keyed on it survive.
+    if (winner.revision === existing.revision) return
+    let tiles: ReadonlySet<string>
     try {
-      let tiles: ReadonlySet<string>
-      try {
-        tiles = await paintedTileKeys(winner)
-      } catch (error) {
-        const deleted = await discardTemplate(id, winner.revision)
-        if (deleted.status === 'saved') {
-          removeStaleLocalState(existing)
-          return
-        }
-        if (deleted.status === 'conflict') continue
-        warn(
-          'install',
-          `could not remove invalid conflict winner for ${existing.name}`,
-          String(error),
-        )
+      tiles = await paintedTileKeys(winner)
+    } catch (error) {
+      const deleted = await discardTemplate(id, winner.revision)
+      if (deleted.status === 'saved') {
+        removeStaleLocalState(existing)
         return
       }
-      previewOrigins.delete(id)
-      templates.set(id, placedFromStored(winner, tiles))
-      retainedIndexPixels += winner.indices.length - residentArea(existing)
-      noteReconciliation(id)
-      notify()
+      if (deleted.status === 'conflict') continue
+      warn(
+        'install',
+        `could not remove invalid conflict winner for ${existing.name}`,
+        String(error),
+      )
       return
-    } finally {
-      releaseIndexReservation()
     }
+    if (templates.get(id) !== existing) continue
+    previewOrigins.delete(id)
+    // The winner stays in memory only where the stale copy was, or where it fits for free.
+    const wasResident = existing.artwork.indices !== null
+    setPixels(existing, null)
+    const area = winner.indices.length
+    const resident = wasResident ? makeRoom(area, id) : fitsResident(area)
+    templates.set(id, placedFromStored(winner, tiles, resident ? winner.indices : null))
+    if (resident) retainedIndexPixels += area
+    noteReconciliation(id)
+    notify()
+    return
   }
   warn('install', `could not reconcile ${id}: conflict retry limit reached`)
 }
@@ -1087,15 +1183,13 @@ export const hasRoomForServerTemplate = (id: string, nextPixels: number): boolea
   if (!Number.isSafeInteger(nextPixels) || nextPixels < 0) return false
   const existing = templates.get(id)
   if (existing !== undefined && !isServerTemplate(existing)) return false
-  return (
-    indexIncreaseWithinBudget(
-      retainedIndexPixels,
-      pendingIndexPixels,
-      existing === undefined ? 0 : residentArea(existing),
-      nextPixels,
-      MAX_LOCAL_INDEX_PIXELS,
-    ) !== null
-  )
+  // Counting what eviction could free, without evicting anything for a download that may not come.
+  let evictable = 0
+  for (const template of templates.values()) {
+    if (template.id !== id && !isPinned(template)) evictable += residentArea(template)
+  }
+  const prior = existing === undefined ? 0 : residentArea(existing)
+  return fitsResident(nextPixels - prior - evictable)
 }
 
 /**
@@ -1136,7 +1230,7 @@ export const putServerTemplate = async (
     if (!isCurrent()) return false
     const priorPixels = existing === undefined ? 0 : residentArea(existing)
     const pixelIncrease = template.indices.length - priorPixels
-    if (retainedIndexPixels + pendingIndexPixels + pixelIncrease > MAX_LOCAL_INDEX_PIXELS) {
+    if (!makeRoom(pixelIncrease, template.id)) {
       throw new RangeError('server templates exceed the local rendering budget')
     }
     templates.set(template.id, {
@@ -1260,16 +1354,11 @@ export const addLocalTemplate = async (
   if (templates.has(template.id) || pendingAdds.has(template.id)) {
     throw new RangeError('local template id already exists')
   }
-  if (
-    [...templates.values()].filter((candidate) => !isServerTemplate(candidate)).length +
-      pendingAdds.size >=
-    MAX_LOCAL_TEMPLATES
-  ) {
-    throw new RangeError('too many local templates')
+  // A new template is being placed, so it needs its pixels in memory.
+  if (!makeRoom(template.indices.length)) {
+    throw new RangeError('templates in memory exceed the pixel budget')
   }
-  if (retainedIndexPixels + pendingIndexPixels + template.indices.length > MAX_LOCAL_INDEX_PIXELS) {
-    throw new RangeError('local templates exceed the persisted pixel budget')
-  }
+  touch(template.id)
   pendingAdds.add(template.id)
   pendingIndexPixels += template.indices.length
   try {
@@ -1357,20 +1446,11 @@ export const copyAsLocalTemplate = async (
     ) {
       throw new RangeError('local template metadata or id is unavailable')
     }
-    if (
-      [...templates.values()].filter((candidate) => !isServerTemplate(candidate)).length +
-        pendingAdds.size >=
-      MAX_LOCAL_TEMPLATES
-    ) {
-      throw new RangeError('too many local templates')
-    }
     const source = templates.get(template.id)
     if (source !== template) throw new Error('server template changed while it was being copied')
-    if (
-      retainedIndexPixels - residentArea(source) + pendingIndexPixels + imported.indices.length >
-      MAX_LOCAL_INDEX_PIXELS
-    ) {
-      throw new RangeError('local templates exceed the persisted pixel budget')
+    // The copy takes over the source's pixels, so only pixels the source did not hold need room.
+    if (!makeRoom(imported.indices.length - residentArea(source), template.id)) {
+      throw new RangeError('templates in memory exceed the pixel budget')
     }
 
     pendingAdds.add(id)
@@ -1417,190 +1497,157 @@ export const copyAsLocalTemplate = async (
   throw new Error('local template copy could not be saved')
 }
 
-/** Rehydrate on startup, before the first frame if possible. */
+/** Retry restore once a blocked IndexedDB open settles. */
+const scheduleRestoreRecovery = (recovery: Promise<void> | null): void => {
+  if (recovery === null || scheduledRestoreRecovery === recovery) return
+  scheduledRestoreRecovery = recovery
+  void recovery.then(() => {
+    if (scheduledRestoreRecovery !== recovery) return
+    scheduledRestoreRecovery = null
+    const activeRestore = restoreInFlight
+    if (activeRestore === null) {
+      void restoreLocalTemplates()
+      return
+    }
+    void activeRestore.then(
+      () => void restoreLocalTemplates(),
+      () => void restoreLocalTemplates(),
+    )
+  })
+}
+
+type RestoreOutcome = 'restored' | 'skipped' | 'retry'
+
+/** Discard a record restore cannot use. A conflict means another tab rewrote it, so look again. */
+const discardRecord = async (
+  key: IDBValidKey,
+  revision: number,
+  seen: Map<string, number>,
+  error?: unknown,
+): Promise<RestoreOutcome> => {
+  warn('install', `discarded invalid local template ${String(key)}`, String(error ?? 'invalid'))
+  const deleted = await discardTemplate(key, revision)
+  if (deleted.status !== 'conflict' || typeof key !== 'string') return 'skipped'
+  seen.delete(key)
+  return 'retry'
+}
+
+/**
+ * Add one stored record to the catalog.
+ *
+ * A record that carries its painted tiles joins without reading its pixels. One written before
+ * tiles were stored is read once to count them, and keeps its pixels if they fit.
+ */
+const restoreRecord = async (
+  record: StoredRecord,
+  seen: Map<string, number>,
+): Promise<RestoreOutcome> => {
+  const id = record.id as string
+  const recordRevision = Number.isSafeInteger(record.revision) ? Number(record.revision) : 0
+  seen.set(id, recordRevision)
+  const tileKeys = catalogTileKeys(record)
+  let source: unknown = record
+  let indices: Uint8Array | null = null
+  if (tileKeys === null) {
+    const loaded = await hydrateStoredTemplate(record, MAX_RESIDENT_PIXELS)
+    // Unreadable now is environmental, and must never destroy data.
+    if (loaded.status === 'unavailable') {
+      warn('install', `could not read local template ${id}`)
+      return 'skipped'
+    }
+    const stored = loaded.status === 'loaded' ? storedOrNull(loaded.template) : null
+    if (stored === null) return await discardRecord(id, recordRevision, seen)
+    source = stored
+    indices = stored.indices
+  }
+  let template: StoredMetadata
+  try {
+    // Earlier builds could persist 0x0, non-finite, out-of-world, or fully transparent records.
+    // Validate each independently so one bad legacy entry cannot prevent every good restore.
+    template = normaliseStoredMetadata(source)
+  } catch (error) {
+    return await discardRecord(id, recordRevision, seen, error)
+  }
+  if (
+    template.folderId != null &&
+    !getState().localFolders.some(
+      (folder) =>
+        folder.id === template.folderId &&
+        sameTemplateSurface(
+          folder.surface ?? WORLD_TEMPLATE_SURFACE,
+          template.surface ?? WORLD_TEMPLATE_SURFACE,
+        ),
+    )
+  ) {
+    // Folder state and template records live in different stores. Another tab can delete the
+    // folder while this record's assignment commits, so no process-local lease can make the two
+    // writes atomic. A missing parent has one deterministic recovery: top-level Local, which is
+    // also where deleting a folder promises to move its contents.
+    const repaired = await saveTemplateFolders([
+      { id, expectedRevision: template.revision, folderId: null },
+    ])
+    if (repaired.status === 'conflict') {
+      seen.delete(id)
+      return 'retry'
+    }
+    const revision =
+      repaired.status === 'saved'
+        ? (repaired.revisions.get(id) ?? template.revision)
+        : template.revision
+    if (repaired.status === 'unavailable') {
+      warn('install', `could not durably repair missing folder for ${template.name}`)
+    }
+    template = { ...template, folderId: null, revision }
+    seen.set(id, revision)
+  }
+  let tiles: ReadonlySet<string> = new Set(tileKeys ?? [])
+  if (indices !== null) {
+    try {
+      tiles = await paintedTileKeys({ ...template, indices })
+    } catch (error) {
+      return await discardRecord(id, template.revision, seen, error)
+    }
+    void saveTemplateTileKeys(id, template.revision, [...tiles])
+  }
+  if (templates.has(id) || pendingAdds.has(id)) {
+    warn('install', `could not restore ${template.name}: local template id already exists`)
+    return 'skipped'
+  }
+  const resident = indices !== null && fitsResident(areaOf(template))
+  templates.set(id, placedFromStored(template, tiles, resident ? indices : null))
+  if (resident) retainedIndexPixels += areaOf(template)
+  return 'restored'
+}
+
+/**
+ * Rebuild the catalog on startup from every stored record, reading pixels only where needed.
+ *
+ * Templates join evicted; {@link fillResidentSet} then loads what fits, visible ones first.
+ */
 const restoreStoredTemplates = async (): Promise<void> => {
   let restored = 0
   const seenRevisions = new Map<string, number>()
-  let retryAfterGap = false
-  let restorePasses = 0
-  let remainingCandidates = MAX_RESTORE_CANDIDATES
-  let remainingHydratedPixels = MAX_RESTORE_HYDRATED_PIXELS
+  let retry = false
+  let passes = 0
   do {
-    restorePasses++
-    retryAfterGap = false
-    const remainingTemplates =
-      MAX_LOCAL_TEMPLATES -
-      [...templates.values()].filter((candidate) => !isServerTemplate(candidate)).length -
-      pendingAdds.size
-    const remainingPixels = MAX_LOCAL_INDEX_PIXELS - retainedIndexPixels - pendingIndexPixels
-    if (
-      remainingTemplates <= 0 ||
-      remainingPixels <= 0 ||
-      remainingCandidates <= 0 ||
-      remainingHydratedPixels <= 0
-    )
-      break
-    const stored = await loadTemplates(
-      Math.min(remainingTemplates, remainingCandidates),
-      Math.min(remainingPixels, remainingHydratedPixels),
-      seenRevisions,
-    )
-    const retryAfterUnavailable = stored.retryAfterUnavailable
-    if (
-      retryAfterUnavailable !== null &&
-      retryAfterUnavailable !== undefined &&
-      scheduledRestoreRecovery !== retryAfterUnavailable
-    ) {
-      scheduledRestoreRecovery = retryAfterUnavailable
-      void retryAfterUnavailable.then(() => {
-        if (scheduledRestoreRecovery !== retryAfterUnavailable) return
-        scheduledRestoreRecovery = null
-        const activeRestore = restoreInFlight
-        if (activeRestore === null) {
-          void restoreLocalTemplates()
-          return
-        }
-        void activeRestore.then(
-          () => void restoreLocalTemplates(),
-          () => void restoreLocalTemplates(),
-        )
-      })
+    passes++
+    retry = false
+    const catalog = await loadTemplateCatalog(seenRevisions)
+    scheduleRestoreRecovery(catalog.retryAfterUnavailable)
+    for (const failure of catalog.invalid) {
+      const key = 'id' in failure ? failure.id : failure.key
+      if ('id' in failure) seenRevisions.set(failure.id, failure.revision)
+      if ((await discardRecord(key, failure.revision, seenRevisions)) === 'retry') retry = true
     }
-    const metrics = stored as Partial<TemplateLoadBatch>
-    const batchMetricsAvailable =
-      Number.isSafeInteger(metrics.inspected) &&
-      Number(metrics.inspected) >= 0 &&
-      Number.isSafeInteger(metrics.indexPixels) &&
-      Number(metrics.indexPixels) >= 0
-    if (batchMetricsAvailable) {
-      remainingCandidates = Math.max(0, remainingCandidates - Number(metrics.inspected))
-      remainingHydratedPixels = Math.max(0, remainingHydratedPixels - Number(metrics.indexPixels))
+    for (const record of catalog.records) {
+      const outcome = await restoreRecord(record, seenRevisions)
+      if (outcome === 'restored') restored++
+      if (outcome === 'retry') retry = true
     }
-    for (const rawTemplate of stored) {
-      const hydratedPixels = isTemplateLoadFailure(rawTemplate)
-        ? rawTemplate.indexPixels
-        : isRecord(rawTemplate) && isUint8Array(rawTemplate.indices)
-          ? rawTemplate.indices.length
-          : 0
-      if (!batchMetricsAvailable) {
-        if (remainingCandidates <= 0 || hydratedPixels > remainingHydratedPixels) break
-        remainingCandidates--
-        remainingHydratedPixels -= hydratedPixels
-      }
-      if (isTemplateLoadFailure(rawTemplate)) {
-        if ('id' in rawTemplate) seenRevisions.set(rawTemplate.id, rawTemplate.revision)
-        if (rawTemplate.status === 'invalid') {
-          const key = 'id' in rawTemplate ? rawTemplate.id : rawTemplate.key
-          const deleted = await discardTemplate(key, rawTemplate.revision)
-          if (deleted.status === 'conflict' && 'id' in rawTemplate) {
-            seenRevisions.delete(rawTemplate.id)
-          }
-        }
-        retryAfterGap = true
-        continue
-      }
-      if (isRecord(rawTemplate) && typeof rawTemplate.id === 'string') {
-        const revision =
-          Number.isSafeInteger(rawTemplate.revision) && Number(rawTemplate.revision) >= 0
-            ? Number(rawTemplate.revision)
-            : 0
-        seenRevisions.set(rawTemplate.id, revision)
-      }
-      let reserved: StoredTemplate | null = null
-      let validated: StoredTemplate | null = null
-      try {
-        // Earlier builds could persist 0x0, non-finite, out-of-world, or fully transparent records.
-        // Validate each independently so one bad legacy entry cannot prevent every good restore.
-        let template = normaliseStoredTemplate(rawTemplate)
-        if (
-          template.folderId !== null &&
-          !getState().localFolders.some(
-            (folder) =>
-              folder.id === template.folderId &&
-              sameTemplateSurface(
-                folder.surface ?? WORLD_TEMPLATE_SURFACE,
-                template.surface ?? WORLD_TEMPLATE_SURFACE,
-              ),
-          )
-        ) {
-          // Folder state and template records live in different stores. Another tab can delete the
-          // folder while this record's assignment commits, so no process-local lease can make the two
-          // writes atomic. A missing parent has one deterministic recovery: top-level Local, which is
-          // also where deleting a folder promises to move its contents.
-          const repaired = await saveTemplateFolders([
-            { id: template.id, expectedRevision: template.revision, folderId: null },
-          ])
-          if (repaired.status === 'conflict') {
-            seenRevisions.delete(template.id)
-            retryAfterGap = true
-            continue
-          }
-          const revision =
-            repaired.status === 'saved'
-              ? (repaired.revisions.get(template.id) ?? template.revision)
-              : template.revision
-          if (repaired.status === 'unavailable') {
-            warn('install', `could not durably repair missing folder for ${template.name}`)
-          }
-          template = { ...template, folderId: null, revision }
-          seenRevisions.set(template.id, revision)
-        }
-        if (templates.has(template.id) || pendingAdds.has(template.id)) {
-          warn('install', `could not restore ${template.name}: local template id already exists`)
-          continue
-        }
-        if (
-          [...templates.values()].filter((candidate) => !isServerTemplate(candidate)).length +
-            pendingAdds.size >=
-            MAX_LOCAL_TEMPLATES ||
-          retainedIndexPixels + pendingIndexPixels + template.indices.length >
-            MAX_LOCAL_INDEX_PIXELS
-        ) {
-          warn('install', `could not restore ${template.name}: persisted pixel budget exhausted`)
-          continue
-        }
-        const tiles = await paintedTileKeys(template)
-        if (template.source === 'image' && !template.everPlaced) {
-          throw new RangeError('unfinished image placement')
-        }
-        validated = template
-        // Reserve the ID, cardinality, and index bytes before slicing yields. This also keeps
-        // repeated restore calls and any already-running mutations inside the aggregate limits.
-        pendingAdds.add(template.id)
-        pendingIndexPixels += template.indices.length
-        reserved = template
-        templates.set(template.id, placedFromStored(template, tiles))
-        retainedIndexPixels += template.indices.length
-        restored++
-      } catch (error) {
-        // Validation failures are permanently bad records. Rendering failures are environmental
-        // (unsupported canvas, allocation pressure, decoder rejection) and must never destroy data.
-        if (validated !== null) {
-          warn('install', `could not restore local template ${validated.name}`, String(error))
-          continue
-        }
-        const id =
-          isRecord(rawTemplate) && typeof rawTemplate.id === 'string' ? rawTemplate.id : null
-        const revision =
-          isRecord(rawTemplate) && Number.isSafeInteger(rawTemplate.revision)
-            ? (rawTemplate.revision as number)
-            : 0
-        if (id !== null) {
-          const deleted = await discardTemplate(id, revision)
-          if (deleted.status === 'conflict') seenRevisions.delete(id)
-          retryAfterGap = true
-        }
-        warn('install', `discarded invalid local template ${id ?? '(unknown)'}`, String(error))
-      } finally {
-        if (reserved !== null) {
-          pendingAdds.delete(reserved.id)
-          pendingIndexPixels -= reserved.indices.length
-        }
-      }
-    }
-  } while (retryAfterGap && restorePasses < MAX_LOCAL_TEMPLATES)
+  } while (retry && passes < MAX_RESTORE_PASSES)
   if (restored > 0) log('install', `restored ${restored} local templates`)
   notify()
+  void fillResidentSet()
 }
 
 export const restoreLocalTemplates = (): Promise<void> => {

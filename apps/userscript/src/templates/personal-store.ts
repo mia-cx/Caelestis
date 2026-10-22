@@ -16,11 +16,19 @@ import { connectLocalTagSync, synchronizeLocalTemplateTags } from './tags.js'
 
 export type {
   SaveResult,
+  StoredRecord,
   StoredTemplate,
-  TemplateLoadBatch,
+  TemplateCatalog,
   TemplateLoadFailure,
 } from './persist.js'
-export { deleteTemplate as discardTemplate, saveTemplateFolders } from './persist.js'
+export {
+  catalogTileKeys,
+  deleteTemplate as discardTemplate,
+  hydrateStoredTemplate,
+  loadTemplateCatalog,
+  saveTemplateFolders,
+  saveTemplateTileKeys,
+} from './persist.js'
 
 let native: NativeTemplates | null = null
 let onMutation: (() => void) | undefined
@@ -174,12 +182,11 @@ export const synchronizePersonalTemplates = (): Promise<void> =>
   exclusive(async () => {
     if (native === null) return
     const api = native
-    const rows = await disk.loadTemplates()
     const known = new Map<string, StoredTemplate>()
-    for (const value of rows) {
-      if (typeof value !== 'object' || value === null || !('indices' in value)) continue
-      const template = value as StoredTemplate
-      if (!isWorld(template)) continue
+    // One record at a time, so syncing never holds more than one template's pixels.
+    for (const localId of await disk.loadTemplateIds()) {
+      const template = loadedTemplate(await disk.loadTemplate(localId))
+      if (template === null || !isWorld(template)) continue
       if (template.native !== undefined) known.set(template.native.id, template)
       try {
         const current = await synchronizeOne(api, template)
@@ -227,8 +234,6 @@ export const loadTemplate = async (
     }
   })
 }
-
-export const loadTemplates = disk.loadTemplates
 
 /** Commit supported personal edits through Wplace, then retain the derived pixels and Caelestis metadata. */
 export const saveTemplate = async (

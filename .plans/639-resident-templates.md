@@ -27,7 +27,7 @@ Decided with Mia (2026-10-22):
 - [x] Artwork token: replace `PlacedTemplate.indices` with a stable `artwork` whose pixels may be
       null; caches key on the token.
 - [x] Persistence: drop disk caps, store painted tile keys, metadata-only saves keep stored pixels.
-- [ ] Store: resident budget with LRU eviction, on-demand reload for Local templates, restore
+- [x] Store: resident budget with LRU eviction, on-demand reload for Local templates, restore
       catalog metadata for every record.
 - [ ] Viewport residency: the renderer reports its view; in-view visible templates load.
 - [ ] Server templates: IndexedDB pixel cache with re-download fallback; no budget refusal.
@@ -42,3 +42,8 @@ Decided with Mia (2026-10-22):
   `artwork.indices`. Mismatch caches, colour totals and GPU textures key on the artwork, so they
   survive eviction; GPU entries no longer hold a CPU copy after upload. `saveTemplate` takes null
   indices for metadata-only saves. Validation: typecheck clean, 254/254 tests.
+- TODO 3: `makeRoom` evicts hidden first, then least recently used; pending images and server
+  copies are pinned until TODO 5. Restore reads the catalog without pixels (`loadTemplateCatalog`),
+  hydrates only records lacking `tileKeys` (writing them back), then `fillResidentSet` loads what
+  fits without evicting. Reconcile keeps the artwork when the revision is unchanged. Native sync
+  walks records one at a time. Validation: typecheck clean, 254/254 tests.
