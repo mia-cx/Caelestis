@@ -72,8 +72,10 @@ const project = async (
     previous === null ||
     (previous.native?.status === 'linked' && previous.native.opacity !== snapshot.template.opacity)
   const owns = previous?.owns ?? (previous?.appearance != null ? APPEARANCE_GROUPS : [])
+  // Wplace may have moved or redrawn it, so the painted tiles are recounted on restore.
+  const { tileKeys: _staleTiles, ...kept } = previous ?? {}
   const template: StoredTemplate = {
-    ...previous,
+    ...kept,
     ...pixels,
     id: previous?.id ?? pixels.id,
     // An existing import keeps its source attribution and quantization report.

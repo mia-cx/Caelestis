@@ -919,11 +919,14 @@ const persist = async (placed: PlacedTemplate): Promise<SaveResult> => {
       ? { status: 'saved', revision: placed.revision }
       : { status: 'limit' }
   }
-  const { tiles: _tiles, artwork, ...rest } = placed
+  const { tiles, artwork, ...rest } = placed
   // A new record has nothing stored yet, so its pixels are always the ones just imported.
   const indices = artwork.indices
   if (indices === null) throw new RangeError('a new template has no pixels in memory')
-  return await writeInOrder(placed.id, async () => await saveTemplate({ ...rest, indices }, null))
+  return await writeInOrder(
+    placed.id,
+    async () => await saveTemplate({ ...rest, tileKeys: [...tiles], indices }, null),
+  )
 }
 
 const savePlaced = async (
@@ -937,9 +940,14 @@ const savePlaced = async (
       : { status: 'limit' }
   }
   // A metadata change on a stored record keeps its pixels, so it never needs them in memory.
-  const { tiles: _tiles, artwork, ...rest } = placed
+  const { tiles, artwork, ...rest } = placed
   return await saveTemplate(
-    { ...rest, visible, indices: expectedRevision === null ? artwork.indices : null },
+    {
+      ...rest,
+      visible,
+      tileKeys: [...tiles],
+      indices: expectedRevision === null ? artwork.indices : null,
+    },
     expectedRevision,
   )
 }
@@ -1946,7 +1954,7 @@ export const replaceLocalArtwork = async (
     }
     const tiles = await paintedTileKeys(next)
     checkCurrent()
-    const result = await saveTemplate(next, expected.revision, true)
+    const result = await saveTemplate({ ...next, tileKeys: [...tiles] }, expected.revision, true)
     if (result.status === 'limit') {
       throw new Error(
         'Local version history is full. Remove an unused local template to free its history, then try again.',

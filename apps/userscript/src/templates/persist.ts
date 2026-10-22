@@ -44,8 +44,6 @@ const STORE = 'local-templates'
 // Shared with server-cache.ts: one database, one version, both stores created in either upgrade.
 const VERSION = 6
 const VERSIONS_STORE = 'local-template-versions'
-const MAX_PERSISTED_TEMPLATES = 64
-const MAX_PERSISTED_INDEX_PIXELS = 64 * 1024 * 1024
 const MAX_ARCHIVED_VERSIONS = 256
 const MAX_ARCHIVED_INDEX_PIXELS = 64 * 1024 * 1024
 let blockedOpenRequest: IDBOpenDBRequest | null = null
@@ -99,6 +97,11 @@ export interface StoredTemplate extends ImportedTemplate {
   readonly owns?: readonly AppearanceGroup[]
   /** Which Local folder this is in. Absent means the top level, as it did before folders existed. */
   readonly folderId?: string | null
+  /**
+   * Painted world tiles (`x/y`) at this placement, so a template can join the catalog without its
+   * pixels in memory. Absent on records written before eviction, which restore by reading them.
+   */
+  readonly tileKeys?: readonly string[]
 }
 
 const open = (): Promise<IDBDatabase> => {
@@ -196,7 +199,6 @@ const writeVersioned = async (
     transaction: IDBTransaction,
   ) => void,
   incrementRevision = true,
-  creationPixels: number | null = null,
   history?: 'archive' | 'delete',
 ): Promise<SaveResult> => {
   try {
@@ -258,42 +260,7 @@ const writeVersioned = async (
               reject(cursorRequest.error ?? new Error('indexedDB history cursor failed'))
             return
           }
-          if (expectedRevision !== null || creationPixels === null) {
-            commit()
-            return
-          }
-          // Read-write transactions on one object store are serialized across every connection.
-          // Scanning and inserting inside this transaction makes the aggregate limits cross-tab
-          // atomic without a second ledger that could drift from the records it accounts for.
-          let records = 0
-          let pixels = 0
-          const cursorRequest = templates.openCursor()
-          cursorRequest.onsuccess = () => {
-            const cursor = cursorRequest.result
-            if (cursor === null) {
-              if (
-                records < MAX_PERSISTED_TEMPLATES &&
-                pixels + creationPixels <= MAX_PERSISTED_INDEX_PIXELS
-              ) {
-                commit()
-              } else {
-                result = { status: 'limit' }
-              }
-              return
-            }
-            records++
-            pixels = boundedPixelSum(pixels, candidateIndexPixels(cursor.value))
-            if (
-              records >= MAX_PERSISTED_TEMPLATES ||
-              pixels + creationPixels > MAX_PERSISTED_INDEX_PIXELS
-            ) {
-              result = { status: 'limit' }
-              return
-            }
-            cursor.continue()
-          }
-          cursorRequest.onerror = () =>
-            reject(cursorRequest.error ?? new Error('indexedDB cursor failed'))
+          commit()
         }
         request.onerror = () => reject(request.error ?? new Error('indexedDB request failed'))
         transaction.oncomplete = () => resolve(result)
@@ -383,7 +350,6 @@ export const saveTemplate = async (
       }
     },
     true,
-    expectedRevision === null ? (indices?.length ?? null) : null,
     archiveCurrent ? 'archive' : undefined,
   )
 }
@@ -496,7 +462,6 @@ export const deleteTemplate = async (
       // expected revision, so deleted IDs need no permanent side-store entry.
     },
     false,
-    null,
     'delete',
   )
 

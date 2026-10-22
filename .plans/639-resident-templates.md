@@ -26,7 +26,7 @@ Decided with Mia (2026-10-22):
 ## TODOs
 - [x] Artwork token: replace `PlacedTemplate.indices` with a stable `artwork` whose pixels may be
       null; caches key on the token.
-- [ ] Persistence: drop disk caps, store painted tile keys, metadata-only saves keep stored pixels.
+- [x] Persistence: drop disk caps, store painted tile keys, metadata-only saves keep stored pixels.
 - [ ] Store: resident budget with LRU eviction, on-demand reload for Local templates, restore
       catalog metadata for every record.
 - [ ] Viewport residency: the renderer reports its view; in-view visible templates load.
