@@ -123,4 +123,36 @@ describe('resident templates', () => {
       for (const id of ids) await restored.removeLocalTemplate(id)
     }
   })
+
+  it(
+    'keeps sparse templates side by side, each costing only its painted chunk',
+    async () => {
+      vi.resetModules()
+      const store = await import('../src/templates/local-store.js')
+      // Five boxes this size fill more than the budget, but each paints a single pixel.
+      const ids = [1, 2, 3, 4, 5].map((paint) => `sparse-${paint}-${crypto.randomUUID()}`)
+      const painted = 2048 * EDGE + 2048
+      try {
+        for (const [at, id] of ids.entries()) {
+          const template = large(id, at + 1)
+          template.indices.fill(TRANSPARENT_INDEX)
+          template.indices[painted] = at + 1
+          await store.addLocalTemplate({ ...template, opaque: 1 }, undefined, true)
+        }
+        const held = ids.map((id) => store.templateById(id)?.artwork.pixels)
+        expect(held.every((pixels) => pixels != null)).toBe(true)
+        expect(store.templateIndexMemoryBytes()).toBe(ids.length * PIXEL_CHUNK_SIZE ** 2)
+
+        vi.resetModules()
+        const restored = await import('../src/templates/local-store.js')
+        await restored.restoreLocalTemplates()
+        const first = restored.templateById(ids[0] as string)
+        if (first === undefined) throw new Error('the template did not restore')
+        expect((await restored.templatePixels(first))[painted]).toBe(1)
+      } finally {
+        for (const id of ids) await store.removeLocalTemplate(id)
+      }
+    },
+    FILL_BUDGET_TIMEOUT_MS,
+  )
 })

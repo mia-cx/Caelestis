@@ -26,7 +26,8 @@ Decided with Mia (2026-10-22):
   - scans read the tile's window from chunks; the worker caches one window per tile;
   - one texture per painted chunk with neighbour halos; open sides draw outline margins.
 - [x] Disk: records and server cache store packed chunks; legacy dense records cut on load.
-- [ ] Contract test: a sparse template costs its painted chunks and reloads intact; changeset.
+- [x] Contract test: a sparse template costs its painted chunks and reloads intact; changeset.
+- [ ] Visual QA: outlines at chunk edges match main in a real Wplace tab.
 
 ## Notes
 - Shell PATH lacks Homebrew: prefix `PATH=/opt/homebrew/bin:$PATH`. Tests need
