@@ -9,6 +9,7 @@ import {
   type PainterHistoryBucket,
   type PainterHistoryResponse,
   type PainterTotalsResponse,
+  planTimelapseTiles,
   type Seconds,
   type StatusResponse,
   seconds,
@@ -16,11 +17,13 @@ import {
   type TileCoord,
   type TileHistoryFrame,
   type TileHistoryResponse,
+  type TileKey,
   tileKey,
+  WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { Effect } from 'effect'
 import { recordCacheOutcome } from '../metrics/request-metrics.js'
-import { LADDER_RESOLUTIONS, TILE_HISTORY_RESOLUTIONS } from '../ports/index.js'
+import { LADDER_RESOLUTIONS, type SqlStore, TILE_HISTORY_RESOLUTIONS } from '../ports/index.js'
 import { SqlStoreService, StatusReadModelService } from '../runtime/backend-runtime.js'
 import { SqlStoreReadError } from '../runtime/errors.js'
 
@@ -495,12 +498,33 @@ export const readLeaderboard = (input: {
     }
   })
 
+/**
+ * The canvas tiles a caller below admin may see: the timelapse capture of every published template.
+ * The fetcher captures drafts too, and their tiles alone would show where a draft is being drawn.
+ */
+const publishedCanvasTiles = async (sql: SqlStore, season: number): Promise<Set<TileKey>> =>
+  new Set(
+    planTimelapseTiles(
+      (await sql.listManifestTemplates({ season, surface: WORLD_TEMPLATE_SURFACE }, false)).map(
+        ({ bbox }) => bbox,
+      ),
+    ).map(tileKey),
+  )
+
 export const readCanvas = (
   season: number,
+  includeUnpublished: boolean,
 ): Effect.Effect<CanvasTilesResponse, SqlStoreReadError, SqlStoreService> =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
-    const held = yield* sqlRead('listLatestTiles', () => sql.listLatestTiles(season))
+    const [latest, visible] = yield* sqlRead('listLatestTiles', () =>
+      Promise.all([
+        sql.listLatestTiles(season),
+        includeUnpublished ? null : publishedCanvasTiles(sql, season),
+      ]),
+    )
+    const held =
+      visible === null ? latest : latest.filter((tile) => visible.has(tileKey(tile.tile)))
     return {
       tiles: held.map((tile) => ({
         tile: tileKey(tile.tile),
@@ -516,10 +540,18 @@ export const readTileHistory = (input: {
   readonly tile: TileCoord
   readonly range: HistoryRange
   readonly legacyResolution?: number | undefined
+  readonly includeUnpublished: boolean
 }): Effect.Effect<TileHistoryResponse, SqlStoreReadError, SqlStoreService> =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
     const resolution = input.legacyResolution
+    const hidden =
+      !input.includeUnpublished &&
+      !(yield* sqlRead('listManifestTemplates', () => publishedCanvasTiles(sql, input.season))).has(
+        tileKey(input.tile),
+      )
+    // Indistinguishable from a tile nobody captured.
+    if (hidden) return { ...(resolution === undefined ? {} : { resolution }), frames: [] }
     const resolutions = resolution === undefined ? TILE_HISTORY_RESOLUTIONS : [resolution]
     const tiers = yield* sqlRead('readTileHistory', () =>
       Promise.all(

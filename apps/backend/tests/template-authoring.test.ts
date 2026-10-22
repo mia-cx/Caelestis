@@ -1,10 +1,13 @@
 import {
   encodeIndexedPng,
+  millis,
+  seconds,
   sha256Hex,
   type TemplateRecipe,
   templateRecipeJson,
 } from '@caelestis/shared'
 import { afterEach, describe, expect, it } from 'vitest'
+import { hashToken } from '../src/auth/tokens.js'
 import { adminToken, authorized, createTestBackend } from './support/backend.js'
 import { openRelationalStore } from './support/relational.js'
 
@@ -162,6 +165,138 @@ describe('template authoring inputs', () => {
     expect(await statuses(token)).toEqual([200, 200, 200])
     expect((await publish(false)).status).toBe(200)
     expect(await statuses(token)).toEqual([404, 404, 404])
+  })
+
+  it('tells callers below admin nothing about an unpublished template', async () => {
+    const server = await backend()
+    const art = await fixture()
+    const created = await create(server, { ...art, recipe: templateRecipeJson(art.recipe) })
+    const { templateId } = (await created.json()) as { templateId: string }
+    const call = async (bearer: string, path: string, init: RequestInit = {}) =>
+      await server.app.fetch(
+        new Request(`https://backend.test${path}`, {
+          ...init,
+          headers: { authorization: `Bearer ${bearer}`, 'content-type': 'application/json' },
+        }),
+      )
+    const mint = async (scope: 'read' | 'report') =>
+      (
+        (await (
+          await call(adminToken, '/admin/tokens', {
+            method: 'POST',
+            body: JSON.stringify({ label: scope, scope }),
+          })
+        ).json()) as { token: string }
+      ).token
+    const [reader, reporter] = [await mint('read'), await mint('report')]
+    const folder = (await (
+      await call(adminToken, '/admin/nodes', {
+        method: 'POST',
+        body: JSON.stringify({ season: 3, parentId: null, name: 'Drafts' }),
+      })
+    ).json()) as { id: string }
+    const patch = async (body: object) =>
+      expect(
+        (
+          await call(adminToken, `/admin/templates/${templateId}`, {
+            method: 'PATCH',
+            body: JSON.stringify(body),
+          })
+        ).status,
+      ).toBe(200)
+    await patch({ nodeId: folder.id, published: true })
+
+    // Everything a reader could learn while the template was public: work, a hinted region, and
+    // the canvas tile under it with its history.
+    const actor = { wplaceUserId: 42, displayName: 'Painter' }
+    const workId = '01890f3e-7b2c-7abc-8def-012345678901'
+    const regionPath = '/work/regions/01890f3e-7b2c-7abc-8def-0123456789ab?season=3&surface=world'
+    const region = {
+      actor,
+      label: 'Corner',
+      templateId,
+      document: {
+        items: [{ id: 'shape', op: 'add', shape: { kind: 'rectangle', x: 10, y: 20, w: 2, h: 1 } }],
+      },
+    }
+    expect(
+      (
+        await call(adminToken, `/work/${workId}?season=3&surface=world`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            action: 'create',
+            actor,
+            expectedRevision: 0,
+            fields: {
+              title: 'Finish the corner',
+              description: '',
+              status: 'open',
+              priority: 'normal',
+              tags: [],
+              blockerIds: [],
+              nodeId: null,
+              templateIds: [templateId],
+            },
+          }),
+        })
+      ).status,
+    ).toBe(200)
+    expect(
+      (await call(reporter, regionPath, { method: 'PUT', body: JSON.stringify(region) })).status,
+    ).toBe(200)
+    await server.sql.recordTileObservation(
+      {
+        season: 3,
+        tile: { x: 0, y: 0 },
+        hash: 'a'.repeat(64),
+        observedAt: millis(1_000),
+        reportedAt: seconds(1),
+        reportedWithToken: await hashToken(reporter),
+        reportedByUserId: 42,
+      },
+      [],
+      true,
+    )
+    const history = `/telemetry/tiles/0/0/history?season=3&from=0&to=${4_000_000_000}`
+
+    const view = async (bearer: string) => ({
+      folders: ((await (await call(bearer, '/manifest?season=3')).json()) as { nodes: unknown[] })
+        .nodes.length,
+      tiles: (
+        (await (await call(bearer, '/telemetry/canvas?season=3')).json()) as {
+          tiles: unknown[]
+        }
+      ).tiles.length,
+      frames: ((await (await call(bearer, history)).json()) as { frames: unknown[] }).frames.length,
+      work: (
+        (await (await call(bearer, '/work?season=3&surface=world')).json()) as {
+          items: unknown[]
+        }
+      ).items.length,
+      workHistory: (await call(bearer, `/work/${workId}/history`)).status,
+      hint: (
+        (await (await call(bearer, '/work/regions?season=3&surface=world')).json()) as {
+          regions: { templateId: string | null }[]
+        }
+      ).regions[0]?.templateId,
+    })
+    const visible = { folders: 1, tiles: 1, frames: 1, work: 1, workHistory: 200, hint: templateId }
+    expect(await view(reader)).toEqual(visible)
+
+    await patch({ published: false })
+    expect(await view(reader)).toEqual({
+      folders: 0,
+      tiles: 0,
+      frames: 0,
+      work: 0,
+      workHistory: 404,
+      hint: null,
+    })
+    expect(await view(adminToken)).toEqual({ ...visible, hint: null })
+    // A hint may not name a draft either, and the refusal reads the same as for a missing template.
+    expect(
+      (await call(reporter, regionPath, { method: 'PUT', body: JSON.stringify(region) })).status,
+    ).toBe(400)
   })
 
   it('refuses authoring that does not describe the uploaded pixels', async () => {

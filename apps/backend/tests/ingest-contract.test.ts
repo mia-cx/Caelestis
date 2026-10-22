@@ -9,6 +9,7 @@ import {
 } from '@caelestis/shared'
 import { expect, it } from 'vitest'
 import { createBackendRuntime, makeBackendContext } from '../src/runtime/backend-runtime.js'
+import { DirectStatusReadModel } from '../src/status-read-model/port.js'
 import { evaluateAlarmSnapshot } from '../src/telemetry/alarm-policy.js'
 import { readMismatchMask, uploadTile } from '../src/telemetry/ingest.js'
 import { authorized, createTestBackend } from './support/backend.js'
@@ -104,4 +105,46 @@ it('keeps a regression open through partial recovery and ignores follow-ups from
     () => 'unused',
   )
   expect(recovered.state.alarm).toBeNull()
+})
+
+it('tells public live subscribers nothing about tiles only a draft covers', async () => {
+  const { app, sql, blobs, counters } = await createTestBackend()
+  const form = new FormData()
+  form.set('png', new File([await encodeIndexedPng(1, 1, new Uint8Array([1]))], 'art.png'))
+  form.set('name', 'Draft')
+  form.set('season', '3')
+  form.set('originX', '10')
+  form.set('originY', '20')
+  expect(
+    (await app.fetch(authorized('/admin/templates', { method: 'POST', body: form }))).status,
+  ).toBe(201)
+  const runtime = createBackendRuntime(
+    makeBackendContext(blobs, sql, counters, new DirectStatusReadModel(sql)),
+  )
+  let observedAt = Math.floor(Date.now() / 1000)
+  const upload = async (colour: number) => {
+    const indices = new Uint8Array(1000000).fill(TRANSPARENT_INDEX)
+    indices[20010] = colour
+    const canvas = await encodeIndexedPng(1000, 1000, indices)
+    return await runtime.run(
+      uploadTile(
+        {
+          season: 3,
+          tile: { x: 0, y: 0 },
+          hash: await sha256Hex(canvas),
+          observedAt: seconds(++observedAt),
+          includeUnpublished: true,
+          tokenHash: 'a'.repeat(64),
+          wplaceUserId: 42,
+          displayName: 'Painter',
+        },
+        canvas,
+      ),
+    )
+  }
+  // The first upload seeds the projection; the second is the incremental change subscribers get.
+  await upload(2)
+  const change = await upload(1)
+  expect(change?.admin.invalidatedTiles).toEqual(['0/0'])
+  expect(change?.public.invalidatedTiles ?? []).toEqual([])
 })

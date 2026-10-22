@@ -9,6 +9,7 @@ import {
 } from '../ports/index.js'
 import {
   BlobStoreService,
+  PresenceService,
   SqlStoreService,
   StatusReadModelService,
 } from '../runtime/backend-runtime.js'
@@ -38,6 +39,16 @@ type TemplateError =
   | BackendStorageError
 
 const WHOLE_NUMBER = /^(0|[1-9]\d*)$/
+
+/**
+ * Presence carries region hints only for published templates. A publication change re-sends the
+ * list; a failed send never undoes the change it follows.
+ */
+const republishRegions = (season: number, surface: TemplateSurface) =>
+  Effect.gen(function* () {
+    const presence = yield* PresenceService
+    yield* Effect.promise(() => presence.publishRegions(season, surface).catch(console.error))
+  })
 const INTEGER = /^(?:0|-?[1-9]\d*)$/
 
 const parseInteger = (value: unknown, signed: boolean): number | null => {
@@ -227,7 +238,7 @@ export const patchTemplate = (
 ): Effect.Effect<
   Record<string, unknown>,
   TemplateError,
-  SqlStoreService | StatusReadModelService
+  SqlStoreService | StatusReadModelService | PresenceService
 > =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
@@ -285,6 +296,7 @@ export const patchTemplate = (
 
     if (input.published !== undefined) {
       yield* Effect.promise(() => repairCommittedStatusProjection(statusReadModel, existing.season))
+      yield* republishRegions(existing.season, existing.surface)
     }
     yield* Effect.promise(() =>
       publishManifestChange(
@@ -318,7 +330,7 @@ export const deleteTemplate = (
 ): Effect.Effect<
   void,
   ResourceNotFoundError | ResourceConflictError | BackendStorageError,
-  SqlStoreService | StatusReadModelService
+  SqlStoreService | StatusReadModelService | PresenceService
 > =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
@@ -336,6 +348,7 @@ export const deleteTemplate = (
     })
     if (deleted) {
       yield* Effect.promise(() => repairCommittedStatusProjection(statusReadModel, existing.season))
+      yield* republishRegions(existing.season, existing.surface)
       yield* Effect.promise(() =>
         publishManifestChange(statusReadModel, existing.season, existing.surface),
       )
