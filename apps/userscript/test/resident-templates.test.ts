@@ -4,6 +4,9 @@ import { describe, expect, it, vi } from 'vitest'
 /** 4096 × 4096: four of these fill the 64M-pixel memory budget, so a fifth must evict. */
 const EDGE = 4096
 
+/** Filling the real budget stores 80M pixels; CI runners take several times longer than a laptop. */
+const FILL_BUDGET_TIMEOUT_MS = 30_000
+
 /** A large, nearly transparent template whose one painted pixel identifies it. */
 const large = (id: string, paint: number) => {
   const indices = new Uint8Array(EDGE * EDGE).fill(TRANSPARENT_INDEX)
@@ -41,7 +44,7 @@ describe('resident templates', () => {
     } finally {
       for (const id of ids) await store.removeLocalTemplate(id)
     }
-  })
+  }, FILL_BUDGET_TIMEOUT_MS)
 
   it('reloads an evicted server template from its disk copy without downloading it', async () => {
     vi.resetModules()
@@ -69,7 +72,7 @@ describe('resident templates', () => {
       await store.forgetServerTemplate(serverId)
       for (const id of ids) await store.removeLocalTemplate(id)
     }
-  })
+  }, FILL_BUDGET_TIMEOUT_MS)
 
   it('restores more templates than the old 64-template cap', async () => {
     vi.resetModules()
