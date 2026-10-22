@@ -7,6 +7,7 @@ import {
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { TemplateAuthoring } from '../src/templates/authoring.js'
 import { adminToken, backendFetch, createTestBackend, readToken } from './backend.js'
+import { installBitmapDecoder } from './image-decoder.js'
 
 const origin = 'https://userscript-api-boundary.test'
 
@@ -575,5 +576,47 @@ describe('userscript to backend API boundary', () => {
     expect(paths[0]).toBe('/backend/v1/server')
     expect(paths.slice(1).every((path) => !path.startsWith('/backend/v1/'))).toBe(true)
     expect(paths).toContain('/backend/admin/nodes')
+  })
+})
+
+describe('admin drafts and page-readable storage', () => {
+  it('keeps an unpublished template out of IndexedDB, and caches it once published', async () => {
+    await installBackend()
+    installBitmapDecoder()
+    const { state, server } = await connect()
+    await import('../src/application/tree-server-state.js')
+    const { loadServerCache } = await import('../src/server-cache.js')
+    const { serverTemplateKey } = await import('../src/templates/server-sync.js')
+    const { cachedServerOpaque } = await import('../src/templates/server-pixel-cache.js')
+    const store = await import('../src/templates/local-store.js')
+    const folder = await state.createNode(server, 'Drafts', null)
+    if (!folder.ok) throw new Error(folder.message)
+    const uploaded = await state.uploadTemplate(server, {
+      nodeId: folder.node.id,
+      name: 'Draft',
+      originX: 10,
+      originY: 20,
+      png: await png(),
+    })
+    if (!uploaded.ok) throw new Error(uploaded.message)
+    const key = serverTemplateKey(origin, uploaded.id)
+    const cached = async () => (await loadServerCache([origin]))[0]
+
+    // The admin still sees and draws the draft; only the disk copies are missing.
+    await state.listServerContents(server)
+    await vi.waitFor(() => expect(store.templateById(key)).toBeDefined())
+    await vi.waitFor(async () => expect((await cached())?.fetchedAt).toBeDefined())
+    expect(await cached()).toMatchObject({ nodes: [], templates: [] })
+    const version = store.templateById(key)?.serverVersion ?? ''
+    expect(await cachedServerOpaque(key, version)).toBeNull()
+
+    expect(await state.patchTemplate(server, uploaded.id, { published: true })).toEqual({
+      ok: true,
+    })
+    await state.listServerContents(server)
+    await vi.waitFor(async () =>
+      expect((await cached())?.templates?.map((template) => template.id)).toEqual([uploaded.id]),
+    )
+    expect((await cached())?.nodes.map((node) => node.id)).toEqual([folder.node.id])
   })
 })

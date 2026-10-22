@@ -449,12 +449,22 @@ const rememberServerContents = (
   templatesByServer.set(server.url, templates)
   rowIdentityByServer.set(server.url, identity)
   if (server.info !== null && server.season !== null) {
+    // Wplace's own scripts can read this page's IndexedDB, so the cache keeps only what the public
+    // manifest carries: published templates and the folders above them.
+    const published = templates.filter((template) => template.published)
+    const parents = new Map(nodes.map((node) => [node.id, node.parentId]))
+    const shown = new Set<string>()
+    for (const { nodeId } of published) {
+      for (let id = nodeId; id !== null && !shown.has(id); id = parents.get(id) ?? null) {
+        shown.add(id)
+      }
+    }
     void cacheServer({
       url: server.url,
       serverId: server.info.id,
       season: server.season,
-      nodes,
-      templates,
+      nodes: nodes.filter((node) => shown.has(node.id)),
+      templates: published,
       fetchedAt: Date.now(),
     })
   }
