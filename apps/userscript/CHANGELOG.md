@@ -1,5 +1,19 @@
 # @caelestis/userscript
 
+## 0.18.0
+
+### Minor Changes
+
+- c7ebe01: Keep any number of templates, holding only the ones you can see in memory and reloading the rest from browser storage when you need them.
+  
+  - Large catalogs and Wplace's Seven Seals overlays no longer fail to load when memory is full.
+  - Server templates load from this browser's copy instead of downloading again each visit.
+  - Progress bars and previews stay while a template is out of memory.
+
+### Patch Changes
+
+- 0317320: Wplace's own Seven Seals overlay stays hidden even when Caelestis can't draw the fragment.
+
 ## 0.17.0
 
 ### Minor Changes
