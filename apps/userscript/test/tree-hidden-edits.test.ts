@@ -15,8 +15,14 @@ import {
   treeActionPresentation,
 } from '../src/application/tree-actions.js'
 
+const folder = (name: string, parentId: string | null = null): string => {
+  const created = createLocalFolder(parentId, name)
+  if (created === null) throw new Error(`${name} could not be created`)
+  return created.id
+}
+
 const template = async (folderId: string | null = null): Promise<string> => {
-  const id = `move-hidden-${crypto.randomUUID()}`
+  const id = `hidden-edit-${crypto.randomUUID()}`
   await store.addLocalTemplate(
     {
       id,
@@ -37,16 +43,16 @@ const template = async (folderId: string | null = null): Promise<string> => {
   return id
 }
 
-/** Choose "Move" from a row's menu, the way the panel's tree does. */
-const chooseMove = (key: string): void => {
+/** Choose an entry from a row's menu, the way the panel's tree does. */
+const choose = (key: string, label: string): void => {
   const callbacks = {
     onContextMenu: (target: TreeTarget, event: MouseEvent) =>
       openContextMenu(target, event, () => {}),
   } as Partial<TreeCallbacks> as TreeCallbacks
   templateTreeAdapter(callbacks, () => {}).handle({ type: 'context-menu', key, x: 0, y: 0 })
   const menu = treeActionPresentation().contextMenu
-  const item = menu?.items.find((candidate) => candidate.label === 'Move')
-  if (menu === undefined || item === undefined) throw new Error('Move is not offered')
+  const item = menu?.items.find((candidate) => candidate.label === label)
+  if (menu === undefined || item === undefined) throw new Error(`${label} is not offered`)
   handleTreeActionPresentationIntent({
     type: 'context-menu-action',
     menuId: menu.id,
@@ -60,33 +66,43 @@ afterEach(async () => {
   vi.mocked(toast).mockClear()
 })
 
-describe('moving a hidden template from the panel', () => {
-  it('shows a switched-off template so its placement can be seen', async () => {
+describe('hidden templates and folders', () => {
+  it('starts no placement on a switched-off template and leaves it hidden', async () => {
     const id = await template()
     await store.setLocalVisible(id, false)
 
-    chooseMove(`local:${id}`)
+    choose(`local:${id}`, 'Move')
 
-    await vi.waitFor(() => expect(movingId()).toBe(id))
-    expect(store.templateById(id)?.visible).toBe(true)
+    expect(toast).toHaveBeenCalledWith('“Target” is hidden. Show it first.', 'warning')
+    expect(movingId()).toBeNull()
+    expect(store.templateById(id)?.visible).toBe(false)
   })
 
-  it('refuses a template hidden by its folder and leaves the folder alone', async () => {
-    const folder = createLocalFolder(null, 'Asleep')
-    if (folder === null) throw new Error('folder could not be created')
-    const id = await template(folder.id)
-    setLocalFolderVisible(folder.id, false)
+  it('names the hidden folder rather than the template', async () => {
+    const asleep = folder('Asleep')
+    const id = await template(asleep)
+    setLocalFolderVisible(asleep, false)
 
-    chooseMove(`local:${id}`)
+    choose(`local:${id}`, 'Move')
 
-    await vi.waitFor(() =>
-      expect(toast).toHaveBeenCalledWith(
-        '“Target” is in a hidden folder. Show the folder to move it.',
-        'warning',
-      ),
+    expect(toast).toHaveBeenCalledWith(
+      '“Target” is in a hidden folder. Show the folder first.',
+      'warning',
     )
     expect(movingId()).toBeNull()
-    const placed = store.templateById(id)
-    expect(placed !== undefined && store.isTemplateVisible(placed)).toBe(false)
+  })
+
+  it('adds nothing under a folder whose parent is hidden', () => {
+    const outer = folder('Outer')
+    const inner = folder('Inner', outer)
+    setLocalFolderVisible(outer, false)
+
+    choose(`lf:${inner}`, 'Import template')
+
+    expect(toast).toHaveBeenCalledWith(
+      '“Inner” is in a hidden folder. Show the folder first.',
+      'warning',
+    )
+    expect(document.querySelector('input[type="file"]')).toBeNull()
   })
 })
