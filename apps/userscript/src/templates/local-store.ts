@@ -54,6 +54,7 @@ import {
   saveTemplateTileKeys,
 } from './personal-store.js'
 import { nodeChainVisible, serverNodeParents, serverNodesRevision } from './server-nodes.js'
+import { forgetServerPixels, readServerPixels, saveServerPixels } from './server-pixel-cache.js'
 
 /**
  * Indexed template pixels shared by rendering, mismatch scans, colour picking and local editing.
@@ -193,12 +194,9 @@ const isInView = (id: string): boolean => {
   return false
 }
 
-/**
- * Templates whose pixels must stay: ones on screen, unsaved placements, and server copies, which
- * have no disk record.
- */
+/** Templates whose pixels must stay: ones on screen, and unsaved placements with no disk record. */
 const isPinned = (template: PlacedTemplate): boolean =>
-  isInView(template.id) || isPendingImage(template) || isServerTemplate(template)
+  isInView(template.id) || isPendingImage(template)
 
 /** Whether `area` could become resident by evicting everything evictable except `keep`. */
 const couldFit = (area: number, keep?: string): boolean => {
@@ -444,9 +442,43 @@ export const templateIdsInLocalFolder = (folderId: string): readonly string[] =>
 
 const pixelLoads = new WeakMap<TemplateArtwork, Promise<Uint8Array>>()
 
+type ServerPixelSource = (template: PlacedTemplate) => Promise<Uint8Array | null>
+let serverPixelSource: ServerPixelSource | null = null
+
+/** Server sync registers how to download a template again when its disk copy is gone. */
+export const setServerPixelSource = (source: ServerPixelSource): void => {
+  serverPixelSource = source
+}
+
+/** Keep loaded pixels if `evict` or free memory allows; hand them over either way. */
+const installLoaded = (template: PlacedTemplate, indices: Uint8Array, evict: boolean): void => {
+  const area = areaOf(template)
+  if (!(evict ? makeRoom(area, template.id) : fitsResident(area))) return
+  setPixels(template, indices)
+  notify()
+}
+
+/** Reload a server copy from its disk cache, or download it again. */
+const loadServerPixels = async (template: PlacedTemplate, evict: boolean): Promise<Uint8Array> => {
+  const version = template.serverVersion ?? ''
+  const area = areaOf(template)
+  let indices = await readServerPixels(template.id, version, area)
+  const downloaded = indices === null
+  indices ??= (await serverPixelSource?.(template)) ?? null
+  if (indices === null || indices.length !== area) {
+    throw new Error('Could not load this server template. Try again.')
+  }
+  if (templates.get(template.id)?.artwork !== template.artwork) {
+    throw new Error('That template changed while it was loading. Try again.')
+  }
+  if (downloaded) void saveServerPixels(template.id, version, indices, template.opaque)
+  installLoaded(template, indices, evict)
+  return indices
+}
+
 /** Read evicted pixels back from disk, keeping them if `evict` or free memory allows. */
 const loadPixels = async (template: PlacedTemplate, evict: boolean): Promise<Uint8Array> => {
-  if (isServerTemplate(template)) throw new Error('This server template has not loaded yet.')
+  if (isServerTemplate(template)) return await loadServerPixels(template, evict)
   const loaded = await loadTemplate(template.id, MAX_RESIDENT_PIXELS)
   if (loaded.status === 'unavailable') {
     throw new Error('Could not read this template from browser storage. Try again.')
@@ -455,11 +487,7 @@ const loadPixels = async (template: PlacedTemplate, evict: boolean): Promise<Uin
   const stored = loaded.status === 'loaded' ? storedOrNull(loaded.template) : null
   if (stored !== null && current?.artwork === template.artwork) {
     if (stored.revision === current.revision) {
-      const area = areaOf(current)
-      if (evict ? makeRoom(area, current.id) : fitsResident(area)) {
-        setPixels(current, stored.indices)
-        notify()
-      }
+      installLoaded(current, stored.indices, evict)
       return stored.indices
     }
   }
@@ -1243,18 +1271,15 @@ const committedRevision = (result: SaveResult): number | null =>
 /**
  * Is there room for this server template, before anything is downloaded for it?
  *
- * `putServerTemplate` refuses past the budget, but only after its caller has fetched and decoded the
- * pixels. A server is free to advertise a manifest far larger than the budget, so the caller needs to
- * know before it spends the work. Admission is based on decoded pixels, the resource the WebGL
- * renderer actually retains, rather than an arbitrary template count.
+ * Copies that do not fit beside the others wait on disk, so the only refusal is a template too large
+ * to ever be in memory, or an id a Local template already holds. Asked before downloading, so a
+ * server advertising such a template costs no transfer.
  */
 export const hasRoomForServerTemplate = (id: string, nextPixels: number): boolean => {
   if (!Number.isSafeInteger(nextPixels) || nextPixels < 0) return false
   const existing = templates.get(id)
   if (existing !== undefined && !isServerTemplate(existing)) return false
-  // Counting what eviction could free, without evicting anything for a download that may not come.
-  const prior = existing === undefined ? 0 : residentArea(existing)
-  return couldFit(nextPixels - prior, id)
+  return nextPixels <= MAX_RESIDENT_PIXELS
 }
 
 /**
@@ -1263,9 +1288,13 @@ export const hasRoomForServerTemplate = (id: string, nextPixels: number): boolea
  * Its local switches survive the replacement: whether it is showing and how it is drawn are this
  * browser's opinions about someone else's template, and re-syncing pixels is no reason to discard
  * them. Everything else — the name, where it sits, the pixels — comes from the server.
+ *
+ * Downloaded pixels are cached on disk and stay in memory if they fit. Null indices install a copy
+ * whose pixels are already cached at this version, without reading them.
  */
 export const putServerTemplate = async (
-  template: ImportedTemplate & {
+  template: Omit<ImportedTemplate, 'indices'> & {
+    indices: Uint8Array | null
     surface?: TemplateSurface
     serverUrl: string
     serverTemplateId: string
@@ -1289,17 +1318,23 @@ export const putServerTemplate = async (
     }
     const visible = existing?.visible ?? isScopeVisible(template.id)
     const preference = existing === undefined ? serverTemplatePreference(template.id) : undefined
+    const { indices, ...metadata } = template
     // Without server-reported coverage, colour navigation and full progress scans need the tiles.
-    const tiles =
-      template.serverTileKeys === undefined ? await paintedTileKeys(template) : new Set<string>()
-    if (!isCurrent()) return false
-    const priorPixels = existing === undefined ? 0 : residentArea(existing)
-    const pixelIncrease = template.indices.length - priorPixels
-    if (!makeRoom(pixelIncrease, template.id)) {
-      throw new RangeError('server templates exceed the local rendering budget')
+    let tiles: ReadonlySet<string> = new Set<string>()
+    if (template.serverTileKeys === undefined) {
+      if (indices === null) throw new RangeError('a cached server template needs its painted tiles')
+      tiles = await paintedTileKeys({ ...template, indices })
     }
+    // On disk before it can be evicted, so dropping it from memory never loses it.
+    if (indices !== null) {
+      await saveServerPixels(template.id, template.serverVersion, indices, template.opaque)
+    }
+    if (!isCurrent()) return false
+    if (existing !== undefined) setPixels(existing, null)
+    const resident = indices !== null && makeRoom(indices.length, template.id)
     templates.set(template.id, {
-      ...withArtwork(template),
+      ...metadata,
+      artwork: { indices: resident ? indices : null },
       surface: template.surface ?? WORLD_TEMPLATE_SURFACE,
       tiles,
       // Whether someone else's template is on *your* canvas is your decision and nobody else's, so
@@ -1311,7 +1346,7 @@ export const putServerTemplate = async (
       owns: existing !== undefined ? existing.owns : (preference?.owns ?? []),
       folderId: null,
     })
-    retainedIndexPixels += pixelIncrease
+    if (resident) retainedIndexPixels += indices.length
     notify()
     return true
   })
@@ -1353,6 +1388,7 @@ export const forgetServerTemplate = async (id: string): Promise<void> =>
     previewOrigins.delete(id)
     templates.delete(id)
     notify()
+    await forgetServerPixels([id])
   })
 
 /**
@@ -1379,6 +1415,7 @@ export const forgetServerTemplates = async (serverUrl: string): Promise<void> =>
       removed = true
     }
     if (removed) notify()
+    await forgetServerPixels(ids)
   })
 }
 

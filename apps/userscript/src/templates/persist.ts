@@ -42,9 +42,11 @@ import { LOCAL_TAG_STORE, upgradeLocalTags } from './tag-schema.js'
 
 const DB_NAME = 'caelestis'
 const STORE = 'local-templates'
-// Shared with server-cache.ts: one database, one version, both stores created in either upgrade.
-const VERSION = 6
+// Shared with server-cache.ts: one database, one version, every store created in either upgrade.
+const VERSION = 7
 const VERSIONS_STORE = 'local-template-versions'
+/** Server template pixels on disk, so an evicted copy reloads without downloading it again. */
+export const SERVER_PIXELS_STORE = 'server-pixels'
 const MAX_ARCHIVED_VERSIONS = 256
 const MAX_ARCHIVED_INDEX_PIXELS = 64 * 1024 * 1024
 let blockedOpenRequest: IDBOpenDBRequest | null = null
@@ -121,6 +123,9 @@ const open = (): Promise<IDBDatabase> => {
       }
       if (!db.objectStoreNames.contains('server-cache')) {
         db.createObjectStore('server-cache', { keyPath: 'url' })
+      }
+      if (!db.objectStoreNames.contains(SERVER_PIXELS_STORE)) {
+        db.createObjectStore(SERVER_PIXELS_STORE, { keyPath: 'key' })
       }
       if (event.oldVersion < 4) {
         const templates = request.transaction?.objectStore(STORE)

@@ -30,7 +30,7 @@ Decided with Mia (2026-10-22):
 - [x] Store: resident budget with LRU eviction, on-demand reload for Local templates, restore
       catalog metadata for every record.
 - [x] Viewport residency: the renderer reports its view; in-view visible templates load.
-- [ ] Server templates: IndexedDB pixel cache with re-download fallback; no budget refusal.
+- [x] Server templates: IndexedDB pixel cache with re-download fallback; no budget refusal.
 - [ ] On-demand readers: colour nav, nearest, picker, edit/move/export/copy/authoring, tree preview.
 - [ ] Worker and GPU store drop evicted pixels.
 - [ ] Contract tests for eviction/reload and restoring past 64 templates; changeset.
@@ -47,3 +47,9 @@ Decided with Mia (2026-10-22):
   hydrates only records lacking `tileKeys` (writing them back), then `fillResidentSet` loads what
   fits without evicting. Reconcile keeps the artwork when the revision is unchanged. Native sync
   walks records one at a time. Validation: typecheck clean, 254/254 tests.
+- TODO 5: DB v7 adds `server-pixels` (key, version, opaque, Blob). `putServerTemplate` caches
+  before installing, and takes null indices for a cached version, so a session start installs
+  cached server templates without downloading or decoding them. Reload: cache, then
+  `downloadAgain` from the newest manifest entry. Wplace mirrors have no re-download; a cache miss
+  leaves them evicted until the next mirror. `hasRoomForServerTemplate` only refuses templates
+  larger than the whole budget, which fixes the Seven Seals mirrors.

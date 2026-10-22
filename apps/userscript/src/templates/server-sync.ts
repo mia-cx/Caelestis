@@ -32,10 +32,13 @@ import {
   forgetServerTemplate,
   hasRoomForServerTemplate,
   localTemplates,
+  type PlacedTemplate,
   putServerTemplate,
+  setServerPixelSource,
   updateServerTemplateMetadata,
 } from './local-store.js'
 import { rememberNodes } from './server-nodes.js'
+import { cachedServerOpaque, retainServerPixels } from './server-pixel-cache.js'
 
 /**
  * Bringing a server's published templates onto the canvas.
@@ -346,14 +349,19 @@ const serverTemplateBelongsToSurface = (
 const inFlight = new Map<string, number>()
 
 /**
- * The version each key's newest manifest asked for.
+ * Each key's newest manifest entry, and the connection it came through.
  *
  * A download that is already running is skipped rather than restarted, which is right — but the
  * manifest that arrives while it runs may have replaced or deleted that template, and installing
  * the finished download then put back artwork nobody publishes any more. This is what the far side
- * of the download checks itself against.
+ * of the download checks itself against, and what an evicted copy downloads again from.
  */
-const latestVersion = new Map<string, string>()
+const latest = new Map<
+  string,
+  { readonly server: ConnectedServer; readonly template: ServerTemplate }
+>()
+
+const latestVersion = (key: string): string | undefined => latest.get(key)?.template.version
 const rejectedServerContents = new WeakSet<ServerContents>()
 
 /** Mark a parsed manifest as inadmissible before a blind poll can reconcile it. */
@@ -399,9 +407,61 @@ export const endServerGeneration = (serverUrl: string): void => {
   // The versions this server had asked for go with it. Kept, they outlive the connection for the
   // rest of the session, and a second server whose URL extends this one's shares their key prefix.
   const prefix = serverTemplateKey(serverUrl, '')
-  for (const key of [...latestVersion.keys()]) {
-    if (key.startsWith(prefix)) latestVersion.delete(key)
+  for (const key of [...latest.keys()]) {
+    if (key.startsWith(prefix)) latest.delete(key)
   }
+}
+
+const opaqueCount = (indices: Uint8Array): number =>
+  indices.reduce((total, index) => (index === TRANSPARENT_INDEX ? total : total + 1), 0)
+
+/** The store row for one manifest entry, before its pixels. */
+const serverTemplateRow = (
+  server: ConnectedServer,
+  template: ServerTemplate,
+  key: string,
+  surface: TemplateSurface,
+  width: number,
+  height: number,
+) => ({
+  id: key,
+  surface,
+  name: template.name,
+  source: 'image' as const,
+  originX: template.bbox.minX,
+  originY: template.bbox.minY,
+  width,
+  height,
+  // The server quantised on ingest, so nothing moved on the way here and every pixel it carries is
+  // one it asserts.
+  moved: 0,
+  serverUrl: server.url,
+  serverTemplateId: template.id,
+  serverNodeId: template.nodeId,
+  serverVersion: template.version,
+  serverConnection: server,
+  serverTileKeys: template.chunks.map((chunk) => chunk.tile),
+  wrapX: surface.kind === 'world' && template.bbox.minX > template.bbox.maxX,
+})
+
+/**
+ * Download a server template again, for a copy whose pixels were evicted and lost from disk.
+ *
+ * Only the version the newest manifest asked for, through the connection it came from.
+ */
+const downloadAgain = async (template: PlacedTemplate): Promise<Uint8Array | null> => {
+  const entry = latest.get(template.id)
+  if (entry === undefined || entry.template.version !== template.serverVersion) return null
+  const { server } = entry
+  const signal = AbortSignal.any([
+    generationSignal(server.url, generationOf(server.url)),
+    AbortSignal.timeout(MAX_TEMPLATE_ASSEMBLY_MS),
+  ])
+  const built = await withAssemblySlot(
+    signal,
+    async () => await assemble(server, entry.template, signal),
+  )
+  return built?.indices ?? null
 }
 
 /**
@@ -467,12 +527,17 @@ const syncServerTemplatesOnce = async (
     if (!wanted.has(held.id)) await forgetServerTemplate(held.id)
   }
   if (!current()) return
-  for (const key of [...latestVersion.keys()]) {
+  for (const key of [...latest.keys()]) {
     if (serverTemplateBelongsToSurface(key, server.url, surface) && !wanted.has(key)) {
-      latestVersion.delete(key)
+      latest.delete(key)
     }
   }
-  for (const [key, template] of wanted) latestVersion.set(key, template.version)
+  for (const [key, template] of wanted) latest.set(key, { server, template })
+  // Cached pixels of templates this server stopped publishing while nobody was looking.
+  void retainServerPixels(
+    serverTemplateKey(server.url, ''),
+    (key) => wanted.has(key) || !serverTemplateBelongsToSurface(key, server.url, surface),
+  )
 
   for (const [key, template] of wanted) {
     if (!current()) return
@@ -486,9 +551,9 @@ const syncServerTemplatesOnce = async (
       continue
     }
     if (inFlight.get(key) === generation) continue
-    // Asked before the download, not after. A server may advertise a manifest far larger than the
-    // rendering budget, and decoding a template only to have the store refuse it wastes the entire
-    // chunk transfer and assembly on every poll.
+    // Asked before the download, not after. A server may advertise a template larger than memory
+    // could ever hold, and decoding it only to have the store refuse it wastes the entire chunk
+    // transfer and assembly on every poll.
     const wrapsX = surface.kind === 'world' && template.bbox.minX > template.bbox.maxX
     const width = wrapsX
       ? WORLD_PIXELS - template.bbox.minX + template.bbox.maxX
@@ -499,7 +564,20 @@ const syncServerTemplatesOnce = async (
       continue
     }
     inFlight.set(key, generation)
+    const stillWanted = (): boolean => current() && latestVersion(key) === template.version
     try {
+      // Cached at this version: install without downloading, and read the pixels when needed.
+      const cachedOpaque = await cachedServerOpaque(key, template.version)
+      if (!current()) return
+      if (cachedOpaque !== null) {
+        const row = serverTemplateRow(server, template, key, surface, width, height)
+        if (
+          !(await putServerTemplate({ ...row, indices: null, opaque: cachedOpaque }, stillWanted))
+        )
+          return
+        count('server:template restored from disk')
+        continue
+      }
       const attemptSignal = AbortSignal.any([signal, AbortSignal.timeout(MAX_TEMPLATE_ASSEMBLY_MS)])
       const outcome = await withAssemblySlot(
         attemptSignal,
@@ -513,37 +591,17 @@ const syncServerTemplatesOnce = async (
           // A newer manifest landed while the chunks were in the air, and it no longer asks for this
           // version — or no longer asks for this template at all. Installing now would draw artwork
           // that has already been replaced, or bring a deleted overlay back.
-          if (latestVersion.get(key) !== template.version) return 'continue'
+          if (latestVersion(key) !== template.version) return 'continue'
           if (!hasRoomForServerTemplate(key, built.indices.length)) return 'continue'
           // Hold the shared assembly slot through persistence so its decoded buffer cannot pile up
           // behind other completed assemblies while the store is busy.
           const installed = await putServerTemplate(
             {
-              id: key,
-              surface,
-              name: template.name,
-              source: 'image',
-              originX: template.bbox.minX,
-              originY: template.bbox.minY,
-              width: built.width,
-              height: built.height,
+              ...serverTemplateRow(server, template, key, surface, built.width, built.height),
               indices: built.indices,
-              // The server quantised on ingest, so nothing moved on the way here and every pixel it
-              // carries is one it asserts.
-              moved: 0,
-              opaque: built.indices.reduce(
-                (total, index) => (index === TRANSPARENT_INDEX ? total : total + 1),
-                0,
-              ),
-              serverUrl: server.url,
-              serverTemplateId: template.id,
-              serverNodeId: template.nodeId,
-              serverVersion: template.version,
-              serverConnection: server,
-              serverTileKeys: template.chunks.map((chunk) => chunk.tile),
-              wrapX: surface.kind === 'world' && template.bbox.minX > template.bbox.maxX,
+              opaque: opaqueCount(built.indices),
             },
-            () => current() && latestVersion.get(key) === template.version,
+            stillWanted,
           )
           if (!installed) return 'stop'
           count('server:template drawn from chunks')
@@ -659,6 +717,7 @@ export const syncServerTemplates = async (
  * the same response.
  */
 export const installServerSync = (): void => {
+  setServerPixelSource(downloadAgain)
   lastConnected = getState().servers.filter((server) => server.status === 'connected')
   registerServerSyncResource({
     id: 'world-manifest',

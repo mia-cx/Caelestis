@@ -30,7 +30,7 @@ import { upgradeLocalTags } from './templates/tag-schema.js'
 const DB_NAME = 'caelestis'
 const STORE = 'server-cache'
 // Shared with local template persistence. Opening an older version after v3 exists is a VersionError.
-const VERSION = 6
+const VERSION = 7
 
 export interface CachedServer {
   /** Server URL, which is the identity of the connection. */
@@ -131,6 +131,9 @@ const open = (): Promise<IDBDatabase> =>
         db.createObjectStore('local-template-versions', { keyPath: ['id', 'revision'] })
       }
       if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'url' })
+      if (!db.objectStoreNames.contains('server-pixels')) {
+        db.createObjectStore('server-pixels', { keyPath: 'key' })
+      }
       if (event.oldVersion < 4) {
         const templates = request.transaction?.objectStore('local-templates')
         if (templates !== undefined) migrateTemplateStorePalette(templates)
