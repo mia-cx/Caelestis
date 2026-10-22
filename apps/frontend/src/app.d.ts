@@ -4,7 +4,7 @@ import type { R2Binding } from '@caelestis/storage/r2'
 
 declare module 'node:http' {
   interface IncomingMessage {
-    caelestis?: { env: App.Platform['env']; objectStorage: ObjectStorage }
+    caelestis?: { env: App.HostEnv; objectStorage: ObjectStorage }
   }
 }
 
@@ -13,21 +13,23 @@ declare module 'node:http' {
 declare global {
   namespace App {
     // interface Error {}
+    /** Set for every request by `hooks.server.ts`. */
     interface Locals {
       objectStorage?: ObjectStorage
-      backendEnvironment?: Platform['env']
+      backendEnvironment: HostEnv
     }
     // interface PageData {}
     // interface PageState {}
     interface Platform {
-      /** The custom Node server attaches these values before SvelteKit handles a request. */
+      /** The custom Node server attaches its config to the request before SvelteKit handles it. */
       req: IncomingMessage
-      env: {
-        CAELESTIS_BACKEND?: { fetch(request: Request): Promise<Response> }
-        CAELESTIS_READ_TOKEN?: string
-        CAELESTIS_SERVER?: string
-        SOCIAL_IMAGES?: R2Binding
-      }
+    }
+    /** Config from Worker bindings on Cloudflare, or from the custom server on Node. */
+    interface HostEnv {
+      CAELESTIS_BACKEND?: { fetch(request: Request): Promise<Response> }
+      CAELESTIS_READ_TOKEN?: string
+      CAELESTIS_SERVER?: string
+      SOCIAL_IMAGES?: R2Binding
     }
   }
 }

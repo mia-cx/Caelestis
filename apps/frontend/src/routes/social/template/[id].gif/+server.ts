@@ -1,8 +1,7 @@
 import type { Manifest } from '@caelestis/shared'
-import { readBackendJson } from '$lib/server/backend.js'
-import { imageStorageFor } from '$lib/server/image-storage.js'
-import { ensureSocialImage } from '$lib/server/social-images.js'
-import { DEFAULT_SOCIAL_IMAGE, socialImageKey } from '$lib/social-image.js'
+import { readBackendJson } from '#lib/server/backend.js'
+import { ensureSocialImage } from '#lib/server/social-images.js'
+import { DEFAULT_SOCIAL_IMAGE, socialImageKey } from '#lib/social-image.js'
 import type { RequestHandler } from './$types'
 
 const serve: RequestHandler = async (event) => {
@@ -13,7 +12,7 @@ const serve: RequestHandler = async (event) => {
       (entry) => entry.id === event.params.id && entry.published,
     )
     if (template === undefined) return new Response(null, { status: 404 })
-    const images = imageStorageFor(event)
+    const images = event.locals.objectStorage
     const key = socialImageKey(manifest.season, template)
     await ensureSocialImage(event, manifest.season, template)
     const object = await images?.get(key)

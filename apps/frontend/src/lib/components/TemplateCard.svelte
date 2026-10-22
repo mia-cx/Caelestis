@@ -1,8 +1,8 @@
 <script lang="ts">
 import { formatCount, formatPixels, type CanvasTileSummary, type TileKey } from '@caelestis/shared'
 import { ProgressMeter, TemplateState } from '@caelestis/ui'
-import TemplateCanvas from '$lib/components/TemplateCanvas.svelte'
-import type { TreeTemplate } from '$lib/tree'
+import TemplateCanvas from '#lib/components/TemplateCanvas.svelte'
+import type { TreeTemplate } from '#lib/tree.js'
 
 let {
   entry,

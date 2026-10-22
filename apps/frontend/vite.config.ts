@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { parseEnv } from 'node:util'
 import adapter from '@sveltejs/adapter-cloudflare'
 import nodeAdapter from '@sveltejs/adapter-node'
@@ -11,6 +12,7 @@ const deploymentVersion = /^[0-9a-f]{40}$/i.test(process.env.CAELESTIS_BUILD_ID 
   : 'development'
 
 export default defineConfig(({ command }) => {
+  const node = process.env.CAELESTIS_TARGET === 'node'
   const varsFile = new URL('./.dev.vars', import.meta.url)
   const devVars =
     command === 'serve' && existsSync(varsFile) ? parseEnv(readFileSync(varsFile, 'utf8')) : {}
@@ -38,6 +40,15 @@ export default defineConfig(({ command }) => {
       __CAELESTIS_FRONTEND_VERSION__: JSON.stringify(deploymentVersion),
     },
     resolve: {
+      // Node builds and tests run outside workerd, so they get a stub with no bindings.
+      alias:
+        node || process.env.VITEST === 'true'
+          ? {
+              'cloudflare:workers': fileURLToPath(
+                new URL('./node/cloudflare-workers.js', import.meta.url),
+              ),
+            }
+          : undefined,
       // Component tests run in happy-dom and need Svelte's client entry point rather than its SSR
       // default. Production browser builds already select this condition themselves.
       conditions: process.env.VITEST === 'true' ? ['browser'] : undefined,
@@ -51,8 +62,7 @@ export default defineConfig(({ command }) => {
             filename.split(/[/\\]/).includes('node_modules') ? undefined : true,
         },
 
-        adapter:
-          process.env.CAELESTIS_TARGET === 'node' ? nodeAdapter({ out: 'build' }) : adapter(),
+        adapter: node ? nodeAdapter({ out: 'build' }) : adapter(),
       }),
     ],
   }

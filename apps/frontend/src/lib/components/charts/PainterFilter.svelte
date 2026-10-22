@@ -11,7 +11,7 @@
     painterColour,
     painterLabel,
     rankPainters,
-  } from '$lib/components/charts/painter-pace'
+  } from '#lib/components/charts/painter-pace.js'
 
   let {
     options,

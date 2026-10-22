@@ -11,22 +11,22 @@ const fixture = vi.hoisted(() => ({
   stats: null as null | { onSeek?: (time: number) => void },
 }))
 vi.mock('$app/state', () => ({ page: { params: { id: 'route' } } }))
-vi.mock('$lib/state/app.svelte', () => ({ useApp: () => fixture.app }))
-vi.mock('$lib/api/client', () => ({
+vi.mock('#lib/state/app.svelte.js', () => ({ useApp: () => fixture.app }))
+vi.mock('#lib/api/client.js', () => ({
   getTileHistory: fixture.history,
   getArchiveHistory: fixture.archive,
 }))
 // A Svelte 5 component is a function of its anchor and props; these only keep the props.
-vi.mock('$lib/components/StatsPanel.svelte', () => ({
+vi.mock('#lib/components/StatsPanel.svelte', () => ({
   default: (_anchor: unknown, props: { onSeek?: (time: number) => void }) => {
     fixture.stats = props
   },
 }))
-vi.mock('$lib/components/TemplateViewer.svelte', () => ({ default: () => undefined }))
-vi.mock('$lib/components/TemplateCard.svelte', () => ({ default: () => undefined }))
-vi.mock('$lib/components/FolderSection.svelte', () => ({ default: () => undefined }))
+vi.mock('#lib/components/TemplateViewer.svelte', () => ({ default: () => undefined }))
+vi.mock('#lib/components/TemplateCard.svelte', () => ({ default: () => undefined }))
+vi.mock('#lib/components/FolderSection.svelte', () => ({ default: () => undefined }))
 
-import { buildTree } from '$lib/tree'
+import { buildTree } from '#lib/tree.js'
 import Page from './+page.svelte'
 
 const start = 1_800_000_000

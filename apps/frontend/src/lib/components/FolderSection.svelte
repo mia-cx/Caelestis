@@ -1,10 +1,10 @@
 <script lang="ts">
 import type { CanvasTileSummary, TileKey } from '@caelestis/shared'
 import { Icon, ProgressMeter } from '@caelestis/ui'
-import FolderSection from '$lib/components/FolderSection.svelte'
-import TemplateCard from '$lib/components/TemplateCard.svelte'
-import * as Collapsible from '$lib/components/ui/collapsible'
-import type { TreeFolder } from '$lib/tree'
+import FolderSection from '#lib/components/FolderSection.svelte'
+import TemplateCard from '#lib/components/TemplateCard.svelte'
+import * as Collapsible from '#lib/components/ui/collapsible/index.js'
+import type { TreeFolder } from '#lib/tree.js'
 
 let {
   folder,

@@ -1,11 +1,11 @@
 <script lang="ts">
   import { Icon, TemplateState } from '@caelestis/ui'
-  import TemplateViewer from '$lib/components/TemplateViewer.svelte'
-  import { Skeleton } from '$lib/components/ui/skeleton'
-  import { Slider } from '$lib/components/ui/slider'
-  import { persisted } from '$lib/persisted.svelte'
-  import { MIN_SPEED, speedToFit } from '$lib/timelapse'
-  import type { TimelapsePlayer } from '$lib/timelapse-player.svelte'
+  import TemplateViewer from '#lib/components/TemplateViewer.svelte'
+  import { Skeleton } from '#lib/components/ui/skeleton/index.js'
+  import { Slider } from '#lib/components/ui/slider/index.js'
+  import { persisted } from '#lib/persisted.svelte.js'
+  import { MIN_SPEED, speedToFit } from '#lib/timelapse.js'
+  import type { TimelapsePlayer } from '#lib/timelapse-player.svelte.js'
 
   let {
     player,

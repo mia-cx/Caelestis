@@ -25,10 +25,10 @@ const fixture = vi.hoisted(() => ({
   viewer: null as null | { hashFor: (key: string) => string | undefined },
 }))
 vi.mock('$app/state', () => ({ page: { params: { id: 'dense' } } }))
-vi.mock('$lib/state/app.svelte', () => ({ useApp: () => fixture.app }))
-vi.mock('$lib/api/client', () => fixture.api)
+vi.mock('#lib/state/app.svelte.js', () => ({ useApp: () => fixture.app }))
+vi.mock('#lib/api/client.js', () => fixture.api)
 // A Svelte 5 component is a function of its anchor and props; this one only keeps the props.
-vi.mock('$lib/components/TemplateViewer.svelte', () => ({
+vi.mock('#lib/components/TemplateViewer.svelte', () => ({
   default: (_anchor: unknown, props: { hashFor: (key: string) => string | undefined }) => {
     fixture.viewer = props
   },

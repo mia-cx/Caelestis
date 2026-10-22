@@ -16,12 +16,12 @@
     getLeaderboard,
     getPainterHistory,
     getPainterTotals,
-  } from '$lib/api/client'
-  import ContributionHeatmap from '$lib/components/charts/ContributionHeatmap.svelte'
-  import { archiveContributionDays, combineArchiveSamples } from '$lib/archive-history'
-  import { combineProgressSamples, mergeObservedProgress } from '$lib/progress-history'
-  import { completionPace } from '$lib/completion-pace'
-  import PainterFilter from '$lib/components/charts/PainterFilter.svelte'
+  } from '#lib/api/client.js'
+  import ContributionHeatmap from '#lib/components/charts/ContributionHeatmap.svelte'
+  import { archiveContributionDays, combineArchiveSamples } from '#lib/archive-history.js'
+  import { combineProgressSamples, mergeObservedProgress } from '#lib/progress-history.js'
+  import { completionPace } from '#lib/completion-pace.js'
+  import PainterFilter from '#lib/components/charts/PainterFilter.svelte'
   import {
     contributionPainters,
     defaultVisiblePainters,
@@ -29,18 +29,18 @@
     MAX_SELECTED_PAINTERS,
     togglePainterSelection,
     selectAllPainters,
-  } from '$lib/components/charts/painter-pace'
-  import ProgressPaceChart from '$lib/components/charts/ProgressPaceChart.svelte'
+  } from '#lib/components/charts/painter-pace.js'
+  import ProgressPaceChart from '#lib/components/charts/ProgressPaceChart.svelte'
   import {
     PACE_WINDOWS,
     type PainterHistorySource,
-  } from '$lib/components/charts/progress-pace'
-  import Leaderboard from '$lib/components/Leaderboard.svelte'
-  import { Skeleton } from '$lib/components/ui/skeleton'
-  import * as Select from '$lib/components/ui/select'
-import { persisted } from '$lib/persisted.svelte'
-  import type { Progress } from '$lib/tree'
-  import type { DashboardSnapshot } from '$lib/state/app.svelte'
+  } from '#lib/components/charts/progress-pace.js'
+  import Leaderboard from '#lib/components/Leaderboard.svelte'
+  import { Skeleton } from '#lib/components/ui/skeleton/index.js'
+  import * as Select from '#lib/components/ui/select/index.js'
+import { persisted } from '#lib/persisted.svelte.js'
+  import type { Progress } from '#lib/tree.js'
+  import type { DashboardSnapshot } from '#lib/state/app.svelte.js'
 
   let {
     templates,

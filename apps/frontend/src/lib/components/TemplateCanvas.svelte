@@ -5,8 +5,8 @@ import {
   type TileKey,
   timelapseCaptureRect,
 } from '@caelestis/shared'
-import { drawCanvasTiles, drawTemplateChunks, osmImage, osmSpan, osmZoomFor } from '$lib/render'
-import { cn } from '$lib/utils'
+import { drawCanvasTiles, drawTemplateChunks, osmImage, osmSpan, osmZoomFor } from '#lib/render.js'
+import { cn } from '#lib/utils.js'
 
 let {
   template,

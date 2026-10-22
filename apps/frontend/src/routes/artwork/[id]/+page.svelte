@@ -2,13 +2,13 @@
   import { canvasPixelToLatLng } from '@caelestis/shared'
   import { Icon, MenuStyles, ProgressMeter, TemplateState } from '@caelestis/ui'
   import { page } from '$app/state'
-  import ColourProgress from '$lib/components/ColourProgress.svelte'
-  import StatsPanel from '$lib/components/StatsPanel.svelte'
-  import TimelapsePanel from '$lib/components/TimelapsePanel.svelte'
-  import { Skeleton } from '$lib/components/ui/skeleton'
-  import { useApp } from '$lib/state/app.svelte'
-  import { TimelapsePlayer } from '$lib/timelapse-player.svelte'
-  import { progressFromStatus } from '$lib/tree'
+  import ColourProgress from '#lib/components/ColourProgress.svelte'
+  import StatsPanel from '#lib/components/StatsPanel.svelte'
+  import TimelapsePanel from '#lib/components/TimelapsePanel.svelte'
+  import { Skeleton } from '#lib/components/ui/skeleton/index.js'
+  import { useApp } from '#lib/state/app.svelte.js'
+  import { TimelapsePlayer } from '#lib/timelapse-player.svelte.js'
+  import { progressFromStatus } from '#lib/tree.js'
 
   const app = useApp()
 

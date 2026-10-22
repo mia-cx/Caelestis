@@ -12,14 +12,14 @@
   import { cubicOut } from 'svelte/easing'
   import { Tween } from 'svelte/motion'
   import { fade, type TransitionConfig } from 'svelte/transition'
-  import { type Persisted, persisted } from '$lib/persisted.svelte'
+  import { type Persisted, persisted } from '#lib/persisted.svelte.js'
   import {
     type PainterOption,
     painterColour,
     painterLabel,
-  } from '$lib/components/charts/painter-pace'
-  import PainterPicker from '$lib/components/charts/PainterPicker.svelte'
-  import PacePicker from '$lib/components/charts/PacePicker.svelte'
+  } from '#lib/components/charts/painter-pace.js'
+  import PainterPicker from '#lib/components/charts/PainterPicker.svelte'
+  import PacePicker from '#lib/components/charts/PacePicker.svelte'
   import {
     availableRangePresets,
     axisScale,
@@ -36,8 +36,8 @@
     timeTickStep,
     type TimeWindow,
     windowKeyStep,
-  } from '$lib/components/charts/progress-pace'
-  import { mergeObservedProgress, observedProgressIntervals } from '$lib/progress-history'
+  } from '#lib/components/charts/progress-pace.js'
+  import { mergeObservedProgress, observedProgressIntervals } from '#lib/progress-history.js'
 
   let {
     buckets,

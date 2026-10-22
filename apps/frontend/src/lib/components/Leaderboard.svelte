@@ -1,6 +1,6 @@
 <script lang="ts">
 import type { LeaderboardEntry } from '@caelestis/shared'
-import * as Table from '$lib/components/ui/table'
+import * as Table from '#lib/components/ui/table/index.js'
 
 let { entries }: { entries: readonly LeaderboardEntry[] } = $props()
 

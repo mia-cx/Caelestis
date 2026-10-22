@@ -1,12 +1,10 @@
 import type { RequestEvent } from '@sveltejs/kit'
-import { frontendClientAccept } from '$lib/api/client-metrics.js'
+import { frontendClientAccept } from '#lib/api/client-metrics.js'
 
-type BackendEvent = Pick<RequestEvent, 'fetch' | 'platform' | 'url'> & { locals?: App.Locals }
-
-const environment = (event: BackendEvent) => event.locals?.backendEnvironment ?? event.platform?.env
+type BackendEvent = Pick<RequestEvent, 'fetch' | 'locals' | 'url'>
 
 const readToken = (event: BackendEvent): string => {
-  const token = environment(event)?.CAELESTIS_READ_TOKEN?.trim()
+  const token = event.locals.backendEnvironment.CAELESTIS_READ_TOKEN?.trim()
   if (token === undefined || token.length === 0) {
     throw new Error('frontend is missing CAELESTIS_READ_TOKEN')
   }
@@ -19,8 +17,8 @@ export const fetchBackend = (
   path: string,
   init: RequestInit = {},
 ): Promise<Response> => {
-  const configuredBase =
-    environment(event)?.CAELESTIS_SERVER ?? import.meta.env.VITE_CAELESTIS_SERVER
+  const environment = event.locals.backendEnvironment
+  const configuredBase = environment.CAELESTIS_SERVER ?? import.meta.env.VITE_CAELESTIS_SERVER
   const base = (configuredBase ?? new URL('/backend', event.url).href).replace(/\/+$/, '')
   const headers = new Headers(init.headers)
   headers.delete('cookie')
@@ -28,7 +26,7 @@ export const fetchBackend = (
   if (!headers.has('accept')) headers.set('accept', frontendClientAccept('recovery', 'connect'))
   const target = `${base}/${path.replace(/^\/+/, '')}`
   const requestInit = { ...init, headers }
-  const backend = environment(event)?.CAELESTIS_BACKEND
+  const backend = environment.CAELESTIS_BACKEND
   if (configuredBase === undefined && backend !== undefined) {
     return backend.fetch(new Request(target, requestInit))
   }

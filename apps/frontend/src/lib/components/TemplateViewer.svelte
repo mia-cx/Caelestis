@@ -11,8 +11,8 @@
     osmZoomFor,
     type TimelapseLayout,
     tileImage,
-  } from '$lib/render'
-  import { cn } from '$lib/utils'
+  } from '#lib/render.js'
+  import { cn } from '#lib/utils.js'
 
   let {
     layout,

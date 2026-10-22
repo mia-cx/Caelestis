@@ -1,16 +1,15 @@
 import type { Template } from '@caelestis/shared'
 import type { RequestEvent } from '@sveltejs/kit'
-import { fetchMapTile, MAP_CACHE_MS, type ReadMapTile } from '$lib/social-basemap.js'
-import { socialImageKey } from '$lib/social-image.js'
-import { renderTimelapse } from '$lib/social-render.js'
+import { fetchMapTile, MAP_CACHE_MS, type ReadMapTile } from '#lib/social-basemap.js'
+import { socialImageKey } from '#lib/social-image.js'
+import { renderTimelapse } from '#lib/social-render.js'
 import { fetchBackend } from './backend.js'
-import { imageStorageFor } from './image-storage.js'
 
-type ImageEvent = Pick<RequestEvent, 'fetch' | 'platform' | 'url'> & { locals?: App.Locals }
+type ImageEvent = Pick<RequestEvent, 'fetch' | 'locals' | 'url'>
 
 /** Persist a first artwork GIF; the scheduled job replaces it with rendered history. */
 export const ensureSocialImage = async (event: ImageEvent, season: number, template: Template) => {
-  const images = imageStorageFor(event)
+  const images = event.locals.objectStorage
   if (images === undefined) return null
   const key = socialImageKey(season, template)
   const readMapTile: ReadMapTile = async (z, x, y) => {

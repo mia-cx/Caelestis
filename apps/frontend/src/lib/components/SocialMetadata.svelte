@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { socialMetadata } from '$lib/server/social.js'
+  import type { socialMetadata } from '#lib/server/social.js'
 
   let { metadata }: { metadata: Awaited<ReturnType<typeof socialMetadata>> } = $props()
 </script>

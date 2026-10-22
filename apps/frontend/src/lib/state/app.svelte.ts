@@ -27,8 +27,8 @@ import {
   probeAdminScope,
   readToken,
   usesServerReadProxy,
-} from '$lib/api/client'
-import { buildTree, type TemplateTree } from '$lib/tree'
+} from '#lib/api/client.js'
+import { buildTree, type TemplateTree } from '#lib/tree.js'
 
 /**
  * The one shared session: which server we're connected to, its manifest, and the current status
