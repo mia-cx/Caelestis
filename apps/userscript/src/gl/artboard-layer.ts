@@ -143,6 +143,22 @@ export const artboardDevicePlacement = (
   }
 }
 
+/** Whether a template, grown by `margin` cells, overlaps the artboard's visible frame. */
+const overlapsArtboardFrame = (
+  template: Pick<PlacedTemplate, 'originX' | 'originY' | 'width' | 'height'>,
+  geometry: ArtboardGeometry,
+  viewport: ArtboardViewport,
+  margin = 0,
+): boolean => {
+  const box = artboardDevicePlacement(template, geometry, viewport, margin)
+  return (
+    box.right > viewport.frameLeft &&
+    box.bottom > viewport.frameTop &&
+    box.left < viewport.frameLeft + viewport.frameWidth &&
+    box.top < viewport.frameTop + viewport.frameHeight
+  )
+}
+
 /** Project one shared GPU chunk, including only the outer outline halo, into an artboard. */
 export const artboardGpuTilePlacement = (
   template: Pick<PlacedTemplate, 'originX' | 'originY' | 'width' | 'height'>,
@@ -388,13 +404,7 @@ class ArtboardPass {
     const margin = this.kind === 'outline' ? 1 : 0
     const visible = templates.filter(({ template, outlineFade }) => {
       if (this.kind === 'outline' && outlineFade <= 0) return false
-      const box = artboardDevicePlacement(template, geometry, viewport, margin)
-      return (
-        box.right > viewport.frameLeft &&
-        box.bottom > viewport.frameTop &&
-        box.left < viewport.frameLeft + viewport.frameWidth &&
-        box.top < viewport.frameTop + viewport.frameHeight
-      )
+      return overlapsArtboardFrame(template, geometry, viewport, margin)
     })
     this.gpu?.collect(allIds, new Set(visible.map(({ template }) => template.id)))
     const scissorLeft = Math.max(0, Math.floor(viewport.frameLeft))
@@ -741,8 +751,12 @@ class ArtboardRenderer {
     const templates = templateScene.templates.filter(
       ({ fade, palette }) => fade > 0 && palette !== null,
     )
-    // An alliance canvas is small enough that everything drawn on it counts as in view.
-    noteTemplatesInView(this.surface, new Set(templates.map(({ template }) => template.id)))
+    // Only templates overlapping the frame count as in view, matching what the passes draw.
+    const inFrame = templates.filter(
+      ({ template }) =>
+        viewport !== null && overlapsArtboardFrame(template, this.geometry, viewport),
+    )
+    noteTemplatesInView(this.surface, new Set(inFrame.map(({ template }) => template.id)))
     let animating = templateScene.animating
     const selected = isPaintOpen() ? selectedColour() : null
     const markerScene = this.scene.advanceMarkers(templateScene.templates, selected, now)
