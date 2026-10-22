@@ -1662,6 +1662,9 @@ const restoreRecord = async (
   const id = record.id as string
   const recordRevision = Number.isSafeInteger(record.revision) ? Number(record.revision) : 0
   seen.set(id, recordRevision)
+  // Restore runs again after every native refresh; templates already here were restored before.
+  const present = templates.get(id)
+  if (present !== undefined && !isServerTemplate(present)) return 'skipped'
   const tileKeys = catalogTileKeys(record)
   let source: unknown = record
   let indices: Uint8Array | null = null
