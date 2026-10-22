@@ -203,6 +203,9 @@ export const releaseServer = async (
   return true
 }
 
+/** D1 binds at most 100 parameters per statement; two go to the operation fence. */
+const LEGACY_TOKEN_DELETE_CHUNK = 98
+
 /**
  * A restore begun before archives stopped carrying credentials may have imported the archive's
  * tokens, and its state lists the destination's own in `preservedTokens`. Releasing it, whether
@@ -214,14 +217,26 @@ const dropLegacyCredentials = async (host: ArchiveHost, operation: ArchiveOperat
   const kept = (JSON.parse(operation.stateJson) as { preservedTokens?: readonly string[] })
     .preservedTokens
   if (kept === undefined) return
-  // Fenced in the statement itself: once any caller finishes this release the row is gone and
-  // writes reopen, so a caller that stalled past its lease must not delete tokens issued since.
-  await host.connection
-    .prepare(
-      `DELETE FROM "access_tokens" WHERE EXISTS (SELECT 1 FROM "archive_operation" WHERE "id" = 1 AND "operation_id" = ? AND "state_json" = ?)${kept.length === 0 ? '' : ` AND "token_hash" NOT IN (${kept.map(() => '?').join(', ')})`}`,
-    )
-    .bind(operation.operationId, operation.stateJson, ...kept)
-    .run()
+  const own = new Set(kept)
+  const imported = (
+    await host.connection.prepare('SELECT "token_hash" FROM "access_tokens"').all<{
+      token_hash: string
+    }>()
+  ).results
+    .map((row) => row.token_hash)
+    .filter((hash) => !own.has(hash))
+  // Each delete is fenced in the statement itself: once any caller finishes this release the row
+  // is gone and writes reopen, so a caller that stalled past its lease deletes nothing issued
+  // since. Chunked by the imported hashes, never the keep list, to stay inside D1's parameters.
+  for (let start = 0; start < imported.length; start += LEGACY_TOKEN_DELETE_CHUNK) {
+    const chunk = imported.slice(start, start + LEGACY_TOKEN_DELETE_CHUNK)
+    await host.connection
+      .prepare(
+        `DELETE FROM "access_tokens" WHERE EXISTS (SELECT 1 FROM "archive_operation" WHERE "id" = 1 AND "operation_id" = ? AND "state_json" = ?) AND "token_hash" IN (${chunk.map(() => '?').join(', ')})`,
+      )
+      .bind(operation.operationId, operation.stateJson, ...chunk)
+      .run()
+  }
 }
 
 /**
