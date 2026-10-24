@@ -1,5 +1,11 @@
 # @caelestis/userscript
 
+## 0.18.1
+
+### Patch Changes
+
+- 0e18ffe: Seven Seals fragments and Wplace templates now show in browsers with canvas fingerprinting protection, such as Helium.
+
 ## 0.18.0
 
 ### Minor Changes
