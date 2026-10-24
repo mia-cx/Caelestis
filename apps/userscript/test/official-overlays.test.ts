@@ -48,10 +48,14 @@ const fakeMap = () => {
   }
 }
 
+/** Readback noise from canvas fingerprinting protection, as Helium adds. */
+const NOISE = 2
+
 const sealArt = () => {
   const data = new Uint8ClampedArray(2 * 2 * 4)
   ;[1, 2, 3, 4].forEach((index, pixel) => {
-    data.set([...(PALETTE_RGB[index] as readonly number[]), 255], pixel * 4)
+    const [r, g, b] = PALETTE_RGB[index] as readonly [number, number, number]
+    data.set([r - NOISE, g + NOISE, b - NOISE, 255], pixel * 4)
   })
   return { width: 2, height: 2, data }
 }
