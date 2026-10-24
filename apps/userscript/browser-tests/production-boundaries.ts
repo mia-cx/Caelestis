@@ -21,11 +21,14 @@ const tile = { x: 3, y: 4 }
 const TILE_SIZE = 1_000
 const UNPAINTED = 255
 const templatePixels = new Uint8Array([5, 6, 7, 8])
+/** Stands for the template's pixels, which the worker caches its window of. */
+const templateSource = {}
 
 const scan = (server: Uint8Array) =>
   scanInWorker(
     {
-      templateKey: 'browser-template',
+      // A window key: the template id, then the tile and the rectangle cut from it.
+      templateKey: 'browser-template|0/0|0,0,2,2',
       kind: 'pixels',
       width: 2,
       height: 2,
@@ -41,7 +44,9 @@ const scan = (server: Uint8Array) =>
       transparent: 0,
       unpainted: UNPAINTED,
     },
-    templatePixels,
+    // The window transfers to the worker, so each read hands over a fresh copy.
+    () => templatePixels.slice(),
+    templateSource,
   )
 
 /** Browser-only contracts: production worker transfer/cache lifecycle and browser canvas readback. */

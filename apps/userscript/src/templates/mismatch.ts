@@ -40,13 +40,14 @@ import {
   onLocalChange,
   type PlacedTemplate,
   type TemplateArtwork,
-  templatePixels,
+  templateChunks,
   templateTileKeys,
 } from './local-store.js'
 import { type MismatchMarks, packMismatchMark } from './mismatch-marks.js'
 import { type ScanJob, type ScanOutcome, scanTile } from './mismatch-scan.js'
 import { forgetInWorker, hasWorker, releaseInWorker, scanInWorker } from './mismatch-worker.js'
 import { horizontalSpans, sourceXAt, wrappedDeltaX } from './placement.js'
+import { pixelAt, pixelRect, type SparsePixels } from './sparse-pixels.js'
 import { measuresLocally } from './wplace-owned.js'
 
 const worldTemplates = (): readonly PlacedTemplate[] =>
@@ -775,8 +776,7 @@ const signature = (template: PlacedTemplate): string =>
  */
 const queueIncompleteLocalProgress = (template: PlacedTemplate): void => {
   // An evicted template keeps the progress it had; scanning resumes when its pixels return.
-  if (!measuresLocally(template) || template.opaque <= 0 || template.artwork.indices === null)
-    return
+  if (!measuresLocally(template) || template.opaque <= 0 || template.artwork.pixels === null) return
   const key = progressSignature(template)
   const total = progressTotals.get(template.id)
   if (
@@ -846,12 +846,14 @@ const colourTotals = new WeakMap<TemplateArtwork, Uint32Array>()
 const colourTotalsFor = (template: PlacedTemplate): Uint32Array | null => {
   const cached = colourTotals.get(template.artwork)
   if (cached !== undefined) return cached
-  const indices = template.artwork.indices
-  if (indices === null) return null
+  const pixels = template.artwork.pixels
+  if (pixels === null) return null
   const totals = new Uint32Array(PALETTE_SIZE)
-  for (const index of indices) {
-    if (index < PALETTE_SIZE && index !== TRANSPARENT_INDEX)
-      totals[index] = (totals[index] ?? 0) + 1
+  for (const chunk of pixels.chunks.values()) {
+    for (const index of chunk.indices) {
+      if (index < PALETTE_SIZE && index !== TRANSPARENT_INDEX)
+        totals[index] = (totals[index] ?? 0) + 1
+    }
   }
   colourTotals.set(template.artwork, totals)
   return totals
@@ -965,20 +967,21 @@ const navigationCandidates = (
   return candidates
 }
 
+/** The template's pixels under a candidate rectangle, one row per canvas row it covers. */
+const candidateWindow = (candidate: NavigationCandidate, wanted: SparsePixels): Uint8Array =>
+  pixelRect(
+    wanted,
+    candidate.sourceStart + candidate.left - candidate.worldStart,
+    candidate.top - candidate.template.originY,
+    candidate.right - candidate.left,
+    candidate.bottom - candidate.top,
+  )
+
 const candidateContainsColour = (
   candidate: NavigationCandidate,
-  wanted: Uint8Array,
+  wanted: SparsePixels,
   index: number,
-): boolean => {
-  for (let y = candidate.top; y < candidate.bottom; y++) {
-    const sourceY = y - candidate.template.originY
-    let sourceX = candidate.sourceStart + candidate.left - candidate.worldStart
-    for (let x = candidate.left; x < candidate.right; x++, sourceX++) {
-      if (wanted[sourceY * candidate.template.width + sourceX] === index) return true
-    }
-  }
-  return false
-}
+): boolean => candidateWindow(candidate, wanted).includes(index)
 
 interface CandidateResult {
   readonly target: ColourNavigationTarget | null
@@ -989,7 +992,7 @@ interface CandidateResult {
 
 const scanCandidate = (
   candidate: NavigationCandidate,
-  templateIndices: Uint8Array,
+  wantedPixels: SparsePixels,
   pixels: Uint8Array,
   index: number,
   kind: ColourTargetKind,
@@ -1004,12 +1007,12 @@ const scanCandidate = (
   const draft = comparisonDraftPixels(candidate.tile)
   const tileLeft = candidate.tile.x * TILE_SIZE
   const tileTop = candidate.tile.y * TILE_SIZE
+  const window = candidateWindow(candidate, wantedPixels)
+  let windowAt = 0
   for (let y = candidate.top; y < candidate.bottom; y++) {
-    const sourceY = y - candidate.template.originY
-    let sourceX = candidate.sourceStart + candidate.left - candidate.worldStart
     let tileAt = (y - tileTop) * TILE_SIZE + (candidate.left - tileLeft)
-    for (let x = candidate.left; x < candidate.right; x++, sourceX++, tileAt++) {
-      const wanted = templateIndices[sourceY * candidate.template.width + sourceX]
+    for (let x = candidate.left; x < candidate.right; x++, tileAt++, windowAt++) {
+      const wanted = window[windowAt]
       if (wanted !== index) continue
       desiredPixels++
       const drafted = draft?.[tileAt] ?? UNPAINTED
@@ -1061,7 +1064,7 @@ export const nearestLoadedColourTarget = (
   for (const candidate of candidates) {
     if (candidate.minimumDistance > bestDistance) break
     const pixels = tilePixels(candidate.tile)
-    const wanted = candidate.template.artwork.indices
+    const wanted = candidate.template.artwork.pixels
     if (pixels === null || wanted === null) continue
     loaded++
     const scanned = scanCandidate(
@@ -1105,11 +1108,11 @@ export const nearestColourTarget = async (
   let matchingPixels = 0
   let loaded = 0
   // Evicted templates load only when the search reaches them, nearest first.
-  const wantedPixels = new Map<string, Uint8Array>()
+  const wantedPixels = new Map<string, SparsePixels>()
   for (const candidate of candidates) {
     if (candidate.minimumDistance > bestDistance) break
     const { template } = candidate
-    const wanted = wantedPixels.get(template.id) ?? (await templatePixels(template))
+    const wanted = wantedPixels.get(template.id) ?? (await templateChunks(template))
     wantedPixels.set(template.id, wanted)
     let pixels = tilePixels(candidate.tile)
     if (pixels === null) {
@@ -1320,9 +1323,44 @@ const inFlight = new Map<string, PendingScan>()
 /** Server masks superseded by newer exact pixels, until exact-pixel cache eviction. */
 const supersededServerSource = new Map<string, string>()
 
+/**
+ * Retarget a scan job at the template's pixels under its tile, which is all a scan reads.
+ *
+ * The scan indexes its pixels by the job's origin and width, so a window the size of the overlap
+ * reads exactly as the whole template did, and dense pixels exist only for the tile being scanned.
+ * The key names the window's source rectangle, so a worker holding it can tell a move from a repeat.
+ */
+const tileWindow = <J extends ScanJob>(job: J, wanted: SparsePixels) => {
+  const tileLeft = job.tileX * job.tileSize
+  const tileTop = job.tileY * job.tileSize
+  const left = Math.max(job.originX, tileLeft)
+  const top = Math.max(job.originY, tileTop)
+  const width = Math.max(0, Math.min(job.originX + job.width, tileLeft + job.tileSize) - left)
+  const height = Math.max(0, Math.min(job.originY + job.height, tileTop + job.tileSize) - top)
+  const sourceX = left - job.originX
+  const sourceY = top - job.originY
+  return {
+    job: {
+      ...job,
+      templateKey: `${job.templateKey}|${job.tileX}/${job.tileY}|${sourceX},${sourceY},${width},${height}`,
+      originX: left,
+      originY: top,
+      width,
+      height,
+    },
+    read: () => pixelRect(wanted, sourceX, sourceY, width, height),
+  }
+}
+
+/** Scan one tile on this thread. */
+const scanWindow = (job: ScanJob, wanted: SparsePixels): ScanOutcome => {
+  const window = tileWindow(job, wanted)
+  return scanTile(window.job, window.read())
+}
+
 const requestScan = (
   template: PlacedTemplate,
-  indices: Uint8Array,
+  wanted: SparsePixels,
   source: Uint8Array,
   cacheKey: string,
   key: string,
@@ -1375,7 +1413,8 @@ const requestScan = (
   inFlight.set(cacheKey, mine)
   if (markers) stale.delete(cacheKey)
   staleProgress.delete(cacheKey)
-  void scanInWorker(job, indices).then((outcome) => {
+  const window = tileWindow(job, wanted)
+  void scanInWorker(window.job, window.read, wanted).then((outcome) => {
     // A later request replaced the entry, so it owns this key now and this reply is nobody's.
     if (inFlight.get(cacheKey) !== mine) return
     inFlight.delete(cacheKey)
@@ -1441,8 +1480,8 @@ const mismatchAnswer = (
     wrong: requested.wrong || held?.wrongComplete === true,
     unpainted: requested.unpainted || held?.unpaintedComplete === true,
   }
-  const indices = template.artwork.indices
-  if (indices === null) {
+  const wanted = template.artwork.pixels
+  if (wanted === null) {
     // Evicted: answer from the last scan, and scan nothing until the pixels are back.
     return held !== undefined &&
       held.templateSource === template.artwork &&
@@ -1479,7 +1518,7 @@ const mismatchAnswer = (
           : undefined
       requestScan(
         template,
-        indices,
+        wanted,
         serverMask.packed,
         cacheKey,
         key,
@@ -1505,7 +1544,7 @@ const mismatchAnswer = (
       key,
       progressSignature(template),
       measureProfile('Server mismatch expansion', () =>
-        scanTile(
+        scanWindow(
           buildMaskJob(
             template,
             tile,
@@ -1515,7 +1554,7 @@ const mismatchAnswer = (
             collection.wrong,
             collection.unpainted,
           ),
-          indices,
+          wanted,
         ),
       ),
       collection.wrong,
@@ -1561,7 +1600,7 @@ const mismatchAnswer = (
         : undefined
     requestScan(
       template,
-      indices,
+      wanted,
       pixels,
       cacheKey,
       key,
@@ -1605,9 +1644,9 @@ const mismatchAnswer = (
     key,
     progressSignature(template),
     measureProfile('Mismatch scan', () =>
-      scanTile(
+      scanWindow(
         buildJob(template, tile, pixels, false, true, collection.wrong, collection.unpainted),
-        indices,
+        wanted,
       ),
     ),
     collection.wrong,
@@ -1658,8 +1697,8 @@ export const progressIn = (template: PlacedTemplate, tile: TileCoord): boolean =
     pendingProgressPixels.delete(cacheKey)
     return true
   }
-  const indices = template.artwork.indices
-  if (indices === null) return false
+  const wanted = template.artwork.pixels
+  if (wanted === null) return false
 
   const pixels = tilePixels(tile)
   if (pixels === null) {
@@ -1674,7 +1713,7 @@ export const progressIn = (template: PlacedTemplate, tile: TileCoord): boolean =
   if (hasWorker()) {
     requestScan(
       template,
-      indices,
+      wanted,
       pixels,
       cacheKey,
       key,
@@ -1686,7 +1725,7 @@ export const progressIn = (template: PlacedTemplate, tile: TileCoord): boolean =
   if (performance.now() >= scanDeadline) return false
 
   const outcome = measureProfile('Mismatch progress scan', () =>
-    scanTile(buildJob(template, tile, pixels, false, false), indices),
+    scanWindow(buildJob(template, tile, pixels, false, false), wanted),
   )
   rememberProgress(cacheKey, { templateSource: template.artwork, ...outcome }, progressKey)
   staleProgress.delete(cacheKey)
@@ -1773,8 +1812,8 @@ const patchTile = (tile: TileCoord, x: number, y: number): void => {
     const id = templateIdOf(cacheKey)
     const template = templatesById.get(id)
     if (template === undefined || entry.templateSource !== template.artwork) continue
-    const indices = template.artwork.indices
-    if (indices === null) {
+    const pixels = template.artwork.pixels
+    if (pixels === null) {
       // Evicted pixels cannot patch the answer; rescan once they are back.
       stale.add(cacheKey)
       staleProgress.add(cacheKey)
@@ -1784,8 +1823,7 @@ const patchTile = (tile: TileCoord, x: number, y: number): void => {
     const localX = sourceXAt(template, x)
     const localY = y - template.originY
     if (localX === null || localY < 0 || localY >= template.height) continue
-    const wanted = indices[localY * template.width + localX]
-    if (wanted === undefined) continue
+    const wanted = pixelAt(pixels, localX, localY)
 
     const hidden = assertedHidden(template)
     const progressAsserted = wanted !== TRANSPARENT_INDEX && wanted !== UNPAINTED
@@ -2112,7 +2150,7 @@ onLocalChange(() => {
   knownTemplateIds = current
   // Evicted pixels leave the worker as well; answers and progress keyed on the artwork stay.
   for (const template of templates) {
-    if (template.artwork.indices === null) releaseInWorker(template.id)
+    if (template.artwork.pixels === null) releaseInWorker(template.id)
   }
 })
 
@@ -2152,8 +2190,8 @@ export const pixelAccounting = Object.freeze({
         if (from === to) return delta
         return { ...delta, [from]: -1, [to]: 1 }
       }
-      const indices = template.artwork.indices
-      if (indices === null) return deltas
+      const pixels = template.artwork.pixels
+      if (pixels === null) return deltas
       for (const key of templateTileKeys(template)) {
         const tile = parseTileKey(key)
         if (tile === null) continue
@@ -2173,9 +2211,8 @@ export const pixelAccounting = Object.freeze({
           const localX = sourceXAt(template, tile.x * TILE_SIZE + tileX)
           const localY = tile.y * TILE_SIZE + tileY - template.originY
           if (localX === null || localY < 0 || localY >= template.height) continue
-          const wanted = indices[localY * template.width + localX]
-          if (wanted === undefined || wanted >= PALETTE_SIZE || wanted === TRANSPARENT_INDEX)
-            continue
+          const wanted = pixelAt(pixels, localX, localY)
+          if (wanted >= PALETTE_SIZE || wanted === TRANSPARENT_INDEX) continue
           const category = (actual: number): 'completed' | 'mismatched' | 'unpainted' =>
             actual === wanted ? 'completed' : actual === UNPAINTED ? 'unpainted' : 'mismatched'
           const serverCategory =

@@ -23,7 +23,7 @@ import {
   onLocalChange,
   type PlacedTemplate,
   templateById,
-  templatePixels,
+  templateChunks,
 } from './templates/local-store.js'
 import {
   type ColourNavigationTarget,
@@ -380,10 +380,10 @@ export const paintPaletteProgress = (): readonly TemplateColourProgress[] => {
   const active = activeAllianceSurface()
   const bounds = active === null ? null : allianceBounds(active)
   if (active === null || bounds === null || !sameTemplateSurface(active.surface, surface)) return []
-  const indices = template.artwork.indices
-  if (indices === null) return []
+  const pixels = template.artwork.pixels
+  if (pixels === null) return []
   return artboardColourProgress(
-    { ...template, indices },
+    { ...template, pixels },
     readArtboardPixels(active, {
       originX: bounds.minX,
       originY: bounds.minY,
@@ -430,7 +430,7 @@ export const navigateFocusedColour = async (index: number, cycle = false): Promi
     )
     if (reference === null) return false
     const targets = artboardColourTargets(
-      { ...template, indices: await templatePixels(template) },
+      { ...template, pixels: await templateChunks(template) },
       readArtboardPixels(active, {
         originX: bounds.minX,
         originY: bounds.minY,

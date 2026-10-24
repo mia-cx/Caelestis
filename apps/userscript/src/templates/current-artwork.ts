@@ -16,7 +16,15 @@ import {
   nativePixelWindow,
 } from '../native-pixels.js'
 import { loadCommittedTilePixels, UNPAINTED } from '../tile-transform.js'
-import { type PlacedPixels, type PlacedTemplate, templatePixels } from './local-store.js'
+import { type PlacedTemplate, templatePixels } from './local-store.js'
+
+/**
+ * A placement with a dense copy of its pixels. Capture writes a whole new image, so it works on
+ * dense pixels from the start.
+ */
+type PlacedPixels = Pick<PlacedTemplate, 'originX' | 'originY' | 'width' | 'height'> & {
+  readonly indices: Uint8Array
+}
 
 const overlayWindow = (
   indices: Uint8Array,

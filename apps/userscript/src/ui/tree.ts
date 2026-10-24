@@ -513,14 +513,14 @@ const buildTree = <Result>(
           })
         : { committed: [], draft: [] }
     for (const template of drawnTemplates) {
-      const indices = template.artwork.indices
+      const pixels = template.artwork.pixels
       // An evicted template keeps the counts it had when its pixels were last in memory.
       const counts =
-        indices === null
+        pixels === null
           ? lastAllianceProgress.get(template.artwork)
           : {
-              progress: artboardTemplateProgress({ ...template, indices }, regions),
-              colours: artboardColourProgress({ ...template, indices }, regions),
+              progress: artboardTemplateProgress({ ...template, pixels }, regions),
+              colours: artboardColourProgress({ ...template, pixels }, regions),
             }
       if (counts === undefined) continue
       lastAllianceProgress.set(template.artwork, counts)
