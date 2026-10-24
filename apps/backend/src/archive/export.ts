@@ -56,9 +56,29 @@ const STEPS: readonly Step[] = [
   { kind: 'end' },
 ]
 
+/**
+ * Every step in order. A cursor's step is an index into this list, so a cursor saved before a
+ * deploy that changed the list would resume at the wrong table and silently drop rows.
+ */
+const STEP_LAYOUT = STEPS.map((step) => {
+  switch (step.kind) {
+    case 'rows':
+    case 'links':
+      return `${step.kind}:${step.table.name}`
+    case 'counters':
+      return `counters:${step.table}`
+    case 'objects':
+      return `objects:${step.prefix}`
+    default:
+      return step.kind
+  }
+}).join(',')
+
 /** Where the next page starts. Opaque to clients, who pass it back unchanged. */
 interface ExportCursor {
   readonly operationId: string
+  /** `STEP_LAYOUT` when the cursor was issued. */
+  readonly layout: string
   readonly step: number
   /** Last key values, object listing position, or backfill key within the current step. */
   readonly after: ArchiveJson
@@ -185,6 +205,7 @@ const exportPageHeld = async (
     token === null
       ? {
           operationId: operation.operationId,
+          layout: STEP_LAYOUT,
           step: 0,
           after: null,
           template: null,
@@ -195,6 +216,11 @@ const exportPageHeld = async (
   if (cursor.operationId !== operation.operationId)
     throw new ArchiveError(
       'This cursor belongs to an earlier export. Restart from the beginning.',
+      409,
+    )
+  if (cursor.layout !== STEP_LAYOUT)
+    throw new ArchiveError(
+      'This server was upgraded during the export. Restart from the beginning.',
       409,
     )
 

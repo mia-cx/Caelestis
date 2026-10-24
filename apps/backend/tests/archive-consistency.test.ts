@@ -25,6 +25,7 @@ import {
   readArchiveOperation,
   StaleArchiveOperationError,
 } from '../src/archive/gate.js'
+import { releaseServer } from '../src/archive/operation.js'
 import type { ArchiveHost } from '../src/archive/port.js'
 import { appendRestore, beginRestore, discardRestore } from '../src/archive/restore.js'
 import { type BackfillStorage, TemplateBackfill } from '../src/backfill/import.js'
@@ -368,6 +369,39 @@ describe('archive export budgets', () => {
 })
 
 describe('archive operation lifecycle', () => {
+  it('lets a stalled release of a pre-upgrade restore delete nothing issued after it finished', async () => {
+    const opened = await relational()
+    const host = archiveHost(opened.connection, { count: 0 })
+    const token = async (secret: string) => {
+      const tokenHash = await sha256Hex(new TextEncoder().encode(secret))
+      return {
+        tokenHash,
+        label: secret,
+        scope: 'admin' as const,
+        createdWithToken: tokenHash,
+        createdAt: millis(0),
+      }
+    }
+    const own = await token('DESTINATION-OWN')
+    await opened.sql.insertAccessToken(own)
+    await opened.connection
+      .prepare(
+        'INSERT INTO "archive_operation" ("id", "kind", "operation_id", "started_at_ms", "position", "state_json") VALUES (1, \'import\', \'legacy\', 0, 2, ?)',
+      )
+      .bind(JSON.stringify({ phase: 'releasing', ended: true, preservedTokens: [own.tokenHash] }))
+      .run()
+    const stale = await readArchiveOperation(opened.connection)
+    if (stale === null) throw new Error('the legacy operation was not stored')
+
+    expect(await releaseServer(host, stale)).toBe(true)
+    const issued = await token('ISSUED-AFTER-RESTORE')
+    await opened.sql.insertAccessToken(issued)
+    // The first caller resumes with the operation it read before another caller finished.
+    await releaseServer(host, stale)
+    expect(await opened.sql.readAccessToken(issued.tokenHash)).not.toBeNull()
+    expect(await opened.sql.readAccessToken(own.tokenHash)).not.toBeNull()
+  })
+
   const coordinatorHost = async () => {
     const opened = await relational()
     const alarms: AlarmStorage = {

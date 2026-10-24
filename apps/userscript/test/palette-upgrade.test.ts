@@ -1,6 +1,11 @@
 import { IDBFactory } from 'fake-indexeddb'
 import { beforeEach, expect, it, vi } from 'vitest'
-import { loadTemplate, openTemplateDatabase } from '../src/templates/persist.js'
+import {
+  loadTemplate,
+  openTemplateDatabase,
+  type StoredTemplate,
+} from '../src/templates/persist.js'
+import { joinPixels } from '../src/templates/sparse-pixels.js'
 
 beforeEach(() => vi.stubGlobal('indexedDB', new IDBFactory()))
 
@@ -36,13 +41,10 @@ it('upgrades Blob-backed legacy artwork past a corrupt row without remapping it 
   legacy.close()
   for (let reopen = 0; reopen < 2; reopen++) {
     const loaded = await loadTemplate('b-art')
-    expect(loaded).toMatchObject({
-      status: 'loaded',
-      template: {
-        indices: new Uint8Array([19, 17, 35, 63]),
-        appearance: { hiddenColours: [19, 35] },
-      },
-    })
+    if (loaded.status !== 'loaded') throw new Error(`template did not load: ${loaded.status}`)
+    const template = loaded.template as StoredTemplate
+    expect(joinPixels(template.pixels)).toEqual(new Uint8Array([19, 17, 35, 63]))
+    expect(template).toMatchObject({ appearance: { hiddenColours: [19, 35] } })
   }
 })
 
@@ -56,14 +58,14 @@ it('recovers a blocked upgrade and closes the abandoned connection before the ne
   }
   // This queued open completes after the abandoned upgrade has delivered its success event.
   const settled = await new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open('caelestis', 6)
+    const request = indexedDB.open('caelestis', 8)
     request.onsuccess = () => resolve(request.result)
     request.onerror = () => reject(request.error)
   })
   settled.close()
   expect(await loadTemplate('b-art')).toMatchObject({ status: 'loaded' })
   await new Promise<void>((resolve, reject) => {
-    const request = indexedDB.open('caelestis', 7)
+    const request = indexedDB.open('caelestis', 9)
     request.onblocked = () => reject(new Error('Abandoned connection still holds the database'))
     request.onerror = () => reject(request.error)
     request.onsuccess = () => {

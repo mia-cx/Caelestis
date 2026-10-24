@@ -126,7 +126,10 @@ export const nativeImage = async (template: ImportedTemplate): Promise<Blob> =>
 
 /** Patch only fields Caelestis edits, preserving native tags, quantization, locks, and source size. */
 export const nativeMetadata = (
-  template: ImportedTemplate & { readonly visible: boolean; readonly everPlaced: boolean },
+  template: Omit<ImportedTemplate, 'indices'> & {
+    readonly visible: boolean
+    readonly everPlaced: boolean
+  },
 ): Pick<NativeTemplate, 'name' | 'bounds' | 'visible' | 'hasPlaced' | 'order'> => {
   const nw = canvasPixelToLatLng({ x: template.originX, y: template.originY })
   const se = canvasPixelToLatLng({

@@ -1,0 +1,62 @@
+# #639 Keep only visible templates in memory and count opaque pixels
+
+## Summary
+Every template's pixels stay in RAM all session, capped at 64 templates and 64M bounding-box
+pixels, so big catalogs (and Seven Seals mirrors) fail to load. Keep the catalog unbounded on disk,
+hold pixels only for the resident set, and reload evicted pixels on demand.
+
+Decided with Mia (2026-10-22):
+- Eviction first. Keep the w×h budget, applied to the resident set only. Sparse storage and opaque
+  counting become a follow-up issue: storage is dense, so an opaque budget would misstate memory.
+- LRU under pressure. Nothing evicts until the budget binds; then hidden templates go first, then
+  visible ones that left the viewport longest ago. Templates in view never evict.
+- Server templates: cache evicted pixels in IndexedDB, re-download when the cache misses.
+- Progress, painted tiles and colour totals survive eviction. Colour navigation, nearest pixel,
+  editing and export load pixels on demand.
+
+## Acceptance criteria
+- [x] IndexedDB holds any number of Local templates; no count or pixel cap on disk.
+- [x] Only resident pixels count toward the 64M budget; a new template evicts others instead of
+      failing.
+- [x] Hidden and off-screen templates reload when they show or come into view.
+- [x] Progress bars keep their counts across eviction.
+- [x] Colour navigation, nearest pixel, edit, move, export and copy work on evicted templates.
+- [x] The mismatch worker and GPU store release evicted pixels.
+
+## TODOs
+- [x] Artwork token: replace `PlacedTemplate.indices` with a stable `artwork` whose pixels may be
+      null; caches key on the token.
+- [x] Persistence: drop disk caps, store painted tile keys, metadata-only saves keep stored pixels.
+- [x] Store: resident budget with LRU eviction, on-demand reload for Local templates, restore
+      catalog metadata for every record.
+- [x] Viewport residency: the renderer reports its view; in-view visible templates load.
+- [x] Server templates: IndexedDB pixel cache with re-download fallback; no budget refusal.
+- [x] On-demand readers: colour nav, nearest, picker, edit/move/export/copy/authoring, tree preview.
+- [x] Worker and GPU store drop evicted pixels.
+- [x] Contract tests for eviction/reload and restoring past 64 templates; changeset.
+
+## Notes
+- Shell PATH lacks Homebrew here: prefix `PATH=/opt/homebrew/bin:$PATH`. Tests need
+  `NODE_OPTIONS=--localstorage-file=/tmp/639-ls` and a built backend (`turbo run build`).
+- TODO 1: `templatePixels(template)` is the one async pixel accessor; sync readers check
+  `artwork.indices`. Mismatch caches, colour totals and GPU textures key on the artwork, so they
+  survive eviction; GPU entries no longer hold a CPU copy after upload. `saveTemplate` takes null
+  indices for metadata-only saves. Validation: typecheck clean, 254/254 tests.
+- TODO 3: `makeRoom` evicts hidden first, then least recently used; pending images and server
+  copies are pinned until TODO 5. Restore reads the catalog without pixels (`loadTemplateCatalog`),
+  hydrates only records lacking `tileKeys` (writing them back), then `fillResidentSet` loads what
+  fits without evicting. Reconcile keeps the artwork when the revision is unchanged. Native sync
+  walks records one at a time. Validation: typecheck clean, 254/254 tests.
+- TODO 5: DB v7 adds `server-pixels` (key, version, opaque, Blob). `putServerTemplate` caches
+  before installing, and takes null indices for a cached version, so a session start installs
+  cached server templates without downloading or decoding them. Reload: cache, then
+  `downloadAgain` from the newest manifest entry. Wplace mirrors have no re-download; a cache miss
+  leaves them evicted until the next mirror. `hasRoomForServerTemplate` only refuses templates
+  larger than the whole budget, which fixes the Seven Seals mirrors.
+- TODO 6: readers wired in TODO 1 (`templatePixels` for colour nav, edit, move, export, copy,
+  authoring; nearest falls back to bounds; picker reads resident only). Tree previews take
+  `art` (128-edge thumbnail kept per artwork) plus `loadArt`, which reads evicted pixels without
+  evicting others (`peekTemplatePixels`).
+- TODO 7: the worker's copy (and the main thread's `sent` reference) drop on eviction via
+  `releaseInWorker`; GPU entries hold no CPU copy since TODO 1. One full-suite run failed
+  `template-authoring > round trips artwork` once; it passed alone 3/3 and in two more full runs.

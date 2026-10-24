@@ -1,4 +1,4 @@
-import { PALETTE_SIZE, TRANSPARENT_INDEX } from '@caelestis/shared'
+import { PALETTE_SIZE } from '@caelestis/shared'
 import {
   isProfileEnabled,
   measureProfileDetail,
@@ -6,14 +6,16 @@ import {
   recordProfileCounter,
   recordProfileWorkload,
 } from '../profile.js'
-import type { PlacedTemplate } from '../templates/local-store.js'
+import type { PlacedTemplate, TemplateArtwork } from '../templates/local-store.js'
+import { pixelRect, type SparsePixels } from '../templates/sparse-pixels.js'
 import { gpuCacheEvictions } from './gpu-cache.js'
+import { TEXTURE_HALO } from './shaders.js'
 
 export const TEMPLATE_GPU_CACHE_BYTES = 64 * 1024 * 1024
 export const TEMPLATE_UPLOAD_PIXELS_PER_FRAME = 512 * 1024
 
-export interface TemplateGpuTile {
-  readonly texture: WebGLTexture
+/** Where a texture sits in its template, and which of its sides no other texture continues. */
+interface GpuTilePlacement {
   /** Top-left and size of the non-halo source cells in template coordinates. */
   readonly x: number
   readonly y: number
@@ -22,17 +24,29 @@ export interface TemplateGpuTile {
   readonly textureWidth: number
   readonly textureHeight: number
   readonly inset: number
+  /**
+   * Sides with no texture beyond them: the template's edges, and edges of chunks left out for being
+   * transparent. An outline drawn around pixels on such a side falls on cells nobody else draws, so
+   * the renderer extends the quad over them.
+   */
+  readonly openLeft: boolean
+  readonly openTop: boolean
+  readonly openRight: boolean
+  readonly openBottom: boolean
+  /**
+   * Which corners a diagonal texture touches: up-left, up-right, down-left, down-right. The
+   * diagonal's top or bottom halo strip also covers the end cells of this texture's side strip
+   * there, so the side strip leaves them to it and no outline blends twice.
+   */
+  readonly diagonals: readonly [boolean, boolean, boolean, boolean]
 }
 
-interface PendingTemplateGpuTile {
+export interface TemplateGpuTile extends GpuTilePlacement {
+  readonly texture: WebGLTexture
+}
+
+interface PendingTemplateGpuTile extends GpuTilePlacement {
   texture: WebGLTexture | null
-  readonly x: number
-  readonly y: number
-  readonly width: number
-  readonly height: number
-  readonly textureWidth: number
-  readonly textureHeight: number
-  readonly inset: number
   uploadedPixels: number
 }
 
@@ -44,7 +58,9 @@ interface PendingTemplateGpu {
   readonly palette: WebGLTexture
   readonly width: number
   readonly height: number
-  readonly source: Uint8Array
+  readonly source: TemplateArtwork
+  /** Held only while uploading; a finished entry keeps no CPU copy of the pixels. */
+  readonly pixels: SparsePixels
   lastUsed: number
 }
 
@@ -53,7 +69,8 @@ export interface TemplateGpuEntry {
   readonly palette: WebGLTexture
   readonly width: number
   readonly height: number
-  readonly source: Uint8Array
+  /** The artwork uploaded. Textures stay valid while the template's pixels are evicted. */
+  readonly source: TemplateArtwork
   lastUsed: number
   paletteData: Uint8Array | null
 }
@@ -64,7 +81,7 @@ export interface TemplateGpuAdvance {
   readonly uploadedPixels: number
 }
 
-type TemplateSource = Pick<PlacedTemplate, 'id' | 'width' | 'height' | 'indices'>
+type TemplateSource = Pick<PlacedTemplate, 'id' | 'width' | 'height' | 'artwork'>
 
 const entryBytes = (entry: TemplateGpuEntry | PendingTemplateGpu): number =>
   PALETTE_SIZE * 4 +
@@ -110,7 +127,7 @@ export class TemplateGpuStore {
     const entry = this.complete.get(template.id)
     return (
       entry !== undefined &&
-      entry.source === template.indices &&
+      entry.source === template.artwork &&
       entry.width === template.width &&
       entry.height === template.height
     )
@@ -138,29 +155,55 @@ export class TemplateGpuStore {
     return this.maximumTextureSize ?? Math.max(width, height) + 2
   }
 
-  private plan(width: number, height: number): readonly PendingTemplateGpuTile[] {
-    const allocationLimit = this.textureLimit(width, height)
-    const inset = allocationLimit >= 3 ? 1 : 0
-    const contentLimit = Math.max(1, allocationLimit - inset * 2)
-    const pending: PendingTemplateGpuTile[] = []
-    for (let y = 0; y < height; y += contentLimit) {
-      const tileHeight = Math.min(contentLimit, height - y)
-      for (let x = 0; x < width; x += contentLimit) {
-        const tileWidth = Math.min(contentLimit, width - x)
-        pending.push({
-          texture: null,
-          x,
-          y,
-          width: tileWidth,
-          height: tileHeight,
-          textureWidth: tileWidth + inset * 2,
-          textureHeight: tileHeight + inset * 2,
-          inset,
-          uploadedPixels: 0,
-        })
+  /** Textures for the painted chunks only, each split further if the device cannot hold it. */
+  private plan(pixels: SparsePixels): readonly PendingTemplateGpuTile[] {
+    const rects: { x: number; y: number; width: number; height: number; inset: number }[] = []
+    for (const chunk of pixels.chunks.values()) {
+      const allocationLimit = this.textureLimit(chunk.width, chunk.height)
+      const inset = allocationLimit > TEXTURE_HALO * 2 ? TEXTURE_HALO : 0
+      const contentLimit = Math.max(1, allocationLimit - inset * 2)
+      for (let y = chunk.y; y < chunk.y + chunk.height; y += contentLimit) {
+        const height = Math.min(contentLimit, chunk.y + chunk.height - y)
+        for (let x = chunk.x; x < chunk.x + chunk.width; x += contentLimit) {
+          rects.push({
+            x,
+            y,
+            width: Math.min(contentLimit, chunk.x + chunk.width - x),
+            height,
+            inset,
+          })
+        }
       }
     }
-    return pending
+    // Chunks share one grid, so a neighbour continues a side exactly when it starts where it ends.
+    const starts = new Set(rects.map(({ x, y }) => `${x},${y}`))
+    const rightEdges = new Set(rects.map(({ x, y, width }) => `${x + width},${y}`))
+    const bottomEdges = new Set(rects.map(({ x, y, height }) => `${x},${y + height}`))
+    const bottomRights = new Set(
+      rects.map(({ x, y, width, height }) => `${x + width},${y + height}`),
+    )
+    return rects.map(({ x, y, width, height, inset }) => ({
+      texture: null,
+      x,
+      y,
+      width,
+      height,
+      textureWidth: width + inset * 2,
+      textureHeight: height + inset * 2,
+      inset,
+      openLeft: !rightEdges.has(`${x},${y}`),
+      openTop: !bottomEdges.has(`${x},${y}`),
+      openRight: !starts.has(`${x + width},${y}`),
+      openBottom: !starts.has(`${x},${y + height}`),
+      // Without a halo there are no side strips to yield.
+      diagonals: [
+        inset > 0 && bottomRights.has(`${x},${y}`),
+        inset > 0 && bottomEdges.has(`${x + width},${y}`),
+        inset > 0 && rightEdges.has(`${x},${y + height}`),
+        inset > 0 && starts.has(`${x + width},${y + height}`),
+      ],
+      uploadedPixels: 0,
+    }))
   }
 
   private allocate(texture: WebGLTexture, width: number, height: number): void {
@@ -192,24 +235,14 @@ export class TemplateGpuStore {
     uploadWidth: number,
     uploadHeight: number,
   ): Uint8Array {
-    const pixels = new Uint8Array(uploadWidth * uploadHeight).fill(TRANSPARENT_INDEX)
-    const textureLeft = tile.x - tile.inset
-    for (let row = 0; row < uploadHeight; row++) {
-      const textureY = uploadY + row
-      const destination = row * uploadWidth
-      const sourceY = tile.y - tile.inset + textureY
-      if (sourceY < 0 || sourceY >= pending.height) continue
-      const requestedLeft = textureLeft + uploadX
-      const sourceLeft = Math.max(0, requestedLeft)
-      const sourceRight = Math.min(pending.width, requestedLeft + uploadWidth)
-      if (sourceRight <= sourceLeft) continue
-      const source = sourceY * pending.width + sourceLeft
-      pixels.set(
-        pending.source.subarray(source, source + sourceRight - sourceLeft),
-        destination + sourceLeft - requestedLeft,
-      )
-    }
-    return pixels
+    // The halo reads into neighbouring chunks, and reads transparent past the template's edges.
+    return pixelRect(
+      pending.pixels,
+      tile.x - tile.inset + uploadX,
+      tile.y - tile.inset + uploadY,
+      uploadWidth,
+      uploadHeight,
+    )
   }
 
   private advanceUpload(pending: PendingTemplateGpu, allowance: number): TemplateGpuAdvance {
@@ -269,16 +302,8 @@ export class TemplateGpuStore {
     for (const tile of pending.indices) {
       if (tile.texture === null || tile.uploadedPixels < tile.textureWidth * tile.textureHeight)
         return { entry: null, status: 'pending', uploadedPixels }
-      indices.push({
-        texture: tile.texture,
-        x: tile.x,
-        y: tile.y,
-        width: tile.width,
-        height: tile.height,
-        textureWidth: tile.textureWidth,
-        textureHeight: tile.textureHeight,
-        inset: tile.inset,
-      })
+      const { uploadedPixels: _uploaded, texture, ...placement } = tile
+      indices.push({ ...placement, texture })
     }
     const entry: TemplateGpuEntry = {
       indices,
@@ -297,11 +322,11 @@ export class TemplateGpuStore {
     let pending = this.pending.get(template.id)
     const changed =
       (entry !== undefined &&
-        (entry.source !== template.indices ||
+        (entry.source !== template.artwork ||
           entry.width !== template.width ||
           entry.height !== template.height)) ||
       (pending !== undefined &&
-        (pending.source !== template.indices ||
+        (pending.source !== template.artwork ||
           pending.width !== template.width ||
           pending.height !== template.height))
     if (changed) {
@@ -314,18 +339,20 @@ export class TemplateGpuStore {
       return { entry, status: 'complete', uploadedPixels: 0 }
     }
     if (pending === undefined) {
+      const pixels = template.artwork.pixels
+      // Evicted and never uploaded: nothing to draw until the pixels are back in memory.
+      if (pixels === null) return { entry: null, status: 'pending', uploadedPixels: 0 }
       const palette = this.gl.createTexture()
       if (palette === null) return { entry: null, status: 'failed', uploadedPixels: 0 }
       pending = {
         observedAt: null,
         profileWindow: null,
-        indices: measureProfileDetail('Overlay upload planning', () =>
-          this.plan(template.width, template.height),
-        ),
+        indices: measureProfileDetail('Overlay upload planning', () => this.plan(pixels)),
         palette,
         width: template.width,
         height: template.height,
-        source: template.indices,
+        source: template.artwork,
+        pixels,
         lastUsed: generation,
       }
       this.pending.set(template.id, pending)

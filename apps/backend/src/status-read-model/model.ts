@@ -91,7 +91,10 @@ export interface StatusProjectionMutation {
   readonly revision: number
   /** Rebuild from the authoritative source when a batch contains a revision gap. */
   readonly forceReconcile?: true
+  /** Tiles whose canvas changed, for admin subscribers. */
   readonly invalidatedTiles?: readonly TileKey[]
+  /** The subset a published template covers. The rest would show public subscribers where a draft is. */
+  readonly publicInvalidatedTiles?: readonly TileKey[]
   readonly changes: readonly {
     readonly templateId: string
     readonly published: boolean
@@ -385,7 +388,9 @@ export const createSeasonStatusReadModel = (options: {
     const next: PersistedStatusReadModel = {
       season: options.season,
       revision: mutation.revision,
-      reconciledAt: now(),
+      // A mutation is not a reconciliation. Keeping the clock bounds how long a missed visibility
+      // repair can leave an unpublished template in the public projection.
+      reconciledAt: previous.reconciledAt,
       publicTemplates,
       adminTemplates,
     }
@@ -393,7 +398,7 @@ export const createSeasonStatusReadModel = (options: {
     state = next
     await publish(next)
     return {
-      public: deltaFor(previous, next, 'public', mutation.invalidatedTiles),
+      public: deltaFor(previous, next, 'public', mutation.publicInvalidatedTiles),
       admin: deltaFor(previous, next, 'admin', mutation.invalidatedTiles),
     }
   }

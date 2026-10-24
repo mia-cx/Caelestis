@@ -19,7 +19,12 @@ import { activeShortcutBindings } from './shortcut-bindings.js'
 import { currentShortcutPlatform } from './shortcuts.js'
 import { type ConnectedServer, getState, onStateChange, serverConnectionIdentity } from './state.js'
 import { onServerStatusChange, serverColourProgressFor } from './telemetry.js'
-import { onLocalChange, type PlacedTemplate, templateById } from './templates/local-store.js'
+import {
+  onLocalChange,
+  type PlacedTemplate,
+  templateById,
+  templateChunks,
+} from './templates/local-store.js'
 import {
   type ColourNavigationTarget,
   type ColourTargetKind,
@@ -375,8 +380,10 @@ export const paintPaletteProgress = (): readonly TemplateColourProgress[] => {
   const active = activeAllianceSurface()
   const bounds = active === null ? null : allianceBounds(active)
   if (active === null || bounds === null || !sameTemplateSurface(active.surface, surface)) return []
+  const pixels = template.artwork.pixels
+  if (pixels === null) return []
   return artboardColourProgress(
-    template,
+    { ...template, pixels },
     readArtboardPixels(active, {
       originX: bounds.minX,
       originY: bounds.minY,
@@ -423,7 +430,7 @@ export const navigateFocusedColour = async (index: number, cycle = false): Promi
     )
     if (reference === null) return false
     const targets = artboardColourTargets(
-      template,
+      { ...template, pixels: await templateChunks(template) },
       readArtboardPixels(active, {
         originX: bounds.minX,
         originY: bounds.minY,

@@ -30,7 +30,7 @@ import { upgradeLocalTags } from './templates/tag-schema.js'
 const DB_NAME = 'caelestis'
 const STORE = 'server-cache'
 // Shared with local template persistence. Opening an older version after v3 exists is a VersionError.
-const VERSION = 6
+const VERSION = 8
 
 export interface CachedServer {
   /** Server URL, which is the identity of the connection. */
@@ -131,6 +131,9 @@ const open = (): Promise<IDBDatabase> =>
         db.createObjectStore('local-template-versions', { keyPath: ['id', 'revision'] })
       }
       if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'url' })
+      if (!db.objectStoreNames.contains('server-pixels')) {
+        db.createObjectStore('server-pixels', { keyPath: 'key' })
+      }
       if (event.oldVersion < 4) {
         const templates = request.transaction?.objectStore('local-templates')
         if (templates !== undefined) migrateTemplateStorePalette(templates)
@@ -182,8 +185,33 @@ const run = async <T>(
   }
 }
 
+/**
+ * Wplace's own scripts can read this page's IndexedDB, so an entry keeps only what the public
+ * manifest carries: published templates and the folders above them. Applied on every write, and on
+ * read to entries an older version saved with an admin's drafts. Returns `entry` itself when
+ * nothing had to go.
+ */
+const withoutDrafts = (entry: CachedServer): CachedServer => {
+  const published = (entry.templates ?? []).filter((template) => template.published)
+  const parents = new Map(entry.nodes.map((node) => [node.id, node.parentId]))
+  const shown = new Set<string>()
+  for (const { nodeId } of published) {
+    for (let id = nodeId; id !== null && !shown.has(id); id = parents.get(id) ?? null) {
+      shown.add(id)
+    }
+  }
+  if (published.length === (entry.templates?.length ?? 0) && shown.size === entry.nodes.length)
+    return entry
+  return {
+    ...entry,
+    nodes: entry.nodes.filter((node) => shown.has(node.id)),
+    templates: published,
+  }
+}
+
 export const cacheServer = async (entry: CachedServer): Promise<void> => {
-  await run('readwrite', (store) => store.put(entry))
+  const stored = withoutDrafts(entry)
+  await run('readwrite', (store) => store.put(stored))
 }
 
 export const forgetServer = async (url: string): Promise<void> => {
@@ -250,7 +278,10 @@ export const loadServerCache = async (
           if (expectedUrl === undefined) return
           const request = store.get(expectedUrl)
           request.onsuccess = () => {
-            const entry = cachedServerFrom(request.result, expectedUrl, remaining)
+            const read = cachedServerFrom(request.result, expectedUrl, remaining)
+            const entry = read === null ? null : withoutDrafts(read)
+            // Saved by an older version with drafts in it: write it back without them.
+            if (entry !== null && entry !== read) void cacheServer(entry)
             if (entry !== null) {
               valid.push(entry)
               remaining.nodes -= entry.nodes.length

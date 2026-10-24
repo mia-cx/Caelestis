@@ -1,5 +1,17 @@
 # @caelestis/backend
 
+## 0.10.0
+
+### Minor Changes
+
+- 5dce098: Server archives no longer carry access tokens, so restoring an old archive can't bring back a revoked token.
+- 35a52f1: Cloudflare servers refresh every published template's share GIF daily on their own, with no GitHub Actions workflow.
+- 522f8bf: An unpublished template's chunks, source image and recipe now answer 404 to everyone without an admin token.
+- 746841b: Callers without an admin token no longer learn anything about an unpublished template.
+    - Canvas tiles, tile history and live tile updates cover only published templates.
+    - Folders appear only above a published template.
+    - Work linked to an unpublished template is hidden, and region claims drop hints that name one.
+
 ## 0.9.5
 
 ### Patch Changes

@@ -12,38 +12,11 @@ vi.mock('@caelestis/shared', async (original) => {
   return { ...shared, decodeWplaceIndexedPng: vi.fn(shared.decodeWplaceIndexedPng) }
 })
 
-import { type ImportedTemplate, importFile } from '../src/templates/import.js'
-import { loadTemplate, openTemplateDatabase, saveTemplate } from '../src/templates/persist.js'
+import { importFile } from '../src/templates/import.js'
+import { loadTemplate, type StoredTemplate, saveTemplate } from '../src/templates/persist.js'
+import { cutPixels, joinPixels } from '../src/templates/sparse-pixels.js'
 import { installBitmapDecoder } from './image-decoder.js'
-
-const STORE = 'local-templates'
-
-const rawRecord = async (id: string): Promise<Record<string, unknown> | undefined> => {
-  const db = await openTemplateDatabase()
-  try {
-    return await new Promise((resolve, reject) => {
-      const request = db.transaction(STORE).objectStore(STORE).get(id)
-      request.onsuccess = () => resolve(request.result)
-      request.onerror = () => reject(request.error)
-    })
-  } finally {
-    db.close()
-  }
-}
-
-const putRaw = async (record: Record<string, unknown>): Promise<void> => {
-  const db = await openTemplateDatabase()
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const transaction = db.transaction(STORE, 'readwrite')
-      transaction.objectStore(STORE).put(record)
-      transaction.oncomplete = () => resolve()
-      transaction.onerror = () => reject(transaction.error)
-    })
-  } finally {
-    db.close()
-  }
-}
+import { putRaw, rawRecord } from './template-records.js'
 
 const bytes = async (blob: unknown): Promise<number[]> => [
   ...new Uint8Array(await (blob as Blob).arrayBuffer()),
@@ -59,17 +32,29 @@ const importedAndSaved = async () => {
     y: 1_000,
   })
   if (imported === undefined) throw new Error('nothing imported')
+  const { indices, ...metadata } = imported
   expect(
-    await saveTemplate({ ...imported, visible: true, everPlaced: true, revision: 0 }, null),
+    await saveTemplate(
+      {
+        ...metadata,
+        pixels: cutPixels(imported.width, imported.height, indices),
+        visible: true,
+        everPlaced: true,
+        revision: 0,
+      },
+      null,
+    ),
   ).toMatchObject({ status: 'saved' })
   decode.mockClear()
   return { source, imported, decode }
 }
 
-const loaded = async (id: string): Promise<ImportedTemplate> => {
+/** A stored template as it loads, with a dense copy of its pixels to compare. */
+const loaded = async (id: string): Promise<StoredTemplate & { readonly indices: Uint8Array }> => {
   const result = await loadTemplate(id)
   if (result.status !== 'loaded') throw new Error(`template did not load: ${result.status}`)
-  return result.template as ImportedTemplate
+  const template = result.template as StoredTemplate
+  return { ...template, indices: joinPixels(template.pixels) }
 }
 
 const dataUrlFetch = () =>

@@ -23,9 +23,9 @@ import { type ScanJob, type ScanOutcome, scanTile } from './mismatch-scan.js'
 /**
  * The glue, which exists only inside the worker.
  *
- * It keeps the template pixels it has been sent, because those are the largest thing in a job and
- * the thing that changes least — a template's pixels are fixed until it is re-imported, while the
- * tile under it changes constantly.
+ * It keeps the template pixels it has been sent, one window per tile, because those are the largest
+ * thing in a job and the thing that changes least — a template's pixels are fixed until it is
+ * re-imported, while the tile under it changes constantly.
  */
 const WORKER_GLUE = `
 const templates = new Map()
@@ -80,17 +80,27 @@ const waiting = new Map<number, (reply: Reply | null) => void>()
 const REPLY_TIMEOUT_MS = 15_000
 const MAX_QUEUED_SCANS = 32
 
+/** The template pixels a scan reads, built only when the worker does not hold them yet. */
+interface ScanPixels {
+  readonly read: () => Uint8Array
+  /** Identity of the pixels the window is cut from; a re-import is a different one. */
+  readonly source: object
+}
+
 interface QueuedScan {
   readonly job: ScanJob
-  readonly indices: Uint8Array
+  readonly pixels: ScanPixels
   readonly resolve: (outcome: ScanOutcome | null) => void
 }
 
 const queuedScans: QueuedScan[] = []
 let scanActive = false
 
-/** Template pixels the worker has been given, by identity — a re-import is a different array. */
-const sent = new Map<string, Uint8Array>()
+/** Pixel windows the worker has been given, by job key, with what they were cut from. */
+const sent = new Map<string, { readonly source: object; readonly bytes: number }>()
+
+/** Job keys start with the template id; everything after the bar names a window of it. */
+const ofTemplate = (key: string, id: string): boolean => key.startsWith(`${id}|`)
 
 /** Give up on the worker entirely, answering everything still in flight so nothing hangs. */
 const abandon = (why: string, detail: unknown): void => {
@@ -145,19 +155,20 @@ export const hasWorker = (): boolean => ensureWorker() !== null
  * that forbids workers and a worker that has died, and it is why the pure function this is built
  * from is exported rather than hidden in here.
  */
-const runScan = async (job: ScanJob, indices: Uint8Array): Promise<ScanOutcome | null> => {
+const runScan = async (job: ScanJob, pixels: ScanPixels): Promise<ScanOutcome | null> => {
   const active = ensureWorker()
   if (active === null) return null
 
-  const send = (withIndices: boolean): Promise<Reply | null> => {
+  const send = (indices: Uint8Array | null): Promise<Reply | null> => {
     const id = nextId++
-    // The bands are ours: sliced for this job and never read again, so they transfer rather than
-    // copy. The template's pixels are not — we hold them — so those go across as a copy, once.
+    // The bands and the pixel window are ours: built for this job and never read again, so they
+    // transfer rather than copy. The worker keeps the window for later scans of the same tile.
     const transfer: Transferable[] = []
     if (job.kind === 'pixels' && job.server !== null) transfer.push(job.server.buffer)
     if (job.kind === 'mask') transfer.push(job.maskPacked.buffer)
     if (job.draft !== null) transfer.push(job.draft.buffer)
-    const payload = { ...job, id, indices: withIndices ? indices : null }
+    if (indices !== null) transfer.push(indices.buffer)
+    const payload = { ...job, id, indices }
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {
         if (!waiting.delete(id)) return
@@ -179,9 +190,20 @@ const runScan = async (job: ScanJob, indices: Uint8Array): Promise<ScanOutcome |
     })
   }
 
-  const fresh = sent.get(job.templateKey) !== indices
-  if (fresh) sent.set(job.templateKey, indices)
-  const reply = await send(fresh)
+  let indices: Uint8Array | null = null
+  if (sent.get(job.templateKey)?.source !== pixels.source) {
+    // Windows cut at an older origin are never read again, whichever tile they came from.
+    const id = job.templateKey.slice(0, job.templateKey.indexOf('|'))
+    const origin = job.templateKey.slice(job.templateKey.lastIndexOf('|'))
+    for (const key of [...sent.keys()]) {
+      if (!ofTemplate(key, id) || key.endsWith(origin)) continue
+      sent.delete(key)
+      active.postMessage({ forget: true, templateKey: key })
+    }
+    indices = pixels.read()
+    sent.set(job.templateKey, { source: pixels.source, bytes: indices.byteLength })
+  }
+  const reply = await send(indices)
   if (reply === null) return null
   if (reply.missing === true) {
     // The worker was restarted, or its copy was dropped. Its bands are gone with the first attempt,
@@ -217,7 +239,7 @@ const drainScans = (): void => {
   const next = queuedScans.shift()
   if (next === undefined) return
   scanActive = true
-  void runScan(next.job, next.indices)
+  void runScan(next.job, next.pixels)
     .then(next.resolve, () => next.resolve(null))
     .finally(() => {
       scanActive = false
@@ -229,32 +251,47 @@ const drainScans = (): void => {
  * A worker has one execution lane. Keep the browser-side queue bounded instead of transferring an
  * entire viewport's megabyte bands into an unobservable worker backlog.
  */
-export const scanInWorker = (job: ScanJob, indices: Uint8Array): Promise<ScanOutcome | null> => {
+export const scanInWorker = (
+  job: ScanJob,
+  read: () => Uint8Array,
+  source: object,
+): Promise<ScanOutcome | null> => {
   if (ensureWorker() === null) return Promise.resolve(null)
   if (queuedScans.length >= MAX_QUEUED_SCANS) {
     count('mismatch:worker queue full')
     return Promise.resolve(null)
   }
   return new Promise((resolve) => {
-    queuedScans.push({ job, indices, resolve })
+    queuedScans.push({ job, pixels: { read, source }, resolve })
     drainScans()
   })
 }
 
 /** Drop a template's pixels from the worker when it is gone, so a long session does not accumulate. */
 export const forgetInWorker = (id: string): void => {
-  sent.delete(id)
   for (let index = queuedScans.length - 1; index >= 0; index--) {
     const queued = queuedScans[index]
-    if (queued?.job.templateKey !== id) continue
+    if (queued === undefined || !ofTemplate(queued.job.templateKey, id)) continue
     queuedScans.splice(index, 1)
     queued.resolve(null)
   }
-  worker?.postMessage({ forget: true, templateKey: id })
+  for (const key of [...sent.keys()]) {
+    if (!ofTemplate(key, id)) continue
+    sent.delete(key)
+    worker?.postMessage({ forget: true, templateKey: key })
+  }
+}
+
+/** Drop an evicted template's pixels from the worker, if it holds them or a queued scan will send them. */
+export const releaseInWorker = (id: string): void => {
+  const holds =
+    [...sent.keys()].some((key) => ofTemplate(key, id)) ||
+    queuedScans.some((queued) => ofTemplate(queued.job.templateKey, id))
+  if (holds) forgetInWorker(id)
 }
 
 export const mismatchWorkerMemoryBytes = (): number => {
-  let bytes = [...sent.values()].reduce((total, indices) => total + indices.byteLength, 0)
+  let bytes = [...sent.values()].reduce((total, held) => total + held.bytes, 0)
   for (const queued of queuedScans) {
     bytes += queued.job.draft?.byteLength ?? 0
     bytes += queued.job.kind === 'pixels' ? (queued.job.server?.byteLength ?? 0) : 0

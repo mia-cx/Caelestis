@@ -575,6 +575,13 @@ export interface TreeActionModel {
   readonly returnToCanvas?: boolean
 }
 
+/** Palette indices for a template preview, at whatever resolution the caller has. */
+export interface TreePreviewArt {
+  readonly width: number
+  readonly height: number
+  readonly indices: Uint8Array
+}
+
 export interface TreeRowModel {
   readonly claims?: TemplateClaimsModel
   readonly type: 'row'
@@ -591,10 +598,13 @@ export interface TreeRowModel {
   readonly muted?: boolean
   readonly meta?: string
   readonly preview?: {
+    /** The template's size, for the caption and aspect ratio. */
     readonly width: number
     readonly height: number
-    /** Shared source pixels; absent while the server template is unavailable locally. */
-    readonly indices?: Uint8Array | undefined
+    /** Pixels to draw: the artwork or a smaller copy of it. */
+    readonly art?: TreePreviewArt | undefined
+    /** Fetch `art` when it is absent and the preview scrolls into view. */
+    readonly loadArt?: (() => Promise<TreePreviewArt | undefined>) | undefined
     readonly ownership: string
   }
   /** Includes descendants hidden by collapsed folders or search. */

@@ -16,7 +16,15 @@ import {
   nativePixelWindow,
 } from '../native-pixels.js'
 import { loadCommittedTilePixels, UNPAINTED } from '../tile-transform.js'
-import type { PlacedTemplate } from './local-store.js'
+import { type PlacedTemplate, templatePixels } from './local-store.js'
+
+/**
+ * A placement with a dense copy of its pixels. Capture writes a whole new image, so it works on
+ * dense pixels from the start.
+ */
+type PlacedPixels = Pick<PlacedTemplate, 'originX' | 'originY' | 'width' | 'height'> & {
+  readonly indices: Uint8Array
+}
 
 const overlayWindow = (
   indices: Uint8Array,
@@ -45,7 +53,7 @@ const overlayWindow = (
 
 /** Composite only known committed art over a template, preserving transparent target pixels as the bottom layer. */
 export const compositeCommittedArtwork = (
-  template: PlacedTemplate,
+  template: PlacedPixels,
   snapshot: NativePixelSnapshot,
 ): Uint8Array => {
   const indices = template.indices.slice()
@@ -63,7 +71,8 @@ export const compositeCommittedArtwork = (
 }
 
 /** Capture complete committed art at the saved placement, including world tile crossings and east-edge wrapping. */
-export const captureCurrentArtwork = async (template: PlacedTemplate): Promise<Uint8Array> => {
+export const captureCurrentArtwork = async (placed: PlacedTemplate): Promise<Uint8Array> => {
+  const template = { ...placed, indices: await templatePixels(placed) }
   const surface = template.surface ?? WORLD_TEMPLATE_SURFACE
   if (surface.kind !== 'world') {
     const active = activeAllianceSurface()
@@ -87,7 +96,7 @@ export const captureCurrentArtwork = async (template: PlacedTemplate): Promise<U
 
 /** Composite committed world art over a placement, loading every tile it touches first. */
 const captureWorldArtwork = async (
-  template: Pick<PlacedTemplate, 'originX' | 'originY' | 'width' | 'height' | 'indices'>,
+  template: PlacedPixels,
   mask?: Uint8Array,
   signal?: AbortSignal,
 ): Promise<Uint8Array> => {
@@ -147,7 +156,7 @@ const captureWorldArtwork = async (
  * under selected template pixels load.
  */
 export const captureTemplateArea = async (
-  template: Pick<PlacedTemplate, 'originX' | 'originY' | 'width' | 'height' | 'indices'>,
+  template: PlacedPixels,
   { rect, mask }: RegionShapePixels,
   signal?: AbortSignal,
 ): Promise<Uint8Array> => {

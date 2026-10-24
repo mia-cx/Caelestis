@@ -1,13 +1,19 @@
 <script lang="ts">
-  import type { TreeRowModel } from '../types.js'
+  import type { TreePreviewArt, TreeRowModel } from '../types.js'
   import { previewPixels } from './preview-pixels.js'
 
-  let { preview, name }: { preview: NonNullable<TreeRowModel['preview']>; name: string } = $props()
+  type Preview = NonNullable<TreeRowModel['preview']>
+
+  let { preview, name }: { preview: Preview; name: string } = $props()
   let canvas = $state<HTMLCanvasElement>()
   let nearViewport = $state(false)
-  let drawn: Uint8Array | undefined
-  let drawnWidth = 0
-  let drawnHeight = 0
+  /** Art fetched for a row that had none, keyed by the loader that fetched it. */
+  let fetched = $state<{ readonly load: Preview['loadArt']; readonly art: TreePreviewArt | undefined }>()
+  let drawn: TreePreviewArt | undefined
+
+  const settled = $derived(fetched !== undefined && fetched.load === preview.loadArt)
+  const art = $derived(preview.art ?? (settled ? fetched?.art : undefined))
+  const unavailable = $derived(art === undefined && (preview.loadArt === undefined || settled))
 
   $effect(() => {
     if (canvas === undefined) return
@@ -19,19 +25,28 @@
   })
 
   $effect(() => {
-    const { indices, width, height } = preview
-    if (canvas === undefined || !nearViewport) return
-    if (indices === drawn && width === drawnWidth && height === drawnHeight) return
+    const load = preview.loadArt
+    if (preview.art !== undefined || load === undefined || !nearViewport || settled) return
+    let cancelled = false
+    const finish = (art: TreePreviewArt | undefined) => {
+      if (!cancelled) fetched = { load, art }
+    }
+    load().then(finish, () => finish(undefined))
+    return () => {
+      cancelled = true
+    }
+  })
+
+  $effect(() => {
+    if (canvas === undefined || !nearViewport || art === drawn) return
     const context = canvas.getContext('2d')
     if (context === null) return
-    drawn = indices
-    drawnWidth = width
-    drawnHeight = height
-    if (indices === undefined) {
+    drawn = art
+    if (art === undefined) {
       context.clearRect(0, 0, canvas.width, canvas.height)
       return
     }
-    const pixels = previewPixels(indices, width, height)
+    const pixels = previewPixels(art.indices, art.width, art.height)
     canvas.width = pixels.width
     canvas.height = pixels.height
     context.putImageData(new ImageData(pixels.data, pixels.width, pixels.height), 0, 0)
@@ -40,7 +55,7 @@
 
 <div class="preview">
   <canvas bind:this={canvas} width="1" height="1" style:aspect-ratio={`${preview.width} / ${preview.height}`} aria-label={`${name} template art`}></canvas>
-  {#if preview.indices === undefined}<span class="unavailable">Preview unavailable</span>{/if}
+  {#if unavailable}<span class="unavailable">Preview unavailable</span>{/if}
 </div>
 
 <style>

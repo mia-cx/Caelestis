@@ -6,6 +6,7 @@ import {
   templateTileKeys,
 } from '../src/templates/local-store.js'
 import { syncOfficialOverlays } from '../src/templates/official-overlays.js'
+import { joinPixels } from '../src/templates/sparse-pixels.js'
 
 const LAYER = 'seven-seals-template-2'
 
@@ -83,7 +84,8 @@ describe('official overlays', () => {
       height: 2,
       opaque: 4,
     })
-    expect([...(mirrors()[0]?.indices ?? [])]).toEqual([1, 2, 3, 4])
+    const pixels = mirrors()[0]?.artwork.pixels
+    expect([...(pixels == null ? [] : joinPixels(pixels))]).toEqual([1, 2, 3, 4])
     expect(map.visibility.get(LAYER)).toBe('none')
     // Colour navigation and full progress scans walk these tiles.
     expect([...templateTileKeys(mirrors()[0] as PlacedTemplate)]).toEqual(['1466/920'])

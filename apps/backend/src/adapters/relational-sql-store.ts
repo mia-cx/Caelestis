@@ -1067,6 +1067,22 @@ export class RelationalSqlStore implements SqlStore {
       .orderBy(asc(templateVersions.createdAtMs), asc(templateVersions.id))
   }
 
+  async isPublishedArtwork(namespace: 'chunks' | 'sources', hash: string) {
+    const published = isNotNull(templates.publishedAt)
+    const versions = this.database
+      .select({ found: sql<number>`1` })
+      .from(templateVersions)
+      .innerJoin(templates, eq(templates.id, templateVersions.templateId))
+    const rows =
+      namespace === 'chunks'
+        ? await versions
+            .innerJoin(versionTiles, eq(versionTiles.versionId, templateVersions.id))
+            .where(and(eq(versionTiles.hash, hash), published))
+            .limit(1)
+        : await versions.where(and(eq(templateVersions.sourceHash, hash), published)).limit(1)
+    return rows.length > 0
+  }
+
   async readTemplateVersion(versionId: string): Promise<TemplateVersionRecord | null> {
     const rows = await this.database
       .select({
