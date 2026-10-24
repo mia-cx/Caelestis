@@ -82,7 +82,7 @@ const booleanFilter = <T>(predicate: (value: T) => boolean, message: string) =>
   Schema.makeFilter<T>(predicate, { message })
 
 const boundedString = (maximum: number) =>
-  Schema.String.pipe(Schema.check(Schema.isLengthBetween(1, maximum)))
+  Schema.String.pipe(Schema.check(Schema.isBetweenLength(1, maximum)))
 
 const boundedArray = <S extends Schema.Constraint>(item: S, maximum: number) =>
   Schema.Array(item).pipe(Schema.check(Schema.isMaxLength(maximum)))
@@ -462,7 +462,7 @@ const foldPath = (path: string): string => path.replace(/[A-Z]/g, (c) => c.toLow
 
 const NodePath = Schema.String.pipe(
   Schema.check(
-    Schema.isLengthBetween(1, MAX_PATH_LENGTH),
+    Schema.isBetweenLength(1, MAX_PATH_LENGTH),
     Schema.isPattern(/^(\/[\p{L}\p{N}][\p{L}\p{N}\p{M}. -]*)+$/u, {
       description: 'a slash-separated group path without LIKE metacharacters',
     }),
