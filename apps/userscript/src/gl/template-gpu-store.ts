@@ -9,6 +9,7 @@ import {
 import type { PlacedTemplate, TemplateArtwork } from '../templates/local-store.js'
 import { pixelRect, type SparsePixels } from '../templates/sparse-pixels.js'
 import { gpuCacheEvictions } from './gpu-cache.js'
+import { TEXTURE_HALO } from './shaders.js'
 
 export const TEMPLATE_GPU_CACHE_BYTES = 64 * 1024 * 1024
 export const TEMPLATE_UPLOAD_PIXELS_PER_FRAME = 512 * 1024
@@ -159,7 +160,7 @@ export class TemplateGpuStore {
     const rects: { x: number; y: number; width: number; height: number; inset: number }[] = []
     for (const chunk of pixels.chunks.values()) {
       const allocationLimit = this.textureLimit(chunk.width, chunk.height)
-      const inset = allocationLimit >= 3 ? 1 : 0
+      const inset = allocationLimit > TEXTURE_HALO * 2 ? TEXTURE_HALO : 0
       const contentLimit = Math.max(1, allocationLimit - inset * 2)
       for (let y = chunk.y; y < chunk.y + chunk.height; y += contentLimit) {
         const height = Math.min(contentLimit, chunk.y + chunk.height - y)

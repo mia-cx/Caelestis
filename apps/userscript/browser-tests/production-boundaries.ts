@@ -16,6 +16,7 @@ import {
 import { installWplaceCursors } from '../src/wplace-cursors.js'
 import { installWplaceFont } from '../src/wplace-font.js'
 import { runPanelSurfaceContracts } from './panel-surfaces.js'
+import { runSparseOutlineContracts } from './sparse-outlines.js'
 
 const tile = { x: 3, y: 4 }
 const TILE_SIZE = 1_000
@@ -130,6 +131,7 @@ export const runProductionBrowserBoundaries = async () => {
     throw new Error('production mismatch worker changed the scan result across cache lifecycle')
   if (mismatchWorkerMemoryBytes() !== 0)
     throw new Error('forgetInWorker retained browser test pixels')
+  runSparseOutlineContracts()
 
   // Font override contract against Wplace's own font rules as shipped (copied verbatim from
   // wplace.live's `0.Brd0iqiK.css`), so the override is tested against the cascade it has to win.

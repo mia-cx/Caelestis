@@ -1,6 +1,13 @@
 import { FULL_MINIFY_FOOTPRINT, MEDIUM_MINIFY_FOOTPRINT } from './minify-quality.js'
 
 /**
+ * Cells of neighbouring pixels uploaded around each texture. The outline draws one cell past an open
+ * side and reads one more beyond that, and a halo cell left to a diagonal texture needs its
+ * whole neighbourhood in that texture too.
+ */
+export const TEXTURE_HALO = 2
+
+/**
  * The overlay's shaders.
  *
  * Two ideas carry the whole thing.
@@ -222,10 +229,10 @@ void main() {
   ivec2 cell = ivec2(floor(texel));
   // A halo column's end cells beside a diagonal texture belong to that texture's top or bottom
   // halo strip too. Leaving them to it keeps the outline from blending there twice.
-  bool left = cell.x == 0;
-  bool right = cell.x == int(u_size.x) - 1;
-  bool top = cell.y <= 1;
-  bool bottom = cell.y >= int(u_size.y) - 2;
+  bool left = cell.x < ${TEXTURE_HALO};
+  bool right = cell.x >= int(u_size.x) - ${TEXTURE_HALO};
+  bool top = cell.y <= ${TEXTURE_HALO};
+  bool bottom = cell.y >= int(u_size.y) - ${TEXTURE_HALO + 1};
   if (
     (left && ((top && u_diagonals.x) || (bottom && u_diagonals.z))) ||
     (right && ((top && u_diagonals.y) || (bottom && u_diagonals.w)))
