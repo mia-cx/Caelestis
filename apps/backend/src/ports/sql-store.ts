@@ -1057,6 +1057,12 @@ export interface SqlStore extends TagStore {
   /** A version with its template metadata and complete tile index, or null if absent. */
   readTemplateVersion(versionId: string): Promise<TemplateVersionRecord | null>
 
+  /**
+   * Whether any version of a published template names this chunk or source hash. Blobs are
+   * content-addressed and outlive unpublishing, so this is what keeps a draft's pixels admin-only.
+   */
+  isPublishedArtwork(namespace: 'chunks' | 'sources', hash: string): Promise<boolean>
+
   /** Artwork revisions in creation order, so a template's observations survive pixel replacements. */
   listTemplateVersions(
     templateId: string,

@@ -63,7 +63,7 @@ const assembleManifestWithSql = async (
   }
   for (const tags of tagsByNode.values()) tags.sort((a, b) => a.id.localeCompare(b.id))
 
-  const nodes = nodeRecords
+  const allNodes = nodeRecords
     .map(({ id, parentId, path, name, description, createdAt }) =>
       description === null
         ? { id, parentId, path, name, createdAt }
@@ -93,7 +93,7 @@ const assembleManifestWithSql = async (
   // poll would produce a 200 nobody can decode. Dropping it is the recoverable direction: the next
   // poll, microseconds later, carries it complete. The reverse ordering is already benign, since
   // orphan tile rows simply find no template to attach to.
-  const nodeIds = new Set(nodes.map((node) => node.id))
+  const nodeIds = new Set(allNodes.map((node) => node.id))
   const templates = templateRecords
     // Both directions of the same tear. The node read can also land before a group is created while
     // the template read lands after one is placed in it, leaving a template naming a node the
@@ -123,6 +123,19 @@ const assembleManifestWithSql = async (
       updatedAt: template.updatedAt,
     }))
     .sort((left, right) => left.id.localeCompare(right.id))
+
+  // Below admin, a folder appears only above a published template. A folder holding nothing but
+  // drafts would name and tag them.
+  const parents = new Map(allNodes.map((node) => [node.id, node.parentId]))
+  const shown = new Set<string>()
+  for (const template of templates) {
+    for (let id = template.nodeId; id !== null && !shown.has(id); id = parents.get(id) ?? null) {
+      shown.add(id)
+    }
+  }
+  const nodes = options.includeUnpublished
+    ? allNodes
+    : allNodes.filter((node) => shown.has(node.id))
 
   // The wire caps a manifest at 200,000 chunks in total, and nothing on the write path enforces an
   // aggregate: 400 chunks per template is bounded, the number of published templates in a season is

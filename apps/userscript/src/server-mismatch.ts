@@ -24,6 +24,8 @@ interface ServerTemplateRef {
   readonly serverUrl?: string
   readonly serverTemplateId?: string
   readonly serverVersion?: string
+  /** A draft's masks stay in memory: the page can read Cache Storage. */
+  readonly serverUnpublished?: boolean
 }
 
 interface HeldMask {
@@ -96,6 +98,7 @@ const readMask = async (
   version: string,
   tile: TileCoord,
   key: string,
+  persist: boolean,
 ): Promise<void> => {
   const token = activeServerToken(server)
   const invalidationKey = invalidationKeyFor(server.url, tile)
@@ -172,7 +175,7 @@ const readMask = async (
   }
   misses.delete(key)
   recordPixelObservation(mask.packed, requested)
-  if (cachedBytes === null || !equalBytes(cachedBytes, bytes))
+  if (persist && (cachedBytes === null || !equalBytes(cachedBytes, bytes)))
     void writeCachedServerMismatch(key, bytes)
   masks.set(key, { server, mask, lastUsed: ++useGeneration })
   notify()
@@ -235,6 +238,7 @@ export const serverMismatchMaskFor = (
     template.serverVersion,
     tile,
     key,
+    template.serverUnpublished !== true,
   ).finally(() => {
     if (pending.get(key) !== request) return
     pending.delete(key)

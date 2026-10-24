@@ -16,16 +16,20 @@ import {
 import { installWplaceCursors } from '../src/wplace-cursors.js'
 import { installWplaceFont } from '../src/wplace-font.js'
 import { runPanelSurfaceContracts } from './panel-surfaces.js'
+import { runSparseOutlineContracts } from './sparse-outlines.js'
 
 const tile = { x: 3, y: 4 }
 const TILE_SIZE = 1_000
 const UNPAINTED = 255
 const templatePixels = new Uint8Array([5, 6, 7, 8])
+/** Stands for the template's pixels, which the worker caches its window of. */
+const templateSource = {}
 
-const scan = (server: Uint8Array) =>
+const scan = (server: Uint8Array, templateKey = 'browser-template|0/0|0,0') =>
   scanInWorker(
     {
-      templateKey: 'browser-template',
+      // A window key: the template id, then the tile and the template's origin.
+      templateKey,
       kind: 'pixels',
       width: 2,
       height: 2,
@@ -41,7 +45,9 @@ const scan = (server: Uint8Array) =>
       transparent: 0,
       unpainted: UNPAINTED,
     },
-    templatePixels,
+    // The window transfers to the worker, so each read hands over a fresh copy.
+    () => templatePixels.slice(),
+    templateSource,
   )
 
 /** Browser-only contracts: production worker transfer/cache lifecycle and browser canvas readback. */
@@ -106,6 +112,10 @@ export const runProductionBrowserBoundaries = async () => {
 
   const first = await scan(new Uint8Array([5, UNPAINTED, 1, 8]))
   const cached = await scan(new Uint8Array([5, UNPAINTED, 1, 8]))
+  // A move to another tile leaves the window cut at the old origin unread forever.
+  await scan(new Uint8Array([5, UNPAINTED, 1, 8]), 'browser-template|1/0|2,0')
+  if (mismatchWorkerMemoryBytes() !== templatePixels.byteLength)
+    throw new Error('the mismatch worker kept a window from before a move')
   forgetInWorker('browser-template')
   const afterForget = await scan(new Uint8Array([5, UNPAINTED, 1, 8]))
   forgetInWorker('browser-template')
@@ -121,6 +131,7 @@ export const runProductionBrowserBoundaries = async () => {
     throw new Error('production mismatch worker changed the scan result across cache lifecycle')
   if (mismatchWorkerMemoryBytes() !== 0)
     throw new Error('forgetInWorker retained browser test pixels')
+  runSparseOutlineContracts()
 
   // Font override contract against Wplace's own font rules as shipped (copied verbatim from
   // wplace.live's `0.Brd0iqiK.css`), so the override is tested against the cascade it has to win.

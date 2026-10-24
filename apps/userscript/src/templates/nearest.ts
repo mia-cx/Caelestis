@@ -14,6 +14,7 @@ import {
   type PlacedTemplate,
 } from './local-store.js'
 import { horizontalCentre, sourceXAt, wrappedDeltaX } from './placement.js'
+import { pixelAt } from './sparse-pixels.js'
 
 /**
  * Which template a template-local action means.
@@ -96,14 +97,16 @@ export const focusedTemplate = (options: FocusedTemplateOptions = {}): PlacedTem
     const sourceY = centre.y - template.originY
     const cellX = sourceX === null ? -1 : Math.floor(sourceX)
     const cellY = Math.floor(sourceY)
-    const centreIndex =
-      sourceX !== null && sourceY >= 0 && sourceY < template.height
-        ? template.indices[cellY * template.width + cellX]
-        : undefined
+    const inside = sourceX !== null && sourceY >= 0 && sourceY < template.height
+    const pixels = template.artwork.pixels
+    const centreIndex = inside && pixels !== null ? pixelAt(pixels, cellX, cellY) : undefined
+    // An evicted template has no pixels to test, so its bounds stand in for them.
     const containsClaimedPixel =
-      centreIndex !== undefined &&
-      centreIndex !== TRANSPARENT_INDEX &&
-      !claimedHiddenFor(appearanceOf(template)).includes(centreIndex)
+      pixels === null
+        ? inside
+        : centreIndex !== undefined &&
+          centreIndex !== TRANSPARENT_INDEX &&
+          !claimedHiddenFor(appearanceOf(template)).includes(centreIndex)
     if (containsClaimedPixel) {
       if (visible) containingVisible = template
       else if (!template.visible) containingHidden = template

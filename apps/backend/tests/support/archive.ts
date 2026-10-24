@@ -262,22 +262,26 @@ export const paint = async (fetch: Fetch, api: string, token: string, event: unk
     })
   ).json()) as Record<string, unknown>
 
+/** Replays `event` on a restored server with a token it issued, since archives carry none. */
+export const replay = async (fetch: Fetch, api: string, event: unknown) => {
+  const minted = await fetch(`${api}/admin/tokens`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${ARCHIVE_ADMIN}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ label: 'reporter', scope: 'report' }),
+  })
+  const { token } = (await minted.json()) as { token: string }
+  return paint(fetch, api, token, event)
+}
+
 /**
- * An archive's data independent of who wrote it and where: no header or end record, no runtime
- * frontend credential, in sorted order because each database sorts text its own way.
+ * An archive's data independent of who wrote it and where: no header or end record, in sorted
+ * order because each database sorts text its own way.
  */
 export const archiveData = (archive: string) =>
   archive
     .split('\n')
     .filter((line) => line.length > 0)
-    .map(
-      (line) => JSON.parse(line) as { kind: string; table?: string; values?: { label?: string } },
-    )
-    .filter(
-      (record) =>
-        record.kind !== 'header' &&
-        record.kind !== 'end' &&
-        !(record.table === 'access_tokens' && record.values?.label === 'Built-in frontend'),
-    )
+    .map((line) => JSON.parse(line) as { kind: string })
+    .filter((record) => record.kind !== 'header' && record.kind !== 'end')
     .map((record) => JSON.stringify(record))
     .sort()

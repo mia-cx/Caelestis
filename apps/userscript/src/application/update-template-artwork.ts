@@ -20,6 +20,7 @@ import {
   type PlacedTemplate,
   replaceLocalArtwork,
   templateById,
+  templatePixels,
 } from '../templates/local-store.js'
 import { movingId } from '../templates/move.js'
 import { confirmDestructive } from '../ui/confirm.js'
@@ -163,10 +164,15 @@ export const requestTemplateAreaUpdate = (id: string, rerender: () => void): voi
     capture: async (selection, _action, signal) => {
       let pixels = ''
       const update = updateArtwork(id, async (template) => {
-        const indices = await captureTemplateArea(template, selection, signal)
+        const current = await templatePixels(template)
+        const indices = await captureTemplateArea(
+          { ...template, indices: current },
+          selection,
+          signal,
+        )
         signal.throwIfAborted()
         const changed = indices.reduce(
-          (count, index, at) => count + Number(index !== template.indices[at]),
+          (count, index, at) => count + Number(index !== current[at]),
           0,
         )
         if (changed === 0)
