@@ -12,6 +12,7 @@ import {
 } from '@caelestis/shared'
 import { Effect } from 'effect'
 import type { Caller } from '../auth/middleware.js'
+import { MAX_READ_BUCKETS_TEMPLATE_IDS, type SqlStore } from '../ports/index.js'
 import { presenceRectWithinSurface } from '../presence/geometry.js'
 import { PresenceService, SqlStoreService } from '../runtime/backend-runtime.js'
 import {
@@ -29,6 +30,27 @@ const storage = <A>(run: () => Promise<A>) =>
     catch: (cause) => new BackendStorageError({ operation: 'regions', cause }),
   })
 
+/**
+ * Clear template hints that name a template the public manifest does not carry. Every reader,
+ * presence included, gets this one list, so a hint never says more than the manifest does.
+ */
+export const withPublishedHints = async (
+  sql: SqlStore,
+  regions: readonly RegionClaim[],
+): Promise<readonly RegionClaim[]> => {
+  const hinted = [...new Set(regions.flatMap(({ templateId }) => templateId ?? []))]
+  const published = new Set<string>()
+  for (let start = 0; start < hinted.length; start += MAX_READ_BUCKETS_TEMPLATE_IDS) {
+    const ids = hinted.slice(start, start + MAX_READ_BUCKETS_TEMPLATE_IDS)
+    for (const id of await sql.filterPublishedTemplateIds(ids)) published.add(id)
+  }
+  return regions.map((region) =>
+    region.templateId === null || published.has(region.templateId)
+      ? region
+      : { ...region, templateId: null },
+  )
+}
+
 /** List a bounded surface or template's region claims. */
 export const listRegions = (
   season: number,
@@ -38,7 +60,9 @@ export const listRegions = (
 ) =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
-    const regions = yield* storage(() => sql.regions.listRegions(season, surface, templateId))
+    const regions = (yield* storage(async () =>
+      withPublishedHints(sql, await sql.regions.listRegions(season, surface, templateId)),
+    )).filter((region) => templateId === undefined || region.templateId === templateId)
     if (owner === undefined) return { regions }
     const owners = yield* storage(() => sql.regions.regionOwners(season, surface))
     const ownedRegionIds = owners
@@ -84,14 +108,16 @@ export const putRegion = (
     const templateId = request.templateId ?? null
     if (typeof templateId === 'string') {
       const template = yield* storage(() => sql.readTemplate(templateId))
+      // One message for all three, so the answer never says that a draft exists.
       if (
         template === null ||
+        !template.published ||
         template.season !== season ||
         !sameTemplateSurface(template.surface, surface)
       )
         return yield* Effect.fail(
           new RequestValidationError({
-            message: 'Template is missing or belongs to another drawing surface',
+            message: 'Template is missing, unpublished, or belongs to another drawing surface',
           }),
         )
     }

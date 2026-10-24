@@ -156,3 +156,46 @@ describe('resident templates', () => {
     FILL_BUDGET_TIMEOUT_MS,
   )
 })
+
+describe('server pixels and unpublishing', () => {
+  it('does not save a download that finishes after its template was unpublished', async () => {
+    vi.resetModules()
+    const store = await import('../src/templates/local-store.js')
+    const { cachedServerCopy } = await import('../src/templates/server-pixel-cache.js')
+    const id = `srv:draft:${crypto.randomUUID()}`
+    let finish: ((indices: Uint8Array) => void) | undefined
+    store.setServerPixelSource(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+    )
+    try {
+      // Public, with no disk copy yet, so the next read downloads.
+      await store.putServerTemplate({
+        ...large(id, 1),
+        width: 1,
+        height: 1,
+        indices: null,
+        serverUrl: 'https://draft.example',
+        serverTemplateId: 'art',
+        serverNodeId: null,
+        serverVersion: 'v1',
+        serverTileKeys: ['0/0'],
+      })
+      const template = store.templateById(id)
+      if (template === undefined) throw new Error('the server template was not installed')
+      const loading = store.templatePixels(template)
+      await vi.waitFor(() => expect(finish).not.toBe(undefined))
+
+      expect(await store.updateServerTemplateMetadata(id, id, null, true)).toBe(true)
+      finish?.(new Uint8Array([1]))
+      await loading
+      // The save was queued behind the unpublish; give it the chance to run.
+      await store.updateServerTemplateMetadata(id, id, null, true)
+      expect(await cachedServerCopy(id, 'v1')).toBeNull()
+    } finally {
+      await store.forgetServerTemplate(id)
+    }
+  })
+})

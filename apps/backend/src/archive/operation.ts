@@ -203,6 +203,42 @@ export const releaseServer = async (
   return true
 }
 
+/** D1 binds at most 100 parameters per statement; two go to the operation fence. */
+const LEGACY_TOKEN_DELETE_CHUNK = 98
+
+/**
+ * A restore begun before archives stopped carrying credentials may have imported the archive's
+ * tokens, and its state lists the destination's own in `preservedTokens`. Releasing it, whether
+ * activated, discarded or resumed after a crash, deletes the rest, so a token revoked after the
+ * snapshot stays revoked. Position 1 is the header alone: nothing was imported. Idempotent.
+ */
+const dropLegacyCredentials = async (host: ArchiveHost, operation: ArchiveOperationRow) => {
+  if (operation.kind !== 'import' || operation.position <= 1) return
+  const kept = (JSON.parse(operation.stateJson) as { preservedTokens?: readonly string[] })
+    .preservedTokens
+  if (kept === undefined) return
+  const own = new Set(kept)
+  const imported = (
+    await host.connection.prepare('SELECT "token_hash" FROM "access_tokens"').all<{
+      token_hash: string
+    }>()
+  ).results
+    .map((row) => row.token_hash)
+    .filter((hash) => !own.has(hash))
+  // Each delete is fenced in the statement itself: once any caller finishes this release the row
+  // is gone and writes reopen, so a caller that stalled past its lease deletes nothing issued
+  // since. Chunked by the imported hashes, never the keep list, to stay inside D1's parameters.
+  for (let start = 0; start < imported.length; start += LEGACY_TOKEN_DELETE_CHUNK) {
+    const chunk = imported.slice(start, start + LEGACY_TOKEN_DELETE_CHUNK)
+    await host.connection
+      .prepare(
+        `DELETE FROM "access_tokens" WHERE EXISTS (SELECT 1 FROM "archive_operation" WHERE "id" = 1 AND "operation_id" = ? AND "state_json" = ?) AND "token_hash" IN (${chunk.map(() => '?').join(', ')})`,
+      )
+      .bind(operation.operationId, operation.stateJson, ...chunk)
+      .run()
+  }
+}
+
 /**
  * Close the counter operation, delete the row, then thaw and reopen this process's writes.
  * Counters close first so nothing the operation holds can write once it ends; the freeze stays
@@ -210,6 +246,7 @@ export const releaseServer = async (
  * the delete and the thaw leaves a freeze `clearStaleFreezes` drops when it sees the gate open.
  */
 const completeRelease = async (host: ArchiveHost, operation: ArchiveOperationRow) => {
+  await dropLegacyCredentials(host, operation)
   await host.counters.closeCounterOperation(operation.operationId)
   await host.connection
     .prepare(

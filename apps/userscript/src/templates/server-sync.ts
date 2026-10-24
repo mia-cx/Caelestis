@@ -14,6 +14,8 @@ import {
 import { userscriptClientHeaders } from '../client-metrics.js'
 import { count, warn } from '../debug.js'
 import type { ServerTemplate } from '../server-cache.js'
+import { invalidateServerMismatches } from '../server-mismatch.js'
+import { deleteCachedServerMismatches } from '../server-mismatch-cache.js'
 import { registerServerSyncResource } from '../server-sync-coordinator.js'
 import { serverEndpoint } from '../server-url.js'
 import {
@@ -439,6 +441,7 @@ const serverTemplateRow = (
   serverTemplateId: template.id,
   serverNodeId: template.nodeId,
   serverVersion: template.version,
+  serverUnpublished: !template.published,
   serverConnection: server,
   serverTileKeys: template.chunks.map((chunk) => chunk.tile),
   wrapX: surface.kind === 'world' && template.bbox.minX > template.bbox.maxX,
@@ -546,7 +549,17 @@ const syncServerTemplatesOnce = async (
     // rebuild. Names and folder membership still arrive through the manifest because neither
     // changes the pixel version.
     if (held !== undefined && held.serverVersion === template.version) {
-      await updateServerTemplateMetadata(key, template.name, template.nodeId, server)
+      const unpublishing = !template.published && held.serverUnpublished !== true
+      await updateServerTemplateMetadata(
+        key,
+        template.name,
+        template.nodeId,
+        !template.published,
+        server,
+      )
+      // Masks saved while it was public describe it too. Cleared only once the row says draft, so
+      // a request started in between cannot save another; any older one is fenced off here.
+      if (unpublishing) invalidateServerMismatches(server.url)
       if (!current()) return
       continue
     }
@@ -565,6 +578,8 @@ const syncServerTemplatesOnce = async (
     }
     inFlight.set(key, generation)
     const stillWanted = (): boolean => current() && latestVersion(key) === template.version
+    // A draft keeps no saved masks, including ones a public copy saved in an earlier session.
+    const wasPublic = !template.published && held?.serverUnpublished !== true
     try {
       // Cached at this version: install without downloading, and read the pixels when needed.
       const cached = await cachedServerCopy(key, template.version)
@@ -612,6 +627,12 @@ const syncServerTemplatesOnce = async (
       warn('install', `could not sync server template ${template.name}`, String(error))
     } finally {
       if (inFlight.get(key) === generation) inFlight.delete(key)
+      // After the install, so the row already says draft: a public row of an older version may
+      // have requests in flight, which only a server-wide invalidation fences.
+      if (wasPublic) {
+        if (held === undefined) void deleteCachedServerMismatches(server.url, template.id)
+        else invalidateServerMismatches(server.url)
+      }
     }
   }
 }

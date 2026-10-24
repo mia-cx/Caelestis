@@ -107,3 +107,32 @@ describe('status projection', () => {
     expect(reads).toBe(2)
   })
 })
+
+describe('status projection freshness', () => {
+  it('rereads the source within one TTL of the last reconciliation, however often mutations land', async () => {
+    let now = 0
+    let revision = 0
+    const model = createSeasonStatusReadModel({
+      season: 1,
+      now: () => now,
+      ttlMilliseconds: 100,
+      source: { read: async () => [] },
+      persistence: { load: async () => null, save: async () => {} },
+      revisions: {
+        current: async () => revision,
+        commit: async (_season, expected) => (expected === revision ? ++revision : null),
+      },
+    })
+    await model.reconcileSnapshot('public')
+
+    // A steady stream of incremental mutations, each inside the TTL of the one before it.
+    for (now = 60; now < 200; now += 60) {
+      await model.applyCommittedChange({
+        baseRevision: revision,
+        revision: ++revision,
+        changes: [],
+      })
+    }
+    expect((await model.reconcileSnapshot('public')).cacheOutcome).toBe('stale')
+  })
+})

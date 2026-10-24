@@ -1,5 +1,6 @@
 import {
   MAX_TEMPLATE_CLAIMANTS,
+  MAX_WORK_ITEMS,
   sameTemplateSurface,
   type TemplateSurface,
   uuidV7,
@@ -10,6 +11,7 @@ import {
 } from '@caelestis/shared'
 import { Effect } from 'effect'
 import type { Caller } from '../auth/middleware.js'
+import type { SqlStore } from '../ports/index.js'
 import { SqlStoreService, StatusReadModelService } from '../runtime/backend-runtime.js'
 import {
   BackendStorageError,
@@ -41,20 +43,56 @@ const activityAction = (action: WorkMutation['action']): WorkAction => {
   }
 }
 
+/**
+ * Which work a caller below admin may see: items whose every linked template is published. Work
+ * copies template names and links, so an item linking an unpublished or deleted template would
+ * still describe it.
+ */
+const visibleWork = (sql: SqlStore, season: number, surface: TemplateSurface) =>
+  storage(async () => {
+    const published = new Set(
+      (await sql.listManifestTemplates({ season, surface }, false)).map((template) => template.id),
+    )
+    return (item: WorkItem) => item.templateIds.every((id) => published.has(id))
+  })
+
 /** Read a bounded page of work in one drawing scope, ordered by stable ID. */
-export const listWork = (season: number, surface: TemplateSurface, after = '') =>
+export const listWork = (
+  season: number,
+  surface: TemplateSurface,
+  after: string,
+  includeUnpublished: boolean,
+) =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
-    return yield* storage(() => sql.work.list(season, surface, after))
+    const visible = includeUnpublished ? () => true : yield* visibleWork(sql, season, surface)
+    // Clients continue from the last item they were given, so the cursor must name a visible one.
+    // Read past pages that are entirely hidden rather than ending early or naming a hidden id.
+    let cursor = after
+    while (true) {
+      const page = yield* storage(() => sql.work.list(season, surface, cursor))
+      const items = page.filter(visible)
+      if (page.length < MAX_WORK_ITEMS) return { items, nextCursor: null }
+      const last = items.at(-1)
+      if (last !== undefined) return { items, nextCursor: last.id }
+      cursor = page.at(-1)?.id ?? cursor
+    }
   })
 
 /** Read activity newest first, with revision-based pagination. */
-export const workHistory = (id: string, before: number) =>
+export const workHistory = (id: string, before: number, includeUnpublished: boolean) =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
-    if ((yield* storage(() => sql.work.read(id))) === null)
+    const item = yield* storage(() => sql.work.read(id))
+    const visible = includeUnpublished
+      ? () => true
+      : item === null
+        ? () => false
+        : yield* visibleWork(sql, item.season, item.surface)
+    if (item === null || !visible(item))
       return yield* Effect.fail(new ResourceNotFoundError({ message: 'Work item not found' }))
-    return yield* storage(() => sql.work.history(id, before))
+    const activity = yield* storage(() => sql.work.history(id, before))
+    return activity.filter((entry) => visible(entry.item))
   })
 
 /** Apply a scoped mutation. Claim identity is self-reported; server credentials enforce action scope. */

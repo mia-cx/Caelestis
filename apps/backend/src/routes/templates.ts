@@ -330,16 +330,20 @@ const createBlobRoutes = (
     const hash = c.req.param('hash')
     if (!SHA256_HEX.test(hash)) return c.json({ error: `invalid ${namespace} hash` }, 400)
 
-    return runBackendHttp(c, runtime, readBlob(namespace, hash), (bytes) =>
-      // `private`, because this route is behind a read scope. `public` invites any standards-compliant
-      // shared cache to store the response and hand it to a later request that carries no
-      // Authorization at all — so one authorised fetch would make a blob readable by anyone who knows
-      // its hash. Both namespaces are immutable and content-addressed, so a client may still cache one
-      // forever; what it may not do is cache it on someone else's behalf.
-      c.body(new Uint8Array(bytes), 200, {
-        'content-type': 'image/png',
-        'cache-control': 'private, max-age=31536000, immutable',
-      }),
+    return runBackendHttp(
+      c,
+      runtime,
+      readBlob(namespace, hash, c.get('caller').scope === 'admin'),
+      (bytes) =>
+        // `private`, because this route is behind a read scope. `public` invites any standards-compliant
+        // shared cache to store the response and hand it to a later request that carries no
+        // Authorization at all — so one authorised fetch would make a blob readable by anyone who knows
+        // its hash. Both namespaces are immutable and content-addressed, so a client may still cache one
+        // forever; what it may not do is cache it on someone else's behalf.
+        c.body(new Uint8Array(bytes), 200, {
+          'content-type': 'image/png',
+          'cache-control': 'private, max-age=31536000, immutable',
+        }),
     )
   })
 
@@ -362,9 +366,13 @@ export const createRecipeRoutes = (runtime: BackendRuntime, auth: AuthOptions) =
     if (!UUID_V7.test(versionId)) {
       return c.json({ error: 'versionId must be a canonical lowercase UUIDv7' }, 400)
     }
-    return runBackendHttp(c, runtime, readTemplateRecipe(versionId), (result) =>
-      // Versions are immutable, so their recipes are too.
-      c.json(result, 200, { 'cache-control': 'private, max-age=31536000, immutable' }),
+    return runBackendHttp(
+      c,
+      runtime,
+      readTemplateRecipe(versionId, c.get('caller').scope === 'admin'),
+      (result) =>
+        // Versions are immutable, so their recipes are too.
+        c.json(result, 200, { 'cache-control': 'private, max-age=31536000, immutable' }),
     )
   })
   return routes
