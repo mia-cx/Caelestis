@@ -482,6 +482,8 @@ class ArtboardPass {
         gl.bindTexture(gl.TEXTURE_2D, source.texture)
         gl.uniform1i(this.uniform('u_indices'), 0)
         gl.uniform2f(this.uniform('u_size'), source.textureWidth, source.textureHeight)
+        if (this.kind === 'outline')
+          gl.uniform4iv(this.uniform('u_diagonals'), source.diagonals.map(Number))
         gl.bufferSubData(gl.ARRAY_BUFFER, 0, vertices)
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
         drawIntersections++

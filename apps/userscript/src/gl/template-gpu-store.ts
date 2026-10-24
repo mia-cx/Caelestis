@@ -32,6 +32,12 @@ interface GpuTilePlacement {
   readonly openTop: boolean
   readonly openRight: boolean
   readonly openBottom: boolean
+  /**
+   * Which corners a diagonal texture touches: up-left, up-right, down-left, down-right. The
+   * diagonal's top or bottom halo strip also covers the end cells of this texture's side strip
+   * there, so the side strip leaves them to it and no outline blends twice.
+   */
+  readonly diagonals: readonly [boolean, boolean, boolean, boolean]
 }
 
 export interface TemplateGpuTile extends GpuTilePlacement {
@@ -172,6 +178,9 @@ export class TemplateGpuStore {
     const starts = new Set(rects.map(({ x, y }) => `${x},${y}`))
     const rightEdges = new Set(rects.map(({ x, y, width }) => `${x + width},${y}`))
     const bottomEdges = new Set(rects.map(({ x, y, height }) => `${x},${y + height}`))
+    const bottomRights = new Set(
+      rects.map(({ x, y, width, height }) => `${x + width},${y + height}`),
+    )
     return rects.map(({ x, y, width, height, inset }) => ({
       texture: null,
       x,
@@ -185,6 +194,13 @@ export class TemplateGpuStore {
       openTop: !bottomEdges.has(`${x},${y}`),
       openRight: !starts.has(`${x + width},${y}`),
       openBottom: !starts.has(`${x},${y + height}`),
+      // Without a halo there are no side strips to yield.
+      diagonals: [
+        inset > 0 && bottomRights.has(`${x},${y}`),
+        inset > 0 && bottomEdges.has(`${x + width},${y}`),
+        inset > 0 && rightEdges.has(`${x},${y + height}`),
+        inset > 0 && starts.has(`${x + width},${y + height}`),
+      ],
       uploadedPixels: 0,
     }))
   }

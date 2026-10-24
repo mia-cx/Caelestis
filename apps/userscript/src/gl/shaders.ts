@@ -204,6 +204,8 @@ uniform float u_stampRadius;
 uniform vec2 u_stampOffset;
 uniform float u_stampRotation;
 uniform float u_fade;
+/** Diagonal textures at the up-left, up-right, down-left and down-right corners. */
+uniform bvec4 u_diagonals;
 
 out vec4 fragColor;
 
@@ -218,6 +220,16 @@ void main() {
   float pixel = max(footprint.x, footprint.y);
 
   ivec2 cell = ivec2(floor(texel));
+  // A halo column's end cells beside a diagonal texture belong to that texture's top or bottom
+  // halo strip too. Leaving them to it keeps the outline from blending there twice.
+  bool left = cell.x == 0;
+  bool right = cell.x == int(u_size.x) - 1;
+  bool top = cell.y <= 1;
+  bool bottom = cell.y >= int(u_size.y) - 2;
+  if (
+    (left && ((top && u_diagonals.x) || (bottom && u_diagonals.z))) ||
+    (right && ((top && u_diagonals.y) || (bottom && u_diagonals.w)))
+  ) discard;
   vec2 local = fract(texel) - 0.5;
   float c = cos(-u_stampRotation);
   float s = sin(-u_stampRotation);

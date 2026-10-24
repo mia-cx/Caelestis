@@ -643,6 +643,7 @@ export const outlineLayer = {
           gl.bindTexture(gl.TEXTURE_2D, source.texture)
           gl.uniform1i(outlineUniform(gl, 'u_indices'), 0)
           gl.uniform2f(outlineUniform(gl, 'u_size'), source.textureWidth, source.textureHeight)
+          gl.uniform4iv(outlineUniform(gl, 'u_diagonals'), source.diagonals.map(Number))
           gl.bufferSubData(gl.ARRAY_BUFFER, 0, vertices)
           gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
         },
