@@ -9,6 +9,7 @@ import {
   TILE_SIZE,
   type TileCoord,
   TRANSPARENT_INDEX,
+  WORLD_PIXELS,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { count } from '../debug.js'
@@ -1329,7 +1330,8 @@ const supersededServerSource = new Map<string, string>()
  * The scan indexes its pixels by the job's origin and width, so a window the size of the overlap
  * reads exactly as the whole template did, and dense pixels exist only for the tile being scanned.
  * The key names the tile and the template's origin, so a worker holding it can tell a move from a
- * repeat.
+ * repeat. The origin is wrapped into the world: a template across the antimeridian scans each side
+ * from a different virtual origin without having moved.
  */
 const tileWindow = <J extends ScanJob>(job: J, wanted: SparsePixels) => {
   const tileLeft = job.tileX * job.tileSize
@@ -1340,10 +1342,11 @@ const tileWindow = <J extends ScanJob>(job: J, wanted: SparsePixels) => {
   const height = Math.max(0, Math.min(job.originY + job.height, tileTop + job.tileSize) - top)
   const sourceX = left - job.originX
   const sourceY = top - job.originY
+  const originX = ((job.originX % WORLD_PIXELS) + WORLD_PIXELS) % WORLD_PIXELS
   return {
     job: {
       ...job,
-      templateKey: `${job.templateKey}|${job.tileX}/${job.tileY}|${job.originX},${job.originY}`,
+      templateKey: `${job.templateKey}|${job.tileX}/${job.tileY}|${originX},${job.originY}`,
       originX: left,
       originY: top,
       width,
