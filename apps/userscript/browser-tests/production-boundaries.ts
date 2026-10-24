@@ -24,11 +24,11 @@ const templatePixels = new Uint8Array([5, 6, 7, 8])
 /** Stands for the template's pixels, which the worker caches its window of. */
 const templateSource = {}
 
-const scan = (server: Uint8Array) =>
+const scan = (server: Uint8Array, templateKey = 'browser-template|0/0|0,0') =>
   scanInWorker(
     {
-      // A window key: the template id, then the tile and the rectangle cut from it.
-      templateKey: 'browser-template|0/0|0,0,2,2',
+      // A window key: the template id, then the tile and the template's origin.
+      templateKey,
       kind: 'pixels',
       width: 2,
       height: 2,
@@ -111,6 +111,10 @@ export const runProductionBrowserBoundaries = async () => {
 
   const first = await scan(new Uint8Array([5, UNPAINTED, 1, 8]))
   const cached = await scan(new Uint8Array([5, UNPAINTED, 1, 8]))
+  // A move to another tile leaves the window cut at the old origin unread forever.
+  await scan(new Uint8Array([5, UNPAINTED, 1, 8]), 'browser-template|1/0|2,0')
+  if (mismatchWorkerMemoryBytes() !== templatePixels.byteLength)
+    throw new Error('the mismatch worker kept a window from before a move')
   forgetInWorker('browser-template')
   const afterForget = await scan(new Uint8Array([5, UNPAINTED, 1, 8]))
   forgetInWorker('browser-template')

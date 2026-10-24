@@ -1328,7 +1328,8 @@ const supersededServerSource = new Map<string, string>()
  *
  * The scan indexes its pixels by the job's origin and width, so a window the size of the overlap
  * reads exactly as the whole template did, and dense pixels exist only for the tile being scanned.
- * The key names the window's source rectangle, so a worker holding it can tell a move from a repeat.
+ * The key names the tile and the template's origin, so a worker holding it can tell a move from a
+ * repeat.
  */
 const tileWindow = <J extends ScanJob>(job: J, wanted: SparsePixels) => {
   const tileLeft = job.tileX * job.tileSize
@@ -1342,7 +1343,7 @@ const tileWindow = <J extends ScanJob>(job: J, wanted: SparsePixels) => {
   return {
     job: {
       ...job,
-      templateKey: `${job.templateKey}|${job.tileX}/${job.tileY}|${sourceX},${sourceY},${width},${height}`,
+      templateKey: `${job.templateKey}|${job.tileX}/${job.tileY}|${job.originX},${job.originY}`,
       originX: left,
       originY: top,
       width,

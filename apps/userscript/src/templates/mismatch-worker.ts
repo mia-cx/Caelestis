@@ -192,10 +192,11 @@ const runScan = async (job: ScanJob, pixels: ScanPixels): Promise<ScanOutcome | 
 
   let indices: Uint8Array | null = null
   if (sent.get(job.templateKey)?.source !== pixels.source) {
-    // A moved template cuts a different window from the same tile; the old one is never read again.
-    const tile = job.templateKey.slice(0, job.templateKey.lastIndexOf('|') + 1)
+    // Windows cut at an older origin are never read again, whichever tile they came from.
+    const id = job.templateKey.slice(0, job.templateKey.indexOf('|'))
+    const origin = job.templateKey.slice(job.templateKey.lastIndexOf('|'))
     for (const key of [...sent.keys()]) {
-      if (key === job.templateKey || !key.startsWith(tile)) continue
+      if (!ofTemplate(key, id) || key.endsWith(origin)) continue
       sent.delete(key)
       active.postMessage({ forget: true, templateKey: key })
     }
