@@ -21,7 +21,8 @@ target, database, or object store. The archive stays usable after the old provid
    ADMIN_TOKEN=... node apps/backend/dist/archive/cli.js import https://new.example.com/backend/v1 server.ndjson
    ```
 
-5. Point DNS or clients at the destination.
+5. Issue report and read tokens on the destination. The archive carries none.
+6. Point DNS or clients at the destination.
 
 The source stays frozen after the export, so nothing it accepts later can miss the move. For a
 backup instead of a move, run the client's `finish-export <source-url>` to resume its writes.
@@ -47,7 +48,7 @@ provider identifiers, so any exporter pairs with any importer.
 
 ## What an archive holds
 
-- Every row of every server table: settings, credentials and revocations, folders, tags,
+- Every row of every server table except access tokens: settings, folders, tags,
   templates and versions with their sources and recipes, work items and activity, telemetry,
   attribution, contributions, retained tile history, mirrored tiles, alarms and deadlines, live
   revisions, and deduplication records.
@@ -60,6 +61,8 @@ provider identifiers, so any exporter pairs with any importer.
 
 An archive leaves out:
 
+- Access tokens. Credentials stay on the server that issued them, so restoring an old archive
+  can never bring back a token revoked since. Issue new tokens on the destination.
 - Deployment configuration and secrets: `ADMIN_TOKEN`, the stored frontend read token,
   database, S3, and R2 credentials, `SERVER_ID`, `SERVER_NAME`, and `SEASON`. Configure them on
   the destination before you restore.
@@ -101,10 +104,10 @@ overwrites. Two kinds of rows are allowed: the destination's own credentials, an
 migrations seed. The check runs after the gate closes, so nothing can land between the check and
 the restore.
 
-**Credentials.** Token hashes, scopes, labels, and revocations arrive unchanged. A revoked token
-stays revoked. The destination keeps its own tokens beside them. When both hold the same token, for
-example a shared `CAELESTIS_READ_TOKEN`, the destination's row stays as it is, scope included.
-An archive holds hashes only, never a usable token.
+**Credentials.** No token arrives. The destination keeps the tokens it has and issues the rest:
+mint report and read tokens on it before pointing clients there. An archive written by an older
+server may still list token hashes; the restore reads past them, so a token revoked since that
+archive stays revoked.
 
 **Identity.** The destination keeps the identity it is configured with. To keep clients treating it
 as the same server, set its `SERVER_ID` to the source's. The import prints that as
@@ -155,7 +158,7 @@ is held. Its state names a phase:
 | --- | --- | --- |
 | start export | insert row, `freezing` | close the process gate, drain writes, freeze counters |
 | freeze done | `freezing` → `frozen` | none; pages read the frozen data |
-| begin restore | insert row, `preparing` | close and drain, freeze counters, check emptiness and credentials, probe objects |
+| begin restore | insert row, `preparing` | close and drain, freeze counters, check emptiness, probe objects |
 | preparation done | `preparing` → `ready` | none; records arrive |
 | append records | position and state advance with the rows, in one batch | none |
 | discard starts | `ready` → `discarding` | one bounded deletion per call, progress saved each time |

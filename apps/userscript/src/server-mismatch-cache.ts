@@ -161,8 +161,15 @@ export const deleteCachedServerMismatchTile = async (
   })
 }
 
-export const deleteCachedServerMismatches = async (serverUrl: string): Promise<void> => {
+/** Delete a server's saved masks, or only one template's when `templateId` is given. */
+export const deleteCachedServerMismatches = async (
+  serverUrl: string,
+  templateId?: string,
+): Promise<void> => {
   const prefix = `${serverUrl}\u0000`
+  // Keys are url, server id, season, template id, version, tile.
+  const matches = (key: string) =>
+    key.startsWith(prefix) && (templateId === undefined || key.split('\u0000')[3] === templateId)
   await serializeServer(serverUrl, async () => {
     await Promise.all(
       [...tileOperations].flatMap(([key, operation]) =>
@@ -176,7 +183,7 @@ export const deleteCachedServerMismatches = async (serverUrl: string): Promise<v
       await Promise.all(
         requests.map((request) => {
           const key = keyFrom(request)
-          return key?.startsWith(prefix) ? cache.delete(request) : false
+          return key !== null && matches(key) ? cache.delete(request) : false
         }),
       )
     } catch {}

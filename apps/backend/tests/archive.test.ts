@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { millis } from '@caelestis/shared'
 import { getTableName, is } from 'drizzle-orm'
 import { getTableConfig, SQLiteTable } from 'drizzle-orm/sqlite-core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -16,6 +17,7 @@ import {
   ARCHIVE_GATE_CACHE_MILLISECONDS,
   ArchiveOperationActiveError,
 } from '../src/archive/gate.js'
+import { hashToken } from '../src/auth/tokens.js'
 import * as schema from '../src/db/schema.js'
 import {
   ARCHIVE_ADMIN,
@@ -25,7 +27,7 @@ import {
   type Fetch,
   MemoryObjectStorage,
   openPortableServer,
-  paint,
+  replay,
   runningImport,
   seedServer,
 } from './support/archive.js'
@@ -105,16 +107,48 @@ describe('server archives', { timeout: 60_000 }, () => {
     expect(await restored.get('sample:v:1')).toEqual({ at: 1, correct: 2 })
     // The running import wakes on the destination; it waits out the restore and then resumes.
     expect(await restored.getAlarm()).toBeLessThanOrEqual(Date.now() + 60_000)
-    // The source's report credential still works, and the event it already reported stays applied.
+    // Credentials stay behind, so the source's report token is refused. A reporter given a fresh
+    // token finds the event it already reported still applied.
     expect(
-      await paint(destination.fetch, destination.api, seeded.reportToken, seeded.event),
-    ).toEqual({ accepted: false, duplicate: true })
+      (
+        await destination.fetch(`${destination.api}/manifest`, {
+          headers: { authorization: `Bearer ${seeded.reportToken}` },
+        })
+      ).status,
+    ).toBe(401)
+    expect(await replay(destination.fetch, destination.api, seeded.event)).toEqual({
+      accepted: false,
+      duplicate: true,
+    })
 
     await finishExport(archiveClient(source.fetch, source.api))
     const again = await exportServer(destination, file('destination.ndjson'))
     expect(archiveData(again)).toEqual(archiveData(archive))
     for (const kind of ['row', 'counter', 'backfill', 'object', 'link'])
       expect(archive, kind).toContain(`"kind":"${kind}"`)
+  })
+
+  it('refuses to resume an export cursor issued before the table layout changed', async () => {
+    const source = await server()
+    await seedServer(source.fetch, source.api)
+    const started = await admin(source, '/admin/archive/export', { method: 'POST' })
+    const { id } = (await started.json()) as { id: string }
+    // Shaped like a cursor issued before the layout was recorded, one step into the export.
+    const legacy = {
+      operationId: id,
+      step: 1,
+      after: null,
+      template: null,
+      chain: '0'.repeat(64),
+      counts: {},
+    }
+    const stale = Buffer.from(JSON.stringify(legacy))
+      .toString('base64')
+      .replaceAll('+', '-')
+      .replaceAll('/', '_')
+    const resumed = await admin(source, `/admin/archive/export?cursor=${encodeURIComponent(stale)}`)
+    expect(resumed.status).toBe(409)
+    await finishExport(archiveClient(source.fetch, source.api))
   })
 
   it('freezes every writer during an export and hides a restore until it activates', async () => {
@@ -168,16 +202,12 @@ describe('server archives', { timeout: 60_000 }, () => {
     expireGateReads()
     expect((await admin(destination, '/manifest')).status).toBe(200)
     // The refused event was never accepted, so the destination accepts it exactly once.
-    expect(await paint(destination.fetch, destination.api, seeded.reportToken, late)).toMatchObject(
-      {
-        accepted: true,
-      },
-    )
-    expect(await paint(destination.fetch, destination.api, seeded.reportToken, late)).toMatchObject(
-      {
-        duplicate: true,
-      },
-    )
+    expect(await replay(destination.fetch, destination.api, late)).toMatchObject({
+      accepted: true,
+    })
+    expect(await replay(destination.fetch, destination.api, late)).toMatchObject({
+      duplicate: true,
+    })
   })
 
   it('resumes an interrupted export and import without repeating or losing a record', async () => {
@@ -280,7 +310,7 @@ describe('server archives', { timeout: 60_000 }, () => {
     expect(await (await admin(destination, '/admin/archive')).json()).toEqual({ operation: null })
     expireGateReads()
     expect(await (await admin(destination, '/manifest')).json()).toMatchObject({ templates: [] })
-    // The destination's own credentials survive the discard; the archive's do not.
+    // The destination's own credentials survive the discard.
     const manifestWith = async (token: string) =>
       (
         await destination.fetch(`${destination.api}/manifest`, {
@@ -405,7 +435,6 @@ describe('server archives', { timeout: 60_000 }, () => {
             counts: {},
             ended: false,
             phase: 'preparing',
-            preservedTokens: [],
           }),
         )
         .run()
@@ -479,6 +508,114 @@ describe('server archives', { timeout: 60_000 }, () => {
     expect(await (await admin(destination, '/admin/archive')).json()).toMatchObject({
       operation: { phase: 'ready' },
     })
+  })
+
+  it('leaves credentials out, and reads past those an older archive carries', async () => {
+    const file = await scratch()
+    const source = await server()
+    const seeded = await seedServer(source.fetch, source.api)
+    const lines = (await exportServer(source, file('source.ndjson'))).trimEnd().split('\n')
+    expect(lines.some((line) => line.includes('"table":"access_tokens"'))).toBe(false)
+
+    // Rebuild the archive as an older exporter wrote it: the report token's row rides along.
+    const [headerLine = '', ...records] = lines
+    const header = JSON.parse(headerLine) as { tables: Record<string, string[]> }
+    const columns = ['token_hash', 'label', 'scope', 'created_with_token', 'created_at_ms']
+    const legacyHeader = JSON.stringify({
+      ...header,
+      tables: { ...header.tables, access_tokens: columns },
+    })
+    const tokenRow = JSON.stringify({
+      kind: 'row',
+      table: 'access_tokens',
+      values: {
+        token_hash: await hashToken(seeded.reportToken),
+        label: 'reporter',
+        scope: 'report',
+        created_with_token: '0'.repeat(64),
+        created_at_ms: 0,
+      },
+    })
+    const end = JSON.parse(records.pop() ?? '') as { counts: Record<string, number> }
+    const body = [legacyHeader, tokenRow, ...records]
+    let chain = '0'.repeat(64)
+    for (const line of body) chain = await chainLine(chain, line)
+    const legacyEnd = JSON.stringify({
+      ...end,
+      chain,
+      counts: { ...end.counts, 'row:access_tokens': 1 },
+    })
+    await writeFile(file('legacy.ndjson'), `${[...body, legacyEnd].join('\n')}\n`)
+
+    const destination = await server()
+    await importFromFile(archiveClient(destination.fetch, destination.api), file('legacy.ndjson'))
+    const manifest = await destination.fetch(`${destination.api}/manifest`, {
+      headers: { authorization: `Bearer ${seeded.reportToken}` },
+    })
+    expect(manifest.status).toBe(401)
+  })
+
+  it('removes credentials a restore begun before the upgrade imported, keeping its own', async () => {
+    const file = await scratch()
+    const source = await server()
+    const archive = await exportServer(source, file('source.ndjson'))
+    const [headerLine = ''] = archive.split('\n')
+    const header = JSON.parse(headerLine)
+    /** A destination holding what the older importer persisted, at one point of its lifecycle. */
+    const legacy = async (phase: 'preparing' | 'ready' | 'releasing', imported: boolean) => {
+      const destination = await server()
+      const own = await destination.runtime.connection
+        .prepare('SELECT "token_hash" FROM "access_tokens"')
+        .all<{ token_hash: string }>()
+      if (imported)
+        await destination.runtime.sql.insertAccessToken({
+          tokenHash: await hashToken('REVOKED-ON-THE-SOURCE'),
+          label: 'archived',
+          scope: 'admin',
+          createdWithToken: '0'.repeat(64),
+          createdAt: millis(0),
+        })
+      await destination.runtime.connection
+        .prepare(
+          'INSERT INTO "archive_operation" ("id", "kind", "operation_id", "started_at_ms", "position", "state_json") VALUES (1, \'import\', \'legacy\', 0, ?, ?)',
+        )
+        .bind(
+          imported ? 2 : 1,
+          JSON.stringify({
+            archiveId: header.id,
+            sourceServerId: header.source.serverId,
+            tables: header.tables,
+            chain: await chainLine('0'.repeat(64), headerLine),
+            counts: {},
+            ended: phase === 'releasing',
+            phase,
+            // The older importer wrote an empty placeholder until preparation finished.
+            preservedTokens: phase === 'preparing' ? [] : own.results.map((row) => row.token_hash),
+          }),
+        )
+        .run()
+      return destination
+    }
+    const status = async (destination: Server, token: string) => {
+      expireGateReads()
+      return (
+        await destination.fetch(`${destination.api}/manifest`, {
+          headers: { authorization: `Bearer ${token}` },
+        })
+      ).status
+    }
+
+    // Discarded once ready, and resumed after an activation that crashed mid-release.
+    for (const phase of ['ready', 'releasing'] as const) {
+      const destination = await legacy(phase, true)
+      await discardImport(archiveClient(destination.fetch, destination.api))
+      expect(await status(destination, 'REVOKED-ON-THE-SOURCE'), phase).toBe(401)
+      expect(await status(destination, destination.runtime.readToken), phase).toBe(200)
+    }
+    // A preparation from before the upgrade, resumed into a full restore, keeps the destination's.
+    const resumed = await legacy('preparing', false)
+    await importFromFile(archiveClient(resumed.fetch, resumed.api), file('source.ndjson'))
+    expect(await status(resumed, resumed.runtime.readToken)).toBe(200)
   })
 
   it('keeps a credential both servers already share', async () => {

@@ -449,6 +449,7 @@ const rememberServerContents = (
   templatesByServer.set(server.url, templates)
   rowIdentityByServer.set(server.url, identity)
   if (server.info !== null && server.season !== null) {
+    // The cache keeps only the published part; see `cacheServer`.
     void cacheServer({
       url: server.url,
       serverId: server.info.id,

@@ -7,6 +7,7 @@ import {
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { TemplateAuthoring } from '../src/templates/authoring.js'
 import { adminToken, backendFetch, createTestBackend, readToken } from './backend.js'
+import { installBitmapDecoder } from './image-decoder.js'
 
 const origin = 'https://userscript-api-boundary.test'
 
@@ -116,7 +117,7 @@ describe('access token creation through the backend', () => {
 })
 
 describe('template authoring through the backend', () => {
-  it('keeps source and recipe with an uploaded version for any reader', async () => {
+  it('keeps source and recipe with a published version for any reader', async () => {
     await installBackend()
     const { state, server } = await connect()
     const { indices, png, source, recipe, artwork } = await authored()
@@ -147,6 +148,10 @@ describe('template authoring through the backend', () => {
       authoring: { source: new Blob([source]), recipe, artwork },
     })
     if (!moved.ok) throw new Error(moved.message)
+
+    for (const id of [withSource.id, processedOnly.id]) {
+      expect(await state.patchTemplate(server, id, { published: true })).toEqual({ ok: true })
+    }
 
     const reader = await connect(readToken)
     const { readServerAuthoring } = await import('../src/application/template-authoring.js')
@@ -571,5 +576,126 @@ describe('userscript to backend API boundary', () => {
     expect(paths[0]).toBe('/backend/v1/server')
     expect(paths.slice(1).every((path) => !path.startsWith('/backend/v1/'))).toBe(true)
     expect(paths).toContain('/backend/admin/nodes')
+  })
+})
+
+describe('admin drafts and page-readable storage', () => {
+  it('keeps an unpublished template out of IndexedDB, and caches it once published', async () => {
+    await installBackend()
+    installBitmapDecoder()
+    const { state, server } = await connect()
+    await import('../src/application/tree-server-state.js')
+    const { loadServerCache } = await import('../src/server-cache.js')
+    const { serverTemplateKey } = await import('../src/templates/server-sync.js')
+    const { cachedServerOpaque } = await import('../src/templates/server-pixel-cache.js')
+    const store = await import('../src/templates/local-store.js')
+    const folder = await state.createNode(server, 'Drafts', null)
+    if (!folder.ok) throw new Error(folder.message)
+    const uploaded = await state.uploadTemplate(server, {
+      nodeId: folder.node.id,
+      name: 'Draft',
+      originX: 10,
+      originY: 20,
+      png: await png(),
+    })
+    if (!uploaded.ok) throw new Error(uploaded.message)
+    const key = serverTemplateKey(origin, uploaded.id)
+    const cached = async () => (await loadServerCache([origin]))[0]
+
+    // The admin still sees and draws the draft; only the disk copies are missing.
+    await state.listServerContents(server)
+    await vi.waitFor(() => expect(store.templateById(key)).toBeDefined())
+    await vi.waitFor(async () => expect((await cached())?.fetchedAt).toBeDefined())
+    expect(await cached()).toMatchObject({ nodes: [], templates: [] })
+    const version = store.templateById(key)?.serverVersion ?? ''
+    expect(await cachedServerOpaque(key, version)).toBeNull()
+
+    expect(await state.patchTemplate(server, uploaded.id, { published: true })).toEqual({
+      ok: true,
+    })
+    await state.listServerContents(server)
+    await vi.waitFor(async () =>
+      expect((await cached())?.templates?.map((template) => template.id)).toEqual([uploaded.id]),
+    )
+    expect((await cached())?.nodes.map((node) => node.id)).toEqual([folder.node.id])
+  })
+})
+
+describe('server cache saved by an older version', () => {
+  it('drops drafts from a cached admin manifest on read, and writes it back without them', async () => {
+    const { cacheServer, loadServerCache } = await import('../src/server-cache.js')
+    const url = 'https://legacy-cache.test'
+    const node = (id: string, name: string) => ({
+      id,
+      parentId: null,
+      path: `/${name}`,
+      name,
+      createdAt: Date.now(),
+    })
+    const publicFolder = '01890f3e-7b2c-7abc-8def-0000000000a1'
+    const draftsFolder = '01890f3e-7b2c-7abc-8def-0000000000a2'
+    const publicArt = '01890f3e-7b2c-7abc-8def-0000000000b1'
+    const draftArt = '01890f3e-7b2c-7abc-8def-0000000000b2'
+    const template = (id: string, nodeId: string, published: boolean) => ({
+      id,
+      nodeId,
+      name: id,
+      version: '01890f3e-7b2c-7abc-8def-000000000001',
+      published,
+      updatedAt: 1,
+      bbox: { minX: 0, minY: 0, maxX: 1, maxY: 1 },
+      chunks: [{ tile: '0/0', hash: 'a'.repeat(64) }],
+    })
+    const entry = {
+      url,
+      serverId: '01890f3e-7b2c-7abc-8def-0000000000aa',
+      season: 3,
+      fetchedAt: 1,
+      nodes: [node(publicFolder, 'public'), node(draftsFolder, 'drafts')],
+      templates: [template(publicArt, publicFolder, true), template(draftArt, draftsFolder, false)],
+    }
+    // Creates the store, then overwrites the entry the way the previous version saved it.
+    await cacheServer(entry)
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('caelestis')
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction('server-cache', 'readwrite')
+      transaction.objectStore('server-cache').put(entry)
+      transaction.oncomplete = () => resolve()
+      transaction.onerror = () => reject(transaction.error)
+    })
+    db.close()
+
+    const kept = { nodes: [publicFolder], templates: [publicArt] }
+    const ids = async () => {
+      const [read] = await loadServerCache([url])
+      return {
+        nodes: read?.nodes.map((held) => held.id),
+        templates: read?.templates?.map((held) => held.id),
+      }
+    }
+    expect(await ids()).toEqual(kept)
+    // The rewrite is in the background; once done, the disk holds no draft either.
+    await vi.waitFor(async () => {
+      const stored = await new Promise<{ templates: { id: string }[] }>((resolve, reject) => {
+        const request = indexedDB.open('caelestis')
+        request.onsuccess = () => {
+          const read = request.result
+            .transaction('server-cache')
+            .objectStore('server-cache')
+            .get(url)
+          read.onsuccess = () => {
+            request.result.close()
+            resolve(read.result)
+          }
+          read.onerror = () => reject(read.error)
+        }
+        request.onerror = () => reject(request.error)
+      })
+      expect(stored.templates.map((held) => held.id)).toEqual(kept.templates)
+    })
   })
 })

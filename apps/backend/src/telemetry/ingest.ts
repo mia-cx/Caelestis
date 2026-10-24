@@ -100,6 +100,9 @@ const applyStatusProjectionMutations = async (
           invalidatedTiles: [
             ...new Set(mutations.flatMap((mutation) => mutation.invalidatedTiles ?? [])),
           ],
+          publicInvalidatedTiles: [
+            ...new Set(mutations.flatMap((mutation) => mutation.publicInvalidatedTiles ?? [])),
+          ],
           changes: mutations.flatMap((mutation) => mutation.changes),
         }
       : { forceReconcile: true, changes: [] }),
@@ -483,6 +486,9 @@ const recordObservationPromise = async (
           baseRevision: committed.revision - 1,
           revision: committed.revision,
           invalidatedTiles: [tileKey(metadata.tile)],
+          publicInvalidatedTiles: targets.some((target) => target.published)
+            ? [tileKey(metadata.tile)]
+            : [],
           changes: committed.statusChanges.map(
             ({ published, totalPixels, colourTotals, previous, current }) => {
               const value = (status: TemplateTileStatusRecord) => ({
