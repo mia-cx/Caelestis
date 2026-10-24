@@ -3,7 +3,6 @@ import {
   isWorkIdentity,
   MAX_RASTER_BITS,
   MAX_REGION_ITEMS,
-  MAX_WORK_ITEMS,
   templateSurface,
   type WorkMutation,
 } from '@caelestis/shared'
@@ -183,13 +182,17 @@ export const createWorkRoutes = (runtime: BackendRuntime, auth: AuthOptions) => 
     const scope = c.get('caller').scope
     const after = c.req.query('after') ?? ''
     if (after !== '' && !uuid.test(after)) return c.json({ error: 'Invalid work cursor' }, 400)
-    return runBackendHttp(c, runtime, listWork(season, surface, after), (items) =>
-      c.json({
-        items,
-        canPlan: scope === 'admin',
-        canClaim: scope !== 'read',
-        nextCursor: items.length === MAX_WORK_ITEMS ? items.at(-1)?.id : null,
-      }),
+    return runBackendHttp(
+      c,
+      runtime,
+      listWork(season, surface, after, scope === 'admin'),
+      ({ items, nextCursor }) =>
+        c.json({
+          items,
+          canPlan: scope === 'admin',
+          canClaim: scope !== 'read',
+          nextCursor,
+        }),
     )
   })
   routes.get('/:id/history', async (c) => {
@@ -197,7 +200,12 @@ export const createWorkRoutes = (runtime: BackendRuntime, auth: AuthOptions) => 
     const before =
       c.req.query('before') === undefined ? Number.MAX_SAFE_INTEGER : natural(c.req.query('before'))
     if (!uuid.test(id) || before === null) return c.json({ error: 'Invalid history cursor' }, 400)
-    return runBackendHttp(c, runtime, workHistory(id, before), (activity) => c.json(activity))
+    return runBackendHttp(
+      c,
+      runtime,
+      workHistory(id, before, c.get('caller').scope === 'admin'),
+      (activity) => c.json(activity),
+    )
   })
   routes.put('/:id', requireScopeEffect(runtime, auth, 'report'), async (c) => {
     const id = c.req.param('id')

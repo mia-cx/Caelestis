@@ -23,6 +23,7 @@ import {
 } from './templates/local-store.js'
 import { isMoving } from './templates/move.js'
 import { sourceXAt } from './templates/placement.js'
+import { pixelAt } from './templates/sparse-pixels.js'
 import { ensureTilePixels } from './tile-transform.js'
 import { worldNativePixels } from './world-native-pixels.js'
 import { findWplaceLabelled, wplaceLabel } from './wplace-messages.js'
@@ -83,8 +84,11 @@ export const overlayIndexAt = (surface: TemplateSurface, x: number, y: number): 
     if (localX === null || localY < 0 || localY >= template.height) continue
     const cellX = Math.floor(localX)
     const cellY = Math.floor(localY)
-    const index = template.indices[cellY * template.width + cellX]
-    if (index === undefined || index === TRANSPARENT_INDEX) continue
+    // A visible template under the pointer is resident; one still loading has nothing to pick.
+    const pixels = template.artwork.pixels
+    if (pixels === null) continue
+    const index = pixelAt(pixels, cellX, cellY)
+    if (index === TRANSPARENT_INDEX) continue
     if (claimedHiddenFor(appearanceOf(template)).includes(index)) continue
     found = index
   }

@@ -12,6 +12,7 @@ import {
   isCurrentTemplate,
   type PlacedTemplate,
   templateAsPng,
+  templatePixels,
 } from './local-store.js'
 import { movingId } from './move.js'
 
@@ -105,7 +106,7 @@ const caelestisBlock = async (
     originY: template.originY,
     width: template.width,
     height: template.height,
-    artwork: await sha256Hex(template.indices),
+    artwork: await sha256Hex(await templatePixels(template)),
   } as const
   if (authoring === null || authoring.artwork !== block.artwork) return { caelestis: block }
   const source = await blobAsDataUrl(authoring.source)
