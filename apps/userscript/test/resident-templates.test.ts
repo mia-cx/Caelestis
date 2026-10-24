@@ -161,7 +161,7 @@ describe('server pixels and unpublishing', () => {
   it('does not save a download that finishes after its template was unpublished', async () => {
     vi.resetModules()
     const store = await import('../src/templates/local-store.js')
-    const { cachedServerOpaque } = await import('../src/templates/server-pixel-cache.js')
+    const { cachedServerCopy } = await import('../src/templates/server-pixel-cache.js')
     const id = `srv:draft:${crypto.randomUUID()}`
     let finish: ((indices: Uint8Array) => void) | undefined
     store.setServerPixelSource(
@@ -193,7 +193,7 @@ describe('server pixels and unpublishing', () => {
       await loading
       // The save was queued behind the unpublish; give it the chance to run.
       await store.updateServerTemplateMetadata(id, id, null, true)
-      expect(await cachedServerOpaque(id, 'v1')).toBeNull()
+      expect(await cachedServerCopy(id, 'v1')).toBeNull()
     } finally {
       await store.forgetServerTemplate(id)
     }

@@ -587,7 +587,7 @@ describe('admin drafts and page-readable storage', () => {
     await import('../src/application/tree-server-state.js')
     const { loadServerCache } = await import('../src/server-cache.js')
     const { serverTemplateKey } = await import('../src/templates/server-sync.js')
-    const { cachedServerOpaque } = await import('../src/templates/server-pixel-cache.js')
+    const { cachedServerCopy } = await import('../src/templates/server-pixel-cache.js')
     const store = await import('../src/templates/local-store.js')
     const folder = await state.createNode(server, 'Drafts', null)
     if (!folder.ok) throw new Error(folder.message)
@@ -608,7 +608,7 @@ describe('admin drafts and page-readable storage', () => {
     await vi.waitFor(async () => expect((await cached())?.fetchedAt).toBeDefined())
     expect(await cached()).toMatchObject({ nodes: [], templates: [] })
     const version = store.templateById(key)?.serverVersion ?? ''
-    expect(await cachedServerOpaque(key, version)).toBeNull()
+    expect(await cachedServerCopy(key, version)).toBeNull()
 
     expect(await state.patchTemplate(server, uploaded.id, { published: true })).toEqual({
       ok: true,
