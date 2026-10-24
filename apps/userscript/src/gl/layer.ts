@@ -155,17 +155,19 @@ export const visitIntersections = (
   let count = 0
   const templateTop = template.originY + nudgeY
   for (const source of entry.indices) {
-    const topMargin = source.y === 0 ? Math.min(margin, source.inset) : 0
-    const bottomMargin =
-      source.y + source.height === entry.height ? Math.min(margin, source.inset) : 0
+    const halo = Math.min(margin, source.inset)
+    const topMargin = source.openTop ? halo : 0
+    const bottomMargin = source.openBottom ? halo : 0
     const top = templateTop + source.y - topMargin
     const bottom = templateTop + source.y + source.height + bottomMargin
     for (const span of spans) {
+      // A wrapped span draws the halo only where the cell beyond the side lies in the same span.
       const leftMargin =
-        source.x === 0 && span.sourceStart === 0 ? Math.min(margin, source.inset) : 0
+        source.openLeft && (span.sourceStart < source.x || span.sourceStart === 0) ? halo : 0
       const rightMargin =
-        source.x + source.width === entry.width && span.sourceEnd === entry.width
-          ? Math.min(margin, source.inset)
+        source.openRight &&
+        (span.sourceEnd > source.x + source.width || span.sourceEnd === entry.width)
+          ? halo
           : 0
       const sourceStart = Math.max(source.x - leftMargin, span.sourceStart - leftMargin)
       const sourceEnd = Math.min(
@@ -641,6 +643,7 @@ export const outlineLayer = {
           gl.bindTexture(gl.TEXTURE_2D, source.texture)
           gl.uniform1i(outlineUniform(gl, 'u_indices'), 0)
           gl.uniform2f(outlineUniform(gl, 'u_size'), source.textureWidth, source.textureHeight)
+          gl.uniform4iv(outlineUniform(gl, 'u_diagonals'), source.diagonals.map(Number))
           gl.bufferSubData(gl.ARRAY_BUFFER, 0, vertices)
           gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
         },

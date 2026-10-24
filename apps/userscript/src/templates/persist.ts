@@ -25,6 +25,14 @@ import {
   remapPaletteIndices,
   remapStoredAppearance,
 } from './palette-migration.js'
+import {
+  cutPixels,
+  joinPixels,
+  packedLength,
+  packPixels,
+  type SparsePixels,
+  unpackPixels,
+} from './sparse-pixels.js'
 import { LOCAL_TAG_STORE, upgradeLocalTags } from './tag-schema.js'
 
 /**
@@ -43,7 +51,9 @@ import { LOCAL_TAG_STORE, upgradeLocalTags } from './tag-schema.js'
 const DB_NAME = 'caelestis'
 const STORE = 'local-templates'
 // Shared with server-cache.ts: one database, one version, every store created in either upgrade.
-const VERSION = 7
+// v8 packs pixels into chunks; the bump closes older tabs out, since they read packed records as
+// corrupt and would delete them.
+const VERSION = 8
 const VERSIONS_STORE = 'local-template-versions'
 /** Server template pixels on disk, so an evicted copy reloads without downloading it again. */
 export const SERVER_PIXELS_STORE = 'server-pixels'
@@ -70,7 +80,12 @@ const finishBlockedOpen = (request: IDBOpenDBRequest): void => {
   settle?.()
 }
 
-export interface StoredTemplate extends ImportedTemplate {
+export interface StoredTemplate extends Omit<ImportedTemplate, 'indices'> {
+  /**
+   * The painted chunks. On disk they are one Blob of packed chunk bytes in `indices` and the chunk
+   * keys in `chunks`; records written before chunks hold the whole image there and no `chunks`.
+   */
+  readonly pixels: SparsePixels
   /** Last mirrored tag assignments; owned by the tag transaction, not artwork edits. */
   readonly nativeTags?: readonly TemplateTag[]
   /** Native identity and last derived snapshot. Pending records are resumable migration journals. */
@@ -290,8 +305,13 @@ export type SaveResult =
   | { readonly status: 'limit' }
   | { readonly status: 'unavailable' }
 
-/** A record to save. Null indices keep the stored pixels, so an evicted template can save metadata. */
-export type TemplateSave = Omit<StoredTemplate, 'indices'> & { readonly indices: Uint8Array | null }
+/** A record to save. Null pixels keep the stored ones, so an evicted template can save metadata. */
+export type TemplateSave = Omit<StoredTemplate, 'pixels'> & { readonly pixels: SparsePixels | null }
+
+const sameKeys = (left: unknown, right: readonly number[]): boolean =>
+  Array.isArray(left) &&
+  left.length === right.length &&
+  left.every((key, index) => key === right[index])
 
 /** Save metadata, archive and replace artwork, or replace a derived image after its history was reserved. */
 export const saveTemplate = async (
@@ -300,10 +320,11 @@ export const saveTemplate = async (
   archiveCurrent = false,
   replaceArtwork = false,
 ): Promise<SaveResult> => {
-  const { indices, ...metadata } = template
-  if (indices === null && (expectedRevision === null || archiveCurrent || replaceArtwork)) {
+  const { pixels, ...metadata } = template
+  if (pixels === null && (expectedRevision === null || archiveCurrent || replaceArtwork)) {
     throw new RangeError('only a metadata save may keep the stored pixels')
   }
+  const packed = pixels === null ? null : packPixels(pixels)
   return await writeVersioned(
     template.id,
     expectedRevision,
@@ -324,13 +345,18 @@ export const saveTemplate = async (
         'indices' in current
           ? current.indices
           : undefined
+      const currentChunks =
+        typeof current === 'object' && current !== null && 'chunks' in current
+          ? current.chunks
+          : undefined
       const reusable =
-        indices === null ||
+        packed === null ||
         (!archiveCurrent &&
           !replaceArtwork &&
           hasCurrentPalette(current) &&
           (isUint8Array(currentIndices) || isStoredBlob(currentIndices)) &&
-          candidateIndexPixels(current) === indices.length)
+          candidateIndexPixels(current) === packed.bytes.length &&
+          sameKeys(currentChunks, packed.chunks))
       if (reusable) {
         // Metadata-only mutations keep the already-cloned durable value. Re-wrapping a multi-MB
         // ArrayBuffer in a Blob copies it and makes every move/toggle/appearance change rewrite all
@@ -340,18 +366,20 @@ export const saveTemplate = async (
           revision,
           indices: currentIndices,
         }
+        if (currentChunks !== undefined) record.chunks = currentChunks
         delete record.paletteMigration
         if (typeof current === 'object' && current !== null && 'paletteMigration' in current) {
           record.paletteMigration = current.paletteMigration
         }
         templates.put(record)
       } else {
-        const bytes =
-          indices.byteOffset === 0 && indices.byteLength === indices.buffer.byteLength
-            ? (indices.buffer as ArrayBuffer)
-            : indices.slice().buffer
         templates.put(
-          markCurrentPalette({ ...savedMetadata, revision, indices: new Blob([bytes]) }),
+          markCurrentPalette({
+            ...savedMetadata,
+            revision,
+            indices: new Blob([packed.bytes.buffer as ArrayBuffer]),
+            chunks: packed.chunks,
+          }),
         )
       }
     },
@@ -477,19 +505,26 @@ export type StoredRecord = Record<string, unknown> & { indices?: Uint8Array | St
 const isRebuildable = (record: Record<string, unknown>): boolean =>
   storedAuthoring(record.authoring, record) !== null
 
+/**
+ * Bytes a record's artwork must hold: its packed chunks, or the whole image for a record written
+ * before chunks. Null when its chunk list does not fit its size.
+ */
+const expectedStoredPixels = (record: Record<string, unknown>): number | null => {
+  const width = Number(record.width)
+  const height = Number(record.height)
+  return record.chunks === undefined ? width * height : packedLength(width, height, record.chunks)
+}
+
+/** A record's artwork bytes, as stored; -1 when it holds none. */
+const storedPixelCount = (indices: unknown): number =>
+  isUint8Array(indices) ? indices.length : isStoredBlob(indices) ? indices.size : -1
+
 const boundedStoredRecord = (value: unknown): value is StoredRecord => {
   if (typeof value !== 'object' || value === null) return false
   const record = value as Record<string, unknown>
-  const indices = record.indices
-  const storedPixels = isUint8Array(indices)
-    ? indices.length
-    : isStoredBlob(indices)
-      ? indices.size
-      : -1
+  const storedPixels = storedPixelCount(record.indices)
   // Missing or wrong-sized artwork is lost, but a source and recipe can rebuild it on hydration.
-  const indexPixels = isRebuildable(record)
-    ? Number(record.width) * Number(record.height)
-    : storedPixels
+  const indexPixels = isRebuildable(record) ? (expectedStoredPixels(record) ?? -1) : storedPixels
   if (
     typeof record.id !== 'string' ||
     record.id.length === 0 ||
@@ -543,7 +578,7 @@ const boundedStoredRecord = (value: unknown): value is StoredRecord => {
     originY < bounds.minY ||
     originX > bounds.maxX - width ||
     originY > bounds.maxY - height ||
-    indexPixels !== width * height ||
+    indexPixels !== expectedStoredPixels(record) ||
     (record.source === 'image' && record.everPlaced === false)
   ) {
     return false
@@ -574,7 +609,7 @@ type HydrationResult =
       readonly status: 'loaded'
       readonly template: unknown
       readonly migrated?: Record<string, unknown>
-      /** A record whose lost artwork was rebuilt from its source and recipe. */
+      /** A record whose lost artwork was rebuilt from its recipe, or whose dense artwork was packed. */
       readonly repaired?: Record<string, unknown>
     }
   | { readonly status: 'invalid' }
@@ -605,41 +640,68 @@ const candidateIndexPixels = (value: unknown): number => {
 const boundedPixelSum = (total: number, pixels: number): number =>
   pixels > Number.MAX_SAFE_INTEGER - total ? Number.MAX_SAFE_INTEGER : total + pixels
 
+/** A loaded template: the record's fields with its artwork bytes swapped for its pixels. */
+const hydrated = (record: Record<string, unknown>, pixels: SparsePixels) => {
+  const { indices: _indices, chunks: _chunks, ...metadata } = record
+  return { ...metadata, revision: record.revision ?? 0, pixels }
+}
+
+/** A record with its artwork written the current way: packed painted chunks. */
+const packedRecord = (
+  record: Record<string, unknown>,
+  pixels: SparsePixels,
+): Record<string, unknown> => {
+  const packed = packPixels(pixels)
+  return markCurrentPalette({
+    ...record,
+    indices: new Blob([packed.bytes.buffer as ArrayBuffer]),
+    chunks: packed.chunks,
+  })
+}
+
 const hydrateCandidate = async (candidate: StoredRecord): Promise<HydrationResult> => {
-  const finish = (indices: Uint8Array): HydrationResult => {
-    if (hasCurrentPalette(candidate)) {
-      return {
-        status: 'loaded',
-        template: { ...candidate, revision: candidate.revision ?? 0, indices },
-      }
-    }
-    const remapped = remapPaletteIndices(indices)
-    const migrated = markCurrentPalette({
-      ...candidate,
-      indices: new Blob([remapped.buffer as ArrayBuffer]),
-      appearance: remapStoredAppearance(candidate.appearance),
-    })
-    return {
-      status: 'loaded',
-      template: { ...migrated, revision: candidate.revision ?? 0, indices: remapped },
-      migrated,
-    }
-  }
-  const pixels = Number(candidate.width) * Number(candidate.height)
+  const width = Number(candidate.width)
+  const height = Number(candidate.height)
+  const chunks = candidate.chunks
+  // Packed chunks unpack in place; a record from before chunks is cut once and repacked.
+  const decode = (bytes: Uint8Array): SparsePixels | null =>
+    chunks === undefined
+      ? bytes.length === width * height
+        ? cutPixels(width, height, bytes)
+        : null
+      : Array.isArray(chunks)
+        ? unpackPixels(width, height, { bytes, chunks })
+        : null
   const authoring = storedAuthoring(candidate.authoring, candidate)
   // Artwork with a recipe must still be the artwork that recipe produced. Processed-only records
   // have nothing to check against and load as stored.
-  const accept = async (indices: Uint8Array): Promise<HydrationResult> =>
-    indices.length === pixels &&
-    (authoring === null || (await sha256Hex(indices)) === authoring.artwork)
-      ? finish(indices)
-      : await rebuildArtwork(candidate, 'invalid')
+  const accept = async (bytes: Uint8Array): Promise<HydrationResult> => {
+    const stored = decode(bytes)
+    if (stored === null) return await rebuildArtwork(candidate, 'invalid')
+    if (authoring !== null && (await sha256Hex(joinPixels(stored))) !== authoring.artwork)
+      return await rebuildArtwork(candidate, 'invalid')
+    if (hasCurrentPalette(candidate)) {
+      return {
+        status: 'loaded',
+        template: hydrated(candidate, stored),
+        ...(chunks === undefined ? { repaired: packedRecord(candidate, stored) } : {}),
+      }
+    }
+    const pixels = decode(remapPaletteIndices(bytes)) as SparsePixels
+    const migrated = packedRecord(
+      { ...candidate, appearance: remapStoredAppearance(candidate.appearance) },
+      pixels,
+    )
+    return { status: 'loaded', template: hydrated(migrated, pixels), migrated }
+  }
   const { indices } = candidate
   if (indices === undefined) return await rebuildArtwork(candidate, 'invalid')
   if (isUint8Array(indices)) return await accept(indices)
   // A wrong-sized cache can never be accepted. Rebuild before reading it, so its bytes are never
   // charged against the restore budget, which only counts the expected output size.
-  if (indices.size !== pixels) return await rebuildArtwork(candidate, 'invalid')
+  if (indices.size !== expectedStoredPixels(candidate)) {
+    return await rebuildArtwork(candidate, 'invalid')
+  }
   try {
     const buffer = await indices.arrayBuffer()
     if (buffer.byteLength !== indices.size) return await rebuildArtwork(candidate, 'invalid')
@@ -668,10 +730,11 @@ const rebuildArtwork = async (
     })
     if ((await sha256Hex(indices)) !== authoring.artwork)
       throw new Error('rebuilt artwork differs from the artwork its recipe produced')
+    const pixels = cutPixels(Number(candidate.width), Number(candidate.height), indices)
     return {
       status: 'loaded',
-      template: { ...candidate, revision: candidate.revision ?? 0, indices },
-      repaired: markCurrentPalette({ ...candidate, indices: new Blob([indices.slice().buffer]) }),
+      template: hydrated(candidate, pixels),
+      repaired: packedRecord(candidate, pixels),
     }
   } catch (error) {
     warn('install', `could not rebuild local template ${String(candidate.id)}`, String(error))
@@ -780,7 +843,7 @@ export const hydrateStoredTemplate = async (
   record: StoredRecord,
   maxIndexPixels = 64 * 1024 * 1024,
 ): Promise<LoadTemplateResult> => {
-  if (Number(record.width) * Number(record.height) > maxIndexPixels) {
+  if ((expectedStoredPixels(record) ?? Number.POSITIVE_INFINITY) > maxIndexPixels) {
     return { status: 'invalid', revision: storedRevision(record) }
   }
   const hydrated = await hydrateCandidate(record)
@@ -808,7 +871,7 @@ export const catalogTileKeys = (record: StoredRecord): readonly string[] | null 
   if (
     !hasCurrentPalette(record) ||
     !isStoredBlob(indices) ||
-    indices.size !== width * height ||
+    indices.size !== expectedStoredPixels(record) ||
     !Array.isArray(tileKeys) ||
     tileKeys.length > maxTiles ||
     !tileKeys.every((key) => typeof key === 'string' && TILE_KEY.test(key))
@@ -816,6 +879,10 @@ export const catalogTileKeys = (record: StoredRecord): readonly string[] | null 
     return null
   return tileKeys
 }
+
+/** A catalog record's painted chunk area, known without reading it when its artwork is packed. */
+export const catalogStoredArea = (record: StoredRecord): number | undefined =>
+  record.chunks !== undefined && isStoredBlob(record.indices) ? record.indices.size : undefined
 
 /**
  * Record the painted tiles a restore had to count from pixels, so the next one need not.

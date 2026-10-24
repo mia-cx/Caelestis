@@ -12,6 +12,7 @@ import {
 } from './native-store.js'
 import type { SaveResult, StoredTemplate, TemplateSave } from './persist.js'
 import * as disk from './persist.js'
+import { cutPixels, joinPixels, samePixels } from './sparse-pixels.js'
 import { connectLocalTagSync, synchronizeLocalTemplateTags } from './tags.js'
 
 export type {
@@ -22,6 +23,7 @@ export type {
   TemplateLoadFailure,
 } from './persist.js'
 export {
+  catalogStoredArea,
   catalogTileKeys,
   deleteTemplate as discardTemplate,
   hydrateStoredTemplate,
@@ -57,12 +59,6 @@ const cacheResult = (result: SaveResult): number => {
   throw new Error(`Could not retain the Wplace template cache (${result.status})`)
 }
 
-const samePixels = (a: StoredTemplate, b: StoredTemplate): boolean =>
-  a.width === b.width &&
-  a.height === b.height &&
-  a.indices.length === b.indices.length &&
-  a.indices.every((value, index) => value === b.indices[index])
-
 const project = async (
   api: NativeTemplates,
   incoming: NativeSnapshot,
@@ -75,7 +71,8 @@ const project = async (
     snapshot = current
   }
   if (previous?.native?.token === snapshot.token) return previous
-  const pixels = await api.pixels(snapshot)
+  const { indices, ...rendered } = await api.pixels(snapshot)
+  const pixels = { ...rendered, pixels: cutPixels(rendered.width, rendered.height, indices) }
   const nativeOpacityChanged =
     previous === null ||
     (previous.native?.status === 'linked' && previous.native.opacity !== snapshot.template.opacity)
@@ -105,7 +102,7 @@ const project = async (
       opacityOverride: nativeOpacityChanged || previous?.native?.opacityOverride === true,
     },
   }
-  const artworkChanged = previous !== null && !samePixels(previous, template)
+  const artworkChanged = previous !== null && !samePixels(previous.pixels, template.pixels)
   // Pixels edited in Wplace's editor no longer come from the imported source and recipe.
   const { authoring: _stale, ...processedOnly } = template
   const projected = artworkChanged ? processedOnly : template
@@ -149,7 +146,7 @@ const migrate = async (api: NativeTemplates, template: StoredTemplate): Promise<
             : getSurfaceAppearance(WORLD_TEMPLATE_SURFACE).opacity,
       },
       null,
-      await nativeImage(pending),
+      await nativeImage({ ...pending, indices: joinPixels(pending.pixels) }),
     ))
   return await project(api, snapshot, pending)
 }
@@ -241,7 +238,7 @@ export const saveTemplate = async (
   expectedRevision: number | null,
   archiveCurrent = false,
 ): Promise<SaveResult> => {
-  if (archiveCurrent && template.indices === null) {
+  if (archiveCurrent && template.pixels === null) {
     throw new RangeError('a new version needs its pixels')
   }
   if (!isWorld(template) || (native === null && template.native === undefined))
@@ -260,12 +257,12 @@ export const saveTemplate = async (
       )
         return { status: 'conflict' }
       if (previous === null) {
-        const { indices } = template
+        const { pixels } = template
         // A metadata save needs a stored record to keep the pixels of, and another tab removed it.
-        if (indices === null) return { status: 'conflict' }
+        if (pixels === null) return { status: 'conflict' }
         const saved = await disk.saveTemplate(template, null)
         if (saved.status !== 'saved') return saved
-        const linked = await migrate(api, { ...template, indices, revision: saved.revision })
+        const linked = await migrate(api, { ...template, pixels, revision: saved.revision })
         return { status: 'saved', revision: linked.revision }
       }
       let linked = await migrate(api, previous)
@@ -315,8 +312,8 @@ export const saveTemplate = async (
                   : {}),
               },
               snapshot,
-              archiveCurrent && template.indices !== null
-                ? await nativeImage({ ...template, indices: template.indices })
+              archiveCurrent && template.pixels !== null
+                ? await nativeImage({ ...template, indices: joinPixels(template.pixels) })
                 : undefined,
             )
           : snapshot
