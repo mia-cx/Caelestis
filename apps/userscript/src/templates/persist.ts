@@ -51,7 +51,9 @@ import { LOCAL_TAG_STORE, upgradeLocalTags } from './tag-schema.js'
 const DB_NAME = 'caelestis'
 const STORE = 'local-templates'
 // Shared with server-cache.ts: one database, one version, every store created in either upgrade.
-const VERSION = 7
+// v8 packs pixels into chunks; the bump closes older tabs out, since they read packed records as
+// corrupt and would delete them.
+const VERSION = 8
 const VERSIONS_STORE = 'local-template-versions'
 /** Server template pixels on disk, so an evicted copy reloads without downloading it again. */
 export const SERVER_PIXELS_STORE = 'server-pixels'

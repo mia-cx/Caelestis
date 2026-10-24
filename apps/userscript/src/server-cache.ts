@@ -30,7 +30,7 @@ import { upgradeLocalTags } from './templates/tag-schema.js'
 const DB_NAME = 'caelestis'
 const STORE = 'server-cache'
 // Shared with local template persistence. Opening an older version after v3 exists is a VersionError.
-const VERSION = 7
+const VERSION = 8
 
 export interface CachedServer {
   /** Server URL, which is the identity of the connection. */
