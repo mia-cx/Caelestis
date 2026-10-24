@@ -4,7 +4,7 @@ import {
   latLngToCanvasPixel,
   MAX_MERCATOR_LATITUDE,
   PALETTE_RGB,
-  TRANSPARENT_INDEX,
+  quantiseToPalette,
   WORLD_PIXELS,
 } from '@caelestis/shared'
 import { pageWindow } from '../page-world.js'
@@ -145,24 +145,22 @@ export const nativeMetadata = (
   }
 }
 
-const PALETTE = new Map(PALETTE_RGB.map(([r, g, b], index) => [(r << 16) | (g << 8) | b, index]))
+/** Wplace paints any pixel at least this opaque. */
+const WPLACE_OPAQUE_ALPHA = 16
 
-/** Read palette indices from pixels Wplace has already quantised. Any other colour is refused. */
+/**
+ * Read palette indices from pixels Wplace has already quantised.
+ *
+ * Snapped to the nearest colour rather than matched exactly: browsers with canvas fingerprinting
+ * protection, like Helium, add noise to every canvas readback, so no pixel matches exactly.
+ */
 export const paletteIndices = (image: ImageData): { indices: Uint8Array; opaque: number } => {
-  const { data } = image
-  const indices = new Uint8Array(image.width * image.height).fill(TRANSPARENT_INDEX)
-  let opaque = 0
-  for (let pixel = 0; pixel < indices.length; pixel++) {
-    const at = pixel * 4
-    if ((data[at + 3] ?? 0) < 16) continue
-    const index = PALETTE.get(
-      ((data[at] ?? 0) << 16) | ((data[at + 1] ?? 0) << 8) | (data[at + 2] ?? 0),
-    )
-    if (index === undefined) throw new Error('Wplace returned an unsupported palette colour')
-    indices[pixel] = index
-    opaque++
-  }
-  return { indices, opaque }
+  const { indices, report } = quantiseToPalette(
+    new Uint8Array(image.data.buffer),
+    PALETTE_RGB,
+    WPLACE_OPAQUE_ALPHA,
+  )
+  return { indices, opaque: report.opaquePixels }
 }
 
 const hash = async (bytes: ArrayBuffer): Promise<string> =>

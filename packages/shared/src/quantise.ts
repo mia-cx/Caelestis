@@ -58,8 +58,14 @@ export interface QuantiseResult {
  * Matching is by squared Euclidean distance, which is the right nearest-colour metric. The *report*
  * uses per-channel distance for the reasons given on `QuantiseReport`; the two answer different
  * questions and are deliberately not the same number.
+ *
+ * `opaqueAlpha` is the lowest alpha that counts as painted.
  */
-export const quantiseToPalette = (pixels: Uint8Array, palette = PALETTE_RGB): QuantiseResult => {
+export const quantiseToPalette = (
+  pixels: Uint8Array,
+  palette = PALETTE_RGB,
+  opaqueAlpha = OPAQUE_ALPHA_THRESHOLD,
+): QuantiseResult => {
   // Transparent everywhere, then paint over it. The absent case is by far the most common in a
   // template and this way it costs nothing per pixel.
   const indices = new Uint8Array(pixels.length / 4).fill(TRANSPARENT_INDEX)
@@ -75,7 +81,7 @@ export const quantiseToPalette = (pixels: Uint8Array, palette = PALETTE_RGB): Qu
 
   for (let pixel = 0; pixel < indices.length; pixel += 1) {
     const at = pixel * 4
-    if ((pixels[at + 3] ?? 0) < OPAQUE_ALPHA_THRESHOLD) continue
+    if ((pixels[at + 3] ?? 0) < opaqueAlpha) continue
 
     const red = pixels[at] ?? 0
     const green = pixels[at + 1] ?? 0
