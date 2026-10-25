@@ -1,11 +1,46 @@
 # #168 Template creation workspace: crop, process, place, and publish in one view
 
 ## Summary
-An image editor mode over the live Wplace map. An image from a file, the clipboard, or a URL opens
-one workspace with tool windows for crop, placement, palette, colour matching, and dithering. The
-processed result previews in place on the map and saves as a new Local or server template, or, as a
-separate explicit action, as a new version of an existing server template. Processing runs through
-the published `ditherette` package in a worker.
+A template studio over the live Wplace map. An image from a file, the clipboard, or a URL opens the
+studio: the processed draft is drawn on the map at its placement, and floating tool windows carry
+every Ditherette web control. The draft saves as a new Local or server template, or, as a separate
+explicit action, as a new version of an existing server template. Processing runs through the
+published `ditherette` package, on the GPU when the browser has one, off the UI thread otherwise.
+
+## Decisions
+- The live map is the preview. Placement is dragging the draft. Ditherette's A/B comparison becomes
+  an Original toggle that draws the unprocessed source in the draft's place.
+- Windows float over the map in Wplace's look (classic and pixel): drag by the title bar, collapse,
+  close, snap to screen edges, reopen from a Windows menu. Positions persist per browser.
+- A full port of Ditherette web's controls, minus custom palettes. The palette window keeps the
+  Wplace palette with per-swatch toggles and the All, Free, Premium, and Owned scopes.
+- Selection dropdowns are plain lists of names. No preview canvases inside menus.
+- Ditherette is the published npm package. The userscript build inlines its WASM and its GPU glue,
+  which the package otherwise finds through `import.meta.url`.
+- Built on `feat/template-studio`, one PR per slice merged into it, then one root PR to `main`.
+
+## Windows
+| Window | Ditherette web source | Contents |
+| --- | --- | --- |
+| Studio bar | AppBar, ExportStrip | Name, status, Original toggle, Windows menu, Cancel, Save, Replace |
+| Source | (new) | File, clipboard, URL; crop |
+| Dimensions | OutputPanel | Output size, lock ratio, resize filter, anchor |
+| Palette | PalettePanel (no custom palettes) | Scopes, swatch toggles, counts |
+| Colour space | ColorSpacePanel | Matching space |
+| Dither | DitherPanel, DitherAlgorithmSelect, AdaptivePlacementControls | Algorithm, strength, serpentine, placement |
+| Effects | PipelinePanel, EffectControls, effects/* | Ordered effect layers, one window per layer, masks |
+| Scopes | ScopesPanel, scopes/* | Histogram, waveform, vectorscope, chromaticity |
+
+## Slices
+1. Studio shell: window foundation, studio element and controller, Ditherette 1.0 (GPU with CPU
+   fallback), draft on the map with drag placement, Source and Dimensions windows, Save as Local,
+   Cancel. Entry points from Import and the tree.
+2. Palette and Colour space windows.
+3. Dither window: every algorithm and its parameters, Adaptive placement.
+4. Effects: `RecipeV2` in the Caelestis recipe, the layer list, every effect editor, masks.
+5. Scopes window.
+6. Save to a server and Replace template, undo and redo, keyboard and touch, Celeste fixture
+   coverage, changesets.
 
 ## Acceptance criteria
 - [ ] File, clipboard, and URL inputs all enter the same editor state.
@@ -20,19 +55,9 @@ the published `ditherette` package in a worker.
 - [ ] The Berrycamp Celeste fixtures cover crop, palette, processing, placement, create, and replace paths in tests.
 - [ ] The editor works with pointer, touch, and keyboard input at the same responsive widths as the current userscript UI.
 
-## TODOs
-- [ ] Shared: `ditherette` template recipe processor (crop, output size, Ditherette RecipeV1), accepted by the backend.
-- [ ] Userscript: bundle Ditherette's scalar WASM, run it in a worker with an in-process fallback; `processRecipe` replays ditherette recipes.
-- [ ] Userscript: draft template slot rendered on the map, and draft placement through the move engine.
-- [ ] UI: `TemplateEditor` element (drawer of tool windows, bar with name, status, Cancel, Save/Replace), responsive like ClaimMode.
-- [ ] Userscript: editor controller (sources, crop, scale, palette scopes, matching, dither, placement, latest-wins processing, save create/replace, cancel).
-- [ ] Entry points: Import routes plain images to the editor; "New from image" on folders; "Replace from image" on server templates.
-- [ ] Tests: Berrycamp fixture through crop, palette, processing, placement, create, and replace.
-- [ ] Changesets, browser verification with screenshots.
-
 ## Notes
-- Ditherette 0.1.0-rc.0 is already on npm (`rc` tag) with types, scalar + threaded WASM. Nothing more
-  needs publishing to start; the stable 0.1.0 is held on Ditherette's WebKit threads gate, which the
-  scalar path does not use. Pinned exactly: the recipe's processor version names this build.
-- Wplace's CSP allows `blob:` scripts and `wasm-unsafe-eval`, and sets no connect-src.
+- Wplace's CSP allows `blob:` scripts and `wasm-unsafe-eval`, and sets no connect-src. WebGPU works
+  in the page (tested on Apple metal-3).
+- GPU and CPU results differ, but each is deterministic run to run. The recipe records the engine
+  that produced the saved pixels.
 - Server versions must keep the template's dimensions, so Replace mode locks the output size.
