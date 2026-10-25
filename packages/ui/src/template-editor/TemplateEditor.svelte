@@ -286,13 +286,10 @@
           </div>
           <div class="actions-row">
             <label class="file caelestis-bevel">
-              <Icon name="uploadFile" size="1rem" />
               <span>Choose file</span>
               <input type="file" accept="image/*" onchange={chooseFile} />
             </label>
-            <Button label="Paste" size="small" onclick={() => onIntent({ type: 'paste' })}>
-              <Icon name="paste" size="1rem" />
-            </Button>
+            <Button label="Paste" size="small" onclick={() => onIntent({ type: 'paste' })} />
           </div>
           <form class="url" onsubmit={submitUrl}>
             <label class="field-label" for="template-editor-url">Image address</label>
@@ -330,7 +327,7 @@
               {/each}
             </button>
           </div>
-          <div class="fields four">
+          <div class="fields two">
             {#each [['x', 'X'], ['y', 'Y'], ['width', 'W'], ['height', 'H']] as const as [field, label] (field)}
               <label class="number">
                 <span>{label}</span>
@@ -354,9 +351,7 @@
             </label>
           </div>
           <div class="actions-row">
-            <Button label="Centre in view" size="small" onclick={() => onIntent({ type: 'centre' })}>
-              <Icon name="fitScreen" size="1rem" />
-            </Button>
+            <Button label="Centre in view" size="small" onclick={() => onIntent({ type: 'centre' })} />
           </div>
           <p class="hint">Drag the image on the map to move it. Arrow keys nudge it.</p>
           <p class="field-label">Size</p>
@@ -634,7 +629,6 @@
   .caelestis-field:disabled { opacity: 0.6; }
   .fields { display: grid; gap: 0.35rem; }
   .fields.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .fields.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .number { display: flex; align-items: center; gap: 0.3rem; min-inline-size: 0; color: var(--caelestis-muted-text); }
   .number input { flex: 1; min-inline-size: 0; inline-size: 100%; padding-inline: 0.35rem; }
   .select { display: grid; gap: 0.25rem; }

@@ -13,7 +13,6 @@ import chevronRight from '@iconify-icons/pixelarticons/chevron-right'
 import chevronUp from '@iconify-icons/pixelarticons/chevron-up'
 import chevronsVertical from '@iconify-icons/pixelarticons/chevrons-vertical'
 import circle from '@iconify-icons/pixelarticons/circle'
-import clipboard from '@iconify-icons/pixelarticons/clipboard'
 import close from '@iconify-icons/pixelarticons/close'
 import closeBox from '@iconify-icons/pixelarticons/close-box'
 import colorsSwatch from '@iconify-icons/pixelarticons/colors-swatch'
@@ -133,7 +132,6 @@ export const PIXEL_ICONS: Readonly<Record<IconName, IconData>> = define({
   toolPolygon: sharpCorner,
   toolStar: star,
   palette: colorsSwatch,
-  paste: clipboard,
   pause,
   play,
   popout: externalLink,

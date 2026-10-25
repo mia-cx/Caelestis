@@ -18,7 +18,6 @@ import check from '@iconify-icons/material-symbols/check'
 import chevronRight from '@iconify-icons/material-symbols/chevron-right'
 import circleGlyph from '@iconify-icons/material-symbols/circle'
 import close from '@iconify-icons/material-symbols/close'
-import contentPaste from '@iconify-icons/material-symbols/content-paste'
 import contrast from '@iconify-icons/material-symbols/contrast'
 import createNewFolder from '@iconify-icons/material-symbols/create-new-folder'
 import crop from '@iconify-icons/material-symbols/crop'
@@ -145,7 +144,6 @@ export const ICONS = define({
   toolPolygon: pentagonGlyph,
   toolStar: starGlyph,
   palette,
-  paste: contentPaste,
   pause,
   play: playArrow,
   popout: openInNew,
