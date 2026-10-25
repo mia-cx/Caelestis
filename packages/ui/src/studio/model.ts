@@ -1,9 +1,11 @@
-import type { ResizeAnchor, ResizeId } from './options.js'
+import type { AlphaMode, ColorSpaceId, ResizeAnchor, ResizeId } from './options.js'
 
-/** The studio's tool windows, in Windows-menu order. */
+/** The studio's tool windows, in Windows-menu order, with the edge each docks to by default. */
 export const STUDIO_WINDOWS = [
-  { id: 'source', title: 'Source' },
-  { id: 'dimensions', title: 'Dimensions' },
+  { id: 'source', title: 'Source', dock: 'start' },
+  { id: 'dimensions', title: 'Dimensions', dock: 'start' },
+  { id: 'palette', title: 'Palette', dock: 'end' },
+  { id: 'color-space', title: 'Colour space', dock: 'end' },
 ] as const
 
 export type StudioWindowId = (typeof STUDIO_WINDOWS)[number]['id']
@@ -30,6 +32,19 @@ export type StudioWindowPlacement =
 
 /** Saved per browser. A window missing here takes its default place. */
 export type StudioLayout = Partial<Record<StudioWindowId, StudioWindowPlacement>>
+
+export type StudioPaletteScope = 'all' | 'free' | 'premium' | 'owned'
+
+/** One drawable Wplace colour, whether the template may use it, and how much the result does. */
+export interface StudioColour {
+  readonly index: number
+  readonly name: string
+  readonly hex: string
+  readonly kind: 'free' | 'premium'
+  readonly selected: boolean
+  /** Pixels of this colour in the current result. */
+  readonly pixels: number
+}
 
 export interface StudioRect {
   readonly x: number
@@ -69,6 +84,20 @@ export interface TemplateStudioModel {
   }
   /** Top-left corner on the canvas. */
   readonly origin: { readonly x: number; readonly y: number }
+  readonly palette: {
+    /** The preset the chosen colours match, if any. Owned is unavailable until the account loads. */
+    readonly scope: StudioPaletteScope | null
+    readonly ownedKnown: boolean
+    readonly colours: readonly StudioColour[]
+  }
+  readonly alpha: {
+    readonly mode: AlphaMode
+    /** Alpha below this becomes transparent, from 0 to 255. */
+    readonly threshold: number
+    /** The palette index transparency blends onto in matte mode. */
+    readonly matte: number
+  }
+  readonly colorSpace: ColorSpaceId
   /** Where the last result was processed. Null until one has been. */
   readonly engine: 'gpu' | 'cpu' | null
   readonly processing:
@@ -94,6 +123,10 @@ export type TemplateStudioIntent =
   | { readonly type: 'size'; readonly side: 'width' | 'height'; readonly pixels: number }
   | { readonly type: 'resize'; readonly resize: ResizeId }
   | { readonly type: 'anchor'; readonly anchor: ResizeAnchor }
+  | { readonly type: 'scope'; readonly scope: StudioPaletteScope }
+  | { readonly type: 'colour'; readonly index: number; readonly selected: boolean }
+  | { readonly type: 'alpha'; readonly alpha: Partial<TemplateStudioModel['alpha']> }
+  | { readonly type: 'color-space'; readonly colorSpace: ColorSpaceId }
   | { readonly type: 'origin'; readonly x: number; readonly y: number }
   | { readonly type: 'centre' }
   | { readonly type: 'layout'; readonly layout: StudioLayout }

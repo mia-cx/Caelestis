@@ -6,7 +6,9 @@
   import { STUDIO_WINDOWS, type StudioLayout, type StudioWindowId, type TemplateStudioIntent, type TemplateStudioModel } from './model.js'
   import StudioStyles from './StudioStyles.svelte'
   import StudioWindow from './StudioWindow.svelte'
+  import ColorSpaceWindow from './windows/ColorSpaceWindow.svelte'
   import DimensionsWindow from './windows/DimensionsWindow.svelte'
+  import PaletteWindow from './windows/PaletteWindow.svelte'
   import SourceWindow from './windows/SourceWindow.svelte'
 
   let { model, onIntent }: { model: TemplateStudioModel; onIntent: (intent: TemplateStudioIntent) => void } = $props()
@@ -103,6 +105,10 @@
     <SourceWindow {model} {onIntent} />
   {:else if id === 'dimensions'}
     <DimensionsWindow {model} {onIntent} />
+  {:else if id === 'palette'}
+    <PaletteWindow {model} {onIntent} />
+  {:else if id === 'color-space'}
+    <ColorSpaceWindow {model} {onIntent} />
   {/if}
 {/snippet}
 

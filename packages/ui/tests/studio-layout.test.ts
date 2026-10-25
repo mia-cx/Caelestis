@@ -6,13 +6,14 @@ const box = (x: number, y: number) => ({ x, y, width: 288, height: 200 })
 
 describe('studio window layout', () => {
   it('docks a window released near an edge above the window it was dropped on', () => {
-    const boxes = { source: box(12, 72), dimensions: box(12, 280) }
-    const moved = dropWindow({}, 'dimensions', box(1200 - 300, 90), viewport, {})
-    expect(dockedWindows(moved, 'end')).toEqual(['dimensions'])
+    const right = { palette: box(900, 72), 'color-space': box(900, 280) }
+    const moved = dropWindow({}, 'dimensions', box(1200 - 300, 200), viewport, right)
+    expect(dockedWindows(moved, 'end')).toEqual(['palette', 'dimensions', 'color-space'])
 
-    const back = dropWindow(moved, 'dimensions', box(20, 60), viewport, boxes)
+    const left = { source: box(12, 72) }
+    const back = dropWindow(moved, 'dimensions', box(20, 60), viewport, left)
     expect(dockedWindows(back, 'start')).toEqual(['dimensions', 'source'])
-    expect(dockedWindows(back, 'end')).toEqual([])
+    expect(dockedWindows(back, 'end')).toEqual(['palette', 'color-space'])
   })
 
   it('floats a window measured from its nearer edge, so it stays put when the screen resizes', () => {
