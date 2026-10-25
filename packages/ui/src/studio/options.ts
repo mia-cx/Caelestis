@@ -211,10 +211,20 @@ export interface DitherOption {
 }
 
 const yliluoma = (size: 2 | 4 | 8 | 16, description: string) =>
-  ({ id: `yliluoma-${size}`, label: `Yliluoma ${size}×${size}`, family: 'mixing', description }) as const
+  ({
+    id: `yliluoma-${size}`,
+    label: `Yliluoma ${size}×${size}`,
+    family: 'mixing',
+    description,
+  }) as const
 
 const orderedTile = (tile: '3x1' | '4x1' | '4x2' | '5x3', description: string) =>
-  ({ id: `ordered-${tile}`, label: `Ordered ${tile.replace('x', '×')}`, family: 'ordered', description }) as const
+  ({
+    id: `ordered-${tile}`,
+    label: `Ordered ${tile.replace('x', '×')}`,
+    family: 'ordered',
+    description,
+  }) as const
 
 const kernel = <const Id extends DitherId>(id: Id, label: string, description: string) =>
   ({ id, label, family: 'error-diffusion', description }) as const

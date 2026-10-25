@@ -13,7 +13,12 @@ export type StudioWindowId = (typeof STUDIO_WINDOWS)[number]['id']
  * a floating one sits at `x`, `y` in viewport pixels, measured from the edge it is nearer to.
  */
 export type StudioWindowPlacement =
-  | { readonly open: boolean; readonly collapsed: boolean; readonly dock: 'start' | 'end'; readonly order: number }
+  | {
+      readonly open: boolean
+      readonly collapsed: boolean
+      readonly dock: 'start' | 'end'
+      readonly order: number
+    }
   | {
       readonly open: boolean
       readonly collapsed: boolean
@@ -64,9 +69,7 @@ export interface TemplateStudioModel {
   }
   /** Top-left corner on the canvas. */
   readonly origin: { readonly x: number; readonly y: number }
-  /** The map shows the unprocessed source in the draft's place. */
-  readonly original: boolean
-  /** Where processing runs. Null until Ditherette has loaded. */
+  /** Where the last result was processed. Null until one has been. */
   readonly engine: 'gpu' | 'cpu' | null
   readonly processing:
     | { readonly state: 'idle' }
@@ -93,7 +96,6 @@ export type TemplateStudioIntent =
   | { readonly type: 'anchor'; readonly anchor: ResizeAnchor }
   | { readonly type: 'origin'; readonly x: number; readonly y: number }
   | { readonly type: 'centre' }
-  | { readonly type: 'original'; readonly original: boolean }
   | { readonly type: 'layout'; readonly layout: StudioLayout }
   | { readonly type: 'save' }
   | { readonly type: 'cancel' }

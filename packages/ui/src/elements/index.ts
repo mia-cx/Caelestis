@@ -1,3 +1,4 @@
+import type { TemplateStudioModel } from '../studio/model.js'
 import type {
   ClaimModeModel,
   NotificationsModel,
@@ -22,15 +23,15 @@ import TagManagerElement from './TagManager.element.svelte'
 import TemplateAdminElement from './TemplateAdmin.element.svelte'
 import TemplateStateElement from './TemplateState.element.svelte'
 import TemplateStudioElement from './TemplateStudio.element.svelte'
-import type { TemplateStudioModel } from '../studio/model.js'
 import WorkElement from './Work.element.svelte'
 
 // The userscript bundles this entry as a separate module instance, so it needs its own export.
 export { type IconSet, useIconSet } from '../foundations/icons.svelte.js'
-export type * from '../types.js'
-export type { WorkModel } from '../work/model.js'
+export { parseStudioLayout } from '../studio/layout.js'
 export type * from '../studio/model.js'
 export type * from '../studio/options.js'
+export type * from '../types.js'
+export type { WorkModel } from '../work/model.js'
 export const TEMPLATE_STUDIO_TAG = 'caelestis-template-studio'
 export type CaelestisTemplateStudio = HTMLElement & { model: TemplateStudioModel }
 export type CaelestisWork = HTMLElement & { model: WorkModel }

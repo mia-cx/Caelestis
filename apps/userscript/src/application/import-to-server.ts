@@ -102,6 +102,8 @@ export const importTemplatesToServer = async (
   refreshServer: RefreshServer,
   surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
   signal?: AbortSignal,
+  /** Positioned in the template studio: upload straight away, without a placement. */
+  placed = false,
 ): Promise<boolean> => {
   if (!server.isAdmin) {
     reservation?.release()
@@ -114,7 +116,8 @@ export const importTemplatesToServer = async (
     reservation?.release()
     return false
   }
-  if (first.source === 'image' && reservation === null) {
+  const needsPlacement = first.source === 'image' && !placed
+  if (needsPlacement && reservation === null) {
     toast('Finish the current placement, then import this image again.', 'warning')
     return false
   }
@@ -125,7 +128,8 @@ export const importTemplatesToServer = async (
     for (const template of imported) {
       signal?.throwIfAborted()
       try {
-        await addLocalTemplate(template, surface, false, true)
+        // A placed copy is durable, so a failed upload keeps it in Local where it was put.
+        await addLocalTemplate(template, surface, placed, true)
         admitted.push(template.id)
       } catch (error) {
         failures.push(`${template.name}: ${String(error)}`)
@@ -139,7 +143,7 @@ export const importTemplatesToServer = async (
       return false
     }
 
-    if (first.source === 'image') {
+    if (needsPlacement) {
       signal?.throwIfAborted()
       const started = reservation?.start(first.id, () => {
         rerender()

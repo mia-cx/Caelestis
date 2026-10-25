@@ -2,7 +2,6 @@
   import Button from '../foundations/Button.svelte'
   import Icon from '../foundations/Icon.svelte'
   import MenuStyles from '../foundations/MenuStyles.svelte'
-  import Toggle from '../foundations/Toggle.svelte'
   import { collapseWindow, dockedWindows, dropWindow, placementOf, toggleWindow, type Box } from './layout.js'
   import { STUDIO_WINDOWS, type StudioLayout, type StudioWindowId, type TemplateStudioIntent, type TemplateStudioModel } from './model.js'
   import StudioStyles from './StudioStyles.svelte'
@@ -137,10 +136,6 @@
     <p class="status" class:failed={model.processing.state === 'failed' || model.message !== undefined} aria-live="polite">
       {status}{#if model.engine !== null && model.source !== null}<span class="engine">{model.engine === 'gpu' ? 'GPU' : 'CPU'}</span>{/if}
     </p>
-    <label class="original">
-      <Toggle label="Show the original image" compact checked={model.original} disabled={model.source === null} onChange={(original) => onIntent({ type: 'original', original })} />
-      <span>Original</span>
-    </label>
     <div class="windows">
       <Button label="Windows" title="Windows" kind="ghost" size="compact" iconOnly popup="menu" pressed={menuOpen} onclick={() => (menuOpen = !menuOpen)}>
         <Icon name="gridView" />
@@ -196,6 +191,10 @@
   .studio {
     --studio-inset: 12px;
     --studio-top: calc(var(--studio-inset) + 3.75rem);
+    /* Clear of Wplace's own controls: zoom on the left, its rail on the right, buttons below. */
+    --studio-start: 48px;
+    --studio-end: 56px;
+    --studio-bottom: 76px;
     --studio-window-width: min(18rem, calc(100vw - 2 * var(--studio-inset)));
     position: fixed;
     inset: 0;
@@ -248,7 +247,6 @@
     font-size: 0.6875rem;
     font-weight: 600;
   }
-  .original { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 0.35rem; color: var(--caelestis-muted-text); white-space: nowrap; }
   .windows { position: relative; flex: 0 0 auto; }
   .menu { position: absolute; inset-block-start: calc(100% + 6px); inset-inline-end: 0; z-index: 2; display: flex; flex-direction: column; min-inline-size: 11rem; }
   .menu button { display: flex; align-items: center; gap: 0.4rem; }
@@ -256,7 +254,7 @@
   .actions { display: flex; flex: 0 0 auto; gap: 0.25rem; }
   .column {
     position: absolute;
-    inset-block: var(--studio-top) var(--studio-inset);
+    inset-block: var(--studio-top) var(--studio-bottom);
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -264,10 +262,10 @@
     overscroll-behavior: contain;
     scrollbar-width: none;
   }
-  .column.start { inset-inline-start: var(--studio-inset); }
-  .column.end { inset-inline-end: var(--studio-inset); }
+  .column.start { inset-inline-start: var(--studio-start); }
+  .column.end { inset-inline-end: var(--studio-end); }
   .slot { display: flex; flex: 0 0 auto; min-block-size: 0; }
-  .float { position: absolute; max-block-size: calc(100dvh - var(--studio-top) - var(--studio-inset)); }
+  .float { position: absolute; max-block-size: calc(100dvh - var(--studio-top) - var(--studio-bottom)); }
   .float .slot { max-block-size: inherit; }
   .dragged { z-index: 3; }
   @media (max-width: 52rem) {

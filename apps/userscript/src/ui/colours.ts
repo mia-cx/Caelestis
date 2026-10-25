@@ -21,6 +21,10 @@ const presetIndices = (preset: ColourPresetId, owned: ReadonlySet<number> | null
   }
 }
 
+/** The drawable palette indices a preset names now, ascending. */
+export const presetColours = (preset: ColourPresetId): number[] =>
+  presetIndices(preset, ownedColours())
+
 export const hiddenForPreset = (preset: ColourPresetId): number[] => {
   const visible = new Set(presetIndices(preset, ownedColours()))
   const hidden: number[] = []

@@ -26,6 +26,11 @@ describe('studio window layout', () => {
   it('reopens a closed window where it was', () => {
     const floated = dropWindow({}, 'source', box(300, 100), viewport, {})
     const reopened = toggleWindow(toggleWindow(floated, 'source', false), 'source', true)
-    expect(placementOf(reopened, 'source')).toMatchObject({ open: true, dock: null, x: 300, y: 100 })
+    expect(placementOf(reopened, 'source')).toMatchObject({
+      open: true,
+      dock: null,
+      x: 300,
+      y: 100,
+    })
   })
 })
