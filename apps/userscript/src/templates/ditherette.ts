@@ -1,19 +1,24 @@
+import gpuWasm from 'ditherette:gpu-wasm'
 import scalarWasm from 'ditherette:scalar-wasm'
 import workerSource from 'ditherette:worker'
-import type { DitheretteTemplateRecipe } from '@caelestis/shared'
-import { createDitherette, type Ditherette, type Progress, type Rgba8Image } from 'ditherette'
+import type { DitheretteEngine, DitheretteTemplateRecipe } from '@caelestis/shared'
+import type { Progress, Rgba8Image } from 'ditherette'
 import { warn } from '../debug.js'
-import { type DitheretteArtwork, processDitherette } from './ditherette-process.js'
+import { type DitheretteArtwork, processDitherette, processors } from './ditherette-process.js'
 import type { DitheretteWorkerReply, DitheretteWorkerRequest } from './ditherette-worker.js'
 
+export type { DitheretteEngine } from '@caelestis/shared'
+export type { DitheretteArtwork } from './ditherette-process.js'
+
 /**
- * Running Ditherette recipes off the page's thread.
+ * Running Ditherette recipes off the page's thread, on the recipe's engine.
  *
- * One job runs at a time. Starting another, or aborting the running one, terminates the worker:
- * Ditherette's calls are synchronous and cannot stop halfway, and the editor only ever wants the
- * latest settings. A fresh worker starts from the already-compiled module.
+ * One job runs at a time, and the studio only ever wants the latest settings. A newer job, or an
+ * abort, cancels a GPU run in place, so the worker keeps its device. A CPU run is a synchronous
+ * call that cannot stop halfway, so it terminates the worker; a fresh one starts from the
+ * already-compiled modules.
  *
- * Without workers the same code runs in the page, which blocks while it works but still produces
+ * Without workers the same code runs in the page, which blocks during CPU runs but still produces
  * the same artwork.
  */
 
@@ -30,6 +35,14 @@ interface Running {
   readonly job: DitheretteJob
   readonly resolve: (artwork: DitheretteArtwork) => void
   readonly reject: (error: unknown) => void
+  /** Set once the worker reports which engine took the job. */
+  engine: DitheretteEngine | null
+}
+
+interface Modules {
+  readonly wasm: WebAssembly.Module
+  /** Null where the page has no WebGPU, so nothing compiles a binary it cannot use. */
+  readonly gpuWasm: WebAssembly.Module | null
 }
 
 interface Host {
@@ -38,15 +51,18 @@ interface Host {
   sourceKey: string | null
 }
 
-let compiled: Promise<WebAssembly.Module> | null = null
-let inPage: Promise<Ditherette> | null = null
+let compiled: Promise<Modules> | null = null
+let inPage: ReturnType<typeof processors> | null = null
 let host: Host | null = null
 let running: Running | null = null
 let jobs = 0
 let workersFailed = false
 
-const wasmModule = (): Promise<WebAssembly.Module> => {
-  compiled ??= WebAssembly.compile(scalarWasm)
+const compileModules = (): Promise<Modules> => {
+  compiled ??= Promise.all([
+    WebAssembly.compile(scalarWasm),
+    'gpu' in navigator ? WebAssembly.compile(gpuWasm) : null,
+  ]).then(([wasm, gpu]) => ({ wasm, gpuWasm: gpu }))
   compiled.catch(() => {
     compiled = null
   })
@@ -60,6 +76,19 @@ const stopHost = (): void => {
   host = null
 }
 
+/**
+ * Stop the running job. Only a confirmed CPU run terminates the worker; a GPU run, or one still
+ * starting its engine, is cancelled in place.
+ */
+const stopRunning = (): void => {
+  if (running === null) return
+  const stopped = running
+  settle(stopped.id, { error: aborted() })
+  if (stopped.engine === 'cpu') stopHost()
+  else
+    host?.worker.postMessage({ type: 'cancel', id: stopped.id } satisfies DitheretteWorkerRequest)
+}
+
 const settle = (id: number, outcome: { artwork: DitheretteArtwork } | { error: unknown }): void => {
   if (running?.id !== id) return
   const finished = running
@@ -68,7 +97,7 @@ const settle = (id: number, outcome: { artwork: DitheretteArtwork } | { error: u
   else finished.reject(outcome.error)
 }
 
-const startHost = (module: WebAssembly.Module): Host => {
+const startHost = (modules: Modules): Host => {
   const url = URL.createObjectURL(new Blob([workerSource], { type: 'text/javascript' }))
   let worker: Worker
   try {
@@ -89,15 +118,27 @@ const startHost = (module: WebAssembly.Module): Host => {
   }
   worker.addEventListener('message', (event: MessageEvent<DitheretteWorkerReply>) => {
     const reply = event.data
-    if (reply.type === 'ready') {
-      isReady = true
-      ready()
-    } else if (reply.type === 'progress') {
-      if (running?.id === reply.id) running.job.onProgress?.(reply.progress)
-    } else if (reply.type === 'done')
-      settle(reply.id, { artwork: { indices: reply.indices, opaque: reply.opaque } })
-    else if (reply.id === null) failed(new Error(reply.message))
-    else settle(reply.id, { error: new Error(reply.message) })
+    switch (reply.type) {
+      case 'ready':
+        isReady = true
+        ready()
+        return
+      case 'started':
+        if (running?.id === reply.id) running.engine = reply.engine
+        return
+      case 'progress':
+        if (running?.id === reply.id) running.job.onProgress?.(reply.progress)
+        return
+      case 'done':
+        settle(reply.id, {
+          artwork: { indices: reply.indices, opaque: reply.opaque, engine: reply.engine },
+        })
+        return
+      case 'error':
+        if (reply.id === null) failed(new Error(reply.message))
+        else
+          settle(reply.id, { error: reply.aborted === true ? aborted() : new Error(reply.message) })
+    }
   })
   worker.addEventListener('error', (event) => {
     const error = new Error(event.message || 'the Ditherette worker failed')
@@ -106,14 +147,14 @@ const startHost = (module: WebAssembly.Module): Host => {
     if (!isReady) failed(error)
     else if (running !== null) settle(running.id, { error })
   })
-  worker.postMessage({ type: 'init', wasm: module } satisfies DitheretteWorkerRequest)
+  worker.postMessage({ type: 'init', ...modules } satisfies DitheretteWorkerRequest)
   return started
 }
 
 const runInWorker = async (current: Running): Promise<void> => {
-  const module = await wasmModule()
+  const modules = await compileModules()
   if (running !== current) return
-  host ??= startHost(module)
+  host ??= startHost(modules)
   const target = host
   await target.ready
   if (running !== current || host !== target) return
@@ -130,39 +171,49 @@ const runInWorker = async (current: Running): Promise<void> => {
 }
 
 const runInPage = async (current: Running): Promise<void> => {
-  inPage ??= wasmModule().then((wasm) => createDitherette({ wasm }))
-  const processor = await inPage
-  // Let the page paint the pending state before the synchronous call holds it.
+  if (inPage === null) {
+    const { wasm, gpuWasm: gpu } = await compileModules()
+    inPage ??= processors(wasm, gpu)
+  }
+  const processor = await inPage(current.job.recipe.engine)
+  // Let the page paint the pending state before a synchronous CPU call holds it.
   await new Promise((resolve) => setTimeout(resolve, 0))
   if (running !== current) return
   const { job } = current
+  const controller = new AbortController()
+  job.signal?.addEventListener('abort', () => controller.abort(), { once: true })
+  current.engine = 'execution' in processor ? 'gpu' : 'cpu'
   settle(current.id, {
-    artwork: processDitherette(processor, job.source.image, job.recipe, job.onProgress),
+    artwork: await processDitherette(
+      processor,
+      job.source.image,
+      job.recipe,
+      job.onProgress,
+      controller.signal,
+    ),
   })
 }
 
 const canUseWorkers = (): boolean =>
   !workersFailed && workerSource !== '' && typeof Worker === 'function'
 
-/** Run one recipe. A newer job, or `signal`, rejects this one with an AbortError. */
+/**
+ * Run one recipe on its engine, or on the CPU where a GPU recipe meets no GPU; the artwork names
+ * the engine that ran. A newer job, or `signal`, rejects this one with an AbortError.
+ */
 export const runDitherette = (job: DitheretteJob): Promise<DitheretteArtwork> =>
   new Promise<DitheretteArtwork>((resolve, reject) => {
     if (job.signal?.aborted) {
       reject(aborted())
       return
     }
-    if (running !== null) {
-      settle(running.id, { error: aborted() })
-      stopHost()
-    }
-    const current: Running = { id: ++jobs, job, resolve, reject }
+    stopRunning()
+    const current: Running = { id: ++jobs, job, resolve, reject, engine: null }
     running = current
     job.signal?.addEventListener(
       'abort',
       () => {
-        if (running !== current) return
-        settle(current.id, { error: aborted() })
-        stopHost()
+        if (running === current) stopRunning()
       },
       { once: true },
     )
@@ -181,10 +232,10 @@ export const runDitherette = (job: DitheretteJob): Promise<DitheretteArtwork> =>
     })
   })
 
-/** Whether this browser can run Ditherette at all. Compiles the module once, as a warm-up. */
+/** Whether this browser can run Ditherette at all. Compiles the modules once, as a warm-up. */
 export const ditheretteAvailable = async (): Promise<boolean> => {
   try {
-    await wasmModule()
+    await compileModules()
     return true
   } catch (error) {
     warn('install', 'Ditherette cannot load in this browser', String(error))

@@ -1,4 +1,4 @@
-import type { RecipeV1 } from 'ditherette'
+import type { RecipeV2 } from 'ditherette'
 import { sha256Hex } from './hash.js'
 import { TRANSPARENT_INDEX } from './palette.js'
 import { WORLD_PIXELS } from './tiles.js'
@@ -26,8 +26,8 @@ export const MAX_TEMPLATE_PIXELS = 64 * 1024 * 1024
 /**
  * `caelestis-nearest` is the plain-PNG importer: exact RGB nearest colour, no dithering.
  * `wplace-native` is Wplace's own worker, after Caelestis's floor nearest-neighbour resize.
- * `ditherette` is the template editor: a crop, then Ditherette's resize, matching, and dither.
- * Version 1 is the exact `ditherette@0.1.0-rc.0` build.
+ * `ditherette` is the template studio: a crop, then Ditherette's effects, resize, matching, and
+ * dither. Version 1 is the exact `ditherette@1.0.0` build.
  * Bump a version whenever the same recipe would produce different indices.
  */
 export const TEMPLATE_PROCESSORS = {
@@ -70,14 +70,22 @@ export interface TemplateCrop {
 }
 
 /**
- * The template editor's recipe. Ditherette runs `ditherette` on the cropped source; its output
+ * Where Ditherette processed the artwork. Each engine is deterministic, but they choose different
+ * indices for the same recipe, so a replay must use the same one. `gpu` is Ditherette's GPU
+ * engine with its parallel approximate error diffusion, as Ditherette web runs it.
+ */
+export type DitheretteEngine = 'cpu' | 'gpu'
+
+/**
+ * The template studio's recipe. Ditherette runs `ditherette` on the cropped source; its output
  * size is the recipe's. Servers cannot run Ditherette, so they check the shape and store it;
  * Ditherette validates every setting when a client replays it.
  */
 export interface DitheretteTemplateRecipe extends RecipeBase {
   readonly processor: 'ditherette'
   readonly crop: TemplateCrop
-  readonly ditherette: RecipeV1
+  readonly engine: DitheretteEngine
+  readonly ditherette: RecipeV2
 }
 
 export type TemplateRecipe = ImportTemplateRecipe | DitheretteTemplateRecipe
@@ -105,11 +113,12 @@ const DITHERETTE_KEYS = [
   'width',
   'height',
   'palette',
+  'engine',
   'ditherette',
 ] as const
-/** A Ditherette recipe is a handful of tags and numbers; anything larger is not one. */
-const MAX_DITHERETTE_JSON_BYTES = 2048
-const MAX_DITHERETTE_DEPTH = 6
+/** Tags and numbers, plus effect curves and masks; anything larger is not a Ditherette recipe. */
+const MAX_DITHERETTE_JSON_BYTES = 64 * 1024
+const MAX_DITHERETTE_DEPTH = 10
 
 type Json = null | boolean | number | string | readonly Json[] | { readonly [key: string]: Json }
 
@@ -175,7 +184,8 @@ const isCrop = (value: unknown, source: { width: number; height: number }): bool
 
 /** The output a Ditherette recipe declares must be the template's own size. */
 const isDitheretteRecipe = (value: unknown, width: unknown, height: unknown): boolean => {
-  if (!isRecord(value) || value.version !== 1 || !isJson(value)) return false
+  if (!isRecord(value) || value.version !== 2 || !Array.isArray(value.effects) || !isJson(value))
+    return false
   if (new TextEncoder().encode(JSON.stringify(value)).byteLength > MAX_DITHERETTE_JSON_BYTES)
     return false
   const { output } = value
@@ -204,6 +214,7 @@ export const parseTemplateRecipe = (value: unknown): TemplateRecipe | null => {
   if (value.processor === 'ditherette') {
     return hasExactly(value, DITHERETTE_KEYS) &&
       isCrop(value.crop, { width: Number(source.width), height: Number(source.height) }) &&
+      (value.engine === 'cpu' || value.engine === 'gpu') &&
       isDitheretteRecipe(value.ditherette, value.width, value.height)
       ? templateRecipe(value as unknown as DitheretteTemplateRecipe)
       : null
@@ -241,6 +252,7 @@ export const templateRecipe = (recipe: TemplateRecipe): TemplateRecipe => {
       width: recipe.width,
       height: recipe.height,
       palette: [...recipe.palette],
+      engine: recipe.engine,
       ditherette: canonicalJson(recipe.ditherette),
     }
   return {

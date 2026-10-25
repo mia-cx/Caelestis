@@ -26,8 +26,10 @@ const recipeFor = (
     width,
     height,
     palette: changes.palette ?? PALETTE_RGB.map((_, index) => index),
+    engine: 'cpu',
     ditherette: {
-      version: 1,
+      version: 2,
+      effects: [],
       output: { width, height, resize: { algorithm: 'nearest', anchor: 'top-left' } },
       alpha: { mode: 'preserve', threshold: 128 },
       match: 'oklab-euclidean',

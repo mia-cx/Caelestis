@@ -6,9 +6,11 @@ const module = (path: string): string => fileURLToPath(new URL(path, import.meta
 export default defineConfig({
   resolve: {
     // The build plugin's virtual modules. Tests read the package's own binary and run Ditherette
-    // in-process, as a page without workers would.
+    // in-process on the CPU, as a page without workers or WebGPU would; nothing compiles the GPU
+    // binary there, so an empty one stands in.
     alias: {
       'ditherette:scalar-wasm': module('./test/ditherette-wasm.ts'),
+      'ditherette:gpu-wasm': module('./test/ditherette-no-gpu.ts'),
       'ditherette:worker': module('./test/ditherette-no-worker.ts'),
     },
   },

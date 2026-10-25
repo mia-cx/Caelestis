@@ -83,8 +83,10 @@ const ditherette: DitheretteTemplateRecipe = {
   width: 20,
   height: 15,
   palette: [0, 4, 9],
+  engine: 'gpu',
   ditherette: {
-    version: 1,
+    version: 2,
+    effects: [{ effect: 'exposure', enabled: true, stops: 0.5 }],
     output: { width: 20, height: 15, resize: { algorithm: 'area' } },
     alpha: { mode: 'preserve', threshold: 128 },
     match: 'oklab-euclidean',
@@ -124,6 +126,9 @@ describe('Ditherette recipes', () => {
   it('gives crops and processing settings their own identity', async () => {
     const changed: readonly DitheretteTemplateRecipe[] = [
       { ...ditherette, crop: { ...ditherette.crop, x: 9 } },
+      // The engines choose different indices, so the same settings on another engine differ.
+      { ...ditherette, engine: 'cpu' },
+      { ...ditherette, ditherette: { ...ditherette.ditherette, effects: [] } },
       { ...ditherette, ditherette: { ...ditherette.ditherette, match: 'cielab-ciede2000' } },
       { ...ditherette, ditherette: { ...ditherette.ditherette, dither: { family: 'none' } } },
     ]
@@ -138,8 +143,11 @@ describe('Ditherette recipes', () => {
       { ...ditherette, crop: undefined },
       { ...ditherette, colorMetric: 'lab' },
       { ...ditherette, width: 21 },
-      { ...ditherette, ditherette: { ...ditherette.ditherette, version: 2 } },
-      { ...ditherette, ditherette: { ...ditherette.ditherette, note: 'x'.repeat(4096) } },
+      { ...ditherette, engine: undefined },
+      { ...ditherette, engine: 'webgl' },
+      { ...ditherette, ditherette: { ...ditherette.ditherette, version: 1 } },
+      { ...ditherette, ditherette: { ...ditherette.ditherette, effects: undefined } },
+      { ...ditherette, ditherette: { ...ditherette.ditherette, note: 'x'.repeat(64 * 1024) } },
       { ...ditherette, ditherette: { ...ditherette.ditherette, alpha: { threshold: Number.NaN } } },
     ])
       expect(parseTemplateRecipe(invalid)).toBeNull()
