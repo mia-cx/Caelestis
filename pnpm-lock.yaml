@@ -216,14 +216,14 @@ importers:
         specifier: ^1.61.0
         version: 1.61.0(svelte@5.57.1)
       '@svartz/config':
-        specifier: ^1.0.1
-        version: 1.0.1(@cloudflare/workers-types@5.20261002.1)(@types/node@26.6.4)
+        specifier: ^1.1.0
+        version: 1.1.0(@cloudflare/workers-types@5.20261002.1)(@types/node@26.6.4)
       '@svartz/theme-wiki':
-        specifier: ^1.0.1
-        version: 1.0.1(supports-color@10.2.2)(svelte@5.57.1)
+        specifier: ^1.1.0
+        version: 1.1.0(supports-color@10.2.2)(svelte@5.57.1)
       '@svartz/ui':
-        specifier: ^1.0.1
-        version: 1.0.1(supports-color@10.2.2)(svelte@5.57.1)
+        specifier: ^1.1.0
+        version: 1.1.0(supports-color@10.2.2)(svelte@5.57.1)
       '@svartz/vite':
         specifier: ^1.0.1
         version: 1.0.1(@sveltejs/vite-plugin-svelte@6.2.4(svelte@5.57.1)(vite@7.3.7(@types/node@26.6.4)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.1)(yaml@2.9.0)))(supports-color@10.2.2)(svelte@5.57.1)(vite@7.3.7(@types/node@26.6.4)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.1)(yaml@2.9.0))
@@ -2346,12 +2346,24 @@ packages:
     resolution: {integrity: sha512-nxRZKgRoVrAmeNpy80qbOoQg1jdPYdZDlKzV/lmGbqOakmY8PcKp9ECm5oRVUtK47huKQMKEQguMNdL/HhBkJQ==}
     engines: {node: ^20.19.0 || >=22.12.0}
 
+  '@svartz/config@1.1.0':
+    resolution: {integrity: sha512-jYvfhUT5tL4WG4VCrI4jG3fvcF1FARVZBi6De14vYaNlV4XenAQzdyUJOm4yBrHDD2WVht/9sgerdoN+zBMXrg==}
+    engines: {node: ^20.19.0 || >=22.12.0}
+
   '@svartz/core@1.0.1':
     resolution: {integrity: sha512-0TW9Sic4R6j4OLAgGNOUi1iaUE2LLkNGeiia8qOmRzukYECE/hRQBUJq9hyaMderWPeXCUAzwDj5aGh2rL80bg==}
     engines: {node: ^20.19.0 || >=22.12.0}
 
+  '@svartz/core@1.1.0':
+    resolution: {integrity: sha512-wxmB1yuLXAOCU3fX94cMMooL+d8NAiJ/z5y3gFrHqKvNX9NRp+v0iQvTa/pZVdoC3HgtSZce0N0oQ8K2DTto+w==}
+    engines: {node: ^20.19.0 || >=22.12.0}
+
   '@svartz/plugins@1.0.1':
     resolution: {integrity: sha512-mS2pp3WBPSFIPY35IfKF8g/R0/rs7Z10Bo4L9L6Gu64QZtjjGwtlqKAta9UtYCvGnV6kESogGVZWTwjFFldkIQ==}
+    engines: {node: ^20.19.0 || >=22.12.0}
+
+  '@svartz/plugins@1.1.0':
+    resolution: {integrity: sha512-d/WbJtSRSmoFXSBZvYHpLJL+Ak2m7l7M9seH5oSfOUpqLEdkHxUUocxH8d9FTa0dOuYz9WaUmKDQH4mSTLzluQ==}
     engines: {node: ^20.19.0 || >=22.12.0}
 
   '@svartz/theme-minimal@1.0.1':
@@ -2360,14 +2372,20 @@ packages:
     peerDependencies:
       svelte: ^5.0.0
 
-  '@svartz/theme-wiki@1.0.1':
-    resolution: {integrity: sha512-pSgZfM4CnqlNib/6BepEOeHUdylcg1K5ETUnD/0VlV1aPemRiAh9Z+jgMNI22IPiifeejicZgYUZTbrc5hpxsw==}
+  '@svartz/theme-wiki@1.1.0':
+    resolution: {integrity: sha512-8z/z5yvBXOWQgTzV19VgyQQn4KvP86oOS+X9UyZUth30A8/OJxKi6PsS5ywn6P2FZnTco8XClzwvEF2tTN088Q==}
     engines: {node: ^20.19.0 || >=22.12.0}
     peerDependencies:
       svelte: ^5.0.0
 
   '@svartz/ui@1.0.1':
     resolution: {integrity: sha512-P4IW0JTuTMFywdnEu6QRx3sfa/S9INyU+Wz7W8lJ2h3ZsXBs8dv+kHlXz6w6Ps5tc/vg4vMzp0i+ajDwW4MxlQ==}
+    engines: {node: ^20.19.0 || >=22.12.0}
+    peerDependencies:
+      svelte: ^5.0.0
+
+  '@svartz/ui@1.1.0':
+    resolution: {integrity: sha512-OeMgx6Cz3oQeKbPoOkV2BixUBsBQCKlCq/6NEAjz1WNeaYhLYlUPK5j+T9Tk5/P4T6ZiUo61AzDM1jBdlApJ5g==}
     engines: {node: ^20.19.0 || >=22.12.0}
     peerDependencies:
       svelte: ^5.0.0
@@ -6201,7 +6219,25 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
+  '@svartz/config@1.1.0(@cloudflare/workers-types@5.20261002.1)(@types/node@26.6.4)':
+    dependencies:
+      '@svartz/core': 1.1.0
+      effect: 3.22.4
+      jiti: 2.7.0
+      semver: 7.8.5
+      wrangler: 4.146.0(@cloudflare/workers-types@5.20261002.1)(@types/node@26.6.4)
+    transitivePeerDependencies:
+      - '@cloudflare/workers-types'
+      - '@types/node'
+      - bufferutil
+      - utf-8-validate
+
   '@svartz/core@1.0.1':
+    dependencies:
+      effect: 3.22.4
+      unified: 11.0.5
+
+  '@svartz/core@1.1.0':
     dependencies:
       effect: 3.22.4
       unified: 11.0.5
@@ -6210,6 +6246,48 @@ snapshots:
     dependencies:
       '@humanwhocodes/ico-to-png': 1.1.0
       '@svartz/core': 1.0.1
+      effect: 3.22.4
+      github-slugger: 2.0.0
+      gray-matter: 4.0.3
+      hast-util-to-html: 9.0.5
+      katex: 0.18.10
+      mdast-util-find-and-replace: 3.0.2
+      mdast-util-to-string: 4.0.0
+      mdsvex: 0.12.8(svelte@5.57.1)
+      mermaid: 11.17.2
+      minimatch: 10.2.6
+      minisearch: 7.2.0
+      moment: 2.31.0
+      posthog-js: 1.438.21
+      rehype-autolink-headings: 7.1.0
+      rehype-citation: 2.3.2
+      rehype-katex: 7.0.1
+      rehype-pretty-code: 0.14.5(shiki@1.29.2)
+      rehype-raw: 7.0.0
+      rehype-slug: 6.0.0
+      rehype-stringify: 10.0.1
+      remark-breaks: 4.0.0
+      remark-gfm: 4.0.1(supports-color@10.2.2)
+      remark-math: 6.0.0(supports-color@10.2.2)
+      remark-parse: 11.0.0(supports-color@10.2.2)
+      remark-rehype: 11.1.2
+      sharp: 0.34.5
+      shiki: 1.29.2
+      smol-toml: 1.9.1
+      unified: 11.0.5
+      unist-util-visit: 5.2.0
+    transitivePeerDependencies:
+      - '@types/react'
+      - encoding
+      - preact-render-to-string
+      - react
+      - supports-color
+      - svelte
+
+  '@svartz/plugins@1.1.0(supports-color@10.2.2)(svelte@5.57.1)':
+    dependencies:
+      '@humanwhocodes/ico-to-png': 1.1.0
+      '@svartz/core': 1.1.0
       effect: 3.22.4
       github-slugger: 2.0.0
       gray-matter: 4.0.3
@@ -6264,11 +6342,11 @@ snapshots:
       - react
       - supports-color
 
-  '@svartz/theme-wiki@1.0.1(supports-color@10.2.2)(svelte@5.57.1)':
+  '@svartz/theme-wiki@1.1.0(supports-color@10.2.2)(svelte@5.57.1)':
     dependencies:
       '@lucide/svelte': 1.61.0(svelte@5.57.1)
-      '@svartz/core': 1.0.1
-      '@svartz/ui': 1.0.1(supports-color@10.2.2)(svelte@5.57.1)
+      '@svartz/core': 1.1.0
+      '@svartz/ui': 1.1.0(supports-color@10.2.2)(svelte@5.57.1)
       svelte: 5.57.1
     transitivePeerDependencies:
       - '@types/react'
@@ -6286,6 +6364,28 @@ snapshots:
       '@nanostores/persistent': 1.3.5(nanostores@1.5.5)
       '@svartz/core': 1.0.1
       '@svartz/plugins': 1.0.1(supports-color@10.2.2)(svelte@5.57.1)
+      '@types/d3': 7.4.3
+      d3: 7.9.0
+      minisearch: 7.2.0
+      nanostores: 1.5.5
+      shiki: 1.29.2
+      svelte: 5.57.1
+    transitivePeerDependencies:
+      - '@types/react'
+      - encoding
+      - preact-render-to-string
+      - react
+      - supports-color
+
+  '@svartz/ui@1.1.0(supports-color@10.2.2)(svelte@5.57.1)':
+    dependencies:
+      '@floating-ui/dom': 1.8.0
+      '@fontsource-variable/archivo': 5.3.0
+      '@fontsource/monaspace-argon': 5.3.0
+      '@lucide/svelte': 1.61.0(svelte@5.57.1)
+      '@nanostores/persistent': 1.3.5(nanostores@1.5.5)
+      '@svartz/core': 1.1.0
+      '@svartz/plugins': 1.1.0(supports-color@10.2.2)(svelte@5.57.1)
       '@types/d3': 7.4.3
       d3: 7.9.0
       minisearch: 7.2.0

@@ -16,9 +16,9 @@
   "devDependencies": {
     "@caelestis/ui": "workspace:*",
     "@lucide/svelte": "^1.61.0",
-    "@svartz/config": "^1.0.1",
-    "@svartz/theme-wiki": "^1.0.1",
-    "@svartz/ui": "^1.0.1",
+    "@svartz/config": "^1.1.0",
+    "@svartz/theme-wiki": "^1.1.0",
+    "@svartz/ui": "^1.1.0",
     "@svartz/vite": "^1.0.1",
     "@sveltejs/adapter-static": "^3.0.10",
     "@sveltejs/kit": "^2.70.3",
