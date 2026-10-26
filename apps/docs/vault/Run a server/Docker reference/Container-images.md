@@ -8,8 +8,8 @@ The backend and frontend are separate images. Use the tested pair from the same 
 
 | Image | Docker Hub | GHCR |
 | --- | --- | --- |
-| Backend | `miacx/caelestis-backend` | `ghcr.io/mia-riezebos/caelestis-backend` |
-| Frontend | `miacx/caelestis-frontend` | `ghcr.io/mia-riezebos/caelestis-frontend` |
+| Backend | `miacx/caelestis-backend` | `ghcr.io/mia-cx/caelestis-backend` |
+| Frontend | `miacx/caelestis-frontend` | `ghcr.io/mia-cx/caelestis-frontend` |
 
 The release workflow builds `linux/amd64` and `linux/arm64`. Backend artifacts include Node and Bun runtime variants.
 
