@@ -42,9 +42,8 @@ describe('mask presets', () => {
         const mask = setPreset([], preset, values)
         expect(isEffect({ effect: 'exposure', enabled: true, stops: 1, mask })).toBe(true)
         expect(oneInput(mask[0]).points.length).toBeLessThanOrEqual(16)
-        presetValues(mask, preset).forEach((value, index) =>
-          expect(value).toBeCloseTo(values[index] ?? Number.NaN, 6),
-        )
+        for (const [index, value] of presetValues(mask, preset).entries())
+          expect(value).toBeCloseTo(values[index] ?? Number.NaN, 6)
       }
   })
 

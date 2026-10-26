@@ -1,5 +1,6 @@
 import { type KeyBinding, keyBindingReleasedBy, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { activeAllianceEditorStage, activeAllianceSurface } from './alliance-surface.js'
+import { handleTemplateStudioIntent, isTemplateStudioOpen } from './application/template-studio.js'
 import { isClaimModeActive } from './claim-editor.js'
 import { getMap } from './map-handle.js'
 import { setOverlayPeekActive } from './overlay-peek.js'
@@ -163,6 +164,13 @@ export const installKeyboardShortcuts = (
     const allianceSurface = alliance?.surface ?? null
     const nativeRoot = allianceEditorStage?.closest('dialog[open]') ?? document
     const claim = (): void => claimShortcut(event, allianceEditorStage !== null)
+
+    // The template studio's edits take undo and redo while it is open.
+    if (isTemplateStudioOpen() && (shortcut === 'undo-paint' || shortcut === 'redo-paint')) {
+      claim()
+      handleTemplateStudioIntent({ type: shortcut === 'undo-paint' ? 'undo' : 'redo' })
+      return
+    }
 
     // An asset editor intentionally has no resolved surface while Wplace's draft metadata is
     // pending or invalid. Native paint controls remain safely scoped to its dialog; every action

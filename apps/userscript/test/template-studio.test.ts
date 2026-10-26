@@ -68,6 +68,33 @@ describe('template studio', () => {
     expect(rebuilt.indices).toEqual(room.indices)
   })
 
+  it('undoes and redoes edits, reprocessing the artwork each way', async () => {
+    await openOnRoom({
+      kind: 'create',
+      destination: 'Local',
+      surface: WORLD_TEMPLATE_SURFACE,
+      save: async () => true,
+    })
+    const colours = () => templateStudioModel().processing
+    const full = colours()
+    handleTemplateStudioIntent({ type: 'scope', scope: 'free' })
+    await ready()
+    const free = colours()
+    expect(free).not.toEqual(full)
+
+    handleTemplateStudioIntent({ type: 'undo' })
+    await ready()
+    expect(templateStudioModel()).toMatchObject({
+      palette: { scope: 'all' },
+      processing: full,
+      history: { undo: true, redo: true },
+    })
+
+    handleTemplateStudioIntent({ type: 'redo' })
+    await ready()
+    expect(templateStudioModel()).toMatchObject({ palette: { scope: 'free' }, processing: free })
+  })
+
   it('replaces only after the author confirms, keeping the template’s size, place, and name', async () => {
     const save = vi.fn(async () => true)
     const { room } = await celesteRoom()

@@ -149,6 +149,42 @@ let message: string | undefined
 let settleTimer: ReturnType<typeof setTimeout> | null = null
 let job: AbortController | null = null
 
+/** Everything an edit changes, as undo puts it back. */
+interface Edit {
+  readonly name: string
+  readonly crop: StudioRect
+  readonly settings: StudioSettings
+  readonly effectLayers: readonly EffectLayer[]
+  readonly palette: readonly number[]
+  readonly paletteChosen: boolean
+  readonly origin: { readonly x: number; readonly y: number }
+}
+
+/** Intents that change what Save would produce. */
+const EDITS = new Set<TemplateStudioIntent['type']>([
+  'name',
+  'crop',
+  'reset-crop',
+  'scale',
+  'size',
+  'resize',
+  'anchor',
+  'scope',
+  'colour',
+  'alpha',
+  'color-space',
+  'dither',
+  'effects',
+  'origin',
+  'centre',
+])
+/** Edits of one kind closer together than this, like a slider or placement drag, undo as one. */
+const EDIT_BURST_MS = 600
+const MAX_HISTORY = 100
+let undoStack: readonly Edit[] = []
+let redoStack: readonly Edit[] = []
+let lastEdit = { kind: '', at: 0 }
+
 function initialSettings(): StudioSettings {
   return {
     ...DEFAULT_STUDIO_SETTINGS,
@@ -230,6 +266,7 @@ export const templateStudioModel = (): TemplateStudioModel => ({
   scopes: { stages: scopeStages, samples: scopeSamples, pending: scopesPending },
   engine,
   processing,
+  history: { undo: undoStack.length > 0, redo: redoStack.length > 0 },
   pending,
   ...(message === undefined ? {} : { message }),
   layout: getState().studioLayout,
@@ -477,6 +514,8 @@ const loadSource = async (blob: Blob, sourceName: string, ticket = beginLoad()):
     }
     processed = null
     loadingSource = false
+    // Earlier edits belong to the earlier image.
+    forgetHistory()
     await process()
   } catch (error) {
     if (ticket !== sourceTicket) return
@@ -736,6 +775,62 @@ const analyseLayerFit = async (id: string): Promise<void> => {
 
 /* Intents. */
 
+/* History. */
+
+const currentEdit = (): Edit => ({
+  name,
+  crop,
+  settings,
+  effectLayers,
+  palette,
+  paletteChosen,
+  origin,
+})
+
+const sameEdit = (left: Edit, right: Edit): boolean =>
+  (Object.keys(left) as (keyof Edit)[]).every((key) => left[key] === right[key])
+
+/** Remember the settings from `before` an edit of `kind`. A burst of one kind is one step. */
+const remember = (kind: string, before: Edit): void => {
+  if (sameEdit(before, currentEdit())) return
+  const now = performance.now()
+  const burst = kind === lastEdit.kind && now - lastEdit.at < EDIT_BURST_MS
+  lastEdit = { kind, at: now }
+  redoStack = []
+  if (!burst) undoStack = [...undoStack, before].slice(-MAX_HISTORY)
+}
+
+const forgetHistory = (): void => {
+  undoStack = []
+  redoStack = []
+  lastEdit = { kind: '', at: 0 }
+}
+
+/** Step back, or forward again, one edit. */
+const travel = (direction: 'undo' | 'redo'): void => {
+  const edit = (direction === 'undo' ? undoStack : redoStack).at(-1)
+  if (edit === undefined) return
+  const here = currentEdit()
+  if (direction === 'undo') {
+    undoStack = undoStack.slice(0, -1)
+    redoStack = [...redoStack, here]
+  } else {
+    redoStack = redoStack.slice(0, -1)
+    undoStack = [...undoStack, here]
+  }
+  // The next edit starts its own step rather than joining the one just undone.
+  lastEdit = { kind: '', at: 0 }
+  name = edit.name
+  crop = edit.crop
+  settings = edit.settings
+  effectLayers = edit.effectLayers
+  palette = edit.palette
+  paletteChosen = edit.paletteChosen
+  setOrigin(edit.origin.x, edit.origin.y)
+  if (edit.crop !== here.crop || edit.settings !== here.settings || edit.palette !== here.palette)
+    reprocess()
+}
+
 /** Apply one intent from the element. */
 export const handleTemplateStudioIntent = (intent: TemplateStudioIntent): void => {
   if (target === null) return
@@ -755,7 +850,12 @@ export const handleTemplateStudioIntent = (intent: TemplateStudioIntent): void =
   if (pending) return
   message = undefined
   const locked = target.kind === 'replace'
+  const before = EDITS.has(intent.type) ? currentEdit() : null
   switch (intent.type) {
+    case 'undo':
+    case 'redo':
+      travel(intent.type)
+      break
     case 'name':
       name = intent.name.slice(0, MAX_TEMPLATE_NAME_LENGTH)
       break
@@ -844,6 +944,7 @@ export const handleTemplateStudioIntent = (intent: TemplateStudioIntent): void =
       closeTemplateStudio()
       return
   }
+  if (before !== null) remember(intent.type, before)
   render()
 }
 
@@ -924,6 +1025,7 @@ const reset = (): void => {
   scopesPending = false
   pending = false
   message = undefined
+  forgetHistory()
 }
 
 /** Discard the draft and every setting. Nothing was written, so nothing is undone. */
@@ -1013,7 +1115,9 @@ export const openTemplateStudio = (
   )
   if (
     !beginDraftPlacement((x, y) => {
+      const before = currentEdit()
       origin = { x, y }
+      remember('origin', before)
       render()
     })
   )

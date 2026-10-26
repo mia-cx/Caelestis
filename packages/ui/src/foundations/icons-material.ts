@@ -55,6 +55,7 @@ import pause from '@iconify-icons/material-symbols/pause'
 import pentagonGlyph from '@iconify-icons/material-symbols/pentagon'
 import playArrow from '@iconify-icons/material-symbols/play-arrow'
 import rectangleGlyph from '@iconify-icons/material-symbols/rectangle'
+import redo from '@iconify-icons/material-symbols/redo'
 import refresh from '@iconify-icons/material-symbols/refresh'
 import remove from '@iconify-icons/material-symbols/remove'
 import search from '@iconify-icons/material-symbols/search'
@@ -65,6 +66,7 @@ import sortByAlphaRounded from '@iconify-icons/material-symbols/sort-by-alpha-ro
 import starGlyph from '@iconify-icons/material-symbols/star'
 import taskAlt from '@iconify-icons/material-symbols/task-alt'
 import tune from '@iconify-icons/material-symbols/tune'
+import undo from '@iconify-icons/material-symbols/undo'
 import unfoldMore from '@iconify-icons/material-symbols/unfold-more'
 import uploadFileOutline from '@iconify-icons/material-symbols/upload-file-outline'
 import viewSidebarOutline from '@iconify-icons/material-symbols/view-sidebar-outline'
@@ -141,6 +143,7 @@ export const ICONS = define({
   pause,
   play: playArrow,
   popout: openInNew,
+  redo,
   remove,
   rename: editOutline,
   reset: refresh,
@@ -155,6 +158,7 @@ export const ICONS = define({
   trash: deleteOutline,
   treeView: accountTree,
   tune,
+  undo,
   unfoldMore,
   uploadFile: uploadFileOutline,
   warning,

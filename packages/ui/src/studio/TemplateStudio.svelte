@@ -151,6 +151,14 @@
     <p class="status" class:failed={model.processing.state === 'failed' || model.message !== undefined} aria-live="polite">
       {status}{#if model.engine !== null && model.source !== null}<span class="engine">{model.engine === 'gpu' ? 'GPU' : 'CPU'}</span>{/if}
     </p>
+    <div class="history">
+      <Button label="Undo" title="Undo" kind="ghost" size="compact" iconOnly disabled={model.pending || !model.history.undo} onclick={() => onIntent({ type: 'undo' })}>
+        <Icon name="undo" />
+      </Button>
+      <Button label="Redo" title="Redo" kind="ghost" size="compact" iconOnly disabled={model.pending || !model.history.redo} onclick={() => onIntent({ type: 'redo' })}>
+        <Icon name="redo" />
+      </Button>
+    </div>
     <div class="windows">
       <Button label="Windows" title="Windows" kind="ghost" size="compact" iconOnly popup="menu" pressed={menuOpen} onclick={() => (menuOpen = !menuOpen)}>
         <Icon name="gridView" />
@@ -262,6 +270,7 @@
     font-size: 0.6875rem;
     font-weight: 600;
   }
+  .history { display: flex; flex: 0 0 auto; }
   .windows { position: relative; flex: 0 0 auto; }
   .menu { position: absolute; inset-block-start: calc(100% + 6px); inset-inline-end: 0; z-index: 2; display: flex; flex-direction: column; min-inline-size: 11rem; }
   .menu button { display: flex; align-items: center; gap: 0.4rem; }
