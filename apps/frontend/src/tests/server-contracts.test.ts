@@ -125,6 +125,22 @@ describe('server-side read boundaries', () => {
     }
   })
 
+  it('forwards /docs paths to the docs site without reaching any route', async () => {
+    const resolve = vi.fn()
+    const forwarded = async (url: string) => {
+      const event = requestEvent(url, vi.fn<typeof fetch>())
+      const response = await handle({ event, resolve })
+      return [response.status, response.headers.get('location')]
+    }
+
+    expect(await forwarded('https://caelest.is/docs')).toEqual([308, 'https://docs.caelest.is/'])
+    expect(await forwarded('https://caelest.is/docs/start-here/?q=token')).toEqual([
+      308,
+      'https://docs.caelest.is/start-here/?q=token',
+    ])
+    expect(resolve).not.toHaveBeenCalled()
+  })
+
   it('proxy forwards conditional reads but removes headers describing compressed upstream bytes', async () => {
     const fetcher = vi.fn<typeof fetch>(async (_input, init) => {
       expect(new Headers(init?.headers).get('if-none-match')).toBe('"version"')

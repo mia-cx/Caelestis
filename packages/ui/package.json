@@ -20,7 +20,8 @@
     "./motion": {
       "types": "./dist/foundations/motion.d.ts",
       "default": "./dist/foundations/motion.js"
-    }
+    },
+    "./pixel-grid.css": "./dist/pixel-grid.css"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

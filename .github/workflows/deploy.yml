@@ -55,6 +55,10 @@ jobs:
       - name: Apply backend database migrations
         run: pnpm --dir apps/backend exec wrangler d1 migrations apply DB --remote
 
+      # Dashboards forward /docs to the docs site, so it goes live first.
+      - name: Deploy docs
+        run: pnpm --dir apps/docs exec wrangler deploy
+
       # The new frontend works against the old open backend. Deploy it first so a later backend
       # failure leaves reads open, and a frontend failure never closes reads for the old frontend.
       - name: Deploy frontend
