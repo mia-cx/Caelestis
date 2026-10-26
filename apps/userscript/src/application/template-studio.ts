@@ -788,7 +788,11 @@ const currentEdit = (): Edit => ({
 })
 
 const sameEdit = (left: Edit, right: Edit): boolean =>
-  (Object.keys(left) as (keyof Edit)[]).every((key) => left[key] === right[key])
+  (Object.keys(left) as (keyof Edit)[]).every((key) =>
+    key === 'origin'
+      ? left.origin.x === right.origin.x && left.origin.y === right.origin.y
+      : left[key] === right[key],
+  )
 
 /** Remember the settings from `before` an edit of `kind`. A burst of one kind is one step. */
 const remember = (kind: string, before: Edit): void => {
