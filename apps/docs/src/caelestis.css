@@ -61,6 +61,13 @@ html {
   font-synthesis: none;
 }
 
+/* The reader's plain font, chosen with the header's font toggle: the system font, kerned as designed. */
+html:root.plain-font {
+  --sv-font-sans: ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font-kerning: auto;
+  font-variant-ligatures: normal;
+}
+
 /* The dashboard's ground: map paper with a faint grid one UI pixel wide on 24px cells. */
 :root body {
   background-image:
@@ -133,9 +140,15 @@ html {
   --pixel-ring: var(--pixel-btn-ring);
 }
 
-/* The site name is the dashboard's logo: FalseType at 36px, three CSS pixels per font pixel. */
+/*
+ * The site name is the dashboard's logo: FalseType at 36px, three CSS pixels per font pixel. It keeps
+ * FalseType under the plain font too.
+ */
 :root body .sv-wordmark {
   color: var(--sv-accent);
+  font-family: "FalseType", sans-serif;
+  font-kerning: none;
+  font-variant-ligatures: none;
   font-size: 2.25rem;
   line-height: 1;
 }
