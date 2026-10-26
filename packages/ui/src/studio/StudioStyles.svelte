@@ -17,7 +17,7 @@
   :global(.studio .field-label) { margin: 0; color: var(--caelestis-muted-text); font-size: 0.75rem; }
   :global(.studio .hint) { margin: 0; color: var(--caelestis-muted-text); font-size: 0.75rem; }
   /* A row of label and control, label column fixed so controls line up across rows. */
-  :global(.studio .row) { display: grid; grid-template-columns: 5rem minmax(0, 1fr); align-items: center; gap: 0.5rem; }
+  :global(.studio .field-row) { display: grid; grid-template-columns: 5rem minmax(0, 1fr); align-items: center; gap: 0.5rem; }
   :global(.studio .fields) { display: grid; gap: 0.35rem; }
   :global(.studio .fields.two) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   :global(.studio .number) { position: relative; display: flex; align-items: center; gap: 0.3rem; min-inline-size: 0; color: var(--caelestis-muted-text); }

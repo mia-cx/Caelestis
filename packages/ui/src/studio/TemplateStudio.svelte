@@ -8,6 +8,7 @@
   import StudioWindow from './StudioWindow.svelte'
   import ColorSpaceWindow from './windows/ColorSpaceWindow.svelte'
   import DimensionsWindow from './windows/DimensionsWindow.svelte'
+  import DitherWindow from './windows/DitherWindow.svelte'
   import PaletteWindow from './windows/PaletteWindow.svelte'
   import SourceWindow from './windows/SourceWindow.svelte'
 
@@ -109,6 +110,8 @@
     <PaletteWindow {model} {onIntent} />
   {:else if id === 'color-space'}
     <ColorSpaceWindow {model} {onIntent} />
+  {:else if id === 'dither'}
+    <DitherWindow {model} {onIntent} />
   {/if}
 {/snippet}
 
