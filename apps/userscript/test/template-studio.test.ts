@@ -1,5 +1,5 @@
 import { WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
 // The confirmation dialog is the author's answer; each test gives it.
 vi.mock('../src/ui/confirm.js', () => ({ confirmDestructive: vi.fn(async () => true) }))
@@ -13,18 +13,19 @@ import {
 import type { ImportedTemplate } from '../src/templates/import.js'
 import { processRecipe } from '../src/templates/import.js'
 import { confirmDestructive } from '../src/ui/confirm.js'
-import { celesteRoom } from './celeste.js'
+import { celesteRoom, firstDifference, warmUp } from './celeste.js'
 
 /** Open the studio on the Celeste room and wait for its first result. */
 const openOnRoom = async (target: Parameters<typeof openTemplateStudio>[0]) => {
   const { room, png } = await celesteRoom()
-  expect(
-    openTemplateStudio(target, { image: new Blob([png], { type: 'image/png' }), name: 'room.png' }),
-  ).toBe(true)
-  await vi.waitFor(() => expect(templateStudioModel().source).not.toBeNull())
+  expect(openTemplateStudio(target)).toBe(true)
   // Every Wplace colour and no dithering, so palette art keeps every pixel.
   handleTemplateStudioIntent({ type: 'scope', scope: 'all' })
   handleTemplateStudioIntent({ type: 'dither', dither: { strength: 0 } })
+  handleTemplateStudioIntent({
+    type: 'file',
+    file: new File([png], 'room.png', { type: 'image/png' }),
+  })
   await ready()
   return room
 }
@@ -40,6 +41,8 @@ const saved = (save: ReturnType<typeof vi.fn>): ImportedTemplate =>
 afterEach(() => closeTemplateStudio())
 
 describe('template studio', () => {
+  beforeAll(warmUp)
+
   it('creates a template that matches palette art pixel for pixel, where the author placed it, and that its recipe rebuilds', async () => {
     const save = vi.fn(async () => true)
     const room = await openOnRoom({
@@ -61,11 +64,11 @@ describe('template studio', () => {
       height: room.height,
       opaque: room.opaque,
     })
-    expect(template.indices).toEqual(room.indices)
+    expect(firstDifference(template.indices, room.indices)).toBe(-1)
     const authoring = template.authoring
     if (authoring === undefined) throw new Error('the template has no authoring')
     const rebuilt = await processRecipe(authoring.source, authoring.recipe, template)
-    expect(rebuilt.indices).toEqual(room.indices)
+    expect(firstDifference(rebuilt.indices, room.indices)).toBe(-1)
   })
 
   it('undoes and redoes edits, reprocessing the artwork each way', async () => {
@@ -87,7 +90,8 @@ describe('template studio', () => {
     expect(templateStudioModel()).toMatchObject({
       palette: { scope: 'all' },
       processing: full,
-      history: { undo: true, redo: true },
+      // Settings chosen before the image loaded belong to no image, so they are not undoable.
+      history: { undo: false, redo: true },
     })
 
     handleTemplateStudioIntent({ type: 'redo' })
