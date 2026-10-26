@@ -8,6 +8,7 @@ import {
   removeLocalTemplate,
   templateAsPng,
   templateById,
+  unstageLocalTemplate,
 } from '../templates/local-store.js'
 import type { MoveReservation } from '../templates/move.js'
 import { movingId } from '../templates/move.js'
@@ -69,6 +70,8 @@ const uploadAdmitted = async (
     }
   }
 
+  // Uploaded copies are gone; whatever remains is kept in Local, where the sidebar lists it.
+  for (const templateId of templateIds) await unstageLocalTemplate(templateId)
   if (uploaded > 0) await refreshServer(server, rerender)
   rerender()
 
@@ -118,7 +121,7 @@ export const importTemplatesToServer = async (
     for (const template of imported) {
       signal?.throwIfAborted()
       try {
-        await addLocalTemplate(template, surface)
+        await addLocalTemplate(template, surface, false, true)
         admitted.push(template.id)
       } catch (error) {
         failures.push(`${template.name}: ${String(error)}`)

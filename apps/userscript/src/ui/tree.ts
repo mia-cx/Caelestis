@@ -493,6 +493,7 @@ const buildTree = <Result>(
   const servers = getState().servers
   const drawnTemplates = localTemplates().filter(
     (template) =>
+      template.staged === undefined &&
       sameTemplateSurface(template.surface ?? WORLD_TEMPLATE_SURFACE, surface) &&
       (templateKeys === undefined || templateKeys.has(templateTreeKeyFor(template, servers) ?? '')),
   )

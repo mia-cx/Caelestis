@@ -2,9 +2,9 @@ import { TILE_SIZE } from '@caelestis/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ClaimCaptureHost } from '../src/claim-editor.js'
 import { createLocalFolder } from '../src/local-folders.js'
-import type { ConnectedServer } from '../src/state.js'
+import { type ConnectedServer, setScopeVisible } from '../src/state.js'
 import * as store from '../src/templates/local-store.js'
-import { abort, isMoving, movingId, reserveMove } from '../src/templates/move.js'
+import { abort, commit, isMoving, movingId, reserveMove } from '../src/templates/move.js'
 import { loadCommittedTilePixels, UNPAINTED } from '../src/tile-transform.js'
 import type { TreeTarget } from '../src/ui/tree.js'
 
@@ -78,6 +78,30 @@ describe('capture template import', () => {
     if (template === undefined) throw new Error('the capture was not placed')
     expect(await store.templatePixels(template)).toEqual(new Uint8Array([5, 9]))
     expect(movingId()).toBe(template?.id)
+  })
+
+  it('draws a capture placed into a server while Local is switched off', async () => {
+    setScopeVisible('local', false)
+    try {
+      await expect(capture(undefined, remote)).resolves.toBeNull()
+      const placing = store.templateById(movingId() ?? '')
+      if (placing === undefined) throw new Error('the capture was not placed')
+      expect(store.isTemplateVisible(placing)).toBe(true)
+    } finally {
+      setScopeVisible('local', true)
+    }
+  })
+
+  it('keeps a server capture that did not upload in Local, where the sidebar lists it', async () => {
+    // The test server is not a current connection, so Apply's upload is refused.
+    await expect(capture(undefined, remote)).resolves.toBeNull()
+    const id = movingId() ?? ''
+    expect(store.templateById(id)?.staged).toBe(true)
+
+    await commit()
+
+    await vi.waitFor(() => expect(store.templateById(id)?.staged).toBeUndefined())
+    expect(store.templateById(id)).toMatchObject({ everPlaced: true })
   })
 
   it('refuses a busy placement before admitting a capture', async () => {
