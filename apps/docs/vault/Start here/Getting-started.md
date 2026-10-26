@@ -1,5 +1,6 @@
 ---
 title: Getting started
+order: 2
 ---
 
 This guide places a local template on Wplace. You need the [userscript installed](Install-the-userscript) and an image to paint. You do not need a Caelestis server.

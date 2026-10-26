@@ -1,5 +1,6 @@
 ---
 title: Userscript guide
+order: 1
 ---
 
 The userscript adds Caelestis to Wplace. Use the panel to manage templates and settings, and the map controls while painting.

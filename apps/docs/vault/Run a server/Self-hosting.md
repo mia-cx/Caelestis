@@ -1,5 +1,6 @@
 ---
 title: Self-hosting
+order: 1
 ---
 
 Run your own Caelestis server to share templates and progress with a group. The backend stores the data; the frontend serves the dashboard and forwards userscript requests.
