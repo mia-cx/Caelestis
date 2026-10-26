@@ -1,5 +1,11 @@
 # @caelestis/frontend
 
+## 0.9.0
+
+### Minor Changes
+
+- 258d5c4: `/docs` on any dashboard now opens the Caelestis docs at docs.caelest.is.
+
 ## 0.8.0
 
 ### Minor Changes
