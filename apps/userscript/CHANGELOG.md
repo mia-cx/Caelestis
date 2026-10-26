@@ -1,5 +1,11 @@
 # @caelestis/userscript
 
+## 0.18.2
+
+### Patch Changes
+
+- 632af5d: Show a template you import into a server while you place it, with Apply and Cancel, even when Local is hidden.
+
 ## 0.18.1
 
 ### Patch Changes
