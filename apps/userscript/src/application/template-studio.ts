@@ -13,6 +13,8 @@ import {
 } from '@caelestis/shared'
 import {
   type EffectLayer,
+  type Samples,
+  type ScopeStage,
   type StudioPaletteScope,
   type StudioRect,
   TEMPLATE_STUDIO_TAG,
@@ -29,7 +31,9 @@ import {
   type DitheretteEngine,
   ditheretteAvailable,
   runDitherette,
+  sampleEffects,
 } from '../templates/ditherette.js'
+import { cropRgba } from '../templates/ditherette-process.js'
 import {
   decodeToRgba,
   type ImportedTemplate,
@@ -42,6 +46,7 @@ import {
   isMoving,
   syncDraftPlacement,
 } from '../templates/move.js'
+import { sampleArtwork, sampleRgba } from '../templates/scope-samples.js'
 import {
   DEFAULT_STUDIO_SETTINGS,
   type StudioSettings,
@@ -125,6 +130,11 @@ let settings: StudioSettings = initialSettings()
 let effectLayers: readonly EffectLayer[] = []
 /** The palette-fit layer being analysed for editing. */
 let analysingFit: string | null = null
+/** The stages the Scopes window shows: the source under the output, as Ditherette web starts. */
+let scopeStages: readonly ScopeStage[] = ['source', 'output']
+let scopeSamples: Partial<Record<ScopeStage, Samples>> = {}
+let scopesPending = false
+let scopeTicket = 0
 let origin = { x: 0, y: 0 }
 let palette: readonly number[] = []
 /** Until the author picks colours, the palette follows the account's as they load. */
@@ -217,6 +227,7 @@ export const templateStudioModel = (): TemplateStudioModel => ({
   dither: settings.dither,
   effects: effectLayers,
   analysingFit,
+  scopes: { stages: scopeStages, samples: scopeSamples, pending: scopesPending },
   engine,
   processing,
   pending,
@@ -316,6 +327,7 @@ const process = async (): Promise<void> => {
     }
     clampOrigin()
     showDraft(processed)
+    void refreshScopes()
   } catch (error) {
     if (job !== controller || controller.signal.aborted) return
     job = null
@@ -324,10 +336,51 @@ const process = async (): Promise<void> => {
   render()
 }
 
+/* Scopes: samples of the stages the Scopes window shows, taken while it is open. */
+
+const scopesOpen = (): boolean => getState().studioLayout.scopes?.open === true
+
+/** Sample each shown stage of the current result; a newer refresh drops an older one's samples. */
+const refreshScopes = async (): Promise<void> => {
+  const ticket = ++scopeTicket
+  const loaded = source
+  const result = processed
+  if (!scopesOpen() || loaded === null || result === null) {
+    scopeSamples = {}
+    scopesPending = false
+    return
+  }
+  const sourceSamples = (): Samples => sampleRgba(cropRgba(loaded.image, result.recipe.crop))
+  const samples: Partial<Record<ScopeStage, Samples>> = {}
+  try {
+    for (const stage of scopeStages)
+      samples[stage] =
+        stage === 'source'
+          ? sourceSamples()
+          : stage === 'output'
+            ? sampleArtwork(result.recipe.width, result.recipe.height, result.indices)
+            : result.recipe.ditherette.effects.length === 0
+              ? sourceSamples()
+              : await sampleEffects({
+                  recipe: result.recipe,
+                  source: { key: loaded.sha256, image: loaded.image },
+                })
+  } catch (error) {
+    if (!(error instanceof DOMException && error.name === 'AbortError'))
+      warn('install', 'the studio could not sample its scopes', String(error))
+    return
+  }
+  if (ticket !== scopeTicket) return
+  scopeSamples = samples
+  scopesPending = false
+  render()
+}
+
 /** Rerun processing once settings stop changing. */
 const reprocess = (): void => {
   if (source === null) return
   clearProcessing()
+  scopesPending = true
   processing = { state: 'working', progress: null }
   settleTimer = setTimeout(() => {
     settleTimer = null
@@ -687,7 +740,15 @@ const analyseLayerFit = async (id: string): Promise<void> => {
 export const handleTemplateStudioIntent = (intent: TemplateStudioIntent): void => {
   if (target === null) return
   if (intent.type === 'layout') {
+    const opening = !scopesOpen() && intent.layout.scopes?.open === true
     setState({ studioLayout: intent.layout })
+    if (opening) void refreshScopes()
+    render()
+    return
+  }
+  if (intent.type === 'scope-stages') {
+    scopeStages = intent.stages
+    void refreshScopes()
     render()
     return
   }
@@ -858,6 +919,9 @@ const reset = (): void => {
   processed = null
   pixelCounts = new Uint32Array(PALETTE_SIZE)
   fitCache.clear()
+  scopeTicket++
+  scopeSamples = {}
+  scopesPending = false
   pending = false
   message = undefined
 }

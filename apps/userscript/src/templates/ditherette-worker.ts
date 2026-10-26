@@ -1,11 +1,14 @@
 import type { DitheretteEngine, DitheretteTemplateRecipe } from '@caelestis/shared'
+import type { Samples } from '@caelestis/ui/elements'
 import type { Curve, Progress, Rgba8Image } from 'ditherette'
 import {
   analysePaletteFit,
+  applyRecipeEffects,
   type FitAnalysis,
   processDitherette,
   processors,
 } from './ditherette-process.js'
+import { sampleRgba } from './scope-samples.js'
 
 /**
  * Ditherette's worker. The build bundles this file on its own and inlines the result as a string,
@@ -39,6 +42,14 @@ export type DitheretteWorkerRequest =
       readonly source?: Rgba8Image
       readonly analysis: FitAnalysis
     }
+  | {
+      readonly type: 'sample-effects'
+      readonly id: number
+      readonly sourceKey: string
+      /** Sent only when this worker does not already hold `sourceKey`. */
+      readonly source?: Rgba8Image
+      readonly recipe: DitheretteTemplateRecipe
+    }
 
 export type DitheretteWorkerReply =
   | { readonly type: 'ready' }
@@ -53,6 +64,7 @@ export type DitheretteWorkerReply =
       readonly engine: DitheretteEngine
     }
   | { readonly type: 'fit'; readonly id: number; readonly curves: Curve[] }
+  | { readonly type: 'samples'; readonly id: number; readonly samples: Samples }
   | {
       readonly type: 'error'
       readonly id: number | null
@@ -91,6 +103,19 @@ const analyse = async (
   if (processorFor === null) throw new Error('the worker was not initialised')
   const curves = analysePaletteFit(await processorFor.cpu(), image, request.analysis)
   scope.postMessage({ type: 'fit', id: request.id, curves })
+}
+
+const sampleEffects = async (
+  request: Extract<DitheretteWorkerRequest, { type: 'sample-effects' }>,
+): Promise<void> => {
+  const image = sourceFor(request)
+  if (processorFor === null) throw new Error('the worker was not initialised')
+  const processor = await processorFor.forEngine(request.recipe.engine)
+  const samples = sampleRgba(await applyRecipeEffects(processor, image, request.recipe))
+  scope.postMessage({ type: 'samples', id: request.id, samples }, [
+    samples.column.buffer,
+    samples.rgb.buffer,
+  ])
 }
 
 const run = async (
@@ -137,6 +162,9 @@ scope.addEventListener('message', (event) => {
       return
     case 'analyse-fit':
       enqueue(request.id, () => analyse(request))
+      return
+    case 'sample-effects':
+      enqueue(request.id, () => sampleEffects(request))
   }
 })
 

@@ -8,11 +8,12 @@ import {
 /** A window released this close to a screen edge docks into that edge's column. */
 export const SNAP_DISTANCE = 72
 
-/** Every window starts open, docked to its default edge in Windows-menu order. */
+/** A window starts docked to its default edge in Windows-menu order, open unless marked closed. */
 export const defaultPlacement = (id: StudioWindowId): StudioWindowPlacement => {
-  const dock = STUDIO_WINDOWS.find((window) => window.id === id)?.dock ?? 'start'
+  const window = STUDIO_WINDOWS.find((candidate) => candidate.id === id)
+  const dock = window?.dock ?? 'start'
   return {
-    open: true,
+    open: window === undefined || !('closed' in window),
     collapsed: false,
     dock,
     order: STUDIO_WINDOWS.filter((window) => window.dock === dock).findIndex(
