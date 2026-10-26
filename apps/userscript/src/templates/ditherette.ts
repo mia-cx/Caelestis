@@ -126,7 +126,7 @@ const startHost = (modules: Modules): Host => {
     URL.revokeObjectURL(url)
   }
   let isReady = false
-  let ready: (value: void) => void = () => {}
+  let ready: () => void = () => {}
   let failed: (error: Error) => void = () => {}
   const started: Host = {
     worker,
