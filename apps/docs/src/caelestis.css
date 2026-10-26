@@ -111,9 +111,11 @@ html:root.plain-font {
 
 /*
  * Bordered boxes: the border moves to a ring that follows the stair, so the corner clip does not
- * slice it. Panels float on the paper in white, like the dashboard's cards over the map.
+ * slice it. Main page panels float on the paper in white, like the dashboard's cards over the map.
+ * The section bar's dropdowns are `.panel`s too, but they stay out: they need their absolute
+ * position, and a clip would cut off their flyouts.
  */
-:root body :is(.sv-search-trigger, .panel, .infobox) {
+:root body :is(.sv-search-trigger, .main-page .panel, .infobox) {
   --pixel-outer: var(--pixel-card-outer);
   --pixel-ring: var(--pixel-card-ring);
   position: relative;
@@ -124,7 +126,7 @@ html:root.plain-font {
   clip-path: var(--pixel-outer);
 }
 
-:root body :is(.sv-search-trigger, .panel, .infobox)::before {
+:root body :is(.sv-search-trigger, .main-page .panel, .infobox)::before {
   content: "";
   position: absolute;
   inset: calc(-1 * var(--sv-rule-width));
