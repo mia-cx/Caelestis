@@ -2,9 +2,10 @@ import { TILE_SIZE } from '@caelestis/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ClaimCaptureHost } from '../src/claim-editor.js'
 import { createLocalFolder } from '../src/local-folders.js'
-import type { ConnectedServer } from '../src/state.js'
+import { type ConnectedServer, setScopeVisible } from '../src/state.js'
+import type { ImportedTemplate } from '../src/templates/import.js'
 import * as store from '../src/templates/local-store.js'
-import { abort, isMoving, movingId, reserveMove } from '../src/templates/move.js'
+import { abort, commit, isMoving, movingId, reserveMove } from '../src/templates/move.js'
 import { loadCommittedTilePixels, UNPAINTED } from '../src/tile-transform.js'
 import type { TreeTarget } from '../src/ui/tree.js'
 
@@ -22,6 +23,7 @@ vi.mock('../src/tile-transform.js', async (original) => ({
   loadCommittedTilePixels: vi.fn(),
 }))
 
+import { importTemplatesToServer } from '../src/application/import-to-server.js'
 import { captureTemplate } from '../src/application/tree-actions.js'
 
 const selection = { rect: { x: 0, y: 0, w: 2, h: 1 }, mask: new Uint8Array([1, 1]), count: 2 }
@@ -78,6 +80,30 @@ describe('capture template import', () => {
     if (template === undefined) throw new Error('the capture was not placed')
     expect(await store.templatePixels(template)).toEqual(new Uint8Array([5, 9]))
     expect(movingId()).toBe(template?.id)
+  })
+
+  it('draws a capture placed into a server while Local is switched off', async () => {
+    setScopeVisible('local', false)
+    try {
+      await expect(capture(undefined, remote)).resolves.toBeNull()
+      const placing = store.templateById(movingId() ?? '')
+      if (placing === undefined) throw new Error('the capture was not placed')
+      expect(store.isTemplateVisible(placing)).toBe(true)
+    } finally {
+      setScopeVisible('local', true)
+    }
+  })
+
+  it('keeps a server capture that did not upload in Local, where the sidebar lists it', async () => {
+    // The test server is not a current connection, so Apply's upload is refused.
+    await expect(capture(undefined, remote)).resolves.toBeNull()
+    const id = movingId() ?? ''
+    expect(store.templateById(id)?.staged).toBe(true)
+
+    await commit()
+
+    await vi.waitFor(() => expect(store.templateById(id)?.staged).toBeUndefined())
+    expect(store.templateById(id)).toMatchObject({ everPlaced: true })
   })
 
   it('refuses a busy placement before admitting a capture', async () => {
@@ -140,4 +166,44 @@ describe('capture template import', () => {
       expect(isMoving()).toBe(false)
     },
   )
+})
+
+describe('server file import', () => {
+  const marble = (id: string, originX: number): ImportedTemplate => ({
+    id,
+    name: id,
+    source: 'marble',
+    originX,
+    originY: 0,
+    width: 2,
+    height: 1,
+    indices: new Uint8Array([5, 9]),
+    moved: 0,
+    opaque: 2,
+  })
+  const importBoth = () =>
+    importTemplatesToServer(
+      [marble('first', 0), marble('second', 4)],
+      server,
+      null,
+      null,
+      () => {},
+      async () => {},
+    )
+
+  it('keeps a template admitted after the first was refused in Local', async () => {
+    vi.spyOn(store, 'addLocalTemplate').mockRejectedValueOnce(new Error('pixel budget'))
+
+    await expect(importBoth()).resolves.toBe(false)
+    expect(store.templateById('second')).toBeDefined()
+    expect(store.templateById('second')?.staged).toBeUndefined()
+  })
+
+  it('keeps the templates in Local when preparing an upload throws', async () => {
+    vi.spyOn(store, 'templateAsPng').mockRejectedValueOnce(new Error('pixels unavailable'))
+
+    await expect(importBoth()).rejects.toThrow('pixels unavailable')
+    expect(store.localTemplates().filter((template) => template.staged)).toEqual([])
+    expect(store.localTemplates()).toHaveLength(2)
+  })
 })

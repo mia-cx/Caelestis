@@ -8,6 +8,7 @@ import {
   removeLocalTemplate,
   templateAsPng,
   templateById,
+  unstageLocalTemplate,
 } from '../templates/local-store.js'
 import type { MoveReservation } from '../templates/move.js'
 import { movingId } from '../templates/move.js'
@@ -27,48 +28,54 @@ const uploadAdmitted = async (
   let uploaded = 0
   const failures: string[] = []
 
-  for (const templateId of templateIds) {
-    const template = templateById(templateId)
-    if (template === undefined) continue
-    if (movingId() === template.id) {
-      failures.push(`${template.name}: placement is still open`)
-      continue
-    }
+  try {
+    for (const templateId of templateIds) {
+      const template = templateById(templateId)
+      if (template === undefined) continue
+      if (movingId() === template.id) {
+        failures.push(`${template.name}: placement is still open`)
+        continue
+      }
 
-    const png = await templateAsPng(template)
-    if (png === null) {
-      failures.push(`${template.name}: could not encode the template`)
-      continue
-    }
-    if (!isCurrentTemplate(template) || movingId() === template.id) {
-      failures.push(`${template.name}: changed while it was being encoded`)
-      continue
-    }
-    if (!isCurrentServerConnection(server)) {
-      failures.push(`${template.name}: the server connection changed`)
-      continue
-    }
+      const png = await templateAsPng(template)
+      if (png === null) {
+        failures.push(`${template.name}: could not encode the template`)
+        continue
+      }
+      if (!isCurrentTemplate(template) || movingId() === template.id) {
+        failures.push(`${template.name}: changed while it was being encoded`)
+        continue
+      }
+      if (!isCurrentServerConnection(server)) {
+        failures.push(`${template.name}: the server connection changed`)
+        continue
+      }
 
-    const result = await uploadTemplate(server, {
-      nodeId,
-      name: template.name,
-      originX: template.originX,
-      originY: template.originY,
-      png,
-      surface,
-      authoring: await authoringOf(template),
-    })
-    if (!result.ok) {
-      failures.push(`${template.name}: ${result.message}`)
-      continue
-    }
+      const result = await uploadTemplate(server, {
+        nodeId,
+        name: template.name,
+        originX: template.originX,
+        originY: template.originY,
+        png,
+        surface,
+        authoring: await authoringOf(template),
+      })
+      if (!result.ok) {
+        failures.push(`${template.name}: ${result.message}`)
+        continue
+      }
 
-    uploaded++
-    if (!(await removeLocalTemplate(template.id))) {
-      failures.push(`${template.name}: uploaded, but its temporary Local copy could not be removed`)
+      uploaded++
+      if (!(await removeLocalTemplate(template.id))) {
+        failures.push(
+          `${template.name}: uploaded, but its temporary Local copy could not be removed`,
+        )
+      }
     }
+  } finally {
+    // Uploaded copies are gone; whatever remains is kept in Local, where the sidebar lists it.
+    for (const templateId of templateIds) await unstageLocalTemplate(templateId)
   }
-
   if (uploaded > 0) await refreshServer(server, rerender)
   rerender()
 
@@ -118,7 +125,7 @@ export const importTemplatesToServer = async (
     for (const template of imported) {
       signal?.throwIfAborted()
       try {
-        await addLocalTemplate(template, surface)
+        await addLocalTemplate(template, surface, false, true)
         admitted.push(template.id)
       } catch (error) {
         failures.push(`${template.name}: ${String(error)}`)
@@ -127,7 +134,10 @@ export const importTemplatesToServer = async (
     signal?.throwIfAborted()
     rerender()
     if (failures.length > 0) toast(failures.join('. '), 'error')
-    if (!admitted.includes(first.id)) return false
+    if (!admitted.includes(first.id)) {
+      for (const id of admitted) await unstageLocalTemplate(id)
+      return false
+    }
 
     if (first.source === 'image') {
       signal?.throwIfAborted()

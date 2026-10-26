@@ -101,6 +101,12 @@ export interface PlacedTemplate extends Omit<ImportedTemplate, 'indices'> {
    */
   readonly everPlaced: boolean
   /**
+   * Held in Local only until it uploads to a server. A staged template is in no group: the sidebar
+   * does not list it and no switch hides it, since its outline and Apply or Cancel are the only way
+   * out of its placement.
+   */
+  readonly staged?: true
+  /**
    * Values this template has set for itself, for whichever groups it owns.
    *
    * Null is not the same as a copy of the default. A template that has never been adjusted should
@@ -734,11 +740,12 @@ export const clearLocalPreview = (id: string): boolean => {
 /**
  * Whether this template actually draws.
  *
- * Its own switch *and* every folder above it. A template inside a hidden folder keeps saying it is
- * visible, because it is — within a group that is not — and that is what makes turning the group
- * back on restore the arrangement instead of flattening it.
+ * Its own switch *and* every folder above it, unless it is staged. A template inside a hidden
+ * folder keeps saying it is visible, because it is — within a group that is not — and that is what
+ * makes turning the group back on restore the arrangement instead of flattening it.
  */
 export const isTemplateVisible = (template: PlacedTemplate): boolean => {
+  if (template.staged === true) return true
   if (!template.visible) return false
   // A server's template answers to that server's switch, not to Local's. Sharing this store meant
   // it inherited the local chain by default, so switching Local off hid every server's templates
@@ -1522,11 +1529,15 @@ export const forgetServerSurfaceTemplates = async (
   await Promise.all(ids.map(async (id) => await forgetServerTemplate(id)))
 }
 
-/** Admit an import, optionally committing an existing placement in the same initial write. */
+/**
+ * Admit an import, optionally committing an existing placement in the same initial write, or
+ * staging it for upload to a server.
+ */
 export const addLocalTemplate = async (
   template: ImportedTemplate,
   surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
   everPlaced = false,
+  staged = false,
 ): Promise<PlacedTemplate> => {
   const restoring = restoreInFlight
   if (restoring !== null) await restoring
@@ -1564,6 +1575,7 @@ export const addLocalTemplate = async (
       tiles,
       visible: true,
       everPlaced,
+      ...(staged ? { staged: true } : {}),
       // Follows the global appearance until someone touches this one's own controls.
       appearance: null,
       owns: [],
@@ -2048,6 +2060,16 @@ export const markPlaced = async (id: string): Promise<boolean> => {
     return true
   })
 }
+
+/** Keep a staged template that did not upload as an ordinary Local one. */
+export const unstageLocalTemplate = async (id: string): Promise<void> =>
+  await writeInOrder(id, async () => {
+    const existing = templates.get(id)
+    if (existing?.staged === undefined) return
+    const { staged: _staged, ...kept } = existing
+    templates.set(id, kept)
+    notify()
+  })
 
 /** Persist the final origin and first-placement marker in one durable state transition. */
 export const placeLocalTemplate = async (
