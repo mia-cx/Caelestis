@@ -1,5 +1,7 @@
 <script lang="ts">
-  let { children } = $props();
+  import '../caelestis.css'
+
+  let { children } = $props()
 </script>
 
 {@render children()}

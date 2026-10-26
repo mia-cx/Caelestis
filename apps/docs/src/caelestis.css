@@ -1,0 +1,141 @@
+/*
+ * The Caelestis look over Svartz's wiki theme: the dashboard's palette, FalseType on its pixel type
+ * scale, flat map-paper panels and stair-stepped corners. Svartz reads every colour, size and shape
+ * from its `--sv-*` tokens, so most of this file sets tokens. `html:root` outranks the `:root` rules
+ * in Svartz and the theme. `:root body` outranks the theme's scoped component rules, which load later.
+ */
+@import "@caelestis/ui/pixel-grid.css";
+
+html:root {
+  /*
+   * The dashboard's DaisyUI palette (apps/frontend/src/app.css): warm map paper under white panels
+   * by day, a violet night canvas by night. The accent is Wplace's canvas blue.
+   */
+  --sv-paper: light-dark(oklch(95.5% 0.012 90), oklch(20% 0.013 285));
+  --sv-surface: light-dark(oklch(99.5% 0.003 90), oklch(23% 0.014 285));
+  --sv-sunken: light-dark(oklch(90% 0.016 90), oklch(17% 0.013 285));
+  --sv-rule: light-dark(oklch(90% 0.016 90), oklch(28% 0.016 285));
+  --sv-rule-strong: light-dark(oklch(80% 0.016 90), oklch(36% 0.016 285));
+  --sv-text: light-dark(oklch(26% 0.012 60), oklch(92% 0.008 90));
+  --sv-ink: light-dark(oklch(20% 0.012 60), oklch(97% 0.005 90));
+  --sv-muted: color-mix(in oklab, var(--sv-text) 64%, transparent);
+  --sv-accent: light-dark(oklch(63.5% 0.145 253), oklch(70% 0.125 253));
+  --sv-on-accent: light-dark(oklch(98% 0.01 253), oklch(18% 0.04 253));
+  /* Highlights wear the canvas gold. */
+  --sv-mark: light-dark(oklch(78% 0.155 75 / 0.45), oklch(80% 0.145 75 / 0.35));
+  /* A blur is the one thing a pixel cannot do. */
+  --sv-shadow: none;
+
+  /*
+   * FalseType draws whole pixels at multiples of 6px on 2x displays, and copy needs 12px caps to
+   * read, so nothing goes below 18px. Every line height is 4/3 of its size, which keeps baselines on
+   * the grid: 18 on 24, 24 on 32, 36 on 48.
+   */
+  --sv-font-sans: "FalseType", ui-rounded, system-ui, -apple-system, sans-serif;
+  --sv-text-base: 1.125rem;
+  --sv-leading: 1.3333;
+  --sv-leading-tight: 1.3333;
+  --sv-step--2: 1.125rem;
+  --sv-step--1: 1.125rem;
+  --sv-step-0: 1.125rem;
+  --sv-step-1: 1.5rem;
+  --sv-step-2: 1.875rem;
+  --sv-step-3: 2.25rem;
+  --sv-step-4: 2.25rem;
+  --sv-step-5: 3rem;
+  --sv-label-size: 1.125rem;
+
+  --sv-radius-s: 0;
+  --sv-radius-m: 0;
+  --sv-radius-l: 0;
+  --sv-radius-pill: 0;
+  --sv-rule-width: var(--ui-px);
+  --sv-focus-width: var(--ui-px);
+  --sv-focus-offset: calc(-1 * var(--ui-px));
+}
+
+html {
+  /* FalseType everywhere: no kerning, ligatures or faked bold and italic to nudge pixels off the grid. */
+  font-kerning: none;
+  font-variant-ligatures: none;
+  font-synthesis: none;
+}
+
+/* The dashboard's ground: map paper with a faint grid one UI pixel wide on 24px cells. */
+:root body {
+  background-image:
+    linear-gradient(
+      color-mix(in oklab, var(--sv-text) 4%, transparent) var(--ui-px),
+      transparent var(--ui-px)
+    ),
+    linear-gradient(
+      90deg,
+      color-mix(in oklab, var(--sv-text) 4%, transparent) var(--ui-px),
+      transparent var(--ui-px)
+    );
+  background-size: 24px 24px;
+}
+
+/* Bold has no glyphs of its own, so headings and labels carry hierarchy by size and colour alone. */
+:root body .sv-label {
+  text-transform: none;
+}
+
+/* Controls round at three UI pixels, as on the dashboard. */
+:root
+  body
+  :is(
+    .sv-icon-button,
+    .sv-kbd,
+    .sv-tag,
+    .sv-badge,
+    .sv-prose :not(pre) > code,
+    .sv-prose .sv-callout
+  ) {
+  border-radius: 0;
+  clip-path: var(--pixel-corners-sm);
+}
+
+/* Screenshots and code blocks are cards: five UI pixels. */
+:root body .sv-prose :is(img, video, .sv-code) {
+  border-radius: 0;
+  clip-path: var(--pixel-corners-lg);
+}
+
+/*
+ * Bordered boxes: the border moves to a ring that follows the stair, so the corner clip does not
+ * slice it. Panels float on the paper in white, like the dashboard's cards over the map.
+ */
+:root body :is(.sv-search-trigger, .panel, .infobox) {
+  --pixel-outer: var(--pixel-card-outer);
+  --pixel-ring: var(--pixel-card-ring);
+  position: relative;
+  isolation: isolate;
+  border-color: transparent;
+  border-radius: 0;
+  background: var(--sv-surface);
+  clip-path: var(--pixel-outer);
+}
+
+:root body :is(.sv-search-trigger, .panel, .infobox)::before {
+  content: "";
+  position: absolute;
+  inset: calc(-1 * var(--sv-rule-width));
+  z-index: -1;
+  background-color: var(--sv-rule-strong);
+  clip-path: var(--pixel-ring);
+  pointer-events: none;
+}
+
+/* Search is a control, so it rounds like the dashboard's buttons. */
+:root body .sv-search-trigger {
+  --pixel-outer: var(--pixel-btn-outer);
+  --pixel-ring: var(--pixel-btn-ring);
+}
+
+/* The site name is the dashboard's logo: FalseType at 36px, three CSS pixels per font pixel. */
+:root body .sv-wordmark {
+  color: var(--sv-accent);
+  font-size: 2.25rem;
+  line-height: 1;
+}

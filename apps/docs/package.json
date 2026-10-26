@@ -14,7 +14,7 @@
     "clean": "rm -rf build .svartz .svelte-kit .turbo"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20261002.1",
+    "@caelestis/ui": "workspace:*",
     "@svartz/config": "^1.0.1",
     "@svartz/theme-wiki": "^1.0.1",
     "@svartz/ui": "^1.0.1",

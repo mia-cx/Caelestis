@@ -1,0 +1,17 @@
+name = "caelestis-docs"
+account_id = "492214885e7a580ccc1d141dfdb4dc5f"
+compatibility_date = "2026-08-25"
+workers_dev = false
+preview_urls = false
+main = "src/worker.ts"
+
+[[routes]]
+pattern = "docs.caelest.is"
+custom_domain = true
+
+# The Worker sees page requests first, to answer agents with Markdown. Built files skip it.
+[assets]
+directory = "build"
+binding = "ASSETS"
+not_found_handling = "404-page"
+run_worker_first = ["/*", "!/_app/*", "!/images/*", "!/__svartz/*"]
