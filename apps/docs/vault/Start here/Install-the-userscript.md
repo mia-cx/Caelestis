@@ -1,5 +1,6 @@
 ---
 title: Install the userscript
+order: 1
 ---
 
 Install a userscript manager in your browser, then add Caelestis from GitHub. The example below uses Violentmonkey.

@@ -1,5 +1,6 @@
 ---
 title: Connect to a server
+order: 3
 ---
 
 Connect to use a group's shared templates, progress, and collaboration tools. Ask the server owner for its address and an access token.
