@@ -7,6 +7,7 @@
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
   "ignore": [
+    "@caelestis/docs",
     "@caelestis/shared",
     "@caelestis/social",
     "@caelestis/storage",

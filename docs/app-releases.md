@@ -22,6 +22,9 @@ package with a versioned app.
 
 Changes that only affect tests, CI, or internal code do not need a changeset.
 
+The docs site in `apps/docs` is unversioned too. Docs changes need no changeset; each release
+deploys the docs from its merge commit, so they describe the deployed apps.
+
 ## Publish
 
 After a Changeset reaches `main`, the App release workflow opens or updates one release pull
