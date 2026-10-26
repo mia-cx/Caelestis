@@ -12,6 +12,7 @@ import {
   WPLACE_PALETTE,
 } from '@caelestis/shared'
 import {
+  type EffectLayer,
   type StudioPaletteScope,
   type StudioRect,
   TEMPLATE_STUDIO_TAG,
@@ -19,10 +20,12 @@ import {
   type TemplateStudioModel,
 } from '@caelestis/ui/elements'
 import { cancelSurfaceClose, closeSurface, openSurface } from '@caelestis/ui/motion'
+import type { Curve, Effect, PaletteFitEffect } from 'ditherette'
 import { warn } from '../debug.js'
 import { viewportCentre } from '../main.js'
 import { getState, setState } from '../state.js'
 import {
+  analyseFit,
   type DitheretteEngine,
   ditheretteAvailable,
   runDitherette,
@@ -118,6 +121,10 @@ let loadingSource = false
 let sourceTicket = 0
 let crop: StudioRect = { x: 0, y: 0, width: 1, height: 1 }
 let settings: StudioSettings = initialSettings()
+/** The effect pipeline as the studio edits it; the recipe carries the enabled steps. */
+let effectLayers: readonly EffectLayer[] = []
+/** The palette-fit layer being analysed for editing. */
+let analysingFit: string | null = null
 let origin = { x: 0, y: 0 }
 let palette: readonly number[] = []
 /** Until the author picks colours, the palette follows the account's as they load. */
@@ -208,6 +215,8 @@ export const templateStudioModel = (): TemplateStudioModel => ({
   alpha: settings.alpha,
   colorSpace: settings.colorSpace,
   dither: settings.dither,
+  effects: effectLayers,
+  analysingFit,
   engine,
   processing,
   pending,
@@ -271,10 +280,14 @@ const process = async (): Promise<void> => {
   clearProcessing()
   const controller = new AbortController()
   job = controller
-  const recipe = currentRecipe(loaded)
+  const settled = currentRecipe(loaded)
   processing = { state: 'working', progress: null }
   render()
   try {
+    // The recipe carries explicit fit curves, so the GPU runs it and a replay needs no analysis.
+    const effects = await resolveFits(loaded, settled, settled.ditherette.effects)
+    if (job !== controller) return
+    const recipe = { ...settled, ditherette: { ...settled.ditherette, effects } }
     const result = await runDitherette({
       recipe,
       source: { key: loaded.sha256, image: loaded.image },
@@ -574,6 +587,100 @@ const setDither = (patch: Partial<StudioSettings['dither']>): void => {
   }
 }
 
+/* Effects. */
+
+/** Ditherette runs the enabled layers; names and switched-off layers are the studio's own. */
+const setEffects = (layers: readonly EffectLayer[]): void => {
+  effectLayers = layers
+  settings = {
+    ...settings,
+    effects: layers.filter((layer) => layer.step.enabled).map((layer) => layer.step),
+  }
+}
+
+/** Analysed fit curves, by everything the analysis reads, so other edits never re-analyse. */
+const fitCache = new Map<string, Promise<Curve[]>>()
+const FIT_CACHE_SIZE = 32
+
+/** The curves a fit following the image would apply here, from the cache or a fresh analysis. */
+const fitCurves = (
+  loaded: Source,
+  recipe: DitheretteTemplateRecipe,
+  before: readonly Effect[],
+  step: PaletteFitEffect,
+): Promise<Curve[]> => {
+  const key = JSON.stringify([
+    loaded.sha256,
+    recipe.crop,
+    recipe.palette,
+    before,
+    step.look,
+    step.space,
+  ])
+  const cached = fitCache.get(key)
+  if (cached !== undefined) return cached
+  if (fitCache.size >= FIT_CACHE_SIZE) fitCache.clear()
+  const analysis = analyseFit({
+    source: { key: loaded.sha256, image: loaded.image },
+    analysis: { recipe, before, look: step.look, space: step.space },
+  })
+  fitCache.set(key, analysis)
+  analysis.catch(() => fitCache.delete(key))
+  return analysis
+}
+
+/** `steps` with every fit that follows the image given the curves it would analyse to. */
+const resolveFits = async (
+  loaded: Source,
+  recipe: DitheretteTemplateRecipe,
+  steps: readonly Effect[],
+): Promise<Effect[]> => {
+  const resolved: Effect[] = []
+  for (const step of steps)
+    resolved.push(
+      step.effect === 'palette-fit' && step.curves === null
+        ? { ...step, curves: await fitCurves(loaded, recipe, [...resolved], step) }
+        : step,
+    )
+  return resolved
+}
+
+/**
+ * Resolve a palette fit's curves into its step, as the image reaching it would analyse now, so
+ * the author can edit them. Edited curves stay put until Reset.
+ */
+const analyseLayerFit = async (id: string): Promise<void> => {
+  const loaded = source
+  const index = effectLayers.findIndex((layer) => layer.id === id)
+  const step = effectLayers[index]?.step
+  if (loaded === null || step?.effect !== 'palette-fit' || analysingFit !== null) return
+  analysingFit = id
+  render()
+  try {
+    const recipe = currentRecipe(loaded)
+    const before = effectLayers
+      .slice(0, index)
+      .filter((layer) => layer.step.enabled)
+      .map((layer) => layer.step)
+    const curves = await fitCurves(loaded, recipe, await resolveFits(loaded, recipe, before), step)
+    const current = effectLayers.find((layer) => layer.id === id)
+    if (source !== loaded || current?.step.effect !== 'palette-fit' || current.step.curves !== null)
+      return
+    setEffects(
+      effectLayers.map((layer) =>
+        layer.id === id ? { ...layer, step: { ...current.step, curves } } : layer,
+      ),
+    )
+    reprocess()
+  } catch (error) {
+    if (!(error instanceof DOMException && error.name === 'AbortError'))
+      message = `Could not analyse the palette fit: ${reason(error)}.`
+  } finally {
+    analysingFit = null
+    render()
+  }
+}
+
 /* Intents. */
 
 /** Apply one intent from the element. */
@@ -652,6 +759,13 @@ export const handleTemplateStudioIntent = (intent: TemplateStudioIntent): void =
     case 'dither':
       setDither(intent.dither)
       reprocess()
+      break
+    case 'effects':
+      setEffects(intent.effects)
+      reprocess()
+      break
+    case 'analyse-fit':
+      void analyseLayerFit(intent.layer)
       break
     case 'origin':
       setOrigin(intent.x, intent.y)
@@ -735,6 +849,7 @@ const reset = (): void => {
   sourceTicket++
   crop = { x: 0, y: 0, width: 1, height: 1 }
   settings = initialSettings()
+  effectLayers = []
   origin = { x: 0, y: 0 }
   palette = []
   setPalette(presetColours('owned'))
@@ -742,6 +857,7 @@ const reset = (): void => {
   processing = { state: 'idle' }
   processed = null
   pixelCounts = new Uint32Array(PALETTE_SIZE)
+  fitCache.clear()
   pending = false
   message = undefined
 }

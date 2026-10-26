@@ -1,3 +1,4 @@
+import type { EffectLayer } from './effects/layers.js'
 import type {
   AlphaMode,
   ColorSpaceId,
@@ -14,6 +15,7 @@ export const STUDIO_WINDOWS = [
   { id: 'palette', title: 'Palette', dock: 'end' },
   { id: 'color-space', title: 'Colour space', dock: 'end' },
   { id: 'dither', title: 'Dither', dock: 'end' },
+  { id: 'effects', title: 'Effects', dock: 'start' },
 ] as const
 
 export type StudioWindowId = (typeof STUDIO_WINDOWS)[number]['id']
@@ -123,6 +125,10 @@ export interface TemplateStudioModel {
   }
   readonly colorSpace: ColorSpaceId
   readonly dither: StudioDither
+  /** The effect pipeline, run on the cropped source before resizing, in order. */
+  readonly effects: readonly EffectLayer[]
+  /** The palette-fit layer whose curves are being analysed for editing. */
+  readonly analysingFit: string | null
   /** Where the last result was processed. Null until one has been. */
   readonly engine: 'gpu' | 'cpu' | null
   readonly processing:
@@ -153,6 +159,9 @@ export type TemplateStudioIntent =
   | { readonly type: 'alpha'; readonly alpha: Partial<TemplateStudioModel['alpha']> }
   | { readonly type: 'color-space'; readonly colorSpace: ColorSpaceId }
   | { readonly type: 'dither'; readonly dither: Partial<StudioDither> }
+  | { readonly type: 'effects'; readonly effects: readonly EffectLayer[] }
+  /** Resolve a palette-fit layer's curves into its step, so they can be edited. */
+  | { readonly type: 'analyse-fit'; readonly layer: string }
   | { readonly type: 'origin'; readonly x: number; readonly y: number }
   | { readonly type: 'centre' }
   | { readonly type: 'layout'; readonly layout: StudioLayout }

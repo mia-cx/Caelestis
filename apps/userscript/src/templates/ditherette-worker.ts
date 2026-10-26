@@ -1,6 +1,11 @@
 import type { DitheretteEngine, DitheretteTemplateRecipe } from '@caelestis/shared'
-import type { Progress, Rgba8Image } from 'ditherette'
-import { processDitherette, processors } from './ditherette-process.js'
+import type { Curve, Progress, Rgba8Image } from 'ditherette'
+import {
+  analysePaletteFit,
+  type FitAnalysis,
+  processDitherette,
+  processors,
+} from './ditherette-process.js'
 
 /**
  * Ditherette's worker. The build bundles this file on its own and inlines the result as a string,
@@ -26,6 +31,14 @@ export type DitheretteWorkerRequest =
       readonly recipe: DitheretteTemplateRecipe
     }
   | { readonly type: 'cancel'; readonly id: number }
+  | {
+      readonly type: 'analyse-fit'
+      readonly id: number
+      readonly sourceKey: string
+      /** Sent only when this worker does not already hold `sourceKey`. */
+      readonly source?: Rgba8Image
+      readonly analysis: FitAnalysis
+    }
 
 export type DitheretteWorkerReply =
   | { readonly type: 'ready' }
@@ -39,6 +52,7 @@ export type DitheretteWorkerReply =
       readonly opaque: number
       readonly engine: DitheretteEngine
     }
+  | { readonly type: 'fit'; readonly id: number; readonly curves: Curve[] }
   | {
       readonly type: 'error'
       readonly id: number | null
@@ -63,17 +77,31 @@ let queue: Promise<void> = Promise.resolve()
 const messageOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error)
 
+/** The source a request names, from the request itself or kept from an earlier one. */
+const sourceFor = (request: { sourceKey: string; source?: Rgba8Image }): Rgba8Image => {
+  if (request.source !== undefined) held = { key: request.sourceKey, image: request.source }
+  if (held?.key !== request.sourceKey) throw new Error('the worker lost its source image')
+  return held.image
+}
+
+const analyse = async (
+  request: Extract<DitheretteWorkerRequest, { type: 'analyse-fit' }>,
+): Promise<void> => {
+  const image = sourceFor(request)
+  if (processorFor === null) throw new Error('the worker was not initialised')
+  const curves = analysePaletteFit(await processorFor.cpu(), image, request.analysis)
+  scope.postMessage({ type: 'fit', id: request.id, curves })
+}
+
 const run = async (
   request: Extract<DitheretteWorkerRequest, { type: 'process' }>,
 ): Promise<void> => {
-  if (request.source !== undefined) held = { key: request.sourceKey, image: request.source }
-  if (held?.key !== request.sourceKey) throw new Error('the worker lost its source image')
+  const image = sourceFor(request)
   if (processorFor === null) throw new Error('the worker was not initialised')
-  const { image } = held
   const controller = running.get(request.id) ?? new AbortController()
   try {
     controller.signal.throwIfAborted()
-    const processor = await processorFor(request.recipe.engine)
+    const processor = await processorFor.forEngine(request.recipe.engine)
     controller.signal.throwIfAborted()
     scope.postMessage({
       type: 'started',
@@ -104,17 +132,22 @@ scope.addEventListener('message', (event) => {
       running.get(request.id)?.abort()
       return
     case 'process':
-      // A processor takes one call at a time: each job waits until the one before has stopped.
       running.set(request.id, new AbortController())
-      queue = queue
-        .then(() => run(request))
-        .catch((error: unknown) =>
-          scope.postMessage({
-            type: 'error',
-            id: request.id,
-            message: messageOf(error),
-            aborted: error instanceof DOMException && error.name === 'AbortError',
-          }),
-        )
+      enqueue(request.id, () => run(request))
+      return
+    case 'analyse-fit':
+      enqueue(request.id, () => analyse(request))
   }
 })
+
+/** A processor takes one call at a time: each job waits until the one before has stopped. */
+const enqueue = (id: number, job: () => Promise<void>): void => {
+  queue = queue.then(job).catch((error: unknown) =>
+    scope.postMessage({
+      type: 'error',
+      id,
+      message: messageOf(error),
+      aborted: error instanceof DOMException && error.name === 'AbortError',
+    }),
+  )
+}
