@@ -10,7 +10,7 @@ For bugs, include steps that reproduce the problem. For a larger feature, open a
 
 ## Local development
 
-Clone your fork and install the repository's pinned pnpm version. The package declares Node.js 22.13 or newer; portable builds use the version pinned in the Dockerfile.
+Clone your fork and install the repository's pinned pnpm version. The package declares Node.js 22.19 or newer; portable builds use the version pinned in the Dockerfile.
 
 ~~~sh
 corepack enable

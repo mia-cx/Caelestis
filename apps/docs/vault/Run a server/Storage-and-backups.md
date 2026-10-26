@@ -79,17 +79,19 @@ Copy the backup off the Docker host. Keep the matching private `.env` securely w
 Leave the database container running while the application containers are stopped. With the usual Compose files selected, export PostgreSQL:
 
 ~~~sh
+umask 077
 docker compose exec -T postgres pg_dump -U caelestis -d caelestis -Fc > postgres.dump
 ~~~
 
 Or MariaDB:
 
 ~~~sh
+umask 077
 docker compose exec -T mariadb sh -c \
   'MYSQL_PWD="$MARIADB_PASSWORD" mariadb-dump --user=caelestis --single-transaction caelestis' > mariadb.sql
 ~~~
 
-These files contain private server data. Create them under a restrictive `umask`, and back up the matching object store before restarting the applications.
+These files contain private server data; `umask 077` keeps them readable only by you. Back up the matching object store before restarting the applications.
 
 Use [PostgreSQL's restore procedure](https://www.postgresql.org/docs/current/app-pgrestore.html) or [MariaDB's dump and restore procedure](https://mariadb.com/kb/en/mariadb-dump/) for the database. For CNPG, use your operator's backup and recovery process.
 
