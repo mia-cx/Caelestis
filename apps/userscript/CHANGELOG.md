@@ -1,5 +1,11 @@
 # @caelestis/userscript
 
+## 0.19.0
+
+### Minor Changes
+
+- da5649c: Import templates up to 64 megapixels, up from 16.
+
 ## 0.18.2
 
 ### Patch Changes
