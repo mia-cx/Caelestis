@@ -106,7 +106,6 @@ export const nativeAlliancePlacements = (
         height <= 0 ||
         sourceWidth <= 0 ||
         sourceHeight <= 0 ||
-        sourceWidth * sourceHeight > 16 * 1024 * 1024 ||
         originX < bounds.minX ||
         originY < bounds.minY ||
         originX + width > bounds.maxX ||

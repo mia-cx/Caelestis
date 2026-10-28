@@ -4,6 +4,7 @@ import {
   type TemplateRecipe,
   templateRecipeIdentity,
   templateRecipeJson,
+  WORLD_PIXELS,
 } from '../index.js'
 
 const recipe: TemplateRecipe = {
@@ -55,12 +56,17 @@ describe('template recipes', () => {
       { ...recipe, processorVersion: 0 },
       { ...recipe, source: { ...recipe.source, sha256: 'A'.repeat(64) } },
       { ...recipe, width: 0 },
-      { ...recipe, width: 5000, height: 5000 },
+      { ...recipe, width: WORLD_PIXELS + 1 },
       { ...recipe, colorMetric: 'oklab' },
       { ...recipe, palette: [] },
       { ...recipe, palette: [2, 1] },
       { ...recipe, palette: [63] },
     ])
       expect(parseTemplateRecipe(invalid)).toBeNull()
+  })
+
+  it('accepts any area that fits the canvas', () => {
+    const large = { ...recipe, width: 10_000, height: 10_000 }
+    expect(parseTemplateRecipe(large)).toEqual(large)
   })
 })

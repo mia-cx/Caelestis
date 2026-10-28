@@ -1,9 +1,4 @@
-import {
-  MAX_TEMPLATE_RECIPE_PIXELS,
-  parseTemplateRecipe,
-  type TemplateRecipe,
-  WORLD_PIXELS,
-} from '@caelestis/shared'
+import { parseTemplateRecipe, type TemplateRecipe, WORLD_PIXELS } from '@caelestis/shared'
 
 /**
  * The Caelestis block inside an exported `.wplace` file.
@@ -54,7 +49,6 @@ export const parseCaelestisBlock = (value: unknown): CaelestisBlock => {
     !Number.isSafeInteger(height) ||
     Number(width) <= 0 ||
     Number(height) <= 0 ||
-    Number(width) * Number(height) > MAX_TEMPLATE_RECIPE_PIXELS ||
     originX + Number(width) > WORLD_PIXELS ||
     originY + Number(height) > WORLD_PIXELS ||
     typeof artwork !== 'string' ||
