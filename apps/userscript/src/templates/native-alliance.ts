@@ -1,4 +1,9 @@
-import { sameTemplateSurface, type TemplateSurface, templateSurfaceBounds } from '@caelestis/shared'
+import {
+  MAX_TEMPLATE_PIXELS,
+  sameTemplateSurface,
+  type TemplateSurface,
+  templateSurfaceBounds,
+} from '@caelestis/shared'
 import {
   type ActiveAllianceSurface,
   activeAllianceSurface,
@@ -106,6 +111,7 @@ export const nativeAlliancePlacements = (
         height <= 0 ||
         sourceWidth <= 0 ||
         sourceHeight <= 0 ||
+        sourceWidth * sourceHeight > MAX_TEMPLATE_PIXELS ||
         originX < bounds.minX ||
         originY < bounds.minY ||
         originX + width > bounds.maxX ||

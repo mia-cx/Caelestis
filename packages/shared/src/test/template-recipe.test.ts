@@ -57,6 +57,7 @@ describe('template recipes', () => {
       { ...recipe, source: { ...recipe.source, sha256: 'A'.repeat(64) } },
       { ...recipe, width: 0 },
       { ...recipe, width: WORLD_PIXELS + 1 },
+      { ...recipe, width: 8193, height: 8192 },
       { ...recipe, colorMetric: 'oklab' },
       { ...recipe, palette: [] },
       { ...recipe, palette: [2, 1] },
@@ -65,8 +66,8 @@ describe('template recipes', () => {
       expect(parseTemplateRecipe(invalid)).toBeNull()
   })
 
-  it('accepts any area that fits the canvas', () => {
-    const large = { ...recipe, width: 10_000, height: 10_000 }
+  it('accepts templates up to 64 Mi pixels', () => {
+    const large = { ...recipe, width: 8192, height: 8192 }
     expect(parseTemplateRecipe(large)).toEqual(large)
   })
 })

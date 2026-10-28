@@ -16,6 +16,13 @@ export const TEMPLATE_RECIPE_FORMAT = 1
 export const MAX_TEMPLATE_SOURCE_BYTES = 32 * 1024 * 1024
 
 /**
+ * Largest template area. The userscript holds a template's pixels whole in memory, so this is also
+ * its resident budget: anything larger could never be loaded. Every import path checks it before
+ * allocating, so a small file cannot declare a huge image.
+ */
+export const MAX_TEMPLATE_PIXELS = 64 * 1024 * 1024
+
+/**
  * `caelestis-nearest` is the plain-PNG importer: exact RGB nearest colour, no dithering.
  * `wplace-native` is Wplace's own worker, after Caelestis's floor nearest-neighbour resize.
  * Bump a version whenever the same recipe would produce different indices.
@@ -70,7 +77,8 @@ const isSize = (width: unknown, height: unknown): boolean =>
   Number(width) > 0 &&
   Number(height) > 0 &&
   Number(width) <= WORLD_PIXELS &&
-  Number(height) <= WORLD_PIXELS
+  Number(height) <= WORLD_PIXELS &&
+  Number(width) * Number(height) <= MAX_TEMPLATE_PIXELS
 
 const isPalette = (value: unknown): value is readonly number[] =>
   Array.isArray(value) &&

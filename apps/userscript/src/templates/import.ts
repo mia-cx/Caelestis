@@ -3,6 +3,7 @@ import {
   decodeWplaceIndexedPng,
   latLngToCanvasPixel,
   MAX_MERCATOR_LATITUDE,
+  MAX_TEMPLATE_PIXELS,
   MAX_TEMPLATE_SOURCE_BYTES,
   PALETTE_RGB,
   pngSize,
@@ -72,13 +73,16 @@ export const MAX_TEMPLATE_ID_LENGTH = 128
 export const MAX_TEMPLATE_NAME_LENGTH = 256
 
 // Large enough for the observed 11 MB / 1612x2584 `.wplace` fixture, while keeping a malformed or
-// hostile local file from turning one click into an unbounded browser allocation. Image area has
-// no cap of its own: rendering and residency work by tile, so only the browser's decoder limits it.
+// hostile local file from turning one click into an unbounded browser allocation.
 const MAX_FILE_BYTES = 64 * 1024 * 1024
+const MAX_IMPORT_PIXELS = MAX_TEMPLATE_PIXELS
 const MAX_MARBLE_TILES = 64
 const MAX_MARBLE_TEMPLATES = 64
-// Blue Marble stores each logical pixel in a 3x3 encoded cell.
 const MARBLE_DRAW_MULT = 3
+// Blue Marble stores each logical pixel in a 3x3 encoded cell. Charge the real decoder work across
+// the entire file, including templates that are later rejected, while still admitting one maximum-
+// size valid logical import.
+const MAX_MARBLE_DECODE_PIXELS = MAX_IMPORT_PIXELS * MARBLE_DRAW_MULT * MARBLE_DRAW_MULT
 const QUANTISE_WORK_PER_YIELD = 1_000_000
 const DENSE_CACHE_THRESHOLD = 65_536
 const RGB_SPACE = 1 << 24
@@ -120,8 +124,14 @@ const pngDimensions = async (blob: Blob): Promise<{ width: number; height: numbe
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   const width = view.getUint32(16)
   const height = view.getUint32(20)
-  if (width <= 0 || height <= 0 || width > WORLD_PIXELS || height > WORLD_PIXELS) {
-    throw new Error('image is larger than the canvas')
+  if (
+    width <= 0 ||
+    height <= 0 ||
+    width > WORLD_PIXELS ||
+    height > WORLD_PIXELS ||
+    width * height > MAX_IMPORT_PIXELS
+  ) {
+    throw new Error('decoded image is too large to import safely')
   }
   return { width, height }
 }
@@ -148,10 +158,11 @@ const decodeToRgba = async (
       !Number.isSafeInteger(height) ||
       width <= 0 ||
       height <= 0 ||
+      width * height > MAX_IMPORT_PIXELS ||
       width !== expected.width ||
       height !== expected.height
     ) {
-      throw new Error('decoded image does not match its header')
+      throw new Error('decoded image is too large to import safely')
     }
     const canvas = new OffscreenCanvas(width, height)
     const context = canvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' })
@@ -597,6 +608,8 @@ const importMarble = async (file: MarbleFile): Promise<ImportedTemplate[]> => {
   if (entries === null) {
     throw new Error('Marble file contains too many templates')
   }
+  let retainedPixels = 0
+  let decodedWorkPixels = 0
   for (const [key, entryValue] of entries) {
     if (!isRecord(entryValue)) {
       warn('install', `skipping Marble template "${key}": unreadable record`)
@@ -639,6 +652,7 @@ const importMarble = async (file: MarbleFile): Promise<ImportedTemplate[]> => {
       continue
     }
     let malformed = false
+    let decodedPixels = 0
     const seenCoordinates = new Set<string>()
     for (const [tileKey, base64Value] of pieces) {
       const coords = parseMarbleCoords(tileKey, /[,\s]+/)
@@ -670,6 +684,10 @@ const importMarble = async (file: MarbleFile): Promise<ImportedTemplate[]> => {
       try {
         const blob = await blobFromDataUrl(source)
         const dimensions = await pngDimensions(blob)
+        decodedWorkPixels += dimensions.width * dimensions.height
+        if (decodedWorkPixels > MAX_MARBLE_DECODE_PIXELS) {
+          throw new Error('Marble file exceeds the cumulative image decode budget')
+        }
         if (
           dimensions.width % MARBLE_DRAW_MULT !== 0 ||
           dimensions.height % MARBLE_DRAW_MULT !== 0
@@ -678,6 +696,10 @@ const importMarble = async (file: MarbleFile): Promise<ImportedTemplate[]> => {
         }
         const width = dimensions.width / MARBLE_DRAW_MULT
         const height = dimensions.height / MARBLE_DRAW_MULT
+        decodedPixels += width * height
+        if (decodedPixels > MAX_IMPORT_PIXELS) {
+          throw new Error('decoded tiles are too large')
+        }
         prepared.push({
           x: (coords[0] ?? 0) * TILE_SIZE + (coords[2] ?? 0),
           y: (coords[1] ?? 0) * TILE_SIZE + (coords[3] ?? 0),
@@ -706,11 +728,15 @@ const importMarble = async (file: MarbleFile): Promise<ImportedTemplate[]> => {
     }
     const width = maxX - originX
     const height = maxY - originY
-    if (malformed || width <= 0 || height <= 0 || maxX > WORLD_PIXELS || maxY > WORLD_PIXELS) {
-      warn(
-        'install',
-        `skipping Marble template "${key}": assembled image is invalid or off the canvas`,
-      )
+    if (
+      malformed ||
+      width <= 0 ||
+      height <= 0 ||
+      retainedPixels + width * height > MAX_IMPORT_PIXELS ||
+      maxX > WORLD_PIXELS ||
+      maxY > WORLD_PIXELS
+    ) {
+      warn('install', `skipping Marble template "${key}": assembled image is too large or invalid`)
       continue
     }
 
@@ -790,6 +816,7 @@ const importMarble = async (file: MarbleFile): Promise<ImportedTemplate[]> => {
       moved,
       opaque,
     })
+    retainedPixels += width * height
   }
   return out
 }

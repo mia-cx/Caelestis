@@ -3,6 +3,7 @@ import {
   encodeIndexedPng,
   latLngToCanvasPixel,
   MAX_MERCATOR_LATITUDE,
+  MAX_TEMPLATE_PIXELS,
   PALETTE_RGB,
   quantiseToPalette,
   WORLD_PIXELS,
@@ -87,6 +88,7 @@ export class NativeConflict extends Error {
   }
 }
 
+const MAX_NATIVE_PIXELS = MAX_TEMPLATE_PIXELS
 const MAX_NATIVE_IMAGE_BYTES = 64 * 1024 * 1024
 const PROJECTION_EPSILON = 1e-9
 
@@ -109,7 +111,8 @@ export const nativePlacement = (template: Pick<NativeTemplate, 'bounds'>) => {
   const originY = Math.round(top.y)
   const width = (east === 180 ? WORLD_PIXELS : Math.round(bottom.x)) - originX
   const height = Math.round(bottom.y) - originY
-  if (width <= 0 || height <= 0) throw new Error('Unsupported Wplace template bounds')
+  if (width <= 0 || height <= 0 || width * height > MAX_NATIVE_PIXELS)
+    throw new Error('Wplace template is too large to mirror')
   return { originX, originY, width, height }
 }
 
@@ -261,7 +264,8 @@ export class NativeTemplates {
       !Number.isSafeInteger(template.originalWidth) ||
       !Number.isSafeInteger(template.originalHeight) ||
       template.originalWidth <= 0 ||
-      template.originalHeight <= 0
+      template.originalHeight <= 0 ||
+      template.originalWidth * template.originalHeight > MAX_NATIVE_PIXELS
     )
       throw new Error('Unsupported Wplace source dimensions')
     const image = await this.images.read(id)
