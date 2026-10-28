@@ -141,7 +141,8 @@ describe('exported template files', () => {
     expect(decodeWplaceIndexedPng).not.toHaveBeenCalled()
     await expect(
       reimport({ ...json, caelestis: { ...block, width: 5_000, height: 5_000 } }),
-    ).rejects.toThrow('unreadable')
+    ).rejects.toThrow('damaged')
+    expect(decodeWplaceIndexedPng).not.toHaveBeenCalled()
   })
 })
 

@@ -1,5 +1,6 @@
 import {
   encodeIndexedPng,
+  MAX_TEMPLATE_PIXELS,
   sameTemplateSurface,
   type TemplateSurface,
   TILE_SIZE,
@@ -172,7 +173,7 @@ const pendingAdds = new Set<string>()
 const listeners: Array<() => void> = []
 const previewListeners: Array<() => void> = []
 /** Pixels held in memory across every resident template, by painted chunk area. Disk holds the rest. */
-const MAX_RESIDENT_PIXELS = 64 * 1024 * 1024
+const MAX_RESIDENT_PIXELS = MAX_TEMPLATE_PIXELS
 const MAX_RESTORE_PASSES = 4
 let retainedIndexPixels = 0
 let pendingIndexPixels = 0

@@ -15,8 +15,12 @@ export const TEMPLATE_RECIPE_FORMAT = 1
 /** Retained source PNGs. Larger imports still work, without keeping their source. */
 export const MAX_TEMPLATE_SOURCE_BYTES = 32 * 1024 * 1024
 
-/** Matches the importer's decode budget. */
-export const MAX_TEMPLATE_RECIPE_PIXELS = 16 * 1024 * 1024
+/**
+ * Largest template area. The userscript holds a template's pixels whole in memory, so this is also
+ * its resident budget: anything larger could never be loaded. Every import path checks it before
+ * allocating, so a small file cannot declare a huge image.
+ */
+export const MAX_TEMPLATE_PIXELS = 64 * 1024 * 1024
 
 /**
  * `caelestis-nearest` is the plain-PNG importer: exact RGB nearest colour, no dithering.
@@ -74,7 +78,7 @@ const isSize = (width: unknown, height: unknown): boolean =>
   Number(height) > 0 &&
   Number(width) <= WORLD_PIXELS &&
   Number(height) <= WORLD_PIXELS &&
-  Number(width) * Number(height) <= MAX_TEMPLATE_RECIPE_PIXELS
+  Number(width) * Number(height) <= MAX_TEMPLATE_PIXELS
 
 const isPalette = (value: unknown): value is readonly number[] =>
   Array.isArray(value) &&

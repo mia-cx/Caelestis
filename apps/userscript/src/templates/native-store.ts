@@ -3,6 +3,7 @@ import {
   encodeIndexedPng,
   latLngToCanvasPixel,
   MAX_MERCATOR_LATITUDE,
+  MAX_TEMPLATE_PIXELS,
   PALETTE_RGB,
   quantiseToPalette,
   WORLD_PIXELS,
@@ -87,7 +88,7 @@ export class NativeConflict extends Error {
   }
 }
 
-const MAX_NATIVE_PIXELS = 16 * 1024 * 1024
+const MAX_NATIVE_PIXELS = MAX_TEMPLATE_PIXELS
 const MAX_NATIVE_IMAGE_BYTES = 64 * 1024 * 1024
 const PROJECTION_EPSILON = 1e-9
 

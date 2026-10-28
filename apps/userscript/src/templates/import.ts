@@ -3,6 +3,7 @@ import {
   decodeWplaceIndexedPng,
   latLngToCanvasPixel,
   MAX_MERCATOR_LATITUDE,
+  MAX_TEMPLATE_PIXELS,
   MAX_TEMPLATE_SOURCE_BYTES,
   PALETTE_RGB,
   pngSize,
@@ -74,7 +75,7 @@ export const MAX_TEMPLATE_NAME_LENGTH = 256
 // Large enough for the observed 11 MB / 1612x2584 `.wplace` fixture, while keeping a malformed or
 // hostile local file from turning one click into an unbounded browser allocation.
 const MAX_FILE_BYTES = 64 * 1024 * 1024
-const MAX_IMPORT_PIXELS = 16 * 1024 * 1024
+const MAX_IMPORT_PIXELS = MAX_TEMPLATE_PIXELS
 const MAX_MARBLE_TILES = 64
 const MAX_MARBLE_TEMPLATES = 64
 const MARBLE_DRAW_MULT = 3
