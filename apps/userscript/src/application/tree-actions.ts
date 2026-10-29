@@ -5,7 +5,6 @@ import {
   type TemplateSurface,
   TILE_SIZE,
   TRANSPARENT_INDEX,
-  templateSurfaceBounds,
   uuidV7,
   WORLD_PIXELS,
   WORLD_TEMPLATE_SURFACE,
@@ -18,7 +17,7 @@ import type {
   TreeOperationModel,
 } from '@caelestis/ui/elements'
 import { refreshAllianceManifest } from '../alliance-server-sync.js'
-import { activeAllianceSurface } from '../alliance-surface.js'
+import { activeAllianceSurface, allianceSurfaceCentre } from '../alliance-surface.js'
 import { startCaptureMode } from '../claim-editor.js'
 import { warn } from '../debug.js'
 import { createLocalFolder, localFolderChainVisible, removeLocalFolder } from '../local-folders.js'
@@ -1512,17 +1511,8 @@ export const openContextMenu = (
   rerender()
 }
 
-const importCentre = (surface: TemplateSurface): { x: number; y: number } => {
-  if (surface.kind === 'world') return viewportCentre() ?? { x: 0, y: 0 }
-  const active = activeAllianceSurface()
-  const bounds =
-    active !== null && sameTemplateSurface(active.surface, surface)
-      ? (active.bounds ?? templateSurfaceBounds(surface))
-      : templateSurfaceBounds(surface)
-  return bounds === null
-    ? { x: 0, y: 0 }
-    : { x: (bounds.minX + bounds.maxX) / 2, y: (bounds.minY + bounds.maxY) / 2 }
-}
+const importCentre = (surface: TemplateSurface): { x: number; y: number } =>
+  surface.kind === 'world' ? (viewportCentre() ?? { x: 0, y: 0 }) : allianceSurfaceCentre(surface)
 
 const refreshEditedSurface = async (
   server: ConnectedServer,

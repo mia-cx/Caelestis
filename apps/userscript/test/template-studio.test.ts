@@ -28,6 +28,7 @@ import {
 } from '../src/application/template-studio.js'
 import type { ImportedTemplate } from '../src/templates/import.js'
 import { processRecipe } from '../src/templates/import.js'
+import { templateDraft } from '../src/templates/local-store.js'
 import { confirmDestructive } from '../src/ui/confirm.js'
 import { celesteRoom, firstDifference, warmUp } from './celeste.js'
 
@@ -167,6 +168,22 @@ describe('template studio', () => {
 
     await ready()
     await vi.waitFor(() => expect(scopes().pending).toBe(false))
+  })
+
+  it('fits and centres a new image on the alliance canvas it is for', async () => {
+    const surface = { kind: 'alliance-picture', allianceId: 7 } as const
+    await openOnRoom({ kind: 'create', destination: 'Local', surface, save: async () => true })
+    const { output, origin } = templateStudioModel()
+    // The room is far larger than a 64 × 64 alliance picture.
+    expect(Math.max(output.width, output.height)).toBe(64)
+    expect(templateDraft()).toMatchObject({
+      originX: origin.x,
+      originY: origin.y,
+      width: output.width,
+      height: output.height,
+    })
+    expect(origin.x).toBe(Math.round(32 - output.width / 2))
+    expect(origin.y).toBe(Math.round(32 - output.height / 2))
   })
 
   it('waits for an image still loading before it saves', async () => {

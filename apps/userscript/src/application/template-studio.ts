@@ -2,11 +2,13 @@ import {
   type DitheretteTemplateRecipe,
   MAX_TEMPLATE_SOURCE_BYTES,
   PALETTE_SIZE,
+  type PixelBounds,
   sha256Hex,
   TEMPLATE_PROCESSORS,
   TEMPLATE_RECIPE_FORMAT,
   type TemplateSurface,
   TRANSPARENT_INDEX,
+  templateSurfaceBounds,
   uuidV7,
   WORLD_PIXELS,
   WPLACE_PALETTE,
@@ -23,6 +25,7 @@ import {
 } from '@caelestis/ui/elements'
 import { cancelSurfaceClose, closeSurface, openSurface } from '@caelestis/ui/motion'
 import type { Curve, Effect, PaletteFitEffect } from 'ditherette'
+import { allianceSurfaceCentre } from '../alliance-surface.js'
 import { warn } from '../debug.js'
 import { viewportCentre } from '../main.js'
 import { getState, setState } from '../state.js'
@@ -368,7 +371,9 @@ const process = async (): Promise<void> => {
     showDraft(processed)
     void refreshScopes()
   } catch (error) {
-    if (job !== controller || controller.signal.aborted) return
+    // A newer run replaced this one. A draft that would not draw after this run finished still
+    // reports, rather than leaving the author with a result that never appears.
+    if (controller.signal.aborted || (job !== null && job !== controller)) return
     job = null
     processing = { state: 'failed', message: `Could not process this image: ${reason(error)}.` }
   }
@@ -501,14 +506,14 @@ const loadSource = async (blob: Blob, sourceName: string, ticket = beginLoad()):
       crop = cropToAspect(decoded.width, decoded.height, target.width / target.height)
       setOutput({ width: target.width, height: target.height })
     } else {
-      // A new image starts at identity scale, centred in view.
+      // A new image starts at identity scale, or as large as an alliance canvas takes, centred in view.
       crop = { x: 0, y: 0, width: decoded.width, height: decoded.height }
-      setOutput({ width: decoded.width, height: decoded.height })
-      const centre = viewportCentre()
+      setScale(1)
+      const centre = surfaceCentre()
       if (centre !== null)
         origin = {
-          x: Math.round(centre.x - decoded.width / 2),
-          y: Math.round(centre.y - decoded.height / 2),
+          x: Math.round(centre.x - settings.output.width / 2),
+          y: Math.round(centre.y - settings.output.height / 2),
         }
       if (name === '')
         name = sourceName.replace(/\.[^.]+$/, '').slice(0, MAX_TEMPLATE_NAME_LENGTH) || 'Image'
@@ -597,12 +602,24 @@ const onPaste = (event: ClipboardEvent): void => {
 
 /* Placement and size. */
 
-/** World placements stay on the canvas; other surfaces are bounded by the placement engine. */
+const WORLD_BOUNDS = { minX: 0, minY: 0, maxX: WORLD_PIXELS, maxY: WORLD_PIXELS }
+
+/** Where the target surface takes templates: the world canvas, or an alliance canvas. */
+const surfaceBounds = (): PixelBounds =>
+  (target === null ? null : templateSurfaceBounds(target.surface)) ?? WORLD_BOUNDS
+
+/** The middle of what the author sees of the target surface: the map view, or the alliance canvas. */
+const surfaceCentre = (): { x: number; y: number } | null => {
+  if (target === null) return null
+  return target.surface.kind === 'world' ? viewportCentre() : allianceSurfaceCentre(target.surface)
+}
+
+/** Placements stay on their surface. */
 const clampOrigin = (): void => {
-  if (target === null || target.surface.kind !== 'world') return
+  const bounds = surfaceBounds()
   origin = {
-    x: Math.min(Math.max(0, origin.x), WORLD_PIXELS - settings.output.width),
-    y: Math.min(Math.max(0, origin.y), WORLD_PIXELS - settings.output.height),
+    x: Math.min(Math.max(bounds.minX, origin.x), bounds.maxX - settings.output.width),
+    y: Math.min(Math.max(bounds.minY, origin.y), bounds.maxY - settings.output.height),
   }
 }
 
@@ -618,9 +635,14 @@ const setOrigin = (x: number, y: number): void => {
   if (processed?.recipe.width === width && processed.recipe.height === height) showDraft(processed)
 }
 
-/** Scale the crop, keeping its proportions and fitting the canvas. */
+/** Scale the crop, keeping its proportions and fitting the target surface. */
 const setScale = (scale: number): void => {
-  const fit = Math.min(scale, WORLD_PIXELS / Math.max(crop.width, crop.height))
+  const bounds = surfaceBounds()
+  const fit = Math.min(
+    scale,
+    (bounds.maxX - bounds.minX) / crop.width,
+    (bounds.maxY - bounds.minY) / crop.height,
+  )
   setOutput({
     width: Math.max(1, Math.round(crop.width * fit)),
     height: Math.max(1, Math.round(crop.height * fit)),
@@ -967,7 +989,7 @@ export const handleTemplateStudioIntent = (intent: TemplateStudioIntent): void =
       setOrigin(intent.x, intent.y)
       break
     case 'centre': {
-      const centre = viewportCentre()
+      const centre = surfaceCentre()
       if (centre !== null)
         setOrigin(centre.x - settings.output.width / 2, centre.y - settings.output.height / 2)
       break
