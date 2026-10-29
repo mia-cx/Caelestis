@@ -155,9 +155,18 @@ const isJson = (value: unknown, depth = 0): value is Json => {
   if (Array.isArray(value)) return value.every((item) => isJson(item, depth + 1))
   return (
     isRecord(value) &&
-    Object.getPrototypeOf(value) === Object.prototype &&
+    isPlainObject(value) &&
     Object.values(value).every((item) => isJson(item, depth + 1))
   )
+}
+
+/**
+ * An object literal's shape from any realm: storage can hand a sandboxed userscript the page's
+ * objects, whose prototype is the page's `Object.prototype`, not this one.
+ */
+const isPlainObject = (value: object): boolean => {
+  const prototype: unknown = Object.getPrototypeOf(value)
+  return prototype === null || Object.getPrototypeOf(prototype) === null
 }
 
 /** Sorted keys at every level, so equal settings serialise to equal bytes. */
