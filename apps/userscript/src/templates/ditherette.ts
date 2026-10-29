@@ -22,10 +22,10 @@ export type { DitheretteArtwork } from './ditherette-process.js'
 /**
  * Running Ditherette recipes off the page's thread, on the recipe's engine.
  *
- * One job runs at a time, and the studio only ever wants the latest settings. A newer job, or an
- * abort, cancels a GPU run in place, so the worker keeps its device. A CPU run is a synchronous
- * call that cannot stop halfway, so it terminates the worker; a fresh one starts from the
- * already-compiled modules.
+ * Jobs run one at a time, in the order they arrive, so an import or a restore never cancels the
+ * studio's job or another's. Only a job's own signal stops it. An abort cancels a GPU run in
+ * place, so the worker keeps its device. A CPU run is a synchronous call that cannot stop halfway,
+ * so it terminates the worker; a fresh one starts from the already-compiled modules.
  *
  * Without workers the same code runs in the page, which blocks during CPU runs but still produces
  * the same artwork.
@@ -78,7 +78,7 @@ const compileModules = (): Promise<Modules> => {
   return compiled
 }
 
-const aborted = (): DOMException => new DOMException('Processing was replaced.', 'AbortError')
+const aborted = (): DOMException => new DOMException('Processing was cancelled.', 'AbortError')
 
 /** Analyses and samples waiting on the worker, by request id. Each reads its own reply. */
 const pendingAnswers = new Map<
@@ -225,17 +225,25 @@ const runInPage = async (current: Running): Promise<void> => {
 const canUseWorkers = (): boolean =>
   !workersFailed && workerSource !== '' && typeof Worker === 'function'
 
+/** Settles once every job queued so far has. */
+let queue: Promise<unknown> = Promise.resolve()
+
 /**
  * Run one recipe on its engine, or on the CPU where a GPU recipe meets no GPU; the artwork names
- * the engine that ran. A newer job, or `signal`, rejects this one with an AbortError.
+ * the engine that ran. It starts once earlier jobs finish. `signal` rejects it with an AbortError.
  */
-export const runDitherette = (job: DitheretteJob): Promise<DitheretteArtwork> =>
+export const runDitherette = (job: DitheretteJob): Promise<DitheretteArtwork> => {
+  const turn = queue.then(() => start(job))
+  queue = turn.catch(() => {})
+  return turn
+}
+
+const start = (job: DitheretteJob): Promise<DitheretteArtwork> =>
   new Promise<DitheretteArtwork>((resolve, reject) => {
     if (job.signal?.aborted) {
       reject(aborted())
       return
     }
-    stopRunning()
     const current: Running = { id: ++jobs, job, resolve, reject, engine: null }
     running = current
     job.signal?.addEventListener(
