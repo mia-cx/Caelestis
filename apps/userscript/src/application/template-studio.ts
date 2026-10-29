@@ -1127,12 +1127,14 @@ export const openTemplateStudio = (
   )
     warn('install', 'the template studio could not take placement')
   void loadAccount().then(() => {
+    if (target !== next) return
     // Owned colours arrive after the studio opens; follow them until the author picks colours.
-    if (target !== next || paletteChosen) return
     const owned = presetColours('owned')
-    if (sameColours(owned, palette)) return
-    setPalette(owned)
-    reprocess()
+    if (!paletteChosen && !sameColours(owned, palette)) {
+      setPalette(owned)
+      reprocess()
+    }
+    // Owned becomes available either way.
     render()
   })
   void ditheretteAvailable().then((available) => {

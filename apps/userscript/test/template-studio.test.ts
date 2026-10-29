@@ -1,8 +1,20 @@
 import { WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
+import { TEMPLATE_STUDIO_TAG, type TemplateStudioModel } from '@caelestis/ui/elements'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
 // The confirmation dialog is the author's answer; each test gives it.
 vi.mock('../src/ui/confirm.js', () => ({ confirmDestructive: vi.fn(async () => true) }))
+
+// Wplace's account, which a test can hold back to load after the studio opens.
+const account = vi.hoisted(() => ({
+  owned: null as ReadonlySet<number> | null,
+  load: Promise.resolve(),
+}))
+vi.mock('../src/wplace-account.js', async (original) => ({
+  ...(await original<typeof import('../src/wplace-account.js')>()),
+  ownedColours: () => account.owned,
+  loadAccount: () => account.load,
+}))
 
 import {
   closeTemplateStudio,
@@ -38,7 +50,11 @@ const ready = () =>
 const saved = (save: ReturnType<typeof vi.fn>): ImportedTemplate =>
   save.mock.calls.at(-1)?.[0] as ImportedTemplate
 
-afterEach(() => closeTemplateStudio())
+afterEach(() => {
+  closeTemplateStudio()
+  account.owned = null
+  account.load = Promise.resolve()
+})
 
 describe('template studio', () => {
   beforeAll(warmUp)
@@ -69,6 +85,27 @@ describe('template studio', () => {
     if (authoring === undefined) throw new Error('the template has no authoring')
     const rebuilt = await processRecipe(authoring.source, authoring.recipe, template)
     expect(firstDifference(rebuilt.indices, room.indices)).toBe(-1)
+  })
+
+  it('offers Owned once the account loads, even when it owns no premium colours', async () => {
+    let loaded = (): void => {}
+    account.load = new Promise((resolve) => {
+      loaded = resolve
+    })
+    openTemplateStudio({
+      kind: 'create',
+      destination: 'Local',
+      surface: WORLD_TEMPLATE_SURFACE,
+      save: async () => true,
+    })
+    const shown = () =>
+      (document.querySelector(TEMPLATE_STUDIO_TAG) as HTMLElement & { model: TemplateStudioModel })
+        .model.palette.ownedKnown
+    expect(shown()).toBe(false)
+
+    account.owned = new Set()
+    loaded()
+    await vi.waitFor(() => expect(shown()).toBe(true))
   })
 
   it('undoes and redoes edits, reprocessing the artwork each way', async () => {
