@@ -885,16 +885,17 @@ const travel = (direction: 'undo' | 'redo'): void => {
 
 /** Apply one intent from the element. */
 export const handleTemplateStudioIntent = (intent: TemplateStudioIntent): void => {
-  if (target === null) return
-  if (intent.type === 'layout') {
-    setState({ studioLayout: intent.layout })
-    render()
-    return
-  }
+  // Heard even while closed: a studio reopened mid-close keeps its element, and its windows.
   if (intent.type === 'scopes-shown') {
     if (intent.shown === scopesShown) return
     scopesShown = intent.shown
     void refreshScopes()
+    render()
+    return
+  }
+  if (target === null) return
+  if (intent.type === 'layout') {
+    setState({ studioLayout: intent.layout })
     render()
     return
   }
@@ -1092,8 +1093,6 @@ export const closeTemplateStudio = (): void => {
   if (target === null) return
   target = null
   reset()
-  // The closing element's windows report nothing more; the next studio reports its own.
-  scopesShown = false
   endDraftPlacement()
   setTemplateDraft(null)
   window.removeEventListener('paste', onPaste, true)

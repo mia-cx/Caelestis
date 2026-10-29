@@ -168,6 +168,8 @@ describe('template studio', () => {
 
     await ready()
     await vi.waitFor(() => expect(scopes().pending).toBe(false))
+    handleTemplateStudioIntent({ type: 'scope-stages', stages: ['source', 'output'] })
+    handleTemplateStudioIntent({ type: 'scopes-shown', shown: false })
   })
 
   it('fits and centres a new image on the alliance canvas it is for', async () => {
@@ -202,6 +204,22 @@ describe('template studio', () => {
     handleTemplateStudioIntent({ type: 'save' })
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(save).not.toHaveBeenCalled()
+  })
+
+  it('keeps sampling the scopes of a studio reopened while it closes', async () => {
+    const target = {
+      kind: 'create',
+      destination: 'Local',
+      surface: WORLD_TEMPLATE_SURFACE,
+      save: async () => true,
+    } as const
+    openTemplateStudio(target)
+    handleTemplateStudioIntent({ type: 'scopes-shown', shown: true })
+    // Reopened mid-close, the studio keeps its element, whose Scopes window never left the screen.
+    closeTemplateStudio()
+    await openOnRoom(target)
+    await vi.waitFor(() => expect(templateStudioModel().scopes.samples.output).toBeDefined())
+    handleTemplateStudioIntent({ type: 'scopes-shown', shown: false })
   })
 
   it('undoes an enlargement against the canvas edge without drawing the larger artwork', async () => {
