@@ -134,6 +134,8 @@ let analysingFit: string | null = null
 let scopeStages: readonly ScopeStage[] = ['source', 'output']
 let scopeSamples: Partial<Record<ScopeStage, Samples>> = {}
 let scopesPending = false
+/** Whether the Scopes window is on screen, as the element reports it. */
+let scopesShown = false
 let scopeTicket = 0
 let origin = { x: 0, y: 0 }
 let palette: readonly number[] = []
@@ -373,16 +375,14 @@ const process = async (): Promise<void> => {
   render()
 }
 
-/* Scopes: samples of the stages the Scopes window shows, taken while it is open. */
-
-const scopesOpen = (): boolean => getState().studioLayout.scopes?.open === true
+/* Scopes: samples of the stages the Scopes window shows, taken while it is on screen. */
 
 /** Sample each shown stage of the current result; a newer refresh drops an older one's samples. */
 const refreshScopes = async (): Promise<void> => {
   const ticket = ++scopeTicket
   const loaded = source
   const result = processed
-  if (!scopesOpen() || loaded === null || result === null) {
+  if (!scopesShown || loaded === null || result === null) {
     scopeSamples = {}
     scopesPending = false
     return
@@ -865,9 +865,14 @@ const travel = (direction: 'undo' | 'redo'): void => {
 export const handleTemplateStudioIntent = (intent: TemplateStudioIntent): void => {
   if (target === null) return
   if (intent.type === 'layout') {
-    const opening = !scopesOpen() && intent.layout.scopes?.open === true
     setState({ studioLayout: intent.layout })
-    if (opening) void refreshScopes()
+    render()
+    return
+  }
+  if (intent.type === 'scopes-shown') {
+    if (intent.shown === scopesShown) return
+    scopesShown = intent.shown
+    void refreshScopes()
     render()
     return
   }
@@ -1063,6 +1068,8 @@ export const closeTemplateStudio = (): void => {
   if (target === null) return
   target = null
   reset()
+  // The closing element's windows report nothing more; the next studio reports its own.
+  scopesShown = false
   endDraftPlacement()
   setTemplateDraft(null)
   window.removeEventListener('paste', onPaste, true)

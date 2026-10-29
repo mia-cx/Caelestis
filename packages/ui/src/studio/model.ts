@@ -175,6 +175,8 @@ export type TemplateStudioIntent =
   /** Resolve a palette-fit layer's curves into its step, so they can be edited. */
   | { readonly type: 'analyse-fit'; readonly layer: string }
   | { readonly type: 'scope-stages'; readonly stages: readonly ScopeStage[] }
+  /** The Scopes window came on or off screen, as a window or a phone sheet; it samples while on. */
+  | { readonly type: 'scopes-shown'; readonly shown: boolean }
   | { readonly type: 'origin'; readonly x: number; readonly y: number }
   | { readonly type: 'centre' }
   | { readonly type: 'layout'; readonly layout: StudioLayout }

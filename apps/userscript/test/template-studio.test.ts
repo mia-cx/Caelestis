@@ -26,7 +26,6 @@ import {
   openTemplateStudio,
   templateStudioModel,
 } from '../src/application/template-studio.js'
-import { setState } from '../src/state.js'
 import type { ImportedTemplate } from '../src/templates/import.js'
 import { processRecipe } from '../src/templates/import.js'
 import { confirmDestructive } from '../src/ui/confirm.js'
@@ -57,7 +56,6 @@ const saved = (save: ReturnType<typeof vi.fn>): ImportedTemplate =>
 
 afterEach(() => {
   closeTemplateStudio()
-  setState({ studioLayout: {} })
   account.owned = null
   account.load = Promise.resolve()
 })
@@ -157,10 +155,7 @@ describe('template studio', () => {
       save: async () => true,
     })
     const scopes = () => templateStudioModel().scopes
-    handleTemplateStudioIntent({
-      type: 'layout',
-      layout: { scopes: { open: true, collapsed: false, dock: 'end', order: 0 } },
-    })
+    handleTemplateStudioIntent({ type: 'scopes-shown', shown: true })
     await vi.waitFor(() => expect(scopes()).toMatchObject({ pending: false }))
 
     handleTemplateStudioIntent({ type: 'color-space', colorSpace: 'srgb' })
