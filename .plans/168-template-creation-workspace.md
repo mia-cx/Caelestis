@@ -17,8 +17,9 @@ published `ditherette` package, on the GPU when the browser has one, off the UI 
 - Selection dropdowns are plain lists of names. No preview canvases inside menus.
 - Ditherette is the published npm package. The userscript build inlines its WASM and its GPU glue,
   which the package otherwise finds through `import.meta.url`.
-- On phones (40rem and narrower) the windows share one sheet along the bottom, one window at a time;
-  tapping the open tab folds the sheet to uncover the map.
+- Where both window columns do not fit side by side (43rem and narrower), the windows share one
+  sheet along the bottom, one window at a time; tapping the open tab folds the sheet to uncover the
+  map.
 - Undo and redo cover every edit to the result, a burst of one kind (a slider drag) as one step.
   They use Caelestis's undo and redo shortcuts while the studio is open. A new image starts a fresh
   history.
@@ -52,8 +53,7 @@ published `ditherette` package, on the GPU when the browser has one, off the UI 
 - [x] A new image starts at identity scale and can be cropped, transformed, and placed against the live canvas.
 - [x] Crop, palette, quantisation, dither, placement, and preview remain editable in one view.
 - [x] The default palette contains the current account's unlocked colours, with All, Free, Premium, and Owned presets.
-- [ ] Ditherette is consumed only through its published typed npm/WASM entrypoint. Waiting on the
-  1.0.0 publish; the branches build against a local 1.0.0 tarball and leave `pnpm-lock.yaml` out.
+- [x] Ditherette is consumed only through its published typed npm/WASM entrypoint.
 - [x] Processing does not freeze ordinary map and editor interaction.
 - [x] The author can save as a new local or server template, subject to the destination's existing permissions.
 - [x] Replace template is a separate explicit action that creates a new server version and preserves authorship and version history.
