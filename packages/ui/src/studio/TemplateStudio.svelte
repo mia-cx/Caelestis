@@ -230,7 +230,7 @@
     {#each floating as id (id)}
       {@const placement = placementOf(layout, id)}
       {#if placement.dock === null}
-        <div class="float" style:inset-inline-start={placement.edge === 'start' ? `${placement.x}px` : 'auto'} style:inset-inline-end={placement.edge === 'end' ? `${placement.x}px` : 'auto'} style:inset-block-start="{placement.y}px">
+        <div class="float" style:--float-x="{placement.x}px" style:--float-y="{placement.y}px" style:inset-inline-start={placement.edge === 'start' ? 'var(--float-inset)' : 'auto'} style:inset-inline-end={placement.edge === 'end' ? 'var(--float-inset)' : 'auto'}>
           {@render frame(id)}
         </div>
       {/if}
@@ -324,7 +324,14 @@
   .column.start { inset-inline-start: var(--studio-start); }
   .column.end { inset-inline-end: var(--studio-end); }
   .slot { display: flex; flex: 0 0 auto; min-block-size: 0; }
-  .float { position: absolute; max-block-size: calc(100dvh - var(--studio-top) - var(--studio-bottom)); }
+  /* A saved place from a larger screen is pulled back in: the whole width stays on screen, and
+     at least the title bar above Wplace's bottom controls. */
+  .float {
+    --float-inset: min(var(--float-x), calc(100vw - var(--studio-window-width)));
+    position: absolute;
+    inset-block-start: min(var(--float-y), calc(100dvh - var(--studio-bottom) - 2.5rem));
+    max-block-size: calc(100dvh - var(--studio-top) - var(--studio-bottom));
+  }
   .float .slot { max-block-size: inherit; }
   .dragged { z-index: 3; }
   @media (max-width: 52rem) {
