@@ -112,7 +112,7 @@
     }
   })
   const canSave = $derived(
-    !model.pending && model.processing.state === 'ready' && model.processing.pixels > 0 && model.name.trim() !== '',
+    !model.pending && !model.loadingSource && model.processing.state === 'ready' && model.processing.pixels > 0 && model.name.trim() !== '',
   )
 </script>
 

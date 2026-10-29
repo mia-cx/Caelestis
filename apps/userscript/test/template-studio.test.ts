@@ -169,6 +169,24 @@ describe('template studio', () => {
     await vi.waitFor(() => expect(scopes().pending).toBe(false))
   })
 
+  it('waits for an image still loading before it saves', async () => {
+    const save = vi.fn(async () => true)
+    await openOnRoom({
+      kind: 'create',
+      destination: 'Local',
+      surface: WORLD_TEMPLATE_SURFACE,
+      save,
+    })
+    // The next image's site has not answered yet.
+    vi.stubGlobal('fetch', () => new Promise<Response>(() => {}))
+    handleTemplateStudioIntent({ type: 'url', url: 'https://example.com/next.png' })
+    expect(templateStudioModel().loadingSource).toBe(true)
+
+    handleTemplateStudioIntent({ type: 'save' })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(save).not.toHaveBeenCalled()
+  })
+
   it('undoes an enlargement against the canvas edge without drawing the larger artwork', async () => {
     const room = await openOnRoom({
       kind: 'create',

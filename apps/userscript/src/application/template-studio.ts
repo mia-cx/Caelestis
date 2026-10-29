@@ -990,6 +990,8 @@ const save = async (): Promise<void> => {
   const result = processed
   const loaded = source
   if (current === null || result === null || loaded === null || pending || job !== null) return
+  // A new image still loading would replace this result, so saving waits for it.
+  if (loadingSource) return
   if (result.opaque === 0 || name.trim() === '') return
   if (current.kind === 'replace') {
     const confirmed = await confirmDestructive({
