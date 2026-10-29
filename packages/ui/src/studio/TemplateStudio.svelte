@@ -66,9 +66,10 @@
   )
   const titleOf = (id: StudioWindowId): string => STUDIO_WINDOWS.find((window) => window.id === id)?.title ?? id
 
-  /* Phones: one sheet along the bottom shows a window at a time; tapping its tab again folds the
-     sheet away to uncover the map. */
-  const PHONE = '(max-width: 40rem)'
+  /* Too narrow for both columns side by side (two 18rem windows clear of Wplace's controls): one
+     sheet along the bottom shows a window at a time; tapping its tab again folds the sheet away to
+     uncover the map. */
+  const PHONE = '(max-width: 43rem)'
   let phone = $state(typeof matchMedia === 'function' && matchMedia(PHONE).matches)
   $effect(() => {
     const query = matchMedia(PHONE)
