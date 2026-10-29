@@ -1,7 +1,7 @@
 import { type DitheretteTemplateRecipe, PALETTE_RGB, TRANSPARENT_INDEX } from '@caelestis/shared'
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 import { processRecipe } from '../src/templates/import.js'
-import { celesteRoom } from './celeste.js'
+import { celesteRoom, firstDifference, warmUp } from './celeste.js'
 
 const prologue = async () => {
   const { room, png, sha256 } = await celesteRoom()
@@ -41,10 +41,13 @@ const recipeFor = (
 const origin = { originX: 0, originY: 0 }
 
 describe('Ditherette recipes', () => {
+  // The fixture import and WebAssembly compile happen once; no single test should pay for them.
+  beforeAll(warmUp)
+
   it('reproduces palette artwork exactly at identity scale', async () => {
     const { room, source, sha256 } = await prologue()
     const processed = await processRecipe(source, recipeFor(room, sha256), origin)
-    expect(processed.indices).toEqual(room.indices)
+    expect(firstDifference(processed.indices, room.indices)).toBe(-1)
     expect(processed.opaque).toBe(room.opaque)
   })
 

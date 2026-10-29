@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { encodeIndexedPng, sha256Hex } from '@caelestis/shared'
 import { vi } from 'vitest'
+import { ditheretteAvailable } from '../src/templates/ditherette.js'
 import { type ImportedTemplate, importFile } from '../src/templates/import.js'
 import { installBitmapDecoder } from './image-decoder.js'
 
@@ -25,6 +26,22 @@ export const celesteRoom = (): Promise<CelesteRoom> => {
   installBitmapDecoder()
   imported ??= importRoom()
   return imported
+}
+
+/**
+ * The first index where two pixel arrays differ, or -1 where they match. `toEqual` takes seconds
+ * over the room's million indices, enough to time a test out on a busy runner.
+ */
+export const firstDifference = (actual: Uint8Array, expected: Uint8Array): number => {
+  const length = Math.max(actual.length, expected.length)
+  for (let index = 0; index < length; index++) if (actual[index] !== expected[index]) return index
+  return -1
+}
+
+/** Import the room and compile Ditherette ahead of the tests, which only time their own work. */
+export const warmUp = async (): Promise<void> => {
+  await celesteRoom()
+  if (!(await ditheretteAvailable())) throw new Error('Ditherette did not compile')
 }
 
 const importRoom = async (): Promise<CelesteRoom> => {
