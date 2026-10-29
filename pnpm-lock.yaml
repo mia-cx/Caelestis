@@ -360,6 +360,9 @@ importers:
       '@caelestis/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      ditherette:
+        specifier: 0.1.0-rc.0
+        version: 0.1.0-rc.0
       polygon-clipping:
         specifier: 0.15.7
         version: 0.15.7
@@ -391,6 +394,9 @@ importers:
       '@types/node':
         specifier: ^26.6.4
         version: 26.6.4
+      ditherette:
+        specifier: 0.1.0-rc.0
+        version: 0.1.0-rc.0
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -3264,6 +3270,9 @@ packages:
 
   devlop@1.1.0:
     resolution: {integrity: sha512-RWmIqhcFf1lRYBvNmr7qTNuyCt/7/ns2jbpp1+PalgE/rDQcBT0fioSMUpJ93irlUhC5hrg4cYqe6U+0ImW0rA==}
+
+  ditherette@0.1.0-rc.0:
+    resolution: {integrity: sha512-JLjGz9S3rWRk1JLRAjZUOj0KQjWBzghQ2qvRVxk+xvT9uW2ZUEoaVnLFoXJ4pdkgEdJOkSjerLmxDkw9OnDzmw==}
 
   dompurify@3.4.17:
     resolution: {integrity: sha512-B/pSlYVHQ58kqISD/yDjuJ1yfzI34m1gF4lAod2bwSRhiN4K5Cl3H8Af7hqB2PmTL911tdEudnnXn5FnhRoz0w==}
@@ -7144,6 +7153,8 @@ snapshots:
   devlop@1.1.0:
     dependencies:
       dequal: 2.0.3
+
+  ditherette@0.1.0-rc.0: {}
 
   dompurify@3.4.17:
     optionalDependencies:
