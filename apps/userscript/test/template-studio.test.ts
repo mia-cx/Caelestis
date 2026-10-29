@@ -1,4 +1,4 @@
-import { WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
+import { WORLD_PIXELS, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import {
   type EffectLayer,
   TEMPLATE_STUDIO_TAG,
@@ -172,6 +172,27 @@ describe('template studio', () => {
 
     await ready()
     await vi.waitFor(() => expect(scopes().pending).toBe(false))
+  })
+
+  it('undoes an enlargement against the canvas edge without drawing the larger artwork', async () => {
+    const room = await openOnRoom({
+      kind: 'create',
+      destination: 'Local',
+      surface: WORLD_TEMPLATE_SURFACE,
+      save: async () => true,
+    })
+    const edge = WORLD_PIXELS - room.width
+    handleTemplateStudioIntent({ type: 'origin', x: edge, y: 100 })
+    handleTemplateStudioIntent({ type: 'scale', scale: 2 })
+    await ready()
+    expect(templateStudioModel().origin.x).toBe(WORLD_PIXELS - room.width * 2)
+
+    handleTemplateStudioIntent({ type: 'undo' })
+    await ready()
+    expect(templateStudioModel()).toMatchObject({
+      origin: { x: edge, y: 100 },
+      output: { width: room.width, height: room.height },
+    })
   })
 
   it('undoes and redoes edits, reprocessing the artwork each way', async () => {

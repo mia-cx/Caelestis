@@ -606,10 +606,16 @@ const clampOrigin = (): void => {
   }
 }
 
+/**
+ * Move the draft. The origin is clamped to the current output size, so artwork of another size,
+ * still showing while the new size processes, waits for its replacement rather than being drawn
+ * where it may not fit.
+ */
 const setOrigin = (x: number, y: number): void => {
   origin = { x: Math.round(x), y: Math.round(y) }
   clampOrigin()
-  if (processed !== null) showDraft(processed)
+  const { width, height } = settings.output
+  if (processed?.recipe.width === width && processed.recipe.height === height) showDraft(processed)
 }
 
 /** Scale the crop, keeping its proportions and fitting the canvas. */
