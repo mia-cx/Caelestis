@@ -282,19 +282,36 @@ type Question =
   | { readonly type: 'sample-effects'; readonly recipe: DitheretteTemplateRecipe }
 
 /**
+ * The started worker, or null where there is none to ask. A page that refuses blob workers falls
+ * back to running everything in the page from then on, as `runDitherette` does.
+ */
+const readyHost = async (): Promise<Host | null> => {
+  if (!canUseWorkers()) return null
+  const modules = await compileModules()
+  try {
+    host ??= startHost(modules)
+    const target = host
+    await target.ready
+    return target
+  } catch (error) {
+    warn('install', 'Ditherette worker unavailable; processing in the page', String(error))
+    workersFailed = true
+    stopHost()
+    return null
+  }
+}
+
+/**
  * Ask the worker one question about `source`, after any job ahead of it. `read` takes the answer
  * from its reply, or nothing from a reply of another kind. A CPU run replaced before it finishes
  * takes the worker, and the question, with it.
  */
 const ask = async <T>(
+  target: Host,
   source: Source,
   question: Question,
   read: (reply: DitheretteWorkerReply) => T | undefined,
 ): Promise<T> => {
-  const modules = await compileModules()
-  host ??= startHost(modules)
-  const target = host
-  await target.ready
   const id = ++jobs
   const sendSource = target.sourceKey !== source.key
   target.sourceKey = source.key
@@ -321,9 +338,10 @@ export const analyseFit = async (job: {
   readonly analysis: FitAnalysis
   readonly source: Source
 }): Promise<Curve[]> => {
-  if (!canUseWorkers())
+  const target = await readyHost()
+  if (target === null)
     return analysePaletteFit(await (await pageProcessors()).cpu(), job.source.image, job.analysis)
-  return await ask(job.source, { type: 'analyse-fit', analysis: job.analysis }, (reply) =>
+  return await ask(target, job.source, { type: 'analyse-fit', analysis: job.analysis }, (reply) =>
     reply.type === 'fit' ? reply.curves : undefined,
   )
 }
@@ -333,11 +351,12 @@ export const sampleEffects = async (job: {
   readonly recipe: DitheretteTemplateRecipe
   readonly source: Source
 }): Promise<Samples> => {
-  if (!canUseWorkers()) {
+  const target = await readyHost()
+  if (target === null) {
     const processor = await (await pageProcessors()).forEngine(job.recipe.engine)
     return sampleRgba(await applyRecipeEffects(processor, job.source.image, job.recipe))
   }
-  return await ask(job.source, { type: 'sample-effects', recipe: job.recipe }, (reply) =>
+  return await ask(target, job.source, { type: 'sample-effects', recipe: job.recipe }, (reply) =>
     reply.type === 'samples' ? reply.samples : undefined,
   )
 }
