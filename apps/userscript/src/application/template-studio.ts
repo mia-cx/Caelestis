@@ -737,9 +737,23 @@ const resolveFits = async (
   return resolved
 }
 
+/** Everything a fit layer's analysis reads, as `fitCurves` keys it, to tell when it went stale. */
+const fitInputs = (loaded: Source, id: string): string => {
+  const index = effectLayers.findIndex((layer) => layer.id === id)
+  const step = effectLayers[index]?.step
+  if (step?.effect !== 'palette-fit') return ''
+  const recipe = currentRecipe(loaded)
+  const before = effectLayers
+    .slice(0, index)
+    .filter((layer) => layer.step.enabled)
+    .map((layer) => layer.step)
+  return JSON.stringify([recipe.crop, recipe.palette, before, step.look, step.space])
+}
+
 /**
  * Resolve a palette fit's curves into its step, as the image reaching it would analyse now, so
- * the author can edit them. Edited curves stay put until Reset.
+ * the author can edit them. Edited curves stay put until Reset. An edit to what the analysis
+ * reads, made while it runs, starts it again rather than locking in curves for the old inputs.
  */
 const analyseLayerFit = async (id: string): Promise<void> => {
   const loaded = source
@@ -748,7 +762,9 @@ const analyseLayerFit = async (id: string): Promise<void> => {
   if (loaded === null || step?.effect !== 'palette-fit' || analysingFit !== null) return
   analysingFit = id
   render()
+  let stale = false
   try {
+    const inputs = fitInputs(loaded, id)
     const recipe = currentRecipe(loaded)
     const before = effectLayers
       .slice(0, index)
@@ -758,6 +774,8 @@ const analyseLayerFit = async (id: string): Promise<void> => {
     const current = effectLayers.find((layer) => layer.id === id)
     if (source !== loaded || current?.step.effect !== 'palette-fit' || current.step.curves !== null)
       return
+    stale = fitInputs(loaded, id) !== inputs
+    if (stale) return
     setEffects(
       effectLayers.map((layer) =>
         layer.id === id ? { ...layer, step: { ...current.step, curves } } : layer,
@@ -770,6 +788,7 @@ const analyseLayerFit = async (id: string): Promise<void> => {
   } finally {
     analysingFit = null
     render()
+    if (stale) void analyseLayerFit(id)
   }
 }
 

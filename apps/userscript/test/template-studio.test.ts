@@ -1,5 +1,9 @@
 import { WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
-import { TEMPLATE_STUDIO_TAG, type TemplateStudioModel } from '@caelestis/ui/elements'
+import {
+  type EffectLayer,
+  TEMPLATE_STUDIO_TAG,
+  type TemplateStudioModel,
+} from '@caelestis/ui/elements'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
 // The confirmation dialog is the author's answer; each test gives it.
@@ -106,6 +110,41 @@ describe('template studio', () => {
     account.owned = new Set()
     loaded()
     await vi.waitFor(() => expect(shown()).toBe(true))
+  })
+
+  it('analyses a palette fit again when its look changes during the analysis', async () => {
+    await openOnRoom({
+      kind: 'create',
+      destination: 'Local',
+      surface: WORLD_TEMPLATE_SURFACE,
+      save: async () => true,
+    })
+    const fit = (look: 'fitted' | 'vivid'): EffectLayer => ({
+      id: 'fit',
+      name: 'Palette fit',
+      step: {
+        effect: 'palette-fit',
+        enabled: true,
+        look,
+        space: 'oklab',
+        strength: 1,
+        curves: null,
+      },
+    })
+    const analysed = async () => {
+      await vi.waitFor(() => expect(templateStudioModel().analysingFit).toBeNull())
+      const step = templateStudioModel().effects[0]?.step
+      return step?.effect === 'palette-fit' ? step : undefined
+    }
+    handleTemplateStudioIntent({ type: 'effects', effects: [fit('vivid')] })
+    handleTemplateStudioIntent({ type: 'analyse-fit', layer: 'fit' })
+    const vivid = (await analysed())?.curves
+    expect(vivid).not.toBeNull()
+
+    handleTemplateStudioIntent({ type: 'effects', effects: [fit('fitted')] })
+    handleTemplateStudioIntent({ type: 'analyse-fit', layer: 'fit' })
+    handleTemplateStudioIntent({ type: 'effects', effects: [fit('vivid')] })
+    expect(await analysed()).toMatchObject({ look: 'vivid', curves: vivid })
   })
 
   it('undoes and redoes edits, reprocessing the artwork each way', async () => {
