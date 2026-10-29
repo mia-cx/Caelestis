@@ -409,7 +409,8 @@ const refreshScopes = async (): Promise<void> => {
   }
   if (ticket !== scopeTicket) return
   scopeSamples = samples
-  scopesPending = false
+  // Samples of an older result stay marked stale while newer settings process.
+  scopesPending = processed !== result || processing.state === 'working'
   render()
 }
 

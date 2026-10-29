@@ -26,6 +26,7 @@ import {
   openTemplateStudio,
   templateStudioModel,
 } from '../src/application/template-studio.js'
+import { setState } from '../src/state.js'
 import type { ImportedTemplate } from '../src/templates/import.js'
 import { processRecipe } from '../src/templates/import.js'
 import { confirmDestructive } from '../src/ui/confirm.js'
@@ -56,6 +57,7 @@ const saved = (save: ReturnType<typeof vi.fn>): ImportedTemplate =>
 
 afterEach(() => {
   closeTemplateStudio()
+  setState({ studioLayout: {} })
   account.owned = null
   account.load = Promise.resolve()
 })
@@ -145,6 +147,31 @@ describe('template studio', () => {
     handleTemplateStudioIntent({ type: 'analyse-fit', layer: 'fit' })
     handleTemplateStudioIntent({ type: 'effects', effects: [fit('vivid')] })
     expect(await analysed()).toMatchObject({ look: 'vivid', curves: vivid })
+  })
+
+  it('keeps the scopes marked stale until the new result is sampled', async () => {
+    await openOnRoom({
+      kind: 'create',
+      destination: 'Local',
+      surface: WORLD_TEMPLATE_SURFACE,
+      save: async () => true,
+    })
+    const scopes = () => templateStudioModel().scopes
+    handleTemplateStudioIntent({
+      type: 'layout',
+      layout: { scopes: { open: true, collapsed: false, dock: 'end', order: 0 } },
+    })
+    await vi.waitFor(() => expect(scopes()).toMatchObject({ pending: false }))
+
+    handleTemplateStudioIntent({ type: 'color-space', colorSpace: 'srgb' })
+    // A stage change samples the previous result while the new one processes.
+    handleTemplateStudioIntent({ type: 'scope-stages', stages: ['output'] })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(templateStudioModel().processing.state).toBe('working')
+    expect(scopes().pending).toBe(true)
+
+    await ready()
+    await vi.waitFor(() => expect(scopes().pending).toBe(false))
   })
 
   it('undoes and redoes edits, reprocessing the artwork each way', async () => {
