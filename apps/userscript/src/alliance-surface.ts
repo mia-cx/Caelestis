@@ -1,4 +1,10 @@
-import type { AllianceTemplateSurfaceKind, PixelBounds, TemplateSurface } from '@caelestis/shared'
+import {
+  type AllianceTemplateSurfaceKind,
+  type PixelBounds,
+  sameTemplateSurface,
+  type TemplateSurface,
+  templateSurfaceBounds,
+} from '@caelestis/shared'
 import { pageWindow } from './page-world.js'
 import { findWplaceLabelled } from './wplace-messages.js'
 import { captureFetchUrlGetters, urlForFetchInput } from './wplace-raster.js'
@@ -465,6 +471,19 @@ export const installAllianceSurfaceObserver = (): void => {
 }
 
 export const activeAllianceSurface = (): ActiveAllianceSurface | null => active
+
+/**
+ * The middle of an alliance surface, where a new template lands: of the open editor's bounds when
+ * it shows that surface, else of the surface's own.
+ */
+export const allianceSurfaceCentre = (surface: TemplateSurface): { x: number; y: number } => {
+  const shown =
+    active !== null && sameTemplateSurface(active.surface, surface) ? active.bounds : null
+  const bounds = shown ?? templateSurfaceBounds(surface)
+  return bounds === null
+    ? { x: 0, y: 0 }
+    : { x: (bounds.minX + bounds.maxX) / 2, y: (bounds.minY + bounds.maxY) / 2 }
+}
 
 /** The open alliance editor stage, even while its exact asset surface is still being validated. */
 export const activeAllianceEditorStage = (): HTMLElement | null =>

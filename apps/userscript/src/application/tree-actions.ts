@@ -5,7 +5,6 @@ import {
   type TemplateSurface,
   TILE_SIZE,
   TRANSPARENT_INDEX,
-  templateSurfaceBounds,
   uuidV7,
   WORLD_PIXELS,
   WORLD_TEMPLATE_SURFACE,
@@ -18,7 +17,7 @@ import type {
   TreeOperationModel,
 } from '@caelestis/ui/elements'
 import { refreshAllianceManifest } from '../alliance-server-sync.js'
-import { activeAllianceSurface } from '../alliance-surface.js'
+import { activeAllianceSurface, allianceSurfaceCentre } from '../alliance-surface.js'
 import { startCaptureMode } from '../claim-editor.js'
 import { warn } from '../debug.js'
 import { createLocalFolder, localFolderChainVisible, removeLocalFolder } from '../local-folders.js'
@@ -89,6 +88,7 @@ import { importTemplatesToServer } from './import-to-server.js'
 import { runWhileBusy } from './operation-lock.js'
 import { serverDestinations } from './server-destinations.js'
 import { authoringOf, transferAuthoring } from './template-authoring.js'
+import { openTemplateStudio } from './template-studio.js'
 import {
   copyCurrentLocalTemplateToServer,
   copyLocalTemplateToServer,
@@ -963,6 +963,71 @@ const replaceServerArtwork = async (target: TreeTarget, rerender: () => void): P
   )
 }
 
+/**
+ * Make a server template's next version in the template studio. The version keeps the template's
+ * size and starts from its current source image when the server has one.
+ */
+const replaceFromImage = async (
+  target: TreeTarget,
+  installedId: string,
+  rerender: () => void,
+): Promise<void> => {
+  const { server, templateId } = target
+  if (server === null || templateId === undefined) return
+  const surface = surfaceOf(target)
+  const current = serverTemplateAt(server.url, templateId, surface)
+  const installed = templateById(installedId)
+  if (current === null || installed === undefined) {
+    toast('This template has not finished loading. Try again in a moment.', 'warning')
+    return
+  }
+  const carried = await transferAuthoring(installed)
+  const authoring = 'authoring' in carried ? carried.authoring : null
+  const opened = openTemplateStudio(
+    {
+      kind: 'replace',
+      name: target.name,
+      server: server.info?.name ?? server.url,
+      surface,
+      width: installed.width,
+      height: installed.height,
+      origin: { x: installed.originX, y: installed.originY },
+      save: async (template) => {
+        if (!stillConnected(server)) {
+          toast('That server was disconnected or replaced.', 'warning')
+          return false
+        }
+        const png = new Blob(
+          [
+            Uint8Array.from(
+              await encodeIndexedPng(template.width, template.height, template.indices),
+            ),
+          ],
+          { type: 'image/png' },
+        )
+        const result = await uploadTemplateVersion(server, templateId, {
+          originX: template.originX,
+          originY: template.originY,
+          name: target.name,
+          png,
+          authoring: template.authoring ?? null,
+        })
+        const reconciliation = refreshEditedSurface(server, surface, rerender)
+        if (!result.ok && result.ambiguous === true) await reconciliation
+        else void reconciliation
+        if (!result.ok) {
+          toast(result.message, 'error')
+          return false
+        }
+        toast(`Replaced the artwork for “${target.name}”.`)
+        return true
+      },
+    },
+    authoring === null ? undefined : { image: authoring.source, name: target.name },
+  )
+  if (!opened) toast('Finish the current placement or template, then try again.', 'warning')
+}
+
 /** Publish or unpublish, which is the difference between everyone seeing it and only admins. */
 const setServerTemplatePublished = async (
   target: TreeTarget,
@@ -1292,6 +1357,12 @@ export const openContextMenu = (
                 label: 'Replace artwork',
                 run: whenDrawn(() => void replaceServerArtwork(target, rerender)),
               },
+              {
+                icon: 'image',
+                label: 'Replace from image',
+                returnToCanvas: true,
+                run: whenDrawn((id) => void replaceFromImage(target, id, rerender)),
+              },
               { icon: 'reset', label: 'Use canvas artwork', run: updateArtwork },
               updateArea,
               surfaceOf(target).kind === 'world' && target.server.season === 0
@@ -1318,6 +1389,12 @@ export const openContextMenu = (
                 label: 'Import template',
                 returnToCanvas: true,
                 run: () => void importTemplate(target, rerender, surface),
+              },
+              {
+                icon: 'image',
+                label: 'Create from image',
+                returnToCanvas: true,
+                run: () => createFromImage(target, rerender, surface),
               },
               surface.kind === 'world'
                 ? {
@@ -1434,17 +1511,8 @@ export const openContextMenu = (
   rerender()
 }
 
-const importCentre = (surface: TemplateSurface): { x: number; y: number } => {
-  if (surface.kind === 'world') return viewportCentre() ?? { x: 0, y: 0 }
-  const active = activeAllianceSurface()
-  const bounds =
-    active !== null && sameTemplateSurface(active.surface, surface)
-      ? (active.bounds ?? templateSurfaceBounds(surface))
-      : templateSurfaceBounds(surface)
-  return bounds === null
-    ? { x: 0, y: 0 }
-    : { x: (bounds.minX + bounds.maxX) / 2, y: (bounds.minY + bounds.maxY) / 2 }
-}
+const importCentre = (surface: TemplateSurface): { x: number; y: number } =>
+  surface.kind === 'world' ? (viewportCentre() ?? { x: 0, y: 0 }) : allianceSurfaceCentre(surface)
 
 const refreshEditedSurface = async (
   server: ConnectedServer,
@@ -1485,9 +1553,38 @@ export const importTemplate = async (
 }
 
 /**
- * Import one file into a tree row. Files that carry a placement go where they belong; a plain
- * image starts the placement flow centred on `centre`.
+ * Open the template studio to make a new template in a tree row, from `image` or from whatever
+ * image the author brings to it.
  */
+export const createFromImage = (
+  target: TreeTarget,
+  rerender: () => void,
+  surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
+  image?: { readonly image: Blob; readonly name: string },
+): void => {
+  const notice = hiddenNotice(target)
+  if (notice !== null) {
+    toast(notice, 'warning')
+    return
+  }
+  const opened = openTemplateStudio(
+    {
+      kind: 'create',
+      destination: target.name,
+      surface,
+      save: (template) =>
+        importTemplateData([template], target, rerender, surface, null, undefined, true),
+    },
+    image,
+  )
+  if (!opened) toast('Finish the current placement or template, then try again.', 'warning')
+}
+
+/** Template files carry their own placement; anything else is an image for the studio. */
+const isTemplateFile = (file: File): boolean =>
+  /\.(wplace|json)$/i.test(file.name) || file.type === 'application/json'
+
+/** Import one file into a tree row. Files that carry a placement go where they belong. */
 const importTemplateFile = async (
   file: File,
   target: TreeTarget,
@@ -1495,6 +1592,10 @@ const importTemplateFile = async (
   surface: TemplateSurface,
   centre: { readonly x: number; readonly y: number },
 ): Promise<boolean> => {
+  if (!isTemplateFile(file)) {
+    createFromImage(target, rerender, surface, { image: file, name: file.name })
+    return true
+  }
   try {
     toast(`Reading ${file.name}…`)
     const imported = await importFile(file, centre)
@@ -1502,14 +1603,7 @@ const importTemplateFile = async (
       toast('Nothing importable in that file.', 'error')
       return false
     }
-    const first = imported[0]
-    if (first === undefined) return false
-    const reservation = first.source === 'image' ? reserveMove() : null
-    if (first.source === 'image' && reservation === null) {
-      toast('Finish the current placement, then import this image again.', 'warning')
-      return false
-    }
-    return await importTemplateData(imported, target, rerender, surface, reservation)
+    return await importTemplateData(imported, target, rerender, surface, null)
   } catch (error) {
     const reason = (error instanceof Error ? error.message : String(error)).replace(/\.$/, '')
     toast(`Could not import “${file.name}”: ${reason}.`, 'error')
@@ -1517,7 +1611,10 @@ const importTemplateFile = async (
   }
 }
 
-/** Admit decoded files or captured indices through the same destination and placement flow. */
+/**
+ * Admit decoded files or captured indices through the same destination and placement flow.
+ * `placed` images were positioned in the template studio, so no placement follows.
+ */
 const importTemplateData = async (
   imported: readonly ImportedTemplate[],
   target: TreeTarget,
@@ -1525,6 +1622,7 @@ const importTemplateData = async (
   surface: TemplateSurface,
   reservation: MoveReservation | null,
   signal?: AbortSignal,
+  placed = false,
 ): Promise<boolean> => {
   const first = imported[0]
   if (first === undefined) {
@@ -1541,6 +1639,7 @@ const importTemplateData = async (
       (server, render) => refreshEditedSurface(server, surface, render),
       surface,
       signal,
+      placed,
     )
   }
   // Straight into whichever Local folder was clicked. Importing from a folder's own button
@@ -1556,7 +1655,7 @@ const importTemplateData = async (
     for (const template of imported) {
       signal?.throwIfAborted()
       try {
-        await addLocalTemplate(template, surface)
+        await addLocalTemplate(template, surface, placed)
         admitted.push(template.id)
         if (folderId !== null && !(await setTemplateFolder(template.id, folderId)))
           failed.push(`${template.name} was imported, but not into that folder`)
@@ -1569,6 +1668,10 @@ const importTemplateData = async (
     if (failed.length > 0) toast(failed.join('. '), 'error')
     if (!admitted.includes(first.id)) return false
 
+    if (placed) {
+      toast(`Created ${first.name} — ${first.width}x${first.height}`)
+      return true
+    }
     const moved = first.moved
     toast(
       `Imported ${first.name} — ${first.width}x${first.height}` +

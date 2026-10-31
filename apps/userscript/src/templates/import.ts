@@ -1,6 +1,7 @@
 import {
   canvasPixelToLatLng,
   decodeWplaceIndexedPng,
+  type ImportTemplateRecipe,
   latLngToCanvasPixel,
   MAX_MERCATOR_LATITUDE,
   MAX_TEMPLATE_PIXELS,
@@ -136,8 +137,11 @@ const pngDimensions = async (blob: Blob): Promise<{ width: number; height: numbe
   return { width, height }
 }
 
-/** RGBA for a PNG whose dimensions have already passed the allocation preflight. */
-const decodeToRgba = async (
+/**
+ * RGBA for a PNG, after checking its header against the import budget. Every recipe processor
+ * decodes its source here, so the editor's preview and a later rebuild see the same pixels.
+ */
+export const decodeToRgba = async (
   blob: Blob,
   expectedDimensions?: { width: number; height: number },
 ): Promise<{ width: number; height: number; pixels: Uint8Array }> => {
@@ -283,7 +287,7 @@ const wplacePalette = async (
 }
 
 /** The native record that makes Wplace's worker run exactly this recipe at this placement. */
-const nativeRecipe = (recipe: TemplateRecipe, origin: TemplateOrigin): NativeTemplate => {
+const nativeRecipe = (recipe: ImportTemplateRecipe, origin: TemplateOrigin): NativeTemplate => {
   if (recipe.colorMetric === 'rgb') throw new Error('Wplace processing has no rgb colour metric')
   const northWest = canvasPixelToLatLng({ x: origin.originX, y: origin.originY })
   const southEast = canvasPixelToLatLng({
@@ -335,6 +339,20 @@ export const processRecipe = async (
     if (decoded.width !== recipe.width || decoded.height !== recipe.height)
       throw new Error('caelestis-nearest does not resize')
     return await quantise(decoded.pixels, false, recipe.palette)
+  }
+  if (recipe.processor === 'ditherette') {
+    const decoded = await decodeToRgba(source)
+    const { runDitherette } = await import('./ditherette.js')
+    return {
+      ...(await runDitherette({
+        recipe,
+        source: {
+          key: recipe.source.sha256,
+          image: { width: decoded.width, height: decoded.height, data: decoded.pixels },
+        },
+      })),
+      moved: 0,
+    }
   }
   const { connectNativeTemplates } = await import('./native-store.js')
   const native = await connectNativeTemplates({ resize: resizeWplaceImage })

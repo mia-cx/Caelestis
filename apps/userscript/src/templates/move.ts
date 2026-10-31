@@ -13,11 +13,14 @@ import {
   clearLocalPreview,
   isDeletingLocal,
   isServerTemplate,
+  moveTemplateDraft,
   onLocalReconciliation,
+  type PlacedTemplate,
   placeLocalTemplate,
   previewLocalTemplate,
   removeLocalTemplate,
   templateById,
+  templateDraft,
 } from './local-store.js'
 import { horizontalSpans } from './placement.js'
 
@@ -42,6 +45,8 @@ interface MoveSession {
   readonly surface: TemplateSurface
   /** Server drafts persist their new origin remotely before the local preview is accepted. */
   readonly persistRemote?: (originX: number, originY: number) => Promise<boolean>
+  /** Set when this places the editor's draft, which the editor saves or discards itself. */
+  readonly onDraftMove?: (originX: number, originY: number) => void
   x: number
   y: number
   dragging: {
@@ -117,13 +122,21 @@ export const reserveMove = (): MoveReservation | null => {
   return holdMoveSlot()
 }
 
+/** The template this session places: a catalog entry, or the editor's draft. */
+const sessionTemplate = (): PlacedTemplate | undefined => {
+  if (session === null) return undefined
+  if (session.onDraftMove === undefined) return templateById(session.id)
+  const draft = templateDraft()
+  return draft?.id === session.id ? draft : undefined
+}
+
 /** Where the template currently sits during a move, so the renderer can draw it there. */
 export const movePreviewOrigin = (id: string): { x: number; y: number } | null =>
   session !== null && session.id === id ? { x: session.x, y: session.y } : null
 
 const isOverTemplate = (clientX: number, clientY: number): boolean => {
   if (session === null) return false
-  const template = session === null ? undefined : templateById(session.id)
+  const template = sessionTemplate()
   if (template === undefined) return false
   const surface = template.surface ?? WORLD_TEMPLATE_SURFACE
   const point = placementPointAt(surface, clientX, clientY)
@@ -260,7 +273,7 @@ const isPlacementInteractionTarget = (
 
 /** Borrow the map's own cursor for as long as placement owns the pointer. */
 const setCursor = (shape: string): void => {
-  const template = session === null ? undefined : templateById(session.id)
+  const template = sessionTemplate()
   const surface = template?.surface ?? WORLD_TEMPLATE_SURFACE
   const host =
     surface.kind === 'world'
@@ -274,7 +287,7 @@ const onPointerDown = (event: PointerEvent): void => {
   // One pointer owns a drag until it ends. A second touch, pen, or mouse button must not replace
   // its origin or recenter the template underneath it.
   if (session.dragging !== null) return
-  const template = templateById(session.id)
+  const template = sessionTemplate()
   if (template === undefined) return
   const surface = template.surface ?? WORLD_TEMPLATE_SURFACE
   if (!isPlacementInteractionTarget(surface, event.target)) return
@@ -325,7 +338,7 @@ const onPointerMove = (event: PointerEvent): void => {
   event.preventDefault()
   event.stopPropagation()
   // Screen delta to canvas delta: one canvas pixel is many screen pixels when zoomed in.
-  const template = session === null ? undefined : templateById(session.id)
+  const template = sessionTemplate()
   if (template === undefined) return
   const next = boundedOrigin(
     template,
@@ -339,6 +352,10 @@ const onPointerMove = (event: PointerEvent): void => {
 
 const previewMove = (id: string, x: number, y: number): void => {
   try {
+    if (session?.onDraftMove !== undefined) {
+      if (moveTemplateDraft(x, y)) session.onDraftMove(x, y)
+      return
+    }
     if (!previewLocalTemplate(id, x, y)) warn('install', 'template move could not be previewed')
   } catch (error) {
     warn('install', 'template move failed', String(error))
@@ -363,7 +380,7 @@ const onPointerUp = (event: PointerEvent): void => {
 
 const swallowNextClick = (): void => {
   const clickTarget = window
-  const template = session === null ? undefined : templateById(session.id)
+  const template = sessionTemplate()
   const surface = template?.surface ?? WORLD_TEMPLATE_SURFACE
   const swallow = (event: Event): void => {
     clickTarget.removeEventListener('click', swallow, true)
@@ -396,7 +413,7 @@ const isPageControl = (target: EventTarget | null): boolean => {
 
 const isPageControlEvent = (event: Event): boolean => {
   if (session !== null) {
-    const template = templateById(session.id)
+    const template = sessionTemplate()
     const surface = template?.surface ?? WORLD_TEMPLATE_SURFACE
     if (surface.kind !== 'world') {
       return (
@@ -425,7 +442,7 @@ const onKeyDown = (event: KeyboardEvent): void => {
             ? { x: 0, y: 1 }
             : null
   if (delta !== null) {
-    const template = session === null ? undefined : templateById(session.id)
+    const template = sessionTemplate()
     if (template === undefined) return
     event.preventDefault()
     event.stopPropagation()
@@ -436,6 +453,8 @@ const onKeyDown = (event: KeyboardEvent): void => {
     previewMove(session.id, session.x, session.y)
     return
   }
+  // The editor owns saving and cancelling its draft.
+  if (session.onDraftMove !== undefined) return
   if (event.key === 'Escape') {
     answered = event
     event.preventDefault()
@@ -454,8 +473,18 @@ const onAuxClick = (event: MouseEvent): void => {
   event.preventDefault()
 }
 
+/**
+ * MapLibre pans on touch events, which still arrive after their pointer events were claimed.
+ * While a drag holds the template, they stop here.
+ */
+const onTouch = (event: TouchEvent): void => {
+  if (session?.dragging) event.stopPropagation()
+}
+
 const listen = (on: boolean): void => {
   const method = on ? 'addEventListener' : 'removeEventListener'
+  window[method]('touchstart', onTouch as EventListener, true)
+  window[method]('touchmove', onTouch as EventListener, true)
   // Capture phase: MapLibre's own handlers sit on the canvas container and would otherwise pan the
   // map out from under a drag that was meant for the template.
   window[method]('pointerdown', onPointerDown as EventListener, true)
@@ -485,6 +514,47 @@ export const beginServerMove = (
   finished: () => void,
   persistRemote: (originX: number, originY: number) => Promise<boolean>,
 ): boolean => begin(id, finished, undefined, persistRemote)
+
+/**
+ * Place the editor's draft with the same canvas interaction as a template, until
+ * `endDraftPlacement`. Enter and Escape stay with the editor. False while another placement runs.
+ */
+export const beginDraftPlacement = (
+  onMove: (originX: number, originY: number) => void,
+): boolean => {
+  const draft = templateDraft()
+  if (draft === null || session !== null || finishing || moveReservation !== null) return false
+  placements += 1
+  session = {
+    id: draft.id,
+    surface: draft.surface ?? WORLD_TEMPLATE_SURFACE,
+    onDraftMove: onMove,
+    x: draft.originX,
+    y: draft.originY,
+    dragging: null,
+  }
+  onFinish = null
+  suppressMiddleAuxClickFor = null
+  listen(true)
+  repaint()
+  return true
+}
+
+/** Keep the placement in step when the editor moves or resizes the draft itself. */
+export const syncDraftPlacement = (): void => {
+  const draft = templateDraft()
+  if (session?.onDraftMove === undefined || draft === null) return
+  const bounded = boundedOrigin(draft, draft.originX, draft.originY)
+  session.x = bounded.x
+  session.y = bounded.y
+  if (bounded.x !== draft.originX || bounded.y !== draft.originY)
+    previewMove(session.id, bounded.x, bounded.y)
+}
+
+/** Release the pointer and keys the draft held. The editor clears the draft itself. */
+export const endDraftPlacement = (): void => {
+  if (session?.onDraftMove !== undefined) finish()
+}
 
 const begin = (
   id: string,
@@ -606,7 +676,7 @@ const resumeAfterFailure = (action: string, error?: unknown): void => {
 }
 
 export const commit = async (): Promise<void> => {
-  if (session === null || finishing) return
+  if (session === null || finishing || session.onDraftMove !== undefined) return
   const current = session
   finishing = true
   listen(false)
@@ -654,7 +724,7 @@ export const commit = async (): Promise<void> => {
  * that takes one click to repeat.
  */
 export const abort = async (): Promise<void> => {
-  if (session === null || finishing) return
+  if (session === null || finishing || session.onDraftMove !== undefined) return
   const current = session
   finishing = true
   listen(false)
@@ -694,9 +764,8 @@ export const abortMoveOutsideSurface = async (surface: TemplateSurface | null): 
 
 /** Tile-aligned bounds of the template being moved, for drawing its outline. */
 export const moveOutline = (): { x: number; y: number; w: number; h: number } | null => {
-  if (session === null) return null
-  const template = templateById(session.id)
-  if (template === undefined) return null
+  const template = sessionTemplate()
+  if (session === null || template === undefined) return null
   return { x: session.x, y: session.y, w: template.width, h: template.height }
 }
 

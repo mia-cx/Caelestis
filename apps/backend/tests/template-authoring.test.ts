@@ -300,6 +300,43 @@ describe('template authoring inputs', () => {
     ).toBe(400)
   })
 
+  it('keeps a template editor recipe with its crop and Ditherette settings', async () => {
+    const server = await backend()
+    const { png, source } = await fixture()
+    const recipe: TemplateRecipe = {
+      format: 1,
+      processor: 'ditherette',
+      processorVersion: 1,
+      source: { sha256: await sha256Hex(source), width: 4, height: 2 },
+      crop: { x: 0, y: 0, width: 4, height: 1 },
+      width: 2,
+      height: 1,
+      palette: [1, 2],
+      engine: 'cpu',
+      ditherette: {
+        version: 2,
+        effects: [],
+        output: { width: 2, height: 1, resize: { algorithm: 'area' } },
+        alpha: { mode: 'preserve', threshold: 128 },
+        match: 'oklab-euclidean',
+        dither: { family: 'yliluoma', size: '4', placement: { mode: 'everywhere' } },
+      },
+    }
+    const created = await create(server, { png, source, recipe: templateRecipeJson(recipe) })
+    expect(created.status).toBe(201)
+    const { versionId } = (await created.json()) as { versionId: string }
+    expect(
+      ((await (await recipeOf(server, versionId)).json()) as { recipe: unknown }).recipe,
+    ).toEqual(recipe)
+
+    // The declared output must be the uploaded artwork's size.
+    const mismatched = templateRecipeJson({
+      ...recipe,
+      ditherette: { ...recipe.ditherette, output: { ...recipe.ditherette.output, width: 3 } },
+    })
+    expect((await create(server, { png, source, recipe: mismatched })).status).toBe(400)
+  })
+
   it('refuses authoring that does not describe the uploaded pixels', async () => {
     const server = await backend()
     const { png, source, recipe } = await fixture()

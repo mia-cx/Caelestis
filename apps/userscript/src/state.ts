@@ -21,6 +21,7 @@ import {
   templateSurfaceKey,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
+import { parseStudioLayout, type StudioLayout } from '@caelestis/ui/elements'
 import { userscriptClientHeaders } from './client-metrics.js'
 import { log, warn } from './debug.js'
 import { DEFAULT_MARKER_BUDGET, normaliseMarkerBudget } from './marker-budget.js'
@@ -248,6 +249,8 @@ export interface State {
   readonly notifyActivity: boolean
   /** Keyboard actions the user rebound. Absent actions keep their default chords. */
   readonly shortcutOverrides: ShortcutOverrides
+  /** Where the template studio's windows sit. */
+  readonly studioLayout: StudioLayout
 }
 
 const DEFAULT_STATE: State = {
@@ -279,6 +282,7 @@ const DEFAULT_STATE: State = {
   notifyUpdates: true,
   notifyActivity: false,
   shortcutOverrides: {},
+  studioLayout: {},
 }
 
 const UUID_V7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
@@ -618,6 +622,7 @@ export const loadState = (): State => {
       notifyUpdates: stored.notifyUpdates !== false,
       notifyActivity: stored.notifyActivity === true,
       shortcutOverrides: normaliseShortcutOverrides(stored.shortcutOverrides),
+      studioLayout: parseStudioLayout(stored.studioLayout),
     }
     log('install', 'state loaded', { servers: state.servers.length })
     if (storedRaw.legacyPalette || scopesMigrated) writeRaw(JSON.stringify(state))

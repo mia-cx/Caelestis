@@ -1,5 +1,8 @@
+import { runInNewContext } from 'node:vm'
 import { describe, expect, it } from 'vitest'
 import {
+  type DitheretteTemplateRecipe,
+  type ImportTemplateRecipe,
   parseTemplateRecipe,
   type TemplateRecipe,
   templateRecipeIdentity,
@@ -7,7 +10,7 @@ import {
   WORLD_PIXELS,
 } from '../index.js'
 
-const recipe: TemplateRecipe = {
+const recipe: ImportTemplateRecipe = {
   format: 1,
   processor: 'wplace-native',
   processorVersion: 1,
@@ -32,7 +35,7 @@ describe('template recipes', () => {
   })
 
   it('gives every processing input its own identity', async () => {
-    const changes: readonly Partial<TemplateRecipe>[] = [
+    const changes: readonly Partial<ImportTemplateRecipe>[] = [
       { source: { ...recipe.source, sha256: 'b'.repeat(64) } },
       { width: 112 },
       { dithering: true },
@@ -69,5 +72,91 @@ describe('template recipes', () => {
   it('accepts templates up to 64 Mi pixels', () => {
     const large = { ...recipe, width: 8192, height: 8192 }
     expect(parseTemplateRecipe(large)).toEqual(large)
+  })
+})
+
+const ditherette: DitheretteTemplateRecipe = {
+  format: 1,
+  processor: 'ditherette',
+  processorVersion: 1,
+  source: { sha256: 'c'.repeat(64), width: 64, height: 48 },
+  crop: { x: 8, y: 4, width: 40, height: 30 },
+  width: 20,
+  height: 15,
+  palette: [0, 4, 9],
+  engine: 'gpu',
+  ditherette: {
+    version: 2,
+    effects: [{ effect: 'exposure', enabled: true, stops: 0.5 }],
+    output: { width: 20, height: 15, resize: { algorithm: 'area' } },
+    alpha: { mode: 'preserve', threshold: 128 },
+    match: 'oklab-euclidean',
+    dither: {
+      family: 'diffusion',
+      kernel: 'floyd-steinberg',
+      feedback: 'srgb-bytes',
+      strength: 1,
+      serpentine: true,
+      placement: { mode: 'everywhere' },
+    },
+  },
+}
+
+/** Reverse every object's keys, at every depth. */
+const reversed = (value: unknown): unknown =>
+  Array.isArray(value)
+    ? value.map(reversed)
+    : typeof value === 'object' && value !== null
+      ? Object.fromEntries(
+          Object.entries(value)
+            .reverse()
+            .map(([key, item]) => [key, reversed(item)]),
+        )
+      : value
+
+describe('Ditherette recipes', () => {
+  it('round trips through canonical JSON at every depth', async () => {
+    const parsed = parseTemplateRecipe(reversed(ditherette))
+    expect(parsed).toEqual(ditherette)
+    expect(templateRecipeJson(parsed as TemplateRecipe)).toBe(templateRecipeJson(ditherette))
+    expect(await templateRecipeIdentity(parsed as TemplateRecipe)).toBe(
+      await templateRecipeIdentity(ditherette),
+    )
+  })
+
+  it('accepts a recipe made in another realm, as page storage hands a userscript', () => {
+    const foreign: unknown = runInNewContext(`(${JSON.stringify(ditherette)})`)
+    expect(Object.getPrototypeOf(foreign)).not.toBe(Object.prototype)
+    expect(parseTemplateRecipe(foreign)).toEqual(ditherette)
+  })
+
+  it('gives crops and processing settings their own identity', async () => {
+    const changed: readonly DitheretteTemplateRecipe[] = [
+      { ...ditherette, crop: { ...ditherette.crop, x: 9 } },
+      // The engines choose different indices, so the same settings on another engine differ.
+      { ...ditherette, engine: 'cpu' },
+      { ...ditherette, ditherette: { ...ditherette.ditherette, effects: [] } },
+      { ...ditherette, ditherette: { ...ditherette.ditherette, match: 'cielab-ciede2000' } },
+      { ...ditherette, ditherette: { ...ditherette.ditherette, dither: { family: 'none' } } },
+    ]
+    const identities = await Promise.all([ditherette, ...changed].map(templateRecipeIdentity))
+    expect(new Set(identities).size).toBe(identities.length)
+  })
+
+  it('refuses crops outside the source and outputs that disagree with the template', () => {
+    for (const invalid of [
+      { ...ditherette, crop: { ...ditherette.crop, x: 30 } },
+      { ...ditherette, crop: { ...ditherette.crop, width: 0 } },
+      { ...ditherette, crop: undefined },
+      { ...ditherette, colorMetric: 'lab' },
+      { ...ditherette, width: 21 },
+      { ...ditherette, engine: undefined },
+      { ...ditherette, engine: 'webgl' },
+      { ...ditherette, ditherette: { ...ditherette.ditherette, version: 1 } },
+      { ...ditherette, ditherette: { ...ditherette.ditherette, effects: undefined } },
+      { ...ditherette, ditherette: { ...ditherette.ditherette, note: 'x'.repeat(64 * 1024) } },
+      { ...ditherette, ditherette: { ...ditherette.ditherette, alpha: { threshold: Number.NaN } } },
+    ])
+      expect(parseTemplateRecipe(invalid)).toBeNull()
   })
 })
