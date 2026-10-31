@@ -1,5 +1,21 @@
 # @caelestis/userscript
 
+## 0.20.0
+
+### Minor Changes
+
+- b3aad7a: Dither a template in the template studio's Dither window, with every Ditherette algorithm, its strength, Adaptive placement, and serpentine scanning.
+- e1ebd8c: Grade an image in the template studio's Effects window: Levels, Curves, brightness and contrast, exposure, white balance, hue and saturation, and Palette fit, each with an optional mask.
+- 7d0e24c: Choose a template's colours in the template studio's Palette window, from the All, Free, Premium, and Owned presets or one swatch at a time, and how it matches them in the Colour space window.
+- 9ca4b3f: Use the template studio on a phone: its windows share one sheet along the bottom, and tapping the open tab again folds it away to show the map.
+- 610ba28: Compare the source, the graded image, and the template in the template studio's Scopes window: histogram, waveform, parade, vectorscope, and chromaticity.
+- e13ebc8: Make a template from any image in the template studio: crop and scale it in tool windows over the map, drag it into place, and save it, with Ditherette processing on the GPU when it can.
+- 3ca15e8: Undo and redo edits in the template studio, from its bar or with the undo and redo shortcuts.
+
+### Patch Changes
+
+- 0553014: Dragging a template into place by touch no longer pans the map underneath it.
+
 ## 0.19.0
 
 ### Minor Changes
