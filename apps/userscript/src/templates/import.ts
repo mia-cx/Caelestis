@@ -137,8 +137,11 @@ const pngDimensions = async (blob: Blob): Promise<{ width: number; height: numbe
   return { width, height }
 }
 
-/** RGBA for a PNG whose dimensions have already passed the allocation preflight. */
-const decodeToRgba = async (
+/**
+ * RGBA for a PNG, after checking its header against the import budget. Every recipe processor
+ * decodes its source here, so the editor's preview and a later rebuild see the same pixels.
+ */
+export const decodeToRgba = async (
   blob: Blob,
   expectedDimensions?: { width: number; height: number },
 ): Promise<{ width: number; height: number; pixels: Uint8Array }> => {

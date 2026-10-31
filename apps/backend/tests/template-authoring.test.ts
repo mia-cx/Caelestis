@@ -312,8 +312,10 @@ describe('template authoring inputs', () => {
       width: 2,
       height: 1,
       palette: [1, 2],
+      engine: 'cpu',
       ditherette: {
-        version: 1,
+        version: 2,
+        effects: [],
         output: { width: 2, height: 1, resize: { algorithm: 'area' } },
         alpha: { mode: 'preserve', threshold: 128 },
         match: 'oklab-euclidean',

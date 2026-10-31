@@ -1,3 +1,4 @@
+import type { TemplateStudioModel } from '../studio/model.js'
 import type {
   ClaimModeModel,
   NotificationsModel,
@@ -21,12 +22,18 @@ import ShortcutHelpElement from './ShortcutHelp.element.svelte'
 import TagManagerElement from './TagManager.element.svelte'
 import TemplateAdminElement from './TemplateAdmin.element.svelte'
 import TemplateStateElement from './TemplateState.element.svelte'
+import TemplateStudioElement from './TemplateStudio.element.svelte'
 import WorkElement from './Work.element.svelte'
 
 // The userscript bundles this entry as a separate module instance, so it needs its own export.
 export { type IconSet, useIconSet } from '../foundations/icons.svelte.js'
+export { parseStudioLayout } from '../studio/layout.js'
+export type * from '../studio/model.js'
+export type * from '../studio/options.js'
 export type * from '../types.js'
 export type { WorkModel } from '../work/model.js'
+export const TEMPLATE_STUDIO_TAG = 'caelestis-template-studio'
+export type CaelestisTemplateStudio = HTMLElement & { model: TemplateStudioModel }
 export type CaelestisWork = HTMLElement & { model: WorkModel }
 
 export const TEMPLATE_ADMIN_TAG = 'caelestis-template-admin'
@@ -96,6 +103,8 @@ export const CaelestisTagManager =
 export const CaelestisClaimMode = ClaimModeElement.element as ElementConstructor<CaelestisClaimMode>
 export const CaelestisServerDetails =
   ServerDetailsElement.element as ElementConstructor<CaelestisServerDetails>
+export const CaelestisTemplateStudio =
+  TemplateStudioElement.element as ElementConstructor<CaelestisTemplateStudio>
 
 /** Browser-only and idempotent, so both hosts can call it whenever their UI mounts. */
 export const registerCaelestisUi = (): void => {
@@ -113,6 +122,8 @@ export const registerCaelestisUi = (): void => {
     customElements.define(CLAIM_MODE_TAG, CaelestisClaimMode)
   if (customElements.get(SERVER_DETAILS_TAG) === undefined)
     customElements.define(SERVER_DETAILS_TAG, CaelestisServerDetails)
+  if (customElements.get(TEMPLATE_STUDIO_TAG) === undefined)
+    customElements.define(TEMPLATE_STUDIO_TAG, CaelestisTemplateStudio)
   if (customElements.get(TEMPLATE_STATE_TAG) === undefined) {
     customElements.define(TEMPLATE_STATE_TAG, CaelestisTemplateState)
   }
