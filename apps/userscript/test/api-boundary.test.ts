@@ -164,6 +164,57 @@ describe('template authoring through the backend', () => {
       recipe,
     )
   })
+
+  // The template studio saves Ditherette recipes; a field either side drops would lose the edit.
+  it('keeps a template studio recipe, effects and engine included, through a replacement', async () => {
+    await installBackend()
+    const { state, server } = await connect()
+    const { indices, png, source, artwork } = await authored()
+    const recipe: TemplateRecipe = {
+      format: 1,
+      processor: 'ditherette',
+      processorVersion: 1,
+      source: { sha256: await sha256Hex(source), width: 4, height: 2 },
+      crop: { x: 0, y: 0, width: 4, height: 2 },
+      width: 2,
+      height: 1,
+      palette: [1, 2],
+      engine: 'gpu',
+      ditherette: {
+        version: 2,
+        effects: [{ effect: 'exposure', enabled: true, stops: 1.5 }],
+        output: { width: 2, height: 1, resize: { algorithm: 'area' } },
+        alpha: { mode: 'preserve', threshold: 128 },
+        match: 'oklab-euclidean',
+        dither: { family: 'none' },
+      },
+    }
+    const authoring = { source: new Blob([source]), recipe, artwork }
+    const created = await state.uploadTemplate(server, {
+      nodeId: null,
+      name: 'Studio',
+      originX: 10,
+      originY: 20,
+      png,
+      authoring,
+    })
+    if (!created.ok) throw new Error(created.message)
+    const replaced = await state.uploadTemplateVersion(server, created.id, {
+      originX: 10,
+      originY: 20,
+      name: 'Studio',
+      png,
+      authoring,
+    })
+    if (!replaced.ok) throw new Error(replaced.message)
+    expect(await state.patchTemplate(server, created.id, { published: true })).toEqual({ ok: true })
+
+    const reader = await connect(readToken)
+    const { readServerAuthoring } = await import('../src/application/template-authoring.js')
+    expect((await readServerAuthoring(reader.server, replaced.versionId, indices))?.recipe).toEqual(
+      recipe,
+    )
+  })
 })
 
 describe('userscript to backend API boundary', () => {

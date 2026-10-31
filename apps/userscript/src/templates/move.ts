@@ -473,8 +473,18 @@ const onAuxClick = (event: MouseEvent): void => {
   event.preventDefault()
 }
 
+/**
+ * MapLibre pans on touch events, which still arrive after their pointer events were claimed.
+ * While a drag holds the template, they stop here.
+ */
+const onTouch = (event: TouchEvent): void => {
+  if (session?.dragging) event.stopPropagation()
+}
+
 const listen = (on: boolean): void => {
   const method = on ? 'addEventListener' : 'removeEventListener'
+  window[method]('touchstart', onTouch as EventListener, true)
+  window[method]('touchmove', onTouch as EventListener, true)
   // Capture phase: MapLibre's own handlers sit on the canvas container and would otherwise pan the
   // map out from under a drag that was meant for the template.
   window[method]('pointerdown', onPointerDown as EventListener, true)

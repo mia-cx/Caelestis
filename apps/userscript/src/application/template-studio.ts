@@ -2,11 +2,13 @@ import {
   type DitheretteTemplateRecipe,
   MAX_TEMPLATE_SOURCE_BYTES,
   PALETTE_SIZE,
+  type PixelBounds,
   sha256Hex,
   TEMPLATE_PROCESSORS,
   TEMPLATE_RECIPE_FORMAT,
   type TemplateSurface,
   TRANSPARENT_INDEX,
+  templateSurfaceBounds,
   uuidV7,
   WORLD_PIXELS,
   WPLACE_PALETTE,
@@ -23,6 +25,7 @@ import {
 } from '@caelestis/ui/elements'
 import { cancelSurfaceClose, closeSurface, openSurface } from '@caelestis/ui/motion'
 import type { Curve, Effect, PaletteFitEffect } from 'ditherette'
+import { allianceSurfaceCentre } from '../alliance-surface.js'
 import { warn } from '../debug.js'
 import { viewportCentre } from '../main.js'
 import { getState, setState } from '../state.js'
@@ -134,6 +137,8 @@ let analysingFit: string | null = null
 let scopeStages: readonly ScopeStage[] = ['source', 'output']
 let scopeSamples: Partial<Record<ScopeStage, Samples>> = {}
 let scopesPending = false
+/** Whether the Scopes window is on screen, as the element reports it. */
+let scopesShown = false
 let scopeTicket = 0
 let origin = { x: 0, y: 0 }
 let palette: readonly number[] = []
@@ -148,6 +153,42 @@ let pending = false
 let message: string | undefined
 let settleTimer: ReturnType<typeof setTimeout> | null = null
 let job: AbortController | null = null
+
+/** Everything an edit changes, as undo puts it back. */
+interface Edit {
+  readonly name: string
+  readonly crop: StudioRect
+  readonly settings: StudioSettings
+  readonly effectLayers: readonly EffectLayer[]
+  readonly palette: readonly number[]
+  readonly paletteChosen: boolean
+  readonly origin: { readonly x: number; readonly y: number }
+}
+
+/** Intents that change what Save would produce. */
+const EDITS = new Set<TemplateStudioIntent['type']>([
+  'name',
+  'crop',
+  'reset-crop',
+  'scale',
+  'size',
+  'resize',
+  'anchor',
+  'scope',
+  'colour',
+  'alpha',
+  'color-space',
+  'dither',
+  'effects',
+  'origin',
+  'centre',
+])
+/** Edits of one kind closer together than this, like a slider or placement drag, undo as one. */
+const EDIT_BURST_MS = 600
+const MAX_HISTORY = 100
+let undoStack: readonly Edit[] = []
+let redoStack: readonly Edit[] = []
+let lastEdit = { kind: '', at: 0 }
 
 function initialSettings(): StudioSettings {
   return {
@@ -230,6 +271,7 @@ export const templateStudioModel = (): TemplateStudioModel => ({
   scopes: { stages: scopeStages, samples: scopeSamples, pending: scopesPending },
   engine,
   processing,
+  history: { undo: undoStack.length > 0, redo: redoStack.length > 0 },
   pending,
   ...(message === undefined ? {} : { message }),
   layout: getState().studioLayout,
@@ -329,23 +371,23 @@ const process = async (): Promise<void> => {
     showDraft(processed)
     void refreshScopes()
   } catch (error) {
-    if (job !== controller || controller.signal.aborted) return
+    // A newer run replaced this one. A draft that would not draw after this run finished still
+    // reports, rather than leaving the author with a result that never appears.
+    if (controller.signal.aborted || (job !== null && job !== controller)) return
     job = null
     processing = { state: 'failed', message: `Could not process this image: ${reason(error)}.` }
   }
   render()
 }
 
-/* Scopes: samples of the stages the Scopes window shows, taken while it is open. */
-
-const scopesOpen = (): boolean => getState().studioLayout.scopes?.open === true
+/* Scopes: samples of the stages the Scopes window shows, taken while it is on screen. */
 
 /** Sample each shown stage of the current result; a newer refresh drops an older one's samples. */
 const refreshScopes = async (): Promise<void> => {
   const ticket = ++scopeTicket
   const loaded = source
   const result = processed
-  if (!scopesOpen() || loaded === null || result === null) {
+  if (!scopesShown || loaded === null || result === null) {
     scopeSamples = {}
     scopesPending = false
     return
@@ -372,7 +414,8 @@ const refreshScopes = async (): Promise<void> => {
   }
   if (ticket !== scopeTicket) return
   scopeSamples = samples
-  scopesPending = false
+  // Samples of an older result stay marked stale while newer settings process.
+  scopesPending = processed !== result || processing.state === 'working'
   render()
 }
 
@@ -463,20 +506,22 @@ const loadSource = async (blob: Blob, sourceName: string, ticket = beginLoad()):
       crop = cropToAspect(decoded.width, decoded.height, target.width / target.height)
       setOutput({ width: target.width, height: target.height })
     } else {
-      // A new image starts at identity scale, centred in view.
+      // A new image starts at identity scale, or as large as an alliance canvas takes, centred in view.
       crop = { x: 0, y: 0, width: decoded.width, height: decoded.height }
-      setOutput({ width: decoded.width, height: decoded.height })
-      const centre = viewportCentre()
+      setScale(1)
+      const centre = surfaceCentre()
       if (centre !== null)
         origin = {
-          x: Math.round(centre.x - decoded.width / 2),
-          y: Math.round(centre.y - decoded.height / 2),
+          x: Math.round(centre.x - settings.output.width / 2),
+          y: Math.round(centre.y - settings.output.height / 2),
         }
       if (name === '')
         name = sourceName.replace(/\.[^.]+$/, '').slice(0, MAX_TEMPLATE_NAME_LENGTH) || 'Image'
     }
     processed = null
     loadingSource = false
+    // Earlier edits belong to the earlier image.
+    forgetHistory()
     await process()
   } catch (error) {
     if (ticket !== sourceTicket) return
@@ -557,24 +602,47 @@ const onPaste = (event: ClipboardEvent): void => {
 
 /* Placement and size. */
 
-/** World placements stay on the canvas; other surfaces are bounded by the placement engine. */
+const WORLD_BOUNDS = { minX: 0, minY: 0, maxX: WORLD_PIXELS, maxY: WORLD_PIXELS }
+
+/** Where the target surface takes templates: the world canvas, or an alliance canvas. */
+const surfaceBounds = (): PixelBounds =>
+  (target === null ? null : templateSurfaceBounds(target.surface)) ?? WORLD_BOUNDS
+
+/** The middle of what the author sees of the target surface: the map view, or the alliance canvas. */
+const surfaceCentre = (): { x: number; y: number } | null => {
+  if (target === null) return null
+  return target.surface.kind === 'world' ? viewportCentre() : allianceSurfaceCentre(target.surface)
+}
+
+/** Placements stay on their surface. */
 const clampOrigin = (): void => {
-  if (target === null || target.surface.kind !== 'world') return
+  const bounds = surfaceBounds()
   origin = {
-    x: Math.min(Math.max(0, origin.x), WORLD_PIXELS - settings.output.width),
-    y: Math.min(Math.max(0, origin.y), WORLD_PIXELS - settings.output.height),
+    x: Math.min(Math.max(bounds.minX, origin.x), bounds.maxX - settings.output.width),
+    y: Math.min(Math.max(bounds.minY, origin.y), bounds.maxY - settings.output.height),
   }
 }
 
+/**
+ * Move the draft. The origin is clamped to the current output size, so artwork of another size,
+ * still showing while the new size processes, waits for its replacement rather than being drawn
+ * where it may not fit.
+ */
 const setOrigin = (x: number, y: number): void => {
   origin = { x: Math.round(x), y: Math.round(y) }
   clampOrigin()
-  if (processed !== null) showDraft(processed)
+  const { width, height } = settings.output
+  if (processed?.recipe.width === width && processed.recipe.height === height) showDraft(processed)
 }
 
-/** Scale the crop, keeping its proportions and fitting the canvas. */
+/** Scale the crop, keeping its proportions and fitting the target surface. */
 const setScale = (scale: number): void => {
-  const fit = Math.min(scale, WORLD_PIXELS / Math.max(crop.width, crop.height))
+  const bounds = surfaceBounds()
+  const fit = Math.min(
+    scale,
+    (bounds.maxX - bounds.minX) / crop.width,
+    (bounds.maxY - bounds.minY) / crop.height,
+  )
   setOutput({
     width: Math.max(1, Math.round(crop.width * fit)),
     height: Math.max(1, Math.round(crop.height * fit)),
@@ -698,9 +766,23 @@ const resolveFits = async (
   return resolved
 }
 
+/** Everything a fit layer's analysis reads, as `fitCurves` keys it, to tell when it went stale. */
+const fitInputs = (loaded: Source, id: string): string => {
+  const index = effectLayers.findIndex((layer) => layer.id === id)
+  const step = effectLayers[index]?.step
+  if (step?.effect !== 'palette-fit') return ''
+  const recipe = currentRecipe(loaded)
+  const before = effectLayers
+    .slice(0, index)
+    .filter((layer) => layer.step.enabled)
+    .map((layer) => layer.step)
+  return JSON.stringify([recipe.crop, recipe.palette, before, step.look, step.space])
+}
+
 /**
  * Resolve a palette fit's curves into its step, as the image reaching it would analyse now, so
- * the author can edit them. Edited curves stay put until Reset.
+ * the author can edit them. Edited curves stay put until Reset. An edit to what the analysis
+ * reads, made while it runs, starts it again rather than locking in curves for the old inputs.
  */
 const analyseLayerFit = async (id: string): Promise<void> => {
   const loaded = source
@@ -709,7 +791,9 @@ const analyseLayerFit = async (id: string): Promise<void> => {
   if (loaded === null || step?.effect !== 'palette-fit' || analysingFit !== null) return
   analysingFit = id
   render()
+  let stale = false
   try {
+    const inputs = fitInputs(loaded, id)
     const recipe = currentRecipe(loaded)
     const before = effectLayers
       .slice(0, index)
@@ -719,6 +803,8 @@ const analyseLayerFit = async (id: string): Promise<void> => {
     const current = effectLayers.find((layer) => layer.id === id)
     if (source !== loaded || current?.step.effect !== 'palette-fit' || current.step.curves !== null)
       return
+    stale = fitInputs(loaded, id) !== inputs
+    if (stale) return
     setEffects(
       effectLayers.map((layer) =>
         layer.id === id ? { ...layer, step: { ...current.step, curves } } : layer,
@@ -731,18 +817,85 @@ const analyseLayerFit = async (id: string): Promise<void> => {
   } finally {
     analysingFit = null
     render()
+    if (stale) void analyseLayerFit(id)
   }
 }
 
 /* Intents. */
 
+/* History. */
+
+const currentEdit = (): Edit => ({
+  name,
+  crop,
+  settings,
+  effectLayers,
+  palette,
+  paletteChosen,
+  origin,
+})
+
+const sameEdit = (left: Edit, right: Edit): boolean =>
+  (Object.keys(left) as (keyof Edit)[]).every((key) =>
+    key === 'origin'
+      ? left.origin.x === right.origin.x && left.origin.y === right.origin.y
+      : left[key] === right[key],
+  )
+
+/** Remember the settings from `before` an edit of `kind`. A burst of one kind is one step. */
+const remember = (kind: string, before: Edit): void => {
+  if (sameEdit(before, currentEdit())) return
+  const now = performance.now()
+  const burst = kind === lastEdit.kind && now - lastEdit.at < EDIT_BURST_MS
+  lastEdit = { kind, at: now }
+  redoStack = []
+  if (!burst) undoStack = [...undoStack, before].slice(-MAX_HISTORY)
+}
+
+const forgetHistory = (): void => {
+  undoStack = []
+  redoStack = []
+  lastEdit = { kind: '', at: 0 }
+}
+
+/** Step back, or forward again, one edit. */
+const travel = (direction: 'undo' | 'redo'): void => {
+  const edit = (direction === 'undo' ? undoStack : redoStack).at(-1)
+  if (edit === undefined) return
+  const here = currentEdit()
+  if (direction === 'undo') {
+    undoStack = undoStack.slice(0, -1)
+    redoStack = [...redoStack, here]
+  } else {
+    redoStack = redoStack.slice(0, -1)
+    undoStack = [...undoStack, here]
+  }
+  // The next edit starts its own step rather than joining the one just undone.
+  lastEdit = { kind: '', at: 0 }
+  name = edit.name
+  crop = edit.crop
+  settings = edit.settings
+  effectLayers = edit.effectLayers
+  palette = edit.palette
+  paletteChosen = edit.paletteChosen
+  setOrigin(edit.origin.x, edit.origin.y)
+  if (edit.crop !== here.crop || edit.settings !== here.settings || edit.palette !== here.palette)
+    reprocess()
+}
+
 /** Apply one intent from the element. */
 export const handleTemplateStudioIntent = (intent: TemplateStudioIntent): void => {
+  // Heard even while closed: a studio reopened mid-close keeps its element, and its windows.
+  if (intent.type === 'scopes-shown') {
+    if (intent.shown === scopesShown) return
+    scopesShown = intent.shown
+    void refreshScopes()
+    render()
+    return
+  }
   if (target === null) return
   if (intent.type === 'layout') {
-    const opening = !scopesOpen() && intent.layout.scopes?.open === true
     setState({ studioLayout: intent.layout })
-    if (opening) void refreshScopes()
     render()
     return
   }
@@ -755,7 +908,12 @@ export const handleTemplateStudioIntent = (intent: TemplateStudioIntent): void =
   if (pending) return
   message = undefined
   const locked = target.kind === 'replace'
+  const before = EDITS.has(intent.type) ? currentEdit() : null
   switch (intent.type) {
+    case 'undo':
+    case 'redo':
+      travel(intent.type)
+      break
     case 'name':
       name = intent.name.slice(0, MAX_TEMPLATE_NAME_LENGTH)
       break
@@ -832,7 +990,7 @@ export const handleTemplateStudioIntent = (intent: TemplateStudioIntent): void =
       setOrigin(intent.x, intent.y)
       break
     case 'centre': {
-      const centre = viewportCentre()
+      const centre = surfaceCentre()
       if (centre !== null)
         setOrigin(centre.x - settings.output.width / 2, centre.y - settings.output.height / 2)
       break
@@ -844,6 +1002,7 @@ export const handleTemplateStudioIntent = (intent: TemplateStudioIntent): void =
       closeTemplateStudio()
       return
   }
+  if (before !== null) remember(intent.type, before)
   render()
 }
 
@@ -854,6 +1013,8 @@ const save = async (): Promise<void> => {
   const result = processed
   const loaded = source
   if (current === null || result === null || loaded === null || pending || job !== null) return
+  // A new image still loading would replace this result, so saving waits for it.
+  if (loadingSource) return
   if (result.opaque === 0 || name.trim() === '') return
   if (current.kind === 'replace') {
     const confirmed = await confirmDestructive({
@@ -924,6 +1085,7 @@ const reset = (): void => {
   scopesPending = false
   pending = false
   message = undefined
+  forgetHistory()
 }
 
 /** Discard the draft and every setting. Nothing was written, so nothing is undone. */
@@ -1013,18 +1175,22 @@ export const openTemplateStudio = (
   )
   if (
     !beginDraftPlacement((x, y) => {
+      const before = currentEdit()
       origin = { x, y }
+      remember('origin', before)
       render()
     })
   )
     warn('install', 'the template studio could not take placement')
   void loadAccount().then(() => {
+    if (target !== next) return
     // Owned colours arrive after the studio opens; follow them until the author picks colours.
-    if (target !== next || paletteChosen) return
     const owned = presetColours('owned')
-    if (sameColours(owned, palette)) return
-    setPalette(owned)
-    reprocess()
+    if (!paletteChosen && !sameColours(owned, palette)) {
+      setPalette(owned)
+      reprocess()
+    }
+    // Owned becomes available either way.
     render()
   })
   void ditheretteAvailable().then((available) => {

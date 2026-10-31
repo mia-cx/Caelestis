@@ -1,3 +1,4 @@
+import { runInNewContext } from 'node:vm'
 import { describe, expect, it } from 'vitest'
 import {
   type DitheretteTemplateRecipe,
@@ -121,6 +122,12 @@ describe('Ditherette recipes', () => {
     expect(await templateRecipeIdentity(parsed as TemplateRecipe)).toBe(
       await templateRecipeIdentity(ditherette),
     )
+  })
+
+  it('accepts a recipe made in another realm, as page storage hands a userscript', () => {
+    const foreign: unknown = runInNewContext(`(${JSON.stringify(ditherette)})`)
+    expect(Object.getPrototypeOf(foreign)).not.toBe(Object.prototype)
+    expect(parseTemplateRecipe(foreign)).toEqual(ditherette)
   })
 
   it('gives crops and processing settings their own identity', async () => {

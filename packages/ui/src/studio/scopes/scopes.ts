@@ -280,13 +280,19 @@ export const paint = (width: number, height: number, layers: readonly Layer[]): 
       const glow = strength * (1 - Math.exp(-value / scale))
       const at = cell * 3
       // A colourised layer lifts each cell's average colour to full brightness, so dark
-      // samples still show their hue; density alone sets how bright it glows.
-      const lift = perCell
-        ? 255 / (Math.max(read(colour, at), read(colour, at + 1), read(colour, at + 2)) || 1)
-        : 1
-      for (let channel = 0; channel < 3; channel++)
-        light[at + channel] =
-          read(light, at + channel) + read(colour, perCell ? at + channel : channel) * lift * glow
+      // samples still show their hue; black has none, so it glows white like the other
+      // greys. Density alone sets how bright it glows.
+      const peak = perCell
+        ? Math.max(read(colour, at), read(colour, at + 1), read(colour, at + 2))
+        : 0
+      for (let channel = 0; channel < 3; channel++) {
+        const tone = !perCell
+          ? read(colour, channel)
+          : peak === 0
+            ? 255
+            : (read(colour, at + channel) * 255) / peak
+        light[at + channel] = read(light, at + channel) + tone * glow
+      }
     }
   }
   // Opaque, on black: the scope's screen.

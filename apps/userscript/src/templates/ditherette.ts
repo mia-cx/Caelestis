@@ -22,10 +22,10 @@ export type { DitheretteArtwork } from './ditherette-process.js'
 /**
  * Running Ditherette recipes off the page's thread, on the recipe's engine.
  *
- * One job runs at a time, and the studio only ever wants the latest settings. A newer job, or an
- * abort, cancels a GPU run in place, so the worker keeps its device. A CPU run is a synchronous
- * call that cannot stop halfway, so it terminates the worker; a fresh one starts from the
- * already-compiled modules.
+ * Jobs run one at a time, in the order they arrive, so an import or a restore never cancels the
+ * studio's job or another's. Only a job's own signal stops it. An abort cancels a GPU run in
+ * place, so the worker keeps its device. A CPU run is a synchronous call that cannot stop halfway,
+ * so it terminates the worker; a fresh one starts from the already-compiled modules.
  *
  * Without workers the same code runs in the page, which blocks during CPU runs but still produces
  * the same artwork.
@@ -78,7 +78,7 @@ const compileModules = (): Promise<Modules> => {
   return compiled
 }
 
-const aborted = (): DOMException => new DOMException('Processing was replaced.', 'AbortError')
+const aborted = (): DOMException => new DOMException('Processing was cancelled.', 'AbortError')
 
 /** Analyses and samples waiting on the worker, by request id. Each reads its own reply. */
 const pendingAnswers = new Map<
@@ -126,7 +126,7 @@ const startHost = (modules: Modules): Host => {
     URL.revokeObjectURL(url)
   }
   let isReady = false
-  let ready: (value: void) => void = () => {}
+  let ready: () => void = () => {}
   let failed: (error: Error) => void = () => {}
   const started: Host = {
     worker,
@@ -225,17 +225,25 @@ const runInPage = async (current: Running): Promise<void> => {
 const canUseWorkers = (): boolean =>
   !workersFailed && workerSource !== '' && typeof Worker === 'function'
 
+/** Settles once every job queued so far has. */
+let queue: Promise<unknown> = Promise.resolve()
+
 /**
  * Run one recipe on its engine, or on the CPU where a GPU recipe meets no GPU; the artwork names
- * the engine that ran. A newer job, or `signal`, rejects this one with an AbortError.
+ * the engine that ran. It starts once earlier jobs finish. `signal` rejects it with an AbortError.
  */
-export const runDitherette = (job: DitheretteJob): Promise<DitheretteArtwork> =>
+export const runDitherette = (job: DitheretteJob): Promise<DitheretteArtwork> => {
+  const turn = queue.then(() => start(job))
+  queue = turn.catch(() => {})
+  return turn
+}
+
+const start = (job: DitheretteJob): Promise<DitheretteArtwork> =>
   new Promise<DitheretteArtwork>((resolve, reject) => {
     if (job.signal?.aborted) {
       reject(aborted())
       return
     }
-    stopRunning()
     const current: Running = { id: ++jobs, job, resolve, reject, engine: null }
     running = current
     job.signal?.addEventListener(
@@ -274,19 +282,36 @@ type Question =
   | { readonly type: 'sample-effects'; readonly recipe: DitheretteTemplateRecipe }
 
 /**
+ * The started worker, or null where there is none to ask. A page that refuses blob workers falls
+ * back to running everything in the page from then on, as `runDitherette` does.
+ */
+const readyHost = async (): Promise<Host | null> => {
+  if (!canUseWorkers()) return null
+  const modules = await compileModules()
+  try {
+    host ??= startHost(modules)
+    const target = host
+    await target.ready
+    return target
+  } catch (error) {
+    warn('install', 'Ditherette worker unavailable; processing in the page', String(error))
+    workersFailed = true
+    stopHost()
+    return null
+  }
+}
+
+/**
  * Ask the worker one question about `source`, after any job ahead of it. `read` takes the answer
  * from its reply, or nothing from a reply of another kind. A CPU run replaced before it finishes
  * takes the worker, and the question, with it.
  */
 const ask = async <T>(
+  target: Host,
   source: Source,
   question: Question,
   read: (reply: DitheretteWorkerReply) => T | undefined,
 ): Promise<T> => {
-  const modules = await compileModules()
-  host ??= startHost(modules)
-  const target = host
-  await target.ready
   const id = ++jobs
   const sendSource = target.sourceKey !== source.key
   target.sourceKey = source.key
@@ -313,9 +338,10 @@ export const analyseFit = async (job: {
   readonly analysis: FitAnalysis
   readonly source: Source
 }): Promise<Curve[]> => {
-  if (!canUseWorkers())
+  const target = await readyHost()
+  if (target === null)
     return analysePaletteFit(await (await pageProcessors()).cpu(), job.source.image, job.analysis)
-  return await ask(job.source, { type: 'analyse-fit', analysis: job.analysis }, (reply) =>
+  return await ask(target, job.source, { type: 'analyse-fit', analysis: job.analysis }, (reply) =>
     reply.type === 'fit' ? reply.curves : undefined,
   )
 }
@@ -325,11 +351,12 @@ export const sampleEffects = async (job: {
   readonly recipe: DitheretteTemplateRecipe
   readonly source: Source
 }): Promise<Samples> => {
-  if (!canUseWorkers()) {
+  const target = await readyHost()
+  if (target === null) {
     const processor = await (await pageProcessors()).forEngine(job.recipe.engine)
     return sampleRgba(await applyRecipeEffects(processor, job.source.image, job.recipe))
   }
-  return await ask(job.source, { type: 'sample-effects', recipe: job.recipe }, (reply) =>
+  return await ask(target, job.source, { type: 'sample-effects', recipe: job.recipe }, (reply) =>
     reply.type === 'samples' ? reply.samples : undefined,
   )
 }

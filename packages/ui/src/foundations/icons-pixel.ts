@@ -51,6 +51,7 @@ import pencil from '@iconify-icons/pixelarticons/pencil'
 import play from '@iconify-icons/pixelarticons/play'
 import plus from '@iconify-icons/pixelarticons/plus'
 import pointer from '@iconify-icons/pixelarticons/pointer'
+import redo from '@iconify-icons/pixelarticons/redo'
 import reload from '@iconify-icons/pixelarticons/reload'
 import search from '@iconify-icons/pixelarticons/search'
 import server from '@iconify-icons/pixelarticons/server'
@@ -66,6 +67,7 @@ import star from '@iconify-icons/pixelarticons/star'
 import sun from '@iconify-icons/pixelarticons/sun'
 import tangent from '@iconify-icons/pixelarticons/tangent'
 import trash from '@iconify-icons/pixelarticons/trash'
+import undo from '@iconify-icons/pixelarticons/undo'
 import upload from '@iconify-icons/pixelarticons/upload'
 import users from '@iconify-icons/pixelarticons/users'
 import type { IconData, IconName } from './icons-material.js'
@@ -129,6 +131,7 @@ export const PIXEL_ICONS: Readonly<Record<IconName, IconData>> = define({
   pause,
   play,
   popout: externalLink,
+  redo,
   remove: minus,
   rename: edit,
   reset: reload,
@@ -143,6 +146,7 @@ export const PIXEL_ICONS: Readonly<Record<IconName, IconData>> = define({
   trash,
   treeView: gitBranch,
   tune: sliders,
+  undo,
   unfoldMore: chevronsVertical,
   uploadFile: upload,
   warning: alert,

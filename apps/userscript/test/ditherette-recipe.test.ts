@@ -90,6 +90,17 @@ describe('Ditherette recipes', () => {
     expect(transparent(processed.indices)).toBe(transparent(room.indices))
   })
 
+  it('finishes recipes started together, such as an import during a restore', async () => {
+    const { room, source, sha256 } = await prologue()
+    const crop = { x: 7, y: 5, width: 40, height: 30 }
+    const [whole, cropped] = await Promise.all([
+      processRecipe(source, recipeFor(room, sha256), origin),
+      processRecipe(source, recipeFor(room, sha256, { crop }), origin),
+    ])
+    expect(firstDifference(whole.indices, room.indices)).toBe(-1)
+    expect(cropped.indices).toHaveLength(crop.width * crop.height)
+  })
+
   it('scales to the recipe size', async () => {
     const { room, source, sha256 } = await prologue()
     const width = Math.ceil(room.width / 2)

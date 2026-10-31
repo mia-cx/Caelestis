@@ -17,18 +17,24 @@ published `ditherette` package, on the GPU when the browser has one, off the UI 
 - Selection dropdowns are plain lists of names. No preview canvases inside menus.
 - Ditherette is the published npm package. The userscript build inlines its WASM and its GPU glue,
   which the package otherwise finds through `import.meta.url`.
+- Where both window columns do not fit side by side (43rem and narrower), the windows share one
+  sheet along the bottom, one window at a time; tapping the open tab folds the sheet to uncover the
+  map.
+- Undo and redo cover every edit to the result, a burst of one kind (a slider drag) as one step.
+  They use Caelestis's undo and redo shortcuts while the studio is open. A new image starts a fresh
+  history.
 - Built on `feat/template-studio`, one PR per slice merged into it, then one root PR to `main`.
 
 ## Windows
 | Window | Ditherette web source | Contents |
 | --- | --- | --- |
-| Studio bar | AppBar, ExportStrip | Name, status, Original toggle, Windows menu, Cancel, Save, Replace |
+| Studio bar | AppBar, ExportStrip | Name, status, undo, redo, Original toggle, Windows menu, Cancel, Save, Replace |
 | Source | (new) | File, clipboard, URL; crop |
 | Dimensions | OutputPanel | Output size, lock ratio, resize filter, anchor |
 | Palette | PalettePanel (no custom palettes) | Scopes, swatch toggles, counts |
 | Colour space | ColorSpacePanel | Matching space |
 | Dither | DitherPanel, DitherAlgorithmSelect, AdaptivePlacementControls | Algorithm, strength, serpentine, placement |
-| Effects | PipelinePanel, EffectControls, effects/* | Ordered effect layers, one window per layer, masks |
+| Effects | PipelinePanel, EffectControls, effects/* | Ordered effect layers above the selected layer's controls and mask |
 | Scopes | ScopesPanel, scopes/* | Histogram, waveform, vectorscope, chromaticity |
 
 ## Slices
@@ -43,17 +49,24 @@ published `ditherette` package, on the GPU when the browser has one, off the UI 
    coverage, changesets.
 
 ## Acceptance criteria
-- [ ] File, clipboard, and URL inputs all enter the same editor state.
-- [ ] A new image starts at identity scale and can be cropped, transformed, and placed against the live canvas.
-- [ ] Crop, palette, quantisation, dither, placement, and preview remain editable in one view.
-- [ ] The default palette contains the current account's unlocked colours, with All, Free, Premium, and Owned presets.
-- [ ] Ditherette is consumed only through its published typed npm/WASM entrypoint.
-- [ ] Processing does not freeze ordinary map and editor interaction.
-- [ ] The author can save as a new local or server template, subject to the destination's existing permissions.
-- [ ] Replace template is a separate explicit action that creates a new server version and preserves authorship and version history.
-- [ ] Cancel and failed processing leave existing templates untouched.
-- [ ] The Berrycamp Celeste fixtures cover crop, palette, processing, placement, create, and replace paths in tests.
-- [ ] The editor works with pointer, touch, and keyboard input at the same responsive widths as the current userscript UI.
+- [x] File, clipboard, and URL inputs all enter the same editor state.
+- [x] A new image starts at identity scale and can be cropped, transformed, and placed against the live canvas.
+- [x] Crop, palette, quantisation, dither, placement, and preview remain editable in one view.
+- [x] The default palette contains the current account's unlocked colours, with All, Free, Premium, and Owned presets.
+- [x] Ditherette is consumed only through its published typed npm/WASM entrypoint.
+- [x] Processing does not freeze ordinary map and editor interaction.
+- [x] The author can save as a new local or server template, subject to the destination's existing permissions.
+- [x] Replace template is a separate explicit action that creates a new server version and preserves authorship and version history.
+- [x] Cancel and failed processing leave existing templates untouched.
+- [x] The Berrycamp Celeste fixtures cover crop, palette, processing, placement, create, and replace paths in tests.
+- [x] The editor works with pointer, touch, and keyboard input at the same responsive widths as the current userscript UI.
+
+## Open
+- The Original toggle: needs a draft renderer for RGBA pixels.
+- Ditherette web extras not yet ported: the curve eyedropper, the curves backdrop grid, Show mask.
+- A locked palette fit keeps its curves when the image or crop changes; Ditherette web re-analyses.
+- Without Ditherette (no WebAssembly) the studio cannot process; a nearest-colour fallback is possible.
+- The userscript grows by about 4.5 MB with Ditherette's WASM inlined.
 
 ## Notes
 - Wplace's CSP allows `blob:` scripts and `wasm-unsafe-eval`, and sets no connect-src. WebGPU works

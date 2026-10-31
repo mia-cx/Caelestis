@@ -146,6 +146,8 @@ export interface TemplateStudioModel {
     | { readonly state: 'working'; readonly progress: number | null }
     | { readonly state: 'ready'; readonly pixels: number; readonly colours: number }
     | { readonly state: 'failed'; readonly message: string }
+  /** Whether there are edits to step back or forward through. A new image starts a fresh history. */
+  readonly history: { readonly undo: boolean; readonly redo: boolean }
   /** Saving. Every control waits for it. */
   readonly pending: boolean
   readonly message?: string
@@ -173,8 +175,12 @@ export type TemplateStudioIntent =
   /** Resolve a palette-fit layer's curves into its step, so they can be edited. */
   | { readonly type: 'analyse-fit'; readonly layer: string }
   | { readonly type: 'scope-stages'; readonly stages: readonly ScopeStage[] }
+  /** The Scopes window came on or off screen, as a window or a phone sheet; it samples while on. */
+  | { readonly type: 'scopes-shown'; readonly shown: boolean }
   | { readonly type: 'origin'; readonly x: number; readonly y: number }
   | { readonly type: 'centre' }
   | { readonly type: 'layout'; readonly layout: StudioLayout }
+  | { readonly type: 'undo' }
+  | { readonly type: 'redo' }
   | { readonly type: 'save' }
   | { readonly type: 'cancel' }

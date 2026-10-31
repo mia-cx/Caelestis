@@ -66,6 +66,21 @@
   )
   const titleOf = (id: StudioWindowId): string => STUDIO_WINDOWS.find((window) => window.id === id)?.title ?? id
 
+  /* Too narrow for both columns side by side (two 18rem windows clear of Wplace's controls): one
+     sheet along the bottom shows a window at a time; tapping its tab again folds the sheet away to
+     uncover the map. */
+  const PHONE = '(max-width: 43rem)'
+  let phone = $state(typeof matchMedia === 'function' && matchMedia(PHONE).matches)
+  $effect(() => {
+    const query = matchMedia(PHONE)
+    const update = (): void => { phone = query.matches }
+    query.addEventListener('change', update)
+    return () => query.removeEventListener('change', update)
+  })
+  const uid = $props.id()
+  let sheet = $state<StudioWindowId | null>('source')
+  const pickSheet = (id: StudioWindowId): void => { sheet = sheet === id ? null : id }
+
   /* Windows menu. */
   let menuOpen = $state(false)
   const onWindowKeydown = (event: KeyboardEvent): void => {
@@ -97,7 +112,7 @@
     }
   })
   const canSave = $derived(
-    !model.pending && model.processing.state === 'ready' && model.processing.pixels > 0 && model.name.trim() !== '',
+    !model.pending && !model.loadingSource && model.processing.state === 'ready' && model.processing.pixels > 0 && model.name.trim() !== '',
   )
 </script>
 
@@ -151,7 +166,15 @@
     <p class="status" class:failed={model.processing.state === 'failed' || model.message !== undefined} aria-live="polite">
       {status}{#if model.engine !== null && model.source !== null}<span class="engine">{model.engine === 'gpu' ? 'GPU' : 'CPU'}</span>{/if}
     </p>
-    <div class="windows">
+    <div class="history">
+      <Button label="Undo" title="Undo" kind="ghost" size="compact" iconOnly disabled={model.pending || !model.history.undo} onclick={() => onIntent({ type: 'undo' })}>
+        <Icon name="undo" />
+      </Button>
+      <Button label="Redo" title="Redo" kind="ghost" size="compact" iconOnly disabled={model.pending || !model.history.redo} onclick={() => onIntent({ type: 'redo' })}>
+        <Icon name="redo" />
+      </Button>
+    </div>
+    <div class="windows" hidden={phone}>
       <Button label="Windows" title="Windows" kind="ghost" size="compact" iconOnly popup="menu" pressed={menuOpen} onclick={() => (menuOpen = !menuOpen)}>
         <Icon name="gridView" />
       </Button>
@@ -179,23 +202,43 @@
     </div>
   </div>
 
-  {#each ['start', 'end'] as const as side (side)}
-    <div class="column {side}">
-      {#each columns[side] as id (id)}{@render frame(id)}{/each}
-    </div>
-  {/each}
-
-  {#each floating as id (id)}
-    {@const placement = placementOf(layout, id)}
-    {#if placement.dock === null}
-      <div class="float" style:inset-inline-start={placement.edge === 'start' ? `${placement.x}px` : 'auto'} style:inset-inline-end={placement.edge === 'end' ? `${placement.x}px` : 'auto'} style:inset-block-start="{placement.y}px">
-        {@render frame(id)}
+  {#if phone}
+    <div class="sheet caelestis-panel-surface">
+      <div class="tabs" role="tablist" aria-label="Windows">
+        {#each STUDIO_WINDOWS as window (window.id)}
+          <button
+            type="button"
+            role="tab"
+            id="{uid}-tab-{window.id}"
+            aria-selected={sheet === window.id}
+            aria-controls="{uid}-sheet"
+            onclick={() => pickSheet(window.id)}
+          >{window.title}</button>
+        {/each}
       </div>
-    {/if}
-  {/each}
+      {#if sheet !== null}
+        <div class="sheet-body" id="{uid}-sheet" role="tabpanel" aria-labelledby="{uid}-tab-{sheet}">{@render contents(sheet)}</div>
+      {/if}
+    </div>
+  {:else}
+    {#each ['start', 'end'] as const as side (side)}
+      <div class="column {side}">
+        {#each columns[side] as id (id)}{@render frame(id)}{/each}
+      </div>
+    {/each}
 
-  {#if drag !== null}
-    <div class="float dragged" style:left="{drag.x}px" style:top="{drag.y}px">{@render frame(drag.id)}</div>
+    {#each floating as id (id)}
+      {@const placement = placementOf(layout, id)}
+      {#if placement.dock === null}
+        <div class="float" style:--float-x="{placement.x}px" style:--float-y="{placement.y}px" style:inset-inline-start={placement.edge === 'start' ? 'var(--float-inset)' : 'auto'} style:inset-inline-end={placement.edge === 'end' ? 'var(--float-inset)' : 'auto'}>
+          {@render frame(id)}
+        </div>
+      {/if}
+    {/each}
+
+    {#if drag !== null}
+      <div class="float dragged" style:left="{drag.x}px" style:top="{drag.y}px">{@render frame(drag.id)}</div>
+    {/if}
   {/if}
 </div>
 
@@ -262,6 +305,7 @@
     font-size: 0.6875rem;
     font-weight: 600;
   }
+  .history { display: flex; flex: 0 0 auto; }
   .windows { position: relative; flex: 0 0 auto; }
   .menu { position: absolute; inset-block-start: calc(100% + 6px); inset-inline-end: 0; z-index: 2; display: flex; flex-direction: column; min-inline-size: 11rem; }
   .menu button { display: flex; align-items: center; gap: 0.4rem; }
@@ -280,13 +324,59 @@
   .column.start { inset-inline-start: var(--studio-start); }
   .column.end { inset-inline-end: var(--studio-end); }
   .slot { display: flex; flex: 0 0 auto; min-block-size: 0; }
-  .float { position: absolute; max-block-size: calc(100dvh - var(--studio-top) - var(--studio-bottom)); }
+  /* A saved place from a larger screen is pulled back in: the whole width stays on screen, and
+     at least the title bar above Wplace's bottom controls. */
+  .float {
+    --float-inset: min(var(--float-x), calc(100vw - var(--studio-window-width)));
+    position: absolute;
+    inset-block-start: min(var(--float-y), calc(100dvh - var(--studio-bottom) - 2.5rem));
+    max-block-size: calc(100dvh - var(--studio-top) - var(--studio-bottom));
+  }
   .float .slot { max-block-size: inherit; }
   .dragged { z-index: 3; }
   @media (max-width: 52rem) {
-    .bar { inset-inline: var(--studio-inset); max-inline-size: none; flex-wrap: wrap; }
+    /* Between Wplace's zoom buttons and its account button, as claim mode's bar sits. */
+    .bar { inset-inline: 3.5rem 7rem; inline-size: auto; max-inline-size: none; flex-wrap: wrap; }
     .status { order: 1; flex-basis: 100%; }
     .column { inset-block-start: calc(var(--studio-inset) + 6.5rem); }
+  }
+  /* Clear of Wplace's bottom controls, as claim mode's phone card is. */
+  .sheet {
+    position: absolute;
+    inset: auto max(8px, env(safe-area-inset-right)) calc(4.25rem + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+    display: flex;
+    flex-direction: column;
+    max-block-size: 50dvh;
+    overflow: hidden;
+    border: 1px solid var(--caelestis-border);
+    border-radius: var(--caelestis-radius, 0.7rem);
+    background: var(--caelestis-surface, white);
+    box-shadow: var(--caelestis-popover-shadow, 0 10px 24px -6px rgb(0 0 0 / 0.28));
+    pointer-events: auto;
+  }
+  .tabs { display: flex; flex: 0 0 auto; overflow-x: auto; scrollbar-width: none; }
+  .tabs button {
+    flex: 0 0 auto;
+    min-block-size: 2.75rem;
+    padding: 0 0.75rem;
+    border: 0;
+    border-block-end: 2px solid transparent;
+    background: none;
+    color: var(--caelestis-muted-text);
+    font: 600 0.8125rem/1 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
+    cursor: pointer;
+  }
+  .tabs button[aria-selected='true'] { border-block-end-color: var(--caelestis-primary, oklch(0.68 0.15 244)); color: var(--caelestis-text); }
+  .sheet-body {
+    --caelestis-content-inset: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-block-size: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+    padding: 0.75rem var(--caelestis-content-inset);
+    border-block-start: 1px solid var(--caelestis-border);
   }
   @media (prefers-reduced-motion: reduce) {
     .bar { transition: none; translate: none; }
