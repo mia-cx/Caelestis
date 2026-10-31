@@ -9,7 +9,7 @@ import type {
 } from './options.js'
 import type { Samples, ScopeStage } from './scopes/scopes.js'
 
-/** The studio's tool windows, in Windows-menu order, with the edge each docks to by default. */
+/** The studio's panels, in Windows-menu order, with the edge each docks to by default. */
 export const STUDIO_WINDOWS = [
   { id: 'source', title: 'Source', dock: 'start' },
   { id: 'dimensions', title: 'Dimensions', dock: 'start' },
@@ -23,27 +23,45 @@ export const STUDIO_WINDOWS = [
 export type StudioWindowId = (typeof STUDIO_WINDOWS)[number]['id']
 
 /**
- * Where a window sits. A docked window stacks in the column along its screen edge, in `order`;
- * a floating one sits at `x`, `y` in viewport pixels, measured from the edge it is nearer to.
+ * Part of a frame: panels stacked as tabs, one shown at a time, or parts split side by side
+ * (`row`) or one above another (`column`).
  */
-export type StudioWindowPlacement =
+export type StudioNode =
   | {
-      readonly open: boolean
+      readonly kind: 'tabs'
+      readonly panels: readonly StudioWindowId[]
+      readonly active: StudioWindowId
       readonly collapsed: boolean
-      readonly dock: 'start' | 'end'
-      readonly order: number
     }
   | {
-      readonly open: boolean
-      readonly collapsed: boolean
+      readonly kind: 'split'
+      readonly axis: 'row' | 'column'
+      readonly children: readonly StudioNode[]
+    }
+
+/**
+ * Where a frame sits: docked along a screen edge, or floating at `x`, `y` in viewport pixels,
+ * measured from the edge it is nearer to.
+ */
+export type StudioPlace =
+  | { readonly dock: 'start' | 'end' }
+  | {
       readonly dock: null
       readonly edge: 'start' | 'end'
       readonly x: number
       readonly y: number
     }
 
-/** Saved per browser. A window missing here takes its default place. */
-export type StudioLayout = Partial<Record<StudioWindowId, StudioWindowPlacement>>
+/** One connected window of panels. Each screen edge docks at most one. */
+export interface StudioFrame {
+  readonly place: StudioPlace
+  readonly root: StudioNode
+}
+
+/** Saved per browser. A panel in no frame is closed. */
+export interface StudioLayout {
+  readonly frames: readonly StudioFrame[]
+}
 
 export type StudioPaletteScope = 'all' | 'free' | 'premium' | 'owned'
 
