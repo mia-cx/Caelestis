@@ -33,12 +33,12 @@
     "clean": "rm -rf dist .turbo"
   },
   "devDependencies": {
-    "@types/node": "^26.6.4",
+    "@types/node": "^26.6.5",
     "miniflare": "5.20260918.0-alpha",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.3"
+    "vitest": "^5.0.5"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1145.0"
+    "@aws-sdk/client-s3": "^3.1158.0"
   }
 }

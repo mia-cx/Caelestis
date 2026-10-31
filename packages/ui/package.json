@@ -33,23 +33,23 @@
   },
   "dependencies": {
     "@caelestis/shared": "workspace:*",
-    "@iconify-icons/material-symbols": "2.0.4",
+    "@iconify-icons/material-symbols": "2.0.7",
     "@iconify-icons/pixelarticons": "2.0.0",
-    "@iconify-icons/simple-icons": "^2.0.5"
+    "@iconify-icons/simple-icons": "^2.0.8"
   },
   "peerDependencies": {
-    "svelte": "^5.57.1"
+    "svelte": "^5.57.3"
   },
   "devDependencies": {
     "@sveltejs/package": "^3.0.1",
     "@sveltejs/vite-plugin-svelte": "^7.3.1",
     "@typescript/native": "npm:typescript@^7.0.2",
     "ditherette": "1.0.0",
-    "happy-dom": "^21.0.3",
-    "svelte": "^5.57.1",
+    "happy-dom": "^21.0.4",
+    "svelte": "^5.57.3",
     "svelte-check": "^4.7.6",
     "typescript": "~6.0.3",
     "vite": "^8.3.2",
-    "vitest": "^5.0.3"
+    "vitest": "^5.0.5"
   }
 }
