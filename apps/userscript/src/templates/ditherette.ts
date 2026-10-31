@@ -2,16 +2,19 @@ import gpuWasm from 'ditherette:gpu-wasm'
 import scalarWasm from 'ditherette:scalar-wasm'
 import workerSource from 'ditherette:worker'
 import type { DitheretteEngine, DitheretteTemplateRecipe } from '@caelestis/shared'
+import type { Samples } from '@caelestis/ui/elements'
 import type { Curve, Progress, Rgba8Image } from 'ditherette'
 import { warn } from '../debug.js'
 import {
   analysePaletteFit,
+  applyRecipeEffects,
   type DitheretteArtwork,
   type FitAnalysis,
   processDitherette,
   processors,
 } from './ditherette-process.js'
 import type { DitheretteWorkerReply, DitheretteWorkerRequest } from './ditherette-worker.js'
+import { sampleRgba } from './scope-samples.js'
 
 export type { DitheretteEngine } from '@caelestis/shared'
 export type { DitheretteArtwork } from './ditherette-process.js'
@@ -77,17 +80,20 @@ const compileModules = (): Promise<Modules> => {
 
 const aborted = (): DOMException => new DOMException('Processing was replaced.', 'AbortError')
 
-/** Palette-fit analyses waiting on the worker, by request id. */
-const pendingFits = new Map<
+/** Analyses and samples waiting on the worker, by request id. Each reads its own reply. */
+const pendingAnswers = new Map<
   number,
-  { readonly resolve: (curves: Curve[]) => void; readonly reject: (error: unknown) => void }
+  {
+    readonly answer: (reply: DitheretteWorkerReply) => void
+    readonly reject: (error: unknown) => void
+  }
 >()
 
 const stopHost = (): void => {
   host?.worker.terminate()
   host = null
-  for (const pending of pendingFits.values()) pending.reject(aborted())
-  pendingFits.clear()
+  for (const pending of pendingAnswers.values()) pending.reject(aborted())
+  pendingAnswers.clear()
 }
 
 /**
@@ -149,8 +155,9 @@ const startHost = (modules: Modules): Host => {
         })
         return
       case 'fit':
-        pendingFits.get(reply.id)?.resolve(reply.curves)
-        pendingFits.delete(reply.id)
+      case 'samples':
+        pendingAnswers.get(reply.id)?.answer(reply)
+        pendingAnswers.delete(reply.id)
         return
       case 'error': {
         if (reply.id === null) {
@@ -158,9 +165,9 @@ const startHost = (modules: Modules): Host => {
           return
         }
         const error = reply.aborted === true ? aborted() : new Error(reply.message)
-        const fit = pendingFits.get(reply.id)
-        pendingFits.delete(reply.id)
-        if (fit !== undefined) fit.reject(error)
+        const pending = pendingAnswers.get(reply.id)
+        pendingAnswers.delete(reply.id)
+        if (pending !== undefined) pending.reject(error)
         else settle(reply.id, { error })
       }
     }
@@ -261,33 +268,70 @@ const pageProcessors = async (): Promise<ReturnType<typeof processors>> => {
   return inPage
 }
 
+type Source = { readonly key: string; readonly image: Rgba8Image }
+type Question =
+  | { readonly type: 'analyse-fit'; readonly analysis: FitAnalysis }
+  | { readonly type: 'sample-effects'; readonly recipe: DitheretteTemplateRecipe }
+
 /**
- * The curves a palette fit with `curves: null` would apply, analysed on the CPU after any running
- * job. A CPU run replaced before it finishes takes the worker, and this, with it.
+ * Ask the worker one question about `source`, after any job ahead of it. `read` takes the answer
+ * from its reply, or nothing from a reply of another kind. A CPU run replaced before it finishes
+ * takes the worker, and the question, with it.
  */
-export const analyseFit = async (job: {
-  readonly analysis: FitAnalysis
-  readonly source: { readonly key: string; readonly image: Rgba8Image }
-}): Promise<Curve[]> => {
-  if (!canUseWorkers())
-    return analysePaletteFit(await (await pageProcessors()).cpu(), job.source.image, job.analysis)
+const ask = async <T>(
+  source: Source,
+  question: Question,
+  read: (reply: DitheretteWorkerReply) => T | undefined,
+): Promise<T> => {
   const modules = await compileModules()
   host ??= startHost(modules)
   const target = host
   await target.ready
   const id = ++jobs
-  const sendSource = target.sourceKey !== job.source.key
-  target.sourceKey = job.source.key
-  return await new Promise<Curve[]>((resolve, reject) => {
-    pendingFits.set(id, { resolve, reject })
+  const sendSource = target.sourceKey !== source.key
+  target.sourceKey = source.key
+  return await new Promise<T>((resolve, reject) => {
+    pendingAnswers.set(id, {
+      answer: (reply) => {
+        const value = read(reply)
+        if (value === undefined) reject(new Error(`the worker answered ${reply.type}`))
+        else resolve(value)
+      },
+      reject,
+    })
     target.worker.postMessage({
-      type: 'analyse-fit',
+      ...question,
       id,
-      sourceKey: job.source.key,
-      ...(sendSource ? { source: job.source.image } : {}),
-      analysis: job.analysis,
+      sourceKey: source.key,
+      ...(sendSource ? { source: source.image } : {}),
     } satisfies DitheretteWorkerRequest)
   })
+}
+
+/** The curves a palette fit with `curves: null` would apply, analysed on the CPU. */
+export const analyseFit = async (job: {
+  readonly analysis: FitAnalysis
+  readonly source: Source
+}): Promise<Curve[]> => {
+  if (!canUseWorkers())
+    return analysePaletteFit(await (await pageProcessors()).cpu(), job.source.image, job.analysis)
+  return await ask(job.source, { type: 'analyse-fit', analysis: job.analysis }, (reply) =>
+    reply.type === 'fit' ? reply.curves : undefined,
+  )
+}
+
+/** Samples of the cropped source after the recipe's effects, on the recipe's engine. */
+export const sampleEffects = async (job: {
+  readonly recipe: DitheretteTemplateRecipe
+  readonly source: Source
+}): Promise<Samples> => {
+  if (!canUseWorkers()) {
+    const processor = await (await pageProcessors()).forEngine(job.recipe.engine)
+    return sampleRgba(await applyRecipeEffects(processor, job.source.image, job.recipe))
+  }
+  return await ask(job.source, { type: 'sample-effects', recipe: job.recipe }, (reply) =>
+    reply.type === 'samples' ? reply.samples : undefined,
+  )
 }
 
 /** Whether this browser can run Ditherette at all. Compiles the modules once, as a warm-up. */

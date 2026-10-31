@@ -107,6 +107,23 @@ export const analysePaletteFit = (
     context: { palette: paletteEntries(analysis.recipe.palette) },
   })
 
+/** The cropped source after the recipe's effects, before resizing: the scopes' effects stage. */
+export const applyRecipeEffects = async (
+  processor: DitheretteProcessor,
+  source: Rgba8Image,
+  recipe: DitheretteTemplateRecipe,
+): Promise<Rgba8Image> => {
+  const request = {
+    version: 1,
+    source: cropRgba(source, recipe.crop),
+    effects: recipe.ditherette.effects,
+    context: { palette: paletteEntries(recipe.palette) },
+  } as const
+  return 'execution' in processor
+    ? await processor.applyEffects(request)
+    : processor.applyEffects(request)
+}
+
 /** The crop's pixels as packed RGBA8. A crop covering the whole source returns the source itself. */
 export const cropRgba = (
   source: Rgba8Image,

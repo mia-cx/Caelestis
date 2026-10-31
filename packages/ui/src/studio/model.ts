@@ -7,6 +7,7 @@ import type {
   ResizeAnchor,
   ResizeId,
 } from './options.js'
+import type { Samples, ScopeStage } from './scopes/scopes.js'
 
 /** The studio's tool windows, in Windows-menu order, with the edge each docks to by default. */
 export const STUDIO_WINDOWS = [
@@ -16,6 +17,7 @@ export const STUDIO_WINDOWS = [
   { id: 'color-space', title: 'Colour space', dock: 'end' },
   { id: 'dither', title: 'Dither', dock: 'end' },
   { id: 'effects', title: 'Effects', dock: 'start' },
+  { id: 'scopes', title: 'Scopes', dock: 'end', closed: true },
 ] as const
 
 export type StudioWindowId = (typeof STUDIO_WINDOWS)[number]['id']
@@ -129,6 +131,14 @@ export interface TemplateStudioModel {
   readonly effects: readonly EffectLayer[]
   /** The palette-fit layer whose curves are being analysed for editing. */
   readonly analysingFit: string | null
+  /** Samples of the stages the Scopes window shows; none while it is closed. */
+  readonly scopes: {
+    /** One or two, in pipeline order. */
+    readonly stages: readonly ScopeStage[]
+    readonly samples: Partial<Record<ScopeStage, Samples>>
+    /** Settings changed since the samples were taken. */
+    readonly pending: boolean
+  }
   /** Where the last result was processed. Null until one has been. */
   readonly engine: 'gpu' | 'cpu' | null
   readonly processing:
@@ -162,6 +172,7 @@ export type TemplateStudioIntent =
   | { readonly type: 'effects'; readonly effects: readonly EffectLayer[] }
   /** Resolve a palette-fit layer's curves into its step, so they can be edited. */
   | { readonly type: 'analyse-fit'; readonly layer: string }
+  | { readonly type: 'scope-stages'; readonly stages: readonly ScopeStage[] }
   | { readonly type: 'origin'; readonly x: number; readonly y: number }
   | { readonly type: 'centre' }
   | { readonly type: 'layout'; readonly layout: StudioLayout }

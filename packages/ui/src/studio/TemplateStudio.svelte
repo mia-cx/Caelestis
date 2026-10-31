@@ -11,6 +11,7 @@
   import DitherWindow from './windows/DitherWindow.svelte'
   import EffectsWindow from './windows/EffectsWindow.svelte'
   import PaletteWindow from './windows/PaletteWindow.svelte'
+  import ScopesWindow from './windows/ScopesWindow.svelte'
   import SourceWindow from './windows/SourceWindow.svelte'
 
   let { model, onIntent }: { model: TemplateStudioModel; onIntent: (intent: TemplateStudioIntent) => void } = $props()
@@ -115,6 +116,8 @@
     <DitherWindow {model} {onIntent} />
   {:else if id === 'effects'}
     <EffectsWindow {model} {onIntent} />
+  {:else if id === 'scopes'}
+    <ScopesWindow {model} {onIntent} />
   {/if}
 {/snippet}
 
