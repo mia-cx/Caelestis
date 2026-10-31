@@ -2,7 +2,7 @@
   import type { CurvePoints } from 'ditherette'
   import { tick } from 'svelte'
   import Button from '../../foundations/Button.svelte'
-  import { type CurvePoint, evaluateCurve, evaluatePeriodicCurve, MAX_CURVE_POINTS } from './spline.js'
+  import { type CurvePoint, evaluateCurve, evaluatePeriodicCurve, MAX_CURVE_POINTS, MIN_CURVE_POINT_GAP } from './spline.js'
   import { type Neutral, tonePath } from './tone.js'
 
   /**
@@ -41,7 +41,7 @@
     spectrum,
   }: Props = $props()
 
-  /** Points sit on the byte grid, so neighbours stay well above the package's 0.001 x gap. */
+  /** Edited points sit on the byte grid, so neighbours stay well above the package's x gap. */
   const BYTE = 255
   const LARGE_STEP = 16
   const SIZE = 256
@@ -88,10 +88,14 @@
       onChange([...rest.slice(0, at), [x, y], ...rest.slice(at)])
       return at
     }
-    const min = index > 0 ? toByte(xAt(index - 1)) + 1 : 0
-    const max = index < points.length - 1 ? toByte(xAt(index + 1)) - 1 : BYTE
+    // Analysed knots sit off the byte grid, closer than a byte apart: one whose byte is unchanged
+    // keeps its exact x, and a moved one stays the package's gap from its neighbours.
+    const xByteNow = toByte(xAt(index))
+    const min = index > 0 ? xAt(index - 1) + MIN_CURVE_POINT_GAP : 0
+    const max = index < points.length - 1 ? xAt(index + 1) - MIN_CURVE_POINT_GAP : 1
+    const x = Math.round(xByte) === xByteNow ? xAt(index) : clamp(Math.round(xByte) / BYTE, min, max)
     const next: CurvePoint[] = points.slice()
-    next[index] = [clamp(Math.round(xByte), min, max) / BYTE, y]
+    next[index] = [x, y]
     onChange(next)
     return index
   }
