@@ -484,8 +484,9 @@ const beginLoad = (): number => {
   return ++sourceTicket
 }
 
-const loadSource = async (blob: Blob, sourceName: string, ticket = beginLoad()): Promise<void> => {
+const loadSource = async (blob: Blob, sourceName: string, started?: number): Promise<void> => {
   if (target === null || pending) return
+  const ticket = started ?? beginLoad()
   try {
     if (blob.size > MAX_SOURCE_BYTES) throw new Error('the image is too large')
     const png = await asPng(blob)
@@ -1013,8 +1014,8 @@ const save = async (): Promise<void> => {
   const result = processed
   const loaded = source
   if (current === null || result === null || loaded === null || pending || job !== null) return
-  // A new image still loading would replace this result, so saving waits for it.
-  if (loadingSource) return
+  // A new image still loading, or settings still processing, would replace this result.
+  if (loadingSource || processing.state !== 'ready') return
   if (result.opaque === 0 || name.trim() === '') return
   if (current.kind === 'replace') {
     const confirmed = await confirmDestructive({

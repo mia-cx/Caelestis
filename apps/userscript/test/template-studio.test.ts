@@ -207,6 +207,51 @@ describe('template studio', () => {
     expect(save).not.toHaveBeenCalled()
   })
 
+  it('ignores a paste during a save, so a failed save leaves the image ready to save again', async () => {
+    let answer = (_saved: boolean): void => {}
+    const save = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          answer = resolve
+        }),
+    )
+    const { png } = await celesteRoom()
+    await openOnRoom({
+      kind: 'create',
+      destination: 'Local',
+      surface: WORLD_TEMPLATE_SURFACE,
+      save,
+    })
+    handleTemplateStudioIntent({ type: 'save' })
+    await vi.waitFor(() => expect(save).toHaveBeenCalledOnce())
+
+    const paste = new Event('paste', { bubbles: true, cancelable: true })
+    Object.defineProperty(paste, 'clipboardData', {
+      value: { files: [new File([png], 'next.png', { type: 'image/png' })] },
+    })
+    window.dispatchEvent(paste)
+    answer(false)
+    await vi.waitFor(() => expect(templateStudioModel().pending).toBe(false))
+    expect(templateStudioModel().loadingSource).toBe(false)
+  })
+
+  it('saves nothing while the artwork is still processing', async () => {
+    const save = vi.fn(async () => true)
+    await openOnRoom({
+      kind: 'create',
+      destination: 'Local',
+      surface: WORLD_TEMPLATE_SURFACE,
+      save,
+    })
+    handleTemplateStudioIntent({ type: 'color-space', colorSpace: 'srgb' })
+    expect(templateStudioModel().processing.state).toBe('working')
+
+    handleTemplateStudioIntent({ type: 'save' })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(save).not.toHaveBeenCalled()
+    await ready()
+  })
+
   it('keeps sampling the scopes of a studio reopened while it closes', async () => {
     const target = {
       kind: 'create',
@@ -238,9 +283,9 @@ describe('template studio', () => {
     const typed = address()
 
     const pointer = { button: 0, pointerId: 1, bubbles: true, clientX: 40, clientY: 40 }
-    root?.querySelector('[data-window="source"] header')?.dispatchEvent(
-      new PointerEvent('pointerdown', pointer),
-    )
+    root
+      ?.querySelector('[data-window="source"] header')
+      ?.dispatchEvent(new PointerEvent('pointerdown', pointer))
     window.dispatchEvent(new PointerEvent('pointermove', { ...pointer, clientX: 400 }))
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(address()).toBe(typed)
