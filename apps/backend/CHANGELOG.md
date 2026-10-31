@@ -1,5 +1,11 @@
 # @caelestis/backend
 
+## 0.11.0
+
+### Minor Changes
+
+- ea751c0: Keep the crop and processing settings of templates made in the userscript's template editor, so they can be edited again.
+
 ## 0.10.0
 
 ### Minor Changes
