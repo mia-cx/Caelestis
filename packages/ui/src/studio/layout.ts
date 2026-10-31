@@ -73,6 +73,13 @@ export const panelsIn = (node: StudioNode | undefined): StudioWindowId[] => {
   return node.kind === 'tabs' ? [...node.panels] : node.children.flatMap(panelsIn)
 }
 
+/** How many panels wide `node` lays out: side-by-side parts add up, stacked ones take the widest. */
+export const panelsAcross = (node: StudioNode): number => {
+  if (node.kind === 'tabs') return 1
+  const widths = node.children.map(panelsAcross)
+  return node.axis === 'row' ? widths.reduce((sum, width) => sum + width, 0) : Math.max(...widths)
+}
+
 export const isOpen = (layout: StudioLayout, id: StudioWindowId): boolean =>
   layout.frames.some((frame) => panelsIn(frame.root).includes(id))
 

@@ -10,6 +10,7 @@
     isOpen,
     moveFrame,
     movePanel,
+    panelsAcross,
     panelsIn,
     SNAP_DISTANCE,
     type StudioDrop,
@@ -95,7 +96,7 @@
   const startPanelDrag = (id: StudioWindowId, frame: number, event: PointerEvent): void => {
     const owner = layout.frames[frame]
     const alone = owner?.place.dock === null && panelsIn(owner.root).length === 1
-    const box = boxOf(alone ? frameElement(frame) : root?.querySelector(`[data-window="${id}"]`))
+    const box = boxOf(alone ? frameElement(frame) : root?.querySelector(`[data-panels~="${id}"]`))
     if (box !== undefined) beginDrag(alone ? { kind: 'frame', frame } : { kind: 'panel', id }, event, box)
   }
   const startFrameDrag = (frame: number, event: PointerEvent): void => {
@@ -124,12 +125,13 @@
         : { x: near.x, y: index < parts.length ? near.y - 2 : near.y + near.height - 2, width: near.width, height: 4 }
       return { drop: { kind: 'dock', side, index }, indicator: line ?? null }
     }
-    for (const element of root?.querySelectorAll<HTMLElement>('[data-window]') ?? []) {
-      const target = element.dataset.window as StudioWindowId
+    // Floating frames come after the docks, and later ones draw on top: the frontmost comes last.
+    for (const element of [...(root?.querySelectorAll<HTMLElement>('[data-window]') ?? [])].reverse()) {
       const box = boxOf(element)
       if (box === undefined || x < box.x || x >= box.x + box.width || y < box.y || y >= box.y + box.height) continue
-      const own = (element.dataset.panels ?? '').split(' ')
-      if (own.every((id) => draggedPanels.includes(id as StudioWindowId))) continue
+      // A panel splitting from its own tabs lands beside one that stays.
+      const target = (element.dataset.panels ?? '').split(' ').find((id) => !draggedPanels.includes(id as StudioWindowId)) as StudioWindowId | undefined
+      if (target === undefined) continue
       const edges = { left: (x - box.x) / box.width, right: 1 - (x - box.x) / box.width, top: (y - box.y) / box.height, bottom: 1 - (y - box.y) / box.height }
       const [nearest, distance] = Object.entries(edges).reduce((best, entry) => (entry[1] < best[1] ? entry : best))
       const zone = distance < EDGE_ZONE ? (nearest as keyof typeof edges) : 'center'
@@ -367,7 +369,7 @@
     {#each layout.frames as frame, index (panelsIn(frame.root).join(' '))}
       {#if frame.place.dock === null}
         {@const place = frame.place}
-        <div class="float" style:--float-x="{place.x}px" style:--float-y="{place.y}px" style:inset-inline-start={place.edge === 'start' ? 'var(--float-inset)' : 'auto'} style:inset-inline-end={place.edge === 'end' ? 'var(--float-inset)' : 'auto'}>
+        <div class="float" style:--float-x="{place.x}px" style:--float-y="{place.y}px" style:--float-across={panelsAcross(frame.root)} style:inset-inline-start={place.edge === 'start' ? 'var(--float-inset)' : 'auto'} style:inset-inline-end={place.edge === 'end' ? 'var(--float-inset)' : 'auto'}>
           {@render frameView(frame, index)}
         </div>
       {/if}
@@ -497,7 +499,7 @@
   /* A saved place from a larger screen is pulled back in: the whole width stays on screen, and
      at least the title bar above Wplace's bottom controls. */
   .float {
-    --float-inset: min(var(--float-x), calc(100vw - var(--studio-window-width)));
+    --float-inset: max(0px, min(var(--float-x), calc(100vw - var(--float-across, 1) * var(--studio-window-width))));
     position: absolute;
     inset-block-start: min(var(--float-y), calc(100dvh - var(--studio-bottom) - 2.5rem));
     display: flex;
