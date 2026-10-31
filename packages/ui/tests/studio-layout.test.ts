@@ -5,6 +5,7 @@ import {
   floatPlace,
   isOpen,
   movePanel,
+  panelsAcross,
   panelsIn,
   parseStudioLayout,
   togglePanel,
@@ -54,6 +55,8 @@ describe('studio layout', () => {
       target: 'palette',
       zone: 'left',
     })
+    // Two panels side by side, over one: two panels wide.
+    expect(panelsAcross(dockFrame(beside, 'end')?.root ?? tabs('source'))).toBe(2)
     expect(dockFrame(beside, 'end')?.root).toEqual({
       kind: 'split',
       axis: 'column',

@@ -1,5 +1,6 @@
 import { WORLD_PIXELS, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import {
+  DEFAULT_STUDIO_LAYOUT,
   type EffectLayer,
   registerCaelestisUi,
   TEMPLATE_STUDIO_TAG,
@@ -290,6 +291,43 @@ describe('template studio', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(address()).toBe(typed)
     window.dispatchEvent(new PointerEvent('pointerup', { ...pointer, clientX: 400 }))
+  })
+
+  it('drags a tab out of its group without selecting it first', async () => {
+    registerCaelestisUi()
+    openTemplateStudio({
+      kind: 'create',
+      destination: 'Local',
+      surface: WORLD_TEMPLATE_SURFACE,
+      save: async () => true,
+    })
+    // Colour space in front, Palette behind it.
+    const behind = { kind: 'tabs', collapsed: false } as const
+    handleTemplateStudioIntent({
+      type: 'layout',
+      layout: {
+        frames: [
+          ...DEFAULT_STUDIO_LAYOUT.frames.filter((frame) => frame.place.dock === 'start'),
+          {
+            place: { dock: 'end' },
+            root: { ...behind, panels: ['palette', 'color-space'], active: 'color-space' },
+          },
+        ],
+      },
+    })
+    const root = document.querySelector(TEMPLATE_STUDIO_TAG)?.shadowRoot
+    const tab = () => root?.querySelector('[data-tab="palette"]')
+    await vi.waitFor(() => expect(tab()).toBeTruthy())
+
+    const pointer = { button: 0, pointerId: 1, bubbles: true, clientX: 500, clientY: 40 }
+    tab()?.dispatchEvent(new PointerEvent('pointerdown', pointer))
+    window.dispatchEvent(new PointerEvent('pointermove', { ...pointer, clientY: 400 }))
+    window.dispatchEvent(new PointerEvent('pointerup', { ...pointer, clientY: 400 }))
+    await vi.waitFor(() =>
+      expect(
+        templateStudioModel().layout.frames.find((frame) => frame.place.dock === null)?.root,
+      ).toMatchObject({ panels: ['palette'] }),
+    )
   })
 
   it('leaves a panel in place when the browser cancels its drag', async () => {
