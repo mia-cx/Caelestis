@@ -21,7 +21,7 @@ import {
   templateSurfaceKey,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
-import { parseStudioLayout, type StudioLayout } from '@caelestis/ui/elements'
+import { DEFAULT_STUDIO_LAYOUT, parseStudioLayout, type StudioLayout } from '@caelestis/ui/elements'
 import { userscriptClientHeaders } from './client-metrics.js'
 import { log, warn } from './debug.js'
 import { DEFAULT_MARKER_BUDGET, normaliseMarkerBudget } from './marker-budget.js'
@@ -282,7 +282,7 @@ const DEFAULT_STATE: State = {
   notifyUpdates: true,
   notifyActivity: false,
   shortcutOverrides: {},
-  studioLayout: {},
+  studioLayout: DEFAULT_STUDIO_LAYOUT,
 }
 
 const UUID_V7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
