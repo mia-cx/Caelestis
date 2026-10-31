@@ -2,9 +2,15 @@ import gpuWasm from 'ditherette:gpu-wasm'
 import scalarWasm from 'ditherette:scalar-wasm'
 import workerSource from 'ditherette:worker'
 import type { DitheretteEngine, DitheretteTemplateRecipe } from '@caelestis/shared'
-import type { Progress, Rgba8Image } from 'ditherette'
+import type { Curve, Progress, Rgba8Image } from 'ditherette'
 import { warn } from '../debug.js'
-import { type DitheretteArtwork, processDitherette, processors } from './ditherette-process.js'
+import {
+  analysePaletteFit,
+  type DitheretteArtwork,
+  type FitAnalysis,
+  processDitherette,
+  processors,
+} from './ditherette-process.js'
 import type { DitheretteWorkerReply, DitheretteWorkerRequest } from './ditherette-worker.js'
 
 export type { DitheretteEngine } from '@caelestis/shared'
@@ -71,9 +77,17 @@ const compileModules = (): Promise<Modules> => {
 
 const aborted = (): DOMException => new DOMException('Processing was replaced.', 'AbortError')
 
+/** Palette-fit analyses waiting on the worker, by request id. */
+const pendingFits = new Map<
+  number,
+  { readonly resolve: (curves: Curve[]) => void; readonly reject: (error: unknown) => void }
+>()
+
 const stopHost = (): void => {
   host?.worker.terminate()
   host = null
+  for (const pending of pendingFits.values()) pending.reject(aborted())
+  pendingFits.clear()
 }
 
 /**
@@ -134,10 +148,21 @@ const startHost = (modules: Modules): Host => {
           artwork: { indices: reply.indices, opaque: reply.opaque, engine: reply.engine },
         })
         return
-      case 'error':
-        if (reply.id === null) failed(new Error(reply.message))
-        else
-          settle(reply.id, { error: reply.aborted === true ? aborted() : new Error(reply.message) })
+      case 'fit':
+        pendingFits.get(reply.id)?.resolve(reply.curves)
+        pendingFits.delete(reply.id)
+        return
+      case 'error': {
+        if (reply.id === null) {
+          failed(new Error(reply.message))
+          return
+        }
+        const error = reply.aborted === true ? aborted() : new Error(reply.message)
+        const fit = pendingFits.get(reply.id)
+        pendingFits.delete(reply.id)
+        if (fit !== undefined) fit.reject(error)
+        else settle(reply.id, { error })
+      }
     }
   })
   worker.addEventListener('error', (event) => {
@@ -171,11 +196,7 @@ const runInWorker = async (current: Running): Promise<void> => {
 }
 
 const runInPage = async (current: Running): Promise<void> => {
-  if (inPage === null) {
-    const { wasm, gpuWasm: gpu } = await compileModules()
-    inPage ??= processors(wasm, gpu)
-  }
-  const processor = await inPage(current.job.recipe.engine)
+  const processor = await (await pageProcessors()).forEngine(current.job.recipe.engine)
   // Let the page paint the pending state before a synchronous CPU call holds it.
   await new Promise((resolve) => setTimeout(resolve, 0))
   if (running !== current) return
@@ -231,6 +252,43 @@ export const runDitherette = (job: DitheretteJob): Promise<DitheretteArtwork> =>
       runInPage(current).catch(fail)
     })
   })
+
+const pageProcessors = async (): Promise<ReturnType<typeof processors>> => {
+  if (inPage === null) {
+    const { wasm, gpuWasm: gpu } = await compileModules()
+    inPage ??= processors(wasm, gpu)
+  }
+  return inPage
+}
+
+/**
+ * The curves a palette fit with `curves: null` would apply, analysed on the CPU after any running
+ * job. A CPU run replaced before it finishes takes the worker, and this, with it.
+ */
+export const analyseFit = async (job: {
+  readonly analysis: FitAnalysis
+  readonly source: { readonly key: string; readonly image: Rgba8Image }
+}): Promise<Curve[]> => {
+  if (!canUseWorkers())
+    return analysePaletteFit(await (await pageProcessors()).cpu(), job.source.image, job.analysis)
+  const modules = await compileModules()
+  host ??= startHost(modules)
+  const target = host
+  await target.ready
+  const id = ++jobs
+  const sendSource = target.sourceKey !== job.source.key
+  target.sourceKey = job.source.key
+  return await new Promise<Curve[]>((resolve, reject) => {
+    pendingFits.set(id, { resolve, reject })
+    target.worker.postMessage({
+      type: 'analyse-fit',
+      id,
+      sourceKey: job.source.key,
+      ...(sendSource ? { source: job.source.image } : {}),
+      analysis: job.analysis,
+    } satisfies DitheretteWorkerRequest)
+  })
+}
 
 /** Whether this browser can run Ditherette at all. Compiles the modules once, as a warm-up. */
 export const ditheretteAvailable = async (): Promise<boolean> => {

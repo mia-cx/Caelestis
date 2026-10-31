@@ -5,10 +5,14 @@ import {
   TRANSPARENT_INDEX,
 } from '@caelestis/shared'
 import {
+  type Curve,
   createDitherette,
   type Ditherette,
+  type Effect,
+  type FitLook,
   type GpuDither,
   type PaletteEntry,
+  type PaletteFitSpace,
   type Progress,
   type Rgba8Image,
 } from 'ditherette'
@@ -50,17 +54,58 @@ export const processors = (wasm: WebAssembly.Module, gpuWasm: WebAssembly.Module
       return null
     }
   }
-  /** The processor for `engine`. A GPU request runs on the CPU where there is no GPU engine. */
-  return async (engine: DitheretteEngine): Promise<DitheretteProcessor> => {
-    if (engine === 'gpu') {
-      gpu ??= startGpu()
-      const started = await gpu
-      if (started !== null) return started
-    }
+  const startCpu = (): Promise<Ditherette> => {
     cpu ??= createDitherette({ wasm })
-    return await cpu
+    return cpu
+  }
+  return {
+    /**
+     * The processor for `engine`. A GPU request runs on the CPU where there is no GPU engine. A GPU
+     * processor whose last run fell back to the CPU has retired its GPU bindings for good, so it
+     * gives way to a fresh one.
+     */
+    forEngine: async (engine: DitheretteEngine): Promise<DitheretteProcessor> => {
+      if (engine === 'gpu') {
+        gpu ??= startGpu()
+        let started = await gpu
+        if (started?.execution?.backend === 'cpu') {
+          started.dispose()
+          gpu = startGpu()
+          started = await gpu
+        }
+        if (started !== null) return started
+      }
+      return await startCpu()
+    },
+    /** The CPU engine, which analyses palette fits. */
+    cpu: startCpu,
   }
 }
+
+/** What a palette fit reads to analyse its curves. */
+export interface FitAnalysis {
+  /** The recipe the fit belongs to, for its crop and palette. */
+  readonly recipe: DitheretteTemplateRecipe
+  /** The enabled steps before the fit, which shape the image it sees. */
+  readonly before: readonly Effect[]
+  readonly look: FitLook
+  readonly space: PaletteFitSpace
+}
+
+/** The curves a palette fit with `curves: null` would apply, so the studio can show and edit them. */
+export const analysePaletteFit = (
+  processor: Ditherette,
+  source: Rgba8Image,
+  analysis: FitAnalysis,
+): Curve[] =>
+  processor.analyzePaletteFit({
+    version: 1,
+    source: cropRgba(source, analysis.recipe.crop),
+    effects: analysis.before,
+    look: analysis.look,
+    space: analysis.space,
+    context: { palette: paletteEntries(analysis.recipe.palette) },
+  })
 
 /** The crop's pixels as packed RGBA8. A crop covering the whole source returns the source itself. */
 export const cropRgba = (

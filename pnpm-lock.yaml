@@ -472,6 +472,9 @@ importers:
       '@typescript/native':
         specifier: npm:typescript@^7.0.2
         version: typescript@7.0.2
+      ditherette:
+        specifier: 1.0.0
+        version: 1.0.0
       happy-dom:
         specifier: ^21.0.3
         version: 21.0.3
