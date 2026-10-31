@@ -24,11 +24,11 @@
     if (file !== undefined) onIntent({ type: 'file', file })
   }
   const drop = (event: DragEvent): void => {
+    // Every drop here is the studio's: left to the browser, a file or link would open over Wplace.
+    event.preventDefault()
     dragging = false
     const file = [...(event.dataTransfer?.files ?? [])].find((candidate) => candidate.type.startsWith('image/'))
-    if (file === undefined) return
-    event.preventDefault()
-    onIntent({ type: 'file', file })
+    if (file !== undefined) onIntent({ type: 'file', file })
   }
   const submitUrl = (event: SubmitEvent): void => {
     event.preventDefault()
