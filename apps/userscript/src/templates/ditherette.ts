@@ -202,25 +202,39 @@ const runInWorker = async (current: Running): Promise<void> => {
   } satisfies DitheretteWorkerRequest)
 }
 
-const runInPage = async (current: Running): Promise<void> => {
-  const processor = await (await pageProcessors()).forEngine(current.job.recipe.engine)
-  // Let the page paint the pending state before a synchronous CPU call holds it.
-  await new Promise((resolve) => setTimeout(resolve, 0))
-  if (running !== current) return
-  const { job } = current
-  const controller = new AbortController()
-  job.signal?.addEventListener('abort', () => controller.abort(), { once: true })
-  current.engine = 'execution' in processor ? 'gpu' : 'cpu'
-  settle(current.id, {
-    artwork: await processDitherette(
-      processor,
-      job.source.image,
-      job.recipe,
-      job.onProgress,
-      controller.signal,
-    ),
-  })
+/** Settles once every page call so far has returned, however its job ended. */
+let pageCalls: Promise<unknown> = Promise.resolve()
+
+/**
+ * Call the page's processors once earlier page calls return. A GPU instance refuses a call while
+ * another runs, and a cancelled job settles before its call stops.
+ */
+const pageCall = <T>(call: (page: ReturnType<typeof processors>) => Promise<T>): Promise<T> => {
+  const turn = pageCalls.then(async () => call(await pageProcessors()))
+  pageCalls = turn.catch(() => {})
+  return turn
 }
+
+const runInPage = (current: Running): Promise<void> =>
+  pageCall(async (page) => {
+    const processor = await page.forEngine(current.job.recipe.engine)
+    // Let the page paint the pending state before a synchronous CPU call holds it.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    if (running !== current) return
+    const { job } = current
+    const controller = new AbortController()
+    job.signal?.addEventListener('abort', () => controller.abort(), { once: true })
+    current.engine = 'execution' in processor ? 'gpu' : 'cpu'
+    settle(current.id, {
+      artwork: await processDitherette(
+        processor,
+        job.source.image,
+        job.recipe,
+        job.onProgress,
+        controller.signal,
+      ),
+    })
+  })
 
 const canUseWorkers = (): boolean =>
   !workersFailed && workerSource !== '' && typeof Worker === 'function'
@@ -340,7 +354,9 @@ export const analyseFit = async (job: {
 }): Promise<Curve[]> => {
   const target = await readyHost()
   if (target === null)
-    return analysePaletteFit(await (await pageProcessors()).cpu(), job.source.image, job.analysis)
+    return pageCall(async (page) =>
+      analysePaletteFit(await page.cpu(), job.source.image, job.analysis),
+    )
   return await ask(target, job.source, { type: 'analyse-fit', analysis: job.analysis }, (reply) =>
     reply.type === 'fit' ? reply.curves : undefined,
   )
@@ -352,10 +368,11 @@ export const sampleEffects = async (job: {
   readonly source: Source
 }): Promise<Samples> => {
   const target = await readyHost()
-  if (target === null) {
-    const processor = await (await pageProcessors()).forEngine(job.recipe.engine)
-    return sampleRgba(await applyRecipeEffects(processor, job.source.image, job.recipe))
-  }
+  if (target === null)
+    return pageCall(async (page) => {
+      const processor = await page.forEngine(job.recipe.engine)
+      return sampleRgba(await applyRecipeEffects(processor, job.source.image, job.recipe))
+    })
   return await ask(target, job.source, { type: 'sample-effects', recipe: job.recipe }, (reply) =>
     reply.type === 'samples' ? reply.samples : undefined,
   )

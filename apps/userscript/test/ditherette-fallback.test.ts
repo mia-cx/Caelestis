@@ -1,12 +1,35 @@
 import { PALETTE_RGB } from '@caelestis/shared'
-import { expect, it, vi } from 'vitest'
-import { analyseFit } from '../src/templates/ditherette.js'
+import { beforeEach, expect, it, vi } from 'vitest'
+import { analyseFit, runDitherette, sampleEffects } from '../src/templates/ditherette.js'
 
 // A worker bundle exists, but the page refuses to start it, as a strict CSP would.
 vi.mock('ditherette:worker', () => ({ default: 'self.close()' }))
 
+// A Ditherette GPU instance refuses a second call while one runs, so count the calls that overlap.
+const calls = vi.hoisted(() => ({ active: 0, most: 0 }))
+vi.mock('../src/templates/ditherette-process.js', async (original) => {
+  const actual = await original<typeof import('../src/templates/ditherette-process.js')>()
+  const tracked =
+    <Args extends unknown[], Result>(call: (...args: Args) => Promise<Result>) =>
+    async (...args: Args): Promise<Result> => {
+      calls.most = Math.max(calls.most, ++calls.active)
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        return await call(...args)
+      } finally {
+        calls.active--
+      }
+    }
+  return {
+    ...actual,
+    processDitherette: tracked(actual.processDitherette),
+    applyRecipeEffects: tracked(actual.applyRecipeEffects),
+  }
+})
+
 const SIZE = 2
 const image = { width: SIZE, height: SIZE, data: new Uint8Array(SIZE * SIZE * 4).fill(200) }
+const source = { key: 'flat', image }
 const recipe = {
   format: 1,
   processor: 'ditherette',
@@ -27,7 +50,7 @@ const recipe = {
   },
 } as const
 
-it('analyses a palette fit in the page when the worker cannot start', async () => {
+beforeEach(() => {
   vi.stubGlobal(
     'Worker',
     class {
@@ -36,9 +59,24 @@ it('analyses a palette fit in the page when the worker cannot start', async () =
       }
     },
   )
+  calls.most = 0
+})
+
+it('analyses a palette fit in the page when the worker cannot start', async () => {
   const analysis = analyseFit({
-    source: { key: 'flat', image },
+    source,
     analysis: { recipe, before: [], look: 'fitted', space: 'oklab' },
   })
   await expect(analysis).resolves.toEqual(expect.any(Array))
+})
+
+it('runs one Ditherette call at a time in the page, past a cancelled job and alongside scopes', async () => {
+  const controller = new AbortController()
+  const cancelled = runDitherette({ recipe, source, signal: controller.signal })
+  await vi.waitFor(() => expect(calls.active).toBe(1), { timeout: 5_000, interval: 1 })
+  controller.abort()
+  await expect(cancelled).rejects.toThrow()
+
+  await Promise.all([runDitherette({ recipe, source }), sampleEffects({ recipe, source })])
+  expect(calls.most).toBe(1)
 })
