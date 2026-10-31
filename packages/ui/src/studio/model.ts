@@ -1,4 +1,11 @@
-import type { AlphaMode, ColorSpaceId, ResizeAnchor, ResizeId } from './options.js'
+import type {
+  AlphaMode,
+  ColorSpaceId,
+  DitherId,
+  DitherPlacement,
+  ResizeAnchor,
+  ResizeId,
+} from './options.js'
 
 /** The studio's tool windows, in Windows-menu order, with the edge each docks to by default. */
 export const STUDIO_WINDOWS = [
@@ -6,6 +13,7 @@ export const STUDIO_WINDOWS = [
   { id: 'dimensions', title: 'Dimensions', dock: 'start' },
   { id: 'palette', title: 'Palette', dock: 'end' },
   { id: 'color-space', title: 'Colour space', dock: 'end' },
+  { id: 'dither', title: 'Dither', dock: 'end' },
 ] as const
 
 export type StudioWindowId = (typeof STUDIO_WINDOWS)[number]['id']
@@ -34,6 +42,22 @@ export type StudioWindowPlacement =
 export type StudioLayout = Partial<Record<StudioWindowId, StudioWindowPlacement>>
 
 export type StudioPaletteScope = 'all' | 'free' | 'premium' | 'owned'
+
+/** Ditherette web's dither settings. */
+export interface StudioDither {
+  readonly algorithm: DitherId
+  /** Percent; 0 turns dithering off. Yliluoma has no strength. */
+  readonly strength: number
+  readonly placement: DitherPlacement
+  /** Side of the square area Adaptive samples, in output pixels. */
+  readonly placementSampleSize: number
+  /** Highest local sharpness, in percent, that Adaptive still treats as smooth. */
+  readonly placementContrastThreshold: number
+  readonly serpentine: boolean
+  readonly seed: number
+  /** Perturb and diffuse error in the matching space rather than in sRGB bytes. */
+  readonly useColorSpace: boolean
+}
 
 /** One drawable Wplace colour, whether the template may use it, and how much the result does. */
 export interface StudioColour {
@@ -98,6 +122,7 @@ export interface TemplateStudioModel {
     readonly matte: number
   }
   readonly colorSpace: ColorSpaceId
+  readonly dither: StudioDither
   /** Where the last result was processed. Null until one has been. */
   readonly engine: 'gpu' | 'cpu' | null
   readonly processing:
@@ -127,6 +152,7 @@ export type TemplateStudioIntent =
   | { readonly type: 'colour'; readonly index: number; readonly selected: boolean }
   | { readonly type: 'alpha'; readonly alpha: Partial<TemplateStudioModel['alpha']> }
   | { readonly type: 'color-space'; readonly colorSpace: ColorSpaceId }
+  | { readonly type: 'dither'; readonly dither: Partial<StudioDither> }
   | { readonly type: 'origin'; readonly x: number; readonly y: number }
   | { readonly type: 'centre' }
   | { readonly type: 'layout'; readonly layout: StudioLayout }

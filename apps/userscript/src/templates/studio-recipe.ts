@@ -3,9 +3,9 @@ import type {
   AlphaMode,
   ColorSpaceId,
   DitherId,
-  DitherPlacement,
   ResizeAnchor,
   ResizeId,
+  StudioDither,
 } from '@caelestis/ui/elements'
 import type { Field, Matching, Placement, RecipeV2, WorkingSpace } from 'ditherette'
 
@@ -28,20 +28,7 @@ export interface StudioSettings {
     readonly matte: number
   }
   readonly colorSpace: ColorSpaceId
-  readonly dither: {
-    readonly algorithm: DitherId
-    /** Percent; 0 turns dithering off. Yliluoma has no strength. */
-    readonly strength: number
-    readonly placement: DitherPlacement
-    /** Side of the square area Adaptive samples, in output pixels. */
-    readonly placementSampleSize: number
-    /** Highest local sharpness, in percent, that Adaptive still treats as smooth. */
-    readonly placementContrastThreshold: number
-    readonly serpentine: boolean
-    readonly seed: number
-    /** Spread error, or offset thresholds, in the matching space rather than sRGB bytes. */
-    readonly useColorSpace: boolean
-  }
+  readonly dither: StudioDither
   readonly effects: RecipeV2['effects']
 }
 

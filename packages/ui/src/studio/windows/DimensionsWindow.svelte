@@ -3,6 +3,7 @@
   import MenuStyles from '../../foundations/MenuStyles.svelte'
   import type { TemplateStudioIntent, TemplateStudioModel } from '../model.js'
   import { ANCHORS, RESIZE_MODES, type ResizeAnchor, type ResizeId } from '../options.js'
+  import RangeField from '../RangeField.svelte'
 
   /** Output size and resampling, as Ditherette web's Dimensions panel, plus where it sits. */
   let { model, onIntent }: { model: TemplateStudioModel; onIntent: (intent: TemplateStudioIntent) => void } = $props()
@@ -46,41 +47,20 @@
 
 <MenuStyles />
 
-<div class="row">
-  <label class="field-label" for="{id}-scale">Scale</label>
-  <div class="scale">
-    <input
-      type="range"
-      aria-label="Output scale factor"
-      min={SLIDER_MIN_SCALE}
-      max={SLIDER_MAX_SCALE}
-      step={SCALE_STEP}
-      value={Math.max(SLIDER_MIN_SCALE, Math.min(SLIDER_MAX_SCALE, output.scale))}
-      {disabled}
-      oninput={(event) => onIntent({ type: 'scale', scale: event.currentTarget.valueAsNumber })}
-    />
-    <span class="number">
-      <input
-        id="{id}-scale"
-        class="caelestis-field"
-        type="number"
-        inputmode="decimal"
-        min="0"
-        step="any"
-        value={Number(output.scale.toFixed(4))}
-        {disabled}
-        onkeydown={commitOnEnter}
-        onchange={(event) => {
-          const scale = event.currentTarget.valueAsNumber
-          if (Number.isFinite(scale) && scale > 0) onIntent({ type: 'scale', scale })
-        }}
-      />
-      <span class="unit">×</span>
-    </span>
-  </div>
-</div>
+<RangeField
+  label="Scale"
+  value={output.scale}
+  min={SLIDER_MIN_SCALE}
+  max={SLIDER_MAX_SCALE}
+  step={SCALE_STEP}
+  unit="×"
+  fieldMin={Number.MIN_VALUE}
+  fieldMax={Number.MAX_VALUE}
+  {disabled}
+  onChange={(scale) => onIntent({ type: 'scale', scale })}
+/>
 {#each [['width', 'Width'], ['height', 'Height']] as const as [side, label] (side)}
-  <div class="row">
+  <div class="field-row">
     <label class="field-label" for="{id}-{side}">{label}</label>
     <span class="number">
       <input
@@ -102,7 +82,7 @@
 {#if output.locked}
   <p class="hint">A new version keeps the template’s size.</p>
 {/if}
-<div class="row">
+<div class="field-row">
   <label class="field-label" for="{id}-resize">Resample</label>
   <select
     id="{id}-resize"
@@ -116,7 +96,7 @@
     {/each}
   </select>
 </div>
-<div class="row">
+<div class="field-row">
   <span class="field-label" id="{id}-anchor">Anchor</span>
   <div bind:this={anchors} class="anchors" role="radiogroup" aria-labelledby="{id}-anchor" aria-disabled={output.resize === 'area'}>
     {#each ANCHORS as anchor, index (anchor.id)}
@@ -161,7 +141,6 @@
 <p class="hint">Drag the image on the map to move it. Arrow keys nudge it.</p>
 
 <style>
-  .scale { display: grid; grid-template-columns: minmax(0, 1fr) 5.5rem; align-items: center; gap: 0.5rem; }
   .section { margin-block-start: 0.5rem; }
   .anchors { display: grid; grid-template-columns: repeat(3, 1.5rem); gap: 2px; inline-size: fit-content; }
   .anchors[aria-disabled='true'] { opacity: 0.5; }

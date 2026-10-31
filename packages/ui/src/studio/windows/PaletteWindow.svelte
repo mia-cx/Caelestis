@@ -3,6 +3,7 @@
   import MenuStyles from '../../foundations/MenuStyles.svelte'
   import type { StudioPaletteScope, TemplateStudioIntent, TemplateStudioModel } from '../model.js'
   import { ALPHA_MODES, type AlphaMode } from '../options.js'
+  import RangeField from '../RangeField.svelte'
 
   /**
    * The Wplace colours the template may use, as Ditherette web's palette without custom palettes,
@@ -59,7 +60,7 @@
   <p class="hint summary">{selected.length} of {model.palette.colours.length} colours on{#if model.source !== null} · {used} used{/if}</p>
 
   <p class="field-label section">Transparency</p>
-  <div class="row">
+  <div class="field-row">
     <label class="field-label" for="{id}-alpha">Alpha</label>
     <select
       id="{id}-alpha"
@@ -73,23 +74,16 @@
     </select>
   </div>
   {#if model.alpha.mode === 'preserve'}
-    <div class="row">
-      <label class="field-label" for="{id}-threshold">Threshold</label>
-      <div class="slider">
-        <input
-          id="{id}-threshold"
-          type="range"
-          min="0"
-          max="255"
-          step="1"
-          value={model.alpha.threshold}
-          oninput={(event) => onIntent({ type: 'alpha', alpha: { threshold: event.currentTarget.valueAsNumber } })}
-        />
-        <span class="value">{model.alpha.threshold}</span>
-      </div>
-    </div>
+    <RangeField
+      label="Threshold"
+      value={model.alpha.threshold}
+      min={0}
+      max={255}
+      step={1}
+      onChange={(threshold) => onIntent({ type: 'alpha', alpha: { threshold } })}
+    />
   {:else if model.alpha.mode === 'matte'}
-    <div class="row">
+    <div class="field-row">
       <label class="field-label" for="{id}-matte">Matte</label>
       <select
         id="{id}-matte"
@@ -158,7 +152,5 @@
   .swatch[data-on='false'] .badge > span { border: 1.5px solid var(--caelestis-text); background: var(--caelestis-surface); color: var(--caelestis-text); }
   .summary { font-variant-numeric: tabular-nums; }
   .section { margin-block-start: 0.5rem; }
-  .slider { display: grid; grid-template-columns: minmax(0, 1fr) 2rem; align-items: center; gap: 0.5rem; }
-  .value { color: var(--caelestis-muted-text); font-size: 0.75rem; font-variant-numeric: tabular-nums; text-align: end; }
   @media (forced-colors: active) { .swatch[data-on='true'] { outline: 3px solid CanvasText; } }
 </style>

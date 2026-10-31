@@ -207,6 +207,7 @@ export const templateStudioModel = (): TemplateStudioModel => ({
   palette: paletteModel(),
   alpha: settings.alpha,
   colorSpace: settings.colorSpace,
+  dither: settings.dither,
   engine,
   processing,
   pending,
@@ -555,6 +556,24 @@ const setAlpha = (patch: Partial<StudioSettings['alpha']>): void => {
   }
 }
 
+const clamp = (value: number, min: number, max: number): number =>
+  Math.min(max, Math.max(min, Math.round(value)))
+
+/** Ditherette web's dither ranges: strength and tolerance in percent, Adaptive samples 4–100 px. */
+const setDither = (patch: Partial<StudioSettings['dither']>): void => {
+  const dither = { ...settings.dither, ...patch }
+  settings = {
+    ...settings,
+    dither: {
+      ...dither,
+      strength: clamp(dither.strength, 0, 100),
+      placementSampleSize: clamp(dither.placementSampleSize, 4, 100),
+      placementContrastThreshold: clamp(dither.placementContrastThreshold, 0, 100),
+      seed: dither.seed >>> 0,
+    },
+  }
+}
+
 /* Intents. */
 
 /** Apply one intent from the element. */
@@ -628,6 +647,10 @@ export const handleTemplateStudioIntent = (intent: TemplateStudioIntent): void =
       break
     case 'color-space':
       settings = { ...settings, colorSpace: intent.colorSpace }
+      reprocess()
+      break
+    case 'dither':
+      setDither(intent.dither)
       reprocess()
       break
     case 'origin':
