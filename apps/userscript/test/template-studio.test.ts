@@ -292,6 +292,27 @@ describe('template studio', () => {
     window.dispatchEvent(new PointerEvent('pointerup', { ...pointer, clientX: 400 }))
   })
 
+  it('leaves a panel in place when the browser cancels its drag', async () => {
+    registerCaelestisUi()
+    openTemplateStudio({
+      kind: 'create',
+      destination: 'Local',
+      surface: WORLD_TEMPLATE_SURFACE,
+      save: async () => true,
+    })
+    const root = document.querySelector(TEMPLATE_STUDIO_TAG)?.shadowRoot
+    const header = () => root?.querySelector('[data-window="source"] header')
+    await vi.waitFor(() => expect(header()).toBeTruthy())
+    const before = templateStudioModel().layout
+
+    const pointer = { button: 0, pointerId: 1, bubbles: true, clientX: 40, clientY: 40 }
+    header()?.dispatchEvent(new PointerEvent('pointerdown', pointer))
+    window.dispatchEvent(new PointerEvent('pointermove', { ...pointer, clientX: 400 }))
+    window.dispatchEvent(new PointerEvent('pointercancel', { ...pointer, clientX: 400 }))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(templateStudioModel().layout).toEqual(before)
+  })
+
   it('undoes an enlargement against the canvas edge without drawing the larger artwork', async () => {
     const room = await openOnRoom({
       kind: 'create',
