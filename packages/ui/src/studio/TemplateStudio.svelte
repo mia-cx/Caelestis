@@ -54,14 +54,11 @@
     commitLayout(dropWindow(layout, id, { x, y, width, height }, { width: innerWidth, height: innerHeight }, boxes))
   }
 
-  const columns = $derived({
-    start: dockedWindows(layout, 'start').filter((id) => id !== drag?.id),
-    end: dockedWindows(layout, 'end').filter((id) => id !== drag?.id),
-  })
+  const columns = $derived({ start: dockedWindows(layout, 'start'), end: dockedWindows(layout, 'end') })
   const floating = $derived(
     STUDIO_WINDOWS.map((window) => window.id).filter((id) => {
       const placement = placementOf(layout, id)
-      return placement.open && placement.dock === null && id !== drag?.id
+      return placement.open && placement.dock === null
     }),
   )
   const titleOf = (id: StudioWindowId): string => STUDIO_WINDOWS.find((window) => window.id === id)?.title ?? id
@@ -138,7 +135,16 @@
 
 {#snippet frame(id: StudioWindowId)}
   {@const placement = placementOf(layout, id)}
-  <div class="slot" data-window={id}>
+  {@const dragged = drag?.id === id ? drag : null}
+  <!-- A dragged window follows the pointer from its own slot, so its contents stay mounted. -->
+  <div
+    class="slot"
+    class:dragged={dragged !== null}
+    data-window={id}
+    style:left={dragged === null ? undefined : `${dragged.x}px`}
+    style:top={dragged === null ? undefined : `${dragged.y}px`}
+    style:inline-size={dragged === null ? undefined : `${dragged.width}px`}
+  >
     <StudioWindow
       title={titleOf(id)}
       collapsed={placement.collapsed}
@@ -235,10 +241,6 @@
         </div>
       {/if}
     {/each}
-
-    {#if drag !== null}
-      <div class="float dragged" style:left="{drag.x}px" style:top="{drag.y}px">{@render frame(drag.id)}</div>
-    {/if}
   {/if}
 </div>
 
@@ -333,7 +335,8 @@
     max-block-size: calc(100dvh - var(--studio-top) - var(--studio-bottom));
   }
   .float .slot { max-block-size: inherit; }
-  .dragged { z-index: 3; }
+  /* Fixed, so a docked window leaves its scrolling column's clip while it moves. */
+  .slot.dragged { position: fixed; z-index: 3; }
   @media (max-width: 52rem) {
     /* Between Wplace's zoom buttons and its account button, as claim mode's bar sits. */
     .bar { inset-inline: 3.5rem 7rem; inline-size: auto; max-inline-size: none; flex-wrap: wrap; }

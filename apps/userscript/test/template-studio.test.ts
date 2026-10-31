@@ -1,6 +1,7 @@
 import { WORLD_PIXELS, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import {
   type EffectLayer,
+  registerCaelestisUi,
   TEMPLATE_STUDIO_TAG,
   type TemplateStudioModel,
 } from '@caelestis/ui/elements'
@@ -220,6 +221,30 @@ describe('template studio', () => {
     await openOnRoom(target)
     await vi.waitFor(() => expect(templateStudioModel().scopes.samples.output).toBeDefined())
     handleTemplateStudioIntent({ type: 'scopes-shown', shown: false })
+  })
+
+  it('keeps what a window holds while the author drags it', async () => {
+    registerCaelestisUi()
+    openTemplateStudio({
+      kind: 'create',
+      destination: 'Local',
+      surface: WORLD_TEMPLATE_SURFACE,
+      save: async () => true,
+    })
+    const root = document.querySelector(TEMPLATE_STUDIO_TAG)?.shadowRoot
+    const address = () =>
+      root?.querySelector<HTMLInputElement>('[data-window="source"] input[type="url"]')
+    await vi.waitFor(() => expect(address()).toBeTruthy())
+    const typed = address()
+
+    const pointer = { button: 0, pointerId: 1, bubbles: true, clientX: 40, clientY: 40 }
+    root?.querySelector('[data-window="source"] header')?.dispatchEvent(
+      new PointerEvent('pointerdown', pointer),
+    )
+    window.dispatchEvent(new PointerEvent('pointermove', { ...pointer, clientX: 400 }))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(address()).toBe(typed)
+    window.dispatchEvent(new PointerEvent('pointerup', { ...pointer, clientX: 400 }))
   })
 
   it('undoes an enlargement against the canvas edge without drawing the larger artwork', async () => {
