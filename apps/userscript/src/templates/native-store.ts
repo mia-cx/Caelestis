@@ -395,6 +395,9 @@ export class NativeTemplates {
 
 type NativeModule = Record<string, unknown>
 
+/** Wplace ships about 400 modules (October 2026); the cap only stops a runaway crawl. */
+const MODULE_BUDGET = 2048
+
 const nativeFunction = <T>(module: NativeModule, matches: (source: string) => boolean): T => {
   const candidates = Object.values(module).filter(
     (value) => typeof value === 'function' && matches(Function.prototype.toString.call(value)),
@@ -425,19 +428,20 @@ export const findWplaceModules = async <Key extends string>(
   const visited = new Set<string>()
   const keys = Object.keys(wanted) as Key[]
   const found: Partial<Record<Key, { module: NativeModule; source: string }>> = {}
-  while (candidates.size > 0 && visited.size < 384 && keys.some((key) => !found[key])) {
+  while (candidates.size > 0 && visited.size < MODULE_BUDGET && keys.some((key) => !found[key])) {
     const batch = [...candidates].slice(0, 6)
     for (const url of batch) candidates.delete(url)
     await Promise.all(
       batch.map(async (url) => {
-        if (visited.has(url)) return
-        visited.add(url)
         const parsed = new URL(url, page.location.href)
+        // Resource entries include tiles and API calls; only Wplace's own modules spend the budget.
         if (
+          visited.has(url) ||
           parsed.origin !== page.location.origin ||
           !/^\/_app\/immutable\/(chunks|nodes|entry)\/.+\.js$/.test(parsed.pathname)
         )
           return
+        visited.add(url)
         const response = await page.fetch(parsed.href, { cache: 'force-cache' })
         if (!response.ok) throw new Error('Could not inspect Wplace modules')
         const source = await response.text()
