@@ -154,6 +154,10 @@
     if (!started || drop === null) return
     commitLayout(what.kind === 'panel' ? movePanel(layout, what.id, drop) : moveFrame(layout, what.frame, drop))
   }
+  /** The browser gave up the gesture, so nothing was released anywhere. */
+  const cancelDrag = (event: PointerEvent): void => {
+    if (drag?.pointerId === event.pointerId) drag = null
+  }
 
   const docked = $derived({
     start: layout.frames.findIndex((frame) => frame.place.dock === 'start'),
@@ -213,7 +217,7 @@
   )
 </script>
 
-<svelte:window onpointermove={moveDrag} onpointerup={endDrag} onpointercancel={endDrag} onkeydowncapture={onWindowKeydown} onpointerdowncapture={onWindowPointerdown} />
+<svelte:window onpointermove={moveDrag} onpointerup={endDrag} onpointercancel={cancelDrag} onkeydowncapture={onWindowKeydown} onpointerdowncapture={onWindowPointerdown} />
 
 {#snippet contents(id: StudioWindowId)}
   {#if id === 'source'}
