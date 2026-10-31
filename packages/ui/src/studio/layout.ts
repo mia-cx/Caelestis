@@ -8,13 +8,18 @@ import {
 /** A window released this close to a screen edge docks into that edge's column. */
 export const SNAP_DISTANCE = 72
 
-/** Every window starts docked on the left, open, in Windows-menu order. */
-export const defaultPlacement = (id: StudioWindowId): StudioWindowPlacement => ({
-  open: true,
-  collapsed: false,
-  dock: 'start',
-  order: STUDIO_WINDOWS.findIndex((window) => window.id === id),
-})
+/** Every window starts open, docked to its default edge in Windows-menu order. */
+export const defaultPlacement = (id: StudioWindowId): StudioWindowPlacement => {
+  const dock = STUDIO_WINDOWS.find((window) => window.id === id)?.dock ?? 'start'
+  return {
+    open: true,
+    collapsed: false,
+    dock,
+    order: STUDIO_WINDOWS.filter((window) => window.dock === dock).findIndex(
+      (window) => window.id === id,
+    ),
+  }
+}
 
 export const placementOf = (layout: StudioLayout, id: StudioWindowId): StudioWindowPlacement =>
   layout[id] ?? defaultPlacement(id)

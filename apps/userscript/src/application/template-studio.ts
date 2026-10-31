@@ -1,6 +1,7 @@
 import {
   type DitheretteTemplateRecipe,
   MAX_TEMPLATE_SOURCE_BYTES,
+  PALETTE_SIZE,
   sha256Hex,
   TEMPLATE_PROCESSORS,
   TEMPLATE_RECIPE_FORMAT,
@@ -8,8 +9,10 @@ import {
   TRANSPARENT_INDEX,
   uuidV7,
   WORLD_PIXELS,
+  WPLACE_PALETTE,
 } from '@caelestis/shared'
 import {
+  type StudioPaletteScope,
   type StudioRect,
   TEMPLATE_STUDIO_TAG,
   type TemplateStudioIntent,
@@ -45,7 +48,7 @@ import { presetColours } from '../ui/colours.js'
 import { confirmDestructive } from '../ui/confirm.js'
 import { isPanelOpen, togglePanel } from '../ui/panel.js'
 import { applyWplaceTheme } from '../ui/theme.js'
-import { loadAccount } from '../wplace-account.js'
+import { loadAccount, ownedColours } from '../wplace-account.js'
 
 /**
  * The template studio: Ditherette web's controls over the live map.
@@ -122,6 +125,8 @@ let paletteChosen = false
 let engine: DitheretteEngine | null = null
 let processing: TemplateStudioModel['processing'] = { state: 'idle' }
 let processed: Processed | null = null
+/** Pixels of each palette index in the last result. */
+let pixelCounts = new Uint32Array(PALETTE_SIZE)
 let pending = false
 let message: string | undefined
 let settleTimer: ReturnType<typeof setTimeout> | null = null
@@ -144,6 +149,33 @@ const scaleOf = (): number =>
   crop.width >= crop.height
     ? settings.output.width / crop.width
     : settings.output.height / crop.height
+
+const DRAWABLE = WPLACE_PALETTE.filter((colour) => colour.index !== TRANSPARENT_INDEX)
+const SCOPES: readonly StudioPaletteScope[] = ['all', 'free', 'premium', 'owned']
+
+const sameColours = (left: readonly number[], right: readonly number[]): boolean =>
+  left.length === right.length && left.every((index, position) => index === right[position])
+
+/** Every drawable colour, whether the template may use it, and its share of the last result. */
+const paletteModel = (): TemplateStudioModel['palette'] => {
+  const chosen = new Set(palette)
+  const ownedKnown = ownedColours() !== null
+  return {
+    scope:
+      SCOPES.find(
+        (scope) => (scope !== 'owned' || ownedKnown) && sameColours(presetColours(scope), palette),
+      ) ?? null,
+    ownedKnown,
+    colours: DRAWABLE.map((colour) => ({
+      index: colour.index,
+      name: colour.name,
+      hex: colour.hex,
+      kind: colour.kind,
+      selected: chosen.has(colour.index),
+      pixels: pixelCounts[colour.index] ?? 0,
+    })),
+  }
+}
 
 /** The studio's state as the element draws it. */
 export const templateStudioModel = (): TemplateStudioModel => ({
@@ -172,6 +204,9 @@ export const templateStudioModel = (): TemplateStudioModel => ({
     locked: target?.kind === 'replace',
   },
   origin,
+  palette: paletteModel(),
+  alpha: settings.alpha,
+  colorSpace: settings.colorSpace,
   engine,
   processing,
   pending,
@@ -257,9 +292,14 @@ const process = async (): Promise<void> => {
       indices: result.indices,
       opaque: result.opaque,
     }
-    const colours = new Set(result.indices)
-    colours.delete(TRANSPARENT_INDEX)
-    processing = { state: 'ready', pixels: result.opaque, colours: colours.size }
+    pixelCounts = new Uint32Array(PALETTE_SIZE)
+    for (const index of result.indices) pixelCounts[index] = (pixelCounts[index] ?? 0) + 1
+    pixelCounts[TRANSPARENT_INDEX] = 0
+    processing = {
+      state: 'ready',
+      pixels: result.opaque,
+      colours: pixelCounts.filter((count) => count > 0).length,
+    }
     clampOrigin()
     showDraft(processed)
   } catch (error) {
@@ -490,6 +530,31 @@ const setCrop = (next: StudioRect): void => {
   if (target?.kind !== 'replace') setScale(scale)
 }
 
+/* Palette. */
+
+/** White where the template may use it, as Ditherette web's matte default, else the first colour. */
+const defaultMatte = (colours: readonly number[]): number =>
+  colours.find((index) => WPLACE_PALETTE[index]?.hex.toLowerCase() === '#ffffff') ?? colours[0] ?? 0
+
+/** Use these colours. The palette never empties, and the matte stays one of them. */
+const setPalette = (next: readonly number[]): void => {
+  if (next.length === 0) return
+  palette = next
+  if (!palette.includes(settings.alpha.matte)) setAlpha({ matte: defaultMatte(palette) })
+}
+
+const setAlpha = (patch: Partial<StudioSettings['alpha']>): void => {
+  const alpha = { ...settings.alpha, ...patch }
+  settings = {
+    ...settings,
+    alpha: {
+      mode: alpha.mode,
+      threshold: Math.min(255, Math.max(0, Math.round(alpha.threshold))),
+      matte: palette.includes(alpha.matte) ? alpha.matte : defaultMatte(palette),
+    },
+  }
+}
+
 /* Intents. */
 
 /** Apply one intent from the element. */
@@ -541,6 +606,28 @@ export const handleTemplateStudioIntent = (intent: TemplateStudioIntent): void =
       break
     case 'anchor':
       setOutput({ anchor: intent.anchor })
+      reprocess()
+      break
+    case 'scope':
+      paletteChosen = true
+      setPalette(presetColours(intent.scope))
+      reprocess()
+      break
+    case 'colour': {
+      paletteChosen = true
+      const next = new Set(palette)
+      if (intent.selected) next.add(intent.index)
+      else next.delete(intent.index)
+      setPalette([...next].sort((left, right) => left - right))
+      reprocess()
+      break
+    }
+    case 'alpha':
+      setAlpha(intent.alpha)
+      reprocess()
+      break
+    case 'color-space':
+      settings = { ...settings, colorSpace: intent.colorSpace }
       reprocess()
       break
     case 'origin':
@@ -626,10 +713,12 @@ const reset = (): void => {
   crop = { x: 0, y: 0, width: 1, height: 1 }
   settings = initialSettings()
   origin = { x: 0, y: 0 }
-  palette = presetColours('owned')
+  palette = []
+  setPalette(presetColours('owned'))
   paletteChosen = false
   processing = { state: 'idle' }
   processed = null
+  pixelCounts = new Uint32Array(PALETTE_SIZE)
   pending = false
   message = undefined
 }
@@ -730,12 +819,8 @@ export const openTemplateStudio = (
     // Owned colours arrive after the studio opens; follow them until the author picks colours.
     if (target !== next || paletteChosen) return
     const owned = presetColours('owned')
-    if (
-      owned.length === palette.length &&
-      owned.every((index, position) => index === palette[position])
-    )
-      return
-    palette = owned
+    if (sameColours(owned, palette)) return
+    setPalette(owned)
     reprocess()
     render()
   })
