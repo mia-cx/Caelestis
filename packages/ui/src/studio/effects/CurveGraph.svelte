@@ -90,12 +90,12 @@
     }
     // Analysed knots sit off the byte grid, closer than a byte apart. A moved point lands on the
     // grid twice the package's gap from its neighbours, a margin its float32 rounding cannot close;
-    // one whose byte is unchanged, or that has no such byte, keeps its exact x.
+    // one asked to keep its byte, or that has no such byte, keeps its exact x.
     const margin = 2 * MIN_CURVE_POINT_GAP
     const min = index > 0 ? Math.ceil((xAt(index - 1) + margin) * BYTE) : 0
     const max = index < points.length - 1 ? Math.floor((xAt(index + 1) - margin) * BYTE) : BYTE
-    const moved = clamp(Math.round(xByte), min, max)
-    const x = min > max || moved === toByte(xAt(index)) ? xAt(index) : moved / BYTE
+    const requested = Math.round(xByte)
+    const x = min > max || requested === toByte(xAt(index)) ? xAt(index) : clamp(requested, min, max) / BYTE
     const next: CurvePoint[] = points.slice()
     next[index] = [x, y]
     onChange(next)

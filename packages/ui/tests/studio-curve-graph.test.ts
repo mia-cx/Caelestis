@@ -13,12 +13,12 @@ const ANALYSED: CurvePoints = [
   [1, 1],
 ]
 
-/** The points after one key press on the middle analysed knot. */
-const nudge = (key: string): CurvePoints => {
-  let changed: CurvePoints = ANALYSED
+/** The points after one key press on the third knot. */
+const nudge = (key: string, points = ANALYSED): CurvePoints => {
+  let changed: CurvePoints = points
   const graph = mount(CurveGraph, {
     target: document.body,
-    props: { id: 'curve', points: ANALYSED, colour: 'red', onChange: (next) => (changed = next) },
+    props: { id: 'curve', points, colour: 'red', onChange: (next) => (changed = next) },
   })
   flushSync()
   document
@@ -44,3 +44,14 @@ it.each(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'])(
     if (key === 'ArrowUp' || key === 'ArrowDown') expect(points[2]?.[0]).toBe(0.5015)
   },
 )
+
+it('raises a knot whose own byte crowds its neighbour without moving it along the curve', () => {
+  // Byte 128 sits inside the margin after 0.5, but bytes further right are free.
+  const points = nudge('ArrowUp', [
+    [0, 0],
+    [0.5, 0.4],
+    [0.5015, 0.5],
+    [1, 1],
+  ])
+  expect(points[2]?.[0]).toBe(0.5015)
+})
