@@ -1,5 +1,6 @@
 import type { Alarm } from '@caelestis/shared'
 import { getState } from './state.js'
+import { storedValue, storeValue } from './stored-values.js'
 import { activeServerAlarms, onServerAlarmChange } from './telemetry.js'
 import { showAmbientToast } from './ui/notification-host.js'
 import { isWorldTemplatePresented, onWorldTemplateTreeVisible, setAlarmBadge } from './ui/panel.js'
@@ -8,18 +9,12 @@ import { isPaintOpen } from './wplace-paint.js'
 const ACKNOWLEDGED_KEY = 'caelestis.acknowledged-alarms.v1'
 const MAX_ACKNOWLEDGED = 1_024
 
-// biome-ignore lint/suspicious/noExplicitAny: userscript-manager APIs exist only in their sandbox
-const gm = globalThis as any
-
 export const alarmFingerprint = (serverUrl: string, alarm: Alarm): string =>
   `${serverUrl}\u0000${alarm.id}\u0000${alarm.kind}`
 
 const readAcknowledged = (): Set<string> => {
   try {
-    const raw =
-      typeof gm.GM_getValue === 'function'
-        ? gm.GM_getValue(ACKNOWLEDGED_KEY, '[]')
-        : (localStorage.getItem(ACKNOWLEDGED_KEY) ?? '[]')
+    const raw = storedValue(ACKNOWLEDGED_KEY) ?? '[]'
     const parsed: unknown = JSON.parse(raw)
     if (!Array.isArray(parsed)) return new Set()
     return new Set(
@@ -35,8 +30,7 @@ const readAcknowledged = (): Set<string> => {
 const writeAcknowledged = (acknowledged: ReadonlySet<string>): void => {
   try {
     const raw = JSON.stringify([...acknowledged].slice(-MAX_ACKNOWLEDGED))
-    if (typeof gm.GM_setValue === 'function') gm.GM_setValue(ACKNOWLEDGED_KEY, raw)
-    else localStorage.setItem(ACKNOWLEDGED_KEY, raw)
+    storeValue(ACKNOWLEDGED_KEY, raw)
   } catch {
     // A failed acknowledgement stays visible; no alarm state is lost.
   }

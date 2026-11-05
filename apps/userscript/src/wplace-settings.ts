@@ -16,15 +16,13 @@
  */
 
 import { log } from './debug.js'
+import { storedValue, storeValue } from './stored-values.js'
 import { CURSORS_ATTRIBUTE } from './wplace-cursors.js'
 import { FALSETYPE_ATTRIBUTE } from './wplace-font.js'
 
 const STORAGE_KEY = 'caelestis.wplace-options.v1'
 const PANEL_ID = 'settings-panel-accessibility'
 const ROW_MARKER = 'data-caelestis-option'
-
-// biome-ignore lint/suspicious/noExplicitAny: userscript-manager APIs exist only in their sandbox
-const gm = globalThis as any
 
 interface Prefs {
   falseType: boolean
@@ -35,11 +33,7 @@ const DEFAULTS: Prefs = { falseType: true, cursors: true }
 
 const readPrefs = (): Prefs => {
   try {
-    const raw =
-      typeof gm.GM_getValue === 'function'
-        ? gm.GM_getValue(STORAGE_KEY, '{}')
-        : (globalThis.localStorage?.getItem(STORAGE_KEY) ?? '{}')
-    const parsed: unknown = JSON.parse(raw)
+    const parsed: unknown = JSON.parse(storedValue(STORAGE_KEY) ?? '{}')
     if (typeof parsed !== 'object' || parsed === null) return { ...DEFAULTS }
     const merged = { ...DEFAULTS }
     for (const key of Object.keys(merged) as (keyof Prefs)[]) {
@@ -54,9 +48,7 @@ const readPrefs = (): Prefs => {
 
 const writePrefs = (prefs: Prefs): void => {
   try {
-    const raw = JSON.stringify(prefs)
-    if (typeof gm.GM_setValue === 'function') gm.GM_setValue(STORAGE_KEY, raw)
-    else globalThis.localStorage?.setItem(STORAGE_KEY, raw)
+    storeValue(STORAGE_KEY, JSON.stringify(prefs))
   } catch {
     // The switch still applies for this session.
   }

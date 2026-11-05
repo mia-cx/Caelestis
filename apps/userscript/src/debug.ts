@@ -1,5 +1,6 @@
 import { pageWindow } from './page-world.js'
 import { recordProfileCounter } from './profile.js'
+import { deleteStoredValue, storedValue, storeValue } from './stored-values.js'
 /**
  * Debug instrumentation for the render path.
  *
@@ -8,8 +9,9 @@ import { recordProfileCounter } from './profile.js'
  * symptom is that the overlay silently goes missing. That is very hard to reason about from a
  * screenshot, so every link reports what it did and, more importantly, why it declined.
  *
- * Off by default so a shipped script stays quiet. Turn it on from the console with
- * `__caelestis.debug(true)` and reload, or set `localStorage.caelestisDebug = '1'` to have it survive reloads.
+ * Off by default so a shipped script stays quiet. Turn it on with the Debug logging setting or
+ * `__caelestis.debug(true)` from the console, then reload to capture startup; it stays on across
+ * reloads until turned off.
  * `__caelestis.dump()` prints the counters and the recent event ring, which is the thing to send when
  * something looks wrong.
  */
@@ -31,6 +33,7 @@ interface Entry {
   readonly data?: unknown
 }
 
+const DEBUG_KEY = 'caelestisDebug'
 const RING_SIZE = 400
 const MAX_MESSAGE_LENGTH = 512
 const MAX_DATA_STRING_LENGTH = 512
@@ -48,7 +51,7 @@ const started = Date.now()
 
 const readInitialSetting = (): boolean => {
   try {
-    return localStorage.getItem('caelestisDebug') === '1'
+    return storedValue(DEBUG_KEY) === '1'
   } catch {
     return false
   }
@@ -188,8 +191,8 @@ export const isEnabled = (): boolean => enabled
 export const setEnabled = (on: boolean): void => {
   enabled = on
   try {
-    if (on) localStorage.setItem('caelestisDebug', '1')
-    else localStorage.removeItem('caelestisDebug')
+    if (on) storeValue(DEBUG_KEY, '1')
+    else deleteStoredValue(DEBUG_KEY)
   } catch {
     // Private browsing and the like. The in-memory flag still applies for this session.
   }
