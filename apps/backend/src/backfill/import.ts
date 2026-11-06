@@ -38,10 +38,16 @@ export interface ArchiveSource {
   tile(snapshotId: number, tile: TileCoord): Promise<Uint8Array | null>
 }
 
-interface StoredJob {
-  readonly summary: BackfillJob
+/** What a job imports, written once at start under `plan`. */
+interface StoredPlan {
+  readonly jobId: string
   readonly snapshots: readonly ArchiveSnapshot[]
   readonly tiles: readonly TileCoord[]
+}
+
+/** Progress, rewritten every step. Jobs started before `plan` existed carry theirs inline. */
+interface StoredJob extends Partial<Omit<StoredPlan, 'jobId'>> {
+  readonly summary: BackfillJob
   readonly correct: number
   readonly mismatched: number
   readonly incomplete: boolean
@@ -62,6 +68,16 @@ export class BackfillError extends Error {
   }
 }
 
+type DecodedChunk = Awaited<ReturnType<typeof decodeWplaceIndexedPng>>
+
+/** A job's progress without the plan an older job stored inline. */
+const progress = ({ summary, correct, mismatched, incomplete }: StoredJob): StoredJob => ({
+  summary,
+  correct,
+  mismatched,
+  incomplete,
+})
+
 const suffix = (id: number): string => String(id).padStart(10, '0')
 const tilePrefix = (version: string, tile: TileCoord): string =>
   `tile:${version}:${tile.x}/${tile.y}:`
@@ -74,8 +90,14 @@ const cutoff = (template: TemplateRecord, now: number): number =>
     ) / 1_000,
   )
 
+/** Decoded template chunks kept across steps; a job revisits each of its chunks every snapshot. */
+const MAX_DECODED_CHUNKS = 16
+
 /** Resumable import with one tile per alarm. Callers serialize start, cancel and step. */
 export class TemplateBackfill {
+  private plan: StoredPlan | null = null
+  private readonly chunks = new Map<string, Promise<DecodedChunk>>()
+
   constructor(
     private readonly storage: BackfillStorage,
     private readonly sql: SqlStore,
@@ -107,6 +129,29 @@ export class TemplateBackfill {
       },
       end: Math.min(cutoff(template, this.now()), firstLive === null ? Infinity : firstLive - 1),
     }
+  }
+
+  /** The running job's plan, read once per job rather than rewritten with every step. */
+  private async readPlan(held: StoredJob): Promise<StoredPlan | null> {
+    const jobId = held.summary.id
+    if (held.snapshots !== undefined && held.tiles !== undefined)
+      return { jobId, snapshots: held.snapshots, tiles: held.tiles }
+    if (this.plan?.jobId !== jobId) this.plan = (await this.storage.get<StoredPlan>('plan')) ?? null
+    return this.plan?.jobId === jobId ? this.plan : null
+  }
+
+  private decodedChunk(hash: string): Promise<DecodedChunk> {
+    let decoded = this.chunks.get(hash)
+    if (decoded === undefined) {
+      if (this.chunks.size >= MAX_DECODED_CHUNKS) this.chunks.clear()
+      decoded = this.blobs
+        .get('chunks', hash)
+        .then((bytes) => (bytes === null ? null : decodeWplaceIndexedPng(bytes)))
+      // A failed read is retried by the next step rather than remembered.
+      decoded.catch(() => this.chunks.delete(hash))
+      this.chunks.set(hash, decoded)
+    }
+    return decoded
   }
 
   async job(): Promise<BackfillJob | null> {
@@ -154,10 +199,10 @@ export class TemplateBackfill {
     await this.storage.put(`basis:${versionId}`, preview.basis)
     // A failed schedule must not leave the form observing an unstartable running job.
     await this.storage.setAlarm(this.now() + 100)
+    // The plan lands first, so a stored running job always finds the plan it names.
+    await this.storage.put<StoredPlan>('plan', { jobId: summary.id, snapshots, tiles })
     await this.storage.put<StoredJob>('job', {
       summary,
-      snapshots,
-      tiles,
       correct: 0,
       mismatched: 0,
       incomplete: false,
@@ -232,12 +277,15 @@ export class TemplateBackfill {
   async step(): Promise<void> {
     const held = await this.storage.get<StoredJob>('job')
     if (held === undefined || held.summary.status !== 'running') return
-    const { summary, tiles, snapshots } = held
+    const { summary } = held
     // Rearm before external storage reads too, so a transient D1 failure cannot strand the job.
     await this.storage.setAlarm(this.now() + 60_000)
     // An archive operation is exporting or restoring this state; resume once it ends. The read is
     // fresh because a cached "open" could let this step write after its state was archived.
     if (await this.sql.archiveOperationActive({ fresh: true })) return
+    const plan = await this.readPlan(held)
+    if (plan === null) return
+    const { tiles, snapshots } = plan
     const template = await this.sql.readTemplate(summary.basis.templateId)
     if (template === null) {
       await this.cancel()
@@ -249,7 +297,7 @@ export class TemplateBackfill {
     const firstLive = await this.sql.readFirstTemplateObservation(summary.basis.versionId)
     if (firstLive !== null && snapshot.at >= firstLive) {
       await this.storage.put<StoredJob>('job', {
-        ...held,
+        ...progress(held),
         summary: {
           ...summary,
           to: snapshots.findLast((entry) => entry.at < firstLive)?.at ?? summary.from,
@@ -280,8 +328,7 @@ export class TemplateBackfill {
         let hash: string | null = null
         if (pixels !== null) {
           if (chunk !== undefined) {
-            const bytes = await this.blobs.get('chunks', chunk.hash)
-            const target = bytes === null ? null : await decodeWplaceIndexedPng(bytes)
+            const target = await this.decodedChunk(chunk.hash)
             const { bbox } = summary.basis
             const wraps = bbox.minX > bbox.maxX
             const tileLeft = tile.x * TILE_SIZE
@@ -347,8 +394,8 @@ export class TemplateBackfill {
             : 'completed'
           : 'running',
     }
+    if (held.snapshots !== undefined) await this.storage.put<StoredPlan>('plan', plan)
     await this.storage.put<StoredJob>('job', {
-      ...held,
       summary: next,
       correct,
       mismatched,
