@@ -22,7 +22,8 @@ export const canServeManagerStorage = (): boolean =>
  * The userscript manager's `GM_*` storage, as the userscript's storage bridge serves it.
  *
  * Read directly, every read of it was current, including another tab's writes. Served as a snapshot
- * it is not, so each key this tab has seen is watched for writes from other tabs.
+ * it is not, so every key this tab has stored, loaded, or asked for is watched for writes from other
+ * tabs. A key asked for reports the value it already has, in case another tab wrote it first.
  */
 export const managerStore = (): StringStore => {
   let changed: ((changes: Record<string, string | null>) => void) | undefined
@@ -66,6 +67,11 @@ export const managerStore = (): StringStore => {
     },
     onChange(listener) {
       changed = listener
+    },
+    watch(key) {
+      watch(key)
+      const value = manager.GM_getValue?.(key, null)
+      if (typeof value === 'string') changed?.({ [key]: value })
     },
   }
 }

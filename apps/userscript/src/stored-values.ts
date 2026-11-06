@@ -81,10 +81,16 @@ export const useStoredValues = (
     readonly persist: (key: string, value: string | null) => void
     /** Every stored value, read after this context's earlier writes were stored; rejects when not. */
     readonly fetch: () => Promise<Record<string, string>>
+    /** Told each read of a key `values` lacks, so storage can report it once another tab writes it. */
+    readonly watch?: (key: string) => void
   },
 ): ((changes: Readonly<Record<string, string | null>>) => void) => {
   backing = {
-    get: (key) => values.get(key) ?? null,
+    get(key) {
+      const value = values.get(key)
+      if (value === undefined) storage.watch?.(key)
+      return value ?? null
+    },
     set(key, value) {
       values.set(key, value)
       storage.persist(key, value)

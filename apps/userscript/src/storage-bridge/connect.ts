@@ -22,8 +22,14 @@ export const connectStorageBridge = (build: Build, onSnapshot: () => void): bool
   const send = (message: PageMessage): void => port.postMessage(JSON.stringify(message))
   const syncs = new Map<number, (values: Record<string, string> | null) => void>()
   let lastSync = 0
+  const watched = new Set<string>()
   const adopt = useStoredValues(values, {
     persist: (key, value) => send({ type: 'write', key, value }),
+    watch(key) {
+      if (watched.has(key)) return
+      watched.add(key)
+      send({ type: 'watch', key })
+    },
     fetch: () =>
       new Promise((resolve, reject) => {
         const id = ++lastSync

@@ -1,4 +1,5 @@
 import type { Build } from '../page-claim.js'
+import { pageWindow } from '../page-world.js'
 import { BRIDGE_HANDOFF, type BridgeMessage, type PageMessage } from './protocol.js'
 
 /** Where a build keeps its stored strings, seen from its storage world. */
@@ -9,6 +10,8 @@ export interface StringStore {
   write(key: string, value: string | null): Promise<boolean>
   /** Run `listener` with each change made in another context, `null` for a delete. */
   onChange?(listener: (changes: Record<string, string | null>) => void): void
+  /** Report changes to `key` from now on, where changes are only reported for watched keys. */
+  watch?(key: string): void
 }
 
 /**
@@ -20,8 +23,9 @@ export interface StringStore {
 export const serveStorageBridge = (build: Build, store: StringStore): (() => void) => {
   const loaded = store.load()
   const onHandoff = (event: MessageEvent): void => {
+    // Violentmonkey hands granted scripts a proxy for `window`; the event carries the page's own.
     if (
-      event.source !== window ||
+      (event.source !== window && event.source !== pageWindow()) ||
       event.data?.type !== BRIDGE_HANDOFF ||
       event.data?.build !== build
     )
@@ -41,6 +45,10 @@ export const serveStorageBridge = (build: Build, store: StringStore): (() => voi
       queue = queue.then(async () => {
         if (message.type === 'write') {
           if (!(await store.write(message.key, message.value))) writeFailed = true
+          return
+        }
+        if (message.type === 'watch') {
+          store.watch?.(message.key)
           return
         }
         const values = writeFailed ? null : await store.load()

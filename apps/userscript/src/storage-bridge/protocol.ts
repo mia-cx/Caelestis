@@ -42,3 +42,8 @@ export type BridgeMessage =
 export type PageMessage =
   | { readonly type: 'write'; readonly key: string; readonly value: string | null }
   | { readonly type: 'sync'; readonly id: number }
+  /**
+   * A key the page read and does not have. A store that reports changes per key, such as the
+   * userscript manager's, starts reporting this one, as `changes`, including any value it now has.
+   */
+  | { readonly type: 'watch'; readonly key: string }
