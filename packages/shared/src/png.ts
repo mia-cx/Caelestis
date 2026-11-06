@@ -190,6 +190,11 @@ const parsePng = (bytes: Uint8Array): ParsedPng => {
     const end = dataAt + length + 4
     if (end > bytes.length) throw new PngError(`truncated ${type} chunk`)
     const data = bytes.subarray(dataAt, dataAt + length)
+    // PNG requires exactly one IHDR, first. pngSize reads that first chunk without parsing, so a
+    // second header would let a file pass a size check with one size and decode as another.
+    if ((type === 'IHDR') !== (dataAt === SIGNATURE.length + 8)) {
+      throw new PngError('IHDR must be the first chunk and appear once')
+    }
     offset = end
 
     if (type === 'IHDR') {

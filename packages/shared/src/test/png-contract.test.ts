@@ -5,6 +5,7 @@ import {
   decodeWplaceIndexedPng,
   encodeIndexedPng,
   PngError,
+  pngSize,
   TRANSPARENT_INDEX,
 } from '../index.js'
 
@@ -146,6 +147,17 @@ describe('PNG ingest contract', () => {
     const truncated = canonical.subarray(0, -3)
     await expect(decodePng(truncated)).rejects.toBeInstanceOf(PngError)
     await expect(decodeWplaceIndexedPng(truncated)).rejects.toBeInstanceOf(PngError)
+  })
+
+  it('rejects a second IHDR, which would decode at a size pngSize never saw', async () => {
+    const larger = new Uint8Array(13)
+    new DataView(larger.buffer).setUint32(0, 16384)
+    new DataView(larger.buffer).setUint32(4, 16384)
+    larger[8] = 8
+    const twoHeaders = png(0, [0, 1], [chunk('IHDR', larger)])
+    expect(pngSize(twoHeaders)).toEqual({ width: 1, height: 1 })
+    await expect(decodePng(twoHeaders)).rejects.toThrow('IHDR must be the first chunk')
+    await expect(decodeWplaceIndexedPng(twoHeaders)).rejects.toBeInstanceOf(PngError)
   })
 
   it('rejects a short IHDR before reading its fields', async () => {
