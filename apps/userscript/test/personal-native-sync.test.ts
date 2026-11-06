@@ -37,18 +37,21 @@ vi.mock('../src/templates/tags.js', async (importOriginal) => {
 
 /**
  * Wplace's metadata singleton and image store, which are external. Its render echoes the image.
- * Like Wplace, it stamps `updatedAt` on every metadata update and announces every image write.
+ * Like Wplace, it stamps `updatedAt` on every metadata update and announces every image write in
+ * this tab; `setInAnotherTab` is a write this tab is never told about.
  */
 const wplace = () => {
   const records: NativeTemplate[] = []
-  const imageListeners = new Set<() => void>()
+  const imageListeners = new Set<(id: string) => void>()
   const store = new Map<string, Blob>()
   const images = {
     get: (id: string) => store.get(id),
     set: (id: string, blob: Blob) => {
       store.set(id, blob)
-      for (const listener of imageListeners) listener()
+      for (const listener of imageListeners) listener(id)
     },
+    setInAnotherTab: (id: string, blob: Blob) => void store.set(id, blob),
+    has: (blob: Blob) => [...store.values()].includes(blob),
   }
   const render = vi.fn<NativeImageStore['render']>(async (blob) => {
     const decoded = await decodePng(new Uint8Array(await blob.arrayBuffer()))
@@ -79,7 +82,7 @@ const wplace = () => {
     save: async (id, blob) => images.set(id, blob),
     remove: async (id) => void store.delete(id),
     subscribe: (listener) => {
-      const announce = () => listener({ id: '', kind: 'save' })
+      const announce = (id: string) => listener({ id, kind: 'save' })
       imageListeners.add(announce)
       return () => imageListeners.delete(announce)
     },
@@ -206,7 +209,7 @@ it('confirms an unchanged catalog on focus without reading any artwork', async (
   expect(await storedPixels(id)).toEqual(indices)
 })
 
-it('saves a visibility change without reading any artwork', async () => {
+it('saves a visibility change without reading its pixels', async () => {
   const native = wplace()
   connectPersonalStore(native.api)
   const { id } = await place('save-visibility')
@@ -215,10 +218,29 @@ it('saves a visibility change without reading any artwork', async () => {
   const reads = artworkReads()
   expect(await local.setLocalVisible(id, false)).toBe(true)
 
-  expect(reads).not.toHaveBeenCalled()
+  // The one read allowed is the Wplace source, checked once before it is written over.
+  const stored = reads.mock.contexts.filter((blob) => !native.images.has(blob as Blob))
+  expect(stored).toEqual([])
+  expect(reads.mock.calls.length).toBeLessThanOrEqual(1)
   reads.mockRestore()
   expect(native.records[0]?.visible).toBe(false)
   expect(await storedPixels(id)).toEqual(indices)
+})
+
+it('refuses to delete a template whose Wplace image another tab just replaced', async () => {
+  const native = wplace()
+  connectPersonalStore(native.api)
+  const { id } = await place('cross-tab-delete')
+  await focus()
+  const nativeId = native.records[0]?.id ?? ''
+  const png = new Uint8Array(await encodeIndexedPng(4, 2, indices.slice().reverse()))
+  const replacement = new Blob([png], { type: 'image/png' })
+
+  native.images.setInAnotherTab(nativeId, replacement)
+
+  expect(await local.removeLocalTemplate(id)).toBe(false)
+  expect(native.images.get(nativeId)).toBe(replacement)
+  expect(native.records).toHaveLength(1)
 })
 
 it('keeps the artwork in memory when Wplace hides a template', async () => {

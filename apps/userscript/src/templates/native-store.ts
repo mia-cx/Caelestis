@@ -210,7 +210,8 @@ export class NativeTemplates {
   /**
    * Each source image's digest, keyed by the metadata it was read with. Wplace announces every
    * image write in this tab and stamps `updatedAt` on the metadata beside it, and another tab's
-   * edits fail {@link assertFresh}, so an entry stays true until either changes.
+   * edits fail {@link assertFresh} once they persist, so reads trust an entry until either changes.
+   * Writes and removals never do.
    */
   private readonly digests = new Map<
     string,
@@ -281,7 +282,16 @@ export class NativeTemplates {
     return true
   }
 
+  /** The current snapshot, taking the image digest from cache when it still holds. */
   async read(id: string): Promise<NativeSnapshot | null> {
+    return await this.snapshot(id, true)
+  }
+
+  /**
+   * Another tab's image write announces nothing here, and its metadata reaches this tab up to
+   * 120 ms later, so writes and removals hash the image they are about to replace or delete.
+   */
+  private async snapshot(id: string, reuseDigest: boolean): Promise<NativeSnapshot | null> {
     this.assertFresh()
     const current = this.metadata.getById(id)
     if (current === undefined || current.serverManaged) return null
@@ -312,7 +322,7 @@ export class NativeTemplates {
     if (image.size > MAX_NATIVE_IMAGE_BYTES) throw new Error('Wplace source image is too large')
     const cached = this.digests.get(id)
     const digest =
-      cached?.metadata === serialized && cached.size === image.size
+      reuseDigest && cached?.metadata === serialized && cached.size === image.size
         ? cached.digest
         : await hash(await image.arrayBuffer())
     this.assertFresh()
@@ -327,9 +337,10 @@ export class NativeTemplates {
   private watchImages(): void {
     if (this.watchingImages) return
     this.watchingImages = true
-    this.images.subscribe(() => {
+    this.images.subscribe((change) => {
       this.imageWrites++
-      this.digests.clear()
+      if (typeof change?.id === 'string') this.digests.delete(change.id)
+      else this.digests.clear()
     })
   }
 
@@ -361,7 +372,7 @@ export class NativeTemplates {
     image?: Blob,
   ): Promise<NativeSnapshot> {
     if (this.metadata.placementSession || this.metadata.suppressPersist) throw new NativeConflict()
-    const current = await this.read(id)
+    const current = await this.snapshot(id, false)
     if (current?.token !== expected?.token || this.metadata.getById(id)?.serverManaged)
       throw new NativeConflict()
     if (current === null && image === undefined) throw new Error('A native template needs artwork')
@@ -435,7 +446,7 @@ export class NativeTemplates {
 
   async remove(expected: NativeSnapshot): Promise<void> {
     if (this.metadata.placementSession || this.metadata.suppressPersist) throw new NativeConflict()
-    const current = await this.read(expected.template.id)
+    const current = await this.snapshot(expected.template.id, false)
     if (current?.token !== expected.token) throw new NativeConflict()
     this.metadata.remove(expected.template.id)
     this.metadata.commitPendingChanges()
