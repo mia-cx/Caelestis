@@ -1,4 +1,10 @@
-import { millis, type TemplateRecipe, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
+import {
+  millis,
+  type Seconds,
+  seconds,
+  type TemplateRecipe,
+  WORLD_TEMPLATE_SURFACE,
+} from '@caelestis/shared'
 import type { SqlStore } from '../../src/ports/sql-store.js'
 
 const ids = {
@@ -153,5 +159,125 @@ export const runNodeTemplateContract = async (sql: SqlStore) => {
     guardedTemplateRemoved: (await sql.readTemplate(ids.guardedTemplate)) === null,
     recipe,
     processedOnly,
+  }
+}
+
+const leaderboardIds = {
+  published: '01890f3e-7b2c-7abc-8def-012345678911',
+  publishedVersion: '01890f3e-7b2c-7abc-8def-012345678912',
+  other: '01890f3e-7b2c-7abc-8def-012345678913',
+  otherVersion: '01890f3e-7b2c-7abc-8def-012345678914',
+  draft: '01890f3e-7b2c-7abc-8def-012345678915',
+  draftVersion: '01890f3e-7b2c-7abc-8def-012345678916',
+}
+const firstDay = seconds(20_000 * 86_400)
+const secondDay = seconds(firstDay + 86_400)
+
+export const leaderboardContractExpected = {
+  // Painter 20 ties painter 10 on correct pixels and leads on placed ones. Two reporters saw
+  // painter 10's first day; the larger view of each counter wins rather than their sum.
+  season: [
+    {
+      wplaceUserId: 20,
+      displayName: '20',
+      placed: 9,
+      correct: 6,
+      repairs: 0,
+      activeDays: 1,
+      lastDay: firstDay,
+    },
+    {
+      wplaceUserId: 10,
+      displayName: 'Ten',
+      placed: 7,
+      correct: 6,
+      repairs: 2,
+      activeDays: 2,
+      lastDay: secondDay,
+    },
+  ],
+  // Admins see the draft; the range keeps only the second day.
+  draftsFromSecondDay: [
+    {
+      wplaceUserId: 20,
+      displayName: '20',
+      placed: 50,
+      correct: 50,
+      repairs: 0,
+      activeDays: 1,
+      lastDay: secondDay,
+    },
+    {
+      wplaceUserId: 10,
+      displayName: 'Ten',
+      placed: 2,
+      correct: 2,
+      repairs: 0,
+      activeDays: 1,
+      lastDay: secondDay,
+    },
+  ],
+} as const
+
+/** Rank painters through any production SqlStore adapter, reporter reduction included. */
+export const runLeaderboardContract = async (sql: SqlStore) => {
+  for (const [index, [templateId, versionId]] of (
+    [
+      [leaderboardIds.published, leaderboardIds.publishedVersion],
+      [leaderboardIds.other, leaderboardIds.otherVersion],
+      [leaderboardIds.draft, leaderboardIds.draftVersion],
+    ] as const
+  ).entries()) {
+    const x = 100 + index * 10
+    await sql.insertTemplateVersion(
+      version(templateId, versionId, null, { minX: x, minY: 0, maxX: x + 1, maxY: 1 }),
+    )
+    if (templateId !== leaderboardIds.draft)
+      await sql.updateTemplate(templateId, { publishedAt: millis(1_500) }, millis(1_500))
+  }
+  await sql.rememberPainter(10, 'Ten', millis(1_000))
+  const contribution = (
+    templateId: string,
+    wplaceUserId: number,
+    day: Seconds,
+    reportedByUserId: number,
+    [placed, correct, repairs]: readonly [number, number, number],
+  ) => ({
+    templateId,
+    wplaceUserId,
+    day,
+    reportedWithToken: 'c'.repeat(64),
+    reportedByUserId,
+    placed,
+    correct,
+    repairs,
+  })
+  await sql.addContributions([
+    contribution(leaderboardIds.published, 10, firstDay, 10, [5, 4, 1]),
+    contribution(leaderboardIds.published, 10, firstDay, 11, [3, 3, 2]),
+    contribution(leaderboardIds.other, 10, secondDay, 10, [2, 2, 0]),
+    contribution(leaderboardIds.published, 20, firstDay, 20, [9, 6, 0]),
+    contribution(leaderboardIds.draft, 20, secondDay, 20, [50, 50, 0]),
+    contribution(leaderboardIds.other, 30, firstDay, 30, [1, 1, 0]),
+  ])
+  return {
+    season: await sql.readLeaderboard({ season: 1, includeUnpublished: false }, 2),
+    draftsFromSecondDay: await sql.readLeaderboard(
+      {
+        // More ids than D1 binds in one statement, as `/telemetry/leaderboard` accepts.
+        templateIds: [
+          leaderboardIds.published,
+          leaderboardIds.other,
+          leaderboardIds.draft,
+          ...Array.from(
+            { length: 200 },
+            (_, index) => `01890f3e-7b2c-7abc-8def-${String(index).padStart(12, '0')}`,
+          ),
+        ],
+        fromSeconds: secondDay,
+        includeUnpublished: true,
+      },
+      10,
+    ),
   }
 }

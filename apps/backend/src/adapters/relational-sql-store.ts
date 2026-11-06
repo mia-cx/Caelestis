@@ -1,6 +1,7 @@
 import {
   type Alarm,
   type ContributionDay,
+  type LeaderboardEntry,
   type Millis,
   millis,
   parseTemplateRecipe,
@@ -3699,8 +3700,8 @@ export class RelationalSqlStore implements SqlStore {
     return rows.map(fromRow).sort(compareBuckets)
   }
 
-  async readContributions(query: ContributionQuery): Promise<readonly ContributionDay[]> {
-    assertValidContributionQuery(query)
+  /** The contribution rows `query` may see, narrowed to `chunk` when it names template ids. */
+  private contributionFilter(query: ContributionQuery, chunk: readonly string[] | SQL | null) {
     // The season and publish filters are one IN-subquery rather than a join, so one builder shape
     // serves the season-only, ids-only and intersected forms — and the group key stays the three
     // columns the reduction is defined over, with nothing joined in to widen it. The publish gate
@@ -3721,6 +3722,16 @@ export class RelationalSqlStore implements SqlStore {
                 ),
               ),
           )
+    return and(
+      chunk === null ? undefined : inArray(contributions.templateId, chunk),
+      templateGate,
+      query.fromSeconds === undefined ? undefined : gte(contributions.dayS, query.fromSeconds),
+      query.toSeconds === undefined ? undefined : lt(contributions.dayS, query.toSeconds),
+    )
+  }
+
+  async readContributions(query: ContributionQuery): Promise<readonly ContributionDay[]> {
+    assertValidContributionQuery(query)
     const readChunk = (chunk: readonly string[] | null) =>
       this.database
         .select({
@@ -3737,16 +3748,7 @@ export class RelationalSqlStore implements SqlStore {
         })
         .from(contributions)
         .leftJoin(painters, eq(painters.wplaceUserId, contributions.wplaceUserId))
-        .where(
-          and(
-            chunk === null ? undefined : inArray(contributions.templateId, chunk),
-            templateGate,
-            query.fromSeconds === undefined
-              ? undefined
-              : gte(contributions.dayS, query.fromSeconds),
-            query.toSeconds === undefined ? undefined : lt(contributions.dayS, query.toSeconds),
-          ),
-        )
+        .where(this.contributionFilter(query, chunk))
         .groupBy(contributions.templateId, contributions.dayS, contributions.wplaceUserId)
 
     // Chunked like `readBuckets`, and safe for the same structural reason: the group key contains
@@ -3775,6 +3777,63 @@ export class RelationalSqlStore implements SqlStore {
         repairs: row.repairs,
       }))
       .sort(compareContributionDays)
+  }
+
+  async readLeaderboard(
+    query: ContributionQuery,
+    limit: number,
+  ): Promise<readonly LeaderboardEntry[]> {
+    assertValidContributionQuery(query)
+    // Every id travels in one JSON parameter, so one statement sees a painter's whole total however
+    // many templates are named, within D1's bound-parameter budget.
+    const [beforeIds = '', afterIds = ''] = this.syntax.jsonEach.split('?')
+    const idsJson = JSON.stringify([...new Set(query.templateIds ?? [])].map((id) => ({ id })))
+    const templateIds =
+      query.templateIds === undefined
+        ? null
+        : sql`(SELECT ${sql.raw(this.syntax.jsonField('id', 'text'))} FROM ${sql.raw(beforeIds)}${idsJson}${sql.raw(afterIds)})`
+    // The MAX per painter-day that `readContributions` returns, then the SUM per painter, ranked
+    // and limited in the database rather than shipped out row by row.
+    const days = this.database
+      .select({
+        wplaceUserId: contributions.wplaceUserId,
+        day: contributions.dayS,
+        placed: sql<number>`max(${contributions.placed})`.as('placed'),
+        correct: sql<number>`max(${contributions.correct})`.as('correct'),
+        repairs: sql<number>`max(${contributions.repairs})`.as('repairs'),
+      })
+      .from(contributions)
+      .where(this.contributionFilter(query, templateIds))
+      .groupBy(contributions.templateId, contributions.dayS, contributions.wplaceUserId)
+      .as('painter_days')
+    const correct = sql<number>`sum(${days.correct})`
+    const placed = sql<number>`sum(${days.placed})`
+    const rows = await this.database
+      .select({
+        wplaceUserId: days.wplaceUserId,
+        displayName: sql<string | null>`max(${painters.displayName})`,
+        placed,
+        correct,
+        repairs: sql<number>`sum(${days.repairs})`,
+        activeDays: sql<number>`count(distinct ${days.day})`,
+        lastDay: sql<number>`max(${days.day})`,
+      })
+      .from(days)
+      .leftJoin(painters, eq(painters.wplaceUserId, days.wplaceUserId))
+      .groupBy(days.wplaceUserId)
+      // The id is only a stable tiebreak. It is not part of the advertised ranking.
+      .orderBy(desc(correct), desc(placed), asc(days.wplaceUserId))
+      .limit(limit)
+    // PostgreSQL returns sums and counts as bigint strings.
+    return rows.map((row) => ({
+      wplaceUserId: row.wplaceUserId,
+      displayName: row.displayName ?? String(row.wplaceUserId),
+      placed: Number(row.placed),
+      correct: Number(row.correct),
+      repairs: Number(row.repairs),
+      activeDays: Number(row.activeDays),
+      lastDay: seconds(Number(row.lastDay)),
+    }))
   }
 
   async filterPublishedTemplateIds(ids: readonly string[]): Promise<readonly string[]> {

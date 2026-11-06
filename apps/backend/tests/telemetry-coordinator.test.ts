@@ -4,6 +4,7 @@ import { coordinatorDatabase } from '../src/adapters/node/coordinator-database.j
 import { RelationalSqlStore } from '../src/adapters/relational-sql-store.js'
 import type { AlarmStorage } from '../src/coordination/database.js'
 import { TelemetryCoordinator } from '../src/coordination/telemetry.js'
+import { EXPIRES_AFTER_SECONDS, FLUSHABLE_AFTER_SECONDS } from '../src/ports/index.js'
 import { openRelationalStore } from './support/relational.js'
 
 class FailOnceSqlStore extends RelationalSqlStore {
@@ -93,5 +94,54 @@ describe('durable telemetry coordinator', () => {
         repairs: 1,
       },
     ])
+  })
+
+  it('keeps flushed counters until they expire, then the next record reclaims them', async () => {
+    const opened = await openRelationalStore()
+    closes.push(opened.close)
+    let now = millis(100_000)
+    let alarm: number | null = null
+    const coordinator = new TelemetryCoordinator(
+      coordinatorDatabase(opened.connection),
+      {
+        getAlarm: async () => alarm,
+        setAlarm: async (time) => {
+          alarm = time
+        },
+        deleteAlarm: async () => {
+          alarm = null
+        },
+      },
+      opened.sql,
+      () => now,
+    )
+    await coordinator.initialize()
+    const record = (templateId: string) =>
+      coordinator.record([
+        {
+          templateId,
+          occurredAt: seconds(Math.floor(now / 1_000)),
+          placed: 1,
+          correct: 1,
+          repairs: 0,
+        },
+      ])
+    const retained = async () =>
+      (await coordinator.exportCounterRows('retained_counters', null, 10)).map(
+        (row) => row.template_id,
+      )
+
+    await record('flushed')
+    now = millis((60 + FLUSHABLE_AFTER_SECONDS) * 1_000)
+    await coordinator.alarm()
+    expect(await retained()).toEqual(['flushed'])
+
+    // The flushed bucket starts at 60 and expires EXPIRES_AFTER_SECONDS later.
+    now = millis((60 + EXPIRES_AFTER_SECONDS - 1) * 1_000)
+    await record('later')
+    expect(await retained()).toEqual(['flushed'])
+    now = millis((60 + EXPIRES_AFTER_SECONDS) * 1_000)
+    await record('later')
+    expect(await retained()).toEqual([])
   })
 })

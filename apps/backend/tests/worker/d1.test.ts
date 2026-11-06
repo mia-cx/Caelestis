@@ -4,7 +4,10 @@ import { fileURLToPath } from 'node:url'
 import { build } from 'esbuild'
 import { convertV4MiniflareOptions, Miniflare } from 'miniflare'
 import { afterEach, describe, expect, it } from 'vitest'
-import { nodeTemplateContractExpected } from '../support/sql-contract.js'
+import {
+  leaderboardContractExpected,
+  nodeTemplateContractExpected,
+} from '../support/sql-contract.js'
 
 const migrationDirectory = join(dirname(fileURLToPath(import.meta.url)), '../../migrations')
 const runtimes: Miniflare[] = []
@@ -57,6 +60,7 @@ describe('D1 relational adapter contract', () => {
         logo: null,
       },
       nodeTemplate: nodeTemplateContractExpected,
+      leaderboard: leaderboardContractExpected,
     })
   })
 })
