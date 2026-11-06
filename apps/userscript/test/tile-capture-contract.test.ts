@@ -351,8 +351,8 @@ describe('a view wider than the cache', () => {
     const chased = { x: 400, y: TILE.y }
     tileTransform.ensureTilePixels(chased)
     expect(await tileTransform.loadTilePixels({ x: 401, y: TILE.y })).not.toBeNull()
-    await tileTransform.settledTileCaptures()
-    expect(tileTransform.tilePixels(chased)).not.toBeNull()
+    // Evicted as it landed, nothing would chase it again, so this would never pass.
+    await vi.waitFor(() => expect(tileTransform.tilePixels(chased)).not.toBeNull())
   })
 })
 
