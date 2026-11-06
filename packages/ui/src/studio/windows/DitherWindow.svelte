@@ -11,9 +11,13 @@
     type DitherPlacement,
     PLACEMENT_MODES,
   } from '../options.js'
+  import MoreOptions from '../MoreOptions.svelte'
   import RangeField from '../RangeField.svelte'
 
-  /** Ditherette web's Dither panel, with a plain algorithm menu. */
+  /**
+   * Ditherette web's Dither panel, with a plain algorithm menu and its strength up front; where
+   * it dithers and how fall under More options.
+   */
   let { model, onIntent }: { model: TemplateStudioModel; onIntent: (intent: TemplateStudioIntent) => void } = $props()
 
   const GROUPS: readonly { family: Exclude<DitherFamily, 'none'>; label: string }[] = [
@@ -70,6 +74,7 @@
   {/if}
 
   {#if !none}
+    <MoreOptions name="dither">
     <div class="field-row">
       <label class="field-label" for="{id}-placement">Placement</label>
       <select
@@ -83,7 +88,6 @@
         {/each}
       </select>
     </div>
-  {/if}
   {#if adaptive}
     <RangeField
       label="Sample size"
@@ -105,10 +109,10 @@
     />
   {/if}
 
-  {#if !none && !mixing}
+  {#if !mixing}
     <div class="toggles">
-      <SettingRow label="Dither in selected space" hint="Perturb and diffuse error in the selected colour space. Colour matching always uses it." compact>
-        <Toggle label="Dither in selected space" checked={dither.useColorSpace} onChange={(useColorSpace) => set({ useColorSpace })} />
+      <SettingRow label="Dither in matching space" hint="Spread error in the colour space Colours matches in, rather than in plain RGB." compact>
+        <Toggle label="Dither in matching space" checked={dither.useColorSpace} onChange={(useColorSpace) => set({ useColorSpace })} />
       </SettingRow>
       {#if current.family === 'error-diffusion'}
         <SettingRow label="Serpentine scan" hint="Reduces directional bias." compact>
@@ -126,6 +130,8 @@
       </div>
       <Button label="Randomise" size="small" onclick={() => set({ seed: crypto.getRandomValues(new Uint32Array(1))[0] ?? 0 })} />
     </div>
+  {/if}
+    </MoreOptions>
   {/if}
 </fieldset>
 
