@@ -16,6 +16,11 @@ export interface RevisionedStatusSnapshot extends StatusResponse {
 export interface StatusSnapshotRead {
   readonly snapshot: RevisionedStatusSnapshot
   readonly cacheOutcome: 'hit' | 'miss' | 'stale'
+  /**
+   * Changes whenever either scope's snapshot can. The revision alone can repeat after an archive
+   * restore rewinds it, but the projection rebuilt then carries a new reconciliation time.
+   */
+  readonly validator: string
 }
 
 export interface PersistedStatusReadModel {
@@ -418,7 +423,11 @@ export const createSeasonStatusReadModel = (options: {
     reconcileSnapshot: (scope) =>
       exclusive(async () => {
         const read = await reconcile(false)
-        return { snapshot: snapshotFor(read.state, scope), cacheOutcome: read.cacheOutcome }
+        return {
+          snapshot: snapshotFor(read.state, scope),
+          cacheOutcome: read.cacheOutcome,
+          validator: `${read.state.revision}.${read.state.reconciledAt}`,
+        }
       }),
     attachSubscriber: (subscriber) =>
       exclusive(async () => {

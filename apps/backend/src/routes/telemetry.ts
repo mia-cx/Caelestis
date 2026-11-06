@@ -6,6 +6,7 @@ import {
   PRESENCE_PROTOCOL_V1,
   parseTileKey,
   type Seconds,
+  type ServerInfo,
   type StatusDelta,
   seconds,
   sha256Hex,
@@ -224,6 +225,8 @@ export const createTelemetryRoutes = (
   auth: AuthOptions,
   options: {
     readonly currentSeason: number
+    /** Names the current season's cached manifest, which tile-history visibility reuses. */
+    readonly server?: ServerInfo
     readonly connectPresence?: ConnectPresence
     readonly presenceOnline?: PresenceOnline
     readonly connectStatusLive?: (
@@ -412,11 +415,21 @@ export const createTelemetryRoutes = (
         ? options.currentSeason
         : wholeNumber(c.req.query('season'))
     if (season === null) return c.json({ error: 'season must be a non-negative integer' }, 400)
+    // Weak comparison over a comma-separated list, as the manifest route does (RFC 9110).
+    const candidates = (c.req.header('if-none-match') ?? '')
+      .split(',')
+      .map((candidate) => candidate.trim().replace(/^W\//, ''))
     return runBackendHttp(
       c,
       runtime,
       readStatus(season, c.get('caller').scope === 'admin', season === options.currentSeason),
-      (response) => c.json(response),
+      ({ response, etag }) => {
+        if (etag === null) return c.json(response)
+        const headers = { ETag: etag, Vary: 'Authorization' }
+        return candidates.includes(etag) || candidates.includes('*')
+          ? c.body(null, 304, headers)
+          : c.json(response, 200, headers)
+      },
     )
   })
 
@@ -756,6 +769,8 @@ export const createTelemetryRoutes = (
         range,
         ...(typeof legacyResolution === 'number' ? { legacyResolution } : {}),
         includeUnpublished: c.get('caller').scope === 'admin',
+        // Only the deployed season owns a cached manifest; earlier seasons read the database.
+        server: season === options.currentSeason ? options.server : undefined,
       }),
       (response) => c.json(response),
     )

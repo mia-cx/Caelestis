@@ -38,13 +38,69 @@ export interface ArchiveSource {
   tile(snapshotId: number, tile: TileCoord): Promise<Uint8Array | null>
 }
 
-interface StoredJob {
-  readonly summary: BackfillJob
+/** What a job imports, written once at start under `plan`. */
+interface StoredPlan {
+  readonly jobId: string
   readonly snapshots: readonly ArchiveSnapshot[]
   readonly tiles: readonly TileCoord[]
-  readonly correct: number
-  readonly mismatched: number
-  readonly incomplete: boolean
+  /**
+   * Steps walk each archive week tile by tile, so one tile's decoded week serves all of its
+   * snapshots in a row. Absent on plans moved out of older jobs, which keep stepping snapshot by
+   * snapshot, as their step counts were recorded.
+   */
+  readonly weekly?: true
+}
+
+/**
+ * Progress, rewritten every step. The counters hold one entry per snapshot of the current week;
+ * jobs started before `plan` existed carry their plan inline and a single snapshot's counters.
+ */
+interface StoredJob extends Partial<Omit<StoredPlan, 'jobId' | 'weekly'>> {
+  readonly summary: BackfillJob
+  readonly correct: number | readonly number[]
+  readonly mismatched: number | readonly number[]
+  readonly incomplete: boolean | readonly boolean[]
+}
+
+/** Snapshots Eralyon stores in one file per tile: the IDs are hours, and a file holds a week. */
+const HOURS_PER_ARCHIVE_WEEK = 168
+
+/** Where a step falls: snapshots step in runs, each run visiting every tile in turn. */
+const position = (plan: StoredPlan, completed: number) => {
+  const tiles = plan.tiles.length
+  let first = 0
+  let offset = 0
+  while (first < plan.snapshots.length) {
+    let length = 1
+    const week = Math.floor((plan.snapshots[first]?.id ?? 0) / HOURS_PER_ARCHIVE_WEEK)
+    while (
+      plan.weekly === true &&
+      first + length < plan.snapshots.length &&
+      Math.floor((plan.snapshots[first + length]?.id ?? 0) / HOURS_PER_ARCHIVE_WEEK) === week
+    )
+      length++
+    const within = completed - offset
+    if (within < length * tiles)
+      return {
+        first,
+        length,
+        index: within % length,
+        snapshot: plan.snapshots[first + (within % length)],
+        tile: plan.tiles[Math.floor(within / length)],
+        starts: within === 0,
+        /** Every tile has now seen this snapshot, so its sample is complete. */
+        samples: Math.floor(within / length) === tiles - 1,
+      }
+    offset += length * tiles
+    first += length
+  }
+  return null
+}
+
+/** A run's counters as stored, or fresh ones. Jobs from before runs held one snapshot's plainly. */
+const counters = <T>(held: T | readonly T[], length: number, empty: T): T[] => {
+  const list: T[] = Array.isArray(held) ? [...held] : [held]
+  return list.length === length ? list : Array.from({ length }, () => empty)
 }
 
 interface Observation extends ArchiveTileFrame {
@@ -62,6 +118,8 @@ export class BackfillError extends Error {
   }
 }
 
+type DecodedChunk = Awaited<ReturnType<typeof decodeWplaceIndexedPng>>
+
 const suffix = (id: number): string => String(id).padStart(10, '0')
 const tilePrefix = (version: string, tile: TileCoord): string =>
   `tile:${version}:${tile.x}/${tile.y}:`
@@ -74,8 +132,14 @@ const cutoff = (template: TemplateRecord, now: number): number =>
     ) / 1_000,
   )
 
+/** Decoded template chunks kept across steps; a job revisits each of its chunks every snapshot. */
+const MAX_DECODED_CHUNKS = 16
+
 /** Resumable import with one tile per alarm. Callers serialize start, cancel and step. */
 export class TemplateBackfill {
+  private plan: StoredPlan | null = null
+  private readonly chunks = new Map<string, Promise<DecodedChunk>>()
+
   constructor(
     private readonly storage: BackfillStorage,
     private readonly sql: SqlStore,
@@ -107,6 +171,29 @@ export class TemplateBackfill {
       },
       end: Math.min(cutoff(template, this.now()), firstLive === null ? Infinity : firstLive - 1),
     }
+  }
+
+  /** The running job's plan, read once per job rather than rewritten with every step. */
+  private async readPlan(held: StoredJob): Promise<StoredPlan | null> {
+    const jobId = held.summary.id
+    if (held.snapshots !== undefined && held.tiles !== undefined)
+      return { jobId, snapshots: held.snapshots, tiles: held.tiles }
+    if (this.plan?.jobId !== jobId) this.plan = (await this.storage.get<StoredPlan>('plan')) ?? null
+    return this.plan?.jobId === jobId ? this.plan : null
+  }
+
+  private decodedChunk(hash: string): Promise<DecodedChunk> {
+    let decoded = this.chunks.get(hash)
+    if (decoded === undefined) {
+      if (this.chunks.size >= MAX_DECODED_CHUNKS) this.chunks.clear()
+      decoded = this.blobs
+        .get('chunks', hash)
+        .then((bytes) => (bytes === null ? null : decodeWplaceIndexedPng(bytes)))
+      // A failed read is retried by the next step rather than remembered.
+      decoded.catch(() => this.chunks.delete(hash))
+      this.chunks.set(hash, decoded)
+    }
+    return decoded
   }
 
   async job(): Promise<BackfillJob | null> {
@@ -154,13 +241,18 @@ export class TemplateBackfill {
     await this.storage.put(`basis:${versionId}`, preview.basis)
     // A failed schedule must not leave the form observing an unstartable running job.
     await this.storage.setAlarm(this.now() + 100)
-    await this.storage.put<StoredJob>('job', {
-      summary,
+    // The plan lands first, so a stored running job always finds the plan it names.
+    await this.storage.put<StoredPlan>('plan', {
+      jobId: summary.id,
       snapshots,
       tiles,
-      correct: 0,
-      mismatched: 0,
-      incomplete: false,
+      weekly: true,
+    })
+    await this.storage.put<StoredJob>('job', {
+      summary,
+      correct: [],
+      mismatched: [],
+      incomplete: [],
     })
     return summary
   }
@@ -232,30 +324,56 @@ export class TemplateBackfill {
   async step(): Promise<void> {
     const held = await this.storage.get<StoredJob>('job')
     if (held === undefined || held.summary.status !== 'running') return
-    const { summary, tiles, snapshots } = held
+    const { summary } = held
     // Rearm before external storage reads too, so a transient D1 failure cannot strand the job.
     await this.storage.setAlarm(this.now() + 60_000)
     // An archive operation is exporting or restoring this state; resume once it ends. The read is
     // fresh because a cached "open" could let this step write after its state was archived.
     if (await this.sql.archiveOperationActive({ fresh: true })) return
+    const plan = await this.readPlan(held)
+    if (plan === null) return
+    const { snapshots } = plan
     const template = await this.sql.readTemplate(summary.basis.templateId)
     if (template === null) {
       await this.cancel()
       return
     }
-    const snapshot = snapshots[Math.floor(summary.completed / tiles.length)]
-    const tile = tiles[summary.completed % tiles.length]
-    if (snapshot === undefined || tile === undefined) return
+    const step = position(plan, summary.completed)
+    const snapshot = step?.snapshot
+    const tile = step?.tile
+    if (step === null || snapshot === undefined || tile === undefined) return
     const firstLive = await this.sql.readFirstTemplateObservation(summary.basis.versionId)
     if (firstLive !== null && snapshot.at >= firstLive) {
+      // Native history now starts within this run. Its earlier snapshots still need the tiles
+      // after this one, so skip only this tile's later snapshots, and stop once none remain.
+      const resume = summary.completed + step.length - step.index
+      if (step.index > 0 && resume < summary.total) {
+        await this.storage.put<StoredJob>('job', {
+          ...held,
+          // Skipped snapshots count as skipped, so the totals still add up.
+          summary: {
+            ...summary,
+            completed: resume,
+            skipped: summary.skipped + resume - summary.completed,
+          },
+        })
+        await this.storage.setAlarm(this.now() + 100)
+        return
+      }
+      // Samples exist for every snapshot all tiles have seen; the job stops here.
+      const sampled = step.first + (step.samples ? step.index : 0)
       await this.storage.put<StoredJob>('job', {
-        ...held,
         summary: {
           ...summary,
-          to: snapshots.findLast((entry) => entry.at < firstLive)?.at ?? summary.from,
+          to:
+            snapshots.slice(0, sampled).findLast((entry) => entry.at < firstLive)?.at ??
+            summary.from,
           total: summary.completed,
           status: summary.failed > 0 ? 'failed' : 'completed',
         },
+        correct: held.correct,
+        mismatched: held.mismatched,
+        incomplete: held.incomplete,
       })
       return
     }
@@ -280,8 +398,7 @@ export class TemplateBackfill {
         let hash: string | null = null
         if (pixels !== null) {
           if (chunk !== undefined) {
-            const bytes = await this.blobs.get('chunks', chunk.hash)
-            const target = bytes === null ? null : await decodeWplaceIndexedPng(bytes)
+            const target = await this.decodedChunk(chunk.hash)
             const { bbox } = summary.basis
             const wraps = bbox.minX > bbox.maxX
             const tileLeft = tile.x * TILE_SIZE
@@ -314,24 +431,27 @@ export class TemplateBackfill {
       failed++
       error = cause instanceof Error ? cause.message : String(cause)
     }
-    let correct = held.correct + (observation?.correct ?? 0)
-    let mismatched = held.mismatched + (observation?.mismatched ?? 0)
-    let incomplete = held.incomplete || (chunk !== undefined && observation?.hash == null)
+    // A run's first step starts its counters afresh.
+    const correct = counters(step.starts ? [] : held.correct, step.length, 0)
+    const mismatched = counters(step.starts ? [] : held.mismatched, step.length, 0)
+    const incomplete = counters(step.starts ? [] : held.incomplete, step.length, false)
+    correct[step.index] = (correct[step.index] ?? 0) + (observation?.correct ?? 0)
+    mismatched[step.index] = (mismatched[step.index] ?? 0) + (observation?.mismatched ?? 0)
+    incomplete[step.index] =
+      incomplete[step.index] === true || (chunk !== undefined && observation?.hash == null)
     const completed = summary.completed + 1
-    if (completed % tiles.length === 0) {
+    if (step.samples) {
+      const unknown = incomplete[step.index] === true
       await this.storage.put<ArchiveProgressSample>(
         `sample:${summary.basis.versionId}:${suffix(snapshot.id)}`,
         {
           at: snapshot.at,
           snapshotId: snapshot.id,
-          correct: incomplete ? null : correct,
-          mismatched: incomplete ? null : mismatched,
+          correct: unknown ? null : (correct[step.index] ?? 0),
+          mismatched: unknown ? null : (mismatched[step.index] ?? 0),
           total: summary.basis.total,
         },
       )
-      correct = 0
-      mismatched = 0
-      incomplete = false
     }
     const next: BackfillJob = {
       ...summary,
@@ -347,8 +467,8 @@ export class TemplateBackfill {
             : 'completed'
           : 'running',
     }
+    if (held.snapshots !== undefined) await this.storage.put<StoredPlan>('plan', plan)
     await this.storage.put<StoredJob>('job', {
-      ...held,
       summary: next,
       correct,
       mismatched,

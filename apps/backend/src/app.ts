@@ -190,6 +190,7 @@ export const createApp = (context: BackendContext, options: AppOptions = {}) => 
     '/telemetry',
     createTelemetryRoutes(runtime, auth, {
       currentSeason,
+      server,
       ...(options.connectPresence === undefined
         ? {}
         : { connectPresence: options.connectPresence }),
