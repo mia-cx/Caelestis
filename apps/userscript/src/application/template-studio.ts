@@ -49,7 +49,14 @@ import {
   isMoving,
   syncDraftPlacement,
 } from '../templates/move.js'
+import { navigateTo } from '../templates/navigate.js'
 import { sampleArtwork, sampleRgba } from '../templates/scope-samples.js'
+import {
+  type StudioFrameHandlers,
+  type StudioFrameView,
+  showStudioFrame,
+  studioFrameExtent,
+} from '../templates/studio-frame.js'
 import {
   DEFAULT_STUDIO_SETTINGS,
   type StudioSettings,
@@ -101,6 +108,8 @@ interface Source {
   readonly sha256: string
   readonly image: { readonly width: number; readonly height: number; readonly data: Uint8Array }
   readonly url: string
+  /** The box around its opaque pixels, when transparency surrounds them. */
+  readonly content: StudioRect | null
 }
 
 interface Processed {
@@ -128,6 +137,10 @@ let loadingSource = false
 /** The latest image request. An older one that finishes later is dropped. */
 let sourceTicket = 0
 let crop: StudioRect = { x: 0, y: 0, width: 1, height: 1 }
+/** The crop being drawn on the map in crop mode, until Apply or Cancel. */
+let cropDraft: StudioRect | null = null
+/** Typing one side of the size changes the other with it. */
+let keepProportions = true
 let settings: StudioSettings = initialSettings()
 /** The effect pipeline as the studio edits it; the recipe carries the enabled steps. */
 let effectLayers: readonly EffectLayer[] = []
@@ -168,8 +181,7 @@ interface Edit {
 /** Intents that change what Save would produce. */
 const EDITS = new Set<TemplateStudioIntent['type']>([
   'name',
-  'crop',
-  'reset-crop',
+  'crop-apply',
   'scale',
   'size',
   'resize',
@@ -253,10 +265,13 @@ export const templateStudioModel = (): TemplateStudioModel => ({
         },
   loadingSource,
   crop,
+  cropping:
+    cropDraft === null || source === null ? null : { draft: cropDraft, content: source.content },
   output: {
     width: settings.output.width,
     height: settings.output.height,
     scale: scaleOf(),
+    keepProportions,
     resize: settings.output.resize,
     anchor: settings.output.anchor,
     locked: target?.kind === 'replace',
@@ -279,6 +294,45 @@ export const templateStudioModel = (): TemplateStudioModel => ({
 
 const render = (): void => {
   if (element !== null) element.model = templateStudioModel()
+  showStudioFrame(frameView(), FRAME_HANDLERS)
+}
+
+/* Handles on the map. */
+
+/** What the map's handles draw: the draft once there is an image, and the crop being drawn. */
+const frameView = (): StudioFrameView | null => {
+  if (target === null || source === null) return null
+  return {
+    surface: target.surface,
+    origin,
+    output: settings.output,
+    crop,
+    source: { width: source.image.width, height: source.image.height, url: source.url },
+    cropping: cropDraft,
+    locked: target.kind === 'replace',
+  }
+}
+
+const FRAME_HANDLERS: StudioFrameHandlers = {
+  resize: (box, fixed) => {
+    if (target === null || target.kind === 'replace' || pending) return
+    const before = currentEdit()
+    setScales(box.width / crop.width, box.height / crop.height)
+    const { width, height } = settings.output
+    // The edge that stays put keeps its place, even when the surface's edge cut the new size short.
+    const place = (
+      side: 'start' | 'centre' | 'end',
+      start: number,
+      size: number,
+      made: number,
+    ): number =>
+      side === 'start' ? start : side === 'end' ? start + size - made : start + (size - made) / 2
+    setOrigin(place(fixed.x, box.x, box.width, width), place(fixed.y, box.y, box.height, height))
+    remember('scale', before)
+    reprocess()
+    render()
+  },
+  crop: (next) => handleTemplateStudioIntent({ type: 'crop-draft', crop: next }),
 }
 
 /* Processing: latest settings win, and the draft follows. */
@@ -496,13 +550,16 @@ const loadSource = async (blob: Blob, sourceName: string, started?: number): Pro
     const sha256 = await sha256Hex(new Uint8Array(await png.arrayBuffer()))
     if (ticket !== sourceTicket || target === null) return
     if (source !== null) URL.revokeObjectURL(source.url)
+    const image = { width: decoded.width, height: decoded.height, data: decoded.pixels }
     source = {
       name: sourceName,
       png,
       sha256,
-      image: { width: decoded.width, height: decoded.height, data: decoded.pixels },
+      image,
       url: URL.createObjectURL(png),
+      content: contentBox(image),
     }
+    cropDraft = null
     if (target.kind === 'replace') {
       crop = cropToAspect(decoded.width, decoded.height, target.width / target.height)
       setOutput({ width: target.width, height: target.height })
@@ -636,34 +693,94 @@ const setOrigin = (x: number, y: number): void => {
   if (processed?.recipe.width === width && processed.recipe.height === height) showDraft(processed)
 }
 
-/** Scale the crop, keeping its proportions and fitting the target surface. */
-const setScale = (scale: number): void => {
+/** Scale the crop by `scaleX` across and `scaleY` down, shrunk evenly to fit the target surface. */
+const setScales = (scaleX: number, scaleY: number): void => {
   const bounds = surfaceBounds()
   const fit = Math.min(
-    scale,
-    (bounds.maxX - bounds.minX) / crop.width,
-    (bounds.maxY - bounds.minY) / crop.height,
+    1,
+    (bounds.maxX - bounds.minX) / (crop.width * scaleX),
+    (bounds.maxY - bounds.minY) / (crop.height * scaleY),
   )
   setOutput({
-    width: Math.max(1, Math.round(crop.width * fit)),
-    height: Math.max(1, Math.round(crop.height * fit)),
+    width: Math.max(1, Math.round(crop.width * scaleX * fit)),
+    height: Math.max(1, Math.round(crop.height * scaleY * fit)),
   })
 }
 
+/** Scale the crop, keeping its proportions and fitting the target surface. */
+const setScale = (scale: number): void => setScales(scale, scale)
+
+/** Output pixels per crop pixel, across and down. */
+const scalesOf = (): { x: number; y: number } => ({
+  x: settings.output.width / crop.width,
+  y: settings.output.height / crop.height,
+})
+
+/**
+ * Use `next` of the source. A replacement keeps its size; anything else keeps its scale, and moves
+ * so what stays of the image stays where it was on the map.
+ */
 const setCrop = (next: StudioRect): void => {
   if (source === null) return
-  const { width, height } = source.image
-  const scale = scaleOf()
-  const x = Math.min(Math.max(0, Math.round(next.x)), width - 1)
-  const y = Math.min(Math.max(0, Math.round(next.y)), height - 1)
-  crop = {
-    x,
-    y,
-    width: Math.min(Math.max(1, Math.round(next.width)), width - x),
-    height: Math.min(Math.max(1, Math.round(next.height)), height - y),
+  const scale = scalesOf()
+  const before = crop
+  crop = clampCrop(next, source.image)
+  if (target?.kind === 'replace') return
+  setScales(scale.x, scale.y)
+  origin = {
+    x: Math.round(origin.x + (crop.x - before.x) * scale.x),
+    y: Math.round(origin.y + (crop.y - before.y) * scale.y),
   }
-  // A replacement keeps its size; anything else keeps its scale.
-  if (target?.kind !== 'replace') setScale(scale)
+  clampOrigin()
+}
+
+/**
+ * `next` in whole pixels inside the image. A replacement's crop keeps the template's proportions,
+ * its height following its width, so the new version is not stretched.
+ */
+const clampCrop = (next: StudioRect, image: Source['image']): StudioRect => {
+  const x = Math.min(Math.max(0, Math.round(next.x)), image.width - 1)
+  const y = Math.min(Math.max(0, Math.round(next.y)), image.height - 1)
+  if (target?.kind !== 'replace')
+    return {
+      x,
+      y,
+      width: Math.min(Math.max(1, Math.round(next.width)), image.width - x),
+      height: Math.min(Math.max(1, Math.round(next.height)), image.height - y),
+    }
+  // In proportion, no larger than the image; then moved back inside it if it runs over an edge.
+  const aspect = target.width / target.height
+  const width = Math.max(
+    1,
+    Math.min(Math.round(next.width), image.width, Math.floor(image.height * aspect)),
+  )
+  const height = Math.min(image.height, Math.max(1, Math.round(width / aspect)))
+  return {
+    x: Math.min(x, image.width - width),
+    y: Math.min(y, image.height - height),
+    width,
+    height,
+  }
+}
+
+/** The box around an image's opaque pixels, or null when no transparent edge surrounds them. */
+const contentBox = (image: Source['image']): StudioRect | null => {
+  const { width, height, data } = image
+  let left = width
+  let top = height
+  let right = -1
+  let bottom = -1
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++) {
+      if (data[(y * width + x) * 4 + 3] === 0) continue
+      if (x < left) left = x
+      if (x > right) right = x
+      if (y < top) top = y
+      if (y > bottom) bottom = y
+    }
+  if (right < 0) return null
+  const box = { x: left, y: top, width: right - left + 1, height: bottom - top + 1 }
+  return box.width === width && box.height === height ? null : box
 }
 
 /* Palette. */
@@ -927,13 +1044,28 @@ export const handleTemplateStudioIntent = (intent: TemplateStudioIntent): void =
     case 'url':
       void loadUrl(intent.url)
       return
-    case 'crop':
-      setCrop(intent.crop)
-      reprocess()
+    case 'crop-mode': {
+      cropDraft = intent.on && source !== null ? crop : null
+      // Every crop handle has to be reachable: frame the whole image when part of it is off screen.
+      const view = frameView()
+      if (cropDraft === null || view === null || target.surface.kind !== 'world') break
+      const { box, inView } = studioFrameExtent(view)
+      if (inView === false)
+        navigateTo({
+          x: box.x + box.width / 2,
+          y: box.y + box.height / 2,
+          width: box.width,
+          height: box.height,
+        })
       break
-    case 'reset-crop':
-      if (source !== null)
-        setCrop({ x: 0, y: 0, width: source.image.width, height: source.image.height })
+    }
+    case 'crop-draft':
+      if (cropDraft !== null && source !== null) cropDraft = clampCrop(intent.crop, source.image)
+      break
+    case 'crop-apply':
+      if (cropDraft === null) break
+      setCrop(cropDraft)
+      cropDraft = null
       reprocess()
       break
     case 'scale':
@@ -941,10 +1073,21 @@ export const handleTemplateStudioIntent = (intent: TemplateStudioIntent): void =
       setScale(intent.scale)
       reprocess()
       break
-    case 'size':
+    case 'size': {
       if (locked || !(intent.pixels > 0)) break
-      setScale(intent.pixels / (intent.side === 'width' ? crop.width : crop.height))
+      // Kept proportions are the output's own, which may already be stretched.
+      const scale = scalesOf()
+      const across = intent.side === 'width'
+      const ratio = intent.pixels / (across ? settings.output.width : settings.output.height)
+      setScales(
+        across || keepProportions ? scale.x * ratio : scale.x,
+        !across || keepProportions ? scale.y * ratio : scale.y,
+      )
       reprocess()
+      break
+    }
+    case 'keep-proportions':
+      keepProportions = intent.on
       break
     case 'resize':
       setOutput({ resize: intent.resize })
@@ -1071,6 +1214,8 @@ const reset = (): void => {
   loadingSource = false
   sourceTicket++
   crop = { x: 0, y: 0, width: 1, height: 1 }
+  cropDraft = null
+  keepProportions = true
   settings = initialSettings()
   effectLayers = []
   origin = { x: 0, y: 0 }
@@ -1094,6 +1239,7 @@ export const closeTemplateStudio = (): void => {
   if (target === null) return
   target = null
   reset()
+  showStudioFrame(null, FRAME_HANDLERS)
   endDraftPlacement()
   setTemplateDraft(null)
   window.removeEventListener('paste', onPaste, true)

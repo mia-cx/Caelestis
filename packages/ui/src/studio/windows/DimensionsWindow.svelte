@@ -1,20 +1,30 @@
 <script lang="ts">
   import Button from '../../foundations/Button.svelte'
+  import Checkbox from '../../foundations/Checkbox.svelte'
   import MenuStyles from '../../foundations/MenuStyles.svelte'
   import type { TemplateStudioIntent, TemplateStudioModel } from '../model.js'
   import { ANCHORS, RESIZE_MODES, type ResizeAnchor, type ResizeId } from '../options.js'
+  import MoreOptions from '../MoreOptions.svelte'
   import RangeField from '../RangeField.svelte'
 
-  /** Output size and resampling, as Ditherette web's Dimensions panel, plus where it sits. */
+  /**
+   * The template's size, as Ditherette web's Dimensions panel, with resampling and its exact
+   * place on the canvas under More options; the map's handles and dragging do both by hand.
+   */
   let { model, onIntent }: { model: TemplateStudioModel; onIntent: (intent: TemplateStudioIntent) => void } = $props()
 
   const SLIDER_MIN_SCALE = 0.05
   const SLIDER_MAX_SCALE = 1
-  const SCALE_STEP = 0.0001
+  /** Scale reads as a percentage of the cropped image. */
+  const PERCENT = 100
+  /** Hundredths of a percent, so a typed 12.5% stays 12.5%, not 13%. */
+  const PERCENT_STEP = 0.01
   const id = $props.id()
 
   const output = $derived(model.output)
   const disabled = $derived(model.source === null || model.pending || output.locked)
+  /** Before its image, a new template has no size or place to show. A replacement has both. */
+  const unsized = $derived(model.source === null && !output.locked)
 
   const commitOnEnter = (event: KeyboardEvent): void => {
     if (event.key === 'Enter') (event.currentTarget as HTMLInputElement).blur()
@@ -47,41 +57,49 @@
 
 <MenuStyles />
 
-<RangeField
-  label="Scale"
-  value={output.scale}
-  min={SLIDER_MIN_SCALE}
-  max={SLIDER_MAX_SCALE}
-  step={SCALE_STEP}
-  unit="×"
-  fieldMin={Number.MIN_VALUE}
-  fieldMax={Number.MAX_VALUE}
-  {disabled}
-  onChange={(scale) => onIntent({ type: 'scale', scale })}
-/>
-{#each [['width', 'Width'], ['height', 'Height']] as const as [side, label] (side)}
-  <div class="field-row">
-    <label class="field-label" for="{id}-{side}">{label}</label>
-    <span class="number">
+<!-- Width and height side by side, as the handles on the map change them. -->
+<div class="fields two">
+  {#each [['width', 'W', 'Width'], ['height', 'H', 'Height']] as const as [side, short, label] (side)}
+    <label class="number">
+      <span aria-hidden="true">{short}</span>
       <input
-        id="{id}-{side}"
         class="caelestis-field"
         type="number"
         inputmode="numeric"
         min="1"
         step="1"
-        value={output[side]}
+        aria-label="{label} in pixels"
+        value={unsized ? '' : output[side]}
         {disabled}
         onkeydown={commitOnEnter}
         onchange={(event) => onIntent({ type: 'size', side, pixels: whole(event.currentTarget.value, output[side]) })}
       />
       <span class="unit">px</span>
-    </span>
-  </div>
-{/each}
+    </label>
+  {/each}
+</div>
 {#if output.locked}
   <p class="hint">A new version keeps the template’s size.</p>
+{:else}
+  <label class="keep">
+    <Checkbox checked={output.keepProportions} {disabled} onChange={(on) => onIntent({ type: 'keep-proportions', on })} />
+    Keep proportions
+  </label>
+  <RangeField
+    label="Scale"
+    value={output.scale * PERCENT}
+    min={SLIDER_MIN_SCALE * PERCENT}
+    max={SLIDER_MAX_SCALE * PERCENT}
+    step={PERCENT_STEP}
+    unit="%"
+    fieldMin={Number.MIN_VALUE}
+    fieldMax={Number.MAX_VALUE}
+    {disabled}
+    onChange={(percent) => onIntent({ type: 'scale', scale: percent / PERCENT })}
+  />
 {/if}
+
+<MoreOptions name="size">
 <div class="field-row">
   <label class="field-label" for="{id}-resize">Resample</label>
   <select
@@ -96,9 +114,11 @@
     {/each}
   </select>
 </div>
+<!-- Area sampling covers every source pixel, so only the other filters have an anchor. -->
+{#if output.resize !== 'area'}
 <div class="field-row">
   <span class="field-label" id="{id}-anchor">Anchor</span>
-  <div bind:this={anchors} class="anchors" role="radiogroup" aria-labelledby="{id}-anchor" aria-disabled={output.resize === 'area'}>
+  <div bind:this={anchors} class="anchors" role="radiogroup" aria-labelledby="{id}-anchor">
     {#each ANCHORS as anchor, index (anchor.id)}
       {@const checked = anchor.id === output.anchor}
       <button
@@ -108,7 +128,7 @@
         aria-label={anchor.label}
         title={anchor.label}
         tabindex={checked ? 0 : -1}
-        disabled={output.resize === 'area' || model.source === null || model.pending}
+        disabled={model.source === null || model.pending}
         onclick={() => setAnchor(anchor.id)}
         onkeydown={(event) => moveAnchor(event, index)}
       >
@@ -117,8 +137,9 @@
     {/each}
   </div>
 </div>
+{/if}
 
-<p class="field-label section">Position</p>
+<p class="section">Position</p>
 <div class="fields two">
   {#each [['x', 'X'], ['y', 'Y']] as const as [axis, label] (axis)}
     <label class="number">
@@ -126,8 +147,8 @@
       <input
         class="caelestis-field"
         type="number"
-        value={model.origin[axis]}
-        disabled={model.pending}
+        value={unsized ? '' : model.origin[axis]}
+        disabled={model.pending || unsized}
         onkeydown={commitOnEnter}
         onchange={(event) =>
           onIntent({ type: 'origin', ...model.origin, [axis]: whole(event.currentTarget.value, model.origin[axis]) })}
@@ -136,20 +157,19 @@
   {/each}
 </div>
 <div class="actions-row">
-  <Button label="Centre in view" size="small" disabled={model.pending} onclick={() => onIntent({ type: 'centre' })} />
+  <Button label="Centre in view" size="small" disabled={model.pending || unsized} onclick={() => onIntent({ type: 'centre' })} />
 </div>
-<p class="hint">Drag the image on the map to move it. Arrow keys nudge it.</p>
+</MoreOptions>
 
 <style>
-  .section { margin-block-start: 0.5rem; }
+  .keep { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
   .anchors { display: grid; grid-template-columns: repeat(3, 1.5rem); gap: 2px; inline-size: fit-content; }
-  .anchors[aria-disabled='true'] { opacity: 0.5; }
   .anchors button {
     display: grid;
     place-items: center;
     block-size: 1.5rem;
     padding: 0;
-    border: 1px solid var(--caelestis-border);
+    border: 1px solid color-mix(in oklab, var(--caelestis-text) 30%, transparent);
     border-radius: calc(var(--caelestis-radius, 0.5rem) / 3);
     background: var(--caelestis-raised-surface, #eee);
     cursor: pointer;
@@ -159,7 +179,7 @@
   .anchors span {
     inline-size: 0.5rem;
     block-size: 0.5rem;
-    background: color-mix(in oklab, currentColor 30%, transparent);
+    background: color-mix(in oklab, var(--caelestis-text) 35%, transparent);
   }
   .anchors span.checked { background: var(--caelestis-primary, oklch(0.68 0.15 244)); }
 </style>

@@ -301,7 +301,7 @@ describe('template studio', () => {
       surface: WORLD_TEMPLATE_SURFACE,
       save: async () => true,
     })
-    // Colour space in front, Palette behind it.
+    // Dither in front, Palette behind it.
     const behind = { kind: 'tabs', collapsed: false } as const
     handleTemplateStudioIntent({
       type: 'layout',
@@ -310,7 +310,7 @@ describe('template studio', () => {
           ...DEFAULT_STUDIO_LAYOUT.frames.filter((frame) => frame.place.dock === 'start'),
           {
             place: { dock: 'end' },
-            root: { ...behind, panels: ['palette', 'color-space'], active: 'color-space' },
+            root: { ...behind, panels: ['palette', 'dither'], active: 'dither' },
           },
         ],
       },
@@ -370,6 +370,82 @@ describe('template studio', () => {
       origin: { x: edge, y: 100 },
       output: { width: room.width, height: room.height },
     })
+  })
+
+  it('crops only on Apply, leaving what stays of the image where it was on the map', async () => {
+    const room = await openOnRoom({
+      kind: 'create',
+      destination: 'Local',
+      surface: WORLD_TEMPLATE_SURFACE,
+      save: async () => true,
+    })
+    handleTemplateStudioIntent({ type: 'origin', x: 1_000, y: 2_000 })
+    const whole = { x: 0, y: 0, width: room.width, height: room.height }
+    const part = { x: 10, y: 5, width: 40, height: 30 }
+
+    handleTemplateStudioIntent({ type: 'crop-mode', on: true })
+    handleTemplateStudioIntent({ type: 'crop-draft', crop: part })
+    expect(templateStudioModel()).toMatchObject({ crop: whole, cropping: { draft: part } })
+    handleTemplateStudioIntent({ type: 'crop-mode', on: false })
+    expect(templateStudioModel()).toMatchObject({ crop: whole, cropping: null })
+
+    handleTemplateStudioIntent({ type: 'crop-mode', on: true })
+    handleTemplateStudioIntent({ type: 'crop-draft', crop: part })
+    handleTemplateStudioIntent({ type: 'crop-apply' })
+    await ready()
+    expect(templateStudioModel()).toMatchObject({
+      crop: part,
+      cropping: null,
+      origin: { x: 1_010, y: 2_005 },
+      output: { width: 40, height: 30 },
+    })
+  })
+
+  it('keeps a replacement’s crop inside the image, in the template’s proportions', async () => {
+    const { room } = await celesteRoom()
+    await openOnRoom({
+      kind: 'replace',
+      name: 'Tall',
+      server: 'Test server',
+      surface: WORLD_TEMPLATE_SURFACE,
+      width: 10,
+      height: 40,
+      origin: { x: 500, y: 700 },
+      save: async () => true,
+    })
+    handleTemplateStudioIntent({ type: 'crop-mode', on: true })
+    handleTemplateStudioIntent({
+      type: 'crop-draft',
+      crop: { x: 0, y: room.height - 1, width: 5, height: 20 },
+    })
+    const draft = templateStudioModel().cropping?.draft
+    if (draft === undefined) throw new Error('not cropping')
+    expect(draft.y + draft.height).toBeLessThanOrEqual(room.height)
+    expect(draft.height).toBe(draft.width * 4)
+  })
+
+  it('stretches one side while proportions are not kept, and both while they are', async () => {
+    const room = await openOnRoom({
+      kind: 'create',
+      destination: 'Local',
+      surface: WORLD_TEMPLATE_SURFACE,
+      save: async () => true,
+    })
+    handleTemplateStudioIntent({ type: 'keep-proportions', on: false })
+    handleTemplateStudioIntent({ type: 'size', side: 'width', pixels: room.width * 2 })
+    expect(templateStudioModel().output).toMatchObject({
+      width: room.width * 2,
+      height: room.height,
+    })
+
+    // Kept proportions are the stretched ones now.
+    handleTemplateStudioIntent({ type: 'keep-proportions', on: true })
+    handleTemplateStudioIntent({ type: 'size', side: 'height', pixels: room.height * 2 })
+    expect(templateStudioModel().output).toMatchObject({
+      width: room.width * 4,
+      height: room.height * 2,
+    })
+    await ready()
   })
 
   it('undoes and redoes edits, reprocessing the artwork each way', async () => {

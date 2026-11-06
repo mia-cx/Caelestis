@@ -26,11 +26,18 @@ const frames = (layout: StudioLayout) =>
   layout.frames.map((frame) => ({ dock: frame.place.dock, panels: panelsIn(frame.root) }))
 
 describe('studio layout', () => {
-  it('docks the default panels in one connected frame per edge, with Scopes closed', () => {
+  it('docks the default panels in one connected frame per edge, Effects folded and Scopes closed', () => {
     expect(frames(DEFAULT_STUDIO_LAYOUT)).toEqual([
       { dock: 'start', panels: ['source', 'dimensions', 'effects'] },
-      { dock: 'end', panels: ['palette', 'color-space', 'dither'] },
+      { dock: 'end', panels: ['palette', 'dither'] },
     ])
+    expect(dockFrame(DEFAULT_STUDIO_LAYOUT, 'start')?.root).toMatchObject({
+      children: [
+        { collapsed: false },
+        { collapsed: false },
+        { panels: ['effects'], collapsed: true },
+      ],
+    })
     expect(isOpen(DEFAULT_STUDIO_LAYOUT, 'scopes')).toBe(false)
   })
 
@@ -43,7 +50,7 @@ describe('studio layout', () => {
       place: { dock: null, edge: 'start', x: 300, y: 100 },
       root: tabs('dither'),
     })
-    expect(panelsIn(dockFrame(left, 'end')?.root)).toEqual(['palette', 'color-space'])
+    expect(dockFrame(left, 'end')?.root).toEqual(tabs('palette'))
 
     const right = floatPlace(box(700, 100), viewport)
     expect(right).toEqual({ dock: null, edge: 'end', x: 1200 - 700 - 288, y: 100 })
@@ -62,7 +69,6 @@ describe('studio layout', () => {
       axis: 'column',
       children: [
         { kind: 'split', axis: 'row', children: [tabs('dimensions'), tabs('palette')] },
-        tabs('color-space'),
         tabs('dither'),
       ],
     })
@@ -73,20 +79,16 @@ describe('studio layout', () => {
       target: 'palette',
       zone: 'bottom',
     })
-    expect(panelsIn(dockFrame(below, 'end')?.root)).toEqual([
-      'palette',
-      'source',
-      'color-space',
-      'dither',
-    ])
+    expect(panelsIn(dockFrame(below, 'end')?.root)).toEqual(['palette', 'source', 'dither'])
 
     const tabbed = movePanel(DEFAULT_STUDIO_LAYOUT, 'dither', {
       kind: 'attach',
-      target: 'color-space',
+      target: 'palette',
       zone: 'center',
     })
     expect(dockFrame(tabbed, 'end')?.root).toMatchObject({
-      children: [tabs('palette'), { panels: ['color-space', 'dither'], active: 'dither' }],
+      panels: ['palette', 'dither'],
+      active: 'dither',
     })
   })
 
@@ -98,7 +100,7 @@ describe('studio layout', () => {
     })
     expect(frames(docked)).toEqual([
       { dock: 'start', panels: ['source', 'dimensions'] },
-      { dock: 'end', panels: ['palette', 'effects', 'color-space', 'dither'] },
+      { dock: 'end', panels: ['palette', 'effects', 'dither'] },
     ])
   })
 

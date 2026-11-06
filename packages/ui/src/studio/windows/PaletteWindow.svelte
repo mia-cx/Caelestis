@@ -2,12 +2,13 @@
   import Icon from '../../foundations/Icon.svelte'
   import MenuStyles from '../../foundations/MenuStyles.svelte'
   import type { StudioPaletteScope, TemplateStudioIntent, TemplateStudioModel } from '../model.js'
-  import { ALPHA_MODES, type AlphaMode } from '../options.js'
+  import MoreOptions from '../MoreOptions.svelte'
+  import { ALPHA_MODES, type AlphaMode, COLOR_SPACES, type ColorSpaceId } from '../options.js'
   import RangeField from '../RangeField.svelte'
 
   /**
-   * The Wplace colours the template may use, as Ditherette web's palette without custom palettes,
-   * and how source transparency becomes palette pixels.
+   * The Wplace colours the template may use, as Ditherette web's palette without custom palettes.
+   * More options hold how each pixel picks its colour and how source transparency becomes pixels.
    */
   let { model, onIntent }: { model: TemplateStudioModel; onIntent: (intent: TemplateStudioIntent) => void } = $props()
 
@@ -21,6 +22,7 @@
 
   const selected = $derived(model.palette.colours.filter((colour) => colour.selected))
   const used = $derived(model.palette.colours.filter((colour) => colour.pixels > 0).length)
+  const space = $derived(COLOR_SPACES.find((option) => option.id === model.colorSpace) ?? COLOR_SPACES[0])
 </script>
 
 <MenuStyles />
@@ -57,9 +59,25 @@
       </button>
     {/each}
   </div>
-  <p class="hint summary">{selected.length} of {model.palette.colours.length} colours on{#if model.source !== null} · {used} used{/if}</p>
+  <p class="hint summary">{selected.length} of {model.palette.colours.length} colours{#if model.source !== null}, {used} in use{/if}</p>
 
-  <p class="field-label section">Transparency</p>
+  <MoreOptions name="colours">
+  <div class="field-row">
+    <label class="field-label" for="{id}-space">Matching</label>
+    <select
+      id="{id}-space"
+      class="caelestis-select"
+      value={model.colorSpace}
+      onchange={(event) => onIntent({ type: 'color-space', colorSpace: event.currentTarget.value as ColorSpaceId })}
+    >
+      {#each COLOR_SPACES as space (space.id)}
+        <option value={space.id}>{space.label}</option>
+      {/each}
+    </select>
+  </div>
+  <p class="hint">{space.description}</p>
+
+  <p class="section">Transparency</p>
   <div class="field-row">
     <label class="field-label" for="{id}-alpha">Alpha</label>
     <select
@@ -97,6 +115,7 @@
       </select>
     </div>
   {/if}
+  </MoreOptions>
 </fieldset>
 
 <style>
@@ -151,6 +170,5 @@
   .swatch[data-on='true'] .badge > span { background: var(--caelestis-text); color: var(--caelestis-surface); }
   .swatch[data-on='false'] .badge > span { border: 1.5px solid var(--caelestis-text); background: var(--caelestis-surface); color: var(--caelestis-text); }
   .summary { font-variant-numeric: tabular-nums; }
-  .section { margin-block-start: 0.5rem; }
   @media (forced-colors: active) { .swatch[data-on='true'] { outline: 3px solid CanvasText; } }
 </style>

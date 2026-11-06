@@ -49,9 +49,7 @@
     {/each}
   </select>
 
-  {#if layers.length === 0}
-    <p class="hint">No effects yet.</p>
-  {:else}
+  {#if layers.length > 0}
     <ol class="layers" aria-label="Effect layers">
       {#each layers as layer, index (layer.id)}
         <li class:selected={layer.id === selectedId} class:off={!layer.step.enabled}>
