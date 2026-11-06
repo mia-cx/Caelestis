@@ -714,15 +714,25 @@ export const rasterShapeFrom = (pixels: RegionShapePixels): RegionShape | null =
   return { kind: 'pixels', x: rect.x + left, y: rect.y + top, w, h, mask: packBits(trimmed) }
 }
 
-/** Whether a whole canvas pixel belongs to the shape; consistent with `regionShapePixels`. */
+/** Hit-test rasters, read-only and kept only as long as their immutable shape. */
+const hitRasters = new WeakMap<RegionShape, RegionShapePixels>()
+
+/**
+ * Whether a whole canvas pixel belongs to the shape; consistent with `regionShapePixels`. The
+ * first test inside the bounds rasterises the shape once, so repeated tests (hover) are O(1).
+ */
 export const regionShapeContainsPixel = (shape: RegionShape, px: number, py: number): boolean => {
   const x = Math.floor(px)
   const y = Math.floor(py)
   const rect = regionShapeBounds(shape)
   if (x < rect.x || x >= rect.x + rect.w || y < rect.y || y >= rect.y + rect.h) return false
   if (shape.kind === 'rectangle') return true
-  const { mask } = regionShapePixels(shape)
-  return mask[(y - rect.y) * rect.w + (x - rect.x)] === 1
+  let pixels = hitRasters.get(shape)
+  if (pixels === undefined) {
+    pixels = regionShapePixels(shape)
+    hitRasters.set(shape, pixels)
+  }
+  return pixels.mask[(y - rect.y) * rect.w + (x - rect.x)] === 1
 }
 
 /**
