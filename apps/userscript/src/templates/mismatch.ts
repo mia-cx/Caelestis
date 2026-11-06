@@ -23,6 +23,7 @@ import {
   endServerMismatchFrame,
   onServerMismatchesChanged,
 } from '../server-mismatch.js'
+import { getState, type State } from '../state.js'
 import {
   comparisonDraftPixels,
   draftedPixelOffsets,
@@ -51,6 +52,7 @@ import { type MismatchMarks, packMismatchMark } from './mismatch-marks.js'
 import { type ScanJob, type ScanOutcome, scanTile } from './mismatch-scan.js'
 import { forgetInWorker, hasWorker, releaseInWorker, scanInWorker } from './mismatch-worker.js'
 import { horizontalSpans, sourceXAt, wrappedDeltaX } from './placement.js'
+import { serverNodesRevision } from './server-nodes.js'
 import { pixelAt, pixelRect, type SparsePixels } from './sparse-pixels.js'
 import { measuresLocally } from './wplace-owned.js'
 
@@ -756,16 +758,35 @@ const samePlacement = (a: PlacedTemplate, b: PlacedTemplate): boolean =>
 let scopeTemplates: readonly PlacedTemplate[] = []
 const scopePending = new Set<string>()
 let scopeTiles: ReadonlySet<TileKey> = new Set()
+/**
+ * Everything visibility reads, as last confirmed. Templates and state are replaced, never mutated,
+ * and server folders bump a revision, so while all three are the same no template's visibility or
+ * placement can have changed, and a quiet frame skips visibility, which allocates for some templates.
+ */
+let scopeDisplay: readonly PlacedTemplate[] | null = null
+let scopeState: State | null = null
+let scopeNodes = -1
 
-/** Compared field by field, so a frame where nothing moved allocates nothing per template. */
-const scopeUnchanged = (templates: readonly PlacedTemplate[]): boolean => {
+const templatesUnchanged = (templates: readonly PlacedTemplate[]): boolean => {
+  const state = getState()
+  const nodes = serverNodesRevision()
+  if (templates === scopeDisplay && state === scopeState && nodes === scopeNodes) return true
   let index = 0
   for (const template of templates) {
     if (!inCaptureScope(template)) continue
     const before = scopeTemplates[index++]
     if (before === undefined || !samePlacement(before, template)) return false
   }
-  if (index !== scopeTemplates.length || scopePending.size !== pendingProgressPixels.size)
+  if (index !== scopeTemplates.length) return false
+  scopeDisplay = templates
+  scopeState = state
+  scopeNodes = nodes
+  return true
+}
+
+/** Compared field by field, so a frame where nothing moved allocates nothing. */
+const scopeUnchanged = (templates: readonly PlacedTemplate[]): boolean => {
+  if (!templatesUnchanged(templates) || scopePending.size !== pendingProgressPixels.size)
     return false
   for (const key of pendingProgressPixels) if (!scopePending.has(key)) return false
   return true
@@ -784,6 +805,9 @@ export const captureScopeTiles = (): ReadonlySet<TileKey> => {
   const templates = displayTemplates()
   if (scopeUnchanged(templates)) return scopeTiles
   scopeTemplates = templates.filter(inCaptureScope)
+  scopeDisplay = templates
+  scopeState = getState()
+  scopeNodes = serverNodesRevision()
   scopePending.clear()
   const tiles = new Set<TileKey>()
   for (const key of pendingProgressPixels) {
