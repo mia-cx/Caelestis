@@ -180,8 +180,10 @@ export class RenderScene {
       prepared.surface === surface &&
       prepared.reducedMotion === reducedMotion &&
       sameInputs(prepared.inputs, inputs) &&
-      prepared.templates.length === templates.length &&
-      templates.every((template, index) => template === prepared.templates[index])
+      // Hosts pass a list that keeps its identity while nothing changes; a fresh copy is compared.
+      (prepared.templates === templates ||
+        (prepared.templates.length === templates.length &&
+          templates.every((template, index) => template === prepared.templates[index])))
     )
       return prepared.result
     if (templates.length !== this.ids.size || templates.some(({ id }) => !this.ids.has(id))) {

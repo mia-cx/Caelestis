@@ -728,7 +728,11 @@ export const displayTemplates = (): readonly PlacedTemplate[] => {
     }
   }
   const ordered = displayOrderCache.templates
-  if (previewOrigins.size === 0 && draft === null) return ordered
+  if (previewOrigins.size === 0 && draft === null) {
+    // Let a discarded draft's artwork go.
+    displayPreviewCache = undefined
+    return ordered
+  }
   if (
     displayPreviewCache?.ordered !== ordered ||
     displayPreviewCache.draft !== draft ||
@@ -801,11 +805,29 @@ export const moveTemplateDraft = (originX: number, originY: number): boolean => 
   return true
 }
 
-/** The renderer and editor menu for one canvas must never see templates from another surface. */
-export const displayTemplatesForSurface = (surface: TemplateSurface): readonly PlacedTemplate[] =>
-  displayTemplates().filter((template) =>
+/** Each surface's slice of one `displayTemplates()` list, dropped together when that list changes. */
+let surfaceSlices: {
+  readonly all: readonly PlacedTemplate[]
+  readonly bySurface: Map<string, readonly PlacedTemplate[]>
+} | null = null
+
+/**
+ * The renderer and editor menu for one canvas must never see templates from another surface.
+ *
+ * The same array until `displayTemplates()` changes, so a settled renderer compares one reference.
+ */
+export const displayTemplatesForSurface = (surface: TemplateSurface): readonly PlacedTemplate[] => {
+  const all = displayTemplates()
+  if (surfaceSlices?.all !== all) surfaceSlices = { all, bySurface: new Map() }
+  const key = templateSurfaceKey(surface)
+  const held = surfaceSlices.bySurface.get(key)
+  if (held !== undefined) return held
+  const slice = all.filter((template) =>
     sameTemplateSurface(template.surface ?? WORLD_TEMPLATE_SURFACE, surface),
   )
+  surfaceSlices.bySurface.set(key, slice)
+  return slice
+}
 
 /** Transient placement never touches IndexedDB or rebuilds tiles; the renderer translates them. */
 export const previewLocalTemplate = (id: string, originX: number, originY: number): boolean => {

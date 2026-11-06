@@ -37,8 +37,11 @@ export const isDarkMapTheme = (): boolean => {
   return dark
 }
 
-/** Run `listener` whenever the answer of {@link isDarkMapTheme} changes. */
+/**
+ * Run `listener` whenever the answer of {@link isDarkMapTheme} changes after its first read.
+ *
+ * Registering reads nothing, so it is safe at document start, before `<html>` exists.
+ */
 export const onMapThemeChange = (listener: () => void): void => {
-  isDarkMapTheme()
   listeners.add(listener)
 }

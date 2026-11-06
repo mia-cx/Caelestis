@@ -1,8 +1,10 @@
+import { WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { describe, expect, it } from 'vitest'
 import {
   addLocalTemplate,
   clearLocalPreview,
   displayTemplates,
+  displayTemplatesForSurface,
   localTemplates,
   moveLocalTemplate,
   previewLocalTemplate,
@@ -45,6 +47,8 @@ describe('local template moves', () => {
         originY: 20,
       })
       expect(displayTemplates()).toBe(held)
+      const world = displayTemplatesForSurface(WORLD_TEMPLATE_SURFACE)
+      expect(displayTemplatesForSurface(WORLD_TEMPLATE_SURFACE)).toBe(world)
 
       previewLocalTemplate(id, 11, 20)
       expect(displayTemplates().find((template) => template.id === id)).toMatchObject({
