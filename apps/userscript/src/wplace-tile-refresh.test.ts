@@ -263,13 +263,15 @@ describe('capture scope refresh', () => {
   it('re-reads only the visible tiles that newly entered the scope', async () => {
     vi.useFakeTimers()
     realm()
-    const { original } = fakeMap()
+    const { original, reset } = fakeMap()
     const scope = watchCaptureScope()
     scope(false, new Set(['1/2']))
     scope(false, new Set(['1/2', '3/4']))
     await vi.advanceTimersByTimeAsync(0)
-    // Two widenings in one task are one reload.
+    // Two widenings in one task are one reload. Off-screen cached tiles are dropped, so one that
+    // entered the scope is downloaded when panned to rather than restored unread.
     expect(original.mock.calls).toEqual([['pixel-art-layer', [A, B]]])
+    expect(reset).toHaveBeenCalledTimes(1)
 
     // A drag step that stays over the same tiles re-reads nothing; one that reaches a new visible
     // tile re-reads that tile alone. Off-screen tiles are not Wplace's to reload.

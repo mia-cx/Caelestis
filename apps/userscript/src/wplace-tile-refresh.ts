@@ -379,14 +379,20 @@ export const patchTileRefresh = (map: PatchableMap): void => {
   reloadVisible = (wanted) => {
     if (map.getCanvas?.().isConnected === false) return null
     let visible: Tile[] | null = null
+    let cacheReset = false
     try {
-      visible = inViewTiles(managerFor(map))
+      const manager = managerFor(map)
+      visible = inViewTiles(manager)
+      // A tile that entered the scope off screen would otherwise come back from MapLibre's cache
+      // unread when panned to; a full reload clears that cache too.
+      if (wanted !== undefined) resetCache(manager)
+      cacheReset = true
     } catch {
       count('wplace-patch:visible tiles unknown')
     }
-    // Without the visible list a partial reload cannot pick its tiles, so everything reloads. A
-    // full reload's list only lets a caller skip what it reloaded, so the reload never waits on it.
-    if (wanted === undefined || visible === null) {
+    // Without the visible list or the cache a partial reload cannot keep its promise, so everything
+    // reloads. A full reload's list only lets a caller skip what it reloaded, so it never waits on it.
+    if (wanted === undefined || visible === null || !cacheReset) {
       full(map)
       return visible ?? []
     }
