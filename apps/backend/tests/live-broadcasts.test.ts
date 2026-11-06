@@ -128,19 +128,22 @@ it('acknowledges dashboard changes before refreshing and serves a burst with one
     )
     expect(socket.events('dashboard-snapshot')).toHaveLength(1)
   }
-  const reads = vi.spyOn(sql, 'readContributions')
+  const contributionReads = vi.spyOn(sql, 'readContributions')
+  const leaderboardReads = vi.spyOn(sql, 'readLeaderboard')
 
   await Promise.all(Array.from({ length: 5 }, () => coordinator.notifyDashboardChange(SEASON)))
   // Nothing has read yet: the paint that notified is acknowledged before its refresh starts.
-  expect(reads).not.toHaveBeenCalled()
+  expect(contributionReads).not.toHaveBeenCalled()
+  expect(leaderboardReads).not.toHaveBeenCalled()
   for (const socket of sockets) expect(socket.events('dashboard-snapshot')).toHaveLength(1)
 
   // The burst shares one refresh, and every subscription gets its own snapshot from it.
   await vi.waitFor(() => {
     for (const socket of sockets) expect(socket.events('dashboard-snapshot')).toHaveLength(2)
   })
-  // Contributions and the leaderboard both read contributions: two reads for the whole burst.
-  expect(reads).toHaveBeenCalledTimes(2)
+  // One read of each for the whole burst, shared by every subscriber.
+  expect(contributionReads).toHaveBeenCalledTimes(1)
+  expect(leaderboardReads).toHaveBeenCalledTimes(1)
 
   // A later change still reaches every subscriber.
   await coordinator.notifyDashboardChange(SEASON)
