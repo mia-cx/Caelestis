@@ -348,6 +348,92 @@ describe('backend API trust boundary', () => {
       expect(await frames()).toBe(0)
     })
 
+  it('confirms a tile covered by many stale templates within a bounded number of queries', async () => {
+    let invalidation = true
+    const backend = await createTestBackend({
+      statusReadModel: (sql) =>
+        new (class extends DirectStatusReadModel {
+          override async notifyManifestChange(
+            ...args: Parameters<DirectStatusReadModel['notifyManifestChange']>
+          ): Promise<void> {
+            if (!invalidation) throw new Error('manifest invalidation lost')
+            await super.notifyManifestChange(...args)
+          }
+        })(sql),
+    })
+    const reader = await mint(backend, 'read')
+    const templateIds: string[] = []
+    for (let index = 0; index < 12; index++) {
+      const form = new FormData()
+      form.set('png', new File([await encodeIndexedPng(1, 1, new Uint8Array([1]))], 'art.png'))
+      form.set('name', `Template ${index}`)
+      form.set('season', '3')
+      form.set('originX', String(index))
+      form.set('originY', '0')
+      const created = await backend.app.fetch(
+        new Request('https://backend.test/admin/templates', {
+          method: 'POST',
+          headers: { authorization: `Bearer ${adminToken}` },
+          body: form,
+        }),
+      )
+      templateIds.push(((await created.json()) as { templateId: string }).templateId)
+    }
+    const publish = (templateId: string, published: boolean) =>
+      request(backend, `/admin/templates/${templateId}`, 'PATCH', adminToken, { published })
+    for (const templateId of templateIds) expect((await publish(templateId, true)).status).toBe(200)
+    await backend.sql.recordTileObservation(
+      {
+        season: 3,
+        tile: { x: 0, y: 0 },
+        hash,
+        observedAt: millis(1_000),
+        reportedAt: seconds(1),
+        reportedWithToken: hash,
+        reportedByUserId: 42,
+      },
+      [],
+      true,
+    )
+    let queries = 0
+    for (const name of ['readTemplate', 'listManifestTemplates'] as const) {
+      const original = backend.sql[name].bind(backend.sql) as (...args: unknown[]) => unknown
+      Object.assign(backend.sql, {
+        [name]: (...args: unknown[]) => {
+          queries++
+          return original(...args)
+        },
+      })
+    }
+    const frames = async () => {
+      queries = 0
+      return (
+        (await (
+          await request(
+            backend,
+            '/telemetry/tiles/0/0/history?season=3&from=0&to=2',
+            'GET',
+            reader.token,
+          )
+        ).json()) as { frames: unknown[] }
+      ).frames.length
+    }
+    // The first read also builds the manifest; afterwards a fresh cache costs one template read.
+    expect(await frames()).toBe(1)
+    expect(await frames()).toBe(1)
+    expect(queries).toBe(1)
+
+    // Every template but the last is unpublished while the cached manifest still lists them all.
+    invalidation = false
+    for (const templateId of templateIds.slice(0, -1))
+      expect((await publish(templateId, false)).status).toBe(200)
+    expect(await frames()).toBe(1)
+    expect(queries).toBeLessThanOrEqual(9)
+    expect((await publish(templateIds.at(-1) ?? '', false)).status).toBe(200)
+    expect(await frames()).toBe(0)
+    expect(queries).toBeLessThanOrEqual(9)
+  })
+
   it('rejects malformed read parameters instead of returning a successful empty result', async () => {
     const backend = await createTestBackend()
     const invalid = [

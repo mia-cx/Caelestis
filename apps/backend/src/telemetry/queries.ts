@@ -513,6 +513,9 @@ export const readCanvas = (
     }
   })
 
+/** Templates read one by one to confirm a cached tile before one season listing replaces them. */
+const MAX_OWNER_READS = 8
+
 /** A published template version whose timelapse capture covers a tile. Versions never change. */
 interface TileOwner {
   readonly templateId: string
@@ -572,8 +575,10 @@ const currentSeasonTileVisible = (
       owners = planned
     }
     // Only the held version is ever offered, so without one a match cannot happen; hide the tile.
-    // One read confirms a fresh cache; only a stale one reads every covering template.
-    for (const { templateId, versionId } of owners?.get(tile) ?? []) {
+    // A fresh cache confirms on the first read. Past a few misses, one listing of the season's
+    // published templates answers for every owner, so a dense tile stays within D1's query budget.
+    const candidates = owners?.get(tile) ?? []
+    for (const { templateId, versionId } of candidates.slice(0, MAX_OWNER_READS)) {
       const record = yield* sqlRead('readTemplate', () => sql.readTemplate(templateId))
       if (
         record?.published === true &&
@@ -583,7 +588,12 @@ const currentSeasonTileVisible = (
       )
         return true
     }
-    return false
+    if (candidates.length <= MAX_OWNER_READS) return false
+    const published = yield* sqlRead('listManifestTemplates', () =>
+      sql.listManifestTemplates({ season, surface: WORLD_TEMPLATE_SURFACE }, false),
+    )
+    const current = new Set(published.map(({ id, versionId }) => `${id}:${versionId}`))
+    return candidates.some(({ templateId, versionId }) => current.has(`${templateId}:${versionId}`))
   })
 
 /** Return all retained detail by default; an explicit resolution reads only that legacy tier. */
