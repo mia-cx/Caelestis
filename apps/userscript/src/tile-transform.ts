@@ -2093,9 +2093,13 @@ interface QueuedCapture {
  *
  * They are read one at a time, so the reader holds one tile's pixels at once, and no tile's pixels
  * change under a read of them: only a read's own commit writes them. A newer read of a waiting tile
- * takes its place, because the older answer would lose to it anyway. No more wait than the pixel
- * cache keeps, since past that each one read would evict another: a long pan's oldest reads, by now
- * mostly off screen, give way to the newest. A read an explicit `loadTilePixels` waits on never does.
+ * takes its place, because the older answer would lose to it anyway.
+ *
+ * No more first reads wait than the pixel cache keeps, since past that each one read would evict
+ * another: a long pan's oldest, by now mostly off screen, give way to the newest. A re-read of a
+ * kept tile never does, because Wplace already has its new bytes and will not fetch them again for
+ * us. Nor does a read an explicit `loadTilePixels` waits on. Both are bounded by the cache and by
+ * the loads themselves.
  */
 const queuedCaptures = new Map<string, QueuedCapture>()
 let readingCaptures = false
@@ -2105,6 +2109,8 @@ const tileCaptures = new Map<string, Promise<void>>()
 const queueCapture = (capture: QueuedCapture): void => {
   const key = tileKey(capture.tile)
   const waiting = queuedCaptures.get(key)
+  // Re-inserted, so the queue's order is each tile's latest arrival.
+  queuedCaptures.delete(key)
   if (
     waiting?.observation !== undefined &&
     capture.observation !== undefined &&
@@ -2116,9 +2122,10 @@ const queueCapture = (capture: QueuedCapture): void => {
   }
   for (const [oldest, dropped] of queuedCaptures) {
     if (queuedCaptures.size <= KEEP_TILE_PIXELS) break
-    if (requestedTilePixels.has(oldest)) continue
-    // Still on screen, it is chased once more; off screen, nothing asks for it until Wplace does.
+    if (pixelsOfTile.has(oldest) || requestedTilePixels.has(oldest)) continue
     queuedCaptures.delete(oldest)
+    // Still on screen, it is chased again; off screen, nothing asks for it until Wplace does.
+    chased.delete(oldest)
     for (const done of dropped.done) done()
     count('pixels:tile captures dropped')
   }

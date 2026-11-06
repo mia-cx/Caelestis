@@ -241,18 +241,36 @@ describe('tile reads in the worker', () => {
     expect((await loading)?.[0]).toBe(5)
   })
 
-  it('reads the newest tiles of a backlog longer than the cache holds', async () => {
+  it('reads the most recently decoded tiles of a backlog longer than the cache holds', async () => {
     const worker = inProcessWorker(() => new Response(null, { status: 500 }))
     const { tileTransform, setWplacePatchEnabled, decodeTile } = await setup()
     setWplacePatchEnabled('capture-dedupe', false)
     const release = worker.hold()
-    for (let x = 100; x <= 126; x++) await decodeTile(x)
+    for (let x = 100; x <= 124; x++) await decodeTile(x)
+    // Decoded again while it waits, tile 101 is now the newest.
+    await decodeTile(101)
+    await decodeTile(125)
+    await decodeTile(126)
     release()
     await tileTransform.settledTileCaptures()
-    // One was in the reader; of the 26 behind it, the two oldest gave way.
     expect(worker.readback).toHaveBeenCalledTimes(25)
-    expect(tileTransform.tilePixels({ x: 101, y: TILE.y })).toBeNull()
+    expect(tileTransform.tilePixels({ x: 101, y: TILE.y })).not.toBeNull()
+    expect(tileTransform.tilePixels({ x: 102, y: TILE.y })).toBeNull()
     expect(tileTransform.tilePixels({ x: 126, y: TILE.y })).not.toBeNull()
+  })
+
+  it('re-reads a kept tile however long the backlog behind the reader', async () => {
+    const worker = inProcessWorker(() => new Response(null, { status: 500 }))
+    const { tileTransform, setWplacePatchEnabled, fetchTile, decodeTile } = await setup()
+    setWplacePatchEnabled('capture-dedupe', false)
+    await fetchTile(TILE.x, Uint8Array.of(1, 5))
+    const release = worker.hold()
+    await decodeTile(TILE.x + 50)
+    await decodeTile(TILE.x, Uint8Array.of(1, 6))
+    for (let x = 101; x <= 126; x++) await decodeTile(x)
+    release()
+    await tileTransform.settledTileCaptures()
+    expect(tileTransform.tilePixels(TILE)?.[0]).toBe(6)
   })
 
   it('drops a read that a newer, unchanged refetch overtook', async () => {
