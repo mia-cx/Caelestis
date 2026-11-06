@@ -407,14 +407,18 @@ describe('public social metadata and stored image routes', () => {
           },
         },
       )
+      const reads = vi.spyOn(objects, 'get')
       const get = await imageGet(event)
       expect(new Uint8Array(await get.arrayBuffer())).toEqual(new Uint8Array([71, 73, 70]))
       expect(get.headers.get('cache-control')).toBe('public, no-cache')
       event.request = new Request(event.url, { method: 'HEAD' })
       const head = await imageHead(event)
       expect(await head.text()).toBe('')
+      expect(head.headers.get('content-length')).toBe('3')
       event.request = new Request(event.url, { headers: { 'if-none-match': `W/"${info?.etag}"` } })
       expect((await imageGet(event)).status).toBe(304)
+      // HEAD and revalidation answer from metadata; only the full GET reads the image.
+      expect(reads).toHaveBeenCalledTimes(1)
       published = false
       expect((await imageGet(event)).status).toBe(404)
     } finally {
