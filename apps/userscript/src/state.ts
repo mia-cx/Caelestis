@@ -1207,9 +1207,10 @@ export const probeServer = async (
   }
 }
 
+/** Probe each row and apply the answer; `onRefreshed` learns whether that changed the stored row. */
 const refreshServers = async (
   snapshot: readonly ConnectedServer[],
-  onRefreshed?: () => void,
+  onRefreshed?: (changed: boolean) => void,
 ): Promise<void> => {
   let cursor = 0
   const worker = async (): Promise<void> => {
@@ -1225,9 +1226,10 @@ const refreshServers = async (
       if (current === undefined || !isCurrentServerConnection(server)) continue
       // A cosmetic replacement can land while the probe is in flight. Preserve that newer local
       // metadata while still applying the probe's current connectivity, season, and scope result.
+      const before = getState().servers
       upsertServer(current === server ? refreshed : { ...refreshed, info: current.info })
       try {
-        onRefreshed?.()
+        onRefreshed?.(getState().servers !== before)
       } catch (error) {
         warn('install', 'server refresh observer failed', String(error))
       }
@@ -1249,7 +1251,11 @@ export const installServerConnectionRetry = (onRefreshed?: () => void): void => 
   if (serverRetryTimer !== null) clearInterval(serverRetryTimer)
   serverRetryTimer = setInterval(() => {
     const unreachable = getState().servers.filter((server) => server.status === 'unreachable')
-    if (unreachable.length > 0) void refreshServers(unreachable, onRefreshed)
+    // A server that is still offline gives the same answer, which needs no redraw.
+    if (unreachable.length > 0)
+      void refreshServers(unreachable, (changed) => {
+        if (changed) onRefreshed?.()
+      })
   }, SERVER_RETRY_MS)
 }
 
