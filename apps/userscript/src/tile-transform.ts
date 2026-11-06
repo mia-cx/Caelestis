@@ -2018,9 +2018,11 @@ const capture = (
       if (dirty !== null && draftOfTile.has(key)) {
         const context = reusableCaptureContext()
         if (context === null) return false
-        context.clearRect(0, 0, TILE_SIZE, TILE_SIZE)
-        context.drawImage(bitmap, 0, 0)
-        const image = context.getImageData(dirty.x, dirty.y, dirty.width, dirty.height)
+        // Copy only the region read. Clearing it first keeps transparent pixels unpainted.
+        const { x, y, width, height } = dirty
+        context.clearRect(x, y, width, height)
+        context.drawImage(bitmap, x, y, width, height, x, y, width, height)
+        const image = context.getImageData(x, y, width, height)
         count('pixels:draft readback bytes', image.data.byteLength)
         count('pixels:draft readback pixels', dirty.width * dirty.height)
         applyWrite(tile, readWrite(image, dirty.x, dirty.y))
