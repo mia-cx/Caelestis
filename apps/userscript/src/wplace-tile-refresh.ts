@@ -249,8 +249,11 @@ const signature = async (url: string): Promise<string | null> => {
   }
 }
 
-/** The latest patched map's unconditional refresh; false when that map has left the page. */
-let refreshAll: (() => boolean) | null = null
+/**
+ * The latest patched map's unconditional refresh. Returns the visible tiles it reloaded, or null
+ * when that map has left the page.
+ */
+let refreshAll: (() => Tile[] | null) | null = null
 let refreshAllScheduled = false
 /**
  * A full refresh no live patched map has taken yet.
@@ -265,7 +268,9 @@ const deliverRefreshAll = (): void => {
   refreshAllScheduled = false
   if (!refreshAllPending) return
   try {
-    if (refreshAll?.() === true) refreshAllPending = false
+    if ((refreshAll?.() ?? null) === null) return
+    refreshAllPending = false
+    count('wplace-patch:full tile refresh for capture')
   } catch {
     refreshAllPending = false
     count('wplace-patch:full tile refresh failed')
@@ -291,6 +296,25 @@ export const refreshAllWplaceTiles = (): void => {
   if (!isWplacePatchEnabled('tile-refresh')) return
   refreshAllPending = true
   scheduleRefreshAll()
+}
+
+/**
+ * Reload every visible Wplace tile now, because a painter asked.
+ *
+ * Unlike the capture refresh this ignores the patch switches: with them off Wplace reloads on its own
+ * timer, but a painter who presses reload wants the tiles now, not within six seconds. Returns the
+ * tiles it reloaded, so a caller re-reading tiles off screen can skip them. Empty when no patched map
+ * is on the page.
+ */
+export const reloadVisibleWplaceTiles = (): Tile[] => {
+  try {
+    const visible = refreshAll?.() ?? []
+    count('wplace-patch:reloaded visible tiles on request', visible.length)
+    return visible
+  } catch {
+    count('wplace-patch:tile reload on request failed')
+    return []
+  }
 }
 
 /**
@@ -339,10 +363,16 @@ export const patchTileRefresh = (map: PatchableMap): void => {
     return original.call(receiver, SOURCE)
   }
   refreshAll = () => {
-    if (map.getCanvas?.().isConnected === false) return false
-    count('wplace-patch:full tile refresh for capture')
+    if (map.getCanvas?.().isConnected === false) return null
+    // The list only lets a caller skip what this reloads; the reload itself must not depend on it.
+    let visible: Tile[] = []
+    try {
+      visible = inViewTiles(managerFor(map))
+    } catch {
+      count('wplace-patch:visible tiles unknown')
+    }
     full(map)
-    return true
+    return visible
   }
   // A scope that widened before this map was patched still owes it one full refresh.
   if (refreshAllPending) scheduleRefreshAll()

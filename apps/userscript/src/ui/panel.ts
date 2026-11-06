@@ -122,6 +122,7 @@ import { onOfficialOverlaysChange } from '../templates/official-overlays.js'
 import { forgetNodes, nodeScopeKey } from '../templates/server-nodes.js'
 import { endServerGeneration, forgetChunks, serverTemplateKey } from '../templates/server-sync.js'
 import { ensureLocalTags } from '../templates/tags.js'
+import { reloadTiles } from '../tile-transform.js'
 import { backendVersionOutdated } from '../userscript-update.js'
 import { ownedColours, refreshAccount } from '../wplace-account.js'
 import { isPaintOpen, onPaintSelectionChange, selectedColour } from '../wplace-paint.js'
@@ -1226,6 +1227,9 @@ const buildSveltePanel = (): CaelestisPanel => {
         break
       case 'close':
         setOpen(false)
+        break
+      case 'reload-tiles':
+        void reloadTiles()
         break
       case 'popout':
         mountNotificationsIn(

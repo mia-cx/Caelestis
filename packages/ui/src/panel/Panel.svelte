@@ -172,6 +172,9 @@
       </Button>
     {/if}
     <h2>{title}</h2>
+    <Button label="Reload tiles" title="Reload tiles" kind="ghost" size="compact" iconOnly onclick={() => emit({ type: 'reload-tiles' })}>
+      <Icon name="reset" />
+    </Button>
     <Button label={poppedOut ? 'Return to sidebar' : 'Pop out menu'} title={poppedOut ? 'Return to sidebar' : 'Pop out menu'} popup={poppedOut ? undefined : 'dialog'} kind="ghost" size="compact" iconOnly onclick={() => { if (poppedOut) void dock(); else poppedOut = true }}>
       <Icon name={poppedOut ? 'dock' : 'popout'} />
     </Button>

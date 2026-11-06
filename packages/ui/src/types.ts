@@ -257,6 +257,7 @@ export type PanelIntent =
   | { readonly type: 'work-tree'; readonly intent: TemplateTreeIntent }
   | { readonly type: 'navigate'; readonly view: PanelView }
   | { readonly type: 'close' }
+  | { readonly type: 'reload-tiles' }
   | { readonly type: 'popout'; readonly open: boolean }
   | { readonly type: 'resize-preview'; readonly width: number }
   | { readonly type: 'resize-commit'; readonly width: number }

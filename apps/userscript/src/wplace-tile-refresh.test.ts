@@ -3,6 +3,7 @@ import { resetWplacePatches, setWplacePatchEnabled } from './wplace-patches.js'
 import {
   installServiceWorkerTap,
   patchTileRefresh,
+  reloadVisibleWplaceTiles,
   watchCaptureScope,
 } from './wplace-tile-refresh.js'
 
@@ -315,6 +316,16 @@ describe('capture scope refresh', () => {
     watchCaptureScope()(['paint'])
     await vi.advanceTimersByTimeAsync(0)
     expect(original).not.toHaveBeenCalled()
+  })
+})
+
+describe('reload on request', () => {
+  it('reloads every visible tile at once, even with conditional refresh off', () => {
+    realm()
+    const { original } = fakeMap()
+    setWplacePatchEnabled('tile-refresh', false)
+    expect(reloadVisibleWplaceTiles()).toEqual([A, B, C, D])
+    expect(original.mock.calls).toEqual([['pixel-art-layer']])
   })
 })
 
