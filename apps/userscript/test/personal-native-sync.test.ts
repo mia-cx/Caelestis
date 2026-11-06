@@ -295,6 +295,49 @@ it('shows Wplace artwork edited during linking once Wplace hides the template', 
   expect(await local.templatePixels(template)).toEqual(reversed)
 })
 
+it('shows Wplace artwork edited while a hide links an unlinked template', async () => {
+  const native = wplace()
+  connectPersonalStore(native.api)
+  const id = 'unlinked-hidden'
+  // An earlier link never finished, so the stored record still has no Wplace copy.
+  expect(
+    await disk.saveTemplate(
+      {
+        id,
+        name: id,
+        source: 'image',
+        originX: 1000,
+        originY: 2000,
+        width: 4,
+        height: 2,
+        pixels: cutPixels(4, 2, indices),
+        moved: 0,
+        opaque: 8,
+        visible: true,
+        everPlaced: true,
+        revision: 0,
+        tileKeys: ['1/2'],
+      },
+      null,
+    ),
+  ).toMatchObject({ status: 'saved' })
+  await local.restoreLocalTemplates()
+  const reversed = indices.slice().reverse()
+  duringTagSync.edit = async () => {
+    const png = new Uint8Array(await encodeIndexedPng(4, 2, reversed))
+    native.images.set(native.records[0]?.id ?? '', new Blob([png], { type: 'image/png' }))
+  }
+
+  expect(await local.setLocalVisible(id, false)).toBe(true)
+  native.api.metadata.update(native.records[0]?.id ?? '', { name: 'Renamed in Wplace' })
+  await focus()
+
+  const template = local.templateById(id)
+  if (template === undefined) throw new Error('the template left the catalog')
+  expect(template.name).toBe('Renamed in Wplace')
+  expect(await local.templatePixels(template)).toEqual(reversed)
+})
+
 it('renders a Wplace image replacement on the next focus', async () => {
   const native = wplace()
   connectPersonalStore(native.api)

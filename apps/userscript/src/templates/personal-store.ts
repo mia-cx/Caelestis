@@ -332,6 +332,8 @@ export const saveTemplate = async (
         }
       }
       let linked = await migrate(api, previous)
+      // As for a new record: linking may render a Wplace edit into the stored pixels.
+      const keptPixels = linked.pixels === previous.pixels
       const nativeId = linked.native?.id
       if (nativeId === undefined) throw new Error('Native identity is missing')
       const snapshot = await api.read(nativeId)
@@ -387,21 +389,23 @@ export const saveTemplate = async (
                 : undefined,
             )
           : snapshot
-      const next: TemplateSave = {
-        ...template,
-        native: {
-          id: nativeId,
-          status: 'linked',
-          token: saved.token,
-          opacity: saved.template.opacity,
-          opacityOverride: !opacityChanged && linked.native?.opacityOverride === true,
-        },
-      }
+      const link = {
+        id: nativeId,
+        status: 'linked',
+        token: saved.token,
+        opacity: saved.template.opacity,
+        opacityOverride: !opacityChanged && linked.native?.opacityOverride === true,
+      } as const
       // A native write may finish even if this derived cache cannot. Reconciliation reads the native winner.
-      const result = await disk.saveTemplate(next, linked.revision, false, archiveCurrent)
-      return result.status === 'saved' && next.native !== undefined
-        ? { ...result, native: next.native }
-        : { status: 'conflict' }
+      const result = await disk.saveTemplate(
+        { ...template, native: link },
+        linked.revision,
+        false,
+        archiveCurrent,
+      )
+      if (result.status !== 'saved') return { status: 'conflict' }
+      // A new version's link always describes the caller's pixels: they are what was written.
+      return archiveCurrent || keptPixels ? { ...result, native: link } : result
     } catch (error) {
       warn('install', `could not save personal template ${template.name}`, String(error))
       return { status: error instanceof NativeConflict ? 'conflict' : 'unavailable' }

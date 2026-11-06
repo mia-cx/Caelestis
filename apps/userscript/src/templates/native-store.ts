@@ -372,6 +372,7 @@ export class NativeTemplates {
     image?: Blob,
   ): Promise<NativeSnapshot> {
     if (this.metadata.placementSession || this.metadata.suppressPersist) throw new NativeConflict()
+    const writes = this.imageWrites
     const current = await this.snapshot(id, false)
     if (current?.token !== expected?.token || this.metadata.getById(id)?.serverManaged)
       throw new NativeConflict()
@@ -424,8 +425,10 @@ export class NativeTemplates {
         : current === null
           ? undefined
           : tokenDigest(current.token)
-    // Without new artwork the image is the one just read, and only its metadata changed.
+    // Without new artwork, and with no image written since, the image is the one just read and
+    // only its metadata changed.
     if (
+      writes === this.imageWrites &&
       image === undefined &&
       current !== null &&
       committed !== undefined &&
