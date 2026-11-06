@@ -3,20 +3,46 @@ import { readFile } from 'node:fs/promises'
 const port = process.env.CDP_PORT ?? '9222'
 const bundle = process.env.BROWSER_BUNDLE
 if (bundle === undefined) throw new Error('BROWSER_BUNDLE is required')
-const target = await fetch(`http://127.0.0.1:${port}/json/new?about:blank`, {
-  method: 'PUT',
+const browser = await fetch(`http://127.0.0.1:${port}/json/version`, {
   signal: AbortSignal.timeout(5000),
 }).then((response) => response.json())
-if (!target.webSocketDebuggerUrl) throw new Error('Could not create an owned CDP tab')
+if (!browser.webSocketDebuggerUrl) throw new Error('Could not reach the CDP browser endpoint')
 
-const socket = new WebSocket(target.webSocketDebuggerUrl)
+// One browser connection; the contract tab is opened in the background and driven through a
+// flattened session, so a run never takes focus from whoever is using that browser.
+const socket = new WebSocket(browser.webSocketDebuggerUrl)
 const calls = new Map()
 const eventWaiters = new Map()
 let sequence = 0
+let sessionId
+let targetId
 socket.addEventListener('message', ({ data }) => {
   const response = JSON.parse(data)
   if (response.id !== undefined) calls.get(response.id)?.(response)
-  else if (response.method === 'Page.loadEventFired')
+  else if (response.method === 'Fetch.requestPaused') {
+    // Tiles come from the network the way Wplace serves them: the PNG the page staged, CORS-open.
+    void (async () => {
+      const staged = await call('Runtime.evaluate', {
+        expression: 'window.contractTilePng',
+        returnByValue: true,
+      })
+      const body = staged.result.value
+      await call(
+        'Fetch.fulfillRequest',
+        typeof body === 'string'
+          ? {
+              requestId: response.params.requestId,
+              responseCode: 200,
+              responseHeaders: [
+                { name: 'content-type', value: 'image/png' },
+                { name: 'access-control-allow-origin', value: '*' },
+              ],
+              body,
+            }
+          : { requestId: response.params.requestId, responseCode: 404, body: '' },
+      )
+    })()
+  } else if (response.method === 'Page.loadEventFired')
     eventWaiters.get('Page.loadEventFired')?.(response.params)
   else if (
     response.method === 'Runtime.bindingCalled' &&
@@ -67,7 +93,8 @@ socket.addEventListener('message', ({ data }) => {
     })
   }
 })
-const call = (method, params = {}) =>
+/** Commands go to the contract tab once it is attached; before that, to the browser. */
+const call = (method, params = {}, session = sessionId) =>
   new Promise((resolve, reject) => {
     const id = ++sequence
     const timeout = setTimeout(() => {
@@ -80,7 +107,7 @@ const call = (method, params = {}) =>
       if (response.error !== undefined) reject(new Error(response.error.message))
       else resolve(response.result)
     })
-    socket.send(JSON.stringify({ id, method, params }))
+    socket.send(JSON.stringify({ id, method, params, ...(session ? { sessionId: session } : {}) }))
   })
 const onceEvent = (method) =>
   new Promise((resolve, reject) => {
@@ -138,6 +165,11 @@ const runContract = async (expression, url = 'about:blank') => {
 
 try {
   await new Promise((resolve, reject) => {
+    // Reading the bundle can outlast the handshake, and a missed `open` event never repeats.
+    if (socket.readyState === WebSocket.OPEN) {
+      resolve()
+      return
+    }
     const timeout = setTimeout(() => reject(new Error('CDP connection timed out')), 5000)
     socket.addEventListener(
       'open',
@@ -156,6 +188,12 @@ try {
       { once: true },
     )
   })
+  // A background tab keeps an interactive browser's focus where it is. The disposable headless
+  // instance `run.mjs` starts has no focus to take, and stalls trusted input in a background tab, so
+  // the tab is a foreground one there. Headless Chromium does not reliably say so in `/json/version`.
+  const owned = process.env.CDP_OWNED_BROWSER === '1'
+  ;({ targetId } = await call('Target.createTarget', { url: 'about:blank', background: !owned }))
+  ;({ sessionId } = await call('Target.attachToTarget', { targetId, flatten: true }))
   await call('Emulation.setFocusEmulationEnabled', { enabled: true })
   await call('Emulation.setDeviceMetricsOverride', {
     width: 1280,
@@ -167,6 +205,7 @@ try {
     features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }],
   })
   await call('Page.enable')
+  await call('Fetch.enable', { patterns: [{ urlPattern: 'https://backend.wplace.live/files/*' }] })
 
   // Wplace renders in standards mode, where `html` is the scroller; about:blank is quirks mode.
   const menu = await runContract(
@@ -186,10 +225,9 @@ try {
   if (production?.surfaces?.nativeDialogExits !== 4)
     throw new Error('panel surface contracts returned an incomplete result')
 } finally {
+  if (targetId !== undefined)
+    await call('Target.closeTarget', { targetId }, null).catch(() => undefined)
   socket.close()
-  await fetch(`http://127.0.0.1:${port}/json/close/${target.id}`, {
-    signal: AbortSignal.timeout(5000),
-  })
 }
 
 console.log('production CDP browser contracts passed')

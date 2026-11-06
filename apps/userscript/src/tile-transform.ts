@@ -1209,6 +1209,86 @@ const wakeTileLoaders = (): void => {
 const CHASE_LIMIT = 4
 const requestedTilePixels = new Map<string, number>()
 
+/**
+ * Fetches and decodes a tile in a worker, where no page script can rewrite it.
+ *
+ * Other userscripts rewrite tile responses on their way to wplace. Blue Marble hands back every tile
+ * under its templates upscaled 3x, with its template drawn in. Capture rightly refuses that bitmap,
+ * and a chase through the page's `fetch` received the same rewrite, so those tiles were never read
+ * and a Local template's progress stayed unscanned behind them. A worker's `fetch` belongs to no
+ * page script. An absent tile decodes as the 1x1 empty tile `normalizeMissingTileResponse` makes.
+ */
+const TILE_READER = `self.onmessage = async ({ data: { id, url } }) => {
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(15000) })
+    const bitmap =
+      response.status === 404
+        ? await createImageBitmap(new ImageData(1, 1))
+        : response.ok
+          ? await createImageBitmap(await response.blob())
+          : undefined
+    self.postMessage({ id, bitmap }, bitmap === undefined ? [] : [bitmap])
+  } catch {
+    self.postMessage({ id })
+  }
+}`
+
+/** Undefined until first asked for; null when no worker could be started. */
+let tileReader: Worker | null | undefined
+let nextTileRead = 0
+const tileReads = new Map<number, (bitmap: ImageBitmap | undefined | null) => void>()
+
+/**
+ * A decoded tile from the worker, undefined when it could not be read, or null when there is no
+ * worker. A worker the page's CSP rejects reports that only after it was constructed, so reads
+ * already waiting on it settle null as well and fall back like later ones.
+ */
+const readTileInWorker = (url: string): Promise<ImageBitmap | undefined | null> => {
+  if (tileReader === undefined) {
+    try {
+      const source = URL.createObjectURL(new Blob([TILE_READER], { type: 'text/javascript' }))
+      tileReader = new Worker(source)
+      URL.revokeObjectURL(source)
+      tileReader.addEventListener(
+        'message',
+        (event: MessageEvent<{ id: number; bitmap?: ImageBitmap }>) => {
+          tileReads.get(event.data.id)?.(event.data.bitmap)
+          tileReads.delete(event.data.id)
+        },
+      )
+      tileReader.addEventListener('error', (event) => {
+        warn('fetch', 'tile reads moved to the page', String(event.message))
+        tileReader?.terminate()
+        tileReader = null
+        for (const settle of tileReads.values()) settle(null)
+        tileReads.clear()
+      })
+    } catch (error) {
+      warn('fetch', 'tile reads moved to the page', String(error))
+      tileReader = null
+    }
+  }
+  const reader = tileReader
+  if (reader === null) return Promise.resolve(null)
+  const id = nextTileRead++
+  return new Promise((resolve) => {
+    tileReads.set(id, resolve)
+    reader.postMessage({ id, url })
+  })
+}
+
+/** The page-side read, for when no worker can be started. Another script may rewrite it. */
+const readTileOnPage = async (
+  realm: Window & typeof globalThis,
+  url: string,
+): Promise<ImageBitmap | undefined> => {
+  const response = await realm.fetch.call(realm, url, { signal: AbortSignal.timeout(15_000) })
+  if (!response.ok) return undefined
+  return (await Reflect.apply(realm.createImageBitmap, realm, [
+    await response.blob(),
+  ])) as ImageBitmap
+}
+
 export const ensureTilePixels = (tile: TileCoord): boolean => {
   const key = tileKey(tile)
   if ((!capturePixels && !requestedTilePixels.has(key)) || tileUrlShape === null) return false
@@ -1223,19 +1303,15 @@ export const ensureTilePixels = (tile: TileCoord): boolean => {
     try {
       const realm = captureRealm
       if (realm === null) return
-      const response = await realm.fetch.call(realm, url, { signal: AbortSignal.timeout(15_000) })
-      if (!response.ok) return
-      // Decoded through our own tap, which recognises the blob our fetch tap just tagged and
-      // captures the tile itself. Calling `capture` again here converted every chased tile twice: a
-      // second million-pixel canvas read, per tile, on the one path that runs at page load while
-      // the whole viewport is being backfilled. The bitmap is closed because nothing else will.
-      const bitmap = (await Reflect.apply(realm.createImageBitmap, realm, [
-        await response.blob(),
-      ])) as ImageBitmap
-      // Our own tap decoded that, recognised the blob our fetch tap tagged, and captured the tile
-      // before this resolved. Converting again unconditionally read a second million-pixel canvas
-      // per chased tile, on the one path that runs at page load while the whole viewport is being
-      // backfilled. Only do it if the tap did not — it will not have if it failed to install.
+      // Fences this read against newer captures and accepted paint, as the fetch tap does for its own.
+      tileRequestOrder.set(tile, nextPixelObservation())
+      const read = await readTileInWorker(url)
+      const bitmap = read === null ? await readTileOnPage(realm, url) : read
+      if (bitmap === undefined) return
+      // A page-side read went through our own taps, which may have captured the tile already.
+      // Converting again would read a second million-pixel canvas per chased tile, on the one path
+      // that runs at page load while the whole viewport is being backfilled. The bitmap is closed
+      // because nothing else will.
       if (!pixelsOfTile.has(key)) capture(tile, bitmap)
       bitmap.close()
       count('pixels:chased a tile we missed')
