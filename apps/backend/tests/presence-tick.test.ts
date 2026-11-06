@@ -44,51 +44,53 @@ const session = (index: number, viewport: { x: number; y: number }, renewedAt: n
     renewedAt,
   })
 
-it('selects peers from presence updates that arrive while claims renew', async () => {
-  const store = await openRelationalStore()
-  const database = coordinatorDatabase(store.connection)
-  await SqlCoordinatorStorage.initialize(database)
-  const observer = session(1, { x: 0, y: 0 }, Date.now())
-  const mover = session(2, { x: 400, y: 400 }, Date.now())
-  const sockets = [observer, mover]
-  const host: PresenceHost<unknown> = {
-    storage: new SqlCoordinatorStorage(database, 'presence'),
-    getWebSockets: () => sockets,
-    connect: () => {
-      throw new Error('unused')
-    },
-    upgradeResponse: () => new Response(null),
-    waitUntil: () => {},
-  }
-  const coordinator = new PresenceCoordinator(host, store.sql)
-  coordinator.stop()
-  try {
-    await coordinator.alarm()
-    expect(observer.events.at(-1)).toMatchObject({
-      type: 'presence-ready',
-      peers: [{ sessionId: '0000000000000002' }],
-    })
-
-    // The observer's hourly renewal is due; the mover leaves while the renewal is in flight.
-    observer.serializeAttachment({ ...(observer.deserializeAttachment() as object), renewedAt: 0 })
-    const renew = store.sql.regions.renewRegions.bind(store.sql.regions)
-    store.sql.regions.renewRegions = async (owners, now) => {
-      coordinator.webSocketMessage(
-        mover,
-        JSON.stringify({
-          type: 'presence-update',
-          viewport: { x: 100_000, y: 100_000, w: 800, h: 800 },
-        }),
-      )
-      await renew(owners, now)
+for (const renewing of ['observer', 'mover'] as const)
+  it(`keeps a presence update that arrives while the ${renewing}'s claims renew`, async () => {
+    const store = await openRelationalStore()
+    const database = coordinatorDatabase(store.connection)
+    await SqlCoordinatorStorage.initialize(database)
+    const observer = session(1, { x: 0, y: 0 }, Date.now())
+    const mover = session(2, { x: 400, y: 400 }, Date.now())
+    const sockets = [observer, mover]
+    const host: PresenceHost<unknown> = {
+      storage: new SqlCoordinatorStorage(database, 'presence'),
+      getWebSockets: () => sockets,
+      connect: () => {
+        throw new Error('unused')
+      },
+      upgradeResponse: () => new Response(null),
+      waitUntil: () => {},
     }
-    await coordinator.alarm()
-    expect(observer.events.at(-1)).toMatchObject({
-      type: 'presence-delta',
-      upsert: [],
-      remove: ['0000000000000002'],
-    })
-  } finally {
-    await store.close()
-  }
-})
+    const coordinator = new PresenceCoordinator(host, store.sql)
+    coordinator.stop()
+    try {
+      await coordinator.alarm()
+      expect(observer.events.at(-1)).toMatchObject({
+        type: 'presence-ready',
+        peers: [{ sessionId: '0000000000000002' }],
+      })
+
+      // An hourly renewal is due; the mover leaves while it is in flight.
+      const due = renewing === 'observer' ? observer : mover
+      due.serializeAttachment({ ...(due.deserializeAttachment() as object), renewedAt: 0 })
+      const away = { x: 100_000, y: 100_000, w: 800, h: 800 }
+      const renew = store.sql.regions.renewRegions.bind(store.sql.regions)
+      store.sql.regions.renewRegions = async (owners, now) => {
+        coordinator.webSocketMessage(
+          mover,
+          JSON.stringify({ type: 'presence-update', viewport: away }),
+        )
+        await renew(owners, now)
+      }
+      await coordinator.alarm()
+      expect(observer.events.at(-1)).toMatchObject({
+        type: 'presence-delta',
+        upsert: [],
+        remove: ['0000000000000002'],
+      })
+      expect(mover.deserializeAttachment()).toMatchObject({ viewport: away })
+      expect((due.deserializeAttachment() as { renewedAt: number }).renewedAt).toBeGreaterThan(0)
+    } finally {
+      await store.close()
+    }
+  })

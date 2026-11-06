@@ -312,14 +312,13 @@ export class PresenceCoordinator<Client> {
               now,
             ),
           )
-          open = open.map((session) => {
-            if (!due.has(session)) return session
-            const held = { ...session.held, renewedAt: now } satisfies Attachment
-            session.socket.serializeAttachment(held)
-            const next = { socket: session.socket, held }
-            renewed.push(next)
-            return next
-          })
+          for (const { socket } of due) {
+            // Updates may have landed during the reads above; stamp the attachment as it is now.
+            const held = this.attachment(socket)
+            if (held.closed) continue
+            socket.serializeAttachment({ ...held, renewedAt: now } satisfies Attachment)
+            renewed.push({ socket, held })
+          }
         }
         // Renewal and recovery replies share one committed owner list inside this revocation
         // fence. Do not retain it across ticks, where a credential transfer or expiry could
@@ -343,7 +342,7 @@ export class PresenceCoordinator<Client> {
             })
         }
         // The reads above let updates and closes land; select from the attachments as they are now.
-        if (recovering || renewed.length > 0) open = this.sessionsOpen()
+        if (recovering || due.size > 0) open = this.sessionsOpen()
         const dirty = new Set(this.dirty)
         this.dirty.clear()
         const online = open.length
