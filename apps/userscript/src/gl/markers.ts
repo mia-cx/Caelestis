@@ -28,8 +28,8 @@ import { batchMarkerWork } from './marker-batching.js'
 import {
   markerDensityMemoryBytes,
   markerSampleRate,
-  markerVisibilityBudget,
-  visibleMarkerPoints,
+  visibleListPoints,
+  visibleSourceRect,
 } from './marker-density.js'
 import { MarkerRenderer, type MarkerStyle } from './marker-renderer.js'
 import { worldRenderScene } from './render-scene.js'
@@ -73,8 +73,6 @@ export const drawMarkers = (
       height: tile.height,
       pixelWidth: TILE_SIZE,
       pixelHeight: TILE_SIZE,
-      seedX: tile.tile.x,
-      seedY: tile.tile.y,
     },
     pixels,
     style,
@@ -356,24 +354,16 @@ const drawVisible = (
   }
   const points = (work: readonly { readonly marks: { readonly length: number } }[]): number =>
     work.reduce((total, one) => total + one.marks.length, 0)
-  const visibilityBudget = markerVisibilityBudget()
-  // The sorted run is searched and the tail painted since the scan counts as visible. Both hold
-  // removed marks too, so the count is scaled to the list's live share, rounded up so a visible
-  // live mark never scales away to nothing.
   const estimatedVisiblePoints = (work: readonly Work[]): number =>
-    work.reduce((total, { marks, tile }) => {
-      const slots =
-        visibleMarkerPoints(
-          marks.slots.subarray(0, marks.sorted),
-          tile,
-          gl.drawingBufferWidth,
-          gl.drawingBufferHeight,
-          visibilityBudget,
-        ) +
-        marks.length -
-        marks.sorted
-      return total + Math.ceil((slots * marks.live) / marks.length)
-    }, 0)
+    work.reduce(
+      (total, { marks, tile }) =>
+        total +
+        visibleListPoints(
+          marks,
+          visibleSourceRect(tile, gl.drawingBufferWidth, gl.drawingBufferHeight),
+        ),
+      0,
+    )
   const selectedSourcePoints = points(selectedWork)
   const mismatchSourcePoints = points(mismatchWork)
   const selectedSampleRate = markerSampleRate(estimatedVisiblePoints(selectedWork), renderBudget)

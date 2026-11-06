@@ -1,5 +1,5 @@
 import { WPLACE_PALETTE } from '@caelestis/shared'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { MarkList } from '../src/templates/mark-list.js'
 
 vi.mock('../src/main.js', () => ({ repaint: () => {}, viewportCentre: () => null }))
@@ -60,54 +60,47 @@ const OffscreenCanvasStub = class {
   }
 }
 
-/** Texels per row of the fake's textures: narrow, so uploads split across rows. */
-const TEXTURE_WIDTH = 16
+/** A tile drawn whole on the fakes' 2,000-pixel drawing buffer. */
+const WHOLE_TILE = { x: 0, y: 0, width: 2_000, height: 2_000, pixelWidth: SIZE, pixelHeight: SIZE }
+
+const STYLE = {
+  size: 4,
+  thickness: 2,
+  colour: [1, 0, 1] as const,
+  otherColour: null,
+  otherOpacity: 1,
+  selected: -1,
+}
 
 /** A WebGL2 context that keeps what the marker renderer uploads, so the GPU copy can be read back. */
 const recordingGl = () => {
   const stored = new Map<object, Uint32Array>()
-  const drawn: { readonly marks: Uint32Array; readonly count: number }[] = []
+  const drawn: { readonly marks: Uint32Array; readonly first: number; readonly count: number }[] =
+    []
   let bound: object | null = null
   const uploads = { whole: 0 }
   const calls: Record<string, unknown> = {
-    getParameter: () => TEXTURE_WIDTH,
-    createTexture: () => ({}),
-    bindTexture: (_target: number, texture: object | null) => {
-      bound = texture
+    // No multi-draw extension: each block run is its own draw, which this fake records.
+    getExtension: () => null,
+    createBuffer: () => ({}),
+    bindBuffer: (_target: number, buffer: object | null) => {
+      bound = buffer
     },
-    // A list is only ever given new storage to be uploaded whole.
-    texStorage2D: (
-      _target: number,
-      _levels: number,
-      _format: number,
-      width: number,
-      height: number,
-    ) => {
+    bufferData: (_target: number, data: Uint32Array) => {
       uploads.whole++
-      stored.set(bound as object, new Uint32Array(width * height))
+      stored.set(bound as object, data.slice())
     },
-    texSubImage2D: (
-      ...[, , x, y, width, height, , , data, first]: [
-        number,
-        number,
-        number,
-        number,
-        number,
-        number,
-        number,
-        number,
-        Uint32Array,
-        number,
-      ]
+    bufferSubData: (
+      _target: number,
+      offset: number,
+      data: Uint32Array,
+      first: number,
+      count: number,
     ) => {
-      const texels = stored.get(bound as object) as Uint32Array
-      for (let row = 0; row < height; row++) {
-        const from = first + row * width
-        texels.set(data.subarray(from, from + width), (y + row) * TEXTURE_WIDTH + x)
-      }
+      stored.get(bound as object)?.set(data.subarray(first, first + count), offset / 4)
     },
-    drawArrays: (_mode: number, _first: number, count: number) => {
-      drawn.push({ marks: stored.get(bound as object) as Uint32Array, count })
+    drawArrays: (_mode: number, first: number, count: number) => {
+      drawn.push({ marks: stored.get(bound as object) as Uint32Array, first, count })
     },
     getShaderParameter: () => true,
     getProgramParameter: () => true,
@@ -124,7 +117,7 @@ const recordingGl = () => {
   /** The live marks the last frame's draws would put on screen, in row-major order. */
   const onScreen = (): number[] =>
     drawn
-      .flatMap(({ marks, count }) => [...marks.subarray(0, count)])
+      .flatMap(({ marks, first, count }) => [...marks.subarray(first, first + count)])
       .filter((mark) => mark < 0x8000_0000)
       .sort((left, right) => (left & 0xf_ffff) - (right & 0xf_ffff))
   return { gl, drawn, onScreen, uploads }
@@ -297,24 +290,6 @@ it('keeps patched marker lists identical to a full rescan through paint, erase a
   const patched = read(id)
   const { gl, drawn, onScreen } = recordingGl()
   const renderer = new MarkerRenderer(gl)
-  const projection = {
-    x: 0,
-    y: 0,
-    width: 2_000,
-    height: 2_000,
-    pixelWidth: SIZE,
-    pixelHeight: SIZE,
-    seedX: 0,
-    seedY: 0,
-  }
-  const style = {
-    size: 4,
-    thickness: 2,
-    colour: [1, 0, 1] as const,
-    otherColour: null,
-    otherOpacity: 1,
-    selected: -1,
-  }
   const expectMatchesRescan = async (step: string) => {
     const answer = read(id)
     // Patching keeps the same lists; a rescan would have replaced them.
@@ -323,7 +298,7 @@ it('keeps patched marker lists identical to a full rescan through paint, erase a
     expect(lists(answer), step).toEqual(await rescan())
     drawn.length = 0
     renderer.beginFrame()
-    renderer.draw(projection, [answer.tile.markers, ...answer.colours], style, 1)
+    renderer.draw(WHOLE_TILE, [answer.tile.markers, ...answer.colours], STYLE, 1)
     renderer.endFrame()
     expect(onScreen(), step).toEqual(
       [answer.tile.markers, ...answer.colours]
@@ -363,32 +338,14 @@ it('keeps patching the GPU copy of a list drawn every frame, however long the pa
   const { MarkList } = await import('../src/templates/mark-list.js')
   const { gl, onScreen, drawn, uploads } = recordingGl()
   const renderer = new MarkerRenderer(gl)
-  const list = MarkList.of(Uint32Array.from({ length: 50_000 }, (_, at) => at))
+  const list = MarkList.of(
+    Uint32Array.from({ length: 50_000 }, (_, at) => at),
+    0,
+  )
   const frame = () => {
     drawn.length = 0
     renderer.beginFrame()
-    renderer.draw(
-      {
-        x: 0,
-        y: 0,
-        width: 2_000,
-        height: 2_000,
-        pixelWidth: SIZE,
-        pixelHeight: SIZE,
-        seedX: 0,
-        seedY: 0,
-      },
-      [list],
-      {
-        size: 4,
-        thickness: 2,
-        colour: [1, 0, 1],
-        otherColour: null,
-        otherOpacity: 1,
-        selected: -1,
-      },
-      1,
-    )
+    renderer.draw(WHOLE_TILE, [list], STYLE, 1)
     renderer.endFrame()
   }
   frame()
@@ -403,31 +360,64 @@ it('keeps patching the GPU copy of a list drawn every frame, however long the pa
   expect(onScreen()).toEqual([...list.values()])
 })
 
-it('submits only the marker budget of a dense list, not every mark', async () => {
-  const { MarkerRenderer } = await import('../src/gl/marker-renderer.js')
-  const { MarkList } = await import('../src/templates/mark-list.js')
-  const { gl, drawn } = recordingGl()
-  const renderer = new MarkerRenderer(gl)
-  const dense = MarkList.of(Uint32Array.from({ length: 200_000 }, (_, at) => at))
-  const budget = 16_384
-  const submitted = renderer.draw(
-    {
-      x: 0,
-      y: 0,
-      width: 2_000,
-      height: 2_000,
-      pixelWidth: SIZE,
-      pixelHeight: SIZE,
-      seedX: 0,
-      seedY: 0,
-    },
-    [dense],
-    { size: 4, thickness: 2, colour: [1, 0, 1], otherColour: null, otherOpacity: 1, selected: -1 },
-    1,
-    budget / dense.length,
-  )
-  expect(drawn.map(({ count }) => count)).toEqual([submitted])
-  // The shuffle covers the list's capacity, which leaves room for an eighth more marks.
-  expect(submitted).toBeGreaterThanOrEqual(budget)
-  expect(submitted).toBeLessThanOrEqual(Math.ceil((budget * 9) / 8))
+describe('the marker budget', () => {
+  const BUDGET = 16_384
+  /** Every pixel of a tile marked: a million marks. */
+  const denseTile = async () => {
+    const { MarkList } = await import('../src/templates/mark-list.js')
+    return MarkList.of(
+      Uint32Array.from(
+        { length: SIZE * SIZE },
+        (_, at) => (at % SIZE) | (Math.floor(at / SIZE) << 10),
+      ),
+      7,
+    )
+  }
+  const submit = async (
+    list: MarkList,
+    projection: typeof WHOLE_TILE,
+    sampleRate: number,
+  ): Promise<{ readonly submitted: number; readonly drawn: number[] }> => {
+    const { MarkerRenderer } = await import('../src/gl/marker-renderer.js')
+    const { markHash } = await import('../src/templates/mark-list.js')
+    const { gl, onScreen } = recordingGl()
+    const submitted = new MarkerRenderer(gl).draw(projection, [list], STYLE, 1, sampleRate)
+    // What the shader keeps of what was submitted: its hash test, as `markHash` mirrors it.
+    const threshold = Math.floor(Math.min(1, sampleRate) * 2 ** 22)
+    const drawn = onScreen().filter((mark) => markHash(mark & 0xf_ffff, list.seed) < threshold)
+    return { submitted, drawn }
+  }
+
+  it('submits about the budget of a dense tile on screen, not every mark', async () => {
+    const list = await denseTile()
+    const { submitted } = await submit(list, WHOLE_TILE, BUDGET / list.live)
+    expect(submitted).toBeGreaterThan(0.9 * BUDGET)
+    expect(submitted).toBeLessThan(1.1 * BUDGET)
+  })
+
+  it('submits only the blocks on screen when zoomed into a dense tile', async () => {
+    const list = await denseTile()
+    // Twenty screen pixels per tile pixel: the top-left 100 × 100 of the tile fills the screen,
+    // fewer marks than the budget, so all of them are drawn.
+    const zoomed = { ...WHOLE_TILE, width: 20 * SIZE, height: 20 * SIZE }
+    const { submitted, drawn } = await submit(list, zoomed, 1)
+    const visible = drawn.filter((mark) => (mark & 0x3ff) < 100 && mark >>> 10 < 100)
+    expect(visible).toHaveLength(100 * 100)
+    // The four by four blocks of 32 pixels that cover the view.
+    expect(submitted).toBe(128 * 128)
+  })
+
+  it('keeps the same pixels sampled when the list is rebuilt without one of them', async () => {
+    const { MarkList } = await import('../src/templates/mark-list.js')
+    const marks = Uint32Array.from({ length: 200_000 }, (_, at) => at)
+    const rate = BUDGET / marks.length
+    const before = (await submit(MarkList.of(marks, 0), WHOLE_TILE, rate)).drawn
+    const removed = before[before.length >> 1] as number
+    const rebuilt = MarkList.of(
+      marks.filter((mark) => mark !== removed),
+      0,
+    )
+    const after = (await submit(rebuilt, WHOLE_TILE, rate)).drawn
+    expect(after).toEqual(before.filter((mark) => mark !== removed))
+  })
 })

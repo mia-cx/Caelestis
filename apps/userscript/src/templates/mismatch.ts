@@ -49,8 +49,8 @@ import {
   templateChunks,
   templateTileKeys,
 } from './local-store.js'
-import { MarkList } from './mark-list.js'
-import { type MismatchMarks, markWanted, packMismatchMark } from './mismatch-marks.js'
+import { MarkList, markSeed } from './mark-list.js'
+import { markWanted, packMismatchMark } from './mismatch-marks.js'
 import { type ScanJob, type ScanOutcome, scanTile } from './mismatch-scan.js'
 import { forgetInWorker, hasWorker, releaseInWorker, scanInWorker } from './mismatch-worker.js'
 import { horizontalSpans, sourceXAt, wrappedDeltaX } from './placement.js'
@@ -190,31 +190,6 @@ export interface TemplatePixelAccounting {
   ) => Promise<ColourNavigationTarget | null>
 }
 
-const markCoordinate = (mark: number): number => mark & 0xfffff
-
-/** Merge two row-major classifications without losing the renderer's spatial-order invariant. */
-const mergeMarks = (left: MismatchMarks, right: MismatchMarks): MismatchMarks => {
-  const merged = new Uint32Array(left.length + right.length)
-  let leftAt = 0
-  let rightAt = 0
-  let write = 0
-  while (leftAt < left.length && rightAt < right.length) {
-    const leftMark = left[leftAt] as number
-    const rightMark = right[rightAt] as number
-    if (markCoordinate(leftMark) <= markCoordinate(rightMark)) {
-      merged[write++] = leftMark
-      leftAt++
-    } else {
-      merged[write++] = rightMark
-      rightAt++
-    }
-  }
-  merged.set(left.subarray(leftAt), write)
-  write += left.length - leftAt
-  merged.set(right.subarray(rightAt), write)
-  return merged
-}
-
 type AnswerKind = 'configured' | 'unpainted'
 
 const collectionFor = (
@@ -236,7 +211,10 @@ const answerFrom = (entry: Cached, kind: AnswerKind, template: PlacedTemplate): 
   // Built even while one side is empty: the first mark of the other kind then patches this list
   // rather than replacing the answer with a newly merged one.
   if (entry.both === null) {
-    entry.both = MarkList.of(mergeMarks(entry.wrong.values(), entry.unpainted.values()))
+    entry.both = MarkList.of(
+      [...entry.wrong.values(), ...entry.unpainted.values()],
+      entry.wrong.seed,
+    )
     cacheBytes += entry.both.byteLength
   }
   return entry.both
@@ -247,7 +225,7 @@ const colourAnswerFrom = (entry: Cached, colour: number): Mismatches => {
   const held = entry.colours.get(colour)
   if (held !== undefined) return held
   const marks = entry.unpainted.values().filter((mark) => markWanted(mark) === colour)
-  const list = MarkList.of(marks)
+  const list = MarkList.of(marks, entry.unpainted.seed)
   entry.colours.set(colour, list)
   cacheBytes += list.byteLength
   return list
@@ -1356,10 +1334,10 @@ const buildMaskJob = (
 
 type ListedOutcome = Omit<ScanOutcome, 'wrong' | 'unpainted'> & Pick<Cached, 'wrong' | 'unpainted'>
 
-const listed = (outcome: ScanOutcome): ListedOutcome => ({
+const listed = (outcome: ScanOutcome, seed: number): ListedOutcome => ({
   ...outcome,
-  wrong: MarkList.of(outcome.wrong),
-  unpainted: MarkList.of(outcome.unpainted),
+  wrong: MarkList.of(outcome.wrong, seed),
+  unpainted: MarkList.of(outcome.unpainted, seed),
 })
 
 const store = (
@@ -1471,7 +1449,7 @@ const scanWindow = (job: ScanJob, wanted: SparsePixels): ScanOutcome => {
 }
 
 const scanListed = (job: ScanJob, wanted: SparsePixels): ListedOutcome =>
-  listed(scanWindow(job, wanted))
+  listed(scanWindow(job, wanted), markSeed(job.tileX, job.tileY))
 
 const requestScan = (
   template: PlacedTemplate,
@@ -1552,11 +1530,14 @@ const requestScan = (
         progressSignature(template),
         {
           ...outcome,
-          wrong: !wrong && compatible !== undefined ? compatible.wrong : MarkList.of(outcome.wrong),
+          wrong:
+            !wrong && compatible !== undefined
+              ? compatible.wrong
+              : MarkList.of(outcome.wrong, markSeed(job.tileX, job.tileY)),
           unpainted:
             !unpainted && compatible !== undefined
               ? compatible.unpainted
-              : MarkList.of(outcome.unpainted),
+              : MarkList.of(outcome.unpainted, markSeed(job.tileX, job.tileY)),
         },
         wrong || compatible?.wrongComplete === true,
         unpainted || compatible?.unpaintedComplete === true,

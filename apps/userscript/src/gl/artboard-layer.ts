@@ -18,7 +18,7 @@ import {
   onLocalPreviewChange,
   type PlacedTemplate,
 } from '../templates/local-store.js'
-import { fixedMarkList, type MarkList } from '../templates/mark-list.js'
+import { fixedMarkList, type MarkList, markSeed } from '../templates/mark-list.js'
 import { abortMoveOutsideSurface } from '../templates/move.js'
 import { detachOverlayControls, renderAllianceOverlayControls } from '../ui/overlay-menu.js'
 import { isPaintOpen, onPaintSelectionChange, selectedColour } from '../wplace-paint.js'
@@ -218,6 +218,13 @@ export const artboardGpuTilePlacement = (
     v1: (source.inset + source.height + bottomMargin) / source.textureHeight,
   }
 }
+
+/** A batch's marks as a drawable list, seeded by the batch's place so batches sample apart. */
+const batchMarkList = (batch: ArtboardMarkerBatch): MarkList =>
+  fixedMarkList(
+    batch.marks,
+    markSeed(Math.floor(batch.x / batch.width), Math.floor(batch.y / batch.height)),
+  )
 
 /** Count marker points inside the current alliance artboard viewport. */
 export const visibleArtboardMarkerPoints = (
@@ -537,8 +544,6 @@ class ArtboardPass {
             height: batch.height * scaleY,
             pixelWidth: batch.width,
             pixelHeight: batch.height,
-            seedX: Math.floor(batch.x / batch.width),
-            seedY: Math.floor(batch.y / batch.height),
           },
           marker.marks,
           marker.style,
@@ -873,7 +878,7 @@ class ArtboardRenderer {
           selectedLayers.push({
             batch,
             tile: this.markerTile(batch),
-            marks: fixedMarkList(batch.marks),
+            marks: batchMarkList(batch),
             style: selectedStyle,
             fade: selectedFade.fade,
           })
@@ -883,7 +888,7 @@ class ArtboardRenderer {
         mismatchLayers.push({
           batch,
           tile: this.markerTile(batch),
-          marks: fixedMarkList(batch.marks),
+          marks: batchMarkList(batch),
           style: mismatchStyle,
           fade: mismatchFade,
         })

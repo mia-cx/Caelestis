@@ -1,64 +1,37 @@
 import { warn } from '../debug.js'
-import type { MarkList } from '../templates/mark-list.js'
+import { MARK_HASH_LIMIT, type MarkList } from '../templates/mark-list.js'
+import { forEachVisibleBlock, type SourceRect, visibleSourceRect } from './marker-density.js'
 
-/**
- * One point per submitted vertex, read from the list's slots by index.
- *
- * Unsampled, vertex `i` draws slot `i`, in the list's row-major order. Sampled, vertex `i` draws
- * slot `shuffle(i)`, a fixed shuffle of every slot the list could hold, so the first `k` vertices
- * are an even random sample of the list and a larger `k` only adds to it. Slots past the list's
- * end and removed marks draw nothing.
- *
- * The shuffle is a bijection on a power-of-two domain, walked until it lands inside the list's
- * capacity. That restricts it to a bijection on exactly the capacity, so no submitted vertex is
- * spent on the gap up to the next power of two. The domain is under twice the capacity, so a walk
- * takes fewer than two steps on average; the rare one that runs out of steps draws nothing.
- */
 const VERTEX = `#version 300 es
 precision highp int;
-precision highp usampler2D;
-uniform usampler2D u_marks;
-uniform uint u_width;
-uniform uint u_count;
-uniform uint u_capacity;
-uniform uint u_domainBits;
-uniform bool u_sampled;
+in uint a_mark;
 uniform vec2 u_tileScreen;
 uniform vec2 u_tileScale;
 uniform vec2 u_buffer;
 uniform float u_size;
-uniform uint u_sampleSeed;
+uniform uint u_threshold;
+uniform uint u_seed;
 flat out float v_wanted;
 
-// A bijection on [0, 2^bits): an xor and two odd multiplies with xorshifts, each invertible.
-uint permute(uint index) {
-  uint mask = (1u << u_domainBits) - 1u;
-  uint shift = max(1u, u_domainBits >> 1u);
-  uint value = (index ^ u_sampleSeed) & mask;
-  value = (value * 0x2c1b3c6du) & mask;
-  value ^= value >> shift;
-  value = (value * 0x297a2d39u) & mask;
-  return value ^ (value >> shift);
-}
-
-uint shuffle(uint index) {
-  uint slot = permute(index);
-  for (int step = 0; step < 32 && slot >= u_capacity; step++) slot = permute(slot);
-  return slot;
+// markHash in mark-list.ts is this, exactly.
+uint markerHash(uint value) {
+  value = (value ^ (value >> 16u)) * 0x7feb352du;
+  value = (value ^ (value >> 15u)) * 0x846ca68bu;
+  return value ^ (value >> 16u);
 }
 
 void main() {
-  uint slot = u_sampled ? shuffle(uint(gl_VertexID)) : uint(gl_VertexID);
-  uint mark = slot < u_count
-    ? texelFetch(u_marks, ivec2(int(slot % u_width), int(slot / u_width)), 0).r
-    : 0x80000000u;
-  v_wanted = float(mark >> 20u);
-  if ((mark & 0x80000000u) != 0u) {
+  v_wanted = float(a_mark >> 20u);
+  bool dead = (a_mark & 0x80000000u) != 0u;
+  // Sampled by pixel rather than by slot, so patching or reordering a list never reshuffles it.
+  // The block runs submitted are already below the threshold; marks painted since the scan are not.
+  bool dropped = (markerHash((a_mark & 0xfffffu) ^ u_seed) >> 10u) >= u_threshold;
+  if (dead || dropped) {
     gl_Position = vec4(2.0, 2.0, 0.0, 1.0);
     gl_PointSize = 0.0;
     return;
   }
-  vec2 pixel = vec2(float(mark & 1023u), float((mark >> 10u) & 1023u));
+  vec2 pixel = vec2(float(a_mark & 1023u), float((a_mark >> 10u) & 1023u));
   vec2 device = u_tileScreen + (pixel + 0.5) * u_tileScale;
   gl_Position = vec4((2.0 * device.x) / u_buffer.x - 1.0, 1.0 - (2.0 * device.y) / u_buffer.y, 0.0, 1.0);
   gl_PointSize = u_size;
@@ -143,41 +116,44 @@ export interface MarkerProjection {
   readonly height: number
   readonly pixelWidth: number
   readonly pixelHeight: number
-  readonly seedX: number
-  readonly seedY: number
 }
-
-/** A list's GPU copy, one slot per texel, and how far through the list's changes it is. */
-interface HeldMarks {
-  readonly texture: WebGLTexture
-  slots: Uint32Array
-  revision: number
-}
-
-/** Texels per row of a list's texture, capped by the device. */
-const MARK_TEXTURE_WIDTH = 4_096
-
-/** Bits of the smallest power of two that holds `capacity` slots. */
-const domainBits = (capacity: number): number => (capacity <= 1 ? 0 : 32 - Math.clz32(capacity - 1))
 
 /**
- * Vertices to submit for one list at this sample rate, and whether they are shuffled.
+ * The slot runs to submit for one list, as flat `[first, count]` pairs.
  *
- * The shuffle runs over the list's capacity, its used slots plus room for later marks, so `k`
- * vertices draw about `k × length / capacity` marks. Submitting `rate × capacity` keeps the drawn
- * share at `rate` while the budget, not the list, bounds what reaches the GPU; the room for later
- * marks adds at most an eighth.
+ * Each on-screen block contributes the part of its run below the sample threshold, merged with the
+ * next where they touch, and the unsorted tail is submitted whole for the shader to sample.
+ * Off-screen blocks submit nothing, so what reaches the GPU follows the budgeted share of what is
+ * visible, not the size of the list.
  */
-export const markerSubmission = (
-  length: number,
-  capacity: number,
-  sampleRate: number,
-): { readonly vertices: number; readonly sampled: boolean } => {
-  if (sampleRate >= 1) return { vertices: length, sampled: false }
-  return {
-    vertices: Math.min(capacity, Math.ceil(Math.max(0, sampleRate) * capacity)),
-    sampled: true,
+export const markerRuns = (list: MarkList, visible: SourceRect, threshold: number): number[] => {
+  const runs: number[] = []
+  const push = (first: number, end: number): void => {
+    if (end <= first) return
+    const last = runs.length - 2
+    if (last >= 0 && (runs[last] as number) + (runs[last + 1] as number) === first)
+      runs[last + 1] = (runs[last + 1] as number) + end - first
+    else runs.push(first, end - first)
   }
+  const starts = list.blockStarts()
+  const sampled = threshold < MARK_HASH_LIMIT
+  if (visible.whole && !sampled) push(0, list.sorted)
+  else
+    forEachVisibleBlock(visible, (block) => {
+      push(
+        starts[block] as number,
+        sampled ? list.sampledEnd(block, threshold) : (starts[block + 1] as number),
+      )
+    })
+  push(list.sorted, list.length)
+  return runs
+}
+
+/** A list's GPU copy, and how far through the list's changes it is. */
+interface HeldMarks {
+  readonly buffer: WebGLBuffer
+  slots: Uint32Array
+  revision: number
 }
 
 /** Past this many runs of changed slots, one upload of the whole list beats a call per run. */
@@ -202,18 +178,16 @@ const changedRuns = (changes: readonly number[] | null): number[] | null => {
 export class MarkerRenderer {
   private program: WebGLProgram | null = null
   private vao: WebGLVertexArrayObject | null = null
-  private textureBytes = 0
-  private readonly textureWidth: number
-  private readonly textures = new Map<MarkList, HeldMarks>()
-  private readonly usedTextures = new Set<MarkList>()
+  private markAttribute = -1
+  private bufferBytes = 0
+  private readonly buffers = new Map<MarkList, HeldMarks>()
+  private readonly usedBuffers = new Set<MarkList>()
   private readonly uniforms = new Map<string, WebGLUniformLocation | null>()
+  /** One call for a list's many block runs, where the device offers it. */
+  private readonly multiDraw: WEBGL_multi_draw | null
 
   constructor(readonly gl: WebGL2RenderingContext) {
-    const maximum = gl.getParameter(gl.MAX_TEXTURE_SIZE)
-    this.textureWidth =
-      typeof maximum === 'number' && maximum > 0
-        ? Math.min(MARK_TEXTURE_WIDTH, maximum)
-        : MARK_TEXTURE_WIDTH
+    this.multiDraw = gl.getExtension('WEBGL_multi_draw')
     const vertex = compile(gl, gl.VERTEX_SHADER, VERTEX)
     const fragment = compile(gl, gl.FRAGMENT_SHADER, FRAGMENT)
     if (vertex === null || fragment === null) {
@@ -238,8 +212,12 @@ export class MarkerRenderer {
       return
     }
     this.program = program
-    // Points read their marks from a texture, so the vertex array has no attributes.
     this.vao = gl.createVertexArray()
+    if (this.vao === null) return
+    gl.bindVertexArray(this.vao)
+    this.markAttribute = gl.getAttribLocation(program, 'a_mark')
+    gl.enableVertexAttribArray(this.markAttribute)
+    gl.bindVertexArray(null)
   }
 
   private uniform(name: string): WebGLUniformLocation | null {
@@ -265,86 +243,61 @@ export class MarkerRenderer {
   }
 
   beginFrame(): void {
-    this.usedTextures.clear()
+    this.usedBuffers.clear()
   }
 
   endFrame(): void {
-    for (const [list, held] of this.textures) {
-      if (this.usedTextures.has(list)) continue
-      this.forget(list, held)
-    }
-  }
-
-  private forget(list: MarkList, held: HeldMarks): void {
-    this.gl.deleteTexture(held.texture)
-    this.textures.delete(list)
-    this.textureBytes -= held.slots.byteLength
-  }
-
-  /** Write slots `[first, first + count)` into the bound texture, row by row. */
-  private upload(slots: Uint32Array, first: number, count: number): void {
-    const gl = this.gl
-    const width = this.textureWidth
-    const end = first + count
-    let at = first
-    while (at < end) {
-      const x = at % width
-      const y = (at - x) / width
-      const rows = x === 0 ? Math.floor((end - at) / width) : 0
-      const texels = rows > 0 ? rows * width : Math.min(width - x, end - at)
-      gl.texSubImage2D(
-        gl.TEXTURE_2D,
-        0,
-        x,
-        y,
-        rows > 0 ? width : texels,
-        Math.max(1, rows),
-        gl.RED_INTEGER,
-        gl.UNSIGNED_INT,
-        slots,
-        at,
-      )
-      at += texels
+    for (const [list, held] of this.buffers) {
+      if (this.usedBuffers.has(list)) continue
+      this.gl.deleteBuffer(held.buffer)
+      this.buffers.delete(list)
+      this.bufferBytes -= held.slots.byteLength
     }
   }
 
   /** Bind a list's GPU copy, uploading only the slots it changed since this renderer last drew it. */
   private bind(list: MarkList): boolean {
     const gl = this.gl
-    const held = this.textures.get(list)
-    this.usedTextures.add(list)
-    gl.activeTexture(gl.TEXTURE0)
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4)
-    if (held !== undefined && held.slots === list.slots) {
-      gl.bindTexture(gl.TEXTURE_2D, held.texture)
-      if (held.revision === list.revision) return true
-      const runs = changedRuns(list.changesSince(held.revision))
-      if (runs !== null && runs.length <= MAX_PATCH_RUNS * 2) {
-        for (let run = 0; run < runs.length; run += 2)
-          this.upload(list.slots, runs[run] as number, runs[run + 1] as number)
-        held.revision = list.revision
-        return true
+    const held = this.buffers.get(list)
+    this.usedBuffers.add(list)
+    if (held === undefined) {
+      const buffer = gl.createBuffer()
+      if (buffer === null) return false
+      this.buffers.set(list, { buffer, slots: list.slots, revision: list.revision })
+      this.bufferBytes += list.slots.byteLength
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
+      gl.bufferData(gl.ARRAY_BUFFER, list.slots, gl.DYNAMIC_DRAW)
+      return true
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, held.buffer)
+    if (held.revision === list.revision) return true
+    const runs = held.slots === list.slots ? changedRuns(list.changesSince(held.revision)) : null
+    if (runs === null || runs.length > MAX_PATCH_RUNS * 2) {
+      this.bufferBytes += list.slots.byteLength - held.slots.byteLength
+      gl.bufferData(gl.ARRAY_BUFFER, list.slots, gl.DYNAMIC_DRAW)
+      held.slots = list.slots
+    } else {
+      for (let run = 0; run < runs.length; run += 2) {
+        const first = runs[run] as number
+        const count = runs[run + 1] as number
+        gl.bufferSubData(
+          gl.ARRAY_BUFFER,
+          first * Uint32Array.BYTES_PER_ELEMENT,
+          list.slots,
+          first,
+          count,
+        )
       }
     }
-    // New, compacted, or too far behind: one texture sized for the list's slots, filled whole.
-    if (held !== undefined) this.forget(list, held)
-    const texture = gl.createTexture()
-    if (texture === null) return false
-    const rows = Math.max(1, Math.ceil(list.slots.length / this.textureWidth))
-    gl.bindTexture(gl.TEXTURE_2D, texture)
-    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R32UI, this.textureWidth, rows)
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
-    this.upload(list.slots, 0, list.slots.length)
-    this.textures.set(list, { texture, slots: list.slots, revision: list.revision })
-    this.textureBytes += list.slots.byteLength
+    held.revision = list.revision
     return true
   }
 
   /**
    * Draw several lists for one tile and one style with a single setup. Empty lists cost nothing.
    *
-   * Returns the vertices submitted, which the sample rate bounds rather than the lists' length.
+   * Returns the vertices submitted: the on-screen blocks' marks below the sample rate, plus marks
+   * painted since each list's scan.
    */
   draw(
     projection: MarkerProjection,
@@ -355,11 +308,21 @@ export class MarkerRenderer {
   ): number {
     if (this.program === null || this.vao === null) return 0
     if (lists.every((list) => list.length === 0)) return 0
+    // Kept even when nothing of a list is on screen this frame, so panning back re-uploads nothing.
+    for (const list of lists) this.usedBuffers.add(list)
     const gl = this.gl
+    const visible = visibleSourceRect(
+      projection,
+      gl.drawingBufferWidth,
+      gl.drawingBufferHeight,
+      projection.pixelWidth,
+      projection.pixelHeight,
+    )
+    if (visible === null) return 0
+    const threshold =
+      sampleRate >= 1 ? MARK_HASH_LIMIT : Math.floor(Math.max(0, sampleRate) * MARK_HASH_LIMIT)
     gl.useProgram(this.program)
     gl.bindVertexArray(this.vao)
-    gl.uniform1i(this.uniform('u_marks'), 0)
-    gl.uniform1ui(this.uniform('u_width'), this.textureWidth)
     gl.uniform2f(this.uniform('u_tileScreen'), projection.x, projection.y)
     gl.uniform2f(
       this.uniform('u_tileScale'),
@@ -367,39 +330,52 @@ export class MarkerRenderer {
       projection.height / projection.pixelHeight,
     )
     gl.uniform2f(this.uniform('u_buffer'), gl.drawingBufferWidth, gl.drawingBufferHeight)
-    const sampleSeed =
-      (Math.imul(projection.seedX, 73_856_093) ^ Math.imul(projection.seedY, 19_349_663)) >>> 0
-    gl.uniform1ui(this.uniform('u_sampleSeed'), sampleSeed)
+    gl.uniform1ui(this.uniform('u_threshold'), threshold)
     this.applyStyle(style, fade)
     let submitted = 0
     for (const list of lists) {
       if (list.length === 0) continue
-      const { vertices, sampled } = markerSubmission(list.length, list.slots.length, sampleRate)
-      if (vertices === 0 || !this.bind(list)) continue
-      gl.uniform1ui(this.uniform('u_count'), list.length)
-      gl.uniform1ui(this.uniform('u_capacity'), list.slots.length)
-      gl.uniform1ui(this.uniform('u_domainBits'), domainBits(list.slots.length))
-      gl.uniform1i(this.uniform('u_sampled'), sampled ? 1 : 0)
-      gl.drawArrays(gl.POINTS, 0, vertices)
-      submitted += vertices
+      const runs = markerRuns(list, visible, threshold)
+      if (runs.length === 0 || !this.bind(list)) continue
+      gl.uniform1ui(this.uniform('u_seed'), list.seed)
+      gl.vertexAttribIPointer(
+        this.markAttribute,
+        1,
+        gl.UNSIGNED_INT,
+        Uint32Array.BYTES_PER_ELEMENT,
+        0,
+      )
+      const count = runs.length / 2
+      const firsts = new Int32Array(count)
+      const counts = new Int32Array(count)
+      for (let run = 0; run < count; run++) {
+        firsts[run] = runs[run * 2] as number
+        counts[run] = runs[run * 2 + 1] as number
+        submitted += counts[run] as number
+      }
+      if (this.multiDraw !== null)
+        this.multiDraw.multiDrawArraysWEBGL(gl.POINTS, firsts, 0, counts, 0, count)
+      else
+        for (let run = 0; run < count; run++)
+          gl.drawArrays(gl.POINTS, firsts[run] as number, counts[run] as number)
     }
     gl.bindVertexArray(null)
     return submitted
   }
 
   memoryBytes(): number {
-    return this.textureBytes
+    return this.bufferBytes
   }
 
   dispose(): void {
-    for (const { texture } of this.textures.values()) this.gl.deleteTexture(texture)
-    this.textures.clear()
-    this.usedTextures.clear()
+    for (const { buffer } of this.buffers.values()) this.gl.deleteBuffer(buffer)
+    this.buffers.clear()
+    this.usedBuffers.clear()
     if (this.vao !== null) this.gl.deleteVertexArray(this.vao)
     if (this.program !== null) this.gl.deleteProgram(this.program)
     this.vao = null
     this.program = null
-    this.textureBytes = 0
+    this.bufferBytes = 0
     this.uniforms.clear()
   }
 }
