@@ -6,6 +6,7 @@ import {
   PRESENCE_PROTOCOL_V1,
   parseTileKey,
   type Seconds,
+  type ServerInfo,
   type StatusDelta,
   seconds,
   sha256Hex,
@@ -224,6 +225,8 @@ export const createTelemetryRoutes = (
   auth: AuthOptions,
   options: {
     readonly currentSeason: number
+    /** Names the current season's cached manifest, which tile-history visibility reuses. */
+    readonly server?: ServerInfo
     readonly connectPresence?: ConnectPresence
     readonly presenceOnline?: PresenceOnline
     readonly connectStatusLive?: (
@@ -766,6 +769,8 @@ export const createTelemetryRoutes = (
         range,
         ...(typeof legacyResolution === 'number' ? { legacyResolution } : {}),
         includeUnpublished: c.get('caller').scope === 'admin',
+        // Only the deployed season owns a cached manifest; earlier seasons read the database.
+        server: season === options.currentSeason ? options.server : undefined,
       }),
       (response) => c.json(response),
     )

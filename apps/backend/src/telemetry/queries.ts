@@ -10,6 +10,7 @@ import {
   type PainterTotalsResponse,
   planTimelapseTiles,
   type Seconds,
+  type ServerInfo,
   type StatusResponse,
   seconds,
   sha256Hex,
@@ -21,9 +22,11 @@ import {
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { Effect } from 'effect'
+import { readManifestProjection } from '../manifest/use-cases.js'
 import { recordCacheOutcome } from '../metrics/request-metrics.js'
 import { LADDER_RESOLUTIONS, type SqlStore, TILE_HISTORY_RESOLUTIONS } from '../ports/index.js'
 import { SqlStoreService, StatusReadModelService } from '../runtime/backend-runtime.js'
+import type { BackendStorageError } from '../runtime/errors.js'
 import { SqlStoreReadError } from '../runtime/errors.js'
 
 interface HistoryTier {
@@ -510,6 +513,46 @@ export const readCanvas = (
     }
   })
 
+/**
+ * The canvas tiles of the current season's public world manifest, kept for the manifest version
+ * they were planned from. Each read revalidates that version against the manifest read model, which
+ * manifest changes invalidate, so a template unpublished a moment ago never keeps its tiles visible.
+ * Keyed by content hash, so one entry serves every backend in the process that shares a manifest.
+ */
+let currentSeasonTiles: {
+  readonly season: number
+  readonly version: string
+  readonly tiles: ReadonlySet<TileKey>
+} | null = null
+
+const currentSeasonCanvasTiles = (
+  server: ServerInfo,
+  season: number,
+): Effect.Effect<
+  ReadonlySet<TileKey>,
+  SqlStoreReadError | BackendStorageError,
+  SqlStoreService | StatusReadModelService
+> =>
+  Effect.gen(function* () {
+    const held = currentSeasonTiles?.season === season ? currentSeasonTiles : null
+    const projection = yield* readManifestProjection({
+      server,
+      season,
+      surface: WORLD_TEMPLATE_SURFACE,
+      includeUnpublished: false,
+      ifNoneMatch: held === null ? [] : [`"${held.version}"`],
+      cacheable: true,
+    })
+    // Only the held version is ever offered, so a match means it still holds. Without one, show
+    // nothing rather than tiles of unknown freshness.
+    if (projection.notModified) return held?.tiles ?? new Set()
+    const tiles = new Set(
+      planTimelapseTiles(projection.manifest.templates.map(({ bbox }) => bbox)).map(tileKey),
+    )
+    currentSeasonTiles = { season, version: projection.version, tiles }
+    return tiles
+  })
+
 /** Return all retained detail by default; an explicit resolution reads only that legacy tier. */
 export const readTileHistory = (input: {
   readonly season: number
@@ -517,15 +560,22 @@ export const readTileHistory = (input: {
   readonly range: HistoryRange
   readonly legacyResolution?: number | undefined
   readonly includeUnpublished: boolean
-}): Effect.Effect<TileHistoryResponse, SqlStoreReadError, SqlStoreService> =>
+  /** Present for the current season, whose visibility the manifest read model caches. */
+  readonly server?: ServerInfo | undefined
+}): Effect.Effect<
+  TileHistoryResponse,
+  SqlStoreReadError | BackendStorageError,
+  SqlStoreService | StatusReadModelService
+> =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
     const resolution = input.legacyResolution
-    const hidden =
-      !input.includeUnpublished &&
-      !(yield* sqlRead('listManifestTemplates', () => publishedCanvasTiles(sql, input.season))).has(
-        tileKey(input.tile),
-      )
+    const visible = input.includeUnpublished
+      ? null
+      : input.server === undefined
+        ? yield* sqlRead('listManifestTemplates', () => publishedCanvasTiles(sql, input.season))
+        : yield* currentSeasonCanvasTiles(input.server, input.season)
+    const hidden = visible !== null && !visible.has(tileKey(input.tile))
     // Indistinguishable from a tile nobody captured.
     if (hidden) return { ...(resolution === undefined ? {} : { resolution }), frames: [] }
     const resolutions = resolution === undefined ? TILE_HISTORY_RESOLUTIONS : [resolution]
