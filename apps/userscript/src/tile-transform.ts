@@ -1153,31 +1153,52 @@ export const onTilePixelsAvailable = (listener: (tile: TileCoord) => void): (() 
   return () => tilePixelAvailabilityListeners.delete(listener)
 }
 
-const rememberTilePixels = (key: string, pixels: Uint8Array): void => {
-  const becameAvailable = !pixelsOfTile.has(key)
-  pixelsOfTile.delete(key)
-  pixelsOfTile.set(key, pixels)
-  if (becameAvailable) {
-    wakeTileLoaders()
-    const available = parseTileKey(key)
-    if (available !== null) {
-      for (const listener of tilePixelAvailabilityListeners) listener(available)
-    }
-  }
-  while (pixelsOfTile.size > KEEP_TILE_PIXELS) {
-    const oldest = pixelsOfTile.keys().next()
-    if (oldest.done) break
-    pixelsOfTile.delete(oldest.value)
-    capturedTileDigests.delete(oldest.value)
-    comparisonDrafts.delete(oldest.value)
-    observedTileOrder.delete(oldest.value)
-    const evicted = parseTileKey(oldest.value)
+/**
+ * The tiles the marker layer's latest frame covers, which eviction passes over.
+ *
+ * A view wider than the cache used to evict a tile it was still drawing, and the next frame chased
+ * it again, then another, forever. Held tiles may push the cache past its limit; the excess goes
+ * once they leave the frame.
+ */
+let heldTilePixels = new Set<string>()
+
+/** Declare the tiles the current marker frame reads. Replaces the previous frame's. */
+export const holdTilePixels = (tiles: Iterable<TileCoord>): void => {
+  heldTilePixels = new Set(Array.from(tiles, tileKey))
+  trimTilePixels()
+}
+
+/** Evict the least recently used tiles nothing holds, down to the cache's limit. */
+const trimTilePixels = (): void => {
+  let excess = pixelsOfTile.size - KEEP_TILE_PIXELS
+  for (const key of pixelsOfTile.keys()) {
+    if (excess <= 0) return
+    if (heldTilePixels.has(key)) continue
+    excess--
+    pixelsOfTile.delete(key)
+    capturedTileDigests.delete(key)
+    comparisonDrafts.delete(key)
+    observedTileOrder.delete(key)
+    const evicted = parseTileKey(key)
     if (evicted !== null) {
       for (const listener of tilePixelEvictionListeners) listener(evicted)
     }
     // An evicted tile is fetchable again when it next enters the viewport.
-    chased.delete(oldest.value)
+    chased.delete(key)
   }
+}
+
+const rememberTilePixels = (key: string, pixels: Uint8Array): void => {
+  const becameAvailable = !pixelsOfTile.has(key)
+  pixelsOfTile.delete(key)
+  pixelsOfTile.set(key, pixels)
+  if (!becameAvailable) return
+  wakeTileLoaders()
+  const available = parseTileKey(key)
+  if (available !== null) {
+    for (const listener of tilePixelAvailabilityListeners) listener(available)
+  }
+  trimTilePixels()
 }
 
 export const tilePixels = (tile: TileCoord): Uint8Array | null => {
@@ -2098,8 +2119,8 @@ interface QueuedCapture {
  * No more first reads wait than the pixel cache keeps, since past that each one read would evict
  * another: a long pan's oldest, by now mostly off screen, give way to the newest. A re-read of a
  * kept tile never does, because Wplace already has its new bytes and will not fetch them again for
- * us. Nor does a read an explicit `loadTilePixels` waits on. Both are bounded by the cache and by
- * the loads themselves.
+ * us. Nor does a read an explicit `loadTilePixels` waits on, or one of a tile the marker frame
+ * holds, which would only be chased again. Each is bounded by the cache, the loads, or the view.
  */
 const queuedCaptures = new Map<string, QueuedCapture>()
 let readingCaptures = false
@@ -2122,7 +2143,8 @@ const queueCapture = (capture: QueuedCapture): void => {
   }
   for (const [oldest, dropped] of queuedCaptures) {
     if (queuedCaptures.size <= KEEP_TILE_PIXELS) break
-    if (pixelsOfTile.has(oldest) || requestedTilePixels.has(oldest)) continue
+    if (pixelsOfTile.has(oldest) || requestedTilePixels.has(oldest) || heldTilePixels.has(oldest))
+      continue
     queuedCaptures.delete(oldest)
     // Still on screen, it is chased again; off screen, nothing asks for it until Wplace does.
     chased.delete(oldest)
