@@ -17,6 +17,7 @@ import { horizontalSpans } from '../templates/placement.js'
 import { measuresLocally } from '../templates/wplace-owned.js'
 import {
   currentQuads,
+  holdTilePixels,
   isDrawingTiles,
   registerDraftCanvas,
   retainDraftCanvases,
@@ -204,9 +205,11 @@ const drawVisible = (
   gl: WebGL2RenderingContext,
   peek: { readonly opacity: number; readonly done: boolean },
 ): void => {
-  if (!isDrawingTiles()) return
-  const tiles = currentQuads()
-  if (tiles.length === 0) return
+  const tiles = isDrawingTiles() ? currentQuads() : []
+  if (tiles.length === 0) {
+    holdTilePixels([])
+    return
+  }
   /**
    * Everything whose markers are still worth anything, which is not the same as everything that
    * asked for them.
@@ -275,6 +278,15 @@ const drawVisible = (
       return false
     return true
   }
+  // Before asking for any, so capturing one this frame cannot evict another it needs.
+  holdTilePixels(
+    tiles.flatMap((tile) =>
+      progressOnly.some((template) => covers(template, tile)) ||
+      wanted.some(({ template }) => covers(template, tile))
+        ? [tile.tile]
+        : [],
+    ),
+  )
 
   type Work = {
     tile: TileQuad
@@ -462,6 +474,7 @@ export const markerLayer = {
   onRemove(_map: unknown, gl: WebGL2RenderingContext): void {
     releaseMarkers(gl)
     worldRenderScene.resetMarkers()
+    holdTilePixels([])
   },
 
   render(gl: WebGL2RenderingContext): void {

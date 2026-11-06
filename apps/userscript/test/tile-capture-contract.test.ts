@@ -318,6 +318,44 @@ describe('missed tiles', () => {
   })
 })
 
+describe('a view wider than the cache', () => {
+  it('fetches each held tile once and then settles', async () => {
+    const worker = inProcessWorker(() => new Response(Uint8Array.of(1, 4)))
+    const { tileTransform, fetchTile } = await setup()
+    // The cache keeps 24 tiles at this device memory; the view covers 30.
+    const view = Array.from({ length: 30 }, (_, i) => ({ x: 300 + i, y: TILE.y }))
+    // Wplace has fetched a tile, so its URL is known and missed ones can be chased.
+    await fetchTile()
+    // One marker frame: hold the view, chase what is missing, and wait for those chases to land.
+    const frame = async () => {
+      tileTransform.holdTilePixels(view)
+      const chased = view.filter(
+        (tile) => tileTransform.tilePixels(tile) === null && tileTransform.ensureTilePixels(tile),
+      )
+      await vi.waitFor(() =>
+        expect(chased.every((tile) => tileTransform.tilePixels(tile) !== null)).toBe(true),
+      )
+    }
+    for (let i = 0; i < 20; i++) await frame()
+    expect(view.every((tile) => tileTransform.tilePixels(tile) !== null)).toBe(true)
+    expect(worker.fetch).toHaveBeenCalledTimes(30)
+  })
+
+  it('keeps off-screen reads while the view fills the cache', async () => {
+    inProcessWorker(() => new Response(Uint8Array.of(1, 4)))
+    const { tileTransform, fetchTile } = await setup()
+    const view = Array.from({ length: 30 }, (_, i) => ({ x: 300 + i, y: TILE.y }))
+    tileTransform.holdTilePixels(view)
+    for (const tile of view) await fetchTile(tile.x)
+    // A chase for an idle rescan, and an explicit load, of tiles outside the view.
+    const chased = { x: 400, y: TILE.y }
+    tileTransform.ensureTilePixels(chased)
+    expect(await tileTransform.loadTilePixels({ x: 401, y: TILE.y })).not.toBeNull()
+    // Evicted as it landed, nothing would chase it again, so this would never pass.
+    await vi.waitFor(() => expect(tileTransform.tilePixels(chased)).not.toBeNull())
+  })
+})
+
 describe('unchanged tile capture', () => {
   it('skips the readback for identical bytes and reads changed bytes again', async () => {
     const { tileTransform, readback, fetchTile } = await setup()
