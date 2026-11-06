@@ -5,9 +5,9 @@
 const READ_AHEAD = 6
 
 /**
- * Start `read` for each item in order, with at most `limit` results unclaimed. Each call of the
- * returned function resolves the next item's result and starts one more read, so callers decode in
- * their original order while later reads overlap that work. Call it once per item.
+ * Start `read` for each item in order, with at most `limit` reads in flight. Each call of the
+ * returned function claims the next item's result; once that read settles, one more starts. Callers
+ * decode in their original order while later reads overlap that work. Call it once per item.
  */
 export const readAhead = <T, R>(
   items: readonly T[],
