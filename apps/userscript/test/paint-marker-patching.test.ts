@@ -447,6 +447,28 @@ describe('the marker budget', () => {
     expect(submitted).toBeLessThanOrEqual(1.1 * budget + 16_384)
   })
 
+  it('bases the rate on what a clipped view submits, so a partial block cannot overrun it', async () => {
+    const { visibleListPoints, visibleSourceRect, markerSampleRate } = await import(
+      '../src/gl/marker-density.js'
+    )
+    const list = await denseTile()
+    // The screen shows source pixels [31, 95) on both axes: 4,096 marks, inside nine 32-pixel
+    // blocks that hold 9,216.
+    const scale = 2_000 / 64
+    const clipped = {
+      ...WHOLE_TILE,
+      x: -31 * scale,
+      y: -31 * scale,
+      width: SIZE * scale,
+      height: SIZE * scale,
+    }
+    const budget = 4_096
+    const counted = visibleListPoints(list, visibleSourceRect(clipped, 2_000, 2_000))
+    const { submitted } = await submit(list, clipped, markerSampleRate(counted, budget))
+    expect(counted).toBe(9_216)
+    expect(submitted).toBeLessThan(1.1 * budget)
+  })
+
   it('submits only the blocks on screen when zoomed into a dense tile', async () => {
     const list = await denseTile()
     // Twenty screen pixels per tile pixel: the top-left 100 × 100 of the tile fills the screen,

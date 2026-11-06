@@ -215,7 +215,6 @@ const answerFrom = (entry: Cached, kind: AnswerKind, template: PlacedTemplate): 
       [...entry.wrong.values(), ...entry.unpainted.values()],
       entry.wrong.seed,
     )
-    cacheBytes += entry.both.byteLength
   }
   return entry.both
 }
@@ -227,7 +226,6 @@ const colourAnswerFrom = (entry: Cached, colour: number): Mismatches => {
   const marks = entry.unpainted.values().filter((mark) => markWanted(mark) === colour)
   const list = MarkList.of(marks, entry.unpainted.seed)
   entry.colours.set(colour, list)
-  cacheBytes += list.byteLength
   return list
 }
 
@@ -257,7 +255,6 @@ const countsUnpainted = (template: PlacedTemplate): boolean => {
 const cache = new Map<string, Cached>()
 const MAX_CACHED_ANSWERS = 512
 const MAX_CACHED_ANSWER_BYTES = 32 * 1024 * 1024
-let cacheBytes = 0
 const coverage = new Map<
   string,
   Pick<Cached, 'asserted' | 'key' | 'templateSource'> & {
@@ -313,16 +310,19 @@ export const mismatchMemoryBytes = (): number => {
   const remember = (value: ArrayBufferView | null): void => {
     if (value !== null) buffers.add(value.buffer)
   }
+  // Lists counted once each, block tables included; a narrow rescan can carry a list over.
+  const lists = new Set<MarkList>()
   for (const entry of cache.values()) {
-    remember(entry.wrong.slots)
-    remember(entry.unpainted.slots)
+    lists.add(entry.wrong)
+    lists.add(entry.unpainted)
+    if (entry.both !== null) lists.add(entry.both)
+    for (const list of entry.colours.values()) lists.add(list)
     remember(entry.progressByColour)
-    remember(entry.both?.slots ?? null)
-    for (const list of entry.colours.values()) remember(list.slots)
   }
   for (const entry of progressCoverage.values()) remember(entry.byColour)
   for (const entry of progressTotals.values()) remember(entry.byColour)
   let bytes = 0
+  for (const list of lists) bytes += list.byteLength
   for (const buffer of buffers) bytes += buffer.byteLength
   return bytes
 }
@@ -481,24 +481,10 @@ const cachedAnswerBytes = (entry: Cached): number => {
   return bytes
 }
 
-const deleteCachedAnswer = (cacheKey: string): void => {
-  const existing = cache.get(cacheKey)
-  if (existing === undefined) return
-  cache.delete(cacheKey)
-  cacheBytes -= cachedAnswerBytes(existing)
-}
-
+/** Move an answer to the most recently used end of the cache. */
 const remember = (cacheKey: string, entry: Cached): void => {
-  const existing = cache.get(cacheKey)
-  if (existing === entry) {
-    cache.delete(cacheKey)
-    cache.set(cacheKey, entry)
-    return
-  }
-  if (existing !== undefined) cacheBytes -= cachedAnswerBytes(existing)
   cache.delete(cacheKey)
   cache.set(cacheKey, entry)
-  cacheBytes += cachedAnswerBytes(entry)
 }
 
 /** Bumped whenever a cached answer is patched, so a listener can tell that anything happened. */
@@ -599,10 +585,15 @@ export const endMismatchFrame = (): void => {
     endServerMismatchFrame()
     return
   }
-  for (const cacheKey of cache.keys()) {
+  // Summed here rather than kept as a running total: lists grow as they are patched and gain block
+  // tables when first drawn, neither of which passes through the cache.
+  let cacheBytes = 0
+  for (const entry of cache.values()) cacheBytes += cachedAnswerBytes(entry)
+  for (const [cacheKey, entry] of cache) {
     if (cache.size <= MAX_CACHED_ANSWERS && cacheBytes <= MAX_CACHED_ANSWER_BYTES) break
     if (requested.has(cacheKey) || retainedForOutlines.has(cacheKey)) continue
-    deleteCachedAnswer(cacheKey)
+    cacheBytes -= cachedAnswerBytes(entry)
+    cache.delete(cacheKey)
     forgetCoverage(cacheKey)
     stale.delete(cacheKey)
   }
@@ -1914,7 +1905,6 @@ const patchTile = (tile: TileCoord, triples: readonly number[]): void => {
     const maskIsCurrent =
       serverMask !== null && supersededServerSource.get(cacheKey) !== template.serverUrl
     const observed = maskIsCurrent ? pixelObservationOf(serverMask.packed) : 0
-    const bytesBefore = cachedAnswerBytes(entry)
     let { completed, mismatched, progressUnpainted, progressByColour } = entry
     let patchedPixels = 0
 
@@ -2042,10 +2032,7 @@ const patchTile = (tile: TileCoord, triples: readonly number[]): void => {
     const patched: Cached = { ...entry, completed, mismatched, progressUnpainted, progressByColour }
     rememberCoverage(cacheKey, patched)
     rememberProgress(cacheKey, patched, progressSignature(template))
-    // The lists were patched in place, so the bytes they held before cannot be read off them now.
-    cache.delete(cacheKey)
-    cache.set(cacheKey, patched)
-    cacheBytes += cachedAnswerBytes(patched) - bytesBefore
+    remember(cacheKey, patched)
   }
 }
 
@@ -2170,7 +2157,7 @@ onTilePixelsEvicted((tile) => {
 /** Forget everything for a template that has gone, so its tiles are not held alive by the cache. */
 export const forgetMismatches = (id: string): void => {
   for (const key of [...cache.keys()]) {
-    if (key.startsWith(`${id}|`)) deleteCachedAnswer(key)
+    if (key.startsWith(`${id}|`)) cache.delete(key)
   }
   for (const key of [...coverage.keys()]) {
     if (key.startsWith(`${id}|`)) forgetCoverage(key)

@@ -249,8 +249,9 @@ export class MarkList {
     return Uint32Array.from(live).sort((left, right) => coordinateOf(left) - coordinateOf(right))
   }
 
+  /** The slots and the block tables drawing has built for them. */
   get byteLength(): number {
-    return this.slots.byteLength
+    return this.slots.byteLength + (this.starts?.byteLength ?? 0) + (this.ends?.at.byteLength ?? 0)
   }
 
   private write(slot: number, mark: number): void {
