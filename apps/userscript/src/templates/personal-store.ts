@@ -12,9 +12,9 @@ import {
   nativePlacement,
   sameRender,
 } from './native-store.js'
-import type { SaveResult, StoredTemplate, TemplateSave } from './persist.js'
+import type { SaveResult, TemplateSave } from './persist.js'
 import * as disk from './persist.js'
-import { cutPixels, joinPixels, samePixels } from './sparse-pixels.js'
+import { cutPixels, joinPixels, type SparsePixels, samePixels } from './sparse-pixels.js'
 import { connectLocalTagSync, synchronizeLocalTemplateTags } from './tags.js'
 
 export type {
@@ -52,8 +52,17 @@ const exclusive = <T>(operation: () => Promise<T>): Promise<T> => {
 const isWorld = (template: TemplateSave): boolean =>
   (template.surface ?? WORLD_TEMPLATE_SURFACE).kind === 'world'
 
-const loadedTemplate = (loaded: disk.LoadTemplateResult): StoredTemplate | null =>
-  loaded.status === 'loaded' ? (loaded.template as StoredTemplate) : null
+/** A loaded record. Its pixels are null when it was loaded as metadata. */
+const loadedTemplate = (loaded: disk.LoadTemplateResult): TemplateSave | null =>
+  loaded.status === 'loaded' ? (loaded.template as TemplateSave) : null
+
+/** A record's pixels: in hand, or read back at exactly its revision. A newer write is a conflict. */
+const pixelsOf = async (template: TemplateSave): Promise<SparsePixels> => {
+  if (template.pixels !== null) return template.pixels
+  const stored = loadedTemplate(await disk.loadTemplate(template.id))
+  if (stored?.pixels == null || stored.revision !== template.revision) throw new NativeConflict()
+  return stored.pixels
+}
 
 const cacheResult = (result: SaveResult): number => {
   if (result.status === 'saved') return result.revision
@@ -74,9 +83,9 @@ const renderPixels = async (api: NativeTemplates, snapshot: NativeSnapshot) => {
 const project = async (
   api: NativeTemplates,
   incoming: NativeSnapshot,
-  previous: StoredTemplate | null,
+  previous: TemplateSave | null,
   rendersPrevious = false,
-): Promise<StoredTemplate> => {
+): Promise<TemplateSave> => {
   let snapshot = incoming
   if (previous !== null && (await synchronizeLocalTemplateTags(previous.id, api))) {
     const current = await api.read(incoming.template.id)
@@ -111,7 +120,7 @@ const project = async (
   const owns = previous?.owns ?? (previous?.appearance != null ? APPEARANCE_GROUPS : [])
   // Wplace may have moved or redrawn it, so the painted tiles are recounted on restore.
   const { tileKeys: _staleTiles, ...kept } = previous ?? {}
-  const template: StoredTemplate = {
+  const template: TemplateSave = {
     ...kept,
     ...pixels,
     id: previous?.id ?? pixels.id,
@@ -134,8 +143,12 @@ const project = async (
       opacityOverride: nativeOpacityChanged || previous?.native?.opacityOverride === true,
     },
   }
+  // Reused artwork is the stored artwork. Rendered artwork is compared with it.
   const artworkChanged =
-    previous !== null && !reusable && !samePixels(previous.pixels, template.pixels)
+    previous !== null &&
+    !reusable &&
+    template.pixels !== null &&
+    !samePixels(await pixelsOf(previous), template.pixels)
   // Pixels edited in Wplace's editor no longer come from the imported source and recipe.
   const { authoring: _stale, ...processedOnly } = template
   const projected = artworkChanged ? processedOnly : template
@@ -149,7 +162,7 @@ const project = async (
 }
 
 /** Journal the native identity before copying pixels, so an interrupted migration never duplicates art. */
-const migrate = async (api: NativeTemplates, template: StoredTemplate): Promise<StoredTemplate> => {
+const migrate = async (api: NativeTemplates, template: TemplateSave): Promise<TemplateSave> => {
   if (!isWorld(template) || template.native?.status === 'linked') return template
   let pending = template
   if (pending.native === undefined) {
@@ -179,7 +192,7 @@ const migrate = async (api: NativeTemplates, template: StoredTemplate): Promise<
             : getSurfaceAppearance(WORLD_TEMPLATE_SURFACE).opacity,
       },
       null,
-      await nativeImage({ ...pending, indices: joinPixels(pending.pixels) }),
+      await nativeImage({ ...pending, indices: joinPixels(await pixelsOf(pending)) }),
     ))
   // A new native copy is these exact pixels with lossless colour settings: rendering it returns them.
   return await project(api, snapshot, pending, existing === null)
@@ -187,8 +200,8 @@ const migrate = async (api: NativeTemplates, template: StoredTemplate): Promise<
 
 const synchronizeOne = async (
   api: NativeTemplates,
-  template: StoredTemplate,
-): Promise<StoredTemplate | null> => {
+  template: TemplateSave,
+): Promise<TemplateSave | null> => {
   if (!isWorld(template)) return template
   if (template.native?.status !== 'linked') return await migrate(api, template)
   const snapshot = await api.read(template.native.id)
@@ -213,10 +226,10 @@ export const synchronizePersonalTemplates = (): Promise<void> =>
   exclusive(async () => {
     if (native === null) return
     const api = native
-    // Native ids only: one record at a time, so syncing never holds more than one template's pixels.
+    // Metadata only: pixels load just for artwork that changed, one template at a time.
     const known = new Set<string>()
     for (const localId of await disk.loadTemplateIds()) {
-      const template = loadedTemplate(await disk.loadTemplate(localId))
+      const template = loadedTemplate(await disk.loadTemplateMetadata(localId))
       if (template === null || !isWorld(template)) continue
       if (template.native !== undefined) known.add(template.native.id)
       try {
@@ -234,7 +247,7 @@ export const synchronizePersonalTemplates = (): Promise<void> =>
         if (snapshot === null) continue
         // A previous pass may have left a projection outside this batch's hydration budget.
         const localId = identities.get(id) ?? (await nativeLocalId(id))
-        const loaded = await disk.loadTemplate(localId)
+        const loaded = await disk.loadTemplateMetadata(localId)
         if (loaded.status !== 'loaded' && loaded.status !== 'missing') continue
         const previous = loadedTemplate(loaded)
         // A pending migration retains its original identity even when decoding failed earlier in this pass.
@@ -247,13 +260,13 @@ export const synchronizePersonalTemplates = (): Promise<void> =>
   })
 
 /** Read the native winner for linked records; legacy/alliance records keep their existing persistence contract. */
-export const loadTemplate = async (
+const loadCurrent = async (
   id: string,
-  maxIndexPixels?: number,
+  load: (id: string) => Promise<disk.LoadTemplateResult>,
 ): Promise<disk.LoadTemplateResult> => {
-  if (native === null) return await disk.loadTemplate(id, maxIndexPixels)
+  if (native === null) return await load(id)
   return await exclusive(async () => {
-    const loaded = await disk.loadTemplate(id, maxIndexPixels)
+    const loaded = await load(id)
     const previous = loadedTemplate(loaded)
     if (previous?.native === undefined || native === null) return loaded
     try {
@@ -265,6 +278,17 @@ export const loadTemplate = async (
     }
   })
 }
+
+/** One template with its pixels, current with Wplace. */
+export const loadTemplate = async (
+  id: string,
+  maxIndexPixels?: number,
+): Promise<disk.LoadTemplateResult> =>
+  await loadCurrent(id, async (local) => await disk.loadTemplate(local, maxIndexPixels))
+
+/** One template current with Wplace, without its pixels: a loaded template's `pixels` is null. */
+export const loadTemplateMetadata = async (id: string): Promise<disk.LoadTemplateResult> =>
+  await loadCurrent(id, disk.loadTemplateMetadata)
 
 /** Commit supported personal edits through Wplace, then retain the derived pixels and Caelestis metadata. */
 export const saveTemplate = async (
@@ -284,7 +308,7 @@ export const saveTemplate = async (
     const api = native
     if (api === null) return { status: 'unavailable' }
     try {
-      const previous = loadedTemplate(await disk.loadTemplate(template.id))
+      const previous = loadedTemplate(await disk.loadTemplateMetadata(template.id))
       if (
         previous?.revision !== expectedRevision &&
         !(previous === null && expectedRevision === null)
@@ -297,7 +321,11 @@ export const saveTemplate = async (
         const saved = await disk.saveTemplate(template, null)
         if (saved.status !== 'saved') return saved
         const linked = await migrate(api, { ...template, pixels, revision: saved.revision })
-        return { status: 'saved', revision: linked.revision }
+        return {
+          status: 'saved',
+          revision: linked.revision,
+          ...(linked.native === undefined ? {} : { native: linked.native }),
+        }
       }
       let linked = await migrate(api, previous)
       const nativeId = linked.native?.id
@@ -322,7 +350,11 @@ export const saveTemplate = async (
         opacity !== snapshot.template.opacity
       if (archiveCurrent) {
         // Reserve history before changing native artwork. A full archive must leave native pixels intact.
-        const archived = await disk.saveTemplate(linked, linked.revision, true)
+        const archived = await disk.saveTemplate(
+          { ...linked, pixels: await pixelsOf(linked) },
+          linked.revision,
+          true,
+        )
         if (archived.status !== 'saved') return archived
         linked = { ...linked, revision: archived.revision }
       }
@@ -363,7 +395,9 @@ export const saveTemplate = async (
       }
       // A native write may finish even if this derived cache cannot. Reconciliation reads the native winner.
       const result = await disk.saveTemplate(next, linked.revision, false, archiveCurrent)
-      return result.status === 'saved' ? result : { status: 'conflict' }
+      return result.status === 'saved' && next.native !== undefined
+        ? { ...result, native: next.native }
+        : { status: 'conflict' }
     } catch (error) {
       warn('install', `could not save personal template ${template.name}`, String(error))
       return { status: error instanceof NativeConflict ? 'conflict' : 'unavailable' }
@@ -373,14 +407,15 @@ export const saveTemplate = async (
 
 /** Native deletion wins; server-owned templates never reach this local persistence boundary. */
 export const deleteTemplate = async (id: IDBValidKey, revision: number): Promise<SaveResult> => {
-  const loaded = typeof id === 'string' ? await disk.loadTemplate(id) : null
+  const loaded = typeof id === 'string' ? await disk.loadTemplateMetadata(id) : null
   if (loaded?.status === 'unavailable' || loaded?.status === 'invalid')
     return { status: 'unavailable' }
   const previous = loaded === null ? null : loadedTemplate(loaded)
   if (previous?.native === undefined) return await disk.deleteTemplate(id, revision)
   if (native === null) return { status: 'unavailable' }
   return await exclusive(async () => {
-    const current = typeof id === 'string' ? loadedTemplate(await disk.loadTemplate(id)) : null
+    const current =
+      typeof id === 'string' ? loadedTemplate(await disk.loadTemplateMetadata(id)) : null
     if (current?.revision !== revision || current.native === undefined || native === null)
       return { status: 'conflict' }
     try {

@@ -300,7 +300,12 @@ const writeVersioned = async (
 }
 
 export type SaveResult =
-  | { readonly status: 'saved'; readonly revision: number }
+  | {
+      readonly status: 'saved'
+      readonly revision: number
+      /** The Wplace link a personal save committed, with the snapshot its artwork renders. */
+      readonly native?: NonNullable<StoredTemplate['native']>
+    }
   | { readonly status: 'conflict' }
   | { readonly status: 'limit' }
   | { readonly status: 'unavailable' }
@@ -641,7 +646,7 @@ const boundedPixelSum = (total: number, pixels: number): number =>
   pixels > Number.MAX_SAFE_INTEGER - total ? Number.MAX_SAFE_INTEGER : total + pixels
 
 /** A loaded template: the record's fields with its artwork bytes swapped for its pixels. */
-const hydrated = (record: Record<string, unknown>, pixels: SparsePixels) => {
+const hydrated = (record: Record<string, unknown>, pixels: SparsePixels | null) => {
   const { indices: _indices, chunks: _chunks, ...metadata } = record
   return { ...metadata, revision: record.revision ?? 0, pixels }
 }
@@ -799,11 +804,13 @@ const loadFailureIdentity = (
   return primaryKey === undefined ? null : { key: primaryKey, revision: storedRevision(value) }
 }
 
-/** Read one winning CAS value after a conflict without materialising every other template. */
-export const loadTemplate = async (
+/** One validated record with its artwork still unread, or why there is none. */
+const loadRecord = async (
   id: string,
-  maxIndexPixels = 64 * 1024 * 1024,
-): Promise<LoadTemplateResult> => {
+): Promise<
+  | { readonly status: 'found'; readonly record: StoredRecord }
+  | Exclude<LoadTemplateResult, { readonly status: 'loaded' }>
+> => {
   try {
     const db = await open()
     try {
@@ -825,7 +832,7 @@ export const loadTemplate = async (
       if (!boundedStoredRecord(value)) {
         return { status: 'invalid', revision: storedRevision(value) }
       }
-      return await hydrateStoredTemplate(value, maxIndexPixels)
+      return { status: 'found', record: value }
     } finally {
       db.close()
     }
@@ -833,6 +840,33 @@ export const loadTemplate = async (
     warn('install', 'local template storage unavailable', String(error))
     return { status: 'unavailable' }
   }
+}
+
+/** Read one winning CAS value after a conflict without materialising every other template. */
+export const loadTemplate = async (
+  id: string,
+  maxIndexPixels = 64 * 1024 * 1024,
+): Promise<LoadTemplateResult> => {
+  const loaded = await loadRecord(id)
+  return loaded.status === 'found'
+    ? await hydrateStoredTemplate(loaded.record, maxIndexPixels)
+    : loaded
+}
+
+/**
+ * Read one template without its pixels: a loaded template's `pixels` is null, and the stored
+ * artwork is neither read nor checked. A record on an older palette is still hydrated once, which
+ * migrates it.
+ */
+export const loadTemplateMetadata = async (id: string): Promise<LoadTemplateResult> => {
+  const loaded = await loadRecord(id)
+  if (loaded.status !== 'found') return loaded
+  if (hasCurrentPalette(loaded.record))
+    return { status: 'loaded', template: hydrated(loaded.record, null) }
+  const migrated = await hydrateStoredTemplate(loaded.record)
+  return migrated.status === 'loaded'
+    ? { status: 'loaded', template: { ...(migrated.template as object), pixels: null } }
+    : migrated
 }
 
 /**

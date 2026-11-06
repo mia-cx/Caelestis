@@ -176,13 +176,15 @@ export const nativeLocalId = async (id: string): Promise<string> =>
 const metadataToken = (template: NativeTemplate | undefined): string | undefined =>
   JSON.stringify(template)
 
+/** A snapshot token's source image digest. */
+const tokenDigest = (token: string): string => token.slice(token.lastIndexOf('\n') + 1)
+
 /** What `render` reads from a snapshot token: the artwork digest, output size, and colour settings. */
 const renderInputs = (token: string): string => {
-  const split = token.lastIndexOf('\n')
-  const template: NativeTemplate = JSON.parse(token.slice(0, split))
+  const template: NativeTemplate = JSON.parse(token.slice(0, token.lastIndexOf('\n')))
   const { width, height } = nativePlacement(template)
   return JSON.stringify([
-    token.slice(split + 1),
+    tokenDigest(token),
     width,
     height,
     template.colorMetric,
@@ -205,6 +207,17 @@ export class NativeTemplates {
   private persisted: string | null | undefined
   private persistedTags: string | null | undefined
   private tagsPending = false
+  /**
+   * Each source image's digest, keyed by the metadata it was read with. Wplace announces every
+   * image write in this tab and stamps `updatedAt` on the metadata beside it, and another tab's
+   * edits fail {@link assertFresh}, so an entry stays true until either changes.
+   */
+  private readonly digests = new Map<
+    string,
+    { readonly metadata: string; readonly size: number; readonly digest: string }
+  >()
+  private imageWrites = 0
+  private watchingImages = false
 
   constructor(
     readonly metadata: NativeMetadataStore,
@@ -292,14 +305,32 @@ export class NativeTemplates {
       template.originalWidth * template.originalHeight > MAX_NATIVE_PIXELS
     )
       throw new Error('Unsupported Wplace source dimensions')
+    this.watchImages()
+    const writes = this.imageWrites
     const image = await this.images.read(id)
     if (image === undefined) throw new Error(`Wplace image is unavailable for ${template.name}`)
     if (image.size > MAX_NATIVE_IMAGE_BYTES) throw new Error('Wplace source image is too large')
-    const digest = await hash(await image.arrayBuffer())
+    const cached = this.digests.get(id)
+    const digest =
+      cached?.metadata === serialized && cached.size === image.size
+        ? cached.digest
+        : await hash(await image.arrayBuffer())
     this.assertFresh()
     const latest = this.metadata.getById(id)
     if (latest === undefined || metadataToken(latest) !== serialized) throw new NativeConflict()
+    // An image written during this read may not be the one this digest describes.
+    if (writes === this.imageWrites)
+      this.digests.set(id, { metadata: serialized, size: image.size, digest })
     return { template, image, token: `${serialized}\n${digest}` }
+  }
+
+  private watchImages(): void {
+    if (this.watchingImages) return
+    this.watchingImages = true
+    this.images.subscribe(() => {
+      this.imageWrites++
+      this.digests.clear()
+    })
   }
 
   /** Process a source without saving it; file imports need no native storage record. */
@@ -376,13 +407,26 @@ export class NativeTemplates {
     } else this.metadata.update(id, patch)
     this.metadata.commitPendingChanges()
     const committed = metadataToken(this.metadata.getById(id))
+    const intended =
+      image !== undefined
+        ? await hash(await image.arrayBuffer())
+        : current === null
+          ? undefined
+          : tokenDigest(current.token)
+    // Without new artwork the image is the one just read, and only its metadata changed.
+    if (
+      image === undefined &&
+      current !== null &&
+      committed !== undefined &&
+      intended !== undefined
+    )
+      this.digests.set(id, { metadata: committed, size: current.image.size, digest: intended })
     const saved = await this.read(id)
-    const intendedImage = image ?? current?.image
     if (
       saved === null ||
-      intendedImage === undefined ||
+      intended === undefined ||
       metadataToken(saved.template) !== committed ||
-      !saved.token.endsWith(`\n${await hash(await intendedImage.arrayBuffer())}`)
+      tokenDigest(saved.token) !== intended
     )
       throw new NativeConflict()
     if (image !== undefined) await this.images.commit?.(id)
