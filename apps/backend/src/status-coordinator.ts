@@ -1097,7 +1097,9 @@ export class StatusCoordinator<Client> {
     this.dashboardChanges++
     if (this.dashboardRefreshing) return
     this.dashboardRefreshing = true
-    void this.refreshDashboards()
+    // A later task, not a microtask: synchronous drivers such as SQLite would otherwise run the
+    // reads before the paint that notified is acknowledged.
+    setTimeout(() => void this.refreshDashboards(), 0)
   }
 
   private async refreshDashboards(): Promise<void> {

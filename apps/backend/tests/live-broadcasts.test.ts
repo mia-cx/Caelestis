@@ -108,7 +108,7 @@ it('sends alarm snapshots only for template changes, never for metadata-only man
   for (const socket of sockets) expect(socket.events('alarms-snapshot')).toHaveLength(1)
 })
 
-it('acknowledges dashboard changes at once and serves a burst with one shared read per refresh', async () => {
+it('acknowledges dashboard changes before refreshing and serves a burst with one shared read', async () => {
   const { coordinator, sql, templateId, subscribe } = await liveCoordinator()
   const sockets = subscribe(3)
   const subscriptionIds = sockets.map(() => uuidV7())
@@ -131,9 +131,19 @@ it('acknowledges dashboard changes at once and serves a burst with one shared re
   const reads = vi.spyOn(sql, 'readContributions')
 
   await Promise.all(Array.from({ length: 5 }, () => coordinator.notifyDashboardChange(SEASON)))
+  // Nothing has read yet: the paint that notified is acknowledged before its refresh starts.
+  expect(reads).not.toHaveBeenCalled()
   for (const socket of sockets) expect(socket.events('dashboard-snapshot')).toHaveLength(1)
 
-  // The first change starts a refresh; the four that land during it share exactly one more.
+  // The burst shares one refresh, and every subscription gets its own snapshot from it.
+  await vi.waitFor(() => {
+    for (const socket of sockets) expect(socket.events('dashboard-snapshot')).toHaveLength(2)
+  })
+  // Contributions and the leaderboard both read contributions: two reads for the whole burst.
+  expect(reads).toHaveBeenCalledTimes(2)
+
+  // A later change still reaches every subscriber.
+  await coordinator.notifyDashboardChange(SEASON)
   await vi.waitFor(() => {
     for (const socket of sockets) expect(socket.events('dashboard-snapshot')).toHaveLength(3)
   })
@@ -143,6 +153,4 @@ it('acknowledges dashboard changes at once and serves a burst with one shared re
         expect.objectContaining({ subscriptionId: subscriptionIds[index] }),
       ),
     )
-  // Contributions and the leaderboard both read contributions: two reads per shared refresh.
-  expect(reads).toHaveBeenCalledTimes(4)
 })
