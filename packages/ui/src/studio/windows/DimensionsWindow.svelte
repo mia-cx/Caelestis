@@ -17,6 +17,8 @@
   const SLIDER_MAX_SCALE = 1
   /** Scale reads as a percentage of the cropped image. */
   const PERCENT = 100
+  /** Hundredths of a percent, so a typed 12.5% stays 12.5%, not 13%. */
+  const PERCENT_STEP = 0.01
   const id = $props.id()
 
   const output = $derived(model.output)
@@ -88,7 +90,7 @@
     value={output.scale * PERCENT}
     min={SLIDER_MIN_SCALE * PERCENT}
     max={SLIDER_MAX_SCALE * PERCENT}
-    step={1}
+    step={PERCENT_STEP}
     unit="%"
     fieldMin={Number.MIN_VALUE}
     fieldMax={Number.MAX_VALUE}
