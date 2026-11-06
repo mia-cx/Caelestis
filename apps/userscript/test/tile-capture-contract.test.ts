@@ -340,6 +340,20 @@ describe('a view wider than the cache', () => {
     expect(view.every((tile) => tileTransform.tilePixels(tile) !== null)).toBe(true)
     expect(worker.fetch).toHaveBeenCalledTimes(30)
   })
+
+  it('keeps off-screen reads while the view fills the cache', async () => {
+    inProcessWorker(() => new Response(Uint8Array.of(1, 4)))
+    const { tileTransform, fetchTile } = await setup()
+    const view = Array.from({ length: 30 }, (_, i) => ({ x: 300 + i, y: TILE.y }))
+    tileTransform.holdTilePixels(view)
+    for (const tile of view) await fetchTile(tile.x)
+    // A chase for an idle rescan, and an explicit load, of tiles outside the view.
+    const chased = { x: 400, y: TILE.y }
+    tileTransform.ensureTilePixels(chased)
+    expect(await tileTransform.loadTilePixels({ x: 401, y: TILE.y })).not.toBeNull()
+    await tileTransform.settledTileCaptures()
+    expect(tileTransform.tilePixels(chased)).not.toBeNull()
+  })
 })
 
 describe('unchanged tile capture', () => {

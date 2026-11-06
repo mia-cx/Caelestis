@@ -1157,8 +1157,9 @@ export const onTilePixelsAvailable = (listener: (tile: TileCoord) => void): (() 
  * The tiles the marker layer's latest frame covers, which eviction passes over.
  *
  * A view wider than the cache used to evict a tile it was still drawing, and the next frame chased
- * it again, then another, forever. Held tiles may push the cache past its limit; the excess goes
- * once they leave the frame.
+ * it again, then another, forever. Held tiles may push the cache past its limit, with room for one
+ * round of chases beyond them, so a tile read off screen is not evicted as it lands. The excess
+ * goes once they leave the frame.
  */
 let heldTilePixels = new Set<string>()
 
@@ -1168,12 +1169,13 @@ export const holdTilePixels = (tiles: Iterable<TileCoord>): void => {
   trimTilePixels()
 }
 
-/** Evict the least recently used tiles nothing holds, down to the cache's limit. */
+/** Evict the least recently used tiles that no frame or load holds, down to the cache's limit. */
 const trimTilePixels = (): void => {
-  let excess = pixelsOfTile.size - KEEP_TILE_PIXELS
+  const keep = Math.max(KEEP_TILE_PIXELS, heldTilePixels.size + CHASE_LIMIT)
+  let excess = pixelsOfTile.size - keep
   for (const key of pixelsOfTile.keys()) {
     if (excess <= 0) return
-    if (heldTilePixels.has(key)) continue
+    if (heldTilePixels.has(key) || requestedTilePixels.has(key)) continue
     excess--
     pixelsOfTile.delete(key)
     capturedTileDigests.delete(key)
