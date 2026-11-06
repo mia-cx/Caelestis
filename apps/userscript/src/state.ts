@@ -449,7 +449,11 @@ onStoredValueChange((key) => {
 
 export const loadState = (): State => {
   const storedRaw = readRaw()
-  if (storedRaw === null) return state
+  if (storedRaw === null) {
+    // No record yet, but the switches may already be set, from the extension's popup.
+    state = { ...state, ...globalSettingsFrom(storedSwitches()) }
+    return state
+  }
   try {
     // Spread over the defaults rather than trusting the stored shape: a build that adds a field
     // must not be broken by state written before it existed.

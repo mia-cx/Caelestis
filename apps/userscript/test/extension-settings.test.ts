@@ -65,6 +65,16 @@ describe('global settings in the extension', () => {
     expect(reloaded.shareTiles).toBe(false)
   })
 
+  it('a fresh tab starts with switches the popup set before any state was saved', async () => {
+    const store = new Map<string, string>()
+    const popup = await extensionContext(store)
+    popup.state.storeGlobalSetting('shareTiles', false)
+
+    const loaded = (await extensionContext(store)).state.loadState()
+
+    expect(loaded.shareTiles).toBe(false)
+  })
+
   it('a tab save keeps a popup switch it has not heard about yet', async () => {
     const store = sharedStore({ shareTiles: true })
     const tab = await extensionContext(store)
