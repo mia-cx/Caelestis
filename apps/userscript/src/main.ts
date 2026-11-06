@@ -34,7 +34,6 @@ import {
 } from './gl/layer.js'
 import {
   keepMarkersAboveDrafts,
-  markerBatchMemoryBytes,
   markerDensityMemoryBytes,
   markerGpuMemoryBytes,
 } from './gl/markers.js'
@@ -323,7 +322,6 @@ export const installPageHooks = (): void => {
   registerProfileMemorySource('Alliance overlay GPU buffers', allianceOverlayGpuMemoryBytes)
   registerProfileMemorySource('Overlay index staging', overlayStagingMemoryBytes)
   registerProfileMemorySource('Marker density buffers', markerDensityMemoryBytes)
-  registerProfileMemorySource('Marker draw batches', markerBatchMemoryBytes)
   registerProfileMemorySource('Marker GPU buffers', markerGpuMemoryBytes)
   // These traps must be armed before Wplace's modules evaluate or MapLibre constructs its Map.
   step('service-worker tile refresh tap', () => installServiceWorkerTap())

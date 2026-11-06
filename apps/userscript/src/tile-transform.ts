@@ -1101,6 +1101,15 @@ export const comparisonDraftPixels = (tile: TileCoord, observed = 0): Uint8Array
   if (observed === 0) comparisonDrafts.set(key, combined)
   return combined
 }
+
+/** One pixel of `comparisonDraftPixels`, without building the tile. */
+export const comparisonDraftPixelAt = (tile: TileCoord, offset: number, observed = 0): number => {
+  const key = tileKey(tile)
+  const native = draftOfTile.get(key)?.[offset] ?? draftedOffsets.get(key)?.get(offset) ?? UNPAINTED
+  if (native !== UNPAINTED) return native
+  const pixel = acceptedPixels.get(key)?.pixels.get(offset)
+  return pixel?.pending === true && pixel.accepted > observed ? pixel.colour : UNPAINTED
+}
 const tilePixelAvailabilityListeners = new Set<(tile: TileCoord) => void>()
 const tilePixelEvictionListeners = new Set<(tile: TileCoord) => void>()
 const KEEP_TILE_PIXELS = tilePixelCacheLimit(
