@@ -1435,10 +1435,6 @@ const showView = (view: PanelView): void => {
   if (view === 'settings') settingsModel()
   if (view === 'tree') {
     buildActiveTree()
-    // A retained claimed list missed every progress tick while the panel was closed.
-    claimedTreeAdapter?.refreshProgress()
-    // Reads IndexedDB only for servers whose rows are still missing.
-    void primeFromCache(rerenderTree)
   } else {
     activeTreeAdapter = null
     activeTreeClaims = null
@@ -1492,7 +1488,10 @@ const setOpen = (next: boolean): void => {
   // the theme token Panel.element's --pane-open-dur points at: a fresh host's shadow styles attach
   // a microtask after connection, so --pane-open-dur itself still reads empty here.
   glideOverlayControls(surfaceCloseDurationMs(panel, '--caelestis-duration-medium'))
+  // Refreshes skip a closed panel, so whatever the claimed list was built from may have moved.
+  claimedTreeStale = true
   showView(currentView())
+  void primeFromCache(rerenderTree)
   for (const listener of panelOpenListeners) listener()
   redraw()
   syncToastPlacement(currentPanelId())
@@ -1863,7 +1862,9 @@ export const installPanel = (): void => {
   let previousState = getState()
   onStateChange((next) => {
     const expansionOnly = onlyExpansionChanged(previousState, next)
+    const serversChanged = previousState.servers !== next.servers
     previousState = next
+    if (serversChanged && panelOpen()) void primeFromCache(rerenderTree)
     if (expansionOnly) redrawView()
     else refreshView()
   })

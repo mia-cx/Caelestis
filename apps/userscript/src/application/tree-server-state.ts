@@ -470,8 +470,9 @@ const rememberServerContents = (
  * first impression and gets worse the more servers are connected.
  *
  * Reads only verified servers whose rows are still missing, so once the cache or the network has
- * filled them, later calls skip IndexedDB. A read that found nothing, or failed, is retried next
- * time. Redraws only when the cache filled in rows.
+ * filled them, later calls skip IndexedDB. A read that found nothing, or failed, is retried on the
+ * next call; the panel calls this when it opens and when the server list changes. Redraws only
+ * when the cache filled in rows.
  */
 export const primeFromCache = async (rerender: () => void): Promise<void> => {
   const servers = getState().servers.filter(
