@@ -141,24 +141,36 @@ const intersectsTiles = (
   })
 }
 
-/** The template's parts on Wplace's tiles this frame, in template coordinates. */
+/**
+ * The template's parts on screen this frame, in template coordinates: Wplace's tiles, cut to the
+ * drawing buffer they overhang.
+ */
 const visibleSourceRects = (
   template: PlacedTemplate,
   spans: readonly HorizontalSpan[],
   tiles: readonly TileQuad[],
+  bufferWidth: number,
+  bufferHeight: number,
 ): TemplateRect[] => {
   const rects: TemplateRect[] = []
   const top = template.originY + nudgeY
   for (const tile of tiles) {
+    const scaleX = tile.width / TILE_SIZE
+    const scaleY = tile.height / TILE_SIZE
     const tileLeft = tile.tile.x * TILE_SIZE
     const tileTop = tile.tile.y * TILE_SIZE
-    const fromY = Math.max(top, tileTop)
-    const toY = Math.min(top + template.height, tileTop + TILE_SIZE)
+    const screenLeft = tileLeft + Math.max(0, -tile.x / scaleX)
+    const screenRight = tileLeft + Math.min(TILE_SIZE, (bufferWidth - tile.x) / scaleX)
+    const fromY = Math.max(top, tileTop + Math.max(0, -tile.y / scaleY))
+    const toY = Math.min(
+      top + template.height,
+      tileTop + Math.min(TILE_SIZE, (bufferHeight - tile.y) / scaleY),
+    )
     if (toY <= fromY) continue
     for (const span of spans) {
       const shift = span.sourceStart - span.worldStart - nudgeX
-      const fromX = Math.max(span.worldStart + nudgeX, tileLeft)
-      const toX = Math.min(span.worldEnd + nudgeX, tileLeft + TILE_SIZE)
+      const fromX = Math.max(span.worldStart + nudgeX, screenLeft)
+      const toX = Math.min(span.worldEnd + nudgeX, screenRight)
       if (toX <= fromX) continue
       rects.push({ x: fromX + shift, y: fromY - top, width: toX - fromX, height: toY - fromY })
     }
@@ -424,7 +436,7 @@ export const overlayLayer = {
             template,
             uploadAllowance,
             renderGeneration,
-            visibleSourceRects(template, spans, tiles),
+            visibleSourceRects(template, spans, tiles, bufferWidth, bufferHeight),
           )
           uploadPixelsLeft -= advanced.uploadedPixels
           uploadedIndexPixels += advanced.uploadedPixels
