@@ -289,7 +289,8 @@ export class NativeTemplates {
 
   /**
    * Another tab's image write announces nothing here, and its metadata reaches this tab up to
-   * 120 ms later, so writes and removals hash the image they are about to replace or delete.
+   * 120 ms later, so writes and removals hash the image they are about to replace or delete, and
+   * the image their write left behind.
    */
   private async snapshot(id: string, reuseDigest: boolean): Promise<NativeSnapshot | null> {
     this.assertFresh()
@@ -372,7 +373,6 @@ export class NativeTemplates {
     image?: Blob,
   ): Promise<NativeSnapshot> {
     if (this.metadata.placementSession || this.metadata.suppressPersist) throw new NativeConflict()
-    const writes = this.imageWrites
     const current = await this.snapshot(id, false)
     if (current?.token !== expected?.token || this.metadata.getById(id)?.serverManaged)
       throw new NativeConflict()
@@ -425,17 +425,7 @@ export class NativeTemplates {
         : current === null
           ? undefined
           : tokenDigest(current.token)
-    // Without new artwork, and with no image written since, the image is the one just read and
-    // only its metadata changed.
-    if (
-      writes === this.imageWrites &&
-      image === undefined &&
-      current !== null &&
-      committed !== undefined &&
-      intended !== undefined
-    )
-      this.digests.set(id, { metadata: committed, size: current.image.size, digest: intended })
-    const saved = await this.read(id)
+    const saved = await this.snapshot(id, false)
     if (
       saved === null ||
       intended === undefined ||

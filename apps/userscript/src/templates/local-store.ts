@@ -1245,10 +1245,30 @@ const writeManyInOrder = <T>(ids: readonly string[], write: () => Promise<T>): P
  */
 const artworkSnapshots = new WeakMap<TemplateArtwork, string>()
 
-/** Remember the snapshot a save linked this artwork to. */
-const noteSnapshot = (artwork: TemplateArtwork, result: SaveResult): SaveResult => {
-  if (result.status === 'saved' && result.native?.token !== undefined)
-    artworkSnapshots.set(artwork, result.native.token)
+/**
+ * Remember the snapshot a save linked this artwork to.
+ *
+ * A save that wrote these pixels links them outright. A metadata save never looked at them, so
+ * it only carries a snapshot the artwork already had forward, and drops it if the two render
+ * differently.
+ */
+const noteSnapshot = (
+  artwork: TemplateArtwork,
+  result: SaveResult,
+  wrotePixels: boolean,
+): SaveResult => {
+  const token = result.status === 'saved' ? result.native?.token : undefined
+  if (token === undefined) return result
+  const known = artworkSnapshots.get(artwork)
+  if (wrotePixels) artworkSnapshots.set(artwork, token)
+  else if (known !== undefined) {
+    let same = false
+    try {
+      same = sameRender(known, token)
+    } catch {}
+    if (same) artworkSnapshots.set(artwork, token)
+    else artworkSnapshots.delete(artwork)
+  }
   return result
 }
 
@@ -1263,7 +1283,11 @@ const persist = async (placed: PlacedTemplate): Promise<SaveResult> => {
   const pixels = artwork.pixels
   if (pixels === null) throw new RangeError('a new template has no pixels in memory')
   return await writeInOrder(placed.id, async () =>
-    noteSnapshot(artwork, await saveTemplate({ ...rest, tileKeys: [...tiles], pixels }, null)),
+    noteSnapshot(
+      artwork,
+      await saveTemplate({ ...rest, tileKeys: [...tiles], pixels }, null),
+      true,
+    ),
   )
 }
 
@@ -1290,6 +1314,7 @@ const savePlaced = async (
       },
       expectedRevision,
     ),
+    expectedRevision === null,
   )
 }
 
@@ -2396,7 +2421,7 @@ export const replaceLocalArtwork = async (
     const area = storedArea(pixels)
     const resident = makeRoom(area, expected.id)
     const artwork = newArtwork(resident ? pixels : null, area)
-    noteSnapshot(artwork, result)
+    noteSnapshot(artwork, result, true)
     templates.set(expected.id, { ...next, artwork, tiles, revision: result.revision })
     if (resident) retainedIndexPixels += area
     notify()

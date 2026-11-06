@@ -218,10 +218,9 @@ it('saves a visibility change without reading its pixels', async () => {
   const reads = artworkReads()
   expect(await local.setLocalVisible(id, false)).toBe(true)
 
-  // The one read allowed is the Wplace source, checked once before it is written over.
+  // Only the Wplace source is read: checked before it is written over, and after.
   const stored = reads.mock.contexts.filter((blob) => !native.images.has(blob as Blob))
   expect(stored).toEqual([])
-  expect(reads.mock.calls.length).toBeLessThanOrEqual(1)
   reads.mockRestore()
   expect(native.records[0]?.visible).toBe(false)
   expect(await storedPixels(id)).toEqual(indices)
@@ -276,7 +275,7 @@ it('applies another tab’s rename without reading any artwork', async () => {
   expect(await storedPixels(id)).toEqual(indices)
 })
 
-it('shows Wplace artwork edited during linking once Wplace hides the template', async () => {
+it('shows Wplace artwork edited during linking after later metadata edits', async () => {
   const native = wplace()
   connectPersonalStore(native.api)
   const reversed = indices.slice().reverse()
@@ -286,13 +285,34 @@ it('shows Wplace artwork edited during linking once Wplace hides the template', 
   }
   const { id } = await place('linking-edited')
 
-  native.api.metadata.update(native.records[0]?.id ?? '', { visible: false })
+  expect(await local.setLocalVisible(id, false)).toBe(true)
+  native.api.metadata.update(native.records[0]?.id ?? '', { name: 'Renamed in Wplace' })
   await focus()
 
   const template = local.templateById(id)
   if (template === undefined) throw new Error('the template left the catalog')
-  expect(template.visible).toBe(false)
+  expect(template.name).toBe('Renamed in Wplace')
   expect(await local.templatePixels(template)).toEqual(reversed)
+})
+
+it('refuses a save when another tab replaces the Wplace image while it is checked', async () => {
+  const native = wplace()
+  connectPersonalStore(native.api)
+  const { id } = await place('cross-tab-save')
+  await focus()
+  const nativeId = native.records[0]?.id ?? ''
+  const original = native.images.get(nativeId)
+  if (original === undefined) throw new Error('the Wplace copy was not written')
+  const replacement = new Blob([new Uint8Array(original.size).fill(1)], { type: 'image/png' })
+  const read = Blob.prototype.arrayBuffer
+  vi.spyOn(Blob.prototype, 'arrayBuffer').mockImplementationOnce(async function (this: Blob) {
+    const bytes = await read.call(this)
+    native.images.setInAnotherTab(nativeId, replacement)
+    return bytes
+  })
+
+  expect(await local.setLocalVisible(id, false)).toBe(false)
+  expect(native.images.get(nativeId)).toBe(replacement)
 })
 
 it('shows Wplace artwork edited while a hide links an unlinked template', async () => {

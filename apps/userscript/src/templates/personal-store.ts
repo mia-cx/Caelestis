@@ -332,8 +332,6 @@ export const saveTemplate = async (
         }
       }
       let linked = await migrate(api, previous)
-      // As for a new record: linking may render a Wplace edit into the stored pixels.
-      const keptPixels = linked.pixels === previous.pixels
       const nativeId = linked.native?.id
       if (nativeId === undefined) throw new Error('Native identity is missing')
       const snapshot = await api.read(nativeId)
@@ -403,9 +401,7 @@ export const saveTemplate = async (
         false,
         archiveCurrent,
       )
-      if (result.status !== 'saved') return { status: 'conflict' }
-      // A new version's link always describes the caller's pixels: they are what was written.
-      return archiveCurrent || keptPixels ? { ...result, native: link } : result
+      return result.status === 'saved' ? { ...result, native: link } : { status: 'conflict' }
     } catch (error) {
       warn('install', `could not save personal template ${template.name}`, String(error))
       return { status: error instanceof NativeConflict ? 'conflict' : 'unavailable' }
