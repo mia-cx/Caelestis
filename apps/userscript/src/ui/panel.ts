@@ -1426,7 +1426,9 @@ const showView = (view: PanelView): void => {
   if (view === 'settings') settingsModel()
   if (view === 'tree') {
     buildActiveTree()
-    // Reads IndexedDB only for server identities it has not read yet.
+    // A retained claimed list missed every progress tick while the panel was closed.
+    claimedTreeAdapter?.refreshProgress()
+    // Reads IndexedDB only for servers whose rows are still missing.
     void primeFromCache(rerenderTree)
   } else {
     activeTreeAdapter = null
