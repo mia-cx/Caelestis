@@ -3,10 +3,11 @@
  * connected servers and their tokens.
  *
  * Every module reads and writes them here, under the same key names in every build, so a value
- * written by one build is found by another. The userscript keeps them in the manager's `GM_*`
- * storage, which wplace's own scripts cannot read. The extension serves them from a snapshot of
- * `chrome.storage.local` (see `useStoredValues`). Without either (tests, a page-world dev harness)
- * they fall back to `localStorage`.
+ * written by one build is found by another. Both builds keep them where wplace's own scripts cannot
+ * read them, the userscript in the manager's `GM_*` storage and the extension in
+ * `chrome.storage.local`, and serve a snapshot to Caelestis in the page over the storage bridge
+ * (see `useStoredValues`). A userscript that has to stay in its manager's world reads `GM_*` storage
+ * directly. Without either (tests) they fall back to `localStorage`.
  *
  * Each call can throw where the underlying storage does, such as `localStorage` in a private
  * window, so callers keep their own fallback for a failed read or write.
@@ -47,8 +48,8 @@ const changeListeners = new Set<(key: string) => void>()
 
 /**
  * Run `listener` with the key of each value changed somewhere else, such as the extension's toolbar
- * popup or another tab. Only the extension reports these; this context's own writes never do. Returns a function that stops
- * listening.
+ * popup or another tab. Only a bridged copy reports these; this context's own writes never do.
+ * Returns a function that stops listening.
  */
 export const onStoredValueChange = (listener: (key: string) => void): (() => void) => {
   changeListeners.add(listener)
@@ -59,8 +60,8 @@ export const onStoredValueChange = (listener: (key: string) => void): (() => voi
  * Settle once this context's writes are stored and its values match storage. Rejects, leaving
  * values as they were, when storage could not be read or one of those writes failed.
  *
- * The manager's storage is shared and synchronous, so the userscript is always settled. The
- * extension's is not: a tab that reads values another tab shares under a Web Lock, such as the
+ * Read directly, the manager's storage is shared and synchronous, so it is always settled. A
+ * bridged snapshot is not: a tab that reads values another tab shares under a Web Lock, such as the
  * claim journal, syncs after taking the lock and again before releasing it.
  */
 export const syncStoredValues = (): Promise<void> => sync()
@@ -69,7 +70,7 @@ export const syncStoredValues = (): Promise<void> => sync()
  * Serve stored values from `values`, reporting each write to `persist` (`null` for a delete) and
  * reading all of storage again through `fetch`.
  *
- * The extension calls this before anything reads a value, with a map that stays empty until its
+ * The storage bridge calls this before anything reads a value, with a map that stays empty until its
  * storage has loaded, so an early read returns the default rather than a page-readable fallback.
  * Returns the function that applies changes made elsewhere: it updates `values` and tells the
  * `onStoredValueChange` listeners about each key whose value actually changed.
@@ -80,10 +81,16 @@ export const useStoredValues = (
     readonly persist: (key: string, value: string | null) => void
     /** Every stored value, read after this context's earlier writes were stored; rejects when not. */
     readonly fetch: () => Promise<Record<string, string>>
+    /** Told each read of a key `values` lacks, so storage can report it once another tab writes it. */
+    readonly watch?: (key: string) => void
   },
 ): ((changes: Readonly<Record<string, string | null>>) => void) => {
   backing = {
-    get: (key) => values.get(key) ?? null,
+    get(key) {
+      const value = values.get(key)
+      if (value === undefined) storage.watch?.(key)
+      return value ?? null
+    },
     set(key, value) {
       values.set(key, value)
       storage.persist(key, value)

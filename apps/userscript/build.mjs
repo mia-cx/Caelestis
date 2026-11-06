@@ -51,6 +51,8 @@ const metadata = `// ==UserScript==
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_deleteValue
+// @grant        GM_listValues
+// @grant        GM_addValueChangeListener
 // @connect      *
 // ==/UserScript==
 `
@@ -58,7 +60,12 @@ const metadata = `// ==UserScript==
 // The OFL requires each copy of the font to carry its copyright notice and licence, and the woff2
 // binary has no such metadata, so the licence rides along as a legal comment at the end.
 const ofl = readFileSync(new URL('./src/fonts/OFL.txt', import.meta.url), 'utf8')
+const oflNotice = `/*! FalseType font, bundled under the SIL Open Font License 1.1:\n\n${ofl}*/`
 
+/**
+ * The userscript is one named function, so the manager's copy can put the same source into the
+ * page as `(${caelestis})('page')` without carrying it twice. See `src/entry.ts`.
+ */
 const options = {
   entryPoints: ['src/entry.ts'],
   outfile: 'dist/wplace-template-server.user.js',
@@ -72,8 +79,8 @@ const options = {
     __CAELESTIS_EXPECTED_BACKEND_VERSION__: JSON.stringify(backendPkg.version),
     __CAELESTIS_BUILD__: JSON.stringify({ revision, dirty, development }),
   },
-  banner: { js: metadata },
-  footer: { js: `/*! FalseType font, bundled under the SIL Open Font License 1.1:\n\n${ofl}*/` },
+  banner: { js: `${metadata};(function caelestis(world) {` },
+  footer: { js: `${oflNotice}\n})('manager')` },
   legalComments: 'eof',
   // Keep watch output readable for browser debugging. Release builds should not make every user
   // download and parse the development representation of the same program.
@@ -135,6 +142,7 @@ const extensionOptions = [
     entryPoints: ['src/extension/page.ts'],
     outfile: `${extensionDir}/caelestis.js`,
     banner: undefined,
+    footer: { js: oflNotice },
   },
   {
     ...options,
