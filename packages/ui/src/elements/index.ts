@@ -28,7 +28,7 @@ import WorkElement from './Work.element.svelte'
 // The userscript bundles this entry as a separate module instance, so it needs its own export.
 export { type IconSet, useIconSet } from '../foundations/icons.svelte.js'
 export type { EffectLayer } from '../studio/effects/layers.js'
-export { parseStudioLayout } from '../studio/layout.js'
+export { DEFAULT_STUDIO_LAYOUT, parseStudioLayout } from '../studio/layout.js'
 export type * from '../studio/model.js'
 export type * from '../studio/options.js'
 export { ALPHA_MODES, COLOR_SPACES, DITHER_ALGORITHMS, RESIZE_MODES } from '../studio/options.js'
