@@ -16,11 +16,11 @@ const coordinateOf = (mark: number): number => mark & COORDINATE_MASK
 const tailRoom = (sorted: number): number => Math.max(16, sorted >>> 3)
 
 /**
- * Changes a consumer can catch up on before it must re-read every slot.
+ * Most changes the log holds. Past it, the oldest half is dropped.
  *
- * Small on purpose. Lists nobody draws are patched too, and their logs only ever reset at this
- * limit, so it bounds what they hold to a few kilobytes. The renderer re-reads a list whose changes
- * span more than 64 runs anyway, so a longer log would spare it nothing.
+ * Lists nobody draws are patched too, so this bounds their logs to a few kilobytes. A consumer
+ * keeps catching up slot by slot as long as it reads within the last half of the window, which a
+ * renderer drawing every frame does; only one further behind re-reads every slot.
  */
 const LOG_LIMIT = 1_024
 
@@ -159,12 +159,11 @@ export class MarkList {
   private write(slot: number, mark: number): void {
     this.slots[slot] = mark
     this.revision++
-    if (this.log.length >= LOG_LIMIT) {
-      this.log = []
-      this.logStart = this.revision
-      return
-    }
     this.log.push(slot)
+    if (this.log.length <= LOG_LIMIT) return
+    const dropped = LOG_LIMIT >>> 1
+    this.log.splice(0, dropped)
+    this.logStart += dropped
   }
 
   /** Drop dead slots and merge the tail into one sorted run, in fresh `slots`. */

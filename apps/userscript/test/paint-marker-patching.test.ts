@@ -65,12 +65,14 @@ const recordingGl = () => {
   const stored = new Map<object, Uint32Array>()
   const drawn: { readonly marks: Uint32Array; readonly count: number }[] = []
   let bound: object | null = null
+  const uploads = { whole: 0 }
   const calls: Record<string, unknown> = {
     createBuffer: () => ({}),
     bindBuffer: (_target: number, buffer: object | null) => {
       bound = buffer
     },
     bufferData: (_target: number, data: Uint32Array) => {
+      uploads.whole++
       stored.set(bound as object, data.slice())
     },
     bufferSubData: (
@@ -103,7 +105,7 @@ const recordingGl = () => {
       .flatMap(({ marks, count }) => [...marks.subarray(0, count)])
       .filter((mark) => mark < 0x8000_0000)
       .sort((left, right) => (left & 0xf_ffff) - (right & 0xf_ffff))
-  return { gl, drawn, onScreen }
+  return { gl, drawn, onScreen, uploads }
 }
 
 const setup = async () => {
@@ -332,4 +334,49 @@ it('keeps patched marker lists identical to a full rescan through paint, erase a
   await submit(submitted)
   drafts(wrong.slice(20, 30).map(erased))
   await expectMatchesRescan('accepted paint whose draft was cleared')
+})
+
+it('keeps patching the GPU copy of a list drawn every frame, however long the painting goes on', async () => {
+  const { MarkerRenderer } = await import('../src/gl/marker-renderer.js')
+  const { MarkList } = await import('../src/templates/mark-list.js')
+  const { gl, onScreen, drawn, uploads } = recordingGl()
+  const renderer = new MarkerRenderer(gl)
+  const list = MarkList.of(Uint32Array.from({ length: 50_000 }, (_, at) => at))
+  const frame = () => {
+    drawn.length = 0
+    renderer.beginFrame()
+    renderer.draw(
+      {
+        x: 0,
+        y: 0,
+        width: 2_000,
+        height: 2_000,
+        pixelWidth: SIZE,
+        pixelHeight: SIZE,
+        seedX: 0,
+        seedY: 0,
+      },
+      [list],
+      {
+        size: 4,
+        thickness: 2,
+        colour: [1, 0, 1],
+        otherColour: null,
+        otherOpacity: 1,
+        selected: -1,
+      },
+      1,
+    )
+    renderer.endFrame()
+  }
+  frame()
+  // Fixing and undoing the same hundred pixels: thousands of changes, ten per frame.
+  for (let change = 0; change < 5_000; change++) {
+    const coordinate = change % 100
+    if (list.has(coordinate)) list.remove(coordinate)
+    else list.add(coordinate)
+    if (change % 10 === 9) frame()
+  }
+  expect(uploads.whole).toBe(1)
+  expect(onScreen()).toEqual([...list.values()])
 })
