@@ -56,7 +56,8 @@ export const onStoredValueChange = (listener: (key: string) => void): (() => voi
 }
 
 /**
- * Settle once this context's writes are stored and its values match storage.
+ * Settle once this context's writes are stored and its values match storage. Rejects, leaving
+ * values as they were, when storage could not be read or one of those writes failed.
  *
  * The manager's storage is shared and synchronous, so the userscript is always settled. The
  * extension's is not: a tab that reads values another tab shares under a Web Lock, such as the
@@ -77,7 +78,7 @@ export const useStoredValues = (
   values: Map<string, string>,
   storage: {
     readonly persist: (key: string, value: string | null) => void
-    /** Every stored value, read after this context's earlier writes were stored. */
+    /** Every stored value, read after this context's earlier writes were stored; rejects when not. */
     readonly fetch: () => Promise<Record<string, string>>
   },
 ): ((changes: Readonly<Record<string, string | null>>) => void) => {

@@ -45,4 +45,17 @@ describe('stored values shared between extension tabs', () => {
       'caelestis.region-claims.v1.retired:a',
     ])
   })
+
+  it('a sync that cannot read storage fails and keeps what the tab holds', async () => {
+    vi.resetModules()
+    const storage = await import('../src/stored-values.js')
+    const values = new Map([['caelestis.region-claims.v1', '[{"id":"mine"}]']])
+    storage.useStoredValues(values, {
+      persist: () => undefined,
+      fetch: () => Promise.reject(new Error('stored values are out of reach')),
+    })
+
+    await expect(storage.syncStoredValues()).rejects.toThrow('out of reach')
+    expect(storage.storedValue('caelestis.region-claims.v1')).toBe('[{"id":"mine"}]')
+  })
 })

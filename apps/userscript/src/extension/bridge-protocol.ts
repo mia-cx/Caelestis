@@ -24,8 +24,16 @@ export type BridgeMessage =
   | { readonly type: 'snapshot'; readonly values: Record<string, string> }
   /** Each change made elsewhere, such as another tab. The page skips values it already holds. */
   | { readonly type: 'changes'; readonly changes: Record<string, string | null> }
-  /** The answer to a `sync`: every stored value, read after all earlier writes were stored. */
-  | { readonly type: 'synced'; readonly id: number; readonly values: Record<string, string> }
+  /**
+   * The answer to a `sync`: every stored value, read after all earlier writes were stored. `null`
+   * when storage could not be read or an earlier write failed, so the sync fails rather than
+   * passing for empty storage.
+   */
+  | {
+      readonly type: 'synced'
+      readonly id: number
+      readonly values: Record<string, string> | null
+    }
 
 /** Page world to isolated world, handled in order. */
 export type PageMessage =

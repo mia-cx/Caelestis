@@ -15,14 +15,16 @@ const start = (): void => {
   const channel = new MessageChannel()
   const port = channel.port1
   const send = (message: PageMessage): void => port.postMessage(JSON.stringify(message))
-  const syncs = new Map<number, (values: Record<string, string>) => void>()
+  const syncs = new Map<number, (values: Record<string, string> | null) => void>()
   let lastSync = 0
   const adopt = useStoredValues(values, {
     persist: (key, value) => send({ type: 'write', key, value }),
     fetch: () =>
-      new Promise((resolve) => {
+      new Promise((resolve, reject) => {
         const id = ++lastSync
-        syncs.set(id, resolve)
+        syncs.set(id, (values) =>
+          values === null ? reject(new Error('stored values are out of reach')) : resolve(values),
+        )
         send({ type: 'sync', id })
       }),
   })

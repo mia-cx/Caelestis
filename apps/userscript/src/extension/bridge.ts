@@ -9,11 +9,10 @@ import { loadStoredStrings, onStoredStringsChange, writeStoredString } from './s
  * `window` and can stop the handoff event before any page listener runs.
  */
 
-const load = (): Promise<Record<string, string>> =>
+const load = (): Promise<Record<string, string> | null> =>
   loadStoredStrings().catch((error: unknown) => {
-    // Caelestis then starts on its defaults, as a fresh install would.
     console.warn('[caelestis] could not load stored values', error)
-    return {}
+    return null
   })
 
 const loaded = load()
@@ -29,15 +28,22 @@ const onHandoff = (event: MessageEvent): void => {
   // Writes and syncs settle in the order they were sent, so a sync answers after every earlier
   // write is stored: what lets a tab hand shared values to the next under a Web Lock.
   let queue: Promise<unknown> = loaded
+  let writeFailed = false
   port.onmessage = ({ data }) => {
     const message = JSON.parse(String(data)) as PageMessage
     queue = queue.then(async () => {
-      if (message.type === 'write') await writeStoredString(message.key, message.value)
-      else send({ type: 'synced', id: message.id, values: await load() })
+      if (message.type === 'write') {
+        if (!(await writeStoredString(message.key, message.value))) writeFailed = true
+        return
+      }
+      const values = writeFailed ? null : await load()
+      writeFailed = false
+      send({ type: 'synced', id: message.id, values })
     })
   }
   void loaded.then((values) => {
-    send({ type: 'snapshot', values })
+    // Unreadable storage at load: Caelestis starts on its defaults, as a fresh install would.
+    send({ type: 'snapshot', values: values ?? {} })
     onStoredStringsChange((changes) => send({ type: 'changes', changes }))
   })
 }
