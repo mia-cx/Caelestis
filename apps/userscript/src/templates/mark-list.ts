@@ -15,8 +15,14 @@ const coordinateOf = (mark: number): number => mark & COORDINATE_MASK
  */
 const tailRoom = (sorted: number): number => Math.max(16, sorted >>> 3)
 
-/** Change log length a consumer can catch up from before it must re-read every slot. */
-const LOG_LIMIT = 65_536
+/**
+ * Changes a consumer can catch up on before it must re-read every slot.
+ *
+ * Small on purpose. Lists nobody draws are patched too, and their logs only ever reset at this
+ * limit, so it bounds what they hold to a few kilobytes. The renderer re-reads a list whose changes
+ * span more than 64 runs anyway, so a longer log would spare it nothing.
+ */
+const LOG_LIMIT = 1_024
 
 /**
  * One tile's marker list, patched one painted pixel at a time without copying it.
