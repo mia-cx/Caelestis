@@ -422,6 +422,12 @@ describe('the marker budget', () => {
     expect(rows.calls).toBeLessThanOrEqual(32)
   })
 
+  it('never keeps a larger share than the rate asks for', async () => {
+    const { sampleThreshold } = await import('../src/gl/marker-renderer.js')
+    for (let rate = 0.000_01; rate < 1; rate *= 1.001)
+      expect(sampleThreshold(rate) / 2 ** 22).toBeLessThanOrEqual(rate)
+  })
+
   it('submits about the budget of a dense tile on screen, not every mark', async () => {
     const list = await denseTile()
     const { submitted } = await submit(list, WHOLE_TILE, BUDGET / list.live)

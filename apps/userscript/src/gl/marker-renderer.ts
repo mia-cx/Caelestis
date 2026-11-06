@@ -1,5 +1,5 @@
 import { warn } from '../debug.js'
-import { MARK_HASH_LIMIT, type MarkList } from '../templates/mark-list.js'
+import { MARK_BLOCKS_PER_ROW, MARK_HASH_LIMIT, type MarkList } from '../templates/mark-list.js'
 import {
   forEachVisibleBlock,
   forEachVisibleBlockRow,
@@ -124,23 +124,34 @@ export interface MarkerProjection {
 }
 
 /**
- * The hash threshold for a sample rate, snapped to eighth-octave steps.
+ * The hash threshold for a sample rate, snapped down to eighth-octave steps.
  *
  * The rate follows the visible count, which panning nudges every frame. Snapping holds the
- * threshold, and with it each list's cached block ends, until the rate moves by about 9%.
+ * threshold, and with it each list's cached block ends, until the rate moves by about 9%. Down, so
+ * the kept share never exceeds the rate and the budget stays a ceiling.
  */
 export const sampleThreshold = (rate: number): number =>
   rate >= 1
     ? MARK_HASH_LIMIT
     : rate <= 0
       ? 0
-      : Math.min(
-          MARK_HASH_LIMIT,
-          Math.floor(2 ** (Math.round(Math.log2(rate) * 8) / 8) * MARK_HASH_LIMIT),
-        )
+      : Math.floor(2 ** (Math.floor(Math.log2(rate) * 8) / 8) * MARK_HASH_LIMIT)
+
+/** Slot runs to submit: one per block at most, plus the tail. */
+export interface MarkerRuns {
+  readonly firsts: Int32Array
+  readonly counts: Int32Array
+  length: number
+}
+
+export const markerRunBuffers = (): MarkerRuns => ({
+  firsts: new Int32Array(MARK_BLOCKS_PER_ROW * MARK_BLOCKS_PER_ROW + 1),
+  counts: new Int32Array(MARK_BLOCKS_PER_ROW * MARK_BLOCKS_PER_ROW + 1),
+  length: 0,
+})
 
 /**
- * The slot runs to submit for one list, as flat `[first, count]` pairs.
+ * Fill `runs` with the slot runs to submit for one list.
  *
  * Per block, each on-screen block contributes the part of its run below the sample threshold,
  * merged with the next where they touch. Off-screen blocks submit nothing, so what reaches the GPU
@@ -154,28 +165,30 @@ export const markerRuns = (
   visible: SourceRect,
   threshold: number,
   perBlock: boolean,
-): number[] => {
-  const runs: number[] = []
+  runs: MarkerRuns,
+): void => {
+  runs.length = 0
   const push = (first: number, end: number): void => {
     if (end <= first) return
-    const last = runs.length - 2
-    if (last >= 0 && (runs[last] as number) + (runs[last + 1] as number) === first)
-      runs[last + 1] = (runs[last + 1] as number) + end - first
-    else runs.push(first, end - first)
+    const last = runs.length - 1
+    if (last >= 0 && (runs.firsts[last] as number) + (runs.counts[last] as number) === first)
+      runs.counts[last] = (runs.counts[last] as number) + end - first
+    else {
+      runs.firsts[runs.length] = first
+      runs.counts[runs.length++] = end - first
+    }
   }
   const starts = list.blockStarts()
   const sampled = threshold < MARK_HASH_LIMIT
+  const ends = sampled ? list.sampledEnds(threshold) : null
   // Unsampled, a block's run ends where the next block's starts.
-  const ends = sampled ? list.sampledEnds(threshold) : starts.subarray(1)
+  const endOf = (block: number): number =>
+    (ends === null ? starts[block + 1] : ends[block]) as number
   if (visible.whole && !sampled) push(0, list.sorted)
   else if (perBlock)
-    forEachVisibleBlock(visible, (block) => push(starts[block] as number, ends[block] as number))
-  else
-    forEachVisibleBlockRow(visible, (first, last) =>
-      push(starts[first] as number, ends[last] as number),
-    )
+    forEachVisibleBlock(visible, (block) => push(starts[block] as number, endOf(block)))
+  else forEachVisibleBlockRow(visible, (first, last) => push(starts[first] as number, endOf(last)))
   push(list.sorted, list.length)
-  return runs
 }
 
 /** A list's GPU copy, and how far through the list's changes it is. */
@@ -214,9 +227,8 @@ export class MarkerRenderer {
   private readonly uniforms = new Map<string, WebGLUniformLocation | null>()
   /** One call for a list's many block runs, where the device offers it. */
   private readonly multiDraw: WEBGL_multi_draw | null
-  /** Reused per list draw, so a frame allocates no run arrays. */
-  private readonly firsts: number[] = []
-  private readonly counts: number[] = []
+  /** Reused by every list draw, so a frame allocates no run arrays. */
+  private readonly runs = markerRunBuffers()
 
   constructor(readonly gl: WebGL2RenderingContext) {
     this.multiDraw = gl.getExtension('WEBGL_multi_draw')
@@ -366,7 +378,8 @@ export class MarkerRenderer {
     let submitted = 0
     for (const list of lists) {
       if (list.length === 0) continue
-      const runs = markerRuns(list, visible, threshold, this.multiDraw !== null)
+      const runs = this.runs
+      markerRuns(list, visible, threshold, this.multiDraw !== null, runs)
       if (runs.length === 0 || !this.bind(list)) continue
       gl.uniform1ui(this.uniform('u_seed'), list.seed)
       gl.vertexAttribIPointer(
@@ -376,19 +389,12 @@ export class MarkerRenderer {
         Uint32Array.BYTES_PER_ELEMENT,
         0,
       )
-      const count = runs.length / 2
-      this.firsts.length = 0
-      this.counts.length = 0
-      for (let run = 0; run < runs.length; run += 2) {
-        this.firsts.push(runs[run] as number)
-        this.counts.push(runs[run + 1] as number)
-        submitted += runs[run + 1] as number
-      }
+      for (let run = 0; run < runs.length; run++) submitted += runs.counts[run] as number
       if (this.multiDraw !== null)
-        this.multiDraw.multiDrawArraysWEBGL(gl.POINTS, this.firsts, 0, this.counts, 0, count)
+        this.multiDraw.multiDrawArraysWEBGL(gl.POINTS, runs.firsts, 0, runs.counts, 0, runs.length)
       else
-        for (let run = 0; run < count; run++)
-          gl.drawArrays(gl.POINTS, this.firsts[run] as number, this.counts[run] as number)
+        for (let run = 0; run < runs.length; run++)
+          gl.drawArrays(gl.POINTS, runs.firsts[run] as number, runs.counts[run] as number)
     }
     gl.bindVertexArray(null)
     return submitted

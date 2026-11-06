@@ -219,7 +219,8 @@ export class MarkList {
   sampledEnds(threshold: number): Uint32Array {
     if (this.ends?.threshold === threshold) return this.ends.at
     const starts = this.blockStarts()
-    const at = new Uint32Array(MARK_BLOCKS)
+    // Rewritten in place: the table's size never changes, and zooming changes thresholds often.
+    const at = this.ends?.at ?? new Uint32Array(MARK_BLOCKS)
     for (let block = 0; block < MARK_BLOCKS; block++)
       at[block] = this.lowerBound(
         block * MARK_HASH_LIMIT + threshold,
