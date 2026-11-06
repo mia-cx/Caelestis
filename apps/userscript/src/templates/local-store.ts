@@ -40,6 +40,7 @@ import {
   MAX_TEMPLATE_ID_LENGTH,
   MAX_TEMPLATE_NAME_LENGTH,
 } from './import.js'
+import { sameRender } from './native-store.js'
 import {
   catalogStoredArea,
   catalogTileKeys,
@@ -48,6 +49,7 @@ import {
   hydrateStoredTemplate,
   loadTemplate,
   loadTemplateCatalog,
+  loadTemplateMetadata,
   type SaveResult,
   type StoredRecord,
   type StoredTemplate,
@@ -531,7 +533,7 @@ const loadPixels = async (template: PlacedTemplate, evict: boolean): Promise<Spa
     }
   }
   // Disk no longer holds what this tab shows: another tab or Wplace changed it. Take the winner.
-  await reconcileConflict(template.id)
+  await reconcileConflict(template.id, true)
   throw new Error('That template changed while it was loading. Try again.')
 }
 
@@ -1237,6 +1239,39 @@ const writeManyInOrder = <T>(ids: readonly string[], write: () => Promise<T>): P
   return next
 }
 
+/**
+ * The Wplace snapshot token each personal artwork is a rendering of, so a reconciliation can tell
+ * a metadata change from new artwork without reading pixels.
+ */
+const artworkSnapshots = new WeakMap<TemplateArtwork, string>()
+
+/**
+ * Remember the snapshot a save linked this artwork to.
+ *
+ * A save that wrote these pixels links them outright. A metadata save never looked at them, so
+ * it only carries a snapshot the artwork already had forward, and drops it if the two render
+ * differently.
+ */
+const noteSnapshot = (
+  artwork: TemplateArtwork,
+  result: SaveResult,
+  wrotePixels: boolean,
+): SaveResult => {
+  const token = result.status === 'saved' ? result.native?.token : undefined
+  if (token === undefined) return result
+  const known = artworkSnapshots.get(artwork)
+  if (wrotePixels) artworkSnapshots.set(artwork, token)
+  else if (known !== undefined) {
+    let same = false
+    try {
+      same = sameRender(known, token)
+    } catch {}
+    if (same) artworkSnapshots.set(artwork, token)
+    else artworkSnapshots.delete(artwork)
+  }
+  return result
+}
+
 const persist = async (placed: PlacedTemplate): Promise<SaveResult> => {
   if (isServerTemplate(placed)) {
     return setServerTemplatePreference(placed.id, placed.appearance, placed.owns)
@@ -1247,9 +1282,12 @@ const persist = async (placed: PlacedTemplate): Promise<SaveResult> => {
   // A new record has nothing stored yet, so its pixels are always the ones just imported.
   const pixels = artwork.pixels
   if (pixels === null) throw new RangeError('a new template has no pixels in memory')
-  return await writeInOrder(
-    placed.id,
-    async () => await saveTemplate({ ...rest, tileKeys: [...tiles], pixels }, null),
+  return await writeInOrder(placed.id, async () =>
+    noteSnapshot(
+      artwork,
+      await saveTemplate({ ...rest, tileKeys: [...tiles], pixels }, null),
+      true,
+    ),
   )
 }
 
@@ -1265,14 +1303,18 @@ const savePlaced = async (
   }
   // A metadata change on a stored record keeps its pixels, so it never needs them in memory.
   const { tiles, artwork, ...rest } = placed
-  return await saveTemplate(
-    {
-      ...rest,
-      visible,
-      tileKeys: [...tiles],
-      pixels: expectedRevision === null ? artwork.pixels : null,
-    },
-    expectedRevision,
+  return noteSnapshot(
+    artwork,
+    await saveTemplate(
+      {
+        ...rest,
+        visible,
+        tileKeys: [...tiles],
+        pixels: expectedRevision === null ? artwork.pixels : null,
+      },
+      expectedRevision,
+    ),
+    expectedRevision === null,
   )
 }
 
@@ -1286,19 +1328,20 @@ const isPendingImage = (template: PlacedTemplate): boolean =>
 const placedFromStored = (
   stored: StoredMetadata,
   tiles: ReadonlySet<string>,
-  pixels: SparsePixels | null,
-  /** Painted chunk area, when known without the pixels. */
-  area?: number,
-): PlacedTemplate => ({
-  ...stored,
-  artwork: newArtwork(pixels, area),
-  surface: stored.surface ?? WORLD_TEMPLATE_SURFACE,
-  appearance: stored.appearance ?? null,
-  owns: stored.owns ?? (stored.appearance != null ? APPEARANCE_GROUPS : []),
-  folderId: stored.folderId ?? null,
-  visible: stored.visible,
-  tiles,
-})
+  artwork: TemplateArtwork,
+): PlacedTemplate => {
+  if (stored.native?.token !== undefined) artworkSnapshots.set(artwork, stored.native.token)
+  return {
+    ...stored,
+    artwork,
+    surface: stored.surface ?? WORLD_TEMPLATE_SURFACE,
+    appearance: stored.appearance ?? null,
+    owns: stored.owns ?? (stored.appearance != null ? APPEARANCE_GROUPS : []),
+    folderId: stored.folderId ?? null,
+    visible: stored.visible,
+    tiles,
+  }
+}
 
 const removeStaleLocalState = (existing: PlacedTemplate): void => {
   retainedIndexPixels -= residentArea(existing)
@@ -1308,13 +1351,58 @@ const removeStaleLocalState = (existing: PlacedTemplate): void => {
   notify()
 }
 
-/** Replace stale process-local state with the durable winner after an IndexedDB CAS conflict. */
-const reconcileConflictExclusive = async (id: string): Promise<void> => {
+/**
+ * The painted tiles of a winner whose artwork is still `existing`'s, or null when it may differ.
+ *
+ * Personal artwork is a rendering of its Wplace snapshot, so snapshots that render the same hold
+ * the same pixels. A winner that moved needs its tiles recounted, from pixels still in memory.
+ */
+const unchangedArtworkTiles = async (
+  existing: PlacedTemplate,
+  winner: StoredMetadata,
+): Promise<ReadonlySet<string> | null> => {
+  const before = artworkSnapshots.get(existing.artwork)
+  const after = winner.native?.token
+  if (
+    before === undefined ||
+    after === undefined ||
+    winner.width !== existing.width ||
+    winner.height !== existing.height ||
+    winner.opaque !== existing.opaque
+  )
+    return null
+  try {
+    if (!sameRender(before, after)) return null
+    if (
+      winner.originX === existing.originX &&
+      winner.originY === existing.originY &&
+      sameTemplateSurface(
+        winner.surface ?? WORLD_TEMPLATE_SURFACE,
+        existing.surface ?? WORLD_TEMPLATE_SURFACE,
+      )
+    )
+      return existing.tiles
+    const pixels = existing.artwork.pixels
+    return pixels === null ? null : await paintedTileKeys(winner, pixels)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Replace stale process-local state with the durable winner after an IndexedDB CAS conflict.
+ *
+ * The winner is read without its pixels first, so a metadata change keeps this tab's artwork.
+ * `verifyPixels` reads them at once, for a caller whose pixel load just failed.
+ */
+const reconcileConflictExclusive = async (id: string, verifyPixels: boolean): Promise<void> => {
   const MAX_RECONCILIATION_ATTEMPTS = 4
   for (let attempt = 0; attempt < MAX_RECONCILIATION_ATTEMPTS; attempt++) {
     const existing = templates.get(id)
     if (existing === undefined) return
-    const loaded = await loadTemplate(id, MAX_RESIDENT_PIXELS)
+    const loaded = verifyPixels
+      ? await loadTemplate(id, MAX_RESIDENT_PIXELS)
+      : await loadTemplateMetadata(id)
     if (loaded.status === 'unavailable') return
     if (loaded.status === 'missing') {
       removeStaleLocalState(existing)
@@ -1330,9 +1418,11 @@ const reconcileConflictExclusive = async (id: string): Promise<void> => {
       warn('install', `could not remove invalid conflict winner for ${existing.name}`)
       return
     }
-    let winner: StoredTemplate
+    let winner: StoredMetadata & { readonly pixels: SparsePixels | null }
     try {
-      winner = normaliseStoredTemplate(loaded.template)
+      winner = verifyPixels
+        ? normaliseStoredTemplate(loaded.template)
+        : { ...normaliseStoredMetadata(loaded.template), pixels: null }
       if (winner.id !== id || (winner.source === 'image' && !winner.everPlaced)) {
         throw new RangeError('winning template state is invalid')
       }
@@ -1357,6 +1447,19 @@ const reconcileConflictExclusive = async (id: string): Promise<void> => {
     if (winner.revision === existing.revision) return
     // Split the pixels off, so the catalog entry holds them only through its artwork.
     const { pixels, ...metadata } = winner
+    if (pixels === null) {
+      const kept = await unchangedArtworkTiles(existing, metadata)
+      if (kept === null) {
+        verifyPixels = true
+        continue
+      }
+      if (templates.get(id) !== existing) continue
+      previewOrigins.delete(id)
+      templates.set(id, placedFromStored(metadata, kept, existing.artwork))
+      noteReconciliation(id)
+      notify()
+      return
+    }
     let tiles: ReadonlySet<string>
     try {
       tiles = await paintedTileKeys(metadata, pixels)
@@ -1381,7 +1484,7 @@ const reconcileConflictExclusive = async (id: string): Promise<void> => {
     setPixels(existing, null)
     const area = storedArea(pixels)
     const resident = wasResident ? makeRoom(area, id) : fitsResident(area)
-    templates.set(id, placedFromStored(metadata, tiles, resident ? pixels : null, area))
+    templates.set(id, placedFromStored(metadata, tiles, newArtwork(resident ? pixels : null, area)))
     if (resident) retainedIndexPixels += area
     noteReconciliation(id)
     notify()
@@ -1390,10 +1493,10 @@ const reconcileConflictExclusive = async (id: string): Promise<void> => {
   warn('install', `could not reconcile ${id}: conflict retry limit reached`)
 }
 
-const reconcileConflict = async (id: string): Promise<void> => {
+const reconcileConflict = async (id: string, verifyPixels = false): Promise<void> => {
   const running = reconciliationTail.then(
-    async () => await reconcileConflictExclusive(id),
-    async () => await reconcileConflictExclusive(id),
+    async () => await reconcileConflictExclusive(id, verifyPixels),
+    async () => await reconcileConflictExclusive(id, verifyPixels),
   )
   reconciliationTail = running.then(
     () => undefined,
@@ -1883,12 +1986,15 @@ const restoreRecord = async (
     return 'skipped'
   }
   if (pixels === null) {
-    templates.set(id, placedFromStored(template, tiles, null, catalogStoredArea(record)))
+    templates.set(
+      id,
+      placedFromStored(template, tiles, newArtwork(null, catalogStoredArea(record))),
+    )
     return 'restored'
   }
   const area = storedArea(pixels)
   const resident = fitsResident(area)
-  templates.set(id, placedFromStored(template, tiles, resident ? pixels : null, area))
+  templates.set(id, placedFromStored(template, tiles, newArtwork(resident ? pixels : null, area)))
   if (resident) retainedIndexPixels += area
   return 'restored'
 }
@@ -1939,12 +2045,24 @@ export const restoreLocalTemplates = (): Promise<void> => {
   return restoring
 }
 
-/** Apply native projections through the same serialized reconciliation used by local edit conflicts. */
+/**
+ * Apply native projections through the same serialized reconciliation used by local edit conflicts.
+ *
+ * One catalog read finds the records whose revision moved; the rest are current already.
+ */
 export const refreshPersonalTemplates = async (): Promise<void> => {
   if (restoreInFlight !== null) await restoreInFlight
+  const { records } = await loadTemplateCatalog()
+  const revisions = new Map(
+    records.map((record) => [
+      record.id as string,
+      Number.isSafeInteger(record.revision) ? Number(record.revision) : 0,
+    ]),
+  )
   for (const template of [...templates.values()]) {
     if (isServerTemplate(template) || isPendingImage(template)) continue
     if ((template.surface ?? WORLD_TEMPLATE_SURFACE).kind !== 'world') continue
+    if (revisions.get(template.id) === template.revision) continue
     await writeInOrder(template.id, async () => await reconcileConflict(template.id))
   }
   await restoreLocalTemplates()
@@ -2302,12 +2420,9 @@ export const replaceLocalArtwork = async (
     setPixels(expected, null)
     const area = storedArea(pixels)
     const resident = makeRoom(area, expected.id)
-    templates.set(expected.id, {
-      ...next,
-      artwork: newArtwork(resident ? pixels : null, area),
-      tiles,
-      revision: result.revision,
-    })
+    const artwork = newArtwork(resident ? pixels : null, area)
+    noteSnapshot(artwork, result, true)
+    templates.set(expected.id, { ...next, artwork, tiles, revision: result.revision })
     if (resident) retainedIndexPixels += area
     notify()
   })
