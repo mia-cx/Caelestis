@@ -88,7 +88,8 @@ const position = (plan: StoredPlan, completed: number) => {
         snapshot: plan.snapshots[first + (within % length)],
         tile: plan.tiles[Math.floor(within / length)],
         starts: within === 0,
-        ends: within === length * tiles - 1,
+        /** Every tile has now seen this snapshot, so its sample is complete. */
+        samples: Math.floor(within / length) === tiles - 1,
       }
     offset += length * tiles
     first += length
@@ -343,12 +344,13 @@ export class TemplateBackfill {
     if (step === null || snapshot === undefined || tile === undefined) return
     const firstLive = await this.sql.readFirstTemplateObservation(summary.basis.versionId)
     if (firstLive !== null && snapshot.at >= firstLive) {
-      // Samples exist for the runs already finished; this run's stop with it.
+      // Samples exist for every snapshot all tiles have seen; the rest of this run stops here.
+      const sampled = step.first + (step.samples ? step.index : 0)
       await this.storage.put<StoredJob>('job', {
         summary: {
           ...summary,
           to:
-            snapshots.slice(0, step.first).findLast((entry) => entry.at < firstLive)?.at ??
+            snapshots.slice(0, sampled).findLast((entry) => entry.at < firstLive)?.at ??
             summary.from,
           total: summary.completed,
           status: summary.failed > 0 ? 'failed' : 'completed',
@@ -414,33 +416,26 @@ export class TemplateBackfill {
       error = cause instanceof Error ? cause.message : String(cause)
     }
     // A run's first step starts its counters afresh.
-    let correct = counters(step.starts ? [] : held.correct, step.length, 0)
-    let mismatched = counters(step.starts ? [] : held.mismatched, step.length, 0)
-    let incomplete = counters(step.starts ? [] : held.incomplete, step.length, false)
+    const correct = counters(step.starts ? [] : held.correct, step.length, 0)
+    const mismatched = counters(step.starts ? [] : held.mismatched, step.length, 0)
+    const incomplete = counters(step.starts ? [] : held.incomplete, step.length, false)
     correct[step.index] = (correct[step.index] ?? 0) + (observation?.correct ?? 0)
     mismatched[step.index] = (mismatched[step.index] ?? 0) + (observation?.mismatched ?? 0)
     incomplete[step.index] =
       incomplete[step.index] === true || (chunk !== undefined && observation?.hash == null)
     const completed = summary.completed + 1
-    if (step.ends) {
-      for (let index = 0; index < step.length; index++) {
-        const sampled = snapshots[step.first + index]
-        if (sampled === undefined) continue
-        const unknown = incomplete[index] === true
-        await this.storage.put<ArchiveProgressSample>(
-          `sample:${summary.basis.versionId}:${suffix(sampled.id)}`,
-          {
-            at: sampled.at,
-            snapshotId: sampled.id,
-            correct: unknown ? null : (correct[index] ?? 0),
-            mismatched: unknown ? null : (mismatched[index] ?? 0),
-            total: summary.basis.total,
-          },
-        )
-      }
-      correct = []
-      mismatched = []
-      incomplete = []
+    if (step.samples) {
+      const unknown = incomplete[step.index] === true
+      await this.storage.put<ArchiveProgressSample>(
+        `sample:${summary.basis.versionId}:${suffix(snapshot.id)}`,
+        {
+          at: snapshot.at,
+          snapshotId: snapshot.id,
+          correct: unknown ? null : (correct[step.index] ?? 0),
+          mismatched: unknown ? null : (mismatched[step.index] ?? 0),
+          total: summary.basis.total,
+        },
+      )
     }
     const next: BackfillJob = {
       ...summary,

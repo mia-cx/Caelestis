@@ -279,6 +279,21 @@ describe('template backfill contract', () => {
     expect(Math.max(...downloads.values())).toBe(1)
   })
 
+  it('keeps the samples of snapshots every tile has seen when a job stops part-way through a week', async () => {
+    const archive: ArchiveSource = {
+      snapshots: async () => [snapshot, { id: 2, at: 150 }],
+      tile: async (id) => new Uint8Array(1_000_000).fill(id),
+    }
+    const { importer } = await createImporter(archive)
+    const job = await importer.start(templateId, versionId, snapshot.id)
+    // Both snapshots share a week, so the last step is the last tile's second snapshot.
+    for (let step = 1; step < job.total; step++) await importer.step()
+    await importer.cancel()
+    expect((await importer.history(versionId)).samples).toMatchObject([
+      { snapshotId: 1, correct: 1, mismatched: 0 },
+    ])
+  })
+
   it('finishes a job persisted with its plan inline, as before plans had their own key', async () => {
     const archive: ArchiveSource = {
       snapshots: async () => [snapshot, { id: 2, at: 150 }],
