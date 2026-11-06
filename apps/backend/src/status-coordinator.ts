@@ -1,4 +1,6 @@
 import type {
+  ContributionsResponse,
+  LeaderboardResponse,
   LiveDashboardSubscription,
   LiveProjectionState,
   LiveSyncClientEvent,
@@ -12,6 +14,8 @@ import type {
 import {
   decodeLiveTileUpload,
   encodeLiveServerEvent,
+  exceedsUtf8Bytes,
+  frameLiveServerEvent,
   LivePaintAssembler,
   LivePaintAssemblyError,
   MAX_LIVE_BINARY_HEADER_BYTES,
@@ -482,6 +486,27 @@ export const createChunkedStatusPersistence = (
   }
 }
 
+const tryEncode = (event: LiveSyncServerEvent): readonly string[] | null => {
+  try {
+    return encodeLiveServerEvent(event)
+  } catch {
+    return null
+  }
+}
+
+/** Start each keyed read once per broadcast and hand every subscriber the same promise. */
+const onePerKey = <A>() => {
+  const pending = new Map<string, Promise<A>>()
+  return (key: string, read: () => Promise<A>): Promise<A> => {
+    let held = pending.get(key)
+    if (held === undefined) {
+      held = read()
+      pending.set(key, held)
+    }
+    return held
+  }
+}
+
 const validSeason = (season: number): void => {
   if (!Number.isSafeInteger(season) || season < 0)
     throw new RangeError('season must be non-negative')
@@ -499,6 +524,9 @@ export class StatusCoordinator<Client> {
   private readonly paints = new LivePaintAssembler()
   private readonly tileGenerations = createTileGenerationCache()
   private tileGenerationCoverageRevision = 0
+  /** Dashboard changes notified so far; a refresh repeats until it has served the latest. */
+  private dashboardChanges = 0
+  private dashboardRefreshing = false
   private runtime: BackendRuntime | null = null
 
   constructor(
@@ -615,27 +643,29 @@ export class StatusCoordinator<Client> {
   }
 
   private send(socket: LiveSocket, event: LiveSyncServerEvent): void {
-    let messages: readonly string[]
-    try {
-      messages = encodeLiveServerEvent(event)
-    } catch {
-      try {
-        socket.close(1011, 'live sync send failed')
-      } catch {}
-      return
-    }
-    this.sendEncoded(socket, messages)
+    this.sendEncoded(socket, tryEncode(event))
   }
 
-  /** Deliver an already-encoded event, so one encoding can serve many subscribers. */
-  private sendEncoded(socket: LiveSocket, messages: readonly string[]): void {
+  /**
+   * Deliver an already-encoded event, so one encoding can serve many subscribers. `null` is an
+   * event that could not be encoded, which closes the socket as a failed send does.
+   */
+  private sendEncoded(socket: LiveSocket, messages: readonly string[] | null): void {
     try {
+      if (messages === null) throw new RangeError('live event could not be encoded')
       for (const message of messages) socket.send(message)
     } catch {
       try {
         socket.close(1011, 'live sync send failed')
       } catch {}
     }
+  }
+
+  /** Encode once and deliver the same messages to every socket. */
+  private broadcast(sockets: readonly LiveSocket[], event: LiveSyncServerEvent): void {
+    if (sockets.length === 0) return
+    const messages = tryEncode(event)
+    for (const socket of sockets) this.sendEncoded(socket, messages)
   }
 
   private configuredServer(): ServerInfo {
@@ -658,25 +688,24 @@ export class StatusCoordinator<Client> {
     return match === null ? null : templateSurface(match[1], Number(match[2]))
   }
 
-  private async sendProjectionSnapshot(
-    socket: LiveSocket,
+  /** The snapshot one projection subscriber is owed, or null when it has none. */
+  private async projectionSnapshot(
     attachment: LiveSubscriberAttachment,
     projection: LiveProjectionState,
-  ): Promise<void> {
+  ): Promise<LiveSyncServerEvent | null> {
     if (projection.resource === 'telemetry-alarms') {
-      if (projection.scope !== 'world') return
+      if (projection.scope !== 'world') return null
       const alarms = await this.backendRuntime().run(
         readAlarms(attachment.season, attachment.scope === 'admin'),
       )
-      this.send(socket, { type: 'alarms-snapshot', alarms })
-      return
+      return { type: 'alarms-snapshot', alarms }
     }
     const surface = this.projectionSurface(projection)
     if (
       surface === null ||
       (projection.resource === 'world-manifest') !== (surface.kind === 'world')
     ) {
-      return
+      return null
     }
     const read = await this.manifestModel(attachment.season).read({
       server: this.configuredServer(),
@@ -685,13 +714,22 @@ export class StatusCoordinator<Client> {
       scope: attachment.scope,
       ifNoneMatch: [],
     })
-    if (read.notModified) return
-    this.send(socket, {
+    if (read.notModified) return null
+    return {
       type: 'manifest-snapshot',
       resource: projection.resource,
       scope: projection.scope,
       manifest: read.manifest,
-    })
+    }
+  }
+
+  private async sendProjectionSnapshot(
+    socket: LiveSocket,
+    attachment: LiveSubscriberAttachment,
+    projection: LiveProjectionState,
+  ): Promise<void> {
+    const event = await this.projectionSnapshot(attachment, projection)
+    if (event !== null) this.send(socket, event)
   }
 
   private async liveProjectionVersion(
@@ -770,20 +808,16 @@ export class StatusCoordinator<Client> {
   }
 
   private broadcastStatus(scope: StatusVisibilityScope, delta: StatusDelta): void {
+    const sockets = this.subscribers(scope)
+    if (sockets.length === 0) return
+    // Serialize once to measure the delta, then frame that same text for every subscriber.
     const encoded = JSON.stringify({ type: 'status-delta', delta } satisfies LiveSyncServerEvent)
-    const event: LiveSyncServerEvent =
-      new TextEncoder().encode(encoded).byteLength <= MAX_DELTA_MESSAGE_BYTES
-        ? { type: 'status-delta', delta }
-        : { type: 'status-reconcile', revision: delta.revision }
-    // Encode once for every subscriber; with hundreds of sockets per commit the per-socket
-    // JSON work was a measurable share of the event loop.
-    let messages: readonly string[]
-    try {
-      messages = encodeLiveServerEvent(event)
-    } catch {
+    if (exceedsUtf8Bytes(encoded, MAX_DELTA_MESSAGE_BYTES)) {
+      this.broadcast(sockets, { type: 'status-reconcile', revision: delta.revision })
       return
     }
-    for (const socket of this.subscribers(scope)) this.sendEncoded(socket, messages)
+    const messages = frameLiveServerEvent(encoded)
+    for (const socket of sockets) this.sendEncoded(socket, messages)
   }
 
   async applyCommittedChange(
@@ -793,11 +827,10 @@ export class StatusCoordinator<Client> {
     const change = await this.model(season).applyCommittedChange(mutation)
     if (change === null) {
       const snapshot = await this.model(season).reconcileSnapshot('public')
-      const event: LiveSyncServerEvent = {
+      this.broadcast(this.subscribers(), {
         type: 'status-reconcile',
         revision: snapshot.snapshot.revision,
-      }
-      for (const socket of this.subscribers()) this.send(socket, event)
+      })
     } else {
       this.broadcastStatus('public', change.public)
       this.broadcastStatus('admin', change.admin)
@@ -840,15 +873,26 @@ export class StatusCoordinator<Client> {
   }
 
   private broadcastManifest(revision: number, surface?: TemplateSurface): void {
-    const event: LiveSyncServerEvent = {
+    this.broadcast(this.subscribers(), {
       type: 'manifest-reconcile',
       revision,
       ...(surface === undefined ? {} : { surface }),
-    }
-    for (const socket of this.subscribers()) this.send(socket, event)
+    })
   }
 
   private async broadcastManifestSnapshots(surface?: TemplateSurface): Promise<void> {
+    // Subscribers that share a visibility scope and projection are owed the same bytes, so each
+    // audience costs one read and one encoding however many sockets it has. `undefined` means the
+    // audience is owed nothing; `null` is an event `sendEncoded` cannot deliver.
+    const audiences = onePerKey<readonly string[] | null | undefined>()
+    const snapshotFor = (attachment: LiveSubscriberAttachment, projection: LiveProjectionState) =>
+      audiences(
+        `${attachment.season}:${attachment.scope}:${projection.resource}:${projection.scope}`,
+        async () => {
+          const event = await this.projectionSnapshot(attachment, projection)
+          return event === null ? undefined : tryEncode(event)
+        },
+      )
     await Promise.all(
       this.subscribers().map(async (socket) => {
         const attachment = socket.deserializeAttachment() as LiveSubscriberAttachment | null
@@ -863,7 +907,8 @@ export class StatusCoordinator<Client> {
           ) {
             continue
           }
-          await this.sendProjectionSnapshot(socket, attachment, projection)
+          const messages = await snapshotFor(attachment, projection)
+          if (messages !== undefined) this.sendEncoded(socket, messages)
         }
       }),
     )
@@ -881,7 +926,11 @@ export class StatusCoordinator<Client> {
     this.broadcastManifest(revision, surface)
     await Promise.all([
       this.broadcastManifestSnapshots(surface),
-      surface === undefined ? Promise.resolve() : this.broadcastAlarmSnapshots(),
+      // Which alarms a caller sees follows the templates on a surface. Metadata-only edits, such as
+      // work, tags and folders, leave every alarm and its visibility unchanged.
+      surface === undefined || !affectsTileCoverage
+        ? Promise.resolve()
+        : this.broadcastAlarmSnapshots(),
     ])
   }
 
@@ -943,8 +992,7 @@ export class StatusCoordinator<Client> {
 
   async notifyAlarmChange(season: number): Promise<void> {
     this.bindSeason(season)
-    const event: LiveSyncServerEvent = { type: 'alarms-reconcile' }
-    for (const socket of this.subscribers()) this.send(socket, event)
+    this.broadcast(this.subscribers(), { type: 'alarms-reconcile' })
     await this.broadcastAlarmSnapshots()
   }
 
@@ -956,18 +1004,14 @@ export class StatusCoordinator<Client> {
     // One read and one encoding per season and scope, not one per subscriber. With hundreds of
     // sockets, one alarm change used to fire hundreds of identical queries at the pool at once
     // and starved every live command behind them.
-    const encoded = new Map<string, Promise<readonly string[]>>()
-    const snapshotFor = ({ season, scope }: LiveSubscriberAttachment) => {
-      const key = `${season}:${scope}`
-      let pending = encoded.get(key)
-      if (pending === undefined) {
-        pending = this.backendRuntime()
-          .run(readAlarms(season, scope === 'admin'))
-          .then((alarms) => encodeLiveServerEvent({ type: 'alarms-snapshot', alarms }))
-        encoded.set(key, pending)
-      }
-      return pending
-    }
+    const encoded = onePerKey<readonly string[] | null>()
+    const snapshotFor = ({ season, scope }: LiveSubscriberAttachment) =>
+      encoded(`${season}:${scope}`, async () =>
+        tryEncode({
+          type: 'alarms-snapshot',
+          alarms: await this.backendRuntime().run(readAlarms(season, scope === 'admin')),
+        }),
+      )
     await Promise.all(
       subscribers.map(async ({ socket, attachment }) => {
         this.sendEncoded(socket, await snapshotFor(attachment))
@@ -975,54 +1019,104 @@ export class StatusCoordinator<Client> {
     )
   }
 
+  /**
+   * Dashboard reads for one moment. Subscriptions asking the same question of the same visibility
+   * scope share one read, so equal dashboards on many sockets cost what one does.
+   */
+  private dashboardReads() {
+    const now = seconds(Math.floor(Date.now() / 1_000) + 1)
+    const contributionReads = onePerKey<ContributionsResponse>()
+    const leaderboardReads = onePerKey<LeaderboardResponse>()
+    return async (
+      attachment: LiveSubscriberAttachment,
+      subscription: LiveDashboardSubscription,
+    ): Promise<LiveSyncServerEvent | null> => {
+      if (subscription.contributionsFrom >= now) return null
+      const includeUnpublished = attachment.scope === 'admin'
+      const audience = `${attachment.season}:${attachment.scope}:${JSON.stringify(subscription.templateIds)}`
+      const [contributions, leaderboard] = await Promise.all([
+        contributionReads(`${audience}:${subscription.contributionsFrom}`, () =>
+          this.backendRuntime().run(
+            readContributions({
+              templateIds: subscription.templateIds,
+              range: { fromSeconds: subscription.contributionsFrom, toSeconds: now },
+              includeUnpublished,
+            }),
+          ),
+        ),
+        leaderboardReads(`${audience}:${subscription.leaderboardLimit}`, () =>
+          this.backendRuntime().run(
+            readLeaderboard({
+              season: attachment.season,
+              templateIds: subscription.templateIds,
+              limit: subscription.leaderboardLimit,
+              includeUnpublished,
+            }),
+          ),
+        ),
+      ])
+      return {
+        type: 'dashboard-snapshot',
+        subscriptionId: subscription.subscriptionId,
+        contributions,
+        leaderboard,
+      }
+    }
+  }
+
   private async sendDashboardSnapshot(
     socket: LiveSocket,
     attachment: LiveSubscriberAttachment,
     subscription: LiveDashboardSubscription,
   ): Promise<void> {
-    const now = seconds(Math.floor(Date.now() / 1_000) + 1)
-    if (subscription.contributionsFrom >= now) return
-    const includeUnpublished = attachment.scope === 'admin'
-    const [contributions, leaderboard] = await Promise.all([
-      this.backendRuntime().run(
-        readContributions({
-          templateIds: subscription.templateIds,
-          range: { fromSeconds: subscription.contributionsFrom, toSeconds: now },
-          includeUnpublished,
-        }),
-      ),
-      this.backendRuntime().run(
-        readLeaderboard({
-          season: attachment.season,
-          templateIds: subscription.templateIds,
-          limit: subscription.leaderboardLimit,
-          includeUnpublished,
-        }),
-      ),
-    ])
-    this.send(socket, {
-      type: 'dashboard-snapshot',
-      subscriptionId: subscription.subscriptionId,
-      contributions,
-      leaderboard,
-    })
+    const event = await this.dashboardReads()(attachment, subscription)
+    if (event !== null) this.send(socket, event)
   }
 
   private async broadcastDashboardSnapshots(): Promise<void> {
+    const snapshot = this.dashboardReads()
     await Promise.all(
       this.subscribers().flatMap((socket) => {
         const attachment = socket.deserializeAttachment() as LiveSubscriberAttachment | null
         if (attachment?.protocol !== 2) return []
-        return (attachment.dashboardSubscriptions ?? []).map((subscription) =>
-          this.sendDashboardSnapshot(socket, attachment, subscription),
-        )
+        return (attachment.dashboardSubscriptions ?? []).map(async (subscription) => {
+          const event = await snapshot(attachment, subscription)
+          if (event !== null) this.send(socket, event)
+        })
       }),
     )
   }
 
+  /**
+   * Schedule a dashboard refresh and return without waiting for it, so a paint is acknowledged
+   * before its subscribers are. Changes that arrive during a refresh share one more refresh, which
+   * starts after they landed.
+   */
   async notifyDashboardChange(season: number): Promise<void> {
     this.bindSeason(season)
-    await this.broadcastDashboardSnapshots()
+    this.dashboardChanges++
+    if (this.dashboardRefreshing) return
+    this.dashboardRefreshing = true
+    // A later task, not a microtask: synchronous drivers such as SQLite would otherwise run the
+    // reads before the paint that notified is acknowledged.
+    setTimeout(() => void this.refreshDashboards(), 0)
+  }
+
+  private async refreshDashboards(): Promise<void> {
+    let served = -1
+    try {
+      while (served !== this.dashboardChanges) {
+        served = this.dashboardChanges
+        try {
+          await this.broadcastDashboardSnapshots()
+        } catch (error) {
+          // A missed refresh is repaired by the next paint or a resubscribe.
+          console.error('dashboard refresh failed', error)
+        }
+      }
+    } finally {
+      this.dashboardRefreshing = false
+    }
   }
 
   private canReport(attachment: LiveSubscriberAttachment | null, season: number): boolean {

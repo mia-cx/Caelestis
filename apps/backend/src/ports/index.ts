@@ -24,6 +24,7 @@ export {
   type AccessToken,
   type AccessTokenCursor,
   type AccessTokenQuery,
+  type AlarmEvaluation,
   type AlarmEvaluationPhase,
   type AlarmPolicyResult,
   type AlarmProbe,

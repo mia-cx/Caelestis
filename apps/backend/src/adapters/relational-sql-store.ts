@@ -61,8 +61,8 @@ import {
 import {
   type AccessToken,
   type AccessTokenQuery,
+  type AlarmEvaluation,
   type AlarmEvaluationPhase,
-  type AlarmPolicyResult,
   type AlarmProbe,
   type AlarmStatusSnapshot,
   type AlarmTileRecord,
@@ -134,6 +134,7 @@ import { TagConflictError, type TagMutation } from '../tags/store.js'
 import {
   ALARM_FOLLOW_UP_DELAY_MILLISECONDS,
   evaluateAlarmSnapshot,
+  sameAlarm,
 } from '../telemetry/alarm-policy.js'
 import { RelationalRegionStore } from '../work/relational-region-store.js'
 import { RelationalWorkStore } from '../work/relational-store.js'
@@ -2938,7 +2939,7 @@ export class RelationalSqlStore implements SqlStore {
     snapshot: TemplateAlarmSnapshot,
     phase: AlarmEvaluationPhase,
     alarmId: string,
-  ): Promise<AlarmPolicyResult> {
+  ): Promise<AlarmEvaluation> {
     for (let attempt = 0; attempt < 8; attempt++) {
       const previousRow = await this.database
         .select()
@@ -2956,7 +2957,10 @@ export class RelationalSqlStore implements SqlStore {
           previousRow.probeDueAtMs !== phase.dueAt ||
           previousRow.probePixelsLost !== phase.pixelsLost)
       ) {
-        return evaluateAlarmSnapshot(previousState, snapshot, phase, () => alarmId)
+        return {
+          ...evaluateAlarmSnapshot(previousState, snapshot, phase, () => alarmId),
+          alarmChanged: false,
+        }
       }
       if (
         previousRow !== undefined &&
@@ -2966,7 +2970,11 @@ export class RelationalSqlStore implements SqlStore {
               (phase.kind === 'observation' &&
                 snapshot.observationRevision === previousRow.observationRevision))))
       ) {
-        return { state: previousState as TemplateAlarmState, scheduleFollowUp: false }
+        return {
+          state: previousState as TemplateAlarmState,
+          scheduleFollowUp: false,
+          alarmChanged: false,
+        }
       }
       const result = evaluateAlarmSnapshot(previousState, snapshot, phase, () => alarmId)
       const alarm = result.state.alarm
@@ -3019,7 +3027,8 @@ export class RelationalSqlStore implements SqlStore {
                   eq(templateAlarmStates.revision, previousRow.revision),
                 ),
               )
-      if (changedRows(write) > 0) return result
+      if (changedRows(write) > 0)
+        return { ...result, alarmChanged: !sameAlarm(previousState?.alarm ?? null, alarm) }
     }
     throw new Error(`alarm state stayed contended for template ${snapshot.templateId}`)
   }

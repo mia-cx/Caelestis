@@ -519,6 +519,7 @@ const recordObservationPromise = async (
   // The fetcher evaluates its complete scan/follow-up after its authoritative tile batch.
   const alarmsStartedAt = performance.now()
   if (options.authoritative !== true && committed.revision !== null && alarmChanges.length > 0) {
+    let alarmChanged = false
     for (const {
       previous,
       current,
@@ -526,7 +527,7 @@ const recordObservationPromise = async (
       previousTemplateObservedAt,
       totalPixels,
     } of alarmChanges) {
-      await ports.sql.evaluateTemplateAlarm(
+      const evaluation = await ports.sql.evaluateTemplateAlarm(
         {
           templateId: current.templateId,
           versionId: current.versionId,
@@ -541,8 +542,11 @@ const recordObservationPromise = async (
         },
         uuidV7(),
       )
+      alarmChanged ||= evaluation.alarmChanged
     }
-    await publishAlarmChange(ports.statusReadModel, metadata.season)
+    // Progress that moves no alarm, such as painting toward a new high-water mark, owes
+    // subscribers nothing. A changed alarm also covers every follow-up probe it scheduled.
+    if (alarmChanged) await publishAlarmChange(ports.statusReadModel, metadata.season)
   }
   ingestTimings.record(command, 'alarms', performance.now() - alarmsStartedAt)
   // Publish the authoritative revision first. A caller processing many tiles owns one shared batch
