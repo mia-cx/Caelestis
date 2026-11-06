@@ -269,7 +269,15 @@ const assemble = async (
   const indices = new Uint8Array(width * height).fill(TRANSPARENT_INDEX)
   let placed = 0
   let encodedBytes = 0
-  for (const chunk of template.chunks) {
+  // Chunks already decoded go first. Each decode may evict the oldest entry, and in manifest order
+  // a template larger than the cache would evict the very chunks it is about to reuse.
+  const isDecoded = (chunk: { readonly hash: string }) =>
+    decodedChunks.get(chunk.hash) !== undefined
+  const ordered = [
+    ...template.chunks.filter(isDecoded),
+    ...template.chunks.filter((chunk) => !isDecoded(chunk)),
+  ]
+  for (const chunk of ordered) {
     if (generationSignal.aborted) return null
     const [tileX, tileY] = chunk.tile.split('/').map(Number)
     if (
