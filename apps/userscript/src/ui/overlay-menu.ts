@@ -189,7 +189,11 @@ let trackRightEdgeUntil = 0
 let rightEdgeSizes: ResizeObserver | null = null
 let sizedForRightEdge: readonly Element[] = []
 
-const invalidateWorldRightEdge = (): void => {
+/**
+ * Measure the map controls' right edge again on the next render. For a caller that moves the panel
+ * and redraws in the same turn, before the resize observers here have had a frame to notice.
+ */
+export const invalidateOverlayControlsEdge = (): void => {
   worldRightEdge = null
 }
 
@@ -201,9 +205,9 @@ const invalidateWorldRightEdge = (): void => {
 const worldControlsRightEdge = (): number => {
   if (worldRightEdge !== null && performance.now() >= trackRightEdgeUntil) return worldRightEdge
   if (rightEdgeSizes === null) {
-    rightEdgeSizes = new ResizeObserver(invalidateWorldRightEdge)
-    onWplaceLayoutChange(invalidateWorldRightEdge)
-    window.addEventListener('resize', invalidateWorldRightEdge)
+    rightEdgeSizes = new ResizeObserver(invalidateOverlayControlsEdge)
+    onWplaceLayoutChange(invalidateOverlayControlsEdge)
+    window.addEventListener('resize', invalidateOverlayControlsEdge)
   }
   worldRightEdge = localControlsRightEdge()
   const sized = [
@@ -278,7 +282,7 @@ export const glideOverlayControls = (durationMs: number): void => {
     glideTimer = undefined
   }
   trackRightEdgeUntil = performance.now() + Math.max(0, durationMs) + SETTLE_MARGIN_MS
-  invalidateWorldRightEdge()
+  invalidateOverlayControlsEdge()
   const controls = [
     ...buttons.values(),
     ...railActions,

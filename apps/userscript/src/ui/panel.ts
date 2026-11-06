@@ -140,7 +140,11 @@ import { setTemplateDisplayMode } from './display-mode.js'
 import { frameQueue } from './frame-queue.js'
 import { CLEAR_OF_RAIL, EDGE, GAP, RAIL_BUTTON } from './metrics.js'
 import { mountNotificationsIn, syncToastPlacement } from './notification-host.js'
-import { glideOverlayControls, refreshOverlayMenu } from './overlay-menu.js'
+import {
+  glideOverlayControls,
+  invalidateOverlayControlsEdge,
+  refreshOverlayMenu,
+} from './overlay-menu.js'
 import { panelWidthAfterMount } from './panel-geometry.js'
 import { canvasWritesTouchArtboard } from './panel-progress.js'
 import {
@@ -1292,6 +1296,7 @@ const buildSveltePanel = (): CaelestisPanel => {
           const active = activeAllianceSurface()
           if (active !== null) positionAllianceRail(active)
         }
+        invalidateOverlayControlsEdge()
         redraw()
         break
       case 'resize-commit':
@@ -1836,6 +1841,7 @@ export const installPanel = (): void => {
     positionChargeForecast()
   })
   window.addEventListener('resize', () => {
+    invalidateOverlayControlsEdge()
     closePanelForMobileDrawing()
     positionRail()
     positionChargeForecast()
