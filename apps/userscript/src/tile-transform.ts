@@ -15,6 +15,13 @@ import { measureProfile } from './profile.js'
 import { buildExactRgbIndex, canvasRgbIndex } from './rgb-index.js'
 import { draftedPixelsIn } from './templates/drafted.js'
 import { tilePixelCacheLimit } from './tile-pixel-cache.js'
+import {
+  fetchTileInWorker,
+  readTilePixels,
+  type TileBody,
+  type TilePixelsRead,
+  type TileReading,
+} from './tile-reader.js'
 import { forgetCharges, observeCharges } from './wplace-charges.js'
 import { isWplacePatchEnabled } from './wplace-patches.js'
 import {
@@ -992,6 +999,12 @@ const installBlobTap = (realm: Window & typeof globalThis): InstalledValueHook |
 const pixelsOfTile = new Map<string, Uint8Array>()
 /** Only the digest of a completed tile capture may skip a later read of retained pixels. */
 const capturedTileDigests = new Map<string, ArrayBuffer>()
+/** Bumped whenever a digest stops vouching for its tile, so a read already in flight records none. */
+let digestsForgotten = 0
+const forgetTileDigest = (key: string): void => {
+  capturedTileDigests.delete(key)
+  digestsForgotten++
+}
 // Object identity carries request order through the existing buffer/blob/bitmap attribution taps.
 const submissionOrder = new WeakMap<object, number>()
 const pendingSubmissions = new Set<number>()
@@ -1040,7 +1053,7 @@ const retainAcceptedPaint = (paint: AcceptedPaint, accepted: number): void => {
   if (total === 0 || paint.painted !== total) return
   for (const tile of paint.tiles) {
     const key = tileKey(tile)
-    capturedTileDigests.delete(key)
+    forgetTileDigest(key)
     let held = acceptedPixels.get(key)
     if (held === undefined) {
       held = { pixels: new Map(), pending: 0 }
@@ -1211,109 +1224,22 @@ const CHASE_LIMIT = 4
 const requestedTilePixels = new Map<string, number>()
 
 /**
- * Fetches and decodes a tile in a worker, where no page script can rewrite it.
- *
- * Other userscripts rewrite tile responses on their way to wplace. Blue Marble hands back every tile
- * under its templates upscaled 3x, with its template drawn in. Capture rightly refuses that bitmap,
- * and a chase through the page's `fetch` received the same rewrite, so those tiles were never read
- * and a Local template's progress stayed unscanned behind them. A worker's `fetch` belongs to no
- * page script. An absent tile decodes as the 1x1 empty tile `normalizeMissingTileResponse` makes.
- * The body's SHA-256 comes back with it, as the Blob tap computes it, so capture-dedupe can skip an
- * unchanged tile.
- */
-const TILE_READER = `self.onmessage = async ({ data: { id, url } }) => {
-  try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(15000) })
-    if (response.status === 404) {
-      const bitmap = await createImageBitmap(new ImageData(1, 1))
-      self.postMessage({ id, bitmap, digest: null }, [bitmap])
-      return
-    }
-    if (!response.ok) {
-      self.postMessage({ id })
-      return
-    }
-    const body = await response.arrayBuffer()
-    // No hash outside a secure context; the tile is then read back in full.
-    const hashing = self.crypto?.subtle?.digest('SHA-256', body).catch(() => null) ?? null
-    const [bitmap, digest] = await Promise.all([createImageBitmap(new Blob([body])), hashing])
-    self.postMessage({ id, bitmap, digest }, [bitmap])
-  } catch {
-    self.postMessage({ id })
-  }
-}`
-
-interface WorkerTile {
-  readonly bitmap: ImageBitmap
-  readonly digest: ArrayBuffer | null
-}
-
-/** Undefined until first asked for; null when no worker could be started. */
-let tileReader: Worker | null | undefined
-let nextTileRead = 0
-const tileReads = new Map<number, (tile: WorkerTile | undefined | null) => void>()
-
-/**
- * A decoded tile from the worker, undefined when it could not be read, or null when there is no
- * worker. A worker the page's CSP rejects reports that only after it was constructed, so reads
- * already waiting on it settle null as well and fall back like later ones.
- */
-const readTileInWorker = (url: string): Promise<WorkerTile | undefined | null> => {
-  if (tileReader === undefined) {
-    try {
-      const source = URL.createObjectURL(new Blob([TILE_READER], { type: 'text/javascript' }))
-      tileReader = new Worker(source)
-      URL.revokeObjectURL(source)
-      tileReader.addEventListener(
-        'message',
-        (
-          event: MessageEvent<{ id: number; bitmap?: ImageBitmap; digest?: ArrayBuffer | null }>,
-        ) => {
-          const { id, bitmap, digest = null } = event.data
-          tileReads.get(id)?.(bitmap === undefined ? undefined : { bitmap, digest })
-          tileReads.delete(id)
-        },
-      )
-      tileReader.addEventListener('error', (event) => {
-        warn('fetch', 'tile reads moved to the page', String(event.message))
-        tileReader?.terminate()
-        tileReader = null
-        for (const settle of tileReads.values()) settle(null)
-        tileReads.clear()
-      })
-    } catch (error) {
-      warn('fetch', 'tile reads moved to the page', String(error))
-      tileReader = null
-    }
-  }
-  const reader = tileReader
-  if (reader === null) return Promise.resolve(null)
-  const id = nextTileRead++
-  return new Promise((resolve) => {
-    tileReads.set(id, resolve)
-    reader.postMessage({ id, url })
-  })
-}
-
-/**
- * The page-side read, for when no worker can be started. Another script may rewrite it. It takes
- * Wplace's own body-to-Blob path, so our taps capture it and the Blob tap's hash lets capture-dedupe
- * skip an unchanged tile; `response.blob()` would skip that hash.
+ * The page-side fetch, for when no worker can be started. Another script may rewrite it. It builds
+ * the Blob as Wplace does, so the Blob tap hashes it for capture-dedupe.
  */
 const readTileOnPage = async (
   realm: Window & typeof globalThis,
   url: string,
-): Promise<ImageBitmap | undefined> => {
+): Promise<TileBody | undefined> => {
   const response = await realm.fetch.call(realm, url, { signal: AbortSignal.timeout(15_000) })
   if (!response.ok) return undefined
-  return (await Reflect.apply(realm.createImageBitmap, realm, [
-    new realm.Blob([await response.arrayBuffer()]),
-  ])) as ImageBitmap
+  const body = new realm.Blob([await response.arrayBuffer()])
+  return { body, digest: await (digestOfBlob.get(body) ?? null) }
 }
 
 /**
- * Read one tile from the server and capture it, in the worker when there is one. False when there
- * is no tile URL or page yet, or the tile did not answer.
+ * Read one tile from the server and capture it, fetched in the worker when there is one. False when
+ * there is no tile URL or page yet, or the tile did not answer.
  */
 const readTile = async (tile: TileCoord): Promise<boolean> => {
   const realm = captureRealm
@@ -1321,29 +1247,18 @@ const readTile = async (tile: TileCoord): Promise<boolean> => {
   const url = tileUrlShape.replace('{x}', String(tile.x)).replace('{y}', String(tile.y))
   // Fences this read against newer captures and accepted paint, as the fetch tap does for its own.
   tileRequestOrder.set(tile, nextPixelObservation())
-  const read = await readTileInWorker(url)
+  const fetched = await fetchTileInWorker(url)
+  const read = fetched === null ? await readTileOnPage(realm, url) : fetched
   if (read === undefined) return false
-  if (read !== null) {
-    try {
-      capture(tile, read.bitmap, 'tile', null, read.digest)
-    } finally {
-      read.bitmap.close()
-    }
-    return true
-  }
-  const bitmap = await readTileOnPage(realm, url)
-  if (bitmap === undefined) return false
-  // Our own taps captured that before it resolved. Converting again would read a second
-  // million-pixel canvas per tile; only do it for a tile they missed, as they do if not installed.
-  if (!pixelsOfTile.has(tileKey(tile))) capture(tile, bitmap)
-  bitmap.close()
+  await captureTile(tile, read.body, read.digest)
   return true
 }
 
 export const ensureTilePixels = (tile: TileCoord): boolean => {
   const key = tileKey(tile)
   if ((!capturePixels && !requestedTilePixels.has(key)) || tileUrlShape === null) return false
-  if (pixelsOfTile.has(key)) return true
+  // A tile Wplace already fetched is on its way; chasing it too would download it twice.
+  if (pixelsOfTile.has(key) || tileCaptures.has(key)) return true
   if (chased.has(key) || chasing >= CHASE_LIMIT) return false
   chased.add(key)
   chasing++
@@ -1390,7 +1305,7 @@ export const loadTilePixels = async (
     while (!expired) {
       const pixels = tilePixels(tile)
       if (pixels !== null) return pixels
-      let chase = activeChases.get(key)
+      let chase = activeChases.get(key) ?? tileCaptures.get(key)
       if (chase === undefined && tileUrlShape !== null && chasing < CHASE_LIMIT) {
         // The one-shot history throttles frame-driven capture, not a fresh user action.
         chased.delete(key)
@@ -1865,7 +1780,7 @@ const readWrite = (
  */
 const applyWrite = (tile: TileCoord, triples: readonly number[]): boolean => {
   const key = tileKey(tile)
-  capturedTileDigests.delete(key)
+  forgetTileDigest(key)
   let draft = draftPixels(tile)
   if (draft === null) {
     draft = new Uint8Array(TILE_SIZE * TILE_SIZE).fill(UNPAINTED)
@@ -1942,7 +1857,7 @@ export const captureDraftPixels = (
   flushDraftWrites()
   const key = tileKey(tile)
   // A preview may change while the PNG stays the same; make the next tile observation do a full read.
-  capturedTileDigests.delete(key)
+  forgetTileDigest(key)
   // Resolve zero-alpha occupancy before diffing. Otherwise an unchanged transparent draft emits
   // a removal followed by a replacement on every fallback readback.
   const transparent = new Set<number>()
@@ -2048,67 +1963,18 @@ const sameDigest = (a: ArrayBuffer, b: ArrayBuffer): boolean => {
   return left.length === right.length && left.every((byte, index) => byte === right[index])
 }
 
-/** Read a tile into palette indices, from whatever wplace last drew it from. */
+/** Read a draft canvas into palette indices. Tiles are read from their bodies; see `captureTile`. */
 const capture = (
   tile: TileCoord,
   bitmap: CanvasImageSource & { width: number; height: number },
-  from: 'tile' | 'preview' = 'tile',
   dirty: CanvasWriteRect | null = null,
-  digest: ArrayBuffer | null = null,
 ): boolean =>
-  measureProfile(from === 'preview' ? 'Draft pixel capture' : 'Tile pixel capture', () => {
+  measureProfile('Draft pixel capture', () => {
     const key = tileKey(tile)
-    const retained = from === 'tile' ? acceptedPixels.get(key) : undefined
-    if (
-      (retained?.pending ?? 0) === 0 &&
-      !(from === 'tile' && requestedTilePixels.has(key)) &&
-      (!capturePixels || (captureInterest !== null && !captureInterest(tile)))
-    )
-      return false
-    const observation = tileRequestOrder.get(tile)
-    if (
-      from === 'tile' &&
-      observation !== undefined &&
-      observation < (observedTileOrder.get(key) ?? 0)
-    )
-      return false
-    /**
-     * An undersized bitmap from a tile fetch is wplace saying "nothing is painted here".
-     *
-     * Their service worker substitutes a 1x1 transparent PNG for an absent tile, and
-     * `normalizeMissingTileResponse` above makes us produce the same thing for a 404. Declining it
-     * left the tile with no entry at all, which is not the same answer: markers over it never
-     * appeared, `markUnpainted` could never mark a fully unpainted tile — the one case it exists for
-     * — and the renderer went on asking for a repaint four times a second forever, waiting for pixels
-     * that were never coming. An empty tile is a real answer and gets recorded as one.
-     */
-    const empty = from === 'tile' && bitmap.width < TILE_SIZE && bitmap.height < TILE_SIZE
-    if (!empty && (bitmap.width !== TILE_SIZE || bitmap.height !== TILE_SIZE)) return false
+    if (!capturePixels || (captureInterest !== null && !captureInterest(tile))) return false
+    if (bitmap.width !== TILE_SIZE || bitmap.height !== TILE_SIZE) return false
     try {
-      const existing = pixelsOfTile.get(key)
-      const previousDigest = capturedTileDigests.get(key)
-      if (
-        from === 'tile' &&
-        isWplacePatchEnabled('capture-dedupe') &&
-        digest !== null &&
-        previousDigest !== undefined &&
-        existing !== undefined &&
-        !acceptedPixels.has(key) &&
-        !requestedTilePixels.has(key) &&
-        observation !== undefined &&
-        sameDigest(digest, previousDigest)
-      ) {
-        // A new request still fences older responses and refreshes the cache's LRU position.
-        // Empty notifications have no listeners; only changed pixels are announced.
-        observedTileOrder.set(key, observation)
-        recordPixelObservation(existing, observation)
-        rememberTilePixels(key, existing)
-        notifyPixelBatch(tile, [], 'observed')
-        pruneSubmissionFences()
-        count('pixels:tile captures skipped')
-        return true
-      }
-      if (from === 'preview' && dirty !== null && draftOfTile.has(key)) {
+      if (dirty !== null && draftOfTile.has(key)) {
         const context = reusableCaptureContext()
         if (context === null) return false
         context.clearRect(0, 0, TILE_SIZE, TILE_SIZE)
@@ -2121,103 +1987,290 @@ const capture = (
         return true
       }
       const indices = new Uint8Array(TILE_SIZE * TILE_SIZE)
-      const firstDraftChanges: number[] | null =
-        from === 'preview' && !draftOfTile.has(key) ? [] : null
-      if (empty) {
-        indices.fill(UNPAINTED)
-      } else {
-        const context = reusableCaptureContext()
-        if (context === null) return false
-        // The context is reused, and source-over leaves old RGB behind wherever the new bitmap is
-        // transparent. Clear first so transparent pixels stay unpainted instead of inheriting the
-        // previous tile or draft.
-        context.clearRect(0, 0, TILE_SIZE, TILE_SIZE)
-        context.drawImage(bitmap, 0, 0)
-        const { data } = context.getImageData(0, 0, TILE_SIZE, TILE_SIZE)
-        count(
-          from === 'preview' ? 'pixels:draft readback bytes' : 'pixels:tile readback bytes',
-          data.byteLength,
-        )
-        count(from === 'preview' ? 'pixels:draft full reads' : 'pixels:tile full reads')
-        count(
-          from === 'preview' ? 'pixels:draft readback pixels' : 'pixels:tile readback pixels',
-          TILE_SIZE * TILE_SIZE,
-        )
-        const table = indexTable()
-        for (let i = 0, p = 0; p < indices.length; i += 4, p++) {
-          // Fully transparent is unpainted. Opaque pixels are palette colours, allowing for bounded
-          // privacy noise added by browsers such as Helium during canvas readback.
-          const index =
-            data[i + 3] === 0
-              ? UNPAINTED
-              : canvasRgbIndex(table, data[i] ?? 0, data[i + 1] ?? 0, data[i + 2] ?? 0, UNPAINTED)
-          // A draft canvas is upside down relative to its tile — see `flipRow`. The tile PNG is not.
-          if (from === 'preview') {
-            const x = p % TILE_SIZE
-            const y = flipRow((p - x) / TILE_SIZE)
-            indices[y * TILE_SIZE + x] = index
-            if (index !== UNPAINTED) firstDraftChanges?.push(x, y, index)
-          } else {
-            indices[p] = index
-          }
-        }
+      const firstDraftChanges: number[] | null = draftOfTile.has(key) ? null : []
+      const context = reusableCaptureContext()
+      if (context === null) return false
+      // The context is reused, and source-over leaves old RGB behind wherever the new bitmap is
+      // transparent. Clear first so transparent pixels stay unpainted instead of inheriting the
+      // previous draft.
+      context.clearRect(0, 0, TILE_SIZE, TILE_SIZE)
+      context.drawImage(bitmap, 0, 0)
+      const { data } = context.getImageData(0, 0, TILE_SIZE, TILE_SIZE)
+      count('pixels:draft readback bytes', data.byteLength)
+      count('pixels:draft full reads')
+      count('pixels:draft readback pixels', TILE_SIZE * TILE_SIZE)
+      const table = indexTable()
+      for (let i = 0, p = 0; p < indices.length; i += 4, p++) {
+        // Fully transparent is unpainted. Opaque pixels are palette colours, allowing for bounded
+        // privacy noise added by browsers such as Helium during canvas readback.
+        const index =
+          data[i + 3] === 0
+            ? UNPAINTED
+            : canvasRgbIndex(table, data[i] ?? 0, data[i + 1] ?? 0, data[i + 2] ?? 0, UNPAINTED)
+        // A draft canvas is upside down relative to its tile — see `flipRow`. The tile PNG is not.
+        const x = p % TILE_SIZE
+        const y = flipRow((p - x) / TILE_SIZE)
+        indices[y * TILE_SIZE + x] = index
+        if (index !== UNPAINTED) firstDraftChanges?.push(x, y, index)
       }
-      if (from === 'preview') {
-        captureDraftPixels(tile, indices, firstDraftChanges ?? [])
-        return true
-      }
-
-      const retired: number[] = []
-      if (observation !== undefined) {
-        observedTileOrder.set(key, observation)
-        for (const [offset, pixel] of retained?.pixels ?? []) {
-          if (observation <= pixel.accepted) continue
-          if (pixel.pending && retained !== undefined) retained.pending--
-          pixel.pending = false
-          const x = offset % TILE_SIZE
-          retired.push(x, (offset - x) / TILE_SIZE, indices[offset] as number)
-        }
-      }
-      comparisonDrafts.delete(key)
-
-      /**
-       * A re-read of a tile we already hold becomes a diff, not a replacement.
-       *
-       * Replacing the array is what made a whole tile's answers evaporate. Anything holding a result
-       * for this tile keys it on the array's identity — that is how a re-read is meant to invalidate
-       * a stale answer — so handing over a *new* array said "everything about this tile has changed"
-       * when what had actually changed was one pixel someone painted.
-       */
-      if (existing === undefined || existing.length !== indices.length) {
-        if (observation !== undefined) recordPixelObservation(indices, observation)
-        rememberTilePixels(key, indices)
-        notifyPixelBatch(tile, retired, 'observed')
-        pruneSubmissionFences()
-        if (digest === null) capturedTileDigests.delete(key)
-        else capturedTileDigests.set(key, digest)
-        count('pixels:tile captures')
-        count('pixels:captured')
-        return true
-      }
-      rememberTilePixels(key, existing)
-      if (observation !== undefined) recordPixelObservation(existing, observation)
-      apply(tile, existing, indices, 'server')
-      notifyPixelBatch(tile, retired, 'observed')
-      pruneSubmissionFences()
-      if (digest === null) capturedTileDigests.delete(key)
-      else capturedTileDigests.set(key, digest)
-      count('pixels:tile captures')
-      count('pixels:re-read as a diff')
+      captureDraftPixels(tile, indices, firstDraftChanges ?? [])
       return true
     } catch (error) {
-      count(from === 'preview' ? 'pixels:draft readback failures' : 'pixels:tile readback failures')
+      count('pixels:draft readback failures')
       warn('bitmap', 'could not read tile pixels', String(error))
       return false
     }
   })
 
+/** Whether anything wants this tile's pixels: capture, an explicit read, or accepted paint. */
+const wantsTilePixels = (tile: TileCoord): boolean => {
+  const key = tileKey(tile)
+  return (
+    (acceptedPixels.get(key)?.pending ?? 0) > 0 ||
+    requestedTilePixels.has(key) ||
+    (capturePixels && (captureInterest === null || captureInterest(tile)))
+  )
+}
+
+/** Whether a read requested at `observation` lost to a newer one of the same tile. */
+const supersededRead = (key: string, observation: number | undefined): boolean =>
+  observation !== undefined && observation < (observedTileOrder.get(key) ?? 0)
+
+/**
+ * Settle a refetch whose body is byte-identical to the completed capture it would replace. A new
+ * request still fences older responses and refreshes the cache's LRU position. Empty notifications
+ * have no listeners; only changed pixels are announced.
+ */
+const skipUnchangedTile = (
+  tile: TileCoord,
+  digest: ArrayBuffer | null,
+  observation: number | undefined,
+): boolean => {
+  const key = tileKey(tile)
+  const existing = pixelsOfTile.get(key)
+  const previousDigest = capturedTileDigests.get(key)
+  if (
+    !isWplacePatchEnabled('capture-dedupe') ||
+    digest === null ||
+    previousDigest === undefined ||
+    existing === undefined ||
+    acceptedPixels.has(key) ||
+    requestedTilePixels.has(key) ||
+    observation === undefined ||
+    !sameDigest(digest, previousDigest)
+  )
+    return false
+  observedTileOrder.set(key, observation)
+  recordPixelObservation(existing, observation)
+  rememberTilePixels(key, existing)
+  notifyPixelBatch(tile, [], 'observed')
+  pruneSubmissionFences()
+  count('pixels:tile captures skipped')
+  return true
+}
+
+interface QueuedCapture {
+  readonly tile: TileCoord
+  readonly body: Blob | null
+  readonly digest: ArrayBuffer | null
+  readonly observation: number | undefined
+  /** `digestsForgotten` when this read was admitted. */
+  readonly forgotten: number
+  readonly done: readonly (() => void)[]
+}
+
+/**
+ * Tile reads waiting for the reader, one per tile, oldest first.
+ *
+ * They are read one at a time, so the reader holds one tile's pixels at once, and no tile's pixels
+ * change under a read of them: only a read's own commit writes them. A newer read of a waiting tile
+ * takes its place, because the older answer would lose to it anyway. No more wait than the pixel
+ * cache keeps, since past that each one read would evict another.
+ */
+const queuedCaptures = new Map<string, QueuedCapture>()
+let readingCaptures = false
+/** Every tile capture between Wplace's decode and its commit, so a chase can join it. */
+const tileCaptures = new Map<string, Promise<void>>()
+
+const queueCapture = (capture: QueuedCapture): void => {
+  const key = tileKey(capture.tile)
+  const waiting = queuedCaptures.get(key)
+  if (
+    waiting?.observation !== undefined &&
+    capture.observation !== undefined &&
+    waiting.observation > capture.observation
+  ) {
+    queuedCaptures.set(key, { ...waiting, done: [...waiting.done, ...capture.done] })
+  } else {
+    queuedCaptures.set(key, { ...capture, done: [...(waiting?.done ?? []), ...capture.done] })
+  }
+  while (queuedCaptures.size > KEEP_TILE_PIXELS) {
+    const [oldest, dropped] = queuedCaptures.entries().next().value as [string, QueuedCapture]
+    queuedCaptures.delete(oldest)
+    for (const done of dropped.done) done()
+    count('pixels:tile captures dropped')
+  }
+  if (!readingCaptures) void readCaptures()
+}
+
+const pageTileReading = (): TileReading => ({
+  table: indexTable(),
+  decode: decodeOnPage,
+  context: reusableCaptureContext,
+  rgbIndex: canvasRgbIndex,
+})
+
+const readCaptures = async (): Promise<void> => {
+  readingCaptures = true
+  for (
+    let next = queuedCaptures.values().next().value;
+    next !== undefined;
+    next = queuedCaptures.values().next().value
+  ) {
+    const key = tileKey(next.tile)
+    queuedCaptures.delete(key)
+    try {
+      if (supersededRead(key, next.observation)) continue
+      const base = pixelsOfTile.get(key) ?? null
+      const read = await readTilePixels(next.body, base, pageTileReading)
+      if (read !== null) commitTile(next, read, base)
+    } catch (error) {
+      count('pixels:tile readback failures')
+      warn('bitmap', 'could not read tile pixels', String(error))
+    } finally {
+      for (const done of next.done) done()
+    }
+  }
+  readingCaptures = false
+}
+
+/** Apply a tile read: retire the accepted paint it observed, and diff it into the kept pixels. */
+const commitTile = (capture: QueuedCapture, read: TilePixelsRead, base: Uint8Array | null): void =>
+  measureProfile('Tile pixel capture', () => {
+    const { tile, observation } = capture
+    const key = tileKey(tile)
+    // A newer read may have landed while this one was in the reader.
+    if (supersededRead(key, observation)) return
+    const { indices } = read
+    if (read.readBack) {
+      count('pixels:tile readback bytes', indices.length * 4)
+      count('pixels:tile full reads')
+      count('pixels:tile readback pixels', indices.length)
+    }
+    const retained = acceptedPixels.get(key)
+    const retired: number[] = []
+    if (observation !== undefined) {
+      observedTileOrder.set(key, observation)
+      for (const [offset, pixel] of retained?.pixels ?? []) {
+        if (observation <= pixel.accepted) continue
+        if (pixel.pending && retained !== undefined) retained.pending--
+        pixel.pending = false
+        const x = offset % TILE_SIZE
+        retired.push(x, (offset - x) / TILE_SIZE, indices[offset] as number)
+      }
+    }
+    comparisonDrafts.delete(key)
+    // A digest forgotten while this was read no longer vouches for the pixels it would describe.
+    const digest = capture.forgotten === digestsForgotten ? capture.digest : null
+    if (digest === null) capturedTileDigests.delete(key)
+    else capturedTileDigests.set(key, digest)
+
+    /**
+     * A re-read of a tile we already hold becomes a diff, not a replacement.
+     *
+     * Replacing the array is what made a whole tile's answers evaporate. Anything holding a result
+     * for this tile keys it on the array's identity — that is how a re-read is meant to invalidate
+     * a stale answer — so handing over a *new* array said "everything about this tile has changed"
+     * when what had actually changed was one pixel someone painted.
+     */
+    const existing = pixelsOfTile.get(key)
+    if (existing === undefined || existing.length !== indices.length) {
+      if (observation !== undefined) recordPixelObservation(indices, observation)
+      rememberTilePixels(key, indices)
+      notifyPixelBatch(tile, retired, 'observed')
+      pruneSubmissionFences()
+      count('pixels:tile captures')
+      count('pixels:captured')
+      return
+    }
+    rememberTilePixels(key, existing)
+    if (observation !== undefined) recordPixelObservation(existing, observation)
+    // The reader diffed against `existing` unless it was evicted and read again meanwhile.
+    const changed = existing === base ? read.changed : null
+    apply(
+      tile,
+      existing,
+      changed === null ? indices : new Map(Array.from(changed, (p) => [p, indices[p] as number])),
+      'server',
+    )
+    notifyPixelBatch(tile, retired, 'observed')
+    pruneSubmissionFences()
+    count('pixels:tile captures')
+    count('pixels:re-read as a diff')
+  })
+
+/**
+ * Capture a tile from its body, off the page's thread, after Wplace already has its bitmap. Resolves
+ * once the pixels are applied, or the read was refused, superseded, or failed.
+ */
+const captureTile = (
+  tile: TileCoord,
+  body: Blob | null,
+  digest: Promise<ArrayBuffer | null> | ArrayBuffer | null,
+): Promise<void> => {
+  if (!wantsTilePixels(tile)) return Promise.resolve()
+  const key = tileKey(tile)
+  const capture = (async () => {
+    const hash = await digest
+    const observation = tileRequestOrder.get(tile)
+    if (supersededRead(key, observation) || skipUnchangedTile(tile, hash, observation)) return
+    const forgotten = digestsForgotten
+    await new Promise<void>((done) =>
+      queueCapture({ tile, body, digest: hash, observation, forgotten, done: [done] }),
+    )
+  })()
+  const joined = Promise.all([tileCaptures.get(key), capture]).then(() => {
+    if (tileCaptures.get(key) === joined) tileCaptures.delete(key)
+  })
+  tileCaptures.set(key, joined)
+  return capture
+}
+
+/** Resolves once every tile capture started so far has been applied or refused. */
+export const settledTileCaptures = async (): Promise<void> => {
+  while (tileCaptures.size > 0) await Promise.all(tileCaptures.values())
+}
+
+/**
+ * Capture a tile Wplace just decoded, from the body it decoded. Wplace owns the bitmap and may close
+ * it once drawn, so only its size is read here.
+ *
+ * An undersized bitmap from a tile fetch is wplace saying "nothing is painted here".
+ *
+ * Their service worker substitutes a 1x1 transparent PNG for an absent tile, and
+ * `normalizeMissingTileResponse` above makes us produce the same thing for a 404. Declining it
+ * left the tile with no entry at all, which is not the same answer: markers over it never
+ * appeared, `markUnpainted` could never mark a fully unpainted tile — the one case it exists for
+ * — and the renderer went on asking for a repaint four times a second forever, waiting for pixels
+ * that were never coming. An empty tile is a real answer and gets recorded as one.
+ */
+const captureDecodedTile = (
+  tile: TileCoord,
+  bitmap: ImageBitmap,
+  body: Blob,
+  digest: Promise<ArrayBuffer | null> | null = null,
+): void => {
+  const empty = bitmap.width < TILE_SIZE && bitmap.height < TILE_SIZE
+  if (!empty && (bitmap.width !== TILE_SIZE || bitmap.height !== TILE_SIZE)) return
+  void captureTile(tile, empty ? null : body, digest)
+}
+
+/** The page's own decoder, behind our tap, for tile reads when there is no worker. */
+let decodeOnPage: (body: Blob) => Promise<ImageBitmap> = (body) => createImageBitmap(body)
+
 const installBitmapTap = (realm: Window & typeof globalThis): InstalledValueHook | null => {
   const nativeCreateImageBitmap = realm.createImageBitmap
+  decodeOnPage = (body) => Reflect.apply(nativeCreateImageBitmap, realm, [body])
   const wrappedCreateImageBitmap = {
     // biome-ignore lint/suspicious/noExplicitAny: createImageBitmap has two overload shapes
     createImageBitmap(this: unknown, ...args: any[]): Promise<ImageBitmap> {
@@ -2253,23 +2306,15 @@ const installBitmapTap = (realm: Window & typeof globalThis): InstalledValueHook
             if (exact !== undefined) {
               tileOfBitmap.set(bitmap, exact)
               log('bitmap', `matched ${exact.x}/${exact.y} by identity`, { bytes: sourceBytes })
-              const pendingDigest = digestOfBlob.get(sourceBlob)
-              if (pendingDigest !== undefined) {
-                // Decode and hash run together. Only the digest can delay Wplace's bitmap promise;
-                // a failed digest resolves to null and takes the ordinary capture path.
-                return pendingDigest.then((digest) => {
-                  capture(exact, bitmap, 'tile', null, digest)
-                  return bitmap
-                })
-              }
-              capture(exact, bitmap)
+              // Decode and hash ran together. A failed digest resolves to null and reads in full.
+              captureDecodedTile(exact, bitmap, sourceBlob, digestOfBlob.get(sourceBlob))
               return bitmap
             }
             count('bitmap:fell-back-to-byte-length')
             const tile = takeBySizeForBitmap(sourceBytes, bitmap.width, bitmap.height)
             if (tile !== undefined) {
               tileOfBitmap.set(bitmap, tile)
-              capture(tile, bitmap)
+              captureDecodedTile(tile, bitmap, sourceBlob)
               log('bitmap', `matched ${tile.x}/${tile.y}`, { bytes: sourceBytes })
             } else if (bitmap.width === 1000 && bitmap.height === 1000) {
               // A tile-shaped image we cannot name. This is the shape of the bug where the overlay
@@ -3244,7 +3289,7 @@ export const install = (
               : 'pixels:draft dirty-full captures',
         )
         if (failedDraftCaptures.has(source)) count('pixels:draft capture retries')
-        if (!capture(tile, source, 'preview', dirty)) {
+        if (!capture(tile, source, dirty)) {
           failedDraftCaptures.add(source)
           return
         }
