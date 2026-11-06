@@ -101,6 +101,7 @@ import {
   probeServer,
   refreshStoredServers,
   removeServer,
+  type State,
   setOnlySelectedColourFor,
   setState,
   setSurfaceAppearance,
@@ -441,6 +442,19 @@ let owedRefresh = false
 const heldPanelPointers = new Set<number>()
 
 const refreshView = (): void => {
+  claimedTreeStale = true
+  redrawView()
+}
+
+/** Whether a state change only expanded or collapsed rows; `setState` keeps other fields' identity. */
+const onlyExpansionChanged = (previous: State, next: State): boolean =>
+  previous.collapsed !== next.collapsed &&
+  (Object.keys(next) as (keyof State)[]).every(
+    (key) => key === 'collapsed' || previous[key] === next[key],
+  )
+
+/** `refreshView` for a change the claimed list cannot see, so its cached build survives. */
+const redrawView = (): void => {
   if (!panelOpen()) return
   const root = document.getElementById(currentPanelId())
   if (root === null) return
@@ -564,9 +578,16 @@ const disconnectServer = async (server: ConnectedServer): Promise<void> => {
 }
 
 let activeTreeAdapter: TemplateTreeAdapter | null = null
+/** The claims the active tree was built with, reused by every panel model until the next build. */
+let activeTreeClaims: ReturnType<typeof workSectionModel> | null = null
 let claimedTreeAdapter: TemplateTreeAdapter | null = null
-let claimedTreeSource: TemplateTreeAdapter | null = null
 let claimedTreeKeys: readonly string[] = []
+/**
+ * Whether the claimed list's inputs may have changed since it was built: templates, servers,
+ * claims, state. The search query and folder expansion never set it, since the flat list ignores
+ * both, and progress ticks update both trees in place.
+ */
+let claimedTreeStale = true
 
 const settingsMessages = new Map<string, string>()
 /** The last recorded chord and the actions it displaced, shown until the next change. */
@@ -1099,10 +1120,8 @@ const panelModel = (width = panelWidthForViewport(getState().panelWidth)): Panel
   width,
   minWidth: minimumPanelWidth(),
   maxWidth: maximumPanelWidth(),
-  ...(currentView() === 'tree' && activeTreeAdapter !== null
-    ? {
-        ...claimTreeModels(activeTreeAdapter),
-      }
+  ...(currentView() === 'tree' && activeTreeAdapter !== null && activeTreeClaims !== null
+    ? claimTreeModels(activeTreeAdapter, activeTreeClaims)
     : {}),
   ...(currentView() === 'appearance' ? { appearance: appearanceModel() } : {}),
   ...(currentView() === 'settings' && panelSurface.kind === 'world'
@@ -1112,8 +1131,8 @@ const panelModel = (width = panelWidthForViewport(getState().panelWidth)): Panel
 
 const claimTreeModels = (
   adapter: TemplateTreeAdapter,
+  claims: ReturnType<typeof workSectionModel>,
 ): Pick<PanelModel, 'tree' | 'work' | 'showOtherClaims'> => {
-  const claims = workSectionModel(panelSurface, rerenderTree)
   const keys = [...claims.templates]
     .filter(
       ([, claim]) => claim.mine || (showOtherClaims && claim.canAssign && claim.people.length > 0),
@@ -1121,7 +1140,7 @@ const claimTreeModels = (
     .map(([key]) => key)
   if (
     claimedTreeAdapter === null ||
-    claimedTreeSource !== adapter ||
+    claimedTreeStale ||
     keys.length !== claimedTreeKeys.length ||
     keys.some((key, index) => key !== claimedTreeKeys[index])
   ) {
@@ -1134,7 +1153,7 @@ const claimTreeModels = (
       new Set(keys),
       claims.templates,
     )
-    claimedTreeSource = adapter
+    claimedTreeStale = false
     claimedTreeKeys = keys
   }
   return {
@@ -1151,14 +1170,36 @@ const claimTreeModels = (
       },
       canShowOthers: claims.canShowOthers,
       error: claims.error,
-      ...(panelSurface.kind === 'world'
-        ? (() => {
-            const presence = presenceSummaryModel()
-            return presence === undefined ? {} : { presence }
-          })()
-        : {}),
+      ...presenceField(),
     },
   }
+}
+
+/** The Painters drawer's model, which only the world canvas has. */
+const presenceField = (): Pick<NonNullable<PanelModel['work']>, 'presence'> => {
+  if (panelSurface.kind !== 'world') return {}
+  const presence = presenceSummaryModel()
+  return presence === undefined ? {} : { presence }
+}
+
+/** Follow a presence message by replacing only the Painters drawer; the trees do not read it. */
+const refreshPresenceDrawer = (): void => {
+  if (!panelOpen() || currentView() !== 'tree') return
+  const panel = document.getElementById(currentPanelId()) as CaelestisPanel | null
+  const work = panel?.model.work
+  if (panel == null || work === undefined) return
+  const { presence: _previous, ...rest } = work
+  panel.model = { ...panel.model, work: { ...rest, ...presenceField() } }
+}
+
+/** Follow a pixel-progress change by updating row progress in both trees, keeping their rows. */
+const refreshTreeProgress = (): void => {
+  if (!panelOpen() || currentView() !== 'tree' || activeTreeAdapter === null) return
+  const panel = document.getElementById(currentPanelId()) as CaelestisPanel | null
+  if (panel === null) return
+  const tree = activeTreeAdapter.refreshProgress()
+  const claimed = claimedTreeAdapter?.refreshProgress() ?? false
+  if (tree || claimed) panel.model = panelModel(currentPanelWidth(panel))
 }
 
 const currentPanelWidth = (panel: CaelestisPanel): number =>
@@ -1268,7 +1309,7 @@ const buildSveltePanel = (): CaelestisPanel => {
         }
         if (intent.intent.type === 'search') {
           searchQuery = intent.intent.query
-          rerenderTree()
+          renderTree()
         } else if (intent.intent.type === 'sort') {
           setState({ sort: intent.intent.sort })
           rerenderTree()
@@ -1329,9 +1370,25 @@ const stillConnected = (server: ConnectedServer): boolean => isCurrentServerConn
  * live tree instead of a detached one.
  */
 const rerenderTree = (): void => {
+  claimedTreeStale = true
+  renderTree()
+}
+
+/** Rebuild the main tree only, for inputs the claimed list ignores, such as the search query. */
+const renderTree = (): void => {
   if (!panelOpen() || currentView() !== 'tree') return
   const panel = document.getElementById(currentPanelId()) as CaelestisPanel | null
   if (panel === null) return
+  buildActiveTree()
+  panel.model = panelModel(currentPanelWidth(panel))
+  if (panelSessions.isWorldTreeVisible()) {
+    for (const listener of worldTreeVisibleListeners) listener()
+  }
+}
+
+/** Build the main tree with one pass over the claims, which every panel model then reuses. */
+const buildActiveTree = (): void => {
+  activeTreeClaims = workSectionModel(panelSurface, rerenderTree)
   activeTreeAdapter = templateTreeAdapter(
     treeCallbacks(),
     rerenderTree,
@@ -1339,12 +1396,8 @@ const rerenderTree = (): void => {
     panelSurface,
     false,
     undefined,
-    workSectionModel(panelSurface, rerenderTree).templates,
+    activeTreeClaims.templates,
   )
-  panel.model = panelModel(currentPanelWidth(panel))
-  if (panelSessions.isWorldTreeVisible()) {
-    for (const listener of worldTreeVisibleListeners) listener()
-  }
 }
 
 /** Move the focused-row marker without rebuilding the full template tree. */
@@ -1372,18 +1425,12 @@ const showView = (view: PanelView): void => {
 
   if (view === 'settings') settingsModel()
   if (view === 'tree') {
-    activeTreeAdapter = templateTreeAdapter(
-      treeCallbacks(),
-      rerenderTree,
-      searchQuery,
-      panelSurface,
-      false,
-      undefined,
-      workSectionModel(panelSurface, rerenderTree).templates,
-    )
+    buildActiveTree()
+    // Reads IndexedDB only for server identities it has not read yet.
     void primeFromCache(rerenderTree)
   } else {
     activeTreeAdapter = null
+    activeTreeClaims = null
     claimedTreeAdapter = null
     if (view === 'appearance') refreshAccount(refreshView)
   }
@@ -1465,6 +1512,7 @@ const unmountSelectedPanel = (): void => {
   syncToastPlacement(currentPanelId())
   if (panelSessions.scope() === 'alliance') allianceDrawerInset.clear()
   activeTreeAdapter = null
+  activeTreeClaims = null
   claimedTreeAdapter = null
   syncProfileTimer()
 }
@@ -1749,11 +1797,11 @@ export const installPanel = (): void => {
   onClaimEditorChange(syncClaimToolState)
   onClaimEditorChange(closePanelForMobileDrawing)
   onPresenceChange(syncClaimToolState)
-  // Headcounts and claims arrive over the socket; the Painters drawer has to follow them.
+  // Headcounts and region claims arrive over the socket; the Painters drawer has to follow them.
   onPresenceChange(() =>
     measureProfile('Presence drawer', () => {
       recordProfileCounter('Presence drawer notifications')
-      rerenderTree()
+      refreshPresenceDrawer()
     }),
   )
   installRailStateSync()
@@ -1801,7 +1849,13 @@ export const installPanel = (): void => {
   // Once, here, rather than each time a view is built: subscribing from inside `treeView` added a
   // fresh listener on every switch back to it, so the tenth visit redrew the panel ten times per
   // change.
-  onStateChange(refreshView)
+  let previousState = getState()
+  onStateChange((next) => {
+    const expansionOnly = onlyExpansionChanged(previousState, next)
+    previousState = next
+    if (expansionOnly) redrawView()
+    else refreshView()
+  })
   onAllianceManifestChange(refreshView)
   // A patch switched from the console must not leave an open settings view showing the old state.
   onWplacePatchChange(refreshSettings)
@@ -1839,11 +1893,12 @@ export const installPanel = (): void => {
   pixelAccounting.onChange(
     frameQueue(() => {
       if (currentView() !== 'tree') return
+      // Sorted by progress, a tick can reorder rows, so only a rebuild is correct.
       if (progressChangesCanReorder(getState().sort)) {
         refreshView()
         return
       }
-      rerenderTree()
+      refreshTreeProgress()
     }),
   )
   onServerStatusChange(() => {
