@@ -22,7 +22,7 @@ import { count, warn } from './debug.js'
 import { readBoundedJsonResponse } from './response.js'
 import type { ServerTemplate } from './server-cache.js'
 import { MAX_MANIFEST_TEMPLATES } from './server-manifest.js'
-import { invalidateServerMismatches, invalidateServerMismatchTile } from './server-mismatch.js'
+import { invalidateServerMismatches, invalidateServerMismatchTiles } from './server-mismatch.js'
 import { coalesceServerRead } from './server-read-coalescer.js'
 import {
   applyServerSyncDelta,
@@ -389,7 +389,7 @@ const uploadWanted = async (
         )
         if (response?.ok) {
           uploaded.add(entry.deliveryId)
-          invalidateServerMismatchTile(server.url, entry.coord)
+          invalidateServerMismatchTiles(server.url, [entry.coord])
           const body = (await readBoundedJsonResponse(
             response,
             TELEMETRY_MUTATION_JSON_BYTES,
@@ -580,7 +580,7 @@ const flushOffers = async (serverUrl: string): Promise<void> => {
         if (uploaded?.accepted === true && uploaded.error === undefined) {
           tileOfferAcknowledgements.acknowledged(server.url, owner, season, key)
           deleteUnsettledOffer(server.url, key)
-          invalidateServerMismatchTile(server.url, entry.coord)
+          invalidateServerMismatchTiles(server.url, [entry.coord])
           accepted++
         } else if (uploaded === null || uploaded.error === 'unavailable') {
           retryNeeded = true
@@ -1225,10 +1225,10 @@ const applyStatusDelta = (
       if (delta.invalidateAllTiles === true) {
         invalidateServerMismatches(server.url)
       } else {
-        for (const key of delta.invalidatedTiles ?? []) {
-          const tile = parseTileKey(key)
-          if (tile !== null) invalidateServerMismatchTile(server.url, tile)
-        }
+        invalidateServerMismatchTiles(
+          server.url,
+          (delta.invalidatedTiles ?? []).flatMap((key) => parseTileKey(key) ?? []),
+        )
       }
     },
   )
