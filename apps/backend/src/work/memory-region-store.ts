@@ -6,7 +6,7 @@ import {
   sameTemplateSurface,
   type TemplateSurface,
 } from '@caelestis/shared'
-import type { RegionOwner, RegionStore, RegionWriter } from './region-store.js'
+import type { RegionOwner, RegionRenewal, RegionStore, RegionWriter } from './region-store.js'
 
 /** In-memory equivalent of the relational region records. */
 export class MemoryRegionStore implements RegionStore {
@@ -33,20 +33,17 @@ export class MemoryRegionStore implements RegionStore {
     }
   }
 
-  async renewRegions(tokenHash: string, actorId: number, now: number): Promise<boolean> {
+  async renewRegions(owners: readonly RegionRenewal[], now: number): Promise<void> {
     await this.expireRegions(now)
-    let changed = false
+    const renewing = new Set(owners.map(({ tokenHash, actorId }) => `${tokenHash}:${actorId}`))
     for (const [id, region] of this.records) {
       if (
         this.withdrawn.has(id) ||
-        this.owners.get(id) !== tokenHash ||
-        region.claimant.wplaceUserId !== actorId
+        !renewing.has(`${this.owners.get(id)}:${region.claimant.wplaceUserId}`)
       )
         continue
       this.records.set(id, { ...region, expiresAt: now + REGION_CLAIM_TTL_MS })
-      changed = true
     }
-    return changed
   }
 
   async regionOwners(season: number, surface: TemplateSurface): Promise<readonly RegionOwner[]> {

@@ -30,6 +30,7 @@ import { Schema } from 'effect'
 import { normalizeMetricClientIdentity } from './metrics/request-metrics.js'
 import type { SqlStore } from './ports/index.js'
 import { presenceRectWithinSurface } from './presence/geometry.js'
+import { PeerGrid } from './presence/peer-grid.js'
 import type { PresenceConnection } from './presence/port.js'
 import type { LiveHost, LiveSocket } from './status-coordinator.js'
 import { createLiveSessionFence } from './status-coordinator.js'
@@ -53,6 +54,12 @@ interface Attachment extends PresenceConnection {
   readonly lastSeenAt: number
   readonly closed?: boolean
   readonly renewedAt?: number
+}
+
+/** An open socket with the attachment read once for the operation at hand. */
+interface LiveSession {
+  readonly socket: LiveSocket
+  readonly held: Attachment
 }
 
 const CLAIM_RENEW_INTERVAL_MS = 60 * 60 * 1_000
@@ -132,10 +139,15 @@ export class PresenceCoordinator<Client> {
     this.timer = null
   }
 
-  private sockets(): LiveSocket[] {
-    return this.state
-      .getWebSockets('presence')
-      .filter((socket) => !this.attachment(socket).closed && socket.readyState === 1)
+  /** Open sessions, each attachment deserialized once. Hosts may clone it on every read. */
+  private sessionsOpen(): LiveSession[] {
+    const open: LiveSession[] = []
+    for (const socket of this.state.getWebSockets('presence')) {
+      if (socket.readyState !== 1) continue
+      const held = this.attachment(socket)
+      if (!held.closed) open.push({ socket, held })
+    }
+    return open
   }
 
   private peer(attachment: Attachment): PresencePeer {
@@ -159,12 +171,12 @@ export class PresenceCoordinator<Client> {
     }
   }
 
-  private relevant(subscriber: Attachment, peers: readonly PresencePeer[]): PresencePeer[] {
+  private relevant(subscriber: Attachment, peers: PeerGrid): PresencePeer[] {
     const viewport = subscriber.viewport
     if (viewport === null) return []
     const interest = padRect(viewport, PRESENCE_INTEREST_PADDING)
     const candidates: { peer: PresencePeer; distance: number }[] = []
-    for (const peer of peers) {
+    for (const peer of peers.near(interest)) {
       if (peer.sessionId === subscriber.sessionId) continue
       const other = peer.viewport
       const draft = peer.draft?.rect
@@ -190,7 +202,7 @@ export class PresenceCoordinator<Client> {
       .map(({ peer }) => peer)
   }
 
-  private send(socket: LiveSocket, event: PresenceServerEvent): void {
+  private send({ socket, held }: LiveSession, event: PresenceServerEvent): void {
     try {
       const started = performance.now()
       if (
@@ -202,7 +214,7 @@ export class PresenceCoordinator<Client> {
         const actors = new Map(
           event.regions.map((region) => [region.id, region.claimant.wplaceUserId]),
         )
-        const actor = this.attachment(socket).painter.wplaceUserId
+        const actor = held.painter.wplaceUserId
         event = {
           ...event,
           ownedRegionIds: event.ownedRegionIds.filter((id) => actors.get(id) === actor),
@@ -236,14 +248,12 @@ export class PresenceCoordinator<Client> {
     }, PRESENCE_TICK_MS)
   }
 
-  private async armAlarm(): Promise<void> {
+  private async armAlarm(open?: readonly LiveSession[]): Promise<void> {
     const alarm = await this.state.storage.getAlarm()
-    const sockets = this.sockets()
     const regionExpiry = await this.state.storage.get<RegionExpiry>('region-expiry')
-    const expiresAt = Math.min(
-      ...sockets.map((socket) => this.attachment(socket).lastSeenAt + PRESENCE_STALE_MS),
-      regionExpiry?.at ?? Number.POSITIVE_INFINITY,
-    )
+    let expiresAt = regionExpiry?.at ?? Number.POSITIVE_INFINITY
+    for (const { held } of open ?? this.sessionsOpen())
+      expiresAt = Math.min(expiresAt, held.lastSeenAt + PRESENCE_STALE_MS)
     if (!Number.isFinite(expiresAt)) {
       if (alarm !== null) await this.state.storage.deleteAlarm()
       return
@@ -265,81 +275,104 @@ export class PresenceCoordinator<Client> {
     await this.sessions.revoke(async () =>
       this.timings.timed('presence', 'total', async () => {
         this.timings.record('presence', 'queue', performance.now() - queued)
-        const recovering = this.sockets().find(
-          (socket) => !this.sent.has(this.attachment(socket).sessionId),
-        )
-        const attachment = recovering === undefined ? undefined : this.attachment(recovering)
+        const now = Date.now()
+        let open: LiveSession[] = []
+        for (const session of this.sessionsOpen()) {
+          if (now - session.held.lastSeenAt >= PRESENCE_STALE_MS)
+            this.close(session.socket, 1000, 'presence stale')
+          else open.push(session)
+        }
+        // One room per season and surface: every session shares the first one's.
+        const room = open[0]?.held
+        const recovering = open.some(({ held }) => !this.sent.has(held.sessionId))
         const regions =
-          attachment === undefined
+          room === undefined || !recovering
             ? []
             : await this.timings.timed('claims', 'list', async () =>
                 withPublishedHints(
                   this.sql,
-                  await this.sql.regions.listRegions(attachment.season, attachment.surface),
+                  await this.sql.regions.listRegions(room.season, room.surface),
                 ),
               )
-        const now = Date.now()
-        for (const socket of this.sockets()) {
-          if (now - this.attachment(socket).lastSeenAt >= PRESENCE_STALE_MS)
-            this.close(socket, 1000, 'presence stale')
-        }
-        const sockets = this.sockets()
-        for (const socket of sockets) {
-          const held = this.attachment(socket)
-          if (held.anonymous || now - (held.renewedAt ?? 0) < CLAIM_RENEW_INTERVAL_MS) continue
-          // A valid heartbeat/update has kept this session alive. Ownership always uses both keys,
-          // including for administrators; connecting must never renew another painter's claims.
-          const renewed = await this.timings.timed('claims', 'renew', () =>
-            this.sql.regions.renewRegions(held.tokenHash, held.painter.wplaceUserId, now),
+        // A valid heartbeat/update has kept these sessions alive. Ownership always uses both keys,
+        // including for administrators; connecting must never renew another painter's claims.
+        const due = new Set(
+          open.filter(
+            ({ held }) => !held.anonymous && now - (held.renewedAt ?? 0) >= CLAIM_RENEW_INTERVAL_MS,
+          ),
+        )
+        const renewed: LiveSession[] = []
+        if (due.size > 0) {
+          await this.timings.timed('claims', 'renew', () =>
+            this.sql.regions.renewRegions(
+              [...due].map(({ held }) => ({
+                tokenHash: held.tokenHash,
+                actorId: held.painter.wplaceUserId,
+              })),
+              now,
+            ),
           )
-          socket.serializeAttachment({ ...held, renewedAt: now } satisfies Attachment)
-          if (renewed)
-            this.send(socket, {
-              type: 'claims-renewed',
-              expiresAt: now + REGION_CLAIM_TTL_MS,
-              ids: await this.ownedRegionIds(held),
-            })
-        }
-        const peers = sockets.map((socket) => this.peer(this.attachment(socket)))
-        const dirty = new Set(this.dirty)
-        this.dirty.clear()
-        // Recovery replies share one committed owner list inside this revocation fence. Do not
-        // retain it across ticks, where a credential transfer or expiry could invalidate it.
-        const recoveryOwners =
-          attachment !== undefined &&
-          sockets.some((socket) => {
-            const held = this.attachment(socket)
-            return !held.anonymous && !this.sent.has(held.sessionId)
+          open = open.map((session) => {
+            if (!due.has(session)) return session
+            const held = { ...session.held, renewedAt: now } satisfies Attachment
+            session.socket.serializeAttachment(held)
+            const next = { socket: session.socket, held }
+            renewed.push(next)
+            return next
           })
+        }
+        // Renewal and recovery replies share one committed owner list inside this revocation
+        // fence. Do not retain it across ticks, where a credential transfer or expiry could
+        // invalidate it.
+        const owners =
+          room !== undefined &&
+          (renewed.length > 0 ||
+            open.some(({ held }) => !held.anonymous && !this.sent.has(held.sessionId)))
             ? await this.timings.timed('claims', 'owners', () =>
-                this.sql.regions.regionOwners(attachment.season, attachment.surface),
+                this.sql.regions.regionOwners(room.season, room.surface),
               )
             : undefined
-        for (const socket of sockets) {
-          const subscriber = this.attachment(socket)
+        for (const session of renewed) {
+          const ids = await this.ownedRegionIds(session.held, owners)
+          // Claims on other surfaces renewed too, but this room's client tracks only its own.
+          if (ids.length > 0)
+            this.send(session, {
+              type: 'claims-renewed',
+              expiresAt: now + REGION_CLAIM_TTL_MS,
+              ids,
+            })
+        }
+        const dirty = new Set(this.dirty)
+        this.dirty.clear()
+        const online = open.length
+        // Built on demand: a heartbeat-only tick selects nobody.
+        let peers: PeerGrid | undefined
+        for (const session of open) {
+          const subscriber = session.held
           const previous = this.sent.get(subscriber.sessionId)
           // Heartbeats only refresh liveness. Recovery, membership changes and dirty peer state
           // still recompute every recipient so moving viewports can discover previously unseen peers.
           if (
             previous !== undefined &&
             dirty.size === 0 &&
-            this.onlineSent.get(subscriber.sessionId) === sockets.length
+            this.onlineSent.get(subscriber.sessionId) === online
           )
             continue
+          peers ??= new PeerGrid(open.map(({ held }) => this.peer(held)))
           const started = performance.now()
           const relevant = this.relevant(subscriber, peers)
           this.timings.record('presence', 'select', performance.now() - started)
           const next = new Set(relevant.map((peer) => peer.sessionId))
           this.sent.set(subscriber.sessionId, next)
           if (previous === undefined) {
-            this.onlineSent.set(subscriber.sessionId, sockets.length)
-            this.send(socket, {
+            this.onlineSent.set(subscriber.sessionId, online)
+            this.send(session, {
               type: 'presence-ready',
               sessionId: subscriber.sessionId,
-              online: sockets.length,
+              online,
               peers: relevant,
               regions,
-              ownedRegionIds: await this.ownedRegionIds(subscriber, recoveryOwners),
+              ownedRegionIds: await this.ownedRegionIds(subscriber, owners),
               canWrite: subscriber.credentialScope !== 'read' && !subscriber.anonymous,
             })
             continue
@@ -348,12 +381,12 @@ export class PresenceCoordinator<Client> {
             (peer) => dirty.has(peer.sessionId) || !previous.has(peer.sessionId),
           )
           const remove = [...previous].filter((id) => !next.has(id))
-          const onlineChanged = this.onlineSent.get(subscriber.sessionId) !== sockets.length
-          this.onlineSent.set(subscriber.sessionId, sockets.length)
+          const onlineChanged = this.onlineSent.get(subscriber.sessionId) !== online
+          this.onlineSent.set(subscriber.sessionId, online)
           if (upsert.length || remove.length || onlineChanged)
-            this.send(socket, { type: 'presence-delta', online: sockets.length, upsert, remove })
+            this.send(session, { type: 'presence-delta', online, upsert, remove })
         }
-        await this.armAlarm()
+        await this.armAlarm(open)
       }),
     )
   }
@@ -429,10 +462,10 @@ export class PresenceCoordinator<Client> {
     let regions: readonly RegionClaim[] = []
     const pair = await this.sessions.attach(
       async () => {
-        const sockets = this.sockets()
+        const open = this.sessionsOpen()
         capacity =
-          sockets.length >= MAX_PRESENCE_SUBSCRIBERS ||
-          sockets.filter((socket) => this.attachment(socket).clientHash === clientHash).length >=
+          open.length >= MAX_PRESENCE_SUBSCRIBERS ||
+          open.filter(({ held }) => held.clientHash === clientHash).length >=
             MAX_PRESENCE_SUBSCRIBERS_PER_CLIENT
         if (capacity) return false
         if (revocable === '1') {
@@ -440,7 +473,10 @@ export class PresenceCoordinator<Client> {
           if (token === null || token.scope !== credentialScope) return false
         }
         if (anonymous === '0')
-          await this.sql.regions.renewRegions(tokenHash, painter.wplaceUserId, Date.now())
+          await this.sql.regions.renewRegions(
+            [{ tokenHash, actorId: painter.wplaceUserId }],
+            Date.now(),
+          )
         // Share the fence with region publication so ready cannot arrive after a newer regions event.
         regions = await withPublishedHints(
           this.sql,
@@ -473,25 +509,25 @@ export class PresenceCoordinator<Client> {
           renewedAt: Date.now(),
         }
         const pair = this.state.connect(attachment)
-        const sockets = this.sockets()
-        const peers = this.relevant(
-          attachment,
-          sockets.map((socket) => this.peer(this.attachment(socket))),
+        const open = this.sessionsOpen()
+        // A new session has no viewport, so it sees no peers until its first update.
+        this.sent.set(sessionId, new Set())
+        this.onlineSent.set(sessionId, open.length)
+        this.send(
+          { socket: pair.server, held: attachment },
+          {
+            type: 'presence-ready',
+            sessionId,
+            online: open.length,
+            peers: [],
+            regions,
+            ownedRegionIds: await this.ownedRegionIds(attachment),
+            canWrite: credentialScope !== 'read' && anonymous === '0',
+          },
         )
-        this.sent.set(sessionId, new Set(peers.map((peer) => peer.sessionId)))
-        this.onlineSent.set(sessionId, sockets.length)
-        this.send(pair.server, {
-          type: 'presence-ready',
-          sessionId,
-          online: sockets.length,
-          peers,
-          regions,
-          ownedRegionIds: await this.ownedRegionIds(attachment),
-          canWrite: credentialScope !== 'read' && anonymous === '0',
-        })
         this.dirty.add(sessionId)
         this.armTick()
-        await this.armAlarm()
+        await this.armAlarm(open)
         return pair
       },
     )
@@ -596,7 +632,7 @@ export class PresenceCoordinator<Client> {
 
   /** Count open sockets, including hibernated sessions, without scheduling or sending updates. */
   async online(): Promise<number> {
-    return this.sockets().length
+    return this.sessionsOpen().length
   }
 
   /** Reload committed claims and deliver the surface's authoritative region list. */
@@ -640,8 +676,9 @@ export class PresenceCoordinator<Client> {
         for (const actors of grouped.values()) for (const ids of actors.values()) ids.sort()
         const prefix = `{"type":"regions","regions":${snapshot},"ownedRegionIds":`
         this.timings.record('claims', 'serialize', performance.now() - started)
-        for (const socket of this.sockets()) {
-          const attachment = this.attachment(socket)
+        const open = this.sessionsOpen()
+        for (const session of open) {
+          const attachment = session.held
           const started = performance.now()
           const owned = JSON.stringify(
             attachment.anonymous
@@ -654,9 +691,9 @@ export class PresenceCoordinator<Client> {
           // revocation fence, and forget delivery state on disconnect or hibernation recovery.
           if (previous?.version === this.regionVersion && previous.owned === owned) continue
           this.claimsSent.set(attachment.sessionId, { version: this.regionVersion, owned })
-          this.sendEncoded(socket, `${prefix}${owned}}`)
+          this.sendEncoded(session.socket, `${prefix}${owned}}`)
         }
-        await this.armAlarm()
+        await this.armAlarm(open)
       }),
     )
   }
@@ -698,9 +735,8 @@ export class PresenceCoordinator<Client> {
   /** Fence revocation against the second D1 credential check and socket acceptance. */
   async closeCredential(tokenHash: string): Promise<void> {
     await this.sessions.revoke(() => {
-      for (const socket of this.sockets())
-        if (this.attachment(socket).tokenHash === tokenHash)
-          this.close(socket, 1008, 'credential revoked')
+      for (const { socket, held } of this.sessionsOpen())
+        if (held.tokenHash === tokenHash) this.close(socket, 1008, 'credential revoked')
     })
   }
 }

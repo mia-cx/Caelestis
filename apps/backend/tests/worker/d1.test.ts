@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   leaderboardContractExpected,
   nodeTemplateContractExpected,
+  regionRenewalContractExpected,
 } from '../support/sql-contract.js'
 
 const migrationDirectory = join(dirname(fileURLToPath(import.meta.url)), '../../migrations')
@@ -61,6 +62,7 @@ describe('D1 relational adapter contract', () => {
       },
       nodeTemplate: nodeTemplateContractExpected,
       leaderboard: leaderboardContractExpected,
+      regionRenewal: regionRenewalContractExpected,
     })
   })
 })

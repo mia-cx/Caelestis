@@ -6,8 +6,10 @@ import { openRelationalStore } from './support/relational.js'
 import {
   leaderboardContractExpected,
   nodeTemplateContractExpected,
+  regionRenewalContractExpected,
   runLeaderboardContract,
   runNodeTemplateContract,
+  runRegionRenewalContract,
 } from './support/sql-contract.js'
 
 const ids = {
@@ -74,6 +76,10 @@ for (const [name, open] of [
 
     it('ranks the leaderboard from reporter-reduced painter days', async () => {
       expect(await runLeaderboardContract(await store())).toEqual(leaderboardContractExpected)
+    })
+
+    it('renews many owners in one call, matching credential and painter together', async () => {
+      expect(await runRegionRenewalContract(await store())).toEqual(regionRenewalContractExpected)
     })
 
     it('keeps tag assignment within existing template ownership and paginates equal-time tokens stably', async () => {
