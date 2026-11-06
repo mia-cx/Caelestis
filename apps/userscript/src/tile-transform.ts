@@ -1816,12 +1816,15 @@ const applyWrite = (tile: TileCoord, triples: readonly number[]): boolean => {
  * The array itself is kept. Anything holding an answer derived from this tile keys it on the array's
  * identity, so replacing it says "all of this is stale" — and recomputing a tile because one pixel
  * moved is what made every marker in it disappear and come back.
+ *
+ * `only` limits a full `from` to the offsets already known to differ, such as a tile reader's diff.
  */
 const apply = (
   tile: TileCoord,
   into: Uint8Array,
   from: Uint8Array | Map<number, number>,
   source: PixelChangeSource,
+  only: Uint32Array | null = null,
 ): number => {
   let moved = 0
   const changedTriples: number[] = []
@@ -1842,6 +1845,7 @@ const apply = (
     }
   }
   if (from instanceof Map) for (const [p, index] of from) at(p, index)
+  else if (only !== null) for (const p of only) at(p, from[p] as number)
   else for (let p = 0; p < from.length; p++) at(p, from[p] as number)
   notifyPixelBatch(tile, changedTriples, source)
   if (moved > 0) count('pixels:changed', moved)
@@ -2191,13 +2195,7 @@ const commitTile = (capture: QueuedCapture, read: TilePixelsRead, base: Uint8Arr
     rememberTilePixels(key, existing)
     if (observation !== undefined) recordPixelObservation(existing, observation)
     // The reader diffed against `existing` unless it was evicted and read again meanwhile.
-    const changed = existing === base ? read.changed : null
-    apply(
-      tile,
-      existing,
-      changed === null ? indices : new Map(Array.from(changed, (p) => [p, indices[p] as number])),
-      'server',
-    )
+    apply(tile, existing, indices, 'server', existing === base ? read.changed : null)
     notifyPixelBatch(tile, retired, 'observed')
     pruneSubmissionFences()
     count('pixels:tile captures')
