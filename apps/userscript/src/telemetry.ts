@@ -1457,7 +1457,13 @@ const applyLiveAlarmsSnapshot = (server: ConnectedServer, value: unknown): boole
   return true
 }
 
+/** The active alarms listeners last heard about; held values are replaced only when they change. */
+let notifiedAlarms: readonly Alarm[] = []
+
+const activeAlarmValues = (): readonly Alarm[] => activeServerAlarms().map(({ alarm }) => alarm)
+
 const notifyAlarmListeners = (): void => {
+  notifiedAlarms = activeAlarmValues()
   for (const listener of alarmListeners) {
     try {
       listener()
@@ -1600,7 +1606,14 @@ export const installTelemetry = (): void => {
     observePaint(paint)
   })
   onStateChange(() => {
-    notifyAlarmListeners()
+    // State decides which alarms are active (hidden scopes, connected servers). Most changes leave
+    // them alone, and every listener redraws on a notification.
+    const active = activeAlarmValues()
+    if (
+      active.length !== notifiedAlarms.length ||
+      active.some((alarm, index) => alarm !== notifiedAlarms[index])
+    )
+      notifyAlarmListeners()
     const shareTiles = getState().shareTiles
     if (!shareTiles) clearTileOfferDelivery()
     else {
