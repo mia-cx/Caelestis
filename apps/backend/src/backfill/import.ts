@@ -344,7 +344,18 @@ export class TemplateBackfill {
     if (step === null || snapshot === undefined || tile === undefined) return
     const firstLive = await this.sql.readFirstTemplateObservation(summary.basis.versionId)
     if (firstLive !== null && snapshot.at >= firstLive) {
-      // Samples exist for every snapshot all tiles have seen; the rest of this run stops here.
+      // Native history now starts within this run. Its earlier snapshots still need the tiles
+      // after this one, so skip only this tile's later snapshots, and stop once none remain.
+      const resume = summary.completed + step.length - step.index
+      if (step.index > 0 && resume < summary.total) {
+        await this.storage.put<StoredJob>('job', {
+          ...held,
+          summary: { ...summary, completed: resume },
+        })
+        await this.storage.setAlarm(this.now() + 100)
+        return
+      }
+      // Samples exist for every snapshot all tiles have seen; the job stops here.
       const sampled = step.first + (step.samples ? step.index : 0)
       await this.storage.put<StoredJob>('job', {
         summary: {
