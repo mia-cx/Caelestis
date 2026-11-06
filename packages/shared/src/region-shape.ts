@@ -714,8 +714,20 @@ export const rasterShapeFrom = (pixels: RegionShapePixels): RegionShape | null =
   return { kind: 'pixels', x: rect.x + left, y: rect.y + top, w, h, mask: packBits(trimmed) }
 }
 
-/** Hit-test rasters, read-only and kept only as long as their immutable shape. */
-const hitRasters = new WeakMap<RegionShape, RegionShapePixels>()
+const shapeRasters = new WeakMap<RegionShape, RegionShapePixels>()
+
+/**
+ * The shape's pixels, rasterised once and kept as long as the immutable shape. Read-only: a
+ * caller that edits the mask takes its own copy from `regionShapePixels`.
+ */
+export const regionShapeRaster = (shape: RegionShape): RegionShapePixels => {
+  let pixels = shapeRasters.get(shape)
+  if (pixels === undefined) {
+    pixels = regionShapePixels(shape)
+    shapeRasters.set(shape, pixels)
+  }
+  return pixels
+}
 
 /**
  * Whether a whole canvas pixel belongs to the shape; consistent with `regionShapePixels`. The
@@ -727,12 +739,7 @@ export const regionShapeContainsPixel = (shape: RegionShape, px: number, py: num
   const rect = regionShapeBounds(shape)
   if (x < rect.x || x >= rect.x + rect.w || y < rect.y || y >= rect.y + rect.h) return false
   if (shape.kind === 'rectangle') return true
-  let pixels = hitRasters.get(shape)
-  if (pixels === undefined) {
-    pixels = regionShapePixels(shape)
-    hitRasters.set(shape, pixels)
-  }
-  return pixels.mask[(y - rect.y) * rect.w + (x - rect.x)] === 1
+  return regionShapeRaster(shape).mask[(y - rect.y) * rect.w + (x - rect.x)] === 1
 }
 
 /**
