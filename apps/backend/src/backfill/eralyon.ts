@@ -145,7 +145,6 @@ const applyBlock = (result: Uint8Array | null, compressed: Uint8Array): Uint8Arr
 
 /** A tile's week, decoded through its first `applied` blocks. Absent history has no blocks. */
 interface TileWeek {
-  readonly week: number
   readonly blocks: WeekBlocks
   readonly bytes: number
   applied: number
@@ -153,11 +152,11 @@ interface TileWeek {
 }
 
 /**
- * Decoded weeks kept across alarm steps. An import visits every tile of one snapshot before the
- * next, so each tile's week stays warm and every later snapshot applies only its own diffs. Tiles
- * beyond the budget decode from their base each time, as every tile did before.
+ * Decoded weeks kept across alarm steps, least recently used first out. An import walks each week
+ * tile by tile, so one tile's week serves all its snapshots in a row and each applies only its own
+ * diffs. Older jobs step snapshot by snapshot and stay warm only while all their tiles fit.
  */
-const WEEK_CACHE_BYTES = 48 * 1024 * 1024
+const WEEK_CACHE_BYTES = 24 * 1024 * 1024
 const HOURS_PER_WEEK = 168
 
 /** One bounded upstream client; keeps decoded weeks warm across alarm batches. */
@@ -181,7 +180,6 @@ export class EralyonArchive {
       throw new Error(`Eralyon tile returned HTTP ${response.status}.`)
     const bytes = response.status === 404 ? new Uint8Array() : await readBytes(response)
     return {
-      week,
       blocks: parseWeek(bytes),
       bytes: bytes.length + TILE_SIZE * TILE_SIZE,
       applied: 0,
@@ -189,14 +187,20 @@ export class EralyonArchive {
     }
   }
 
-  /** Keep a week if it fits, after dropping weeks the import has moved past. */
+  private forget(key: string): void {
+    const held = this.weeks.get(key)
+    if (held === undefined) return
+    this.weeks.delete(key)
+    this.cachedBytes -= held.bytes
+  }
+
+  /** Keep a week as the most recently used, evicting the least recently used until it fits. */
   private remember(key: string, held: TileWeek): void {
-    if (this.cachedBytes + held.bytes > WEEK_CACHE_BYTES)
-      for (const [other, week] of this.weeks)
-        if (week.week !== held.week) {
-          this.weeks.delete(other)
-          this.cachedBytes -= week.bytes
-        }
+    this.forget(key)
+    for (const oldest of this.weeks.keys()) {
+      if (this.cachedBytes + held.bytes <= WEEK_CACHE_BYTES) break
+      this.forget(oldest)
+    }
     if (this.cachedBytes + held.bytes > WEEK_CACHE_BYTES) return
     this.weeks.set(key, held)
     this.cachedBytes += held.bytes
@@ -205,11 +209,8 @@ export class EralyonArchive {
   async tile(snapshotId: number, tile: TileCoord): Promise<Uint8Array | null> {
     const week = Math.floor(snapshotId / HOURS_PER_WEEK)
     const key = `${week}/${tile.x}/${tile.y}`
-    let held = this.weeks.get(key)
-    if (held === undefined) {
-      held = await this.fetchWeek(week, tile)
-      this.remember(key, held)
-    }
+    const held = this.weeks.get(key) ?? (await this.fetchWeek(week, tile))
+    this.remember(key, held)
     // Diffs only move forward; an earlier snapshot starts again from the base image.
     const appliedDate = held.blocks[held.applied - 1]?.[0]
     if (appliedDate !== undefined && appliedDate > snapshotId) {
@@ -224,10 +225,7 @@ export class EralyonArchive {
       }
     } catch (error) {
       // A partly applied diff leaves the pixels unusable; the next read decodes from the base.
-      if (this.weeks.get(key) === held) {
-        this.weeks.delete(key)
-        this.cachedBytes -= held.bytes
-      }
+      this.forget(key)
       throw error
     }
     // A copy, so applying the next snapshot's diffs cannot change pixels a caller still holds.

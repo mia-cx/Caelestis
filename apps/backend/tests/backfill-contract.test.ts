@@ -228,6 +228,57 @@ describe('template backfill contract', () => {
     expect(downloads).toBe(1)
   })
 
+  it('downloads each tile of a week once, even for jobs larger than the decoded-week budget', async () => {
+    const sql = new MemorySqlStore()
+    // Over 50 tiles once the timelapse frame is added: more decoded weeks than the cache holds.
+    await sql.insertTemplateVersion({
+      templateId,
+      versionId,
+      surface: WORLD_TEMPLATE_SURFACE,
+      season: 0,
+      nodeId: null,
+      name: 'Wide mural',
+      createdWithToken: 'b'.repeat(64),
+      createdByUserId: null,
+      createdAt: millis(1),
+      bbox: { minX: 100_000, minY: 100_000, maxX: 109_000, maxY: 104_000 },
+      totalPixels: 36_000_000,
+      chunks: [],
+    })
+    const week = archiveWeek([
+      [170, new Uint8Array(TILE_SIZE * TILE_SIZE).fill(1)],
+      [172, new Uint8Array(TILE_SIZE * TILE_SIZE).fill(254)],
+    ])
+    const downloads = new Map<string, number>()
+    const archive = new EralyonArchive(
+      Object.assign(
+        async (input: string | URL | Request) => {
+          const url = String(input)
+          downloads.set(url, (downloads.get(url) ?? 0) + 1)
+          return new Response(week)
+        },
+        { preconnect: fetch.preconnect },
+      ),
+    )
+    const snapshots = [
+      { id: 170, at: 1_000 },
+      { id: 172, at: 2_000 },
+    ]
+    const importer = new TemplateBackfill(
+      new MemoryBackfillStorage(),
+      sql,
+      new MemoryBlobStore(),
+      { snapshots: async () => snapshots, tile: (id, tile) => archive.tile(id, tile) },
+      () => 200_000_000,
+    )
+    const job = await importer.start(templateId, versionId, 170)
+    expect(job.total / snapshots.length).toBeGreaterThan(50)
+    for (let step = 0; step < job.total; step++) await importer.step()
+    expect(await importer.job()).toMatchObject({ status: 'completed', imported: job.total })
+    expect(downloads.size).toBe(job.total / snapshots.length)
+    expect(Math.max(...downloads.values())).toBe(1)
+  })
+
   it('finishes a job persisted with its plan inline, as before plans had their own key', async () => {
     const archive: ArchiveSource = {
       snapshots: async () => [snapshot, { id: 2, at: 150 }],

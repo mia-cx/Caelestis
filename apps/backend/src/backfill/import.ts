@@ -43,14 +43,63 @@ interface StoredPlan {
   readonly jobId: string
   readonly snapshots: readonly ArchiveSnapshot[]
   readonly tiles: readonly TileCoord[]
+  /**
+   * Steps walk each archive week tile by tile, so one tile's decoded week serves all of its
+   * snapshots in a row. Absent on plans moved out of older jobs, which keep stepping snapshot by
+   * snapshot, as their step counts were recorded.
+   */
+  readonly weekly?: true
 }
 
-/** Progress, rewritten every step. Jobs started before `plan` existed carry theirs inline. */
-interface StoredJob extends Partial<Omit<StoredPlan, 'jobId'>> {
+/**
+ * Progress, rewritten every step. The counters hold one entry per snapshot of the current week;
+ * jobs started before `plan` existed carry their plan inline and a single snapshot's counters.
+ */
+interface StoredJob extends Partial<Omit<StoredPlan, 'jobId' | 'weekly'>> {
   readonly summary: BackfillJob
-  readonly correct: number
-  readonly mismatched: number
-  readonly incomplete: boolean
+  readonly correct: number | readonly number[]
+  readonly mismatched: number | readonly number[]
+  readonly incomplete: boolean | readonly boolean[]
+}
+
+/** Snapshots Eralyon stores in one file per tile: the IDs are hours, and a file holds a week. */
+const HOURS_PER_ARCHIVE_WEEK = 168
+
+/** Where a step falls: snapshots step in runs, each run visiting every tile in turn. */
+const position = (plan: StoredPlan, completed: number) => {
+  const tiles = plan.tiles.length
+  let first = 0
+  let offset = 0
+  while (first < plan.snapshots.length) {
+    let length = 1
+    const week = Math.floor((plan.snapshots[first]?.id ?? 0) / HOURS_PER_ARCHIVE_WEEK)
+    while (
+      plan.weekly === true &&
+      first + length < plan.snapshots.length &&
+      Math.floor((plan.snapshots[first + length]?.id ?? 0) / HOURS_PER_ARCHIVE_WEEK) === week
+    )
+      length++
+    const within = completed - offset
+    if (within < length * tiles)
+      return {
+        first,
+        length,
+        index: within % length,
+        snapshot: plan.snapshots[first + (within % length)],
+        tile: plan.tiles[Math.floor(within / length)],
+        starts: within === 0,
+        ends: within === length * tiles - 1,
+      }
+    offset += length * tiles
+    first += length
+  }
+  return null
+}
+
+/** A run's counters as stored, or fresh ones. Jobs from before runs held one snapshot's plainly. */
+const counters = <T>(held: T | readonly T[], length: number, empty: T): T[] => {
+  const list: T[] = Array.isArray(held) ? [...held] : [held]
+  return list.length === length ? list : Array.from({ length }, () => empty)
 }
 
 interface Observation extends ArchiveTileFrame {
@@ -69,14 +118,6 @@ export class BackfillError extends Error {
 }
 
 type DecodedChunk = Awaited<ReturnType<typeof decodeWplaceIndexedPng>>
-
-/** A job's progress without the plan an older job stored inline. */
-const progress = ({ summary, correct, mismatched, incomplete }: StoredJob): StoredJob => ({
-  summary,
-  correct,
-  mismatched,
-  incomplete,
-})
 
 const suffix = (id: number): string => String(id).padStart(10, '0')
 const tilePrefix = (version: string, tile: TileCoord): string =>
@@ -200,12 +241,17 @@ export class TemplateBackfill {
     // A failed schedule must not leave the form observing an unstartable running job.
     await this.storage.setAlarm(this.now() + 100)
     // The plan lands first, so a stored running job always finds the plan it names.
-    await this.storage.put<StoredPlan>('plan', { jobId: summary.id, snapshots, tiles })
+    await this.storage.put<StoredPlan>('plan', {
+      jobId: summary.id,
+      snapshots,
+      tiles,
+      weekly: true,
+    })
     await this.storage.put<StoredJob>('job', {
       summary,
-      correct: 0,
-      mismatched: 0,
-      incomplete: false,
+      correct: [],
+      mismatched: [],
+      incomplete: [],
     })
     return summary
   }
@@ -285,25 +331,31 @@ export class TemplateBackfill {
     if (await this.sql.archiveOperationActive({ fresh: true })) return
     const plan = await this.readPlan(held)
     if (plan === null) return
-    const { tiles, snapshots } = plan
+    const { snapshots } = plan
     const template = await this.sql.readTemplate(summary.basis.templateId)
     if (template === null) {
       await this.cancel()
       return
     }
-    const snapshot = snapshots[Math.floor(summary.completed / tiles.length)]
-    const tile = tiles[summary.completed % tiles.length]
-    if (snapshot === undefined || tile === undefined) return
+    const step = position(plan, summary.completed)
+    const snapshot = step?.snapshot
+    const tile = step?.tile
+    if (step === null || snapshot === undefined || tile === undefined) return
     const firstLive = await this.sql.readFirstTemplateObservation(summary.basis.versionId)
     if (firstLive !== null && snapshot.at >= firstLive) {
+      // Samples exist for the runs already finished; this run's stop with it.
       await this.storage.put<StoredJob>('job', {
-        ...progress(held),
         summary: {
           ...summary,
-          to: snapshots.findLast((entry) => entry.at < firstLive)?.at ?? summary.from,
+          to:
+            snapshots.slice(0, step.first).findLast((entry) => entry.at < firstLive)?.at ??
+            summary.from,
           total: summary.completed,
           status: summary.failed > 0 ? 'failed' : 'completed',
         },
+        correct: held.correct,
+        mismatched: held.mismatched,
+        incomplete: held.incomplete,
       })
       return
     }
@@ -361,24 +413,34 @@ export class TemplateBackfill {
       failed++
       error = cause instanceof Error ? cause.message : String(cause)
     }
-    let correct = held.correct + (observation?.correct ?? 0)
-    let mismatched = held.mismatched + (observation?.mismatched ?? 0)
-    let incomplete = held.incomplete || (chunk !== undefined && observation?.hash == null)
+    // A run's first step starts its counters afresh.
+    let correct = counters(step.starts ? [] : held.correct, step.length, 0)
+    let mismatched = counters(step.starts ? [] : held.mismatched, step.length, 0)
+    let incomplete = counters(step.starts ? [] : held.incomplete, step.length, false)
+    correct[step.index] = (correct[step.index] ?? 0) + (observation?.correct ?? 0)
+    mismatched[step.index] = (mismatched[step.index] ?? 0) + (observation?.mismatched ?? 0)
+    incomplete[step.index] =
+      incomplete[step.index] === true || (chunk !== undefined && observation?.hash == null)
     const completed = summary.completed + 1
-    if (completed % tiles.length === 0) {
-      await this.storage.put<ArchiveProgressSample>(
-        `sample:${summary.basis.versionId}:${suffix(snapshot.id)}`,
-        {
-          at: snapshot.at,
-          snapshotId: snapshot.id,
-          correct: incomplete ? null : correct,
-          mismatched: incomplete ? null : mismatched,
-          total: summary.basis.total,
-        },
-      )
-      correct = 0
-      mismatched = 0
-      incomplete = false
+    if (step.ends) {
+      for (let index = 0; index < step.length; index++) {
+        const sampled = snapshots[step.first + index]
+        if (sampled === undefined) continue
+        const unknown = incomplete[index] === true
+        await this.storage.put<ArchiveProgressSample>(
+          `sample:${summary.basis.versionId}:${suffix(sampled.id)}`,
+          {
+            at: sampled.at,
+            snapshotId: sampled.id,
+            correct: unknown ? null : (correct[index] ?? 0),
+            mismatched: unknown ? null : (mismatched[index] ?? 0),
+            total: summary.basis.total,
+          },
+        )
+      }
+      correct = []
+      mismatched = []
+      incomplete = []
     }
     const next: BackfillJob = {
       ...summary,
