@@ -8,6 +8,7 @@ import type { Appearance } from '../templates/appearance.js'
 import type { PlacedPixels, PlacedTemplate } from '../templates/local-store.js'
 import { packMismatchMark } from '../templates/mismatch-marks.js'
 import { forEachPixel, pixelRect, type SparsePixels } from '../templates/sparse-pixels.js'
+import type { ArtboardPixels } from './artboard-pixels.js'
 
 const MARKER_CHUNK_SIZE = 1_024
 
@@ -78,42 +79,84 @@ export const artboardColourTargets = (
   return targets
 }
 
-/** Per-colour progress from the native artboard pixels Wplace has loaded. */
-export const artboardColourProgress = (
+/** One counter per possible palette index, since template pixels are bytes. */
+const INDEX_SLOTS = 256
+
+const countColourProgress = (
   template: PlacedPixels,
   pixels: NativePixelSnapshot,
 ): readonly ArtboardColourProgress[] => {
-  const actual = artboardActualPixels(template, pixels)
-  const progress = new Map<number, ArtboardColourProgress>()
+  const { known: knownAt, indices: placedAt } = artboardActualPixels(template, pixels)
+  const total = new Uint32Array(INDEX_SLOTS)
+  const known = new Uint32Array(INDEX_SLOTS)
+  const completed = new Uint32Array(INDEX_SLOTS)
+  const unpainted = new Uint32Array(INDEX_SLOTS)
   forEachPixel(template.pixels, (wanted, at) => {
     if (wanted === TRANSPARENT_INDEX) return
-    const previous = progress.get(wanted) ?? {
-      index: wanted,
-      completed: 0,
-      mismatched: 0,
-      unpainted: 0,
-      known: 0,
-      total: 0,
-    }
-    const known = actual.known[at] === 1
-    const placed = actual.indices[at]
-    progress.set(wanted, {
-      ...previous,
-      total: previous.total + 1,
-      known: previous.known + (known ? 1 : 0),
-      completed: previous.completed + (known && placed === wanted ? 1 : 0),
-      mismatched:
-        previous.mismatched + (known && placed !== wanted && placed !== TRANSPARENT_INDEX ? 1 : 0),
-      unpainted: previous.unpainted + (known && placed === TRANSPARENT_INDEX ? 1 : 0),
-    })
+    total[wanted] = (total[wanted] as number) + 1
+    if (knownAt[at] !== 1) return
+    known[wanted] = (known[wanted] as number) + 1
+    const placed = placedAt[at]
+    if (placed === wanted) completed[wanted] = (completed[wanted] as number) + 1
+    else if (placed === TRANSPARENT_INDEX) unpainted[wanted] = (unpainted[wanted] as number) + 1
   })
-  return [...progress.values()].sort((left, right) => left.index - right.index)
+  const progress: ArtboardColourProgress[] = []
+  for (let index = 0; index < INDEX_SLOTS; index++) {
+    if (total[index] === 0) continue
+    const colourKnown = known[index] as number
+    const colourCompleted = completed[index] as number
+    const colourUnpainted = unpainted[index] as number
+    progress.push({
+      index,
+      completed: colourCompleted,
+      mismatched: colourKnown - colourCompleted - colourUnpainted,
+      unpainted: colourUnpainted,
+      known: colourKnown,
+      total: total[index] as number,
+    })
+  }
+  return progress
 }
 
-/** Overall progress for one artboard template, derived from the same per-colour counts. */
-export const artboardTemplateProgress = (template: PlacedPixels, pixels: NativePixelSnapshot) => {
-  const colours = artboardColourProgress(template, pixels)
-  return colours.reduce(
+interface CountedProgress {
+  readonly originX: number
+  readonly originY: number
+  readonly revision: number
+  readonly colours: readonly ArtboardColourProgress[]
+}
+
+/** The last count per template pixels, shared by the panel tree and the Paint palette. */
+const countedProgress = new WeakMap<SparsePixels, CountedProgress>()
+
+/**
+ * Per-colour progress from the native artboard pixels Wplace has loaded, in palette order.
+ * Reuses the last count while the template's pixels, its origin and the read's revision hold.
+ */
+export const artboardColourProgress = (
+  template: PlacedPixels,
+  pixels: ArtboardPixels,
+): readonly ArtboardColourProgress[] => {
+  const held = countedProgress.get(template.pixels)
+  if (
+    held !== undefined &&
+    held.revision === pixels.revision &&
+    held.originX === template.originX &&
+    held.originY === template.originY
+  )
+    return held.colours
+  const colours = countColourProgress(template, pixels)
+  countedProgress.set(template.pixels, {
+    originX: template.originX,
+    originY: template.originY,
+    revision: pixels.revision,
+    colours,
+  })
+  return colours
+}
+
+/** Overall progress for one artboard template, summed from its per-colour counts. */
+export const artboardTemplateProgress = (colours: readonly ArtboardColourProgress[]) =>
+  colours.reduce(
     (total, colour) => ({
       completed: total.completed + colour.completed,
       mismatched: total.mismatched + colour.mismatched,
@@ -123,7 +166,6 @@ export const artboardTemplateProgress = (template: PlacedPixels, pixels: NativeP
     }),
     { completed: 0, mismatched: 0, unpainted: 0, known: 0, total: 0 },
   )
-}
 
 /** Palette colours with at least one artboard pixel that still differs from the template. */
 export const artboardRemainingColours = (

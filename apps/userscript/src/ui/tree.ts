@@ -33,7 +33,7 @@ import {
   serverTemplateTreeKey,
 } from '../application/tree-server-state.js'
 import { artboardColourProgress, artboardTemplateProgress } from '../gl/artboard-markers.js'
-import { readArtboardPixels } from '../gl/artboard-pixels.js'
+import { NO_ARTBOARD_PIXELS, readArtboardPixels } from '../gl/artboard-pixels.js'
 import {
   localFolderChainVisible,
   moveLocalFolder,
@@ -515,17 +515,16 @@ const buildTree = <Result>(
             width: bounds.maxX - bounds.minX,
             height: bounds.maxY - bounds.minY,
           })
-        : { committed: [], draft: [] }
+        : NO_ARTBOARD_PIXELS
     for (const template of drawnTemplates) {
       const pixels = template.artwork.pixels
+      const colours =
+        pixels === null ? null : artboardColourProgress({ ...template, pixels }, regions)
       // An evicted template keeps the counts it had when its pixels were last in memory.
       const counts =
-        pixels === null
+        colours === null
           ? lastAllianceProgress.get(template.artwork)
-          : {
-              progress: artboardTemplateProgress({ ...template, pixels }, regions),
-              colours: artboardColourProgress({ ...template, pixels }, regions),
-            }
+          : { progress: artboardTemplateProgress(colours), colours }
       if (counts === undefined) continue
       lastAllianceProgress.set(template.artwork, counts)
       allianceProgress.set(template.id, counts)
