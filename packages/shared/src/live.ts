@@ -56,11 +56,18 @@ export const decodeLiveTileUpload = (
   }
 }
 
+/** Whether text is longer than `limit` UTF-8 bytes. Counts bytes only when it could be. */
+export const exceedsUtf8Bytes = (text: string, limit: number): boolean =>
+  text.length * 3 > limit && new TextEncoder().encode(text).byteLength > limit
+
 /** Split only oversized snapshots. Small live events stay one message. */
-export const encodeLiveServerEvent = (event: LiveSyncServerEvent): readonly string[] => {
-  const encoded = JSON.stringify(event)
-  const bytes = new TextEncoder().encode(encoded).byteLength
-  if (bytes > MAX_LIVE_SNAPSHOT_BYTES) throw new RangeError('live snapshot too large')
+export const encodeLiveServerEvent = (event: LiveSyncServerEvent): readonly string[] =>
+  frameLiveServerEvent(JSON.stringify(event))
+
+/** Frame an event's `JSON.stringify` text, for callers that already serialized it to measure it. */
+export const frameLiveServerEvent = (encoded: string): readonly string[] => {
+  if (exceedsUtf8Bytes(encoded, MAX_LIVE_SNAPSHOT_BYTES))
+    throw new RangeError('live snapshot too large')
   if (encoded.length <= SNAPSHOT_CHUNK_CODE_UNITS) return [encoded]
   const messageId = uuidV7()
   const total = Math.ceil(encoded.length / SNAPSHOT_CHUNK_CODE_UNITS)
