@@ -22,7 +22,7 @@ const port = meetOtherBuild()
 if (handedOff) {
   // The extension runs Caelestis now. If it is gone, run again on this copy's own values.
   console.info('[caelestis] this userscript handed over to the extension, so it stays off')
-  serveOtherBuild(port, 'userscript')
+  if (port !== null) serveOtherBuild(port, 'userscript')
   pageWindow().addEventListener('load', () => {
     // Wplace's own frames run userscripts but never the extension, so only the top page decides.
     if (isPageClaimed() || pageWindow().top !== pageWindow()) return
@@ -31,7 +31,7 @@ if (handedOff) {
   })
 } else if (claimPage('userscript')) {
   startUserscript()
-  linkOtherBuild(port, 'userscript', false)
-} else {
+  if (port !== null) linkOtherBuild(port, 'userscript', false)
+} else if (port !== null) {
   serveOtherBuild(port, 'userscript')
 }

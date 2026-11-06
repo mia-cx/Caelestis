@@ -1,4 +1,9 @@
-import { linkOtherBuild, meetOtherBuild, serveOtherBuild } from '../build-transfer.js'
+import {
+  awaitingSettings,
+  linkOtherBuild,
+  meetOtherBuild,
+  serveOtherBuild,
+} from '../build-transfer.js'
 import { installFeatures, installPageHooks } from '../main.js'
 import { claimPage } from '../page-claim.js'
 import { useStoredValues } from '../stored-values.js'
@@ -14,7 +19,7 @@ import { BRIDGE_HANDOFF, type BridgeMessage, type PageMessage } from './bridge-p
  */
 
 /** Serve stored values from the bridge; `loaded` runs once the snapshot is in. */
-const connectBridge = (loaded: (startedEmpty: boolean) => void): void => {
+const connectBridge = (loaded: () => void): void => {
   const values = new Map<string, string>()
   const channel = new MessageChannel()
   const port = channel.port1
@@ -37,7 +42,7 @@ const connectBridge = (loaded: (startedEmpty: boolean) => void): void => {
     switch (message.type) {
       case 'snapshot':
         for (const [key, value] of Object.entries(message.values)) values.set(key, value)
-        loaded(values.size === 0)
+        loaded()
         break
       case 'changes':
         adopt(message.changes)
@@ -55,11 +60,14 @@ const connectBridge = (loaded: (startedEmpty: boolean) => void): void => {
 const otherBuild = meetOtherBuild()
 
 if (claimPage('extension')) {
-  connectBridge((startedEmpty) => {
+  connectBridge(() => {
+    const awaiting = awaitingSettings()
     installFeatures()
-    linkOtherBuild(otherBuild, 'extension', startedEmpty)
+    if (otherBuild !== null) linkOtherBuild(otherBuild, 'extension', awaiting)
   })
   installPageHooks()
 } else {
-  connectBridge(() => serveOtherBuild(otherBuild, 'extension'))
+  connectBridge(() => {
+    if (otherBuild !== null) serveOtherBuild(otherBuild, 'extension')
+  })
 }

@@ -1,24 +1,39 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const STATE = 'caelestis.state.v2'
 const HANDED_OFF = 'caelestis.local.handed-off'
+const RECEIVING = 'caelestis.local.receiving'
 
 /** One copy of Caelestis on the shared test page, with its own storage. */
-const copy = async (stored: Record<string, string>) => {
+const copy = async (stored: Record<string, string>, storage: { failSync?: boolean } = {}) => {
   vi.resetModules()
   const values = new Map(Object.entries(stored))
-  const storage = await import('../src/stored-values.js')
-  storage.useStoredValues(values, {
+  const module = await import('../src/stored-values.js')
+  module.useStoredValues(values, {
     persist: () => undefined,
-    fetch: async () => Object.fromEntries(values),
+    fetch: async () => {
+      if (storage.failSync === true) throw new Error('stored values are out of reach')
+      return Object.fromEntries(values)
+    },
   })
   const transfer = await import('../src/build-transfer.js')
-  return { values, transfer, port: transfer.meetOtherBuild() }
+  const port = transfer.meetOtherBuild()
+  if (port === null) throw new Error('met nobody')
+  return { values, transfer, port }
 }
 
 const reload = () => vi.spyOn(window.location, 'reload').mockImplementation(() => undefined)
 
-afterEach(() => vi.restoreAllMocks())
+/** Document start: the parser has not added `<head>` yet, though Caelestis may have added its styles. */
+beforeEach(() => document.documentElement.replaceChildren(document.createElement('style')))
+afterEach(() => {
+  vi.restoreAllMocks()
+  Reflect.deleteProperty(window, '__caelestisMeeting')
+  document.documentElement.replaceChildren(
+    document.createElement('head'),
+    document.createElement('body'),
+  )
+})
 
 describe('moving settings between the userscript and the extension', () => {
   it('an empty extension takes the userscript’s values, and the userscript yields after', async () => {
@@ -47,6 +62,22 @@ describe('moving settings between the userscript and the extension', () => {
     expect(userscript.values.get(HANDED_OFF)).toBe('true')
   })
 
+  it('a transfer that fails to store keeps the userscript running and is retried', async () => {
+    const reloaded = reload()
+    const extension = await copy({}, { failSync: true })
+    const userscript = await copy({ [STATE]: '{"servers":["mine"]}' })
+    const warned = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    extension.transfer.linkOtherBuild(extension.port, 'extension', true)
+    userscript.transfer.serveOtherBuild(userscript.port, 'userscript')
+
+    await vi.waitFor(() => expect(warned).toHaveBeenCalled())
+    expect(reloaded).not.toHaveBeenCalled()
+    expect(userscript.values.has(HANDED_OFF)).toBe(false)
+    expect(extension.values.get(RECEIVING)).toBe('true')
+    expect(extension.transfer.awaitingSettings()).toBe(true)
+  })
+
   it('import replaces this build’s values with the other build’s, keeping local ones', async () => {
     const reloaded = reload()
     const extension = await copy({ [STATE]: 'extension', 'caelestis.old': 'gone' })
@@ -73,12 +104,18 @@ describe('moving settings between the userscript and the extension', () => {
     expect(Object.fromEntries(userscript.values)).toEqual({ [STATE]: 'extension' })
   })
 
-  it('withdraws an offer nobody took once the page’s first script appears', async () => {
+  it('withdraws an offer once the document gains content, and a later copy meets nobody', async () => {
     await copy({})
-    expect(Reflect.has(window, '__caelestisMeeting')).toBe(true)
-
-    document.head.append(document.createElement('script'))
-
+    document.documentElement.append(document.createElement('head'))
     await vi.waitFor(() => expect(Reflect.has(window, '__caelestisMeeting')).toBe(false))
+    // Page code plants its own offer, hoping a late userscript serves it.
+    const planted = new MessageChannel()
+    Reflect.set(window, '__caelestisMeeting', planted.port2)
+
+    vi.resetModules()
+    const late = await import('../src/build-transfer.js')
+
+    expect(late.meetOtherBuild()).toBeNull()
+    expect(Reflect.get(window, '__caelestisMeeting')).toBe(planted.port2)
   })
 })

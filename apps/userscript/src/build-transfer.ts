@@ -2,9 +2,11 @@ import { warn } from './debug.js'
 import type { Build } from './page-claim.js'
 import { pageWindow } from './page-world.js'
 import {
+  deleteStoredValue,
   LOCAL_KEY_PREFIX,
   portableValues,
   replacePortableValues,
+  storedValue,
   storeValue,
   syncStoredValues,
 } from './stored-values.js'
@@ -19,20 +21,44 @@ import {
  * userscript then yields to it on every load (`HANDED_OFF_KEY`).
  */
 
-/** Set in the userscript once it handed its values to the extension; it then yields to it. */
+/** Set in the userscript once the extension stored its values; it then yields to it. */
 export const HANDED_OFF_KEY = `${LOCAL_KEY_PREFIX}handed-off`
+
+/** Set while values from the other build are being stored, and cleared once all of them are. */
+const RECEIVING_KEY = `${LOCAL_KEY_PREFIX}receiving`
+
+/**
+ * Whether this copy still waits for its first settings: it has none, or a transfer into it stopped
+ * partway. Either way the automatic switch fills it.
+ */
+export const awaitingSettings = (): boolean =>
+  Object.keys(portableValues()).length === 0 || storedValue(RECEIVING_KEY) === 'true'
+
+/** Replace this copy's values with `values`, so that a failure partway is retried. */
+const receive = async (values: Record<string, string>): Promise<void> => {
+  storeValue(RECEIVING_KEY, 'true')
+  replacePortableValues(values)
+  await syncStoredValues()
+  deleteStoredValue(RECEIVING_KEY)
+  await syncStoredValues()
+}
 
 const MEETING = '__caelestisMeeting'
 
+/** Whether the parser has started the page: every Wplace script lives in its head or body. */
+const pageStarted = (): boolean => document.head !== null || document.body !== null
+
 /**
- * This copy's end of the channel to the other build, which may not be installed at all.
+ * This copy's end of the channel to the other build, or `null` when it is too late to meet.
  *
- * Both copies call this at document start, before any Wplace script runs. The first leaves the
- * other end on the page's `window`; the second takes it. An end nobody took is removed the moment
- * the page's first `<script>` element appears: the parser runs pending observers before it runs a
- * script, so no Wplace script ever sees the offer and poses as the other build.
+ * Both copies call this at document start. The first leaves the other end on the page's `window`;
+ * the second takes it. The meeting holds only until the parser adds `<head>` or `<body>`, which
+ * it does before any page script can run, so no offer can be Wplace's. A copy that starts later
+ * meets nobody, and an offer nobody took is removed at that moment. Caelestis's own elements, such
+ * as its font styles at the root, don't count.
  */
-export const meetOtherBuild = (): MessagePort => {
+export const meetOtherBuild = (): MessagePort | null => {
+  if (pageStarted()) return null
   const page = pageWindow() as unknown as Record<string, unknown>
   const offered = page[MEETING]
   if (offered !== undefined) {
@@ -41,13 +67,9 @@ export const meetOtherBuild = (): MessagePort => {
   }
   const channel = new MessageChannel()
   Object.defineProperty(page, MEETING, { value: channel.port2, configurable: true })
-  const observer = new MutationObserver((records) => {
-    const taken = page[MEETING] !== channel.port2
-    const scriptAdded = records.some((record) =>
-      [...record.addedNodes].some((node) => node.nodeName === 'SCRIPT'),
-    )
-    if (!taken && !scriptAdded) return
-    if (!taken) delete page[MEETING]
+  const observer = new MutationObserver(() => {
+    if (!pageStarted()) return
+    if (page[MEETING] === channel.port2) delete page[MEETING]
     observer.disconnect()
   })
   observer.observe(document, { childList: true, subtree: true })
@@ -58,7 +80,7 @@ export const meetOtherBuild = (): MessagePort => {
 type Request =
   | { readonly type: 'read'; readonly id: number }
   | { readonly type: 'replace'; readonly id: number; readonly values: Record<string, string> }
-  /** Read, and remember the hand-off: only the userscript is ever asked. */
+  /** Yield from now on, its values being stored: only the userscript is ever asked. */
   | { readonly type: 'hand-off'; readonly id: number }
 
 /** Serving copy to running copy. */
@@ -82,10 +104,12 @@ export const serveOtherBuild = (port: MessagePort, build: Build): void => {
     const request = JSON.parse(String(data)) as Request
     void (async () => {
       try {
-        if (request.type === 'replace') replacePortableValues(request.values)
-        if (request.type === 'hand-off') storeValue(HANDED_OFF_KEY, 'true')
-        await syncStoredValues()
-        const values = request.type === 'replace' ? {} : { values: portableValues() }
+        if (request.type === 'replace') await receive(request.values)
+        if (request.type === 'hand-off') {
+          storeValue(HANDED_OFF_KEY, 'true')
+          await syncStoredValues()
+        }
+        const values = request.type === 'read' ? { values: portableValues() } : {}
         post(port, { type: 'done', id: request.id, ok: true, ...values })
       } catch (error) {
         warn('install', `could not ${request.type} for the other build`, String(error))
@@ -93,7 +117,7 @@ export const serveOtherBuild = (port: MessagePort, build: Build): void => {
       }
     })()
   }
-  post(port, { type: 'hello', build, empty: Object.keys(portableValues()).length === 0 })
+  post(port, { type: 'hello', build, empty: awaitingSettings() })
 }
 
 let other: Build | null = null
@@ -120,15 +144,11 @@ const ask = (request: Request): Promise<Record<string, string>> => {
   })
 }
 
-const adoptAndReload = async (values: Record<string, string>): Promise<void> => {
-  replacePortableValues(values)
-  await syncStoredValues()
+/** Replace this build's servers and settings with the other build's, then reload. */
+export const importFromOtherBuild = async (): Promise<void> => {
+  await receive(await ask({ type: 'read', id: ++lastRequest }))
   pageWindow().location.reload()
 }
-
-/** Replace this build's servers and settings with the other build's, then reload. */
-export const importFromOtherBuild = async (): Promise<void> =>
-  adoptAndReload(await ask({ type: 'read', id: ++lastRequest }))
 
 /** Replace the other build's servers and settings with this build's. */
 export const sendToOtherBuild = async (): Promise<void> => {
@@ -137,12 +157,14 @@ export const sendToOtherBuild = async (): Promise<void> => {
 }
 
 /**
- * The first switch, with no button: the userscript's values fill an extension that has none, and
- * the userscript yields from then on.
+ * The first switch, with no button: the userscript's values fill an extension still awaiting its
+ * settings, and only once the extension stored all of them does the userscript yield.
  */
-const handOff = async (running: Build, from: Build, empty: boolean, startedEmpty: boolean) => {
-  if (running === 'extension' && from === 'userscript' && startedEmpty && !empty) {
-    await adoptAndReload(await ask({ type: 'hand-off', id: ++lastRequest }))
+const handOff = async (running: Build, from: Build, empty: boolean, awaiting: boolean) => {
+  if (running === 'extension' && from === 'userscript' && awaiting && !empty) {
+    await receive(await ask({ type: 'read', id: ++lastRequest }))
+    await ask({ type: 'hand-off', id: ++lastRequest })
+    pageWindow().location.reload()
   } else if (running === 'userscript' && from === 'extension' && empty) {
     if (Object.keys(portableValues()).length === 0) return
     await sendToOtherBuild()
@@ -153,9 +175,9 @@ const handOff = async (running: Build, from: Build, empty: boolean, startedEmpty
 
 /**
  * Link the copy running Caelestis to the other build, if it turns out to be installed.
- * `startedEmpty` says whether this copy had no stored values when it loaded.
+ * `awaiting` is `awaitingSettings()` as it was when this copy loaded its values.
  */
-export const linkOtherBuild = (port: MessagePort, running: Build, startedEmpty: boolean): void => {
+export const linkOtherBuild = (port: MessagePort, running: Build, awaiting: boolean): void => {
   port.onmessage = ({ data }) => {
     const reply = JSON.parse(String(data)) as Reply
     if (reply.type === 'done') {
@@ -166,7 +188,7 @@ export const linkOtherBuild = (port: MessagePort, running: Build, startedEmpty: 
     link = port
     other = reply.build
     for (const listener of listeners) listener()
-    handOff(running, reply.build, reply.empty, startedEmpty).catch((error: unknown) =>
+    handOff(running, reply.build, reply.empty, awaiting).catch((error: unknown) =>
       warn('install', 'could not hand settings over', String(error)),
     )
   }
