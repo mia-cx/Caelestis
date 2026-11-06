@@ -2,4 +2,7 @@
 '@caelestis/userscript': minor
 ---
 
-Tidy the template studio: larger, clearer text; selects with their arrows; controls that show only when they apply; a compact Source window; drop an image anywhere to load it; and a phone bar that wraps in a sensible order.
+Make the template studio's windows easier to read, with larger text and only the controls that apply.
+
+- Drop an image anywhere over the studio to load it.
+- On phones the bar wraps as name and Save, tools, then the readout.
