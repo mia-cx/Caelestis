@@ -10,7 +10,9 @@ import { schedulerContract } from '../support/scheduler-contract.js'
 import {
   contractRecipe,
   leaderboardContractExpected,
+  regionRenewalContractExpected,
   runLeaderboardContract,
+  runRegionRenewalContract,
 } from '../support/sql-contract.js'
 
 const migrationRoot = process.cwd()
@@ -95,6 +97,13 @@ describe('external relational adapter contract', () => {
     await connection.migrate(migrations)
     expect(await runLeaderboardContract(new RelationalSqlStore(connection))).toEqual(
       leaderboardContractExpected,
+    )
+  })
+  it('renews many claim owners in one statement in the selected real database', async () => {
+    if (connection === undefined) throw new Error('Integration fixture did not open a database')
+    await connection.migrate(migrations)
+    expect(await runRegionRenewalContract(new RelationalSqlStore(connection))).toEqual(
+      regionRenewalContractExpected,
     )
   })
   it('migrates and preserves shared persistence boundaries in the selected real database', async () => {

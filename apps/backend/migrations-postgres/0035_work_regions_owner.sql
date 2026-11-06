@@ -1,0 +1,1 @@
+CREATE INDEX "work_regions_owner_idx" ON "work_regions" ("token_hash", "claimant_user_id");

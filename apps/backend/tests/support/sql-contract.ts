@@ -1,5 +1,6 @@
 import {
   millis,
+  REGION_CLAIM_TTL_MS,
   type Seconds,
   seconds,
   type TemplateRecipe,
@@ -280,4 +281,76 @@ export const runLeaderboardContract = async (sql: SqlStore) => {
       10,
     ),
   }
+}
+
+const tokenA = 'a'.repeat(64)
+const tokenB = 'b'.repeat(64)
+
+export const regionRenewalContractExpected = {
+  ownedByA1: 'renewed',
+  // A credential renews only beside the painter it was listed with.
+  tokenAWithPainter2: 'kept',
+  ownedByB2: 'renewed',
+  tokenBWithPainter1: 'kept',
+  withdrawnByA1: 'kept',
+  // Renewal follows the owner across seasons and surfaces.
+  otherSeasonA1: 'renewed',
+  expiredA1: 'gone',
+} as const
+
+/** Renew many owners in one call through any production SqlStore adapter. */
+export const runRegionRenewalContract = async (sql: SqlStore) => {
+  const now = Date.now()
+  // Seasons no other contract uses: the integration suite shares one database between cases.
+  const claims = [
+    ['ownedByA1', tokenA, 1, 7, now + 60_000],
+    ['tokenAWithPainter2', tokenA, 2, 7, now + 60_000],
+    ['ownedByB2', tokenB, 2, 7, now + 60_000],
+    ['tokenBWithPainter1', tokenB, 1, 7, now + 60_000],
+    ['withdrawnByA1', tokenA, 1, 7, now + 60_000],
+    ['otherSeasonA1', tokenA, 1, 8, now + 60_000],
+    ['expiredA1', tokenA, 1, 7, now - 1],
+  ] as const
+  for (const [id, tokenHash, painter, season, expiresAt] of claims) {
+    const rect = { x: 0, y: 0, w: 8, h: 8 }
+    await sql.regions.createRegion(
+      {
+        id,
+        season,
+        surface: WORLD_TEMPLATE_SURFACE,
+        templateId: null,
+        claimant: { wplaceUserId: painter, displayName: String(painter) },
+        document: { items: [{ id: 'shape', shape: { kind: 'rectangle', ...rect }, op: 'add' }] },
+        rect,
+        label: id,
+        createdAt: now - 120_000,
+        expiresAt,
+      },
+      tokenHash,
+    )
+  }
+  await sql.regions.deleteRegion(
+    'withdrawnByA1',
+    { tokenHash: tokenA, actorId: 1, admin: false },
+    true,
+  )
+  await sql.regions.renewRegions(
+    [
+      { tokenHash: tokenA, actorId: 1 },
+      { tokenHash: tokenB, actorId: 2 },
+      // More owners than D1 binds in one statement, as a full presence room renews.
+      ...Array.from({ length: 150 }, (_, index) => ({
+        tokenHash: index.toString(16).padStart(64, 'c'),
+        actorId: 1_000 + index,
+      })),
+    ],
+    now,
+  )
+  const renewedUntil = now + REGION_CLAIM_TTL_MS
+  const outcomes: Record<string, string> = {}
+  for (const [id] of claims) {
+    const region = await sql.regions.readRegion(id)
+    outcomes[id] = region === null ? 'gone' : region.expiresAt === renewedUntil ? 'renewed' : 'kept'
+  }
+  return outcomes
 }

@@ -49,6 +49,8 @@ export const workRegions = sqliteTable(
   },
   (table) => [
     index('work_regions_expiry_idx').on(table.expiresAt),
+    // Presence renews each connected owner's claims by credential and painter, across surfaces.
+    index('work_regions_owner_idx').on(table.tokenHash, table.claimantUserId),
     index('work_regions_scope_idx').on(
       table.season,
       table.surfaceKind,

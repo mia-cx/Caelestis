@@ -8,15 +8,12 @@ import {
   type TemplateSurface,
   templateSurface,
 } from '@caelestis/shared'
-import { and, asc, eq, gt, isNotNull, isNull, lte, ne, or, sql } from 'drizzle-orm'
+import { and, asc, eq, isNotNull, isNull, lte, ne, or, sql } from 'drizzle-orm'
 import { changedRows, relationalDatabase } from '../adapters/relational-database.js'
 import type { SqlConnection } from '../adapters/sql-connection.js'
+import { sqlDialect } from '../adapters/sql-dialect.js'
 import { workRegionDeletions, workRegions } from '../db/schema.js'
-import type { RegionOwner, RegionStore, RegionWriter } from './region-store.js'
-
-// Old binaries may insert null expiry during rolling upgrades. Apply their original deadline
-// directly instead of backfilling every row before every read and renewal.
-const effectiveExpiry = sql<number>`coalesce(${workRegions.expiresAt}, ${workRegions.createdAt} + ${REGION_CLAIM_TTL_MS})`
+import type { RegionOwner, RegionRenewal, RegionStore, RegionWriter } from './region-store.js'
 
 const ownedBy = (writer: RegionWriter) =>
   writer.admin
@@ -112,21 +109,28 @@ export class RelationalRegionStore implements RegionStore {
     )
   }
 
-  async renewRegions(tokenHash: string, actorId: number, now: number): Promise<boolean> {
+  async renewRegions(owners: readonly RegionRenewal[], now: number): Promise<void> {
     await this.expireRegions(now)
-    const result = await this.db
-      .update(workRegions)
-      .set({ expiresAt: now + REGION_CLAIM_TTL_MS })
-      .where(
-        and(
-          eq(workRegions.tokenHash, tokenHash),
-          eq(workRegions.claimantUserId, actorId),
-          gt(effectiveExpiry, now),
-          eq(workRegions.state, 'active'),
-        ),
+    if (owners.length === 0) return
+    // Owners travel as one JSON parameter: D1 binds at most 100 values per statement.
+    // Old binaries may insert null expiry during rolling upgrades; apply their original deadline
+    // directly instead of backfilling every row first.
+    const syntax = sqlDialect(this.client.dialect)
+    await this.client
+      .prepare(`UPDATE work_regions SET expires_at = ?
+        WHERE state = 'active'
+          AND coalesce(expires_at, created_at + ?) > ?
+          AND (token_hash, claimant_user_id) IN (
+            SELECT ${syntax.jsonField('tokenHash', 'text')}, ${syntax.jsonField('actorId')}
+            FROM ${syntax.jsonEach}
+          )`)
+      .bind(
+        now + REGION_CLAIM_TTL_MS,
+        REGION_CLAIM_TTL_MS,
+        now,
+        JSON.stringify(owners.map(({ tokenHash, actorId }) => ({ tokenHash, actorId }))),
       )
       .run()
-    return changedRows(result) > 0
   }
 
   async listRegions(

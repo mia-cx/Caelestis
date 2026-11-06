@@ -268,7 +268,7 @@ export const fetchCanvasTiles = async (
   const freshnessCutoff =
     (now - scanCycleBatches * ALARM_SCAN_INTERVAL_SECONDS - ALARM_SCAN_JITTER_SECONDS) * 1_000
   let followUpScheduled = false
-  let alarmsEvaluated = false
+  let alarmChanged = false
   for (const template of templates) {
     const required = requiredTiles.get(template.id) ?? []
     const status = statusesById.get(template.id)
@@ -298,10 +298,11 @@ export const fetchCanvasTiles = async (
       { kind: 'scan' },
       alarmIdFactory(),
     )
-    alarmsEvaluated = true
+    alarmChanged ||= result.alarmChanged
     followUpScheduled ||= result.scheduleFollowUp
   }
-  if (alarmsEvaluated) await publishAlarmChange(statusReadModel, season)
+  // A scan that moves no alarm owes subscribers nothing; a changed alarm covers its follow-up.
+  if (alarmChanged) await publishAlarmChange(statusReadModel, season)
 
   return {
     fetched,
@@ -332,7 +333,7 @@ export const fetchAlarmFollowUps = async (
   const tokenHash = await sha256Hex(new TextEncoder().encode('caelestis-tile-fetcher'))
   let evaluated = 0
   let failed = 0
-  const evaluatedSeasons = new Set<number>()
+  const changedSeasons = new Set<number>()
   const selectedProbes = probes.slice(0, MAX_ALARM_PROBES_PER_RUN)
   let pending = probes.length - selectedProbes.length
   let remaining = MAX_FETCH_TILES_PER_RUN
@@ -468,7 +469,7 @@ export const fetchAlarmFollowUps = async (
         pending++
         continue
       }
-      await ports.sql.evaluateTemplateAlarm(
+      const result = await ports.sql.evaluateTemplateAlarm(
         {
           templateId: probe.templateId,
           versionId: probe.versionId,
@@ -486,7 +487,7 @@ export const fetchAlarmFollowUps = async (
         'unused',
       )
       evaluated++
-      evaluatedSeasons.add(probe.season)
+      if (result.alarmChanged) changedSeasons.add(probe.season)
     }
   } finally {
     try {
@@ -496,7 +497,7 @@ export const fetchAlarmFollowUps = async (
     }
   }
 
-  for (const season of evaluatedSeasons) await publishAlarmChange(statusReadModel, season)
+  for (const season of changedSeasons) await publishAlarmChange(statusReadModel, season)
 
   return { evaluated, failed, pending }
 }
