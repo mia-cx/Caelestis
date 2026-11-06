@@ -163,13 +163,14 @@ export class TemplateGpuStore {
     return stored !== undefined && stored.upload === null && isCurrent(stored.entry, template)
   }
 
+  /**
+   * Point the entry's palette texture at `data`, uploading only a palette it does not hold yet.
+   *
+   * Palettes are compared by identity, so callers never mutate one they have passed in. The render
+   * scene keeps a palette's array until its bytes change.
+   */
   uploadPalette(entry: TemplateGpuEntry, data: Uint8Array): void {
-    if (
-      entry.paletteData !== null &&
-      entry.paletteData.length === data.length &&
-      entry.paletteData.every((value, index) => value === data[index])
-    )
-      return
+    if (entry.paletteData === data) return
     const gl = this.gl
     gl.bindTexture(gl.TEXTURE_2D, entry.palette)
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, PALETTE_SIZE, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, data)
@@ -178,7 +179,7 @@ export class TemplateGpuStore {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-    entry.paletteData = data.slice()
+    entry.paletteData = data
   }
 
   private textureLimit(width: number, height: number): number {
