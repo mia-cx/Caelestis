@@ -26,6 +26,7 @@ import {
   installAllianceOverlayLayer,
   repaintAllianceOverlayLayer,
 } from './gl/artboard-layer.js'
+import { onMapThemeChange } from './gl/contrast-outline.js'
 import {
   installOverlayLayer,
   overlayGpuMemoryBytes,
@@ -535,6 +536,7 @@ export const installFeatures = (): void => {
   onLocalChange(redraw)
   onLocalPreviewChange(redraw)
   onStateChange(redraw)
+  onMapThemeChange(redraw)
   step('panel', () => {
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', installPanel, { once: true })

@@ -4,6 +4,10 @@ type PreviewKey = keyof Appearance
 type PreviewValue = Appearance[PreviewKey]
 
 const previews = new Map<string, Map<PreviewKey, PreviewValue>>()
+let revision = 0
+
+/** Changes whenever any template's preview does, so a renderer can tell a settled frame cheaply. */
+export const appearancePreviewRevision = (): number => revision
 
 export const setAppearancePreview = <K extends PreviewKey>(
   id: string,
@@ -13,6 +17,7 @@ export const setAppearancePreview = <K extends PreviewKey>(
   const preview = previews.get(id) ?? new Map<PreviewKey, PreviewValue>()
   preview.set(property, value)
   previews.set(id, preview)
+  revision++
 }
 
 export const clearAppearancePreview = <K extends PreviewKey>(
@@ -21,7 +26,7 @@ export const clearAppearancePreview = <K extends PreviewKey>(
   expected?: Appearance[K],
 ): void => {
   if (property === undefined) {
-    previews.delete(id)
+    if (previews.delete(id)) revision++
     return
   }
   const preview = previews.get(id)
@@ -29,6 +34,7 @@ export const clearAppearancePreview = <K extends PreviewKey>(
   if (expected !== undefined && !Object.is(preview.get(property), expected)) return
   preview.delete(property)
   if (preview.size === 0) previews.delete(id)
+  revision++
 }
 
 export const appearanceWithPreview = (id: string, appearance: Appearance): Appearance => {

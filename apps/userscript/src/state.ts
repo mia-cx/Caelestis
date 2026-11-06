@@ -737,10 +737,27 @@ export const previewGlobalAppearance = (appearance: Appearance | null): void => 
   globalAppearancePreview = appearance
 }
 
-/** The defaults inherited by templates on this exact canvas. */
+let worldAppearance: {
+  readonly source: Appearance
+  readonly hiddenColours: readonly number[]
+  readonly appearance: Appearance
+} | null = null
+
+/**
+ * The defaults inherited by templates on this exact canvas.
+ *
+ * The same object until those defaults change, so renderers can compare it by identity.
+ */
 export const getSurfaceAppearance = (surface: TemplateSurface): Appearance => {
   if (surface.kind === 'world') {
-    return { ...getGlobalAppearance(), hiddenColours: state.hiddenColours }
+    const source = getGlobalAppearance()
+    if (worldAppearance?.source !== source || worldAppearance.hiddenColours !== state.hiddenColours)
+      worldAppearance = {
+        source,
+        hiddenColours: state.hiddenColours,
+        appearance: { ...source, hiddenColours: state.hiddenColours },
+      }
+    return worldAppearance.appearance
   }
   const key = templateSurfaceKey(surface)
   return (

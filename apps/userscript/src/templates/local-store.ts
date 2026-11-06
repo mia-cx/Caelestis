@@ -683,7 +683,30 @@ let displayOrderCache:
       readonly templates: readonly PlacedTemplate[]
     }
   | undefined
-/** Templates as the canvas and its interactions currently present them: custom order plus previews. */
+let displayPreviewCache:
+  | {
+      readonly ordered: readonly PlacedTemplate[]
+      readonly draft: PlacedTemplate | null
+      readonly origins: ReadonlyMap<string, { readonly x: number; readonly y: number }>
+      readonly templates: readonly PlacedTemplate[]
+    }
+  | undefined
+
+/** Whether every preview origin is the same object it was. Origins are replaced, never mutated. */
+const samePreviewOrigins = (
+  held: ReadonlyMap<string, { readonly x: number; readonly y: number }>,
+): boolean => {
+  if (held.size !== previewOrigins.size) return false
+  for (const [id, origin] of previewOrigins) if (held.get(id) !== origin) return false
+  return true
+}
+
+/**
+ * Templates as the canvas and its interactions currently present them: custom order plus previews.
+ *
+ * The same array until the order, a preview or the draft changes, so renderers can keep the
+ * snapshots they drew.
+ */
 export const displayTemplates = (): readonly PlacedTemplate[] => {
   const state = getState()
   const nodeRevision = serverNodesRevision()
@@ -704,16 +727,34 @@ export const displayTemplates = (): readonly PlacedTemplate[] => {
       templates: displayOrder(),
     }
   }
-  const ordered =
-    previewOrigins.size === 0
-      ? displayOrderCache.templates
-      : displayOrderCache.templates.map((template) => {
-          const preview = previewOrigins.get(template.id)
-          return preview === undefined
-            ? template
-            : { ...template, originX: preview.x, originY: preview.y }
-        })
-  return draft === null ? ordered : [...ordered, draft]
+  const ordered = displayOrderCache.templates
+  if (previewOrigins.size === 0 && draft === null) {
+    // Let a discarded draft's artwork go.
+    displayPreviewCache = undefined
+    return ordered
+  }
+  if (
+    displayPreviewCache?.ordered !== ordered ||
+    displayPreviewCache.draft !== draft ||
+    !samePreviewOrigins(displayPreviewCache.origins)
+  ) {
+    const moved =
+      previewOrigins.size === 0
+        ? ordered
+        : ordered.map((template) => {
+            const preview = previewOrigins.get(template.id)
+            return preview === undefined
+              ? template
+              : { ...template, originX: preview.x, originY: preview.y }
+          })
+    displayPreviewCache = {
+      ordered,
+      draft,
+      origins: new Map(previewOrigins),
+      templates: draft === null ? moved : [...moved, draft],
+    }
+  }
+  return displayPreviewCache.templates
 }
 
 /**
@@ -764,11 +805,29 @@ export const moveTemplateDraft = (originX: number, originY: number): boolean => 
   return true
 }
 
-/** The renderer and editor menu for one canvas must never see templates from another surface. */
-export const displayTemplatesForSurface = (surface: TemplateSurface): readonly PlacedTemplate[] =>
-  displayTemplates().filter((template) =>
+/** Each surface's slice of one `displayTemplates()` list, dropped together when that list changes. */
+let surfaceSlices: {
+  readonly all: readonly PlacedTemplate[]
+  readonly bySurface: Map<string, readonly PlacedTemplate[]>
+} | null = null
+
+/**
+ * The renderer and editor menu for one canvas must never see templates from another surface.
+ *
+ * The same array until `displayTemplates()` changes, so a settled renderer compares one reference.
+ */
+export const displayTemplatesForSurface = (surface: TemplateSurface): readonly PlacedTemplate[] => {
+  const all = displayTemplates()
+  if (surfaceSlices?.all !== all) surfaceSlices = { all, bySurface: new Map() }
+  const key = templateSurfaceKey(surface)
+  const held = surfaceSlices.bySurface.get(key)
+  if (held !== undefined) return held
+  const slice = all.filter((template) =>
     sameTemplateSurface(template.surface ?? WORLD_TEMPLATE_SURFACE, surface),
   )
+  surfaceSlices.bySurface.set(key, slice)
+  return slice
+}
 
 /** Transient placement never touches IndexedDB or rebuilds tiles; the renderer translates them. */
 export const previewLocalTemplate = (id: string, originX: number, originY: number): boolean => {
