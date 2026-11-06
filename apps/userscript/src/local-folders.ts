@@ -81,15 +81,20 @@ export const setLocalFolderVisible = (id: string, visible: boolean): boolean =>
     ),
   })
 
+/**
+ * Whether Local and every folder above `folderId` are switched on.
+ *
+ * Capture asks this for every template on every frame, so it allocates nothing. A walk longer than
+ * the folder list has met a cycle, which counts as visible.
+ */
 export const localFolderChainVisible = (folderId: string | null): boolean => {
   if (!isScopeVisible('local')) return false
   const folders = getState().localFolders
   let walk = folderId
-  const seen = new Set<string>()
-  while (walk !== null) {
-    if (seen.has(walk)) return true
-    seen.add(walk)
-    const folder = folders.find((candidate) => candidate.id === walk)
+  for (let depth = 0; walk !== null && depth <= folders.length; depth++) {
+    let index = 0
+    while (index < folders.length && folders[index]?.id !== walk) index++
+    const folder = folders[index]
     if (folder === undefined) return true
     if (folder.visible === false) return false
     walk = folder.parentId
