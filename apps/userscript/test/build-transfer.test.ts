@@ -4,22 +4,37 @@ const STATE = 'caelestis.state.v2'
 const HANDED_OFF = 'caelestis.local.handed-off'
 const RECEIVING = 'caelestis.local.receiving'
 
-/** One copy of Caelestis on the shared test page, with its own storage. */
-const copy = async (stored: Record<string, string>, storage: { failSync?: boolean } = {}) => {
+/**
+ * One copy of Caelestis on the shared test page. Its storage behaves like the extension's: each
+ * write is stored or fails on its own, and a sync fails after a failed write.
+ */
+const copy = async (
+  stored: Record<string, string> | Map<string, string>,
+  failing: ReadonlySet<string> = new Set(),
+) => {
   vi.resetModules()
-  const values = new Map(Object.entries(stored))
+  const store = stored instanceof Map ? stored : new Map(Object.entries(stored))
+  const values = new Map(store)
+  let writeFailed = false
   const module = await import('../src/stored-values.js')
   module.useStoredValues(values, {
-    persist: () => undefined,
+    persist: (key, value) => {
+      if (failing.has(key)) writeFailed = true
+      else if (value === null) store.delete(key)
+      else store.set(key, value)
+    },
     fetch: async () => {
-      if (storage.failSync === true) throw new Error('stored values are out of reach')
-      return Object.fromEntries(values)
+      if (writeFailed) {
+        writeFailed = false
+        throw new Error('stored values are out of reach')
+      }
+      return Object.fromEntries(store)
     },
   })
   const transfer = await import('../src/build-transfer.js')
   const port = transfer.meetOtherBuild()
   if (port === null) throw new Error('met nobody')
-  return { values, transfer, port }
+  return { store, values, transfer, port }
 }
 
 const reload = () => vi.spyOn(window.location, 'reload').mockImplementation(() => undefined)
@@ -62,20 +77,41 @@ describe('moving settings between the userscript and the extension', () => {
     expect(userscript.values.get(HANDED_OFF)).toBe('true')
   })
 
-  it('a transfer that fails to store keeps the userscript running and is retried', async () => {
+  it('a transfer whose mark cannot be stored writes nothing, and the next load retries', async () => {
     const reloaded = reload()
-    const extension = await copy({}, { failSync: true })
-    const userscript = await copy({ [STATE]: '{"servers":["mine"]}' })
     const warned = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-
+    const extension = await copy({}, new Set([RECEIVING]))
+    const userscript = await copy({ [STATE]: '{"servers":["mine"]}' })
     extension.transfer.linkOtherBuild(extension.port, 'extension', true)
     userscript.transfer.serveOtherBuild(userscript.port, 'userscript')
 
     await vi.waitFor(() => expect(warned).toHaveBeenCalled())
     expect(reloaded).not.toHaveBeenCalled()
     expect(userscript.values.has(HANDED_OFF)).toBe(false)
-    expect(extension.values.get(RECEIVING)).toBe('true')
-    expect(extension.transfer.awaitingSettings()).toBe(true)
+    expect(Object.fromEntries(extension.store)).toEqual({})
+
+    // The next load, with storage working again.
+    const retry = await copy(extension.store)
+    const again = await copy(userscript.store)
+    retry.transfer.linkOtherBuild(retry.port, 'extension', retry.transfer.awaitingSettings())
+    again.transfer.serveOtherBuild(again.port, 'userscript')
+
+    await vi.waitFor(() => expect(reloaded).toHaveBeenCalled())
+    expect(Object.fromEntries(extension.store)).toEqual({ [STATE]: '{"servers":["mine"]}' })
+    expect(again.store.get(HANDED_OFF)).toBe('true')
+  })
+
+  it('a transfer that stops partway keeps its mark, so the next load retries', async () => {
+    const warned = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const extension = await copy({}, new Set(['caelestis.second']))
+    const userscript = await copy({ 'caelestis.first': '1', 'caelestis.second': '2' })
+    extension.transfer.linkOtherBuild(extension.port, 'extension', true)
+    userscript.transfer.serveOtherBuild(userscript.port, 'userscript')
+
+    await vi.waitFor(() => expect(warned).toHaveBeenCalled())
+    expect(userscript.values.has(HANDED_OFF)).toBe(false)
+    expect(extension.store.get(RECEIVING)).toBe('true')
+    expect((await copy(extension.store)).transfer.awaitingSettings()).toBe(true)
   })
 
   it('import replaces this build’s values with the other build’s, keeping local ones', async () => {

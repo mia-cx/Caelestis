@@ -36,7 +36,9 @@ export const awaitingSettings = (): boolean =>
 
 /** Replace this copy's values with `values`, so that a failure partway is retried. */
 const receive = async (values: Record<string, string>): Promise<void> => {
+  // The mark is stored before any value, so no partial transfer can be left without it.
   storeValue(RECEIVING_KEY, 'true')
+  await syncStoredValues()
   replacePortableValues(values)
   await syncStoredValues()
   deleteStoredValue(RECEIVING_KEY)
