@@ -51,20 +51,32 @@ const joined = (axis: 'row' | 'column', children: readonly StudioNode[]): Studio
   return parts[0] ?? null
 }
 
-/** The panels an edge holds by default, top to bottom. */
-const defaultDock = (side: Side): StudioFrame[] => {
-  const root = joined(
-    'column',
-    STUDIO_WINDOWS.filter((window) => window.dock === side && !('closed' in window)).map((window) =>
-      single(window.id),
-    ),
-  )
-  return root === null ? [] : [{ place: { dock: side }, root }]
-}
-
-/** Each panel docked to its own edge, Scopes closed. */
+/**
+ * The image and its size down the start edge; its colours down the end, with Colour space, a
+ * single choice, behind Dither as a tab. Scopes starts closed.
+ */
 export const DEFAULT_STUDIO_LAYOUT: StudioLayout = {
-  frames: [...defaultDock('start'), ...defaultDock('end')],
+  frames: [
+    {
+      place: { dock: 'start' },
+      root: {
+        kind: 'split',
+        axis: 'column',
+        children: [single('source'), single('dimensions'), single('effects')],
+      },
+    },
+    {
+      place: { dock: 'end' },
+      root: {
+        kind: 'split',
+        axis: 'column',
+        children: [
+          single('palette'),
+          { kind: 'tabs', panels: ['dither', 'color-space'], active: 'dither', collapsed: false },
+        ],
+      },
+    },
+  ],
 }
 
 /** Every panel in `node`, in reading order. */

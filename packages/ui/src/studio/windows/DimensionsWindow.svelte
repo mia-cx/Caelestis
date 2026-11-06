@@ -11,11 +11,13 @@
 
   const SLIDER_MIN_SCALE = 0.05
   const SLIDER_MAX_SCALE = 1
-  const SCALE_STEP = 0.0001
+  const SCALE_STEP = 0.01
   const id = $props.id()
 
   const output = $derived(model.output)
   const disabled = $derived(model.source === null || model.pending || output.locked)
+  /** Before its image, a new template has no size or place to show. A replacement has both. */
+  const unsized = $derived(model.source === null && !output.locked)
 
   const commitOnEnter = (event: KeyboardEvent): void => {
     if (event.key === 'Enter') (event.currentTarget as HTMLInputElement).blur()
@@ -71,7 +73,7 @@
         inputmode="numeric"
         min="1"
         step="1"
-        value={output[side]}
+        value={unsized ? '' : output[side]}
         {disabled}
         onkeydown={commitOnEnter}
         onchange={(event) => onIntent({ type: 'size', side, pixels: whole(event.currentTarget.value, output[side]) })}
@@ -105,9 +107,11 @@
     {/each}
   </select>
 </div>
+<!-- Area sampling covers every source pixel, so only the other filters have an anchor. -->
+{#if output.resize !== 'area'}
 <div class="field-row">
   <span class="field-label" id="{id}-anchor">Anchor</span>
-  <div bind:this={anchors} class="anchors" role="radiogroup" aria-labelledby="{id}-anchor" aria-disabled={output.resize === 'area'}>
+  <div bind:this={anchors} class="anchors" role="radiogroup" aria-labelledby="{id}-anchor">
     {#each ANCHORS as anchor, index (anchor.id)}
       {@const checked = anchor.id === output.anchor}
       <button
@@ -117,7 +121,7 @@
         aria-label={anchor.label}
         title={anchor.label}
         tabindex={checked ? 0 : -1}
-        disabled={output.resize === 'area' || model.source === null || model.pending}
+        disabled={model.source === null || model.pending}
         onclick={() => setAnchor(anchor.id)}
         onkeydown={(event) => moveAnchor(event, index)}
       >
@@ -126,8 +130,9 @@
     {/each}
   </div>
 </div>
+{/if}
 
-<p class="field-label section">Position</p>
+<p class="section">Position</p>
 <div class="fields two">
   {#each [['x', 'X'], ['y', 'Y']] as const as [axis, label] (axis)}
     <label class="number">
@@ -135,8 +140,8 @@
       <input
         class="caelestis-field"
         type="number"
-        value={model.origin[axis]}
-        disabled={model.pending}
+        value={unsized ? '' : model.origin[axis]}
+        disabled={model.pending || unsized}
         onkeydown={commitOnEnter}
         onchange={(event) =>
           onIntent({ type: 'origin', ...model.origin, [axis]: whole(event.currentTarget.value, model.origin[axis]) })}
@@ -145,21 +150,19 @@
   {/each}
 </div>
 <div class="actions-row">
-  <Button label="Centre in view" size="small" disabled={model.pending} onclick={() => onIntent({ type: 'centre' })} />
+  <Button label="Centre in view" size="small" disabled={model.pending || unsized} onclick={() => onIntent({ type: 'centre' })} />
 </div>
 
 <style>
-  .section { margin-block-start: 0.5rem; }
   .keep { cursor: pointer; }
   .check { display: flex; align-items: center; gap: 0.5rem; }
   .anchors { display: grid; grid-template-columns: repeat(3, 1.5rem); gap: 2px; inline-size: fit-content; }
-  .anchors[aria-disabled='true'] { opacity: 0.5; }
   .anchors button {
     display: grid;
     place-items: center;
     block-size: 1.5rem;
     padding: 0;
-    border: 1px solid var(--caelestis-border);
+    border: 1px solid color-mix(in oklab, var(--caelestis-text) 30%, transparent);
     border-radius: calc(var(--caelestis-radius, 0.5rem) / 3);
     background: var(--caelestis-raised-surface, #eee);
     cursor: pointer;
@@ -169,7 +172,7 @@
   .anchors span {
     inline-size: 0.5rem;
     block-size: 0.5rem;
-    background: color-mix(in oklab, currentColor 30%, transparent);
+    background: color-mix(in oklab, var(--caelestis-text) 35%, transparent);
   }
   .anchors span.checked { background: var(--caelestis-primary, oklch(0.68 0.15 244)); }
 </style>

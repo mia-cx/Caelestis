@@ -49,11 +49,13 @@ import {
   isMoving,
   syncDraftPlacement,
 } from '../templates/move.js'
+import { navigateTo } from '../templates/navigate.js'
 import { sampleArtwork, sampleRgba } from '../templates/scope-samples.js'
 import {
   type StudioFrameHandlers,
   type StudioFrameView,
   showStudioFrame,
+  studioFrameExtent,
 } from '../templates/studio-frame.js'
 import {
   DEFAULT_STUDIO_SETTINGS,
@@ -1030,9 +1032,21 @@ export const handleTemplateStudioIntent = (intent: TemplateStudioIntent): void =
     case 'url':
       void loadUrl(intent.url)
       return
-    case 'crop-mode':
+    case 'crop-mode': {
       cropDraft = intent.on && source !== null ? crop : null
+      // Every crop handle has to be reachable: frame the whole image when part of it is off screen.
+      const view = frameView()
+      if (cropDraft === null || view === null || target.surface.kind !== 'world') break
+      const { box, inView } = studioFrameExtent(view)
+      if (inView === false)
+        navigateTo({
+          x: box.x + box.width / 2,
+          y: box.y + box.height / 2,
+          width: box.width,
+          height: box.height,
+        })
       break
+    }
     case 'crop-draft':
       if (cropDraft !== null && source !== null) cropDraft = clampCrop(intent.crop, source.image)
       break
