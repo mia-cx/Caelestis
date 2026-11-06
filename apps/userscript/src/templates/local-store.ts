@@ -683,7 +683,30 @@ let displayOrderCache:
       readonly templates: readonly PlacedTemplate[]
     }
   | undefined
-/** Templates as the canvas and its interactions currently present them: custom order plus previews. */
+let displayPreviewCache:
+  | {
+      readonly ordered: readonly PlacedTemplate[]
+      readonly draft: PlacedTemplate | null
+      readonly origins: ReadonlyMap<string, { readonly x: number; readonly y: number }>
+      readonly templates: readonly PlacedTemplate[]
+    }
+  | undefined
+
+/** Whether every preview origin is the same object it was. Origins are replaced, never mutated. */
+const samePreviewOrigins = (
+  held: ReadonlyMap<string, { readonly x: number; readonly y: number }>,
+): boolean => {
+  if (held.size !== previewOrigins.size) return false
+  for (const [id, origin] of previewOrigins) if (held.get(id) !== origin) return false
+  return true
+}
+
+/**
+ * Templates as the canvas and its interactions currently present them: custom order plus previews.
+ *
+ * The same array until the order, a preview or the draft changes, so renderers can keep the
+ * snapshots they drew.
+ */
 export const displayTemplates = (): readonly PlacedTemplate[] => {
   const state = getState()
   const nodeRevision = serverNodesRevision()
@@ -704,16 +727,30 @@ export const displayTemplates = (): readonly PlacedTemplate[] => {
       templates: displayOrder(),
     }
   }
-  const ordered =
-    previewOrigins.size === 0
-      ? displayOrderCache.templates
-      : displayOrderCache.templates.map((template) => {
-          const preview = previewOrigins.get(template.id)
-          return preview === undefined
-            ? template
-            : { ...template, originX: preview.x, originY: preview.y }
-        })
-  return draft === null ? ordered : [...ordered, draft]
+  const ordered = displayOrderCache.templates
+  if (previewOrigins.size === 0 && draft === null) return ordered
+  if (
+    displayPreviewCache?.ordered !== ordered ||
+    displayPreviewCache.draft !== draft ||
+    !samePreviewOrigins(displayPreviewCache.origins)
+  ) {
+    const moved =
+      previewOrigins.size === 0
+        ? ordered
+        : ordered.map((template) => {
+            const preview = previewOrigins.get(template.id)
+            return preview === undefined
+              ? template
+              : { ...template, originX: preview.x, originY: preview.y }
+          })
+    displayPreviewCache = {
+      ordered,
+      draft,
+      origins: new Map(previewOrigins),
+      templates: draft === null ? moved : [...moved, draft],
+    }
+  }
+  return displayPreviewCache.templates
 }
 
 /**

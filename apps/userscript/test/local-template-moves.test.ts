@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   addLocalTemplate,
+  clearLocalPreview,
+  displayTemplates,
   localTemplates,
   moveLocalTemplate,
+  previewLocalTemplate,
   removeLocalTemplate,
   templateById,
 } from '../src/templates/local-store.js'
@@ -29,5 +32,27 @@ describe('local template moves', () => {
     expect(await removeLocalTemplate(id)).toBe(true)
     expect(await moveLocalTemplate(id, 50, 60)).toBe(false)
     expect(localTemplates().some((template) => template.id === id)).toBe(false)
+  })
+
+  it('shows a held move preview as the same templates until it moves again', async () => {
+    const id = `preview-${crypto.randomUUID()}`
+    await addLocalTemplate(imported(id), undefined, true)
+    try {
+      previewLocalTemplate(id, 10, 20)
+      const held = displayTemplates()
+      expect(held.find((template) => template.id === id)).toMatchObject({
+        originX: 10,
+        originY: 20,
+      })
+      expect(displayTemplates()).toBe(held)
+
+      previewLocalTemplate(id, 11, 20)
+      expect(displayTemplates().find((template) => template.id === id)).toMatchObject({
+        originX: 11,
+      })
+    } finally {
+      clearLocalPreview(id)
+      await removeLocalTemplate(id)
+    }
   })
 })
