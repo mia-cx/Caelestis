@@ -8,7 +8,9 @@ import {
   sameTemplateSurface,
   TILE_SIZE,
   type TileCoord,
+  type TileKey,
   TRANSPARENT_INDEX,
+  tileKey,
   WORLD_PIXELS,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
@@ -722,13 +724,6 @@ export const wantsTilePixels = (tile?: TileCoord): boolean => {
   })
 }
 
-/**
- * Every reason `wantsTilePixels` currently answers yes, as stable keys.
- *
- * Built from the same two sources, so the two cannot drift: each hidden template tile that progress
- * asked for, and each visible local template at its position. A new key means pixels kept from
- * before may not describe what it needs, and every visible tile is re-read.
- */
 const captureScopeListeners = new Set<() => void>()
 
 const announceCaptureScope = (): void => {
@@ -747,12 +742,68 @@ export const onCaptureScopeChange = (listener: () => void): (() => void) => {
   return () => captureScopeListeners.delete(listener)
 }
 
-export const captureScopeKeys = (): string[] => [
-  ...pendingProgressPixels,
-  ...worldTemplates()
-    .filter((template) => measuresLocally(template) && isTemplateVisible(template))
-    .map((template) => `${template.id}@${template.originX},${template.originY}`),
-]
+const inCaptureScope = (template: PlacedTemplate): boolean =>
+  measuresLocally(template) && isTemplateVisible(template)
+
+const samePlacement = (a: PlacedTemplate, b: PlacedTemplate): boolean =>
+  a.id === b.id &&
+  a.originX === b.originX &&
+  a.originY === b.originY &&
+  a.width === b.width &&
+  a.height === b.height &&
+  a.wrapX === b.wrapX
+
+/** What `scopeTiles` was built from: the in-scope templates in order, and the pending keys. */
+let scopeTemplates: readonly PlacedTemplate[] = []
+const scopePending = new Set<string>()
+let scopeTiles: ReadonlySet<TileKey> = new Set()
+
+/** Compared field by field, so a frame where nothing moved allocates nothing per template. */
+const scopeUnchanged = (templates: readonly PlacedTemplate[]): boolean => {
+  let index = 0
+  for (const template of templates) {
+    if (!inCaptureScope(template)) continue
+    const before = scopeTemplates[index++]
+    if (before === undefined || !samePlacement(before, template)) return false
+  }
+  if (index !== scopeTemplates.length || scopePending.size !== pendingProgressPixels.size)
+    return false
+  for (const key of pendingProgressPixels) if (!scopePending.has(key)) return false
+  return true
+}
+
+/**
+ * Every world tile `wantsTilePixels(tile)` currently answers yes for.
+ *
+ * Built from the same two sources, so the two cannot drift: each hidden template tile that progress
+ * asked for, and the tiles each visible local template covers at its position. A tile entering
+ * means pixels kept from before may not describe what it needs, and that tile is re-read. Returns
+ * the same set until one of those changes, so it is cheap to ask every frame.
+ */
+export const captureScopeTiles = (): ReadonlySet<TileKey> => {
+  const templates = worldTemplates()
+  if (scopeUnchanged(templates)) return scopeTiles
+  scopeTemplates = templates.filter(inCaptureScope)
+  scopePending.clear()
+  const tiles = new Set<TileKey>()
+  for (const key of pendingProgressPixels) {
+    scopePending.add(key)
+    const tile = tileOf(key, templateIdOf(key))
+    if (tile !== null) tiles.add(tileKey(tile))
+  }
+  for (const template of scopeTemplates) {
+    const bottom = template.originY + template.height
+    for (const span of horizontalSpans(template)) {
+      for (let x = Math.floor(span.worldStart / TILE_SIZE); x * TILE_SIZE < span.worldEnd; x++) {
+        for (let y = Math.floor(template.originY / TILE_SIZE); y * TILE_SIZE < bottom; y++) {
+          tiles.add(tileKey({ x, y }))
+        }
+      }
+    }
+  }
+  scopeTiles = tiles
+  return tiles
+}
 
 /** The switches, not what is on screen — see `claimedHiddenFor` for why the two differ. */
 const assertedHidden = (template: PlacedTemplate): readonly number[] =>
@@ -2265,7 +2316,7 @@ export const pixelAccounting = Object.freeze({
     }
   },
   wantsTilePixels,
-  captureScopeKeys,
+  captureScopeTiles,
   onCaptureScopeChange,
   onChange: onMismatchesChanged,
   onDraftChange: onDraftsChanged,

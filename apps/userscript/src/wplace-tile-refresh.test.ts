@@ -260,25 +260,36 @@ describe('periodic tile refresh', () => {
 })
 
 describe('capture scope refresh', () => {
-  it('re-reads every visible tile once when capture starts caring about more', async () => {
+  it('re-reads only the visible tiles that newly entered the scope', async () => {
     vi.useFakeTimers()
     realm()
     const { original } = fakeMap()
     const scope = watchCaptureScope()
-    scope(['paint', 'one@0,0'])
-    scope(['paint', 'one@0,0', 'two@5,5'])
+    scope(false, new Set(['1/2']))
+    scope(false, new Set(['1/2', '3/4']))
     await vi.advanceTimersByTimeAsync(0)
-    // Two widenings in one task are one full refresh, with no tile list.
-    expect(original.mock.calls).toEqual([['pixel-art-layer']])
+    // Two widenings in one task are one reload.
+    expect(original.mock.calls).toEqual([['pixel-art-layer', [A, B]]])
 
-    scope(['paint', 'one@0,0', 'two@5,5'])
-    scope(['one@0,0'])
+    // A drag step that stays over the same tiles re-reads nothing; one that reaches a new visible
+    // tile re-reads that tile alone. Off-screen tiles are not Wplace's to reload.
+    scope(false, new Set(['1/2', '3/4']))
+    scope(false, new Set(['1/2', '3/4', '5/6', '90/90']))
     await vi.advanceTimersByTimeAsync(0)
-    expect(original).toHaveBeenCalledTimes(1)
+    expect(original.mock.calls.slice(1)).toEqual([['pixel-art-layer', [C]]])
 
-    scope(['one@0,0', 'one@9,9'])
+    // Opening Paint wants every tile: only the visible ones no template already covered.
+    scope(true, new Set(['1/2', '3/4', '5/6']))
     await vi.advanceTimersByTimeAsync(0)
-    expect(original).toHaveBeenCalledTimes(2)
+    expect(original.mock.calls.slice(2)).toEqual([['pixel-art-layer', [D]]])
+
+    // Narrowing needs nothing; a tile coming back into scope is read again.
+    scope(false, new Set(['1/2']))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(original).toHaveBeenCalledTimes(3)
+    scope(false, new Set(['1/2', '3/4']))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(original.mock.calls.slice(3)).toEqual([['pixel-art-layer', [B]]])
   })
 
   it('holds a widened scope until a live map is patched, then refreshes that map once', async () => {
@@ -296,7 +307,7 @@ describe('capture scope refresh', () => {
       })
       return original
     }
-    refresh.watchCaptureScope()(['paint'])
+    refresh.watchCaptureScope()(true, new Set())
     await vi.advanceTimersByTimeAsync(0)
     // A map Wplace already replaced cannot take the refresh either.
     const replaced = patched(false)
@@ -313,7 +324,7 @@ describe('capture scope refresh', () => {
     realm()
     const { original } = fakeMap()
     setWplacePatchEnabled('tile-refresh', false)
-    watchCaptureScope()(['paint'])
+    watchCaptureScope()(true, new Set())
     await vi.advanceTimersByTimeAsync(0)
     expect(original).not.toHaveBeenCalled()
   })

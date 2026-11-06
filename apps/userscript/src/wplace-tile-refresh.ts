@@ -1,3 +1,4 @@
+import { type TileKey, tileKey as worldTileKey } from '@caelestis/shared'
 import { count, log } from './debug.js'
 import { pageWindow } from './page-world.js'
 import { isWplacePatchEnabled, type PatchableMap } from './wplace-patches.js'
@@ -250,52 +251,59 @@ const signature = async (url: string): Promise<string | null> => {
 }
 
 /**
- * The latest patched map's unconditional refresh. Returns the visible tiles it reloaded, or null
- * when that map has left the page.
+ * The latest patched map's reload of its visible tiles: every one, or only those `wanted` picks.
+ * Returns the tiles it reloaded, or null when that map has left the page.
  */
-let refreshAll: (() => Tile[] | null) | null = null
-let refreshAllScheduled = false
+let reloadVisible: ((wanted?: (tile: Tile) => boolean) => Tile[] | null) | null = null
+let scopeReloadScheduled = false
 /**
- * A full refresh no live patched map has taken yet.
+ * Tiles that entered capture's scope and no live patched map has reloaded yet.
  *
  * Capture can widen its scope before the attach loop has patched the current map, or while the last
  * patched one is being replaced. Dropping the request then would leave its stale pixels until the
  * safety refresh, so it waits for the next map instead.
  */
-let refreshAllPending = false
+let pendingScope: ((key: TileKey) => boolean)[] = []
 
-const deliverRefreshAll = (): void => {
-  refreshAllScheduled = false
-  if (!refreshAllPending) return
+const deliverScopeReload = (): void => {
+  scopeReloadScheduled = false
+  if (pendingScope.length === 0) return
+  const entered = pendingScope
   try {
-    if ((refreshAll?.() ?? null) === null) return
-    refreshAllPending = false
-    count('wplace-patch:full tile refresh for capture')
+    const reloaded =
+      reloadVisible?.((tile) => {
+        const key = worldTileKey(tile)
+        return entered.some((wanted) => wanted(key))
+      }) ?? null
+    if (reloaded === null) return
+    pendingScope = []
+    count('wplace-patch:tiles reloaded for capture', reloaded.length)
   } catch {
-    refreshAllPending = false
-    count('wplace-patch:full tile refresh failed')
+    pendingScope = []
+    count('wplace-patch:capture tile reload failed')
   }
 }
 
-const scheduleRefreshAll = (): void => {
-  if (refreshAllScheduled) return
-  refreshAllScheduled = true
-  pageWindow().setTimeout(deliverRefreshAll, 0)
+const scheduleScopeReload = (): void => {
+  if (scopeReloadScheduled) return
+  scopeReloadScheduled = true
+  pageWindow().setTimeout(deliverScopeReload, 0)
 }
 
 /**
- * Re-download every visible Wplace tile once.
+ * Re-download the visible Wplace tiles that `entered` picks, once.
  *
  * Caelestis keeps captured pixels while capture is off, on the promise that turning it back on
  * re-reads everything visible. Wplace's six-second re-download used to keep that promise; the
- * conditional refresh above does not, so a tile that changed unread would keep its old pixels. One
- * full refresh when capture starts caring about more tiles restores it. With the patch off, Wplace
+ * conditional refresh above does not, so a tile that changed unread would keep its old pixels.
+ * Reloading each tile as capture starts caring about it restores it. With the patch off, Wplace
  * reloads everything on its own timer anyway.
  */
-export const refreshAllWplaceTiles = (): void => {
+const reloadEnteredTiles = (entered: (key: TileKey) => boolean): void => {
   if (!isWplacePatchEnabled('tile-refresh')) return
-  refreshAllPending = true
-  scheduleRefreshAll()
+  count('wplace-patch:capture scope widened')
+  pendingScope.push(entered)
+  scheduleScopeReload()
 }
 
 /**
@@ -308,7 +316,7 @@ export const refreshAllWplaceTiles = (): void => {
  */
 export const reloadVisibleWplaceTiles = (): Tile[] => {
   try {
-    const visible = refreshAll?.() ?? []
+    const visible = reloadVisible?.() ?? []
     count('wplace-patch:reloaded visible tiles on request', visible.length)
     return visible
   } catch {
@@ -318,22 +326,28 @@ export const reloadVisibleWplaceTiles = (): Tile[] => {
 }
 
 /**
- * Watch what tile capture cares about, and re-read every visible tile when that grows.
+ * Watch what tile capture cares about, and re-read the visible tiles that newly enter it.
  *
- * Keys name the reasons capture wants pixels, such as Paint being open or a template at its
- * position. Only a new key widens the scope; a key disappearing never needs fresh pixels.
+ * `paint` is Paint being open, which wants every tile. `tiles` are the world tiles the templates
+ * want; passing the same set again is the per-frame case, and returns before any work. A tile
+ * leaving the scope never needs fresh pixels.
  */
-export const watchCaptureScope = (): ((keys: Iterable<string>) => void) => {
-  let scope = new Set<string>()
-  return (keys) => {
-    const next = new Set(keys)
-    for (const key of next) {
-      if (scope.has(key)) continue
-      count('wplace-patch:capture scope widened')
-      refreshAllWplaceTiles()
-      break
-    }
+export const watchCaptureScope = (): ((paint: boolean, tiles: ReadonlySet<TileKey>) => void) => {
+  let paint = false
+  let scope: ReadonlySet<TileKey> = new Set()
+  return (nextPaint, next) => {
+    if (nextPaint === paint && next === scope) return
+    const before = scope
+    const everything = paint
+    paint = nextPaint
     scope = next
+    if (everything) return
+    if (nextPaint) {
+      reloadEnteredTiles((key) => !before.has(key))
+      return
+    }
+    const entered = new Set([...next].filter((key) => !before.has(key)))
+    if (entered.size > 0) reloadEnteredTiles((key) => entered.has(key))
   }
 }
 
@@ -362,20 +376,26 @@ export const patchTileRefresh = (map: PatchableMap): void => {
     }
     return original.call(receiver, SOURCE)
   }
-  refreshAll = () => {
+  reloadVisible = (wanted) => {
     if (map.getCanvas?.().isConnected === false) return null
-    // The list only lets a caller skip what this reloads; the reload itself must not depend on it.
-    let visible: Tile[] = []
+    let visible: Tile[] | null = null
     try {
       visible = inViewTiles(managerFor(map))
     } catch {
       count('wplace-patch:visible tiles unknown')
     }
-    full(map)
-    return visible
+    // Without the visible list a partial reload cannot pick its tiles, so everything reloads. A
+    // full reload's list only lets a caller skip what it reloaded, so the reload never waits on it.
+    if (wanted === undefined || visible === null) {
+      full(map)
+      return visible ?? []
+    }
+    const tiles = visible.filter(wanted)
+    if (tiles.length > 0) original.call(map, SOURCE, tiles)
+    return tiles
   }
-  // A scope that widened before this map was patched still owes it one full refresh.
-  if (refreshAllPending) scheduleRefreshAll()
+  // A scope that widened before this map was patched still owes it a reload.
+  if (pendingScope.length > 0) scheduleScopeReload()
   /** The timer's refresh: HEAD every visible tile and reload only those that changed. */
   const periodic = (receiver: PatchableMap): unknown => {
     if (!isWplacePatchEnabled('tile-refresh')) return full(receiver)

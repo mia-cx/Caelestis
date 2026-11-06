@@ -508,10 +508,9 @@ export const installFeatures = (): void => {
       const on = pixelAccounting.wantsTilePixels() || isPaintOpen()
       captureTilePixels(on, interest)
       // Pixels kept while capture was off may be stale, and tiles are no longer re-downloaded on a
-      // timer to correct them. When capture starts caring about more, re-read everything visible.
-      captureScope(
-        on ? [...(isPaintOpen() ? ['paint'] : []), ...pixelAccounting.captureScopeKeys()] : [],
-      )
+      // timer to correct them. When capture starts caring about a tile, re-read it. With capture
+      // off, Paint is closed and no template wants a tile, so the scope is already empty.
+      captureScope(isPaintOpen(), pixelAccounting.captureScopeTiles())
     }
     sync()
     onStateChange(sync)
