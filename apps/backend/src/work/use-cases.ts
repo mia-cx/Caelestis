@@ -255,7 +255,7 @@ export const mutateWork = (
         caller.tokenHash,
       ),
     )
-    // Even a stale retry repairs notification delivery after a previous committed write.
-    yield* storage(() => publishManifestChange(live, season, surface, false))
+    // A write that lost its revision race changed nothing; the write that won publishes its own.
+    if (saved) yield* storage(() => publishManifestChange(live, season, surface, false))
     return { conflict: !saved, item: saved ? item : yield* storage(() => sql.work.read(id)) }
   })

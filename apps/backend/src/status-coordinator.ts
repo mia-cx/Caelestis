@@ -927,7 +927,7 @@ export class StatusCoordinator<Client> {
     await Promise.all([
       this.broadcastManifestSnapshots(surface),
       // Which alarms a caller sees follows the templates on a surface. Metadata-only edits, such as
-      // work and tags, leave every alarm and its visibility unchanged.
+      // work, tags and folders, leave every alarm and its visibility unchanged.
       surface === undefined || !affectsTileCoverage
         ? Promise.resolve()
         : this.broadcastAlarmSnapshots(),
