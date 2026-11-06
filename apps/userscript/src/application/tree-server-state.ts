@@ -47,8 +47,6 @@ const templatesByServer = new Map<string, readonly ServerTemplate[]>()
 const NO_SERVER_TEMPLATES: readonly ServerTemplate[] = []
 /** Verified identity belonging to the rows cached at each URL. */
 const rowIdentityByServer = new Map<string, string>()
-/** Verified identity whose cached rows `primeFromCache` has already read at each URL. */
-const primedIdentityByServer = new Map<string, string>()
 
 interface OptimisticParent {
   readonly parentId: string | null
@@ -471,19 +469,17 @@ const rememberServerContents = (
  * Without it the tree is empty on every page load until each server answers, which is the wrong
  * first impression and gets worse the more servers are connected.
  *
- * Reads each verified server identity once: later calls skip IndexedDB, and redraw only when the
- * cache filled in rows.
+ * Reads only verified servers whose rows are still missing, so once the cache or the network has
+ * filled them, later calls skip IndexedDB. A read that found nothing, or failed, is retried next
+ * time. Redraws only when the cache filled in rows.
  */
 export const primeFromCache = async (rerender: () => void): Promise<void> => {
-  const unread = getState().servers.flatMap((server) => {
-    const identity = server.lastVerified
-    if (identity == null) return []
-    const key = `${identity.serverId}:${identity.season}`
-    return primedIdentityByServer.get(server.url) === key ? [] : [{ server, key }]
-  })
-  if (unread.length === 0) return
-  for (const { server, key } of unread) primedIdentityByServer.set(server.url, key)
-  const servers = unread.map(({ server }) => server)
+  const servers = getState().servers.filter(
+    (server) =>
+      server.lastVerified != null &&
+      (rowsFor(server) === undefined || !templatesByServer.has(server.url)),
+  )
+  if (servers.length === 0) return
   recordProfileCounter('Server cache reads')
   let filled = false
   for (const entry of await loadServerCache(servers.map((server) => server.url))) {
@@ -537,7 +533,6 @@ export const forgetServerRows = (serverUrl: string): readonly string[] => {
   nodesByServer.delete(serverUrl)
   templatesByServer.delete(serverUrl)
   rowIdentityByServer.delete(serverUrl)
-  primedIdentityByServer.delete(serverUrl)
   const nodePrefix = `node:${encodeURIComponent(serverUrl)}:`
   const templatePrefix = `st:${encodeURIComponent(serverUrl)}:`
   for (const key of optimisticParents.keys()) {

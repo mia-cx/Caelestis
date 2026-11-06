@@ -40,3 +40,16 @@ it('reads each verified server identity from the cache once, and again after it 
   expect(rowsFor(server(2))).toBeDefined()
   expect(rerender).toHaveBeenCalledTimes(2)
 })
+
+it('reads again when an earlier read filled in nothing', async () => {
+  // A read that finds nothing looks the same as one that failed: `loadServerCache` answers `[]`.
+  const rerender = vi.fn()
+  setState({ servers: [server(1)] })
+  await primeFromCache(rerender)
+  expect(rowsFor(server(1))).toBeUndefined()
+
+  await cache(1)
+  await primeFromCache(rerender)
+  expect(rowsFor(server(1))).toBeDefined()
+  expect(rerender).toHaveBeenCalledTimes(1)
+})
