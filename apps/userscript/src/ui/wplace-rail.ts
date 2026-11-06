@@ -29,7 +29,8 @@ const layoutListeners = new Set<() => void>()
 let watching = false
 /** Whether Wplace's DOM may have changed since the last rail scan. */
 let railStale = true
-let rail: Element | null = null
+/** The Wplace button the rail was found from; its parent is the rail wherever it moves. */
+let anchor: Element | null = null
 
 const notifyLayout = frameQueue(() => {
   for (const listener of layoutListeners) listener()
@@ -67,14 +68,12 @@ export const onWplaceLayoutChange = (listener: () => void): void => {
   watchWplaceLayout()
 }
 
-const scanForRail = (): Element | null => {
+const scanForAnchor = (): Element | null => {
   const buttons = document.querySelectorAll('button')
   for (const anchorLabel of ANCHOR_LABELS) {
     for (const button of buttons) {
       const label = button.getAttribute('title') ?? button.getAttribute('aria-label') ?? ''
-      if (label.trim() !== anchorLabel) continue
-      const parent = button.parentElement
-      if (parent !== null) return parent
+      if (label.trim() === anchorLabel && button.parentElement !== null) return button
     }
   }
   return null
@@ -83,16 +82,17 @@ const scanForRail = (): Element | null => {
 /**
  * Find Wplace's right-hand button rail from one of its own controls.
  *
- * Scanned once and then kept while it stays in the document. While painting there is no rail, and
- * the scan reruns only after Wplace's DOM has changed.
+ * The control is scanned for once and kept while it stays in the document; the rail is its
+ * current parent, so a re-render that moves it is followed for free. While painting there is no
+ * rail, and the scan reruns only after Wplace's DOM has changed.
  */
 export const findWplaceRail = (): Element | null => {
-  if (rail?.isConnected === true) return rail
-  if (rail === null && !railStale) return null
-  // Without a body there is nothing to observe, so nothing would mark a cached miss stale.
-  railStale = !watchWplaceLayout()
-  rail = scanForRail()
-  return rail
+  if (anchor?.isConnected !== true && (anchor !== null || railStale)) {
+    // Without a body there is nothing to observe, so nothing would mark a cached miss stale.
+    railStale = !watchWplaceLayout()
+    anchor = scanForAnchor()
+  }
+  return anchor?.parentElement ?? null
 }
 
 /** The whole top-right Wplace control group, including wider account controls such as Log in. */
