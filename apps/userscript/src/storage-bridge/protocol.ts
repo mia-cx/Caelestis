@@ -1,16 +1,19 @@
 /**
- * The extension's storage bridge, between its page-world script and its isolated-world script.
+ * The storage bridge, between Caelestis in the page world and the world that holds its storage.
  *
- * Only the isolated world can reach `chrome.storage.local`, and only the page world can hook
- * Wplace. At document start, before any Wplace script exists, the page-world script posts one
- * `window` message carrying a `MessagePort`; the isolated world takes the port and stops the event
- * there, so no later page listener sees it. A page-world script that lost the page to the
- * userscript posts the same message without a port, which closes the bridge for good. Every stored
- * value travels over the port, never over `window`, and nothing is kept in page-readable storage.
+ * Only the page world can hook Wplace, and only another world can keep values Wplace's scripts
+ * cannot read: the extension's isolated world reaches `chrome.storage.local`, and the userscript
+ * manager's world reaches `GM_*` storage. At document start, before any Wplace script exists, the
+ * page-world script posts one `window` message carrying a `MessagePort`; the storage world takes
+ * the port and stops the event there, so no later page listener sees it. A page-world script that
+ * lost the page to the other build posts the same message without a port, which closes its bridge
+ * for good. The message names its build, so with both installed each bridge takes only its own.
+ * Every stored value travels over the port, never over `window`, and nothing is kept in
+ * page-readable storage.
  *
  * That is the boundary: Wplace's scripts cannot read Caelestis's storage or join the bridge. Values
  * Caelestis uses in the page world, such as a token on a request, are as observable to page code
- * that runs later as they are in the userscript.
+ * that runs later as anything else in the page.
  *
  * Port messages are JSON strings, so Firefox's cross-world wrappers have no objects to wrap.
  */
@@ -18,7 +21,7 @@
 /** The `type` of the one `window` message that hands the port over. */
 export const BRIDGE_HANDOFF = 'caelestis:storage-bridge'
 
-/** Isolated world to page world. `null` stands for a deleted value. */
+/** Storage world to page world. `null` stands for a deleted value. */
 export type BridgeMessage =
   /** Once, first: every stored value. */
   | { readonly type: 'snapshot'; readonly values: Record<string, string> }
@@ -35,7 +38,7 @@ export type BridgeMessage =
       readonly values: Record<string, string> | null
     }
 
-/** Page world to isolated world, handled in order. */
+/** Page world to storage world, handled in order. */
 export type PageMessage =
   | { readonly type: 'write'; readonly key: string; readonly value: string | null }
   | { readonly type: 'sync'; readonly id: number }
