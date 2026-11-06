@@ -357,11 +357,11 @@ const drawVisible = (
   const points = (work: readonly { readonly marks: { readonly length: number } }[]): number =>
     work.reduce((total, one) => total + one.marks.length, 0)
   const visibilityBudget = markerVisibilityBudget()
-  // The sorted run is searched; marks painted since the scan are few and counted as visible.
+  // The sorted run is searched and the tail painted since the scan counts as visible. Both hold
+  // removed marks too, so the count is scaled to the list's live share.
   const estimatedVisiblePoints = (work: readonly Work[]): number =>
-    work.reduce(
-      (total, { marks, tile }) =>
-        total +
+    work.reduce((total, { marks, tile }) => {
+      const slots =
         visibleMarkerPoints(
           marks.slots.subarray(0, marks.sorted),
           tile,
@@ -370,9 +370,9 @@ const drawVisible = (
           visibilityBudget,
         ) +
         marks.length -
-        marks.sorted,
-      0,
-    )
+        marks.sorted
+      return total + Math.round((slots * marks.live) / marks.length)
+    }, 0)
   const selectedSourcePoints = points(selectedWork)
   const mismatchSourcePoints = points(mismatchWork)
   const selectedSampleRate = markerSampleRate(estimatedVisiblePoints(selectedWork), renderBudget)
