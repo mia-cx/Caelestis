@@ -1,4 +1,4 @@
-import { decodePng } from '@caelestis/shared'
+import { decodePng, encodeIndexedPng } from '@caelestis/shared'
 import { expect, it, vi } from 'vitest'
 import {
   type NativeImageStore,
@@ -14,6 +14,24 @@ import {
   synchronizePersonalTemplates,
 } from '../src/templates/personal-store.js'
 import { cutPixels, joinPixels } from '../src/templates/sparse-pixels.js'
+
+/** Lets a test land a Wplace edit while tags reconcile, the one await inside a projection. */
+const duringTagSync = vi.hoisted(() => ({ edit: null as (() => Promise<void>) | null }))
+vi.mock('../src/templates/tags.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../src/templates/tags.js')>()
+  return {
+    ...original,
+    synchronizeLocalTemplateTags: async (
+      ...args: Parameters<typeof original.synchronizeLocalTemplateTags>
+    ) => {
+      const edit = duringTagSync.edit
+      if (edit === null) return await original.synchronizeLocalTemplateTags(...args)
+      duringTagSync.edit = null
+      await edit()
+      return true
+    },
+  }
+})
 
 /** Wplace's metadata singleton and image store, which are external. Its render echoes the image. */
 const wplace = () => {
@@ -51,7 +69,7 @@ const wplace = () => {
     for (const [index, { id, name, bounds, ...rest }] of records.entries())
       records[index] = { ...rest, bounds, name, id }
   }
-  return { api, records, render, reload }
+  return { api, images, records, render, reload }
 }
 
 const indices = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8])
@@ -95,6 +113,23 @@ it('adds and reloads a Wplace-mirrored template without rendering its pixels bac
 
   expect(native.render).not.toHaveBeenCalled()
   expect(await storedPixels('local-reloaded')).toEqual(indices)
+})
+
+it('renders Wplace artwork that changed while the new copy was being linked', async () => {
+  const native = wplace()
+  connectPersonalStore(native.api)
+  const reversed = indices.slice().reverse()
+  duringTagSync.edit = async () => {
+    const [record] = native.records
+    if (record === undefined) throw new Error('the native copy was not written')
+    const png = new Uint8Array(await encodeIndexedPng(4, 2, reversed))
+    native.images.set(record.id, new Blob([png], { type: 'image/png' }))
+  }
+
+  await add('local-edited')
+
+  expect(native.render).toHaveBeenCalledTimes(1)
+  expect(await storedPixels('local-edited')).toEqual(reversed)
 })
 
 it('renders again when Wplace changes how the template is coloured', async () => {

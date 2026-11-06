@@ -89,7 +89,9 @@ const project = async (
     previous !== null &&
     previous.width === placement.width &&
     previous.height === placement.height &&
-    (rendersPrevious ||
+    // Tag reconciliation may have swapped in a newer snapshot; the written artwork counts only if
+    // that snapshot still renders the same.
+    ((rendersPrevious && sameRender(incoming.token, snapshot.token)) ||
       (previous.native?.token !== undefined && sameRender(previous.native.token, snapshot.token)))
   const pixels = reusable
     ? {
