@@ -505,25 +505,35 @@ const crawlWplaceModules = async (): Promise<void> => {
     found(link.href, page.location.href)
   for (const entry of page.performance.getEntriesByType('resource'))
     found(entry.name, page.location.href)
-  while (unreadModules.size > 0 && moduleSources.size < MODULE_BUDGET)
+  /** Reads that failed during this crawl. They stay unread, so the next crawl tries them again. */
+  const failed = new Set<string>()
+  const batch = (): string[] => [...unreadModules].filter((url) => !failed.has(url)).slice(0, 6)
+  for (let urls = batch(); urls.length > 0 && moduleSources.size < MODULE_BUDGET; urls = batch())
+    // Every read in a batch settles before the crawl moves on or ends, so none is read twice.
     await Promise.all(
-      [...unreadModules].slice(0, 6).map(async (url) => {
-        const response = await page.fetch(url, { cache: 'force-cache' })
-        if (!response.ok) throw new Error('Could not inspect Wplace modules')
-        const source = await response.text()
-        moduleSources.set(url, source)
-        unreadModules.delete(url)
-        for (const match of source.matchAll(/["']((?:\.\.\/|\.\/)[^"']+\.js)["']/g))
-          found(match[1] ?? '', url)
+      urls.map(async (url) => {
+        try {
+          const response = await page.fetch(url, { cache: 'force-cache' })
+          if (!response.ok) throw new Error(`HTTP ${response.status}`)
+          const source = await response.text()
+          moduleSources.set(url, source)
+          unreadModules.delete(url)
+          for (const match of source.matchAll(/["']((?:\.\.\/|\.\/)[^"']+\.js)["']/g))
+            found(match[1] ?? '', url)
+        } catch {
+          failed.add(url)
+        }
       }),
     )
+  if (failed.size > 0) throw new Error('Could not inspect Wplace modules')
 }
 
 /**
  * Discover content-hashed Wplace modules by their source, without pinning filenames.
  *
  * Every lookup shares one crawl of Wplace's modules: a later lookup reads only the modules Wplace
- * loaded since, such as an alliance page's chunks, and a read that failed is tried again.
+ * loaded since, such as an alliance page's chunks, and a read that failed is tried again. A failed
+ * read fails the lookup only when the lookup is still missing a module it wants.
  *
  * The `import()`s below evaluate Wplace's own chunks, which read Wplace's message catalog at module
  * top level. Before Wplace's `init` hook has loaded that catalog the evaluation throws, the chunk is
@@ -536,14 +546,20 @@ export const findWplaceModules = async <Key extends string>(
   await whenWplaceMapReady()
   const crawl = crawled.catch(() => {}).then(crawlWplaceModules)
   crawled = crawl
-  await crawl
+  const failure = await crawl.then(
+    () => null,
+    (error: unknown) => error,
+  )
+  const keys = Object.keys(wanted) as Key[]
+  const sources = [...moduleSources]
+  const matches = keys.flatMap((key) => {
+    const match = sources.find(([, source]) => wanted[key](source))
+    return match === undefined ? [] : [{ key, url: match[0], source: match[1] }]
+  })
+  if (failure !== null && matches.length < keys.length) throw failure
   const found: Partial<Record<Key, { module: NativeModule; source: string }>> = {}
-  for (const key of Object.keys(wanted) as Key[])
-    for (const [url, source] of moduleSources)
-      if (wanted[key](source)) {
-        found[key] = { module: await import(/* @vite-ignore */ url), source }
-        break
-      }
+  for (const { key, url, source } of matches)
+    found[key] = { module: await import(/* @vite-ignore */ url), source }
   return found
 }
 

@@ -9,6 +9,8 @@ let served: Map<string, string>
 let reads: string[]
 let loaded: string[]
 let failing: Set<string>
+/** Reads that answer only once their promise settles. */
+let held: Map<string, Promise<void>>
 
 beforeEach(() => {
   document.body.innerHTML = '<canvas class="maplibregl-canvas"></canvas>'
@@ -21,12 +23,14 @@ beforeEach(() => {
   reads = []
   loaded = [chunk('entry'), `${ORIGIN}/tiles/1/2.png`]
   failing = new Set()
+  held = new Map()
   vi.spyOn(performance, 'getEntriesByType').mockImplementation(
     () => loaded.map((name) => ({ name })) as never,
   )
   const fetch = async (input: RequestInfo | URL): Promise<Response> => {
     const url = String(input)
     reads.push(url)
+    await held.get(url)
     const source = served.get(url)
     if (source === undefined || failing.has(url)) return new Response(null, { status: 503 })
     return new Response(source)
@@ -70,5 +74,20 @@ describe('Wplace module discovery', () => {
     reads = []
     await find(nothing)
     expect(reads).toEqual([chunk('b')])
+  })
+
+  it('lets a failed read finish its batch before the next lookup retries it', async () => {
+    served.set(chunk('entry'), 'import "./a.js"; import "./c.js"')
+    served.set(chunk('c'), 'export const c = 1')
+    failing.add(chunk('a'))
+    let release = (): void => {}
+    held.set(chunk('c'), new Promise((resolve) => (release = resolve)))
+    const find = await discovery()
+    const lookups = [find(nothing), find(nothing)]
+    await vi.waitFor(() => expect(reads).toContain(chunk('c')))
+    release()
+    for (const lookup of lookups)
+      await expect(lookup).rejects.toThrow('Could not inspect Wplace modules')
+    expect(reads.sort()).toEqual([chunk('a'), chunk('a'), chunk('c'), chunk('entry')])
   })
 })
