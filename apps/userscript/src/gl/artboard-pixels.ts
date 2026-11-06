@@ -191,6 +191,42 @@ const patchCrosshairPixels = (canvas: HTMLCanvasElement, dirty: CanvasWriteRect 
   }
 }
 
+/** Native artboard pixels with a revision: two reads with the same revision hold the same pixels. */
+export interface ArtboardPixels extends NativePixelSnapshot {
+  readonly revision: number
+}
+
+/** No artboard to read: every pixel is unknown, so this snapshot never changes. */
+export const NO_ARTBOARD_PIXELS: ArtboardPixels = { committed: [], draft: [], revision: -1 }
+
+// Retained canvas pixels change in place, so a read alone cannot tell whether they moved. Patches
+// and HQ snapshots advance the revision; so does a read whose source arrays differ from the last
+// read's, which covers canvases Wplace mounts, replaces or removes without a write.
+let pixelRevision = 0
+let lastSources: readonly NativePixelRegion[] = []
+onHeadquartersPixelsChange(() => {
+  pixelRevision++
+})
+
+const sourceOf = (region: NativePixelRegion): Uint8Array => region.present ?? region.pixels
+
+const sameSources = (
+  left: readonly NativePixelRegion[],
+  right: readonly NativePixelRegion[],
+): boolean =>
+  left.length === right.length &&
+  left.every((region, at) => {
+    const other = right[at]
+    return (
+      other !== undefined &&
+      sourceOf(region) === sourceOf(other) &&
+      region.x === other.x &&
+      region.y === other.y &&
+      region.width === other.width &&
+      region.height === other.height
+    )
+  })
+
 /** Patch a retained native canvas snapshot after Wplace changes a bounded rectangle. */
 export const patchArtboardPixels = (
   active: ActiveAllianceSurface,
@@ -198,6 +234,7 @@ export const patchArtboardPixels = (
   canvas: HTMLCanvasElement,
   dirty: CanvasWriteRect | null,
 ): void => {
+  pixelRevision++
   if (canvas.classList.contains('paint-crosshair-tile')) {
     patchCrosshairPixels(canvas, dirty)
     return
@@ -510,7 +547,7 @@ export const refreshArtboardPixels = (
 export const readArtboardPixels = (
   active: ActiveAllianceSurface,
   geometry: ArtboardPixelGeometry,
-): NativePixelSnapshot => {
+): ArtboardPixels => {
   const visible =
     active.surface.kind === 'alliance-headquarters'
       ? hqPixels(active, geometry)
@@ -519,8 +556,9 @@ export const readArtboardPixels = (
     active.surface.kind === 'alliance-headquarters'
       ? (headquartersPixels(active.surface.allianceId, geometry, visible) ?? visible)
       : visible
-  return {
-    committed,
-    draft: draftPixels(active, geometry),
-  }
+  const draft = draftPixels(active, geometry)
+  const sources = [...visible, ...committed, ...draft]
+  if (!sameSources(sources, lastSources)) pixelRevision++
+  lastSources = sources
+  return { committed, draft, revision: pixelRevision }
 }
