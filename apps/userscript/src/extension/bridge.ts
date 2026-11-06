@@ -21,7 +21,7 @@ const onHandoff = (event: MessageEvent): void => {
   if (event.source !== window || event.data?.type !== BRIDGE_HANDOFF) return
   event.stopImmediatePropagation()
   window.removeEventListener('message', onHandoff, true)
-  // No port: the userscript runs this page, so the bridge stays closed.
+  // Only the first handoff counts; without a port, the bridge stays closed.
   const port = event.ports[0]
   if (port === undefined) return
   const send = (message: BridgeMessage): void => port.postMessage(JSON.stringify(message))

@@ -10,6 +10,10 @@ let running: Build = 'userscript'
 /** The build this copy of Caelestis belongs to. */
 export const runningBuild = (): Build => running
 
+/** Whether some copy of Caelestis runs on this page. */
+export const isPageClaimed = (): boolean =>
+  (pageWindow() as unknown as Record<string, unknown>)[CLAIM] !== undefined
+
 /**
  * Claim the page for this copy of Caelestis, or report that another copy already has.
  *

@@ -4,9 +4,10 @@
  * Only the isolated world can reach `chrome.storage.local`, and only the page world can hook
  * Wplace. At document start, before any Wplace script exists, the page-world script posts one
  * `window` message carrying a `MessagePort`; the isolated world takes the port and stops the event
- * there, so no later page listener sees it. A page-world script that lost the page to the
- * userscript posts the same message without a port, which closes the bridge for good. Every stored
- * value travels over the port, never over `window`, and nothing is kept in page-readable storage.
+ * there, so no later page listener sees it. The page-world script connects on every load, whether
+ * it runs Caelestis or only serves its storage to the userscript, and the bridge stops listening
+ * after that first message. Every stored value travels over the port, never over `window`, and
+ * nothing is kept in page-readable storage.
  *
  * That is the boundary: Wplace's scripts cannot read Caelestis's storage or join the bridge. Values
  * Caelestis uses in the page world, such as a token on a request, are as observable to page code
