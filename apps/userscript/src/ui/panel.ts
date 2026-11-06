@@ -84,6 +84,7 @@ import { forgetServer } from '../server-cache.js'
 import { activeShortcutBindings, shortcutHint } from '../shortcut-bindings.js'
 import { currentShortcutPlatform } from '../shortcuts.js'
 import {
+  admittedServerContentsFor,
   type ConnectedServer,
   cancelServerProbe,
   canonicalServerUrl,
@@ -487,8 +488,16 @@ const queueManifestTreeRefresh = (): void => {
   })
 }
 
-onServerSnapshot((_server, result) => {
-  if (result.status === 'admitted' && result.changed) queueManifestTreeRefresh()
+/** The work revision last admitted per server URL, so a claims-only change still redraws. */
+const admittedWorkRevisions = new Map<string, number | undefined>()
+
+onServerSnapshot((server, result) => {
+  if (result.status !== 'admitted') return
+  // Claiming a template bumps only the manifest's work revision; its rows compare unchanged.
+  const revision = admittedServerContentsFor(server)?.workRevision
+  const claimsChanged = admittedWorkRevisions.get(server.url) !== revision
+  admittedWorkRevisions.set(server.url, revision)
+  if (result.changed || claimsChanged) queueManifestTreeRefresh()
 })
 
 /**
