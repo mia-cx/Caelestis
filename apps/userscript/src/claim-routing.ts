@@ -31,7 +31,7 @@ import {
 } from './presence-client.js'
 import type { ServerTemplate } from './server-cache.js'
 import { type ConnectedServer, onStateChange, serverConnectionIdentity } from './state.js'
-import { storedValue, storeValue } from './stored-values.js'
+import { storedValue, storeValue, syncStoredValues } from './stored-values.js'
 import { accountIdentity } from './wplace-account.js'
 
 const STORAGE_KEY = 'caelestis.region-claims.v1'
@@ -704,10 +704,17 @@ const localRouter = (): ClaimRouter =>
 
 let pendingOperation: Promise<unknown> = Promise.resolve()
 const withClaims = <T>(operation: (router: ClaimRouter) => Promise<T>): Promise<T> => {
-  const run = () => {
+  const run = async (): Promise<T> => {
+    // The extension's storage is asynchronous: catch up on other tabs' writes after taking the
+    // lock, and store ours before giving it up, so the next tab reads what this one wrote.
+    await syncStoredValues()
     const router = localRouter()
     router.restore(load())
-    return operation(router)
+    try {
+      return await operation(router)
+    } finally {
+      await syncStoredValues()
+    }
   }
   const next = pendingOperation.then(async (): Promise<T> => {
     const locks = typeof navigator === 'undefined' ? null : navigator.locks

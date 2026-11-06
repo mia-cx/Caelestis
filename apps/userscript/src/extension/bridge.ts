@@ -1,4 +1,5 @@
-import { BRIDGE_HANDOFF, type StoredSnapshot, type StoredWrite } from './bridge-protocol.js'
+import { BRIDGE_HANDOFF, type BridgeMessage, type PageMessage } from './bridge-protocol.js'
+import { loadStoredStrings, onStoredStringsChange, writeStoredString } from './storage.js'
 
 /**
  * The extension's isolated-world content script: the page world's only way to `chrome.storage`.
@@ -8,42 +9,37 @@ import { BRIDGE_HANDOFF, type StoredSnapshot, type StoredWrite } from './bridge-
  * `window` and can stop the handoff event before any page listener runs.
  */
 
-interface StorageArea {
-  get(keys: null): Promise<Record<string, unknown>>
-  set(items: Record<string, string>): Promise<void>
-  remove(key: string): Promise<void>
-}
-
-declare const chrome: { readonly storage: { readonly local: StorageArea } }
-
-const storage = chrome.storage.local
-const loaded = storage.get(null)
-
-const snapshot = async (): Promise<StoredSnapshot> => {
-  const values: Record<string, string> = {}
-  try {
-    for (const [key, value] of Object.entries(await loaded)) {
-      if (typeof value === 'string') values[key] = value
-    }
-  } catch (error) {
+const load = (): Promise<Record<string, string>> =>
+  loadStoredStrings().catch((error: unknown) => {
     // Caelestis then starts on its defaults, as a fresh install would.
     console.warn('[caelestis] could not load stored values', error)
-  }
-  return { values }
-}
+    return {}
+  })
 
-const write = ({ key, value }: StoredWrite): void => {
-  const done = value === null ? storage.remove(key) : storage.set({ [key]: value })
-  done.catch((error: unknown) => console.warn(`[caelestis] could not store ${key}`, error))
-}
+const loaded = load()
 
 const onHandoff = (event: MessageEvent): void => {
-  const port = event.ports[0]
-  if (event.source !== window || event.data?.type !== BRIDGE_HANDOFF || port === undefined) return
+  if (event.source !== window || event.data?.type !== BRIDGE_HANDOFF) return
   event.stopImmediatePropagation()
   window.removeEventListener('message', onHandoff, true)
-  port.onmessage = ({ data }) => write(JSON.parse(String(data)) as StoredWrite)
-  void snapshot().then((values) => port.postMessage(JSON.stringify(values)))
+  // No port: the userscript runs this page, so the bridge stays closed.
+  const port = event.ports[0]
+  if (port === undefined) return
+  const send = (message: BridgeMessage): void => port.postMessage(JSON.stringify(message))
+  // Writes and syncs settle in the order they were sent, so a sync answers after every earlier
+  // write is stored: what lets a tab hand shared values to the next under a Web Lock.
+  let queue: Promise<unknown> = loaded
+  port.onmessage = ({ data }) => {
+    const message = JSON.parse(String(data)) as PageMessage
+    queue = queue.then(async () => {
+      if (message.type === 'write') await writeStoredString(message.key, message.value)
+      else send({ type: 'synced', id: message.id, values: await load() })
+    })
+  }
+  void loaded.then((values) => {
+    send({ type: 'snapshot', values })
+    onStoredStringsChange((changes) => send({ type: 'changes', changes }))
+  })
 }
 
 window.addEventListener('message', onHandoff, true)

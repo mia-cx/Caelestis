@@ -4,8 +4,13 @@
  * Only the isolated world can reach `chrome.storage.local`, and only the page world can hook
  * Wplace. At document start, before any Wplace script exists, the page-world script posts one
  * `window` message carrying a `MessagePort`; the isolated world takes the port and stops the event
- * there, so no later page listener sees it. Every stored value then travels over that port, never
- * over `window`.
+ * there, so no later page listener sees it. A page-world script that lost the page to the
+ * userscript posts the same message without a port, which closes the bridge for good. Every stored
+ * value travels over the port, never over `window`, and nothing is kept in page-readable storage.
+ *
+ * That is the boundary: Wplace's scripts cannot read Caelestis's storage or join the bridge. Values
+ * Caelestis uses in the page world, such as a token on a request, are as observable to page code
+ * that runs later as they are in the userscript.
  *
  * Port messages are JSON strings, so Firefox's cross-world wrappers have no objects to wrap.
  */
@@ -13,13 +18,16 @@
 /** The `type` of the one `window` message that hands the port over. */
 export const BRIDGE_HANDOFF = 'caelestis:storage-bridge'
 
-/** Isolated world to page world, once: every stored value. */
-export interface StoredSnapshot {
-  readonly values: Record<string, string>
-}
+/** Isolated world to page world. `null` stands for a deleted value. */
+export type BridgeMessage =
+  /** Once, first: every stored value. */
+  | { readonly type: 'snapshot'; readonly values: Record<string, string> }
+  /** Each change made elsewhere, such as another tab. The page skips values it already holds. */
+  | { readonly type: 'changes'; readonly changes: Record<string, string | null> }
+  /** The answer to a `sync`: every stored value, read after all earlier writes were stored. */
+  | { readonly type: 'synced'; readonly id: number; readonly values: Record<string, string> }
 
-/** Page world to isolated world: one write, `null` for a delete. */
-export interface StoredWrite {
-  readonly key: string
-  readonly value: string | null
-}
+/** Page world to isolated world, handled in order. */
+export type PageMessage =
+  | { readonly type: 'write'; readonly key: string; readonly value: string | null }
+  | { readonly type: 'sync'; readonly id: number }
