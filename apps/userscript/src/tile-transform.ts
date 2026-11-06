@@ -1225,15 +1225,20 @@ const requestedTilePixels = new Map<string, number>()
 
 /**
  * The page-side fetch, for when no worker can be started. Another script may rewrite it. It builds
- * the Blob as Wplace does, so the Blob tap hashes it for capture-dedupe.
+ * the Blob as Wplace does, so the Blob tap hashes it for capture-dedupe. Nothing decodes it through
+ * the bitmap tap, so the size entry the fetch tap queued for it is consumed here; left behind, it
+ * would answer for a later untagged tile of the same size.
  */
 const readTileOnPage = async (
   realm: Window & typeof globalThis,
+  tile: TileCoord,
   url: string,
 ): Promise<TileBody | undefined> => {
   const response = await realm.fetch.call(realm, url, { signal: AbortSignal.timeout(15_000) })
   if (!response.ok) return undefined
-  const body = new realm.Blob([await response.arrayBuffer()])
+  const bytes = await response.arrayBuffer()
+  consumeBySize(bytes.byteLength, tile)
+  const body = new realm.Blob([bytes])
   return { body, digest: await (digestOfBlob.get(body) ?? null) }
 }
 
@@ -1248,7 +1253,7 @@ const readTile = async (tile: TileCoord): Promise<boolean> => {
   // Fences this read against newer captures and accepted paint, as the fetch tap does for its own.
   tileRequestOrder.set(tile, nextPixelObservation())
   const fetched = await fetchTileInWorker(url)
-  const read = fetched === null ? await readTileOnPage(realm, url) : fetched
+  const read = fetched === null ? await readTileOnPage(realm, tile, url) : fetched
   if (read === undefined) return false
   await captureTile(tile, read.body, read.digest)
   return true

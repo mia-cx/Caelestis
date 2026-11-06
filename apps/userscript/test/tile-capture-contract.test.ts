@@ -178,6 +178,7 @@ const setup = async () => {
     body = bytes
   }
   return {
+    realm,
     tileTransform,
     setWplacePatchEnabled,
     readback,
@@ -268,7 +269,7 @@ describe('missed tiles', () => {
         terminate() {}
       },
     )
-    const { tileTransform, backend, fetchTile } = await setup()
+    const { realm, tileTransform, backend, fetchTile } = await setup()
     await fetchTile()
     expect(tileTransform.tilePixels(TILE)).not.toBeNull()
     backend.mockClear()
@@ -278,6 +279,10 @@ describe('missed tiles', () => {
     expect(backend.mock.calls.map(([url]) => url)).toEqual([
       'https://backend.wplace.live/files/s0/tiles/101/200.png',
     ])
+    // The page read is not matched by size against a later, untagged decode of the same length.
+    await realm.createImageBitmap(new Blob([Uint8Array.of(1, 2, 9)]))
+    await tileTransform.settledTileCaptures()
+    expect(tileTransform.tilePixels(missed)?.[1]).toBe(3)
   })
 })
 
