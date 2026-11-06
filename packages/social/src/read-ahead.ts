@@ -14,18 +14,21 @@ export const readAhead = <T, R>(
   read: (item: T) => Promise<R>,
   limit = READ_AHEAD,
 ): (() => Promise<R>) => {
-  const started: Promise<R>[] = []
+  // Only unclaimed reads stay referenced, so a claimed result is free once its caller drops it.
+  const pending: Promise<R>[] = []
+  let next = 0
   const start = () => {
-    if (started.length === items.length) return
-    const result = read(items[started.length])
+    if (next === items.length) return
+    const result = read(items[next++])
     // Claimed and awaited in order; this only stops an early failure being reported as unhandled.
     result.catch(() => {})
-    started.push(result)
+    pending.push(result)
   }
   for (let index = 0; index < limit; index++) start()
-  let taken = 0
   return () => {
-    const result = started[taken++]
+    const result = pending.shift()
+    if (result === undefined)
+      throw new RangeError('readAhead was called more times than it has items')
     start()
     return result
   }
