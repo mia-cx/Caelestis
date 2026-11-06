@@ -57,9 +57,9 @@
       </button>
     {/each}
   </div>
-  <p class="hint summary">{selected.length} of {model.palette.colours.length} colours on{#if model.source !== null} · {used} used{/if}</p>
+  <p class="hint summary">{selected.length} of {model.palette.colours.length} colours{#if model.source !== null}, {used} in use{/if}</p>
 
-  <p class="field-label section">Transparency</p>
+  <p class="section">Transparency</p>
   <div class="field-row">
     <label class="field-label" for="{id}-alpha">Alpha</label>
     <select
@@ -151,6 +151,5 @@
   .swatch[data-on='true'] .badge > span { background: var(--caelestis-text); color: var(--caelestis-surface); }
   .swatch[data-on='false'] .badge > span { border: 1.5px solid var(--caelestis-text); background: var(--caelestis-surface); color: var(--caelestis-text); }
   .summary { font-variant-numeric: tabular-nums; }
-  .section { margin-block-start: 0.5rem; }
   @media (forced-colors: active) { .swatch[data-on='true'] { outline: 3px solid CanvasText; } }
 </style>

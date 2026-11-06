@@ -347,7 +347,7 @@
   {#if model.cropping !== null}
     {@const draft = model.cropping.draft}
     {@const content = model.cropping.content}
-    <div class="bar caelestis-surface" role="toolbar" aria-label="Crop">
+    <div class="bar cropping caelestis-surface" role="toolbar" aria-label="Crop">
       <div class="crop-fields">
         {#each CROP_FIELDS as [field, label] (field)}
           <label class="number">
@@ -380,7 +380,7 @@
       </div>
     </div>
   {:else}
-  <div class="bar caelestis-surface" role="toolbar" aria-label={replacing ? 'Replace template' : 'New template'}>
+  <div class="bar main caelestis-surface" role="toolbar" aria-label={replacing ? 'Replace template' : 'New template'}>
     <input
       class="name caelestis-field"
       aria-label="Template name"
@@ -391,7 +391,9 @@
       oninput={(event) => onIntent({ type: 'name', name: event.currentTarget.value })}
     />
     <p class="status" class:failed={model.processing.state === 'failed' || model.message !== undefined} title={statusDetail} aria-live="polite">{status}</p>
-    <Button label="Crop" kind="ghost" size="small" disabled={model.source === null || model.pending} onclick={() => onIntent({ type: 'crop-mode', on: true })} />
+    <span class="crop-toggle">
+      <Button label="Crop" kind="ghost" size="small" disabled={model.source === null || model.pending} onclick={() => onIntent({ type: 'crop-mode', on: true })} />
+    </span>
     <div class="group">
       <Button label="Undo" title="Undo" kind="ghost" size="compact" iconOnly disabled={model.pending || !model.history.undo} onclick={() => onIntent({ type: 'undo' })}>
         <Icon name="undo" />
@@ -424,6 +426,7 @@
       <Button label="Cancel" kind="ghost" size="small" disabled={model.pending} onclick={() => onIntent({ type: 'cancel' })} />
       <Button label={replacing ? 'Replace template' : 'Save'} kind="primary" size="small" disabled={!canSave} onclick={() => onIntent({ type: 'save' })} />
     </div>
+    <span class="break" aria-hidden="true"></span>
   </div>
   {/if}
 
@@ -445,7 +448,8 @@
           >{window.title}</button>
         {/each}
       </div>
-      {#if sheet !== null}
+      <!-- Cropping folds the sheet down to its tabs, uncovering the image being cropped. -->
+      {#if sheet !== null && model.cropping === null}
         <div class="sheet-body" id="{uid}-sheet" role="tabpanel" aria-labelledby="{uid}-tab-{sheet}">{@render contents(sheet)}</div>
       {/if}
     </div>
@@ -493,7 +497,7 @@
     position: fixed;
     inset: 0;
     pointer-events: none;
-    font: 0.8125rem/1.4 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
+    font: 0.875rem/1.4 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
     color: var(--caelestis-text, #222);
   }
   .bar {
@@ -634,10 +638,25 @@
   }
   @media (max-width: 52rem) {
     /* Between Wplace's zoom buttons and its account button, as claim mode's bar sits. */
-    .bar { inset-inline: 3.5rem 7rem; inline-size: auto; max-inline-size: none; flex-wrap: wrap; }
-    .status { order: 1; flex-basis: 100%; }
+    .bar { inset-inline: 3.5rem 7rem; inline-size: auto; max-inline-size: none; flex-wrap: wrap; row-gap: 0.375rem; }
+    .bar > :is(.group, .windows, .actions) { padding-inline-start: 0; border: 0; }
+    /* Three rows: the name and Save; the tools and Cancel; then the readout. */
+    .main .actions { display: contents; }
+    .main .name { order: 1; flex: 1 1 0; }
+    .main .actions > :global(button:last-child) { order: 2; }
+    .main .break { order: 3; flex-basis: 100%; }
+    .main .crop-toggle { order: 4; }
+    .main .group { order: 5; }
+    .main .actions > :global(button:first-child) { order: 6; margin-inline-start: auto; }
+    .main .status { order: 7; flex-basis: 100%; }
+    /* Crop: the four fields two by two, then its choices, Apply last. */
+    .crop-fields { display: grid; flex-basis: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .crop-fields input { inline-size: 100%; }
+    .cropping .actions { margin-inline-start: auto; }
     .column { inset-block-start: calc(var(--studio-inset) + 6.5rem); }
   }
+  .break { display: none; }
+  @media (max-width: 52rem) { .break { display: block; } }
   /* Clear of Wplace's bottom controls, as claim mode's phone card is. */
   .sheet {
     position: absolute;
@@ -652,7 +671,8 @@
     box-shadow: var(--caelestis-popover-shadow, 0 10px 24px -6px rgb(0 0 0 / 0.28));
     pointer-events: auto;
   }
-  .tabs { display: flex; flex: 0 0 auto; overflow-x: auto; scrollbar-width: none; }
+  /* The tabs scroll sideways; the fading end says there are more. */
+  .tabs { display: flex; flex: 0 0 auto; overflow-x: auto; scrollbar-width: none; mask-image: linear-gradient(to right, #000 calc(100% - 2rem), transparent); }
   .tabs button {
     flex: 0 0 auto;
     min-block-size: 2.75rem;

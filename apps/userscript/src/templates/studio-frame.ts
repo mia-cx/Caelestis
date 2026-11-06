@@ -549,6 +549,22 @@ export const syncStudioFrame = (): void => {
   }
 }
 
+/**
+ * Where on the canvas `frame` reaches, and whether all of it is on screen: the whole source in
+ * crop mode, the draft otherwise. Null while the map has not drawn a frame to measure against.
+ */
+export const studioFrameExtent = (frame: StudioFrameView): { box: Box; inView: boolean | null } => {
+  const box = frame.cropping === null ? { ...frame.origin, ...frame.output } : sourceBox(frame)
+  const shown = onScreen(frame, box)
+  if (shown === null) return { box, inView: null }
+  const inView =
+    shown.x >= 0 &&
+    shown.y >= 0 &&
+    shown.x + shown.width <= window.innerWidth &&
+    shown.y + shown.height <= window.innerHeight
+  return { box, inView }
+}
+
 /** Show the studio's handles for `next`, or take them away with null. */
 export const showStudioFrame = (next: StudioFrameView | null, on: StudioFrameHandlers): void => {
   view = next

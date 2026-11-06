@@ -93,7 +93,7 @@
     touch-action: none;
     user-select: none;
   }
-  h3 { flex: 1; margin: 0; font: 600 0.8125rem/1.25 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); }
+  h3 { flex: 1; margin: 0; font: 600 0.875rem/1.25 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); }
   .tabs {
     display: flex;
     flex: 1;
@@ -110,7 +110,7 @@
     border-radius: var(--caelestis-control-radius, 0.4rem);
     background: none;
     color: var(--caelestis-muted-text);
-    font: 600 0.8125rem/1.25 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
+    font: 600 0.875rem/1.25 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
     cursor: grab;
   }
   .tabs button[aria-selected='true'] {
