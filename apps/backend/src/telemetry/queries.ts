@@ -514,26 +514,33 @@ export const readCanvas = (
   })
 
 /**
- * The canvas tiles of the current season's public world manifest, kept for the manifest version
- * they were planned from. Each read revalidates that version against the manifest read model, which
- * manifest changes invalidate, so a template unpublished a moment ago never keeps its tiles visible.
- * Keyed by content hash, so one entry serves every backend in the process that shares a manifest.
+ * Which published templates' timelapse captures cover each canvas tile, planned from the current
+ * season's public world manifest and kept for that manifest version. Each read revalidates the
+ * version with If-None-Match against the manifest read model, so publishing shows up as soon as
+ * the manifest does. Keyed by content hash, so one entry serves every backend that shares it.
  */
 let currentSeasonTiles: {
   readonly season: number
   readonly version: string
-  readonly tiles: ReadonlySet<TileKey>
+  readonly owners: ReadonlyMap<TileKey, readonly string[]>
 } | null = null
 
-const currentSeasonCanvasTiles = (
+/**
+ * Whether a reader may see a current-season tile. The manifest cache may only hide a tile: a
+ * tile it shows is confirmed against the database, because a failed invalidation can leave an
+ * unpublished template in the cached manifest.
+ */
+const currentSeasonTileVisible = (
   server: ServerInfo,
   season: number,
+  tile: TileKey,
 ): Effect.Effect<
-  ReadonlySet<TileKey>,
+  boolean,
   SqlStoreReadError | BackendStorageError,
   SqlStoreService | StatusReadModelService
 > =>
   Effect.gen(function* () {
+    const sql = yield* SqlStoreService
     const held = currentSeasonTiles?.season === season ? currentSeasonTiles : null
     const projection = yield* readManifestProjection({
       server,
@@ -543,14 +550,25 @@ const currentSeasonCanvasTiles = (
       ifNoneMatch: held === null ? [] : [`"${held.version}"`],
       cacheable: true,
     })
-    // Only the held version is ever offered, so a match means it still holds. Without one, show
-    // nothing rather than tiles of unknown freshness.
-    if (projection.notModified) return held?.tiles ?? new Set()
-    const tiles = new Set(
-      planTimelapseTiles(projection.manifest.templates.map(({ bbox }) => bbox)).map(tileKey),
+    let owners = held?.owners
+    if (!projection.notModified) {
+      const planned = new Map<TileKey, string[]>()
+      for (const template of projection.manifest.templates)
+        for (const key of planTimelapseTiles([template.bbox]).map(tileKey)) {
+          const ids = planned.get(key)
+          if (ids === undefined) planned.set(key, [template.id])
+          else ids.push(template.id)
+        }
+      currentSeasonTiles = { season, version: projection.version, owners: planned }
+      owners = planned
+    }
+    // Only the held version is ever offered, so without one a match cannot happen; hide the tile.
+    const ids = owners?.get(tile)
+    if (ids === undefined) return false
+    const published = yield* sqlRead('filterPublishedTemplateIds', () =>
+      sql.filterPublishedTemplateIds(ids),
     )
-    currentSeasonTiles = { season, version: projection.version, tiles }
-    return tiles
+    return published.length > 0
   })
 
 /** Return all retained detail by default; an explicit resolution reads only that legacy tier. */
@@ -570,12 +588,13 @@ export const readTileHistory = (input: {
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
     const resolution = input.legacyResolution
-    const visible = input.includeUnpublished
-      ? null
+    const hidden = input.includeUnpublished
+      ? false
       : input.server === undefined
-        ? yield* sqlRead('listManifestTemplates', () => publishedCanvasTiles(sql, input.season))
-        : yield* currentSeasonCanvasTiles(input.server, input.season)
-    const hidden = visible !== null && !visible.has(tileKey(input.tile))
+        ? !(yield* sqlRead('listManifestTemplates', () =>
+            publishedCanvasTiles(sql, input.season),
+          )).has(tileKey(input.tile))
+        : !(yield* currentSeasonTileVisible(input.server, input.season, tileKey(input.tile)))
     // Indistinguishable from a tile nobody captured.
     if (hidden) return { ...(resolution === undefined ? {} : { resolution }), frames: [] }
     const resolutions = resolution === undefined ? TILE_HISTORY_RESOLUTIONS : [resolution]

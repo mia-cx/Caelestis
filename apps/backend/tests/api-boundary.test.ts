@@ -1,6 +1,7 @@
-import { encodeIndexedPng, sha256Hex, TRANSPARENT_INDEX } from '@caelestis/shared'
+import { encodeIndexedPng, millis, seconds, sha256Hex, TRANSPARENT_INDEX } from '@caelestis/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MemorySqlStore } from '../src/adapters/memory/memory-sql-store.js'
+import { DirectStatusReadModel } from '../src/status-read-model/port.js'
 import { adminToken, createTestBackend } from './support/backend.js'
 import { openRelationalStore } from './support/relational.js'
 
@@ -267,6 +268,68 @@ describe('backend API trust boundary', () => {
     const historical = await status(adminToken, '*', 2)
     expect(historical.response.status).toBe(200)
     expect(historical.etag).toBeNull()
+  })
+
+  it('hides tile history once a template is unpublished, even when the manifest cache misses the change', async () => {
+    let invalidation = true
+    const backend = await createTestBackend({
+      statusReadModel: (sql) =>
+        new (class extends DirectStatusReadModel {
+          override async notifyManifestChange(
+            ...args: Parameters<DirectStatusReadModel['notifyManifestChange']>
+          ): Promise<void> {
+            if (!invalidation) throw new Error('manifest invalidation lost')
+            await super.notifyManifestChange(...args)
+          }
+        })(sql),
+    })
+    const reader = await mint(backend, 'read')
+    const form = new FormData()
+    form.set('png', new File([await encodeIndexedPng(1, 1, new Uint8Array([1]))], 'art.png'))
+    form.set('name', 'Published')
+    form.set('season', '3')
+    form.set('originX', '0')
+    form.set('originY', '0')
+    const created = await backend.app.fetch(
+      new Request('https://backend.test/admin/templates', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${adminToken}` },
+        body: form,
+      }),
+    )
+    const { templateId } = (await created.json()) as { templateId: string }
+    const publish = (published: boolean) =>
+      request(backend, `/admin/templates/${templateId}`, 'PATCH', adminToken, { published })
+    expect((await publish(true)).status).toBe(200)
+    await backend.sql.recordTileObservation(
+      {
+        season: 3,
+        tile: { x: 0, y: 0 },
+        hash,
+        observedAt: millis(1_000),
+        reportedAt: seconds(1),
+        reportedWithToken: hash,
+        reportedByUserId: 42,
+      },
+      [],
+      true,
+    )
+    const frames = async () =>
+      (
+        (await (
+          await request(
+            backend,
+            '/telemetry/tiles/0/0/history?season=3&from=0&to=2',
+            'GET',
+            reader.token,
+          )
+        ).json()) as { frames: unknown[] }
+      ).frames.length
+    expect(await frames()).toBe(1)
+
+    invalidation = false
+    expect((await publish(false)).status).toBe(200)
+    expect(await frames()).toBe(0)
   })
 
   it('rejects malformed read parameters instead of returning a successful empty result', async () => {
