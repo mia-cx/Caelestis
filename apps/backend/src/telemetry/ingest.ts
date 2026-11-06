@@ -5,6 +5,7 @@ import {
   millis,
   PALETTE_RGB,
   type PaintEvent,
+  pngSize,
   quantiseToPalette,
   type Seconds,
   seconds,
@@ -195,13 +196,12 @@ const chunkRect = (target: ClassificationTarget): ChunkRect | null => {
 }
 
 const decodeCanvas = async (bytes: Uint8Array): Promise<Uint8Array> => {
-  const image = await decodePng(bytes)
-  if (image.width !== TILE_SIZE || image.height !== TILE_SIZE) {
-    throw new RangeError(
-      `canvas tile is ${image.width}x${image.height}, expected ${TILE_SIZE}x${TILE_SIZE}`,
-    )
+  // Reporters upload these. Check the header before decoding allocates the size it declares.
+  const { width, height } = pngSize(bytes)
+  if (width !== TILE_SIZE || height !== TILE_SIZE) {
+    throw new RangeError(`canvas tile is ${width}x${height}, expected ${TILE_SIZE}x${TILE_SIZE}`)
   }
-  return quantiseToPalette(image.pixels, PALETTE_RGB).indices
+  return quantiseToPalette((await decodePng(bytes)).pixels, PALETTE_RGB).indices
 }
 
 const decodeCanvasInput = (hash: string, bytes: Uint8Array): Promise<Uint8Array> =>
