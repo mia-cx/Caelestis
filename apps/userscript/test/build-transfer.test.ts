@@ -32,18 +32,23 @@ const copy = async (
     },
   })
   const transfer = await import('../src/build-transfer.js')
-  const port = transfer.meetOtherBuild()
+  const port = transfer.meetOtherBuild(page)
   if (port === null) throw new Error('met nobody')
   return { store, values, transfer, port }
 }
 
 const reload = () => vi.spyOn(window.location, 'reload').mockImplementation(() => undefined)
 
+/** The page's `window` both copies share, fresh for each test. */
+let page: object = {}
+
 /** Document start: the parser has not added `<head>` yet, though Caelestis may have added its styles. */
-beforeEach(() => document.documentElement.replaceChildren(document.createElement('style')))
+beforeEach(() => {
+  page = {}
+  document.documentElement.replaceChildren(document.createElement('style'))
+})
 afterEach(() => {
   vi.restoreAllMocks()
-  Reflect.deleteProperty(window, '__caelestisMeeting')
   document.documentElement.replaceChildren(
     document.createElement('head'),
     document.createElement('body'),
@@ -90,7 +95,8 @@ describe('moving settings between the userscript and the extension', () => {
     expect(userscript.values.has(HANDED_OFF)).toBe(false)
     expect(Object.fromEntries(extension.store)).toEqual({})
 
-    // The next load, with storage working again.
+    // The next load, on a fresh page, with storage working again.
+    page = {}
     const retry = await copy(extension.store)
     const again = await copy(userscript.store)
     retry.transfer.linkOtherBuild(retry.port, 'extension', retry.transfer.awaitingSettings())
@@ -111,6 +117,7 @@ describe('moving settings between the userscript and the extension', () => {
     await vi.waitFor(() => expect(warned).toHaveBeenCalled())
     expect(userscript.values.has(HANDED_OFF)).toBe(false)
     expect(extension.store.get(RECEIVING)).toBe('true')
+    page = {}
     expect((await copy(extension.store)).transfer.awaitingSettings()).toBe(true)
   })
 
@@ -140,18 +147,27 @@ describe('moving settings between the userscript and the extension', () => {
     expect(Object.fromEntries(userscript.values)).toEqual({ [STATE]: 'extension' })
   })
 
-  it('withdraws an offer once the document gains content, and a later copy meets nobody', async () => {
+  it('closes the meeting once the page starts, and page code cannot plant another', async () => {
     await copy({})
     document.documentElement.append(document.createElement('head'))
-    await vi.waitFor(() => expect(Reflect.has(window, '__caelestisMeeting')).toBe(false))
-    // Page code plants its own offer, hoping a late userscript serves it.
-    const planted = new MessageChannel()
-    Reflect.set(window, '__caelestisMeeting', planted.port2)
+    await vi.waitFor(() => expect(Reflect.get(page, '__caelestisMeeting')).toBeUndefined())
 
+    const planted = new MessageChannel()
+    expect(Reflect.set(page, '__caelestisMeeting', planted.port2)).toBe(false)
+    expect(() =>
+      Object.defineProperty(page, '__caelestisMeeting', { value: planted.port2 }),
+    ).toThrow()
     vi.resetModules()
     const late = await import('../src/build-transfer.js')
+    expect(late.meetOtherBuild(page)).toBeNull()
+  })
 
-    expect(late.meetOtherBuild()).toBeNull()
-    expect(Reflect.get(window, '__caelestisMeeting')).toBe(planted.port2)
+  it('hands the offer out once', async () => {
+    await copy({})
+
+    expect(typeof (Reflect.get(page, '__caelestisMeeting') as MessagePort).postMessage).toBe(
+      'function',
+    )
+    expect(Reflect.get(page, '__caelestisMeeting')).toBeUndefined()
   })
 })
