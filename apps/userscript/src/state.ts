@@ -344,21 +344,54 @@ const notifyStateListeners = (): void => {
   }
 }
 
+const GLOBAL_SETTINGS = [
+  'reportPaints',
+  'shareTiles',
+  'sharePresence',
+  'showPresence',
+  'showPresenceViewports',
+  'showPresenceClaims',
+  'showPresenceClaimsOnlyWhilePainting',
+  'notifyRegressions',
+  'notifyGriefing',
+  'notifyUpdates',
+  'notifyActivity',
+] as const satisfies readonly (keyof State)[]
+
 /** The switches in state that apply to every tab, which the extension's toolbar popup can change. */
-export type GlobalSettings = Pick<
-  State,
-  | 'reportPaints'
-  | 'shareTiles'
-  | 'sharePresence'
-  | 'showPresence'
-  | 'showPresenceViewports'
-  | 'showPresenceClaims'
-  | 'showPresenceClaimsOnlyWhilePainting'
-  | 'notifyRegressions'
-  | 'notifyGriefing'
-  | 'notifyUpdates'
-  | 'notifyActivity'
->
+export type GlobalSettings = Pick<State, (typeof GLOBAL_SETTINGS)[number]>
+
+/**
+ * Each global switch is also stored under its own key, which wins over its copy in the state
+ * record. A tab saves its whole record at once, and the toolbar popup changes one switch: with
+ * separate keys, neither can write back a stale copy of what the other just changed.
+ */
+const SWITCH_PREFIX = 'caelestis.setting.'
+
+const storedSwitches = (): Partial<Record<keyof GlobalSettings, boolean>> => {
+  const switches: Partial<Record<keyof GlobalSettings, boolean>> = {}
+  for (const name of GLOBAL_SETTINGS) {
+    try {
+      const value = storedValue(`${SWITCH_PREFIX}${name}`)
+      if (value === 'true' || value === 'false') switches[name] = value === 'true'
+    } catch {
+      // The state record's copy stands in.
+    }
+  }
+  return switches
+}
+
+const storeSwitches = (patch: Partial<State>): void => {
+  for (const name of GLOBAL_SETTINGS) {
+    const value = patch[name]
+    if (value === undefined) continue
+    try {
+      storeValue(`${SWITCH_PREFIX}${name}`, String(value))
+    } catch (error) {
+      warn('install', `could not persist ${name}`, String(error))
+    }
+  }
+}
 
 const globalSettingsFrom = (
   stored: Partial<Record<keyof GlobalSettings, unknown>>,
@@ -392,21 +425,18 @@ const storedRecord = (): Record<string, unknown> => {
 }
 
 /** The global settings as stored right now, without loading the rest of the state. */
-export const storedGlobalSettings = (): GlobalSettings => globalSettingsFrom(storedRecord())
+export const storedGlobalSettings = (): GlobalSettings =>
+  globalSettingsFrom({ ...storedRecord(), ...storedSwitches() })
 
-/**
- * Change one global setting in the stored state, leaving every other field as stored. The
- * extension's toolbar popup writes through this, so it never replaces state a tab saved meanwhile.
- */
-export const storeGlobalSetting = (key: keyof GlobalSettings, value: boolean): void => {
-  writeRaw(JSON.stringify({ ...storedRecord(), [key]: value }))
-}
+/** Change one global setting in storage; the toolbar popup's write. Open tabs adopt it from there. */
+export const storeGlobalSetting = (key: keyof GlobalSettings, value: boolean): void =>
+  storeSwitches({ [key]: value })
 
 // A global setting changed in the toolbar popup or another tab applies here without a reload. Only
 // those switches are adopted: the rest of this tab's state, such as its live server connections,
 // stays its own.
 onStoredValueChange((key) => {
-  if (key !== STORAGE_KEY) return
+  if (key !== STORAGE_KEY && !key.startsWith(SWITCH_PREFIX)) return
   const next = storedGlobalSettings()
   const current: GlobalSettings = state
   if (
@@ -676,7 +706,7 @@ export const loadState = (): State => {
             ? remapStoredAppearance(stored.appearance ?? null)
             : (stored.appearance ?? null),
         ) ?? DEFAULT_APPEARANCE,
-      ...globalSettingsFrom(stored),
+      ...globalSettingsFrom({ ...stored, ...storedSwitches() }),
       shortcutOverrides: normaliseShortcutOverrides(stored.shortcutOverrides),
       studioLayout: parseStudioLayout(stored.studioLayout),
     }
@@ -791,6 +821,7 @@ export const setState = (patch: Partial<State>): State => {
   if (patch.allianceSurfaceAppearances !== undefined) allianceAppearancePreviews.clear()
   state = { ...state, ...patch }
   writeRaw(JSON.stringify(state))
+  storeSwitches(patch)
   notifyStateListeners()
   return state
 }
@@ -799,6 +830,7 @@ export const setState = (patch: Partial<State>): State => {
 export const commitState = (patch: Partial<State>): boolean => {
   const next = { ...state, ...patch }
   if (!writeRaw(JSON.stringify(next))) return false
+  storeSwitches(patch)
   state = next
   notifyStateListeners()
   return true
