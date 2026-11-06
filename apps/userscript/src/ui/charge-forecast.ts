@@ -49,12 +49,12 @@ const chip = (): HTMLElement => {
 export const renderChargeForecast = (): void => {
   const el = chip()
   const forecast = chargeForecast()
-  if (forecast === null) {
-    el.hidden = true
-    return
-  }
-  el.hidden = false
-  el.textContent = forecast.full ? 'Charges full' : `Full in ${formatCountdown(forecast.fullInMs)}`
+  el.hidden = forecast === null
+  if (forecast === null) return
+  // Written only on change: the tick runs every second, and a rewrite is DOM churn even when the
+  // countdown reads the same.
+  const text = forecast.full ? 'Charges full' : `Full in ${formatCountdown(forecast.fullInMs)}`
+  if (el.textContent !== text) el.textContent = text
   el.title = `${Math.floor(forecast.count)} of ${forecast.max} charges`
 }
 
@@ -66,9 +66,11 @@ export const positionChargeForecast = (): void => {
     el.style.visibility = 'hidden'
     return
   }
+  const left = `${anchor.left + anchor.width / 2}px`
+  const bottom = `${window.innerHeight - anchor.top + GAP / 2}px`
   el.style.visibility = ''
-  el.style.left = `${anchor.left + anchor.width / 2}px`
-  el.style.bottom = `${window.innerHeight - anchor.top + GAP / 2}px`
+  if (el.style.left !== left) el.style.left = left
+  if (el.style.bottom !== bottom) el.style.bottom = bottom
 }
 
 /**

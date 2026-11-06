@@ -71,6 +71,25 @@ describe('charge forecast chip', () => {
     expect(chip().textContent).toBe('Full in 26:30')
   })
 
+  it('leaves the DOM alone while the countdown reads the same', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    observeCharges({ count: 58, max: 60, cooldownMs: 30_000 }, 0)
+    renderChargeForecast()
+    const observer = new MutationObserver(() => {})
+    observer.observe(chip(), { childList: true, characterData: true, subtree: true })
+
+    vi.setSystemTime(400)
+    renderChargeForecast()
+    expect(observer.takeRecords()).toHaveLength(0)
+
+    vi.setSystemTime(30_000)
+    renderChargeForecast()
+    expect(chip().textContent).toBe('Full in 0:30')
+    expect(observer.takeRecords()).not.toHaveLength(0)
+    observer.disconnect()
+  })
+
   it('sits centred above the Paint button and hides when there is none', () => {
     window.innerHeight = 800
     mountPaintDock({ left: 300, top: 740, width: 120, height: 48 })
