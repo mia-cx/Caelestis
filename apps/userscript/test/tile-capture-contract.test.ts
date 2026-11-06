@@ -30,6 +30,10 @@ const setup = async () => {
   const digest = vi.fn((algorithm: AlgorithmIdentifier, data: BufferSource) =>
     globalThis.crypto.subtle.digest(algorithm, data),
   )
+  /** Wplace's backend, behind the fetch tap that `install` puts in front of it. */
+  const backend = vi.fn(async (url: string) =>
+    url.endsWith('/paint') ? Response.json({ painted: 1 }) : new Response(body),
+  )
   const realm = {
     ...globalThis,
     Object,
@@ -39,13 +43,11 @@ const setup = async () => {
     ArrayBuffer,
     Blob,
     crypto: { subtle: { digest } },
-    fetch: vi.fn(async (url: string) =>
-      url.endsWith('/paint') ? Response.json({ painted: 1 }) : new Response(body),
-    ),
+    fetch: backend,
     // A leading zero byte stands for Wplace's 1x1 "nothing painted here" tile.
     createImageBitmap: vi.fn(async (source: Blob) => {
       const size = new Uint8Array(await source.arrayBuffer())[0] === 0 ? 1 : 1_000
-      return { width: size, height: size } as ImageBitmap
+      return { width: size, height: size, close() {} } as ImageBitmap
     }),
     HTMLCanvasElement: class {
       getContext(): null {
@@ -80,12 +82,39 @@ const setup = async () => {
     })
     await accepted
   }
-  return { tileTransform, setWplacePatchEnabled, readback, digest, fetchTile, paint }
+  return { tileTransform, setWplacePatchEnabled, readback, digest, fetchTile, paint, backend }
 }
 
 afterEach(() => {
   stopCapture?.()
   stopCapture = undefined
+  vi.unstubAllGlobals()
+})
+
+describe('missed tiles', () => {
+  it('reads on the page when the worker is refused after it was created', async () => {
+    // A page CSP lets the Worker construct, then reports the refusal as an error event.
+    vi.stubGlobal(
+      'Worker',
+      class extends EventTarget {
+        constructor() {
+          super()
+          setTimeout(() => this.dispatchEvent(new Event('error')))
+        }
+        postMessage() {}
+        terminate() {}
+      },
+    )
+    const { tileTransform, backend, fetchTile } = await setup()
+    await fetchTile()
+    backend.mockClear()
+    const missed = { x: TILE.x + 1, y: TILE.y }
+    tileTransform.ensureTilePixels(missed)
+    await vi.waitFor(() => expect(tileTransform.tilePixels(missed)).not.toBeNull())
+    expect(backend.mock.calls.map(([url]) => url)).toEqual([
+      'https://backend.wplace.live/files/s0/tiles/101/200.png',
+    ])
+  })
 })
 
 describe('unchanged tile capture', () => {

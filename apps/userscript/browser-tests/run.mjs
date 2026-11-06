@@ -95,7 +95,13 @@ try {
   }
   check = spawn(process.execPath, ['browser-tests/cdp-smoke.mjs'], {
     cwd: new URL('..', import.meta.url),
-    env: { ...process.env, CDP_PORT: port, BROWSER_BUNDLE: bundle },
+    env: {
+      ...process.env,
+      CDP_PORT: port,
+      BROWSER_BUNDLE: bundle,
+      // The disposable headless instance has no focus to take; anyone else's browser does.
+      CDP_OWNED_BROWSER: browser === undefined ? '' : '1',
+    },
     stdio: 'inherit',
   })
   let timeout

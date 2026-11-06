@@ -176,6 +176,30 @@ export const nativeLocalId = async (id: string): Promise<string> =>
 const metadataToken = (template: NativeTemplate | undefined): string | undefined =>
   JSON.stringify(template)
 
+/** What `render` reads from a snapshot token: the artwork digest, output size, and colour settings. */
+const renderInputs = (token: string): string => {
+  const split = token.lastIndexOf('\n')
+  const template: NativeTemplate = JSON.parse(token.slice(0, split))
+  const { width, height } = nativePlacement(template)
+  return JSON.stringify([
+    token.slice(split + 1),
+    width,
+    height,
+    template.colorMetric,
+    template.dithering,
+    template.useLegacyColors === true,
+    template.colorPaletteMode ?? 'all',
+    template.templateColorIdxs ?? [],
+  ])
+}
+
+/**
+ * Whether two snapshots render the same pixels. Wplace reorders record fields when it loads them,
+ * and edits like visibility, order, or a move change the token without touching the artwork.
+ */
+export const sameRender = (left: string, right: string): boolean =>
+  renderInputs(left) === renderInputs(right)
+
 /** Wrap the native APIs without changing their limits or ownership rules. */
 export class NativeTemplates {
   private persisted: string | null | undefined
