@@ -466,6 +466,8 @@ describe('server mismatch masks', () => {
     mismatch.invalidateServerMismatchTiles(origin, [tile])
     requests.hold = null
     release()
+    await vi.waitFor(() => expect(requests.statuses).toEqual([200]))
+    expect(saved.size).toBe(0)
     await vi.waitFor(() => {
       mismatch.serverMismatchMaskFor(template, tile)
       expect(requests.statuses).toEqual([200, 304])

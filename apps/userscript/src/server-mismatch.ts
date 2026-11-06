@@ -60,9 +60,17 @@ const MAX_HELD_MASKS = 512
 const MAX_HELD_MASK_BYTES = 16 * 1024 * 1024
 const MAX_TILE_INVALIDATIONS = 512
 
+/** Memory one held mask keeps alive, including unsaved bytes that no longer share its buffer. */
+const heldBytes = (held: HeldMask): number =>
+  held.mask.packed.byteLength +
+  12 +
+  (held.unsaved === null || held.unsaved.buffer === held.mask.packed.buffer
+    ? 0
+    : held.unsaved.byteLength)
+
 export const serverMismatchMemoryBytes = (): number => {
   let bytes = 0
-  for (const held of masks.values()) bytes += held.mask.packed.byteLength + 12
+  for (const held of masks.values()) bytes += heldBytes(held)
   return bytes
 }
 
@@ -255,7 +263,7 @@ export const endServerMismatchFrame = (): void => {
   for (const [key, held] of offscreen) {
     if (masks.size <= MAX_HELD_MASKS && bytes <= MAX_HELD_MASK_BYTES) break
     masks.delete(key)
-    bytes -= held.mask.packed.byteLength + 12
+    bytes -= heldBytes(held)
   }
   for (const key of [...misses.keys()]) if (!requested.has(key)) misses.delete(key)
 }
