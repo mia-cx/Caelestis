@@ -372,6 +372,59 @@ describe('template studio', () => {
     })
   })
 
+  it('crops only on Apply, leaving what stays of the image where it was on the map', async () => {
+    const room = await openOnRoom({
+      kind: 'create',
+      destination: 'Local',
+      surface: WORLD_TEMPLATE_SURFACE,
+      save: async () => true,
+    })
+    handleTemplateStudioIntent({ type: 'origin', x: 1_000, y: 2_000 })
+    const whole = { x: 0, y: 0, width: room.width, height: room.height }
+    const part = { x: 10, y: 5, width: 40, height: 30 }
+
+    handleTemplateStudioIntent({ type: 'crop-mode', on: true })
+    handleTemplateStudioIntent({ type: 'crop-draft', crop: part })
+    expect(templateStudioModel()).toMatchObject({ crop: whole, cropping: { draft: part } })
+    handleTemplateStudioIntent({ type: 'crop-mode', on: false })
+    expect(templateStudioModel()).toMatchObject({ crop: whole, cropping: null })
+
+    handleTemplateStudioIntent({ type: 'crop-mode', on: true })
+    handleTemplateStudioIntent({ type: 'crop-draft', crop: part })
+    handleTemplateStudioIntent({ type: 'crop-apply' })
+    await ready()
+    expect(templateStudioModel()).toMatchObject({
+      crop: part,
+      cropping: null,
+      origin: { x: 1_010, y: 2_005 },
+      output: { width: 40, height: 30 },
+    })
+  })
+
+  it('stretches one side while proportions are not kept, and both while they are', async () => {
+    const room = await openOnRoom({
+      kind: 'create',
+      destination: 'Local',
+      surface: WORLD_TEMPLATE_SURFACE,
+      save: async () => true,
+    })
+    handleTemplateStudioIntent({ type: 'keep-proportions', on: false })
+    handleTemplateStudioIntent({ type: 'size', side: 'width', pixels: room.width * 2 })
+    expect(templateStudioModel().output).toMatchObject({
+      width: room.width * 2,
+      height: room.height,
+    })
+
+    // Kept proportions are the stretched ones now.
+    handleTemplateStudioIntent({ type: 'keep-proportions', on: true })
+    handleTemplateStudioIntent({ type: 'size', side: 'height', pixels: room.height * 2 })
+    expect(templateStudioModel().output).toMatchObject({
+      width: room.width * 4,
+      height: room.height * 2,
+    })
+    await ready()
+  })
+
   it('undoes and redoes edits, reprocessing the artwork each way', async () => {
     await openOnRoom({
       kind: 'create',
