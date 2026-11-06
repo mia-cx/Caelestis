@@ -318,7 +318,10 @@ describe('template backfill contract', () => {
       true,
     )
     for (let step = 1; step < job.total; step++) await importer.step()
-    expect(await importer.job()).toMatchObject({ status: 'completed', to: snapshot.at })
+    const done = await importer.job()
+    expect(done).toMatchObject({ status: 'completed', to: snapshot.at })
+    // Every step counted is imported, skipped or failed, skipped snapshots included.
+    expect((done?.imported ?? 0) + (done?.skipped ?? 0) + (done?.failed ?? 0)).toBe(done?.total)
     expect((await importer.history(versionId)).samples).toMatchObject([
       { snapshotId: 1, correct: 1, mismatched: 0 },
     ])

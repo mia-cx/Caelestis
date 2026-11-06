@@ -350,7 +350,12 @@ export class TemplateBackfill {
       if (step.index > 0 && resume < summary.total) {
         await this.storage.put<StoredJob>('job', {
           ...held,
-          summary: { ...summary, completed: resume },
+          // Skipped snapshots count as skipped, so the totals still add up.
+          summary: {
+            ...summary,
+            completed: resume,
+            skipped: summary.skipped + resume - summary.completed,
+          },
         })
         await this.storage.setAlarm(this.now() + 100)
         return
