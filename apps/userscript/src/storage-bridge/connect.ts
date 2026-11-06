@@ -23,8 +23,13 @@ export const connectStorageBridge = (build: Build, onSnapshot: () => void): bool
   const syncs = new Map<number, (values: Record<string, string> | null) => void>()
   let lastSync = 0
   const watched = new Set<string>()
+  /** Keys this page has written, whose `watched` answers are older than what it holds. */
+  const written = new Set<string>()
   const adopt = useStoredValues(values, {
-    persist: (key, value) => send({ type: 'write', key, value }),
+    persist(key, value) {
+      written.add(key)
+      send({ type: 'write', key, value })
+    },
     watch(key) {
       if (watched.has(key)) return
       watched.add(key)
@@ -48,6 +53,9 @@ export const connectStorageBridge = (build: Build, onSnapshot: () => void): bool
         break
       case 'changes':
         adopt(message.changes)
+        break
+      case 'watched':
+        if (!written.has(message.key)) adopt({ [message.key]: message.value })
         break
       case 'synced':
         syncs.get(message.id)?.(message.values)

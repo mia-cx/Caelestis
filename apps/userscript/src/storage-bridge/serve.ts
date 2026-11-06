@@ -10,8 +10,11 @@ export interface StringStore {
   write(key: string, value: string | null): Promise<boolean>
   /** Run `listener` with each change made in another context, `null` for a delete. */
   onChange?(listener: (changes: Record<string, string | null>) => void): void
-  /** Report changes to `key` from now on, where changes are only reported for watched keys. */
-  watch?(key: string): void
+  /**
+   * Report changes to `key` from now on, where changes are only reported for watched keys. Returns
+   * the value it has now, or `null`.
+   */
+  watch?(key: string): string | null
 }
 
 /**
@@ -48,7 +51,8 @@ export const serveStorageBridge = (build: Build, store: StringStore): (() => voi
           return
         }
         if (message.type === 'watch') {
-          store.watch?.(message.key)
+          const value = store.watch?.(message.key) ?? null
+          if (value !== null) send({ type: 'watched', key: message.key, value })
           return
         }
         const values = writeFailed ? null : await store.load()

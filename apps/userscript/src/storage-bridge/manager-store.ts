@@ -71,7 +71,7 @@ export const managerStore = (): StringStore => {
     watch(key) {
       watch(key)
       const value = manager.GM_getValue?.(key, null)
-      if (typeof value === 'string') changed?.({ [key]: value })
+      return typeof value === 'string' ? value : null
     },
   }
 }

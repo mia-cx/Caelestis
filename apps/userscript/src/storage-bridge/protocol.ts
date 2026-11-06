@@ -37,6 +37,11 @@ export type BridgeMessage =
       readonly id: number
       readonly values: Record<string, string> | null
     }
+  /**
+   * The answer to a `watch`: the value the key already has. The page ignores it for a key it has
+   * written itself, so a write or delete it made meanwhile is not undone.
+   */
+  | { readonly type: 'watched'; readonly key: string; readonly value: string }
 
 /** Page world to storage world, handled in order. */
 export type PageMessage =
@@ -44,6 +49,7 @@ export type PageMessage =
   | { readonly type: 'sync'; readonly id: number }
   /**
    * A key the page read and does not have. A store that reports changes per key, such as the
-   * userscript manager's, starts reporting this one, as `changes`, including any value it now has.
+   * userscript manager's, starts reporting this one as `changes`, and answers with `watched` when
+   * the key already has a value.
    */
   | { readonly type: 'watch'; readonly key: string }
