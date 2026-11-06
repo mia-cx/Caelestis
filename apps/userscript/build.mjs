@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { copyFileSync, readFileSync, writeFileSync } from 'node:fs'
 import { build, context } from 'esbuild'
 import { ditherettePlugin } from './ditherette-plugin.mjs'
 
@@ -85,6 +85,7 @@ const options = {
  * The browser extension, unpacked in `dist/extension/`. Its page-world script is the same program
  * without the metadata block; `bridge.js` is the isolated-world script that owns its storage. The
  * bridge is listed first so its handoff listener exists before the page-world script posts.
+ * `popup.html` is the toolbar popup with the settings that apply to every Wplace tab.
  */
 const extensionDir = 'dist/extension'
 
@@ -112,6 +113,7 @@ const manifest = {
     gecko_android: { strict_min_version: '142.0' },
   },
   permissions: ['storage'],
+  action: { default_title: 'Caelestis', default_popup: 'popup.html' },
   content_scripts: [
     {
       matches: ['https://wplace.live/*'],
@@ -135,6 +137,13 @@ const extensionOptions = [
     banner: undefined,
   },
   {
+    ...options,
+    entryPoints: ['src/extension/popup.ts'],
+    outfile: `${extensionDir}/popup.js`,
+    banner: undefined,
+    footer: undefined,
+  },
+  {
     entryPoints: ['src/extension/bridge.ts'],
     outfile: `${extensionDir}/bridge.js`,
     bundle: true,
@@ -150,5 +159,6 @@ if (process.argv.includes('--watch')) {
   await ctx.watch()
 } else {
   await Promise.all([options, ...extensionOptions].map((each) => build(each)))
+  copyFileSync('src/extension/popup.html', `${extensionDir}/popup.html`)
   writeFileSync(`${extensionDir}/manifest.json`, `${JSON.stringify(manifest, null, 2)}\n`)
 }

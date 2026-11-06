@@ -50,7 +50,7 @@ import {
   type ServerApiVersion,
   serverEndpoint,
 } from './server-url.js'
-import { storedValue, storeValue } from './stored-values.js'
+import { onStoredValueChange, storedValue, storeValue } from './stored-values.js'
 import {
   APPEARANCE_GROUPS,
   type Appearance,
@@ -344,6 +344,79 @@ const notifyStateListeners = (): void => {
   }
 }
 
+/** The switches in state that apply to every tab, which the extension's toolbar popup can change. */
+export type GlobalSettings = Pick<
+  State,
+  | 'reportPaints'
+  | 'shareTiles'
+  | 'sharePresence'
+  | 'showPresence'
+  | 'showPresenceViewports'
+  | 'showPresenceClaims'
+  | 'showPresenceClaimsOnlyWhilePainting'
+  | 'notifyRegressions'
+  | 'notifyGriefing'
+  | 'notifyUpdates'
+  | 'notifyActivity'
+>
+
+const globalSettingsFrom = (
+  stored: Partial<Record<keyof GlobalSettings, unknown>>,
+): GlobalSettings => ({
+  // Contribution sharing is opt-out. Missing fields are older saved state, not a decision to
+  // disable either feed; an explicit false remains durable across reloads.
+  reportPaints: stored.reportPaints !== false,
+  shareTiles: stored.shareTiles !== false,
+  sharePresence: stored.sharePresence !== false,
+  showPresence: stored.showPresence !== false,
+  showPresenceViewports: stored.showPresenceViewports !== false,
+  showPresenceClaims: stored.showPresenceClaims !== false,
+  showPresenceClaimsOnlyWhilePainting: stored.showPresenceClaimsOnlyWhilePainting === true,
+  notifyRegressions: stored.notifyRegressions === true,
+  notifyGriefing: stored.notifyGriefing === true,
+  notifyUpdates: stored.notifyUpdates !== false,
+  notifyActivity: stored.notifyActivity === true,
+})
+
+/**
+ * The stored state as a record, or an empty one when nothing readable is stored. Legacy state is
+ * left to `loadState`, which migrates it on the first page load.
+ */
+const storedRecord = (): Record<string, unknown> => {
+  try {
+    const parsed: unknown = JSON.parse(storedValue(STORAGE_KEY) ?? '{}')
+    return isRecord(parsed) ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+/** The global settings as stored right now, without loading the rest of the state. */
+export const storedGlobalSettings = (): GlobalSettings => globalSettingsFrom(storedRecord())
+
+/**
+ * Change one global setting in the stored state, leaving every other field as stored. The
+ * extension's toolbar popup writes through this, so it never replaces state a tab saved meanwhile.
+ */
+export const storeGlobalSetting = (key: keyof GlobalSettings, value: boolean): void => {
+  writeRaw(JSON.stringify({ ...storedRecord(), [key]: value }))
+}
+
+// A global setting changed in the toolbar popup or another tab applies here without a reload. Only
+// those switches are adopted: the rest of this tab's state, such as its live server connections,
+// stays its own.
+onStoredValueChange((key) => {
+  if (key !== STORAGE_KEY) return
+  const next = storedGlobalSettings()
+  const current: GlobalSettings = state
+  if (
+    Object.entries(next).every(([name, value]) => current[name as keyof GlobalSettings] === value)
+  )
+    return
+  state = { ...state, ...next }
+  notifyStateListeners()
+})
+
 export const loadState = (): State => {
   const storedRaw = readRaw()
   if (storedRaw === null) return state
@@ -603,19 +676,7 @@ export const loadState = (): State => {
             ? remapStoredAppearance(stored.appearance ?? null)
             : (stored.appearance ?? null),
         ) ?? DEFAULT_APPEARANCE,
-      // Contribution sharing is opt-out. Missing fields are older saved state, not a decision to
-      // disable either feed; an explicit false remains durable across reloads.
-      reportPaints: stored.reportPaints !== false,
-      shareTiles: stored.shareTiles !== false,
-      sharePresence: stored.sharePresence !== false,
-      showPresence: stored.showPresence !== false,
-      showPresenceViewports: stored.showPresenceViewports !== false,
-      showPresenceClaims: stored.showPresenceClaims !== false,
-      showPresenceClaimsOnlyWhilePainting: stored.showPresenceClaimsOnlyWhilePainting === true,
-      notifyRegressions: stored.notifyRegressions === true,
-      notifyGriefing: stored.notifyGriefing === true,
-      notifyUpdates: stored.notifyUpdates !== false,
-      notifyActivity: stored.notifyActivity === true,
+      ...globalSettingsFrom(stored),
       shortcutOverrides: normaliseShortcutOverrides(stored.shortcutOverrides),
       studioLayout: parseStudioLayout(stored.studioLayout),
     }

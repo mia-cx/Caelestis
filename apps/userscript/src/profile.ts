@@ -1,5 +1,5 @@
 import type { ProfileContext } from './profile-context.js'
-import { deleteStoredValue, storedValue, storeValue } from './stored-values.js'
+import { deleteStoredValue, onStoredValueChange, storedValue, storeValue } from './stored-values.js'
 
 export type ProfileKind = 'main' | 'worker' | 'gpu' | 'detail'
 
@@ -317,13 +317,26 @@ export const isProfileEnabled = (): boolean => enabled
 /** Identify the current reset window so delayed GPU results cannot enter a later measurement. */
 export const profileWindowId = (): number => windowId
 
-export const setProfileEnabled = (on: boolean): void => {
-  if (enabled === on) return
-  enabled = on
+/** The stored Performance profiling setting. */
+export const storedProfiling = (): boolean => {
+  try {
+    return storedValue(PROFILE_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+/** Remember the Performance profiling setting without profiling here; the toolbar popup's write. */
+export const storeProfiling = (on: boolean): void => {
   try {
     if (on) storeValue(PROFILE_KEY, '1')
     else deleteStoredValue(PROFILE_KEY)
   } catch {}
+}
+
+const applyProfiling = (on: boolean): void => {
+  if (enabled === on) return
+  enabled = on
   if (on) {
     resetProfile()
     startObservers()
@@ -332,12 +345,18 @@ export const setProfileEnabled = (on: boolean): void => {
   }
 }
 
+export const setProfileEnabled = (on: boolean): void => {
+  if (enabled === on) return
+  storeProfiling(on)
+  applyProfiling(on)
+}
+
 export const installProfile = (): void => {
-  let on = false
-  try {
-    on = storedValue(PROFILE_KEY) === '1'
-  } catch {}
-  setProfileEnabled(on)
+  applyProfiling(storedProfiling())
+  // Switched in the extension's toolbar popup or another tab.
+  onStoredValueChange((key) => {
+    if (key === PROFILE_KEY) applyProfiling(storedProfiling())
+  })
 }
 
 /** Start a fresh measurement window, including context, annotations, actions, and samples. */

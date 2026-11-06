@@ -1,5 +1,5 @@
 import { count, log } from './debug.js'
-import { storedValue, storeValue } from './stored-values.js'
+import { onStoredValueChange, storedValue, storeValue } from './stored-values.js'
 import { patchTileRefresh } from './wplace-tile-refresh.js'
 
 /**
@@ -75,12 +75,7 @@ const disabledPatches = (): Set<WplacePatch> => {
 
 export const isWplacePatchEnabled = (patch: WplacePatch): boolean => !disabledPatches().has(patch)
 
-export const setWplacePatchEnabled = (patch: WplacePatch, enabled: boolean): void => {
-  const current = disabledPatches()
-  if (current.has(patch) === !enabled) return
-  if (enabled) current.delete(patch)
-  else current.add(patch)
-  writeDisabled(current)
+const announce = (patch: WplacePatch, enabled: boolean): void => {
   log('install', `Wplace patch ${patch} ${enabled ? 'on' : 'off'}`)
   for (const listener of listeners) {
     try {
@@ -90,6 +85,26 @@ export const setWplacePatchEnabled = (patch: WplacePatch, enabled: boolean): voi
     }
   }
 }
+
+export const setWplacePatchEnabled = (patch: WplacePatch, enabled: boolean): void => {
+  const current = disabledPatches()
+  if (current.has(patch) === !enabled) return
+  if (enabled) current.delete(patch)
+  else current.add(patch)
+  writeDisabled(current)
+  announce(patch, enabled)
+}
+
+// Switched in the extension's toolbar popup or another tab: each patch that changed applies or
+// undoes itself here, as if switched in this tab.
+onStoredValueChange((key) => {
+  if (key !== STORAGE_KEY) return
+  const before = disabledPatches()
+  disabled = readDisabled()
+  for (const patch of Object.keys(WPLACE_PATCHES) as WplacePatch[]) {
+    if (before.has(patch) !== disabled.has(patch)) announce(patch, !disabled.has(patch))
+  }
+})
 
 /** Notified when a patch is switched on or off, so it can apply or undo itself immediately. */
 export const onWplacePatchChange = (

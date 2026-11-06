@@ -1,6 +1,6 @@
 import { pageWindow } from './page-world.js'
 import { recordProfileCounter } from './profile.js'
-import { deleteStoredValue, storedValue, storeValue } from './stored-values.js'
+import { deleteStoredValue, onStoredValueChange, storedValue, storeValue } from './stored-values.js'
 /**
  * Debug instrumentation for the render path.
  *
@@ -49,7 +49,8 @@ const counters = new Map<string, number>()
 const lastNoisy = new Map<Category, string>()
 const started = Date.now()
 
-const readStoredSetting = (): boolean => {
+/** The stored Debug logging setting. */
+export const storedDebugLogging = (): boolean => {
   try {
     return storedValue(DEBUG_KEY) === '1'
   } catch {
@@ -57,12 +58,17 @@ const readStoredSetting = (): boolean => {
   }
 }
 
+// Switched in the extension's toolbar popup or another tab: applies here from the next event on.
+onStoredValueChange((key) => {
+  if (key === DEBUG_KEY) enabled = storedDebugLogging()
+})
+
 /**
  * Apply the stored Debug logging setting once stored values have loaded, and say how to change it.
  * `installDebugApi` reads it earlier too, which in the userscript catches the page hooks' own logs.
  */
 export const loadDebugSetting = (): void => {
-  enabled = readStoredSetting()
+  enabled = storedDebugLogging()
   try {
     console.info(
       enabled
@@ -224,7 +230,7 @@ export interface DebugApi {
 }
 
 export const installDebugApi = (extra: Record<string, unknown> = {}): void => {
-  enabled = readStoredSetting()
+  enabled = storedDebugLogging()
   const api: DebugApi & Record<string, unknown> = {
     debug(on: boolean) {
       setEnabled(on)
