@@ -1,6 +1,11 @@
 import { warn } from '../debug.js'
 import { MARK_HASH_LIMIT, type MarkList } from '../templates/mark-list.js'
-import { forEachVisibleBlock, type SourceRect, visibleSourceRect } from './marker-density.js'
+import {
+  forEachVisibleBlock,
+  forEachVisibleBlockRow,
+  type SourceRect,
+  visibleSourceRect,
+} from './marker-density.js'
 
 const VERTEX = `#version 300 es
 precision highp int;
@@ -119,14 +124,37 @@ export interface MarkerProjection {
 }
 
 /**
+ * The hash threshold for a sample rate, snapped to eighth-octave steps.
+ *
+ * The rate follows the visible count, which panning nudges every frame. Snapping holds the
+ * threshold, and with it each list's cached block ends, until the rate moves by about 9%.
+ */
+export const sampleThreshold = (rate: number): number =>
+  rate >= 1
+    ? MARK_HASH_LIMIT
+    : rate <= 0
+      ? 0
+      : Math.min(
+          MARK_HASH_LIMIT,
+          Math.floor(2 ** (Math.round(Math.log2(rate) * 8) / 8) * MARK_HASH_LIMIT),
+        )
+
+/**
  * The slot runs to submit for one list, as flat `[first, count]` pairs.
  *
- * Each on-screen block contributes the part of its run below the sample threshold, merged with the
- * next where they touch, and the unsorted tail is submitted whole for the shader to sample.
- * Off-screen blocks submit nothing, so what reaches the GPU follows the budgeted share of what is
- * visible, not the size of the list.
+ * Per block, each on-screen block contributes the part of its run below the sample threshold,
+ * merged with the next where they touch. Off-screen blocks submit nothing, so what reaches the GPU
+ * follows the budgeted share of what is visible, not the size of the list. That can be a run per
+ * block, so without multi-draw each row of on-screen blocks is one span instead, ending at its last
+ * block's kept marks, and the shader samples the rest. The unsorted tail is always submitted whole
+ * for the shader to sample.
  */
-export const markerRuns = (list: MarkList, visible: SourceRect, threshold: number): number[] => {
+export const markerRuns = (
+  list: MarkList,
+  visible: SourceRect,
+  threshold: number,
+  perBlock: boolean,
+): number[] => {
   const runs: number[] = []
   const push = (first: number, end: number): void => {
     if (end <= first) return
@@ -137,14 +165,15 @@ export const markerRuns = (list: MarkList, visible: SourceRect, threshold: numbe
   }
   const starts = list.blockStarts()
   const sampled = threshold < MARK_HASH_LIMIT
+  // Unsampled, a block's run ends where the next block's starts.
+  const ends = sampled ? list.sampledEnds(threshold) : starts.subarray(1)
   if (visible.whole && !sampled) push(0, list.sorted)
+  else if (perBlock)
+    forEachVisibleBlock(visible, (block) => push(starts[block] as number, ends[block] as number))
   else
-    forEachVisibleBlock(visible, (block) => {
-      push(
-        starts[block] as number,
-        sampled ? list.sampledEnd(block, threshold) : (starts[block + 1] as number),
-      )
-    })
+    forEachVisibleBlockRow(visible, (first, last) =>
+      push(starts[first] as number, ends[last] as number),
+    )
   push(list.sorted, list.length)
   return runs
 }
@@ -185,6 +214,9 @@ export class MarkerRenderer {
   private readonly uniforms = new Map<string, WebGLUniformLocation | null>()
   /** One call for a list's many block runs, where the device offers it. */
   private readonly multiDraw: WEBGL_multi_draw | null
+  /** Reused per list draw, so a frame allocates no run arrays. */
+  private readonly firsts: number[] = []
+  private readonly counts: number[] = []
 
   constructor(readonly gl: WebGL2RenderingContext) {
     this.multiDraw = gl.getExtension('WEBGL_multi_draw')
@@ -319,8 +351,7 @@ export class MarkerRenderer {
       projection.pixelHeight,
     )
     if (visible === null) return 0
-    const threshold =
-      sampleRate >= 1 ? MARK_HASH_LIMIT : Math.floor(Math.max(0, sampleRate) * MARK_HASH_LIMIT)
+    const threshold = sampleThreshold(sampleRate)
     gl.useProgram(this.program)
     gl.bindVertexArray(this.vao)
     gl.uniform2f(this.uniform('u_tileScreen'), projection.x, projection.y)
@@ -335,7 +366,7 @@ export class MarkerRenderer {
     let submitted = 0
     for (const list of lists) {
       if (list.length === 0) continue
-      const runs = markerRuns(list, visible, threshold)
+      const runs = markerRuns(list, visible, threshold, this.multiDraw !== null)
       if (runs.length === 0 || !this.bind(list)) continue
       gl.uniform1ui(this.uniform('u_seed'), list.seed)
       gl.vertexAttribIPointer(
@@ -346,18 +377,18 @@ export class MarkerRenderer {
         0,
       )
       const count = runs.length / 2
-      const firsts = new Int32Array(count)
-      const counts = new Int32Array(count)
-      for (let run = 0; run < count; run++) {
-        firsts[run] = runs[run * 2] as number
-        counts[run] = runs[run * 2 + 1] as number
-        submitted += counts[run] as number
+      this.firsts.length = 0
+      this.counts.length = 0
+      for (let run = 0; run < runs.length; run += 2) {
+        this.firsts.push(runs[run] as number)
+        this.counts.push(runs[run + 1] as number)
+        submitted += runs[run + 1] as number
       }
       if (this.multiDraw !== null)
-        this.multiDraw.multiDrawArraysWEBGL(gl.POINTS, firsts, 0, counts, 0, count)
+        this.multiDraw.multiDrawArraysWEBGL(gl.POINTS, this.firsts, 0, this.counts, 0, count)
       else
         for (let run = 0; run < count; run++)
-          gl.drawArrays(gl.POINTS, firsts[run] as number, counts[run] as number)
+          gl.drawArrays(gl.POINTS, this.firsts[run] as number, this.counts[run] as number)
     }
     gl.bindVertexArray(null)
     return submitted

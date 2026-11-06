@@ -119,6 +119,7 @@ export class MarkList {
   private readonly tail = new Map<number, number>()
   /** Where each block's run starts in the current `slots`, with the run's end last. */
   private starts: Uint32Array | null = null
+  private ends: { readonly threshold: number; readonly at: Uint32Array } | null = null
 
   private constructor(
     slots: Uint32Array,
@@ -205,14 +206,24 @@ export class MarkList {
     return starts
   }
 
-  /** End of the slots a sample with hash `threshold` keeps from one block's run. */
-  sampledEnd(block: number, threshold: number): number {
+  /**
+   * Where each block's kept marks end, for a sample with hash `threshold`.
+   *
+   * Kept for the last threshold asked about, until compaction. Patches never move a slot, so the
+   * ends stay true while painting, and a renderer drawing at a steady rate searches nothing.
+   */
+  sampledEnds(threshold: number): Uint32Array {
+    if (this.ends?.threshold === threshold) return this.ends.at
     const starts = this.blockStarts()
-    return this.lowerBound(
-      block * MARK_HASH_LIMIT + threshold,
-      starts[block] as number,
-      starts[block + 1] as number,
-    )
+    const at = new Uint32Array(MARK_BLOCKS)
+    for (let block = 0; block < MARK_BLOCKS; block++)
+      at[block] = this.lowerBound(
+        block * MARK_HASH_LIMIT + threshold,
+        starts[block] as number,
+        starts[block + 1] as number,
+      )
+    this.ends = { threshold, at }
+    return at
   }
 
   /**
@@ -262,6 +273,7 @@ export class MarkList {
     this.live = live.length
     this.tail.clear()
     this.starts = null
+    this.ends = null
     this.revision++
     this.log = []
     this.logStart = this.revision

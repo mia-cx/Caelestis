@@ -78,12 +78,21 @@ export const visibleSourceRect = (
 }
 
 /** Visit every mark-list block that overlaps a source rectangle, row by row. */
-export const forEachVisibleBlock = (rect: SourceRect, visit: (block: number) => void): void => {
-  const lastX = Math.ceil(rect.endX / MARK_BLOCK_SIZE)
+export const forEachVisibleBlock = (rect: SourceRect, visit: (block: number) => void): void =>
+  forEachVisibleBlockRow(rect, (first, last) => {
+    for (let block = first; block <= last; block++) visit(block)
+  })
+
+/** Visit each row of blocks that overlaps a source rectangle, as its first and last block. */
+export const forEachVisibleBlockRow = (
+  rect: SourceRect,
+  visit: (first: number, last: number) => void,
+): void => {
+  const firstX = Math.floor(rect.startX / MARK_BLOCK_SIZE)
+  const lastX = Math.ceil(rect.endX / MARK_BLOCK_SIZE) - 1
   const lastY = Math.ceil(rect.endY / MARK_BLOCK_SIZE)
   for (let y = Math.floor(rect.startY / MARK_BLOCK_SIZE); y < lastY; y++)
-    for (let x = Math.floor(rect.startX / MARK_BLOCK_SIZE); x < lastX; x++)
-      visit(y * MARK_BLOCKS_PER_ROW + x)
+    visit(y * MARK_BLOCKS_PER_ROW + firstX, y * MARK_BLOCKS_PER_ROW + lastX)
 }
 
 /**

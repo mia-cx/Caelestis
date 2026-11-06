@@ -1,4 +1,4 @@
-import { deviceScale, MarkerRenderer } from '../src/gl/marker-renderer.js'
+import { deviceScale, MarkerRenderer, sampleThreshold } from '../src/gl/marker-renderer.js'
 import { MarkList, markHash, markSeed } from '../src/templates/mark-list.js'
 import { packMismatchMark } from '../src/templates/mismatch-marks.js'
 
@@ -108,7 +108,7 @@ export const runMarkerPatchingContracts = (): void => {
       coordinates
         .filter(
           (coordinate) =>
-            coordinate !== without && markHash(coordinate, seed) < Math.floor(rate * 2 ** 22),
+            coordinate !== without && markHash(coordinate, seed) < sampleThreshold(rate),
         )
         .map((coordinate) => `${coordinate & 0x3ff},${coordinate >>> 10}`)
         .sort((left, right) => cellOrder(left) - cellOrder(right))

@@ -72,16 +72,38 @@ const STYLE = {
   selected: -1,
 }
 
-/** A WebGL2 context that keeps what the marker renderer uploads, so the GPU copy can be read back. */
-const recordingGl = () => {
+/**
+ * A WebGL2 context that keeps what the marker renderer uploads, so the GPU copy can be read back.
+ *
+ * Offers `WEBGL_multi_draw` as Chromium and Safari do, or not, as Firefox does not. Each run of a
+ * multi-draw is recorded as its own draw; `calls` counts the calls the renderer made.
+ */
+const recordingGl = ({ multiDraw = true } = {}) => {
   const stored = new Map<object, Uint32Array>()
   const drawn: { readonly marks: Uint32Array; readonly first: number; readonly count: number }[] =
     []
   let bound: object | null = null
-  const uploads = { whole: 0 }
+  const uploads = { whole: 0, calls: 0 }
+  const record = (first: number, count: number) =>
+    drawn.push({ marks: stored.get(bound as object) as Uint32Array, first, count })
   const calls: Record<string, unknown> = {
-    // No multi-draw extension: each block run is its own draw, which this fake records.
-    getExtension: () => null,
+    getExtension: () =>
+      multiDraw
+        ? {
+            multiDrawArraysWEBGL: (
+              _mode: number,
+              firsts: readonly number[],
+              _firstsOffset: number,
+              counts: readonly number[],
+              _countsOffset: number,
+              drawCount: number,
+            ) => {
+              uploads.calls++
+              for (let run = 0; run < drawCount; run++)
+                record(firsts[run] as number, counts[run] as number)
+            },
+          }
+        : null,
     createBuffer: () => ({}),
     bindBuffer: (_target: number, buffer: object | null) => {
       bound = buffer
@@ -100,7 +122,8 @@ const recordingGl = () => {
       stored.get(bound as object)?.set(data.subarray(first, first + count), offset / 4)
     },
     drawArrays: (_mode: number, first: number, count: number) => {
-      drawn.push({ marks: stored.get(bound as object) as Uint32Array, first, count })
+      uploads.calls++
+      record(first, count)
     },
     getShaderParameter: () => true,
     getProgramParameter: () => true,
@@ -377,16 +400,27 @@ describe('the marker budget', () => {
     list: MarkList,
     projection: typeof WHOLE_TILE,
     sampleRate: number,
-  ): Promise<{ readonly submitted: number; readonly drawn: number[] }> => {
-    const { MarkerRenderer } = await import('../src/gl/marker-renderer.js')
+    multiDraw = true,
+  ): Promise<{ readonly submitted: number; readonly drawn: number[]; readonly calls: number }> => {
+    const { MarkerRenderer, sampleThreshold } = await import('../src/gl/marker-renderer.js')
     const { markHash } = await import('../src/templates/mark-list.js')
-    const { gl, onScreen } = recordingGl()
+    const { gl, onScreen, uploads } = recordingGl({ multiDraw })
     const submitted = new MarkerRenderer(gl).draw(projection, [list], STYLE, 1, sampleRate)
     // What the shader keeps of what was submitted: its hash test, as `markHash` mirrors it.
-    const threshold = Math.floor(Math.min(1, sampleRate) * 2 ** 22)
+    const threshold = sampleThreshold(sampleRate)
     const drawn = onScreen().filter((mark) => markHash(mark & 0xf_ffff, list.seed) < threshold)
-    return { submitted, drawn }
+    return { submitted, drawn, calls: uploads.calls }
   }
+
+  it('draws a dense tile in a call per row of blocks where there is no multi-draw', async () => {
+    const list = await denseTile()
+    const rate = BUDGET / list.live
+    const blocks = await submit(list, WHOLE_TILE, rate)
+    const rows = await submit(list, WHOLE_TILE, rate, false)
+    expect(rows.drawn).toEqual(blocks.drawn)
+    // A thousand-pixel tile is 32 rows of blocks.
+    expect(rows.calls).toBeLessThanOrEqual(32)
+  })
 
   it('submits about the budget of a dense tile on screen, not every mark', async () => {
     const list = await denseTile()
