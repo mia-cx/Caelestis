@@ -163,6 +163,10 @@ const ensureOverlay = (): Overlay => {
   }
   dim.addEventListener('pointerdown', (event) => begin(event, 'draw'))
   dim.style.cursor = CURSORS.draw
+  // A touch on any of these is a handle gesture, never a pan or pinch the browser may take over.
+  // The root takes no pointer itself, so this reaches only touches that land on a handle part.
+  for (const target of [element, dim, area, ...[...knobs.values()].map(({ hit }) => hit)])
+    target.style.touchAction = 'none'
   area.addEventListener('pointerdown', (event) => begin(event, 'move'))
   area.style.cursor = CURSORS.move
   const label = document.createElement('div')
@@ -344,8 +348,22 @@ const begin = (event: PointerEvent, grip: Grip): void => {
     pointer: { x: event.clientX, y: event.clientY },
     scale,
     view: frame,
-    start: canvasPointAt(frame, event.clientX, event.clientY, scale),
+    start:
+      grip === 'move' || grip === 'draw'
+        ? canvasPointAt(frame, event.clientX, event.clientY, scale)
+        : handleAt(frame, grip),
   }
+}
+
+/**
+ * Where `handle` sits on the canvas. A drag starts from here rather than from the pointer, so
+ * grabbing anywhere in its hit target moves the edge by the pointer's travel, never jumping to it.
+ */
+const handleAt = (frame: StudioFrameView, handle: Handle): Point => {
+  const box =
+    frame.cropping === null ? { ...frame.origin, ...frame.output } : cropBox(frame, frame.cropping)
+  const [pullX, pullY] = PULL[handle]
+  return { x: box.x + (box.width * (pullX + 1)) / 2, y: box.y + (box.height * (pullY + 1)) / 2 }
 }
 
 /** The canvas point under a client point, from the draft's own projection. */
