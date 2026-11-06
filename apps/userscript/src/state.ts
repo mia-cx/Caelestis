@@ -32,6 +32,7 @@ import {
   parseTreeNode,
   parseTreeNodes,
   type ServerInfo,
+  type ServerManifest,
   type TreeNode,
 } from './server-manifest.js'
 import { coalesceServerRead } from './server-read-coalescer.js'
@@ -929,6 +930,7 @@ export const removeServer = (url: string): void => {
   // Request ids are process-wide and monotonic, so an old response can never tie a request made
   // after this URL reconnects. Only the answer belonging to the ended connection is forgotten.
   latestManifestResponse.delete(url)
+  probedManifests.delete(url)
   const current = getState().servers.find((server) => server.url === url)
   if (current !== undefined) retireServerConnection(current)
   setState({
@@ -1022,6 +1024,15 @@ const probeAdminScope = async (
 
 const probedNodes = new WeakMap<ConnectedServer, readonly TreeNode[]>()
 const activeServerProbes = new Map<string, AbortController>()
+
+/**
+ * The manifest each probe downloaded to verify its credential, by server URL, until the connection
+ * it produced adopts it. See {@link adoptProbedServerContents}.
+ */
+const probedManifests = new Map<
+  string,
+  { readonly server: ConnectedServer; readonly manifest: ServerManifest; readonly request: number }
+>()
 
 export const cancelServerProbe = (serverUrl: string): void => {
   activeServerProbes.get(serverUrl)?.abort(new Error('server probe cancelled'))
@@ -1133,7 +1144,11 @@ export const probeServer = async (
         signal: probeController.signal,
       })
     let effectiveToken = token
-    let { response: authed, body: manifestBody } = await fetchManifest(effectiveToken)
+    let {
+      response: authed,
+      body: manifestBody,
+      sequence: manifestRequest,
+    } = await fetchManifest(effectiveToken)
     if (
       info.auth === 'none' &&
       effectiveToken !== null &&
@@ -1144,6 +1159,7 @@ export const probeServer = async (
       const anonymous = await fetchManifest(null)
       authed = anonymous.response
       manifestBody = anonymous.body
+      manifestRequest = anonymous.sequence
     }
     if (authed.status === 401 || authed.status === 403) {
       log('install', `${base} rejected the code`, { status: authed.status })
@@ -1188,6 +1204,7 @@ export const probeServer = async (
       lastVerified: { serverId: info.id, season: manifest.season },
     }
     probedNodes.set(connected, manifest.nodes)
+    probedManifests.set(base, { server: connected, manifest, request: manifestRequest })
     return connected
   } catch (error) {
     // A bad hostname, a refused connection, or a server without CORS all land here, and the
@@ -1796,30 +1813,7 @@ export const listServerContents = async (
         if (!response.ok) return null
         const manifest = parseServerManifest(body, info)
         if (manifest === null || manifest.season !== season) return null
-        const contents: ServerContents = {
-          revision: manifest.version,
-          ...(manifest.workRevision === undefined ? {} : { workRevision: manifest.workRevision }),
-          nodes: manifest.nodes,
-          templates: manifest.templates,
-        }
-        manifestResponseOf.set(contents, request)
-        const current = getState().servers.find((candidate) => candidate.url === server.url)
-        if (
-          current !== undefined &&
-          isCurrentServerConnection(server) &&
-          request > (latestManifestResponse.get(server.url) ?? 0)
-        ) {
-          latestManifestResponse.set(server.url, request)
-          const updated = refreshServerRelease(current, manifest.server)
-          for (const listener of serverContentsListeners) {
-            try {
-              listener(updated, contents)
-            } catch (error) {
-              warn('install', 'could not publish fresh manifest contents', String(error))
-            }
-          }
-        }
-        return contents
+        return publishManifestResponse(server, manifest, request)
       },
     )
     if (signal === undefined) return await read
@@ -1828,6 +1822,60 @@ export const listServerContents = async (
   } catch {
     return null
   }
+}
+
+/** Record one manifest response and, when it is this server's newest, hand it to every listener. */
+const publishManifestResponse = (
+  server: ConnectedServer,
+  manifest: ServerManifest,
+  request: number,
+): ServerContents => {
+  const contents: ServerContents = {
+    revision: manifest.version,
+    ...(manifest.workRevision === undefined ? {} : { workRevision: manifest.workRevision }),
+    nodes: manifest.nodes,
+    templates: manifest.templates,
+  }
+  manifestResponseOf.set(contents, request)
+  const current = getState().servers.find((candidate) => candidate.url === server.url)
+  if (
+    current !== undefined &&
+    isCurrentServerConnection(server) &&
+    request > (latestManifestResponse.get(server.url) ?? 0)
+  ) {
+    latestManifestResponse.set(server.url, request)
+    const updated = refreshServerRelease(current, manifest.server)
+    for (const listener of serverContentsListeners) {
+      try {
+        listener(updated, contents)
+      } catch (error) {
+        warn('install', 'could not publish fresh manifest contents', String(error))
+      }
+    }
+  }
+  return contents
+}
+
+/**
+ * Start a connection from the manifest its probe downloaded to verify the credential.
+ *
+ * Connecting reads `/manifest` to prove the code works, and the first sync wanted the same manifest
+ * moments later. Adopting the probe's copy makes it that first read, so a page load downloads each
+ * manifest once. One use only, and never once a newer response has arrived: a later read must
+ * fetch, because a mutation may have changed the manifest since.
+ */
+export const adoptProbedServerContents = (server: ConnectedServer): ServerContents | null => {
+  const probed = probedManifests.get(server.url)
+  probedManifests.delete(server.url)
+  if (
+    probed === undefined ||
+    !isCurrentServerConnection(server) ||
+    !isCurrentServerConnection(probed.server) ||
+    probed.manifest.season !== server.season ||
+    probed.request <= (latestManifestResponse.get(server.url) ?? 0)
+  )
+    return null
+  return publishManifestResponse(server, probed.manifest, probed.request)
 }
 
 /** Publish one authenticated live manifest through the same listeners as the initial read. */

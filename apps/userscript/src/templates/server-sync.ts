@@ -16,10 +16,11 @@ import { count, warn } from '../debug.js'
 import type { ServerTemplate } from '../server-cache.js'
 import { invalidateServerMismatches } from '../server-mismatch.js'
 import { deleteCachedServerMismatches } from '../server-mismatch-cache.js'
-import { registerServerSyncResource } from '../server-sync-coordinator.js'
+import { applyServerSyncRevision, registerServerSyncResource } from '../server-sync-coordinator.js'
 import { serverEndpoint } from '../server-url.js'
 import {
   activeServerToken,
+  adoptProbedServerContents,
   applyLiveServerManifest,
   type ConnectedServer,
   getState,
@@ -798,7 +799,8 @@ export const installServerSync = (): void => {
    * watching an empty map for up to sixty seconds reads as broken.
    *
    * The coordinator owns the resulting refresh; this listener only retires obsolete download
-   * generations so unrelated settings changes remain local.
+   * generations and starts new connections from their probe's manifest, so unrelated settings
+   * changes remain local.
    */
   onStateChange(() => {
     const connected = getState().servers.filter((server) => server.status === 'connected')
@@ -814,8 +816,28 @@ export const installServerSync = (): void => {
         endServerGeneration(previous.url)
       }
     }
+    const added = connected.filter(
+      (server) =>
+        !lastConnected.some(
+          (previous) => previous.url === server.url && isCurrentServerConnection(previous),
+        ),
+    )
+    // Before adopting: publishing a manifest can change state again, which re-enters here.
     lastConnected = connected
+    for (const server of added) adoptProbedManifest(server)
   })
+}
+
+/**
+ * Start a new connection from the manifest its probe already downloaded.
+ *
+ * Its revision is applied before the live socket opens, so the socket's state vector names the
+ * version this client holds and the server does not send the same manifest again.
+ */
+const adoptProbedManifest = (server: ConnectedServer): void => {
+  const contents = adoptProbedServerContents(server)
+  if (contents?.revision === undefined || !isCurrentServerConnection(server)) return
+  applyServerSyncRevision(server, 'world', 'world-manifest', contents.revision)
 }
 
 /** Which servers were connected last time state changed, so an unrelated setting does not resync. */
