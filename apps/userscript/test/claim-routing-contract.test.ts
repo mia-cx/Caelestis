@@ -78,3 +78,39 @@ it('retains delivery intent across reload, ignores unchanged snapshot churn, and
     { method: 'DELETE', id, withdraw: false },
   ])
 })
+
+it('keeps an unchanged claim document across reloads of the shared journal', async () => {
+  const server: ConnectedServer = {
+    url: 'https://claims.test',
+    token: 'report',
+    status: 'connected',
+    season: 3,
+    isAdmin: false,
+    info: { id: 'claims', name: 'Claims', auth: 'access_token', presence: 1 },
+  }
+  let saved: ConstructorParameters<typeof ClaimRouter>[1] = []
+  const router = new ClaimRouter({
+    servers: () => [server],
+    actor: () => ({ wplaceUserId: 42, displayName: 'Painter' }),
+    templates: () => [],
+    claims: () => ({ ready: true, regions: [], revision: 0, ownedRegionIds: [] }),
+    persist: (entries) => {
+      saved = JSON.parse(JSON.stringify(entries))
+    },
+    retired: () => false,
+    retire: () => {},
+    put: async () => null,
+    remove: async () => null,
+  })
+  const ellipse = { kind: 'ellipse', x: 0, y: 0, w: 40, h: 40 } as const
+  await router.save(null, { items: [{ id: 'shape', op: 'add', shape: ellipse }] })
+  const document = router.mine()[0]?.document
+  router.restore(JSON.parse(JSON.stringify(saved)))
+  expect(router.mine()[0]?.document).toBe(document)
+  const edited = JSON.parse(JSON.stringify(saved))
+  edited[0].region.document.items[0].shape.w = 20
+  router.restore(edited)
+  expect(router.mine()[0]?.document).toEqual({
+    items: [{ id: 'shape', op: 'add', shape: { ...ellipse, w: 20 } }],
+  })
+})
