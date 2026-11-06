@@ -5,12 +5,12 @@ import { DEFAULT_MARKER_BUDGET } from '../marker-budget.js'
 export const MARKER_VIEWPORT_BUDGET = DEFAULT_MARKER_BUDGET
 
 /**
- * Fraction of source marker points the GPU should keep.
+ * Fraction of source marker points to draw.
  *
- * The vertex shader hashes each mark's pixel coordinate and rejects the points whose hash falls
- * past this share, so the same pixels stay drawn as other marks are patched. This is an approximate
- * budget by design: avoiding an exact CPU selection means changing the limit is O(1), creates no
- * typed arrays, and leaves reusable source buffers untouched.
+ * The renderer submits only that share of each list's vertices, read through a fixed shuffle of
+ * its slots, so the budget bounds the GPU's work. This is an approximate budget by design:
+ * avoiding an exact CPU selection means changing the limit is O(1), creates no typed arrays, and
+ * leaves the lists' GPU copies untouched.
  */
 export const markerSampleRate = (sourcePoints: number, budget = MARKER_VIEWPORT_BUDGET): number => {
   const source = Math.max(0, Math.floor(sourcePoints))

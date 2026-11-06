@@ -63,9 +63,9 @@ export const drawMarkers = (
   style: MarkerStyle,
   fade: number,
   sampleRate = 1,
-): void => {
-  if (worldMarkerRenderer?.gl !== gl) return
-  worldMarkerRenderer.draw(
+): number => {
+  if (worldMarkerRenderer?.gl !== gl) return 0
+  return worldMarkerRenderer.draw(
     {
       x: tile.x,
       y: tile.y,
@@ -380,7 +380,11 @@ const drawVisible = (
   const mismatchSampleRate = markerSampleRate(estimatedVisiblePoints(mismatchWork), renderBudget)
   const expectedSelectedPoints = Math.round(selectedSourcePoints * selectedSampleRate)
   const expectedMismatchPoints = Math.round(mismatchSourcePoints * mismatchSampleRate)
-  const reportWorkload = (drawBatches: number, drawnPoints: number): void => {
+  const reportWorkload = (
+    drawBatches: number,
+    drawnPoints: number,
+    submittedPoints: number,
+  ): void => {
     if (!profiling) return
     const sourcePoints = selectedSourcePoints + mismatchSourcePoints
     const expectedPoints = expectedSelectedPoints + expectedMismatchPoints
@@ -392,7 +396,7 @@ const drawVisible = (
     recordProfileWorkload('Marker source points', sourcePoints)
     recordProfileWorkload('Marker retained batches', selectedWork.length + mismatchWork.length)
     recordProfileWorkload('Marker retained points', expectedPoints)
-    recordProfileWorkload('Marker submitted points', sourcePoints)
+    recordProfileWorkload('Marker submitted points', submittedPoints)
     recordProfileWorkload('Marker draw batches', drawBatches)
     recordProfileWorkload('Marker drawn points', drawnPoints)
     if (moving) {
@@ -406,7 +410,7 @@ const drawVisible = (
   count('marker:mismatch tiles with marks', mismatchWork.length)
 
   if (selectedWork.length === 0 && mismatchWork.length === 0) {
-    reportWorkload(0, 0)
+    reportWorkload(0, 0, 0)
     if (deferred) retryDeferredScan(now)
     return
   }
@@ -422,13 +426,14 @@ const drawVisible = (
   const mismatchDraws = batchMarkerWork(mismatchWork)
   const drawBatches = selectedDraws.length + mismatchDraws.length
   const drawnPoints = profiling ? expectedSelectedPoints + expectedMismatchPoints : 0
-  reportWorkload(drawBatches, drawnPoints)
   count('marker:draw batches before batching', selectedWork.length + mismatchWork.length)
   count('marker:draw batches after batching', drawBatches)
+  let submittedPoints = 0
   for (const one of selectedDraws)
-    drawMarkers(gl, one.tile, one.marks, one.style, one.fade, selectedSampleRate)
+    submittedPoints += drawMarkers(gl, one.tile, one.marks, one.style, one.fade, selectedSampleRate)
   for (const one of mismatchDraws)
-    drawMarkers(gl, one.tile, one.marks, one.style, one.fade, mismatchSampleRate)
+    submittedPoints += drawMarkers(gl, one.tile, one.marks, one.style, one.fade, mismatchSampleRate)
+  reportWorkload(drawBatches, drawnPoints, submittedPoints)
 
   if (deferred) retryDeferredScan(now)
 }

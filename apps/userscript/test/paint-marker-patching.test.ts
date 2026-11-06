@@ -60,6 +60,9 @@ const OffscreenCanvasStub = class {
   }
 }
 
+/** Texels per row of the fake's textures: narrow, so uploads split across rows. */
+const TEXTURE_WIDTH = 16
+
 /** A WebGL2 context that keeps what the marker renderer uploads, so the GPU copy can be read back. */
 const recordingGl = () => {
   const stored = new Map<object, Uint32Array>()
@@ -67,22 +70,41 @@ const recordingGl = () => {
   let bound: object | null = null
   const uploads = { whole: 0 }
   const calls: Record<string, unknown> = {
-    createBuffer: () => ({}),
-    bindBuffer: (_target: number, buffer: object | null) => {
-      bound = buffer
+    getParameter: () => TEXTURE_WIDTH,
+    createTexture: () => ({}),
+    bindTexture: (_target: number, texture: object | null) => {
+      bound = texture
     },
-    bufferData: (_target: number, data: Uint32Array) => {
-      uploads.whole++
-      stored.set(bound as object, data.slice())
-    },
-    bufferSubData: (
+    // A list is only ever given new storage to be uploaded whole.
+    texStorage2D: (
       _target: number,
-      offset: number,
-      data: Uint32Array,
-      first: number,
-      count: number,
+      _levels: number,
+      _format: number,
+      width: number,
+      height: number,
     ) => {
-      stored.get(bound as object)?.set(data.subarray(first, first + count), offset / 4)
+      uploads.whole++
+      stored.set(bound as object, new Uint32Array(width * height))
+    },
+    texSubImage2D: (
+      ...[, , x, y, width, height, , , data, first]: [
+        number,
+        number,
+        number,
+        number,
+        number,
+        number,
+        number,
+        number,
+        Uint32Array,
+        number,
+      ]
+    ) => {
+      const texels = stored.get(bound as object) as Uint32Array
+      for (let row = 0; row < height; row++) {
+        const from = first + row * width
+        texels.set(data.subarray(from, from + width), (y + row) * TEXTURE_WIDTH + x)
+      }
     },
     drawArrays: (_mode: number, _first: number, count: number) => {
       drawn.push({ marks: stored.get(bound as object) as Uint32Array, count })
@@ -379,4 +401,33 @@ it('keeps patching the GPU copy of a list drawn every frame, however long the pa
   }
   expect(uploads.whole).toBe(1)
   expect(onScreen()).toEqual([...list.values()])
+})
+
+it('submits only the marker budget of a dense list, not every mark', async () => {
+  const { MarkerRenderer } = await import('../src/gl/marker-renderer.js')
+  const { MarkList } = await import('../src/templates/mark-list.js')
+  const { gl, drawn } = recordingGl()
+  const renderer = new MarkerRenderer(gl)
+  const dense = MarkList.of(Uint32Array.from({ length: 200_000 }, (_, at) => at))
+  const budget = 16_384
+  const submitted = renderer.draw(
+    {
+      x: 0,
+      y: 0,
+      width: 2_000,
+      height: 2_000,
+      pixelWidth: SIZE,
+      pixelHeight: SIZE,
+      seedX: 0,
+      seedY: 0,
+    },
+    [dense],
+    { size: 4, thickness: 2, colour: [1, 0, 1], otherColour: null, otherOpacity: 1, selected: -1 },
+    1,
+    budget / dense.length,
+  )
+  expect(drawn.map(({ count }) => count)).toEqual([submitted])
+  // The shuffle covers the list's capacity, which leaves room for an eighth more marks.
+  expect(submitted).toBeGreaterThanOrEqual(budget)
+  expect(submitted).toBeLessThanOrEqual(Math.ceil((budget * 9) / 8))
 })
