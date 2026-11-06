@@ -1,15 +1,18 @@
+import { zstdCompressSync } from 'node:zlib'
 import {
   type ArchiveSnapshot,
   decodeWplaceIndexedPng,
   encodeIndexedPng,
   millis,
+  TILE_SIZE,
   type TileCoord,
+  TRANSPARENT_INDEX,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { describe, expect, it } from 'vitest'
 import { MemoryBlobStore } from '../src/adapters/memory/memory-blob-store.js'
 import { MemorySqlStore } from '../src/adapters/memory/memory-sql-store.js'
-import { parseSnapshots } from '../src/backfill/eralyon.js'
+import { EralyonArchive, parseSnapshots } from '../src/backfill/eralyon.js'
 import {
   type ArchiveSource,
   type BackfillStorage,
@@ -20,6 +23,29 @@ const templateId = '01890f3e-7b2c-7abc-8def-012345678901'
 const versionId = '01890f3e-7b2c-7abc-8def-012345678902'
 const chunkHash = 'a'.repeat(64)
 const snapshot = { id: 1, at: 100 } satisfies ArchiveSnapshot
+
+/** An Eralyon week file: dated zstd images, the first a base and the rest sparse diffs. */
+const archiveWeek = (revisions: readonly (readonly [date: number, image: Uint8Array])[]) => {
+  const parts = revisions.flatMap(([date, pixels]) => {
+    const image = new Uint8Array(8 + TILE_SIZE * TILE_SIZE)
+    const view = new DataView(image.buffer)
+    view.setUint32(0, TILE_SIZE, true)
+    view.setUint32(4, TILE_SIZE, true)
+    image.set(pixels, 8)
+    const compressed = new Uint8Array(zstdCompressSync(image))
+    const header = new Uint8Array(8)
+    new DataView(header.buffer).setUint32(0, date, true)
+    new DataView(header.buffer).setUint32(4, compressed.length, true)
+    return [header, compressed]
+  })
+  const bytes = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0))
+  let offset = 0
+  for (const part of parts) {
+    bytes.set(part, offset)
+    offset += part.length
+  }
+  return bytes
+}
 
 class MemoryBackfillStorage implements BackfillStorage {
   readonly alarms: number[] = []
@@ -162,6 +188,63 @@ describe('template backfill contract', () => {
       }),
     )
     expect(colours.sort()).toEqual([1, 2])
+  })
+
+  it('decodes each snapshot of a week from one download, forward and back', async () => {
+    const UNCHANGED = 254
+    const base = new Uint8Array(TILE_SIZE * TILE_SIZE).fill(1)
+    const diff = (index: number, colour: number) => {
+      const pixels = new Uint8Array(TILE_SIZE * TILE_SIZE).fill(UNCHANGED)
+      pixels[index] = colour
+      return pixels
+    }
+    const week = archiveWeek([
+      [170, base],
+      [172, diff(0, 5)],
+      [175, diff(1, 0)],
+    ])
+    let downloads = 0
+    const archive = new EralyonArchive(
+      Object.assign(
+        async () => {
+          downloads++
+          return new Response(week)
+        },
+        { preconnect: fetch.preconnect },
+      ),
+    )
+    const tile = { x: 3, y: 4 }
+    const read = async (id: number) => {
+      const pixels = await archive.tile(id, tile)
+      return pixels === null ? null : [pixels[0], pixels[1], pixels[2]]
+    }
+    // Archive colours are one above palette indices; zero is transparent.
+    expect(await read(169)).toBeNull()
+    expect(await read(170)).toEqual([0, 0, 0])
+    expect(await read(173)).toEqual([4, 0, 0])
+    expect(await read(175)).toEqual([4, TRANSPARENT_INDEX, 0])
+    expect(await read(171)).toEqual([0, 0, 0])
+    expect(await read(175)).toEqual([4, TRANSPARENT_INDEX, 0])
+    expect(downloads).toBe(1)
+  })
+
+  it('finishes a job persisted with its plan inline, as before plans had their own key', async () => {
+    const archive: ArchiveSource = {
+      snapshots: async () => [snapshot, { id: 2, at: 150 }],
+      tile: async (id) => new Uint8Array(1_000_000).fill(id),
+    }
+    const { importer, storage, sql, blobs } = await createImporter(archive)
+    const job = await importer.start(templateId, versionId, snapshot.id)
+    const plan = await storage.get<{ snapshots: unknown; tiles: unknown }>('plan')
+    const progress = await storage.get<Record<string, unknown>>('job')
+    await storage.delete(['plan'])
+    await storage.put('job', { ...progress, snapshots: plan?.snapshots, tiles: plan?.tiles })
+
+    const resumed = new TemplateBackfill(storage, sql, blobs, archive, () => 200_000)
+    for (let step = 0; step < job.total; step++) await resumed.step()
+    expect(await resumed.job()).toMatchObject({ status: 'completed', imported: job.total })
+    expect((await resumed.history(versionId)).samples).toHaveLength(2)
+    expect(await storage.get('job')).not.toHaveProperty('snapshots')
   })
 
   it('records an unavailable archive tile as incomplete instead of inventing progress', async () => {

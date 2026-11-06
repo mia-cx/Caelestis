@@ -106,8 +106,11 @@ const inflateImage = (bytes: Uint8Array): Uint8Array => {
   return image.subarray(8)
 }
 
-/** Decode wimage's dated base/diff blocks at original zoom 11; absent history stays unknown. */
-export const decodeArchiveTile = (bytes: Uint8Array, snapshotId: number): Uint8Array | null => {
+/** One week of a tile's dated base/diff blocks, in date order. */
+type WeekBlocks = readonly (readonly [date: number, compressed: Uint8Array])[]
+
+/** Split wimage's dated blocks at original zoom 11, validating the framing of every block. */
+const parseWeek = (bytes: Uint8Array): WeekBlocks => {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   const blocks = new Map<number, Uint8Array>()
   let offset = 0
@@ -122,26 +125,45 @@ export const decodeArchiveTile = (bytes: Uint8Array, snapshotId: number): Uint8A
     offset += length
     if (blocks.size > 256) throw new Error('Archive week contains too many tile revisions.')
   }
-  let result: Uint8Array | null = null
-  for (const [date, compressed] of [...blocks].sort(([a], [b]) => a - b)) {
-    if (date > snapshotId) break
-    const pixels = inflateImage(compressed)
-    const base = result === null
-    result ??= new Uint8Array(TILE_SIZE * TILE_SIZE)
-    for (let i = 0; i < pixels.length; i++) {
-      const colour = pixels[i] ?? 0
-      if (colour === DIFF_UNCHANGED && !base) continue
-      if (colour > 63)
-        throw new Error('Archive contains unknown colours or an incomplete base image.')
-      result[i] = colour === 0 ? TRANSPARENT_INDEX : colour - 1
-    }
-  }
-  return result
+  return [...blocks].sort(([a], [b]) => a - b)
 }
 
-/** One bounded upstream client; keep the last week of a few tiles warm across alarm batches. */
+/** Apply one block over the pixels so far; the first block must be a complete base image. */
+const applyBlock = (result: Uint8Array | null, compressed: Uint8Array): Uint8Array => {
+  const pixels = inflateImage(compressed)
+  const base = result === null
+  const next = result ?? new Uint8Array(TILE_SIZE * TILE_SIZE)
+  for (let i = 0; i < pixels.length; i++) {
+    const colour = pixels[i] ?? 0
+    if (colour === DIFF_UNCHANGED && !base) continue
+    if (colour > 63)
+      throw new Error('Archive contains unknown colours or an incomplete base image.')
+    next[i] = colour === 0 ? TRANSPARENT_INDEX : colour - 1
+  }
+  return next
+}
+
+/** A tile's week, decoded through its first `applied` blocks. Absent history has no blocks. */
+interface TileWeek {
+  readonly week: number
+  readonly blocks: WeekBlocks
+  readonly bytes: number
+  applied: number
+  pixels: Uint8Array | null
+}
+
+/**
+ * Decoded weeks kept across alarm steps. An import visits every tile of one snapshot before the
+ * next, so each tile's week stays warm and every later snapshot applies only its own diffs. Tiles
+ * beyond the budget decode from their base each time, as every tile did before.
+ */
+const WEEK_CACHE_BYTES = 48 * 1024 * 1024
+const HOURS_PER_WEEK = 168
+
+/** One bounded upstream client; keeps decoded weeks warm across alarm batches. */
 export class EralyonArchive {
-  private readonly cache = new Map<string, Uint8Array | null>()
+  private readonly weeks = new Map<string, TileWeek>()
+  private cachedBytes = 0
   constructor(private readonly fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis)) {}
 
   async snapshots(): Promise<readonly ArchiveSnapshot[]> {
@@ -151,19 +173,64 @@ export class EralyonArchive {
     return parseSnapshots(new TextDecoder().decode(await readBytes(response)))
   }
 
-  async tile(snapshotId: number, tile: TileCoord): Promise<Uint8Array | null> {
-    const key = `${Math.floor(snapshotId / 168)}/11/${tile.x}/${tile.y}`
-    let bytes = this.cache.get(key)
-    if (bytes === undefined) {
-      const response = await this.fetchImpl(`${ORIGIN}/tiles/${key}.zst`, {
-        signal: AbortSignal.timeout(15_000),
-      })
-      if (response.status !== 404 && !response.ok)
-        throw new Error(`Eralyon tile returned HTTP ${response.status}.`)
-      bytes = response.status === 404 ? null : await readBytes(response)
-      if (this.cache.size >= 2) this.cache.clear()
-      this.cache.set(key, bytes)
+  private async fetchWeek(week: number, tile: TileCoord): Promise<TileWeek> {
+    const response = await this.fetchImpl(`${ORIGIN}/tiles/${week}/11/${tile.x}/${tile.y}.zst`, {
+      signal: AbortSignal.timeout(15_000),
+    })
+    if (response.status !== 404 && !response.ok)
+      throw new Error(`Eralyon tile returned HTTP ${response.status}.`)
+    const bytes = response.status === 404 ? new Uint8Array() : await readBytes(response)
+    return {
+      week,
+      blocks: parseWeek(bytes),
+      bytes: bytes.length + TILE_SIZE * TILE_SIZE,
+      applied: 0,
+      pixels: null,
     }
-    return bytes === null || bytes.length === 0 ? null : decodeArchiveTile(bytes, snapshotId)
+  }
+
+  /** Keep a week if it fits, after dropping weeks the import has moved past. */
+  private remember(key: string, held: TileWeek): void {
+    if (this.cachedBytes + held.bytes > WEEK_CACHE_BYTES)
+      for (const [other, week] of this.weeks)
+        if (week.week !== held.week) {
+          this.weeks.delete(other)
+          this.cachedBytes -= week.bytes
+        }
+    if (this.cachedBytes + held.bytes > WEEK_CACHE_BYTES) return
+    this.weeks.set(key, held)
+    this.cachedBytes += held.bytes
+  }
+
+  async tile(snapshotId: number, tile: TileCoord): Promise<Uint8Array | null> {
+    const week = Math.floor(snapshotId / HOURS_PER_WEEK)
+    const key = `${week}/${tile.x}/${tile.y}`
+    let held = this.weeks.get(key)
+    if (held === undefined) {
+      held = await this.fetchWeek(week, tile)
+      this.remember(key, held)
+    }
+    // Diffs only move forward; an earlier snapshot starts again from the base image.
+    const appliedDate = held.blocks[held.applied - 1]?.[0]
+    if (appliedDate !== undefined && appliedDate > snapshotId) {
+      held.applied = 0
+      held.pixels = null
+    }
+    try {
+      for (let next = held.blocks[held.applied]; next !== undefined && next[0] <= snapshotId; ) {
+        held.pixels = applyBlock(held.pixels, next[1])
+        held.applied++
+        next = held.blocks[held.applied]
+      }
+    } catch (error) {
+      // A partly applied diff leaves the pixels unusable; the next read decodes from the base.
+      if (this.weeks.get(key) === held) {
+        this.weeks.delete(key)
+        this.cachedBytes -= held.bytes
+      }
+      throw error
+    }
+    // A copy, so applying the next snapshot's diffs cannot change pixels a caller still holds.
+    return held.pixels?.slice() ?? null
   }
 }
