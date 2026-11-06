@@ -9,6 +9,8 @@ import {
   nativeImage,
   nativeLocalId,
   nativeMetadata,
+  nativePlacement,
+  sameRender,
 } from './native-store.js'
 import type { SaveResult, StoredTemplate, TemplateSave } from './persist.js'
 import * as disk from './persist.js'
@@ -59,10 +61,21 @@ const cacheResult = (result: SaveResult): number => {
   throw new Error(`Could not retain the Wplace template cache (${result.status})`)
 }
 
+/** Wplace's rendering of a snapshot: tens of seconds and a main-thread palette pass at 36 MP. */
+const renderPixels = async (api: NativeTemplates, snapshot: NativeSnapshot) => {
+  const { indices, ...rendered } = await api.pixels(snapshot)
+  return { ...rendered, pixels: cutPixels(rendered.width, rendered.height, indices) }
+}
+
+/**
+ * Derive the local record from a native snapshot. `rendersPrevious` says the snapshot's artwork is
+ * `previous.pixels` exactly, because this tab just wrote it from them.
+ */
 const project = async (
   api: NativeTemplates,
   incoming: NativeSnapshot,
   previous: StoredTemplate | null,
+  rendersPrevious = false,
 ): Promise<StoredTemplate> => {
   let snapshot = incoming
   if (previous !== null && (await synchronizeLocalTemplateTags(previous.id, api))) {
@@ -71,8 +84,27 @@ const project = async (
     snapshot = current
   }
   if (previous?.native?.token === snapshot.token) return previous
-  const { indices, ...rendered } = await api.pixels(snapshot)
-  const pixels = { ...rendered, pixels: cutPixels(rendered.width, rendered.height, indices) }
+  const placement = nativePlacement(snapshot.template)
+  const reusable =
+    previous !== null &&
+    previous.width === placement.width &&
+    previous.height === placement.height &&
+    // Tag reconciliation may have swapped in a newer snapshot; the written artwork counts only if
+    // that snapshot still renders the same.
+    ((rendersPrevious && sameRender(incoming.token, snapshot.token)) ||
+      (previous.native?.token !== undefined && sameRender(previous.native.token, snapshot.token)))
+  const pixels = reusable
+    ? {
+        ...placement,
+        id: previous.id,
+        name: snapshot.template.name,
+        source: previous.source,
+        sortOrder: snapshot.template.order,
+        pixels: previous.pixels,
+        opaque: previous.opaque,
+        moved: previous.moved,
+      }
+    : await renderPixels(api, snapshot)
   const nativeOpacityChanged =
     previous === null ||
     (previous.native?.status === 'linked' && previous.native.opacity !== snapshot.template.opacity)
@@ -102,7 +134,8 @@ const project = async (
       opacityOverride: nativeOpacityChanged || previous?.native?.opacityOverride === true,
     },
   }
-  const artworkChanged = previous !== null && !samePixels(previous.pixels, template.pixels)
+  const artworkChanged =
+    previous !== null && !reusable && !samePixels(previous.pixels, template.pixels)
   // Pixels edited in Wplace's editor no longer come from the imported source and recipe.
   const { authoring: _stale, ...processedOnly } = template
   const projected = artworkChanged ? processedOnly : template
@@ -148,7 +181,8 @@ const migrate = async (api: NativeTemplates, template: StoredTemplate): Promise<
       null,
       await nativeImage({ ...pending, indices: joinPixels(pending.pixels) }),
     ))
-  return await project(api, snapshot, pending)
+  // A new native copy is these exact pixels with lossless colour settings: rendering it returns them.
+  return await project(api, snapshot, pending, existing === null)
 }
 
 const synchronizeOne = async (
