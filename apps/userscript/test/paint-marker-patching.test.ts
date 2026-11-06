@@ -172,6 +172,9 @@ const setup = async () => {
       undefined,
       true,
     )
+    // Unpainted pixels are shown too, so the markers are the merged list and are patched as one.
+    await store.setOwnsGroup(id, 'markers', true)
+    await store.setAppearance(id, { markUnpainted: true, unpaintedLimit: 1 })
     return id
   }
   const read = (id: string) => {
@@ -191,7 +194,6 @@ const setup = async () => {
   const lists = (answer: ReturnType<typeof read>) => ({
     mismatched: [...answer.tile.mismatched.values()],
     unpainted: [...answer.tile.unpainted.values()],
-    disagreements: [...answer.tile.disagreements.values()],
     markers: [...answer.tile.markers.values()],
     colours: answer.colours.map((list) => [...list.values()]),
     progress: answer.progress,
@@ -293,13 +295,14 @@ it('keeps patched marker lists identical to a full rescan through paint, erase a
     const answer = read(id)
     // Patching keeps the same lists; a rescan would have replaced them.
     expect(answer.tile.mismatched, step).toBe(patched.tile.mismatched)
+    expect(answer.tile.markers, step).toBe(patched.tile.markers)
     expect(lists(answer), step).toEqual(await rescan())
     drawn.length = 0
     renderer.beginFrame()
-    renderer.draw(projection, [answer.tile.disagreements, ...answer.colours], style, 1)
+    renderer.draw(projection, [answer.tile.markers, ...answer.colours], style, 1)
     renderer.endFrame()
     expect(onScreen(), step).toEqual(
-      [answer.tile.disagreements, ...answer.colours]
+      [answer.tile.markers, ...answer.colours]
         .flatMap((list) => [...list.values()])
         .sort((left, right) => (left & 0xf_ffff) - (right & 0xf_ffff)),
     )

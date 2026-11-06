@@ -165,8 +165,6 @@ export interface TilePixelAccounting {
   readonly mismatched: Mismatches
   /** Pixels with no server or draft colour. */
   readonly unpainted: Mismatches
-  /** Wrong-colour and unpainted pixels, merged in spatial order. */
-  readonly disagreements: Mismatches
   /** The configured marker projection, including unpainted only when its threshold allows it. */
   readonly markers: Mismatches
 }
@@ -235,8 +233,9 @@ const satisfies = (
 const answerFrom = (entry: Cached, kind: AnswerKind, template: PlacedTemplate): Mismatches => {
   if (kind === 'unpainted') return entry.unpainted
   const includeUnpainted = kind === 'all' || countsUnpainted(template)
-  if (!includeUnpainted || (entry.both === null && entry.unpainted.live === 0)) return entry.wrong
-  if (entry.both === null && entry.wrong.live === 0) return entry.unpainted
+  if (!includeUnpainted) return entry.wrong
+  // Built even while one side is empty: the first mark of the other kind then patches this list
+  // rather than replacing the answer with a newly merged one.
   if (entry.both === null) {
     entry.both = MarkList.of(mergeMarks(entry.wrong.values(), entry.unpainted.values()))
     cacheBytes += entry.both.byteLength
@@ -1858,24 +1857,20 @@ export const progressIn = (template: PlacedTemplate, tile: TileCoord): boolean =
 /**
  * Materialize every array a tile consumer can ask for from one cached classification record.
  *
- * Asking for `all` forces both coordinate lists into the same scan. The four returned projections
- * therefore cannot come from different source pixels, different draft moments, or different worker
- * replies; `both` is memoized on that record and the configured projection is derived from it.
+ * The configured projection collects both coordinate lists in the same scan. The three returned
+ * projections therefore cannot come from different source pixels, different draft moments, or
+ * different worker replies. Merging the two is left to the configured projection, which needs it
+ * only while unpainted pixels are shown.
  */
 const tileAccountingFor = (
   template: PlacedTemplate,
   tile: TileCoord,
 ): TilePixelAccounting | null => {
-  const disagreements = mismatchAnswer(template, tile, 'all')
-  if (disagreements === null) return null
+  const markers = mismatchAnswer(template, tile, 'configured')
+  if (markers === null) return null
   const entry = cache.get(`${template.id}|${tile.x}/${tile.y}`)
   if (entry === undefined || !entry.wrongComplete || !entry.unpaintedComplete) return null
-  return {
-    mismatched: entry.wrong,
-    unpainted: entry.unpainted,
-    disagreements,
-    markers: answerFrom(entry, 'configured', template),
-  }
+  return { mismatched: entry.wrong, unpainted: entry.unpainted, markers }
 }
 
 /**
