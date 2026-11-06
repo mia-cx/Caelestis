@@ -8,12 +8,13 @@ import {
   type Seconds,
   type StatusDelta,
   seconds,
+  sha256Hex,
   type TileOfferBatch as TileOfferBatchValue,
   templateSurface,
   WORLD_TILES,
 } from '@caelestis/shared'
 import { PaintEvent, TileOfferBatch } from '@caelestis/wire-schema'
-import { Schema, Context as Services } from 'effect'
+import { Effect, Schema, Context as Services } from 'effect'
 import { Hono } from 'hono'
 import { type AuthOptions, authenticateRequest, requireScopeEffect } from '../auth/middleware.js'
 import { hashToken } from '../auth/tokens.js'
@@ -459,19 +460,30 @@ export const createTelemetryRoutes = (
       return runBackendHttp(
         c,
         runtime,
-        readMismatchMask({
-          season,
-          templateId,
-          versionId,
-          tile: { x, y },
-          includeUnpublished: c.get('caller').scope === 'admin',
+        Effect.gen(function* () {
+          const result = yield* readMismatchMask({
+            season,
+            templateId,
+            versionId,
+            tile: { x, y },
+            includeUnpublished: c.get('caller').scope === 'admin',
+          })
+          if (result.kind !== 'found') return result
+          return { ...result, hash: yield* Effect.promise(() => sha256Hex(result.bytes)) }
         }),
         (result) => {
           if (result.kind === 'not-found') return c.json({ error: 'template tile not found' }, 404)
           if (result.kind === 'unobserved') return c.body(null, 204)
+          // A content hash, so a client revalidating the mask it holds downloads nothing when every
+          // paint since landed elsewhere. Weak and strong tags over the same bytes mean the same.
+          const headers = { etag: `"${result.hash}"`, 'cache-control': 'no-store' }
+          const candidates = (c.req.header('if-none-match') ?? '')
+            .split(',')
+            .map((candidate) => candidate.trim().replace(/^W\//, ''))
+          if (candidates.includes(headers.etag)) return c.body(null, 304, headers)
           return c.body(result.bytes.slice().buffer as ArrayBuffer, 200, {
+            ...headers,
             'content-type': 'application/vnd.caelestis.mismatch-mask',
-            'cache-control': 'no-store',
           })
         },
       )
