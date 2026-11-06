@@ -401,6 +401,29 @@ describe('template studio', () => {
     })
   })
 
+  it('keeps a replacement’s crop inside the image, in the template’s proportions', async () => {
+    const { room } = await celesteRoom()
+    await openOnRoom({
+      kind: 'replace',
+      name: 'Tall',
+      server: 'Test server',
+      surface: WORLD_TEMPLATE_SURFACE,
+      width: 10,
+      height: 40,
+      origin: { x: 500, y: 700 },
+      save: async () => true,
+    })
+    handleTemplateStudioIntent({ type: 'crop-mode', on: true })
+    handleTemplateStudioIntent({
+      type: 'crop-draft',
+      crop: { x: 0, y: room.height - 1, width: 5, height: 20 },
+    })
+    const draft = templateStudioModel().cropping?.draft
+    if (draft === undefined) throw new Error('not cropping')
+    expect(draft.y + draft.height).toBeLessThanOrEqual(room.height)
+    expect(draft.height).toBe(draft.width * 4)
+  })
+
   it('stretches one side while proportions are not kept, and both while they are', async () => {
     const room = await openOnRoom({
       kind: 'create',

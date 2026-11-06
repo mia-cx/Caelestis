@@ -741,14 +741,26 @@ const setCrop = (next: StudioRect): void => {
 const clampCrop = (next: StudioRect, image: Source['image']): StudioRect => {
   const x = Math.min(Math.max(0, Math.round(next.x)), image.width - 1)
   const y = Math.min(Math.max(0, Math.round(next.y)), image.height - 1)
-  let width = Math.min(Math.max(1, Math.round(next.width)), image.width - x)
-  let height = Math.min(Math.max(1, Math.round(next.height)), image.height - y)
-  if (target?.kind === 'replace') {
-    const aspect = target.width / target.height
-    width = Math.max(1, Math.min(width, Math.floor((image.height - y) * aspect)))
-    height = Math.max(1, Math.round(width / aspect))
+  if (target?.kind !== 'replace')
+    return {
+      x,
+      y,
+      width: Math.min(Math.max(1, Math.round(next.width)), image.width - x),
+      height: Math.min(Math.max(1, Math.round(next.height)), image.height - y),
+    }
+  // In proportion, no larger than the image; then moved back inside it if it runs over an edge.
+  const aspect = target.width / target.height
+  const width = Math.max(
+    1,
+    Math.min(Math.round(next.width), image.width, Math.floor(image.height * aspect)),
+  )
+  const height = Math.min(image.height, Math.max(1, Math.round(width / aspect)))
+  return {
+    x: Math.min(x, image.width - width),
+    y: Math.min(y, image.height - height),
+    width,
+    height,
   }
-  return { x, y, width, height }
 }
 
 /** The box around an image's opaque pixels, or null when no transparent edge surrounds them. */
