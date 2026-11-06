@@ -1874,9 +1874,6 @@ export const installPanel = (): void => {
   // The same for any setting changed in the extension's toolbar popup or another tab.
   onStoredValueChange(refreshSettings)
   onActiveAllianceSurfaceChange(selectAlliancePanelSurface)
-  onArtboardPixelsChange(() => {
-    if (currentView() === 'tree' && panelSurface.kind !== 'world') refreshView()
-  })
   selectAlliancePanelSurface(activeAllianceSurface())
   onLocalChange(
     frameQueue(() => {
@@ -1888,18 +1885,30 @@ export const installPanel = (): void => {
       if (currentView() === 'tree' && panelSurface.kind === 'world') refreshView()
     }),
   )
+  // A new HQ snapshot and native canvas writes in one frame cost one rebuild between them.
   let pendingCanvasWrites = new Set<object>()
+  let artboardPixelsChanged = false
   const refreshAllianceProgress = frameQueue(() => {
     const writes = pendingCanvasWrites
+    const changed = artboardPixelsChanged
     pendingCanvasWrites = new Set()
-    if (writes.size === 0) return
+    artboardPixelsChanged = false
     if (currentView() !== 'tree' || panelSurface.kind === 'world') return
+    if (changed) {
+      refreshView()
+      return
+    }
+    if (writes.size === 0) return
     const active = activeAllianceSurface()
     if (active === null || !sameTemplateSurface(active.surface, panelSurface)) return
     if (canvasWritesTouchArtboard(active, writes)) refreshView()
   })
   onCanvasWrite((canvas) => {
     pendingCanvasWrites.add(canvas)
+    refreshAllianceProgress()
+  })
+  onArtboardPixelsChange(() => {
+    artboardPixelsChanged = true
     refreshAllianceProgress()
   })
   pixelAccounting.onChange(
