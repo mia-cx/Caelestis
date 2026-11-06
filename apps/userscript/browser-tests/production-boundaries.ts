@@ -17,6 +17,7 @@ import {
 } from '../src/tile-transform.js'
 import { installWplaceCursors } from '../src/wplace-cursors.js'
 import { installWplaceFont } from '../src/wplace-font.js'
+import { runMarkerPatchingContracts } from './marker-patching.js'
 import { runPanelSurfaceContracts } from './panel-surfaces.js'
 import { runSparseOutlineContracts } from './sparse-outlines.js'
 
@@ -145,6 +146,7 @@ export const runProductionBrowserBoundaries = async () => {
   if (mismatchWorkerMemoryBytes() !== 0)
     throw new Error('forgetInWorker retained browser test pixels')
   runSparseOutlineContracts()
+  runMarkerPatchingContracts()
 
   // Font override contract against Wplace's own font rules as shipped (copied verbatim from
   // wplace.live's `0.Brd0iqiK.css`), so the override is tested against the cascade it has to win.

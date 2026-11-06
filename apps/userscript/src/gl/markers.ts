@@ -5,14 +5,13 @@ import { overlayPeekFade } from '../overlay-peek.js'
 import { isProfileEnabled, measureProfile, profileGpu, recordProfileWorkload } from '../profile.js'
 import { getState } from '../state.js'
 import { toRgbUnit } from '../templates/appearance.js'
-import { colourMarksIn } from '../templates/colour-marker.js'
 import {
   displayTemplates,
   isTemplateVisible,
   type PlacedTemplate,
 } from '../templates/local-store.js'
+import type { MarkList } from '../templates/mark-list.js'
 import { pixelAccounting } from '../templates/mismatch.js'
-import type { MismatchMarks } from '../templates/mismatch-marks.js'
 import { horizontalSpans } from '../templates/placement.js'
 import { measuresLocally } from '../templates/wplace-owned.js'
 import {
@@ -25,12 +24,7 @@ import {
 } from '../tile-transform.js'
 import { isPaintOpen, selectedColour } from '../wplace-paint.js'
 import { prefersReducedMotion } from './appearance-transition.js'
-import {
-  batchMarkerWork,
-  beginMarkerBatchFrame,
-  endMarkerBatchFrame,
-  markerBatchMemoryBytes,
-} from './marker-batching.js'
+import { batchMarkerWork } from './marker-batching.js'
 import {
   markerDensityMemoryBytes,
   markerSampleRate,
@@ -41,7 +35,7 @@ import { MarkerRenderer, type MarkerStyle } from './marker-renderer.js'
 import { worldRenderScene } from './render-scene.js'
 
 export { deviceScale, MarkerRenderer, type MarkerStyle } from './marker-renderer.js'
-export { markerBatchMemoryBytes, markerDensityMemoryBytes }
+export { markerDensityMemoryBytes }
 
 let worldMarkerRenderer: MarkerRenderer | null = null
 
@@ -58,14 +52,14 @@ export const releaseMarkers = (gl: WebGL2RenderingContext): void => {
 /**
  * Draw one crosshair per marked pixel of one tile.
  *
- * `pixels` packs tile-local x/y/wanted-index into one uint. Placement comes from the tile's own
- * on-screen rect, the same rect the overlay itself is drawn on, so markers inherit whatever
- * MapLibre did to place that tile rather than being projected separately.
+ * Each list packs tile-local x/y/wanted-index into one uint per mark. Placement comes from the
+ * tile's own on-screen rect, the same rect the overlay itself is drawn on, so markers inherit
+ * whatever MapLibre did to place that tile rather than being projected separately.
  */
 export const drawMarkers = (
   gl: WebGL2RenderingContext,
   tile: TileQuad,
-  pixels: MismatchMarks,
+  pixels: readonly MarkList[],
   style: MarkerStyle,
   fade: number,
   sampleRate = 1,
@@ -290,7 +284,7 @@ const drawVisible = (
 
   type Work = {
     tile: TileQuad
-    marks: MismatchMarks
+    marks: MarkList
     style: MarkerStyle
     fade: number
   }
@@ -333,28 +327,23 @@ const drawVisible = (
     }
     for (const tile of tiles) {
       if (!covers(template, tile)) continue
-      if (selectedFades.length > 0) {
-        const unpainted = accounting.unpainted(tile.tile)
-        if (unpainted === null) deferred = true
-        else {
-          for (const selectedFade of selectedFades) {
-            if (selectedFade.fade <= 0) continue
-            const marks = colourMarksIn(unpainted, selectedFade.index)
-            if (marks.length > 0) {
-              selectedWork.push({
-                tile,
-                marks,
-                style: selectedStyle,
-                fade: selectedFade.fade * peek.opacity,
-              })
-            }
-          }
+      for (const selectedFade of selectedFades) {
+        if (selectedFade.fade <= 0) continue
+        const marks = accounting.unpainted(tile.tile, selectedFade.index)
+        if (marks === null) deferred = true
+        else if (marks.live > 0) {
+          selectedWork.push({
+            tile,
+            marks,
+            style: selectedStyle,
+            fade: selectedFade.fade * peek.opacity,
+          })
         }
       }
       if (mismatchFade > 0) {
         const tileAccounting = accounting.tile(tile.tile)
         if (tileAccounting === null) deferred = true
-        else if (tileAccounting.markers.length > 0) {
+        else if (tileAccounting.markers.live > 0) {
           mismatchWork.push({
             tile,
             marks: tileAccounting.markers,
@@ -368,19 +357,23 @@ const drawVisible = (
   const points = (work: readonly { readonly marks: { readonly length: number } }[]): number =>
     work.reduce((total, one) => total + one.marks.length, 0)
   const visibilityBudget = markerVisibilityBudget()
+  // The sorted run is searched and the tail painted since the scan counts as visible. Both hold
+  // removed marks too, so the count is scaled to the list's live share, rounded up so a visible
+  // live mark never scales away to nothing.
   const estimatedVisiblePoints = (work: readonly Work[]): number =>
-    work.reduce(
-      (total, one) =>
-        total +
+    work.reduce((total, { marks, tile }) => {
+      const slots =
         visibleMarkerPoints(
-          one.marks,
-          one.tile,
+          marks.slots.subarray(0, marks.sorted),
+          tile,
           gl.drawingBufferWidth,
           gl.drawingBufferHeight,
           visibilityBudget,
-        ),
-      0,
-    )
+        ) +
+        marks.length -
+        marks.sorted
+      return total + Math.ceil((slots * marks.live) / marks.length)
+    }, 0)
   const selectedSourcePoints = points(selectedWork)
   const mismatchSourcePoints = points(mismatchWork)
   const selectedSampleRate = markerSampleRate(estimatedVisiblePoints(selectedWork), renderBudget)
@@ -445,11 +438,9 @@ const drawAll = (
   peek: { readonly opacity: number; readonly done: boolean },
 ): void => {
   worldMarkerRenderer?.beginFrame()
-  beginMarkerBatchFrame()
   try {
     pixelAccounting.frame(() => drawVisible(gl, peek))
   } finally {
-    endMarkerBatchFrame()
     worldMarkerRenderer?.endFrame()
   }
 }

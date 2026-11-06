@@ -1,5 +1,5 @@
 import { warn } from '../debug.js'
-import type { MismatchMarks } from '../templates/mismatch-marks.js'
+import type { MarkList } from '../templates/mark-list.js'
 
 const VERTEX = `#version 300 es
 precision highp int;
@@ -20,13 +20,14 @@ uint markerHash(uint value) {
 
 void main() {
   v_wanted = float(a_mark >> 20u);
-  if (u_sampleRate < 1.0) {
-    float random = float(markerHash(uint(gl_VertexID) ^ u_sampleSeed) >> 8u) / 16777216.0;
-    if (random >= u_sampleRate) {
-      gl_Position = vec4(2.0, 2.0, 0.0, 1.0);
-      gl_PointSize = 0.0;
-      return;
-    }
+  bool dead = (a_mark & 0x80000000u) != 0u;
+  // Sampled by pixel rather than by vertex, so patching one slot never reshuffles the others.
+  bool dropped = u_sampleRate < 1.0 &&
+    float(markerHash((a_mark & 0xfffffu) ^ u_sampleSeed) >> 8u) / 16777216.0 >= u_sampleRate;
+  if (dead || dropped) {
+    gl_Position = vec4(2.0, 2.0, 0.0, 1.0);
+    gl_PointSize = 0.0;
+    return;
   }
   vec2 pixel = vec2(float(a_mark & 1023u), float((a_mark >> 10u) & 1023u));
   vec2 device = u_tileScreen + (pixel + 0.5) * u_tileScale;
@@ -117,14 +118,39 @@ export interface MarkerProjection {
   readonly seedY: number
 }
 
+/** A list's GPU copy, and how far through the list's changes it is. */
+interface HeldMarks {
+  readonly buffer: WebGLBuffer
+  slots: Uint32Array
+  revision: number
+}
+
+/** Past this many runs of changed slots, one upload of the whole list beats a call per run. */
+const MAX_PATCH_RUNS = 64
+
+/** Changed slots as flat `[first, count]` runs of adjacent slots, or null to upload everything. */
+const changedRuns = (changes: readonly number[] | null): number[] | null => {
+  if (changes === null) return null
+  const slots = Uint32Array.from(changes).sort()
+  const runs: number[] = []
+  for (const slot of slots) {
+    const last = runs.length - 2
+    const end = last < 0 ? -1 : (runs[last] as number) + (runs[last + 1] as number)
+    if (slot < end) continue
+    if (slot === end) runs[last + 1] = (runs[last + 1] as number) + 1
+    else runs.push(slot, 1)
+  }
+  return runs
+}
+
 /** Shared point-marker renderer used by both MapLibre and alliance artboards. */
 export class MarkerRenderer {
   private program: WebGLProgram | null = null
   private vao: WebGLVertexArrayObject | null = null
   private markAttribute = -1
   private bufferBytes = 0
-  private readonly buffers = new Map<MismatchMarks, WebGLBuffer>()
-  private readonly usedBuffers = new Set<MismatchMarks>()
+  private readonly buffers = new Map<MarkList, HeldMarks>()
+  private readonly usedBuffers = new Set<MarkList>()
   private readonly uniforms = new Map<string, WebGLUniformLocation | null>()
 
   constructor(readonly gl: WebGL2RenderingContext) {
@@ -187,42 +213,65 @@ export class MarkerRenderer {
   }
 
   endFrame(): void {
-    for (const [pixels, buffer] of this.buffers) {
-      if (this.usedBuffers.has(pixels)) continue
-      this.gl.deleteBuffer(buffer)
-      this.buffers.delete(pixels)
-      this.bufferBytes -= pixels.byteLength
+    for (const [list, held] of this.buffers) {
+      if (this.usedBuffers.has(list)) continue
+      this.gl.deleteBuffer(held.buffer)
+      this.buffers.delete(list)
+      this.bufferBytes -= held.slots.byteLength
     }
   }
 
+  /** Bind a list's GPU copy, uploading only the slots it changed since this renderer last drew it. */
+  private bind(list: MarkList): boolean {
+    const gl = this.gl
+    const held = this.buffers.get(list)
+    this.usedBuffers.add(list)
+    if (held === undefined) {
+      const buffer = gl.createBuffer()
+      if (buffer === null) return false
+      this.buffers.set(list, { buffer, slots: list.slots, revision: list.revision })
+      this.bufferBytes += list.slots.byteLength
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
+      gl.bufferData(gl.ARRAY_BUFFER, list.slots, gl.DYNAMIC_DRAW)
+      return true
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, held.buffer)
+    if (held.revision === list.revision) return true
+    const runs = held.slots === list.slots ? changedRuns(list.changesSince(held.revision)) : null
+    if (runs === null || runs.length > MAX_PATCH_RUNS * 2) {
+      this.bufferBytes += list.slots.byteLength - held.slots.byteLength
+      gl.bufferData(gl.ARRAY_BUFFER, list.slots, gl.DYNAMIC_DRAW)
+      held.slots = list.slots
+    } else {
+      for (let run = 0; run < runs.length; run += 2) {
+        const first = runs[run] as number
+        const count = runs[run + 1] as number
+        gl.bufferSubData(
+          gl.ARRAY_BUFFER,
+          first * Uint32Array.BYTES_PER_ELEMENT,
+          list.slots,
+          first,
+          count,
+        )
+      }
+    }
+    held.revision = list.revision
+    return true
+  }
+
+  /** Draw several lists for one tile and one style with a single setup. Empty lists cost nothing. */
   draw(
     projection: MarkerProjection,
-    pixels: MismatchMarks,
+    lists: readonly MarkList[],
     style: MarkerStyle,
     fade: number,
     sampleRate = 1,
   ): void {
-    if (this.program === null || this.vao === null || pixels.length === 0) return
+    if (this.program === null || this.vao === null) return
+    if (lists.every((list) => list.length === 0)) return
     const gl = this.gl
     gl.useProgram(this.program)
     gl.bindVertexArray(this.vao)
-    let buffer = this.buffers.get(pixels)
-    if (buffer === undefined) {
-      buffer = gl.createBuffer()
-      if (buffer === null) return
-      this.buffers.set(pixels, buffer)
-      this.bufferBytes += pixels.byteLength
-      gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
-      gl.bufferData(gl.ARRAY_BUFFER, pixels, gl.STATIC_DRAW)
-    } else gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
-    this.usedBuffers.add(pixels)
-    gl.vertexAttribIPointer(
-      this.markAttribute,
-      1,
-      gl.UNSIGNED_INT,
-      Uint32Array.BYTES_PER_ELEMENT,
-      0,
-    )
     gl.uniform2f(this.uniform('u_tileScreen'), projection.x, projection.y)
     gl.uniform2f(
       this.uniform('u_tileScale'),
@@ -235,7 +284,17 @@ export class MarkerRenderer {
       (Math.imul(projection.seedX, 73_856_093) ^ Math.imul(projection.seedY, 19_349_663)) >>> 0
     gl.uniform1ui(this.uniform('u_sampleSeed'), sampleSeed)
     this.applyStyle(style, fade)
-    gl.drawArrays(gl.POINTS, 0, pixels.length)
+    for (const list of lists) {
+      if (list.length === 0 || !this.bind(list)) continue
+      gl.vertexAttribIPointer(
+        this.markAttribute,
+        1,
+        gl.UNSIGNED_INT,
+        Uint32Array.BYTES_PER_ELEMENT,
+        0,
+      )
+      gl.drawArrays(gl.POINTS, 0, list.length)
+    }
     gl.bindVertexArray(null)
   }
 
@@ -244,7 +303,7 @@ export class MarkerRenderer {
   }
 
   dispose(): void {
-    for (const buffer of this.buffers.values()) this.gl.deleteBuffer(buffer)
+    for (const { buffer } of this.buffers.values()) this.gl.deleteBuffer(buffer)
     this.buffers.clear()
     this.usedBuffers.clear()
     if (this.vao !== null) this.gl.deleteVertexArray(this.vao)

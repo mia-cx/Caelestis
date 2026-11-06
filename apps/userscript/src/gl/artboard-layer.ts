@@ -18,6 +18,7 @@ import {
   onLocalPreviewChange,
   type PlacedTemplate,
 } from '../templates/local-store.js'
+import { fixedMarkList, type MarkList } from '../templates/mark-list.js'
 import { abortMoveOutsideSurface } from '../templates/move.js'
 import { detachOverlayControls, renderAllianceOverlayControls } from '../ui/overlay-menu.js'
 import { isPaintOpen, onPaintSelectionChange, selectedColour } from '../wplace-paint.js'
@@ -36,7 +37,7 @@ import {
   refreshArtboardPixels,
 } from './artboard-pixels.js'
 import { isDarkMapTheme } from './contrast-outline.js'
-import { MarkerBatchStore } from './marker-batching.js'
+import { batchMarkerWork, type MarkerBatch } from './marker-batching.js'
 import {
   type MarkerVisibilityBudget,
   markerSampleRate,
@@ -242,14 +243,15 @@ export const insertAllianceArtboardCanvases = (
   frame.insertBefore(markers, nativeDraft?.nextSibling ?? null)
 }
 
-interface RenderMarker {
+interface MarkerLayer {
   readonly batch: ArtboardMarkerBatch
   readonly tile: object
-  readonly marks: Uint32Array
+  readonly marks: MarkList
   readonly style: MarkerStyle
   readonly fade: number
-  readonly sampleRate: number
 }
+
+type RenderMarker = MarkerBatch<MarkerLayer> & { readonly sampleRate: number }
 
 interface ArtboardDrawResult {
   readonly animating: boolean
@@ -569,7 +571,6 @@ class ArtboardPass {
 
 class ArtboardRenderer {
   private readonly scene = new RenderScene()
-  private readonly markerBatches = new MarkerBatchStore()
   private readonly markerTiles = new Map<string, object>()
   private readonly observer: MutationObserver
   private readonly resizeObserver: ResizeObserver | null
@@ -806,8 +807,8 @@ class ArtboardRenderer {
       this.markerDirtyRects.length = 0
     }
     for (const id of this.markerWork.keys()) if (!residentIds.has(id)) this.markerWork.delete(id)
-    const selectedLayers: Omit<RenderMarker, 'sampleRate'>[] = []
-    const mismatchLayers: Omit<RenderMarker, 'sampleRate'>[] = []
+    const selectedLayers: MarkerLayer[] = []
+    const mismatchLayers: MarkerLayer[] = []
     const state = getState()
     for (const { rendered, mismatchFade, selectedFades } of markerScene.templates) {
       if (rendered.fade <= 0) continue
@@ -841,7 +842,7 @@ class ArtboardRenderer {
           selectedLayers.push({
             batch,
             tile: this.markerTile(batch),
-            marks: batch.marks,
+            marks: fixedMarkList(batch.marks),
             style: selectedStyle,
             fade: selectedFade.fade,
           })
@@ -851,34 +852,31 @@ class ArtboardRenderer {
         mismatchLayers.push({
           batch,
           tile: this.markerTile(batch),
-          marks: batch.marks,
+          marks: fixedMarkList(batch.marks),
           style: mismatchStyle,
           fade: mismatchFade,
         })
     }
     const visibilityBudget = markerVisibilityBudget()
-    const visiblePoints = (layers: readonly Omit<RenderMarker, 'sampleRate'>[]) =>
+    const visiblePoints = (layers: readonly MarkerLayer[]) =>
       layers.reduce(
         (total, layer) =>
           total +
-          visibleArtboardMarkerPoints(
-            { ...layer.batch, marks: layer.marks },
-            this.geometry,
-            viewport,
-            visibilityBudget,
-          ),
+          visibleArtboardMarkerPoints(layer.batch, this.geometry, viewport, visibilityBudget),
         0,
       )
     const selectedSampleRate = markerSampleRate(visiblePoints(selectedLayers), state.markerBudget)
     const mismatchSampleRate = markerSampleRate(visiblePoints(mismatchLayers), state.markerBudget)
-    this.markerBatches.beginFrame()
-    const selectedDraws = this.markerBatches.batch(selectedLayers)
-    const mismatchDraws = this.markerBatches.batch(mismatchLayers)
     const markerLayers: RenderMarker[] = [
-      ...selectedDraws.map((layer) => ({ ...layer, sampleRate: selectedSampleRate })),
-      ...mismatchDraws.map((layer) => ({ ...layer, sampleRate: mismatchSampleRate })),
+      ...batchMarkerWork(selectedLayers).map((layer) => ({
+        ...layer,
+        sampleRate: selectedSampleRate,
+      })),
+      ...batchMarkerWork(mismatchLayers).map((layer) => ({
+        ...layer,
+        sampleRate: mismatchSampleRate,
+      })),
     ]
-    this.markerBatches.endFrame()
     const minifyTapCap = moving ? movingOverlayTapCap(templates.length) : 4
     const outlineAllowance = Math.floor(TEMPLATE_UPLOAD_PIXELS_PER_FRAME / 2)
     const outlineResult = this.outline.render(
@@ -933,7 +931,10 @@ class ArtboardRenderer {
       recordProfileWorkload('Alliance marker source batches', markerLayers.length)
       recordProfileWorkload(
         'Alliance marker source points',
-        markerLayers.reduce((total, marker) => total + marker.marks.length, 0),
+        markerLayers.reduce(
+          (total, marker) => marker.marks.reduce((sum, list) => sum + list.length, total),
+          0,
+        ),
       )
       recordProfileWorkload('Alliance marker compared pixels', comparedMarkerPixels)
       recordProfileWorkload(
