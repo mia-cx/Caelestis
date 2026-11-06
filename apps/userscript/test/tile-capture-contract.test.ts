@@ -226,6 +226,20 @@ describe('tile reads in the worker', () => {
     expect(changes).toEqual([[1, 0, 7]])
   })
 
+  it('keeps an explicit read waiting behind more tiles than the cache holds', async () => {
+    const worker = inProcessWorker(() => new Response(null, { status: 500 }))
+    const { tileTransform, setWplacePatchEnabled, decodeTile } = await setup()
+    // Unhashed, each capture queues in decode order.
+    setWplacePatchEnabled('capture-dedupe', false)
+    const release = worker.hold()
+    await decodeTile(TILE.x + 50)
+    await decodeTile(TILE.x, Uint8Array.of(1, 5))
+    const loading = tileTransform.loadTilePixels(TILE)
+    for (let x = 101; x <= 125; x++) await decodeTile(x)
+    release()
+    expect((await loading)?.[0]).toBe(5)
+  })
+
   it('drops a read that a newer, unchanged refetch overtook', async () => {
     const worker = inProcessWorker(() => new Response(null, { status: 500 }))
     const { tileTransform, decodeTile, fetchTile } = await setup()

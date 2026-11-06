@@ -2084,8 +2084,9 @@ interface QueuedCapture {
  *
  * They are read one at a time, so the reader holds one tile's pixels at once, and no tile's pixels
  * change under a read of them: only a read's own commit writes them. A newer read of a waiting tile
- * takes its place, because the older answer would lose to it anyway. No more wait than the pixel
- * cache keeps, since past that each one read would evict another.
+ * takes its place, because the older answer would lose to it anyway, so the queue holds at most one
+ * body per tile Wplace decoded. None is dropped: a tile left unread would be downloaded again, and
+ * an explicit `loadTilePixels` waiting on it would give up.
  */
 const queuedCaptures = new Map<string, QueuedCapture>()
 let readingCaptures = false
@@ -2103,12 +2104,6 @@ const queueCapture = (capture: QueuedCapture): void => {
     queuedCaptures.set(key, { ...waiting, done: [...waiting.done, ...capture.done] })
   } else {
     queuedCaptures.set(key, { ...capture, done: [...(waiting?.done ?? []), ...capture.done] })
-  }
-  while (queuedCaptures.size > KEEP_TILE_PIXELS) {
-    const [oldest, dropped] = queuedCaptures.entries().next().value as [string, QueuedCapture]
-    queuedCaptures.delete(oldest)
-    for (const done of dropped.done) done()
-    count('pixels:tile captures dropped')
   }
   if (!readingCaptures) void readCaptures()
 }
