@@ -229,8 +229,8 @@ import { persisted } from '#lib/persisted.svelte.js'
   let painterHistories = $state<readonly PainterHistorySource[]>([])
   let failed = $state(false)
   let historyScope: string | undefined
-  // Each chart tick reads only the newest buckets. An hourly full read lets the server choose a
-  // tier for the grown range again.
+  // Each chart tick reads only the buckets that can still change. An hourly full read lets the
+  // server choose a tier for the grown range again and picks up writes delayed past that window.
   const FULL_READ_SECONDS = 3_600
   const fullReadKey = (scope: string, end: number): string =>
     `${scope}:${Math.floor(end / FULL_READ_SECONDS)}`

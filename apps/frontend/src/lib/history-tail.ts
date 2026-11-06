@@ -16,17 +16,18 @@ export interface HeldHistory<Read extends HistoryRead> {
 }
 
 /**
- * How long after a bucket starts the server may still change it: counters reach storage 90 s after
+ * How long after a bucket starts its counters normally keep changing: they reach storage 90 s after
  * their minute and accept late reports for an hour after that (the backend's
- * `EXPIRES_AFTER_SECONDS`).
+ * `EXPIRES_AFTER_SECONDS`). Writes delayed further, such as a backlog delivered after an outage,
+ * wait for the caller's next full read.
  */
 const MUTABLE_SECONDS = 3_690
 
 /**
  * Bring a held history up to `to`, reading only what changed.
  *
- * A new key, or nothing held yet, reads `[from, to)` in full. Otherwise only the buckets the server
- * can still have changed since the last read are read again. The server answers that recent range
+ * A new key, or nothing held yet, reads `[from, to)` in full. Otherwise only the buckets that can
+ * normally still change are read again. The server answers that recent range
  * at the full read's resolution or a finer tier, and the finer buckets are summed onto the full
  * read's grid, the same fold the server applies across tiers.
  *
