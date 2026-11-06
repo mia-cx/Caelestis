@@ -73,7 +73,13 @@ const recordingGl = () => {
     bufferData: (_target: number, data: Uint32Array) => {
       stored.set(bound as object, data.slice())
     },
-    bufferSubData: (_target: number, offset: number, data: Uint32Array, first: number, count: number) => {
+    bufferSubData: (
+      _target: number,
+      offset: number,
+      data: Uint32Array,
+      first: number,
+      count: number,
+    ) => {
       stored.get(bound as object)?.set(data.subarray(first, first + count), offset / 4)
     },
     drawArrays: (_mode: number, _first: number, count: number) => {
@@ -110,7 +116,8 @@ const setup = async () => {
   const { MarkerRenderer } = await import('../src/gl/marker-renderer.js')
 
   const served = new Uint8Array(SIZE * SIDE).fill(UNPAINTED)
-  for (let y = 0; y < SIDE; y++) for (let x = 0; x < SIDE; x++) served[y * SIZE + x] = servedAt(x, y)
+  for (let y = 0; y < SIDE; y++)
+    for (let x = 0; x < SIDE; x++) served[y * SIZE + x] = servedAt(x, y)
   /** Wplace's backend: the tile, and a paint endpoint that accepts everything it is sent. */
   const backend = vi.fn(async (url: string, init?: RequestInit) => {
     if (!url.endsWith('/paint')) return new Response(served)
@@ -144,7 +151,8 @@ const setup = async () => {
   await tileTransform.settledTileCaptures()
 
   const indices = new Uint8Array(SIDE * SIDE)
-  for (let y = 0; y < SIDE; y++) for (let x = 0; x < SIDE; x++) indices[y * SIDE + x] = wantedAt(x, y)
+  for (let y = 0; y < SIDE; y++)
+    for (let x = 0; x < SIDE; x++) indices[y * SIDE + x] = wantedAt(x, y)
   let added = 0
   const addTemplate = async (): Promise<string> => {
     const id = `patching-${added++}`
@@ -246,8 +254,7 @@ const pixelsWhere = (kind: 'correct' | 'wrong' | 'blank'): [number, number][] =>
   for (let y = 0; y < SIDE; y++) {
     for (let x = 0; x < SIDE; x++) {
       const served = servedAt(x, y)
-      const state =
-        served === UNPAINTED ? 'blank' : served === wantedAt(x, y) ? 'correct' : 'wrong'
+      const state = served === UNPAINTED ? 'blank' : served === wantedAt(x, y) ? 'correct' : 'wrong'
       if (state === kind) found.push([x, y])
     }
   }
@@ -264,8 +271,24 @@ it('keeps patched marker lists identical to a full rescan through paint, erase a
   const patched = read(id)
   const { gl, drawn, onScreen } = recordingGl()
   const renderer = new MarkerRenderer(gl)
-  const projection = { x: 0, y: 0, width: 2_000, height: 2_000, pixelWidth: SIZE, pixelHeight: SIZE, seedX: 0, seedY: 0 }
-  const style = { size: 4, thickness: 2, colour: [1, 0, 1] as const, otherColour: null, otherOpacity: 1, selected: -1 }
+  const projection = {
+    x: 0,
+    y: 0,
+    width: 2_000,
+    height: 2_000,
+    pixelWidth: SIZE,
+    pixelHeight: SIZE,
+    seedX: 0,
+    seedY: 0,
+  }
+  const style = {
+    size: 4,
+    thickness: 2,
+    colour: [1, 0, 1] as const,
+    otherColour: null,
+    otherOpacity: 1,
+    selected: -1,
+  }
   const expectMatchesRescan = async (step: string) => {
     const answer = read(id)
     // Patching keeps the same lists; a rescan would have replaced them.
