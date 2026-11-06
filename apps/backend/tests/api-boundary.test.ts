@@ -1,4 +1,4 @@
-import { encodeIndexedPng } from '@caelestis/shared'
+import { encodeIndexedPng, sha256Hex, TRANSPARENT_INDEX } from '@caelestis/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MemorySqlStore } from '../src/adapters/memory/memory-sql-store.js'
 import { adminToken, createTestBackend } from './support/backend.js'
@@ -190,6 +190,83 @@ describe('backend API trust boundary', () => {
     expect(cached.status).toBe(304)
     expect(await cached.text()).toBe('')
     expect((await request(backend, '/manifest', 'GET', 'revoked')).status).toBe(401)
+  })
+
+  it('revalidates the current season status per caller scope and answers a matching validator with 304', async () => {
+    const backend = await createTestBackend()
+    const reader = await mint(backend, 'read')
+    const form = new FormData()
+    form.set('png', new File([await encodeIndexedPng(1, 1, new Uint8Array([1]))], 'art.png'))
+    form.set('name', 'Draft')
+    form.set('season', '3')
+    form.set('originX', '0')
+    form.set('originY', '0')
+    expect(
+      (
+        await backend.app.fetch(
+          new Request('https://backend.test/admin/templates', {
+            method: 'POST',
+            headers: { authorization: `Bearer ${adminToken}` },
+            body: form,
+          }),
+        )
+      ).status,
+    ).toBe(201)
+    const status = async (token: string, validator?: string, season = 3) => {
+      const response = await backend.app.fetch(
+        new Request(`https://backend.test/v1/telemetry/status?season=${season}`, {
+          headers: {
+            authorization: `Bearer ${token}`,
+            ...(validator === undefined ? {} : { 'if-none-match': validator }),
+          },
+        }),
+      )
+      return { response, etag: response.headers.get('etag') }
+    }
+    const first = await status(adminToken)
+    expect(first.response.status).toBe(200)
+    expect(first.response.headers.get('vary')).toContain('Authorization')
+    if (first.etag === null) throw new Error('status omitted its ETag')
+    for (const validator of [first.etag, `"other", W/${first.etag}`, '*']) {
+      const cached = await status(adminToken, validator)
+      expect(cached.response.status, validator).toBe(304)
+      expect(cached.etag).toBe(first.etag)
+      expect(await cached.response.text()).toBe('')
+    }
+    // Admins see drafts, so the public projection at the same revision needs its own validator.
+    const published = await status(reader.token, first.etag)
+    expect(published.response.status).toBe(200)
+    expect(published.etag).not.toBe(first.etag)
+
+    // A painted pixel commits a new status, and the old validator no longer matches.
+    const indices = new Uint8Array(1_000_000).fill(TRANSPARENT_INDEX)
+    indices[0] = 1
+    const canvas = await encodeIndexedPng(1000, 1000, indices)
+    const uploaded = await backend.app.fetch(
+      new Request(`https://backend.test/v1/telemetry/tiles/0/0/${await sha256Hex(canvas)}`, {
+        method: 'PUT',
+        body: canvas,
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          'x-caelestis-season': '3',
+          'x-caelestis-observed-at': String(Math.floor(Date.now() / 1000) - 10),
+          'x-caelestis-wplace-user-id': '42',
+          'x-caelestis-display-name': 'Painter',
+        },
+      }),
+    )
+    expect(uploaded.status).toBe(200)
+    const changed = await status(adminToken, first.etag)
+    expect(changed.response.status).toBe(200)
+    expect(changed.etag).not.toBe(first.etag)
+    expect(await changed.response.json()).toMatchObject({
+      templates: [expect.objectContaining({ correct: 1 })],
+    })
+
+    // Earlier seasons are read straight from the database and carry no validator.
+    const historical = await status(adminToken, '*', 2)
+    expect(historical.response.status).toBe(200)
+    expect(historical.etag).toBeNull()
   })
 
   it('rejects malformed read parameters instead of returning a successful empty result', async () => {

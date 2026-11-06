@@ -412,11 +412,21 @@ export const createTelemetryRoutes = (
         ? options.currentSeason
         : wholeNumber(c.req.query('season'))
     if (season === null) return c.json({ error: 'season must be a non-negative integer' }, 400)
+    // Weak comparison over a comma-separated list, as the manifest route does (RFC 9110).
+    const candidates = (c.req.header('if-none-match') ?? '')
+      .split(',')
+      .map((candidate) => candidate.trim().replace(/^W\//, ''))
     return runBackendHttp(
       c,
       runtime,
       readStatus(season, c.get('caller').scope === 'admin', season === options.currentSeason),
-      (response) => c.json(response),
+      ({ response, etag }) => {
+        if (etag === null) return c.json(response)
+        const headers = { ETag: etag, Vary: 'Authorization' }
+        return candidates.includes(etag) || candidates.includes('*')
+          ? c.body(null, 304, headers)
+          : c.json(response, 200, headers)
+      },
     )
   })
 

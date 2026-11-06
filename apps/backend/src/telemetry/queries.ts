@@ -194,25 +194,32 @@ export const readAlarms = (
     return { version, alarms }
   })
 
+/** A status response and, for the cached current season, an entity tag naming its content. */
+export interface StatusRead {
+  readonly response: StatusResponse
+  readonly etag: string | null
+}
+
 export const readStatus = (
   season: number,
   includeUnpublished: boolean,
   cacheable: boolean,
-): Effect.Effect<StatusResponse, SqlStoreReadError, SqlStoreService | StatusReadModelService> =>
+): Effect.Effect<StatusRead, SqlStoreReadError, SqlStoreService | StatusReadModelService> =>
   Effect.gen(function* () {
     if (!cacheable) {
       const sql = yield* SqlStoreService
       const templates = yield* sqlRead('readTemplateStatuses', () =>
         sql.readTemplateStatuses(season, includeUnpublished),
       )
-      return { templates }
+      return { response: { templates }, etag: null }
     }
+    const scope = includeUnpublished ? 'admin' : 'public'
     const readModel = yield* StatusReadModelService
     const read = yield* sqlRead('reconcileStatusSnapshot', () =>
-      readModel.reconcileSnapshot(season, includeUnpublished ? 'admin' : 'public'),
+      readModel.reconcileSnapshot(season, scope),
     )
     recordCacheOutcome(read.cacheOutcome)
-    return read.snapshot
+    return { response: read.snapshot, etag: `"status.${season}.${scope}.${read.validator}"` }
   })
 
 export const readHistory = (input: {
