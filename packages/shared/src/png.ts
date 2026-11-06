@@ -48,55 +48,25 @@ const crc32 = (bytes: Uint8Array): number => {
 }
 
 /**
- * Inflate IDAT, refusing to buffer more than the header says the image needs.
+ * Inflate IDAT into its declared image buffer, refusing more than the header says the image needs.
  *
  * Reading the whole stream and checking afterwards is what makes a decompression bomb work: a 1x1
  * header can carry an IDAT that inflates to gigabytes, and the Worker is gone long before the size
- * check runs. Counting as it arrives costs nothing and bounds the allocation by dimensions the
- * caller has already validated.
+ * check runs. Counting as it arrives costs nothing and bounds the allocation by the dimensions.
  *
- * A platform decompression failure becomes a `PngError` here too — it is a malformed upload, and
- * the route's 400 depends on telling that apart from an internal fault.
+ * The IDAT chunks go to the stream as they are, and the output lands in place: no concatenated copy
+ * of either. A platform decompression failure becomes a `PngError` too: it is a malformed upload,
+ * and the route's 400 depends on telling that apart from an internal fault.
  */
-const inflate = async (bytes: Uint8Array, limit: number): Promise<Uint8Array> => {
-  // 'deflate' is the zlib-wrapped form, which is what PNG's IDAT carries.
-  const stream = new Blob([bytes as BlobPart])
-    .stream()
-    .pipeThrough(new DecompressionStream('deflate'))
-  const reader = stream.getReader()
-  const parts: Uint8Array[] = []
-  let total = 0
-  try {
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      total += value.length
-      if (total > limit) throw new PngError('IDAT inflates to more than its dimensions allow')
-      parts.push(value)
-    }
-  } catch (cause) {
-    await reader.cancel().catch(() => {})
-    if (cause instanceof PngError) throw cause
-    throw new PngError('IDAT is not a valid zlib stream')
-  }
-  const out = new Uint8Array(total)
-  let at = 0
-  for (const part of parts) {
-    out.set(part, at)
-    at += part.length
-  }
-  return out
-}
-
-/** Inflate directly into its declared image buffer, avoiding a second full-image copy. */
-const inflateExact = async (bytes: Uint8Array, expected: number): Promise<Uint8Array> => {
+const inflateExact = async (idat: readonly Uint8Array[], expected: number): Promise<Uint8Array> => {
   let out: Uint8Array
   try {
     out = new Uint8Array(expected)
   } catch {
     throw new PngError('image dimensions cannot be allocated by this runtime')
   }
-  const stream = new Blob([bytes as BlobPart])
+  // 'deflate' is the zlib-wrapped form, which is what PNG's IDAT carries.
+  const stream = new Blob([...idat] as BlobPart[])
     .stream()
     .pipeThrough(new DecompressionStream('deflate'))
   const reader = stream.getReader()
@@ -253,73 +223,13 @@ const parsePng = (bytes: Uint8Array): ParsedPng => {
   return { ...header, palette, alphas, idat }
 }
 
-const compressedImageData = (parts: readonly Uint8Array[]): Uint8Array => {
-  const compressed = new Uint8Array(parts.reduce((total, part) => total + part.length, 0))
-  let cursor = 0
-  for (const part of parts) {
-    compressed.set(part, cursor)
-    cursor += part.length
-  }
-  return compressed
-}
-
 /**
- * Undo the per-scanline filter.
+ * Undo the per-scanline filter, compacting scanlines over their own filter bytes.
  *
  * Filters are defined over the *reconstructed* bytes of the previous scanline, so this has to run in
  * order and cannot be parallelised. `bpp` is the byte distance to the pixel on the left, which is
  * 1 for sub-byte-per-pixel formats — but we only accept 8-bit depths, so it is the channel count.
  */
-const unfilter = (raw: Uint8Array, width: number, height: number, bpp: number): Uint8Array => {
-  const stride = width * bpp
-  const out = new Uint8Array(stride * height)
-  let offset = 0
-  for (let row = 0; row < height; row += 1) {
-    const filter = raw[offset]
-    offset += 1
-    const line = out.subarray(row * stride, (row + 1) * stride)
-    const previous =
-      row === 0 ? new Uint8Array(stride) : out.subarray((row - 1) * stride, row * stride)
-    for (let index = 0; index < stride; index += 1) {
-      const value = raw[offset + index] ?? 0
-      const left = index >= bpp ? (line[index - bpp] ?? 0) : 0
-      const up = previous[index] ?? 0
-      const upLeft = index >= bpp ? (previous[index - bpp] ?? 0) : 0
-      let reconstructed: number
-      switch (filter) {
-        case 0:
-          reconstructed = value
-          break
-        case 1:
-          reconstructed = value + left
-          break
-        case 2:
-          reconstructed = value + up
-          break
-        case 3:
-          reconstructed = value + ((left + up) >> 1)
-          break
-        case 4: {
-          // Paeth: pick whichever neighbour the linear predictor lands closest to.
-          const estimate = left + up - upLeft
-          const dLeft = Math.abs(estimate - left)
-          const dUp = Math.abs(estimate - up)
-          const dUpLeft = Math.abs(estimate - upLeft)
-          reconstructed =
-            value + (dLeft <= dUp && dLeft <= dUpLeft ? left : dUp <= dUpLeft ? up : upLeft)
-          break
-        }
-        default:
-          throw new PngError(`unsupported scanline filter ${filter}`)
-      }
-      line[index] = reconstructed & 0xff
-    }
-    offset += stride
-  }
-  return out
-}
-
-/** Undo filters while compacting scanlines over their own filter bytes. */
 const unfilterInPlace = (
   raw: Uint8Array,
   width: number,
@@ -353,6 +263,7 @@ const unfilterInPlace = (
           reconstructed = value + ((left + up) >> 1)
           break
         case 4: {
+          // Paeth: pick whichever neighbour the linear predictor lands closest to.
           const estimate = left + up - upLeft
           const dLeft = Math.abs(estimate - left)
           const dUp = Math.abs(estimate - up)
@@ -378,7 +289,6 @@ const unfilterInPlace = (
 /** Decode a PNG to straight (non-premultiplied) RGBA. */
 export const decodePng = async (bytes: Uint8Array): Promise<RgbaImage> => {
   const { width, height, colourType, palette, alphas, idat } = parsePng(bytes)
-  const compressed = compressedImageData(idat)
 
   // biome-ignore lint/style/noNonNullAssertion: colourType was checked against CHANNELS above
   const channels = CHANNELS[colourType]!
@@ -386,11 +296,7 @@ export const decodePng = async (bytes: Uint8Array): Promise<RgbaImage> => {
   // is truncated and a longer one is lying — and short used to be zero-filled silently, turning a
   // one-pixel image into that pixel plus a black one.
   const expected = (width * channels + 1) * height
-  const inflated = await inflate(compressed, expected)
-  if (inflated.length !== expected) {
-    throw new PngError(`IDAT inflates to ${inflated.length} bytes, expected ${expected}`)
-  }
-  const raw = unfilter(inflated, width, height, channels)
+  const raw = unfilterInPlace(await inflateExact(idat, expected), width, height, channels)
 
   // tRNS on a greyscale or RGB image names one sample as fully transparent, and ignoring it forced
   // every pixel opaque — so a template with a transparent background was quantised and stored as
@@ -485,7 +391,7 @@ export const decodeWplaceIndexedPng = async (bytes: Uint8Array): Promise<Indexed
   }
 
   const expected = (width + 1) * height
-  const inflated = await inflateExact(compressedImageData(parsed.idat), expected)
+  const inflated = await inflateExact(parsed.idat, expected)
   const indices = unfilterInPlace(inflated, width, height, 1)
   if (indices.some((index) => index >= PALETTE_SIZE)) {
     throw new PngError('palette index out of range')
