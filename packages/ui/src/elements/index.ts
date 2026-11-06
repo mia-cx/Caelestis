@@ -1,6 +1,7 @@
 import type { TemplateStudioModel } from '../studio/model.js'
 import type {
   ClaimModeModel,
+  ExtensionSettingsModel,
   NotificationsModel,
   OverlayControlsModel,
   PaletteProgressModel,
@@ -12,6 +13,7 @@ import type {
 } from '../types.js'
 import type { WorkModel } from '../work/model.js'
 import ClaimModeElement from './ClaimMode.element.svelte'
+import ExtensionSettingsElement from './ExtensionSettings.element.svelte'
 import NotificationsElement from './Notifications.element.svelte'
 import OverlayControlsElement from './OverlayControls.element.svelte'
 import PaletteProgressElement from './PaletteProgress.element.svelte'
@@ -52,6 +54,8 @@ export type CaelestisTagManager = HTMLElement & { model: TagManagerModel }
 export const SERVER_DETAILS_TAG = 'caelestis-server-details'
 export type CaelestisServerDetails = HTMLElement & { model: ServerDetailsModel }
 export const CLAIM_MODE_TAG = 'caelestis-claim-mode'
+export const EXTENSION_SETTINGS_TAG = 'caelestis-extension-settings'
+export type CaelestisExtensionSettings = HTMLElement & { model: ExtensionSettingsModel }
 export type CaelestisClaimMode = HTMLElement & { model: ClaimModeModel }
 
 export type CaelestisTemplateAdmin = HTMLElement & {
@@ -104,6 +108,8 @@ export const CaelestisShortcutHelp =
 export const CaelestisTagManager =
   TagManagerElement.element as ElementConstructor<CaelestisTagManager>
 export const CaelestisClaimMode = ClaimModeElement.element as ElementConstructor<CaelestisClaimMode>
+export const CaelestisExtensionSettings =
+  ExtensionSettingsElement.element as ElementConstructor<CaelestisExtensionSettings>
 export const CaelestisServerDetails =
   ServerDetailsElement.element as ElementConstructor<CaelestisServerDetails>
 export const CaelestisTemplateStudio =
@@ -123,6 +129,8 @@ export const registerCaelestisUi = (): void => {
     customElements.define(TAG_MANAGER_TAG, CaelestisTagManager)
   if (customElements.get(CLAIM_MODE_TAG) === undefined)
     customElements.define(CLAIM_MODE_TAG, CaelestisClaimMode)
+  if (customElements.get(EXTENSION_SETTINGS_TAG) === undefined)
+    customElements.define(EXTENSION_SETTINGS_TAG, CaelestisExtensionSettings)
   if (customElements.get(SERVER_DETAILS_TAG) === undefined)
     customElements.define(SERVER_DETAILS_TAG, CaelestisServerDetails)
   if (customElements.get(TEMPLATE_STUDIO_TAG) === undefined)
@@ -158,6 +166,7 @@ declare global {
     'caelestis-backfill': CaelestisBackfill
     'caelestis-tag-manager': CaelestisTagManager
     'caelestis-claim-mode': CaelestisClaimMode
+    'caelestis-extension-settings': CaelestisExtensionSettings
     'caelestis-server-details': CaelestisServerDetails
     'caelestis-template-admin': CaelestisTemplateAdmin
     'caelestis-template-state': CaelestisTemplateState

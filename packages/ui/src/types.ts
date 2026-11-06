@@ -338,13 +338,11 @@ export interface SettingsWplacePatchModel {
   readonly enabled: boolean
 }
 
-export interface SettingsModel {
-  /** Installed userscript version shown in the settings header, e.g. `0.15.0`. */
-  readonly userscriptVersion?: string
-  readonly servers: readonly SettingsServerModel[]
-  readonly addServerPending?: boolean
-  readonly addServerMessage?: string
-  readonly colourNavigationOrder: 'unpainted-first' | 'mismatched-first'
+/**
+ * The settings that apply to every Wplace tab, shown both in the panel's Settings view and in the
+ * extension's toolbar popup.
+ */
+export interface GlobalSettingsModel {
   readonly reportPaints: boolean
   readonly shareTiles: boolean
   readonly sharePresence: boolean
@@ -356,10 +354,43 @@ export interface SettingsModel {
   readonly performanceProfiling: boolean
   readonly notifyRegressions: boolean
   readonly notifyGriefing: boolean
-  readonly notifyUpdates: boolean
+  /** Absent in the extension, whose store updates it, so the row is not shown. */
+  readonly notifyUpdates?: boolean | undefined
   readonly notifyActivity: boolean
-  readonly shortcuts: ShortcutSettingsModel
   readonly wplacePatches?: readonly SettingsWplacePatchModel[]
+  /** Caelestis's switches in Wplace's own Accessibility settings; the popup shows them too. */
+  readonly accessibility?: {
+    readonly falseType: boolean
+    readonly cursors: boolean
+  }
+}
+
+export type AccessibilitySettingKey = keyof NonNullable<GlobalSettingsModel['accessibility']>
+
+export type GlobalSettingsIntent =
+  | { readonly type: 'set-boolean'; readonly key: SettingsBooleanKey; readonly value: boolean }
+  | { readonly type: 'set-wplace-patch'; readonly id: string; readonly enabled: boolean }
+  | {
+      readonly type: 'set-accessibility'
+      readonly key: AccessibilitySettingKey
+      readonly value: boolean
+    }
+
+/** The extension's toolbar popup. */
+export interface ExtensionSettingsModel extends GlobalSettingsModel {
+  readonly version: string
+}
+
+export interface SettingsModel extends GlobalSettingsModel {
+  /** Installed Caelestis version shown in the settings header, e.g. `0.15.0`. */
+  readonly userscriptVersion?: string
+  /** Which build that version belongs to; the userscript when absent. */
+  readonly build?: 'userscript' | 'extension'
+  readonly servers: readonly SettingsServerModel[]
+  readonly addServerPending?: boolean
+  readonly addServerMessage?: string
+  readonly colourNavigationOrder: 'unpainted-first' | 'mismatched-first'
+  readonly shortcuts: ShortcutSettingsModel
   readonly profile?: {
     readonly note: string
     readonly metrics: readonly ProfileMetricModel[]

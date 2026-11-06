@@ -46,8 +46,8 @@ let sync = (): Promise<void> => Promise.resolve()
 const changeListeners = new Set<(key: string) => void>()
 
 /**
- * Run `listener` with the key of each value changed somewhere else, such as another tab. Only the
- * extension reports these; this context's own writes never do. Returns a function that stops
+ * Run `listener` with the key of each value changed somewhere else, such as the extension's toolbar
+ * popup or another tab. Only the extension reports these; this context's own writes never do. Returns a function that stops
  * listening.
  */
 export const onStoredValueChange = (listener: (key: string) => void): (() => void) => {

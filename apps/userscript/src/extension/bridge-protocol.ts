@@ -22,7 +22,7 @@ export const BRIDGE_HANDOFF = 'caelestis:storage-bridge'
 export type BridgeMessage =
   /** Once, first: every stored value. */
   | { readonly type: 'snapshot'; readonly values: Record<string, string> }
-  /** Each change made elsewhere, such as another tab. The page skips values it already holds. */
+  /** Each change made elsewhere: the toolbar popup, another tab. The page skips values it holds. */
   | { readonly type: 'changes'; readonly changes: Record<string, string | null> }
   /**
    * The answer to a `sync`: every stored value, read after all earlier writes were stored. `null`

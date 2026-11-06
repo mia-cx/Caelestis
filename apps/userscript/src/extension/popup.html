@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Caelestis</title>
+    <style>
+      /* Wplace's own theme variables, which the Caelestis components read through their tokens. */
+      :root {
+        color-scheme: light;
+        --color-base-100: #ffffff;
+        --color-base-200: #f2f7fe;
+        --color-base-300: #e3e9f4;
+        --color-base-content: #394e6a;
+        --color-primary: #0069ff;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          color-scheme: dark;
+          --color-base-100: oklch(0.27 0.025 264);
+          --color-base-200: oklch(0.32 0.025 264);
+          --color-base-300: oklch(0.38 0.025 264);
+          --color-base-content: oklch(0.91 0.015 264);
+          --color-primary: oklch(0.68 0.15 244);
+        }
+      }
+      body {
+        inline-size: 22rem;
+        margin: 0;
+        background: var(--color-base-100);
+        color: var(--color-base-content);
+      }
+    </style>
+  </head>
+  <body>
+    <script src="popup.js"></script>
+  </body>
+</html>

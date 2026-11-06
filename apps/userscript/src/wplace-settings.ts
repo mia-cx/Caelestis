@@ -16,7 +16,7 @@
  */
 
 import { log } from './debug.js'
-import { storedValue, storeValue } from './stored-values.js'
+import { onStoredValueChange, storedValue, storeValue } from './stored-values.js'
 import { CURSORS_ATTRIBUTE } from './wplace-cursors.js'
 import { FALSETYPE_ATTRIBUTE } from './wplace-font.js'
 
@@ -24,14 +24,18 @@ const STORAGE_KEY = 'caelestis.wplace-options.v1'
 const PANEL_ID = 'settings-panel-accessibility'
 const ROW_MARKER = 'data-caelestis-option'
 
-interface Prefs {
+/** Caelestis's Accessibility switches, also shown in the extension's toolbar popup. */
+export interface WplaceOptions {
   falseType: boolean
   cursors: boolean
 }
 
+type Prefs = WplaceOptions
+
 const DEFAULTS: Prefs = { falseType: true, cursors: true }
 
-const readPrefs = (): Prefs => {
+/** The stored Accessibility switches. */
+export const wplaceOptions = (): WplaceOptions => {
   try {
     const parsed: unknown = JSON.parse(storedValue(STORAGE_KEY) ?? '{}')
     if (typeof parsed !== 'object' || parsed === null) return { ...DEFAULTS }
@@ -52,6 +56,11 @@ const writePrefs = (prefs: Prefs): void => {
   } catch {
     // The switch still applies for this session.
   }
+}
+
+/** Change one Accessibility switch in storage; open tabs apply it from there. */
+export const setWplaceOption = (key: keyof WplaceOptions, value: boolean): void => {
+  writePrefs({ ...wplaceOptions(), [key]: value })
 }
 
 interface Row {
@@ -93,7 +102,7 @@ const ROWS: readonly Row[] = [
  * removes our rows and attributes, for tests.
  */
 export const installWplaceSettings = (): (() => void) => {
-  const prefs = readPrefs()
+  const prefs = wplaceOptions()
 
   const applyAttributes = (): void => {
     const root = document.documentElement
@@ -161,6 +170,14 @@ export const installWplaceSettings = (): (() => void) => {
   applyAttributes()
   syncRows()
 
+  // Switched in the extension's toolbar popup or another tab.
+  const stopWatching = onStoredValueChange((key) => {
+    if (key !== STORAGE_KEY) return
+    Object.assign(prefs, wplaceOptions())
+    applyAttributes()
+    syncRows()
+  })
+
   const observer = new MutationObserver(() => {
     applyAttributes()
     syncRows()
@@ -173,6 +190,7 @@ export const installWplaceSettings = (): (() => void) => {
   })
 
   return () => {
+    stopWatching()
     observer.disconnect()
     const root = document.documentElement
     for (const row of ROWS) {

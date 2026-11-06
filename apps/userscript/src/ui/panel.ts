@@ -69,6 +69,7 @@ import { onArtboardPixelsChange } from '../gl/artboard-pixels.js'
 import { consumeInvite } from '../invite.js'
 import { redraw } from '../main.js'
 import { MARKER_BUDGET_OPTIONS } from '../marker-budget.js'
+import { runningBuild } from '../page-claim.js'
 import { onPresenceChange } from '../presence-client.js'
 import {
   isProfileEnabled,
@@ -105,6 +106,7 @@ import {
   setSurfaceAppearance,
   upsertServer,
 } from '../state.js'
+import { onStoredValueChange } from '../stored-values.js'
 import { onServerAlarmChange, onServerStatusChange } from '../telemetry.js'
 import {
   APPEARANCE_CONTROLS,
@@ -597,8 +599,10 @@ const settingsModel = (): SettingsModel => {
     }
   }
   const snapshot = isProfileEnabled() ? profileSnapshot() : null
+  const extension = runningBuild() === 'extension'
   return {
     userscriptVersion,
+    build: runningBuild(),
     servers: state.servers.map((server) => {
       const message = settingsMessages.get(server.url)
       const info = server.info
@@ -635,7 +639,8 @@ const settingsModel = (): SettingsModel => {
     showPresenceClaimsOnlyWhilePainting: state.showPresenceClaimsOnlyWhilePainting,
     notifyRegressions: state.notifyRegressions,
     notifyGriefing: state.notifyGriefing,
-    notifyUpdates: state.notifyUpdates,
+    // The extension's store updates it, so there is no update notification to switch.
+    notifyUpdates: extension ? undefined : state.notifyUpdates,
     notifyActivity: state.notifyActivity,
     shortcuts: {
       platform: currentShortcutPlatform(),
@@ -1796,6 +1801,8 @@ export const installPanel = (): void => {
   onAllianceManifestChange(refreshView)
   // A patch switched from the console must not leave an open settings view showing the old state.
   onWplacePatchChange(refreshSettings)
+  // The same for any setting changed in the extension's toolbar popup or another tab.
+  onStoredValueChange(refreshSettings)
   onActiveAllianceSurfaceChange(selectAlliancePanelSurface)
   onArtboardPixelsChange(() => {
     if (currentView() === 'tree' && panelSurface.kind !== 'world') refreshView()

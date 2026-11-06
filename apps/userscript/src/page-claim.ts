@@ -5,6 +5,11 @@ export type Build = 'userscript' | 'extension'
 
 const CLAIM = '__caelestisBuild'
 
+let running: Build = 'userscript'
+
+/** The build this copy of Caelestis belongs to. */
+export const runningBuild = (): Build => running
+
 /**
  * Claim the page for this copy of Caelestis, or report that another copy already has.
  *
@@ -22,5 +27,6 @@ export const claimPage = (build: Build): boolean => {
     return false
   }
   Object.defineProperty(page, CLAIM, { value: build, enumerable: false })
+  running = build
   return true
 }

@@ -19,3 +19,12 @@ shared key-capture attribute so the userscript fires no shortcut, and Escape can
 modifier waits for the rest of the chord. The section header holds one Reset action, enabled only
 while any binding differs from its default. One status line under the list names the action that
 lost a key when a chord moved.
+
+# Global settings
+
+`GlobalSettings.svelte` holds the sections that apply to every Wplace tab: Notifications,
+Contribution, Painters, Wplace performance, Diagnostics, and Accessibility. The Settings view places
+each between its own sections; the extension's toolbar popup (`caelestis-extension-settings`) shows
+them in that order under a version line, with the same rows and copy. Accessibility appears only in
+the popup, because on the page those switches live in Wplace's own Accessibility settings. The
+Userscript updates row is absent wherever the model leaves `notifyUpdates` out, as the extension does.

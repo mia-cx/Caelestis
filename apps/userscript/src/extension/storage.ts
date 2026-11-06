@@ -1,5 +1,5 @@
 /**
- * The slice of `chrome.storage.local` the extension uses, as plain strings: the only values
+ * The slice of `chrome.storage.local` the extension's bridge and popup use, as plain strings: the only values
  * Caelestis stores.
  */
 
