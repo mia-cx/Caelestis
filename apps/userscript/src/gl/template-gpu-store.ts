@@ -45,26 +45,24 @@ export interface TemplateGpuTile extends GpuTilePlacement {
   readonly texture: WebGLTexture
 }
 
-interface PendingTemplateGpuTile extends GpuTilePlacement {
+interface UploadingTile extends GpuTilePlacement {
   texture: WebGLTexture | null
   uploadedPixels: number
 }
 
-interface PendingTemplateGpu {
+/** The chunks of one entry still on their way to the GPU. */
+interface TemplateGpuUpload {
   /** Age is observed only while profiling; a pre-existing queue starts at its first profiled advance. */
   observedAt: number | null
   profileWindow: number | null
-  readonly indices: readonly PendingTemplateGpuTile[]
-  readonly palette: WebGLTexture
-  readonly width: number
-  readonly height: number
-  readonly source: TemplateArtwork
+  /** Unfinished chunks in plan order; each leaves for its entry's `indices` once fully uploaded. */
+  readonly queue: UploadingTile[]
   /** Held only while uploading; a finished entry keeps no CPU copy of the pixels. */
   readonly pixels: SparsePixels
-  lastUsed: number
 }
 
 export interface TemplateGpuEntry {
+  /** Fully uploaded chunks only. While an upload is in progress, the rest arrive here as they finish. */
   readonly indices: readonly TemplateGpuTile[]
   readonly palette: WebGLTexture
   readonly width: number
@@ -75,7 +73,16 @@ export interface TemplateGpuEntry {
   paletteData: Uint8Array | null
 }
 
+/** A rectangle in template coordinates. */
+export interface TemplateRect {
+  readonly x: number
+  readonly y: number
+  readonly width: number
+  readonly height: number
+}
+
 export interface TemplateGpuAdvance {
+  /** What can be drawn now: every chunk when complete, the finished ones while pending. */
   readonly entry: TemplateGpuEntry | null
   readonly status: 'complete' | 'pending' | 'failed'
   readonly uploadedPixels: number
@@ -83,9 +90,37 @@ export interface TemplateGpuAdvance {
 
 type TemplateSource = Pick<PlacedTemplate, 'id' | 'width' | 'height' | 'artwork'>
 
-const entryBytes = (entry: TemplateGpuEntry | PendingTemplateGpu): number =>
+interface GrowingTemplateGpuEntry extends TemplateGpuEntry {
+  readonly indices: TemplateGpuTile[]
+}
+
+interface StoredTemplateGpu {
+  readonly entry: GrowingTemplateGpuEntry
+  /** Null once every chunk has reached the entry. */
+  upload: TemplateGpuUpload | null
+}
+
+const textureBytes = (tiles: readonly GpuTilePlacement[]): number =>
+  tiles.reduce((total, tile) => total + tile.textureWidth * tile.textureHeight, 0)
+
+const storedBytes = ({ entry, upload }: StoredTemplateGpu): number =>
   PALETTE_SIZE * 4 +
-  entry.indices.reduce((total, tile) => total + tile.textureWidth * tile.textureHeight, 0)
+  textureBytes(entry.indices) +
+  (upload === null ? 0 : textureBytes(upload.queue))
+
+const isCurrent = (entry: TemplateGpuEntry, template: TemplateSource): boolean =>
+  entry.source === template.artwork &&
+  entry.width === template.width &&
+  entry.height === template.height
+
+const overlaps = (tile: TemplateRect, rects: readonly TemplateRect[]): boolean =>
+  rects.some(
+    (rect) =>
+      rect.x < tile.x + tile.width &&
+      tile.x < rect.x + rect.width &&
+      rect.y < tile.y + tile.height &&
+      tile.y < rect.y + rect.height,
+  )
 
 /**
  * Owns palette-index textures for one WebGL context.
@@ -94,8 +129,7 @@ const entryBytes = (entry: TemplateGpuEntry | PendingTemplateGpu): number =>
  * progressive uploads, source replacement, and bounded warm caching behind one interface.
  */
 export class TemplateGpuStore {
-  private readonly complete = new Map<string, TemplateGpuEntry>()
-  private readonly pending = new Map<string, PendingTemplateGpu>()
+  private readonly stored = new Map<string, StoredTemplateGpu>()
   private readonly maximumTextureSize: number | null
 
   constructor(
@@ -114,23 +148,19 @@ export class TemplateGpuStore {
 
   memoryBytes(): number {
     let bytes = 0
-    for (const entry of this.complete.values()) bytes += entryBytes(entry)
-    for (const entry of this.pending.values()) bytes += entryBytes(entry)
+    for (const stored of this.stored.values()) bytes += storedBytes(stored)
     return bytes
   }
 
+  /** The drawable entry, possibly still uploading; see `TemplateGpuEntry.indices`. */
   entry(id: string): TemplateGpuEntry | null {
-    return this.complete.get(id) ?? null
+    return this.stored.get(id)?.entry ?? null
   }
 
+  /** Whether the template's current artwork is fully uploaded. */
   hasCurrent(template: TemplateSource): boolean {
-    const entry = this.complete.get(template.id)
-    return (
-      entry !== undefined &&
-      entry.source === template.artwork &&
-      entry.width === template.width &&
-      entry.height === template.height
-    )
+    const stored = this.stored.get(template.id)
+    return stored !== undefined && stored.upload === null && isCurrent(stored.entry, template)
   }
 
   uploadPalette(entry: TemplateGpuEntry, data: Uint8Array): void {
@@ -156,7 +186,7 @@ export class TemplateGpuStore {
   }
 
   /** Textures for the painted chunks only, each split further if the device cannot hold it. */
-  private plan(pixels: SparsePixels): readonly PendingTemplateGpuTile[] {
+  private plan(pixels: SparsePixels): UploadingTile[] {
     const rects: { x: number; y: number; width: number; height: number; inset: number }[] = []
     for (const chunk of pixels.chunks.values()) {
       const allocationLimit = this.textureLimit(chunk.width, chunk.height)
@@ -228,8 +258,8 @@ export class TemplateGpuStore {
   }
 
   private fill(
-    pending: PendingTemplateGpu,
-    tile: PendingTemplateGpuTile,
+    upload: TemplateGpuUpload,
+    tile: UploadingTile,
     uploadX: number,
     uploadY: number,
     uploadWidth: number,
@@ -237,7 +267,7 @@ export class TemplateGpuStore {
   ): Uint8Array {
     // The halo reads into neighbouring chunks, and reads transparent past the template's edges.
     return pixelRect(
-      pending.pixels,
+      upload.pixels,
       tile.x - tile.inset + uploadX,
       tile.y - tile.inset + uploadY,
       uploadWidth,
@@ -245,23 +275,36 @@ export class TemplateGpuStore {
     )
   }
 
-  private advanceUpload(pending: PendingTemplateGpu, allowance: number): TemplateGpuAdvance {
+  /**
+   * Spend up to `allowance` pixels on the queue, chunks overlapping `visible` first, and hand each
+   * chunk to the entry the moment its texture is whole. A texture is never drawn half-filled.
+   */
+  private advanceUpload(
+    entry: GrowingTemplateGpuEntry,
+    upload: TemplateGpuUpload,
+    allowance: number,
+    visible: readonly TemplateRect[],
+  ): { readonly uploadedPixels: number; readonly failed: boolean } {
     const gl = this.gl
     let left = Math.max(0, Math.floor(allowance))
     let uploadedPixels = 0
-    for (const tile of pending.indices) {
+    while (left > 0 && upload.queue.length > 0) {
+      // The first visible chunk, else the next in plan order.
+      const at = Math.max(
+        0,
+        upload.queue.findIndex((tile) => overlaps(tile, visible)),
+      )
+      const tile = upload.queue[at] as UploadingTile
       const total = tile.textureWidth * tile.textureHeight
-      if (tile.uploadedPixels >= total) continue
-      if (left === 0) return { entry: null, status: 'pending', uploadedPixels }
+      const texture = tile.texture ?? gl.createTexture()
+      if (texture === null) return { uploadedPixels, failed: true }
       if (tile.texture === null) {
-        const texture = gl.createTexture()
-        if (texture === null) return { entry: null, status: 'failed', uploadedPixels }
         tile.texture = texture
         measureProfileDetail('Overlay texture allocation', () =>
           this.allocate(texture, tile.textureWidth, tile.textureHeight),
         )
       }
-      gl.bindTexture(gl.TEXTURE_2D, tile.texture)
+      gl.bindTexture(gl.TEXTURE_2D, texture)
       gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1)
       while (tile.uploadedPixels < total && left > 0) {
         const uploadY = Math.floor(tile.uploadedPixels / tile.textureWidth)
@@ -276,7 +319,7 @@ export class TemplateGpuStore {
             : 1
         const count = uploadWidth * uploadHeight
         const pixels = measureProfileDetail('Overlay index staging', () =>
-          this.fill(pending, tile, uploadX, uploadY, uploadWidth, uploadHeight),
+          this.fill(upload, tile, uploadX, uploadY, uploadWidth, uploadHeight),
         )
         measureProfileDetail('Overlay index upload', () =>
           gl.texSubImage2D(
@@ -296,124 +339,105 @@ export class TemplateGpuStore {
         uploadedPixels += count
         left -= count
       }
+      if (tile.uploadedPixels < total) break
+      upload.queue.splice(at, 1)
+      const { uploadedPixels: _uploaded, texture: _pending, ...placement } = tile
+      entry.indices.push({ ...placement, texture })
     }
-
-    const indices: TemplateGpuTile[] = []
-    for (const tile of pending.indices) {
-      if (tile.texture === null || tile.uploadedPixels < tile.textureWidth * tile.textureHeight)
-        return { entry: null, status: 'pending', uploadedPixels }
-      const { uploadedPixels: _uploaded, texture, ...placement } = tile
-      indices.push({ ...placement, texture })
-    }
-    const entry: TemplateGpuEntry = {
-      indices,
-      palette: pending.palette,
-      width: pending.width,
-      height: pending.height,
-      source: pending.source,
-      lastUsed: pending.lastUsed,
-      paletteData: null,
-    }
-    return { entry, status: 'complete', uploadedPixels }
+    return { uploadedPixels, failed: false }
   }
 
-  advance(template: TemplateSource, allowance: number, generation: number): TemplateGpuAdvance {
-    let entry = this.complete.get(template.id)
-    let pending = this.pending.get(template.id)
-    const changed =
-      (entry !== undefined &&
-        (entry.source !== template.artwork ||
-          entry.width !== template.width ||
-          entry.height !== template.height)) ||
-      (pending !== undefined &&
-        (pending.source !== template.artwork ||
-          pending.width !== template.width ||
-          pending.height !== template.height))
-    if (changed) {
+  /**
+   * Upload up to `allowance` more pixels of the template and return what can be drawn.
+   *
+   * `visible` lists the parts of the template on screen, in template coordinates; chunks touching
+   * them upload before the rest. A pending result still carries every chunk finished so far.
+   */
+  advance(
+    template: TemplateSource,
+    allowance: number,
+    generation: number,
+    visible: readonly TemplateRect[] = [],
+  ): TemplateGpuAdvance {
+    let stored = this.stored.get(template.id)
+    if (stored !== undefined && !isCurrent(stored.entry, template)) {
       this.release(template.id)
-      entry = undefined
-      pending = undefined
+      stored = undefined
     }
-    if (entry !== undefined) {
-      entry.lastUsed = generation
-      return { entry, status: 'complete', uploadedPixels: 0 }
-    }
-    if (pending === undefined) {
+    if (stored === undefined) {
       const pixels = template.artwork.pixels
       // Evicted and never uploaded: nothing to draw until the pixels are back in memory.
       if (pixels === null) return { entry: null, status: 'pending', uploadedPixels: 0 }
       const palette = this.gl.createTexture()
       if (palette === null) return { entry: null, status: 'failed', uploadedPixels: 0 }
-      pending = {
-        observedAt: null,
-        profileWindow: null,
-        indices: measureProfileDetail('Overlay upload planning', () => this.plan(pixels)),
-        palette,
-        width: template.width,
-        height: template.height,
-        source: template.artwork,
-        pixels,
-        lastUsed: generation,
+      stored = {
+        entry: {
+          indices: [],
+          palette,
+          width: template.width,
+          height: template.height,
+          source: template.artwork,
+          lastUsed: generation,
+          paletteData: null,
+        },
+        upload: {
+          observedAt: null,
+          profileWindow: null,
+          queue: measureProfileDetail('Overlay upload planning', () => this.plan(pixels)),
+          pixels,
+        },
       }
-      this.pending.set(template.id, pending)
+      this.stored.set(template.id, stored)
     }
-    pending.lastUsed = generation
+    const { entry, upload } = stored
+    entry.lastUsed = generation
+    if (upload === null) return { entry, status: 'complete', uploadedPixels: 0 }
     if (isProfileEnabled()) {
       const now = performance.now()
-      if (pending.profileWindow !== profileWindowId()) pending.observedAt = null
-      pending.profileWindow = profileWindowId()
-      pending.observedAt ??= now
-      recordProfileWorkload('GPU observed upload queue age ms', now - pending.observedAt)
-      recordProfileWorkload('GPU pending templates', this.pending.size)
-    } else pending.observedAt = null
-    const advanced = this.advanceUpload(pending, allowance)
-    if (advanced.status === 'failed') {
+      if (upload.profileWindow !== profileWindowId()) upload.observedAt = null
+      upload.profileWindow = profileWindowId()
+      upload.observedAt ??= now
+      recordProfileWorkload('GPU observed upload queue age ms', now - upload.observedAt)
+      recordProfileWorkload(
+        'GPU pending templates',
+        [...this.stored.values()].filter((other) => other.upload !== null).length,
+      )
+    } else upload.observedAt = null
+    const { uploadedPixels, failed } = this.advanceUpload(entry, upload, allowance, visible)
+    if (failed) {
       this.release(template.id)
-      return advanced
+      return { entry: null, status: 'failed', uploadedPixels }
     }
-    if (advanced.entry === null) return advanced
-    this.pending.delete(template.id)
-    this.complete.set(template.id, advanced.entry)
-    return advanced
+    if (upload.queue.length > 0) return { entry, status: 'pending', uploadedPixels }
+    stored.upload = null
+    return { entry, status: 'complete', uploadedPixels }
   }
 
   release(id: string): void {
     measureProfileDetail('Overlay texture deletion', () => {
-      const existing = this.complete.get(id)
-      if (existing !== undefined) {
-        for (const tile of existing.indices) this.gl.deleteTexture(tile.texture)
-        this.gl.deleteTexture(existing.palette)
-        this.complete.delete(id)
-      }
-      const pending = this.pending.get(id)
-      if (pending !== undefined) {
+      const stored = this.stored.get(id)
+      if (stored === undefined) return
+      const { entry, upload } = stored
+      for (const tile of entry.indices) this.gl.deleteTexture(tile.texture)
+      if (upload !== null) {
         recordProfileCounter('gpu:pending uploads released')
-        for (const tile of pending.indices) {
+        for (const tile of upload.queue) {
           if (tile.texture !== null) this.gl.deleteTexture(tile.texture)
         }
-        this.gl.deleteTexture(pending.palette)
-        this.pending.delete(id)
       }
+      this.gl.deleteTexture(entry.palette)
+      this.stored.delete(id)
     })
   }
 
   collect(existing: ReadonlySet<string>, visible: ReadonlySet<string>): void {
-    const records = [...this.complete].map(([id, entry]) => ({
+    const records = [...this.stored].map(([id, stored]) => ({
       id,
-      bytes: entryBytes(entry),
-      lastUsed: entry.lastUsed,
+      bytes: storedBytes(stored),
+      lastUsed: stored.entry.lastUsed,
       visible: visible.has(id),
       exists: existing.has(id),
     }))
-    for (const [id, entry] of this.pending) {
-      records.push({
-        id,
-        bytes: entryBytes(entry),
-        lastUsed: entry.lastUsed,
-        visible: visible.has(id),
-        exists: existing.has(id),
-      })
-    }
     for (const id of gpuCacheEvictions(records, this.maximumBytes)) {
       recordProfileCounter('gpu:cache evictions')
       this.release(id)
@@ -421,6 +445,6 @@ export class TemplateGpuStore {
   }
 
   dispose(): void {
-    for (const id of new Set([...this.complete.keys(), ...this.pending.keys()])) this.release(id)
+    for (const id of [...this.stored.keys()]) this.release(id)
   }
 }
