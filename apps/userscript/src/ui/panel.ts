@@ -185,7 +185,7 @@ import {
   withTemplateClaims,
   workSectionModel,
 } from './work.js'
-import { findWplaceRail, wplaceButtonBelow } from './wplace-rail.js'
+import { findWplaceRail, onWplaceLayoutChange, wplaceButtonBelow } from './wplace-rail.js'
 
 /**
  * Our button on wplace's right-hand rail, and the panel it opens.
@@ -1702,6 +1702,14 @@ const place = (host: HTMLElement, children: readonly HTMLElement[]): void => {
   while (host.children.length > children.length) host.lastElementChild?.remove()
 }
 
+/** Write `top`/`right` only when they change, so an unmoved rail leaves layout clean. */
+const setFixedOffset = (el: HTMLElement, top: number, right: number): void => {
+  const topPx = `${top}px`
+  const rightPx = `${right}px`
+  if (el.style.top !== topPx) el.style.top = topPx
+  if (el.style.right !== rightPx) el.style.right = rightPx
+}
+
 /**
  * Keep our rail where wplace's is, and following it when it moves.
  *
@@ -1716,6 +1724,7 @@ const place = (host: HTMLElement, children: readonly HTMLElement[]): void => {
  */
 const positionRail = (): void => {
   const rail = railContainer()
+  // Every read comes before the first write, so measuring never forces a second layout.
   const theirs = findWplaceRail()?.getBoundingClientRect()
   const beside = theirs !== undefined && theirs.width > 0
   // Fixed-position offsets use the layout viewport, which excludes the page scrollbar.
@@ -1723,20 +1732,21 @@ const positionRail = (): void => {
   // Theirs is gone — the paint-drawer case — so ours takes its place at the same inset.
   const top = beside ? theirs.bottom + GAP : EDGE
   const right = beside ? viewportWidth - theirs.right : EDGE
-  rail.style.top = `${top}px`
-  rail.style.right = `${right}px`
   const columnRight = viewportWidth - right
   const below = wplaceButtonBelow({ left: columnRight - RAIL_BUTTON, right: columnRight, top })
   const floor = below === null ? window.innerHeight - EDGE : below - GAP
   const slots = Math.max(1, Math.floor((floor - top + GAP) / (RAIL_BUTTON + GAP)))
   const buttons = railButtons()
   const fits = slots >= buttons.length
+  setFixedOffset(rail, top, right)
   place(rail, fits ? buttons : [...buttons.slice(0, slots - 1), moreButton()])
   place(trayContainer(), fits ? [] : buttons.slice(slots - 1))
   if (fits) setTrayOpen(false)
-  const trayEl = trayContainer()
-  trayEl.style.top = `${top + (slots - 1) * (RAIL_BUTTON + GAP)}px`
-  trayEl.style.right = `${right + RAIL_BUTTON + GAP}px`
+  setFixedOffset(
+    trayContainer(),
+    top + (slots - 1) * (RAIL_BUTTON + GAP),
+    right + RAIL_BUTTON + GAP,
+  )
 }
 
 /**
@@ -1819,26 +1829,11 @@ export const installPanel = (): void => {
   log('install', 'rail installed beside wplace’s')
 
   // Their re-render may have taken our buttons if anything ever moves them; `positionRail` also
-  // puts every button back in its slot, so one call covers both.
-  const sync = (): void => {
+  // puts every button back in its slot, so one call covers both. Only Wplace's own DOM changes
+  // count, at most once per frame: ours moving would otherwise wake this again.
+  onWplaceLayoutChange(() => {
     positionRail()
     positionChargeForecast()
-  }
-  // Once per frame, not once per mutation. `sync` walks every button in the document looking for
-  // their rail and then measures it, and wplace is a live map that mutates its DOM continuously —
-  // so the unbatched version ran a full-document scan and forced a layout on every one of them.
-  let queued = false
-  const queueSync = (): void => {
-    if (queued) return
-    queued = true
-    requestAnimationFrame(() => {
-      queued = false
-      sync()
-    })
-  }
-  new MutationObserver(queueSync).observe(document.body, {
-    childList: true,
-    subtree: true,
   })
   window.addEventListener('resize', () => {
     closePanelForMobileDrawing()

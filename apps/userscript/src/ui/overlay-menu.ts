@@ -97,7 +97,7 @@ import { allianceRailTop } from './panel-scope.js'
 import { createRangeGestures } from './range-gestures.js'
 import { applyWplaceTheme } from './theme.js'
 import { PANEL_ID } from './toast.js'
-import { findWplaceRightControls } from './wplace-rail.js'
+import { findWplaceRightControls, onWplaceLayoutChange } from './wplace-rail.js'
 
 /**
  * The per-overlay menu, anchored to the overlay it configures.
@@ -182,6 +182,46 @@ const localControlsRightEdge = (): number => {
   )
 }
 
+/** The world controls' right edge, or null once something it was read from may have moved. */
+let worldRightEdge: number | null = null
+/** Until when every frame measures again: the panel drawer's open or close glide. */
+let trackRightEdgeUntil = 0
+let rightEdgeSizes: ResizeObserver | null = null
+let sizedForRightEdge: readonly Element[] = []
+
+const invalidateWorldRightEdge = (): void => {
+  worldRightEdge = null
+}
+
+/**
+ * {@link localControlsRightEdge}, measured only after a change that can move it: Wplace's DOM, a
+ * resize of the window or of a box it reads, or the panel's glide. Every map frame asks for it, and
+ * measuring after that frame's style writes forced a layout each time.
+ */
+const worldControlsRightEdge = (): number => {
+  if (worldRightEdge !== null && performance.now() >= trackRightEdgeUntil) return worldRightEdge
+  if (rightEdgeSizes === null) {
+    rightEdgeSizes = new ResizeObserver(invalidateWorldRightEdge)
+    onWplaceLayoutChange(invalidateWorldRightEdge)
+    window.addEventListener('resize', invalidateWorldRightEdge)
+  }
+  worldRightEdge = localControlsRightEdge()
+  const sized = [
+    findWplaceRightControls(),
+    document.getElementById('caelestis-alliance-rail'),
+    document.getElementById(PANEL_ID),
+  ].filter((element) => element !== null)
+  if (
+    sized.length !== sizedForRightEdge.length ||
+    sized.some((element, index) => element !== sizedForRightEdge[index])
+  ) {
+    rightEdgeSizes.disconnect()
+    for (const element of sized) rightEdgeSizes.observe(element)
+    sizedForRightEdge = sized
+  }
+  return worldRightEdge
+}
+
 /**
  * What a refused write is recorded against.
  *
@@ -237,6 +277,8 @@ export const glideOverlayControls = (durationMs: number): void => {
     clearTimeout(glideTimer)
     glideTimer = undefined
   }
+  trackRightEdgeUntil = performance.now() + Math.max(0, durationMs) + SETTLE_MARGIN_MS
+  invalidateWorldRightEdge()
   const controls = [
     ...buttons.values(),
     ...railActions,
@@ -1888,7 +1930,7 @@ const worldControlViewport = (): ControlViewport => ({
   clipBottom: window.innerHeight,
   left: 4,
   top: VIEWPORT_EDGE,
-  right: localControlsRightEdge(),
+  right: worldControlsRightEdge(),
   bottom: window.innerHeight - VIEWPORT_EDGE,
 })
 
