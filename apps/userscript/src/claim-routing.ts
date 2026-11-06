@@ -31,6 +31,7 @@ import {
 } from './presence-client.js'
 import type { ServerTemplate } from './server-cache.js'
 import { type ConnectedServer, onStateChange, serverConnectionIdentity } from './state.js'
+import { storedValue, storeValue } from './stored-values.js'
 import { accountIdentity } from './wplace-account.js'
 
 const STORAGE_KEY = 'caelestis.region-claims.v1'
@@ -636,23 +637,13 @@ export class ClaimRouter {
   }
 }
 
-const manager = globalThis as typeof globalThis & {
-  GM_getValue?: (key: string, fallback: string) => string
-  GM_setValue?: (key: string, value: string) => void
-}
 const retirementKey = (server: ConnectedServer): string =>
   `${STORAGE_KEY}.retired:${encodeURIComponent(server.url)}`
-const setRetired = (server: ConnectedServer, retired: boolean): void => {
-  const key = retirementKey(server)
-  const raw = JSON.stringify(retired)
-  if (manager.GM_setValue !== undefined) manager.GM_setValue(key, raw)
-  else localStorage.setItem(key, raw)
-}
+const setRetired = (server: ConnectedServer, retired: boolean): void =>
+  storeValue(retirementKey(server), JSON.stringify(retired))
 const load = (): Entry[] => {
   try {
-    const raw: unknown = JSON.parse(
-      manager.GM_getValue?.(STORAGE_KEY, '[]') ?? localStorage.getItem(STORAGE_KEY) ?? '[]',
-    )
+    const raw: unknown = JSON.parse(storedValue(STORAGE_KEY) ?? '[]')
     if (!Array.isArray(raw)) return []
     return raw.filter(
       (entry): entry is Entry =>
@@ -688,15 +679,9 @@ const localRouter = (): ClaimRouter =>
       templates: (server, region) => rowsForSurface(server, region.surface)?.templates,
       claims: presenceServerClaims,
       actor: accountIdentity,
-      persist: (entries) => {
-        const raw = JSON.stringify(entries)
-        if (manager.GM_setValue !== undefined) manager.GM_setValue(STORAGE_KEY, raw)
-        else localStorage.setItem(STORAGE_KEY, raw)
-      },
+      persist: (entries) => storeValue(STORAGE_KEY, JSON.stringify(entries)),
       saved: load,
-      retired: (server) =>
-        (manager.GM_getValue?.(retirementKey(server), 'false') ??
-          localStorage.getItem(retirementKey(server))) === 'true',
+      retired: (server) => storedValue(retirementKey(server)) === 'true',
       retire: (server) => setRetired(server, true),
       put: (server, region, signal) =>
         claimRegion(

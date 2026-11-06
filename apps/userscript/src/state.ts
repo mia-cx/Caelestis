@@ -50,6 +50,7 @@ import {
   type ServerApiVersion,
   serverEndpoint,
 } from './server-url.js'
+import { storedValue, storeValue } from './stored-values.js'
 import {
   APPEARANCE_GROUPS,
   type Appearance,
@@ -64,8 +65,8 @@ import { DEFAULT_SORT, type SortOrder } from './ui/sort.js'
 /**
  * Everything the panel remembers between sessions.
  *
- * Stored through the userscript manager when it is there, and `localStorage` when it is not — which
- * is the case under the CDP dev harness, and for a `@grant none` build.
+ * Kept in stored values (`stored-values.ts`): the userscript manager's storage when it is there, and
+ * `localStorage` when it is not, which is the case under the CDP dev harness.
  *
  * **Access tokens are a known weak point.** `localStorage` on wplace.live is readable by wplace's
  * own scripts and by every other userscript on the page. `GM_setValue` is not, which is the whole
@@ -301,19 +302,14 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 export { canonicalServerUrl, serverEndpoint } from './server-url.js'
 
-// biome-ignore lint/suspicious/noExplicitAny: the GM_* API only exists under a userscript manager
-const gm = globalThis as any
-
 const readRaw = (): {
   readonly value: string
   readonly legacyPalette: boolean
 } | null => {
   try {
-    const read = (key: string): string | null =>
-      typeof gm.GM_getValue === 'function' ? gm.GM_getValue(key, null) : localStorage.getItem(key)
-    const current = read(STORAGE_KEY)
+    const current = storedValue(STORAGE_KEY)
     if (current !== null) return { value: current, legacyPalette: false }
-    const legacy = read(LEGACY_STORAGE_KEY)
+    const legacy = storedValue(LEGACY_STORAGE_KEY)
     return legacy === null ? null : { value: legacy, legacyPalette: true }
   } catch (error) {
     warn('install', 'could not read stored state', String(error))
@@ -323,8 +319,7 @@ const readRaw = (): {
 
 const writeRaw = (value: string): boolean => {
   try {
-    if (typeof gm.GM_setValue === 'function') gm.GM_setValue(STORAGE_KEY, value)
-    else localStorage.setItem(STORAGE_KEY, value)
+    storeValue(STORAGE_KEY, value)
     return true
   } catch (error) {
     warn('install', 'could not persist state', String(error))

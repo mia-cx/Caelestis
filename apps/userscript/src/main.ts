@@ -291,11 +291,20 @@ const step = (what: string, run: () => void): void => {
 
 /** Install the userscript once when its browser entrypoint runs. */
 export const startUserscript = (): void => {
+  installPageHooks()
+  installFeatures()
+}
+
+/**
+ * Everything that must be in place before Wplace's own modules evaluate: the traps on its fetches,
+ * state and map. Nothing here reads stored values except the debug flag, so a build whose stored
+ * values arrive asynchronously can run this synchronously at document start.
+ */
+const installPageHooks = (): void => {
   step('shared UI', registerCaelestisUi)
   step('FalseType font', installWplaceFont)
   step('Caelestis cursors', installWplaceCursors)
   registerProfileContextSource(readProfileContext)
-  step('performance profile', installProfile)
   registerProfileMemorySource('Template pixels', templateIndexMemoryBytes)
   registerProfileMemorySource('Captured tile pixels', capturedPixelMemoryBytes)
   registerProfileMemorySource('Mismatch cache', pixelAccounting.memoryBytes)
@@ -310,7 +319,6 @@ export const startUserscript = (): void => {
   // These traps must be armed before Wplace's modules evaluate or MapLibre constructs its Map.
   step('service-worker tile refresh tap', () => installServiceWorkerTap())
   step('wplace state capture', installWplaceStateCapture)
-  step('Wplace settings', installWplaceSettings)
   step('Wplace messages', () => void installWplaceMessages())
   step('map capture', installMapCapture)
   step('alliance surface observer', installAllianceSurfaceObserver)
@@ -390,6 +398,12 @@ export const startUserscript = (): void => {
     })
   })
   step('tile capture', install)
+}
+
+/** Everything that reads stored values, which runs once they are loaded. */
+const installFeatures = (): void => {
+  step('performance profile', installProfile)
+  step('Wplace settings', installWplaceSettings)
   /**
    * Settings and connected servers, before anything reads either.
    *

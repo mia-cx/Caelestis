@@ -1,4 +1,5 @@
 import { count, log } from './debug.js'
+import { storedValue, storeValue } from './stored-values.js'
 import { patchTileRefresh } from './wplace-tile-refresh.js'
 
 /**
@@ -43,20 +44,13 @@ export type WplacePatch = keyof typeof WPLACE_PATCHES
 
 const STORAGE_KEY = 'caelestis.wplace-patches.v1'
 
-// biome-ignore lint/suspicious/noExplicitAny: userscript-manager APIs exist only in their sandbox
-const gm = globalThis as any
-
 export const isWplacePatch = (value: unknown): value is WplacePatch =>
   typeof value === 'string' && Object.hasOwn(WPLACE_PATCHES, value)
 
 /** The stored value is the list of patches switched off, so a new patch starts on. */
 const readDisabled = (): Set<WplacePatch> => {
   try {
-    const raw =
-      typeof gm.GM_getValue === 'function'
-        ? gm.GM_getValue(STORAGE_KEY, '[]')
-        : (globalThis.localStorage?.getItem(STORAGE_KEY) ?? '[]')
-    const parsed: unknown = JSON.parse(raw)
+    const parsed: unknown = JSON.parse(storedValue(STORAGE_KEY) ?? '[]')
     return new Set(Array.isArray(parsed) ? parsed.filter(isWplacePatch) : [])
   } catch {
     return new Set()
@@ -65,9 +59,7 @@ const readDisabled = (): Set<WplacePatch> => {
 
 const writeDisabled = (disabled: ReadonlySet<WplacePatch>): void => {
   try {
-    const raw = JSON.stringify([...disabled])
-    if (typeof gm.GM_setValue === 'function') gm.GM_setValue(STORAGE_KEY, raw)
-    else globalThis.localStorage?.setItem(STORAGE_KEY, raw)
+    storeValue(STORAGE_KEY, JSON.stringify([...disabled]))
   } catch {
     // The switch still applies for this session.
   }

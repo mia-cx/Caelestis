@@ -1,4 +1,5 @@
 import type { ProfileContext } from './profile-context.js'
+import { deleteStoredValue, storedValue, storeValue } from './stored-values.js'
 
 export type ProfileKind = 'main' | 'worker' | 'gpu' | 'detail'
 
@@ -320,8 +321,8 @@ export const setProfileEnabled = (on: boolean): void => {
   if (enabled === on) return
   enabled = on
   try {
-    if (on) localStorage.setItem(PROFILE_KEY, '1')
-    else localStorage.removeItem(PROFILE_KEY)
+    if (on) storeValue(PROFILE_KEY, '1')
+    else deleteStoredValue(PROFILE_KEY)
   } catch {}
   if (on) {
     resetProfile()
@@ -334,7 +335,7 @@ export const setProfileEnabled = (on: boolean): void => {
 export const installProfile = (): void => {
   let on = false
   try {
-    on = localStorage.getItem(PROFILE_KEY) === '1'
+    on = storedValue(PROFILE_KEY) === '1'
   } catch {}
   setProfileEnabled(on)
 }
