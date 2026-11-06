@@ -117,12 +117,20 @@ export interface TemplateStudioModel {
     readonly url: string
   } | null
   readonly loadingSource: boolean
+  /** The part of the source the template uses, in source pixels. */
   readonly crop: StudioRect
+  /**
+   * Crop mode: the crop being drawn on the map, applied only on Apply, and the box around the
+   * source's opaque pixels, which Trim crops to (null when nothing is transparent at the edges).
+   */
+  readonly cropping: { readonly draft: StudioRect; readonly content: StudioRect | null } | null
   readonly output: {
     readonly width: number
     readonly height: number
     /** Output size over crop size, on the crop's longer side. */
     readonly scale: number
+    /** Typing one side changes the other with it, keeping the output's proportions. */
+    readonly keepProportions: boolean
     readonly resize: ResizeId
     readonly anchor: ResizeAnchor
     /** A replacement keeps its template's size. */
@@ -177,11 +185,15 @@ export type TemplateStudioIntent =
   | { readonly type: 'file'; readonly file: File }
   | { readonly type: 'paste' }
   | { readonly type: 'url'; readonly url: string }
-  | { readonly type: 'crop'; readonly crop: StudioRect }
-  | { readonly type: 'reset-crop' }
+  /** Enter crop mode, or leave it discarding the crop being drawn. */
+  | { readonly type: 'crop-mode'; readonly on: boolean }
+  | { readonly type: 'crop-draft'; readonly crop: StudioRect }
+  /** Use the crop being drawn, and leave crop mode. */
+  | { readonly type: 'crop-apply' }
   | { readonly type: 'scale'; readonly scale: number }
-  /** One side in output pixels; the other follows the crop's proportions. */
+  /** One side in output pixels; the other follows it while proportions are kept. */
   | { readonly type: 'size'; readonly side: 'width' | 'height'; readonly pixels: number }
+  | { readonly type: 'keep-proportions'; readonly on: boolean }
   | { readonly type: 'resize'; readonly resize: ResizeId }
   | { readonly type: 'anchor'; readonly anchor: ResizeAnchor }
   | { readonly type: 'scope'; readonly scope: StudioPaletteScope }

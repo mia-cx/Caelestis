@@ -17,7 +17,7 @@
     selectPanel,
     togglePanel,
   } from './layout.js'
-  import { STUDIO_WINDOWS, type StudioFrame, type StudioLayout, type StudioNode, type StudioWindowId, type TemplateStudioIntent, type TemplateStudioModel } from './model.js'
+  import { STUDIO_WINDOWS, type StudioFrame, type StudioLayout, type StudioNode, type StudioRect, type StudioWindowId, type TemplateStudioIntent, type TemplateStudioModel } from './model.js'
   import StudioStyles from './StudioStyles.svelte'
   import StudioWindow from './StudioWindow.svelte'
   import ColorSpaceWindow from './windows/ColorSpaceWindow.svelte'
@@ -184,13 +184,42 @@
   let sheet = $state<StudioWindowId | null>('source')
   const pickSheet = (id: StudioWindowId): void => { sheet = sheet === id ? null : id }
 
-  /* Windows menu. */
+  /* Panels menu, and crop mode's keys: Enter applies the crop, Escape discards it. */
   let menuOpen = $state(false)
+  const inField = (event: Event): boolean =>
+    event.composedPath().some((node) => node instanceof HTMLElement && node.matches('input, select, textarea'))
   const onWindowKeydown = (event: KeyboardEvent): void => {
-    if (event.key !== 'Escape' || !menuOpen) return
+    if (event.key === 'Escape' && menuOpen) {
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      menuOpen = false
+      return
+    }
+    if (model.cropping === null || (event.key !== 'Escape' && event.key !== 'Enter')) return
+    if (event.key === 'Enter' && inField(event)) return
     event.preventDefault()
     event.stopImmediatePropagation()
-    menuOpen = false
+    onIntent(event.key === 'Enter' ? { type: 'crop-apply' } : { type: 'crop-mode', on: false })
+  }
+
+  /* An image dropped anywhere over the studio becomes its source. */
+  let dropping = $state(false)
+  const carriesFiles = (event: DragEvent): boolean => event.dataTransfer?.types.includes('Files') === true
+  const onWindowDragover = (event: DragEvent): void => {
+    if (!carriesFiles(event) || model.pending) return
+    event.preventDefault()
+    dropping = true
+  }
+  const onWindowDragleave = (event: DragEvent): void => {
+    if (event.relatedTarget === null) dropping = false
+  }
+  const onWindowDrop = (event: DragEvent): void => {
+    dropping = false
+    // The Source window's own drop zone answers first.
+    if (event.defaultPrevented || !carriesFiles(event)) return
+    event.preventDefault()
+    const file = [...(event.dataTransfer?.files ?? [])].find((candidate) => candidate.type.startsWith('image/'))
+    if (file !== undefined && !model.pending) onIntent({ type: 'file', file })
   }
   const onWindowPointerdown = (event: PointerEvent): void => {
     if (menuOpen && !event.composedPath().some((node) => node instanceof Element && node.classList.contains('windows'))) menuOpen = false
@@ -209,17 +238,42 @@
       case 'failed':
         return processing.message
       case 'ready':
-        return `${model.output.width} × ${model.output.height} · ${processing.pixels.toLocaleString()} px · ${processing.colours === 1 ? '1 colour' : `${processing.colours} colours`}`
+        return `${model.output.width} × ${model.output.height} · ${processing.colours === 1 ? '1 colour' : `${processing.colours} colours`}`
       default:
         return ''
     }
   })
+  /** Pixels to paint and the engine that made them, for whoever wonders. */
+  const statusDetail = $derived(
+    model.processing.state === 'ready' && model.engine !== null
+      ? `${model.processing.pixels.toLocaleString()} pixels to paint · processed on the ${model.engine.toUpperCase()}`
+      : undefined,
+  )
+
+  /* Crop mode's fields edit the crop being drawn. */
+  const CROP_FIELDS = [['x', 'X'], ['y', 'Y'], ['width', 'W'], ['height', 'H']] as const
+  const setCropField = (field: (typeof CROP_FIELDS)[number][0], value: number): void => {
+    if (model.cropping === null || !Number.isFinite(value)) return
+    onIntent({ type: 'crop-draft', crop: { ...model.cropping.draft, [field]: Math.round(value) } })
+  }
+  const wholeImage = $derived(model.source === null ? null : { x: 0, y: 0, width: model.source.width, height: model.source.height })
+  const sameRect = (left: StudioRect | null, right: StudioRect | null): boolean =>
+    left !== null && right !== null && left.x === right.x && left.y === right.y && left.width === right.width && left.height === right.height
   const canSave = $derived(
     !model.pending && !model.loadingSource && model.processing.state === 'ready' && model.processing.pixels > 0 && model.name.trim() !== '',
   )
 </script>
 
-<svelte:window onpointermove={moveDrag} onpointerup={endDrag} onpointercancel={cancelDrag} onkeydowncapture={onWindowKeydown} onpointerdowncapture={onWindowPointerdown} />
+<svelte:window
+  onpointermove={moveDrag}
+  onpointerup={endDrag}
+  onpointercancel={cancelDrag}
+  onkeydowncapture={onWindowKeydown}
+  onpointerdowncapture={onWindowPointerdown}
+  ondragover={onWindowDragover}
+  ondragleave={onWindowDragleave}
+  ondrop={onWindowDrop}
+/>
 
 {#snippet contents(id: StudioWindowId)}
   {#if id === 'source'}
@@ -290,6 +344,42 @@
 {/snippet}
 
 <div class="studio" bind:this={root} aria-label="Template studio">
+  {#if model.cropping !== null}
+    {@const draft = model.cropping.draft}
+    {@const content = model.cropping.content}
+    <div class="bar caelestis-surface" role="toolbar" aria-label="Crop">
+      <div class="crop-fields">
+        {#each CROP_FIELDS as [field, label] (field)}
+          <label class="number">
+            <span>{label}</span>
+            <input
+              class="caelestis-field"
+              type="number"
+              inputmode="numeric"
+              min={field === 'width' || field === 'height' ? 1 : 0}
+              value={draft[field]}
+              disabled={field === 'height' && model.output.locked}
+              onkeydown={(event) => { if (event.key === 'Enter') event.currentTarget.blur() }}
+              onchange={(event) => {
+                setCropField(field, event.currentTarget.valueAsNumber)
+                event.currentTarget.value = String(model.cropping?.draft[field] ?? draft[field])
+              }}
+            />
+          </label>
+        {/each}
+      </div>
+      <div class="group">
+        <Button label="Whole image" kind="ghost" size="small" disabled={sameRect(draft, wholeImage)} onclick={() => { if (wholeImage !== null) onIntent({ type: 'crop-draft', crop: wholeImage }) }} />
+        {#if content !== null}
+          <Button label="Trim" title="Crop to the opaque pixels" kind="ghost" size="small" disabled={sameRect(draft, content)} onclick={() => onIntent({ type: 'crop-draft', crop: content })} />
+        {/if}
+      </div>
+      <div class="actions">
+        <Button label="Cancel" kind="ghost" size="small" onclick={() => onIntent({ type: 'crop-mode', on: false })} />
+        <Button label="Apply crop" kind="primary" size="small" disabled={sameRect(draft, model.crop)} onclick={() => onIntent({ type: 'crop-apply' })} />
+      </div>
+    </div>
+  {:else}
   <div class="bar caelestis-surface" role="toolbar" aria-label={replacing ? 'Replace template' : 'New template'}>
     <input
       class="name caelestis-field"
@@ -300,10 +390,9 @@
       disabled={model.pending}
       oninput={(event) => onIntent({ type: 'name', name: event.currentTarget.value })}
     />
-    <p class="status" class:failed={model.processing.state === 'failed' || model.message !== undefined} aria-live="polite">
-      {status}{#if model.engine !== null && model.source !== null}<span class="engine">{model.engine === 'gpu' ? 'GPU' : 'CPU'}</span>{/if}
-    </p>
-    <div class="history">
+    <p class="status" class:failed={model.processing.state === 'failed' || model.message !== undefined} title={statusDetail} aria-live="polite">{status}</p>
+    <Button label="Crop" kind="ghost" size="small" disabled={model.source === null || model.pending} onclick={() => onIntent({ type: 'crop-mode', on: true })} />
+    <div class="group">
       <Button label="Undo" title="Undo" kind="ghost" size="compact" iconOnly disabled={model.pending || !model.history.undo} onclick={() => onIntent({ type: 'undo' })}>
         <Icon name="undo" />
       </Button>
@@ -312,11 +401,9 @@
       </Button>
     </div>
     <div class="windows" hidden={phone}>
-      <Button label="Windows" title="Windows" kind="ghost" size="compact" iconOnly popup="menu" pressed={menuOpen} onclick={() => (menuOpen = !menuOpen)}>
-        <Icon name="gridView" />
-      </Button>
+      <Button label="Panels" kind="ghost" size="small" popup="menu" pressed={menuOpen} onclick={() => (menuOpen = !menuOpen)} />
       {#if menuOpen}
-        <div class="menu caelestis-menu" role="menu" aria-label="Windows">
+        <div class="menu caelestis-menu" role="menu" aria-label="Panels">
           {#each STUDIO_WINDOWS as window (window.id)}
             {@const open = isOpen(layout, window.id)}
             <button
@@ -338,6 +425,11 @@
       <Button label={replacing ? 'Replace template' : 'Save'} kind="primary" size="small" disabled={!canSave} onclick={() => onIntent({ type: 'save' })} />
     </div>
   </div>
+  {/if}
+
+  {#if dropping}
+    <div class="dropping" aria-hidden="true"><p class="caelestis-surface">Drop to use this image</p></div>
+  {/if}
 
   {#if phone}
     <div class="sheet caelestis-panel-surface">
@@ -429,10 +521,9 @@
   :host([data-state='open']) .bar { translate: 0 0; opacity: 1; }
   :host([data-state='closing']) .bar { translate: 0 calc(-100% - var(--studio-inset)); opacity: 0; pointer-events: none; transition-duration: var(--caelestis-duration-fast); }
   .name { inline-size: 12rem; min-inline-size: 6rem; flex: 0 1 auto; }
+  /* A fixed slot, so the bar keeps its size while the readout changes. */
   .status {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
+    flex: 0 1 12.5rem;
     min-inline-size: 0;
     margin: 0;
     overflow: hidden;
@@ -441,15 +532,30 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .status.failed { color: var(--caelestis-danger, oklch(0.58 0.2 27)); }
-  .engine {
-    padding: 0 0.3rem;
+  .status.failed { color: var(--caelestis-danger, oklch(0.58 0.2 27)); white-space: normal; }
+  .group { display: flex; flex: 0 0 auto; gap: 0.125rem; }
+  .bar > .group, .bar > .windows, .bar > .actions { padding-inline-start: 0.5rem; border-inline-start: 1px solid var(--caelestis-border); }
+  .crop-fields { display: flex; gap: 0.5rem; }
+  .crop-fields .number { gap: 0.3rem; color: var(--caelestis-muted-text); font-weight: 600; }
+  .crop-fields input { inline-size: 4.75rem; }
+  .dropping {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    background: color-mix(in oklab, var(--caelestis-primary, oklch(0.68 0.15 244)) 14%, transparent);
+    outline: 3px dashed var(--caelestis-primary, oklch(0.68 0.15 244));
+    outline-offset: -12px;
+    pointer-events: none;
+  }
+  .dropping p {
+    margin: 0;
+    padding: 0.75rem 1.25rem;
     border: 1px solid var(--caelestis-border);
-    border-radius: var(--caelestis-pill-radius, 999px);
-    font-size: 0.6875rem;
+    border-radius: var(--caelestis-radius, 0.7rem);
+    background: var(--caelestis-surface, white);
     font-weight: 600;
   }
-  .history { display: flex; flex: 0 0 auto; }
   .windows { position: relative; flex: 0 0 auto; }
   .menu { position: absolute; inset-block-start: calc(100% + 6px); inset-inline-end: 0; z-index: 2; display: flex; flex-direction: column; min-inline-size: 11rem; }
   .menu button { display: flex; align-items: center; gap: 0.4rem; }

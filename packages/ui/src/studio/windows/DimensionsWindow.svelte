@@ -1,5 +1,6 @@
 <script lang="ts">
   import Button from '../../foundations/Button.svelte'
+  import Checkbox from '../../foundations/Checkbox.svelte'
   import MenuStyles from '../../foundations/MenuStyles.svelte'
   import type { TemplateStudioIntent, TemplateStudioModel } from '../model.js'
   import { ANCHORS, RESIZE_MODES, type ResizeAnchor, type ResizeId } from '../options.js'
@@ -81,6 +82,14 @@
 {/each}
 {#if output.locked}
   <p class="hint">A new version keeps the template’s size.</p>
+{:else}
+  <label class="field-row keep">
+    <span></span>
+    <span class="check">
+      <Checkbox checked={output.keepProportions} {disabled} onChange={(on) => onIntent({ type: 'keep-proportions', on })} />
+      Keep proportions
+    </span>
+  </label>
 {/if}
 <div class="field-row">
   <label class="field-label" for="{id}-resize">Resample</label>
@@ -138,10 +147,11 @@
 <div class="actions-row">
   <Button label="Centre in view" size="small" disabled={model.pending} onclick={() => onIntent({ type: 'centre' })} />
 </div>
-<p class="hint">Drag the image on the map to move it. Arrow keys nudge it.</p>
 
 <style>
   .section { margin-block-start: 0.5rem; }
+  .keep { cursor: pointer; }
+  .check { display: flex; align-items: center; gap: 0.5rem; }
   .anchors { display: grid; grid-template-columns: repeat(3, 1.5rem); gap: 2px; inline-size: fit-content; }
   .anchors[aria-disabled='true'] { opacity: 0.5; }
   .anchors button {

@@ -8,7 +8,13 @@ import {
 } from '@caelestis/shared'
 import { activeAllianceSurface } from '../alliance-surface.js'
 import { log, warn } from '../debug.js'
-import { canvasPixelAt, cssPixelsPerCanvasPixel, isMapInteractionTarget, repaint } from '../main.js'
+import {
+  canvasPixelAt,
+  cssPixelsPerCanvasPixel,
+  isMapInteractionTarget,
+  repaint,
+  screenPointFor,
+} from '../main.js'
 import {
   clearLocalPreview,
   isDeletingLocal,
@@ -36,8 +42,9 @@ import { horizontalSpans } from './placement.js'
  * while zoomed in means dragging it the whole way; with it, the long move is one click and the drag
  * is only ever for the last few pixels.
  *
- * No resizing. A template's size is decided by its source image, and a scaled one no longer
- * corresponds to pixels anybody can paint.
+ * No resizing here. A template's size is decided by its source image, and a scaled one no longer
+ * corresponds to pixels anybody can paint. The studio resizes its draft by reprocessing the image,
+ * through its own handles (`studio-frame.ts`).
  */
 
 interface MoveSession {
@@ -227,7 +234,23 @@ const placementPointAt = (
   }
 }
 
-const placementScale = (surface: TemplateSurface): { x: number; y: number } | null => {
+/** Where a canvas pixel of `surface` sits on screen, in client coordinates. */
+export const placementScreenPoint = (
+  surface: TemplateSurface,
+  x: number,
+  y: number,
+): { x: number; y: number } | null => {
+  if (surface.kind === 'world') return screenPointFor(x, y)
+  const active = matchingAllianceSurface(surface)
+  const bounds = placementBounds(surface)
+  const scale = placementScale(surface)
+  if (active === null || bounds === null || scale === null) return null
+  const rect = active.frame.getBoundingClientRect()
+  return { x: rect.left + (x - bounds.minX) * scale.x, y: rect.top + (y - bounds.minY) * scale.y }
+}
+
+/** How many CSS pixels one canvas pixel of `surface` occupies on screen. */
+export const placementScale = (surface: TemplateSurface): { x: number; y: number } | null => {
   if (surface.kind === 'world') return cssPixelsPerCanvasPixel()
   const active = matchingAllianceSurface(surface)
   const bounds = placementBounds(surface)

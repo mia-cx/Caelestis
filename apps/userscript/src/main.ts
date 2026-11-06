@@ -80,6 +80,7 @@ import { mismatchWorkerMemoryBytes } from './templates/mismatch-worker.js'
 import { installOfficialEvents, syncOfficialOverlays } from './templates/official-overlays.js'
 import { installPersonalTemplates } from './templates/personal-sync.js'
 import { installServerSync } from './templates/server-sync.js'
+import { syncStudioFrame } from './templates/studio-frame.js'
 import {
   capturedPixelMemoryBytes,
   captureTilePixels,
@@ -458,6 +459,7 @@ export const startUserscript = (): void => {
     installClaimToolHost()
     onFrame(observePresenceFrame, 'Presence viewport')
     onFrame(syncClaimEditorFrame, 'Claim editor overlay')
+    onFrame(syncStudioFrame, 'Template studio handles')
     onFrame((frame) => {
       if (activeAllianceSurface() === null)
         renderPresenceLabels(frame, overlayProjection.project(frame))
