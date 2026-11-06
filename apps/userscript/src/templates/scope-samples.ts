@@ -1,4 +1,4 @@
-import { PALETTE_RGB, TRANSPARENT_INDEX } from '@caelestis/shared'
+import { type DitheretteTemplateRecipe, PALETTE_RGB, TRANSPARENT_INDEX } from '@caelestis/shared'
 import type { Samples } from '@caelestis/ui/elements'
 import type { Rgba8Image } from 'ditherette'
 
@@ -51,6 +51,22 @@ const samplePixels = (
     }
   }
   return { count, column, rgb }
+}
+
+/** The crop's pixels as packed RGBA8. A crop covering the whole source returns the source itself. */
+export const cropRgba = (
+  source: Rgba8Image,
+  crop: DitheretteTemplateRecipe['crop'],
+): Rgba8Image => {
+  if (crop.x === 0 && crop.y === 0 && crop.width === source.width && crop.height === source.height)
+    return source
+  const data = new Uint8Array(crop.width * crop.height * 4)
+  const row = crop.width * 4
+  for (let y = 0; y < crop.height; y++) {
+    const start = ((crop.y + y) * source.width + crop.x) * 4
+    data.set(source.data.subarray(start, start + row), y * row)
+  }
+  return { width: crop.width, height: crop.height, data }
 }
 
 /** Visible pixels of an RGBA image; fully transparent ones are skipped. */
