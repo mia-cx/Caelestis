@@ -303,7 +303,7 @@ export type SaveResult =
   | {
       readonly status: 'saved'
       readonly revision: number
-      /** The Wplace link a personal save committed, with the snapshot its artwork renders. */
+      /** The Wplace link a personal save committed, when its snapshot renders the saved artwork. */
       readonly native?: NonNullable<StoredTemplate['native']>
     }
   | { readonly status: 'conflict' }

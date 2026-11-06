@@ -276,6 +276,25 @@ it('applies another tab’s rename without reading any artwork', async () => {
   expect(await storedPixels(id)).toEqual(indices)
 })
 
+it('shows Wplace artwork edited during linking once Wplace hides the template', async () => {
+  const native = wplace()
+  connectPersonalStore(native.api)
+  const reversed = indices.slice().reverse()
+  duringTagSync.edit = async () => {
+    const png = new Uint8Array(await encodeIndexedPng(4, 2, reversed))
+    native.images.set(native.records[0]?.id ?? '', new Blob([png], { type: 'image/png' }))
+  }
+  const { id } = await place('linking-edited')
+
+  native.api.metadata.update(native.records[0]?.id ?? '', { visible: false })
+  await focus()
+
+  const template = local.templateById(id)
+  if (template === undefined) throw new Error('the template left the catalog')
+  expect(template.visible).toBe(false)
+  expect(await local.templatePixels(template)).toEqual(reversed)
+})
+
 it('renders a Wplace image replacement on the next focus', async () => {
   const native = wplace()
   connectPersonalStore(native.api)

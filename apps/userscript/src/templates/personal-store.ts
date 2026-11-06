@@ -321,10 +321,14 @@ export const saveTemplate = async (
         const saved = await disk.saveTemplate(template, null)
         if (saved.status !== 'saved') return saved
         const linked = await migrate(api, { ...template, pixels, revision: saved.revision })
+        // A Wplace edit during linking is rendered into new pixels; the link then describes those,
+        // not the caller's, so it is reported only when the caller's pixels were kept.
         return {
           status: 'saved',
           revision: linked.revision,
-          ...(linked.native === undefined ? {} : { native: linked.native }),
+          ...(linked.native === undefined || linked.pixels !== pixels
+            ? {}
+            : { native: linked.native }),
         }
       }
       let linked = await migrate(api, previous)
