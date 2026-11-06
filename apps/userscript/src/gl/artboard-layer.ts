@@ -55,6 +55,7 @@ import {
   type TemplateGpuEntry,
   TemplateGpuStore,
   type TemplateGpuTile,
+  type TemplateRect,
 } from './template-gpu-store.js'
 
 const OVERLAY_ATTRIBUTE = 'data-caelestis-alliance-overlay'
@@ -158,6 +159,33 @@ const overlapsArtboardFrame = (
     box.left < Math.min(viewport.bufferWidth, viewport.frameLeft + viewport.frameWidth) &&
     box.top < Math.min(viewport.bufferHeight, viewport.frameTop + viewport.frameHeight)
   )
+}
+
+/** The part of a template inside the frame and on the stage's buffer, in template coordinates. */
+const artboardVisibleRects = (
+  template: Pick<PlacedTemplate, 'originX' | 'originY' | 'width' | 'height'>,
+  geometry: ArtboardGeometry,
+  viewport: ArtboardViewport,
+): readonly TemplateRect[] => {
+  const scaleX = viewport.frameWidth / geometry.width
+  const scaleY = viewport.frameHeight / geometry.height
+  const offsetX = geometry.originX - template.originX
+  const offsetY = geometry.originY - template.originY
+  const left = Math.max(0, Math.floor(offsetX), Math.floor(-viewport.frameLeft / scaleX + offsetX))
+  const top = Math.max(0, Math.floor(offsetY), Math.floor(-viewport.frameTop / scaleY + offsetY))
+  const right = Math.min(
+    template.width,
+    Math.ceil(geometry.width + offsetX),
+    Math.ceil((viewport.bufferWidth - viewport.frameLeft) / scaleX + offsetX),
+  )
+  const bottom = Math.min(
+    template.height,
+    Math.ceil(geometry.height + offsetY),
+    Math.ceil((viewport.bufferHeight - viewport.frameTop) / scaleY + offsetY),
+  )
+  return right > left && bottom > top
+    ? [{ x: left, y: top, width: right - left, height: bottom - top }]
+    : []
 }
 
 /** Project one shared GPU chunk, including only the outer outline halo, into an artboard. */
@@ -446,14 +474,17 @@ class ArtboardPass {
       if (this.gpu !== null) {
         const allowance = uploadsLeft > 0 ? Math.floor(uploadPixelsLeft / uploadsLeft) : 0
         if (!this.gpu.hasCurrent(template)) uploadsLeft = Math.max(0, uploadsLeft - 1)
-        const advanced = this.gpu.advance(template, allowance, generation)
+        const advanced = this.gpu.advance(
+          template,
+          allowance,
+          generation,
+          artboardVisibleRects(template, geometry, viewport),
+        )
         uploadPixelsLeft -= advanced.uploadedPixels
         uploadedPixels += advanced.uploadedPixels
         if (advanced.status === 'failed') continue
-        if (advanced.status === 'pending') {
-          animating = true
-          continue
-        }
+        // Draw the chunks finished so far, and upload the rest on the next frame.
+        if (advanced.status === 'pending') animating = true
         entry = advanced.entry
       }
       if (entry === null) continue
