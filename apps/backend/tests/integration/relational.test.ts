@@ -7,7 +7,11 @@ import { PostgresConnection } from '../../src/adapters/node/postgres-connection.
 import { RelationalSqlStore } from '../../src/adapters/relational-sql-store.js'
 import { InvalidNodeParentError } from '../../src/ports/sql-store.js'
 import { schedulerContract } from '../support/scheduler-contract.js'
-import { contractRecipe } from '../support/sql-contract.js'
+import {
+  contractRecipe,
+  leaderboardContractExpected,
+  runLeaderboardContract,
+} from '../support/sql-contract.js'
 
 const migrationRoot = process.cwd()
 const postgresUrl = process.env.CAELESTIS_TEST_POSTGRES_URL
@@ -85,6 +89,13 @@ describe('external relational adapter contract', () => {
   it('fences concurrent durable jobs on the selected database', async () => {
     if (connection === undefined) throw new Error('Integration fixture did not open a database')
     await schedulerContract(coordinatorDatabase(connection))
+  })
+  it('ranks the leaderboard from reporter-reduced painter days in the selected real database', async () => {
+    if (connection === undefined) throw new Error('Integration fixture did not open a database')
+    await connection.migrate(migrations)
+    expect(await runLeaderboardContract(new RelationalSqlStore(connection))).toEqual(
+      leaderboardContractExpected,
+    )
   })
   it('migrates and preserves shared persistence boundaries in the selected real database', async () => {
     if (connection === undefined) throw new Error('Integration fixture did not open a database')

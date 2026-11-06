@@ -4,7 +4,6 @@ import {
   type ContributionsResponse,
   type HistoryBucket,
   type HistoryResponse,
-  type LeaderboardEntry,
   type LeaderboardResponse,
   type PainterHistoryBucket,
   type PainterHistoryResponse,
@@ -452,50 +451,20 @@ export const readLeaderboard = (input: {
 }): Effect.Effect<LeaderboardResponse, SqlStoreReadError, SqlStoreService> =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
-    // MAX-then-SUM: the store reduced each painter-day across reporters before this route sums days.
-    const rows = yield* sqlRead('readContributions', () =>
-      sql.readContributions({
-        season: input.season,
-        ...(input.templateIds === undefined ? {} : { templateIds: input.templateIds }),
-        ...(input.from === undefined ? {} : { fromSeconds: input.from }),
-        ...(input.to === undefined ? {} : { toSeconds: input.to }),
-        includeUnpublished: input.includeUnpublished,
-      }),
+    // MAX-then-SUM: the store reduces each painter-day across reporters before it sums days.
+    const entries = yield* sqlRead('readLeaderboard', () =>
+      sql.readLeaderboard(
+        {
+          season: input.season,
+          ...(input.templateIds === undefined ? {} : { templateIds: input.templateIds }),
+          ...(input.from === undefined ? {} : { fromSeconds: input.from }),
+          ...(input.to === undefined ? {} : { toSeconds: input.to }),
+          includeUnpublished: input.includeUnpublished,
+        },
+        input.limit,
+      ),
     )
-    const byUser = new Map<number, LeaderboardEntry & { readonly days: Set<number> }>()
-    for (const row of rows) {
-      const held = byUser.get(row.wplaceUserId)
-      const entry = held ?? {
-        wplaceUserId: row.wplaceUserId,
-        displayName: row.displayName,
-        placed: 0,
-        correct: 0,
-        repairs: 0,
-        activeDays: 0,
-        lastDay: row.day,
-        days: new Set<number>(),
-      }
-      entry.days.add(row.day)
-      byUser.set(row.wplaceUserId, {
-        ...entry,
-        placed: entry.placed + row.placed,
-        correct: entry.correct + row.correct,
-        repairs: entry.repairs + row.repairs,
-        lastDay: row.day > entry.lastDay ? row.day : entry.lastDay,
-      })
-    }
-    return {
-      entries: [...byUser.values()]
-        .map(({ days, ...entry }) => ({ ...entry, activeDays: days.size }))
-        .sort(
-          (left, right) =>
-            right.correct - left.correct ||
-            right.placed - left.placed ||
-            // The id is only a stable tiebreak. It is not part of the advertised ranking.
-            left.wplaceUserId - right.wplaceUserId,
-        )
-        .slice(0, input.limit),
-    }
+    return { entries }
   })
 
 /**

@@ -3,7 +3,12 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { MemorySqlStore } from '../src/adapters/memory/memory-sql-store.js'
 import type { SqlStore } from '../src/ports/sql-store.js'
 import { openRelationalStore } from './support/relational.js'
-import { nodeTemplateContractExpected, runNodeTemplateContract } from './support/sql-contract.js'
+import {
+  leaderboardContractExpected,
+  nodeTemplateContractExpected,
+  runLeaderboardContract,
+  runNodeTemplateContract,
+} from './support/sql-contract.js'
 
 const ids = {
   template: '01890f3e-7b2c-7abc-8def-012345678904',
@@ -65,6 +70,10 @@ for (const [name, open] of [
     it('keeps node and template guards aligned with the relational contract', async () => {
       const sql = await store()
       expect(await runNodeTemplateContract(sql)).toEqual(nodeTemplateContractExpected)
+    })
+
+    it('ranks the leaderboard from reporter-reduced painter days', async () => {
+      expect(await runLeaderboardContract(await store())).toEqual(leaderboardContractExpected)
     })
 
     it('keeps tag assignment within existing template ownership and paginates equal-time tokens stably', async () => {

@@ -1,6 +1,7 @@
 import {
   type Alarm,
   type ContributionDay,
+  type LeaderboardEntry,
   type Millis,
   PALETTE_SIZE,
   type PixelBounds,
@@ -296,6 +297,48 @@ export const compareContributionDays = (left: ContributionDay, right: Contributi
   if (left.templateId < right.templateId) return -1
   if (left.templateId > right.templateId) return 1
   return left.day - right.day || left.wplaceUserId - right.wplaceUserId
+}
+
+/**
+ * Sum reduced contribution days per painter and keep the `limit` leading ones: correct, then
+ * placed, both descending, with the id as a stable tiebreak that is not part of the ranking.
+ * `activeDays` counts distinct days across templates.
+ */
+export const rankLeaderboard = (
+  days: readonly ContributionDay[],
+  limit: number,
+): readonly LeaderboardEntry[] => {
+  const byUser = new Map<number, LeaderboardEntry & { readonly days: Set<number> }>()
+  for (const day of days) {
+    const held = byUser.get(day.wplaceUserId)
+    const entry = held ?? {
+      wplaceUserId: day.wplaceUserId,
+      displayName: day.displayName,
+      placed: 0,
+      correct: 0,
+      repairs: 0,
+      activeDays: 0,
+      lastDay: day.day,
+      days: new Set<number>(),
+    }
+    entry.days.add(day.day)
+    byUser.set(day.wplaceUserId, {
+      ...entry,
+      placed: entry.placed + day.placed,
+      correct: entry.correct + day.correct,
+      repairs: entry.repairs + day.repairs,
+      lastDay: day.day > entry.lastDay ? day.day : entry.lastDay,
+    })
+  }
+  return [...byUser.values()]
+    .map(({ days, ...entry }) => ({ ...entry, activeDays: days.size }))
+    .sort(
+      (left, right) =>
+        right.correct - left.correct ||
+        right.placed - left.placed ||
+        left.wplaceUserId - right.wplaceUserId,
+    )
+    .slice(0, limit)
 }
 
 /** Bucket widths `tile_history` folds to, matching `tile_history_resolution_s_check`. 0 is raw. */
@@ -1369,6 +1412,12 @@ export interface SqlStore extends TagStore {
    * more than `MAX_READ_BUCKETS_TEMPLATE_IDS` distinct ids.
    */
   readContributions(query: ContributionQuery): Promise<readonly ContributionDay[]>
+
+  /**
+   * The `limit` leading painters over the same reduced rows `readContributions` returns, ranked as
+   * `rankLeaderboard` ranks them. Takes the same query and rejects what it rejects.
+   */
+  readLeaderboard(query: ContributionQuery, limit: number): Promise<readonly LeaderboardEntry[]>
 
   /**
    * The subset of `ids` that name published templates, in input order with duplicates dropped.
