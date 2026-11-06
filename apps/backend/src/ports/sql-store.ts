@@ -706,6 +706,11 @@ export interface AlarmPolicyResult {
   readonly scheduleFollowUp: boolean
 }
 
+export interface AlarmEvaluation extends AlarmPolicyResult {
+  /** Whether this evaluation persisted a different caller-visible alarm, which subscribers need. */
+  readonly alarmChanged: boolean
+}
+
 /** A durable delayed recheck claimed by the alarm-watcher Durable Object. */
 export interface AlarmProbe {
   readonly templateId: string
@@ -1227,7 +1232,7 @@ export interface SqlStore extends TagStore {
     snapshot: TemplateAlarmSnapshot,
     phase: AlarmEvaluationPhase,
     alarmId: string,
-  ): Promise<AlarmPolicyResult>
+  ): Promise<AlarmEvaluation>
 
   readActiveAlarms(season: number, includeUnpublished: boolean): Promise<readonly Alarm[]>
 
