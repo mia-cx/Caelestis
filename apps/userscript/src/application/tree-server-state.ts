@@ -1,5 +1,6 @@
 import { type TemplateSurface, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { allianceManifestFor } from '../alliance-server-sync.js'
+import { recordProfileCounter } from '../profile.js'
 import { cacheServer, loadServerCache, type ServerTemplate } from '../server-cache.js'
 import {
   MAX_MANIFEST_CHUNKS,
@@ -46,6 +47,8 @@ const templatesByServer = new Map<string, readonly ServerTemplate[]>()
 const NO_SERVER_TEMPLATES: readonly ServerTemplate[] = []
 /** Verified identity belonging to the rows cached at each URL. */
 const rowIdentityByServer = new Map<string, string>()
+/** Verified identity whose cached rows `primeFromCache` has already read at each URL. */
+const primedIdentityByServer = new Map<string, string>()
 
 interface OptimisticParent {
   readonly parentId: string | null
@@ -467,9 +470,22 @@ const rememberServerContents = (
  *
  * Without it the tree is empty on every page load until each server answers, which is the wrong
  * first impression and gets worse the more servers are connected.
+ *
+ * Reads each verified server identity once: later calls skip IndexedDB, and redraw only when the
+ * cache filled in rows.
  */
 export const primeFromCache = async (rerender: () => void): Promise<void> => {
-  const servers = getState().servers
+  const unread = getState().servers.flatMap((server) => {
+    const identity = server.lastVerified
+    if (identity == null) return []
+    const key = `${identity.serverId}:${identity.season}`
+    return primedIdentityByServer.get(server.url) === key ? [] : [{ server, key }]
+  })
+  if (unread.length === 0) return
+  for (const { server, key } of unread) primedIdentityByServer.set(server.url, key)
+  const servers = unread.map(({ server }) => server)
+  recordProfileCounter('Server cache reads')
+  let filled = false
   for (const entry of await loadServerCache(servers.map((server) => server.url))) {
     const server = servers.find((candidate) => candidate.url === entry.url)
     const identity = server?.lastVerified
@@ -482,6 +498,7 @@ export const primeFromCache = async (rerender: () => void): Promise<void> => {
       continue
     const replace = rowsFor(server) === undefined
     if (replace) {
+      filled = true
       nodesByServer.set(entry.url, entry.nodes)
       rowIdentityByServer.set(entry.url, `${entry.serverId}:${entry.season}`)
       templatesByServer.set(entry.url, entry.templates ?? [])
@@ -500,10 +517,11 @@ export const primeFromCache = async (rerender: () => void): Promise<void> => {
       templatesByServer.get(entry.url) === undefined &&
       entry.templates !== undefined
     ) {
+      filled = true
       templatesByServer.set(entry.url, entry.templates)
     }
   }
-  rerender()
+  if (filled) rerender()
 }
 
 /**
@@ -519,6 +537,7 @@ export const forgetServerRows = (serverUrl: string): readonly string[] => {
   nodesByServer.delete(serverUrl)
   templatesByServer.delete(serverUrl)
   rowIdentityByServer.delete(serverUrl)
+  primedIdentityByServer.delete(serverUrl)
   const nodePrefix = `node:${encodeURIComponent(serverUrl)}:`
   const templatePrefix = `st:${encodeURIComponent(serverUrl)}:`
   for (const key of optimisticParents.keys()) {
