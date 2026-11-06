@@ -345,6 +345,8 @@ describe('server mismatch masks', () => {
     await vi.advanceTimersByTimeAsync(300)
     const path = `/telemetry/templates/${uploaded.id}/versions/${published.version}/tiles/0/0/mismatches?season=3`
     await vi.waitFor(async () => expect((await endpointRequest(adminToken)(path)).status).toBe(200))
+    const wildcard = await endpointRequest(adminToken)(path, { headers: { 'if-none-match': '*' } })
+    expect(wildcard.status).toBe(304)
     const template = {
       serverUrl: origin,
       serverTemplateId: uploaded.id,
@@ -391,6 +393,10 @@ describe('server mismatch masks', () => {
     expect(mismatch.serverMismatchMaskFor(template, tile)).toBe(drawn)
     await vi.waitFor(() => expect(requests.statuses).toEqual([200, 304]))
     expect(requests.validators[1]).toMatch(/^"[0-9a-f]{64}"$/)
+    // Same pixels in a new buffer: marker scans cached for the older read must not answer for it.
+    const confirmed = mismatch.serverMismatchMaskFor(template, tile)
+    expect(confirmed?.packed).toEqual(drawn?.packed)
+    expect(confirmed?.packed).not.toBe(drawn?.packed)
 
     // Three more paints land while the next request is in the air.
     let release = (): void => {}
@@ -402,7 +408,7 @@ describe('server mismatch masks', () => {
     await vi.waitFor(() => expect(requests.validators).toHaveLength(3))
     for (let paint = 0; paint < 3; paint++) {
       mismatch.invalidateServerMismatchTiles(origin, [tile])
-      expect(mismatch.serverMismatchMaskFor(template, tile)).toBe(drawn)
+      expect(mismatch.serverMismatchMaskFor(template, tile)).toBe(confirmed)
     }
     expect(requests.validators).toHaveLength(3)
     requests.hold = null
@@ -412,7 +418,7 @@ describe('server mismatch masks', () => {
       mismatch.serverMismatchMaskFor(template, tile)
       expect(requests.statuses).toEqual([200, 304, 304, 304])
     })
-    expect(mismatch.serverMismatchMaskFor(template, tile)).toBe(drawn)
+    expect(mismatch.serverMismatchMaskFor(template, tile)?.packed).toEqual(drawn?.packed)
     expect(requests.validators).toHaveLength(4)
   })
 

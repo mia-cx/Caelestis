@@ -156,8 +156,11 @@ const readMask = async (
   if (response.status === 304 && validator !== undefined) {
     misses.delete(key)
     // Confirmed current as of this request, so draft pixels older than it no longer take precedence.
-    recordPixelObservation(validator.mask.packed, requested)
-    masks.set(key, { ...validator, stale: !tileCurrent(), lastUsed: ++useGeneration })
+    // A new buffer, as every read gives: marker scans are cached by the buffer, and one computed
+    // under the older observation must not answer for this one.
+    const mask = { ...validator.mask, packed: validator.mask.packed.slice() }
+    recordPixelObservation(mask.packed, requested)
+    masks.set(key, { ...validator, mask, stale: !tileCurrent(), lastUsed: ++useGeneration })
     notify()
     return
   }
