@@ -188,10 +188,11 @@ try {
       { once: true },
     )
   })
-  // A background tab keeps an interactive browser's focus where it is. Headless Chromium has no
-  // focus to take, and stalls trusted input in a background tab, so the tab is a foreground one there.
-  const headless = String(browser.Browser).startsWith('HeadlessChrome')
-  ;({ targetId } = await call('Target.createTarget', { url: 'about:blank', background: !headless }))
+  // A background tab keeps an interactive browser's focus where it is. The disposable headless
+  // instance `run.mjs` starts has no focus to take, and stalls trusted input in a background tab, so
+  // the tab is a foreground one there. Headless Chromium does not reliably say so in `/json/version`.
+  const owned = process.env.CDP_OWNED_BROWSER === '1'
+  ;({ targetId } = await call('Target.createTarget', { url: 'about:blank', background: !owned }))
   ;({ sessionId } = await call('Target.attachToTarget', { targetId, flatten: true }))
   await call('Emulation.setFocusEmulationEnabled', { enabled: true })
   await call('Emulation.setDeviceMetricsOverride', {
