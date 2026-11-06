@@ -7,8 +7,13 @@ const COORDINATE_MASK = 0xf_ffff
 
 const coordinateOf = (mark: number): number => mark & COORDINATE_MASK
 
-/** Room for marks added after a scan: 1/8 of the list, between 16 and 1024 slots. */
-const tailRoom = (sorted: number): number => Math.min(1_024, Math.max(16, sorted >>> 3))
+/**
+ * Room for marks added after a scan: an eighth of the list, and at least 16 slots.
+ *
+ * Proportional rather than capped, so the compaction that a full tail triggers comes once per that
+ * many additions and costs each of them a constant share, however many marks the tile has.
+ */
+const tailRoom = (sorted: number): number => Math.max(16, sorted >>> 3)
 
 /** Change log length a consumer can catch up from before it must re-read every slot. */
 const LOG_LIMIT = 65_536
@@ -18,11 +23,12 @@ const LOG_LIMIT = 65_536
  *
  * Slots `[0, sorted)` hold the scan's marks in row-major order. A removed mark stays in its slot
  * flagged `DEAD_MARK`, so undoing the paint revives that slot. A coordinate with no slot appends to
- * a short tail after the sorted run. Every change touches one slot, which `changesSince` names, so a
- * GPU copy re-uploads that slot and nothing else.
+ * a tail after the sorted run, found again through a coordinate index. Every change touches one
+ * slot, which `changesSince` names, so a GPU copy re-uploads that slot and nothing else.
  *
  * `slots` is replaced only by compaction, which drops dead slots and merges the tail back into one
  * sorted run once either outgrows its share. A consumer holding the old `slots` re-reads everything.
+ * Both shares are proportional to the list, so compaction amortises to a constant per change.
  */
 export class MarkList {
   /** Live and dead marks in `[0, length)`, then spare room for the tail. */
@@ -35,6 +41,8 @@ export class MarkList {
   revision = 0
   private log: number[] = []
   private logStart = 0
+  /** Tail slots by coordinate. */
+  private readonly tail = new Map<number, number>()
 
   private constructor(slots: Uint32Array, length: number) {
     this.slots = slots
@@ -65,10 +73,7 @@ export class MarkList {
       else high = middle
     }
     if (low < this.sorted && coordinateOf(this.slots[low] as number) === coordinate) return low
-    for (let slot = this.sorted; slot < this.length; slot++) {
-      if (coordinateOf(this.slots[slot] as number) === coordinate) return slot
-    }
-    return -1
+    return this.tail.get(coordinate) ?? -1
   }
 
   has(coordinate: number): boolean {
@@ -88,6 +93,7 @@ export class MarkList {
     }
     if (this.length === this.slots.length) this.compact()
     this.live++
+    this.tail.set(coordinateOf(mark), this.length)
     this.write(this.length++, mark)
   }
 
@@ -163,6 +169,7 @@ export class MarkList {
     this.length = marks.length
     this.sorted = marks.length
     this.live = marks.length
+    this.tail.clear()
     this.revision++
     this.log = []
     this.logStart = this.revision
