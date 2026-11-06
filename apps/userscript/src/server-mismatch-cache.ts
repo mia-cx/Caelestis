@@ -1,4 +1,4 @@
-import { TILE_SIZE, type TileCoord } from '@caelestis/shared'
+import { TILE_SIZE } from '@caelestis/shared'
 
 const CACHE_NAME = 'caelestis-server-mismatches-v1'
 const CACHE_PATH = '/__caelestis-cache/server-mismatch/'
@@ -20,9 +20,6 @@ const operationKeyFor = (key: string): string => {
   const last = key.lastIndexOf('\u0000')
   return first < 0 || last <= first ? key : `${key.slice(0, first)}\u0000${key.slice(last + 1)}`
 }
-
-const tileOperationKeyFor = (serverUrl: string, tile: TileCoord): string =>
-  `${serverUrl}\u0000${tile.x}/${tile.y}`
 
 /** Serialize persisted work for one server tile without blocking unrelated tiles. */
 const serialize = <Result>(key: string, operation: () => Promise<Result>): Promise<Result> => {
@@ -83,8 +80,13 @@ const prune = async (cache: Cache): Promise<void> => {
   await Promise.all(requests.slice(0, remove).map((request) => cache.delete(request)))
 }
 
-/** A stale mask is enough to draw immediately; the caller still refreshes it from the server. */
-export const readCachedServerMismatch = async (key: string): Promise<Uint8Array | null> => {
+/**
+ * A saved mask and the server's validator for it; the validator is null for entries saved without
+ * one. Enough to draw immediately; the caller still revalidates it with the server.
+ */
+export const readCachedServerMismatch = async (
+  key: string,
+): Promise<{ readonly bytes: Uint8Array; readonly etag: string | null } | null> => {
   // Reads stay concurrent across tiles. They wait only for an older server-wide purge or work on
   // their tile, so a read started after invalidation cannot overtake its deletion barrier.
   await serverOperations.get(serverUrlFor(key))
@@ -97,13 +99,19 @@ export const readCachedServerMismatch = async (key: string): Promise<Uint8Array 
     const declared = Number(response.headers.get('content-length'))
     if (Number.isFinite(declared) && declared > MAX_RESPONSE_BYTES) return null
     const bytes = new Uint8Array(await response.arrayBuffer())
-    return bytes.length > 0 && bytes.length <= MAX_RESPONSE_BYTES ? bytes : null
+    return bytes.length > 0 && bytes.length <= MAX_RESPONSE_BYTES
+      ? { bytes, etag: response.headers.get('etag') }
+      : null
   } catch {
     return null
   }
 }
 
-export const writeCachedServerMismatch = async (key: string, bytes: Uint8Array): Promise<void> => {
+export const writeCachedServerMismatch = async (
+  key: string,
+  bytes: Uint8Array,
+  etag: string | null,
+): Promise<void> => {
   if (bytes.length === 0 || bytes.length > MAX_RESPONSE_BYTES) return
   await serverOperations.get(serverUrlFor(key))
   await serialize(operationKeyFor(key), async () => {
@@ -116,7 +124,10 @@ export const writeCachedServerMismatch = async (key: string, bytes: Uint8Array):
       await cache.put(
         request,
         new Response(bytes.slice().buffer as ArrayBuffer, {
-          headers: { 'content-type': 'application/vnd.caelestis.mismatch-mask' },
+          headers: {
+            'content-type': 'application/vnd.caelestis.mismatch-mask',
+            ...(etag === null ? {} : { etag }),
+          },
         }),
       )
       writesUntilPrune--
@@ -135,28 +146,6 @@ export const deleteCachedServerMismatch = async (key: string): Promise<void> => 
     if (cache === null) return
     try {
       await cache.delete(requestFor(key))
-    } catch {}
-  })
-}
-
-export const deleteCachedServerMismatchTile = async (
-  serverUrl: string,
-  tile: TileCoord,
-): Promise<void> => {
-  await serverOperations.get(serverUrl)
-  await serialize(tileOperationKeyFor(serverUrl, tile), async () => {
-    const cache = await open()
-    if (cache === null) return
-    const prefix = `${serverUrl}\u0000`
-    const suffix = `\u0000${tile.x}/${tile.y}`
-    try {
-      const requests = await cache.keys()
-      await Promise.all(
-        requests.map((request) => {
-          const key = keyFrom(request)
-          return key?.startsWith(prefix) && key.endsWith(suffix) ? cache.delete(request) : false
-        }),
-      )
     } catch {}
   })
 }

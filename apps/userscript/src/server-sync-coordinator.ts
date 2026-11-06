@@ -415,11 +415,17 @@ const requestLiveServerSync = (reason: ReconciliationReason, server: ConnectedSe
 }
 
 const requestAvailableServerSync = (reason: ReconciliationReason, onlyResource?: string): void => {
+  const now = Date.now()
   for (const server of connected()) {
     for (const resource of resources.values()) {
       if (onlyResource !== undefined && resource.id !== onlyResource) continue
       if (socketOnly(server, resource)) continue
       if (resource.live === true && liveCapable(server) && !liveHealthy(server)) continue
+      // A connection that already holds a current answer keeps its own cadence. Another server
+      // connecting, or this one adopting its probe's manifest, is no reason to read it again.
+      const scope = resource.scope(server)
+      const schedule = scope === null ? undefined : scheduleFor(server, scope, resource.id)
+      if (schedule !== undefined && !schedule.failed && schedule.dueAt > now) continue
       requestServerSync(reason, resource.id, server)
     }
   }
