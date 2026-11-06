@@ -55,12 +55,11 @@ import { pixelAt, pixelRect, type SparsePixels } from './sparse-pixels.js'
 import { measuresLocally } from './wplace-owned.js'
 
 // The editor's draft changes with every setting and has no progress worth scanning.
-const worldTemplates = (): readonly PlacedTemplate[] =>
-  displayTemplates().filter(
-    (template) =>
-      !isTemplateDraft(template) &&
-      sameTemplateSurface(template.surface ?? WORLD_TEMPLATE_SURFACE, WORLD_TEMPLATE_SURFACE),
-  )
+const isWorldTemplate = (template: PlacedTemplate): boolean =>
+  !isTemplateDraft(template) &&
+  sameTemplateSurface(template.surface ?? WORLD_TEMPLATE_SURFACE, WORLD_TEMPLATE_SURFACE)
+
+const worldTemplates = (): readonly PlacedTemplate[] => displayTemplates().filter(isWorldTemplate)
 
 // A native observation replaces the mask held at that moment, not future server corrections.
 const observedMasks = new WeakSet<Uint8Array>()
@@ -743,7 +742,7 @@ export const onCaptureScopeChange = (listener: () => void): (() => void) => {
 }
 
 const inCaptureScope = (template: PlacedTemplate): boolean =>
-  measuresLocally(template) && isTemplateVisible(template)
+  isWorldTemplate(template) && measuresLocally(template) && isTemplateVisible(template)
 
 const samePlacement = (a: PlacedTemplate, b: PlacedTemplate): boolean =>
   a.id === b.id &&
@@ -781,7 +780,8 @@ const scopeUnchanged = (templates: readonly PlacedTemplate[]): boolean => {
  * the same set until one of those changes, so it is cheap to ask every frame.
  */
 export const captureScopeTiles = (): ReadonlySet<TileKey> => {
-  const templates = worldTemplates()
+  // Not `worldTemplates()`: its filtered copy would be the one allocation left on an idle frame.
+  const templates = displayTemplates()
   if (scopeUnchanged(templates)) return scopeTiles
   scopeTemplates = templates.filter(inCaptureScope)
   scopePending.clear()
