@@ -12,6 +12,8 @@ import {
   install,
   loadTilePixels,
   registerDraftCanvas,
+  settledTileCaptures,
+  tilePixels,
 } from '../src/tile-transform.js'
 import { installWplaceCursors } from '../src/wplace-cursors.js'
 import { installWplaceFont } from '../src/wplace-font.js'
@@ -80,6 +82,16 @@ export const runProductionBrowserBoundaries = async () => {
   const recovered = await loadTilePixels(tile)
   if (recovered?.length !== TILE_SIZE * TILE_SIZE || recovered.some((pixel) => pixel !== 5))
     throw new Error('Refresh recovery did not read the served tile loaded before capture installed')
+  // Wplace's own path: its decode resolves before Caelestis reads the tile, and closing the bitmap
+  // once drawn does not lose that read.
+  const wplaceTile = await window.fetch(tileUrl)
+  const decoded = await window.createImageBitmap(new Blob([await wplaceTile.arrayBuffer()]))
+  if (decoded.width !== TILE_SIZE || tilePixels(tile)?.[0] !== 5)
+    throw new Error('Wplace waited for Caelestis to read its tile')
+  decoded.close()
+  await settledTileCaptures()
+  if (tilePixels(tile) !== recovered || recovered.some((pixel) => pixel !== 9))
+    throw new Error('Caelestis lost the tile Wplace decoded')
   Object.defineProperty(performance, 'getEntriesByType', {
     configurable: true,
     value: originalEntries,
