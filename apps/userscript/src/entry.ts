@@ -1,4 +1,3 @@
-import { installPageHooks, installUserscriptFeatures, startUserscript } from './main.js'
 import { claimPage } from './page-claim.js'
 import { connectStorageBridge } from './storage-bridge/connect.js'
 import { canServeManagerStorage, managerStore } from './storage-bridge/manager-store.js'
@@ -14,11 +13,18 @@ import { serveStorageBridge } from './storage-bridge/serve.js'
  * `GM_*` storage over the storage bridge and puts `caelestis('page')` into the page as a `<script>`,
  * where Caelestis runs as it does in the extension. Where that cannot work, the manager's copy runs
  * Caelestis where it is, as before.
+ *
+ * Caelestis itself loads through `application()`, so only the world that runs it initializes its
+ * modules: the manager's copy that moves into the page runs the storage bridge and nothing else.
+ * The import settles in a microtask, which still runs before the parser reaches any of Wplace's
+ * scripts, so the page hooks keep their place ahead of Wplace.
  */
 declare const world: 'manager' | 'page'
 declare const caelestis: (world: 'page') => void
 
 const RAN = 'data-caelestis-ran'
+
+const application = () => import('./main.js')
 
 /** Run Caelestis in the page, served by this copy. False when it has to stay here. */
 const moveIntoPage = (): boolean => {
@@ -43,5 +49,8 @@ const moveIntoPage = (): boolean => {
 if (world === 'page') {
   // Inline scripts run as they are inserted, so the manager's copy reads this before removing it.
   document.currentScript?.setAttribute(RAN, '')
-  if (connectStorageBridge('userscript', installUserscriptFeatures)) installPageHooks()
-} else if (!moveIntoPage() && claimPage('userscript')) startUserscript()
+  void application().then(({ installPageHooks, installUserscriptFeatures }) => {
+    if (connectStorageBridge('userscript', installUserscriptFeatures)) installPageHooks()
+  })
+} else if (!moveIntoPage() && claimPage('userscript'))
+  void application().then(({ startUserscript }) => startUserscript())

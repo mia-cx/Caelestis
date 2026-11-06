@@ -478,8 +478,66 @@ const nativeFunction = <T>(module: NativeModule, matches: (source: string) => bo
   return candidates[0] as T
 }
 
+/** Wplace's module sources read so far, by URL, in the order they were read. */
+const moduleSources = new Map<string, string>()
+/** Module URLs found but not read yet, including any whose read failed. */
+const unreadModules = new Set<string>()
+/** The latest crawl. Each lookup crawls after it, so crawls never overlap. */
+let crawled: Promise<void> = Promise.resolve()
+
+/**
+ * Read every Wplace module not read yet: those the page preloads or has loaded, and their imports.
+ * The first crawl reads them all; later ones read only modules Wplace has loaded since.
+ */
+const crawlWplaceModules = async (): Promise<void> => {
+  const page = pageWindow()
+  const found = (url: string, base: string): void => {
+    const parsed = new URL(url, base)
+    // Resource entries include tiles and API calls; only Wplace's own modules spend the budget.
+    if (
+      parsed.origin === page.location.origin &&
+      /^\/_app\/immutable\/(chunks|nodes|entry)\/.+\.js$/.test(parsed.pathname) &&
+      !moduleSources.has(parsed.href)
+    )
+      unreadModules.add(parsed.href)
+  }
+  for (const link of document.querySelectorAll<HTMLLinkElement>('link[rel="modulepreload"]'))
+    found(link.href, page.location.href)
+  for (const entry of page.performance.getEntriesByType('resource'))
+    found(entry.name, page.location.href)
+  /** Reads that failed during this crawl. They stay unread, so the next crawl tries them again. */
+  const failed = new Map<string, unknown>()
+  const batch = (): string[] => [...unreadModules].filter((url) => !failed.has(url)).slice(0, 6)
+  for (let urls = batch(); urls.length > 0 && moduleSources.size < MODULE_BUDGET; urls = batch())
+    // Every read in a batch settles before the crawl moves on or ends, so none is read twice.
+    await Promise.all(
+      urls.map(async (url) => {
+        try {
+          const response = await page.fetch(url, { cache: 'force-cache' })
+          if (!response.ok) throw new Error(`HTTP ${response.status}`)
+          const source = await response.text()
+          moduleSources.set(url, source)
+          unreadModules.delete(url)
+          for (const match of source.matchAll(/["']((?:\.\.\/|\.\/)[^"']+\.js)["']/g))
+            found(match[1] ?? '', url)
+        } catch (error) {
+          failed.set(url, error)
+        }
+      }),
+    )
+  const [first] = failed
+  if (first !== undefined)
+    throw new Error(
+      `Could not inspect Wplace modules: ${failed.size} unread, first ${first[0]}: ${String(first[1])}`,
+    )
+}
+
 /**
  * Discover content-hashed Wplace modules by their source, without pinning filenames.
+ *
+ * Every lookup shares one crawl of Wplace's modules: a later lookup reads only the modules Wplace
+ * loaded since, such as an alliance page's chunks, and a read that failed is tried again. A failed
+ * read fails the lookup only when the lookup is still missing a module it wants.
  *
  * The `import()`s below evaluate Wplace's own chunks, which read Wplace's message catalog at module
  * top level. Before Wplace's `init` hook has loaded that catalog the evaluation throws, the chunk is
@@ -490,43 +548,22 @@ export const findWplaceModules = async <Key extends string>(
   wanted: Record<Key, (source: string) => boolean>,
 ): Promise<Partial<Record<Key, { readonly module: NativeModule; readonly source: string }>>> => {
   await whenWplaceMapReady()
-  const page = pageWindow()
-  const candidates = new Set(
-    [...document.querySelectorAll<HTMLLinkElement>('link[rel="modulepreload"]')].map(
-      (link) => link.href,
-    ),
+  const crawl = crawled.catch(() => {}).then(crawlWplaceModules)
+  crawled = crawl
+  const failure = await crawl.then(
+    () => null,
+    (error: unknown) => error,
   )
-  for (const entry of page.performance.getEntriesByType('resource')) candidates.add(entry.name)
-  const visited = new Set<string>()
   const keys = Object.keys(wanted) as Key[]
+  const sources = [...moduleSources]
+  const matches = keys.flatMap((key) => {
+    const match = sources.find(([, source]) => wanted[key](source))
+    return match === undefined ? [] : [{ key, url: match[0], source: match[1] }]
+  })
+  if (failure !== null && matches.length < keys.length) throw failure
   const found: Partial<Record<Key, { module: NativeModule; source: string }>> = {}
-  while (candidates.size > 0 && visited.size < MODULE_BUDGET && keys.some((key) => !found[key])) {
-    const batch = [...candidates].slice(0, 6)
-    for (const url of batch) candidates.delete(url)
-    await Promise.all(
-      batch.map(async (url) => {
-        const parsed = new URL(url, page.location.href)
-        // Resource entries include tiles and API calls; only Wplace's own modules spend the budget.
-        if (
-          visited.has(url) ||
-          parsed.origin !== page.location.origin ||
-          !/^\/_app\/immutable\/(chunks|nodes|entry)\/.+\.js$/.test(parsed.pathname)
-        )
-          return
-        visited.add(url)
-        const response = await page.fetch(parsed.href, { cache: 'force-cache' })
-        if (!response.ok) throw new Error('Could not inspect Wplace modules')
-        const source = await response.text()
-        for (const key of keys)
-          if (wanted[key](source))
-            found[key] = { module: await import(/* @vite-ignore */ parsed.href), source }
-        for (const match of source.matchAll(/["']((?:\.\.\/|\.\/)[^"']+\.js)["']/g)) {
-          const dependency = new URL(match[1] ?? '', parsed).href
-          if (!visited.has(dependency)) candidates.add(dependency)
-        }
-      }),
-    )
-  }
+  for (const { key, url, source } of matches)
+    found[key] = { module: await import(/* @vite-ignore */ url), source }
   return found
 }
 
