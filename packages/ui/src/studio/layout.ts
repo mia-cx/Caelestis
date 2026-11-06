@@ -52,8 +52,8 @@ const joined = (axis: 'row' | 'column', children: readonly StudioNode[]): Studio
 }
 
 /**
- * The image and its size down the start edge; its colours down the end, with Colour space, a
- * single choice, behind Dither as a tab. Scopes starts closed.
+ * The image and its size down the start edge, with Effects folded to its title; its colours and
+ * dither down the end. Scopes starts closed.
  */
 export const DEFAULT_STUDIO_LAYOUT: StudioLayout = {
   frames: [
@@ -62,19 +62,16 @@ export const DEFAULT_STUDIO_LAYOUT: StudioLayout = {
       root: {
         kind: 'split',
         axis: 'column',
-        children: [single('source'), single('dimensions'), single('effects')],
+        children: [
+          single('source'),
+          single('dimensions'),
+          { ...single('effects'), collapsed: true },
+        ],
       },
     },
     {
       place: { dock: 'end' },
-      root: {
-        kind: 'split',
-        axis: 'column',
-        children: [
-          single('palette'),
-          { kind: 'tabs', panels: ['dither', 'color-space'], active: 'dither', collapsed: false },
-        ],
-      },
+      root: { kind: 'split', axis: 'column', children: [single('palette'), single('dither')] },
     },
   ],
 }

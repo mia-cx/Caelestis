@@ -301,7 +301,7 @@ describe('template studio', () => {
       surface: WORLD_TEMPLATE_SURFACE,
       save: async () => true,
     })
-    // Colour space in front, Palette behind it.
+    // Dither in front, Palette behind it.
     const behind = { kind: 'tabs', collapsed: false } as const
     handleTemplateStudioIntent({
       type: 'layout',
@@ -310,7 +310,7 @@ describe('template studio', () => {
           ...DEFAULT_STUDIO_LAYOUT.frames.filter((frame) => frame.place.dock === 'start'),
           {
             place: { dock: 'end' },
-            root: { ...behind, panels: ['palette', 'color-space'], active: 'color-space' },
+            root: { ...behind, panels: ['palette', 'dither'], active: 'dither' },
           },
         ],
       },

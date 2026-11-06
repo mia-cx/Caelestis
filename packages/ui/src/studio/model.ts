@@ -11,10 +11,9 @@ import type { Samples, ScopeStage } from './scopes/scopes.js'
 
 /** The studio's panels, in Windows-menu order, with the edge each docks to by default. */
 export const STUDIO_WINDOWS = [
-  { id: 'source', title: 'Source', dock: 'start' },
-  { id: 'dimensions', title: 'Dimensions', dock: 'start' },
-  { id: 'palette', title: 'Palette', dock: 'end' },
-  { id: 'color-space', title: 'Colour space', dock: 'end' },
+  { id: 'source', title: 'Image', dock: 'start' },
+  { id: 'dimensions', title: 'Size', dock: 'start' },
+  { id: 'palette', title: 'Colours', dock: 'end' },
   { id: 'dither', title: 'Dither', dock: 'end' },
   { id: 'effects', title: 'Effects', dock: 'start' },
   { id: 'scopes', title: 'Scopes', dock: 'end', closed: true },

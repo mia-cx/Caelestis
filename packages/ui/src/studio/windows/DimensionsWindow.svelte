@@ -4,14 +4,19 @@
   import MenuStyles from '../../foundations/MenuStyles.svelte'
   import type { TemplateStudioIntent, TemplateStudioModel } from '../model.js'
   import { ANCHORS, RESIZE_MODES, type ResizeAnchor, type ResizeId } from '../options.js'
+  import MoreOptions from '../MoreOptions.svelte'
   import RangeField from '../RangeField.svelte'
 
-  /** Output size and resampling, as Ditherette web's Dimensions panel, plus where it sits. */
+  /**
+   * The template's size, as Ditherette web's Dimensions panel, with resampling and its exact
+   * place on the canvas under More options; the map's handles and dragging do both by hand.
+   */
   let { model, onIntent }: { model: TemplateStudioModel; onIntent: (intent: TemplateStudioIntent) => void } = $props()
 
   const SLIDER_MIN_SCALE = 0.05
   const SLIDER_MAX_SCALE = 1
-  const SCALE_STEP = 0.01
+  /** Scale reads as a percentage of the cropped image. */
+  const PERCENT = 100
   const id = $props.id()
 
   const output = $derived(model.output)
@@ -50,49 +55,49 @@
 
 <MenuStyles />
 
-<RangeField
-  label="Scale"
-  value={output.scale}
-  min={SLIDER_MIN_SCALE}
-  max={SLIDER_MAX_SCALE}
-  step={SCALE_STEP}
-  unit="×"
-  fieldMin={Number.MIN_VALUE}
-  fieldMax={Number.MAX_VALUE}
-  {disabled}
-  onChange={(scale) => onIntent({ type: 'scale', scale })}
-/>
-{#each [['width', 'Width'], ['height', 'Height']] as const as [side, label] (side)}
-  <div class="field-row">
-    <label class="field-label" for="{id}-{side}">{label}</label>
-    <span class="number">
+<!-- Width and height side by side, as the handles on the map change them. -->
+<div class="fields two">
+  {#each [['width', 'W', 'Width'], ['height', 'H', 'Height']] as const as [side, short, label] (side)}
+    <label class="number">
+      <span aria-hidden="true">{short}</span>
       <input
-        id="{id}-{side}"
         class="caelestis-field"
         type="number"
         inputmode="numeric"
         min="1"
         step="1"
+        aria-label="{label} in pixels"
         value={unsized ? '' : output[side]}
         {disabled}
         onkeydown={commitOnEnter}
         onchange={(event) => onIntent({ type: 'size', side, pixels: whole(event.currentTarget.value, output[side]) })}
       />
       <span class="unit">px</span>
-    </span>
-  </div>
-{/each}
+    </label>
+  {/each}
+</div>
 {#if output.locked}
   <p class="hint">A new version keeps the template’s size.</p>
 {:else}
-  <label class="field-row keep">
-    <span></span>
-    <span class="check">
-      <Checkbox checked={output.keepProportions} {disabled} onChange={(on) => onIntent({ type: 'keep-proportions', on })} />
-      Keep proportions
-    </span>
+  <label class="keep">
+    <Checkbox checked={output.keepProportions} {disabled} onChange={(on) => onIntent({ type: 'keep-proportions', on })} />
+    Keep proportions
   </label>
+  <RangeField
+    label="Scale"
+    value={output.scale * PERCENT}
+    min={SLIDER_MIN_SCALE * PERCENT}
+    max={SLIDER_MAX_SCALE * PERCENT}
+    step={1}
+    unit="%"
+    fieldMin={Number.MIN_VALUE}
+    fieldMax={Number.MAX_VALUE}
+    {disabled}
+    onChange={(percent) => onIntent({ type: 'scale', scale: percent / PERCENT })}
+  />
 {/if}
+
+<MoreOptions name="size">
 <div class="field-row">
   <label class="field-label" for="{id}-resize">Resample</label>
   <select
@@ -152,10 +157,10 @@
 <div class="actions-row">
   <Button label="Centre in view" size="small" disabled={model.pending || unsized} onclick={() => onIntent({ type: 'centre' })} />
 </div>
+</MoreOptions>
 
 <style>
-  .keep { cursor: pointer; }
-  .check { display: flex; align-items: center; gap: 0.5rem; }
+  .keep { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
   .anchors { display: grid; grid-template-columns: repeat(3, 1.5rem); gap: 2px; inline-size: fit-content; }
   .anchors button {
     display: grid;
