@@ -506,7 +506,7 @@ const crawlWplaceModules = async (): Promise<void> => {
   for (const entry of page.performance.getEntriesByType('resource'))
     found(entry.name, page.location.href)
   /** Reads that failed during this crawl. They stay unread, so the next crawl tries them again. */
-  const failed = new Set<string>()
+  const failed = new Map<string, unknown>()
   const batch = (): string[] => [...unreadModules].filter((url) => !failed.has(url)).slice(0, 6)
   for (let urls = batch(); urls.length > 0 && moduleSources.size < MODULE_BUDGET; urls = batch())
     // Every read in a batch settles before the crawl moves on or ends, so none is read twice.
@@ -520,12 +520,16 @@ const crawlWplaceModules = async (): Promise<void> => {
           unreadModules.delete(url)
           for (const match of source.matchAll(/["']((?:\.\.\/|\.\/)[^"']+\.js)["']/g))
             found(match[1] ?? '', url)
-        } catch {
-          failed.add(url)
+        } catch (error) {
+          failed.set(url, error)
         }
       }),
     )
-  if (failed.size > 0) throw new Error('Could not inspect Wplace modules')
+  const [first] = failed
+  if (first !== undefined)
+    throw new Error(
+      `Could not inspect Wplace modules: ${failed.size} unread, first ${first[0]}: ${String(first[1])}`,
+    )
 }
 
 /**
