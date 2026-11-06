@@ -505,13 +505,13 @@ export const installFeatures = (): void => {
       isPaintOpen() || pixelAccounting.wantsTilePixels(tile)
     const captureScope = watchCaptureScope()
     const sync = (): void => {
-      const on = pixelAccounting.wantsTilePixels() || isPaintOpen()
-      captureTilePixels(on, interest)
+      // The scope holds a tile exactly when `wantsTilePixels()` would answer yes, and unlike it,
+      // costs nothing on a frame where nothing changed.
+      const scope = pixelAccounting.captureScopeTiles()
+      captureTilePixels(scope.size > 0 || isPaintOpen(), interest)
       // Pixels kept while capture was off may be stale, and tiles are no longer re-downloaded on a
-      // timer to correct them. When capture starts caring about more, re-read everything visible.
-      captureScope(
-        on ? [...(isPaintOpen() ? ['paint'] : []), ...pixelAccounting.captureScopeKeys()] : [],
-      )
+      // timer to correct them. When capture starts caring about a tile, re-read it.
+      captureScope(isPaintOpen(), scope)
     }
     sync()
     onStateChange(sync)
