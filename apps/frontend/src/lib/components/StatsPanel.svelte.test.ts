@@ -96,7 +96,7 @@ it('asks only for the newest buckets on each chart tick', async () => {
 
   const [, from, , options] = client.getHistory.mock.calls.at(-1) ?? []
   expect(lifetimeFrom).toBeLessThan(start)
-  // The bucket the full read ended in, on the full read's 60 s grid.
-  expect(from).toBe(start + 7_200)
+  // Every bucket the server can still change: the last 3690 s, on the full read's 60 s grid.
+  expect(from).toBe(start + 3_480)
   expect(options).toEqual({ maxResolution: 60 })
 })

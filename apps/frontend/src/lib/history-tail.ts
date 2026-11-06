@@ -16,12 +16,19 @@ export interface HeldHistory<Read extends HistoryRead> {
 }
 
 /**
+ * How long after a bucket starts the server may still change it: counters reach storage 90 s after
+ * their minute and accept late reports for an hour after that (the backend's
+ * `EXPIRES_AFTER_SECONDS`).
+ */
+const MUTABLE_SECONDS = 3_690
+
+/**
  * Bring a held history up to `to`, reading only what changed.
  *
- * A new key, or nothing held yet, reads `[from, to)` in full. Otherwise only the bucket the last
- * read ended in, and everything after it, is read again. The server answers that recent range at
- * the full read's resolution or a finer tier, and the finer buckets are summed onto the full read's
- * grid, the same fold the server applies across tiers.
+ * A new key, or nothing held yet, reads `[from, to)` in full. Otherwise only the buckets the server
+ * can still have changed since the last read are read again. The server answers that recent range
+ * at the full read's resolution or a finer tier, and the finer buckets are summed onto the full
+ * read's grid, the same fold the server applies across tiers.
  *
  * `read(start, maxResolution)` reads `[start, to)`; `maxResolution` is unset for a full read.
  */
@@ -37,7 +44,10 @@ export const refreshHistory = async <Read extends HistoryRead>(
   if (held === null || resolution === undefined)
     return { key, to, read: await read(from, undefined) }
 
-  const tailStart = Math.max(from, Math.floor((held.to - 1) / resolution) * resolution)
+  const tailStart = Math.max(
+    from,
+    Math.floor((held.to - MUTABLE_SECONDS) / resolution) * resolution,
+  )
   const tail = await read(tailStart, resolution)
   const folded = new Map<string, Read['buckets'][number]>()
   for (const bucket of tail.buckets) {
