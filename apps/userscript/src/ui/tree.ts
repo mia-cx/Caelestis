@@ -12,7 +12,9 @@ import type {
   TemplateTreeIntent,
   TemplateTreeModel,
   TreeActionModel,
+  TreeColourProgressModel,
   TreeEntryModel,
+  TreeProgressModel,
   TreeRowModel,
 } from '@caelestis/ui/elements'
 import { allianceBounds } from '../alliance-coordinates.js'
@@ -38,6 +40,7 @@ import {
   renameLocalFolder,
   setLocalFolderVisible,
 } from '../local-folders.js'
+import { measureProfileDetail } from '../profile.js'
 import type { ServerTemplate } from '../server-cache.js'
 import {
   type ConnectedServer,
@@ -1349,8 +1352,9 @@ const buildTree = <Result>(
         // Pixels exist only while Wplace draws the fragment nearby; the row exists regardless.
         const mirror = drawnTemplates.find((template) => template.id === fragment.templateId)
         const visible = mirror?.visible ?? isScopeVisible(fragment.templateId)
-        const progress =
+        const readProgress = (): TemplateProgress | undefined =>
           officialProgress(fragment) ?? (mirror === undefined ? undefined : drawnProgress(mirror))
+        const progress = readProgress()
         return {
           parentId: fragment.group.id,
           item: {
@@ -1380,7 +1384,11 @@ const buildTree = <Result>(
             },
             ...(progress === undefined
               ? {}
-              : { totalPixels: progress.total, progress, progressReader: () => progress }),
+              : {
+                  totalPixels: progress.total,
+                  progress,
+                  progressReader: () => readProgress() ?? progress,
+                }),
             visible,
             setVisible: (on: boolean) =>
               mirror === undefined
@@ -1481,6 +1489,52 @@ const buildTree = <Result>(
 export interface TemplateTreeAdapter {
   readonly model: TemplateTreeModel
   readonly handle: (intent: TemplateTreeIntent) => void
+  /**
+   * Re-read every row's pixel progress into `model` without rebuilding the tree's structure.
+   * Rows whose counts are unchanged keep their entry. Returns whether anything changed.
+   */
+  readonly refreshProgress: () => boolean
+}
+
+const sameCounts = (a: TreeProgressModel | undefined, b: TreeProgressModel | undefined): boolean =>
+  a === b ||
+  (a !== undefined &&
+    b !== undefined &&
+    a.completed === b.completed &&
+    a.mismatched === b.mismatched &&
+    a.unpainted === b.unpainted &&
+    a.known === b.known &&
+    a.total === b.total)
+
+const sameColourCounts = (
+  a: readonly TreeColourProgressModel[] | undefined,
+  b: readonly TreeColourProgressModel[] | undefined,
+): boolean =>
+  a === b ||
+  (a !== undefined &&
+    b !== undefined &&
+    a.length === b.length &&
+    a.every((colour, index) => colour.index === b[index]?.index && sameCounts(colour, b[index])))
+
+/** A row's progress fields, read now from its live progress sources. */
+const rowProgress = (
+  options: TreeRowOptions,
+): Pick<TreeRowModel, 'progress' | 'colourProgress'> => {
+  const progress = options.progressReader?.() ?? options.progress
+  const colours = options.colourProgress?.()
+  return {
+    ...(progress === undefined ? {} : { progress }),
+    ...(colours === undefined
+      ? {}
+      : {
+          colourProgress: colours.flatMap((colour) => {
+            const palette = WPLACE_PALETTE[colour.index]
+            return palette === undefined
+              ? []
+              : [{ ...colour, name: palette.name, hex: palette.hex }]
+          }),
+        }),
+  }
 }
 
 const treeIcon = (name: TreeRowOptions['kind']): TreeRowModel['icon'] =>
@@ -1538,8 +1592,6 @@ export const templateTreeAdapter = (
   const output: TreeOutput<void> = {
     row: (options) => {
       rows.set(options.key, options)
-      const progress = options.progressReader?.() ?? options.progress
-      const colours = options.colourProgress?.()
       entries.push({
         type: 'row',
         key: options.key,
@@ -1559,17 +1611,7 @@ export const templateTreeAdapter = (
         ...(options.preview === undefined ? {} : { preview: options.preview }),
         descendantAlarmKind: options.descendantAlarmKind,
         ...(options.lifecycle === undefined ? {} : { lifecycle: options.lifecycle }),
-        ...(progress === undefined ? {} : { progress }),
-        ...(colours === undefined
-          ? {}
-          : {
-              colourProgress: colours.flatMap((colour) => {
-                const palette = WPLACE_PALETTE[colour.index]
-                return palette === undefined
-                  ? []
-                  : [{ ...colour, name: palette.name, hex: palette.hex }]
-              }),
-            }),
+        ...rowProgress(options),
         ...(options.leadingActions === undefined
           ? {}
           : { leadingActions: actionModels(options.key, 'leading', options.leadingActions) }),
@@ -1619,7 +1661,12 @@ export const templateTreeAdapter = (
     finish: () => undefined,
   }
 
-  buildTree(output, callbacks, rerender, query, surface, includeCollapsed, templateKeys, claims)
+  const build = (): void =>
+    buildTree(output, callbacks, rerender, query, surface, includeCollapsed, templateKeys, claims)
+  measureProfileDetail(
+    templateKeys === undefined ? 'Template tree build' : 'Claimed tree build',
+    build,
+  )
 
   const tagOptions = new Map(
     localTagCatalog().map((tag) => [tag.id, { id: tag.id, name: tag.name, owner: 'Local' }]),
@@ -1649,7 +1696,7 @@ export const templateTreeAdapter = (
   if (!includeCollapsed && renderedRename !== null && !rows.has(renderedRename)) finishRenaming()
 
   const renamingKey = currentRenamingKey()
-  const model: TemplateTreeModel = {
+  let model: TemplateTreeModel = {
     query,
     sort: getState().sort,
     displayMode: templateDisplayMode(),
@@ -1765,7 +1812,27 @@ export const templateTreeAdapter = (
   }
 
   return {
-    model,
+    get model() {
+      return model
+    },
+    refreshProgress: () => {
+      let changed = false
+      const next = model.entries.map((entry) => {
+        const options = entry.type === 'row' ? rows.get(entry.key) : undefined
+        if (entry.type !== 'row' || options === undefined) return entry
+        const fresh = rowProgress(options)
+        if (
+          sameCounts(entry.progress, fresh.progress) &&
+          sameColourCounts(entry.colourProgress, fresh.colourProgress)
+        )
+          return entry
+        changed = true
+        const { progress: _progress, colourProgress: _colours, ...rest } = entry
+        return { ...rest, ...fresh }
+      })
+      if (changed) model = { ...model, entries: next }
+      return changed
+    },
     handle: (intent) => {
       if (intent.type === 'drag-state') {
         modelTreeDragActive = intent.active
@@ -1781,8 +1848,8 @@ export const templateTreeAdapter = (
           const collapsed = new Set(getState().collapsed)
           if (collapsed.has(intent.key)) collapsed.delete(intent.key)
           else collapsed.add(intent.key)
+          // State listeners redraw the tree; a second redraw here would rebuild it twice.
           setState({ collapsed: [...collapsed] })
-          rerender()
           break
         }
         case 'toggle-visible':
