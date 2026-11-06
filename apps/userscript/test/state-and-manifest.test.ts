@@ -53,6 +53,27 @@ describe('saved server state', () => {
     state.upsertServer({ ...first, token: 'new' })
     expect(signal.aborted).toBe(true)
   })
+
+  it('notifies nobody when an offline retry finds the server still offline', async () => {
+    const state = await loadState()
+    const offline = {
+      url: 'https://offline.test',
+      info: { id: serverId, name: 'Offline', auth: 'access_token' as const },
+      token: 'saved',
+      status: 'unreachable' as const,
+      error: 'TypeError: Failed to fetch',
+      isAdmin: false,
+      season: null,
+    }
+    state.upsertServer(offline)
+    const listener = vi.fn()
+    state.onStateChange(listener)
+    state.upsertServer({ ...offline, info: { ...offline.info } })
+    expect(listener).not.toHaveBeenCalled()
+    const { error: _, ...reachable } = offline
+    state.upsertServer({ ...reachable, status: 'connected', season: 1 })
+    expect(listener).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('server manifest admission', () => {

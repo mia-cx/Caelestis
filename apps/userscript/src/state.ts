@@ -888,7 +888,10 @@ export const setServerTemplatePreference = (
   })
 }
 
-/** Replace one server in place, keyed by url, preserving its saved token and the order of the rest. */
+/**
+ * Replace one server in place, keyed by url, preserving its saved token and the order of the rest.
+ * A row identical to the stored one changes nothing and notifies no listener.
+ */
 export const upsertServer = (server: ConnectedServer): boolean => {
   const servers = getState().servers
   const index = servers.findIndex((s) => s.url === server.url)
@@ -911,6 +914,9 @@ export const upsertServer = (server: ConnectedServer): boolean => {
   serverConnectionLifetimes.set(server, lifetime)
   serverConnectionLifetimes.set(candidate, lifetime)
   serverConnectionLifetimes.set(next, lifetime)
+  // An offline row is re-probed every few seconds with the same answer. Writing it again would
+  // wake every state listener, so an identical stored row is not a change.
+  if (current !== undefined && JSON.stringify(current) === JSON.stringify(next)) return true
   setState({
     servers: index === -1 ? [...servers, next] : servers.map((s, i) => (i === index ? next : s)),
   })
