@@ -444,9 +444,11 @@ describe('server mismatch masks', () => {
   it('saves an answer a paint overtook once the server confirms it', async () => {
     // Cache Storage for this page: responses by URL, re-put entries moved to the end.
     const saved = new Map<string, Response>()
+    let puts = 0
     const cache = {
       match: async (request: Request) => saved.get(request.url)?.clone(),
       put: async (request: Request, response: Response) => {
+        puts++
         saved.delete(request.url)
         saved.set(request.url, response)
       },
@@ -466,14 +468,15 @@ describe('server mismatch masks', () => {
     mismatch.invalidateServerMismatchTiles(origin, [tile])
     requests.hold = null
     release()
-    await vi.waitFor(() => expect(requests.statuses).toEqual([200]))
-    expect(saved.size).toBe(0)
     await vi.waitFor(() => {
       mismatch.serverMismatchMaskFor(template, tile)
       expect(requests.statuses).toEqual([200, 304])
     })
 
-    await vi.waitFor(() => expect(saved.size).toBe(1))
+    // Saved once, by the confirming 304: the overtaken 200 itself wrote nothing.
+    await vi.waitFor(() => expect(puts).toBe(1))
+    await vi.advanceTimersByTimeAsync(100)
+    expect(puts).toBe(1)
     const [entry] = saved.values()
     expect(entry?.headers.get('etag')).toBe(requests.validators[1])
     expect(new Uint8Array((await entry?.clone().arrayBuffer()) ?? new ArrayBuffer(0))).toHaveLength(
