@@ -480,7 +480,8 @@ export const createTelemetryRoutes = (
           const candidates = (c.req.header('if-none-match') ?? '')
             .split(',')
             .map((candidate) => candidate.trim().replace(/^W\//, ''))
-          if (candidates.includes(headers.etag)) return c.body(null, 304, headers)
+          if (candidates.includes(headers.etag) || candidates.includes('*'))
+            return c.body(null, 304, headers)
           return c.body(result.bytes.slice().buffer as ArrayBuffer, 200, {
             ...headers,
             'content-type': 'application/vnd.caelestis.mismatch-mask',
