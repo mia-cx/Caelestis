@@ -74,12 +74,15 @@ const sortedByKey = (marks: ArrayLike<number>, seed: number): Uint32Array => {
 }
 
 /**
- * Room for marks added after a scan: an eighth of the list, and at least 16 slots.
+ * Room for marks added after a scan: an eighth of the list, between 16 and 16,384 slots.
  *
- * Proportional rather than capped, so the compaction that a full tail triggers comes once per that
- * many additions and costs each of them a constant share, however many marks the tile has.
+ * The tail is submitted whole for the shader to sample, so its size is vertex work the budget
+ * cannot bound; the cap keeps that to at most 16,384 points. Below the cap, room is proportional to
+ * the list, so the compaction a full tail triggers costs each addition a constant share. Above it,
+ * a million-mark list compacts once per 16,384 additions, about 61 slot moves for each of them.
  */
-const tailRoom = (sorted: number): number => Math.max(16, sorted >>> 3)
+const MAX_TAIL = 16_384
+const tailRoom = (sorted: number): number => Math.min(MAX_TAIL, Math.max(16, sorted >>> 3))
 
 /**
  * Most changes the log holds. Past it, the oldest half is dropped.
@@ -102,7 +105,8 @@ const LOG_LIMIT = 1_024
  *
  * `slots` is replaced only by compaction, which drops dead slots and sorts the tail back into the
  * run once either outgrows its share. A consumer holding the old `slots` re-reads everything.
- * Both shares are proportional to the list, so compaction amortises to a constant per change.
+ * Both shares grow with the list (see `tailRoom` for the tail's cap), so compaction amortises to a
+ * small share of the list per change.
  */
 export class MarkList {
   /** Live and dead marks in `[0, length)`, then spare room for the tail. */

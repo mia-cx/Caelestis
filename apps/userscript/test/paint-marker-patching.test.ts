@@ -429,6 +429,24 @@ describe('the marker budget', () => {
     expect(submitted).toBeLessThan(1.1 * BUDGET)
   })
 
+  it('keeps marks painted since the scan to a bounded share of what is submitted', async () => {
+    const { MarkList } = await import('../src/templates/mark-list.js')
+    const { visibleListPoints, visibleSourceRect, markerSampleRate } = await import(
+      '../src/gl/marker-density.js'
+    )
+    const coordinate = (at: number) => (at % SIZE) | (Math.floor(at / SIZE) << 10)
+    const list = MarkList.of(
+      Uint32Array.from({ length: 800_000 }, (_, at) => coordinate(at)),
+      7,
+    )
+    // A hundred thousand new marks painted one at a time, with no rescan in between.
+    for (let at = 800_000; at < 900_000; at++) list.add(coordinate(at))
+    const budget = 4_096
+    const visible = visibleListPoints(list, visibleSourceRect(WHOLE_TILE, 2_000, 2_000))
+    const { submitted } = await submit(list, WHOLE_TILE, markerSampleRate(visible, budget))
+    expect(submitted).toBeLessThanOrEqual(1.1 * budget + 16_384)
+  })
+
   it('submits only the blocks on screen when zoomed into a dense tile', async () => {
     const list = await denseTile()
     // Twenty screen pixels per tile pixel: the top-left 100 × 100 of the tile fills the screen,
