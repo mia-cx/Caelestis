@@ -7,6 +7,7 @@ useIconSet('pixel')
 
 <script lang="ts">
 import { Icon } from '@caelestis/ui'
+import { page } from '$app/state'
 import { onMount, untrack } from 'svelte'
 import {
   readToken,
@@ -25,6 +26,10 @@ const REPO_URL = 'https://github.com/mia-cx/Caelestis'
 let { children, data }: LayoutProps = $props()
 
 const app = untrack(() => provideApp(data.bootstrap))
+
+// Link previews describe the document a crawler requested. The layout load does not rerun on
+// client navigation, so they leave the head once the page no longer matches them.
+const socialIsCurrent = $derived(new URL(data.social.url).pathname === page.url.pathname)
 
 let connectOpen = $state(false)
 
@@ -68,7 +73,9 @@ const toggleTheme = (): void => {
 }
 </script>
 
-<SocialMetadata metadata={data.social} />
+{#if socialIsCurrent}
+  <SocialMetadata metadata={data.social} />
+{/if}
 
 <svelte:head>
   <title>{app.server === null || app.server.name === 'Caelestis' ? 'Caelestis' : `${app.server.name} · Caelestis`}</title>

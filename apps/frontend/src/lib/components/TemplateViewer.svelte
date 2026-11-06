@@ -83,14 +83,23 @@
    * Draw only images inside the viewport. Draw the basemap first, then canvas tiles and template
    * art. Redraw when an image loads instead of allocating a world-sized buffer.
    */
-  const ready = new Map<string, HTMLImageElement>()
+  /**
+   * Decoded images by cache key. Each frame keeps only the images it drew, so panning and
+   * scrubbing release what scrolled away instead of holding every image they passed.
+   */
+  let ready = new Map<string, HTMLImageElement>()
+  /** The images the frame being drawn has used so far. */
+  let drawn = new Map<string, HTMLImageElement>()
   const pending = new Set<string>()
   /** Last successfully decoded canvas observation per tile, independent of the selected frame. */
   const presentedTiles = new Map<TileKey, HTMLImageElement>()
 
   const ensure = (key: string, load: () => Promise<HTMLImageElement>): HTMLImageElement | null => {
     const held = ready.get(key)
-    if (held !== undefined) return held
+    if (held !== undefined) {
+      drawn.set(key, held)
+      return held
+    }
     if (!pending.has(key)) {
       pending.add(key)
       load()
@@ -113,6 +122,7 @@
     if (ctx === null) return
     const dpr = window.devicePixelRatio || 1
     const scale = zoom * dpr
+    drawn = new Map()
     ctx.setTransform(1, 0, 0, 1, 0, 0)
     ctx.clearRect(0, 0, canvas.width, canvas.height)
     ctx.setTransform(scale, 0, 0, scale, -originX * scale, -originY * scale)
@@ -183,6 +193,7 @@
       }
       ctx.globalAlpha = 1
     }
+    ready = drawn
   }
 
   // A microtask, not requestAnimationFrame: rAF never fires in an occluded tab, so a zoom or a
