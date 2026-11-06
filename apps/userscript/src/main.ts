@@ -290,12 +290,17 @@ const step = (what: string, run: () => void): void => {
   }
 }
 
-/** Install the userscript once when its browser entrypoint runs. */
-export const startUserscript = (): void => {
-  installPageHooks()
+/** The userscript's features, once its stored values are readable. */
+export const installUserscriptFeatures = (): void => {
   installFeatures()
   // The extension's stores update it themselves.
   step('userscript update check', installUserscriptUpdateCheck)
+}
+
+/** Install the userscript in the world it was started in, with the manager's storage at hand. */
+export const startUserscript = (): void => {
+  installPageHooks()
+  installUserscriptFeatures()
 }
 
 /**
