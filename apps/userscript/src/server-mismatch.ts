@@ -37,6 +37,8 @@ interface HeldMask {
    * newer than the read take precedence, and is revalidated the next time it is drawn.
    */
   stale: boolean
+  /** A response that a paint overtook, kept so the 304 confirming it can save it. */
+  readonly unsaved: Uint8Array | null
   lastUsed: number
 }
 
@@ -123,7 +125,14 @@ const readMask = async (
       if (mask === null) void deleteCachedServerMismatch(key)
       else {
         // A saved mask is enough to draw immediately; the request below still refreshes it.
-        validator = { server, mask, etag: cached.etag, stale: true, lastUsed: ++useGeneration }
+        validator = {
+          server,
+          mask,
+          etag: cached.etag,
+          stale: true,
+          unsaved: null,
+          lastUsed: ++useGeneration,
+        }
         masks.set(key, validator)
         notify()
       }
@@ -160,7 +169,17 @@ const readMask = async (
     // under the older observation must not answer for this one.
     const mask = { ...validator.mask, packed: validator.mask.packed.slice() }
     recordPixelObservation(mask.packed, requested)
-    masks.set(key, { ...validator, mask, stale: !tileCurrent(), lastUsed: ++useGeneration })
+    const fresh = tileCurrent()
+    // The answer a paint overtook is now confirmed current, so it may replace the saved copy.
+    if (fresh && validator.unsaved !== null)
+      void writeCachedServerMismatch(key, validator.unsaved, validator.etag)
+    masks.set(key, {
+      ...validator,
+      mask,
+      stale: !fresh,
+      unsaved: fresh ? null : validator.unsaved,
+      lastUsed: ++useGeneration,
+    })
     notify()
     return
   }
@@ -207,8 +226,16 @@ const readMask = async (
   misses.delete(key)
   recordPixelObservation(mask.packed, requested)
   // Only a fresh answer is saved: one older than a paint must not outlive this page as current.
+  // An overtaken one waits for the 304 that confirms it.
   if (persist && fresh) void writeCachedServerMismatch(key, bytes, etag)
-  masks.set(key, { server, mask, etag, stale: !fresh, lastUsed: ++useGeneration })
+  masks.set(key, {
+    server,
+    mask,
+    etag,
+    stale: !fresh,
+    unsaved: persist && !fresh ? bytes : null,
+    lastUsed: ++useGeneration,
+  })
   notify()
 }
 

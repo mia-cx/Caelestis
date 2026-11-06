@@ -440,4 +440,42 @@ describe('server mismatch masks', () => {
     expect(requests.validators).toEqual([null, null])
     expect(mismatch.serverMismatchMaskFor(template, tile)?.packed).toEqual(drawn?.packed)
   })
+
+  it('saves an answer a paint overtook once the server confirms it', async () => {
+    // Cache Storage for this page: responses by URL, re-put entries moved to the end.
+    const saved = new Map<string, Response>()
+    const cache = {
+      match: async (request: Request) => saved.get(request.url)?.clone(),
+      put: async (request: Request, response: Response) => {
+        saved.delete(request.url)
+        saved.set(request.url, response)
+      },
+      delete: async (request: Request) => saved.delete(request.url),
+      keys: async () => [...saved.keys()].map((url) => new Request(url)),
+    }
+    vi.stubGlobal('caches', { open: async () => cache })
+    const { fetch, template, mismatch } = await observedTemplate()
+    const requests = recordMaskRequests(fetch)
+    let release = (): void => {}
+    requests.hold = new Promise((resolve) => {
+      release = resolve
+    })
+
+    expect(mismatch.serverMismatchMaskFor(template, tile)).toBeNull()
+    await vi.waitFor(() => expect(requests.validators).toHaveLength(1))
+    mismatch.invalidateServerMismatchTiles(origin, [tile])
+    requests.hold = null
+    release()
+    await vi.waitFor(() => {
+      mismatch.serverMismatchMaskFor(template, tile)
+      expect(requests.statuses).toEqual([200, 304])
+    })
+
+    await vi.waitFor(() => expect(saved.size).toBe(1))
+    const [entry] = saved.values()
+    expect(entry?.headers.get('etag')).toBe(requests.validators[1])
+    expect(new Uint8Array((await entry?.clone().arrayBuffer()) ?? new ArrayBuffer(0))).toHaveLength(
+      13,
+    )
+  })
 })
