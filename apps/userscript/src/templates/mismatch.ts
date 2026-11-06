@@ -215,7 +215,7 @@ const mergeMarks = (left: MismatchMarks, right: MismatchMarks): MismatchMarks =>
   return merged
 }
 
-type AnswerKind = 'configured' | 'all' | 'unpainted'
+type AnswerKind = 'configured' | 'unpainted'
 
 const collectionFor = (
   kind: AnswerKind,
@@ -232,8 +232,7 @@ const satisfies = (
 
 const answerFrom = (entry: Cached, kind: AnswerKind, template: PlacedTemplate): Mismatches => {
   if (kind === 'unpainted') return entry.unpainted
-  const includeUnpainted = kind === 'all' || countsUnpainted(template)
-  if (!includeUnpainted) return entry.wrong
+  if (!countsUnpainted(template)) return entry.wrong
   // Built even while one side is empty: the first mark of the other kind then patches this list
   // rather than replacing the answer with a newly merged one.
   if (entry.both === null) {
@@ -1779,10 +1778,6 @@ const mismatchAnswer = (
 /** Mismatches shown by the magenta marker, including unpainted only when its appearance allows it. */
 export const mismatchesIn = (template: PlacedTemplate, tile: TileCoord): Mismatches | null =>
   mismatchAnswer(template, tile, 'configured')
-
-/** Every wrong or unpainted pixel, used to narrow the selected-colour work list. */
-export const disagreementsIn = (template: PlacedTemplate, tile: TileCoord): Mismatches | null =>
-  mismatchAnswer(template, tile, 'all')
 
 /** Keep a visible outline answer eligible for reuse without reading or rescanning it. */
 export const retainUnpainted = (template: PlacedTemplate, tile: TileCoord): void => {
