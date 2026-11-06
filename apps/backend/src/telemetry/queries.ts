@@ -572,19 +572,18 @@ const currentSeasonTileVisible = (
       owners = planned
     }
     // Only the held version is ever offered, so without one a match cannot happen; hide the tile.
-    const candidates = owners?.get(tile) ?? []
-    const records = yield* sqlRead('readTemplate', () =>
-      Promise.all(candidates.map(({ templateId }) => sql.readTemplate(templateId))),
-    )
-    return candidates.some(({ versionId }, index) => {
-      const record = records[index]
-      return (
+    // One read confirms a fresh cache; only a stale one reads every covering template.
+    for (const { templateId, versionId } of owners?.get(tile) ?? []) {
+      const record = yield* sqlRead('readTemplate', () => sql.readTemplate(templateId))
+      if (
         record?.published === true &&
         record.currentVersionId === versionId &&
         record.season === season &&
         record.surface.kind === WORLD_TEMPLATE_SURFACE.kind
       )
-    })
+        return true
+    }
+    return false
   })
 
 /** Return all retained detail by default; an explicit resolution reads only that legacy tier. */
