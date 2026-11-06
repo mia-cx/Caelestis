@@ -513,22 +513,29 @@ export const readCanvas = (
     }
   })
 
+/** A published template version whose timelapse capture covers a tile. Versions never change. */
+interface TileOwner {
+  readonly templateId: string
+  readonly versionId: string
+}
+
 /**
- * Which published templates' timelapse captures cover each canvas tile, planned from the current
- * season's public world manifest and kept for that manifest version. Each read revalidates the
- * version with If-None-Match against the manifest read model, so publishing shows up as soon as
+ * Which published template versions' timelapse captures cover each canvas tile, planned from the
+ * current season's public world manifest and kept for that manifest version. Each read revalidates
+ * the version with If-None-Match against the manifest read model, so publishing shows up as soon as
  * the manifest does. Keyed by content hash, so one entry serves every backend that shares it.
  */
 let currentSeasonTiles: {
   readonly season: number
   readonly version: string
-  readonly owners: ReadonlyMap<TileKey, readonly string[]>
+  readonly owners: ReadonlyMap<TileKey, readonly TileOwner[]>
 } | null = null
 
 /**
  * Whether a reader may see a current-season tile. The manifest cache may only hide a tile: a
- * tile it shows is confirmed against the database, because a failed invalidation can leave an
- * unpublished template in the cached manifest.
+ * failed invalidation can leave a template cached after it was unpublished or moved, so a tile it
+ * shows is confirmed against the database. One of its templates must still be published on this
+ * season's world surface at the very version, and so the very bounds, that covered the tile.
  */
 const currentSeasonTileVisible = (
   server: ServerInfo,
@@ -552,23 +559,32 @@ const currentSeasonTileVisible = (
     })
     let owners = held?.owners
     if (!projection.notModified) {
-      const planned = new Map<TileKey, string[]>()
-      for (const template of projection.manifest.templates)
+      const planned = new Map<TileKey, TileOwner[]>()
+      for (const template of projection.manifest.templates) {
+        const owner = { templateId: template.id, versionId: template.version }
         for (const key of planTimelapseTiles([template.bbox]).map(tileKey)) {
-          const ids = planned.get(key)
-          if (ids === undefined) planned.set(key, [template.id])
-          else ids.push(template.id)
+          const held = planned.get(key)
+          if (held === undefined) planned.set(key, [owner])
+          else held.push(owner)
         }
+      }
       currentSeasonTiles = { season, version: projection.version, owners: planned }
       owners = planned
     }
     // Only the held version is ever offered, so without one a match cannot happen; hide the tile.
-    const ids = owners?.get(tile)
-    if (ids === undefined) return false
-    const published = yield* sqlRead('filterPublishedTemplateIds', () =>
-      sql.filterPublishedTemplateIds(ids),
+    const candidates = owners?.get(tile) ?? []
+    const records = yield* sqlRead('readTemplate', () =>
+      Promise.all(candidates.map(({ templateId }) => sql.readTemplate(templateId))),
     )
-    return published.length > 0
+    return candidates.some(({ versionId }, index) => {
+      const record = records[index]
+      return (
+        record?.published === true &&
+        record.currentVersionId === versionId &&
+        record.season === season &&
+        record.surface.kind === WORLD_TEMPLATE_SURFACE.kind
+      )
+    })
   })
 
 /** Return all retained detail by default; an explicit resolution reads only that legacy tier. */
