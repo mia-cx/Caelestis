@@ -264,7 +264,16 @@ export const runLeaderboardContract = async (sql: SqlStore) => {
     season: await sql.readLeaderboard({ season: 1, includeUnpublished: false }, 2),
     draftsFromSecondDay: await sql.readLeaderboard(
       {
-        templateIds: [leaderboardIds.published, leaderboardIds.other, leaderboardIds.draft],
+        // More ids than D1 binds in one statement, as `/telemetry/leaderboard` accepts.
+        templateIds: [
+          leaderboardIds.published,
+          leaderboardIds.other,
+          leaderboardIds.draft,
+          ...Array.from(
+            { length: 200 },
+            (_, index) => `01890f3e-7b2c-7abc-8def-${String(index).padStart(12, '0')}`,
+          ),
+        ],
         fromSeconds: secondDay,
         includeUnpublished: true,
       },

@@ -103,7 +103,6 @@ import {
   type PainterTelemetryBucket,
   type PainterTotalRow,
   READ_BUCKETS_CHUNK_SIZE,
-  rankLeaderboard,
   type ServerSettings,
   type SqlStore,
   TELEMETRY_DECAY_EDGES,
@@ -3702,7 +3701,7 @@ export class RelationalSqlStore implements SqlStore {
   }
 
   /** The contribution rows `query` may see, narrowed to `chunk` when it names template ids. */
-  private contributionFilter(query: ContributionQuery, chunk: readonly string[] | null) {
+  private contributionFilter(query: ContributionQuery, chunk: readonly string[] | SQL | null) {
     // The season and publish filters are one IN-subquery rather than a join, so one builder shape
     // serves the season-only, ids-only and intersected forms — and the group key stays the three
     // columns the reduction is defined over, with nothing joined in to widen it. The publish gate
@@ -3785,10 +3784,14 @@ export class RelationalSqlStore implements SqlStore {
     limit: number,
   ): Promise<readonly LeaderboardEntry[]> {
     assertValidContributionQuery(query)
-    const templateIds = query.templateIds === undefined ? null : [...new Set(query.templateIds)]
-    // No single statement sees a painter's whole total across parameter chunks.
-    if (templateIds !== null && templateIds.length > READ_BUCKETS_CHUNK_SIZE)
-      return rankLeaderboard(await this.readContributions(query), limit)
+    // Every id travels in one JSON parameter, so one statement sees a painter's whole total however
+    // many templates are named, within D1's bound-parameter budget.
+    const [beforeIds = '', afterIds = ''] = this.syntax.jsonEach.split('?')
+    const idsJson = JSON.stringify([...new Set(query.templateIds ?? [])].map((id) => ({ id })))
+    const templateIds =
+      query.templateIds === undefined
+        ? null
+        : sql`(SELECT ${sql.raw(this.syntax.jsonField('id', 'text'))} FROM ${sql.raw(beforeIds)}${idsJson}${sql.raw(afterIds)})`
     // The MAX per painter-day that `readContributions` returns, then the SUM per painter, ranked
     // and limited in the database rather than shipped out row by row.
     const days = this.database
