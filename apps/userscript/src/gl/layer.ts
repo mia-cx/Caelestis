@@ -29,6 +29,7 @@ import {
   type TemplateGpuEntry,
   TemplateGpuStore,
   type TemplateGpuTile,
+  type TemplateRect,
 } from './template-gpu-store.js'
 
 /**
@@ -138,6 +139,31 @@ const intersectsTiles = (
         span.worldEnd + nudgeX > tileLeft && span.worldStart + nudgeX < tileLeft + TILE_SIZE,
     )
   })
+}
+
+/** The template's parts on Wplace's tiles this frame, in template coordinates. */
+const visibleSourceRects = (
+  template: PlacedTemplate,
+  spans: readonly HorizontalSpan[],
+  tiles: readonly TileQuad[],
+): TemplateRect[] => {
+  const rects: TemplateRect[] = []
+  const top = template.originY + nudgeY
+  for (const tile of tiles) {
+    const tileLeft = tile.tile.x * TILE_SIZE
+    const tileTop = tile.tile.y * TILE_SIZE
+    const fromY = Math.max(top, tileTop)
+    const toY = Math.min(top + template.height, tileTop + TILE_SIZE)
+    if (toY <= fromY) continue
+    for (const span of spans) {
+      const shift = span.sourceStart - span.worldStart - nudgeX
+      const fromX = Math.max(span.worldStart + nudgeX, tileLeft)
+      const toX = Math.min(span.worldEnd + nudgeX, tileLeft + TILE_SIZE)
+      if (toX <= fromX) continue
+      rects.push({ x: fromX + shift, y: fromY - top, width: toX - fromX, height: toY - fromY })
+    }
+  }
+  return rects
 }
 
 /** Visit each source/host-tile intersection once, with exact clip-space corners from Wplace. */
@@ -383,36 +409,30 @@ export const overlayLayer = {
     let uploadPixelsLeft = OVERLAY_UPLOAD_PIXELS_PER_FRAME
     let uploadedIndexPixels = 0
     let drawIntersections = 0
-    let uploadsLeft = visible.reduce((total, { rendered }) => {
-      const { template } = rendered
-      const entry = store.entry(template.id)
-      const complete =
-        entry !== null &&
-        entry.source === template.artwork &&
-        entry.width === template.width &&
-        entry.height === template.height
-      return total + (complete ? 0 : 1)
-    }, 0)
+    let uploadsLeft = visible.filter(({ rendered }) => !store.hasCurrent(rendered.template)).length
 
     try {
       for (const { rendered, spans } of visible) {
         const { template, appearance, fade, palette } = rendered
-        let entry = store.hasCurrent(template) ? store.entry(template.id) : null
-        if (entry === null) {
+        let entry: TemplateGpuEntry | null
+        if (store.hasCurrent(template)) entry = store.entry(template.id)
+        else {
           const uploadAllowance =
             uploadsLeft > 0 ? Math.floor(uploadPixelsLeft / uploadsLeft) : uploadPixelsLeft
           uploadsLeft = Math.max(0, uploadsLeft - 1)
-          const advanced = store.advance(template, uploadAllowance, renderGeneration)
+          const advanced = store.advance(
+            template,
+            uploadAllowance,
+            renderGeneration,
+            visibleSourceRects(template, spans, tiles),
+          )
           uploadPixelsLeft -= advanced.uploadedPixels
           uploadedIndexPixels += advanced.uploadedPixels
           if (advanced.status === 'failed') continue
-          if (advanced.status === 'pending') {
-            animating = true
-            continue
-          }
-          entry = advanced.entry
-          // The outline layer already ran earlier in this frame and could not see this entry.
+          // Draw the chunks finished so far. Upload the rest next frame, and let the outline layer,
+          // which ran earlier in this one, catch up on the new chunks.
           animating = true
+          entry = advanced.entry
         }
         if (entry === null) continue
         entry.lastUsed = renderGeneration
