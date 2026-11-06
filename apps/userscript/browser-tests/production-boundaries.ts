@@ -65,20 +65,21 @@ export const runProductionBrowserBoundaries = async () => {
     configurable: true,
     value: (type: string) => (type === 'resource' ? [{ name: tileUrl }] : originalEntries(type)),
   })
-  const requests: string[] = []
-  window.fetch = async (input) => {
-    const url = String(input)
-    requests.push(url)
-    if (url !== tileUrl) throw new Error(`Unexpected browser contract request: ${url}`)
-    return new Response(Uint8Array.from(encoded), { headers: { 'content-type': 'image/png' } })
-  }
+  // The runner serves `encoded` for `tileUrl` from the network. The page's fetch stands in for
+  // another userscript that rewrites tile responses on their way to Wplace, as Blue Marble does.
+  Object.assign(window, { contractTilePng: btoa(String.fromCharCode(...encoded)) })
+  const rewritten = await encodeIndexedPng(
+    TILE_SIZE,
+    TILE_SIZE,
+    new Uint8Array(TILE_SIZE * TILE_SIZE).fill(9),
+  )
+  window.fetch = async () =>
+    new Response(Uint8Array.from(rewritten), { headers: { 'content-type': 'image/png' } })
   install(window)
   captureTilePixels(true)
   const recovered = await loadTilePixels(tile)
   if (recovered?.length !== TILE_SIZE * TILE_SIZE || recovered.some((pixel) => pixel !== 5))
-    throw new Error('Refresh recovery did not decode the tile loaded before capture installed')
-  if (requests.length !== 1 || requests[0] !== tileUrl)
-    throw new Error('Refresh recovery fetched unexpected tiles')
+    throw new Error('Refresh recovery did not read the served tile loaded before capture installed')
   Object.defineProperty(performance, 'getEntriesByType', {
     configurable: true,
     value: originalEntries,
