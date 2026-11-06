@@ -49,11 +49,28 @@ const counters = new Map<string, number>()
 const lastNoisy = new Map<Category, string>()
 const started = Date.now()
 
-const readInitialSetting = (): boolean => {
+const readStoredSetting = (): boolean => {
   try {
     return storedValue(DEBUG_KEY) === '1'
   } catch {
     return false
+  }
+}
+
+/**
+ * Apply the stored Debug logging setting once stored values have loaded, and say how to change it.
+ * `installDebugApi` reads it earlier too, which in the userscript catches the page hooks' own logs.
+ */
+export const loadDebugSetting = (): void => {
+  enabled = readStoredSetting()
+  try {
+    console.info(
+      enabled
+        ? '[caelestis] debug is ON. __caelestis.dump() to print, __caelestis.debug(false) to stop.'
+        : '[caelestis] debug is off. __caelestis.debug(true) then reload to capture everything.',
+    )
+  } catch {
+    // A replaced console is not part of the render path.
   }
 }
 
@@ -207,7 +224,7 @@ export interface DebugApi {
 }
 
 export const installDebugApi = (extra: Record<string, unknown> = {}): void => {
-  enabled = readInitialSetting()
+  enabled = readStoredSetting()
   const api: DebugApi & Record<string, unknown> = {
     debug(on: boolean) {
       setEnabled(on)
@@ -242,14 +259,5 @@ export const installDebugApi = (extra: Record<string, unknown> = {}): void => {
     })
   } catch {
     // Debug access is optional; a locked page global must not abort the userscript at document-start.
-  }
-  try {
-    console.info(
-      enabled
-        ? '[caelestis] debug is ON. __caelestis.dump() to print, __caelestis.debug(false) to stop.'
-        : '[caelestis] debug is off. __caelestis.debug(true) then reload to capture everything.',
-    )
-  } catch {
-    // A replaced console is not part of the render path.
   }
 }

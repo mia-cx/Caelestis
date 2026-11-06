@@ -1,3 +1,4 @@
 import { startUserscript } from './main.js'
+import { claimPage } from './page-claim.js'
 
-startUserscript()
+if (claimPage('userscript')) startUserscript()
