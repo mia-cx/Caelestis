@@ -82,7 +82,20 @@ const setup = async () => {
     })
     await accepted
   }
-  return { tileTransform, setWplacePatchEnabled, readback, digest, fetchTile, paint, backend }
+  /** What the backend answers from now on, without Wplace asking. */
+  const serve = (bytes: typeof body) => {
+    body = bytes
+  }
+  return {
+    tileTransform,
+    setWplacePatchEnabled,
+    readback,
+    digest,
+    fetchTile,
+    paint,
+    backend,
+    serve,
+  }
 }
 
 afterEach(() => {
@@ -175,5 +188,61 @@ describe('unchanged tile capture', () => {
     digest.mockRejectedValueOnce(new Error('unavailable'))
     await fetchTile()
     expect(readback).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('reload on request', () => {
+  it('re-reads kept tiles off screen and leaves the visible ones to Wplace', async () => {
+    const { tileTransform, readback, fetchTile, backend, serve } = await setup()
+    await fetchTile(100)
+    await fetchTile(101)
+    backend.mockClear()
+    readback.mockClear()
+    // Tile 100 changed while nobody looked; tile 101 is on screen, where Wplace reloads it.
+    serve(new Uint8Array([1, 2, 4]))
+    await tileTransform.rereadKeptTiles([{ x: 101, y: 200 }])
+    expect(backend.mock.calls.map(([url]) => url)).toEqual([
+      'https://backend.wplace.live/files/s0/tiles/100/200.png',
+    ])
+    expect(readback).toHaveBeenCalledTimes(1)
+  })
+
+  it('skips the readback for kept tiles that did not change', async () => {
+    const { tileTransform, readback, fetchTile } = await setup()
+    await fetchTile()
+    readback.mockClear()
+    await tileTransform.rereadKeptTiles([])
+    expect(readback).not.toHaveBeenCalled()
+  })
+
+  it('re-reads through the worker, past the page fetch, and skips unchanged tiles', async () => {
+    // The server's real tile, as the worker fetches it, while the page's fetch may be rewritten.
+    let served = new Uint8Array([1, 2, 3])
+    const workerReads = vi.fn(async () => ({
+      bitmap: { width: 1_000, height: 1_000, close() {} },
+      digest: await globalThis.crypto.subtle.digest('SHA-256', served),
+    }))
+    vi.stubGlobal(
+      'Worker',
+      class extends EventTarget {
+        postMessage({ id }: { id: number }) {
+          void workerReads().then((tile) =>
+            this.dispatchEvent(new MessageEvent('message', { data: { id, ...tile } })),
+          )
+        }
+        terminate() {}
+      },
+    )
+    const { tileTransform, readback, fetchTile, backend } = await setup()
+    await fetchTile()
+    backend.mockClear()
+    readback.mockClear()
+    await tileTransform.rereadKeptTiles([])
+    expect(workerReads).toHaveBeenCalledTimes(1)
+    expect(backend).not.toHaveBeenCalled()
+    expect(readback).not.toHaveBeenCalled()
+    served = new Uint8Array([1, 2, 4])
+    await tileTransform.rereadKeptTiles([])
+    expect(readback).toHaveBeenCalledTimes(1)
   })
 })

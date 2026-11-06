@@ -25,6 +25,7 @@ import {
   urlForFetchInput,
   wplaceRasterRole,
 } from './wplace-raster.js'
+import { reloadVisibleWplaceTiles } from './wplace-tile-refresh.js'
 
 /**
  * Which wplace tile is on screen, where, right now?
@@ -1217,33 +1218,47 @@ const requestedTilePixels = new Map<string, number>()
  * and a chase through the page's `fetch` received the same rewrite, so those tiles were never read
  * and a Local template's progress stayed unscanned behind them. A worker's `fetch` belongs to no
  * page script. An absent tile decodes as the 1x1 empty tile `normalizeMissingTileResponse` makes.
+ * The body's SHA-256 comes back with it, as the Blob tap computes it, so capture-dedupe can skip an
+ * unchanged tile.
  */
 const TILE_READER = `self.onmessage = async ({ data: { id, url } }) => {
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(15000) })
-    const bitmap =
-      response.status === 404
-        ? await createImageBitmap(new ImageData(1, 1))
-        : response.ok
-          ? await createImageBitmap(await response.blob())
-          : undefined
-    self.postMessage({ id, bitmap }, bitmap === undefined ? [] : [bitmap])
+    if (response.status === 404) {
+      const bitmap = await createImageBitmap(new ImageData(1, 1))
+      self.postMessage({ id, bitmap, digest: null }, [bitmap])
+      return
+    }
+    if (!response.ok) {
+      self.postMessage({ id })
+      return
+    }
+    const body = await response.arrayBuffer()
+    // No hash outside a secure context; the tile is then read back in full.
+    const hashing = self.crypto?.subtle?.digest('SHA-256', body).catch(() => null) ?? null
+    const [bitmap, digest] = await Promise.all([createImageBitmap(new Blob([body])), hashing])
+    self.postMessage({ id, bitmap, digest }, [bitmap])
   } catch {
     self.postMessage({ id })
   }
 }`
 
+interface WorkerTile {
+  readonly bitmap: ImageBitmap
+  readonly digest: ArrayBuffer | null
+}
+
 /** Undefined until first asked for; null when no worker could be started. */
 let tileReader: Worker | null | undefined
 let nextTileRead = 0
-const tileReads = new Map<number, (bitmap: ImageBitmap | undefined | null) => void>()
+const tileReads = new Map<number, (tile: WorkerTile | undefined | null) => void>()
 
 /**
  * A decoded tile from the worker, undefined when it could not be read, or null when there is no
  * worker. A worker the page's CSP rejects reports that only after it was constructed, so reads
  * already waiting on it settle null as well and fall back like later ones.
  */
-const readTileInWorker = (url: string): Promise<ImageBitmap | undefined | null> => {
+const readTileInWorker = (url: string): Promise<WorkerTile | undefined | null> => {
   if (tileReader === undefined) {
     try {
       const source = URL.createObjectURL(new Blob([TILE_READER], { type: 'text/javascript' }))
@@ -1251,9 +1266,12 @@ const readTileInWorker = (url: string): Promise<ImageBitmap | undefined | null> 
       URL.revokeObjectURL(source)
       tileReader.addEventListener(
         'message',
-        (event: MessageEvent<{ id: number; bitmap?: ImageBitmap }>) => {
-          tileReads.get(event.data.id)?.(event.data.bitmap)
-          tileReads.delete(event.data.id)
+        (
+          event: MessageEvent<{ id: number; bitmap?: ImageBitmap; digest?: ArrayBuffer | null }>,
+        ) => {
+          const { id, bitmap, digest = null } = event.data
+          tileReads.get(id)?.(bitmap === undefined ? undefined : { bitmap, digest })
+          tileReads.delete(id)
         },
       )
       tileReader.addEventListener('error', (event) => {
@@ -1277,7 +1295,11 @@ const readTileInWorker = (url: string): Promise<ImageBitmap | undefined | null> 
   })
 }
 
-/** The page-side read, for when no worker can be started. Another script may rewrite it. */
+/**
+ * The page-side read, for when no worker can be started. Another script may rewrite it. It takes
+ * Wplace's own body-to-Blob path, so our taps capture it and the Blob tap's hash lets capture-dedupe
+ * skip an unchanged tile; `response.blob()` would skip that hash.
+ */
 const readTileOnPage = async (
   realm: Window & typeof globalThis,
   url: string,
@@ -1285,8 +1307,37 @@ const readTileOnPage = async (
   const response = await realm.fetch.call(realm, url, { signal: AbortSignal.timeout(15_000) })
   if (!response.ok) return undefined
   return (await Reflect.apply(realm.createImageBitmap, realm, [
-    await response.blob(),
+    new realm.Blob([await response.arrayBuffer()]),
   ])) as ImageBitmap
+}
+
+/**
+ * Read one tile from the server and capture it, in the worker when there is one. False when there
+ * is no tile URL or page yet, or the tile did not answer.
+ */
+const readTile = async (tile: TileCoord): Promise<boolean> => {
+  const realm = captureRealm
+  if (realm === null || tileUrlShape === null) return false
+  const url = tileUrlShape.replace('{x}', String(tile.x)).replace('{y}', String(tile.y))
+  // Fences this read against newer captures and accepted paint, as the fetch tap does for its own.
+  tileRequestOrder.set(tile, nextPixelObservation())
+  const read = await readTileInWorker(url)
+  if (read === undefined) return false
+  if (read !== null) {
+    try {
+      capture(tile, read.bitmap, 'tile', null, read.digest)
+    } finally {
+      read.bitmap.close()
+    }
+    return true
+  }
+  const bitmap = await readTileOnPage(realm, url)
+  if (bitmap === undefined) return false
+  // Our own taps captured that before it resolved. Converting again would read a second
+  // million-pixel canvas per tile; only do it for a tile they missed, as they do if not installed.
+  if (!pixelsOfTile.has(tileKey(tile))) capture(tile, bitmap)
+  bitmap.close()
+  return true
 }
 
 export const ensureTilePixels = (tile: TileCoord): boolean => {
@@ -1296,25 +1347,11 @@ export const ensureTilePixels = (tile: TileCoord): boolean => {
   if (chased.has(key) || chasing >= CHASE_LIMIT) return false
   chased.add(key)
   chasing++
-  const url = tileUrlShape.replace('{x}', String(tile.x)).replace('{y}', String(tile.y))
   const chase = (async () => {
     // Publish the promise before a page-provided fetch implementation gets a chance to throw.
     await Promise.resolve()
     try {
-      const realm = captureRealm
-      if (realm === null) return
-      // Fences this read against newer captures and accepted paint, as the fetch tap does for its own.
-      tileRequestOrder.set(tile, nextPixelObservation())
-      const read = await readTileInWorker(url)
-      const bitmap = read === null ? await readTileOnPage(realm, url) : read
-      if (bitmap === undefined) return
-      // A page-side read went through our own taps, which may have captured the tile already.
-      // Converting again would read a second million-pixel canvas per chased tile, on the one path
-      // that runs at page load while the whole viewport is being backfilled. The bitmap is closed
-      // because nothing else will.
-      if (!pixelsOfTile.has(key)) capture(tile, bitmap)
-      bitmap.close()
-      count('pixels:chased a tile we missed')
+      if (await readTile(tile)) count('pixels:chased a tile we missed')
     } catch (error) {
       warn('fetch', `could not chase tile ${tile.x}/${tile.y}`, String(error))
     } finally {
@@ -1380,6 +1417,46 @@ export const loadTilePixels = async (
     else requestedTilePixels.set(key, requests)
   }
 }
+
+let rereading: Promise<void> | null = null
+
+/**
+ * Fetch every kept tile that capture still wants again, except those in `skip`.
+ *
+ * Kept pixels describe a tile as it was when it was last on screen. Wplace only re-downloads what is
+ * visible, so progress and markers for a template out of view go on counting those old pixels until
+ * somebody pans back to it. An unchanged tile costs no canvas read; capture-dedupe recognises it. A
+ * call while a re-read is running joins it.
+ */
+export const rereadKeptTiles = (skip: Iterable<TileCoord>): Promise<void> => {
+  if (rereading !== null) return rereading
+  const skipped = new Set<string>([...skip].map(tileKey))
+  const queue = [...pixelsOfTile.keys()].flatMap((key) => {
+    const tile = skipped.has(key) ? null : parseTileKey(key)
+    return tile !== null && capturePixels && (captureInterest?.(tile) ?? true) ? [tile] : []
+  })
+  count('pixels:kept tiles re-read on request', queue.length)
+  const worker = async (): Promise<void> => {
+    for (let tile = queue.shift(); tile !== undefined; tile = queue.shift()) {
+      try {
+        await readTile(tile)
+      } catch (error) {
+        warn('fetch', `could not re-read tile ${tile.x}/${tile.y}`, String(error))
+      }
+    }
+  }
+  rereading = Promise.all(Array.from({ length: CHASE_LIMIT }, worker)).then(() => {
+    rereading = null
+  })
+  return rereading
+}
+
+/**
+ * Reload the tiles that may have changed since the painter last looked at them: every visible tile
+ * through Wplace's map, so the map redraws too, and every kept tile off screen, so progress and
+ * markers stop counting old pixels.
+ */
+export const reloadTiles = (): Promise<void> => rereadKeptTiles(reloadVisibleWplaceTiles())
 
 /** Capture the base tile plus fully accepted paint awaiting a newer tile, excluding native drafts. */
 export const loadCommittedTilePixels = async (tile: TileCoord): Promise<Uint8Array | null> => {

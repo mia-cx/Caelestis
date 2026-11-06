@@ -87,6 +87,7 @@ import {
   install,
   onTileFrame,
   reconcileDrafts,
+  reloadTiles,
   type TileFrame,
 } from './tile-transform.js'
 import { installChargeForecast } from './ui/charge-forecast.js'
@@ -358,6 +359,8 @@ const installPageHooks = (): void => {
           season: server.season,
         })),
       }),
+      /** The panel's Reload tiles: visible tiles through the map, kept tiles off screen re-read. */
+      reloadTiles: () => reloadTiles(),
       /** Caelestis's performance patches for Wplace's own client, each with its own switch. */
       wplacePatches: {
         list: () => wplacePatchSettings(),
