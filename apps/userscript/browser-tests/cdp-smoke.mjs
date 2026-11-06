@@ -188,7 +188,10 @@ try {
       { once: true },
     )
   })
-  ;({ targetId } = await call('Target.createTarget', { url: 'about:blank', background: true }))
+  // A background tab keeps an interactive browser's focus where it is. Headless Chromium has no
+  // focus to take, and stalls trusted input in a background tab, so the tab is a foreground one there.
+  const headless = String(browser.Browser).startsWith('HeadlessChrome')
+  ;({ targetId } = await call('Target.createTarget', { url: 'about:blank', background: !headless }))
   ;({ sessionId } = await call('Target.attachToTarget', { targetId, flatten: true }))
   await call('Emulation.setFocusEmulationEnabled', { enabled: true })
   await call('Emulation.setDeviceMetricsOverride', {
