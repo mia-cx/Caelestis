@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { build, context } from 'esbuild'
 import { ditherettePlugin } from './ditherette-plugin.mjs'
 
@@ -81,9 +81,74 @@ const options = {
   logLevel: 'info',
 }
 
+/**
+ * The browser extension, unpacked in `dist/extension/`. Its page-world script is the same program
+ * without the metadata block; `bridge.js` is the isolated-world script that owns its storage. The
+ * bridge is listed first so its handoff listener exists before the page-world script posts.
+ */
+const extensionDir = 'dist/extension'
+
+const manifest = {
+  manifest_version: 3,
+  name: 'Caelestis',
+  version: pkg.version,
+  description:
+    'Shared pixel-art templates for wplace.live, overlaid from one or more alliance servers',
+  homepage_url: 'https://github.com/mia-cx/Caelestis',
+  minimum_chrome_version: '111',
+  browser_specific_settings: {
+    gecko: {
+      id: 'caelestis@mia.cx',
+      strict_min_version: '140.0',
+      data_collection_permissions: {
+        required: [
+          'authenticationInfo',
+          'personallyIdentifyingInfo',
+          'websiteActivity',
+          'websiteContent',
+        ],
+      },
+    },
+    gecko_android: { strict_min_version: '142.0' },
+  },
+  permissions: ['storage'],
+  content_scripts: [
+    {
+      matches: ['https://wplace.live/*'],
+      js: ['bridge.js'],
+      run_at: 'document_start',
+    },
+    {
+      matches: ['https://wplace.live/*'],
+      js: ['caelestis.js'],
+      run_at: 'document_start',
+      world: 'MAIN',
+    },
+  ],
+}
+
+const extensionOptions = [
+  {
+    ...options,
+    entryPoints: ['src/extension/page.ts'],
+    outfile: `${extensionDir}/caelestis.js`,
+    banner: undefined,
+  },
+  {
+    entryPoints: ['src/extension/bridge.ts'],
+    outfile: `${extensionDir}/bridge.js`,
+    bundle: true,
+    format: 'iife',
+    target: 'es2022',
+    minify: !development,
+    logLevel: 'info',
+  },
+]
+
 if (process.argv.includes('--watch')) {
   const ctx = await context(options)
   await ctx.watch()
 } else {
-  await build(options)
+  await Promise.all([options, ...extensionOptions].map((each) => build(each)))
+  writeFileSync(`${extensionDir}/manifest.json`, `${JSON.stringify(manifest, null, 2)}\n`)
 }

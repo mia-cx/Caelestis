@@ -20,7 +20,7 @@ import {
   screenPointForIn,
   viewportCentreIn,
 } from './coordinates.js'
-import { installDebugApi, warn } from './debug.js'
+import { installDebugApi, loadDebugSetting, warn } from './debug.js'
 import {
   allianceOverlayGpuMemoryBytes,
   installAllianceOverlayLayer,
@@ -293,14 +293,17 @@ const step = (what: string, run: () => void): void => {
 export const startUserscript = (): void => {
   installPageHooks()
   installFeatures()
+  // The extension's stores update it themselves.
+  step('userscript update check', installUserscriptUpdateCheck)
 }
 
 /**
  * Everything that must be in place before Wplace's own modules evaluate: the traps on its fetches,
- * state and map. Nothing here reads stored values except the debug flag, so a build whose stored
- * values arrive asynchronously can run this synchronously at document start.
+ * state and map. Nothing here needs stored values; the debug flag read here is read again once they
+ * load. So the extension, whose stored values arrive asynchronously, runs this synchronously at
+ * document start.
  */
-const installPageHooks = (): void => {
+export const installPageHooks = (): void => {
   step('shared UI', registerCaelestisUi)
   step('FalseType font', installWplaceFont)
   step('Caelestis cursors', installWplaceCursors)
@@ -401,7 +404,8 @@ const installPageHooks = (): void => {
 }
 
 /** Everything that reads stored values, which runs once they are loaded. */
-const installFeatures = (): void => {
+export const installFeatures = (): void => {
+  step('debug logging', loadDebugSetting)
   step('performance profile', installProfile)
   step('Wplace settings', installWplaceSettings)
   /**
@@ -545,7 +549,6 @@ const installFeatures = (): void => {
       void openInviteFromLocation()
     }
   })
-  step('userscript update check', installUserscriptUpdateCheck)
   try {
     console.info(`[caelestis] loaded — tile size ${TILE_SIZE}`)
   } catch {

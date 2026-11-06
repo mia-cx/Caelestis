@@ -65,12 +65,12 @@ import { DEFAULT_SORT, type SortOrder } from './ui/sort.js'
 /**
  * Everything the panel remembers between sessions.
  *
- * Kept in stored values (`stored-values.ts`): the userscript manager's storage when it is there, and
- * `localStorage` when it is not, which is the case under the CDP dev harness.
+ * Kept in stored values (`stored-values.ts`): the userscript manager's storage, the extension's
+ * `chrome.storage.local`, or `localStorage` under the CDP dev harness.
  *
  * **Access tokens are a known weak point.** `localStorage` on wplace.live is readable by wplace's
- * own scripts and by every other userscript on the page. `GM_setValue` is not, which is the whole
- * reason the metadata block asks for it. Treat the fallback as a development convenience and not as
+ * own scripts and by every other userscript on the page. The other two are not, which is the whole
+ * reason the metadata block asks for `GM_setValue`. Treat the fallback as a development convenience and not as
  * somewhere a real alliance token belongs — see the note in `handoff-userscript-browser.md`.
  */
 
