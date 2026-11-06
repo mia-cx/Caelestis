@@ -342,6 +342,8 @@ export class PresenceCoordinator<Client> {
               ids,
             })
         }
+        // The reads above let updates and closes land; select from the attachments as they are now.
+        if (recovering || renewed.length > 0) open = this.sessionsOpen()
         const dirty = new Set(this.dirty)
         this.dirty.clear()
         const online = open.length
