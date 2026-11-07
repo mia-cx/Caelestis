@@ -18,7 +18,7 @@ import {
   onLocalPreviewChange,
   type PlacedTemplate,
 } from '../templates/local-store.js'
-import { fixedMarkList, type MarkList } from '../templates/mark-list.js'
+import { fixedMarkList, type MarkList, markSeed } from '../templates/mark-list.js'
 import { abortMoveOutsideSurface } from '../templates/move.js'
 import { detachOverlayControls, renderAllianceOverlayControls } from '../ui/overlay-menu.js'
 import { isPaintOpen, onPaintSelectionChange, selectedColour } from '../wplace-paint.js'
@@ -38,12 +38,7 @@ import {
 } from './artboard-pixels.js'
 import { isDarkMapTheme } from './contrast-outline.js'
 import { batchMarkerWork, type MarkerBatch } from './marker-batching.js'
-import {
-  type MarkerVisibilityBudget,
-  markerSampleRate,
-  markerVisibilityBudget,
-  visibleMarkerPoints,
-} from './marker-density.js'
+import { markerSampleRate, visibleListPoints, visibleSourceRect } from './marker-density.js'
 import { MarkerRenderer, type MarkerStyle } from './marker-renderer.js'
 import { movingOverlayTapCap } from './minify-quality.js'
 import { RenderScene, type SceneTemplate } from './render-scene.js'
@@ -219,26 +214,33 @@ export const artboardGpuTilePlacement = (
   }
 }
 
-/** Count marker points inside the current alliance artboard viewport. */
+/** A batch's marks as a drawable list, seeded by the batch's place so batches sample apart. */
+const batchMarkList = (batch: ArtboardMarkerBatch): MarkList =>
+  fixedMarkList(
+    batch.marks,
+    markSeed(Math.floor(batch.x / batch.width), Math.floor(batch.y / batch.height)),
+  )
+
+/** Count marker points in the blocks the current alliance artboard viewport shows, as submitted. */
 export const visibleArtboardMarkerPoints = (
   batch: ArtboardMarkerBatch,
   geometry: ArtboardGeometry,
   viewport: ArtboardViewport,
-  budget: MarkerVisibilityBudget,
 ): number => {
   const box = artboardDevicePlacement(
     { originX: batch.x, originY: batch.y, width: batch.width, height: batch.height },
     geometry,
     viewport,
   )
-  return visibleMarkerPoints(
-    batch.marks,
-    { x: box.left, y: box.top, width: box.right - box.left, height: box.bottom - box.top },
-    viewport.bufferWidth,
-    viewport.bufferHeight,
-    budget,
-    batch.width,
-    batch.height,
+  return visibleListPoints(
+    batchMarkList(batch),
+    visibleSourceRect(
+      { x: box.left, y: box.top, width: box.right - box.left, height: box.bottom - box.top },
+      viewport.bufferWidth,
+      viewport.bufferHeight,
+      batch.width,
+      batch.height,
+    ),
   )
 }
 
@@ -537,8 +539,6 @@ class ArtboardPass {
             height: batch.height * scaleY,
             pixelWidth: batch.width,
             pixelHeight: batch.height,
-            seedX: Math.floor(batch.x / batch.width),
-            seedY: Math.floor(batch.y / batch.height),
           },
           marker.marks,
           marker.style,
@@ -873,7 +873,7 @@ class ArtboardRenderer {
           selectedLayers.push({
             batch,
             tile: this.markerTile(batch),
-            marks: fixedMarkList(batch.marks),
+            marks: batchMarkList(batch),
             style: selectedStyle,
             fade: selectedFade.fade,
           })
@@ -883,17 +883,14 @@ class ArtboardRenderer {
         mismatchLayers.push({
           batch,
           tile: this.markerTile(batch),
-          marks: fixedMarkList(batch.marks),
+          marks: batchMarkList(batch),
           style: mismatchStyle,
           fade: mismatchFade,
         })
     }
-    const visibilityBudget = markerVisibilityBudget()
     const visiblePoints = (layers: readonly MarkerLayer[]) =>
       layers.reduce(
-        (total, layer) =>
-          total +
-          visibleArtboardMarkerPoints(layer.batch, this.geometry, viewport, visibilityBudget),
+        (total, layer) => total + visibleArtboardMarkerPoints(layer.batch, this.geometry, viewport),
         0,
       )
     const selectedSampleRate = markerSampleRate(visiblePoints(selectedLayers), state.markerBudget)

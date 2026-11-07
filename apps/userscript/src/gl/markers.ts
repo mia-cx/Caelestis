@@ -28,8 +28,8 @@ import { batchMarkerWork } from './marker-batching.js'
 import {
   markerDensityMemoryBytes,
   markerSampleRate,
-  markerVisibilityBudget,
-  visibleMarkerPoints,
+  visibleListPoints,
+  visibleSourceRect,
 } from './marker-density.js'
 import { MarkerRenderer, type MarkerStyle } from './marker-renderer.js'
 import { worldRenderScene } from './render-scene.js'
@@ -63,9 +63,9 @@ export const drawMarkers = (
   style: MarkerStyle,
   fade: number,
   sampleRate = 1,
-): void => {
-  if (worldMarkerRenderer?.gl !== gl) return
-  worldMarkerRenderer.draw(
+): number => {
+  if (worldMarkerRenderer?.gl !== gl) return 0
+  return worldMarkerRenderer.draw(
     {
       x: tile.x,
       y: tile.y,
@@ -73,8 +73,6 @@ export const drawMarkers = (
       height: tile.height,
       pixelWidth: TILE_SIZE,
       pixelHeight: TILE_SIZE,
-      seedX: tile.tile.x,
-      seedY: tile.tile.y,
     },
     pixels,
     style,
@@ -356,31 +354,27 @@ const drawVisible = (
   }
   const points = (work: readonly { readonly marks: { readonly length: number } }[]): number =>
     work.reduce((total, one) => total + one.marks.length, 0)
-  const visibilityBudget = markerVisibilityBudget()
-  // The sorted run is searched and the tail painted since the scan counts as visible. Both hold
-  // removed marks too, so the count is scaled to the list's live share, rounded up so a visible
-  // live mark never scales away to nothing.
   const estimatedVisiblePoints = (work: readonly Work[]): number =>
-    work.reduce((total, { marks, tile }) => {
-      const slots =
-        visibleMarkerPoints(
-          marks.slots.subarray(0, marks.sorted),
-          tile,
-          gl.drawingBufferWidth,
-          gl.drawingBufferHeight,
-          visibilityBudget,
-        ) +
-        marks.length -
-        marks.sorted
-      return total + Math.ceil((slots * marks.live) / marks.length)
-    }, 0)
+    work.reduce(
+      (total, { marks, tile }) =>
+        total +
+        visibleListPoints(
+          marks,
+          visibleSourceRect(tile, gl.drawingBufferWidth, gl.drawingBufferHeight),
+        ),
+      0,
+    )
   const selectedSourcePoints = points(selectedWork)
   const mismatchSourcePoints = points(mismatchWork)
   const selectedSampleRate = markerSampleRate(estimatedVisiblePoints(selectedWork), renderBudget)
   const mismatchSampleRate = markerSampleRate(estimatedVisiblePoints(mismatchWork), renderBudget)
   const expectedSelectedPoints = Math.round(selectedSourcePoints * selectedSampleRate)
   const expectedMismatchPoints = Math.round(mismatchSourcePoints * mismatchSampleRate)
-  const reportWorkload = (drawBatches: number, drawnPoints: number): void => {
+  const reportWorkload = (
+    drawBatches: number,
+    drawnPoints: number,
+    submittedPoints: number,
+  ): void => {
     if (!profiling) return
     const sourcePoints = selectedSourcePoints + mismatchSourcePoints
     const expectedPoints = expectedSelectedPoints + expectedMismatchPoints
@@ -392,7 +386,7 @@ const drawVisible = (
     recordProfileWorkload('Marker source points', sourcePoints)
     recordProfileWorkload('Marker retained batches', selectedWork.length + mismatchWork.length)
     recordProfileWorkload('Marker retained points', expectedPoints)
-    recordProfileWorkload('Marker submitted points', sourcePoints)
+    recordProfileWorkload('Marker submitted points', submittedPoints)
     recordProfileWorkload('Marker draw batches', drawBatches)
     recordProfileWorkload('Marker drawn points', drawnPoints)
     if (moving) {
@@ -406,7 +400,7 @@ const drawVisible = (
   count('marker:mismatch tiles with marks', mismatchWork.length)
 
   if (selectedWork.length === 0 && mismatchWork.length === 0) {
-    reportWorkload(0, 0)
+    reportWorkload(0, 0, 0)
     if (deferred) retryDeferredScan(now)
     return
   }
@@ -422,13 +416,14 @@ const drawVisible = (
   const mismatchDraws = batchMarkerWork(mismatchWork)
   const drawBatches = selectedDraws.length + mismatchDraws.length
   const drawnPoints = profiling ? expectedSelectedPoints + expectedMismatchPoints : 0
-  reportWorkload(drawBatches, drawnPoints)
   count('marker:draw batches before batching', selectedWork.length + mismatchWork.length)
   count('marker:draw batches after batching', drawBatches)
+  let submittedPoints = 0
   for (const one of selectedDraws)
-    drawMarkers(gl, one.tile, one.marks, one.style, one.fade, selectedSampleRate)
+    submittedPoints += drawMarkers(gl, one.tile, one.marks, one.style, one.fade, selectedSampleRate)
   for (const one of mismatchDraws)
-    drawMarkers(gl, one.tile, one.marks, one.style, one.fade, mismatchSampleRate)
+    submittedPoints += drawMarkers(gl, one.tile, one.marks, one.style, one.fade, mismatchSampleRate)
+  reportWorkload(drawBatches, drawnPoints, submittedPoints)
 
   if (deferred) retryDeferredScan(now)
 }
