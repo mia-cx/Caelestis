@@ -24,7 +24,7 @@ vi.mock('./wplace-picker.js', () => ({
       ? { surface: WORLD_TEMPLATE_SURFACE, x, y, alliance: harness.alliance }
       : null,
   overlayIndexAt: () => harness.overlay,
-  worldPaintIndexAt: (x: number) => harness.pixels.get(Math.floor(x)) ?? null,
+  paintIndexAt: ({ x }: { x: number }) => harness.pixels.get(Math.floor(x)) ?? null,
 }))
 
 let canvas: HTMLCanvasElement
@@ -86,11 +86,18 @@ beforeEach(() => {
   const paint = (from: number, to: number): void => {
     for (let x = Math.min(from, to); x <= Math.max(from, to); x++) draft.set(x, 12)
   }
-  // Wplace paints inclusive lines on mousemove and one current pixel on Space keydown.
-  window.addEventListener('mousemove', (event) => {
+  // Wplace paints inclusive lines while moving and one current pixel on Space keydown. The world
+  // map follows mouse movement, the HQ artboard pointer movement.
+  const nativeMove = (event: MouseEvent): void => {
     const x = Math.floor(event.clientX)
     if (nativeHeld) paint(nativeX, x)
     nativeX = x
+  }
+  window.addEventListener('mousemove', (event) => {
+    if (harness.alliance === null) nativeMove(event)
+  })
+  window.addEventListener('pointermove', (event) => {
+    if (harness.alliance !== null) nativeMove(event)
   })
   document.addEventListener('keydown', (event) => {
     if (event.code !== 'Space') return
@@ -237,7 +244,7 @@ it('resets physical key state on blur and leaves typing alone', () => {
   expect(event.defaultPrevented).toBe(false)
 })
 
-it('leaves alliance keyboard painting to Wplace', () => {
+it('skips matching pixels throughout a Shift+Space stroke on the HQ artboard', () => {
   harness.alliance = {
     surface: { kind: 'alliance-headquarters', allianceId: 1 },
     stage: canvas,
@@ -245,8 +252,72 @@ it('leaves alliance keyboard painting to Wplace', () => {
     draftId: null,
     bounds: null,
   }
+  move(0)
   key('keydown', 'Space', true)
-  expect(nativeHeld).toBe(true)
+  move(4)
+  move(0)
+  expect([...draft.keys()].sort()).toEqual([1, 3])
+  expect(nativeHeld).toBe(false)
+})
+
+it('filters Shift clicks on the HQ artboard, which paints its press on pointerup', () => {
+  harness.alliance = {
+    surface: { kind: 'alliance-headquarters', allianceId: 1 },
+    stage: canvas,
+    frame: canvas,
+    draftId: null,
+    bounds: null,
+  }
+  // Wplace's artboard pans from a press and paints the pressed pixel when that pointer is released.
+  const pressed = new Map<number, number>()
+  window.addEventListener(
+    'pointerup',
+    (event) => {
+      const x = pressed.get(event.pointerId)
+      if (pressed.delete(event.pointerId) && x !== undefined) draft.set(x, 12)
+    },
+    true,
+  )
+  window.addEventListener('pointercancel', (event) => pressed.delete(event.pointerId), true)
+  canvas.addEventListener('pointerdown', (event) =>
+    pressed.set(event.pointerId, Math.floor(event.clientX)),
+  )
+  for (const [pointerId, clientX, shiftKey] of [
+    [1, 0, true],
+    [2, 1, true],
+    [3, 2, false],
+  ] as const) {
+    for (const type of ['pointerdown', 'pointerup'])
+      canvas.dispatchEvent(
+        new PointerEvent(type, { pointerId, clientX, shiftKey, bubbles: true, cancelable: true }),
+      )
+  }
+  expect([...draft.keys()].sort()).toEqual([1, 2])
+  expect(pressed.size).toBe(0)
+})
+
+it('keeps a Shift+Space stroke going after a filtered HQ click', () => {
+  harness.alliance = {
+    surface: { kind: 'alliance-headquarters', allianceId: 1 },
+    stage: canvas,
+    frame: canvas,
+    draftId: null,
+    bounds: null,
+  }
+  move(0)
+  key('keydown', 'Space', true)
+  for (const type of ['pointerdown', 'pointerup'])
+    canvas.dispatchEvent(
+      new PointerEvent(type, {
+        pointerId: 1,
+        clientX: 0,
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    )
+  move(4)
+  expect([...draft.keys()].sort()).toEqual([1, 3])
 })
 
 it('does not paint a stale canvas position after the pointer moves over a control', () => {
