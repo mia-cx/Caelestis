@@ -1,4 +1,4 @@
-import { MAX_QUICK_CLAIMS } from '@caelestis/shared'
+import { MAX_QUICK_CLAIMS, TILE_SIZE } from '@caelestis/shared'
 import { Schema } from 'effect'
 import { describe, expect, it } from 'vitest'
 import {
@@ -8,6 +8,7 @@ import {
   LeaderboardResponse,
   LiveDashboardSubscription,
   LiveSyncClientEvent,
+  MAX_PAINT_PIXELS,
   Manifest,
   PaintEvent,
   PaintPixels,
@@ -109,6 +110,29 @@ describe('wire schema public contracts', () => {
     expect(decode(PaintEvent, event)).toEqual(event)
     invalid(PaintPixels, { x: [1, 1], y: [2, 2], colors: [3, 4] })
     invalid(PaintEvent, { ...event, painted: 2 })
+  })
+
+  it('accepts paint events up to the transport-derived pixel cap and refuses one more', () => {
+    const fullTile = (x: number, count: number) => ({
+      x,
+      y: 0,
+      pixels: {
+        x: Array.from({ length: count }, (_, index) => index % TILE_SIZE),
+        y: Array.from({ length: count }, (_, index) => Math.floor(index / TILE_SIZE)),
+        colors: Array.from({ length: count }, () => 1),
+      },
+    })
+    const event = (pixels: number) => ({
+      eventId: id,
+      wplaceUserId: 1,
+      displayName: 'Mia',
+      season: 0,
+      ts: 1_700_000_000,
+      tiles: [fullTile(0, TILE_SIZE * TILE_SIZE), fullTile(1, pixels - TILE_SIZE * TILE_SIZE)],
+      painted: null,
+    })
+    expect(decode(PaintEvent, event(MAX_PAINT_PIXELS))).toBeDefined()
+    invalid(PaintEvent, event(MAX_PAINT_PIXELS + 1))
   })
 
   it('preserves legacy omissions and nullability while rejecting impossible manifest geometry', () => {

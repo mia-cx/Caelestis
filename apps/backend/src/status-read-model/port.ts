@@ -43,7 +43,10 @@ export interface StatusReadModelPort {
   ) => Promise<void>
   /** Optional on portable adapters; production wakes live clients after alarm state changes. */
   readonly notifyAlarmChange?: (season: number) => Promise<void>
-  /** Optional on portable adapters; production refreshes subscribed live dashboards after paints. */
+  /**
+   * Optional on portable adapters. Production schedules one coalesced refresh of subscribed live
+   * dashboards and resolves before it runs, so the paint that caused it is not held up.
+   */
   readonly notifyDashboardChange?: (season: number) => Promise<void>
   /** Optional for compatibility adapters; prepared production and direct adapters cache manifests. */
   readonly readManifestProjection?: (

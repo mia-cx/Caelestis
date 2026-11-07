@@ -49,6 +49,8 @@ export const workRegions = sqliteTable(
   },
   (table) => [
     index('work_regions_expiry_idx').on(table.expiresAt),
+    // Presence renews each connected owner's claims by credential and painter, across surfaces.
+    index('work_regions_owner_idx').on(table.tokenHash, table.claimantUserId),
     index('work_regions_scope_idx').on(
       table.season,
       table.surfaceKind,
@@ -604,6 +606,8 @@ export const contributions = sqliteTable(
     primaryKey({
       columns: [table.wplaceUserId, table.templateId, table.dayS, table.reportedByUserId],
     }),
+    // Dashboards and leaderboards read by template and day range; the key leads with the painter.
+    index('contributions_template_day_idx').on(table.templateId, table.dayS),
     check(
       'contributions_reported_with_token_check',
       sql`typeof(${table.reportedWithToken}) = 'text' AND length(${table.reportedWithToken}) = 64

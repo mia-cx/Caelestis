@@ -146,18 +146,14 @@ export const mutateWork = (
       const included =
         held !== null &&
         workClaimants(held).some((claim) => claim.wplaceUserId === person.wplaceUserId)
-      if (held !== null && included !== removing) {
-        yield* storage(() => publishManifestChange(live, season, surface, false))
-        return { conflict: false, item: held }
-      }
+      // Nothing changed, so subscribers are owed nothing.
+      if (held !== null && included !== removing) return { conflict: false, item: held }
     }
     if (
       (held?.revision ?? 0) !== mutation.expectedRevision ||
       (mutation.action === 'create' && held !== null)
-    ) {
-      yield* storage(() => publishManifestChange(live, season, surface, false))
+    )
       return { conflict: true, item: held }
-    }
     const fields =
       mutation.action === 'create' || mutation.action === 'edit'
         ? mutation.fields
@@ -259,7 +255,7 @@ export const mutateWork = (
         caller.tokenHash,
       ),
     )
-    // Even a stale retry repairs notification delivery after a previous committed write.
-    yield* storage(() => publishManifestChange(live, season, surface, false))
+    // A write that lost its revision race changed nothing; the write that won publishes its own.
+    if (saved) yield* storage(() => publishManifestChange(live, season, surface, false))
     return { conflict: !saved, item: saved ? item : yield* storage(() => sql.work.read(id)) }
   })

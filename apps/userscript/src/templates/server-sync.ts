@@ -16,10 +16,11 @@ import { count, warn } from '../debug.js'
 import type { ServerTemplate } from '../server-cache.js'
 import { invalidateServerMismatches } from '../server-mismatch.js'
 import { deleteCachedServerMismatches } from '../server-mismatch-cache.js'
-import { registerServerSyncResource } from '../server-sync-coordinator.js'
+import { applyServerSyncRevision, registerServerSyncResource } from '../server-sync-coordinator.js'
 import { serverEndpoint } from '../server-url.js'
 import {
   activeServerToken,
+  adoptProbedServerContents,
   applyLiveServerManifest,
   type ConnectedServer,
   getState,
@@ -122,6 +123,13 @@ export const templateTransferWithinBudget = (used: number, next: number): boolea
 
 /** Chunk bytes by hash. Immutable by definition, so nothing here ever needs invalidating. */
 const chunkCache = new ByteCache<string>(CHUNK_CACHE_LIMIT, CHUNK_CACHE_BYTES)
+/**
+ * Decoded palette indices by chunk hash, so a new version decodes only the chunks it changed.
+ *
+ * A hash fixes the PNG and therefore its dimensions; callers still check the declared size against
+ * the slot before reusing an entry. Up to 32 full tiles of decoded pixels.
+ */
+const decodedChunks = new ByteCache<string>(CHUNK_CACHE_LIMIT, 32 * TILE_SIZE * TILE_SIZE)
 
 /** Fetch one chunk without spending more than this template still has left. */
 export const fetchChunkWithinBudget = async (
@@ -184,26 +192,30 @@ export const fetchChunkWithinBudget = async (
   }
 }
 
-/** A chunk PNG, as palette indices. */
+/**
+ * Whether a PNG's IHDR declares exactly this size. Read before asking the browser to decode:
+ * checking the ImageBitmap afterwards is too late for a PNG that declares a gigantic surface.
+ */
+const declaresSize = (bytes: Uint8Array, width: number, height: number): boolean => {
+  if (
+    bytes.length < 24 ||
+    bytes[0] !== 0x89 ||
+    bytes[1] !== 0x50 ||
+    bytes[2] !== 0x4e ||
+    bytes[3] !== 0x47
+  )
+    return false
+  const header = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  return header.getUint32(16) === width && header.getUint32(20) === height
+}
+
+/** A chunk PNG whose declared size was already checked, as palette indices. */
 const decodeChunk = async (
   bytes: Uint8Array,
   expectedWidth: number,
   expectedHeight: number,
-): Promise<{ width: number; height: number; indices: Uint8Array } | null> => {
+): Promise<Uint8Array | null> => {
   try {
-    // Read IHDR before asking the browser to decode. Checking the ImageBitmap afterwards is too
-    // late for a PNG that declares a gigantic surface: the decoder may already have allocated it.
-    if (
-      bytes.length < 24 ||
-      bytes[0] !== 0x89 ||
-      bytes[1] !== 0x50 ||
-      bytes[2] !== 0x4e ||
-      bytes[3] !== 0x47
-    )
-      return null
-    const header = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-    if (header.getUint32(16) !== expectedWidth || header.getUint32(20) !== expectedHeight)
-      return null
     const bitmap = await createImageBitmap(new Blob([bytes.slice()], { type: 'image/png' }))
     if (bitmap.width !== expectedWidth || bitmap.height !== expectedHeight) {
       bitmap.close()
@@ -213,16 +225,14 @@ const decodeChunk = async (
     const context = canvas.getContext('2d', { willReadFrequently: true })
     if (context === null) return null
     context.drawImage(bitmap, 0, 0)
-    const width = bitmap.width
-    const height = bitmap.height
-    const image = context.getImageData(0, 0, width, height)
+    const image = context.getImageData(0, 0, expectedWidth, expectedHeight)
     bitmap.close()
+    count('server:chunk decoded')
     // The bytes are already palette colours — the server quantised on ingest — so this maps each to
     // itself. Going through the same quantiser as an import rather than trusting that is one pass
     // over a chunk, and it is the difference between a colour-managed decode being a bug and being
     // a non-event.
-    const { indices } = quantiseToPalette(new Uint8Array(image.data.buffer), PALETTE_RGB)
-    return { width, height, indices }
+    return quantiseToPalette(new Uint8Array(image.data.buffer), PALETTE_RGB).indices
   } catch (error) {
     warn('install', 'could not decode a chunk', String(error))
     return null
@@ -259,7 +269,15 @@ const assemble = async (
   const indices = new Uint8Array(width * height).fill(TRANSPARENT_INDEX)
   let placed = 0
   let encodedBytes = 0
-  for (const chunk of template.chunks) {
+  // Chunks already decoded go first. Each decode may evict the oldest entry, and in manifest order
+  // a template larger than the cache would evict the very chunks it is about to reuse.
+  const isDecoded = (chunk: { readonly hash: string }) =>
+    decodedChunks.get(chunk.hash) !== undefined
+  const ordered = [
+    ...template.chunks.filter(isDecoded),
+    ...template.chunks.filter((chunk) => !isDecoded(chunk)),
+  ]
+  for (const chunk of ordered) {
     if (generationSignal.aborted) return null
     const [tileX, tileY] = chunk.tile.split('/').map(Number)
     if (
@@ -289,19 +307,24 @@ const assemble = async (
     if (bytes === null) return null
     if (!templateTransferWithinBudget(encodedBytes, bytes.byteLength)) return null
     encodedBytes += bytes.byteLength
-    const decoded = await decodeChunk(bytes, chunkWidth, chunkHeight)
-    if (decoded === null) return null
+    if (!declaresSize(bytes, chunkWidth, chunkHeight)) return null
+    let decoded = decodedChunks.get(chunk.hash) ?? null
+    if (decoded === null) {
+      decoded = await decodeChunk(bytes, chunkWidth, chunkHeight)
+      if (decoded === null) return null
+      decodedChunks.set(chunk.hash, decoded)
+    }
 
-    for (let y = 0; y < decoded.height; y++) {
+    for (let y = 0; y < chunkHeight; y++) {
       const targetY = top + y - template.bbox.minY
       if (targetY < 0 || targetY >= height) continue
-      for (let x = 0; x < decoded.width; x++) {
+      for (let x = 0; x < chunkWidth; x++) {
         const targetX =
           left >= template.bbox.minX
             ? left + x - template.bbox.minX
             : WORLD_PIXELS - template.bbox.minX + left + x
         if (targetX < 0 || targetX >= width) continue
-        const index = decoded.indices[y * decoded.width + x] ?? TRANSPARENT_INDEX
+        const index = decoded[y * chunkWidth + x] ?? TRANSPARENT_INDEX
         if (index === TRANSPARENT_INDEX) continue
         indices[targetY * width + targetX] = index
       }
@@ -319,7 +342,10 @@ const assemble = async (
  * caller does, from the manifest it still holds, and hands the hashes over on the way out.
  */
 export const forgetChunks = (hashes: Iterable<string>): void => {
-  for (const hash of hashes) chunkCache.delete(hash)
+  for (const hash of hashes) {
+    chunkCache.delete(hash)
+    decodedChunks.delete(hash)
+  }
 }
 
 /** Our id for a server's template, namespaced so two servers cannot collide. */
@@ -781,7 +807,8 @@ export const installServerSync = (): void => {
    * watching an empty map for up to sixty seconds reads as broken.
    *
    * The coordinator owns the resulting refresh; this listener only retires obsolete download
-   * generations so unrelated settings changes remain local.
+   * generations and starts new connections from their probe's manifest, so unrelated settings
+   * changes remain local.
    */
   onStateChange(() => {
     const connected = getState().servers.filter((server) => server.status === 'connected')
@@ -797,8 +824,28 @@ export const installServerSync = (): void => {
         endServerGeneration(previous.url)
       }
     }
+    const added = connected.filter(
+      (server) =>
+        !lastConnected.some(
+          (previous) => previous.url === server.url && isCurrentServerConnection(previous),
+        ),
+    )
+    // Before adopting: publishing a manifest can change state again, which re-enters here.
     lastConnected = connected
+    for (const server of added) adoptProbedManifest(server)
   })
+}
+
+/**
+ * Start a new connection from the manifest its probe already downloaded.
+ *
+ * Its revision is applied before the live socket opens, so the socket's state vector names the
+ * version this client holds and the server does not send the same manifest again.
+ */
+const adoptProbedManifest = (server: ConnectedServer): void => {
+  const contents = adoptProbedServerContents(server)
+  if (contents?.revision === undefined || !isCurrentServerConnection(server)) return
+  applyServerSyncRevision(server, 'world', 'world-manifest', contents.revision)
 }
 
 /** Which servers were connected last time state changed, so an unrelated setting does not resync. */

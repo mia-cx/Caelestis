@@ -12,6 +12,10 @@ import { SqlStoreReadError, TelemetryStorageError } from '../runtime/errors.js'
 import { readHistoricalTileMeasurement } from './ingest.js'
 import { type HistoryRange, selectTileHistoryResolution } from './queries.js'
 
+/** Unmeasured frames classified at once: each holds a decoded 1000×1000 canvas while it runs. */
+const CLASSIFY_CONCURRENCY = 8
+const tileOf = (x: number, y: number): string => `${x}/${y}`
+
 /** Replay retained canvas images, caching missing classifications against their historical artwork. */
 export const readProgressHistory = (
   version: TemplateVersionRecord,
@@ -50,22 +54,21 @@ export const readProgressHistory = (
             catch: (cause) => new SqlStoreReadError({ operation: 'readTemplateProgressAt', cause }),
           })
     const blobs = yield* BlobStoreService
+    const chunks = new Map(version.chunks.map((chunk) => [tileOf(chunk.tileX, chunk.tileY), chunk]))
     const classified = new Map<MeasuredTileFrame, MeasuredTileFrame>()
-    for (const chunk of version.chunks) {
-      const target = {
-        ...chunk,
-        templateId: version.templateId,
-        versionId: version.versionId,
-        bbox: version.bbox,
-      }
-      for (const frame of [...initial, ...frames]) {
-        if (
-          frame.tileX !== chunk.tileX ||
-          frame.tileY !== chunk.tileY ||
-          (frame.correct !== null && frame.wrong !== null)
-        )
-          continue
-        const measurement = yield* Effect.tryPromise({
+    yield* Effect.forEach(
+      [...initial, ...frames],
+      (frame) => {
+        const chunk = chunks.get(tileOf(frame.tileX, frame.tileY))
+        if (chunk === undefined || (frame.correct !== null && frame.wrong !== null))
+          return Effect.void
+        const target = {
+          ...chunk,
+          templateId: version.templateId,
+          versionId: version.versionId,
+          bbox: version.bbox,
+        }
+        return Effect.tryPromise({
           try: async () => {
             const measurement = await readHistoricalTileMeasurement(
               { blobs, sql },
@@ -73,47 +76,55 @@ export const readProgressHistory = (
               frame.hash,
               frame.bucketStart * 1_000,
             )
-            if (measurement !== null)
-              await sql.writeTileMeasurements(
-                version.versionId,
-                { x: chunk.tileX, y: chunk.tileY },
-                [measurement],
-              )
-            return measurement
+            if (measurement === null) return
+            await sql.writeTileMeasurements(version.versionId, { x: chunk.tileX, y: chunk.tileY }, [
+              measurement,
+            ])
+            classified.set(frame, {
+              ...frame,
+              correct: measurement.correct,
+              wrong: measurement.wrong,
+            })
           },
           catch: (cause) =>
             new TelemetryStorageError({ operation: 'classifyProgressHistory', cause }),
         })
-        if (measurement !== null)
-          classified.set(frame, {
-            ...frame,
-            correct: measurement.correct,
-            wrong: measurement.wrong,
-          })
-      }
-    }
+      },
+      { concurrency: CLASSIFY_CONCURRENCY, discard: true },
+    )
     for (const storedFrame of frames) {
       const frame = classified.get(storedFrame) ?? storedFrame
       // Folded observations are stamped at the bucket's end, within this artwork's lifetime.
       const at = Math.min(frame.bucketStart + resolution, (lifetime?.toSeconds ?? Infinity) - 1)
       if (at >= range.toSeconds) continue
       const entries = changes.get(at) ?? new Map<string, MeasuredTileFrame>()
-      entries.set(`${frame.tileX}/${frame.tileY}`, frame)
+      entries.set(tileOf(frame.tileX, frame.tileY), frame)
       changes.set(at, entries)
     }
-    const held = new Map(
-      initial.map((frame) => [`${frame.tileX}/${frame.tileY}`, classified.get(frame) ?? frame]),
-    )
+    // Running totals over the latest frame per tile, so each sample costs only its own changes.
+    const held = new Map<string, MeasuredTileFrame>()
+    let correct = 0
+    let mismatched = 0
+    let unmeasured = 0
+    const hold = (key: string, frame: MeasuredTileFrame) => {
+      const previous = held.get(key)
+      if (previous !== undefined) {
+        correct -= previous.correct ?? 0
+        mismatched -= previous.wrong ?? 0
+        if (previous.correct === null || previous.wrong === null) unmeasured--
+      }
+      held.set(key, frame)
+      correct += frame.correct ?? 0
+      mismatched += frame.wrong ?? 0
+      if (frame.correct === null || frame.wrong === null) unmeasured++
+    }
+    for (const frame of initial)
+      hold(tileOf(frame.tileX, frame.tileY), classified.get(frame) ?? frame)
     if (initialAt !== undefined && !changes.has(initialAt)) changes.set(initialAt, new Map())
     const samples: ProgressSample[] = []
     for (const [at, entries] of [...changes].sort(([a], [b]) => a - b)) {
-      for (const [key, value] of entries) held.set(key, value)
-      const values = [...held.values()]
-      const complete =
-        held.size === version.chunks.length &&
-        values.every((value) => value.correct !== null && value.wrong !== null)
-      const correct = values.reduce((sum, value) => sum + (value?.correct ?? 0), 0)
-      const mismatched = values.reduce((sum, value) => sum + (value?.wrong ?? 0), 0)
+      for (const [key, value] of entries) hold(key, value)
+      const complete = held.size === version.chunks.length && unmeasured === 0
       samples.push({
         at: seconds(at),
         correct: complete ? correct : null,

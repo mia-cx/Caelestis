@@ -5,6 +5,7 @@ import {
   millis,
   PALETTE_RGB,
   type PaintEvent,
+  pngSize,
   quantiseToPalette,
   type Seconds,
   seconds,
@@ -195,13 +196,12 @@ const chunkRect = (target: ClassificationTarget): ChunkRect | null => {
 }
 
 const decodeCanvas = async (bytes: Uint8Array): Promise<Uint8Array> => {
-  const image = await decodePng(bytes)
-  if (image.width !== TILE_SIZE || image.height !== TILE_SIZE) {
-    throw new RangeError(
-      `canvas tile is ${image.width}x${image.height}, expected ${TILE_SIZE}x${TILE_SIZE}`,
-    )
+  // Reporters upload these. Check the header before decoding allocates the size it declares.
+  const { width, height } = pngSize(bytes)
+  if (width !== TILE_SIZE || height !== TILE_SIZE) {
+    throw new RangeError(`canvas tile is ${width}x${height}, expected ${TILE_SIZE}x${TILE_SIZE}`)
   }
-  return quantiseToPalette(image.pixels, PALETTE_RGB).indices
+  return quantiseToPalette((await decodePng(bytes)).pixels, PALETTE_RGB).indices
 }
 
 const decodeCanvasInput = (hash: string, bytes: Uint8Array): Promise<Uint8Array> =>
@@ -519,6 +519,7 @@ const recordObservationPromise = async (
   // The fetcher evaluates its complete scan/follow-up after its authoritative tile batch.
   const alarmsStartedAt = performance.now()
   if (options.authoritative !== true && committed.revision !== null && alarmChanges.length > 0) {
+    let alarmChanged = false
     for (const {
       previous,
       current,
@@ -526,7 +527,7 @@ const recordObservationPromise = async (
       previousTemplateObservedAt,
       totalPixels,
     } of alarmChanges) {
-      await ports.sql.evaluateTemplateAlarm(
+      const evaluation = await ports.sql.evaluateTemplateAlarm(
         {
           templateId: current.templateId,
           versionId: current.versionId,
@@ -541,8 +542,11 @@ const recordObservationPromise = async (
         },
         uuidV7(),
       )
+      alarmChanged ||= evaluation.alarmChanged
     }
-    await publishAlarmChange(ports.statusReadModel, metadata.season)
+    // Progress that moves no alarm, such as painting toward a new high-water mark, owes
+    // subscribers nothing. A changed alarm also covers every follow-up probe it scheduled.
+    if (alarmChanged) await publishAlarmChange(ports.statusReadModel, metadata.season)
   }
   ingestTimings.record(command, 'alarms', performance.now() - alarmsStartedAt)
   // Publish the authoritative revision first. A caller processing many tiles owns one shared batch

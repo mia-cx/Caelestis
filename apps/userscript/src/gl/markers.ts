@@ -5,18 +5,18 @@ import { overlayPeekFade } from '../overlay-peek.js'
 import { isProfileEnabled, measureProfile, profileGpu, recordProfileWorkload } from '../profile.js'
 import { getState } from '../state.js'
 import { toRgbUnit } from '../templates/appearance.js'
-import { colourMarksIn } from '../templates/colour-marker.js'
 import {
   displayTemplates,
   isTemplateVisible,
   type PlacedTemplate,
 } from '../templates/local-store.js'
+import type { MarkList } from '../templates/mark-list.js'
 import { pixelAccounting } from '../templates/mismatch.js'
-import type { MismatchMarks } from '../templates/mismatch-marks.js'
 import { horizontalSpans } from '../templates/placement.js'
 import { measuresLocally } from '../templates/wplace-owned.js'
 import {
   currentQuads,
+  holdTilePixels,
   isDrawingTiles,
   registerDraftCanvas,
   retainDraftCanvases,
@@ -24,23 +24,18 @@ import {
 } from '../tile-transform.js'
 import { isPaintOpen, selectedColour } from '../wplace-paint.js'
 import { prefersReducedMotion } from './appearance-transition.js'
-import {
-  batchMarkerWork,
-  beginMarkerBatchFrame,
-  endMarkerBatchFrame,
-  markerBatchMemoryBytes,
-} from './marker-batching.js'
+import { batchMarkerWork } from './marker-batching.js'
 import {
   markerDensityMemoryBytes,
   markerSampleRate,
-  markerVisibilityBudget,
-  visibleMarkerPoints,
+  visibleListPoints,
+  visibleSourceRect,
 } from './marker-density.js'
 import { MarkerRenderer, type MarkerStyle } from './marker-renderer.js'
 import { worldRenderScene } from './render-scene.js'
 
 export { deviceScale, MarkerRenderer, type MarkerStyle } from './marker-renderer.js'
-export { markerBatchMemoryBytes, markerDensityMemoryBytes }
+export { markerDensityMemoryBytes }
 
 let worldMarkerRenderer: MarkerRenderer | null = null
 
@@ -57,20 +52,20 @@ export const releaseMarkers = (gl: WebGL2RenderingContext): void => {
 /**
  * Draw one crosshair per marked pixel of one tile.
  *
- * `pixels` packs tile-local x/y/wanted-index into one uint. Placement comes from the tile's own
- * on-screen rect, the same rect the overlay itself is drawn on, so markers inherit whatever
- * MapLibre did to place that tile rather than being projected separately.
+ * Each list packs tile-local x/y/wanted-index into one uint per mark. Placement comes from the
+ * tile's own on-screen rect, the same rect the overlay itself is drawn on, so markers inherit
+ * whatever MapLibre did to place that tile rather than being projected separately.
  */
 export const drawMarkers = (
   gl: WebGL2RenderingContext,
   tile: TileQuad,
-  pixels: MismatchMarks,
+  pixels: readonly MarkList[],
   style: MarkerStyle,
   fade: number,
   sampleRate = 1,
-): void => {
-  if (worldMarkerRenderer?.gl !== gl) return
-  worldMarkerRenderer.draw(
+): number => {
+  if (worldMarkerRenderer?.gl !== gl) return 0
+  return worldMarkerRenderer.draw(
     {
       x: tile.x,
       y: tile.y,
@@ -78,8 +73,6 @@ export const drawMarkers = (
       height: tile.height,
       pixelWidth: TILE_SIZE,
       pixelHeight: TILE_SIZE,
-      seedX: tile.tile.x,
-      seedY: tile.tile.y,
     },
     pixels,
     style,
@@ -204,9 +197,11 @@ const drawVisible = (
   gl: WebGL2RenderingContext,
   peek: { readonly opacity: number; readonly done: boolean },
 ): void => {
-  if (!isDrawingTiles()) return
-  const tiles = currentQuads()
-  if (tiles.length === 0) return
+  const tiles = isDrawingTiles() ? currentQuads() : []
+  if (tiles.length === 0) {
+    holdTilePixels([])
+    return
+  }
   /**
    * Everything whose markers are still worth anything, which is not the same as everything that
    * asked for them.
@@ -275,10 +270,19 @@ const drawVisible = (
       return false
     return true
   }
+  // Before asking for any, so capturing one this frame cannot evict another it needs.
+  holdTilePixels(
+    tiles.flatMap((tile) =>
+      progressOnly.some((template) => covers(template, tile)) ||
+      wanted.some(({ template }) => covers(template, tile))
+        ? [tile.tile]
+        : [],
+    ),
+  )
 
   type Work = {
     tile: TileQuad
-    marks: MismatchMarks
+    marks: MarkList
     style: MarkerStyle
     fade: number
   }
@@ -321,28 +325,23 @@ const drawVisible = (
     }
     for (const tile of tiles) {
       if (!covers(template, tile)) continue
-      if (selectedFades.length > 0) {
-        const unpainted = accounting.unpainted(tile.tile)
-        if (unpainted === null) deferred = true
-        else {
-          for (const selectedFade of selectedFades) {
-            if (selectedFade.fade <= 0) continue
-            const marks = colourMarksIn(unpainted, selectedFade.index)
-            if (marks.length > 0) {
-              selectedWork.push({
-                tile,
-                marks,
-                style: selectedStyle,
-                fade: selectedFade.fade * peek.opacity,
-              })
-            }
-          }
+      for (const selectedFade of selectedFades) {
+        if (selectedFade.fade <= 0) continue
+        const marks = accounting.unpainted(tile.tile, selectedFade.index)
+        if (marks === null) deferred = true
+        else if (marks.live > 0) {
+          selectedWork.push({
+            tile,
+            marks,
+            style: selectedStyle,
+            fade: selectedFade.fade * peek.opacity,
+          })
         }
       }
       if (mismatchFade > 0) {
         const tileAccounting = accounting.tile(tile.tile)
         if (tileAccounting === null) deferred = true
-        else if (tileAccounting.markers.length > 0) {
+        else if (tileAccounting.markers.live > 0) {
           mismatchWork.push({
             tile,
             marks: tileAccounting.markers,
@@ -355,17 +354,13 @@ const drawVisible = (
   }
   const points = (work: readonly { readonly marks: { readonly length: number } }[]): number =>
     work.reduce((total, one) => total + one.marks.length, 0)
-  const visibilityBudget = markerVisibilityBudget()
   const estimatedVisiblePoints = (work: readonly Work[]): number =>
     work.reduce(
-      (total, one) =>
+      (total, { marks, tile }) =>
         total +
-        visibleMarkerPoints(
-          one.marks,
-          one.tile,
-          gl.drawingBufferWidth,
-          gl.drawingBufferHeight,
-          visibilityBudget,
+        visibleListPoints(
+          marks,
+          visibleSourceRect(tile, gl.drawingBufferWidth, gl.drawingBufferHeight),
         ),
       0,
     )
@@ -375,7 +370,11 @@ const drawVisible = (
   const mismatchSampleRate = markerSampleRate(estimatedVisiblePoints(mismatchWork), renderBudget)
   const expectedSelectedPoints = Math.round(selectedSourcePoints * selectedSampleRate)
   const expectedMismatchPoints = Math.round(mismatchSourcePoints * mismatchSampleRate)
-  const reportWorkload = (drawBatches: number, drawnPoints: number): void => {
+  const reportWorkload = (
+    drawBatches: number,
+    drawnPoints: number,
+    submittedPoints: number,
+  ): void => {
     if (!profiling) return
     const sourcePoints = selectedSourcePoints + mismatchSourcePoints
     const expectedPoints = expectedSelectedPoints + expectedMismatchPoints
@@ -387,7 +386,7 @@ const drawVisible = (
     recordProfileWorkload('Marker source points', sourcePoints)
     recordProfileWorkload('Marker retained batches', selectedWork.length + mismatchWork.length)
     recordProfileWorkload('Marker retained points', expectedPoints)
-    recordProfileWorkload('Marker submitted points', sourcePoints)
+    recordProfileWorkload('Marker submitted points', submittedPoints)
     recordProfileWorkload('Marker draw batches', drawBatches)
     recordProfileWorkload('Marker drawn points', drawnPoints)
     if (moving) {
@@ -401,7 +400,7 @@ const drawVisible = (
   count('marker:mismatch tiles with marks', mismatchWork.length)
 
   if (selectedWork.length === 0 && mismatchWork.length === 0) {
-    reportWorkload(0, 0)
+    reportWorkload(0, 0, 0)
     if (deferred) retryDeferredScan(now)
     return
   }
@@ -417,13 +416,14 @@ const drawVisible = (
   const mismatchDraws = batchMarkerWork(mismatchWork)
   const drawBatches = selectedDraws.length + mismatchDraws.length
   const drawnPoints = profiling ? expectedSelectedPoints + expectedMismatchPoints : 0
-  reportWorkload(drawBatches, drawnPoints)
   count('marker:draw batches before batching', selectedWork.length + mismatchWork.length)
   count('marker:draw batches after batching', drawBatches)
+  let submittedPoints = 0
   for (const one of selectedDraws)
-    drawMarkers(gl, one.tile, one.marks, one.style, one.fade, selectedSampleRate)
+    submittedPoints += drawMarkers(gl, one.tile, one.marks, one.style, one.fade, selectedSampleRate)
   for (const one of mismatchDraws)
-    drawMarkers(gl, one.tile, one.marks, one.style, one.fade, mismatchSampleRate)
+    submittedPoints += drawMarkers(gl, one.tile, one.marks, one.style, one.fade, mismatchSampleRate)
+  reportWorkload(drawBatches, drawnPoints, submittedPoints)
 
   if (deferred) retryDeferredScan(now)
 }
@@ -433,11 +433,9 @@ const drawAll = (
   peek: { readonly opacity: number; readonly done: boolean },
 ): void => {
   worldMarkerRenderer?.beginFrame()
-  beginMarkerBatchFrame()
   try {
     pixelAccounting.frame(() => drawVisible(gl, peek))
   } finally {
-    endMarkerBatchFrame()
     worldMarkerRenderer?.endFrame()
   }
 }
@@ -462,6 +460,7 @@ export const markerLayer = {
   onRemove(_map: unknown, gl: WebGL2RenderingContext): void {
     releaseMarkers(gl)
     worldRenderScene.resetMarkers()
+    holdTilePixels([])
   },
 
   render(gl: WebGL2RenderingContext): void {

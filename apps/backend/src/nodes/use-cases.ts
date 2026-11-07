@@ -98,7 +98,10 @@ export const createNode = (input: {
           ? new RequestValidationError({ message: cause.message })
           : new BackendStorageError({ operation: 'insertNode', cause }),
     })
-    yield* Effect.promise(() => publishManifestChange(statusReadModel, input.season, input.surface))
+    // A folder alone covers no tiles and owns no alarms.
+    yield* Effect.promise(() =>
+      publishManifestChange(statusReadModel, input.season, input.surface, false),
+    )
     return publicNode(inserted)
   })
 
@@ -174,7 +177,8 @@ export const patchNode = (input: {
       return yield* Effect.fail(new ResourceNotFoundError({ message: 'not found' }))
     }
     yield* Effect.promise(() =>
-      publishManifestChange(statusReadModel, updated.season, updated.surface),
+      // Renaming or moving a folder leaves its templates' tiles and alarms alone.
+      publishManifestChange(statusReadModel, updated.season, updated.surface, false),
     )
     return publicNode(updated)
   })
@@ -252,5 +256,8 @@ export const deleteEmptyNode = (
           ? new ResourceConflictError({ message: cause.message })
           : new BackendStorageError({ operation: 'deleteNode', cause }),
     })
-    yield* Effect.promise(() => publishManifestChange(statusReadModel, node.season, node.surface))
+    // Only an empty folder reaches here.
+    yield* Effect.promise(() =>
+      publishManifestChange(statusReadModel, node.season, node.surface, false),
+    )
   })

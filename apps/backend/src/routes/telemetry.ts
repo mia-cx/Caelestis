@@ -6,14 +6,16 @@ import {
   PRESENCE_PROTOCOL_V1,
   parseTileKey,
   type Seconds,
+  type ServerInfo,
   type StatusDelta,
   seconds,
+  sha256Hex,
   type TileOfferBatch as TileOfferBatchValue,
   templateSurface,
   WORLD_TILES,
 } from '@caelestis/shared'
 import { PaintEvent, TileOfferBatch } from '@caelestis/wire-schema'
-import { Schema, Context as Services } from 'effect'
+import { Effect, Schema, Context as Services } from 'effect'
 import { Hono } from 'hono'
 import { type AuthOptions, authenticateRequest, requireScopeEffect } from '../auth/middleware.js'
 import { hashToken } from '../auth/tokens.js'
@@ -223,6 +225,8 @@ export const createTelemetryRoutes = (
   auth: AuthOptions,
   options: {
     readonly currentSeason: number
+    /** Names the current season's cached manifest, which tile-history visibility reuses. */
+    readonly server?: ServerInfo
     readonly connectPresence?: ConnectPresence
     readonly presenceOnline?: PresenceOnline
     readonly connectStatusLive?: (
@@ -411,11 +415,21 @@ export const createTelemetryRoutes = (
         ? options.currentSeason
         : wholeNumber(c.req.query('season'))
     if (season === null) return c.json({ error: 'season must be a non-negative integer' }, 400)
+    // Weak comparison over a comma-separated list, as the manifest route does (RFC 9110).
+    const candidates = (c.req.header('if-none-match') ?? '')
+      .split(',')
+      .map((candidate) => candidate.trim().replace(/^W\//, ''))
     return runBackendHttp(
       c,
       runtime,
       readStatus(season, c.get('caller').scope === 'admin', season === options.currentSeason),
-      (response) => c.json(response),
+      ({ response, etag }) => {
+        if (etag === null) return c.json(response)
+        const headers = { ETag: etag, Vary: 'Authorization' }
+        return candidates.includes(etag) || candidates.includes('*')
+          ? c.body(null, 304, headers)
+          : c.json(response, 200, headers)
+      },
     )
   })
 
@@ -459,19 +473,31 @@ export const createTelemetryRoutes = (
       return runBackendHttp(
         c,
         runtime,
-        readMismatchMask({
-          season,
-          templateId,
-          versionId,
-          tile: { x, y },
-          includeUnpublished: c.get('caller').scope === 'admin',
+        Effect.gen(function* () {
+          const result = yield* readMismatchMask({
+            season,
+            templateId,
+            versionId,
+            tile: { x, y },
+            includeUnpublished: c.get('caller').scope === 'admin',
+          })
+          if (result.kind !== 'found') return result
+          return { ...result, hash: yield* Effect.promise(() => sha256Hex(result.bytes)) }
         }),
         (result) => {
           if (result.kind === 'not-found') return c.json({ error: 'template tile not found' }, 404)
           if (result.kind === 'unobserved') return c.body(null, 204)
+          // A content hash, so a client revalidating the mask it holds downloads nothing when every
+          // paint since landed elsewhere. Weak and strong tags over the same bytes mean the same.
+          const headers = { etag: `"${result.hash}"`, 'cache-control': 'no-store' }
+          const candidates = (c.req.header('if-none-match') ?? '')
+            .split(',')
+            .map((candidate) => candidate.trim().replace(/^W\//, ''))
+          if (candidates.includes(headers.etag) || candidates.includes('*'))
+            return c.body(null, 304, headers)
           return c.body(result.bytes.slice().buffer as ArrayBuffer, 200, {
+            ...headers,
             'content-type': 'application/vnd.caelestis.mismatch-mask',
-            'cache-control': 'no-store',
           })
         },
       )
@@ -743,6 +769,8 @@ export const createTelemetryRoutes = (
         range,
         ...(typeof legacyResolution === 'number' ? { legacyResolution } : {}),
         includeUnpublished: c.get('caller').scope === 'admin',
+        // Only the deployed season owns a cached manifest; earlier seasons read the database.
+        server: season === options.currentSeason ? options.server : undefined,
       }),
       (response) => c.json(response),
     )

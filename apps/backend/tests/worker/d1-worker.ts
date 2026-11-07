@@ -1,6 +1,10 @@
 import { millis } from '@caelestis/shared'
 import { D1SqlStore } from '../../src/adapters/cloudflare/d1-sql-store.js'
-import { runNodeTemplateContract } from '../support/sql-contract.js'
+import {
+  runLeaderboardContract,
+  runNodeTemplateContract,
+  runRegionRenewalContract,
+} from '../support/sql-contract.js'
 
 const assertEqual = (actual: unknown, expected: unknown): void => {
   if (JSON.stringify(actual) !== JSON.stringify(expected))
@@ -36,6 +40,8 @@ export default {
       tokenHashes: (await sql.listAccessTokens()).map((token) => token.tokenHash),
       settings: await sql.readServerSettings(),
       nodeTemplate: await runNodeTemplateContract(sql),
+      leaderboard: await runLeaderboardContract(sql),
+      regionRenewal: await runRegionRenewalContract(sql),
     })
   },
 }

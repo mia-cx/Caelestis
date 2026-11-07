@@ -6,6 +6,7 @@ interface IndexedRgb {
 /**
  * An exact-colour lookup keyed by red and blue, with green stored in the entry for verification.
  * The wplace palette has no red-blue collisions, so this stays 256 KiB instead of 16 MiB.
+ * Self-contained, like `canvasRgbIndex`, for the tile reader worker.
  */
 export const buildExactRgbIndex = (colours: readonly IndexedRgb[]): Uint32Array => {
   const table = new Uint32Array(1 << 16)
@@ -30,11 +31,11 @@ export const exactRgbIndex = (
   return entry >>> 8 === g + 1 ? entry & 0xff : missing
 }
 
-const CANVAS_RGB_NOISE = 2
-
 /**
  * Decode palette pixels read back from a canvas while tolerating Helium's bounded privacy noise.
  * Exact colours retain the fast path; noisy reads probe only their small RGB neighbourhood.
+ *
+ * Self-contained, because the tile reader worker is built from its source (see `tile-reader.ts`).
  */
 export const canvasRgbIndex = (
   table: Uint32Array,
@@ -43,19 +44,20 @@ export const canvasRgbIndex = (
   b: number,
   missing: number,
 ): number => {
-  const exact = exactRgbIndex(table, r, g, b, missing)
-  if (exact !== missing) return exact
+  const noise = 2
+  const exact = table[(r << 8) | b] ?? 0
+  if (exact >>> 8 === g + 1) return exact & 0xff
 
-  for (let dr = -CANVAS_RGB_NOISE; dr <= CANVAS_RGB_NOISE; dr += 1) {
+  for (let dr = -noise; dr <= noise; dr += 1) {
     const candidateR = r + dr
     if (candidateR < 0 || candidateR > 255) continue
 
-    for (let db = -CANVAS_RGB_NOISE; db <= CANVAS_RGB_NOISE; db += 1) {
+    for (let db = -noise; db <= noise; db += 1) {
       const candidateB = b + db
       if (candidateB < 0 || candidateB > 255) continue
 
       const entry = table[(candidateR << 8) | candidateB] ?? 0
-      if (entry !== 0 && Math.abs((entry >>> 8) - 1 - g) <= CANVAS_RGB_NOISE) {
+      if (entry !== 0 && Math.abs((entry >>> 8) - 1 - g) <= noise) {
         return entry & 0xff
       }
     }

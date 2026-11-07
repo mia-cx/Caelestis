@@ -3,8 +3,10 @@
     ContributionDay,
     ArchiveHistory,
     HistoryBucket,
+    HistoryResponse,
     ProgressSample,
     LeaderboardEntry,
+    PainterHistoryResponse,
     PainterTotal,
     Template,
   } from '@caelestis/shared'
@@ -39,6 +41,8 @@
   import { Skeleton } from '#lib/components/ui/skeleton/index.js'
   import * as Select from '#lib/components/ui/select/index.js'
 import { persisted } from '#lib/persisted.svelte.js'
+  import { type HeldHistory, refreshHistory } from '#lib/history-tail.js'
+  import { untrack } from 'svelte'
   import type { Progress } from '#lib/tree.js'
   import type { DashboardSnapshot } from '#lib/state/app.svelte.js'
 
@@ -70,7 +74,18 @@ import { persisted } from '#lib/persisted.svelte.js'
     ) => () => void
   } = $props()
 
-  const templateIds = $derived(templates.map((template) => template.id))
+  // Live statuses rebuild a folder's template list on every delta. Read history again only when
+  // what the server would answer can differ.
+  const scopeKey = $derived(
+    templates
+      .map((template) => `${template.id}:${template.version}:${template.createdAt}:${template.finishedAt}`)
+      .join(' '),
+  )
+  const scoped = $derived.by(() => {
+    void scopeKey
+    return untrack(() => templates)
+  })
+  const templateIds = $derived(scoped.map((template) => template.id))
   const progressRevision = $derived(JSON.stringify(templates.map((template) => template.version)))
   const remainingPixels = $derived(progress.total - progress.completed)
 
@@ -82,7 +97,7 @@ import { persisted } from '#lib/persisted.svelte.js'
   let archiveError = $state<string | null>(null)
   const archiveSamples = $derived(combineArchiveSamples(archives ?? []))
   $effect(() => {
-    const scope = templates.map((template) => ({ id: template.id, version: template.version }))
+    const scope = scoped.map((template) => ({ id: template.id, version: template.version }))
     let cancelled = false
     archives = null; archiveError = null
     // Bound upstream concurrency for large folders; snapshot reads need no painter subscriptions.
@@ -107,19 +122,19 @@ import { persisted } from '#lib/persisted.svelte.js'
   const from = $derived.by(
     () =>
       Math.floor(
-        Math.min(...templates.map((template) => template.createdAt / 1_000)) / DAY_SECONDS,
+        Math.min(...scoped.map((template) => template.createdAt / 1_000)) / DAY_SECONDS,
       ) * DAY_SECONDS,
   )
   const displayFrom = $derived(Math.min(from, ...archiveSamples.map((sample) => sample.at)))
-  const hasLiveTemplate = $derived(templates.some((template) => template.finishedAt === null))
+  const hasLiveTemplate = $derived(scoped.some((template) => template.finishedAt === null))
   const to = $derived.by(() => {
-    const finishedAt = templates.map((template) => template.finishedAt)
+    const finishedAt = scoped.map((template) => template.finishedAt)
     return hasLiveTemplate
       ? liveTo
       : Math.floor(Math.max(...finishedAt.map((finished) => finished ?? 0)) / 1_000) + 1
   })
 
-  let history = $state<HistoryBucket[] | null>(null)
+  let history = $state<readonly HistoryBucket[] | null>(null)
   let progressSamples = $state<readonly ProgressSample[] | null>(null)
   const importedContributions = $derived(archiveContributionDays(
     archiveSamples,
@@ -133,7 +148,7 @@ import { persisted } from '#lib/persisted.svelte.js'
     hasLiveTemplate ? Math.floor(to / PROGRESS_REFRESH_SECONDS) * PROGRESS_REFRESH_SECONDS + 1 : to,
   )
   $effect(() => {
-    const scope = templates.map((template) => ({ id: template.id, version: template.version }))
+    const scope = scoped.map((template) => ({ id: template.id, version: template.version }))
     const start = from
     const end = progressTo
     const key = JSON.stringify([scope, start])
@@ -214,6 +229,13 @@ import { persisted } from '#lib/persisted.svelte.js'
   let painterHistories = $state<readonly PainterHistorySource[]>([])
   let failed = $state(false)
   let historyScope: string | undefined
+  // Each chart tick reads only the buckets that can still change. An hourly full read lets the
+  // server choose a tier for the grown range again and picks up writes delayed past that window.
+  const FULL_READ_SECONDS = 3_600
+  const fullReadKey = (scope: string, end: number): string =>
+    `${scope}:${Math.floor(end / FULL_READ_SECONDS)}`
+  let heldHistory: HeldHistory<HistoryResponse> | null = null
+  const heldPainterHistories = new Map<string, HeldHistory<PainterHistoryResponse>>()
 
   // Historical chart windows keep advancing independently of live dashboard subscriptions.
   $effect(() => {
@@ -232,16 +254,21 @@ import { persisted } from '#lib/persisted.svelte.js'
 
   $effect(() => {
     if (templateIds.length === 0) return
+    const ids = templateIds
     const generation = { cancelled: false }
-    const scope = `${templateIds.join('\0')}:${from}`
+    const scope = `${ids.join('\0')}:${from}`
     if (historyScope !== scope) {
       historyScope = scope
       history = null
     }
     failed = false
-    getHistory(templateIds, from, to)
-      .then((response) => {
-        if (!generation.cancelled) history = [...response.buckets]
+    refreshHistory(heldHistory, fullReadKey(scope, to), from, to, (start, maxResolution) =>
+      getHistory(ids, start, to, maxResolution === undefined ? {} : { maxResolution }),
+    )
+      .then((held) => {
+        if (generation.cancelled) return
+        heldHistory = held
+        history = held.read.buckets
       })
       .catch(() => {
         if (!generation.cancelled) failed = true
@@ -346,14 +373,24 @@ import { persisted } from '#lib/persisted.svelte.js'
       painterHistories = []
       return
     }
+    const ids = templateIds
+    const scope = `${ids.join('\0')}:${chosen.join(',')}:${from}`
     Promise.all(
       PACE_WINDOWS.filter((window) => enabled.has(window.key)).map(
         async (window): Promise<PainterHistorySource | null> => {
           try {
-            const history = await getPainterHistory(templateIds, chosen, from, to, {
-              maxResolution: window.seconds / 2,
-            })
-            return { window: window.key, history }
+            const held = await refreshHistory(
+              heldPainterHistories.get(window.key) ?? null,
+              fullReadKey(scope, to),
+              from,
+              to,
+              (start, maxResolution) =>
+                getPainterHistory(ids, chosen, start, to, {
+                  maxResolution: maxResolution ?? window.seconds / 2,
+                }),
+            )
+            if (!generation.cancelled) heldPainterHistories.set(window.key, held)
+            return { window: window.key, history: held.read }
           } catch {
             return null
           }

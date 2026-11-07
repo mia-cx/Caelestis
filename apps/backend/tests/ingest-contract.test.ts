@@ -11,6 +11,7 @@ import { expect, it } from 'vitest'
 import { createBackendRuntime, makeBackendContext } from '../src/runtime/backend-runtime.js'
 import { DirectStatusReadModel } from '../src/status-read-model/port.js'
 import { evaluateAlarmSnapshot } from '../src/telemetry/alarm-policy.js'
+import { fetchCanvasTiles } from '../src/telemetry/fetcher.js'
 import { readMismatchMask, uploadTile } from '../src/telemetry/ingest.js'
 import { authorized, createTestBackend } from './support/backend.js'
 
@@ -147,4 +148,94 @@ it('tells public live subscribers nothing about tiles only a draft covers', asyn
   const change = await upload(1)
   expect(change?.admin.invalidatedTiles).toEqual(['0/0'])
   expect(change?.public.invalidatedTiles ?? []).toEqual([])
+})
+
+it('wakes alarm subscribers only when an observation changes an alarm', async () => {
+  const { app, sql, blobs, counters } = await createTestBackend()
+  const form = new FormData()
+  form.set('png', new File([await encodeIndexedPng(3, 1, new Uint8Array([1, 1, 1]))], 'art.png'))
+  form.set('name', 'Alarmed')
+  form.set('season', '3')
+  form.set('originX', '10')
+  form.set('originY', '20')
+  expect(
+    (await app.fetch(authorized('/admin/templates', { method: 'POST', body: form }))).status,
+  ).toBe(201)
+  let alarmNotifications = 0
+  const readModel = new (class extends DirectStatusReadModel {
+    async notifyAlarmChange(): Promise<void> {
+      alarmNotifications++
+    }
+  })(sql)
+  const runtime = createBackendRuntime(makeBackendContext(blobs, sql, counters, readModel))
+  let observedAt = Math.floor(Date.now() / 1000)
+  const observe = async (correct: number) => {
+    const indices = new Uint8Array(1000000).fill(TRANSPARENT_INDEX)
+    indices.fill(1, 20010, 20010 + correct)
+    const canvas = await encodeIndexedPng(1000, 1000, indices)
+    await runtime.run(
+      uploadTile(
+        {
+          season: 3,
+          tile: { x: 0, y: 0 },
+          hash: await sha256Hex(canvas),
+          observedAt: seconds(++observedAt),
+          includeUnpublished: true,
+          tokenHash: 'a'.repeat(64),
+          wplaceUserId: 42,
+          displayName: 'Painter',
+        },
+        canvas,
+      ),
+    )
+  }
+  // Painting toward a new high-water mark moves no alarm.
+  await observe(1)
+  await observe(2)
+  expect(alarmNotifications).toBe(0)
+  // Losing a correct pixel opens one.
+  await observe(1)
+  expect(alarmNotifications).toBe(1)
+  expect(await sql.readActiveAlarms(3, true)).toHaveLength(1)
+})
+
+it('wakes alarm subscribers from a tile scan only when it changes an alarm', async () => {
+  const { app, sql, blobs, counters } = await createTestBackend()
+  const form = new FormData()
+  form.set('png', new File([await encodeIndexedPng(3, 1, new Uint8Array([1, 1, 1]))], 'art.png'))
+  form.set('name', 'Scanned')
+  form.set('season', '3')
+  form.set('originX', '10')
+  form.set('originY', '20')
+  expect(
+    (await app.fetch(authorized('/admin/templates', { method: 'POST', body: form }))).status,
+  ).toBe(201)
+  let alarmNotifications = 0
+  const statusReadModel = new (class extends DirectStatusReadModel {
+    async notifyAlarmChange(): Promise<void> {
+      alarmNotifications++
+    }
+  })(sql)
+  let now = Math.floor(Date.now() / 1000)
+  const scan = async (correct: number) => {
+    const indices = new Uint8Array(1000000).fill(TRANSPARENT_INDEX)
+    indices.fill(1, 20010, 20010 + correct)
+    const canvas = await encodeIndexedPng(1000, 1000, indices)
+    now += 60
+    // Stands in for Wplace's tile server, which the scan reads over `fetch`.
+    const fetchImpl = Object.assign(async () => new Response(canvas), {
+      preconnect: fetch.preconnect,
+    })
+    await fetchCanvasTiles(
+      { blobs, sql, counters, statusReadModel },
+      { season: 3, now: seconds(now), fetchImpl },
+    )
+  }
+  // A complete scan seeds the baseline, and a repeat moves no alarm.
+  await scan(3)
+  await scan(3)
+  expect(alarmNotifications).toBe(0)
+  await scan(2)
+  expect(alarmNotifications).toBe(1)
+  expect(await sql.readActiveAlarms(3, true)).toHaveLength(1)
 })

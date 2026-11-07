@@ -53,6 +53,39 @@ describe('saved server state', () => {
     state.upsertServer({ ...first, token: 'new' })
     expect(signal.aborted).toBe(true)
   })
+
+  it('notifies nobody when an offline retry finds the server still offline', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval'] })
+    const state = await loadState()
+    const offline = {
+      url: 'https://offline.test',
+      info: { id: serverId, name: 'Offline', auth: 'access_token' as const },
+      token: 'saved',
+      status: 'unreachable' as const,
+      error: 'TypeError: Failed to fetch',
+      isAdmin: false,
+      season: null,
+    }
+    state.upsertServer(offline)
+    const redraw = vi.fn()
+    state.installServerConnectionRetry(redraw)
+    // Each retry probes the blocked network, so the server stays unreachable.
+    const retry = async () => {
+      await vi.advanceTimersByTimeAsync(5_000)
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    }
+    await retry()
+    const listener = vi.fn()
+    state.onStateChange(listener)
+    redraw.mockClear()
+    await retry()
+    expect(listener).not.toHaveBeenCalled()
+    expect(redraw).not.toHaveBeenCalled()
+    const { error: _, ...reachable } = offline
+    state.upsertServer({ ...reachable, status: 'connected', season: 1 })
+    expect(listener).toHaveBeenCalledTimes(1)
+    vi.useRealTimers()
+  })
 })
 
 describe('server manifest admission', () => {

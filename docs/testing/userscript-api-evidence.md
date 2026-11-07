@@ -13,11 +13,11 @@ pnpm --filter @caelestis/userscript test test/api-boundary.test.ts
 
 | Client family | Evidence | Current gap |
 | --- | --- | --- |
-| Probe and authenticated world manifest | `api-boundary.test.ts`: probe admin and read credentials, then read the manifest. A transport-level 404 disables versioned routes; real legacy reads and folder creation still succeed. | None for these version-negotiation paths. |
+| Probe and authenticated world manifest | `api-boundary.test.ts`: probe admin and read credentials, then read the manifest. A transport-level 404 disables versioned routes; real legacy reads and folder creation still succeed. Connecting adopts the probe's manifest: two servers connecting read one manifest each, and a live socket's state vector names the probed version. | The live case stubs the socket, since the memory backend has no live hub. |
 | Open-server stale credentials | `api-boundary.test.ts`: an actual `openAccess` backend rejects an invalid supplied bearer token, then admits the userscript's headerless retry | None for this retry path. |
 | Folder administration | `api-boundary.test.ts`: create, rename, move, count, and delete folders through `state`. A stale cascade count preserves the subtree; current counts permit deletion. | None for these supported state operations. |
 | Template administration | `api-boundary.test.ts`: upload indexed PNG, publish it, replace its version, read it from the manifest, delete it, and refuse deletion against an obsolete version | Alarm dismissal and ambiguous upload recovery have no real-backend case. |
-| Chunk transfer | `api-boundary.test.ts`: fetch the manifest hash through `fetchChunkWithinBudget`, verify its digest, and decode the returned indexed PNG | Multi-chunk assembly and transfer-budget refusal stay at the client-only layer. |
+| Chunk transfer | `api-boundary.test.ts`: fetch the manifest hash through `fetchChunkWithinBudget`, verify its digest, and decode the returned indexed PNG. A two-chunk template assembles, and a new version that changes one chunk decodes only that chunk. | Transfer-budget refusal stays at the client-only layer. |
 | Tags | `api-boundary.test.ts`: create, list, rename, assign and unassign template and folder tags, then delete the tag | None for the supported state client operations. |
 | Access tokens | `api-boundary.test.ts`: mint, list without the plaintext secret, revoke, and load a second page through `application/access-tokens.ts` | The controller's confirmation and one-time-secret dialogs need browser UI coverage. |
 | Scope refusal | `api-boundary.test.ts`: a read token reads the manifest but receives the backend's admin refusal for a folder mutation | Report-scope writes are covered by the work and claims boundary evidence. |

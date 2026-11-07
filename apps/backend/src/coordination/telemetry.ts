@@ -89,6 +89,11 @@ export class TelemetryCoordinator {
   private freezes: ReadonlySet<string> = new Set()
   /** Records and flushes that passed the freeze check and may still write. */
   private readonly admitted = new Set<Promise<void>>()
+  /**
+   * When the oldest unexpired retained row expires, as of the last prune. `null` is unknown, after
+   * startup or a restore, and makes the next record prune.
+   */
+  private retainedExpiresAt: Seconds | null = null
   constructor(
     private readonly database: CoordinatorDatabase,
     private readonly alarms: AlarmStorage,
@@ -138,8 +143,9 @@ export class TelemetryCoordinator {
     const nowMilliseconds = this.clock()
     const nowSeconds = seconds(Math.floor(nowMilliseconds / 1_000))
     // A successful flush leaves retained reconciliation state but no alarm. The next write is a
-    // lifecycle opportunity to reclaim expired rows that no pending or flush-batch state needs.
-    await this.pruneRetained(nowSeconds)
+    // lifecycle opportunity to reclaim expired rows, taken only once a retained row has expired.
+    if (this.retainedExpiresAt === null || this.retainedExpiresAt <= nowSeconds)
+      await this.pruneRetained(nowSeconds)
 
     await this.database.transaction(async (database) => {
       await database.run(
@@ -203,8 +209,8 @@ export class TelemetryCoordinator {
         outstandingByTemplate.set(delta.templateId, addCounters(outstanding, delta))
         cumulativeByBucket.set(key, addCounters(cumulative, delta))
       }
-
-      await this.pruneZeroPending(database)
+      // Only deltas with activity reach pending_counters and every count only grows, so a record
+      // cannot leave a zero row behind; the flush prunes any that another path might.
 
       if (droppedLate > 0) {
         await database.run(
@@ -391,6 +397,8 @@ export class TelemetryCoordinator {
           ...columns.map((column) => row[column] ?? null),
         )
     })
+    // Restored retained rows may expire sooner than any row the last prune saw.
+    if (table === 'retained_counters') this.retainedExpiresAt = null
     await this.scheduleNextAlarm(this.clock())
   }
 
@@ -649,6 +657,10 @@ export class TelemetryCoordinator {
       );
       CREATE INDEX IF NOT EXISTS applied_counter_events_seen_at_idx
         ON applied_counter_events (seen_at_ms);
+      CREATE INDEX IF NOT EXISTS retained_counters_bucket_idx
+        ON retained_counters (bucket_start_s);
+      CREATE INDEX IF NOT EXISTS pending_counters_bucket_idx
+        ON pending_counters (bucket_start_s);
       CREATE TABLE IF NOT EXISTS counter_freeze (
         operation_id VARCHAR(128) PRIMARY KEY
       );
@@ -752,10 +764,12 @@ export class TelemetryCoordinator {
   }
 
   private async pruneRetained(nowSeconds: Seconds): Promise<void> {
+    // The bound is on the bare column so the bucket index can serve it.
+    const expiredThrough = bindSeconds(seconds(nowSeconds - EXPIRES_AFTER_SECONDS))
     await this.database.run(
       `
         DELETE FROM retained_counters
-        WHERE bucket_start_s + ?1 <= ?2
+        WHERE bucket_start_s <= ?1
           AND NOT EXISTS (
             SELECT 1
             FROM pending_counters
@@ -769,15 +783,24 @@ export class TelemetryCoordinator {
               AND flush_batch.bucket_start_s = retained_counters.bucket_start_s
           )
       `,
-      EXPIRES_AFTER_SECONDS,
-      bindSeconds(nowSeconds),
+      expiredThrough,
+    )
+    // Rows that outlived expiry because pending or flush-batch state still needs them are retried
+    // by every flush, so records wait only for the oldest row that has not expired yet.
+    const { bucket_start_s: oldest } = await this.database.one<NextBucketRow>(
+      'SELECT MIN(bucket_start_s) AS bucket_start_s FROM retained_counters WHERE bucket_start_s > ?1',
+      expiredThrough,
+    )
+    // With nothing retained, nothing expires until a flush retains a row, and that flush prunes.
+    this.retainedExpiresAt = seconds(
+      oldest === null ? Number.POSITIVE_INFINITY : Number(oldest) + EXPIRES_AFTER_SECONDS,
     )
   }
 
-  private async pruneZeroPending(database = this.database): Promise<void> {
+  private async pruneZeroPending(): Promise<void> {
     // Defensive: valid deltas currently cannot create a zero row, but keep cleanup safe if input or
     // migration rules change later.
-    await database.run(
+    await this.database.run(
       'DELETE FROM pending_counters WHERE placed = 0 AND correct = 0 AND repairs = 0',
     )
   }
@@ -797,10 +820,9 @@ export class TelemetryCoordinator {
   }
 
   private async reconcileAlarm(nowMilliseconds: Millis): Promise<void> {
-    const flushBatchCount = (
-      await this.database.one<CountRow>('SELECT COUNT(*) AS count FROM flush_batch')
-    ).count
-    if (flushBatchCount > 0) {
+    const flushBatchPending =
+      (await this.database.all('SELECT 1 FROM flush_batch LIMIT 1')).length > 0
+    if (flushBatchPending) {
       const scheduledAlarm = await this.alarms.getAlarm()
       if (scheduledAlarm === null || scheduledAlarm <= nowMilliseconds) {
         await this.alarms.setAlarm(nowMilliseconds)
