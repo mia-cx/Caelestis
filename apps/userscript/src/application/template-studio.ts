@@ -25,7 +25,7 @@ import {
 } from '@caelestis/ui/elements'
 import { cancelSurfaceClose, closeSurface, openSurface } from '@caelestis/ui/motion'
 import type { Curve, Effect, PaletteFitEffect } from 'ditherette'
-import { allianceSurfaceCentre } from '../alliance-surface.js'
+import { activeAllianceEditorStage, allianceSurfaceCentre } from '../alliance-surface.js'
 import { warn } from '../debug.js'
 import { viewportCentre } from '../main.js'
 import { getState, setState } from '../state.js'
@@ -1131,7 +1131,10 @@ const mount = (): void => {
   created.addEventListener('caelestis-template-studio-intent', (event) =>
     handleTemplateStudioIntent((event as CustomEvent<TemplateStudioIntent>).detail),
   )
-  document.body.appendChild(created)
+  // Wplace's alliance editors are modal dialogs, which leave the rest of the page inert, so the
+  // studio has to open inside one to be usable there.
+  const host = activeAllianceEditorStage()?.closest('dialog[open]') ?? document.body
+  host.appendChild(created)
   openSurface(created)
   element = created
 }
