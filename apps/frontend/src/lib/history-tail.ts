@@ -29,7 +29,8 @@ const MUTABLE_SECONDS = 3_690
  * A new key, or nothing held yet, reads `[from, to)` in full. Otherwise only the buckets that can
  * normally still change are read again. The server answers that recent range
  * at the full read's resolution or a finer tier, and the finer buckets are summed onto the full
- * read's grid, the same fold the server applies across tiers.
+ * read's grid, the same fold the server applies across tiers. A tail the server no longer covers
+ * from its start, such as a finished scope held open past a tier's retention, reads in full instead.
  *
  * `read(start, maxResolution)` reads `[start, to)`; `maxResolution` is unset for a full read.
  */
@@ -50,6 +51,9 @@ export const refreshHistory = async <Read extends HistoryRead>(
     Math.floor((held.to - MUTABLE_SECONDS) / resolution) * resolution,
   )
   const tail = await read(tailStart, resolution)
+  // The finer tiers have aged past the tail, so the tail would drop buckets the held read has.
+  if ((tail.coverageStart ?? tailStart) > tailStart)
+    return { key, to, read: await read(from, undefined) }
   const folded = new Map<string, Read['buckets'][number]>()
   for (const bucket of tail.buckets) {
     const bucketStart = seconds(Math.floor(bucket.bucketStart / resolution) * resolution)

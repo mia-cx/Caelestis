@@ -55,6 +55,22 @@ it('folds a finer tail read onto the full read grid, rereading every bucket the 
   expect(next.read.buckets).toHaveLength(5)
 })
 
+it('reads the whole range again when the server no longer covers the tail at a fine enough tier', async () => {
+  const held = await refreshHistory(null, 'scope', 0, 7_200, async () => ({
+    buckets: [bucket('a', 300, 0, 5), bucket('a', 300, 6_900, 3)],
+  }))
+  // The 6900 bucket has folded into a coarser tier than the held 300 s grid.
+  const read = vi
+    .fn()
+    .mockResolvedValueOnce({ resolution: 300, coverageStart: seconds(7_200), buckets: [] })
+    .mockResolvedValueOnce({ buckets: [bucket('a', 900, 0, 5), bucket('a', 900, 6_300, 3)] })
+
+  const next = await refreshHistory(held, 'scope', 0, 7_200, read)
+
+  expect(read).toHaveBeenLastCalledWith(0, undefined)
+  expect(next.read.buckets).toEqual([bucket('a', 900, 0, 5), bucket('a', 900, 6_300, 3)])
+})
+
 it('reads the whole range again for a new key', async () => {
   const held = await refreshHistory(null, 'scope', 0, 1_200, async () => ({
     buckets: [bucket('a', 900, 0, 5)],
