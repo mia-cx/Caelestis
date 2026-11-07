@@ -14,6 +14,18 @@ export const findWplaceRail = (): Element | null => {
   return null
 }
 
+/**
+ * The space between two of Wplace's rail buttons, or null while fewer than two are on screen.
+ *
+ * Measured because it differs by theme: 12px in the classic UI, 8px in the pixel game UI.
+ */
+export const wplaceRailGap = (rail: Element): number | null => {
+  const [first, second] = [...rail.children]
+    .map((child) => child.getBoundingClientRect())
+    .filter((box) => box.height > 0)
+  return first === undefined || second === undefined ? null : second.top - first.bottom
+}
+
 /** The whole top-right Wplace control group, including wider account controls such as Log in. */
 export const findWplaceRightControls = (): Element | null => {
   const rail = findWplaceRail()
