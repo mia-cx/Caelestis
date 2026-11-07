@@ -520,33 +520,37 @@ const recordObservationPromise = async (
   const alarmsStartedAt = performance.now()
   if (options.authoritative !== true && committed.revision !== null && alarmChanges.length > 0) {
     let alarmChanged = false
-    for (const {
-      previous,
-      current,
-      previousTemplateCorrect,
-      previousTemplateObservedAt,
-      totalPixels,
-    } of alarmChanges) {
-      const evaluation = await ports.sql.evaluateTemplateAlarm(
-        {
-          templateId: current.templateId,
-          versionId: current.versionId,
-          total: totalPixels,
-          correct: previousTemplateCorrect - (previous?.correct ?? 0) + current.correct,
-          observedAt: millis(Math.max(current.observedAt, previousTemplateObservedAt)),
-          observationRevision: committed.revision,
-        },
-        {
-          kind: 'observation',
-          previousCorrect: previousTemplateCorrect,
-        },
-        uuidV7(),
-      )
-      alarmChanged ||= evaluation.alarmChanged
+    try {
+      for (const {
+        previous,
+        current,
+        previousTemplateCorrect,
+        previousTemplateObservedAt,
+        totalPixels,
+      } of alarmChanges) {
+        const evaluation = await ports.sql.evaluateTemplateAlarm(
+          {
+            templateId: current.templateId,
+            versionId: current.versionId,
+            total: totalPixels,
+            correct: previousTemplateCorrect - (previous?.correct ?? 0) + current.correct,
+            observedAt: millis(Math.max(current.observedAt, previousTemplateObservedAt)),
+            observationRevision: committed.revision,
+          },
+          {
+            kind: 'observation',
+            previousCorrect: previousTemplateCorrect,
+          },
+          uuidV7(),
+        )
+        alarmChanged ||= evaluation.alarmChanged
+      }
+    } finally {
+      // Progress that moves no alarm, such as painting toward a new high-water mark, owes
+      // subscribers nothing. A changed alarm also covers every follow-up probe it scheduled.
+      // Each evaluation commits on its own, so a later failure still owes the earlier changes.
+      if (alarmChanged) await publishAlarmChange(ports.statusReadModel, metadata.season)
     }
-    // Progress that moves no alarm, such as painting toward a new high-water mark, owes
-    // subscribers nothing. A changed alarm also covers every follow-up probe it scheduled.
-    if (alarmChanged) await publishAlarmChange(ports.statusReadModel, metadata.season)
   }
   ingestTimings.record(command, 'alarms', performance.now() - alarmsStartedAt)
   // Publish the authoritative revision first. A caller processing many tiles owns one shared batch

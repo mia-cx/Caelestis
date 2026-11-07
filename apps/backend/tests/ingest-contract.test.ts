@@ -239,3 +239,80 @@ it('wakes alarm subscribers from a tile scan only when it changes an alarm', asy
   expect(alarmNotifications).toBe(1)
   expect(await sql.readActiveAlarms(3, true)).toHaveLength(1)
 })
+
+it('wakes alarm subscribers for changes committed before a later alarm evaluation fails', async () => {
+  const { app, sql, blobs, counters } = await createTestBackend()
+  for (const originY of ['20', '21']) {
+    const form = new FormData()
+    form.set('png', new File([await encodeIndexedPng(3, 1, new Uint8Array([1, 1, 1]))], 'art.png'))
+    form.set('name', `Row ${originY}`)
+    form.set('season', '3')
+    form.set('originX', '10')
+    form.set('originY', originY)
+    expect(
+      (await app.fetch(authorized('/admin/templates', { method: 'POST', body: form }))).status,
+    ).toBe(201)
+  }
+  let alarmNotifications = 0
+  const statusReadModel = new (class extends DirectStatusReadModel {
+    async notifyAlarmChange(): Promise<void> {
+      alarmNotifications++
+    }
+  })(sql)
+  const runtime = createBackendRuntime(makeBackendContext(blobs, sql, counters, statusReadModel))
+  // Fails the second template's evaluation after the first has committed its alarm change.
+  const evaluate = sql.evaluateTemplateAlarm.bind(sql)
+  let failSecondEvaluation = false
+  let evaluations = 0
+  sql.evaluateTemplateAlarm = async (...args) => {
+    if (failSecondEvaluation && ++evaluations === 2) throw new Error('evaluation failed')
+    return await evaluate(...args)
+  }
+  let now = Math.floor(Date.now() / 1000)
+  const canvas = async (correct: number) => {
+    const indices = new Uint8Array(1000000).fill(TRANSPARENT_INDEX)
+    indices.fill(1, 20010, 20010 + correct)
+    indices.fill(1, 21010, 21010 + correct)
+    return await encodeIndexedPng(1000, 1000, indices)
+  }
+  const observe = async (correct: number) => {
+    const bytes = await canvas(correct)
+    await runtime.run(
+      uploadTile(
+        {
+          season: 3,
+          tile: { x: 0, y: 0 },
+          hash: await sha256Hex(bytes),
+          observedAt: seconds(++now),
+          includeUnpublished: true,
+          tokenHash: 'a'.repeat(64),
+          wplaceUserId: 42,
+          displayName: 'Painter',
+        },
+        bytes,
+      ),
+    )
+  }
+  const scan = async (correct: number) => {
+    const bytes = await canvas(correct)
+    now += 60
+    // Stands in for Wplace's tile server, which the scan reads over `fetch`.
+    const fetchImpl = Object.assign(async () => new Response(bytes), {
+      preconnect: fetch.preconnect,
+    })
+    await fetchCanvasTiles(
+      { blobs, sql, counters, statusReadModel },
+      { season: 3, now: seconds(now), fetchImpl },
+    )
+  }
+
+  await observe(3)
+  failSecondEvaluation = true
+  await expect(observe(2)).rejects.toThrow()
+  expect(alarmNotifications).toBe(1)
+
+  // The observation opened one alarm; the scan clears it and fails on the other template.
+  evaluations = 0
+  await expect(scan(3)).rejects.toThrow('evaluation failed')
+  expect(alarmNotifications).toBe(2)
+})

@@ -269,40 +269,44 @@ export const fetchCanvasTiles = async (
     (now - scanCycleBatches * ALARM_SCAN_INTERVAL_SECONDS - ALARM_SCAN_JITTER_SECONDS) * 1_000
   let followUpScheduled = false
   let alarmChanged = false
-  for (const template of templates) {
-    const required = requiredTiles.get(template.id) ?? []
-    const status = statusesById.get(template.id)
-    if (
-      required.length === 0 ||
-      !required.every(
-        ({ key, observedAt }) =>
-          observedAt !== null &&
-          observedAt >= freshnessCutoff &&
-          (!attemptedTemplateTiles.has(key) || serverRefreshedTemplateTiles.has(key)),
-      ) ||
-      status === undefined ||
-      status.total !== template.totalPixels ||
-      status.correct + status.wrong + status.blank !== status.total
-    ) {
-      continue
+  try {
+    for (const template of templates) {
+      const required = requiredTiles.get(template.id) ?? []
+      const status = statusesById.get(template.id)
+      if (
+        required.length === 0 ||
+        !required.every(
+          ({ key, observedAt }) =>
+            observedAt !== null &&
+            observedAt >= freshnessCutoff &&
+            (!attemptedTemplateTiles.has(key) || serverRefreshedTemplateTiles.has(key)),
+        ) ||
+        status === undefined ||
+        status.total !== template.totalPixels ||
+        status.correct + status.wrong + status.blank !== status.total
+      ) {
+        continue
+      }
+      const result = await ports.sql.evaluateTemplateAlarm(
+        {
+          templateId: template.id,
+          versionId: template.versionId,
+          total: status.total,
+          correct: status.correct,
+          observedAt: millis(now * 1_000),
+          observationRevision: alarmSnapshot.revision,
+        },
+        { kind: 'scan' },
+        alarmIdFactory(),
+      )
+      alarmChanged ||= result.alarmChanged
+      followUpScheduled ||= result.scheduleFollowUp
     }
-    const result = await ports.sql.evaluateTemplateAlarm(
-      {
-        templateId: template.id,
-        versionId: template.versionId,
-        total: status.total,
-        correct: status.correct,
-        observedAt: millis(now * 1_000),
-        observationRevision: alarmSnapshot.revision,
-      },
-      { kind: 'scan' },
-      alarmIdFactory(),
-    )
-    alarmChanged ||= result.alarmChanged
-    followUpScheduled ||= result.scheduleFollowUp
+  } finally {
+    // A scan that moves no alarm owes subscribers nothing; a changed alarm covers its follow-up.
+    // Each evaluation commits on its own, so a later failure still owes the earlier changes.
+    if (alarmChanged) await publishAlarmChange(statusReadModel, season)
   }
-  // A scan that moves no alarm owes subscribers nothing; a changed alarm covers its follow-up.
-  if (alarmChanged) await publishAlarmChange(statusReadModel, season)
 
   return {
     fetched,
@@ -493,11 +497,14 @@ export const fetchAlarmFollowUps = async (
     try {
       await projectionBatch.flush()
     } finally {
-      await artifactWriteBatch.flush()
+      try {
+        await artifactWriteBatch.flush()
+      } finally {
+        // Each evaluation commits on its own, so a later failure still owes the earlier changes.
+        for (const season of changedSeasons) await publishAlarmChange(statusReadModel, season)
+      }
     }
   }
-
-  for (const season of changedSeasons) await publishAlarmChange(statusReadModel, season)
 
   return { evaluated, failed, pending }
 }
