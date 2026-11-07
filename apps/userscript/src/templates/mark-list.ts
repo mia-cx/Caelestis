@@ -240,14 +240,21 @@ export class MarkList {
     return this.log.slice(revision - this.logStart)
   }
 
-  /** The live marks in row-major order, as a fresh scan would list them. */
-  values(): MismatchMarks {
+  /** The live marks in slot order, unsorted: cheap input for `MarkList.of`, which orders its own. */
+  liveMarks(): number[] {
     const live: number[] = []
     for (let slot = 0; slot < this.length; slot++) {
       const mark = this.slots[slot] as number
       if ((mark & DEAD_MARK) === 0) live.push(mark)
     }
-    return Uint32Array.from(live).sort((left, right) => coordinateOf(left) - coordinateOf(right))
+    return live
+  }
+
+  /** The live marks in row-major order, as a fresh scan would list them. */
+  values(): MismatchMarks {
+    return Uint32Array.from(this.liveMarks()).sort(
+      (left, right) => coordinateOf(left) - coordinateOf(right),
+    )
   }
 
   /** The slots and the block tables drawing has built for them. */
@@ -267,11 +274,7 @@ export class MarkList {
 
   /** Drop dead slots and sort the tail into the run, in fresh `slots`. */
   private compact(): void {
-    const live: number[] = []
-    for (let slot = 0; slot < this.length; slot++) {
-      const mark = this.slots[slot] as number
-      if ((mark & DEAD_MARK) === 0) live.push(mark)
-    }
+    const live = this.liveMarks()
     this.slots = new Uint32Array(live.length + tailRoom(live.length))
     this.slots.set(sortedByKey(live, this.seed))
     this.length = live.length

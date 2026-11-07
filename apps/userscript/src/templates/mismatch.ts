@@ -212,7 +212,7 @@ const answerFrom = (entry: Cached, kind: AnswerKind, template: PlacedTemplate): 
   // rather than replacing the answer with a newly merged one.
   if (entry.both === null) {
     entry.both = MarkList.of(
-      [...entry.wrong.values(), ...entry.unpainted.values()],
+      [...entry.wrong.liveMarks(), ...entry.unpainted.liveMarks()],
       entry.wrong.seed,
     )
   }
@@ -223,7 +223,7 @@ const answerFrom = (entry: Cached, kind: AnswerKind, template: PlacedTemplate): 
 const colourAnswerFrom = (entry: Cached, colour: number): Mismatches => {
   const held = entry.colours.get(colour)
   if (held !== undefined) return held
-  const marks = entry.unpainted.values().filter((mark) => markWanted(mark) === colour)
+  const marks = entry.unpainted.liveMarks().filter((mark) => markWanted(mark) === colour)
   const list = MarkList.of(marks, entry.unpainted.seed)
   entry.colours.set(colour, list)
   return list
