@@ -25,7 +25,11 @@ import {
 } from '@caelestis/ui/elements'
 import { cancelSurfaceClose, closeSurface, openSurface } from '@caelestis/ui/motion'
 import type { Curve, Effect, PaletteFitEffect } from 'ditherette'
-import { allianceSurfaceCentre } from '../alliance-surface.js'
+import {
+  activeAllianceEditorStage,
+  allianceSurfaceCentre,
+  onActiveAllianceSurfaceChange,
+} from '../alliance-surface.js'
 import { warn } from '../debug.js'
 import { viewportCentre } from '../main.js'
 import { getState, setState } from '../state.js'
@@ -118,6 +122,8 @@ const STUDIO_ID = 'caelestis-template-studio'
 let target: TemplateStudioTarget | null = null
 let element: (HTMLElement & { model: TemplateStudioModel }) | null = null
 let closing: HTMLElement | null = null
+/** Stops watching the alliance editor the studio opened in. */
+let releaseHost: (() => void) | null = null
 let draftId = ''
 /** The panel steps aside for the studio's windows and comes back when it closes. */
 let panelWasOpen = false
@@ -1097,6 +1103,8 @@ export const closeTemplateStudio = (): void => {
   endDraftPlacement()
   setTemplateDraft(null)
   window.removeEventListener('paste', onPaste, true)
+  releaseHost?.()
+  releaseHost = null
   if (panelWasOpen && !isPanelOpen()) togglePanel()
   panelWasOpen = false
   const leaving = element
@@ -1110,7 +1118,16 @@ export const closeTemplateStudio = (): void => {
 }
 
 const mount = (): void => {
-  if (closing?.isConnected && cancelSurfaceClose(closing)) {
+  // Wplace's alliance editors are modal dialogs, which leave the rest of the page inert, so the
+  // studio has to open inside one to be usable there.
+  const dialog = activeAllianceEditorStage()?.closest<HTMLDialogElement>('dialog[open]') ?? null
+  const host = dialog ?? document.body
+  // An alliance draft has nowhere to go once its editor closes, so the studio closes with it.
+  if (dialog !== null)
+    releaseHost = onActiveAllianceSurfaceChange(() => {
+      if (!dialog.isConnected || !dialog.open) closeTemplateStudio()
+    })
+  if (closing?.parentElement === host && cancelSurfaceClose(closing)) {
     element = closing as HTMLElement & { model: TemplateStudioModel }
     closing = null
     openSurface(element)
@@ -1131,7 +1148,7 @@ const mount = (): void => {
   created.addEventListener('caelestis-template-studio-intent', (event) =>
     handleTemplateStudioIntent((event as CustomEvent<TemplateStudioIntent>).detail),
   )
-  document.body.appendChild(created)
+  host.appendChild(created)
   openSurface(created)
   element = created
 }
