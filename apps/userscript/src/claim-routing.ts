@@ -651,8 +651,15 @@ export class ClaimRouter {
 
 const retirementKey = (server: ConnectedServer): string =>
   `${STORAGE_KEY}.retired:${encodeURIComponent(server.url)}`
-const setRetired = (server: ConnectedServer, retired: boolean): void =>
+/**
+ * Set when this tab wrote the journal or a retirement during the current locked operation. A
+ * disconnect retires its server without the lock, so it can land while another operation holds it.
+ */
+let claimsWritten = false
+const setRetired = (server: ConnectedServer, retired: boolean): void => {
+  claimsWritten = true
   storeValue(retirementKey(server), JSON.stringify(retired))
+}
 const load = (): Entry[] => {
   try {
     const raw: unknown = JSON.parse(storedValue(STORAGE_KEY) ?? '[]')
@@ -683,12 +690,10 @@ const load = (): Entry[] => {
   }
 }
 
-/** Set when this tab wrote the journal during the current locked operation. */
-let journalWritten = false
 const persist = (entries: readonly Entry[]): void => {
   const raw = JSON.stringify(entries)
   if (storedValue(STORAGE_KEY) === raw) return
-  journalWritten = true
+  claimsWritten = true
   storeValue(STORAGE_KEY, raw)
 }
 
@@ -728,14 +733,14 @@ const withClaims = <T>(operation: (router: ClaimRouter) => Promise<T>): Promise<
   const run = async (): Promise<T> => {
     // The extension's storage is asynchronous: catch up on other tabs' writes after taking the
     // lock, and store ours before giving it up, so the next tab reads what this one wrote.
-    journalWritten = false
+    claimsWritten = false
     await syncStoredValues()
     const router = localRouter()
     router.restore(load())
     try {
       return await operation(router)
     } finally {
-      if (journalWritten) await syncStoredValues()
+      if (claimsWritten) await syncStoredValues()
     }
   }
   const next = pendingOperation.then(async (): Promise<T> => {
