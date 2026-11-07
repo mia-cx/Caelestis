@@ -5,7 +5,7 @@ import {
   onActiveAllianceSurfaceChange,
   onHeadquartersRevisionChange,
 } from '../alliance-surface.js'
-import { type CanvasWriteRect, onCanvasWrite } from '../canvas-write.js'
+import { type CanvasDraw, type CanvasWriteRect, onCanvasWrite } from '../canvas-write.js'
 import { warn } from '../debug.js'
 import { onOverlayPeekChange, overlayPeekFade } from '../overlay-peek.js'
 import { isProfileEnabled, measureProfile, profileGpu, recordProfileWorkload } from '../profile.js'
@@ -34,6 +34,8 @@ import {
   patchArtboardPixels,
   readArtboardPixels,
   refreshArtboardPixels,
+  trackArtboardTiles,
+  watchArtboardDraftMarks,
 } from './artboard-pixels.js'
 import { isDarkMapTheme } from './contrast-outline.js'
 import { MarkerBatchStore } from './marker-batching.js'
@@ -578,6 +580,7 @@ class ArtboardRenderer {
   private readonly markerTiles = new Map<string, object>()
   private readonly observer: MutationObserver
   private readonly resizeObserver: ResizeObserver | null
+  private readonly stopDraftMarks: () => void
   private framePending = false
   private markerPixelsDirty = true
   private readonly markerDirtyRects: Array<{
@@ -611,6 +614,7 @@ class ArtboardRenderer {
       typeof ResizeObserver === 'function' ? new ResizeObserver(() => this.requestRender()) : null
     this.resizeObserver?.observe(active.frame)
     this.resizeObserver?.observe(active.stage)
+    this.stopDraftMarks = watchArtboardDraftMarks(active)
   }
 
   static create(
@@ -707,13 +711,18 @@ class ArtboardRenderer {
     return created
   }
 
-  nativeCanvasWritten(canvas: object, dirty: CanvasWriteRect | null): void {
+  nativeCanvasWritten(
+    canvas: object,
+    dirty: CanvasWriteRect | null,
+    draw: CanvasDraw | null,
+  ): void {
     try {
       if (
         !(canvas instanceof HTMLCanvasElement) ||
         (!this.active.frame.contains(canvas) && !isArtboardCrosshairCanvas(this.active, canvas))
       )
         return
+      this.markerDirtyRects.push(...trackArtboardTiles(this.active, this.geometry, canvas, draw))
       patchArtboardPixels(this.active, this.geometry, canvas, dirty)
       const rect = artboardCanvasWriteRect(this.active, this.geometry, canvas, dirty)
       if (rect === null) this.markerPixelsDirty = true
@@ -960,6 +969,7 @@ class ArtboardRenderer {
     noteTemplatesInView(this.surface, new Set())
     this.observer.disconnect()
     this.resizeObserver?.disconnect()
+    this.stopDraftMarks()
     detachOverlayControls()
     this.outline.dispose()
     this.overlay.dispose()
@@ -1009,6 +1019,6 @@ export const installAllianceOverlayLayer = (onViewportChange: () => void = () =>
   onStateChange(repaintAllianceOverlayLayer)
   onPaintSelectionChange(() => renderer?.requestRender())
   onArtboardPixelsChange(() => renderer?.nativePixelsChanged())
-  onCanvasWrite((canvas, dirty) => renderer?.nativeCanvasWritten(canvas, dirty))
+  onCanvasWrite((canvas, dirty, draw) => renderer?.nativeCanvasWritten(canvas, dirty, draw))
   reconcileRenderer()
 }

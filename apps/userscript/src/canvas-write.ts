@@ -7,7 +7,16 @@ export interface CanvasWriteRect {
   readonly height: number
 }
 
-type CanvasWriteListener = (canvas: object, dirty: CanvasWriteRect | null) => void
+/** The image a `drawImage` call copied and the destination rectangle it landed in. */
+export interface CanvasDraw extends CanvasWriteRect {
+  readonly source: unknown
+}
+
+type CanvasWriteListener = (
+  canvas: object,
+  dirty: CanvasWriteRect | null,
+  draw: CanvasDraw | null,
+) => void
 
 const listeners = new Set<CanvasWriteListener>()
 
@@ -21,6 +30,7 @@ export const onCanvasWrite = (listener: CanvasWriteListener): (() => void) => {
 export const announceCanvasWrite = (
   canvas: { readonly width: number; readonly height: number },
   dirty: CanvasWriteRect | null = null,
+  draw: CanvasDraw | null = null,
 ): void => {
   recordProfileCounter('canvas:observed writes')
   if (
@@ -37,5 +47,5 @@ export const announceCanvasWrite = (
       Math.max(0, right - left) * Math.max(0, bottom - top),
     )
   }
-  for (const listener of listeners) listener(canvas, dirty)
+  for (const listener of listeners) listener(canvas, dirty, draw)
 }

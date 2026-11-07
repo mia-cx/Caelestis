@@ -6,7 +6,7 @@ import {
   tileKey,
   WPLACE_PALETTE,
 } from '@caelestis/shared'
-import { announceCanvasWrite, type CanvasWriteRect } from './canvas-write.js'
+import { announceCanvasWrite, type CanvasDraw, type CanvasWriteRect } from './canvas-write.js'
 import { count, isEnabled, log, warn } from './debug.js'
 import { getMap } from './map-handle.js'
 import { isPageInstance, pageWindow } from './page-world.js'
@@ -2310,6 +2310,18 @@ const installBitmapTap = (realm: Window & typeof globalThis): InstalledValueHook
   return installValueHook(realm, 'createImageBitmap', wrappedCreateImageBitmap)
 }
 
+/** The image and destination rectangle of a scaled `drawImage` call, in either long form. */
+const drawnImage = (args: readonly unknown[]): CanvasDraw | null => {
+  const destination = args.length === 5 ? args.slice(1) : args.length === 9 ? args.slice(5) : null
+  const [x, y, width, height] = destination ?? []
+  return typeof x === 'number' &&
+    typeof y === 'number' &&
+    typeof width === 'number' &&
+    typeof height === 'number'
+    ? { source: args[0], x, y, width, height }
+    : null
+}
+
 const installPutImageDataTaps = (
   realm: Window & typeof globalThis,
 ): InstalledValueHook[] | null => {
@@ -2475,7 +2487,7 @@ const installPutImageDataTaps = (
               }
               if (name === 'reset') clipped.delete(this)
               markCanvasDirty(this.canvas)
-              announceCanvasWrite(this.canvas)
+              announceCanvasWrite(this.canvas, null, name === 'drawImage' ? drawnImage(args) : null)
             },
           )
         }
