@@ -57,16 +57,9 @@ vi.mock('../src/templates/native-store.js', async (original) => {
 })
 
 afterEach(() => processor.render.mockReset())
-beforeEach(() =>
-  vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
-    const url = String(input)
-    if (!url.startsWith('data:image/png;base64,'))
-      throw new Error(`Unexpected external request: ${url}`)
-    return new Response(Buffer.from(url.slice('data:image/png;base64,'.length), 'base64'), {
-      headers: { 'content-type': 'image/png' },
-    })
-  }),
-)
+// Another script's fetch wrapper may never answer an image that is not a tile, as Blue Marble's
+// does. Importing a file must not depend on fetch at all.
+beforeEach(() => vi.stubGlobal('fetch', () => new Promise<Response>(() => {})))
 
 const file = async (recipe: Record<string, unknown> = {}) => {
   const northWest = canvasPixelToLatLng({ x: 500, y: 600 })

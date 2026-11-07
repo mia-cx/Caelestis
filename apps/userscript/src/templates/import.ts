@@ -179,8 +179,22 @@ export const decodeToRgba = async (
   }
 }
 
-const blobFromDataUrl = async (dataUrl: string): Promise<Blob> =>
-  await (await fetch(dataUrl)).blob()
+/**
+ * Decode a data URL in place. Not through `fetch`: another script's fetch wrapper may never answer
+ * it, as Blue Marble does for every image that is not a tile, which left imports stuck.
+ */
+const blobFromDataUrl = async (dataUrl: string): Promise<Blob> => {
+  const comma = dataUrl.indexOf(',')
+  if (!dataUrl.startsWith('data:') || comma === -1) throw new Error('not a data URL')
+  const header = dataUrl.slice('data:'.length, comma)
+  const body = dataUrl.slice(comma + 1)
+  const type = header.split(';')[0] ?? ''
+  if (!header.endsWith(';base64')) return new Blob([decodeURIComponent(body)], { type })
+  const binary = atob(body)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  return new Blob([bytes], { type })
+}
 
 const quantise = async (
   pixels: Uint8Array,
