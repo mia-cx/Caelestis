@@ -296,6 +296,30 @@ it('filters Shift clicks on the HQ artboard, which paints its press on pointerup
   expect(pressed.size).toBe(0)
 })
 
+it('keeps a Shift+Space stroke going after a filtered HQ click', () => {
+  harness.alliance = {
+    surface: { kind: 'alliance-headquarters', allianceId: 1 },
+    stage: canvas,
+    frame: canvas,
+    draftId: null,
+    bounds: null,
+  }
+  move(0)
+  key('keydown', 'Space', true)
+  for (const type of ['pointerdown', 'pointerup'])
+    canvas.dispatchEvent(
+      new PointerEvent(type, {
+        pointerId: 1,
+        clientX: 0,
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    )
+  move(4)
+  expect([...draft.keys()].sort()).toEqual([1, 3])
+})
+
 it('does not paint a stale canvas position after the pointer moves over a control', () => {
   move(1)
   vi.mocked(document.elementFromPoint).mockReturnValue(document.querySelector('button'))

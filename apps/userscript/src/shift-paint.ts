@@ -108,8 +108,12 @@ export const installShiftPaint = (): void => {
     nativePaused = false
     cursor = null
   }
+  /** Set while we cancel a filtered HQ press ourselves; the keys behind a stroke are still held. */
+  let cancellingPress = false
   window.addEventListener('blur', reset)
-  window.addEventListener('pointercancel', reset)
+  window.addEventListener('pointercancel', () => {
+    if (!cancellingPress) reset()
+  })
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) reset()
   })
@@ -200,7 +204,12 @@ export const installShiftPaint = (): void => {
     (event) => {
       if (skippedPress !== event.pointerId) return
       skippedPress = null
-      window.dispatchEvent(new PointerEvent('pointercancel', event))
+      cancellingPress = true
+      try {
+        window.dispatchEvent(new PointerEvent('pointercancel', event))
+      } finally {
+        cancellingPress = false
+      }
     },
     true,
   )
