@@ -95,7 +95,7 @@ export const overlayIndexAt = (surface: TemplateSurface, x: number, y: number): 
   return found
 }
 
-/** The exact base tile index. A cache miss starts a fetch and deliberately returns no colour. */
+/** The exact base tile index. A cache miss starts a fetch and returns no colour for Wplace to pick. */
 const placedIndexAt = (x: number, y: number, includeDraft = false): number | null => {
   const column = Math.floor(x)
   const row = Math.floor(y)
@@ -276,6 +276,15 @@ export const installColourPicker = (): void => {
       const point = pickerPointAt(target, event.clientX, event.clientY)
       if (point === null) return
 
+      // Claim the pick only once a swatch is set. Without a source answer (an empty or unloaded
+      // pixel, or a colour with no swatch) Wplace's own picker answers and ends picker mode;
+      // swallowing it would leave the picker on and eat every later click.
+      const { x, y } = point
+      const index = pickedIndexAt(point)
+      if (index === null || !selectPaintColour(index)) {
+        log('install', 'picker source has no colour here; Wplace picks', { x, y })
+        return
+      }
       event.preventDefault()
       event.stopImmediatePropagation()
       pendingLeftPick = {
@@ -284,13 +293,6 @@ export const installColourPicker = (): void => {
         x: event.clientX,
         y: event.clientY,
         until: performance.now() + 1_000,
-      }
-
-      const { x, y } = point
-      const index = pickedIndexAt(point)
-      if (index === null || !selectPaintColour(index)) {
-        log('install', 'picker source pixel is not ready', { x, y })
-        return
       }
 
       // Wplace's swatch normally exits this one-shot tool itself. Check after its render and only
