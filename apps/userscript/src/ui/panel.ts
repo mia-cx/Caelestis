@@ -189,7 +189,12 @@ import {
   withTemplateClaims,
   workSectionModel,
 } from './work.js'
-import { findWplaceRail, onWplaceLayoutChange, wplaceButtonBelow } from './wplace-rail.js'
+import {
+  findWplaceRail,
+  onWplaceLayoutChange,
+  wplaceButtonBelow,
+  wplaceRailGap,
+} from './wplace-rail.js'
 
 /**
  * Our button on wplace's right-hand rail, and the panel it opens.
@@ -1591,6 +1596,8 @@ export const onWorldTemplateTreeVisible = (listener: () => void): (() => void) =
 }
 
 const RAIL_ID = 'caelestis-rail'
+/** Wplace's rail spacing, last measured; kept while their rail is gone, as in the paint drawer. */
+let railGap = GAP
 
 /**
  * Our own rail, beneath wplace's when they have one and in its place when they do not.
@@ -1608,8 +1615,13 @@ const railContainer = (): HTMLElement => {
   if (existing !== null) return existing
   const el = document.createElement('div')
   el.id = RAIL_ID
-  el.className = 'flex flex-col items-center gap-3'
-  Object.assign(el.style, { position: 'fixed', zIndex: '30' })
+  Object.assign(el.style, {
+    position: 'fixed',
+    zIndex: '30',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+  })
   document.body.appendChild(el)
   return el
 }
@@ -1689,7 +1701,7 @@ const trayContainer = (): HTMLElement => {
   if (tray !== null) return tray
   tray = document.createElement('div')
   tray.id = TRAY_ID
-  tray.className = 'flex items-center gap-3'
+  Object.assign(tray.style, { display: 'flex', alignItems: 'center' })
   tray.setAttribute('role', 'menu')
   tray.setAttribute('aria-label', 'More Caelestis controls')
   Object.assign(tray.style, { position: 'fixed', zIndex: '30' })
@@ -1730,28 +1742,31 @@ const setFixedOffset = (el: HTMLElement, top: number, right: number): void => {
 const positionRail = (): void => {
   const rail = railContainer()
   // Every read comes before the first write, so measuring never forces a second layout.
-  const theirs = findWplaceRail()?.getBoundingClientRect()
+  const theirRail = findWplaceRail()
+  railGap = (theirRail === null ? null : wplaceRailGap(theirRail)) ?? railGap
+  const gap = railGap
+  const theirs = theirRail?.getBoundingClientRect()
   const beside = theirs !== undefined && theirs.width > 0
   // Fixed-position offsets use the layout viewport, which excludes the page scrollbar.
   const viewportWidth = document.documentElement.clientWidth
   // Theirs is gone — the paint-drawer case — so ours takes its place at the same inset.
-  const top = beside ? theirs.bottom + GAP : EDGE
+  const top = beside ? theirs.bottom + gap : EDGE
   const right = beside ? viewportWidth - theirs.right : EDGE
   const columnRight = viewportWidth - right
   const below = wplaceButtonBelow({ left: columnRight - RAIL_BUTTON, right: columnRight, top })
-  const floor = below === null ? window.innerHeight - EDGE : below - GAP
-  const slots = Math.max(1, Math.floor((floor - top + GAP) / (RAIL_BUTTON + GAP)))
+  const floor = below === null ? window.innerHeight - EDGE : below - gap
+  const slots = Math.max(1, Math.floor((floor - top + gap) / (RAIL_BUTTON + gap)))
   const buttons = railButtons()
   const fits = slots >= buttons.length
   setFixedOffset(rail, top, right)
   place(rail, fits ? buttons : [...buttons.slice(0, slots - 1), moreButton()])
   place(trayContainer(), fits ? [] : buttons.slice(slots - 1))
   if (fits) setTrayOpen(false)
-  setFixedOffset(
-    trayContainer(),
-    top + (slots - 1) * (RAIL_BUTTON + GAP),
-    right + RAIL_BUTTON + GAP,
-  )
+  const tray = trayContainer()
+  setFixedOffset(tray, top + (slots - 1) * (RAIL_BUTTON + gap), right + RAIL_BUTTON + gap)
+  const gapPx = `${gap}px`
+  if (rail.style.gap !== gapPx) rail.style.gap = gapPx
+  if (tray.style.gap !== gapPx) tray.style.gap = gapPx
 }
 
 /**

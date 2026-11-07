@@ -2,6 +2,18 @@ import { frameQueue } from './frame-queue.js'
 
 const ANCHOR_LABELS = ['Overlays', 'Search', 'Leaderboard'] as const
 
+/**
+ * The space between two of Wplace's rail buttons, or null while fewer than two are on screen.
+ *
+ * Measured because it differs by theme: 12px in the classic UI, 8px in the pixel game UI.
+ */
+export const wplaceRailGap = (rail: Element): number | null => {
+  const [first, second] = [...rail.children]
+    .map((child) => child.getBoundingClientRect())
+    .filter((box) => box.height > 0)
+  return first === undefined || second === undefined ? null : second.top - first.bottom
+}
+
 /** Whether an element is Caelestis chrome: inside our rail, a panel, or any of our custom elements. */
 const isCaelestis = (element: Element): boolean => {
   for (let node: Element | null = element; node !== null; node = node.parentElement) {
