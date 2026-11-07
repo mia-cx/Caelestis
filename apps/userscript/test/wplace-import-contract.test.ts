@@ -57,16 +57,9 @@ vi.mock('../src/templates/native-store.js', async (original) => {
 })
 
 afterEach(() => processor.render.mockReset())
-beforeEach(() =>
-  vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
-    const url = String(input)
-    if (!url.startsWith('data:image/png;base64,'))
-      throw new Error(`Unexpected external request: ${url}`)
-    return new Response(Buffer.from(url.slice('data:image/png;base64,'.length), 'base64'), {
-      headers: { 'content-type': 'image/png' },
-    })
-  }),
-)
+// Another script's fetch wrapper may never answer an image that is not a tile, as Blue Marble's
+// does. Importing a file must not depend on fetch at all.
+beforeEach(() => vi.stubGlobal('fetch', () => new Promise<Response>(() => {})))
 
 const file = async (recipe: Record<string, unknown> = {}) => {
   const northWest = canvasPixelToLatLng({ x: 500, y: 600 })
@@ -157,6 +150,22 @@ it('samples the projected footprint before processing the embedded recipe and pe
   } finally {
     await store.removeLocalTemplate(saved.id)
   }
+})
+
+it('decodes embedded PNGs as data URLs, in any case and percent-encoded', async () => {
+  const png = await encodeIndexedPng(4, 2, new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]))
+  const percentEncoded = [...Buffer.from(png).toString('base64')]
+    .map((char) => `%${char.charCodeAt(0).toString(16).padStart(2, '0')}`)
+    .join('')
+  processor.render.mockImplementationOnce(async (sampled) => sampled)
+  const { importFile } = await import('../src/templates/import.js')
+  const [imported] = await importFile(
+    await file({ image: { dataUrl: `data:image/png;BASE64,${percentEncoded}` } }),
+    { x: 0, y: 0 },
+  )
+  expect(new Uint8Array(await (imported?.authoring?.source ?? new Blob()).arrayBuffer())).toEqual(
+    png,
+  )
 })
 
 it('surfaces native processing failure and rejects remote images before decoding', async () => {

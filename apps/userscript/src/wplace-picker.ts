@@ -95,7 +95,7 @@ export const overlayIndexAt = (surface: TemplateSurface, x: number, y: number): 
   return found
 }
 
-/** The exact base tile index. A cache miss starts a fetch and deliberately returns no colour. */
+/** The exact base tile index. A cache miss starts a fetch and returns no colour for Wplace to pick. */
 const placedIndexAt = (x: number, y: number, includeDraft = false): number | null => {
   const column = Math.floor(x)
   const row = Math.floor(y)
@@ -137,22 +137,33 @@ export const pickerPointAt = (
   return point === null ? null : { surface: WORLD_TEMPLATE_SURFACE, ...point, alliance: null }
 }
 
-const pickedIndexAt = ({ surface, x, y, alliance }: PickerPoint): number | null => {
-  const template = overlayIndexAt(surface, x, y)
-  if (alliance === null) return pickerIndex({ template, pixelArt: placedIndexAt(x, y) })
+/** The alliance surface's exact native pixel, or null while it is unknown. */
+const allianceIndexAt = (
+  alliance: ActiveAllianceSurface,
+  x: number,
+  y: number,
+  includeDraft: boolean,
+): number | null => {
   const bounds = allianceBounds(alliance)
-  if (bounds === null) return template
+  if (bounds === null) return null
   const regions = readArtboardPixels(alliance, {
     originX: bounds.minX,
     originY: bounds.minY,
     width: bounds.maxX - bounds.minX,
     height: bounds.maxY - bounds.minY,
   })
-  return pickerIndex({ template, pixelArt: nativePixelAt(regions, x, y, false)?.index ?? null })
+  return nativePixelAt(regions, x, y, includeDraft)?.index ?? null
 }
 
-/** Uncomposited world colour under the brush, including the current native draft. */
-export const worldPaintIndexAt = (x: number, y: number): number | null => placedIndexAt(x, y, true)
+const pickedIndexAt = ({ surface, x, y, alliance }: PickerPoint): number | null => {
+  const template = overlayIndexAt(surface, x, y)
+  const pixelArt = alliance === null ? placedIndexAt(x, y) : allianceIndexAt(alliance, x, y, false)
+  return pickerIndex({ template, pixelArt })
+}
+
+/** Uncomposited colour under the brush on either surface, including the current native draft. */
+export const paintIndexAt = ({ x, y, alliance }: PickerPoint): number | null =>
+  alliance === null ? placedIndexAt(x, y, true) : allianceIndexAt(alliance, x, y, true)
 
 /**
  * Wplace exposes no picker state, but its rendered control does: the active tool is `btn-primary`.
@@ -276,6 +287,15 @@ export const installColourPicker = (): void => {
       const point = pickerPointAt(target, event.clientX, event.clientY)
       if (point === null) return
 
+      // Claim the pick only once a swatch is set. Without a source answer (an empty or unloaded
+      // pixel, or a colour with no swatch) Wplace's own picker answers and ends picker mode;
+      // swallowing it would leave the picker on and eat every later click.
+      const { x, y } = point
+      const index = pickedIndexAt(point)
+      if (index === null || !selectPaintColour(index)) {
+        log('install', 'picker source has no colour here; Wplace picks', { x, y })
+        return
+      }
       event.preventDefault()
       event.stopImmediatePropagation()
       pendingLeftPick = {
@@ -284,13 +304,6 @@ export const installColourPicker = (): void => {
         x: event.clientX,
         y: event.clientY,
         until: performance.now() + 1_000,
-      }
-
-      const { x, y } = point
-      const index = pickedIndexAt(point)
-      if (index === null || !selectPaintColour(index)) {
-        log('install', 'picker source pixel is not ready', { x, y })
-        return
       }
 
       // Wplace's swatch normally exits this one-shot tool itself. Check after its render and only

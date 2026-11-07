@@ -6,7 +6,7 @@ import {
   tileKey,
   WPLACE_PALETTE,
 } from '@caelestis/shared'
-import { announceCanvasWrite, type CanvasWriteRect } from './canvas-write.js'
+import { announceCanvasWrite, type CanvasDraw, type CanvasWriteRect } from './canvas-write.js'
 import { count, isEnabled, log, warn } from './debug.js'
 import { getMap } from './map-handle.js'
 import { isPageInstance, pageWindow } from './page-world.js'
@@ -715,11 +715,31 @@ const notifyAcceptedPaint = (paint: AcceptedPaint, accepted: number): void => {
   }
 }
 
-const installFetchTap = (realm: Window & typeof globalThis): InstalledValueHook | null => {
+/**
+ * Tap the page's fetch. The tap hooks the reads of the response it hands back, so a script that
+ * wraps it from outside can read a clone and hand Wplace a new `Response` the tap never sees. Blue
+ * Marble does this for every image. No tile is then attributed, so no template draws and nothing
+ * has a viewport centre for shortcuts to focus on (#765).
+ *
+ * So the tap moves in front of the wrappers that userscripts and SvelteKit install before Wplace's
+ * first request. That request still reaches this layer through them and shows it is covered; a new
+ * layer then goes in front and this one passes calls through. It moves once. Wplace's Pawtect guard
+ * wraps fetch after its wasm loads, through this tap, and stays the outermost wrapper.
+ */
+const installFetchTap = (
+  realm: Window & typeof globalThis,
+  mayMove = true,
+): InstalledValueHook | null => {
   const nativeFetch = realm.fetch
   const urlGetters = captureFetchUrlGetters(realm)
+  let covered = false
   const wrappedFetch = {
     fetch(this: unknown, ...args: Parameters<typeof fetch>) {
+      if (covered) return nativeFetch.apply(this as never, args)
+      if (mayMove && realm.fetch !== wrappedFetch) {
+        covered = installFetchTap(realm, false) !== null
+        if (covered) count('fetch:tap moved in front of another fetch wrapper')
+      }
       const input = args[0]
       // Snapshot only safely observable metadata before native fetch consumes mutable RequestInit
       // dictionaries. An accessor may delete itself while WebIDL reads it; inspecting afterward would
@@ -2383,6 +2403,18 @@ const installBitmapTap = (realm: Window & typeof globalThis): InstalledValueHook
   return installValueHook(realm, 'createImageBitmap', wrappedCreateImageBitmap)
 }
 
+/** The image and destination rectangle of a scaled `drawImage` call, in either long form. */
+const drawnImage = (args: readonly unknown[]): CanvasDraw | null => {
+  const destination = args.length === 5 ? args.slice(1) : args.length === 9 ? args.slice(5) : null
+  const [x, y, width, height] = destination ?? []
+  return typeof x === 'number' &&
+    typeof y === 'number' &&
+    typeof width === 'number' &&
+    typeof height === 'number'
+    ? { source: args[0], x, y, width, height }
+    : null
+}
+
 const installPutImageDataTaps = (
   realm: Window & typeof globalThis,
 ): InstalledValueHook[] | null => {
@@ -2548,7 +2580,7 @@ const installPutImageDataTaps = (
               }
               if (name === 'reset') clipped.delete(this)
               markCanvasDirty(this.canvas)
-              announceCanvasWrite(this.canvas)
+              announceCanvasWrite(this.canvas, null, name === 'drawImage' ? drawnImage(args) : null)
             },
           )
         }

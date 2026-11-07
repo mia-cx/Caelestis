@@ -57,13 +57,6 @@ const loaded = async (id: string): Promise<StoredTemplate & { readonly indices: 
   return { ...template, indices: joinPixels(template.pixels) }
 }
 
-const dataUrlFetch = () =>
-  vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
-    const url = String(input)
-    if (!url.startsWith('data:image/png;base64,')) throw new Error(`unexpected request: ${url}`)
-    return new Response(Buffer.from(url.slice(url.indexOf(',') + 1), 'base64'))
-  })
-
 /** Export a placed local template, returning the parsed `.wplace` JSON. */
 const exported = async () => {
   const { imported, decode } = await importedAndSaved()
@@ -85,7 +78,6 @@ const reimport = async (json: unknown) =>
 
 describe('exported template files', () => {
   it('round trips artwork, placement, source, and recipe without processing', async () => {
-    dataUrlFetch()
     const { imported, decode, json } = await exported()
     decode.mockClear()
     const [again] = await reimport(json)
@@ -102,7 +94,6 @@ describe('exported template files', () => {
   })
 
   it('rebuilds damaged artwork from the source, and refuses when nothing can rebuild it', async () => {
-    dataUrlFetch()
     const { imported, decode, json } = await exported()
     const other = await encodeIndexedPng(3, 2, new Uint8Array(6))
     const damaged = {
@@ -125,7 +116,6 @@ describe('exported template files', () => {
   })
 
   it('refuses artwork whose PNG header disagrees with the block before decoding it', async () => {
-    dataUrlFetch()
     const { json } = await exported()
     const { authoring: _authoring, ...block } = json.caelestis as Record<string, unknown>
     const huge = Uint8Array.from(await encodeIndexedPng(3, 2, new Uint8Array(6)))

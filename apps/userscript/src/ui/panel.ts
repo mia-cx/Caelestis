@@ -193,6 +193,7 @@ import {
   findWplaceRail,
   onWplaceLayoutChange,
   wplaceButtonBelow,
+  wplaceFreeTop,
   wplaceRailGap,
 } from './wplace-rail.js'
 
@@ -1733,7 +1734,7 @@ const setFixedOffset = (el: HTMLElement, top: number, right: number): void => {
  * Read from their rail's own box rather than from a copy of their Tailwind offsets: they own that
  * layout and are free to change it, and a hardcoded corner would drift the moment they do. The
  * fallback matters more than it looks — it is the paint-drawer case, where their rail is gone and
- * there is nothing left to measure.
+ * only the Store button, when they show it while painting, is left in the corner.
  *
  * The column ends above whatever wplace button sits below it — My location, the profile button,
  * the paint drawer. Buttons that do not fit move behind More rather than into a second column,
@@ -1749,10 +1750,15 @@ const positionRail = (): void => {
   const beside = theirs !== undefined && theirs.width > 0
   // Fixed-position offsets use the layout viewport, which excludes the page scrollbar.
   const viewportWidth = document.documentElement.clientWidth
-  // Theirs is gone — the paint-drawer case — so ours takes its place at the same inset.
-  const top = beside ? theirs.bottom + gap : EDGE
+  // Theirs is gone — the paint-drawer case — so ours takes its place at the same inset, below
+  // anything of theirs that stays in that corner.
   const right = beside ? viewportWidth - theirs.right : EDGE
   const columnRight = viewportWidth - right
+  const top = wplaceFreeTop(
+    { left: columnRight - RAIL_BUTTON, right: columnRight },
+    beside ? theirs.bottom + gap : EDGE,
+    gap,
+  )
   const below = wplaceButtonBelow({ left: columnRight - RAIL_BUTTON, right: columnRight, top })
   const floor = below === null ? window.innerHeight - EDGE : below - gap
   const slots = Math.max(1, Math.floor((floor - top + gap) / (RAIL_BUTTON + gap)))
@@ -1976,6 +1982,7 @@ export const installPanel = (): void => {
   // click while painting would rebuild it every time.
   onPaintSelectionChange(() => {
     syncColourModeState()
+    syncAllianceModeState()
     if (currentView() === 'appearance') refreshView()
   })
 }

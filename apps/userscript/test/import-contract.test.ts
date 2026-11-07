@@ -77,19 +77,6 @@ const transparentPixels = (indices: Uint8Array): number =>
   indices.reduce((count, index) => count + Number(index === TRANSPARENT_INDEX), 0)
 
 const installImageDecoder = (): void => {
-  vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
-    const source = typeof input === 'string' ? input : input.toString()
-    if (!source.startsWith('data:image/png;base64,')) {
-      throw new Error(`unexpected image request: ${source}`)
-    }
-    const bytes = base64Bytes(source)
-    const body = new ArrayBuffer(bytes.byteLength)
-    new Uint8Array(body).set(bytes)
-    return new Response(body, {
-      headers: { 'content-type': 'image/png' },
-    })
-  })
-
   vi.stubGlobal('createImageBitmap', async (blob: Blob): Promise<DecodedBitmap> => {
     const image = await decodePngOnce(new Uint8Array(await blob.arrayBuffer()))
     return { ...image, close: () => {} }

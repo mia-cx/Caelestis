@@ -356,6 +356,35 @@ describe('a view wider than the cache', () => {
   })
 })
 
+describe('another script wrapping fetch', () => {
+  it('still attributes tiles when the wrapper hands Wplace a new response', async () => {
+    const { realm, tileTransform, fetchTile } = await setup()
+    // Blue Marble, installed after Caelestis: it reads a clone and answers with a copy.
+    const covered = realm.fetch
+    realm.fetch = async (...args: Parameters<typeof fetch>) => {
+      const response = await covered(...args)
+      return new Response(await response.clone().blob())
+    }
+    // Wplace reads its account and settings before the map asks for tiles.
+    await realm.fetch('https://backend.wplace.live/me')
+    await fetchTile()
+    expect(tileTransform.tilePixels(TILE)).not.toBeNull()
+  })
+
+  it('leaves a wrapper installed after the first request in front', async () => {
+    const { realm } = await setup()
+    const covered = realm.fetch
+    realm.fetch = (...args: Parameters<typeof fetch>) => covered(...args)
+    await realm.fetch('https://backend.wplace.live/me')
+    // Wplace's Pawtect guard, which wraps fetch once its wasm has loaded.
+    const tapped = realm.fetch
+    const guard = (...args: Parameters<typeof fetch>) => tapped(...args)
+    realm.fetch = guard
+    await realm.fetch('https://backend.wplace.live/me')
+    expect(realm.fetch).toBe(guard)
+  })
+})
+
 describe('unchanged tile capture', () => {
   it('skips the readback for identical bytes and reads changed bytes again', async () => {
     const { tileTransform, readback, fetchTile } = await setup()
