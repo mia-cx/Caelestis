@@ -81,10 +81,19 @@
 {#if output.locked}
   <p class="hint">A new version keeps the template’s size.</p>
 {:else}
-  <label class="keep">
-    <Checkbox checked={output.keepProportions} {disabled} onChange={(on) => onIntent({ type: 'keep-proportions', on })} />
-    Keep proportions
-  </label>
+  <div class="proportions">
+    <label class="keep">
+      <Checkbox checked={output.keepProportions} {disabled} onChange={(on) => onIntent({ type: 'keep-proportions', on })} />
+      Keep proportions
+    </label>
+    <Button
+      label="Reset aspect ratio"
+      title="Back to the image’s own proportions"
+      size="small"
+      disabled={disabled || !output.stretched}
+      onclick={() => onIntent({ type: 'reset-aspect' })}
+    />
+  </div>
   <RangeField
     label="Scale"
     value={output.scale * PERCENT}
@@ -162,6 +171,7 @@
 </MoreOptions>
 
 <style>
+  .proportions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.25rem 0.5rem; }
   .keep { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
   .anchors { display: grid; grid-template-columns: repeat(3, 1.5rem); gap: 2px; inline-size: fit-content; }
   .anchors button {

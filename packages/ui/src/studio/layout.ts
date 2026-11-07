@@ -1,25 +1,21 @@
 import {
   STUDIO_WINDOWS,
-  type StudioFrame,
   type StudioLayout,
   type StudioNode,
   type StudioPlace,
   type StudioWindowId,
 } from './model.js'
 
-/** A panel released this close to a screen edge docks into that edge. */
-export const SNAP_DISTANCE = 72
+/** A window keeps at least this much of itself, its title bar, above the screen's bottom. */
+export const KEEP_ON_SCREEN = 72
 
-type Side = 'start' | 'end'
+type Side = StudioPlace['edge']
 type Tabs = Extract<StudioNode, { kind: 'tabs' }>
-export type FloatingPlace = Extract<StudioPlace, { dock: null }>
 
-/** Where a dragged panel or frame lands. */
+/** Where a dragged panel or window lands. */
 export type StudioDrop =
-  /** Its own window. */
-  | { readonly kind: 'float'; readonly place: FloatingPlace }
-  /** Into an edge's frame, before its `index`th part. */
-  | { readonly kind: 'dock'; readonly side: Side; readonly index: number }
+  /** A window of its own, at `place`. */
+  | { readonly kind: 'float'; readonly place: StudioPlace }
   /** Beside `target`, or behind it as a tab. */
   | {
       readonly kind: 'attach'
@@ -33,6 +29,15 @@ export interface Box {
   readonly y: number
   readonly width: number
   readonly height: number
+}
+
+/**
+ * Where a window starts at each edge: below the studio's bar, clear of Wplace's zoom buttons on
+ * the left and its rail on the right.
+ */
+export const EDGE_PLACES: Readonly<Record<Side, StudioPlace>> = {
+  start: { edge: 'start', x: 48, y: 72 },
+  end: { edge: 'end', x: 56, y: 72 },
 }
 
 const single = (id: StudioWindowId): Tabs => ({
@@ -52,13 +57,13 @@ const joined = (axis: 'row' | 'column', children: readonly StudioNode[]): Studio
 }
 
 /**
- * Ditherette's: Size and Dither as tabs over Colours down the start edge, Effects down the end.
+ * Ditherette's: Size and Dither as tabs over Colours at the start edge, Effects at the end.
  * Scopes starts closed.
  */
 export const DEFAULT_STUDIO_LAYOUT: StudioLayout = {
   frames: [
     {
-      place: { dock: 'start' },
+      place: EDGE_PLACES.start,
       root: {
         kind: 'split',
         axis: 'column',
@@ -73,7 +78,7 @@ export const DEFAULT_STUDIO_LAYOUT: StudioLayout = {
         ],
       },
     },
-    { place: { dock: 'end' }, root: single('effects') },
+    { place: EDGE_PLACES.end, root: single('effects') },
   ],
 }
 
@@ -93,20 +98,16 @@ export const panelsAcross = (node: StudioNode): number => {
 export const isOpen = (layout: StudioLayout, id: StudioWindowId): boolean =>
   layout.frames.some((frame) => panelsIn(frame.root).includes(id))
 
-export const dockFrame = (layout: StudioLayout, side: Side): StudioFrame | undefined =>
-  layout.frames.find((frame) => frame.place.dock === side)
-
-/** A floating frame at `box`, measured from its nearer edge so it keeps its place when the screen resizes. */
+/** A window at `box`, measured from its nearer edge so it keeps its place when the screen resizes. */
 export const floatPlace = (
   box: Box,
   viewport: { readonly width: number; readonly height: number },
-): FloatingPlace => {
+): StudioPlace => {
   const edge = box.x + box.width / 2 < viewport.width / 2 ? 'start' : 'end'
   return {
-    dock: null,
     edge,
     x: Math.max(0, edge === 'start' ? box.x : viewport.width - box.x - box.width),
-    y: Math.min(Math.max(0, box.y), Math.max(0, viewport.height - SNAP_DISTANCE)),
+    y: Math.min(Math.max(0, box.y), Math.max(0, viewport.height - KEEP_ON_SCREEN)),
   }
 }
 
@@ -125,10 +126,10 @@ const without = (node: StudioNode, id: StudioWindowId): StudioNode | null => {
   return { ...node, panels, active: node.active === id ? neighbour : node.active }
 }
 
-/** The layout without `ids`. A frame left empty closes. */
-const removing = (layout: StudioLayout, ids: readonly StudioWindowId[]): StudioLayout => ({
+/** The layout without `id`. A window left empty closes. */
+const removing = (layout: StudioLayout, id: StudioWindowId): StudioLayout => ({
   frames: layout.frames.flatMap((frame) => {
-    const root = ids.reduce<StudioNode | null>((node, id) => node && without(node, id), frame.root)
+    const root = without(frame.root, id)
     return root === null ? [] : [{ ...frame, root }]
   }),
 })
@@ -156,75 +157,50 @@ const attaching = (
   return joined(axis, zone === 'left' || zone === 'top' ? [node, tree] : [tree, node]) ?? tree
 }
 
-/** The layout with `node`, already taken out of it, landed at `drop`. */
+/** The layout with `node`, already taken out of it, landed at `drop`. A new window goes on top. */
 const placing = (layout: StudioLayout, node: StudioNode, drop: StudioDrop): StudioLayout => {
   if (drop.kind === 'float')
     return { frames: [...layout.frames, { place: drop.place, root: node }] }
-  if (drop.kind === 'attach')
-    return {
-      frames: layout.frames.map((frame) => ({
-        ...frame,
-        root: attaching(frame.root, node, drop.target, drop.zone),
-      })),
-    }
-  const frame = dockFrame(layout, drop.side)
-  if (frame === undefined)
-    return { frames: [...layout.frames, { place: { dock: drop.side }, root: node }] }
-  const parts =
-    frame.root.kind === 'split' && frame.root.axis === 'column' ? frame.root.children : [frame.root]
-  const index = Math.min(Math.max(0, drop.index), parts.length)
-  const root = joined('column', [...parts.slice(0, index), node, ...parts.slice(index)]) ?? node
-  return { frames: layout.frames.map((other) => (other === frame ? { ...other, root } : other)) }
+  return {
+    frames: layout.frames.map((frame) => ({
+      ...frame,
+      root: attaching(frame.root, node, drop.target, drop.zone),
+    })),
+  }
 }
 
-/** Move one panel, or with `group` every panel in its tabs, out of wherever it is to `drop`. */
+/** Move one panel out of wherever it is to `drop`. */
 export const movePanel = (
   layout: StudioLayout,
   id: StudioWindowId,
   drop: StudioDrop,
-  group = false,
 ): StudioLayout => {
-  const tabs = group ? tabsHolding(layout, id) : undefined
-  const node = tabs ?? single(id)
-  if (drop.kind === 'attach' && node.panels.includes(drop.target)) return layout
-  return placing(removing(layout, node.panels), node, drop)
+  if (drop.kind === 'attach' && drop.target === id) return layout
+  return placing(removing(layout, id), single(id), drop)
 }
 
-/** The tabs `id` is in. */
-export const tabsHolding = (layout: StudioLayout, id: StudioWindowId): Tabs | undefined => {
-  const find = (node: StudioNode): Tabs | undefined =>
-    node.kind === 'tabs'
-      ? node.panels.includes(id)
-        ? node
-        : undefined
-      : node.children.map(find).find((found) => found !== undefined)
-  return layout.frames.map((frame) => find(frame.root)).find((found) => found !== undefined)
-}
-
-/** Move a whole frame: to another place on screen, or into a dock or beside a panel. */
+/** Move a whole window, on top of the others: to another place on screen, or into another window. */
 export const moveFrame = (layout: StudioLayout, index: number, drop: StudioDrop): StudioLayout => {
   const frame = layout.frames[index]
   if (frame === undefined) return layout
-  if (drop.kind === 'float')
-    return {
-      frames: layout.frames.map((other) =>
-        other === frame ? { ...other, place: drop.place } : other,
-      ),
-    }
   if (drop.kind === 'attach' && panelsIn(frame.root).includes(drop.target)) return layout
   return placing({ frames: layout.frames.filter((other) => other !== frame) }, frame.root, drop)
 }
 
-/** Close a panel, or open it at the foot of its own edge. */
+/** Close a panel, or open it at the foot of the first window at its own edge. */
 export const togglePanel = (
   layout: StudioLayout,
   id: StudioWindowId,
   open: boolean,
 ): StudioLayout => {
   if (open === isOpen(layout, id)) return layout
-  if (!open) return removing(layout, [id])
-  const side = STUDIO_WINDOWS.find((window) => window.id === id)?.dock ?? 'start'
-  return placing(layout, single(id), { kind: 'dock', side, index: Number.POSITIVE_INFINITY })
+  if (!open) return removing(layout, id)
+  const side = STUDIO_WINDOWS.find((window) => window.id === id)?.edge ?? 'start'
+  const home = layout.frames.find((frame) => frame.place.edge === side)
+  if (home === undefined)
+    return { frames: [...layout.frames, { place: EDGE_PLACES[side], root: single(id) }] }
+  const root = joined('column', [home.root, single(id)]) ?? home.root
+  return { frames: layout.frames.map((frame) => (frame === home ? { ...frame, root } : frame)) }
 }
 
 /** The layout with the tabs holding `id` changed by `update`. */
@@ -261,12 +237,11 @@ const isPanel = (value: unknown): value is StudioWindowId => PANELS.has(value)
 
 const parsePlace = (value: unknown): StudioPlace | null => {
   if (!isRecord(value)) return null
-  const { dock, edge, x, y } = value
-  if (dock === 'start' || dock === 'end') return { dock }
-  if (dock !== null || (edge !== 'start' && edge !== 'end')) return null
+  const { edge, x, y } = value
+  if (edge !== 'start' && edge !== 'end') return null
   if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y))
     return null
-  return { dock, edge, x: Math.max(0, x), y: Math.max(0, y) }
+  return { edge, x: Math.max(0, x), y: Math.max(0, y) }
 }
 
 /** A saved node, with each panel at most once across `seen`, or null. */
@@ -298,14 +273,13 @@ const parseNode = (value: unknown, seen: Set<StudioWindowId>): StudioNode | null
 export const parseStudioLayout = (value: unknown): StudioLayout => {
   if (!isRecord(value) || !Array.isArray(value.frames)) return DEFAULT_STUDIO_LAYOUT
   const seen = new Set<StudioWindowId>()
-  const frames: StudioFrame[] = []
+  const frames: StudioLayout['frames'][number][] = []
   for (const saved of value.frames) {
     if (!isRecord(saved)) return DEFAULT_STUDIO_LAYOUT
     const place = parsePlace(saved.place)
     const root = parseNode(saved.root, seen)
+    // A docked window, from before every window floated, has no place of its own.
     if (place === null || root === null) return DEFAULT_STUDIO_LAYOUT
-    if (place.dock !== null && dockFrame({ frames }, place.dock) !== undefined)
-      return DEFAULT_STUDIO_LAYOUT
     frames.push({ place, root })
   }
   return { frames }

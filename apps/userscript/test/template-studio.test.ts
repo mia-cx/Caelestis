@@ -312,13 +312,13 @@ describe('template studio', () => {
     window.dispatchEvent(new PointerEvent('pointermove', { ...pointer, clientY: 400 }))
     window.dispatchEvent(new PointerEvent('pointerup', { ...pointer, clientY: 400 }))
     await vi.waitFor(() =>
-      expect(
-        templateStudioModel().layout.frames.find((frame) => frame.place.dock === null)?.root,
-      ).toMatchObject({ panels: ['dither'] }),
+      expect(templateStudioModel().layout.frames.at(-1)?.root).toMatchObject({
+        panels: ['dither'],
+      }),
     )
   })
 
-  it('moves a floating window by its header with every panel docked inside it', async () => {
+  it('moves a window by its header with every panel in it, on top of the others', async () => {
     registerCaelestisUi()
     openTemplateStudio({
       kind: 'create',
@@ -334,14 +334,14 @@ describe('template studio', () => {
         { kind: 'tabs', panels: ['effects'], active: 'effects', collapsed: false },
       ],
     } as const
-    const start = DEFAULT_STUDIO_LAYOUT.frames.find((frame) => frame.place.dock === 'start')
-    if (start === undefined) throw new Error('no start dock')
+    // The window that moves starts behind the other.
     handleTemplateStudioIntent({
       type: 'layout',
       layout: {
         frames: [
+          { place: { edge: 'start', x: 300, y: 100 }, root: inside },
           {
-            ...start,
+            place: { edge: 'end', x: 56, y: 72 },
             root: {
               kind: 'tabs',
               panels: ['dimensions', 'dither'],
@@ -349,7 +349,6 @@ describe('template studio', () => {
               collapsed: false,
             },
           },
-          { place: { dock: null, edge: 'start', x: 300, y: 100 }, root: inside },
         ],
       },
     })
@@ -367,7 +366,7 @@ describe('template studio', () => {
     // Moved by the pointer's travel from where it was laid out, which the test DOM puts at 0, 0.
     await vi.waitFor(() =>
       expect(templateStudioModel().layout.frames.at(-1)).toEqual({
-        place: { dock: null, edge: 'start', x: 60, y: 40 },
+        place: { edge: 'start', x: 60, y: 40 },
         root: inside,
       }),
     )
@@ -515,6 +514,30 @@ describe('template studio', () => {
       width: room.width * 4,
       height: room.height * 2,
     })
+    await ready()
+  })
+
+  it('resets a stretched size to the image’s own proportions, keeping its longer side', async () => {
+    const room = await openOnRoom({
+      kind: 'create',
+      destination: 'Local',
+      surface: WORLD_TEMPLATE_SURFACE,
+      save: async () => true,
+    })
+    const shorter = room.width >= room.height ? 'height' : 'width'
+    handleTemplateStudioIntent({ type: 'keep-proportions', on: false })
+    handleTemplateStudioIntent({ type: 'size', side: shorter, pixels: room[shorter] * 3 })
+    expect(templateStudioModel().output.stretched).toBe(true)
+
+    handleTemplateStudioIntent({ type: 'reset-aspect' })
+    expect(templateStudioModel().output).toMatchObject({
+      width: room.width,
+      height: room.height,
+      stretched: false,
+    })
+    // One step back to the stretched size.
+    handleTemplateStudioIntent({ type: 'undo' })
+    expect(templateStudioModel().output[shorter]).toBe(room[shorter] * 3)
     await ready()
   })
 

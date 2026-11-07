@@ -12,10 +12,8 @@
     movePanel,
     panelsAcross,
     panelsIn,
-    SNAP_DISTANCE,
     type StudioDrop,
     selectPanel,
-    tabsHolding,
     togglePanel,
   } from './layout.js'
   import { STUDIO_WINDOWS, type StudioFrame, type StudioLayout, type StudioNode, type StudioRect, type StudioWindowId, type TemplateStudioIntent, type TemplateStudioModel } from './model.js'
@@ -44,19 +42,18 @@
     onIntent({ type: 'layout', layout: next })
   }
 
-  /* Dragging. A panel's tab moves that panel: out on its own, into a dock, beside another panel, or
-     behind it as a tab. The rest of a header moves the window the tab is in: a floating frame
-     whole, with everything docked inside it, or a docked group of tabs together. A floating frame
-     of one panel moves whole by its tab too. Nothing moves until the pointer travels a few pixels,
-     so a click still selects. */
+  /* Dragging. Every window floats over the map. The empty part of any header in a window moves the
+     whole window, with every panel in it; so does the tab of a window's only panel. Any other tab
+     moves that panel: out on its own, beside another panel, or behind it as a tab. A window dropped
+     on another's panel joins it the same ways. Nothing moves until the pointer travels a few
+     pixels, so a click still selects. */
   const DRAG_THRESHOLD_PX = 4
   /** Of a panel's box, the share along each edge that splits beside it; the middle adds a tab. */
   const EDGE_ZONE = 0.25
   /** Where a panel dragged out on its own sits under the pointer. */
   const GHOST_OFFSET = { x: 24, y: 14 }
   type Dragged =
-    /** One panel, or with `group` every tab beside it. */
-    | { readonly kind: 'panel'; readonly id: StudioWindowId; readonly group: boolean }
+    | { readonly kind: 'panel'; readonly id: StudioWindowId }
     | { readonly kind: 'frame'; readonly frame: number }
   interface Drag {
     readonly what: Dragged
@@ -103,49 +100,27 @@
       indicator: null,
     }
   }
-  /**
-   * A panel's tab, or with `group` the rest of its header. A floating frame moves whole by its
-   * header, and by its only panel's tab.
-   */
-  const startPanelDrag = (id: StudioWindowId, frame: number, group: boolean, event: PointerEvent): void => {
+  /** A panel's tab, or with `whole` the rest of its header, which moves its window. */
+  const startPanelDrag = (id: StudioWindowId, frame: number, whole: boolean, event: PointerEvent): void => {
     const owner = layout.frames[frame]
-    const floating = owner?.place.dock === null
-    if (floating && (group || panelsIn(owner.root).length === 1)) {
+    if (whole || (owner !== undefined && panelsIn(owner.root).length === 1)) {
       const box = boxOf(frameElement(frame))
       if (box !== undefined) beginDrag({ kind: 'frame', frame }, event, box)
       return
     }
     const box = boxOf(root?.querySelector(`[data-panels~="${id}"]`))
-    if (box !== undefined) beginDrag({ kind: 'panel', id, group }, event, box)
+    if (box !== undefined) beginDrag({ kind: 'panel', id }, event, box)
   }
   /** The panels a drag carries. */
-  const carried = (what: Dragged): StudioWindowId[] => {
-    if (what.kind === 'frame') return panelsIn(layout.frames[what.frame]?.root)
-    return what.group ? [...(tabsHolding(layout, what.id)?.panels ?? [what.id])] : [what.id]
-  }
+  const carried = (what: Dragged): StudioWindowId[] =>
+    what.kind === 'frame' ? panelsIn(layout.frames[what.frame]?.root) : [what.id]
 
-  /** The parts stacked down an edge's frame, as `placing` counts them, skipping `skip`. */
-  const dockParts = (side: 'start' | 'end', skip: (part: Element) => boolean): Element[] =>
-    [...(root?.querySelectorAll(`.column.${side} [data-part]`) ?? [])].filter((part) => !skip(part))
-
-  /** Where the dragged panel or frame would land with the pointer at `x`, `y`, and what to highlight. */
+  /** Where the dragged panel or window would land with the pointer at `x`, `y`, and what to highlight. */
   const dropAt = (current: Drag, x: number, y: number): { drop: StudioDrop; indicator: Box | null } => {
     const { what } = current
     const viewport = { width: innerWidth, height: innerHeight }
     const draggedPanels = carried(what)
-    const side = x <= SNAP_DISTANCE ? 'start' : x >= viewport.width - SNAP_DISTANCE ? 'end' : null
-    if (side !== null) {
-      // A part that is only what is being dragged leaves before the drop, so it does not count.
-      const parts = dockParts(side, (part) => (part.getAttribute('data-part') ?? '').split(' ').every((id) => draggedPanels.includes(id as StudioWindowId)))
-      const index = parts.filter((part) => { const box = boxOf(part); return box !== undefined && box.y + box.height / 2 < y }).length
-      const near = boxOf(parts[Math.min(index, parts.length - 1)])
-      const column = boxOf(root?.querySelector(`.column.${side}`))
-      const line = near === undefined
-        ? column
-        : { x: near.x, y: index < parts.length ? near.y - 2 : near.y + near.height - 2, width: near.width, height: 4 }
-      return { drop: { kind: 'dock', side, index }, indicator: line ?? null }
-    }
-    // Floating frames come after the docks, and later ones draw on top: the frontmost comes last.
+    // Later windows draw on top: the frontmost comes last.
     for (const element of [...(root?.querySelectorAll<HTMLElement>('[data-window]') ?? [])].reverse()) {
       const box = boxOf(element)
       if (box === undefined || x < box.x || x >= box.x + box.width || y < box.y || y >= box.y + box.height) continue
@@ -174,17 +149,13 @@
     const { what, started, drop } = drag
     drag = null
     if (!started || drop === null) return
-    commitLayout(what.kind === 'panel' ? movePanel(layout, what.id, drop, what.group) : moveFrame(layout, what.frame, drop))
+    commitLayout(what.kind === 'panel' ? movePanel(layout, what.id, drop) : moveFrame(layout, what.frame, drop))
   }
   /** The browser gave up the gesture, so nothing was released anywhere. */
   const cancelDrag = (event: PointerEvent): void => {
     if (drag?.pointerId === event.pointerId) drag = null
   }
 
-  const docked = $derived({
-    start: layout.frames.findIndex((frame) => frame.place.dock === 'start'),
-    end: layout.frames.findIndex((frame) => frame.place.dock === 'end'),
-  })
   /** A moving frame follows the pointer from its own place, so its panels stay mounted. */
   const followed = (index: number) =>
     drag?.started === true && drag.what.kind === 'frame' && drag.what.frame === index ? drag : null
@@ -321,15 +292,15 @@
 {/snippet}
 
 <!-- `part` marks the parts a docked frame stacks, which a panel docks between. -->
-{#snippet nodeView(node: StudioNode, frame: number, part: boolean)}
+{#snippet nodeView(node: StudioNode, frame: number)}
   {#if node.kind === 'split'}
-    <div class="split" data-axis={node.axis} data-part={part ? panelsIn(node).join(' ') : undefined}>
+    <div class="split" data-axis={node.axis}>
       {#each node.children as child (panelsIn(child).join(' '))}
-        {@render nodeView(child, frame, false)}
+        {@render nodeView(child, frame)}
       {/each}
     </div>
   {:else}
-    <div class="place" class:collapsed={node.collapsed} data-window={node.active} data-panels={node.panels.join(' ')} data-part={part ? node.panels.join(' ') : undefined}>
+    <div class="place" class:collapsed={node.collapsed} data-window={node.active} data-panels={node.panels.join(' ')}>
       <StudioWindow
         tabs={node.panels.map((id) => ({ id, title: titleOf(id) }))}
         active={node.active}
@@ -348,7 +319,6 @@
 
 {#snippet frameView(frame: StudioFrame, index: number)}
   {@const moving = followed(index)}
-  {@const stacked = frame.place.dock !== null && frame.root.kind === 'split' && frame.root.axis === 'column'}
   <!-- A moving frame follows the pointer from its own place, so its panels stay mounted. -->
   <div
     class="frame caelestis-panel-surface"
@@ -357,13 +327,7 @@
     style:left={moving === null ? undefined : `${moving.x - moving.dx}px`}
     style:top={moving === null ? undefined : `${moving.y - moving.dy}px`}
   >
-    {#if stacked && frame.root.kind === 'split'}
-      <div class="split" data-axis="column">
-        {#each frame.root.children as child (panelsIn(child).join(' '))}{@render nodeView(child, index, true)}{/each}
-      </div>
-    {:else}
-      {@render nodeView(frame.root, index, frame.place.dock !== null)}
-    {/if}
+    {@render nodeView(frame.root, index)}
   </div>
 {/snippet}
 
@@ -508,21 +472,11 @@
       {/if}
     </div>
   {:else}
-    {#each ['start', 'end'] as const as side (side)}
-      {@const index = docked[side]}
-      {@const frame = layout.frames[index]}
-      <div class="column {side}">
-        {#if frame !== undefined}{@render frameView(frame, index)}{/if}
-      </div>
-    {/each}
-
     {#each layout.frames as frame, index (panelsIn(frame.root).join(' '))}
-      {#if frame.place.dock === null}
-        {@const place = frame.place}
-        <div class="float" style:--float-x="{place.x}px" style:--float-y="{place.y}px" style:--float-across={panelsAcross(frame.root)} style:inset-inline-start={place.edge === 'start' ? 'var(--float-inset)' : 'auto'} style:inset-inline-end={place.edge === 'end' ? 'var(--float-inset)' : 'auto'}>
-          {@render frameView(frame, index)}
-        </div>
-      {/if}
+      {@const place = frame.place}
+      <div class="float" style:--float-x="{place.x}px" style:--float-y="{place.y}px" style:--float-across={panelsAcross(frame.root)} style:inset-inline-start={place.edge === 'start' ? 'var(--float-inset)' : 'auto'} style:inset-inline-end={place.edge === 'end' ? 'var(--float-inset)' : 'auto'}>
+        {@render frameView(frame, index)}
+      </div>
     {/each}
 
     {#if drag?.started === true}
@@ -543,9 +497,8 @@
   .studio {
     --studio-inset: 12px;
     --studio-top: calc(var(--studio-inset) + 3.75rem);
-    /* Clear of Wplace's own controls: zoom on the left, its rail on the right, buttons below. */
-    --studio-start: 48px;
-    --studio-end: 56px;
+    /* Clear of Wplace's buttons along the bottom. Windows start clear of its other controls too
+       (`EDGE_PLACES`). */
     --studio-bottom: 76px;
     --studio-window-width: min(18rem, calc(100vw - 2 * var(--studio-inset)));
     position: fixed;
@@ -681,14 +634,6 @@
   .menu button { display: flex; align-items: center; gap: 0.4rem; }
   .check { display: inline-grid; inline-size: 1rem; }
   .actions { display: flex; flex: 0 0 auto; gap: 0.25rem; }
-  .column {
-    position: absolute;
-    inset-block: var(--studio-top) var(--studio-bottom);
-    display: flex;
-    flex-direction: column;
-  }
-  .column.start { inset-inline-start: var(--studio-start); }
-  .column.end { inset-inline-end: var(--studio-end); }
   /* One connected window. Its panels keep their own height until the frame runs out of room,
      then share it, each scrolling inside, so every panel stays in view. */
   .frame {
@@ -714,13 +659,15 @@
   .place { display: flex; flex: 0 1 auto; min-block-size: 2.25rem; min-inline-size: 0; }
   .place.collapsed, .split[data-axis='row'] > .place { flex-shrink: 0; }
   /* A saved place from a larger screen is pulled back in: the whole width stays on screen, and
-     at least the title bar above Wplace's bottom controls. */
+     at least the title bar above Wplace's bottom controls. Below its top, a window takes the
+     height down to those controls, its panels scrolling inside. */
   .float {
     --float-inset: max(0px, min(var(--float-x), calc(100vw - var(--float-across, 1) * var(--studio-window-width))));
+    --float-top: min(var(--float-y), calc(100dvh - var(--studio-bottom) - 2.5rem));
     position: absolute;
-    inset-block-start: min(var(--float-y), calc(100dvh - var(--studio-bottom) - 2.5rem));
+    inset-block-start: var(--float-top);
     display: flex;
-    max-block-size: calc(100dvh - var(--studio-top) - var(--studio-bottom));
+    max-block-size: calc(100dvh - var(--float-top) - var(--studio-bottom));
   }
   .float .frame { max-block-size: inherit; }
   .drop-indicator {
@@ -728,7 +675,7 @@
     z-index: 4;
     box-sizing: border-box;
     border: 2px solid var(--caelestis-primary, oklch(0.68 0.15 244));
-    border-radius: var(--caelestis-control-radius, 0.4rem);
+    border-radius: min(var(--caelestis-radius, 0.4rem), 0.4rem);
     background: color-mix(in oklab, var(--caelestis-primary, oklch(0.68 0.15 244)) 18%, transparent);
     pointer-events: none;
   }
@@ -737,7 +684,7 @@
     z-index: 5;
     padding: 0.35rem 0.75rem;
     border: 1px solid var(--caelestis-border);
-    border-radius: var(--caelestis-control-radius, 0.4rem);
+    border-radius: min(var(--caelestis-radius, 0.4rem), 0.4rem);
     background: var(--caelestis-surface, white);
     box-shadow: var(--caelestis-shadow, 0 24px 80px rgb(0 0 0 / 0.35));
     font: 600 0.8125rem/1.25 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
@@ -756,7 +703,8 @@
     .main .group { order: 5; }
     .main .actions > :global(button:first-child) { order: 6; margin-inline-start: auto; }
     .main .status { order: 7; flex-basis: 100%; }
-    .column { inset-block-start: calc(var(--studio-inset) + 6.5rem); }
+    /* Below the bar, which wraps across the whole width here. */
+    .float { --float-top: max(var(--float-y), calc(var(--studio-inset) + 8.5rem)); }
   }
   .break { display: none; }
   @media (max-width: 52rem) { .break { display: block; } }

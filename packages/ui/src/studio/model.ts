@@ -9,13 +9,13 @@ import type {
 } from './options.js'
 import type { Samples, ScopeStage } from './scopes/scopes.js'
 
-/** The studio's panels, in Windows-menu order, with the edge each docks to by default. */
+/** The studio's panels, in Panels-menu order, with the edge each opens at. */
 export const STUDIO_WINDOWS = [
-  { id: 'dimensions', title: 'Size', dock: 'start' },
-  { id: 'dither', title: 'Dither', dock: 'start' },
-  { id: 'palette', title: 'Colours', dock: 'start' },
-  { id: 'effects', title: 'Effects', dock: 'end' },
-  { id: 'scopes', title: 'Scopes', dock: 'end', closed: true },
+  { id: 'dimensions', title: 'Size', edge: 'start' },
+  { id: 'dither', title: 'Dither', edge: 'start' },
+  { id: 'palette', title: 'Colours', edge: 'start' },
+  { id: 'effects', title: 'Effects', edge: 'end' },
+  { id: 'scopes', title: 'Scopes', edge: 'end' },
 ] as const
 
 export type StudioWindowId = (typeof STUDIO_WINDOWS)[number]['id']
@@ -37,20 +37,14 @@ export type StudioNode =
       readonly children: readonly StudioNode[]
     }
 
-/**
- * Where a frame sits: docked along a screen edge, or floating at `x`, `y` in viewport pixels,
- * measured from the edge it is nearer to.
- */
-export type StudioPlace =
-  | { readonly dock: 'start' | 'end' }
-  | {
-      readonly dock: null
-      readonly edge: 'start' | 'end'
-      readonly x: number
-      readonly y: number
-    }
+/** Where a window sits: `x`, `y` in viewport pixels, measured from the edge it is nearer to. */
+export interface StudioPlace {
+  readonly edge: 'start' | 'end'
+  readonly x: number
+  readonly y: number
+}
 
-/** One connected window of panels. Each screen edge docks at most one. */
+/** One connected window of panels, floating over the map. Later ones draw on top. */
 export interface StudioFrame {
   readonly place: StudioPlace
   readonly root: StudioNode
@@ -129,6 +123,8 @@ export interface TemplateStudioModel {
     readonly scale: number
     /** Typing one side changes the other with it, keeping the output's proportions. */
     readonly keepProportions: boolean
+    /** Width and height scale the cropped image unequally. */
+    readonly stretched: boolean
     readonly resize: ResizeId
     readonly anchor: ResizeAnchor
     /** A replacement keeps its template's size. */
@@ -189,6 +185,8 @@ export type TemplateStudioIntent =
   /** Use the crop being drawn, and leave crop mode. */
   | { readonly type: 'crop-apply' }
   | { readonly type: 'scale'; readonly scale: number }
+  /** Scale both sides as the longer one is, undoing a stretch. */
+  | { readonly type: 'reset-aspect' }
   /** One side in output pixels; the other follows it while proportions are kept. */
   | { readonly type: 'size'; readonly side: 'width' | 'height'; readonly pixels: number }
   | { readonly type: 'keep-proportions'; readonly on: boolean }

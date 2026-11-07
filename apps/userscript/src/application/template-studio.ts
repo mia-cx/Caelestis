@@ -189,6 +189,7 @@ const EDITS = new Set<TemplateStudioIntent['type']>([
   'name',
   'crop-apply',
   'scale',
+  'reset-aspect',
   'size',
   'resize',
   'anchor',
@@ -225,6 +226,15 @@ const scaleOf = (): number =>
   crop.width >= crop.height
     ? settings.output.width / crop.width
     : settings.output.height / crop.height
+
+/** Whether the output is other than the crop scaled evenly by its longer side, to the pixel. */
+const stretched = (): boolean => {
+  const scale = scaleOf()
+  return (
+    Math.round(crop.width * scale) !== settings.output.width ||
+    Math.round(crop.height * scale) !== settings.output.height
+  )
+}
 
 const DRAWABLE = WPLACE_PALETTE.filter((colour) => colour.index !== TRANSPARENT_INDEX)
 const SCOPES: readonly StudioPaletteScope[] = ['all', 'free', 'premium', 'owned']
@@ -278,6 +288,7 @@ export const templateStudioModel = (): TemplateStudioModel => ({
     height: settings.output.height,
     scale: scaleOf(),
     keepProportions,
+    stretched: stretched(),
     resize: settings.output.resize,
     anchor: settings.output.anchor,
     locked: target?.kind === 'replace',
@@ -1082,6 +1093,11 @@ export const handleTemplateStudioIntent = (intent: TemplateStudioIntent): void =
     case 'scale':
       if (locked || !(intent.scale > 0)) break
       setScale(intent.scale)
+      reprocess()
+      break
+    case 'reset-aspect':
+      if (locked || !stretched()) break
+      setScale(scaleOf())
       reprocess()
       break
     case 'size': {
