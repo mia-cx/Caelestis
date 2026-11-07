@@ -1,14 +1,13 @@
 import { WORLD_PIXELS } from '@caelestis/shared'
-import { activeAllianceSurface } from './alliance-surface.js'
 import { forwardPaintKey, forwardPaintMove, isForwardedPaintKey } from './paint-cursor.js'
 import { isMoving } from './templates/move.js'
 import { hasWplaceLabel } from './wplace-messages.js'
 import { isPaintOpen, paintPaletteIndexOf, paintPaletteSwatches } from './wplace-paint.js'
-import { overlayIndexAt, pickerPointAt, worldPaintIndexAt } from './wplace-picker.js'
+import { overlayIndexAt, paintIndexAt, pickerPointAt } from './wplace-picker.js'
 
 type Position = { clientX: number; clientY: number }
 
-/** Draw only unfinished world-template cells needing the selected colour while Shift is held. */
+/** Draw only unfinished template cells needing the selected colour while Shift is held. */
 export const installShiftPaint = (): void => {
   let spaceHeld = false
   let shiftHeld = false
@@ -17,7 +16,6 @@ export const installShiftPaint = (): void => {
   let cursor: Position | null = null
 
   const brushActive = (): boolean =>
-    activeAllianceSurface() === null &&
     isPaintOpen() &&
     !isMoving() &&
     ![...document.querySelectorAll('button[aria-pressed="true"], button.btn-primary')].some(
@@ -40,8 +38,8 @@ export const installShiftPaint = (): void => {
     if (selected === null) return false
     const wanted = overlayIndexAt(point.surface, point.x, point.y)
     if (wanted !== selected) return false
-    const actual = worldPaintIndexAt(point.x, point.y)
-    // An uncaptured tile is unknown, not unpainted. Its lookup starts the existing tile fetch.
+    const actual = paintIndexAt(point)
+    // An uncaptured tile is unknown, not unpainted. A world lookup starts the existing tile fetch.
     return actual !== null && actual !== wanted
   }
 
@@ -122,7 +120,7 @@ export const installShiftPaint = (): void => {
       if (forwarding) return
       const target = targetAt(event)
       const point = target === null ? null : pickerPointAt(target, event.clientX, event.clientY)
-      if (target === null || point === null || point.alliance !== null) {
+      if (target === null || point === null) {
         cursor = null
         return
       }
@@ -149,7 +147,13 @@ export const installShiftPaint = (): void => {
                   clientX: from.clientX + ((event.clientX - from.clientX) * step) / steps,
                   clientY: from.clientY + ((event.clientY - from.clientY) * step) / steps,
                 }
-          forwardPaintMove(target, new PointerEvent('mousemove', event), 'mousemove', position)
+          // The world map paints from mouse movement, HQ's artboard from pointer movement.
+          forwardPaintMove(
+            target,
+            new PointerEvent('mousemove', event),
+            point.alliance === null ? 'mousemove' : 'pointermove',
+            position,
+          )
           if (!shouldPaint(target, position)) continue
           forwardPaintKey('keydown')
           forwardPaintKey('keyup')

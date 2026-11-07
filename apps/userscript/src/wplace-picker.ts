@@ -137,22 +137,33 @@ export const pickerPointAt = (
   return point === null ? null : { surface: WORLD_TEMPLATE_SURFACE, ...point, alliance: null }
 }
 
-const pickedIndexAt = ({ surface, x, y, alliance }: PickerPoint): number | null => {
-  const template = overlayIndexAt(surface, x, y)
-  if (alliance === null) return pickerIndex({ template, pixelArt: placedIndexAt(x, y) })
+/** The alliance surface's exact native pixel, or null while it is unknown. */
+const allianceIndexAt = (
+  alliance: ActiveAllianceSurface,
+  x: number,
+  y: number,
+  includeDraft: boolean,
+): number | null => {
   const bounds = allianceBounds(alliance)
-  if (bounds === null) return template
+  if (bounds === null) return null
   const regions = readArtboardPixels(alliance, {
     originX: bounds.minX,
     originY: bounds.minY,
     width: bounds.maxX - bounds.minX,
     height: bounds.maxY - bounds.minY,
   })
-  return pickerIndex({ template, pixelArt: nativePixelAt(regions, x, y, false)?.index ?? null })
+  return nativePixelAt(regions, x, y, includeDraft)?.index ?? null
 }
 
-/** Uncomposited world colour under the brush, including the current native draft. */
-export const worldPaintIndexAt = (x: number, y: number): number | null => placedIndexAt(x, y, true)
+const pickedIndexAt = ({ surface, x, y, alliance }: PickerPoint): number | null => {
+  const template = overlayIndexAt(surface, x, y)
+  const pixelArt = alliance === null ? placedIndexAt(x, y) : allianceIndexAt(alliance, x, y, false)
+  return pickerIndex({ template, pixelArt })
+}
+
+/** Uncomposited colour under the brush on either surface, including the current native draft. */
+export const paintIndexAt = ({ x, y, alliance }: PickerPoint): number | null =>
+  alliance === null ? placedIndexAt(x, y, true) : allianceIndexAt(alliance, x, y, true)
 
 /**
  * Wplace exposes no picker state, but its rendered control does: the active tool is `btn-primary`.

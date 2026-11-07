@@ -24,7 +24,7 @@ vi.mock('./wplace-picker.js', () => ({
       ? { surface: WORLD_TEMPLATE_SURFACE, x, y, alliance: harness.alliance }
       : null,
   overlayIndexAt: () => harness.overlay,
-  worldPaintIndexAt: (x: number) => harness.pixels.get(Math.floor(x)) ?? null,
+  paintIndexAt: ({ x }: { x: number }) => harness.pixels.get(Math.floor(x)) ?? null,
 }))
 
 let canvas: HTMLCanvasElement
@@ -86,11 +86,18 @@ beforeEach(() => {
   const paint = (from: number, to: number): void => {
     for (let x = Math.min(from, to); x <= Math.max(from, to); x++) draft.set(x, 12)
   }
-  // Wplace paints inclusive lines on mousemove and one current pixel on Space keydown.
-  window.addEventListener('mousemove', (event) => {
+  // Wplace paints inclusive lines while moving and one current pixel on Space keydown. The world
+  // map follows mouse movement, the HQ artboard pointer movement.
+  const nativeMove = (event: MouseEvent): void => {
     const x = Math.floor(event.clientX)
     if (nativeHeld) paint(nativeX, x)
     nativeX = x
+  }
+  window.addEventListener('mousemove', (event) => {
+    if (harness.alliance === null) nativeMove(event)
+  })
+  window.addEventListener('pointermove', (event) => {
+    if (harness.alliance !== null) nativeMove(event)
   })
   document.addEventListener('keydown', (event) => {
     if (event.code !== 'Space') return
@@ -237,7 +244,7 @@ it('resets physical key state on blur and leaves typing alone', () => {
   expect(event.defaultPrevented).toBe(false)
 })
 
-it('leaves alliance keyboard painting to Wplace', () => {
+it('skips matching pixels throughout a Shift+Space stroke on the HQ artboard', () => {
   harness.alliance = {
     surface: { kind: 'alliance-headquarters', allianceId: 1 },
     stage: canvas,
@@ -245,8 +252,12 @@ it('leaves alliance keyboard painting to Wplace', () => {
     draftId: null,
     bounds: null,
   }
+  move(0)
   key('keydown', 'Space', true)
-  expect(nativeHeld).toBe(true)
+  move(4)
+  move(0)
+  expect([...draft.keys()].sort()).toEqual([1, 3])
+  expect(nativeHeld).toBe(false)
 })
 
 it('does not paint a stale canvas position after the pointer moves over a control', () => {
