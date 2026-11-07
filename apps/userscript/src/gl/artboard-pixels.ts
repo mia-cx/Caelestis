@@ -148,7 +148,11 @@ const crosshairPresence = (canvas: HTMLCanvasElement): Uint8Array | null => {
   }
 }
 
+/** Moves whenever a held crosshair presence array is patched in place or dropped. */
+let crosshairGeneration = 0
+
 const patchCrosshairPixels = (canvas: HTMLCanvasElement, dirty: CanvasWriteRect | null): void => {
+  crosshairGeneration++
   const held = crosshairPixels.get(canvas)
   if (held === undefined) return
   if (held.width !== canvas.width || held.height !== canvas.height || dirty === null) {
@@ -660,8 +664,43 @@ const draftMarks = (
   return marks.length > 0 ? marks : null
 }
 
+const sameMarks = (left: readonly DraftMarks[], right: readonly DraftMarks[]): boolean =>
+  left.length === right.length &&
+  left.every((mark, at) => {
+    const other = right[at]
+    return (
+      other !== undefined &&
+      mark.present === other.present &&
+      mark.x === other.x &&
+      mark.y === other.y &&
+      mark.width === other.width &&
+      mark.height === other.height
+    )
+  })
+
+/** Each draft's marked part, kept until its marks change so equal reads keep their revision. */
+const markedDrafts = new WeakMap<
+  NativePixelRegion,
+  {
+    readonly generation: number
+    readonly marks: readonly DraftMarks[]
+    readonly result: NativePixelRegion | null
+  }
+>()
+
 /** The part of a tile's candidate drafts that Wplace marks as drafted. */
 const markedDraft = (
+  draft: NativePixelRegion,
+  marks: readonly DraftMarks[],
+): NativePixelRegion | null => {
+  const held = markedDrafts.get(draft)
+  if (held?.generation === crosshairGeneration && sameMarks(held.marks, marks)) return held.result
+  const result = markDraft(draft, marks)
+  markedDrafts.set(draft, { generation: crosshairGeneration, marks, result })
+  return result
+}
+
+const markDraft = (
   draft: NativePixelRegion,
   marks: readonly DraftMarks[],
 ): NativePixelRegion | null => {

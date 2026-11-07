@@ -169,3 +169,11 @@ it('ignores an offscreen tile while Wplace shows no draft marks', async () => {
   repaint({ 64: tileCanvas({}) })
   expect(pixelAt(1, 1)?.source).toBe('committed')
 })
+
+it('keeps the revision across reads while marked drafts stay unchanged', async () => {
+  await commit(1, {})
+  mark([1, 1])
+  repaint({ 0: tileCanvas({ '1,1': RED }) })
+  const first = readArtboardPixels(active, geometry)
+  expect(readArtboardPixels(active, geometry).revision).toBe(first.revision)
+})
