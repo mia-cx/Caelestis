@@ -1896,6 +1896,7 @@ export const installPanel = (): void => {
   // click while painting would rebuild it every time.
   onPaintSelectionChange(() => {
     syncColourModeState()
+    syncAllianceModeState()
     if (currentView() === 'appearance') refreshView()
   })
 }
