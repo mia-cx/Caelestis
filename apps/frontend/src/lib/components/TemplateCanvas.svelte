@@ -86,14 +86,15 @@ const worldContext = (layer: HTMLCanvasElement | null): CanvasRenderingContext2D
 }
 
 // The basemap under everything, like wplace itself, at the slippy zoom for the card's on-screen
-// density rather than the rect's native resolution.
+// density rather than the rect's native resolution. Derived, so a resize within one zoom keeps it.
+const osmZoom = $derived(osmZoomFor(shownHeight / rect.height))
 $effect(() => {
   const ctx = worldContext(osmLayer)
   if (ctx === null) return
   const controller = new AbortController()
   ctx.imageSmoothingEnabled = true
   ctx.imageSmoothingQuality = 'high'
-  const z = osmZoomFor(shownHeight / rect.height)
+  const z = osmZoom
   const span = osmSpan(z)
   for (let ty = Math.floor(rect.y / span); ty <= Math.floor((rect.y + rect.height - 1) / span); ty++) {
     for (let tx = Math.floor(rect.x / span); tx <= Math.floor((rect.x + rect.width - 1) / span); tx++) {
