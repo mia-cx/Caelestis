@@ -229,10 +229,15 @@ export const insertAllianceArtboardCanvases = (
   overlay.style.imageRendering = 'pixelated'
   markers.style.imageRendering = 'pixelated'
   frame.insertBefore(outline, frame.firstChild)
-  const directCanvases = [...frame.children].filter(
-    (child): child is HTMLCanvasElement => child.tagName === 'CANVAS' && !isCaelestisCanvas(child),
-  )
+  // HQ art is a `.hq-tile-layer`: once a container of tile canvases, now one canvas. Either way it
+  // is native art, never the draft canvas the overlay sits under.
   const hasHqTiles = [...frame.children].some((child) => child.classList.contains('hq-tile-layer'))
+  const directCanvases = [...frame.children].filter(
+    (child): child is HTMLCanvasElement =>
+      child.tagName === 'CANVAS' &&
+      !isCaelestisCanvas(child) &&
+      !child.classList.contains('hq-tile-layer'),
+  )
   const nativeDraft = hasHqTiles
     ? (directCanvases[0] ?? null)
     : directCanvases.length >= 2
