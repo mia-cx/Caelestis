@@ -1,11 +1,12 @@
 import { TRANSPARENT_INDEX, WPLACE_PALETTE } from '@caelestis/shared'
 import type { ActiveAllianceSurface } from '../alliance-surface.js'
-import type { CanvasWriteRect } from '../canvas-write.js'
+import type { CanvasDraw, CanvasWriteRect } from '../canvas-write.js'
 import {
   type NativePixelRect,
   type NativePixelRegion,
   type NativePixelSnapshot,
   NO_NATIVE_DRAFT,
+  nativePixelWindow,
 } from '../native-pixels.js'
 import { buildExactRgbIndex, canvasRgbIndex } from '../rgb-index.js'
 import {
@@ -468,17 +469,13 @@ export const artboardCanvasWriteRect = (
     : { x: x + localX, y: y + localY, width: farX - localX, height: farY - localY }
 }
 
+/** Drafts on alliance surfaces other than HQ, which keep them in their own artboard canvas. */
 const draftPixels = (
   active: ActiveAllianceSurface,
   geometry: ArtboardPixelGeometry,
 ): NativePixelRegion[] => {
   const canvases = directNativeCanvases(active)
-  const canvas =
-    active.surface.kind === 'alliance-headquarters'
-      ? canvases[0]
-      : canvases.length >= 2
-        ? canvases.at(-1)
-        : undefined
+  const canvas = canvases.length >= 2 ? canvases.at(-1) : undefined
   if (canvas === undefined || canvas.width !== geometry.width || canvas.height !== geometry.height)
     return []
   const pixels = palettePixels(canvas, NO_NATIVE_DRAFT)
@@ -492,6 +489,142 @@ const draftPixels = (
     emptyIndex: NO_NATIVE_DRAFT,
   } satisfies NativePixelRegion
   return [draft, ...crosshairDraftRegions(active, geometry, draft)]
+}
+
+/**
+ * Wplace keeps HQ drafts in its own tile store and draws them into the same screen canvas as the
+ * committed art. Each store tile is first rendered 1:1 into a detached `tileSize` square canvas,
+ * then scaled onto `.hq-tile-layer`. Where that draw lands identifies the tile, and the tile canvas
+ * holds its exact colours, drafts included.
+ */
+interface HeadquartersTile {
+  readonly x: number
+  readonly y: number
+  readonly canvas: HTMLCanvasElement
+}
+
+/** How far, as a fraction of a tile, a scaled draw may land off the tile grid and still count. */
+const TILE_GRID_TOLERANCE = 0.25
+
+const headquartersTiles = new WeakMap<Element, Map<string, HeadquartersTile>>()
+const seenTileCanvases = new WeakSet<HTMLCanvasElement>()
+
+let committedGeneration = 0
+onHeadquartersPixelsChange(() => {
+  committedGeneration++
+})
+const tileDrafts = new WeakMap<
+  HTMLCanvasElement,
+  { readonly generation: number; readonly draft: NativePixelRegion | null }
+>()
+
+/**
+ * Follow Wplace's repaint of `.hq-tile-layer`. Each repaint clears the layer, then draws every
+ * visible tile that has pixels, so a clear forgets the tiles in view and each draw remembers one.
+ * Returns the artboard rects whose drafts may have changed: a drawn tile the first time its canvas
+ * is seen, because Wplace makes a new tile canvas whenever a tile's colours change, and a forgotten
+ * tile that held drafts, because Wplace stops drawing a tile once undo leaves it empty.
+ */
+export const trackArtboardTiles = (
+  active: ActiveAllianceSurface,
+  geometry: ArtboardPixelGeometry,
+  layer: HTMLCanvasElement,
+  draw: CanvasDraw | null,
+): NativePixelRect[] => {
+  if (active.surface.kind !== 'alliance-headquarters' || !layer.classList.contains('hq-tile-layer'))
+    return []
+  const screen = layer.getBoundingClientRect()
+  const frame = active.frame.getBoundingClientRect()
+  if (layer.width <= 0 || layer.height <= 0 || frame.width <= 0 || frame.height <= 0) return []
+  /** Artboard coordinate of one layer canvas pixel. */
+  const artboardAt = (x: number, y: number) => ({
+    x:
+      geometry.originX +
+      ((screen.left + (x * screen.width) / layer.width - frame.left) / frame.width) *
+        geometry.width,
+    y:
+      geometry.originY +
+      ((screen.top + (y * screen.height) / layer.height - frame.top) / frame.height) *
+        geometry.height,
+  })
+  let tiles = headquartersTiles.get(active.frame)
+  if (tiles === undefined) {
+    tiles = new Map()
+    headquartersTiles.set(active.frame, tiles)
+  }
+  if (draw === null) {
+    const start = artboardAt(0, 0)
+    const end = artboardAt(layer.width, layer.height)
+    const forgotten: NativePixelRect[] = []
+    for (const [key, tile] of tiles) {
+      const size = tile.canvas.width
+      if (
+        tile.x >= end.x ||
+        tile.y >= end.y ||
+        tile.x + size <= start.x ||
+        tile.y + size <= start.y
+      )
+        continue
+      tiles.delete(key)
+      const draft = tileDrafts.get(tile.canvas)?.draft ?? null
+      if (draft !== null) forgotten.push(draft)
+    }
+    return forgotten
+  }
+  const { source } = draw
+  if (!(source instanceof HTMLCanvasElement) || source.width <= 0 || source.width !== source.height)
+    return []
+  const drawn = artboardAt(draw.x, draw.y)
+  const size = source.width
+  const tileX = Math.round(drawn.x / size) * size
+  const tileY = Math.round(drawn.y / size) * size
+  const tolerance = size * TILE_GRID_TOLERANCE
+  if (Math.abs(drawn.x - tileX) > tolerance || Math.abs(drawn.y - tileY) > tolerance) return []
+  tiles.set(`${tileX}/${tileY}`, { x: tileX, y: tileY, canvas: source })
+  if (seenTileCanvases.has(source)) return []
+  seenTileCanvases.add(source)
+  return [{ x: tileX, y: tileY, width: size, height: size }]
+}
+
+/** One tile's drafts: its pixels that differ from committed art. Null when it has none. */
+const tileDraft = (
+  tile: HeadquartersTile,
+  committed: readonly NativePixelRegion[],
+): NativePixelRegion | null => {
+  const held = tileDrafts.get(tile.canvas)
+  if (held?.generation === committedGeneration) return held.draft
+  const size = tile.canvas.width
+  const colours = palettePixels(tile.canvas, TRANSPARENT_INDEX)
+  if (colours === null) return null
+  const rect = { x: tile.x, y: tile.y, width: size, height: size }
+  const base = nativePixelWindow({ committed, draft: [] }, rect)
+  const pixels = new Uint8Array(size * size).fill(NO_NATIVE_DRAFT)
+  let drafted = false
+  for (let at = 0; at < pixels.length; at++) {
+    const colour = colours[at] ?? TRANSPARENT_INDEX
+    if (base.known[at] === 0 || base.indices[at] === colour) continue
+    pixels[at] = colour
+    drafted = true
+  }
+  const draft = drafted ? { ...rect, pixels, emptyIndex: NO_NATIVE_DRAFT } : null
+  tileDrafts.set(tile.canvas, { generation: committedGeneration, draft })
+  return draft
+}
+
+/** HQ drafts, from every remembered tile. Tiles without drafts are dropped until drawn again. */
+const headquartersDraftPixels = (
+  active: ActiveAllianceSurface,
+  committed: readonly NativePixelRegion[],
+): NativePixelRegion[] => {
+  const tiles = headquartersTiles.get(active.frame)
+  if (tiles === undefined) return []
+  const drafts: NativePixelRegion[] = []
+  for (const [key, tile] of tiles) {
+    const draft = tileDraft(tile, committed)
+    if (draft === null) tiles.delete(key)
+    else drafts.push(draft)
+  }
+  return drafts
 }
 
 /** Notify progress, marker, and palette consumers when the complete HQ snapshot changes. */
@@ -511,16 +644,12 @@ export const readArtboardPixels = (
   active: ActiveAllianceSurface,
   geometry: ArtboardPixelGeometry,
 ): NativePixelSnapshot => {
-  const visible =
-    active.surface.kind === 'alliance-headquarters'
-      ? hqPixels(active, geometry)
-      : assetPixels(active, geometry)
-  const committed =
-    active.surface.kind === 'alliance-headquarters'
-      ? (headquartersPixels(active.surface.allianceId, geometry, visible) ?? visible)
-      : visible
-  return {
-    committed,
-    draft: draftPixels(active, geometry),
-  }
+  if (active.surface.kind !== 'alliance-headquarters')
+    return { committed: assetPixels(active, geometry), draft: draftPixels(active, geometry) }
+  const visible = hqPixels(active, geometry)
+  const committed = headquartersPixels(active.surface.allianceId, geometry, visible)
+  // Drafts are what Wplace's tiles show beyond committed art, so they need the complete snapshot.
+  return committed === null
+    ? { committed: visible, draft: [] }
+    : { committed, draft: headquartersDraftPixels(active, committed) }
 }
