@@ -241,6 +241,21 @@ describe('tile reads in the worker', () => {
     expect((await loading)?.[0]).toBe(5)
   })
 
+  it('chases a tile for an explicit read when its capture fails', async () => {
+    const worker = inProcessWorker(() => new Response(Uint8Array.of(1, 4)))
+    const { tileTransform, readback, decodeTile } = await setup()
+    const lost = () => {
+      throw new Error('canvas lost')
+    }
+    worker.readback.mockImplementationOnce(lost)
+    readback.mockImplementationOnce(lost)
+    const release = worker.hold()
+    await decodeTile(TILE.x, Uint8Array.of(1, 5))
+    const loading = tileTransform.loadTilePixels(TILE)
+    release()
+    expect((await loading)?.[0]).toBe(4)
+  })
+
   it('reads the most recently decoded tiles of a backlog longer than the cache holds', async () => {
     const worker = inProcessWorker(() => new Response(null, { status: 500 }))
     const { tileTransform, setWplacePatchEnabled, decodeTile } = await setup()

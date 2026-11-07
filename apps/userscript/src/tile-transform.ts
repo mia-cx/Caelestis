@@ -1362,7 +1362,13 @@ export const loadTilePixels = async (
     while (!expired) {
       const pixels = tilePixels(tile)
       if (pixels !== null) return pixels
-      let chase = activeChases.get(key) ?? tileCaptures.get(key)
+      const capture = tileCaptures.get(key)
+      if (capture !== undefined && !activeChases.has(key)) {
+        // Wplace's own download is on its way; if its capture fails, the next pass chases once.
+        await Promise.race([capture, deadline])
+        continue
+      }
+      let chase = activeChases.get(key)
       if (chase === undefined && tileUrlShape !== null && chasing < CHASE_LIMIT) {
         // The one-shot history throttles frame-driven capture, not a fresh user action.
         chased.delete(key)
