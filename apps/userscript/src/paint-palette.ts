@@ -508,16 +508,14 @@ export const navigateFocusedSelectedColour = async (): Promise<boolean> => {
   return index === null ? false : await navigateFocusedColour(index, true)
 }
 
-/** Select the previous or next palette colour, wrapping at either end. */
+/** Select the previous or next unfinished colour in the focused template, wrapping at either end. */
 export const cycleFocusedColour = (direction: -1 | 1): boolean => {
   if (!isPaintOpen()) return false
   const order = renderedPaletteOrder()
   const remaining = new Set(
-    activeAllianceSurface() === null
-      ? paintPaletteProgress()
-          .filter((entry) => entry.completed < entry.total)
-          .map((entry) => entry.index)
-      : order,
+    paintPaletteProgress()
+      .filter((entry) => entry.completed < entry.total)
+      .map((entry) => entry.index),
   )
   if (remaining.size === 0 || order.length === 0) return false
 
