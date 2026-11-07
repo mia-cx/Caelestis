@@ -1,3 +1,5 @@
+import { RAIL_BUTTON } from './metrics.js'
+
 const ANCHOR_LABELS = ['Overlays', 'Search', 'Leaderboard'] as const
 
 /** Find Wplace's right-hand button rail from one of its own controls. */
@@ -41,6 +43,31 @@ const isCaelestis = (element: Element): boolean => {
       return true
   }
   return false
+}
+
+/**
+ * The first top at or below `top` where a button in this column clears every Wplace button in it.
+ *
+ * Paint mode hides Wplace's rail but can keep its Store button in the corner the rail leaves, so
+ * ours steps down past it instead of sitting underneath. A button belongs to the column when its
+ * centre does, which leaves out full-width backdrops that merely overlap it.
+ */
+export const wplaceFreeTop = (
+  column: { readonly left: number; readonly right: number },
+  top: number,
+  gap: number,
+): number => {
+  const boxes: DOMRect[] = []
+  for (const button of document.querySelectorAll('button')) {
+    const box = button.getBoundingClientRect()
+    const centre = box.left + box.width / 2
+    if (box.width === 0 || centre < column.left || centre > column.right) continue
+    if (!isCaelestis(button)) boxes.push(box)
+  }
+  boxes.sort((a, b) => a.top - b.top)
+  for (const box of boxes)
+    if (box.top < top + RAIL_BUTTON && box.bottom > top) top = box.bottom + gap
+  return top
 }
 
 /**
