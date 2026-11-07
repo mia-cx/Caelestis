@@ -495,12 +495,14 @@ const draftPixels = (
  * Wplace keeps HQ drafts in its own tile store and draws them into the same screen canvas as the
  * committed art. Each store tile is first rendered 1:1 into a detached `tileSize` square canvas,
  * then scaled onto `.hq-tile-layer`. Where that draw lands identifies the tile, and the tile canvas
- * holds its exact colours, drafts included.
+ * holds its exact colours, drafts included. Only visible tiles are redrawn, so a remembered tile
+ * is fresh while it was drawn in the latest repaint, and stale once it scrolls out of view.
  */
 interface HeadquartersTile {
   readonly x: number
   readonly y: number
   readonly canvas: HTMLCanvasElement
+  fresh: boolean
 }
 
 /** How far, as a fraction of a tile, a scaled draw may land off the tile grid and still count. */
@@ -520,9 +522,9 @@ const tileDrafts = new WeakMap<
 
 /**
  * Follow Wplace's repaint of `.hq-tile-layer`. Each repaint clears the layer, then draws every
- * visible tile that has pixels, so a clear forgets the tiles in view and each draw remembers one.
+ * visible tile that has pixels, so a clear makes every tile stale and each draw freshens one.
  * Returns the artboard rects whose drafts may have changed: a drawn tile the first time its canvas
- * is seen, because Wplace makes a new tile canvas whenever a tile's colours change, and a forgotten
+ * is seen, because Wplace makes a new tile canvas whenever a tile's colours change, and a fresh
  * tile that held drafts, because Wplace stops drawing a tile once undo leaves it empty.
  */
 export const trackArtboardTiles = (
@@ -553,23 +555,14 @@ export const trackArtboardTiles = (
     headquartersTiles.set(active.frame, tiles)
   }
   if (draw === null) {
-    const start = artboardAt(0, 0)
-    const end = artboardAt(layer.width, layer.height)
-    const forgotten: NativePixelRect[] = []
-    for (const [key, tile] of tiles) {
-      const size = tile.canvas.width
-      if (
-        tile.x >= end.x ||
-        tile.y >= end.y ||
-        tile.x + size <= start.x ||
-        tile.y + size <= start.y
-      )
-        continue
-      tiles.delete(key)
+    const staled: NativePixelRect[] = []
+    for (const tile of tiles.values()) {
+      if (!tile.fresh) continue
+      tile.fresh = false
       const draft = tileDrafts.get(tile.canvas)?.draft ?? null
-      if (draft !== null) forgotten.push(draft)
+      if (draft !== null) staled.push(draft)
     }
-    return forgotten
+    return staled
   }
   const { source } = draw
   if (!(source instanceof HTMLCanvasElement) || source.width <= 0 || source.width !== source.height)
@@ -580,13 +573,13 @@ export const trackArtboardTiles = (
   const tileY = Math.round(drawn.y / size) * size
   const tolerance = size * TILE_GRID_TOLERANCE
   if (Math.abs(drawn.x - tileX) > tolerance || Math.abs(drawn.y - tileY) > tolerance) return []
-  tiles.set(`${tileX}/${tileY}`, { x: tileX, y: tileY, canvas: source })
+  tiles.set(`${tileX}/${tileY}`, { x: tileX, y: tileY, canvas: source, fresh: true })
   if (seenTileCanvases.has(source)) return []
   seenTileCanvases.add(source)
   return [{ x: tileX, y: tileY, width: size, height: size }]
 }
 
-/** One tile's drafts: its pixels that differ from committed art. Null when it has none. */
+/** One tile's candidate drafts: its pixels that differ from committed art. Null when it has none. */
 const tileDraft = (
   tile: HeadquartersTile,
   committed: readonly NativePixelRegion[],
@@ -611,24 +604,101 @@ const tileDraft = (
   return draft
 }
 
-/** HQ drafts, from every remembered tile. Tiles without drafts are dropped until drawn again. */
+interface DraftMarks extends NativePixelRect {
+  readonly present: Uint8Array
+}
+
+/** Wplace's own marks on every drafted pixel, offscreen included. Null while it shows none. */
+const draftMarks = (
+  active: ActiveAllianceSurface,
+  geometry: ArtboardPixelGeometry,
+): DraftMarks[] | null => {
+  const marks: DraftMarks[] = []
+  for (const canvas of active.stage.querySelectorAll('canvas.paint-crosshair-tile')) {
+    if (!(canvas instanceof HTMLCanvasElement)) continue
+    const layout = crosshairLayout(active, geometry, canvas)
+    const present = layout === null ? null : crosshairPresence(canvas)
+    if (layout !== null && present !== null) marks.push({ ...layout, present })
+  }
+  return marks.length > 0 ? marks : null
+}
+
+/** The part of a tile's candidate drafts that Wplace marks as drafted. */
+const markedDraft = (
+  draft: NativePixelRegion,
+  marks: readonly DraftMarks[],
+): NativePixelRegion | null => {
+  const pixels = draft.pixels.slice()
+  let kept = false
+  for (let at = 0; at < pixels.length; at++) {
+    if (pixels[at] === NO_NATIVE_DRAFT) continue
+    const x = draft.x + (at % draft.width)
+    const y = draft.y + Math.floor(at / draft.width)
+    const mark = marks.find(
+      (rect) => x >= rect.x && y >= rect.y && x < rect.x + rect.width && y < rect.y + rect.height,
+    )
+    if (mark?.present[(y - mark.y) * mark.width + (x - mark.x)] === 1) kept = true
+    else pixels[at] = NO_NATIVE_DRAFT
+  }
+  return kept ? { ...draft, pixels } : null
+}
+
+/**
+ * HQ drafts. Where Wplace marks drafted pixels, those marks decide which tile differences are
+ * drafts, on every remembered tile. Without marks, only fresh tiles count: an offscreen tile can
+ * miss an undo or a newer committed snapshot, and must not invent drafts. Tiles without candidate
+ * drafts are dropped until drawn again.
+ */
 const headquartersDraftPixels = (
   active: ActiveAllianceSurface,
+  geometry: ArtboardPixelGeometry,
   committed: readonly NativePixelRegion[],
 ): NativePixelRegion[] => {
   const tiles = headquartersTiles.get(active.frame)
   if (tiles === undefined) return []
+  const marks = draftMarks(active, geometry)
   const drafts: NativePixelRegion[] = []
   for (const [key, tile] of tiles) {
     const draft = tileDraft(tile, committed)
-    if (draft === null) tiles.delete(key)
-    else drafts.push(draft)
+    if (draft === null) {
+      tiles.delete(key)
+      continue
+    }
+    const counted = marks === null ? (tile.fresh ? draft : null) : markedDraft(draft, marks)
+    if (counted !== null) drafts.push(counted)
   }
   return drafts
 }
 
-/** Notify progress, marker, and palette consumers when the complete HQ snapshot changes. */
-export const onArtboardPixelsChange = onHeadquartersPixelsChange
+const draftMarkListeners = new Set<() => void>()
+
+/**
+ * Notify progress, marker, and palette consumers when the complete HQ snapshot changes, or when
+ * Wplace removes draft marks, which it does without a canvas write.
+ */
+export const onArtboardPixelsChange = (listener: () => void): (() => void) => {
+  const stop = onHeadquartersPixelsChange(listener)
+  draftMarkListeners.add(listener)
+  return () => {
+    stop()
+    draftMarkListeners.delete(listener)
+  }
+}
+
+const isDraftMark = (node: Node): boolean =>
+  node instanceof Element &&
+  (node.classList.contains('paint-crosshair-tile') ||
+    node.classList.contains('paint-crosshair-layer'))
+
+/** Watch one artboard stage for removed draft marks; return the teardown. */
+export const watchArtboardDraftMarks = (active: ActiveAllianceSurface): (() => void) => {
+  const observer = new MutationObserver((records) => {
+    if (!records.some((record) => [...record.removedNodes].some(isDraftMark))) return
+    for (const listener of draftMarkListeners) listener()
+  })
+  observer.observe(active.stage, { childList: true, subtree: true })
+  return () => observer.disconnect()
+}
 
 /** Load or update the complete bounded native canvas for the active alliance surface. */
 export const refreshArtboardPixels = (
@@ -651,5 +721,5 @@ export const readArtboardPixels = (
   // Drafts are what Wplace's tiles show beyond committed art, so they need the complete snapshot.
   return committed === null
     ? { committed: visible, draft: [] }
-    : { committed, draft: headquartersDraftPixels(active, committed) }
+    : { committed, draft: headquartersDraftPixels(active, geometry, committed) }
 }

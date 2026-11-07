@@ -35,6 +35,7 @@ import {
   readArtboardPixels,
   refreshArtboardPixels,
   trackArtboardTiles,
+  watchArtboardDraftMarks,
 } from './artboard-pixels.js'
 import { isDarkMapTheme } from './contrast-outline.js'
 import { MarkerBatchStore } from './marker-batching.js'
@@ -574,6 +575,7 @@ class ArtboardRenderer {
   private readonly markerTiles = new Map<string, object>()
   private readonly observer: MutationObserver
   private readonly resizeObserver: ResizeObserver | null
+  private readonly stopDraftMarks: () => void
   private framePending = false
   private markerPixelsDirty = true
   private readonly markerDirtyRects: Array<{
@@ -607,6 +609,7 @@ class ArtboardRenderer {
       typeof ResizeObserver === 'function' ? new ResizeObserver(() => this.requestRender()) : null
     this.resizeObserver?.observe(active.frame)
     this.resizeObserver?.observe(active.stage)
+    this.stopDraftMarks = watchArtboardDraftMarks(active)
   }
 
   static create(
@@ -961,6 +964,7 @@ class ArtboardRenderer {
     noteTemplatesInView(this.surface, new Set())
     this.observer.disconnect()
     this.resizeObserver?.disconnect()
+    this.stopDraftMarks()
     detachOverlayControls()
     this.outline.dispose()
     this.overlay.dispose()
