@@ -2,9 +2,12 @@ import { type Template, timelapseCaptureRect, WORLD_PIXELS } from '@caelestis/sh
 import type { ObjectStorage } from '@caelestis/storage'
 import { convertIndexedToRgb, decode } from 'fast-png'
 import { OSM_TILE_SIZE, osmSpan, osmZoomFor } from './osm-geometry.js'
+import { readAhead } from './read-ahead.js'
 
 export type ReadMapTile = (z: number, x: number, y: number) => Promise<Uint8Array>
 export const MAP_CACHE_MS = 7 * 24 * 60 * 60 * 1000
+/** Uncached tiles come from OpenStreetMap's volunteer-run servers; two at a time stays polite. */
+const OSM_PARALLEL_READS = 2
 
 /** Identify this renderer to OSM; callers cache successful tile reads for at least seven days. */
 export const fetchMapTile: ReadMapTile = async (z, x, y) => {
@@ -58,9 +61,17 @@ export const renderBasemap = async (
     }
   }
   const rgba = new Uint8Array(width * height * 4)
-  for (const [key, points] of samples) {
-    const [x, y] = key.split('/').map(Number)
-    const tile = decode(await read(z, x, y))
+  const entries = [...samples]
+  const nextTile = readAhead(
+    entries,
+    ([key]) => {
+      const [x, y] = key.split('/').map(Number)
+      return read(z, x, y)
+    },
+    OSM_PARALLEL_READS,
+  )
+  for (const [, points] of entries) {
+    const tile = decode(await nextTile())
     if (tile.width !== OSM_TILE_SIZE || tile.height !== OSM_TILE_SIZE)
       throw new Error('Unexpected OpenStreetMap tile dimensions')
     const data = tile.palette ? convertIndexedToRgb(tile) : tile.data

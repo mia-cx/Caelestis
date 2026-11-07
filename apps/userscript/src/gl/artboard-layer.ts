@@ -18,6 +18,7 @@ import {
   onLocalPreviewChange,
   type PlacedTemplate,
 } from '../templates/local-store.js'
+import { fixedMarkList, type MarkList, markSeed } from '../templates/mark-list.js'
 import { abortMoveOutsideSurface } from '../templates/move.js'
 import { detachOverlayControls, renderAllianceOverlayControls } from '../ui/overlay-menu.js'
 import { isPaintOpen, onPaintSelectionChange, selectedColour } from '../wplace-paint.js'
@@ -38,13 +39,8 @@ import {
   watchArtboardDraftMarks,
 } from './artboard-pixels.js'
 import { isDarkMapTheme } from './contrast-outline.js'
-import { MarkerBatchStore } from './marker-batching.js'
-import {
-  type MarkerVisibilityBudget,
-  markerSampleRate,
-  markerVisibilityBudget,
-  visibleMarkerPoints,
-} from './marker-density.js'
+import { batchMarkerWork, type MarkerBatch } from './marker-batching.js'
+import { markerSampleRate, visibleListPoints, visibleSourceRect } from './marker-density.js'
 import { MarkerRenderer, type MarkerStyle } from './marker-renderer.js'
 import { movingOverlayTapCap } from './minify-quality.js'
 import { RenderScene, type SceneTemplate } from './render-scene.js'
@@ -56,6 +52,7 @@ import {
   type TemplateGpuEntry,
   TemplateGpuStore,
   type TemplateGpuTile,
+  type TemplateRect,
 } from './template-gpu-store.js'
 
 const OVERLAY_ATTRIBUTE = 'data-caelestis-alliance-overlay'
@@ -161,6 +158,33 @@ const overlapsArtboardFrame = (
   )
 }
 
+/** The part of a template inside the frame and on the stage's buffer, in template coordinates. */
+const artboardVisibleRects = (
+  template: Pick<PlacedTemplate, 'originX' | 'originY' | 'width' | 'height'>,
+  geometry: ArtboardGeometry,
+  viewport: ArtboardViewport,
+): readonly TemplateRect[] => {
+  const scaleX = viewport.frameWidth / geometry.width
+  const scaleY = viewport.frameHeight / geometry.height
+  const offsetX = geometry.originX - template.originX
+  const offsetY = geometry.originY - template.originY
+  const left = Math.max(0, Math.floor(offsetX), Math.floor(-viewport.frameLeft / scaleX + offsetX))
+  const top = Math.max(0, Math.floor(offsetY), Math.floor(-viewport.frameTop / scaleY + offsetY))
+  const right = Math.min(
+    template.width,
+    Math.ceil(geometry.width + offsetX),
+    Math.ceil((viewport.bufferWidth - viewport.frameLeft) / scaleX + offsetX),
+  )
+  const bottom = Math.min(
+    template.height,
+    Math.ceil(geometry.height + offsetY),
+    Math.ceil((viewport.bufferHeight - viewport.frameTop) / scaleY + offsetY),
+  )
+  return right > left && bottom > top
+    ? [{ x: left, y: top, width: right - left, height: bottom - top }]
+    : []
+}
+
 /** Project one shared GPU chunk, including only the outer outline halo, into an artboard. */
 export const artboardGpuTilePlacement = (
   template: Pick<PlacedTemplate, 'originX' | 'originY' | 'width' | 'height'>,
@@ -192,26 +216,33 @@ export const artboardGpuTilePlacement = (
   }
 }
 
-/** Count marker points inside the current alliance artboard viewport. */
+/** A batch's marks as a drawable list, seeded by the batch's place so batches sample apart. */
+const batchMarkList = (batch: ArtboardMarkerBatch): MarkList =>
+  fixedMarkList(
+    batch.marks,
+    markSeed(Math.floor(batch.x / batch.width), Math.floor(batch.y / batch.height)),
+  )
+
+/** Count marker points in the blocks the current alliance artboard viewport shows, as submitted. */
 export const visibleArtboardMarkerPoints = (
   batch: ArtboardMarkerBatch,
   geometry: ArtboardGeometry,
   viewport: ArtboardViewport,
-  budget: MarkerVisibilityBudget,
 ): number => {
   const box = artboardDevicePlacement(
     { originX: batch.x, originY: batch.y, width: batch.width, height: batch.height },
     geometry,
     viewport,
   )
-  return visibleMarkerPoints(
-    batch.marks,
-    { x: box.left, y: box.top, width: box.right - box.left, height: box.bottom - box.top },
-    viewport.bufferWidth,
-    viewport.bufferHeight,
-    budget,
-    batch.width,
-    batch.height,
+  return visibleListPoints(
+    batchMarkList(batch),
+    visibleSourceRect(
+      { x: box.left, y: box.top, width: box.right - box.left, height: box.bottom - box.top },
+      viewport.bufferWidth,
+      viewport.bufferHeight,
+      batch.width,
+      batch.height,
+    ),
   )
 }
 
@@ -249,14 +280,15 @@ export const insertAllianceArtboardCanvases = (
   frame.insertBefore(markers, nativeDraft?.nextSibling ?? null)
 }
 
-interface RenderMarker {
+interface MarkerLayer {
   readonly batch: ArtboardMarkerBatch
   readonly tile: object
-  readonly marks: Uint32Array
+  readonly marks: MarkList
   readonly style: MarkerStyle
   readonly fade: number
-  readonly sampleRate: number
 }
+
+type RenderMarker = MarkerBatch<MarkerLayer> & { readonly sampleRate: number }
 
 interface ArtboardDrawResult {
   readonly animating: boolean
@@ -451,14 +483,17 @@ class ArtboardPass {
       if (this.gpu !== null) {
         const allowance = uploadsLeft > 0 ? Math.floor(uploadPixelsLeft / uploadsLeft) : 0
         if (!this.gpu.hasCurrent(template)) uploadsLeft = Math.max(0, uploadsLeft - 1)
-        const advanced = this.gpu.advance(template, allowance, generation)
+        const advanced = this.gpu.advance(
+          template,
+          allowance,
+          generation,
+          artboardVisibleRects(template, geometry, viewport),
+        )
         uploadPixelsLeft -= advanced.uploadedPixels
         uploadedPixels += advanced.uploadedPixels
         if (advanced.status === 'failed') continue
-        if (advanced.status === 'pending') {
-          animating = true
-          continue
-        }
+        // Draw the chunks finished so far, and upload the rest on the next frame.
+        if (advanced.status === 'pending') animating = true
         entry = advanced.entry
       }
       if (entry === null) continue
@@ -511,8 +546,6 @@ class ArtboardPass {
             height: batch.height * scaleY,
             pixelWidth: batch.width,
             pixelHeight: batch.height,
-            seedX: Math.floor(batch.x / batch.width),
-            seedY: Math.floor(batch.y / batch.height),
           },
           marker.marks,
           marker.style,
@@ -576,7 +609,6 @@ class ArtboardPass {
 
 class ArtboardRenderer {
   private readonly scene = new RenderScene()
-  private readonly markerBatches = new MarkerBatchStore()
   private readonly markerTiles = new Map<string, object>()
   private readonly observer: MutationObserver
   private readonly resizeObserver: ResizeObserver | null
@@ -820,8 +852,8 @@ class ArtboardRenderer {
       this.markerDirtyRects.length = 0
     }
     for (const id of this.markerWork.keys()) if (!residentIds.has(id)) this.markerWork.delete(id)
-    const selectedLayers: Omit<RenderMarker, 'sampleRate'>[] = []
-    const mismatchLayers: Omit<RenderMarker, 'sampleRate'>[] = []
+    const selectedLayers: MarkerLayer[] = []
+    const mismatchLayers: MarkerLayer[] = []
     const state = getState()
     for (const { rendered, mismatchFade, selectedFades } of markerScene.templates) {
       if (rendered.fade <= 0) continue
@@ -855,7 +887,7 @@ class ArtboardRenderer {
           selectedLayers.push({
             batch,
             tile: this.markerTile(batch),
-            marks: batch.marks,
+            marks: batchMarkList(batch),
             style: selectedStyle,
             fade: selectedFade.fade,
           })
@@ -865,34 +897,28 @@ class ArtboardRenderer {
         mismatchLayers.push({
           batch,
           tile: this.markerTile(batch),
-          marks: batch.marks,
+          marks: batchMarkList(batch),
           style: mismatchStyle,
           fade: mismatchFade,
         })
     }
-    const visibilityBudget = markerVisibilityBudget()
-    const visiblePoints = (layers: readonly Omit<RenderMarker, 'sampleRate'>[]) =>
+    const visiblePoints = (layers: readonly MarkerLayer[]) =>
       layers.reduce(
-        (total, layer) =>
-          total +
-          visibleArtboardMarkerPoints(
-            { ...layer.batch, marks: layer.marks },
-            this.geometry,
-            viewport,
-            visibilityBudget,
-          ),
+        (total, layer) => total + visibleArtboardMarkerPoints(layer.batch, this.geometry, viewport),
         0,
       )
     const selectedSampleRate = markerSampleRate(visiblePoints(selectedLayers), state.markerBudget)
     const mismatchSampleRate = markerSampleRate(visiblePoints(mismatchLayers), state.markerBudget)
-    this.markerBatches.beginFrame()
-    const selectedDraws = this.markerBatches.batch(selectedLayers)
-    const mismatchDraws = this.markerBatches.batch(mismatchLayers)
     const markerLayers: RenderMarker[] = [
-      ...selectedDraws.map((layer) => ({ ...layer, sampleRate: selectedSampleRate })),
-      ...mismatchDraws.map((layer) => ({ ...layer, sampleRate: mismatchSampleRate })),
+      ...batchMarkerWork(selectedLayers).map((layer) => ({
+        ...layer,
+        sampleRate: selectedSampleRate,
+      })),
+      ...batchMarkerWork(mismatchLayers).map((layer) => ({
+        ...layer,
+        sampleRate: mismatchSampleRate,
+      })),
     ]
-    this.markerBatches.endFrame()
     const minifyTapCap = moving ? movingOverlayTapCap(templates.length) : 4
     const outlineAllowance = Math.floor(TEMPLATE_UPLOAD_PIXELS_PER_FRAME / 2)
     const outlineResult = this.outline.render(
@@ -947,7 +973,10 @@ class ArtboardRenderer {
       recordProfileWorkload('Alliance marker source batches', markerLayers.length)
       recordProfileWorkload(
         'Alliance marker source points',
-        markerLayers.reduce((total, marker) => total + marker.marks.length, 0),
+        markerLayers.reduce(
+          (total, marker) => marker.marks.reduce((sum, list) => sum + list.length, total),
+          0,
+        ),
       )
       recordProfileWorkload('Alliance marker compared pixels', comparedMarkerPixels)
       recordProfileWorkload(

@@ -6,6 +6,8 @@ import {
   templateSurfaceBounds,
 } from '@caelestis/shared'
 import { pageWindow } from './page-world.js'
+import { frameQueue } from './ui/frame-queue.js'
+import { isWplaceMutation } from './ui/wplace-rail.js'
 import { findWplaceLabelled } from './wplace-messages.js'
 import { captureFetchUrlGetters, urlForFetchInput } from './wplace-raster.js'
 
@@ -457,7 +459,14 @@ export const installAllianceSurfaceObserver = (): void => {
   installed = true
   const realm = pageWindow()
   restoreFetch = installFetchObserver(realm)
-  observer = new realm.MutationObserver(queueReconcile)
+  // Wplace's DOM churns while the map moves; one reconcile per frame is enough, and our own nodes
+  // never open or close an alliance editor.
+  const queueFrameReconcile = frameQueue(reconcile, (callback) =>
+    realm.requestAnimationFrame(callback),
+  )
+  observer = new realm.MutationObserver((records) => {
+    if (records.some(isWplaceMutation)) queueFrameReconcile()
+  })
   observer.observe(realm.document, {
     subtree: true,
     childList: true,

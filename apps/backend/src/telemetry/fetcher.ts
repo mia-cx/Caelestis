@@ -268,40 +268,45 @@ export const fetchCanvasTiles = async (
   const freshnessCutoff =
     (now - scanCycleBatches * ALARM_SCAN_INTERVAL_SECONDS - ALARM_SCAN_JITTER_SECONDS) * 1_000
   let followUpScheduled = false
-  let alarmsEvaluated = false
-  for (const template of templates) {
-    const required = requiredTiles.get(template.id) ?? []
-    const status = statusesById.get(template.id)
-    if (
-      required.length === 0 ||
-      !required.every(
-        ({ key, observedAt }) =>
-          observedAt !== null &&
-          observedAt >= freshnessCutoff &&
-          (!attemptedTemplateTiles.has(key) || serverRefreshedTemplateTiles.has(key)),
-      ) ||
-      status === undefined ||
-      status.total !== template.totalPixels ||
-      status.correct + status.wrong + status.blank !== status.total
-    ) {
-      continue
+  let alarmChanged = false
+  try {
+    for (const template of templates) {
+      const required = requiredTiles.get(template.id) ?? []
+      const status = statusesById.get(template.id)
+      if (
+        required.length === 0 ||
+        !required.every(
+          ({ key, observedAt }) =>
+            observedAt !== null &&
+            observedAt >= freshnessCutoff &&
+            (!attemptedTemplateTiles.has(key) || serverRefreshedTemplateTiles.has(key)),
+        ) ||
+        status === undefined ||
+        status.total !== template.totalPixels ||
+        status.correct + status.wrong + status.blank !== status.total
+      ) {
+        continue
+      }
+      const result = await ports.sql.evaluateTemplateAlarm(
+        {
+          templateId: template.id,
+          versionId: template.versionId,
+          total: status.total,
+          correct: status.correct,
+          observedAt: millis(now * 1_000),
+          observationRevision: alarmSnapshot.revision,
+        },
+        { kind: 'scan' },
+        alarmIdFactory(),
+      )
+      alarmChanged ||= result.alarmChanged
+      followUpScheduled ||= result.scheduleFollowUp
     }
-    const result = await ports.sql.evaluateTemplateAlarm(
-      {
-        templateId: template.id,
-        versionId: template.versionId,
-        total: status.total,
-        correct: status.correct,
-        observedAt: millis(now * 1_000),
-        observationRevision: alarmSnapshot.revision,
-      },
-      { kind: 'scan' },
-      alarmIdFactory(),
-    )
-    alarmsEvaluated = true
-    followUpScheduled ||= result.scheduleFollowUp
+  } finally {
+    // A scan that moves no alarm owes subscribers nothing; a changed alarm covers its follow-up.
+    // Each evaluation commits on its own, so a later failure still owes the earlier changes.
+    if (alarmChanged) await publishAlarmChange(statusReadModel, season)
   }
-  if (alarmsEvaluated) await publishAlarmChange(statusReadModel, season)
 
   return {
     fetched,
@@ -332,7 +337,7 @@ export const fetchAlarmFollowUps = async (
   const tokenHash = await sha256Hex(new TextEncoder().encode('caelestis-tile-fetcher'))
   let evaluated = 0
   let failed = 0
-  const evaluatedSeasons = new Set<number>()
+  const changedSeasons = new Set<number>()
   const selectedProbes = probes.slice(0, MAX_ALARM_PROBES_PER_RUN)
   let pending = probes.length - selectedProbes.length
   let remaining = MAX_FETCH_TILES_PER_RUN
@@ -468,7 +473,7 @@ export const fetchAlarmFollowUps = async (
         pending++
         continue
       }
-      await ports.sql.evaluateTemplateAlarm(
+      const result = await ports.sql.evaluateTemplateAlarm(
         {
           templateId: probe.templateId,
           versionId: probe.versionId,
@@ -486,17 +491,20 @@ export const fetchAlarmFollowUps = async (
         'unused',
       )
       evaluated++
-      evaluatedSeasons.add(probe.season)
+      if (result.alarmChanged) changedSeasons.add(probe.season)
     }
   } finally {
     try {
       await projectionBatch.flush()
     } finally {
-      await artifactWriteBatch.flush()
+      try {
+        await artifactWriteBatch.flush()
+      } finally {
+        // Each evaluation commits on its own, so a later failure still owes the earlier changes.
+        for (const season of changedSeasons) await publishAlarmChange(statusReadModel, season)
+      }
     }
   }
-
-  for (const season of evaluatedSeasons) await publishAlarmChange(statusReadModel, season)
 
   return { evaluated, failed, pending }
 }

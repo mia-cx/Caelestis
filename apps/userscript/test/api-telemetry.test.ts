@@ -295,3 +295,192 @@ describe('userscript telemetry HTTP boundary', () => {
     )
   })
 })
+
+describe('server mismatch masks', () => {
+  const tile = { x: 0, y: 0 }
+
+  /** A published one-pixel template at 0,0 whose tile the backend observed through the userscript. */
+  const observedTemplate = async () => {
+    const wplace: WplaceTransport = {
+      tile: null,
+      loseFirstPaintAcknowledgement: false,
+      paintEventIds: [],
+      paintReplies: [],
+    }
+    const fetch = await installBackend(wplace)
+    const state = await import('../src/state.js')
+    const probed = await state.probeServer(origin, adminToken)
+    if (probed.status !== 'connected') throw new Error('admin probe did not connect')
+    state.upsertServer(probed)
+    configuredServers.add(origin)
+    state.setState({ shareTiles: true })
+    vi.useFakeTimers()
+    const server = state.getState().servers[0]
+    if (server === undefined) throw new Error('probed server was not retained')
+    const uploaded = await state.uploadTemplate(server, {
+      nodeId: null,
+      name: 'Masked pixel',
+      originX: 0,
+      originY: 0,
+      png: await artwork(),
+    })
+    if (!uploaded.ok) throw new Error(uploaded.message)
+    await state.patchTemplate(server, uploaded.id, { published: true })
+    const indices = new Uint8Array(1_000_000).fill(TRANSPARENT_INDEX)
+    indices[0] = 1
+    wplace.tile = await encodeIndexedPng(1_000, 1_000, indices)
+    const telemetry = await import('../src/telemetry.js')
+    const sync = await import('../src/server-sync-coordinator.js')
+    const tileTransform = await import('../src/tile-transform.js')
+    telemetry.installTelemetry()
+    sync.installServerSyncCoordinator()
+    const contents = await state.listServerContents(server)
+    const published = contents?.templates.find((candidate) => candidate.id === uploaded.id)
+    if (contents === null || published === undefined)
+      throw new Error('published template did not appear in the manifest')
+    state.admitServerContents(server, contents)
+    const page = pageRealm(fetch)
+    tileTransform.install(page)
+    await (await page.fetch('https://backend.wplace.live/files/s3/tiles/0/0.png')).arrayBuffer()
+    await vi.advanceTimersByTimeAsync(300)
+    const path = `/telemetry/templates/${uploaded.id}/versions/${published.version}/tiles/0/0/mismatches?season=3`
+    await vi.waitFor(async () => expect((await endpointRequest(adminToken)(path)).status).toBe(200))
+    const wildcard = await endpointRequest(adminToken)(path, { headers: { 'if-none-match': '*' } })
+    expect(wildcard.status).toBe(304)
+    const template = {
+      serverUrl: origin,
+      serverTemplateId: uploaded.id,
+      serverVersion: published.version,
+    }
+    return { fetch, template, mismatch: await import('../src/server-mismatch.js') }
+  }
+
+  /** Record each mask request's validator and status, optionally holding or rewriting replies. */
+  const recordMaskRequests = (
+    fetch: Awaited<ReturnType<typeof installBackend>>,
+    rewrite: (response: Response) => Response = (response) => response,
+  ) => {
+    const route = fetch.getMockImplementation()
+    if (route === undefined) throw new Error('backend fetch has no implementation')
+    const record = {
+      validators: [] as (string | null)[],
+      statuses: [] as number[],
+      hold: null as Promise<void> | null,
+    }
+    fetch.mockImplementation(async (input, init) => {
+      const request = new Request(input, init)
+      if (!request.url.includes('/mismatches')) return await route(input, init)
+      record.validators.push(request.headers.get('if-none-match'))
+      await record.hold
+      const response = rewrite(await route(input, init))
+      record.statuses.push(response.status)
+      return response
+    })
+    return record
+  }
+
+  it('revalidates a painted tile with its validator and folds paints during a request into one more', async () => {
+    const { fetch, template, mismatch } = await observedTemplate()
+    const requests = recordMaskRequests(fetch)
+
+    expect(mismatch.serverMismatchMaskFor(template, tile)).toBeNull()
+    await vi.waitFor(() => expect(mismatch.serverMismatchMaskFor(template, tile)).not.toBeNull())
+    const drawn = mismatch.serverMismatchMaskFor(template, tile)
+    expect(requests).toMatchObject({ validators: [null], statuses: [200] })
+
+    // A paint elsewhere on the tile: the mask stays drawn and the server confirms it unchanged.
+    mismatch.invalidateServerMismatchTiles(origin, [tile])
+    expect(mismatch.serverMismatchMaskFor(template, tile)).toBe(drawn)
+    await vi.waitFor(() => expect(requests.statuses).toEqual([200, 304]))
+    expect(requests.validators[1]).toMatch(/^"[0-9a-f]{64}"$/)
+    // Same pixels in a new buffer: marker scans cached for the older read must not answer for it.
+    const confirmed = mismatch.serverMismatchMaskFor(template, tile)
+    expect(confirmed?.packed).toEqual(drawn?.packed)
+    expect(confirmed?.packed).not.toBe(drawn?.packed)
+
+    // Three more paints land while the next request is in the air.
+    let release = (): void => {}
+    requests.hold = new Promise((resolve) => {
+      release = resolve
+    })
+    mismatch.invalidateServerMismatchTiles(origin, [tile])
+    mismatch.serverMismatchMaskFor(template, tile)
+    await vi.waitFor(() => expect(requests.validators).toHaveLength(3))
+    for (let paint = 0; paint < 3; paint++) {
+      mismatch.invalidateServerMismatchTiles(origin, [tile])
+      expect(mismatch.serverMismatchMaskFor(template, tile)).toBe(confirmed)
+    }
+    expect(requests.validators).toHaveLength(3)
+    requests.hold = null
+    release()
+
+    await vi.waitFor(() => {
+      mismatch.serverMismatchMaskFor(template, tile)
+      expect(requests.statuses).toEqual([200, 304, 304, 304])
+    })
+    expect(mismatch.serverMismatchMaskFor(template, tile)?.packed).toEqual(drawn?.packed)
+    expect(requests.validators).toHaveLength(4)
+  })
+
+  it('reads the whole mask again from a server that sends no validator', async () => {
+    const { fetch, template, mismatch } = await observedTemplate()
+    const requests = recordMaskRequests(fetch, (response) => {
+      const headers = new Headers(response.headers)
+      headers.delete('etag')
+      return new Response(response.body, { status: response.status, headers })
+    })
+
+    await vi.waitFor(() => expect(mismatch.serverMismatchMaskFor(template, tile)).not.toBeNull())
+    const drawn = mismatch.serverMismatchMaskFor(template, tile)
+    mismatch.invalidateServerMismatchTiles(origin, [tile])
+    await vi.waitFor(() => {
+      mismatch.serverMismatchMaskFor(template, tile)
+      expect(requests.statuses).toEqual([200, 200])
+    })
+    expect(requests.validators).toEqual([null, null])
+    expect(mismatch.serverMismatchMaskFor(template, tile)?.packed).toEqual(drawn?.packed)
+  })
+
+  it('saves an answer a paint overtook once the server confirms it', async () => {
+    // Cache Storage for this page: responses by URL, re-put entries moved to the end.
+    const saved = new Map<string, Response>()
+    let puts = 0
+    const cache = {
+      match: async (request: Request) => saved.get(request.url)?.clone(),
+      put: async (request: Request, response: Response) => {
+        puts++
+        saved.delete(request.url)
+        saved.set(request.url, response)
+      },
+      delete: async (request: Request) => saved.delete(request.url),
+      keys: async () => [...saved.keys()].map((url) => new Request(url)),
+    }
+    vi.stubGlobal('caches', { open: async () => cache })
+    const { fetch, template, mismatch } = await observedTemplate()
+    const requests = recordMaskRequests(fetch)
+    let release = (): void => {}
+    requests.hold = new Promise((resolve) => {
+      release = resolve
+    })
+
+    expect(mismatch.serverMismatchMaskFor(template, tile)).toBeNull()
+    await vi.waitFor(() => expect(requests.validators).toHaveLength(1))
+    mismatch.invalidateServerMismatchTiles(origin, [tile])
+    requests.hold = null
+    release()
+    await vi.waitFor(() => {
+      mismatch.serverMismatchMaskFor(template, tile)
+      expect(requests.statuses).toEqual([200, 304])
+    })
+
+    // Saved once, by the confirming 304: the overtaken 200 itself wrote nothing.
+    await vi.waitFor(() => expect(puts).toBe(1))
+    await vi.advanceTimersByTimeAsync(100)
+    expect(puts).toBe(1)
+    const [entry] = saved.values()
+    expect(entry?.headers.get('etag')).toBe(requests.validators[1])
+    expect(new Uint8Array((await entry?.clone().arrayBuffer()) ?? new ArrayBuffer(0))).toHaveLength(
+      13,
+    )
+  })
+})

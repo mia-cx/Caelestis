@@ -12,9 +12,12 @@ import {
   install,
   loadTilePixels,
   registerDraftCanvas,
+  settledTileCaptures,
+  tilePixels,
 } from '../src/tile-transform.js'
 import { installWplaceCursors } from '../src/wplace-cursors.js'
 import { installWplaceFont } from '../src/wplace-font.js'
+import { runMarkerPatchingContracts } from './marker-patching.js'
 import { runPanelSurfaceContracts } from './panel-surfaces.js'
 import { runSparseOutlineContracts } from './sparse-outlines.js'
 
@@ -80,6 +83,16 @@ export const runProductionBrowserBoundaries = async () => {
   const recovered = await loadTilePixels(tile)
   if (recovered?.length !== TILE_SIZE * TILE_SIZE || recovered.some((pixel) => pixel !== 5))
     throw new Error('Refresh recovery did not read the served tile loaded before capture installed')
+  // Wplace's own path: its decode resolves before Caelestis reads the tile, and closing the bitmap
+  // once drawn does not lose that read.
+  const wplaceTile = await window.fetch(tileUrl)
+  const decoded = await window.createImageBitmap(new Blob([await wplaceTile.arrayBuffer()]))
+  if (decoded.width !== TILE_SIZE || tilePixels(tile)?.[0] !== 5)
+    throw new Error('Wplace waited for Caelestis to read its tile')
+  decoded.close()
+  await settledTileCaptures()
+  if (tilePixels(tile) !== recovered || recovered.some((pixel) => pixel !== 9))
+    throw new Error('Caelestis lost the tile Wplace decoded')
   Object.defineProperty(performance, 'getEntriesByType', {
     configurable: true,
     value: originalEntries,
@@ -133,6 +146,7 @@ export const runProductionBrowserBoundaries = async () => {
   if (mismatchWorkerMemoryBytes() !== 0)
     throw new Error('forgetInWorker retained browser test pixels')
   runSparseOutlineContracts()
+  runMarkerPatchingContracts()
 
   // Font override contract against Wplace's own font rules as shipped (copied verbatim from
   // wplace.live's `0.Brd0iqiK.css`), so the override is tested against the cascade it has to win.

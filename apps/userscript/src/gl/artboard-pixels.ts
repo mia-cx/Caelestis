@@ -148,7 +148,11 @@ const crosshairPresence = (canvas: HTMLCanvasElement): Uint8Array | null => {
   }
 }
 
+/** Moves whenever a held crosshair presence array is patched in place or dropped. */
+let crosshairGeneration = 0
+
 const patchCrosshairPixels = (canvas: HTMLCanvasElement, dirty: CanvasWriteRect | null): void => {
+  crosshairGeneration++
   const held = crosshairPixels.get(canvas)
   if (held === undefined) return
   if (held.width !== canvas.width || held.height !== canvas.height || dirty === null) {
@@ -192,6 +196,42 @@ const patchCrosshairPixels = (canvas: HTMLCanvasElement, dirty: CanvasWriteRect 
   }
 }
 
+/** Native artboard pixels with a revision: two reads with the same revision hold the same pixels. */
+export interface ArtboardPixels extends NativePixelSnapshot {
+  readonly revision: number
+}
+
+/** No artboard to read: every pixel is unknown, so this snapshot never changes. */
+export const NO_ARTBOARD_PIXELS: ArtboardPixels = { committed: [], draft: [], revision: -1 }
+
+// Retained canvas pixels change in place, so a read alone cannot tell whether they moved. Patches
+// and HQ snapshots advance the revision; so does a read whose source arrays differ from the last
+// read's, which covers canvases Wplace mounts, replaces or removes without a write.
+let pixelRevision = 0
+let lastSources: readonly NativePixelRegion[] = []
+onHeadquartersPixelsChange(() => {
+  pixelRevision++
+})
+
+const sourceOf = (region: NativePixelRegion): Uint8Array => region.present ?? region.pixels
+
+const sameSources = (
+  left: readonly NativePixelRegion[],
+  right: readonly NativePixelRegion[],
+): boolean =>
+  left.length === right.length &&
+  left.every((region, at) => {
+    const other = right[at]
+    return (
+      other !== undefined &&
+      sourceOf(region) === sourceOf(other) &&
+      region.x === other.x &&
+      region.y === other.y &&
+      region.width === other.width &&
+      region.height === other.height
+    )
+  })
+
 /** Patch a retained native canvas snapshot after Wplace changes a bounded rectangle. */
 export const patchArtboardPixels = (
   active: ActiveAllianceSurface,
@@ -199,6 +239,7 @@ export const patchArtboardPixels = (
   canvas: HTMLCanvasElement,
   dirty: CanvasWriteRect | null,
 ): void => {
+  pixelRevision++
   if (canvas.classList.contains('paint-crosshair-tile')) {
     patchCrosshairPixels(canvas, dirty)
     return
@@ -623,8 +664,43 @@ const draftMarks = (
   return marks.length > 0 ? marks : null
 }
 
+const sameMarks = (left: readonly DraftMarks[], right: readonly DraftMarks[]): boolean =>
+  left.length === right.length &&
+  left.every((mark, at) => {
+    const other = right[at]
+    return (
+      other !== undefined &&
+      mark.present === other.present &&
+      mark.x === other.x &&
+      mark.y === other.y &&
+      mark.width === other.width &&
+      mark.height === other.height
+    )
+  })
+
+/** Each draft's marked part, kept until its marks change so equal reads keep their revision. */
+const markedDrafts = new WeakMap<
+  NativePixelRegion,
+  {
+    readonly generation: number
+    readonly marks: readonly DraftMarks[]
+    readonly result: NativePixelRegion | null
+  }
+>()
+
 /** The part of a tile's candidate drafts that Wplace marks as drafted. */
 const markedDraft = (
+  draft: NativePixelRegion,
+  marks: readonly DraftMarks[],
+): NativePixelRegion | null => {
+  const held = markedDrafts.get(draft)
+  if (held?.generation === crosshairGeneration && sameMarks(held.marks, marks)) return held.result
+  const result = markDraft(draft, marks)
+  markedDrafts.set(draft, { generation: crosshairGeneration, marks, result })
+  return result
+}
+
+const markDraft = (
   draft: NativePixelRegion,
   marks: readonly DraftMarks[],
 ): NativePixelRegion | null => {
@@ -713,13 +789,19 @@ export const refreshArtboardPixels = (
 export const readArtboardPixels = (
   active: ActiveAllianceSurface,
   geometry: ArtboardPixelGeometry,
-): NativePixelSnapshot => {
-  if (active.surface.kind !== 'alliance-headquarters')
-    return { committed: assetPixels(active, geometry), draft: draftPixels(active, geometry) }
-  const visible = hqPixels(active, geometry)
-  const committed = headquartersPixels(active.surface.allianceId, geometry, visible)
+): ArtboardPixels => {
+  const hq = active.surface.kind === 'alliance-headquarters'
+  const visible = hq ? hqPixels(active, geometry) : assetPixels(active, geometry)
+  const complete = hq ? headquartersPixels(active.surface.allianceId, geometry, visible) : null
+  const committed = complete ?? visible
   // Drafts are what Wplace's tiles show beyond committed art, so they need the complete snapshot.
-  return committed === null
-    ? { committed: visible, draft: [] }
-    : { committed, draft: headquartersDraftPixels(active, geometry, committed) }
+  const draft = !hq
+    ? draftPixels(active, geometry)
+    : complete === null
+      ? []
+      : headquartersDraftPixels(active, geometry, complete)
+  const sources = [...visible, ...committed, ...draft]
+  if (!sameSources(sources, lastSources)) pixelRevision++
+  lastSources = sources
+  return { committed, draft, revision: pixelRevision }
 }

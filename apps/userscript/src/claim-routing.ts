@@ -153,10 +153,22 @@ export class ClaimRouter {
     this.prune()
   }
 
-  /** Refresh shared intent while the browser-wide mutation lock is held. */
+  /**
+   * Refresh shared intent while the browser-wide mutation lock is held. A claim whose document is
+   * unchanged keeps the document object it had, so its cached raster survives the reload.
+   */
   restore(saved: readonly Entry[]): void {
+    const previous = new Map(this.entries)
     this.entries.clear()
-    for (const entry of saved) this.entries.set(entry.region.id, entry)
+    for (const entry of saved) {
+      const document = previous.get(entry.region.id)?.region.document
+      const unchanged =
+        document !== undefined && JSON.stringify(document) === JSON.stringify(entry.region.document)
+      this.entries.set(
+        entry.region.id,
+        unchanged ? { ...entry, region: { ...entry.region, document } } : entry,
+      )
+    }
     this.prune()
   }
 
@@ -639,8 +651,15 @@ export class ClaimRouter {
 
 const retirementKey = (server: ConnectedServer): string =>
   `${STORAGE_KEY}.retired:${encodeURIComponent(server.url)}`
-const setRetired = (server: ConnectedServer, retired: boolean): void =>
+/**
+ * Set when this tab wrote the journal or a retirement during the current locked operation. A
+ * disconnect retires its server without the lock, so it can land while another operation holds it.
+ */
+let claimsWritten = false
+const setRetired = (server: ConnectedServer, retired: boolean): void => {
+  claimsWritten = true
   storeValue(retirementKey(server), JSON.stringify(retired))
+}
 const load = (): Entry[] => {
   try {
     const raw: unknown = JSON.parse(storedValue(STORAGE_KEY) ?? '[]')
@@ -671,6 +690,13 @@ const load = (): Entry[] => {
   }
 }
 
+const persist = (entries: readonly Entry[]): void => {
+  const raw = JSON.stringify(entries)
+  if (storedValue(STORAGE_KEY) === raw) return
+  claimsWritten = true
+  storeValue(STORAGE_KEY, raw)
+}
+
 let router: ClaimRouter | undefined
 const localRouter = (): ClaimRouter =>
   (router ??= new ClaimRouter(
@@ -679,7 +705,7 @@ const localRouter = (): ClaimRouter =>
       templates: (server, region) => rowsForSurface(server, region.surface)?.templates,
       claims: presenceServerClaims,
       actor: accountIdentity,
-      persist: (entries) => storeValue(STORAGE_KEY, JSON.stringify(entries)),
+      persist,
       saved: load,
       retired: (server) => storedValue(retirementKey(server)) === 'true',
       retire: (server) => setRetired(server, true),
@@ -707,13 +733,14 @@ const withClaims = <T>(operation: (router: ClaimRouter) => Promise<T>): Promise<
   const run = async (): Promise<T> => {
     // The extension's storage is asynchronous: catch up on other tabs' writes after taking the
     // lock, and store ours before giving it up, so the next tab reads what this one wrote.
+    claimsWritten = false
     await syncStoredValues()
     const router = localRouter()
     router.restore(load())
     try {
       return await operation(router)
     } finally {
-      await syncStoredValues()
+      if (claimsWritten) await syncStoredValues()
     }
   }
   const next = pendingOperation.then(async (): Promise<T> => {

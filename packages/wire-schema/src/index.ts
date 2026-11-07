@@ -6,6 +6,7 @@ import {
   isRegionShape,
   MAX_HOME_COPY_LENGTH,
   MAX_LIVE_MESSAGE_BYTES,
+  MAX_LIVE_PAINT_BYTES,
   MAX_LIVE_PAINT_PARTS,
   MAX_LIVE_PROJECTIONS,
   MAX_LIVE_TEMPLATE_IDS,
@@ -780,49 +781,101 @@ export const Manifest = ManifestStruct.pipe(
   ),
 )
 
-const TileLocalCoordinate = integerBetween(0, TILE_SIZE - 1)
-const PaletteIndex = integerBetween(0, MAX_PALETTE_INDEX)
+/**
+ * Most pixels one paint event may carry: an operational bound on validation work, not a Wplace rule
+ * (#169). Every pixel adds at least six JSON bytes (three one-digit numbers and their separators),
+ * so no event that fits the live transport's reassembly limit can carry more.
+ */
+export const MAX_PAINT_PIXELS = Math.floor(MAX_LIVE_PAINT_BYTES / 6)
 
-const PaintPixelsStruct = Schema.Struct({
-  x: Schema.Array(TileLocalCoordinate),
-  y: Schema.Array(TileLocalCoordinate),
-  colors: Schema.Array(PaletteIndex),
+const isIntegerBetween = (value: unknown, minimum: number, maximum: number): value is number =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value >= minimum && value <= maximum
+
+const isRecord = (value: unknown): value is object =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+/** One byte per tile-local coordinate. Shared because validation is synchronous; always left zeroed. */
+let claimedPixels: Uint8Array | undefined
+
+/**
+ * Validate a structure-of-arrays payload in one pass, with at most `limit` pixels: equal lengths,
+ * tile-local coordinates, palette colours, and each coordinate once.
+ *
+ * A coordinate may appear once. `submitted` is derived by counting these entries, and equal
+ * `painted`/`submitted` means "classify and credit them all", so without this a reporter claims
+ * one on-template pixel many times and is credited for every repeat. The same anti-double-count
+ * rule is already enforced on the server-authored side, for chunks within a template and for
+ * overlapping templates within a group; this is the client-authored side of it.
+ *
+ * Colour is deliberately not part of the key: two different colours claimed for one coordinate are
+ * contradictory, not additive, and must not both be credited.
+ */
+const isPaintPixels = (value: unknown, limit = MAX_PAINT_PIXELS): value is Shared.PaintPixels => {
+  if (!isRecord(value) || !('x' in value && 'y' in value && 'colors' in value)) return false
+  if (!Array.isArray(value.x) || !Array.isArray(value.y) || !Array.isArray(value.colors))
+    return false
+  const columns: readonly unknown[] = value.x
+  const rows: readonly unknown[] = value.y
+  const colors: readonly unknown[] = value.colors
+  const length = columns.length
+  if (length > limit || rows.length !== length || colors.length !== length) return false
+  claimedPixels ??= new Uint8Array(TILE_SIZE * TILE_SIZE)
+  const claimed = claimedPixels
+  let checked = 0
+  for (; checked < length; checked += 1) {
+    const column = columns[checked]
+    const row = rows[checked]
+    if (
+      !isIntegerBetween(column, 0, TILE_SIZE - 1) ||
+      !isIntegerBetween(row, 0, TILE_SIZE - 1) ||
+      !isIntegerBetween(colors[checked], 0, MAX_PALETTE_INDEX)
+    )
+      break
+    const key = column * TILE_SIZE + row
+    if (claimed[key] === 1) break
+    claimed[key] = 1
+  }
+  // Every coordinate before `checked` passed and marked exactly one key; unmark them all.
+  for (let index = 0; index < checked; index += 1)
+    claimed[Number(columns[index]) * TILE_SIZE + Number(rows[index])] = 0
+  return checked === length
+}
+
+const isPaintTile = (value: unknown, limit = MAX_PAINT_PIXELS): value is Shared.PaintTile =>
+  isRecord(value) &&
+  'x' in value &&
+  'y' in value &&
+  'pixels' in value &&
+  isIntegerBetween(value.x, 0, WORLD_TILES - 1) &&
+  isIntegerBetween(value.y, 0, WORLD_TILES - 1) &&
+  isPaintPixels(value.pixels, limit)
+
+/**
+ * Non-empty, distinct tiles whose pixels together stay within MAX_PAINT_PIXELS. The budget shrinks
+ * before each tile is read, so an oversized event is refused without walking its pixels.
+ *
+ * Per-tile uniqueness is not enough on its own: repeating the whole tile entry reaches the same
+ * canvas coordinates again, and `submitted` counts each entry.
+ */
+const isPaintTiles = (value: unknown): value is readonly Shared.PaintTile[] => {
+  if (!Array.isArray(value)) return false
+  const tiles: readonly unknown[] = value
+  const seen = new Set<number>()
+  let submitted = 0
+  for (const tile of tiles) {
+    if (!isPaintTile(tile, MAX_PAINT_PIXELS - submitted) || tile.pixels.x.length === 0) return false
+    seen.add(tile.x * WORLD_TILES + tile.y)
+    submitted += tile.pixels.x.length
+  }
+  return seen.size === tiles.length
+}
+
+export const PaintPixels = Schema.declare<Shared.PaintPixels>((value) => isPaintPixels(value), {
+  expected: `at most ${MAX_PAINT_PIXELS} unique tile-local pixels in equal-length x, y and colors arrays`,
 })
 
-export const PaintPixels = PaintPixelsStruct.pipe(
-  Schema.check(
-    booleanFilter(
-      (pixels: Schema.Schema.Type<typeof PaintPixelsStruct>) =>
-        pixels.x.length === pixels.y.length && pixels.y.length === pixels.colors.length,
-      'x, y and colors must have equal lengths',
-    ),
-    /**
-     * A coordinate may appear once. `submitted` is derived by counting these entries, and equal
-     * `painted`/`submitted` means "classify and credit them all" — so without this a reporter
-     * claims one on-template pixel many times and is credited for every repeat. The same
-     * anti-double-count rule is already enforced on the server-authored side, for
-     * chunks within a template and for overlapping templates within a group; this is the
-     * client-authored side of it.
-     *
-     * Colour is deliberately not part of the key: two different colours claimed for one coordinate
-     * are contradictory, not additive, and must not both be credited.
-     */
-    booleanFilter((pixels: Schema.Schema.Type<typeof PaintPixelsStruct>) => {
-      const seen = new Set<number>()
-      for (let index = 0; index < pixels.x.length; index += 1) {
-        // Pack into one number rather than a string key. Both coordinates are bounded by TILE_SIZE,
-        // so this stays exact and allocation-free.
-        seen.add((pixels.x[index] ?? 0) * TILE_SIZE + (pixels.y[index] ?? 0))
-      }
-      return seen.size === pixels.x.length
-    }, 'each pixel coordinate may be submitted once'),
-  ),
-)
-
-export const PaintTile = Schema.Struct({
-  x: integerBetween(0, WORLD_TILES - 1),
-  y: integerBetween(0, WORLD_TILES - 1),
-  pixels: PaintPixels,
+export const PaintTile = Schema.declare<Shared.PaintTile>((value) => isPaintTile(value), {
+  expected: 'a world tile with its unique tile-local pixels',
 })
 
 const PaintEventStruct = Schema.Struct({
@@ -831,7 +884,9 @@ const PaintEventStruct = Schema.Struct({
   displayName: Name,
   season: Season,
   ts: Seconds,
-  tiles: Schema.Array(PaintTile),
+  tiles: Schema.declare(isPaintTiles, {
+    expected: `distinct non-empty paint tiles with at most ${MAX_PAINT_PIXELS} pixels in total`,
+  }),
   painted: Schema.NullOr(NonNegativeInteger),
 })
 
@@ -839,23 +894,10 @@ export const PaintEvent = PaintEventStruct.pipe(
   Schema.check(
     booleanFilter(
       (event: Schema.Schema.Type<typeof PaintEventStruct>) =>
-        event.tiles.every((tile) => tile.pixels.x.length > 0),
-      'every submitted tile must carry at least one pixel',
+        event.painted === null ||
+        event.painted <= event.tiles.reduce((total, tile) => total + tile.pixels.x.length, 0),
+      'painted must not exceed the submitted pixels',
     ),
-    // Per-tile uniqueness is not enough on its own: repeating the whole tile entry reaches the same
-    // canvas coordinates again, and `submitted` counts each entry.
-    booleanFilter(
-      (event: Schema.Schema.Type<typeof PaintEventStruct>) =>
-        new Set(event.tiles.map((tile) => tile.x * WORLD_TILES + tile.y)).size ===
-        event.tiles.length,
-      'each tile may appear once per event',
-    ),
-    booleanFilter((event: Schema.Schema.Type<typeof PaintEventStruct>) => {
-      const submitted = event.tiles.reduce((total, tile) => total + tile.pixels.x.length, 0)
-      return (
-        Number.isSafeInteger(submitted) && (event.painted === null || event.painted <= submitted)
-      )
-    }, 'painted must not exceed the submitted pixels'),
   ),
 )
 

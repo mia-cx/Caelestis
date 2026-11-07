@@ -1,7 +1,11 @@
 import { planTimelapseTiles, tileKey, WORLD_PIXELS } from '@caelestis/shared'
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { template } from '../tests/fixtures'
-import { timelapseLayout } from './render'
+
+const chunkImageUrl = vi.hoisted(() => vi.fn(async (hash: string) => `blob:${hash}`))
+vi.mock('#lib/api/client.js', () => ({ chunkImageUrl, tileImageUrl: chunkImageUrl }))
+
+import { chunkImage, IMAGE_CACHE_PIXELS, timelapseLayout } from './render'
 
 const at = (id: string, minX: number, minY: number, size = 100) =>
   template({
@@ -82,4 +86,32 @@ it('draws a tile at both ends when captures span every longitude', () => {
   const cut = layout.tiles.filter((tile) => tile.key === '0/0')
   expect(cut.map((tile) => tile.x)).toEqual([0, WORLD_PIXELS])
   expect(cut[1]?.templates).toEqual([seam])
+})
+
+it('keeps decoded images within the pixel budget, dropping the least recently used', async () => {
+  const MEGAPIXEL_SIDE = 1_024
+  // A loaded image of one megapixel per URL; the browser decodes nothing here.
+  vi.stubGlobal(
+    'Image',
+    class {
+      naturalWidth = MEGAPIXEL_SIDE
+      naturalHeight = MEGAPIXEL_SIDE
+      onload: (() => void) | null = null
+      set src(_url: string) {
+        queueMicrotask(() => this.onload?.())
+      }
+    },
+  )
+  const capacity = IMAGE_CACHE_PIXELS / MEGAPIXEL_SIDE ** 2
+  for (let index = 0; index < capacity; index++) await chunkImage(`full-${index}`)
+  await chunkImage('full-0')
+
+  await chunkImage('overflow')
+  chunkImageUrl.mockClear()
+  await chunkImage('full-0')
+  await chunkImage('full-1')
+
+  // The recently reused image stays; the oldest untouched one was dropped and loads again.
+  expect(chunkImageUrl.mock.calls).toEqual([['full-1']])
+  vi.unstubAllGlobals()
 })

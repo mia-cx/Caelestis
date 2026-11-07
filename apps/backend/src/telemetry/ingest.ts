@@ -5,6 +5,7 @@ import {
   millis,
   PALETTE_RGB,
   type PaintEvent,
+  pngSize,
   quantiseToPalette,
   type Seconds,
   seconds,
@@ -195,13 +196,12 @@ const chunkRect = (target: ClassificationTarget): ChunkRect | null => {
 }
 
 const decodeCanvas = async (bytes: Uint8Array): Promise<Uint8Array> => {
-  const image = await decodePng(bytes)
-  if (image.width !== TILE_SIZE || image.height !== TILE_SIZE) {
-    throw new RangeError(
-      `canvas tile is ${image.width}x${image.height}, expected ${TILE_SIZE}x${TILE_SIZE}`,
-    )
+  // Reporters upload these. Check the header before decoding allocates the size it declares.
+  const { width, height } = pngSize(bytes)
+  if (width !== TILE_SIZE || height !== TILE_SIZE) {
+    throw new RangeError(`canvas tile is ${width}x${height}, expected ${TILE_SIZE}x${TILE_SIZE}`)
   }
-  return quantiseToPalette(image.pixels, PALETTE_RGB).indices
+  return quantiseToPalette((await decodePng(bytes)).pixels, PALETTE_RGB).indices
 }
 
 const decodeCanvasInput = (hash: string, bytes: Uint8Array): Promise<Uint8Array> =>
@@ -519,30 +519,38 @@ const recordObservationPromise = async (
   // The fetcher evaluates its complete scan/follow-up after its authoritative tile batch.
   const alarmsStartedAt = performance.now()
   if (options.authoritative !== true && committed.revision !== null && alarmChanges.length > 0) {
-    for (const {
-      previous,
-      current,
-      previousTemplateCorrect,
-      previousTemplateObservedAt,
-      totalPixels,
-    } of alarmChanges) {
-      await ports.sql.evaluateTemplateAlarm(
-        {
-          templateId: current.templateId,
-          versionId: current.versionId,
-          total: totalPixels,
-          correct: previousTemplateCorrect - (previous?.correct ?? 0) + current.correct,
-          observedAt: millis(Math.max(current.observedAt, previousTemplateObservedAt)),
-          observationRevision: committed.revision,
-        },
-        {
-          kind: 'observation',
-          previousCorrect: previousTemplateCorrect,
-        },
-        uuidV7(),
-      )
+    let alarmChanged = false
+    try {
+      for (const {
+        previous,
+        current,
+        previousTemplateCorrect,
+        previousTemplateObservedAt,
+        totalPixels,
+      } of alarmChanges) {
+        const evaluation = await ports.sql.evaluateTemplateAlarm(
+          {
+            templateId: current.templateId,
+            versionId: current.versionId,
+            total: totalPixels,
+            correct: previousTemplateCorrect - (previous?.correct ?? 0) + current.correct,
+            observedAt: millis(Math.max(current.observedAt, previousTemplateObservedAt)),
+            observationRevision: committed.revision,
+          },
+          {
+            kind: 'observation',
+            previousCorrect: previousTemplateCorrect,
+          },
+          uuidV7(),
+        )
+        alarmChanged ||= evaluation.alarmChanged
+      }
+    } finally {
+      // Progress that moves no alarm, such as painting toward a new high-water mark, owes
+      // subscribers nothing. A changed alarm also covers every follow-up probe it scheduled.
+      // Each evaluation commits on its own, so a later failure still owes the earlier changes.
+      if (alarmChanged) await publishAlarmChange(ports.statusReadModel, metadata.season)
     }
-    await publishAlarmChange(ports.statusReadModel, metadata.season)
   }
   ingestTimings.record(command, 'alarms', performance.now() - alarmsStartedAt)
   // Publish the authoritative revision first. A caller processing many tiles owns one shared batch

@@ -11,7 +11,7 @@ import {
   regionDocumentPixels,
   regionDocumentWork,
   regionShapeBounds,
-  regionShapePixels,
+  regionShapeRaster,
 } from '@caelestis/shared'
 
 const pixelCache = new WeakMap<RegionDocument, RegionShapePixels | null>()
@@ -21,17 +21,6 @@ export const claimDocumentPixels = (document: RegionDocument): RegionShapePixels
   if (pixels === undefined) {
     pixels = regionDocumentPixels(document)
     pixelCache.set(document, pixels)
-  }
-  return pixels
-}
-
-const shapePixelCache = new WeakMap<RegionShape, RegionShapePixels>()
-
-const shapePixels = (shape: RegionShape): RegionShapePixels => {
-  let pixels = shapePixelCache.get(shape)
-  if (pixels === undefined) {
-    pixels = regionShapePixels(shape)
-    shapePixelCache.set(shape, pixels)
   }
   return pixels
 }
@@ -48,8 +37,8 @@ export const regionShapesTouch = (a: RegionShape, b: RegionShape): boolean => {
   )
   if (overlap === null) return false
   if (a.kind === 'rectangle' && b.kind === 'rectangle') return true
-  const left = a.kind === 'rectangle' ? null : shapePixels(a)
-  const right = b.kind === 'rectangle' ? null : shapePixels(b)
+  const left = a.kind === 'rectangle' ? null : regionShapeRaster(a)
+  const right = b.kind === 'rectangle' ? null : regionShapeRaster(b)
   for (let y = overlap.y; y < overlap.y + overlap.h; y++) {
     for (let x = overlap.x; x < overlap.x + overlap.w; x++) {
       if (right !== null && right.mask[(y - right.rect.y) * right.rect.w + x - right.rect.x] !== 1)

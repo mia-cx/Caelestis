@@ -26,6 +26,7 @@ import {
   installAllianceOverlayLayer,
   repaintAllianceOverlayLayer,
 } from './gl/artboard-layer.js'
+import { onMapThemeChange } from './gl/contrast-outline.js'
 import {
   installOverlayLayer,
   overlayGpuMemoryBytes,
@@ -34,7 +35,6 @@ import {
 } from './gl/layer.js'
 import {
   keepMarkersAboveDrafts,
-  markerBatchMemoryBytes,
   markerDensityMemoryBytes,
   markerGpuMemoryBytes,
 } from './gl/markers.js'
@@ -323,7 +323,6 @@ export const installPageHooks = (): void => {
   registerProfileMemorySource('Alliance overlay GPU buffers', allianceOverlayGpuMemoryBytes)
   registerProfileMemorySource('Overlay index staging', overlayStagingMemoryBytes)
   registerProfileMemorySource('Marker density buffers', markerDensityMemoryBytes)
-  registerProfileMemorySource('Marker draw batches', markerBatchMemoryBytes)
   registerProfileMemorySource('Marker GPU buffers', markerGpuMemoryBytes)
   // These traps must be armed before Wplace's modules evaluate or MapLibre constructs its Map.
   step('service-worker tile refresh tap', () => installServiceWorkerTap())
@@ -505,13 +504,13 @@ export const installFeatures = (): void => {
       isPaintOpen() || pixelAccounting.wantsTilePixels(tile)
     const captureScope = watchCaptureScope()
     const sync = (): void => {
-      const on = pixelAccounting.wantsTilePixels() || isPaintOpen()
-      captureTilePixels(on, interest)
+      // The scope holds a tile exactly when `wantsTilePixels()` would answer yes, and unlike it,
+      // costs nothing on a frame where nothing changed.
+      const scope = pixelAccounting.captureScopeTiles()
+      captureTilePixels(scope.size > 0 || isPaintOpen(), interest)
       // Pixels kept while capture was off may be stale, and tiles are no longer re-downloaded on a
-      // timer to correct them. When capture starts caring about more, re-read everything visible.
-      captureScope(
-        on ? [...(isPaintOpen() ? ['paint'] : []), ...pixelAccounting.captureScopeKeys()] : [],
-      )
+      // timer to correct them. When capture starts caring about a tile, re-read it.
+      captureScope(isPaintOpen(), scope)
     }
     sync()
     onStateChange(sync)
@@ -537,6 +536,7 @@ export const installFeatures = (): void => {
   onLocalChange(redraw)
   onLocalPreviewChange(redraw)
   onStateChange(redraw)
+  onMapThemeChange(redraw)
   step('panel', () => {
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', installPanel, { once: true })

@@ -16,6 +16,11 @@ export interface RevisionedStatusSnapshot extends StatusResponse {
 export interface StatusSnapshotRead {
   readonly snapshot: RevisionedStatusSnapshot
   readonly cacheOutcome: 'hit' | 'miss' | 'stale'
+  /**
+   * Changes whenever either scope's snapshot can. The revision alone can repeat after an archive
+   * restore rewinds it, but the projection rebuilt then carries a new reconciliation time.
+   */
+  readonly validator: string
 }
 
 export interface PersistedStatusReadModel {
@@ -107,6 +112,10 @@ export interface StatusProjectionMutation {
 
 export const STATUS_READ_MODEL_TTL_MILLISECONDS = 3 * 60_000
 
+/** The order every persisted and projected template list keeps. */
+export const byTemplateId = (left: TemplateStatus, right: TemplateStatus): number =>
+  left.templateId.localeCompare(right.templateId)
+
 const sameTemplates = (
   left: readonly TemplateStatus[],
   right: readonly TemplateStatus[],
@@ -138,9 +147,12 @@ const deltaFor = (
   return {
     baseRevision: previous.revision,
     revision: next.revision,
-    templates: after.filter(
-      (status) => JSON.stringify(before.get(status.templateId)) !== JSON.stringify(status),
-    ),
+    // A mutation keeps every template it did not touch as the same object, so only replaced
+    // templates pay for a deep comparison.
+    templates: after.filter((status) => {
+      const held = before.get(status.templateId)
+      return held !== status && JSON.stringify(held) !== JSON.stringify(status)
+    }),
     removedTemplateIds: [...before.keys()].filter((templateId) => !afterIds.has(templateId)),
     ...(invalidateAllTiles
       ? { invalidateAllTiles: true as const }
@@ -231,7 +243,7 @@ const applyScopeMutation = (
       observedAt: Math.max(base.observedAt, change.current.observedAt) as Millis,
     })
   }
-  return [...next.values()].sort((left, right) => left.templateId.localeCompare(right.templateId))
+  return [...next.values()].sort(byTemplateId)
 }
 
 /**
@@ -411,7 +423,11 @@ export const createSeasonStatusReadModel = (options: {
     reconcileSnapshot: (scope) =>
       exclusive(async () => {
         const read = await reconcile(false)
-        return { snapshot: snapshotFor(read.state, scope), cacheOutcome: read.cacheOutcome }
+        return {
+          snapshot: snapshotFor(read.state, scope),
+          cacheOutcome: read.cacheOutcome,
+          validator: `${read.state.revision}.${read.state.reconciledAt}`,
+        }
       }),
     attachSubscriber: (subscriber) =>
       exclusive(async () => {

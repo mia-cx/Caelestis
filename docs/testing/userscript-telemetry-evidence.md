@@ -20,6 +20,7 @@ pnpm --filter @caelestis/userscript test test/api-telemetry.test.ts
 | Tile offer and upload HTTP | A Wplace tile fetch passes through the installed userscript tap. Its consumed 1000px PNG triggers the userscript's real offer and upload requests. | Live WebSocket offer delivery needs a userscript client integration fixture. |
 | Paint reports | A successful Wplace paint response passes through the installed userscript tap. A lost backend acknowledgement makes the client retry the same generated event id, which the real backend records once and then marks duplicate. | Partial Wplace acceptance and multi-server coverage splitting need dedicated Wplace fixtures. |
 | Status refresh | The userscript telemetry resource fetches populated `/telemetry/status` and exposes the server's classified progress. | Alarm refresh and live status deltas need alarm-producing or WebSocket runtime fixtures. |
+| Mismatch masks | An observed tile's mask arrives with an ETag. After a paint invalidation the client keeps drawing it and revalidates with `If-None-Match`, receiving 304. Paints during a request add one follow-up request. A server that sends no ETag still gets a full re-read. | Saved masks in Cache Storage need a browser; the test runtime has no Cache Storage. |
 
 The ordinary memory backend supports the HTTP telemetry routes. This evidence does not cover Durable
 Object sockets, relational stores, or Wplace network behavior.

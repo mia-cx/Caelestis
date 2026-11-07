@@ -6,11 +6,17 @@ import { createApp } from '../../src/app.js'
 import { hashToken } from '../../src/auth/tokens.js'
 import type { SqlStore } from '../../src/ports/sql-store.js'
 import { makeBackendContext } from '../../src/runtime/backend-runtime.js'
+import type { StatusReadModelPort } from '../../src/status-read-model/port.js'
 
 export const adminToken = 'ADMIN-TEST-TOKEN'
 
 export const createTestBackend = async (
-  options: { openAccess?: boolean; sql?: SqlStore; bootstrapAdminToken?: string } = {},
+  options: {
+    openAccess?: boolean
+    sql?: SqlStore
+    bootstrapAdminToken?: string
+    statusReadModel?: (sql: SqlStore) => StatusReadModelPort
+  } = {},
 ) => {
   const sql = options.sql ?? new MemorySqlStore()
   const blobs = new MemoryBlobStore()
@@ -23,7 +29,7 @@ export const createTestBackend = async (
     createdWithToken: tokenHash,
     createdAt: millis(1),
   })
-  const app = createApp(makeBackendContext(blobs, sql, counters), {
+  const app = createApp(makeBackendContext(blobs, sql, counters, options.statusReadModel?.(sql)), {
     serverId: '00000000-0000-7000-8000-000000000000',
     serverName: 'Test server',
     currentSeason: 3,

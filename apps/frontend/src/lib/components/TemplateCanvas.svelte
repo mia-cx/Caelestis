@@ -5,7 +5,14 @@ import {
   type TileKey,
   timelapseCaptureRect,
 } from '@caelestis/shared'
-import { drawCanvasTiles, drawTemplateChunks, osmImage, osmSpan, osmZoomFor } from '#lib/render.js'
+import {
+  drawCanvasTiles,
+  drawTemplateChunks,
+  osmImage,
+  osmSpan,
+  osmTileDrawRect,
+  osmZoomFor,
+} from '#lib/render.js'
 import { cn } from '#lib/utils.js'
 
 let {
@@ -36,29 +43,66 @@ const rect = $derived.by(() => {
   }
 })
 
+let container = $state<HTMLDivElement | null>(null)
+let shownHeight = $state(0)
+/** Set once the card first nears the viewport; nothing loads or allocates before that. */
+let seen = $state(false)
+
+$effect(() => {
+  const element = container
+  if (element === null || seen) return
+  const observer = new IntersectionObserver(
+    (entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) seen = true
+    },
+    { rootMargin: '200px' },
+  )
+  observer.observe(element)
+  return () => observer.disconnect()
+})
+
+// Canvas pixels per world pixel: the card's device resolution rounded up to a power of two, so
+// small resizes keep the drawing, and never above 1:1.
+const scale = $derived(
+  shownHeight === 0
+    ? 0
+    : Math.min(1, 2 ** Math.ceil(Math.log2((shownHeight * devicePixelRatio) / rect.height))),
+)
+const canvasWidth = $derived(Math.ceil(rect.width * scale))
+const canvasHeight = $derived(Math.ceil(rect.height * scale))
+
 let osmLayer = $state<HTMLCanvasElement | null>(null)
 let tilesLayer = $state<HTMLCanvasElement | null>(null)
 let artLayer = $state<HTMLCanvasElement | null>(null)
 
-// The basemap under everything, like wplace itself. A card renders around 176 CSS pixels tall, so
-// the slippy zoom is chosen for that on-screen density, not the rect's native resolution.
+/** A layer's context drawing in world pixels, cleared, or null before the layer exists. */
+const worldContext = (layer: HTMLCanvasElement | null): CanvasRenderingContext2D | null => {
+  const ctx = layer?.getContext('2d') ?? null
+  if (ctx === null) return null
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  ctx.clearRect(0, 0, canvasWidth, canvasHeight)
+  ctx.setTransform(scale, 0, 0, scale, 0, 0)
+  return ctx
+}
+
+// The basemap under everything, like wplace itself, at the slippy zoom for the card's on-screen
+// density rather than the rect's native resolution. Derived, so a resize within one zoom keeps it.
+const osmZoom = $derived(osmZoomFor(shownHeight / rect.height))
 $effect(() => {
-  const layer = osmLayer
-  if (layer === null) return
-  const ctx = layer.getContext('2d')
+  const ctx = worldContext(osmLayer)
   if (ctx === null) return
   const controller = new AbortController()
-  ctx.clearRect(0, 0, rect.width, rect.height)
   ctx.imageSmoothingEnabled = true
   ctx.imageSmoothingQuality = 'high'
-  const z = osmZoomFor(176 / rect.height)
+  const z = osmZoom
   const span = osmSpan(z)
   for (let ty = Math.floor(rect.y / span); ty <= Math.floor((rect.y + rect.height - 1) / span); ty++) {
     for (let tx = Math.floor(rect.x / span); tx <= Math.floor((rect.x + rect.width - 1) / span); tx++) {
       osmImage(z, ((tx % 2 ** z) + 2 ** z) % 2 ** z, ty)
         .then((image) => {
           if (controller.signal.aborted) return
-          ctx.drawImage(image, tx * span - rect.x, ty * span - rect.y, span, span)
+          const tile = osmTileDrawRect(tx, ty, span, scale)
+          ctx.drawImage(image, tile.x - rect.x, tile.y - rect.y, tile.width, tile.height)
         })
         .catch(() => {})
     }
@@ -69,58 +113,52 @@ $effect(() => {
 // The observed canvas and the template art live on separate stacked layers, so the overlay
 // slider is a CSS opacity change rather than a recomposite of every image.
 $effect(() => {
-  const layer = tilesLayer
-  if (layer === null) return
-  const ctx = layer.getContext('2d')
+  const ctx = worldContext(tilesLayer)
   if (ctx === null) return
   const controller = new AbortController()
-  ctx.clearRect(0, 0, rect.width, rect.height)
-  drawCanvasTiles(
-    ctx,
-    rect,
-    (key) => canvas.get(key)?.hash,
-    controller.signal,
-    () => {},
-  )
+  ctx.imageSmoothingEnabled = false
+  drawCanvasTiles(ctx, rect, (key) => canvas.get(key)?.hash, controller.signal, () => {})
   return () => controller.abort()
 })
 
 $effect(() => {
-  const layer = artLayer
-  if (layer === null) return
-  const ctx = layer.getContext('2d')
+  const ctx = worldContext(artLayer)
   if (ctx === null) return
   const controller = new AbortController()
-  ctx.clearRect(0, 0, rect.width, rect.height)
+  ctx.imageSmoothingEnabled = false
   drawTemplateChunks(ctx, rect, template, 1, controller.signal, () => {})
   return () => controller.abort()
 })
 </script>
 
 <div
+  bind:this={container}
+  bind:clientHeight={shownHeight}
   class={cn('relative overflow-hidden bg-base-200', className)}
   style:aspect-ratio="{rect.width} / {rect.height}"
 >
-  <canvas
-    bind:this={osmLayer}
-    width={rect.width}
-    height={rect.height}
-    class="absolute inset-0 h-full w-full"
-    aria-hidden="true"
-  ></canvas>
-  <canvas
-    bind:this={tilesLayer}
-    width={rect.width}
-    height={rect.height}
-    class="pixelated absolute inset-0 h-full w-full"
-    aria-label="observed canvas under {template.name}"
-  ></canvas>
-  <canvas
-    bind:this={artLayer}
-    width={rect.width}
-    height={rect.height}
-    class="pixelated absolute inset-0 h-full w-full"
-    style:opacity={overlayAlpha}
-    aria-label="{template.name} template art"
-  ></canvas>
+  {#if seen && scale > 0}
+    <canvas
+      bind:this={osmLayer}
+      width={canvasWidth}
+      height={canvasHeight}
+      class="absolute inset-0 h-full w-full"
+      aria-hidden="true"
+    ></canvas>
+    <canvas
+      bind:this={tilesLayer}
+      width={canvasWidth}
+      height={canvasHeight}
+      class="pixelated absolute inset-0 h-full w-full"
+      aria-label="observed canvas under {template.name}"
+    ></canvas>
+    <canvas
+      bind:this={artLayer}
+      width={canvasWidth}
+      height={canvasHeight}
+      class="pixelated absolute inset-0 h-full w-full"
+      style:opacity={overlayAlpha}
+      aria-label="{template.name} template art"
+    ></canvas>
+  {/if}
 </div>

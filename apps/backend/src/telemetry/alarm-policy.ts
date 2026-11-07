@@ -1,3 +1,4 @@
+import type { Alarm } from '@caelestis/shared'
 import type {
   AlarmEvaluationPhase,
   AlarmPolicyResult,
@@ -108,3 +109,15 @@ export const evaluateAlarmSnapshot = (
       (phase.kind === 'scan' || (phase.kind === 'observation' && pixelsLost > current.pixelsLost)),
   }
 }
+
+/** Whether two alarm states describe the same caller-visible alarm. */
+export const sameAlarm = (left: Alarm | null, right: Alarm | null): boolean =>
+  left === right ||
+  (left !== null &&
+    right !== null &&
+    left.id === right.id &&
+    left.templateId === right.templateId &&
+    left.kind === right.kind &&
+    left.pixelsLost === right.pixelsLost &&
+    left.firstSeen === right.firstSeen &&
+    left.lastSeen === right.lastSeen)

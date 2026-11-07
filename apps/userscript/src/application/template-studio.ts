@@ -33,14 +33,7 @@ import {
 import { warn } from '../debug.js'
 import { viewportCentre } from '../main.js'
 import { getState, setState } from '../state.js'
-import {
-  analyseFit,
-  type DitheretteEngine,
-  ditheretteAvailable,
-  runDitherette,
-  sampleEffects,
-} from '../templates/ditherette.js'
-import { cropRgba } from '../templates/ditherette-process.js'
+import type { DitheretteEngine } from '../templates/ditherette.js'
 import {
   decodeToRgba,
   type ImportedTemplate,
@@ -53,7 +46,7 @@ import {
   isMoving,
   syncDraftPlacement,
 } from '../templates/move.js'
-import { sampleArtwork, sampleRgba } from '../templates/scope-samples.js'
+import { cropRgba, sampleArtwork, sampleRgba } from '../templates/scope-samples.js'
 import {
   DEFAULT_STUDIO_SETTINGS,
   type StudioSettings,
@@ -73,6 +66,9 @@ import { loadAccount, ownedColours } from '../wplace-account.js'
  * the author drags into place. Save hands the artwork, its source, and its recipe to the caller;
  * Cancel discards the draft and writes nothing anywhere.
  */
+
+/** Ditherette and its WebAssembly, decoded the first time the studio opens rather than at startup. */
+const ditherette = () => import('../templates/ditherette.js')
 
 /** What Save does with the finished template. */
 export type TemplateStudioTarget =
@@ -347,6 +343,7 @@ const process = async (): Promise<void> => {
     const effects = await resolveFits(loaded, settled, settled.ditherette.effects)
     if (job !== controller) return
     const recipe = { ...settled, ditherette: { ...settled.ditherette, effects } }
+    const { runDitherette } = await ditherette()
     const result = await runDitherette({
       recipe,
       source: { key: loaded.sha256, image: loaded.image },
@@ -409,7 +406,7 @@ const refreshScopes = async (): Promise<void> => {
             ? sampleArtwork(result.recipe.width, result.recipe.height, result.indices)
             : result.recipe.ditherette.effects.length === 0
               ? sourceSamples()
-              : await sampleEffects({
+              : await (await ditherette()).sampleEffects({
                   recipe: result.recipe,
                   source: { key: loaded.sha256, image: loaded.image },
                 })
@@ -748,10 +745,12 @@ const fitCurves = (
   const cached = fitCache.get(key)
   if (cached !== undefined) return cached
   if (fitCache.size >= FIT_CACHE_SIZE) fitCache.clear()
-  const analysis = analyseFit({
-    source: { key: loaded.sha256, image: loaded.image },
-    analysis: { recipe, before, look: step.look, space: step.space },
-  })
+  const analysis = ditherette().then(({ analyseFit }) =>
+    analyseFit({
+      source: { key: loaded.sha256, image: loaded.image },
+      analysis: { recipe, before, look: step.look, space: step.space },
+    }),
+  )
   fitCache.set(key, analysis)
   analysis.catch(() => fitCache.delete(key))
   return analysis
@@ -1211,11 +1210,13 @@ export const openTemplateStudio = (
     // Owned becomes available either way.
     render()
   })
-  void ditheretteAvailable().then((available) => {
-    if (target !== next || available) return
-    message = 'Ditherette cannot run in this browser, so images cannot be processed here.'
-    render()
-  })
+  void ditherette()
+    .then(({ ditheretteAvailable }) => ditheretteAvailable())
+    .then((available) => {
+      if (target !== next || available) return
+      message = 'Ditherette cannot run in this browser, so images cannot be processed here.'
+      render()
+    })
   if (initial !== undefined) void loadSource(initial.image, initial.name)
   return true
 }

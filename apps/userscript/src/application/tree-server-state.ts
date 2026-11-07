@@ -1,5 +1,6 @@
 import { type TemplateSurface, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { allianceManifestFor } from '../alliance-server-sync.js'
+import { recordProfileCounter } from '../profile.js'
 import { cacheServer, loadServerCache, type ServerTemplate } from '../server-cache.js'
 import {
   MAX_MANIFEST_CHUNKS,
@@ -467,9 +468,21 @@ const rememberServerContents = (
  *
  * Without it the tree is empty on every page load until each server answers, which is the wrong
  * first impression and gets worse the more servers are connected.
+ *
+ * Reads only verified servers whose rows are still missing, so once the cache or the network has
+ * filled them, later calls skip IndexedDB. A read that found nothing, or failed, is retried on the
+ * next call; the panel calls this when it opens and when the server list changes. Redraws only
+ * when the cache filled in rows.
  */
 export const primeFromCache = async (rerender: () => void): Promise<void> => {
-  const servers = getState().servers
+  const servers = getState().servers.filter(
+    (server) =>
+      server.lastVerified != null &&
+      (rowsFor(server) === undefined || !templatesByServer.has(server.url)),
+  )
+  if (servers.length === 0) return
+  recordProfileCounter('Server cache reads')
+  let filled = false
   for (const entry of await loadServerCache(servers.map((server) => server.url))) {
     const server = servers.find((candidate) => candidate.url === entry.url)
     const identity = server?.lastVerified
@@ -482,6 +495,7 @@ export const primeFromCache = async (rerender: () => void): Promise<void> => {
       continue
     const replace = rowsFor(server) === undefined
     if (replace) {
+      filled = true
       nodesByServer.set(entry.url, entry.nodes)
       rowIdentityByServer.set(entry.url, `${entry.serverId}:${entry.season}`)
       templatesByServer.set(entry.url, entry.templates ?? [])
@@ -500,10 +514,11 @@ export const primeFromCache = async (rerender: () => void): Promise<void> => {
       templatesByServer.get(entry.url) === undefined &&
       entry.templates !== undefined
     ) {
+      filled = true
       templatesByServer.set(entry.url, entry.templates)
     }
   }
-  rerender()
+  if (filled) rerender()
 }
 
 /**

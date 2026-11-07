@@ -16,6 +16,7 @@ import {
   type Progress,
   type Rgba8Image,
 } from 'ditherette'
+import { cropRgba } from './scope-samples.js'
 
 /**
  * One Ditherette recipe run: crop, then Ditherette's effects, resize, matching, and dither.
@@ -122,22 +123,6 @@ export const applyRecipeEffects = async (
   return 'execution' in processor
     ? await processor.applyEffects(request)
     : processor.applyEffects(request)
-}
-
-/** The crop's pixels as packed RGBA8. A crop covering the whole source returns the source itself. */
-export const cropRgba = (
-  source: Rgba8Image,
-  crop: DitheretteTemplateRecipe['crop'],
-): Rgba8Image => {
-  if (crop.x === 0 && crop.y === 0 && crop.width === source.width && crop.height === source.height)
-    return source
-  const data = new Uint8Array(crop.width * crop.height * 4)
-  const row = crop.width * 4
-  for (let y = 0; y < crop.height; y++) {
-    const start = ((crop.y + y) * source.width + crop.x) * 4
-    data.set(source.data.subarray(start, start + row), y * row)
-  }
-  return { width: crop.width, height: crop.height, data }
 }
 
 /** The recipe's colours in its order, then transparency, so thresholded alpha has a slot. */

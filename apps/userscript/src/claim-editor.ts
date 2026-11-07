@@ -2355,11 +2355,25 @@ export const installClaimEditor = (editorHost: ClaimEditorHost): void => {
   window.addEventListener('pointermove', onPointerMove, true)
   window.addEventListener('pointerup', onPointerEnd, true)
   window.addEventListener('pointercancel', onPointerCancel, true)
-  for (const type of ['touchstart', 'touchmove', 'touchend', 'touchcancel'] as const)
-    window.addEventListener(type, onTouch, { capture: true, passive: false })
   window.addEventListener('keydown', onKeydown, true)
   window.addEventListener('keyup', onKeyup, true)
-  window.addEventListener('wheel', onWheel, { capture: true, passive: false })
+}
+
+const TOUCH_TYPES = ['touchstart', 'touchmove', 'touchend', 'touchcancel'] as const
+const BLOCKING = { capture: true, passive: false } as const
+
+/**
+ * Touch and wheel listeners that may cancel, held only while the editor is open. Outside it, a
+ * non-passive listener on the window would make every scroll and pinch on the map wait for it.
+ */
+const setBlockingInput = (on: boolean): void => {
+  if (on) {
+    for (const type of TOUCH_TYPES) window.addEventListener(type, onTouch, BLOCKING)
+    window.addEventListener('wheel', onWheel, BLOCKING)
+    return
+  }
+  for (const type of TOUCH_TYPES) window.removeEventListener(type, onTouch, BLOCKING)
+  window.removeEventListener('wheel', onWheel, BLOCKING)
 }
 
 /** Enter claim mode with a tool in hand. Every one of your saved regions loads for editing. */
@@ -2388,6 +2402,7 @@ const enter = (
   capturing: ClaimCaptureHost | null,
 ): void => {
   active = true
+  setBlockingInput(true)
   session++
   captureHost = capturing
   tool = initialTool
@@ -2437,6 +2452,9 @@ const enter = (
 export const stopClaimMode = (): void => {
   if (!active) return
   active = false
+  setBlockingInput(false)
+  // Its touchend may now never arrive; the next session starts without a gesture in hand.
+  drawingTouch = false
   captureController?.abort()
   captureController = null
   captureHost = null

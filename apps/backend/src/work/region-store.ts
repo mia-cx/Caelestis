@@ -14,12 +14,21 @@ export interface RegionOwner {
   readonly actorId: number
 }
 
+/** A credential and painter whose claims one connection keeps alive. */
+export interface RegionRenewal {
+  readonly tokenHash: string
+  readonly actorId: number
+}
+
 /** Persisted claims; creation never overwrites an existing identity. */
 export interface RegionStore {
   /** Remove expired replicas before reads, inserts, or renewal; preserve explicit deletions. */
   expireRegions(now: number): Promise<void>
-  /** Renew only unexpired claims owned by both this credential and painter. */
-  renewRegions(tokenHash: string, actorId: number, now: number): Promise<boolean>
+  /**
+   * Renew, in one write, the unexpired claims of every listed owner on any surface. A claim
+   * renews only when both its credential and its painter match the same entry.
+   */
+  renewRegions(owners: readonly RegionRenewal[], now: number): Promise<void>
   /** Read all ownership keys once per drawing snapshot, regardless of subscriber count. */
   regionOwners(season: number, surface: TemplateSurface): Promise<readonly RegionOwner[]>
   listRegions(

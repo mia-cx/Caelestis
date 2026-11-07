@@ -24,31 +24,45 @@ const emptyBootstrap = (error: unknown): AppBootstrap => ({
   error: error instanceof Error ? error.message : String(error),
 })
 
+/**
+ * Bootstrap the app once per document. The client keeps live state after hydration and discards
+ * this data, so client navigations must not rerun it: the URL is read untracked, and link previews
+ * describe the page a crawler requested.
+ */
 export const load: LayoutServerLoad = async (event) => {
+  // A copy: reading any part of `event.url` itself would track it again.
+  const url = event.untrack(() => new URL(event.url))
+  const backend = { fetch: event.fetch, locals: event.locals, url }
   const withSocial = async (bootstrap: AppBootstrap) => {
     const manifest = bootstrap.manifest
     // A missing preview must not prevent the dashboard from loading.
     let social: Awaited<ReturnType<typeof socialMetadata>>
     try {
       social = await socialMetadata(
-        event.url,
+        url,
         bootstrap,
         event.locals.objectStorage,
-        manifest ? (template) => ensureSocialImage(event, manifest.season, template) : undefined,
+        manifest ? (template) => ensureSocialImage(backend, manifest.season, template) : undefined,
       )
     } catch (error) {
       console.error('social image lookup failed', error)
-      social = await socialMetadata(event.url, bootstrap)
+      social = await socialMetadata(url, bootstrap)
     }
     return { bootstrap, social }
   }
   try {
-    const server = sanitizeServerInfo(await readBackendJson<ServerInfo>(event, '/v1/server'))
-    const manifest = await readBackendJson<Manifest>(event, '/v1/manifest')
+    const [serverInfo, manifest] = await Promise.all([
+      readBackendJson<ServerInfo>(backend, '/v1/server'),
+      readBackendJson<Manifest>(backend, '/v1/manifest'),
+    ])
+    const server = sanitizeServerInfo(serverInfo)
     const [status, alarms, canvas] = await Promise.allSettled([
-      readBackendJson<StatusResponse>(event, `/v1/telemetry/status?season=${manifest.season}`),
-      readBackendJson<AlarmsResponse>(event, `/v1/telemetry/alarms?season=${manifest.season}`),
-      readBackendJson<CanvasTilesResponse>(event, `/v1/telemetry/canvas?season=${manifest.season}`),
+      readBackendJson<StatusResponse>(backend, `/v1/telemetry/status?season=${manifest.season}`),
+      readBackendJson<AlarmsResponse>(backend, `/v1/telemetry/alarms?season=${manifest.season}`),
+      readBackendJson<CanvasTilesResponse>(
+        backend,
+        `/v1/telemetry/canvas?season=${manifest.season}`,
+      ),
     ])
     const bootstrap: AppBootstrap = {
       server,

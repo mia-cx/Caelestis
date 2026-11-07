@@ -12,6 +12,7 @@ import { type ReadMapTile, renderBasemap } from './basemap.js'
 import { encodeTimelapseGif, HISTORY_PLAYBACK_SECONDS } from './gif.js'
 import { SOCIAL_IMAGE_HEIGHT, SOCIAL_IMAGE_WIDTH } from './image.js'
 import { mergeArchiveFrames, type PlaybackFrame } from './playback.js'
+import { readAhead } from './read-ahead.js'
 
 const MAX_FPS = 30
 const MAX_FRAMES = MAX_FPS * HISTORY_PLAYBACK_SECONDS
@@ -121,11 +122,13 @@ export const renderTimelapse = async ({
     : Uint8Array.from({ length: width * height * 4 }, (_, i) => BACKGROUND[i % 4])
   const stamp = readMapTile ? await mapAttributionStamp(width, height) : undefined
 
+  type Redraw = { readonly tile: (typeof tiles)[number]; readonly hash: string | undefined }
+
   /** Redraw one tile's output pixels: its image over the background, or the background alone. */
-  const paint = async (canvas: Uint8Array, tile: (typeof tiles)[number], hash?: string) => {
+  const paint = async (canvas: Uint8Array, { tile, hash }: Redraw, png: Uint8Array | undefined) => {
     for (const [target] of tile.samples) canvas.set(background.subarray(target, target + 4), target)
-    if (hash === undefined) return
-    const image = await decodePng(await readTile(hash))
+    if (png === undefined) return
+    const image = await decodePng(png)
     if (!artwork && (image.width !== TILE_SIZE || image.height !== TILE_SIZE))
       throw new Error(`Unexpected tile dimensions for ${hash}`)
     for (const [target, source] of tile.samples) {
@@ -143,16 +146,23 @@ export const renderTimelapse = async ({
   }
 
   // Tiles cover disjoint output pixels, so one canvas carries forward and only changed tiles redraw.
+  // Every redraw is planned first so tile reads run ahead of decoding, across frame boundaries.
   async function* frames(indices: readonly number[]) {
-    const canvas = background.slice()
     const shown = new Map<(typeof tiles)[number], string | undefined>()
-    for (const index of indices) {
-      for (const tile of tiles) {
+    const plan = indices.map((index) =>
+      tiles.flatMap((tile): Redraw[] => {
         const hash = tile.hashes[index]
-        if (shown.get(tile) === hash) continue
+        if (shown.get(tile) === hash) return []
         shown.set(tile, hash)
-        await paint(canvas, tile, hash)
-      }
+        return [{ tile, hash }]
+      }),
+    )
+    const nextPng = readAhead(plan.flat(), async ({ hash }) =>
+      hash === undefined ? undefined : readTile(hash),
+    )
+    const canvas = background.slice()
+    for (const redraws of plan) {
+      for (const redraw of redraws) await paint(canvas, redraw, await nextPng())
       const frame = canvas.slice()
       stamp?.(frame)
       yield frame
@@ -175,25 +185,25 @@ export const renderTemplateHistory = async (
 ) => {
   const from = Math.floor(template.createdAt / 1000)
   const to = Math.floor((template.finishedAt ?? Date.now()) / 1000) + 1
-  const histories = new Map<string, readonly PlaybackFrame[]>()
-  for (const key of captureSamples(template.bbox).keys()) {
+  const readHistory = async (key: string) => {
     const [x, y] = key.split('/')
-    const live: TileHistoryResponse = await (
-      await read(`telemetry/tiles/${key}/history?season=${season}&from=${from}&to=${to}`)
-    ).json()
-    const archive: ArchiveHistory = await (
-      await read(
+    const [liveResponse, archiveResponse] = await Promise.all([
+      read(`telemetry/tiles/${key}/history?season=${season}&from=${from}&to=${to}`),
+      read(
         `archive/templates/${encodeURIComponent(template.id)}?version=${encodeURIComponent(template.version)}&x=${x}&y=${y}`,
-      )
-    ).json()
-    histories.set(
-      key,
-      mergeArchiveFrames(
-        live,
-        archive.frames.filter((frame) => frame.at < to),
       ),
+    ])
+    const live: TileHistoryResponse = await liveResponse.json()
+    const archive: ArchiveHistory = await archiveResponse.json()
+    return mergeArchiveFrames(
+      live,
+      archive.frames.filter((frame) => frame.at < to),
     )
   }
+  const keys = [...captureSamples(template.bbox).keys()]
+  const nextHistory = readAhead(keys, readHistory)
+  const histories = new Map<string, readonly PlaybackFrame[]>()
+  for (const key of keys) histories.set(key, await nextHistory())
   return renderTimelapse({
     template,
     histories,

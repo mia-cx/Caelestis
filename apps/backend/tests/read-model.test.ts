@@ -1,7 +1,11 @@
-import { millis } from '@caelestis/shared'
-import { describe, expect, it } from 'vitest'
+import { millis, type TemplateStatus } from '@caelestis/shared'
+import { describe, expect, it, vi } from 'vitest'
+import { coordinatorDatabase } from '../src/adapters/node/coordinator-database.js'
+import { SqlCoordinatorStorage } from '../src/adapters/node/coordinator-storage.js'
+import { createKeyedStatusPersistence } from '../src/status-coordinator.js'
 import { createSeasonStatusReadModel } from '../src/status-read-model/model.js'
 import { createTileGenerationCache } from '../src/status-read-model/tile-generation-cache.js'
+import { openRelationalStore } from './support/relational.js'
 
 describe('tile generation cache', () => {
   it('does not let a losing or expired prepared commit overwrite the newest tile generation', async () => {
@@ -134,5 +138,69 @@ describe('status projection freshness', () => {
       })
     }
     expect((await model.reconcileSnapshot('public')).cacheOutcome).toBe('stale')
+  })
+})
+
+describe('keyed status persistence', () => {
+  it('writes only changed templates and a restart recovers the saved projection', async () => {
+    const store = await openRelationalStore()
+    try {
+      const database = coordinatorDatabase(store.connection)
+      await SqlCoordinatorStorage.initialize(database)
+      const storage = new SqlCoordinatorStorage(database, 'season:1')
+      await storage.put('status-read-model:v2:manifest', { season: 1 })
+      const persistence = createKeyedStatusPersistence(storage, 1)
+      // The older whole-season layout is dropped; the model rebuilds from its source.
+      expect(await persistence.load()).toBeNull()
+      expect(await storage.get('status-read-model:v2:manifest')).toBeUndefined()
+
+      const status = (index: number, correct = 0): TemplateStatus => ({
+        templateId: `template-${String(index).padStart(3, '0')}`,
+        correct,
+        wrong: 0,
+        blank: 4 - correct,
+        total: 4,
+        observedAt: millis(index),
+      })
+      const templates = Array.from({ length: 100 }, (_, index) => status(index))
+      const first = {
+        season: 1,
+        revision: 1,
+        reconciledAt: 10,
+        publicTemplates: templates.slice(0, 50),
+        adminTemplates: templates,
+      }
+      await persistence.save(first)
+
+      // One template progresses and one draft is deleted: the commit writes those, not the season.
+      const progressed = status(7, 3)
+      const replace = (list: readonly TemplateStatus[]) =>
+        list
+          .filter((held) => held.templateId !== 'template-099')
+          .map((held) => (held.templateId === progressed.templateId ? progressed : held))
+      const second = {
+        ...first,
+        revision: 2,
+        publicTemplates: replace(first.publicTemplates),
+        adminTemplates: replace(first.adminTemplates),
+      }
+      const puts = vi.spyOn(SqlCoordinatorStorage.prototype, 'put')
+      const deletes = vi.spyOn(SqlCoordinatorStorage.prototype, 'delete')
+      await persistence.save(second)
+      expect(puts.mock.calls.map(([key]) => key).sort()).toEqual([
+        'status-read-model:v3:admin:template-007',
+        'status-read-model:v3:manifest',
+        'status-read-model:v3:public:template-007',
+      ])
+      expect(deletes.mock.calls.map(([key]) => key)).toEqual([
+        'status-read-model:v3:admin:template-099',
+      ])
+      puts.mockRestore()
+      deletes.mockRestore()
+
+      expect(await createKeyedStatusPersistence(storage, 1).load()).toEqual(second)
+    } finally {
+      await store.close()
+    }
   })
 })

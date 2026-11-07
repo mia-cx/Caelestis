@@ -101,7 +101,27 @@ export const tilesInRect = (rect: CanvasRect): TilePlacement[] => {
   return placements
 }
 
-const imageCache = new Map<string, Promise<HTMLImageElement>>()
+/** Decoded pixels the image cache keeps before it drops the least recently used images. */
+export const IMAGE_CACHE_PIXELS = 32 * 1024 * 1024
+
+interface CachedImage {
+  readonly image: Promise<HTMLImageElement>
+  /** Decoded size once loaded; pending loads count as nothing. */
+  pixels: number
+}
+
+/** Insertion order is recency: a hit moves its entry to the end. */
+const imageCache = new Map<string, CachedImage>()
+let cachedPixels = 0
+
+const evictImages = (): void => {
+  for (const [key, entry] of imageCache) {
+    if (cachedPixels <= IMAGE_CACHE_PIXELS) return
+    if (entry.pixels === 0) continue
+    imageCache.delete(key)
+    cachedPixels -= entry.pixels
+  }
+}
 
 const loadImage = (url: Promise<string>, cors = false): Promise<HTMLImageElement> =>
   url.then(
@@ -116,19 +136,40 @@ const loadImage = (url: Promise<string>, cors = false): Promise<HTMLImageElement
       }),
   )
 
+/**
+ * Load an image once and share it while it stays among the most recently used. Callers that keep
+ * drawing an image hold their own reference, so eviction only costs a later reload.
+ */
 const cachedImage = (
   cacheKey: string,
   url: () => Promise<string>,
   cors = false,
 ): Promise<HTMLImageElement> => {
   const hit = imageCache.get(cacheKey)
-  if (hit !== undefined) return hit
-  const image = loadImage(url(), cors).catch((error) => {
+  if (hit !== undefined) {
     imageCache.delete(cacheKey)
-    throw error
-  })
-  imageCache.set(cacheKey, image)
-  return image
+    imageCache.set(cacheKey, hit)
+    return hit.image
+  }
+  const entry: CachedImage = {
+    image: loadImage(url(), cors).then(
+      (image) => {
+        if (imageCache.get(cacheKey) === entry) {
+          entry.pixels = image.naturalWidth * image.naturalHeight
+          cachedPixels += entry.pixels
+          evictImages()
+        }
+        return image
+      },
+      (error) => {
+        if (imageCache.get(cacheKey) === entry) imageCache.delete(cacheKey)
+        throw error
+      },
+    ),
+    pixels: 0,
+  }
+  imageCache.set(cacheKey, entry)
+  return entry.image
 }
 
 export const tileImage = (hash: string): Promise<HTMLImageElement> =>

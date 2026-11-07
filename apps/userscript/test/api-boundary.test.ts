@@ -1,6 +1,7 @@
 import {
   decodeWplaceIndexedPng,
   encodeIndexedPng,
+  LIVE_PROTOCOL_V2,
   sha256Hex,
   type TemplateRecipe,
 } from '@caelestis/shared'
@@ -748,5 +749,173 @@ describe('server cache saved by an older version', () => {
       })
       expect(stored.templates.map((held) => held.id)).toEqual(kept.templates)
     })
+  })
+})
+
+describe('server data reuse', () => {
+  /** Manifest requests the client sent to one server. */
+  const manifestReads = (fetch: ReturnType<typeof vi.fn>, server = origin) =>
+    fetch.mock.calls.filter(([input, init]) => {
+      const url = new URL(new Request(input as RequestInfo, init as RequestInit).url)
+      return url.origin === server && url.pathname.endsWith('/manifest')
+    }).length
+
+  it('decodes only the chunks a new template version changed', async () => {
+    await installBackend()
+    const decode = installBitmapDecoder()
+    const { state, server } = await connect()
+    await import('../src/application/tree-server-state.js')
+    const store = await import('../src/templates/local-store.js')
+    const { serverTemplateKey } = await import('../src/templates/server-sync.js')
+    // Four pixels across the boundary of tiles 0/0 and 1/0: one chunk on each side.
+    const artwork = async (right: readonly number[]) => {
+      const bytes = await encodeIndexedPng(4, 1, new Uint8Array([1, 2, ...right]))
+      return new Blob([new Uint8Array(bytes).buffer], { type: 'image/png' })
+    }
+    const uploaded = await state.uploadTemplate(server, {
+      nodeId: null,
+      name: 'Two tiles',
+      originX: 998,
+      originY: 0,
+      png: await artwork([3, 4]),
+    })
+    if (!uploaded.ok) throw new Error(uploaded.message)
+    const key = serverTemplateKey(origin, uploaded.id)
+    await state.listServerContents(server)
+    const pixels = async () => {
+      const template = store.templateById(key)
+      return template === undefined ? [] : [...(await store.templatePixels(template))]
+    }
+    await vi.waitFor(async () => expect(await pixels()).toEqual([1, 2, 3, 4]))
+    expect(decode).toHaveBeenCalledTimes(2)
+
+    decode.mockClear()
+    const replaced = await state.uploadTemplateVersion(server, uploaded.id, {
+      name: 'Two tiles',
+      originX: 998,
+      originY: 0,
+      png: await artwork([5, 6]),
+    })
+    if (!replaced.ok) throw new Error(replaced.message)
+    await state.listServerContents(server)
+    await vi.waitFor(() => expect(store.templateById(key)?.serverVersion).toBe(replaced.versionId))
+    expect(await pixels()).toEqual([1, 2, 5, 6])
+    expect(decode).toHaveBeenCalledTimes(1)
+  })
+
+  it('connects from the probe manifest and names its version to the live socket', async () => {
+    const { app } = await createTestBackend()
+    const route = backendFetch(app, origin)
+    // The contract backend has no live hub; advertising one is enough to open the socket.
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const response = await route(input, init)
+      if (!new URL(new Request(input, init).url).pathname.endsWith('/server')) return response
+      return Response.json({ ...(await response.json()), liveSync: 1, liveSyncMax: 2 })
+    })
+    vi.stubGlobal('fetch', fetch)
+    window.fetch = fetch
+    installBitmapDecoder()
+    const sockets: { sent: string[]; open(): void }[] = []
+    class RecordingWebSocket extends EventTarget {
+      static readonly OPEN = 1
+      static readonly CLOSING = 2
+      readonly sent: string[] = []
+      readyState = 0
+      protocol = ''
+      constructor() {
+        super()
+        sockets.push(this)
+      }
+      send(data: string): void {
+        this.sent.push(data)
+      }
+      close(): void {
+        this.readyState = 3
+      }
+      open(): void {
+        this.protocol = LIVE_PROTOCOL_V2
+        this.readyState = 1
+        this.dispatchEvent(new Event('open'))
+      }
+    }
+    vi.stubGlobal('WebSocket', RecordingWebSocket)
+
+    const author = await connect()
+    const uploaded = await author.state.uploadTemplate(author.server, {
+      nodeId: null,
+      name: 'Probe art',
+      originX: 10,
+      originY: 20,
+      png: await png(),
+    })
+    if (!uploaded.ok) throw new Error(uploaded.message)
+    await author.state.patchTemplate(author.server, uploaded.id, { published: true })
+    const published = await (
+      await route(`${origin}/backend/v1/manifest`, {
+        headers: { authorization: `Bearer ${adminToken}` },
+      })
+    ).json()
+    sockets.length = 0
+
+    // A fresh page: sync installs first, then the stored server is probed and connected.
+    vi.resetModules()
+    const state = await import('../src/state.js')
+    await import('../src/application/tree-server-state.js')
+    const store = await import('../src/templates/local-store.js')
+    const serverSync = await import('../src/templates/server-sync.js')
+    const coordinator = await import('../src/server-sync-coordinator.js')
+    serverSync.installServerSync()
+    coordinator.installServerSyncCoordinator()
+    fetch.mockClear()
+    state.upsertServer(await state.probeServer(origin, adminToken))
+
+    const key = serverSync.serverTemplateKey(origin, uploaded.id)
+    await vi.waitFor(() => expect(store.templateById(key)).toBeDefined())
+    const socket = sockets[0]
+    if (socket === undefined) throw new Error('coordinator did not open a live socket')
+    socket.open()
+    expect(JSON.parse(socket.sent[0] ?? 'null')).toMatchObject({
+      type: 'state-vector',
+      projections: [{ resource: 'world-manifest', scope: 'world', version: published.version }],
+    })
+    expect(manifestReads(fetch)).toBe(1)
+    state.removeServer(origin)
+  })
+
+  it('reads each manifest once while several servers connect', async () => {
+    const origins = [origin, 'https://userscript-api-boundary-second.test']
+    const routes = await Promise.all(
+      origins.map(async (url) => backendFetch((await createTestBackend()).app, url)),
+    )
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const route = routes[origins.indexOf(new URL(new Request(input, init).url).origin)]
+      if (route === undefined) throw new Error('request to an unconfigured server')
+      return await route(input, init)
+    })
+    vi.stubGlobal('fetch', fetch)
+    window.fetch = fetch
+    const state = await import('../src/state.js')
+    await import('../src/application/tree-server-state.js')
+    const serverSync = await import('../src/templates/server-sync.js')
+    const coordinator = await import('../src/server-sync-coordinator.js')
+    serverSync.installServerSync()
+    coordinator.installServerSyncCoordinator()
+    // Registered after the manifest, so its refresh means the sweep has passed the manifest.
+    const swept: string[] = []
+    coordinator.registerServerSyncResource({
+      id: 'sweep-witness',
+      scope: () => 'world',
+      refresh: async (server) => {
+        swept.push(server.url)
+        return { status: 'unchanged' }
+      },
+    })
+
+    for (const url of origins) {
+      state.upsertServer(await state.probeServer(url, adminToken))
+      await vi.waitFor(() => expect(swept).toContain(url))
+    }
+    expect(origins.map((url) => manifestReads(fetch, url))).toEqual([1, 1])
+    for (const url of origins) state.removeServer(url)
   })
 })
