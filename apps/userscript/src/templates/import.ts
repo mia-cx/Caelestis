@@ -179,21 +179,46 @@ export const decodeToRgba = async (
   }
 }
 
+const HEX_PAIR = /^[0-9a-f]{2}$/i
+const DATA_SCHEME = /^data:/i
+const BASE64_SUFFIX = /;[\x20]*base64$/i
+/** Bytes per String.fromCharCode call, under every engine's argument limit. */
+const CHAR_CODE_CHUNK = 0x8000
+
+/** The URL standard's percent-decode: `%XX` becomes its byte, anything else stays as UTF-8. */
+const percentDecode = (text: string): Uint8Array<ArrayBuffer> => {
+  const input = new TextEncoder().encode(text)
+  const output = new Uint8Array(input.length)
+  let length = 0
+  for (let i = 0; i < input.length; i++) {
+    const hex = String.fromCharCode(input[i + 1] ?? 0, input[i + 2] ?? 0)
+    if (input[i] === 0x25 && HEX_PAIR.test(hex)) {
+      output[length++] = Number.parseInt(hex, 16)
+      i += 2
+    } else output[length++] = input[i] ?? 0
+  }
+  return output.subarray(0, length)
+}
+
 /**
- * Decode a data URL in place. Not through `fetch`: another script's fetch wrapper may never answer
- * it, as Blue Marble does for every image that is not a tile, which left imports stuck.
+ * Decode a data URL in place, as the Fetch standard's data URL processor does. Not through `fetch`:
+ * another script's fetch wrapper may never answer it, as Blue Marble does for every image that is
+ * not a tile, which left imports stuck.
  */
 const blobFromDataUrl = async (dataUrl: string): Promise<Blob> => {
   const comma = dataUrl.indexOf(',')
-  if (!dataUrl.startsWith('data:') || comma === -1) throw new Error('not a data URL')
-  const header = dataUrl.slice('data:'.length, comma)
-  const body = dataUrl.slice(comma + 1)
-  const type = header.split(';')[0] ?? ''
-  if (!header.endsWith(';base64')) return new Blob([decodeURIComponent(body)], { type })
-  const binary = atob(body)
+  if (!DATA_SCHEME.test(dataUrl) || comma === -1) throw new Error('not a data URL')
+  const header = dataUrl.slice('data:'.length, comma).trim()
+  const body = percentDecode(dataUrl.slice(comma + 1))
+  if (!BASE64_SUFFIX.test(header)) return new Blob([body], { type: header })
+  let encoded = ''
+  for (let at = 0; at < body.length; at += CHAR_CODE_CHUNK)
+    encoded += String.fromCharCode(...body.subarray(at, at + CHAR_CODE_CHUNK))
+  // atob is the forgiving base64 decoder the standard names: it skips ASCII whitespace.
+  const binary = atob(encoded)
   const bytes = new Uint8Array(binary.length)
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-  return new Blob([bytes], { type })
+  return new Blob([bytes], { type: header.replace(BASE64_SUFFIX, '') })
 }
 
 const quantise = async (

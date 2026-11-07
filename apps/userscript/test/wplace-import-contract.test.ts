@@ -152,6 +152,22 @@ it('samples the projected footprint before processing the embedded recipe and pe
   }
 })
 
+it('decodes embedded PNGs as data URLs, in any case and percent-encoded', async () => {
+  const png = await encodeIndexedPng(4, 2, new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]))
+  const percentEncoded = [...Buffer.from(png).toString('base64')]
+    .map((char) => `%${char.charCodeAt(0).toString(16).padStart(2, '0')}`)
+    .join('')
+  processor.render.mockImplementationOnce(async (sampled) => sampled)
+  const { importFile } = await import('../src/templates/import.js')
+  const [imported] = await importFile(
+    await file({ image: { dataUrl: `data:image/png;BASE64,${percentEncoded}` } }),
+    { x: 0, y: 0 },
+  )
+  expect(new Uint8Array(await (imported?.authoring?.source ?? new Blob()).arrayBuffer())).toEqual(
+    png,
+  )
+})
+
 it('surfaces native processing failure and rejects remote images before decoding', async () => {
   const { importFile } = await import('../src/templates/import.js')
   processor.render.mockRejectedValueOnce(new Error('native worker unavailable'))
