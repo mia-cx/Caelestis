@@ -35,7 +35,7 @@ const tileCanvas = (pixels: Record<string, number>): HTMLCanvasElement =>
 let allianceId = 0
 let active: ActiveAllianceSurface
 let layer: HTMLCanvasElement
-let snapshots: Uint8Array[]
+let snapshots: ArrayBuffer[]
 
 /** Encode Wplace's HQ snapshot: tile 0/0 with the given palette pixels, at one version. */
 const snapshot = (version: number, pixels: Record<string, number>): ArrayBuffer => {
@@ -53,7 +53,7 @@ const snapshot = (version: number, pixels: Record<string, number>): ArrayBuffer 
 }
 
 const commit = async (version: number, pixels: Record<string, number>): Promise<void> => {
-  snapshots.push(new Uint8Array(snapshot(version, pixels)))
+  snapshots.push(snapshot(version, pixels))
   await refreshArtboardPixels(active, geometry)
 }
 
@@ -86,8 +86,7 @@ const mark = (...cells: readonly (readonly [number, number])[]): HTMLElement => 
   return marks
 }
 
-const pixelAt = (x: number, y: number) =>
-  nativePixelAt(readArtboardPixels(active, geometry), x, y)
+const pixelAt = (x: number, y: number) => nativePixelAt(readArtboardPixels(active, geometry), x, y)
 
 beforeEach(() => {
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (
@@ -106,7 +105,7 @@ beforeEach(() => {
   })
   snapshots = []
   vi.spyOn(window, 'fetch').mockImplementation(async () => {
-    const body = snapshots.shift() ?? new Uint8Array(snapshot(0, {}))
+    const body = snapshots.shift() ?? snapshot(0, {})
     return new Response(body, {
       headers: { 'content-type': 'application/x-wplace-alliance-hq-snapshot' },
     })
