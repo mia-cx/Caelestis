@@ -179,4 +179,29 @@ export const installShiftPaint = (): void => {
     },
     true,
   )
+
+  // HQ's artboard paints a click at its press position on pointerup, before any click event. A
+  // filtered press is cancelled instead, which ends Wplace's pan the way a drag does: unpainted.
+  let skippedPress: number | null = null
+  window.addEventListener(
+    'pointerdown',
+    (event) => {
+      skippedPress = null
+      if (!event.shiftKey || event.button !== 0 || !brushActive()) return
+      const target = event.target
+      if (!(target instanceof Element)) return
+      const point = pickerPointAt(target, event.clientX, event.clientY)
+      if (point?.alliance != null && !shouldPaint(target, event)) skippedPress = event.pointerId
+    },
+    true,
+  )
+  window.addEventListener(
+    'pointerup',
+    (event) => {
+      if (skippedPress !== event.pointerId) return
+      skippedPress = null
+      window.dispatchEvent(new PointerEvent('pointercancel', event))
+    },
+    true,
+  )
 }

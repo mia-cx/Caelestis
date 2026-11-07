@@ -260,6 +260,42 @@ it('skips matching pixels throughout a Shift+Space stroke on the HQ artboard', (
   expect(nativeHeld).toBe(false)
 })
 
+it('filters Shift clicks on the HQ artboard, which paints its press on pointerup', () => {
+  harness.alliance = {
+    surface: { kind: 'alliance-headquarters', allianceId: 1 },
+    stage: canvas,
+    frame: canvas,
+    draftId: null,
+    bounds: null,
+  }
+  // Wplace's artboard pans from a press and paints the pressed pixel when that pointer is released.
+  const pressed = new Map<number, number>()
+  window.addEventListener(
+    'pointerup',
+    (event) => {
+      const x = pressed.get(event.pointerId)
+      if (pressed.delete(event.pointerId) && x !== undefined) draft.set(x, 12)
+    },
+    true,
+  )
+  window.addEventListener('pointercancel', (event) => pressed.delete(event.pointerId), true)
+  canvas.addEventListener('pointerdown', (event) =>
+    pressed.set(event.pointerId, Math.floor(event.clientX)),
+  )
+  for (const [pointerId, clientX, shiftKey] of [
+    [1, 0, true],
+    [2, 1, true],
+    [3, 2, false],
+  ] as const) {
+    for (const type of ['pointerdown', 'pointerup'])
+      canvas.dispatchEvent(
+        new PointerEvent(type, { pointerId, clientX, shiftKey, bubbles: true, cancelable: true }),
+      )
+  }
+  expect([...draft.keys()].sort()).toEqual([1, 2])
+  expect(pressed.size).toBe(0)
+})
+
 it('does not paint a stale canvas position after the pointer moves over a control', () => {
   move(1)
   vi.mocked(document.elementFromPoint).mockReturnValue(document.querySelector('button'))
