@@ -15,9 +15,11 @@
     SNAP_DISTANCE,
     type StudioDrop,
     selectPanel,
+    tabsHolding,
     togglePanel,
   } from './layout.js'
   import { STUDIO_WINDOWS, type StudioFrame, type StudioLayout, type StudioNode, type StudioRect, type StudioWindowId, type TemplateStudioIntent, type TemplateStudioModel } from './model.js'
+  import ImagePicker from './ImagePicker.svelte'
   import StudioStyles from './StudioStyles.svelte'
   import StudioWindow from './StudioWindow.svelte'
   import DimensionsWindow from './windows/DimensionsWindow.svelte'
@@ -25,9 +27,14 @@
   import EffectsWindow from './windows/EffectsWindow.svelte'
   import PaletteWindow from './windows/PaletteWindow.svelte'
   import ScopesWindow from './windows/ScopesWindow.svelte'
-  import SourceWindow from './windows/SourceWindow.svelte'
 
-  let { model, onIntent }: { model: TemplateStudioModel; onIntent: (intent: TemplateStudioIntent) => void } = $props()
+  interface Props {
+    model: TemplateStudioModel
+    /** Where the draft, or the crop being drawn, sits on screen. Crop mode's card goes under it. */
+    mapBox?: Box | null
+    onIntent: (intent: TemplateStudioIntent) => void
+  }
+  let { model, mapBox = null, onIntent }: Props = $props()
 
   /* Layout: the model's saved layout, with this drag applied until the next model arrives. */
   let layout = $state<StudioLayout>(DEFAULT_STUDIO_LAYOUT)
@@ -37,15 +44,20 @@
     onIntent({ type: 'layout', layout: next })
   }
 
-  /* Dragging. A panel's tab or title moves that panel: out on its own, into a dock, beside another
-     panel, or behind it as a tab. A floating frame moves whole by its grip, or by the title of its
-     only panel. Nothing moves until the pointer travels a few pixels, so a click still selects. */
+  /* Dragging. A panel's tab moves that panel: out on its own, into a dock, beside another panel, or
+     behind it as a tab. The rest of a header moves the window the tab is in: a floating frame
+     whole, with everything docked inside it, or a docked group of tabs together. A floating frame
+     of one panel moves whole by its tab too. Nothing moves until the pointer travels a few pixels,
+     so a click still selects. */
   const DRAG_THRESHOLD_PX = 4
   /** Of a panel's box, the share along each edge that splits beside it; the middle adds a tab. */
   const EDGE_ZONE = 0.25
   /** Where a panel dragged out on its own sits under the pointer. */
   const GHOST_OFFSET = { x: 24, y: 14 }
-  type Dragged = { readonly kind: 'panel'; readonly id: StudioWindowId } | { readonly kind: 'frame'; readonly frame: number }
+  type Dragged =
+    /** One panel, or with `group` every tab beside it. */
+    | { readonly kind: 'panel'; readonly id: StudioWindowId; readonly group: boolean }
+    | { readonly kind: 'frame'; readonly frame: number }
   interface Drag {
     readonly what: Dragged
     readonly pointerId: number
@@ -91,16 +103,25 @@
       indicator: null,
     }
   }
-  /** A panel's tab or title. The only panel of a floating frame carries its frame with it. */
-  const startPanelDrag = (id: StudioWindowId, frame: number, event: PointerEvent): void => {
+  /**
+   * A panel's tab, or with `group` the rest of its header. A floating frame moves whole by its
+   * header, and by its only panel's tab.
+   */
+  const startPanelDrag = (id: StudioWindowId, frame: number, group: boolean, event: PointerEvent): void => {
     const owner = layout.frames[frame]
-    const alone = owner?.place.dock === null && panelsIn(owner.root).length === 1
-    const box = boxOf(alone ? frameElement(frame) : root?.querySelector(`[data-panels~="${id}"]`))
-    if (box !== undefined) beginDrag(alone ? { kind: 'frame', frame } : { kind: 'panel', id }, event, box)
+    const floating = owner?.place.dock === null
+    if (floating && (group || panelsIn(owner.root).length === 1)) {
+      const box = boxOf(frameElement(frame))
+      if (box !== undefined) beginDrag({ kind: 'frame', frame }, event, box)
+      return
+    }
+    const box = boxOf(root?.querySelector(`[data-panels~="${id}"]`))
+    if (box !== undefined) beginDrag({ kind: 'panel', id, group }, event, box)
   }
-  const startFrameDrag = (frame: number, event: PointerEvent): void => {
-    const box = boxOf(frameElement(frame))
-    if (box !== undefined) beginDrag({ kind: 'frame', frame }, event, box)
+  /** The panels a drag carries. */
+  const carried = (what: Dragged): StudioWindowId[] => {
+    if (what.kind === 'frame') return panelsIn(layout.frames[what.frame]?.root)
+    return what.group ? [...(tabsHolding(layout, what.id)?.panels ?? [what.id])] : [what.id]
   }
 
   /** The parts stacked down an edge's frame, as `placing` counts them, skipping `skip`. */
@@ -111,7 +132,7 @@
   const dropAt = (current: Drag, x: number, y: number): { drop: StudioDrop; indicator: Box | null } => {
     const { what } = current
     const viewport = { width: innerWidth, height: innerHeight }
-    const draggedPanels = what.kind === 'panel' ? [what.id] : panelsIn(layout.frames[what.frame]?.root)
+    const draggedPanels = carried(what)
     const side = x <= SNAP_DISTANCE ? 'start' : x >= viewport.width - SNAP_DISTANCE ? 'end' : null
     if (side !== null) {
       // A part that is only what is being dragged leaves before the drop, so it does not count.
@@ -153,7 +174,7 @@
     const { what, started, drop } = drag
     drag = null
     if (!started || drop === null) return
-    commitLayout(what.kind === 'panel' ? movePanel(layout, what.id, drop) : moveFrame(layout, what.frame, drop))
+    commitLayout(what.kind === 'panel' ? movePanel(layout, what.id, drop, what.group) : moveFrame(layout, what.frame, drop))
   }
   /** The browser gave up the gesture, so nothing was released anywhere. */
   const cancelDrag = (event: PointerEvent): void => {
@@ -180,18 +201,24 @@
     return () => query.removeEventListener('change', update)
   })
   const uid = $props.id()
-  let sheet = $state<StudioWindowId | null>('source')
+  let sheet = $state<StudioWindowId | null>('dimensions')
   const pickSheet = (id: StudioWindowId): void => { sheet = sheet === id ? null : id }
 
-  /* Panels menu, and crop mode's keys: Enter applies the crop, Escape discards it. */
-  let menuOpen = $state(false)
+  /* The bar's popups, and crop mode's keys: Enter applies the crop, Escape discards it. */
+  let popup = $state<'panels' | 'image' | null>(null)
+  const togglePopup = (which: 'panels' | 'image'): void => { popup = popup === which ? null : which }
+  /** Loading an image from the Replace image popup closes it. */
+  const pickImage = (intent: TemplateStudioIntent): void => {
+    popup = null
+    onIntent(intent)
+  }
   const inField = (event: Event): boolean =>
     event.composedPath().some((node) => node instanceof HTMLElement && node.matches('input, select, textarea'))
   const onWindowKeydown = (event: KeyboardEvent): void => {
-    if (event.key === 'Escape' && menuOpen) {
+    if (event.key === 'Escape' && popup !== null) {
       event.preventDefault()
       event.stopImmediatePropagation()
-      menuOpen = false
+      popup = null
       return
     }
     if (model.cropping === null || (event.key !== 'Escape' && event.key !== 'Enter')) return
@@ -214,22 +241,21 @@
   }
   const onWindowDrop = (event: DragEvent): void => {
     dropping = false
-    // The Source window's own drop zone answers first.
     if (event.defaultPrevented || !carriesFiles(event)) return
     event.preventDefault()
     const file = [...(event.dataTransfer?.files ?? [])].find((candidate) => candidate.type.startsWith('image/'))
     if (file !== undefined && !model.pending) onIntent({ type: 'file', file })
   }
   const onWindowPointerdown = (event: PointerEvent): void => {
-    if (menuOpen && !event.composedPath().some((node) => node instanceof Element && node.classList.contains('windows'))) menuOpen = false
+    if (popup !== null && !event.composedPath().some((node) => node instanceof Element && node.classList.contains('popup-anchor'))) popup = null
   }
 
   /* Bar. */
   const replacing = $derived(model.target.kind === 'replace')
   const status = $derived.by((): string => {
     if (model.message !== undefined) return model.message
-    if (model.loadingSource) return 'Loading image…'
-    if (model.source === null) return 'Choose an image to start.'
+    // Before its image, the map shows how to load one.
+    if (model.loadingSource || model.source === null) return ''
     const processing = model.processing
     switch (processing.state) {
       case 'working':
@@ -249,7 +275,7 @@
       : undefined,
   )
 
-  /* Crop mode's fields edit the crop being drawn. */
+  /* Crop mode's card, under the crop on the map, edits the crop being drawn. */
   const CROP_FIELDS = [['x', 'X'], ['y', 'Y'], ['width', 'W'], ['height', 'H']] as const
   const setCropField = (field: (typeof CROP_FIELDS)[number][0], value: number): void => {
     if (model.cropping === null || !Number.isFinite(value)) return
@@ -258,8 +284,14 @@
   const wholeImage = $derived(model.source === null ? null : { x: 0, y: 0, width: model.source.width, height: model.source.height })
   const sameRect = (left: StudioRect | null, right: StudioRect | null): boolean =>
     left !== null && right !== null && left.x === right.x && left.y === right.y && left.width === right.width && left.height === right.height
+  /** Not while a crop is being drawn: what would be saved is not what the map shows. */
   const canSave = $derived(
-    !model.pending && !model.loadingSource && model.processing.state === 'ready' && model.processing.pixels > 0 && model.name.trim() !== '',
+    !model.pending &&
+      !model.loadingSource &&
+      model.cropping === null &&
+      model.processing.state === 'ready' &&
+      model.processing.pixels > 0 &&
+      model.name.trim() !== '',
   )
 </script>
 
@@ -275,9 +307,7 @@
 />
 
 {#snippet contents(id: StudioWindowId)}
-  {#if id === 'source'}
-    <SourceWindow {model} {onIntent} />
-  {:else if id === 'dimensions'}
+  {#if id === 'dimensions'}
     <DimensionsWindow {model} {onIntent} />
   {:else if id === 'palette'}
     <PaletteWindow {model} {onIntent} />
@@ -305,9 +335,10 @@
         active={node.active}
         collapsed={node.collapsed}
         onSelect={(id) => commitLayout(selectPanel(layout, id))}
-        onDragStart={(id, event) => startPanelDrag(id, frame, event)}
+        onDragStart={(id, event) => startPanelDrag(id, frame, false, event)}
+        onWindowDragStart={(event) => startPanelDrag(node.active, frame, true, event)}
         onCollapse={(collapsed) => commitLayout(collapsePanel(layout, node.active, collapsed))}
-        onClose={() => commitLayout(togglePanel(layout, node.active, false))}
+        onClose={(id) => commitLayout(togglePanel(layout, id, false))}
       >
         {@render contents(node.active)}
       </StudioWindow>
@@ -326,10 +357,6 @@
     style:left={moving === null ? undefined : `${moving.x - moving.dx}px`}
     style:top={moving === null ? undefined : `${moving.y - moving.dy}px`}
   >
-    {#if frame.place.dock === null && panelsIn(frame.root).length > 1}
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div class="grip" title="Move window" onpointerdown={(event) => startFrameDrag(index, event)}></div>
-    {/if}
     {#if stacked && frame.root.kind === 'split'}
       <div class="split" data-axis="column">
         {#each frame.root.children as child (panelsIn(child).join(' '))}{@render nodeView(child, index, true)}{/each}
@@ -341,42 +368,6 @@
 {/snippet}
 
 <div class="studio" bind:this={root} aria-label="Template studio">
-  {#if model.cropping !== null}
-    {@const draft = model.cropping.draft}
-    {@const content = model.cropping.content}
-    <div class="bar cropping caelestis-surface" role="toolbar" aria-label="Crop">
-      <div class="crop-fields">
-        {#each CROP_FIELDS as [field, label] (field)}
-          <label class="number">
-            <span>{label}</span>
-            <input
-              class="caelestis-field"
-              type="number"
-              inputmode="numeric"
-              min={field === 'width' || field === 'height' ? 1 : 0}
-              value={draft[field]}
-              disabled={field === 'height' && model.output.locked}
-              onkeydown={(event) => { if (event.key === 'Enter') event.currentTarget.blur() }}
-              onchange={(event) => {
-                setCropField(field, event.currentTarget.valueAsNumber)
-                event.currentTarget.value = String(model.cropping?.draft[field] ?? draft[field])
-              }}
-            />
-          </label>
-        {/each}
-      </div>
-      <div class="group">
-        <Button label="Whole image" kind="ghost" size="small" disabled={sameRect(draft, wholeImage)} onclick={() => { if (wholeImage !== null) onIntent({ type: 'crop-draft', crop: wholeImage }) }} />
-        {#if content !== null}
-          <Button label="Trim" title="Crop to the opaque pixels" kind="ghost" size="small" disabled={sameRect(draft, content)} onclick={() => onIntent({ type: 'crop-draft', crop: content })} />
-        {/if}
-      </div>
-      <div class="actions">
-        <Button label="Cancel" kind="ghost" size="small" onclick={() => onIntent({ type: 'crop-mode', on: false })} />
-        <Button label="Apply crop" kind="primary" size="small" disabled={sameRect(draft, model.crop)} onclick={() => onIntent({ type: 'crop-apply' })} />
-      </div>
-    </div>
-  {:else}
   <div class="bar main caelestis-surface" role="toolbar" aria-label={replacing ? 'Replace template' : 'New template'}>
     <input
       class="name caelestis-field"
@@ -387,10 +378,25 @@
       disabled={model.pending}
       oninput={(event) => onIntent({ type: 'name', name: event.currentTarget.value })}
     />
-    <p class="status" class:failed={model.processing.state === 'failed' || model.message !== undefined} title={statusDetail} aria-live="polite">{status}</p>
-    <span class="crop-toggle">
-      <Button label="Crop" kind="ghost" size="small" disabled={model.source === null || model.pending} onclick={() => onIntent({ type: 'crop-mode', on: true })} />
-    </span>
+    <p class="status" hidden={status === ''} class:failed={model.processing.state === 'failed' || model.message !== undefined} title={statusDetail} aria-live="polite">{status}</p>
+    <div class="tools">
+      <div class="popup-anchor">
+        <Button label="Replace image" kind="ghost" size="small" popup="dialog" pressed={popup === 'image'} disabled={model.source === null || model.pending} onclick={() => togglePopup('image')} />
+        {#if popup === 'image'}
+          <div class="popover caelestis-surface" role="dialog" aria-label="Replace image">
+            <ImagePicker {model} onIntent={pickImage} />
+          </div>
+        {/if}
+      </div>
+      <Button
+        label="Crop"
+        kind="ghost"
+        size="small"
+        pressed={model.cropping !== null}
+        disabled={model.source === null || model.pending}
+        onclick={() => onIntent({ type: 'crop-mode', on: model.cropping === null })}
+      />
+    </div>
     <div class="group">
       <Button label="Undo" title="Undo" kind="ghost" size="compact" iconOnly disabled={model.pending || !model.history.undo} onclick={() => onIntent({ type: 'undo' })}>
         <Icon name="undo" />
@@ -399,9 +405,9 @@
         <Icon name="redo" />
       </Button>
     </div>
-    <div class="windows" hidden={phone}>
-      <Button label="Panels" kind="ghost" size="small" popup="menu" pressed={menuOpen} onclick={() => (menuOpen = !menuOpen)} />
-      {#if menuOpen}
+    <div class="windows popup-anchor" hidden={phone}>
+      <Button label="Panels" kind="ghost" size="small" popup="menu" pressed={popup === 'panels'} onclick={() => togglePopup('panels')} />
+      {#if popup === 'panels'}
         <div class="menu caelestis-menu" role="menu" aria-label="Panels">
           {#each STUDIO_WINDOWS as window (window.id)}
             {@const open = isOpen(layout, window.id)}
@@ -425,6 +431,57 @@
     </div>
     <span class="break" aria-hidden="true"></span>
   </div>
+
+  <!-- Before its image, the middle of the map says how to load one. -->
+  {#if model.source === null}
+    <div class="first-image caelestis-panel-surface" role="group" aria-label="Image">
+      {#if model.loadingSource}
+        <p class="lead">Loading image…</p>
+      {:else}
+        <p class="lead"><strong>Start with an image.</strong> Drop one anywhere, paste it, or load it here.</p>
+        <ImagePicker {model} {onIntent} />
+      {/if}
+    </div>
+  {/if}
+
+  <!-- Under the crop on the map. -->
+  {#if model.cropping !== null}
+    {@const draft = model.cropping.draft}
+    {@const content = model.cropping.content}
+    <div
+      class="crop-card caelestis-panel-surface"
+      role="group"
+      aria-label="Crop"
+      style:--frame-centre={mapBox === null ? undefined : `${mapBox.x + mapBox.width / 2}px`}
+      style:--frame-bottom={mapBox === null ? undefined : `${mapBox.y + mapBox.height}px`}
+    >
+      <div class="crop-fields">
+        {#each CROP_FIELDS as [field, label] (field)}
+          <label>
+            <span>{label}</span>
+            <input
+              class="caelestis-field"
+              type="number"
+              inputmode="numeric"
+              min={field === 'width' || field === 'height' ? 1 : 0}
+              value={draft[field]}
+              disabled={field === 'height' && model.output.locked}
+              onkeydown={(event) => { if (event.key === 'Enter') event.currentTarget.blur() }}
+              onchange={(event) => {
+                setCropField(field, event.currentTarget.valueAsNumber)
+                event.currentTarget.value = String(model.cropping?.draft[field] ?? draft[field])
+              }}
+            />
+          </label>
+        {/each}
+      </div>
+      <div class="crop-actions">
+        <Button label="Apply" kind="primary" size="small" disabled={sameRect(draft, model.crop)} onclick={() => onIntent({ type: 'crop-apply' })} />
+        <Button label="Content" title={content === null ? 'Nothing transparent around the image to crop away' : 'Crop to the opaque pixels'} kind="ghost" size="small" disabled={content === null || sameRect(draft, content)} onclick={() => { if (content !== null) onIntent({ type: 'crop-draft', crop: content }) }} />
+        <Button label="Reset" title="The whole image" kind="ghost" size="small" disabled={sameRect(draft, wholeImage)} onclick={() => { if (wholeImage !== null) onIntent({ type: 'crop-draft', crop: wholeImage }) }} />
+        <Button label="Cancel" kind="ghost" size="small" onclick={() => onIntent({ type: 'crop-mode', on: false })} />
+      </div>
+    </div>
   {/if}
 
   {#if dropping}
@@ -473,7 +530,7 @@
         <div class="drop-indicator" style:left="{drag.indicator.x}px" style:top="{drag.indicator.y}px" style:width="{drag.indicator.width}px" style:height="{drag.indicator.height}px"></div>
       {/if}
       {#if drag.what.kind === 'panel'}
-        <div class="ghost caelestis-panel-surface" style:left="{drag.x - GHOST_OFFSET.x}px" style:top="{drag.y - GHOST_OFFSET.y}px">{titleOf(drag.what.id)}</div>
+        <div class="ghost caelestis-panel-surface" style:left="{drag.x - GHOST_OFFSET.x}px" style:top="{drag.y - GHOST_OFFSET.y}px">{carried(drag.what).map(titleOf).join(', ')}</div>
       {/if}
     {/if}
   {/if}
@@ -534,11 +591,73 @@
     white-space: nowrap;
   }
   .status.failed { color: var(--caelestis-danger, oklch(0.58 0.2 27)); white-space: normal; }
-  .group { display: flex; flex: 0 0 auto; gap: 0.125rem; }
-  .bar > .group, .bar > .windows, .bar > .actions { padding-inline-start: 0.5rem; border-inline-start: 1px solid var(--caelestis-border); }
-  .crop-fields { display: flex; gap: 0.5rem; }
-  .crop-fields .number { gap: 0.3rem; color: var(--caelestis-muted-text); font-weight: 600; }
-  .crop-fields input { inline-size: 4.75rem; }
+  .group, .tools { display: flex; flex: 0 0 auto; gap: 0.125rem; }
+  .bar > :is(.group, .windows, .actions) { padding-inline-start: 0.5rem; border-inline-start: 1px solid var(--caelestis-border); }
+  .popup-anchor { position: relative; }
+  .popover {
+    position: absolute;
+    inset-block-start: calc(100% + 6px);
+    inset-inline-start: 0;
+    z-index: 2;
+    box-sizing: border-box;
+    inline-size: var(--studio-window-width);
+    padding: 0.75rem;
+    border: 1px solid var(--caelestis-border);
+    border-radius: var(--caelestis-radius, 0.7rem);
+    background: var(--caelestis-surface, white);
+    box-shadow: var(--caelestis-popover-shadow, 0 10px 24px -6px rgb(0 0 0 / 0.28));
+  }
+  /* Centred on the map, where the image will be. */
+  .first-image {
+    position: absolute;
+    inset-block-start: 40%;
+    inset-inline-start: 50%;
+    translate: -50% -50%;
+    box-sizing: border-box;
+    display: grid;
+    gap: 0.75rem;
+    inline-size: var(--studio-window-width);
+    padding: 1rem;
+    border: 1px solid var(--caelestis-border);
+    border-radius: var(--caelestis-radius, 0.7rem);
+    box-shadow: var(--caelestis-popover-shadow, 0 10px 24px -6px rgb(0 0 0 / 0.28));
+    pointer-events: auto;
+  }
+  .lead { margin: 0; color: var(--caelestis-muted-text); }
+  .lead strong { display: block; margin-block-end: 0.125rem; color: var(--caelestis-text); }
+  /* Centred under the crop, as Ditherette's is, but never off screen or under the bar. */
+  .crop-card {
+    --card-width: min(18rem, calc(100vw - 2 * var(--studio-inset)));
+    --card-height: 6rem;
+    --gap: 8px;
+    position: fixed;
+    inset-inline-start: clamp(
+      var(--studio-inset),
+      calc(var(--frame-centre, 50vw) - var(--card-width) / 2),
+      calc(100vw - var(--studio-inset) - var(--card-width))
+    );
+    inset-block-start: clamp(
+      var(--studio-top),
+      calc(var(--frame-bottom, 50vh) + var(--gap)),
+      calc(100dvh - var(--studio-bottom) - var(--card-height))
+    );
+    z-index: 2;
+    box-sizing: border-box;
+    display: grid;
+    gap: 0.5rem;
+    inline-size: var(--card-width);
+    padding: 0.5rem;
+    border: 1px solid var(--caelestis-border);
+    border-radius: var(--caelestis-radius, 0.7rem);
+    box-shadow: var(--caelestis-popover-shadow, 0 10px 24px -6px rgb(0 0 0 / 0.28));
+    pointer-events: auto;
+  }
+  .crop-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.375rem; }
+  .crop-fields label { display: grid; gap: 0.25rem; color: var(--caelestis-muted-text); font: 600 0.6875rem/1 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); }
+  .crop-fields input { box-sizing: border-box; inline-size: 100%; min-block-size: 1.75rem; text-align: end; font-variant-numeric: tabular-nums; }
+  .crop-actions { display: flex; justify-content: center; gap: 0.25rem; }
+  /* All four on one line. */
+  .crop-actions :global(button.small) { --button-padding: 0.5rem; }
   .dropping {
     position: fixed;
     inset: 0;
@@ -594,15 +713,6 @@
   /* At least its title bar. */
   .place { display: flex; flex: 0 1 auto; min-block-size: 2.25rem; min-inline-size: 0; }
   .place.collapsed, .split[data-axis='row'] > .place { flex-shrink: 0; }
-  .grip {
-    flex: 0 0 auto;
-    block-size: 0.75rem;
-    background: radial-gradient(circle, var(--caelestis-muted-text) 1px, transparent 1.5px) center / 6px 6px repeat-x;
-    background-size: 6px 100%;
-    opacity: 0.6;
-    cursor: grab;
-    touch-action: none;
-  }
   /* A saved place from a larger screen is pulled back in: the whole width stays on screen, and
      at least the title bar above Wplace's bottom controls. */
   .float {
@@ -642,14 +752,10 @@
     .main .name { order: 1; flex: 1 1 0; }
     .main .actions > :global(button:last-child) { order: 2; }
     .main .break { order: 3; flex-basis: 100%; }
-    .main .crop-toggle { order: 4; }
+    .main .tools { order: 4; }
     .main .group { order: 5; }
     .main .actions > :global(button:first-child) { order: 6; margin-inline-start: auto; }
     .main .status { order: 7; flex-basis: 100%; }
-    /* Crop: the four fields two by two, then its choices, Apply last. */
-    .crop-fields { display: grid; flex-basis: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .crop-fields input { inline-size: 100%; }
-    .cropping .actions { margin-inline-start: auto; }
     .column { inset-block-start: calc(var(--studio-inset) + 6.5rem); }
   }
   .break { display: none; }

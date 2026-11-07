@@ -41,6 +41,8 @@ export interface StudioFrameHandlers {
   readonly resize: (box: Box, fixed: { readonly x: FixedSide; readonly y: FixedSide }) => void
   /** The crop being drawn changed. */
   readonly crop: (next: StudioRect) => void
+  /** The draft, or the crop being drawn, moved on screen: its box in CSS pixels. */
+  readonly placed: (box: Box) => void
 }
 
 type Handle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w'
@@ -84,6 +86,8 @@ const DIM = 'rgb(0 0 0 / 0.55)'
 
 let view: StudioFrameView | null = null
 let handlers: StudioFrameHandlers | null = null
+/** The box last reported to `handlers.placed`, so an unmoved map reports nothing. */
+let placedAt: Box | null = null
 
 interface Drag {
   readonly pointerId: number
@@ -518,6 +522,7 @@ export const syncStudioFrame = (): void => {
   if (frame === null) {
     overlay?.root.remove()
     overlay = null
+    placedAt = null
     return
   }
   const parts = ensureOverlay()
@@ -529,6 +534,16 @@ export const syncStudioFrame = (): void => {
   const image = cropping === null ? null : onScreen(frame, sourceBox(frame))
   // A map frame without tiles has no projection; the handles stay where the last one put them.
   if (outline === null) return
+  if (
+    placedAt === null ||
+    placedAt.x !== outline.x ||
+    placedAt.y !== outline.y ||
+    placedAt.width !== outline.width ||
+    placedAt.height !== outline.height
+  ) {
+    placedAt = outline
+    handlers?.placed(outline)
+  }
   place(parts.halo, outline)
   place(parts.line, outline)
   if (image === null) {

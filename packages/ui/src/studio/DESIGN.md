@@ -6,13 +6,15 @@ The map is the canvas. The draft draws where the template will go, and everythin
 
 The draft carries a handle on every corner and edge (`apps/userscript/src/templates/studio-frame.ts`). Corners keep its proportions and edges stretch one side; Shift swaps the two, live mid-drag. Dragging inside the draft moves it, as any template moves.
 
-Crop mode, from the bar's Crop button, lays the whole source image over the map at the draft's scale, aligned so the applied crop covers the draft, dims everything outside the crop being drawn, and gives it the same handles, free unless Shift holds its proportions. Inside the crop drags it; elsewhere on the image draws a new one. Nothing reprocesses until Apply (or Enter); Cancel (or Escape) drops the draft crop. Applying keeps what stays of the image where it was on the map. When the whole image is not on screen, entering crop mode frames it. A replacement keeps its template's size, so it has no size handles and its crop keeps the template's proportions.
+The image itself shows only on the map; no window previews it. Before there is one, a card in the middle of the map offers a file, the clipboard or a web address, and an image dropped or pasted anywhere loads too. A new draft lands in the middle of the view at any zoom.
+
+Crop mode, from the bar's Crop button, lays the whole source image over the map at the draft's scale, aligned so the applied crop covers the draft, dims everything outside the crop being drawn, and gives it the same handles, free unless Shift holds its proportions. Inside the crop drags it; elsewhere on the image draws a new one. Under the crop, as in Ditherette, a small card holds its X, Y, W and H and Apply, Content (crop to the opaque pixels), Reset (the whole image) and Cancel, centred on the crop and kept on screen. Nothing reprocesses until Apply (or Enter); Cancel (or Escape) drops the draft crop. Applying keeps what stays of the image where it was on the map. When the whole image is not on screen, entering crop mode frames it with room below for the card. A replacement keeps its template's size, so it has no size handles and its crop keeps the template's proportions.
 
 Handles are 10px squares with a 24px hit target (44px on coarse pointers) in Caelestis's selection blue, over a dark halo so they read on any artwork.
 
 ## Bar
 
-The bar names the template, reads out its size and colour count in a fixed-width slot, and holds Crop, undo/redo, the Panels menu, Cancel and Save, each group set off by a hairline. In crop mode it becomes the crop bar: X, Y, W and H of the crop being drawn, Whole image, Trim (when transparency surrounds the image), Cancel and Apply crop. At phone width it wraps to three rows: name and Save; tools and Cancel; the readout.
+The bar names the template, reads out its size and colour count in a fixed-width slot once there is an image, and holds Replace image (the same three ways to load one, in a popover), Crop (pressed while cropping), undo/redo, the Panels menu, Cancel and Save, each group set off by a hairline. Save waits while a crop is being drawn. At phone width it wraps: name and Save; Replace image and Crop; undo/redo and Cancel; the readout.
 
 ## Windows
 
@@ -20,4 +22,6 @@ Body text is 0.875rem; labels use the text colour and only hints step back to mu
 
 Each window leads with what most templates need and folds the rest under More options, which remembers its state per window for the page's life. Size shows width and height side by side, Keep proportions and a percentage scale; resampling, anchor and position fold away, since the handles and dragging do them by hand. Colours shows the presets and swatches; matching and transparency fold away. Dither shows the algorithm and its strength; placement, its sampling, and the scan toggles fold away.
 
-Image is a compact summary of the image with the three ways to load another; an image dropped anywhere over the studio loads too. The default layout docks Image, Size and Effects (folded to its title) at the start edge, and Colours above Dither at the end.
+Every panel has a tab with its own close button, even alone, with the front tab underlined in the accent colour. Dragging a tab moves that panel; dragging the rest of the header moves the window it is in: a floating window whole, with every panel docked inside it, or a docked group of tabs together.
+
+The default layout is Ditherette's: Size and Dither as tabs over Colours at the start edge, Effects at the end.

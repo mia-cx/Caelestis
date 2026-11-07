@@ -52,8 +52,8 @@ const joined = (axis: 'row' | 'column', children: readonly StudioNode[]): Studio
 }
 
 /**
- * The image and its size down the start edge, with Effects folded to its title; its colours and
- * dither down the end. Scopes starts closed.
+ * Ditherette's: Size and Dither as tabs over Colours down the start edge, Effects down the end.
+ * Scopes starts closed.
  */
 export const DEFAULT_STUDIO_LAYOUT: StudioLayout = {
   frames: [
@@ -63,16 +63,17 @@ export const DEFAULT_STUDIO_LAYOUT: StudioLayout = {
         kind: 'split',
         axis: 'column',
         children: [
-          single('source'),
-          single('dimensions'),
-          { ...single('effects'), collapsed: true },
+          {
+            kind: 'tabs',
+            panels: ['dimensions', 'dither'],
+            active: 'dimensions',
+            collapsed: false,
+          },
+          single('palette'),
         ],
       },
     },
-    {
-      place: { dock: 'end' },
-      root: { kind: 'split', axis: 'column', children: [single('palette'), single('dither')] },
-    },
+    { place: { dock: 'end' }, root: single('effects') },
   ],
 }
 
@@ -176,14 +177,28 @@ const placing = (layout: StudioLayout, node: StudioNode, drop: StudioDrop): Stud
   return { frames: layout.frames.map((other) => (other === frame ? { ...other, root } : other)) }
 }
 
-/** Move one panel out of wherever it is to `drop`. */
+/** Move one panel, or with `group` every panel in its tabs, out of wherever it is to `drop`. */
 export const movePanel = (
   layout: StudioLayout,
   id: StudioWindowId,
   drop: StudioDrop,
+  group = false,
 ): StudioLayout => {
-  if (drop.kind === 'attach' && drop.target === id) return layout
-  return placing(removing(layout, [id]), single(id), drop)
+  const tabs = group ? tabsHolding(layout, id) : undefined
+  const node = tabs ?? single(id)
+  if (drop.kind === 'attach' && node.panels.includes(drop.target)) return layout
+  return placing(removing(layout, node.panels), node, drop)
+}
+
+/** The tabs `id` is in. */
+export const tabsHolding = (layout: StudioLayout, id: StudioWindowId): Tabs | undefined => {
+  const find = (node: StudioNode): Tabs | undefined =>
+    node.kind === 'tabs'
+      ? node.panels.includes(id)
+        ? node
+        : undefined
+      : node.children.map(find).find((found) => found !== undefined)
+  return layout.frames.map((frame) => find(frame.root)).find((found) => found !== undefined)
 }
 
 /** Move a whole frame: to another place on screen, or into a dock or beside a panel. */

@@ -14,6 +14,7 @@ import {
   WPLACE_PALETTE,
 } from '@caelestis/shared'
 import {
+  type CaelestisTemplateStudio,
   type EffectLayer,
   type Samples,
   type ScopeStage,
@@ -32,6 +33,7 @@ import {
 } from '../alliance-surface.js'
 import { warn } from '../debug.js'
 import { viewportCentre } from '../main.js'
+import { getMap } from '../map-handle.js'
 import { getState, setState } from '../state.js'
 import type { DitheretteEngine } from '../templates/ditherette.js'
 import {
@@ -123,9 +125,11 @@ const SETTLE_MS = 120
 const MAX_SOURCE_BYTES = 64 * 1024 * 1024
 const DEFAULT_ALPHA_THRESHOLD = 128
 const STUDIO_ID = 'caelestis-template-studio'
+/** Room under the image crop mode frames, for its card, as a share of the image's height. */
+const CROP_CARD_ROOM = 0.35
 
 let target: TemplateStudioTarget | null = null
-let element: (HTMLElement & { model: TemplateStudioModel }) | null = null
+let element: CaelestisTemplateStudio | null = null
 let closing: HTMLElement | null = null
 /** Stops watching the alliance editor the studio opened in. */
 let releaseHost: (() => void) | null = null
@@ -335,6 +339,10 @@ const FRAME_HANDLERS: StudioFrameHandlers = {
     render()
   },
   crop: (next) => handleTemplateStudioIntent({ type: 'crop-draft', crop: next }),
+  // Crop mode's card sits under this.
+  placed: (box) => {
+    if (element !== null) element.mapBox = box
+  },
 }
 
 /* Processing: latest settings win, and the draft follows. */
@@ -1051,17 +1059,15 @@ export const handleTemplateStudioIntent = (intent: TemplateStudioIntent): void =
       return
     case 'crop-mode': {
       cropDraft = intent.on && source !== null ? crop : null
-      // Every crop handle has to be reachable: frame the whole image when part of it is off screen.
+      // Every crop handle has to be reachable: frame the whole image, with room below it for the
+      // crop card, when part of it is off screen or the map is too far out to draw it. Only by
+      // moving the map: navigating without one reloads the page.
       const view = frameView()
       if (cropDraft === null || view === null || target.surface.kind !== 'world') break
       const { box, inView } = studioFrameExtent(view)
-      if (inView === false)
-        navigateTo({
-          x: box.x + box.width / 2,
-          y: box.y + box.height / 2,
-          width: box.width,
-          height: box.height,
-        })
+      const height = box.height * (1 + CROP_CARD_ROOM)
+      if (inView !== true && getMap() !== null)
+        navigateTo({ x: box.x + box.width / 2, y: box.y + height / 2, width: box.width, height })
       break
     }
     case 'crop-draft':
@@ -1273,14 +1279,12 @@ const mount = (): void => {
       if (!dialog.isConnected || !dialog.open) closeTemplateStudio()
     })
   if (closing?.parentElement === host && cancelSurfaceClose(closing)) {
-    element = closing as HTMLElement & { model: TemplateStudioModel }
+    element = closing as CaelestisTemplateStudio
     closing = null
     openSurface(element)
     return
   }
-  const created = document.createElement(TEMPLATE_STUDIO_TAG) as HTMLElement & {
-    model: TemplateStudioModel
-  }
+  const created = document.createElement(TEMPLATE_STUDIO_TAG) as CaelestisTemplateStudio
   created.id = STUDIO_ID
   Object.assign(created.style, {
     position: 'fixed',

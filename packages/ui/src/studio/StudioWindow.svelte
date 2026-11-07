@@ -5,9 +5,9 @@
   import type { StudioWindowId } from './model.js'
 
   /**
-   * One place in a studio frame: its panels as tabs, or one panel's title, collapse and close
-   * buttons, and the panel in front. Dragging a tab or the title moves that panel; the studio
-   * owns where it lands.
+   * One place in a studio frame: a tab for each of its panels, a collapse button, and the panel in
+   * front. Dragging a tab moves that panel; dragging the rest of the header moves the whole window
+   * it belongs to. The studio owns where either lands.
    */
   interface Props {
     tabs: readonly { readonly id: StudioWindowId; readonly title: string }[]
@@ -15,34 +15,39 @@
     collapsed: boolean
     onSelect: (id: StudioWindowId) => void
     onDragStart: (id: StudioWindowId, event: PointerEvent) => void
+    onWindowDragStart: (event: PointerEvent) => void
     onCollapse: (collapsed: boolean) => void
-    onClose: () => void
+    onClose: (id: StudioWindowId) => void
     children: Snippet
   }
-  let { tabs, active, collapsed, onSelect, onDragStart, onCollapse, onClose, children }: Props = $props()
+  let { tabs, active, collapsed, onSelect, onDragStart, onWindowDragStart, onCollapse, onClose, children }: Props = $props()
 
   const id = $props.id()
   const title = $derived(tabs.find((tab) => tab.id === active)?.title ?? '')
-  const grouped = $derived(tabs.length > 1)
 
-  /** Arrow keys move between tabs, as a tab list does. */
+  /** Arrow keys move between tabs, as a tab list does; Delete closes the focused one. */
   const tabKey = (event: KeyboardEvent, index: number): void => {
+    if (event.key === 'Delete') {
+      event.preventDefault()
+      onClose(tabs[index]?.id ?? active)
+      return
+    }
     const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
     if (step === 0) return
     event.preventDefault()
     const next = tabs[(index + step + tabs.length) % tabs.length]
     if (next === undefined) return
     onSelect(next.id)
-    ;(event.currentTarget as HTMLElement).parentElement?.querySelector<HTMLElement>(`[data-tab="${next.id}"]`)?.focus()
+    ;(event.currentTarget as HTMLElement).closest('[role="tablist"]')?.querySelector<HTMLElement>(`[data-tab="${next.id}"]`)?.focus()
   }
 </script>
 
 <section class="window" aria-labelledby="{id}-{active}">
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <header onpointerdown={(event) => { if ((event.target as Element).closest('button') === null) onDragStart(active, event) }}>
-    {#if grouped}
-      <div class="tabs" role="tablist">
-        {#each tabs as tab, index (tab.id)}
+  <header onpointerdown={(event) => { if ((event.target as Element).closest('button') === null) onWindowDragStart(event) }}>
+    <div class="tabs" role="tablist">
+      {#each tabs as tab, index (tab.id)}
+        <div class="tab" class:active={tab.id === active}>
           <button
             type="button"
             role="tab"
@@ -55,20 +60,19 @@
             onclick={() => onSelect(tab.id)}
             onkeydown={(event) => tabKey(event, index)}
           >{tab.title}</button>
-        {/each}
-      </div>
-    {:else}
-      <h3 id="{id}-{active}">{title}</h3>
-    {/if}
+          <!-- Delete on the tab closes it from the keyboard. -->
+          <button type="button" class="close" tabindex="-1" aria-label="Close {tab.title}" title="Close" onclick={() => onClose(tab.id)}>
+            <Icon name="close" size="0.875rem" />
+          </button>
+        </div>
+      {/each}
+    </div>
     <Button label={collapsed ? `Expand ${title}` : `Collapse ${title}`} title={collapsed ? 'Expand' : 'Collapse'} kind="ghost" size="compact" iconOnly onclick={() => onCollapse(!collapsed)}>
       <Icon name={collapsed ? 'expandMore' : 'expandLess'} />
     </Button>
-    <Button label="Close {title}" title="Close" kind="ghost" size="compact" iconOnly onclick={onClose}>
-      <Icon name="close" />
-    </Button>
   </header>
   {#if !collapsed}
-    <div class="body" id="{id}-body" role={grouped ? 'tabpanel' : undefined}>{@render children()}</div>
+    <div class="body" id="{id}-body" role="tabpanel" aria-labelledby="{id}-{active}">{@render children()}</div>
   {/if}
 </section>
 
@@ -82,42 +86,63 @@
     max-block-size: 100%;
     overflow: hidden;
   }
+  /* The tabs, then empty header to drag the window by. */
   header {
     display: flex;
     flex: 0 0 auto;
     align-items: center;
-    gap: 0.125rem;
+    gap: 0.25rem;
     min-inline-size: 0;
-    padding: 0.25rem 0.25rem 0.25rem 0.75rem;
+    padding: 0.25rem;
     cursor: grab;
     touch-action: none;
     user-select: none;
   }
-  h3 { flex: 1; margin: 0; font: 600 0.875rem/1.25 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); }
   .tabs {
     display: flex;
     flex: 1;
     gap: 0.125rem;
     min-inline-size: 0;
-    margin-inline-start: -0.5rem;
     overflow-x: auto;
     scrollbar-width: none;
   }
-  .tabs button {
+  .tab {
+    display: flex;
     flex: 0 0 auto;
-    padding: 0.3rem 0.5rem;
-    border: 0;
+    align-items: center;
     border-radius: var(--caelestis-control-radius, 0.4rem);
-    background: none;
     color: var(--caelestis-muted-text);
+  }
+  .tab.active {
+    background: var(--caelestis-raised-surface, oklch(0.92 0.01 264));
+    box-shadow: inset 0 -2px var(--caelestis-primary, oklch(0.68 0.15 244));
+    color: var(--caelestis-text);
+  }
+  .tab button {
+    border: 0;
+    background: none;
+    color: inherit;
+    cursor: pointer;
+  }
+  [role='tab'] {
+    padding: 0.3rem 0.125rem 0.3rem 0.5rem;
     font: 600 0.875rem/1.25 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
     cursor: grab;
   }
-  .tabs button[aria-selected='true'] {
-    background: var(--caelestis-raised-surface, oklch(0.92 0.01 264));
-    color: var(--caelestis-text);
+  .close {
+    display: grid;
+    place-items: center;
+    inline-size: 1.5rem;
+    block-size: 1.5rem;
+    padding: 0;
+    border-radius: var(--caelestis-control-radius, 0.4rem);
+    opacity: 0.7;
   }
-  .tabs button:focus-visible { outline: 2px solid var(--caelestis-focus, currentColor); outline-offset: -2px; }
+  .close:hover { opacity: 1; }
+  .tab button:focus-visible { outline: 2px solid var(--caelestis-focus, currentColor); outline-offset: -2px; }
+  @media (pointer: coarse) {
+    .close { inline-size: 2.25rem; block-size: 2.25rem; }
+  }
   .body {
     display: flex;
     flex-direction: column;

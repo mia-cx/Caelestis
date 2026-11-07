@@ -278,18 +278,18 @@ describe('template studio', () => {
       save: async () => true,
     })
     const root = document.querySelector(TEMPLATE_STUDIO_TAG)?.shadowRoot
-    const address = () =>
-      root?.querySelector<HTMLInputElement>('[data-window="source"] input[type="url"]')
-    await vi.waitFor(() => expect(address()).toBeTruthy())
-    const typed = address()
+    const field = () =>
+      root?.querySelector<HTMLInputElement>('[data-window="dimensions"] input[type="number"]')
+    await vi.waitFor(() => expect(field()).toBeTruthy())
+    const typed = field()
 
     const pointer = { button: 0, pointerId: 1, bubbles: true, clientX: 40, clientY: 40 }
     root
-      ?.querySelector('[data-window="source"] header')
+      ?.querySelector('[data-window="dimensions"] header')
       ?.dispatchEvent(new PointerEvent('pointerdown', pointer))
     window.dispatchEvent(new PointerEvent('pointermove', { ...pointer, clientX: 400 }))
     await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(address()).toBe(typed)
+    expect(field()).toBe(typed)
     window.dispatchEvent(new PointerEvent('pointerup', { ...pointer, clientX: 400 }))
   })
 
@@ -301,22 +301,10 @@ describe('template studio', () => {
       surface: WORLD_TEMPLATE_SURFACE,
       save: async () => true,
     })
-    // Dither in front, Palette behind it.
-    const behind = { kind: 'tabs', collapsed: false } as const
-    handleTemplateStudioIntent({
-      type: 'layout',
-      layout: {
-        frames: [
-          ...DEFAULT_STUDIO_LAYOUT.frames.filter((frame) => frame.place.dock === 'start'),
-          {
-            place: { dock: 'end' },
-            root: { ...behind, panels: ['palette', 'dither'], active: 'dither' },
-          },
-        ],
-      },
-    })
+    // By default Size is in front, Dither behind it.
+    handleTemplateStudioIntent({ type: 'layout', layout: DEFAULT_STUDIO_LAYOUT })
     const root = document.querySelector(TEMPLATE_STUDIO_TAG)?.shadowRoot
-    const tab = () => root?.querySelector('[data-tab="palette"]')
+    const tab = () => root?.querySelector('[data-tab="dither"]')
     await vi.waitFor(() => expect(tab()).toBeTruthy())
 
     const pointer = { button: 0, pointerId: 1, bubbles: true, clientX: 500, clientY: 40 }
@@ -326,8 +314,90 @@ describe('template studio', () => {
     await vi.waitFor(() =>
       expect(
         templateStudioModel().layout.frames.find((frame) => frame.place.dock === null)?.root,
-      ).toMatchObject({ panels: ['palette'] }),
+      ).toMatchObject({ panels: ['dither'] }),
     )
+  })
+
+  it('moves a floating window by its header with every panel docked inside it', async () => {
+    registerCaelestisUi()
+    openTemplateStudio({
+      kind: 'create',
+      destination: 'Local',
+      surface: WORLD_TEMPLATE_SURFACE,
+      save: async () => true,
+    })
+    const inside = {
+      kind: 'split',
+      axis: 'column',
+      children: [
+        { kind: 'tabs', panels: ['palette'], active: 'palette', collapsed: false },
+        { kind: 'tabs', panels: ['effects'], active: 'effects', collapsed: false },
+      ],
+    } as const
+    const start = DEFAULT_STUDIO_LAYOUT.frames.find((frame) => frame.place.dock === 'start')
+    if (start === undefined) throw new Error('no start dock')
+    handleTemplateStudioIntent({
+      type: 'layout',
+      layout: {
+        frames: [
+          {
+            ...start,
+            root: {
+              kind: 'tabs',
+              panels: ['dimensions', 'dither'],
+              active: 'dimensions',
+              collapsed: false,
+            },
+          },
+          { place: { dock: null, edge: 'start', x: 300, y: 100 }, root: inside },
+        ],
+      },
+    })
+    const root = document.querySelector(TEMPLATE_STUDIO_TAG)?.shadowRoot
+    // The header's empty end, past the tabs, of the lower panel in the window.
+    const header = () => root?.querySelector('[data-window="effects"] [role="tablist"]')
+    await vi.waitFor(() => expect(header()).toBeTruthy())
+
+    const pointer = { button: 0, pointerId: 1, bubbles: true, clientX: 500, clientY: 300 }
+    header()?.dispatchEvent(new PointerEvent('pointerdown', pointer))
+    window.dispatchEvent(
+      new PointerEvent('pointermove', { ...pointer, clientX: 560, clientY: 340 }),
+    )
+    window.dispatchEvent(new PointerEvent('pointerup', { ...pointer, clientX: 560, clientY: 340 }))
+    // Moved by the pointer's travel from where it was laid out, which the test DOM puts at 0, 0.
+    await vi.waitFor(() =>
+      expect(templateStudioModel().layout.frames.at(-1)).toEqual({
+        place: { dock: null, edge: 'start', x: 60, y: 40 },
+        root: inside,
+      }),
+    )
+    expect(templateStudioModel().layout.frames).toHaveLength(2)
+  })
+
+  it('keeps the page when something other than an image is dropped on the studio', async () => {
+    registerCaelestisUi()
+    openTemplateStudio({
+      kind: 'create',
+      destination: 'Local',
+      surface: WORLD_TEMPLATE_SURFACE,
+      save: async () => true,
+    })
+    await vi.waitFor(() =>
+      expect(
+        document.querySelector(TEMPLATE_STUDIO_TAG)?.shadowRoot?.querySelector('.studio'),
+      ).toBeTruthy(),
+    )
+    const drop = new Event('drop', { bubbles: true, cancelable: true })
+    Object.defineProperty(drop, 'dataTransfer', {
+      value: {
+        types: ['Files'],
+        files: [new File(['notes'], 'notes.txt', { type: 'text/plain' })],
+      },
+    })
+    window.dispatchEvent(drop)
+    // The browser would otherwise open the file in place of Wplace.
+    expect(drop.defaultPrevented).toBe(true)
+    expect(templateStudioModel().source).toBeNull()
   })
 
   it('leaves a panel in place when the browser cancels its drag', async () => {
@@ -339,7 +409,7 @@ describe('template studio', () => {
       save: async () => true,
     })
     const root = document.querySelector(TEMPLATE_STUDIO_TAG)?.shadowRoot
-    const header = () => root?.querySelector('[data-window="source"] header')
+    const header = () => root?.querySelector('[data-window="dimensions"] header')
     await vi.waitFor(() => expect(header()).toBeTruthy())
     const before = templateStudioModel().layout
 
