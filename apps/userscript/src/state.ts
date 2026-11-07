@@ -913,7 +913,11 @@ export const setServerTemplatePreference = (
 export const upsertServer = (server: ConnectedServer): boolean => {
   const servers = getState().servers
   const index = servers.findIndex((s) => s.url === server.url)
-  if (index === -1 && servers.length >= MAX_CONNECTED_SERVERS) return false
+  if (index === -1 && servers.length >= MAX_CONNECTED_SERVERS) {
+    // No connection will adopt the refused probe's manifest.
+    if (probedManifests.get(server.url)?.server === server) probedManifests.delete(server.url)
+    return false
+  }
   const current = index === -1 ? undefined : servers[index]
   // A probe may decide to continue anonymously, but only an explicit disconnect may erase the
   // credential stored for this URL. A non-empty replacement still lets the user rotate the token.
