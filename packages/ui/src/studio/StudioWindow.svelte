@@ -107,10 +107,12 @@
     scrollbar-width: none;
   }
   .tab {
+    /* Square in pixel style, whose radius is 0; gently rounded in classic. */
+    --tab-radius: min(var(--caelestis-radius, 0.4rem), 0.4rem);
     display: flex;
     flex: 0 0 auto;
     align-items: center;
-    border-radius: var(--caelestis-control-radius, 0.4rem);
+    border-radius: var(--tab-radius);
     color: var(--caelestis-muted-text);
   }
   .tab.active {
@@ -135,7 +137,7 @@
     inline-size: 1.5rem;
     block-size: 1.5rem;
     padding: 0;
-    border-radius: var(--caelestis-control-radius, 0.4rem);
+    border-radius: var(--tab-radius);
     opacity: 0.7;
   }
   .close:hover { opacity: 1; }

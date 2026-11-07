@@ -40,7 +40,6 @@
   :global(.studio .actions-row) { display: flex; flex-wrap: wrap; gap: 0.5rem; }
   /* A titled group inside a window, set off from the group above it. */
   :global(.studio .section) { margin: 0.25rem 0 0; padding-block-start: 0.75rem; border-block-start: 1px solid var(--caelestis-border); color: var(--caelestis-text); font-weight: 600; }
-  :global(.studio input[type='range']) { inline-size: 100%; accent-color: var(--caelestis-primary, oklch(0.68 0.15 244)); }
   @media (pointer: coarse) {
     :global(.studio :is(.caelestis-field, select.caelestis-select)) { block-size: 2.75rem; min-block-size: 2.75rem; }
   }

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import SliderStyles from '../foundations/SliderStyles.svelte'
+
   /**
    * A labelled slider with a number field beside it, as Ditherette web pairs them. The slider
    * covers `min` to `max`; the field accepts `fieldMin` to `fieldMax`, which may reach further.
@@ -41,19 +43,26 @@
   const commit = (raw: number): void => {
     if (Number.isFinite(raw)) onChange(round(Math.min(fieldMax, Math.max(fieldMin, raw))))
   }
-  const position = $derived(log ? Math.log10(value) : Math.min(max, Math.max(min, value)))
+  const low = $derived(log ? Math.log10(min) : min)
+  const high = $derived(log ? Math.log10(max) : max)
+  const position = $derived(Math.min(high, Math.max(low, log ? Math.log10(value) : value)))
+  const fill = $derived(`${high === low ? 0 : ((position - low) / (high - low)) * 100}%`)
 </script>
+
+<SliderStyles />
 
 <div class="field-row">
   <label class="field-label" for="{id}-field">{label}</label>
   <div class="range">
     <input
       type="range"
+      class="caelestis-slider"
       class:track={track !== undefined}
       style:--track={track}
+      style:--fill={fill}
       aria-label={label}
-      min={log ? Math.log10(min) : min}
-      max={log ? Math.log10(max) : max}
+      min={low}
+      max={high}
       step={log ? LOG_STEP : step}
       value={position}
       {disabled}
@@ -85,22 +94,10 @@
 
 <style>
   .range { display: grid; grid-template-columns: minmax(0, 1fr) 5rem; align-items: center; gap: 0.5rem; }
-  /* A gradient track shows the value's effect; the native fill would hide it. */
-  .track { appearance: none; block-size: 0.5rem; border-radius: var(--caelestis-pill-radius, 999px); background: var(--track); }
-  .track::-webkit-slider-thumb {
-    appearance: none;
-    inline-size: 0.9rem;
-    block-size: 0.9rem;
-    border: 2px solid var(--caelestis-surface, white);
-    border-radius: 50%;
-    background: var(--caelestis-text, #222);
-    box-shadow: 0 0 0 1px rgb(0 0 0 / 0.3);
-  }
-  .track::-moz-range-thumb {
-    inline-size: 0.9rem;
-    block-size: 0.9rem;
-    border: 2px solid var(--caelestis-surface, white);
-    border-radius: 50%;
-    background: var(--caelestis-text, #222);
-  }
+  .range input { inline-size: 100%; }
+  /* A gradient track shows the value's effect, where the fill would hide it. Doubled class and
+     the hash outrank the shared slider's pixel rules. */
+  .range input.track.track::-webkit-slider-runnable-track { background: var(--track); }
+  .range input.track.track::-moz-range-track { background: var(--track); }
+  .range input.track.track::-moz-range-progress { background: transparent; }
 </style>
