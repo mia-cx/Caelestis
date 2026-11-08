@@ -187,6 +187,7 @@ const handOff = async (running: Build, from: Build, empty: boolean, awaiting: bo
     if (Object.keys(portableValues()).length === 0) return
     await sendToOtherBuild()
     storeValue(HANDED_OFF_KEY, 'true')
+    await syncStoredValues()
     pageWindow().location.reload()
   }
 }

@@ -82,6 +82,20 @@ describe('moving settings between the userscript and the extension', () => {
     expect(userscript.values.get(HANDED_OFF)).toBe('true')
   })
 
+  it('a userscript whose hand-off flag cannot be stored keeps running', async () => {
+    const reloaded = reload()
+    const warned = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const userscript = await copy({ [STATE]: '{"servers":["mine"]}' }, new Set([HANDED_OFF]))
+    const extension = await copy({})
+
+    userscript.transfer.linkOtherBuild(userscript.port, 'userscript', false)
+    extension.transfer.serveOtherBuild(extension.port, 'extension')
+
+    await vi.waitFor(() => expect(warned).toHaveBeenCalled())
+    expect(reloaded).not.toHaveBeenCalled()
+    expect(userscript.store.has(HANDED_OFF)).toBe(false)
+  })
+
   it('a transfer whose mark cannot be stored writes nothing, and the next load retries', async () => {
     const reloaded = reload()
     const warned = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
