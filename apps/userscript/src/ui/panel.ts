@@ -60,6 +60,12 @@ import {
   primeFromCache,
   serverTemplateTreeKey,
 } from '../application/tree-server-state.js'
+import {
+  importFromOtherBuild,
+  onOtherBuildChange,
+  otherBuild,
+  sendToOtherBuild,
+} from '../build-transfer.js'
 import { onCanvasWrite } from '../canvas-write.js'
 import { isClaimModeActive, onClaimEditorChange } from '../claim-editor.js'
 import { claimRouter } from '../claim-routing.js'
@@ -136,10 +142,11 @@ import {
 } from '../wplace-patches.js'
 import { positionChargeForecast } from './charge-forecast.js'
 import { activeColourPreset, type ColourPresetId, hiddenForPreset } from './colours.js'
+import { confirmDestructive } from './confirm.js'
 import { setTemplateDisplayMode } from './display-mode.js'
 import { frameQueue } from './frame-queue.js'
 import { CLEAR_OF_RAIL, EDGE, GAP, RAIL_BUTTON } from './metrics.js'
-import { mountNotificationsIn, syncToastPlacement } from './notification-host.js'
+import { mountNotificationsIn, showToast, syncToastPlacement } from './notification-host.js'
 import {
   glideOverlayControls,
   invalidateOverlayControlsEdge,
@@ -644,6 +651,7 @@ const settingsModel = (): SettingsModel => {
   return {
     userscriptVersion,
     build: runningBuild(),
+    otherBuild: otherBuild() ?? undefined,
     servers: state.servers.map((server) => {
       const message = settingsMessages.get(server.url)
       const info = server.info
@@ -861,6 +869,37 @@ export const openInviteFromLocation = async (): Promise<void> => {
   refreshSettings()
 }
 
+/** Import from or send to the other build, after one confirmation. */
+const moveSettings = async (
+  direction: 'import-from-other-build' | 'send-to-other-build',
+): Promise<void> => {
+  const other = otherBuild()
+  if (other === null) return
+  const importing = direction === 'import-from-other-build'
+  const confirmed = await confirmDestructive({
+    title: importing ? `Import from the ${other}?` : `Send to the ${other}?`,
+    body: importing
+      ? `Your servers and settings here are replaced with the ${other}'s. Wplace then reloads.`
+      : `The ${other}'s servers and settings are replaced with the ones here.`,
+    note: 'Templates stay as they are; both share them.',
+    confirmLabel: importing ? 'Import' : 'Send',
+  })
+  if (!confirmed) return
+  try {
+    if (importing) await importFromOtherBuild()
+    else {
+      await sendToOtherBuild()
+      showToast(`Sent to the ${other}.`)
+    }
+  } catch (error) {
+    showToast(
+      importing ? `Could not import from the ${other}.` : `Could not send to the ${other}.`,
+      'error',
+    )
+    log('install', 'moving settings failed', String(error))
+  }
+}
+
 const handleSettingsIntent = (intent: SettingsIntent): void => {
   switch (intent.type) {
     case 'add-server':
@@ -912,6 +951,10 @@ const handleSettingsIntent = (intent: SettingsIntent): void => {
       else if (intent.key === 'performanceProfiling') setProfileEnabled(intent.value)
       else setState({ [intent.key]: intent.value })
       refreshSettings()
+      break
+    case 'import-from-other-build':
+    case 'send-to-other-build':
+      void moveSettings(intent.type)
       break
     case 'set-wplace-patch':
       // Persists the switch, applies or undoes the patch on the live map, and redraws this view
@@ -1895,6 +1938,7 @@ export const installPanel = (): void => {
   onWplacePatchChange(refreshSettings)
   // The same for any setting changed in the extension's toolbar popup or another tab.
   onStoredValueChange(refreshSettings)
+  onOtherBuildChange(refreshSettings)
   onActiveAllianceSurfaceChange(selectAlliancePanelSurface)
   selectAlliancePanelSurface(activeAllianceSurface())
   onLocalChange(

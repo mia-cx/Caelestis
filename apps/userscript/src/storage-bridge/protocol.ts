@@ -6,8 +6,9 @@
  * manager's world reaches `GM_*` storage. At document start, before any Wplace script exists, the
  * page-world script posts one `window` message carrying a `MessagePort`; the storage world takes
  * the port and stops the event there, so no later page listener sees it. A page-world script that
- * lost the page to the other build posts the same message without a port, which closes its bridge
- * for good. The message names its build, so with both installed each bridge takes only its own.
+ * lost the page to the other build connects all the same, to serve its values to the build that
+ * won (see `build-transfer.ts`). The message names its build, so with both installed each bridge
+ * takes only its own.
  * Every stored value travels over the port, never over `window`, and nothing is kept in
  * page-readable storage.
  *

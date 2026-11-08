@@ -202,4 +202,31 @@ describe('settings panel intent boundary', () => {
     expect(current.textContent).not.toContain('Older than this userscript expects')
     expect(current.textContent).toContain('0.9.0')
   })
+
+  it('offers import and send only while the other build is installed', () => {
+    const intents: SettingsIntent[] = []
+    const render = (model: SettingsModel) => {
+      const target = document.body.appendChild(document.createElement('div'))
+      mounted.push(
+        mount(SettingsPanel, {
+          target,
+          props: { model, onIntent: (intent) => intents.push(intent) },
+        }),
+      )
+      return [...target.querySelectorAll('button')].filter((button) =>
+        /^(Import from|Send to) /.test(button.textContent ?? ''),
+      )
+    }
+
+    const alone = render(settings())
+    const both = render({ ...settings(), otherBuild: 'userscript' })
+    for (const button of both) button.click()
+
+    expect(alone).toEqual([])
+    expect(both.map((button) => button.textContent?.trim())).toEqual([
+      'Import from userscript',
+      'Send to userscript',
+    ])
+    expect(intents).toEqual([{ type: 'import-from-other-build' }, { type: 'send-to-other-build' }])
+  })
 })

@@ -35,7 +35,7 @@ export const serveStorageBridge = (build: Build, store: StringStore): (() => voi
       return
     event.stopImmediatePropagation()
     stop()
-    // No port: the other build runs this page, so the bridge stays closed.
+    // Only the first handoff counts; without a port, the bridge stays closed.
     const port = event.ports[0]
     if (port === undefined) return
     const send = (message: BridgeMessage): void => port.postMessage(JSON.stringify(message))
