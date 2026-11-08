@@ -33,3 +33,6 @@ apps/*/wrangler.self-hosted.toml
 
 # Verified canvas images and local historical accounting repair plans
 /.scratch/progress-recount/
+
+# Written into the extension source archive by the release; never committed.
+apps/userscript/build-revision.json
