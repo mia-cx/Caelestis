@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { ColourChannel, Curve, CurvesEffect } from 'ditherette'
   import Button from '../../foundations/Button.svelte'
+  import { selectFace } from '../../foundations/select-face.js'
   import Icon from '../../foundations/Icon.svelte'
   import {
     CURVE_CHANNELS,
@@ -123,9 +124,9 @@
   }
 </script>
 
-<div class="chips" role="group" aria-label="Curves">
+<div class="choices wrap" role="group" aria-label="Curves">
   {#each step.curves as item, index (index)}
-    <button type="button" class="chip" class:active={index === active} aria-pressed={index === active} onclick={() => (selected = index)}>
+    <button type="button" class="choice caelestis-bevel" aria-pressed={index === active} onclick={() => (selected = index)}>
       <span class="swatch" style:background={tone(index)} aria-hidden="true"></span>{curveName(item)}
     </button>
   {/each}
@@ -160,7 +161,7 @@
 
   <div class="field-row">
     <label class="field-label" for="{id}-x">Reads</label>
-    <select id="{id}-x" class="caelestis-select" value={channelKey(curve.x)} onchange={(event) => setInput(event.currentTarget.value)}>
+    <select id="{id}-x" class="caelestis-select" {@attach selectFace} value={channelKey(curve.x)} onchange={(event) => setInput(event.currentTarget.value)}>
       {#each CURVE_CHANNELS as option (channelKey(option.channel))}
         <option value={channelKey(option.channel)}>{option.label}</option>
       {/each}
@@ -168,7 +169,7 @@
   </div>
   <div class="field-row">
     <label class="field-label" for="{id}-x2">And</label>
-    <select id="{id}-x2" class="caelestis-select" value={curve.x2 ? channelKey(curve.x2) : ''} onchange={(event) => setSecondInput(event.currentTarget.value)}>
+    <select id="{id}-x2" class="caelestis-select" {@attach selectFace} value={curve.x2 ? channelKey(curve.x2) : ''} onchange={(event) => setSecondInput(event.currentTarget.value)}>
       <option value="">Nothing else</option>
       {#each CURVE_CHANNELS.filter(({ channel }) => !sameChannel(channel, curve.x)) as option (channelKey(option.channel))}
         <option value={channelKey(option.channel)}>{option.label}</option>
@@ -177,7 +178,7 @@
   </div>
   <div class="field-row">
     <label class="field-label" for="{id}-y">Changes</label>
-    <select id="{id}-y" class="caelestis-select" value={channelKey(curve.y)} onchange={(event) => setOutput(event.currentTarget.value)}>
+    <select id="{id}-y" class="caelestis-select" {@attach selectFace} value={channelKey(curve.y)} onchange={(event) => setOutput(event.currentTarget.value)}>
       {#each CURVE_CHANNELS as option (channelKey(option.channel))}
         <option value={channelKey(option.channel)}>{option.label}</option>
       {/each}
@@ -196,7 +197,7 @@
       />
     </div>
   {/if}
-  <div class="actions-row">
+  <div class="row-actions">
     <Button label="Move curve earlier" title="Move earlier" size="small" iconOnly disabled={active === 0} onclick={() => move(active, active - 1)}>
       <Icon name="arrowBack" />
     </Button>
@@ -208,19 +209,5 @@
 {/if}
 
 <style>
-  .chips { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; }
-  .chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    padding: 0.25rem 0.5rem;
-    border: 1px solid var(--caelestis-border);
-    border-radius: var(--caelestis-pill-radius, 999px);
-    background: var(--caelestis-raised-surface, #eee);
-    color: var(--caelestis-text);
-    font: 600 0.6875rem/1.2 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
-    cursor: pointer;
-  }
-  .chip.active { border-color: var(--caelestis-primary, oklch(0.68 0.15 244)); background: color-mix(in oklab, var(--caelestis-primary, oklch(0.68 0.15 244)) 18%, var(--caelestis-raised-surface, #eee)); }
   .swatch { inline-size: 0.5rem; block-size: 0.5rem; border-radius: 50%; }
 </style>

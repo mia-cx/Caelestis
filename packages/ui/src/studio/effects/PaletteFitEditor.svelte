@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { CurvesEffect, FitLook, PaletteFitEffect, PaletteFitSpace } from 'ditherette'
   import Button from '../../foundations/Button.svelte'
+  import { selectFace } from '../../foundations/select-face.js'
   import { FIT_SPACES } from './catalog.js'
   import CurvesEditor from './CurvesEditor.svelte'
   import { NUMBER_FIELDS } from './fields.js'
@@ -51,6 +52,7 @@
   <select
     id="{id}-space"
     class="caelestis-select"
+    {@attach selectFace}
     value={step.space}
     disabled={edited}
     onchange={(event) => onChange({ ...step, space: event.currentTarget.value as PaletteFitSpace })}
@@ -61,19 +63,15 @@
   </select>
 </div>
 
-{#if edited}
-  <div class="curves-head">
-    <p class="field-label">Curves, edited</p>
-    <Button label="Reset" size="small" onclick={() => onChange({ ...step, curves: null })} />
-  </div>
-  <p class="hint">Reset to change the look or space; the fit then follows the image again.</p>
-  <CurvesEditor {id} step={curvesStep} onChange={(next) => onChange({ ...step, curves: [...next.curves] })} />
-{:else}
-  <div class="actions-row">
+<div class="field-row">
+  <span class="field-label">Curves</span>
+  {#if edited}
+    <Button label="Reset curves" size="small" onclick={() => onChange({ ...step, curves: null })} />
+  {:else}
     <Button label={analysing ? 'Analysing…' : 'Edit curves'} size="small" disabled={analysing} onclick={onAnalyse} />
-  </div>
+  {/if}
+</div>
+{#if edited}
+  <p class="hint">Edited. Reset to change the look or space; the fit then follows the image again.</p>
+  <CurvesEditor {id} step={curvesStep} onChange={(next) => onChange({ ...step, curves: [...next.curves] })} />
 {/if}
-
-<style>
-  .curves-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
-</style>

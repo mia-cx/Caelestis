@@ -1,15 +1,17 @@
 <script lang="ts">
   import Button from '../../foundations/Button.svelte'
-  import Checkbox from '../../foundations/Checkbox.svelte'
   import MenuStyles from '../../foundations/MenuStyles.svelte'
+  import { selectFace } from '../../foundations/select-face.js'
   import type { TemplateStudioIntent, TemplateStudioModel } from '../model.js'
   import { ANCHORS, RESIZE_MODES, type ResizeAnchor, type ResizeId } from '../options.js'
   import MoreOptions from '../MoreOptions.svelte'
   import RangeField from '../RangeField.svelte'
+  import SwitchRow from '../SwitchRow.svelte'
 
   /**
-   * The template's size, as Ditherette web's Dimensions panel, with resampling and its exact
-   * place on the canvas under More options; the map's handles and dragging do both by hand.
+   * The template's size, as Ditherette web's Dimensions panel: its scale, width and height, and
+   * how it resamples. Its exact place on the canvas is under More options, since dragging it on
+   * the map does that by hand.
    */
   let { model, onIntent }: { model: TemplateStudioModel; onIntent: (intent: TemplateStudioIntent) => void } = $props()
 
@@ -57,43 +59,7 @@
 
 <MenuStyles />
 
-<!-- Width and height side by side, as the handles on the map change them. -->
-<div class="fields two">
-  {#each [['width', 'W', 'Width'], ['height', 'H', 'Height']] as const as [side, short, label] (side)}
-    <label class="number">
-      <span aria-hidden="true">{short}</span>
-      <input
-        class="caelestis-field"
-        type="number"
-        inputmode="numeric"
-        min="1"
-        step="1"
-        aria-label="{label} in pixels"
-        value={unsized ? '' : output[side]}
-        {disabled}
-        onkeydown={commitOnEnter}
-        onchange={(event) => onIntent({ type: 'size', side, pixels: whole(event.currentTarget.value, output[side]) })}
-      />
-      <span class="unit">px</span>
-    </label>
-  {/each}
-</div>
-{#if output.locked}
-  <p class="hint">A new version keeps the template’s size.</p>
-{:else}
-  <div class="proportions">
-    <label class="keep">
-      <Checkbox checked={output.keepProportions} {disabled} onChange={(on) => onIntent({ type: 'keep-proportions', on })} />
-      Keep proportions
-    </label>
-    <Button
-      label="Reset aspect ratio"
-      title="Back to the image’s own proportions"
-      size="small"
-      disabled={disabled || !output.stretched}
-      onclick={() => onIntent({ type: 'reset-aspect' })}
-    />
-  </div>
+{#if !output.locked}
   <RangeField
     label="Scale"
     value={output.scale * PERCENT}
@@ -107,13 +73,47 @@
     onChange={(percent) => onIntent({ type: 'scale', scale: percent / PERCENT })}
   />
 {/if}
+{#each [['width', 'Width'], ['height', 'Height']] as const as [side, label] (side)}
+  <div class="field-row">
+    <label class="field-label" for="{id}-{side}">{label}</label>
+    <span class="number">
+      <input
+        id="{id}-{side}"
+        class="caelestis-field"
+        type="number"
+        inputmode="numeric"
+        min="1"
+        step="1"
+        value={unsized ? '' : output[side]}
+        {disabled}
+        onkeydown={commitOnEnter}
+        onchange={(event) => onIntent({ type: 'size', side, pixels: whole(event.currentTarget.value, output[side]) })}
+      />
+      <span class="unit">px</span>
+    </span>
+  </div>
+{/each}
+{#if output.locked}
+  <p class="hint">A new version keeps the template’s size.</p>
+{:else}
+  <SwitchRow label="Keep proportions" checked={output.keepProportions} {disabled} onChange={(on) => onIntent({ type: 'keep-proportions', on })} />
+  <div class="row-actions">
+    <Button
+      label="Reset aspect ratio"
+      title="Back to the image’s own proportions"
+      size="small"
+      disabled={disabled || !output.stretched}
+      onclick={() => onIntent({ type: 'reset-aspect' })}
+    />
+  </div>
+{/if}
 
-<MoreOptions name="size">
 <div class="field-row">
   <label class="field-label" for="{id}-resize">Resample</label>
   <select
     id="{id}-resize"
     class="caelestis-select"
+    {@attach selectFace}
     value={output.resize}
     disabled={model.source === null || model.pending}
     onchange={(event) => onIntent({ type: 'resize', resize: event.currentTarget.value as ResizeId })}
@@ -148,31 +148,32 @@
 </div>
 {/if}
 
+<MoreOptions name="size">
 <p class="section">Position</p>
-<div class="fields two">
-  {#each [['x', 'X'], ['y', 'Y']] as const as [axis, label] (axis)}
-    <label class="number">
-      <span>{label}</span>
+{#each [['x', 'X'], ['y', 'Y']] as const as [axis, label] (axis)}
+  <div class="field-row">
+    <label class="field-label" for="{id}-{axis}">{label}</label>
+    <span class="number">
       <input
+        id="{id}-{axis}"
         class="caelestis-field"
         type="number"
+        inputmode="numeric"
         value={unsized ? '' : model.origin[axis]}
         disabled={model.pending || unsized}
         onkeydown={commitOnEnter}
         onchange={(event) =>
           onIntent({ type: 'origin', ...model.origin, [axis]: whole(event.currentTarget.value, model.origin[axis]) })}
       />
-    </label>
-  {/each}
-</div>
-<div class="actions-row">
+    </span>
+  </div>
+{/each}
+<div class="row-actions">
   <Button label="Centre in view" size="small" disabled={model.pending || unsized} onclick={() => onIntent({ type: 'centre' })} />
 </div>
 </MoreOptions>
 
 <style>
-  .proportions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.25rem 0.5rem; }
-  .keep { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
   .anchors { display: grid; grid-template-columns: repeat(3, 1.5rem); gap: 2px; inline-size: fit-content; }
   .anchors button {
     display: grid;

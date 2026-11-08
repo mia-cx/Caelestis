@@ -93,7 +93,8 @@
 </div>
 
 <style>
-  .range { display: grid; grid-template-columns: minmax(0, 1fr) 5rem; align-items: center; gap: 0.5rem; }
+  /* Room for "100 %" and no more, leaving the slider the rest. */
+  .range { display: grid; grid-template-columns: minmax(0, 1fr) 4.5rem; align-items: center; gap: 0.5rem; }
   .range input { inline-size: 100%; }
   /* A gradient track shows the value's effect, where the fill would hide it. Doubled class and
      the hash outrank the shared slider's pixel rules. */

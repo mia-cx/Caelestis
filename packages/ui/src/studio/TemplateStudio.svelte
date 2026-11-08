@@ -634,14 +634,17 @@
   .menu button { display: flex; align-items: center; gap: 0.4rem; }
   .check { display: inline-grid; inline-size: 1rem; }
   .actions { display: flex; flex: 0 0 auto; gap: 0.25rem; }
-  /* One connected window. Its panels keep their own height until the frame runs out of room,
-     then share it, each scrolling inside, so every panel stays in view. */
+  /* One connected window. Its panels keep their whole height; when they outgrow the room the
+     window has, the window scrolls as one, never a panel inside it. */
   .frame {
     display: flex;
     flex-direction: column;
     min-block-size: 0;
     max-block-size: 100%;
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
     border: 1px solid var(--caelestis-border);
     border-radius: var(--caelestis-radius, calc(0.7rem + 1px));
     background: var(--caelestis-surface, oklch(0.97 0.01 264));
@@ -650,14 +653,12 @@
     pointer-events: auto;
   }
   .frame.moving { position: fixed; z-index: 3; box-shadow: var(--caelestis-shadow, 0 24px 80px rgb(0 0 0 / 0.35)); }
-  .frame > .split, .frame > .place { flex: 0 1 auto; min-block-size: 0; }
-  .split { display: flex; min-block-size: 0; min-inline-size: 0; }
+  .frame > .split, .frame > .place { flex: 0 0 auto; }
+  .split { display: flex; min-inline-size: 0; }
   .split[data-axis='column'] { flex-direction: column; }
   .split[data-axis='column'] > * + * { border-block-start: 1px solid var(--caelestis-border); }
   .split[data-axis='row'] > * + * { border-inline-start: 1px solid var(--caelestis-border); }
-  /* At least its title bar. */
-  .place { display: flex; flex: 0 1 auto; min-block-size: 2.25rem; min-inline-size: 0; }
-  .place.collapsed, .split[data-axis='row'] > .place { flex-shrink: 0; }
+  .place { display: flex; flex: 0 0 auto; min-inline-size: 0; }
   /* A saved place from a larger screen is pulled back in: the whole width stays on screen, and
      at least the title bar above Wplace's bottom controls. Below its top, a window takes the
      height down to those controls, its panels scrolling inside. */

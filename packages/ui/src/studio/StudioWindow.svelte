@@ -82,9 +82,6 @@
     display: flex;
     flex-direction: column;
     inline-size: var(--studio-window-width, 18rem);
-    min-block-size: 0;
-    max-block-size: 100%;
-    overflow: hidden;
   }
   /* The tabs, then empty header to drag the window by. */
   header {
@@ -145,14 +142,11 @@
   @media (pointer: coarse) {
     .close { inline-size: 2.25rem; block-size: 2.25rem; }
   }
+  /* Its whole height: the window around it scrolls, not the panel. */
   .body {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
-    min-block-size: 0;
-    overflow: auto;
-    overscroll-behavior: contain;
-    scrollbar-width: thin;
     padding: 0.75rem var(--caelestis-content-inset) var(--caelestis-content-inset);
     border-block-start: 1px solid var(--caelestis-border, oklch(0.78 0.025 264 / 0.7));
   }

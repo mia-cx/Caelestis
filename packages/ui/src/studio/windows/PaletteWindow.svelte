@@ -1,9 +1,11 @@
 <script lang="ts">
   import Icon from '../../foundations/Icon.svelte'
   import MenuStyles from '../../foundations/MenuStyles.svelte'
+  import { selectFace } from '../../foundations/select-face.js'
   import type { StudioPaletteScope, TemplateStudioIntent, TemplateStudioModel } from '../model.js'
   import MoreOptions from '../MoreOptions.svelte'
   import { ALPHA_MODES, type AlphaMode, COLOR_SPACES, type ColorSpaceId } from '../options.js'
+  import Segmented from '../effects/Segmented.svelte'
   import RangeField from '../RangeField.svelte'
 
   /**
@@ -28,19 +30,16 @@
 <MenuStyles />
 
 <fieldset disabled={model.pending}>
-  <div class="scopes" role="group" aria-label="Colour presets">
-    {#each SCOPES as scope (scope.id)}
-      <button
-        type="button"
-        class="choice caelestis-bevel"
-        class:active={model.palette.scope === scope.id}
-        aria-pressed={model.palette.scope === scope.id}
-        disabled={scope.id === 'owned' && !model.palette.ownedKnown}
-        title={scope.id === 'owned' && !model.palette.ownedKnown ? 'Log in to Wplace to use your colours' : undefined}
-        onclick={() => onIntent({ type: 'scope', scope: scope.id })}
-      >{scope.label}</button>
-    {/each}
-  </div>
+  <Segmented
+    label="Colour presets"
+    value={model.palette.scope}
+    options={SCOPES.map((scope) =>
+      scope.id === 'owned' && !model.palette.ownedKnown
+        ? { ...scope, disabled: true, title: 'Log in to Wplace to use your colours' }
+        : scope,
+    )}
+    onChange={(scope) => onIntent({ type: 'scope', scope })}
+  />
   <div class="swatches" role="group" aria-label="Colours the template uses">
     {#each model.palette.colours as colour (colour.index)}
       {@const detail = colour.pixels > 0 ? `${colour.pixels.toLocaleString()} px` : colour.selected ? 'unused' : 'off'}
@@ -67,6 +66,7 @@
     <select
       id="{id}-space"
       class="caelestis-select"
+      {@attach selectFace}
       value={model.colorSpace}
       onchange={(event) => onIntent({ type: 'color-space', colorSpace: event.currentTarget.value as ColorSpaceId })}
     >
@@ -83,6 +83,7 @@
     <select
       id="{id}-alpha"
       class="caelestis-select"
+      {@attach selectFace}
       value={model.alpha.mode}
       onchange={(event) => onIntent({ type: 'alpha', alpha: { mode: event.currentTarget.value as AlphaMode } })}
     >
@@ -106,6 +107,7 @@
       <select
         id="{id}-matte"
         class="caelestis-select"
+        {@attach selectFace}
         value={model.alpha.matte}
         onchange={(event) => onIntent({ type: 'alpha', alpha: { matte: Number(event.currentTarget.value) } })}
       >
@@ -120,21 +122,6 @@
 
 <style>
   fieldset { display: contents; }
-  .scopes { display: flex; flex-wrap: wrap; gap: 0.25rem; }
-  .choice {
-    --button-colour: var(--caelestis-raised-surface, var(--color-base-200));
-    display: inline-flex;
-    align-items: center;
-    padding: 0.4rem 0.6rem;
-    border: var(--border, 1px) solid color-mix(in oklab, var(--button-colour), #000 calc(var(--depth, 1) * 5%));
-    border-radius: var(--caelestis-pill-radius, 999px);
-    background: var(--button-colour);
-    color: var(--caelestis-text);
-    font: 600 0.75rem/1 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
-    cursor: pointer;
-  }
-  .choice.active { --button-colour: var(--caelestis-primary, oklch(0.68 0.15 244)); color: white; }
-  .choice:disabled { opacity: 0.5; cursor: not-allowed; }
   .swatches { display: grid; grid-template-columns: repeat(8, 1fr); gap: 0.4rem; }
   .swatch {
     position: relative;

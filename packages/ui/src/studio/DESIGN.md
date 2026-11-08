@@ -18,11 +18,20 @@ The bar names the template, reads out its size and colour count in a fixed-width
 
 ## Windows
 
-Body text is 0.875rem; labels use the text colour and only hints step back to muted. Field rows share a 5.75rem label column. Titled groups inside a window (`.section`) sit under a hairline. A control shows only when the current settings use it: Anchor only for filters other than Area, Dither's strength, placement, adaptive sampling and serpentine only for the algorithms they change. Before an image loads, size and position fields stay in place but empty.
+Body text is 0.875rem; labels use the text colour and only hints step back to muted. Every window lays out the same way (`StudioStyles.svelte`):
 
-Each window leads with what most templates need and folds the rest under More options, which remembers its state per window for the page's life. Size shows width and height side by side, Keep proportions, Reset aspect ratio (live once width and height scale the image unequally; it scales both as the longer side is) and a percentage scale; resampling, anchor and position fold away, since the handles and dragging do them by hand. Colours shows the presets and swatches; matching and transparency fold away. Dither shows the algorithm and its strength; placement, its sampling, and the scan toggles fold away.
+- A named setting is a `.field-row`: its label in a 5.75rem column, its control after, so controls line up across rows and windows. Its hint, if any, runs the full width below.
+- A yes/no setting is a switch row (`SwitchRow.svelte`): the label, then the switch at the row's end, its hint below. Clicking the label flips it.
+- A choice among a few sits in `.choices`, each choice as wide as its label needs and the rest shared out, bevelled in pixel style: Colours' presets, a channel, the scopes to show, an effect's curves.
+- Buttons that act on the rows above sit in `.row-actions`, in the controls' column.
+- What the window itself shows (swatches, the effect layers, graphs, the scope) spans the width.
+- A titled group (`.section`) sits under a hairline.
 
-Every window floats over the map; none is docked. Every panel has a tab with its own close button, even alone, with the front tab underlined in the accent colour; tabs and their buttons are square in pixel style. Dragging a tab moves that panel: out into a window of its own, beside another panel, or behind it as a tab. Dragging the rest of any header, or the tab of a window's only panel, moves the whole window with every panel in it, and brings it in front. A window keeps its whole width and its title bar on screen, and stops above Wplace's bottom buttons, its panels sharing the height and scrolling inside.
+A select's chosen option ends in an ellipsis before its caret (`foundations/select-face.ts`). Number fields have no spinner, leaving their room to the digits. A control shows only when the current settings use it: Anchor only for filters other than Area, Dither's strength, placement, adaptive sampling and serpentine only for the algorithms they change. Before an image loads, size and position fields stay in place but empty.
+
+Each window leads with what most templates need and folds the rest under More options, which remembers its state per window for the page's life. Size shows its scale, then width and height, Keep proportions, Reset aspect ratio (live once width and height scale the image unequally; it scales both as the longer side is), and how it resamples, with the anchor for filters that use one; its exact position folds away, since dragging on the map does it by hand. Colours shows the presets and swatches; matching and transparency fold away. Dither shows the algorithm and its strength; placement, its sampling, and the scan toggles fold away.
+
+Every window floats over the map; none is docked. Every panel has a tab with its own close button, even alone, with the front tab underlined in the accent colour; tabs and their buttons are square in pixel style. Dragging a tab moves that panel: out into a window of its own, beside another panel, or behind it as a tab. Dragging the rest of any header, or the tab of a window's only panel, moves the whole window with every panel in it, and brings it in front. A window keeps its whole width and its title bar on screen, and stops above Wplace's bottom buttons. Its panels keep their whole height; when they outgrow that room, the window scrolls as one, never a panel inside it.
 
 Sliders are Caelestis's own (`foundations/SliderStyles.svelte`), as in its settings: Wplace's framed track and bevelled thumb in pixel style.
 

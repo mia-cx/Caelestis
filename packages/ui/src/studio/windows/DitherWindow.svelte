@@ -1,8 +1,7 @@
 <script lang="ts">
   import Button from '../../foundations/Button.svelte'
   import MenuStyles from '../../foundations/MenuStyles.svelte'
-  import SettingRow from '../../foundations/SettingRow.svelte'
-  import Toggle from '../../foundations/Toggle.svelte'
+  import { selectFace } from '../../foundations/select-face.js'
   import type { TemplateStudioIntent, TemplateStudioModel } from '../model.js'
   import {
     DITHER_ALGORITHMS,
@@ -13,6 +12,7 @@
   } from '../options.js'
   import MoreOptions from '../MoreOptions.svelte'
   import RangeField from '../RangeField.svelte'
+  import SwitchRow from '../SwitchRow.svelte'
 
   /**
    * Ditherette web's Dither panel, with a plain algorithm menu and its strength up front; where
@@ -42,22 +42,25 @@
 <MenuStyles />
 
 <fieldset disabled={model.pending}>
-  <label class="field-label" for="{id}-algorithm">Algorithm</label>
-  <select
-    id="{id}-algorithm"
-    class="caelestis-select"
-    value={dither.algorithm}
-    onchange={(event) => set({ algorithm: event.currentTarget.value as DitherId })}
-  >
-    <option value="none">None</option>
-    {#each GROUPS as group (group.family)}
-      <optgroup label={group.label}>
-        {#each DITHER_ALGORITHMS.filter((option) => option.family === group.family) as option (option.id)}
-          <option value={option.id}>{option.label}</option>
-        {/each}
-      </optgroup>
-    {/each}
-  </select>
+  <div class="field-row">
+    <label class="field-label" for="{id}-algorithm">Algorithm</label>
+    <select
+      id="{id}-algorithm"
+      class="caelestis-select"
+      {@attach selectFace}
+      value={dither.algorithm}
+      onchange={(event) => set({ algorithm: event.currentTarget.value as DitherId })}
+    >
+      <option value="none">None</option>
+      {#each GROUPS as group (group.family)}
+        <optgroup label={group.label}>
+          {#each DITHER_ALGORITHMS.filter((option) => option.family === group.family) as option (option.id)}
+            <option value={option.id}>{option.label}</option>
+          {/each}
+        </optgroup>
+      {/each}
+    </select>
+  </div>
   <p class="hint">{current.description}</p>
 
   <!-- Each control shows only for the algorithms it changes. -->
@@ -80,6 +83,7 @@
       <select
         id="{id}-placement"
         class="caelestis-select"
+        {@attach selectFace}
         value={dither.placement}
         onchange={(event) => set({ placement: event.currentTarget.value as DitherPlacement })}
       >
@@ -110,24 +114,23 @@
   {/if}
 
   {#if !mixing}
-    <div class="toggles">
-      <SettingRow label="Dither in matching space" hint="Spread error in the colour space Colours matches in, rather than in plain RGB." compact>
-        <Toggle label="Dither in matching space" checked={dither.useColorSpace} onChange={(useColorSpace) => set({ useColorSpace })} />
-      </SettingRow>
-      {#if current.family === 'error-diffusion'}
-        <SettingRow label="Serpentine scan" hint="Reduces directional bias." compact>
-          <Toggle label="Serpentine scan" checked={dither.serpentine} onChange={(serpentine) => set({ serpentine })} />
-        </SettingRow>
-      {/if}
-    </div>
+    <SwitchRow
+      label="Dither in matching space"
+      hint="Spread error in the colour space Colours matches in, rather than in plain RGB."
+      checked={dither.useColorSpace}
+      onChange={(useColorSpace) => set({ useColorSpace })}
+    />
+    {#if current.family === 'error-diffusion'}
+      <SwitchRow label="Serpentine scan" hint="Reduces directional bias." checked={dither.serpentine} onChange={(serpentine) => set({ serpentine })} />
+    {/if}
   {/if}
 
   {#if dither.algorithm === 'random'}
-    <div class="seed">
-      <div>
-        <p class="field-label">Random seed</p>
-        <p class="value">{seedLabel}</p>
-      </div>
+    <div class="field-row">
+      <span class="field-label">Seed</span>
+      <span class="seed">{seedLabel}</span>
+    </div>
+    <div class="row-actions">
       <Button label="Randomise" size="small" onclick={() => set({ seed: crypto.getRandomValues(new Uint32Array(1))[0] ?? 0 })} />
     </div>
   {/if}
@@ -137,12 +140,5 @@
 
 <style>
   fieldset { display: contents; }
-  .toggles { --caelestis-content-inset: 0; display: grid; }
-  /* The studio's own text size, not a settings list's compact one. */
-  .toggles :global(.row) { font-size: inherit; }
-  .toggles :global(.copy) { opacity: 1; }
-  .toggles :global(small) { font-size: 0.8125rem; }
-  .seed { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
-  .seed p { margin: 0; }
-  .value { font: 0.75rem/1.4 var(--caelestis-mono-font, ui-monospace, monospace); }
+  .seed { font: 0.75rem/1.4 var(--caelestis-mono-font, ui-monospace, monospace); }
 </style>
