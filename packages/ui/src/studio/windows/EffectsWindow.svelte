@@ -2,6 +2,7 @@
   import Button from '../../foundations/Button.svelte'
   import Icon from '../../foundations/Icon.svelte'
   import MenuStyles from '../../foundations/MenuStyles.svelte'
+  import { selectFace } from '../../foundations/select-face.js'
   import { ADDABLE_KINDS, EFFECTS, type EffectKind } from '../effects/catalog.js'
   import EffectEditor from '../effects/EffectEditor.svelte'
   import MaskEditor from '../effects/MaskEditor.svelte'
@@ -42,16 +43,14 @@
 <MenuStyles />
 
 <fieldset disabled={model.pending}>
-  <select class="caelestis-select" aria-label="Add effect" value="" onchange={add}>
+  <select class="caelestis-select" {@attach selectFace} aria-label="Add effect" value="" onchange={add}>
     <option value="" disabled>Add effect…</option>
     {#each ADDABLE_KINDS as kind (kind)}
       <option value={kind}>{EFFECTS[kind].label}</option>
     {/each}
   </select>
 
-  {#if layers.length === 0}
-    <p class="hint">No effects yet.</p>
-  {:else}
+  {#if layers.length > 0}
     <ol class="layers" aria-label="Effect layers">
       {#each layers as layer, index (layer.id)}
         <li class:selected={layer.id === selectedId} class:off={!layer.step.enabled}>

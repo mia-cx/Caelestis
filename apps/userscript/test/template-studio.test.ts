@@ -278,18 +278,18 @@ describe('template studio', () => {
       save: async () => true,
     })
     const root = document.querySelector(TEMPLATE_STUDIO_TAG)?.shadowRoot
-    const address = () =>
-      root?.querySelector<HTMLInputElement>('[data-window="source"] input[type="url"]')
-    await vi.waitFor(() => expect(address()).toBeTruthy())
-    const typed = address()
+    const field = () =>
+      root?.querySelector<HTMLInputElement>('[data-window="dimensions"] input[type="number"]')
+    await vi.waitFor(() => expect(field()).toBeTruthy())
+    const typed = field()
 
     const pointer = { button: 0, pointerId: 1, bubbles: true, clientX: 40, clientY: 40 }
     root
-      ?.querySelector('[data-window="source"] header')
+      ?.querySelector('[data-window="dimensions"] header')
       ?.dispatchEvent(new PointerEvent('pointerdown', pointer))
     window.dispatchEvent(new PointerEvent('pointermove', { ...pointer, clientX: 400 }))
     await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(address()).toBe(typed)
+    expect(field()).toBe(typed)
     window.dispatchEvent(new PointerEvent('pointerup', { ...pointer, clientX: 400 }))
   })
 
@@ -301,22 +301,10 @@ describe('template studio', () => {
       surface: WORLD_TEMPLATE_SURFACE,
       save: async () => true,
     })
-    // Colour space in front, Palette behind it.
-    const behind = { kind: 'tabs', collapsed: false } as const
-    handleTemplateStudioIntent({
-      type: 'layout',
-      layout: {
-        frames: [
-          ...DEFAULT_STUDIO_LAYOUT.frames.filter((frame) => frame.place.dock === 'start'),
-          {
-            place: { dock: 'end' },
-            root: { ...behind, panels: ['palette', 'color-space'], active: 'color-space' },
-          },
-        ],
-      },
-    })
+    // By default Size is in front, Dither behind it.
+    handleTemplateStudioIntent({ type: 'layout', layout: DEFAULT_STUDIO_LAYOUT })
     const root = document.querySelector(TEMPLATE_STUDIO_TAG)?.shadowRoot
-    const tab = () => root?.querySelector('[data-tab="palette"]')
+    const tab = () => root?.querySelector('[data-tab="dither"]')
     await vi.waitFor(() => expect(tab()).toBeTruthy())
 
     const pointer = { button: 0, pointerId: 1, bubbles: true, clientX: 500, clientY: 40 }
@@ -324,10 +312,91 @@ describe('template studio', () => {
     window.dispatchEvent(new PointerEvent('pointermove', { ...pointer, clientY: 400 }))
     window.dispatchEvent(new PointerEvent('pointerup', { ...pointer, clientY: 400 }))
     await vi.waitFor(() =>
-      expect(
-        templateStudioModel().layout.frames.find((frame) => frame.place.dock === null)?.root,
-      ).toMatchObject({ panels: ['palette'] }),
+      expect(templateStudioModel().layout.frames.at(-1)?.root).toMatchObject({
+        panels: ['dither'],
+      }),
     )
+  })
+
+  it('moves a window by its header with every panel in it, on top of the others', async () => {
+    registerCaelestisUi()
+    openTemplateStudio({
+      kind: 'create',
+      destination: 'Local',
+      surface: WORLD_TEMPLATE_SURFACE,
+      save: async () => true,
+    })
+    const inside = {
+      kind: 'split',
+      axis: 'column',
+      children: [
+        { kind: 'tabs', panels: ['palette'], active: 'palette', collapsed: false },
+        { kind: 'tabs', panels: ['effects'], active: 'effects', collapsed: false },
+      ],
+    } as const
+    // The window that moves starts behind the other.
+    handleTemplateStudioIntent({
+      type: 'layout',
+      layout: {
+        frames: [
+          { place: { edge: 'start', x: 300, y: 100 }, root: inside },
+          {
+            place: { edge: 'end', x: 56, y: 72 },
+            root: {
+              kind: 'tabs',
+              panels: ['dimensions', 'dither'],
+              active: 'dimensions',
+              collapsed: false,
+            },
+          },
+        ],
+      },
+    })
+    const root = document.querySelector(TEMPLATE_STUDIO_TAG)?.shadowRoot
+    // The header's empty end, past the tabs, of the lower panel in the window.
+    const header = () => root?.querySelector('[data-window="effects"] [role="tablist"]')
+    await vi.waitFor(() => expect(header()).toBeTruthy())
+
+    const pointer = { button: 0, pointerId: 1, bubbles: true, clientX: 500, clientY: 300 }
+    header()?.dispatchEvent(new PointerEvent('pointerdown', pointer))
+    window.dispatchEvent(
+      new PointerEvent('pointermove', { ...pointer, clientX: 560, clientY: 340 }),
+    )
+    window.dispatchEvent(new PointerEvent('pointerup', { ...pointer, clientX: 560, clientY: 340 }))
+    // Moved by the pointer's travel from where it was laid out, which the test DOM puts at 0, 0.
+    await vi.waitFor(() =>
+      expect(templateStudioModel().layout.frames.at(-1)).toEqual({
+        place: { edge: 'start', x: 60, y: 40 },
+        root: inside,
+      }),
+    )
+    expect(templateStudioModel().layout.frames).toHaveLength(2)
+  })
+
+  it('keeps the page when something other than an image is dropped on the studio', async () => {
+    registerCaelestisUi()
+    openTemplateStudio({
+      kind: 'create',
+      destination: 'Local',
+      surface: WORLD_TEMPLATE_SURFACE,
+      save: async () => true,
+    })
+    await vi.waitFor(() =>
+      expect(
+        document.querySelector(TEMPLATE_STUDIO_TAG)?.shadowRoot?.querySelector('.studio'),
+      ).toBeTruthy(),
+    )
+    const drop = new Event('drop', { bubbles: true, cancelable: true })
+    Object.defineProperty(drop, 'dataTransfer', {
+      value: {
+        types: ['Files'],
+        files: [new File(['notes'], 'notes.txt', { type: 'text/plain' })],
+      },
+    })
+    window.dispatchEvent(drop)
+    // The browser would otherwise open the file in place of Wplace.
+    expect(drop.defaultPrevented).toBe(true)
+    expect(templateStudioModel().source).toBeNull()
   })
 
   it('leaves a panel in place when the browser cancels its drag', async () => {
@@ -339,7 +408,7 @@ describe('template studio', () => {
       save: async () => true,
     })
     const root = document.querySelector(TEMPLATE_STUDIO_TAG)?.shadowRoot
-    const header = () => root?.querySelector('[data-window="source"] header')
+    const header = () => root?.querySelector('[data-window="dimensions"] header')
     await vi.waitFor(() => expect(header()).toBeTruthy())
     const before = templateStudioModel().layout
 
@@ -370,6 +439,106 @@ describe('template studio', () => {
       origin: { x: edge, y: 100 },
       output: { width: room.width, height: room.height },
     })
+  })
+
+  it('crops only on Apply, leaving what stays of the image where it was on the map', async () => {
+    const room = await openOnRoom({
+      kind: 'create',
+      destination: 'Local',
+      surface: WORLD_TEMPLATE_SURFACE,
+      save: async () => true,
+    })
+    handleTemplateStudioIntent({ type: 'origin', x: 1_000, y: 2_000 })
+    const whole = { x: 0, y: 0, width: room.width, height: room.height }
+    const part = { x: 10, y: 5, width: 40, height: 30 }
+
+    handleTemplateStudioIntent({ type: 'crop-mode', on: true })
+    handleTemplateStudioIntent({ type: 'crop-draft', crop: part })
+    expect(templateStudioModel()).toMatchObject({ crop: whole, cropping: { draft: part } })
+    handleTemplateStudioIntent({ type: 'crop-mode', on: false })
+    expect(templateStudioModel()).toMatchObject({ crop: whole, cropping: null })
+
+    handleTemplateStudioIntent({ type: 'crop-mode', on: true })
+    handleTemplateStudioIntent({ type: 'crop-draft', crop: part })
+    handleTemplateStudioIntent({ type: 'crop-apply' })
+    await ready()
+    expect(templateStudioModel()).toMatchObject({
+      crop: part,
+      cropping: null,
+      origin: { x: 1_010, y: 2_005 },
+      output: { width: 40, height: 30 },
+    })
+  })
+
+  it('keeps a replacement’s crop inside the image, in the template’s proportions', async () => {
+    const { room } = await celesteRoom()
+    await openOnRoom({
+      kind: 'replace',
+      name: 'Tall',
+      server: 'Test server',
+      surface: WORLD_TEMPLATE_SURFACE,
+      width: 10,
+      height: 40,
+      origin: { x: 500, y: 700 },
+      save: async () => true,
+    })
+    handleTemplateStudioIntent({ type: 'crop-mode', on: true })
+    handleTemplateStudioIntent({
+      type: 'crop-draft',
+      crop: { x: 0, y: room.height - 1, width: 5, height: 20 },
+    })
+    const draft = templateStudioModel().cropping?.draft
+    if (draft === undefined) throw new Error('not cropping')
+    expect(draft.y + draft.height).toBeLessThanOrEqual(room.height)
+    expect(draft.height).toBe(draft.width * 4)
+  })
+
+  it('stretches one side while proportions are not kept, and both while they are', async () => {
+    const room = await openOnRoom({
+      kind: 'create',
+      destination: 'Local',
+      surface: WORLD_TEMPLATE_SURFACE,
+      save: async () => true,
+    })
+    handleTemplateStudioIntent({ type: 'keep-proportions', on: false })
+    handleTemplateStudioIntent({ type: 'size', side: 'width', pixels: room.width * 2 })
+    expect(templateStudioModel().output).toMatchObject({
+      width: room.width * 2,
+      height: room.height,
+    })
+
+    // Kept proportions are the stretched ones now.
+    handleTemplateStudioIntent({ type: 'keep-proportions', on: true })
+    handleTemplateStudioIntent({ type: 'size', side: 'height', pixels: room.height * 2 })
+    expect(templateStudioModel().output).toMatchObject({
+      width: room.width * 4,
+      height: room.height * 2,
+    })
+    await ready()
+  })
+
+  it('resets a stretched size to the image’s own proportions, keeping its longer side', async () => {
+    const room = await openOnRoom({
+      kind: 'create',
+      destination: 'Local',
+      surface: WORLD_TEMPLATE_SURFACE,
+      save: async () => true,
+    })
+    const shorter = room.width >= room.height ? 'height' : 'width'
+    handleTemplateStudioIntent({ type: 'keep-proportions', on: false })
+    handleTemplateStudioIntent({ type: 'size', side: shorter, pixels: room[shorter] * 3 })
+    expect(templateStudioModel().output.stretched).toBe(true)
+
+    handleTemplateStudioIntent({ type: 'reset-aspect' })
+    expect(templateStudioModel().output).toMatchObject({
+      width: room.width,
+      height: room.height,
+      stretched: false,
+    })
+    // One step back to the stretched size.
+    handleTemplateStudioIntent({ type: 'undo' })
+    expect(templateStudioModel().output[shorter]).toBe(room[shorter] * 3)
+    await ready()
   })
 
   it('undoes and redoes edits, reprocessing the artwork each way', async () => {

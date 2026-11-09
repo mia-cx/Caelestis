@@ -1,4 +1,4 @@
-import { TILE_SIZE } from '@caelestis/shared'
+import { latLngToCanvasPixel, TILE_SIZE } from '@caelestis/shared'
 import { registerCaelestisUi } from '@caelestis/ui/elements'
 import { installAlarmNotifications } from './alarms.js'
 import { installAllianceServerSync, selectedAllianceManifestScope } from './alliance-server-sync.js'
@@ -80,6 +80,7 @@ import { mismatchWorkerMemoryBytes } from './templates/mismatch-worker.js'
 import { installOfficialEvents, syncOfficialOverlays } from './templates/official-overlays.js'
 import { installPersonalTemplates } from './templates/personal-sync.js'
 import { installServerSync } from './templates/server-sync.js'
+import { syncStudioFrame } from './templates/studio-frame.js'
 import {
   capturedPixelMemoryBytes,
   captureTilePixels,
@@ -240,9 +241,15 @@ const paintOnce = (frame: TileFrame): void => {
   }
 }
 
-/** Where the middle of the viewport is, in canvas pixels — used to place an image on import. */
+/**
+ * Where the middle of the viewport is, in canvas pixels — used to place an image on import. Zoomed
+ * out past Wplace's pixels no tile frame measures the view, so the map's own centre answers.
+ */
 export const viewportCentre = (): { x: number; y: number } | null => {
-  return lastFrame === null ? null : viewportCentreIn(lastFrame)
+  const measured = lastFrame === null ? null : viewportCentreIn(lastFrame)
+  if (measured !== null) return measured
+  const map = getMap()
+  return map === null ? null : latLngToCanvasPixel(map.getCenter())
 }
 
 /** Canvas pixel under a screen point, for centring something on the cursor. */
@@ -483,6 +490,7 @@ export const installFeatures = (): void => {
     installClaimToolHost()
     onFrame(observePresenceFrame, 'Presence viewport')
     onFrame(syncClaimEditorFrame, 'Claim editor overlay')
+    onFrame(syncStudioFrame, 'Template studio handles')
     onFrame((frame) => {
       if (activeAllianceSurface() === null)
         renderPresenceLabels(frame, overlayProjection.project(frame))

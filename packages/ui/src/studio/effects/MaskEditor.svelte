@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { ColourChannel, MaskCurve } from 'ditherette'
   import Button from '../../foundations/Button.svelte'
+  import { selectFace } from '../../foundations/select-face.js'
   import Icon from '../../foundations/Icon.svelte'
   import RangeField from '../RangeField.svelte'
   import { CURVE_CHANNELS, channelKey, channelLabel, sameChannel } from './catalog.js'
@@ -95,7 +96,7 @@
 </script>
 
 <section class="mask" aria-labelledby="{id}-mask">
-  <p id="{id}-mask" class="field-label">Mask</p>
+  <p id="{id}-mask" class="section">Mask</p>
   <Segmented label="Mask view" value={view} options={VIEWS} onChange={(next) => (view = next)} />
 
   {#if preset !== undefined}
@@ -112,9 +113,9 @@
       />
     {/each}
   {:else}
-    <div class="chips" role="group" aria-label="Mask curves">
+    <div class="choices wrap" role="group" aria-label="Mask curves">
       {#each mask as item, index (index)}
-        <button type="button" class="chip" class:active={index === active} aria-pressed={index === active} onclick={() => (selected = index)}>
+        <button type="button" class="choice caelestis-bevel" aria-pressed={index === active} onclick={() => (selected = index)}>
           {curveName(item)}
         </button>
       {/each}
@@ -144,7 +145,7 @@
 
       <div class="field-row">
         <label class="field-label" for="{id}-mask-x">Reads</label>
-        <select id="{id}-mask-x" class="caelestis-select" value={channelKey(curve.x)} onchange={(event) => setInput(event.currentTarget.value)}>
+        <select id="{id}-mask-x" class="caelestis-select" {@attach selectFace} value={channelKey(curve.x)} onchange={(event) => setInput(event.currentTarget.value)}>
           {#each CURVE_CHANNELS as option (channelKey(option.channel))}
             <option value={channelKey(option.channel)}>{option.label}</option>
           {/each}
@@ -152,14 +153,14 @@
       </div>
       <div class="field-row">
         <label class="field-label" for="{id}-mask-x2">And</label>
-        <select id="{id}-mask-x2" class="caelestis-select" value={curve.x2 ? channelKey(curve.x2) : ''} onchange={(event) => setSecondInput(event.currentTarget.value)}>
+        <select id="{id}-mask-x2" class="caelestis-select" {@attach selectFace} value={curve.x2 ? channelKey(curve.x2) : ''} onchange={(event) => setSecondInput(event.currentTarget.value)}>
           <option value="">Nothing else</option>
           {#each CURVE_CHANNELS.filter(({ channel }) => !sameChannel(channel, curve.x)) as option (channelKey(option.channel))}
             <option value={channelKey(option.channel)}>{option.label}</option>
           {/each}
         </select>
       </div>
-      <div class="actions-row">
+      <div class="row-actions">
         <Button label="Remove curve" size="small" onclick={remove} />
       </div>
     {/if}
@@ -167,16 +168,5 @@
 </section>
 
 <style>
-  .mask { display: flex; flex-direction: column; gap: 0.5rem; padding-block-start: 0.5rem; border-block-start: 1px solid var(--caelestis-border); }
-  .chips { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; }
-  .chip {
-    padding: 0.25rem 0.5rem;
-    border: 1px solid var(--caelestis-border);
-    border-radius: var(--caelestis-pill-radius, 999px);
-    background: var(--caelestis-raised-surface, #eee);
-    color: var(--caelestis-text);
-    font: 600 0.6875rem/1.2 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
-    cursor: pointer;
-  }
-  .chip.active { border-color: var(--caelestis-primary, oklch(0.68 0.15 244)); background: color-mix(in oklab, var(--caelestis-primary, oklch(0.68 0.15 244)) 18%, var(--caelestis-raised-surface, #eee)); }
+  .mask { display: flex; flex-direction: column; gap: 0.5rem; }
 </style>

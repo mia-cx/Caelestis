@@ -1,3 +1,4 @@
+import type { Box } from '../studio/layout.js'
 import type { TemplateStudioModel } from '../studio/model.js'
 import type {
   ClaimModeModel,
@@ -38,7 +39,11 @@ export type { Samples, ScopeStage } from '../studio/scopes/scopes.js'
 export type * from '../types.js'
 export type { WorkModel } from '../work/model.js'
 export const TEMPLATE_STUDIO_TAG = 'caelestis-template-studio'
-export type CaelestisTemplateStudio = HTMLElement & { model: TemplateStudioModel }
+export type CaelestisTemplateStudio = HTMLElement & {
+  model: TemplateStudioModel
+  /** Where the draft, or the crop being drawn, sits on screen, in CSS pixels. */
+  mapBox: Box | null
+}
 export type CaelestisWork = HTMLElement & { model: WorkModel }
 
 export const TEMPLATE_ADMIN_TAG = 'caelestis-template-admin'
