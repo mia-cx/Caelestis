@@ -7,6 +7,8 @@ on:
       - packages/shared/**
       - .changeset/**
       - .github/scripts/*release*.mjs
+      - .github/scripts/extension-stores.mjs
+      - .github/scripts/package-extension.sh
       - .github/workflows/app-release.yml
       - .github/workflows/userscript-ci.yml
       - package.json
@@ -21,6 +23,8 @@ on:
       - packages/shared/**
       - .changeset/**
       - .github/scripts/*release*.mjs
+      - .github/scripts/extension-stores.mjs
+      - .github/scripts/package-extension.sh
       - .github/workflows/app-release.yml
       - .github/workflows/userscript-ci.yml
       - package.json
@@ -95,5 +99,16 @@ jobs:
         with:
           name: caelestis-userscript-${{ inputs.source_sha || github.sha }}
           path: apps/userscript/dist/wplace-template-server.user.js
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Package the extension and its source
+        run: .github/scripts/package-extension.sh "$RUNNER_TEMP/extension"
+
+      - name: Upload extension packages
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: caelestis-extension-${{ inputs.source_sha || github.sha }}
+          path: ${{ runner.temp }}/extension/*.zip
           if-no-files-found: error
           retention-days: 14
