@@ -387,6 +387,8 @@ export interface SettingsModel extends GlobalSettingsModel {
   readonly userscriptVersion?: string
   /** Which build that version belongs to; the userscript when absent. */
   readonly build?: 'userscript' | 'extension'
+  /** The other build, while it is installed too, to import settings from or send them to. */
+  readonly otherBuild?: 'userscript' | 'extension' | undefined
   readonly servers: readonly SettingsServerModel[]
   readonly addServerPending?: boolean
   readonly addServerMessage?: string
@@ -424,6 +426,8 @@ export type SettingsIntent =
     }
   | { readonly type: 'set-boolean'; readonly key: SettingsBooleanKey; readonly value: boolean }
   | { readonly type: 'set-wplace-patch'; readonly id: string; readonly enabled: boolean }
+  | { readonly type: 'import-from-other-build' }
+  | { readonly type: 'send-to-other-build' }
   | {
       readonly type: 'set-shortcut-binding'
       readonly id: import('@caelestis/shared').ShortcutId

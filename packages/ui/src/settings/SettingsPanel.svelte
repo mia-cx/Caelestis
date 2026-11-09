@@ -189,6 +189,16 @@
     {/each}
   </div>
 
+  {#if model.otherBuild !== undefined}
+    {@const other = model.otherBuild}
+    <SectionHeader title={other === 'extension' ? 'Extension' : 'Userscript'} icon="popout" />
+    <p class="subtle">The {other} is installed too. Move your servers and settings between the two.</p>
+    <div class="transfer">
+      <Button label={`Import from ${other}`} kind="ghost" size="small" onclick={() => emit({ type: 'import-from-other-build' })} />
+      <Button label={`Send to ${other}`} kind="ghost" size="small" onclick={() => emit({ type: 'send-to-other-build' })} />
+    </div>
+  {/if}
+
   <SectionHeader title="Painting" icon="palette" />
   <div class="colour-order">
     <label for="colour-navigation-order">Middle-click colour order<small>Visits remaining pixels only inside the template intersecting the viewport centre; nearest is used only in empty space.</small></label>
@@ -261,6 +271,7 @@
   .server-name { min-inline-size: 0; flex: 1; overflow: hidden; text-align: start; text-overflow: ellipsis; white-space: nowrap; }
   .server-version { flex: 0 1 auto; min-inline-size: 0; max-inline-size: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--caelestis-muted-text); font-size: 0.7rem; }
   .version-line { margin-block-start: 0.6rem; }
+  .transfer { display: flex; flex-wrap: wrap; gap: 0.5rem; padding: 0.35rem var(--caelestis-content-inset, 1rem); }
   .subtle.warn { color: var(--caelestis-warning); }
   .badge { padding: 0.15rem 0.4rem; border-radius: var(--caelestis-pill-radius, 999px); background: color-mix(in oklch, var(--caelestis-danger) 15%, transparent); color: var(--caelestis-danger); font-size: 0.65rem; }.badge.warning { background: color-mix(in oklch, var(--caelestis-warning) 18%, transparent); color: var(--caelestis-warning); }
   .server-body { display: flex; flex-direction: column; gap: 0.35rem; padding: 0.45rem 0 0.35rem 1.25rem; }.server-body .token-row { padding: 0; }
