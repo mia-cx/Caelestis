@@ -1,5 +1,20 @@
 # @caelestis/frontend
 
+## 1.0.0
+
+### Major Changes
+
+- d421e5e: Release Caelestis 1.0.0 across the userscript, browser extension, dashboard, and backend.
+
+### Patch Changes
+
+- ffdd4e9: Folder dashboards no longer reload their history on every live update, and the pace chart's refresh fetches only its newest buckets.
+- 0dac7ba: The dashboard's image memory stays bounded while you pan the viewer or scrub a timelapse.
+- 4562dda: Moving between dashboard pages no longer reloads the server, catalog and status data the page already has.
+- 9b16720: Template share GIFs render about three times faster: tile, history and map reads now overlap decoding instead of waiting one at a time.
+- c9aaeb7: Share GIF revalidation and HEAD requests answer from the stored image's metadata instead of reading the whole image.
+- feab51f: Template cards draw only once they scroll near the screen, at screen resolution, so large templates no longer take gigabytes of memory to preview.
+
 ## 0.9.0
 
 ### Minor Changes

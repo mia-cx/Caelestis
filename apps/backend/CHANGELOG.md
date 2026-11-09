@@ -1,5 +1,29 @@
 # @caelestis/backend
 
+## 1.0.0
+
+### Major Changes
+
+- d421e5e: Release Caelestis 1.0.0 across the userscript, browser extension, dashboard, and backend.
+
+### Patch Changes
+
+- f1ed2e6: Eralyon backfills download each tile's week once and apply each snapshot's changes once.
+- 019f6cd: Hourly claim renewal renews every connected painter in one database write.
+- 54b7c8f: Leaderboards rank painters in the database and contribution reads use an index on template and day.
+- b1a0a38: Mismatch highlights stay visible while a tile is rechecked after someone paints on it, and the recheck downloads nothing when they are unchanged.
+- 8ec7318: Paint reports are acknowledged without waiting for live dashboards to refresh.
+- fef8259: Recording a paint no longer scans the counter tables to prune them.
+- 030ef1d: Paint reports validate in a single pass, about 40 times faster, and a report may carry at most 1,398,101 pixels, more than the live connection can deliver in one report.
+- ce4a4d4: Presence updates in busy rooms only compare each painter with the painters near them.
+- e4966e8: Progress history for artwork without cached measurements loads several times faster.
+- 18f65e0: Tile scans no longer wake alarm subscribers when no alarm changed.
+- b895eeb: Live clients no longer receive alarm and manifest updates when nothing they show changed.
+- 9b16720: Template share GIFs render about three times faster: tile, history and map reads now overlap decoding instead of waiting one at a time.
+- ee6541b: Tile commits that change progress save only the templates they changed, not the whole season's status.
+- 26eff42: `/telemetry/status` sends an `ETag` and answers a matching `If-None-Match` with 304.
+- ea61d83: Tile history reuses the current manifest to decide which tiles a reader may see instead of listing every template per request.
+
 ## 0.11.0
 
 ### Minor Changes
