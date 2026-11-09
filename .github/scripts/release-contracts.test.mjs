@@ -249,3 +249,33 @@ test('store submission skips every store whose credentials are missing', () => {
     assert.match(output, /^::notice::.*credentials are not set up; skipping/m)
   }
 })
+
+test('Firefox skips a missing public listing even when configured credentials are stale', () => {
+  const script = fileURLToPath(new URL('./extension-stores.mjs', import.meta.url))
+  const preload = `
+    globalThis.fetch = async (url, init) => {
+      if (url !== 'https://addons.mozilla.org/api/v5/addons/addon/caelestis@mia.cx/') {
+        throw new Error('Unexpected request: ' + url)
+      }
+      return init?.headers?.authorization
+        ? Response.json({ detail: 'Unknown JWT iss (issuer).' }, { status: 401 })
+        : Response.json({ detail: 'Not found.' }, { status: 404 })
+    }
+  `
+  const output = execFileSync(
+    process.execPath,
+    [
+      '--import',
+      `data:text/javascript,${encodeURIComponent(preload)}`,
+      script,
+      'firefox',
+      'unread.zip',
+      'unread.zip',
+    ],
+    {
+      env: { PATH: process.env.PATH, AMO_JWT_ISSUER: 'stale', AMO_JWT_SECRET: 'stale' },
+      encoding: 'utf8',
+    },
+  )
+  assert.match(output, /has no addons.mozilla.org listing yet; skipping Firefox/)
+})

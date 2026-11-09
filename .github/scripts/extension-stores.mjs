@@ -15,7 +15,7 @@
  * Each store publishes the version once its review approves it.
  */
 import { execFileSync } from 'node:child_process'
-import { createHmac, createSign, randomUUID } from 'node:crypto'
+import { createSign } from 'node:crypto'
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -185,13 +185,8 @@ const firefox = async (zip, source) => {
   if (found === null) return
   const [issuer, secret] = found
 
-  // addons.mozilla.org's API takes a JWT signed with the API secret on every request.
-  const now = seconds()
-  const unsigned = `${jwtPart({ alg: 'HS256', typ: 'JWT' })}.${jwtPart({ iss: issuer, jti: randomUUID(), iat: now, exp: now + 60 })}`
-  const jwt = `${unsigned}.${createHmac('sha256', secret).update(unsigned).digest('base64url')}`
-  const addon = await fetch(`https://addons.mozilla.org/api/v5/addons/addon/${ADDON_ID}/`, {
-    headers: { authorization: `JWT ${jwt}` },
-  })
+  // Listing lookup is public. Authenticate only when web-ext submits an existing listing below.
+  const addon = await fetch(`https://addons.mozilla.org/api/v5/addons/addon/${ADDON_ID}/`)
   if (addon.status === 404) {
     notice(`${ADDON_ID} has no addons.mozilla.org listing yet; skipping Firefox.`)
     return

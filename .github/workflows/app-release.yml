@@ -10,6 +10,10 @@ on:
         description: Retry the current userscript version's verified Discord announcement
         type: boolean
         default: false
+      retry_extension_submission:
+        description: Retry submitting the current verified userscript release to configured stores
+        type: boolean
+        default: false
       retry_frontend_announcement:
         description: Retry the current frontend version's Discord announcement
         type: boolean
@@ -325,8 +329,10 @@ jobs:
   # Each store step runs even when an earlier store or the Discord announcement fails.
   extension-stores:
     name: Submit extension to stores
-    needs: userscript
-    if: ${{ !cancelled() && needs.userscript.outputs.verified == 'true' }}
+    needs: [version, userscript]
+    if: >-
+      !cancelled() && needs.version.result == 'success' &&
+      (needs.userscript.outputs.verified == 'true' || inputs.retry_extension_submission)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: extension-stores
@@ -350,6 +356,10 @@ jobs:
         id: download
         working-directory: ${{ runner.temp }}
         run: |
+          # A store-only retry uses the current app version without rebuilding or announcing it.
+          if [ -z "$TAG" ]; then
+            TAG="userscript-v$(node --print 'require(process.env.GITHUB_WORKSPACE + "/apps/userscript/package.json").version')"
+          fi
           for attempt in 1 2 3; do
             if gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'caelestis-extension*.zip' --pattern SHA256SUMS --clobber; then
               break
