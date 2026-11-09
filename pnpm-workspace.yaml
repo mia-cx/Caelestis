@@ -18,3 +18,4 @@ minimumReleaseAgeExclude:
   - '@svartz/ui@2.1.1'
   - '@svartz/vite@2.1.1'
   - svartz@2.1.1
+  - ditherette@1.0.3
