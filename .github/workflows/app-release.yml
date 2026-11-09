@@ -347,7 +347,8 @@ jobs:
           gh release download "$TAG" --pattern 'caelestis-extension*.zip' --pattern SHA256SUMS
           # Each zip must exist and match its own line in SHA256SUMS.
           for zip in caelestis-extension.zip caelestis-extension-source.zip; do
-            grep -qFx -- "$(sha256sum "$zip")" SHA256SUMS
+            checksum="$(sha256sum "$zip")"
+            grep -qFx -- "$checksum" SHA256SUMS
           done
 
       - name: Submit to the Chrome Web Store
