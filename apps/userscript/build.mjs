@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { copyFileSync, readFileSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { build, context } from 'esbuild'
 import { ditherettePlugin } from './ditherette-plugin.mjs'
 
@@ -8,17 +8,28 @@ const backendPkg = JSON.parse(
   readFileSync(new URL('../backend/package.json', import.meta.url), 'utf8'),
 )
 const development = process.argv.includes('--watch') || process.argv.includes('--development')
-let revision = null
-let dirty = null
-try {
-  revision = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
-  dirty =
-    execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], {
-      encoding: 'utf8',
-    }).trim() !== ''
-} catch {
-  // Source archives may have no Git metadata. Reports retain an explicit unknown value.
+/**
+ * The commit this build comes from, and whether it had uncommitted changes. A source archive has no
+ * Git metadata, so the release writes `build-revision.json` into it, and a rebuild from the archive
+ * matches the released build byte for byte. Without either, reports keep an explicit unknown.
+ */
+const gitRevision = () => {
+  try {
+    return {
+      revision: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+      dirty:
+        execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], {
+          encoding: 'utf8',
+        }).trim() !== '',
+    }
+  } catch {
+    return { revision: null, dirty: null }
+  }
 }
+const revisionFile = new URL('./build-revision.json', import.meta.url)
+const { revision, dirty } = existsSync(revisionFile)
+  ? JSON.parse(readFileSync(revisionFile, 'utf8'))
+  : gitRevision()
 
 /**
  * The Violentmonkey metadata block. It must be the first thing in the output file, so it rides in

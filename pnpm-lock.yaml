@@ -361,8 +361,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/ui
       ditherette:
-        specifier: 1.0.0
-        version: 1.0.0
+        specifier: 1.0.3
+        version: 1.0.3
       polygon-clipping:
         specifier: 0.15.7
         version: 0.15.7
@@ -395,8 +395,8 @@ importers:
         specifier: ^26.6.4
         version: 26.6.4
       ditherette:
-        specifier: 1.0.0
-        version: 1.0.0
+        specifier: 1.0.3
+        version: 1.0.3
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -473,8 +473,8 @@ importers:
         specifier: npm:typescript@^7.0.2
         version: typescript@7.0.2
       ditherette:
-        specifier: 1.0.0
-        version: 1.0.0
+        specifier: 1.0.3
+        version: 1.0.3
       happy-dom:
         specifier: ^21.0.3
         version: 21.0.3
@@ -3274,8 +3274,8 @@ packages:
   devlop@1.1.0:
     resolution: {integrity: sha512-RWmIqhcFf1lRYBvNmr7qTNuyCt/7/ns2jbpp1+PalgE/rDQcBT0fioSMUpJ93irlUhC5hrg4cYqe6U+0ImW0rA==}
 
-  ditherette@1.0.0:
-    resolution: {integrity: sha512-n3YU3AZ/dc8m78k4pTojC2v3kraxK+as2NCiSVvj10VOvSFcMPUfS8xmJ3sUVI8R76CpXLj3/EFkwpgX2geiBg==}
+  ditherette@1.0.3:
+    resolution: {integrity: sha512-lpt+6Fvu89bxlt3dBkDjps4GKS9CoDkHaGttvVXq7LjpevGKhs2nBhEfepRmozrigDRV/WHI2n8wlqqf/4HXTw==}
 
   dompurify@3.4.17:
     resolution: {integrity: sha512-B/pSlYVHQ58kqISD/yDjuJ1yfzI34m1gF4lAod2bwSRhiN4K5Cl3H8Af7hqB2PmTL911tdEudnnXn5FnhRoz0w==}
@@ -7157,7 +7157,7 @@ snapshots:
     dependencies:
       dequal: 2.0.3
 
-  ditherette@1.0.0: {}
+  ditherette@1.0.3: {}
 
   dompurify@3.4.17:
     optionalDependencies:
