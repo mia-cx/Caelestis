@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte'
   import MenuStyles from '../../foundations/MenuStyles.svelte'
+  import { selectFace } from '../../foundations/select-face.js'
   import { SCOPE_MODELS, type ScopeModel, vectorPlane } from '../colour.js'
   import Segmented from '../effects/Segmented.svelte'
   import type { TemplateStudioIntent, TemplateStudioModel } from '../model.js'
@@ -67,15 +68,20 @@
 
 <MenuStyles />
 
-<div class="controls">
-  <select class="caelestis-select" aria-label="Scope" value={scope.id} onchange={(event) => (scopeId = event.currentTarget.value as ScopeKind)}>
+<div class="field-row">
+  <label class="field-label" for="{id}-scope">Scope</label>
+  <select id="{id}-scope" class="caelestis-select" {@attach selectFace} value={scope.id} onchange={(event) => (scopeId = event.currentTarget.value as ScopeKind)}>
     {#each SCOPES as option (option.id)}
       <option value={option.id}>{option.label}</option>
     {/each}
   </select>
+</div>
+<div class="field-row">
+  <label class="field-label" for="{id}-model">Model</label>
   <select
+    id="{id}-model"
     class="caelestis-select"
-    aria-label="Colour model"
+    {@attach selectFace}
     value={colourModel?.id}
     disabled={chromaticity}
     onchange={(event) => (modelId = event.currentTarget.value as ScopeModel)}
@@ -85,10 +91,13 @@
     {/each}
   </select>
 </div>
-<div class="stages" role="group" aria-label="Images to show">
-  {#each SCOPE_STAGES as stage (stage.id)}
-    <button type="button" class:active={shown.includes(stage.id)} aria-pressed={shown.includes(stage.id)} onclick={() => toggleStage(stage.id)}>{stage.label}</button>
-  {/each}
+<div class="field-row">
+  <span class="field-label" id="{id}-stages">Show</span>
+  <div class="choices" role="group" aria-labelledby="{id}-stages">
+    {#each SCOPE_STAGES as stage (stage.id)}
+      <button type="button" class="choice caelestis-bevel" aria-pressed={shown.includes(stage.id)} onclick={() => toggleStage(stage.id)}>{stage.label}</button>
+    {/each}
+  </div>
 </div>
 
 <div class="screen" class:pending={model.scopes.pending} aria-busy={model.scopes.pending || undefined} id="{id}-screen">
@@ -129,19 +138,6 @@
 {/if}
 
 <style>
-  .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 0.35rem; }
-  .stages { display: flex; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, 0.5rem); overflow: hidden; }
-  .stages button {
-    flex: 1;
-    padding: 0.35rem 0.25rem;
-    border: 0;
-    background: var(--caelestis-raised-surface, #eee);
-    color: var(--caelestis-text);
-    font: 600 0.75rem/1 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
-    cursor: pointer;
-  }
-  .stages button + button { border-inline-start: 1px solid var(--caelestis-border); }
-  .stages button.active { background: var(--caelestis-primary, oklch(0.68 0.15 244)); color: white; }
   .screen { position: relative; block-size: 15rem; border: 1px solid var(--caelestis-border); background: black; color: white; transition: opacity var(--caelestis-duration-quick); }
   .screen.pending { opacity: 0.6; }
   .inset { block-size: 100%; box-sizing: border-box; padding: 0.5rem; }

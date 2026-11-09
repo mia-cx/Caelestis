@@ -5,11 +5,12 @@
 
   let { step, onChange }: { step: LevelsEffect; onChange: (step: LevelsEffect) => void } = $props()
 
-  const CHANNELS: readonly { id: EffectChannel; label: string }[] = [
-    { id: 'rgb', label: 'RGB' },
-    { id: 'red', label: 'Red' },
-    { id: 'green', label: 'Green' },
-    { id: 'blue', label: 'Blue' },
+  /** Short enough for the controls' column; the full name shows on hover. */
+  const CHANNELS: readonly { id: EffectChannel; label: string; title: string }[] = [
+    { id: 'rgb', label: 'RGB', title: 'All channels' },
+    { id: 'red', label: 'R', title: 'Red' },
+    { id: 'green', label: 'G', title: 'Green' },
+    { id: 'blue', label: 'B', title: 'Blue' },
   ]
   /** Levels reads in byte units, like every editor's Levels panel. */
   const BYTE = 255
@@ -26,7 +27,10 @@
   }
 </script>
 
-<Segmented label="Channel" value={step.channel} options={CHANNELS} onChange={(channel) => onChange({ ...step, channel })} />
+<div class="field-row">
+  <span class="field-label">Channel</span>
+  <Segmented label="Channel" value={step.channel} options={CHANNELS} onChange={(channel) => onChange({ ...step, channel })} />
+</div>
 <RangeField label="Input black" value={toByte(step.input.black)} min={0} max={BYTE - 1} step={1} onChange={(value) => setInput('black', value)} />
 <RangeField label="Input white" value={toByte(step.input.white)} min={1} max={BYTE} step={1} onChange={(value) => setInput('white', value)} />
 <RangeField label="Midtones" value={step.gamma} min={0.1} max={10} step={0.01} log onChange={(gamma) => onChange({ ...step, gamma })} />

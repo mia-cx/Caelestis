@@ -34,6 +34,19 @@
     :global(select.caelestis-select), :global(select.caelestis-select::picker(select)) { appearance: base-select; }
   }
   :global(select.caelestis-select::picker-icon) { display: none; }
+  /* The face `selectFace` adds: the chosen option, cut short with an ellipsis before the caret. */
+  :global(.caelestis-select-face) {
+    display: flex;
+    align-items: center;
+    inline-size: 100%;
+    min-inline-size: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+  }
+  :global(.caelestis-select-face selectedcontent) { display: block; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   :global(.caelestis-menu) {
     box-sizing: border-box;
     padding: var(--menu-padding);
