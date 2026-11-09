@@ -21,7 +21,7 @@
     "@svartz/ui": "^2.1.1",
     "@svartz/vite": "^2.1.1",
     "@sveltejs/adapter-static": "^3.0.10",
-    "@sveltejs/kit": "^2.70.3",
+    "@sveltejs/kit": "^3.0.0",
     "@sveltejs/vite-plugin-svelte": "^6.2.4",
     "@tailwindcss/vite": "^4.3.3",
     "@typescript/native": "npm:typescript@^7.0.2",
