@@ -185,7 +185,7 @@ jobs:
       contents: write
     outputs:
       tag: ${{ steps.userscript.outputs.tag }}
-      created: ${{ steps.create.outcome == 'success' }}
+      verified: ${{ steps.verify.outcome == 'success' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -275,6 +275,7 @@ jobs:
             "$OUTPUT/caelestis-extension.zip" "$OUTPUT/caelestis-extension-source.zip"
 
       - name: Verify published installers
+        id: verify
         if: >-
           steps.userscript-existing.outputs.exists == 'false' ||
           (steps.userscript-existing.outputs.matches_sha == 'true' &&
@@ -287,7 +288,14 @@ jobs:
           RETRY: ${{ inputs.retry_userscript_announcement }}
         run: |
           download="$(mktemp -d)"
-          gh release download "$TAG" --dir "$download"
+          # GitHub can return transient 5xx responses just after uploading release assets.
+          for attempt in 1 2 3; do
+            if gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir "$download" --clobber; then
+              break
+            fi
+            test "$attempt" -lt 3
+            sleep "$((attempt * 2))"
+          done
           (cd "$download" && sha256sum --check SHA256SUMS)
           # Builds embed their commit, so a retry from a later main cannot reproduce the published bytes.
           [ "$RETRY" = true ] && exit 0
@@ -313,14 +321,12 @@ jobs:
           --notes-file "$NOTES"
           --repository "$GITHUB_REPOSITORY"
 
-  # Submits a new userscript release's extension to every store with credentials in the
-  # extension-stores environment and skips the rest. It runs once the release exists, even when a
-  # later userscript step such as the Discord announcement fails, and each store step runs even
-  # when an earlier store fails.
+  # Submit verified release assets, including on an announcement retry after failed verification.
+  # Each store step runs even when an earlier store or the Discord announcement fails.
   extension-stores:
     name: Submit extension to stores
     needs: userscript
-    if: ${{ !cancelled() && needs.userscript.outputs.created == 'true' }}
+    if: ${{ !cancelled() && needs.userscript.outputs.verified == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: extension-stores
@@ -344,7 +350,13 @@ jobs:
         id: download
         working-directory: ${{ runner.temp }}
         run: |
-          gh release download "$TAG" --pattern 'caelestis-extension*.zip' --pattern SHA256SUMS
+          for attempt in 1 2 3; do
+            if gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'caelestis-extension*.zip' --pattern SHA256SUMS --clobber; then
+              break
+            fi
+            test "$attempt" -lt 3
+            sleep "$((attempt * 2))"
+          done
           # Each zip must exist and match its own line in SHA256SUMS.
           for zip in caelestis-extension.zip caelestis-extension-source.zip; do
             checksum="$(sha256sum "$zip")"

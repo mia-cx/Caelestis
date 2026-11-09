@@ -6,11 +6,11 @@ The backend owns template status, telemetry, and alarms. The dashboard and insta
 ## Release direction
 
 The v1 implementation is complete, including the Ditherette-powered template studio.
-The next release is 1.0.0 for the userscript, frontend, and backend.
+The frontend and backend run 1.0.0, and the userscript 1.0.0 release is published.
 The browser extension shares the userscript's source and version.
 The docs site deploys with the release and stays unversioned.
 
-Mia merges the current release pull request herself. Its merge closes the v1 map.
+The v1 map closed when Mia merged release pull request #768.
 The release workflow publishes the installers, deploys the server apps, and posts the configured announcements.
 
 ## Next scope
