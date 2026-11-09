@@ -54,6 +54,8 @@ const chrome = async (zip) => {
   ])
   if (found === null) return
   const [serviceAccount, publisher, itemId] = found
+  // Read first: a pending review is cancelled below, so a missing zip must fail before that.
+  const bytes = readFileSync(zip)
   const key = JSON.parse(serviceAccount)
   const api = 'https://chromewebstore.googleapis.com'
   const item = `publishers/${publisher}/items/${itemId}`
@@ -90,7 +92,7 @@ const chrome = async (zip) => {
 
   const upload = await call('POST', `/upload/v2/${item}:upload`, {
     headers: { 'content-type': 'application/zip' },
-    body: readFileSync(zip),
+    body: bytes,
   })
   let state = upload.uploadState
   // The API reference names the in-progress state both ways.

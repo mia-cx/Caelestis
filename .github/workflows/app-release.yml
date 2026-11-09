@@ -314,11 +314,13 @@ jobs:
           --repository "$GITHUB_REPOSITORY"
 
   # Submits a new userscript release's extension to every store with credentials in the
-  # extension-stores environment and skips the rest. Each step runs even when an earlier store fails.
+  # extension-stores environment and skips the rest. It runs once the release exists, even when a
+  # later userscript step such as the Discord announcement fails, and each store step runs even
+  # when an earlier store fails.
   extension-stores:
     name: Submit extension to stores
     needs: userscript
-    if: needs.userscript.outputs.created == 'true'
+    if: ${{ !cancelled() && needs.userscript.outputs.created == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: extension-stores
@@ -338,11 +340,15 @@ jobs:
         with:
           node-version: 22.23.2
 
-      - name: Download the released extension
-        run: gh release download "$TAG" --pattern 'caelestis-extension*.zip' --dir "$RUNNER_TEMP"
+      - name: Download and verify the released extension
+        id: download
+        working-directory: ${{ runner.temp }}
+        run: |
+          gh release download "$TAG" --pattern 'caelestis-extension*.zip' --pattern SHA256SUMS
+          sha256sum --check --ignore-missing SHA256SUMS
 
       - name: Submit to the Chrome Web Store
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.download.outcome == 'success' }}
         env:
           CHROME_SERVICE_ACCOUNT_KEY: ${{ secrets.CHROME_SERVICE_ACCOUNT_KEY }}
           CHROME_PUBLISHER_ID: ${{ secrets.CHROME_PUBLISHER_ID }}
@@ -350,7 +356,7 @@ jobs:
         run: node .github/scripts/extension-stores.mjs chrome "$RUNNER_TEMP/caelestis-extension.zip"
 
       - name: Submit to Microsoft Edge Add-ons
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.download.outcome == 'success' }}
         env:
           EDGE_PRODUCT_ID: ${{ secrets.EDGE_PRODUCT_ID }}
           EDGE_CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
@@ -358,7 +364,7 @@ jobs:
         run: node .github/scripts/extension-stores.mjs edge "$RUNNER_TEMP/caelestis-extension.zip"
 
       - name: Submit to addons.mozilla.org
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.download.outcome == 'success' }}
         env:
           AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
           AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
