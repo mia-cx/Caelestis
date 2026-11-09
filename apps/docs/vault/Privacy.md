@@ -6,7 +6,9 @@ This policy covers the Caelestis browser extension and userscript. Both run the 
 
 Last updated 9 November 2026.
 
-Caelestis runs only on [Wplace](https://wplace.live). The Caelestis project runs no server that receives your data. Caelestis has no analytics or ads.
+Caelestis runs only on [Wplace](https://wplace.live). It has no analytics or ads.
+
+Caelestis sends data only to the services this page names. Today that means Wplace and any servers you connect to. If the Caelestis project starts a service of its own, this page will name it and say what it receives before Caelestis sends it anything.
 
 ## What stays in your browser
 
@@ -25,7 +27,7 @@ Caelestis never reads your Wplace session cookie. It never sends your captcha to
 
 Without a server connection, Caelestis contacts only Wplace and image addresses you paste into the template studio. It fetches those images without cookies.
 
-When you connect to a server, Caelestis sends data only to that server. Groups and their members run these servers. The owner decides who can see the data and how long the server keeps it. Ask the owner for their privacy policy.
+When you connect to a server, Caelestis sends data only to that server. Whoever runs the server, usually a group, is its owner. The owner decides who can see the data and how long the server keeps it. Ask the owner for their privacy policy.
 
 A connected server receives the following data.
 
