@@ -1,5 +1,82 @@
 # @caelestis/userscript
 
+## 1.0.0
+
+### Major Changes
+
+- d421e5e: Release Caelestis 1.0.0 across the userscript, browser extension, dashboard, and backend.
+
+### Minor Changes
+
+- 22b0d6e: Lay out every template studio panel the same way, with each setting's label in one column and the whole window scrolling when it outgrows the screen.
+  
+  - Size puts Scale first and always shows how it resamples.
+  - Yes/no settings are switches, choices share one style, and long select labels end in an ellipsis before the caret.
+- 664399c: Lay the template studio out as Ditherette does, with the image shown only on the map and crop's numbers in a small card under the crop.
+  
+  - Every panel has a tab, and dragging the rest of a header moves the whole window with every panel docked inside it.
+  - Size and Dither share a tab group over Colours on the left, with Effects on the right.
+  - Replace image sits in the bar, and before there is an image the map offers a file, the clipboard or a web address.
+  - A new template lands in the middle of the view even when the map is zoomed out past its pixels.
+- 53ba026: Let every template studio window float and move by its header, and add Reset aspect ratio to Size.
+  
+  - Tabs are square and the Scale slider matches Caelestis's other sliders in pixel style.
+- 7f7d6f1: Resize and crop the template studio's image with handles on the map, where the template is drawn.
+  
+  - Corners keep proportions and edges stretch one side; Shift swaps the two.
+  - Crop mode shows the whole source image and applies the crop on Apply.
+- 01fbec0: Show the template studio's everyday settings first, with the rest folded under More options in Size, Colours and Dither.
+  
+  - Size takes width and height side by side, and scale as a percentage.
+  - Colour matching joins Colours, so its own window is gone.
+- 8055848: Make the template studio's windows easier to read, with larger text and only the controls that apply.
+  
+  - Drop an image anywhere over the studio to load it.
+  - On phones the bar wraps as name and Save, tools, then the readout.
+- 1f469d6: Arrange the template studio's panels freely: drag one to float it, dock it to an edge, split it beside another panel, or stack it as a tab, with every docked panel kept in view.
+
+### Patch Changes
+
+- 078cd56: Changing a setting with the template panel open rebuilds its tree once instead of twice.
+- d927463: Alliance template progress in the panel and the Paint palette is counted once per artboard change instead of on every redraw, so large alliance templates no longer stall Wplace.
+- b4174aa: Large templates on an alliance artboard show the part in view while the rest is still loading.
+- 89d8c70: Hovering a large claim shape with a claim tool no longer redraws the shape on every pointer move.
+- 72741e9: Scrolling and pinching the map outside claim mode no longer waits on Caelestis's claim editor.
+- 72972de: Saved region claims no longer redraw their pixels or rewrite the claim journal each time Caelestis checks them against your servers.
+- 74ae89c: Template Studio now loads its image processor the first time you open it, instead of every time Wplace starts.
+- 1924ab8: Painting a few draft pixels copies only the changed area of the tile instead of the whole tile.
+- 8dbe0dd: Moving a template, opening Paint, or showing a template now re-downloads only the Wplace tiles that newly need reading, instead of every visible tile on each step.
+- 88db870: Load the FalseType font and Caelestis's cursors again when the userscript runs through a userscript manager.
+- 172ef31: Holding a template mid-move or editing a draft no longer rebuilds the template list on every frame.
+- defb01b: On the alliance headquarters canvas, A and D now skip colours the focused template has finished, as they do on the world canvas.
+- 34e6696: The alliance headquarters' Show only the selected colour button no longer tells you to open Wplace's paint drawer while it is already open.
+- 1224373: On the alliance headquarters canvas, unsubmitted drafts now count toward mismatch markers and progress, as they do on the world canvas.
+- 8d52266: On the alliance headquarters canvas, templates now draw above the painted art, as they do on the world canvas, instead of disappearing under it.
+- 3492783: Wplace's colour picker no longer gets stuck on the alliance headquarters canvas: picking an empty pixel, or a colour Caelestis cannot match, now works as it does without Caelestis.
+- 155f753: Shift+click on the alliance headquarters canvas now paints only where the template wants the selected colour, as it does on the world canvas.
+- b10b284: Shift+Space now paints only the template's unfinished pixels for the selected colour on the alliance headquarters canvas too, as it does on the world canvas.
+- 17d0e88: Importing a template on the alliance headquarters canvas now opens a template studio you can use, instead of one stuck behind Wplace's alliance window.
+- c2c24ab: Importing a template file no longer gets stuck when Blue Marble runs alongside Caelestis.
+- 95d4aa7: Returning to the Wplace tab and changing a Local template's visibility, name, folder, appearance or position no longer reads every template's pixels again; only artwork that changed is loaded.
+- ecadf9e: The userscript starts Caelestis once in the page, instead of also loading all of it in the userscript manager.
+- 7d3a235: The marker budget now limits how many markers the GPU is sent, not only how many it draws, so dense tiles cost the same as the budget instead of every marker on them.
+- b1a0a38: Mismatch highlights stay visible while a tile is rechecked after someone paints on it, and the recheck downloads nothing when they are unchanged.
+- 66599ed: An offline server no longer redraws the panel and map every few seconds while Caelestis waits for it to come back.
+- 3d16d43: Contrast outlines no longer make the browser recalculate page styles on every frame while the map pans.
+- 5b146f8: Painting, erasing or submitting a pixel on a tile with many markers now updates only that pixel's marker, instead of copying and re-uploading every marker on the tile.
+- 2f1ac61: The template panel no longer rebuilds its tree when painters move or pixel progress changes, and stops rereading the server cache on every refresh.
+- 9b968c7: A large template on the map shows the part in view within a few frames instead of waiting for the whole template to load.
+- 14567e2: Panning the map no longer makes Caelestis re-measure Wplace's controls every frame; the rail, template controls and charge chip move only when Wplace's layout actually changes.
+- ce05ad4: The Caelestis rail now spaces its buttons like Wplace's own rail, including the tighter pixel UI.
+- 793ffc0: Caelestis's rail buttons stay visible while painting when Wplace shows its Store button in the corner.
+- 8eb56f7: A new version of a server template now decodes only the parts that changed, instead of the whole template.
+- 6a539a6: Connecting to a server, or loading the page, now downloads each server's template list once instead of twice.
+- 28cea2b: A map full of templates that are not changing no longer re-checks each one on every frame.
+- a852a6b: Visible templates draw again, and the template shortcuts work again, when Blue Marble runs alongside Caelestis.
+- e70def2: A wide view with markers on no longer downloads its tiles over and over while idle.
+- 0cf09bb: Wplace no longer waits for Caelestis to read a tile before drawing it; tiles are read in a worker.
+- 294b202: At startup, Caelestis reads Wplace's code once for its labels, personal templates, and events, instead of up to three times.
+
 ## 0.20.0
 
 ### Minor Changes
