@@ -15,7 +15,7 @@ Chromium removes the override when that session closes.
 # App release notes
 
 Add one new Changeset file for each atomic, user-visible change. Target every affected deployable
-app: userscript, frontend, or backend. Never target shared, ui, or wire-schema. Use one short summary
+app: userscript (which also covers the browser extension), frontend, or backend. Never target shared, ui, or wire-schema. Use one short summary
 sentence. Add nested bullets only for closely related parts of the same change. Keep pending
 Changeset files immutable so each released top-level bullet stays linked to its own commit.
 

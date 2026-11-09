@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
 import {
   assertNoMixedPackageKinds,
   validatePendingUserscriptChangeset,
@@ -235,4 +237,15 @@ test('webhook delivery obeys rate limits and surfaces permanent refusal without 
     }),
     /Discord webhook endpoint/,
   )
+})
+
+test('store submission skips every store whose credentials are missing', () => {
+  const script = fileURLToPath(new URL('./extension-stores.mjs', import.meta.url))
+  for (const store of ['chrome', 'edge', 'firefox']) {
+    const output = execFileSync(process.execPath, [script, store, 'unread.zip', 'unread.zip'], {
+      env: { PATH: process.env.PATH, CHROME_ITEM_ID: 'set', EDGE_PRODUCT_ID: 'set' },
+      encoding: 'utf8',
+    })
+    assert.match(output, /^::notice::.*credentials are not set up; skipping/m)
+  }
 })

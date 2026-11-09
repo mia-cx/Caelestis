@@ -183,6 +183,9 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: write
+    outputs:
+      tag: ${{ steps.userscript.outputs.tag }}
+      created: ${{ steps.create.outcome == 'success' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -217,6 +220,14 @@ jobs:
           --output-dir "${{ runner.temp }}/userscript-release"
           --github-output "$GITHUB_OUTPUT"
 
+      - name: Package the extension and its source
+        env:
+          OUTPUT: ${{ runner.temp }}/userscript-release
+        run: |
+          .github/scripts/package-extension.sh "$OUTPUT"
+          cd "$OUTPUT"
+          sha256sum caelestis-extension.zip caelestis-extension-source.zip >> SHA256SUMS
+
       - name: Check whether this userscript version already exists
         id: userscript-existing
         env:
@@ -243,6 +254,7 @@ jobs:
         run: test "$EXISTS" = true
 
       - name: Create userscript GitHub release
+        id: create
         if: needs.version.outputs.release == 'true' && steps.userscript-existing.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -252,13 +264,15 @@ jobs:
           STABLE: ${{ steps.userscript.outputs.stablePath }}
           VERSIONED: ${{ steps.userscript.outputs.versionedPath }}
           CHECKSUMS: ${{ steps.userscript.outputs.checksumPath }}
+          OUTPUT: ${{ runner.temp }}/userscript-release
         run: |
           gh release create "$TAG" \
             --target "$GITHUB_SHA" \
             --title "Caelestis userscript v$VERSION" \
             --notes-file "$NOTES" \
             --latest \
-            "$STABLE" "$VERSIONED" "$CHECKSUMS"
+            "$STABLE" "$VERSIONED" "$CHECKSUMS" \
+            "$OUTPUT/caelestis-extension.zip" "$OUTPUT/caelestis-extension-source.zip"
 
       - name: Verify published installers
         if: >-
@@ -298,6 +312,60 @@ jobs:
           --tag "$TAG"
           --notes-file "$NOTES"
           --repository "$GITHUB_REPOSITORY"
+
+  # Submits a new userscript release's extension to every store with credentials in the
+  # extension-stores environment and skips the rest. Each step runs even when an earlier store fails.
+  extension-stores:
+    name: Submit extension to stores
+    needs: userscript
+    if: needs.userscript.outputs.created == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: extension-stores
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.userscript.outputs.tag }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22.23.2
+
+      - name: Download the released extension
+        run: gh release download "$TAG" --pattern 'caelestis-extension*.zip' --dir "$RUNNER_TEMP"
+
+      - name: Submit to the Chrome Web Store
+        if: ${{ !cancelled() }}
+        env:
+          CHROME_SERVICE_ACCOUNT_KEY: ${{ secrets.CHROME_SERVICE_ACCOUNT_KEY }}
+          CHROME_PUBLISHER_ID: ${{ secrets.CHROME_PUBLISHER_ID }}
+          CHROME_ITEM_ID: ${{ secrets.CHROME_ITEM_ID }}
+        run: node .github/scripts/extension-stores.mjs chrome "$RUNNER_TEMP/caelestis-extension.zip"
+
+      - name: Submit to Microsoft Edge Add-ons
+        if: ${{ !cancelled() }}
+        env:
+          EDGE_PRODUCT_ID: ${{ secrets.EDGE_PRODUCT_ID }}
+          EDGE_CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
+          EDGE_API_KEY: ${{ secrets.EDGE_API_KEY }}
+        run: node .github/scripts/extension-stores.mjs edge "$RUNNER_TEMP/caelestis-extension.zip"
+
+      - name: Submit to addons.mozilla.org
+        if: ${{ !cancelled() }}
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: >-
+          node .github/scripts/extension-stores.mjs firefox
+          "$RUNNER_TEMP/caelestis-extension.zip"
+          "$RUNNER_TEMP/caelestis-extension-source.zip"
 
   deployed-apps:
     name: Tag deployed frontend and backend
