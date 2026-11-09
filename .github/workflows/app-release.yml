@@ -345,7 +345,10 @@ jobs:
         working-directory: ${{ runner.temp }}
         run: |
           gh release download "$TAG" --pattern 'caelestis-extension*.zip' --pattern SHA256SUMS
-          sha256sum --check --ignore-missing SHA256SUMS
+          # Both zips must be listed and present; a missing file fails the check.
+          grep -E '  caelestis-extension(-source)?\.zip$' SHA256SUMS > extension.sha256
+          test "$(wc -l < extension.sha256)" -eq 2
+          sha256sum --check extension.sha256
 
       - name: Submit to the Chrome Web Store
         if: ${{ !cancelled() && steps.download.outcome == 'success' }}
