@@ -174,6 +174,8 @@
   const uid = $props.id()
   let sheet = $state<StudioWindowId | null>('dimensions')
   const pickSheet = (id: StudioWindowId): void => { sheet = sheet === id ? null : id }
+  /** The bar's height as it wraps, so what sits below it stays clear of every row. */
+  let barHeight = $state(0)
 
   /* The bar's popups, and crop mode's keys: Enter applies the crop, Escape discards it. */
   let popup = $state<'panels' | 'image' | null>(null)
@@ -331,8 +333,8 @@
   </div>
 {/snippet}
 
-<div class="studio" bind:this={root} aria-label="Template studio">
-  <div class="bar main caelestis-surface" role="toolbar" aria-label={replacing ? 'Replace template' : 'New template'}>
+<div class="studio" bind:this={root} aria-label="Template studio" style:--bar-height={barHeight > 0 ? `${barHeight}px` : undefined}>
+  <div class="bar main caelestis-surface" role="toolbar" aria-label={replacing ? 'Replace template' : 'New template'} bind:offsetHeight={barHeight}>
     <input
       class="name caelestis-field"
       aria-label="Template name"
@@ -496,7 +498,8 @@
 <style>
   .studio {
     --studio-inset: 12px;
-    --studio-top: calc(var(--studio-inset) + 3.75rem);
+    /* Just below the bar, however many rows it wraps to. */
+    --studio-top: calc(2 * var(--studio-inset) + var(--bar-height, 3rem));
     /* Clear of Wplace's buttons along the bottom. Windows start clear of its other controls too
        (`EDGE_PLACES`). */
     --studio-bottom: 76px;
@@ -661,7 +664,7 @@
   .place { display: flex; flex: 0 0 auto; min-inline-size: 0; }
   /* A saved place from a larger screen is pulled back in: the whole width stays on screen, and
      at least the title bar above Wplace's bottom controls. Below its top, a window takes the
-     height down to those controls, its panels scrolling inside. */
+     height down to those controls, scrolling as one when its panels need more. */
   .float {
     --float-inset: max(0px, min(var(--float-x), calc(100vw - var(--float-across, 1) * var(--studio-window-width))));
     --float-top: min(var(--float-y), calc(100dvh - var(--studio-bottom) - 2.5rem));
@@ -704,8 +707,8 @@
     .main .group { order: 5; }
     .main .actions > :global(button:first-child) { order: 6; margin-inline-start: auto; }
     .main .status { order: 7; flex-basis: 100%; }
-    /* Below the bar, which wraps across the whole width here. */
-    .float { --float-top: max(var(--float-y), calc(var(--studio-inset) + 8.5rem)); }
+    /* Below the bar, which wraps across the whole width here, and still clear of the bottom. */
+    .float { --float-top: clamp(var(--studio-top), var(--float-y), calc(100dvh - var(--studio-bottom) - 2.5rem)); }
   }
   .break { display: none; }
   @media (max-width: 52rem) { .break { display: block; } }
