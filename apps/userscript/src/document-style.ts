@@ -9,8 +9,11 @@ export const addDocumentStyle = (css: string): void => {
   const style = document.createElement('style')
   style.textContent = css
   const attach = (): boolean => {
-    if (document.documentElement === null) return false
-    document.documentElement.append(style)
+    // At document start, the `<script>` the manager's copy starts the page copy from is the
+    // document's only element; a style put in it leaves with it, before the parser builds `<html>`.
+    const root = document.documentElement
+    if (root?.nodeName !== 'HTML') return false
+    root.append(style)
     return true
   }
   if (attach()) return
