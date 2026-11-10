@@ -15,6 +15,10 @@ on:
         description: The release merge changed the backend version
         type: boolean
         required: true
+      checks_validated:
+        description: The exact release tree passed both release PR workflows
+        type: boolean
+        default: false
     secrets:
       DOCKERHUB_TOKEN:
         description: Docker Hub access token with write access to both Caelestis image repositories
@@ -33,6 +37,7 @@ jobs:
     with:
       extended: true
       release_sha: ${{ inputs.release_sha }}
+      checks_validated: ${{ inputs.checks_validated }}
 
   cloudflare:
     uses: ./.github/workflows/portable-cloudflare.yml

@@ -7,6 +7,10 @@ on:
         description: Exact merged Changesets commit to deploy
         required: true
         type: string
+      checks_validated:
+        description: The exact release tree passed both release PR workflows
+        type: boolean
+        default: false
 
 concurrency:
   group: production-deploy
@@ -46,11 +50,14 @@ jobs:
         run: pnpm --dir apps/backend exec wrangler d1 migrations list DB --remote
 
       - name: Check code
+        if: '!inputs.checks_validated'
         run: |
           pnpm lint
           pnpm check
           pnpm test
-          pnpm build
+
+      - name: Build deployment artifacts
+        run: pnpm build
 
       - name: Apply backend database migrations
         run: pnpm --dir apps/backend exec wrangler d1 migrations apply DB --remote

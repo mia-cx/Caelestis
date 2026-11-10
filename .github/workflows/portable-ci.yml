@@ -15,6 +15,10 @@ on:
         description: Exact release or approved dependency commit; defaults to the triggering commit
         type: string
         default: ''
+      checks_validated:
+        description: Reuse pure checks from both successful release PR workflows on the exact tree
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       extended:
@@ -38,8 +42,9 @@ jobs:
     # release pull request does, so deployment viability is proven once per release. `tooling`
     # is true when the inputs of `pnpm test:release` change (.github, .changeset, app manifests
     # and changelogs, root manifests) and runs that suite whether or not the server changed.
-    # Scheduled, dispatched, and release runs always validate everything. The stack-tests check
-    # still reports on every pull request, so a required check never blocks userscript work.
+    # Release PRs, scheduled, dispatched, and release runs always enable every gate. Validated
+    # release calls reuse pure checks but still build and test all images needed for publication.
+    # The stack-tests check reports on every pull request, so it never blocks userscript work.
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -59,21 +64,18 @@ jobs:
           HEAD_REF: ${{ github.head_ref }}
         run: |
           # Reusable workflows inherit the caller's event, including a release merge's push.
-          if [ -n "$RELEASE_SHA" ] || { [ "$EVENT" != pull_request ] && [ "$EVENT" != push ]; }; then
+          if [ -n "$RELEASE_SHA" ] ||
+            { [ "$EVENT" != pull_request ] && [ "$EVENT" != push ]; } ||
+            { [ "$EVENT" = pull_request ] && [ "$HEAD_REF" = changeset-release/main ]; }; then
             echo 'server=true' >> "$GITHUB_OUTPUT"
             echo 'stacks=true' >> "$GITHUB_OUTPUT"
             echo 'tooling=true' >> "$GITHUB_OUTPUT"
             echo "${RELEASE_SHA:+release }$EVENT runs validate every stack"
             exit
           fi
-          if [ "$EVENT" = pull_request ] && [ "$HEAD_REF" = changeset-release/main ]; then
-            release_pr=true
-          else
-            release_pr=false
-          fi
           if [ -z "$BASE_SHA" ] || ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
             echo 'server=true' >> "$GITHUB_OUTPUT"
-            echo "stacks=$release_pr" >> "$GITHUB_OUTPUT"
+            echo 'stacks=false' >> "$GITHUB_OUTPUT"
             echo 'tooling=true' >> "$GITHUB_OUTPUT"
             echo 'No reachable base commit; assuming server changes'
             exit
@@ -119,12 +121,8 @@ jobs:
           fi
           if printf '%s\n' "$changed" | grep -E -f "$RUNNER_TEMP/server-paths"; then
             echo 'server=true' >> "$GITHUB_OUTPUT"
-            echo "stacks=$release_pr" >> "$GITHUB_OUTPUT"
-            if [ "$release_pr" = true ]; then
-              echo 'Release pull request with server changes; validating every stack'
-            else
-              echo 'Server changed; running unit, contract, and chart checks. Stacks run on the release pull request.'
-            fi
+            echo 'stacks=false' >> "$GITHUB_OUTPUT"
+            echo 'Server changed; running unit, contract, and chart checks. Stacks run on the release pull request.'
           else
             echo 'server=false' >> "$GITHUB_OUTPUT"
             echo 'stacks=false' >> "$GITHUB_OUTPUT"
@@ -135,7 +133,7 @@ jobs:
     # Cheap and independent of the server gate, so a workflow-only or changeset-only change
     # still proves the release scripts before merge.
     needs: changes
-    if: needs.changes.outputs.tooling == 'true'
+    if: needs.changes.outputs.tooling == 'true' && !inputs.checks_validated
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -169,7 +167,7 @@ jobs:
 
   runtime:
     needs: changes
-    if: needs.changes.outputs.server == 'true'
+    if: needs.changes.outputs.server == 'true' && !inputs.checks_validated
     runs-on: ubuntu-latest
     timeout-minutes: 25
     services:
@@ -238,6 +236,13 @@ jobs:
           pnpm test:runtime
           CAELESTIS_PERFORMANCE=1 pnpm --filter @caelestis/backend exec bun --bun node_modules/vitest/vitest.mjs run src/telemetry/classify-chunk.test.ts
           pnpm --filter @caelestis/social exec bun --bun node_modules/vitest/vitest.mjs run
+      # Deploy reuses only these pure checks; its build and remote migration checks still run.
+      - name: Check release code
+        if: github.event_name == 'pull_request' && github.head_ref == 'changeset-release/main'
+        run: |
+          pnpm lint
+          pnpm check
+          pnpm test
       - name: Build the Cloudflare deployment
         run: |
           pnpm --filter @caelestis/frontend build
@@ -250,6 +255,20 @@ jobs:
           name: cloudflare-local-results
           path: test-results/
           retention-days: 7
+
+      - name: Record the tested release tree
+        if: github.event_name == 'pull_request' && github.head_ref == 'changeset-release/main'
+        run: git rev-parse 'HEAD^{tree}' > "$RUNNER_TEMP/release-check-tree.txt"
+
+      - name: Upload the tested release tree
+        if: github.event_name == 'pull_request' && github.head_ref == 'changeset-release/main'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-check-tree
+          path: ${{ runner.temp }}/release-check-tree.txt
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
 
   image:
     needs: [changes, matrix]
@@ -459,7 +478,7 @@ jobs:
 
   chart:
     needs: changes
-    if: needs.changes.outputs.server == 'true'
+    if: needs.changes.outputs.server == 'true' && !inputs.checks_validated
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -494,6 +513,7 @@ jobs:
       - name: Require every expected stack
         env:
           RESULTS: ${{ toJSON(needs) }}
+          CHECKS_VALIDATED: ${{ inputs.checks_validated }}
         run: |
           node --input-type=module -e '
             const results = JSON.parse(process.env.RESULTS);
@@ -503,6 +523,9 @@ jobs:
             }
             if (stacks === "true" && server !== "true") throw new Error("changes: stacks require server changes");
             const gate = { changes: "true", matrix: "true", "release-tooling": tooling, runtime: server, chart: server, image: stacks, compose: stacks, helm: stacks, scan: stacks };
+            if (process.env.CHECKS_VALIDATED === "true") {
+              for (const name of ["release-tooling", "runtime", "chart"]) gate[name] = "false";
+            }
             for (const [name, job] of Object.entries(results)) {
               if (!(name in gate)) throw new Error(name + ": no expectation defined");
               const expected = gate[name] === "true" ? "success" : "skipped";
