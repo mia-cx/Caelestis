@@ -38,7 +38,7 @@ jobs:
           PULLFROG_PRIMARY_PROJECT_URL: ${{ vars.PULLFROG_PRIMARY_PROJECT_URL }}
       - name: Run agent
         id: agent
-        uses: pullfrog/pullfrog@ad4283a862b8377cb525a0f5bf30f17c023b18ea # v0
+        uses: pullfrog/pullfrog@cb3bda7d56a8728500c37e1eda718271e7ec4616 # v0
         with:
           prompt: ${{ inputs.prompt }}
           output_schema: ${{ steps.route.outputs.schema }}
