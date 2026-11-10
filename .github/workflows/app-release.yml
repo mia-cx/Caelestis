@@ -35,8 +35,10 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      actions: read
     outputs:
       release: ${{ steps.release.outputs.release }}
+      validated: ${{ steps.validate.outputs.validated }}
       frontend_released: ${{ steps.released.outputs.frontend }}
       backend_released: ${{ steps.released.outputs.backend }}
       target_release_sha: ${{ steps.target.outputs.release_sha }}
@@ -73,8 +75,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          release="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --paginate --slurp | node .github/scripts/release-merge.mjs "$GITHUB_SHA" "$GITHUB_REPOSITORY")"
+          release="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --paginate --slurp | tee "$RUNNER_TEMP/release-pulls.json" | node .github/scripts/release-merge.mjs "$GITHUB_SHA" "$GITHUB_REPOSITORY")"
           echo "release=$release" >> "$GITHUB_OUTPUT"
+
+      - name: Check whether the release PR already passed checks
+        id: validate
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.release.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node .github/scripts/release-merge.mjs "$GITHUB_SHA" "$GITHUB_REPOSITORY" validated < "$RUNNER_TEMP/release-pulls.json"
 
       - name: Find pending app changesets
         id: pending
@@ -154,6 +163,7 @@ jobs:
     uses: ./.github/workflows/deploy.yml
     with:
       release_sha: ${{ needs.version.outputs.target_release_sha }}
+      checks_validated: ${{ needs.version.outputs.validated == 'true' }}
     secrets: inherit
     permissions:
       contents: read
@@ -171,6 +181,7 @@ jobs:
       release_sha: ${{ needs.version.outputs.target_release_sha }}
       frontend_released: ${{ needs.version.outputs.target_frontend_released == 'true' }}
       backend_released: ${{ needs.version.outputs.target_backend_released == 'true' }}
+      checks_validated: ${{ needs.version.outputs.validated == 'true' }}
     secrets: inherit
     permissions:
       contents: write
@@ -212,9 +223,11 @@ jobs:
         run: pnpm --filter @caelestis/userscript... build
 
       - name: Typecheck userscript and dependencies
+        if: needs.version.outputs.validated != 'true'
         run: pnpm exec turbo run check --filter=@caelestis/userscript...
 
       - name: Test userscript and dependencies
+        if: needs.version.outputs.validated != 'true'
         run: pnpm exec turbo run test --filter=@caelestis/userscript...
 
       - name: Prepare userscript release

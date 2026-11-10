@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -15,7 +15,7 @@ import { postReleaseAnnouncement, releaseAnnouncementPayloads } from './post-rel
 import { prepareAppRelease } from './prepare-app-release.mjs'
 import { portableImages, portableVersion } from './prepare-portable-release.mjs'
 import { prepareUserscriptRelease } from './prepare-userscript-release.mjs'
-import { isReleaseMerge } from './release-merge.mjs'
+import { isReleaseMerge, releaseValidated } from './release-merge.mjs'
 import { releaseNotesFor } from './release-notes.mjs'
 import { userscriptMetricVersions } from './userscript-metric-versions.mjs'
 
@@ -35,6 +35,150 @@ test('release credentials cross both reusable workflow boundaries and portable p
   assert.match(job(release, 'cloudflare'), /secrets: inherit/)
   assert.match(job(release, 'publish'), /needs: validate/)
   assert.doesNotMatch(job(release, 'publish'), /needs:.*cloudflare/)
+})
+
+test('validated releases skip only pure checks and retain deployment and portable artifact producers', () => {
+  const workflow = (name) =>
+    readFileSync(new URL(`../workflows/${name}.yml`, import.meta.url), 'utf8')
+  const job = (source, name) =>
+    source.match(new RegExp(`\n  ${name}:\n([\\s\\S]*?)(?=\n  [\\w-]+:|$)`))?.[1] ?? ''
+  const step = (source, name) =>
+    source.match(new RegExp(`- name: ${name}\n([\\s\\S]*?)(?=\n      - |$)`))?.[1] ?? ''
+  const app = workflow('app-release')
+  const version = job(app, 'version')
+  assert.match(version, /actions: read/)
+  assert.match(version, /validated: \$\{\{ steps.validate.outputs.validated \}\}/)
+  assert.match(
+    step(version, 'Check whether the release PR already passed checks'),
+    /if: github.event_name == 'push' && github.ref == 'refs\/heads\/main' && steps.release.outputs.release == 'true'/,
+  )
+  for (const name of ['deploy', 'portable']) {
+    assert.match(
+      job(app, name),
+      /checks_validated: \$\{\{ needs.version.outputs.validated == 'true' \}\}/,
+    )
+    assert.doesNotMatch(job(app, name).split('uses:')[0], /validated/)
+  }
+  const userscript = job(app, 'userscript')
+  for (const name of ['Typecheck', 'Test']) {
+    assert.match(
+      step(userscript, `${name} userscript and dependencies`),
+      /if: needs.version.outputs.validated != 'true'/,
+    )
+    assert.doesNotMatch(
+      step(workflow('userscript-ci'), `${name} userscript and dependencies`),
+      /if:/,
+    )
+  }
+  for (const name of [
+    'Build userscript and dependencies',
+    'Prepare userscript release',
+    'Package the extension and its source',
+  ]) {
+    assert.doesNotMatch(step(userscript, name), /if:/)
+    assert.match(step(userscript, name), /run:/)
+  }
+  const deploy = workflow('deploy')
+  assert.match(step(deploy, 'Check code'), /if: '!inputs.checks_validated'/)
+  assert.match(step(deploy, 'Build deployment artifacts'), /run: pnpm build/)
+  for (const name of [
+    'Build deployment artifacts',
+    'Check D1 access',
+    'Apply backend database migrations',
+    'Deploy docs',
+    'Deploy frontend',
+    'Ensure share image queue',
+    'Deploy backend',
+  ]) {
+    assert.match(step(deploy, name), /run:/)
+    assert.doesNotMatch(step(deploy, name), /if:/)
+  }
+  const portable = workflow('portable-ci')
+  const release = workflow('portable-release')
+  assert.match(job(release, 'validate'), /checks_validated: \$\{\{ inputs.checks_validated \}\}/)
+  assert.doesNotMatch(job(release, 'validate'), /if:/)
+  assert.match(job(release, 'publish'), /needs: validate/)
+  assert.match(job(release, 'publish'), /pattern: portable-images-\*/)
+  for (const name of ['deploy', 'portable-release', 'portable-ci']) {
+    assert.match(workflow(name), /checks_validated:\n[\s\S]*?type: boolean\n {8}default: false/)
+  }
+  for (const name of ['release-tooling', 'runtime', 'chart']) {
+    assert.match(job(portable, name), /if: .* && !inputs.checks_validated/)
+  }
+  for (const name of ['image', 'compose', 'helm', 'scan']) {
+    assert.match(job(portable, name), /if: needs.changes.outputs.stacks == 'true'/)
+    assert.doesNotMatch(job(portable, name), /checks_validated/)
+  }
+  assert.match(job(portable, 'image'), /name: portable-images-\$\{\{ matrix.arch \}\}/)
+  const releaseChecks = step(portable, 'Check release code')
+  assert.match(
+    releaseChecks,
+    /if: github.event_name == 'pull_request' && github.head_ref == 'changeset-release\/main'/,
+  )
+  for (const command of ['lint', 'check', 'test']) {
+    assert.ok(step(deploy, 'Check code').includes(`pnpm ${command}`))
+    assert.ok(releaseChecks.includes(`pnpm ${command}`))
+  }
+})
+
+test('portable release gates require every artifact job even when pure checks are reused', () => {
+  const portable = readFileSync(new URL('../workflows/portable-ci.yml', import.meta.url), 'utf8')
+  const gate = portable.match(/node --input-type=module -e '([\s\S]*?)'/)[1]
+  const results = Object.fromEntries(
+    [
+      'changes',
+      'matrix',
+      'release-tooling',
+      'runtime',
+      'chart',
+      'image',
+      'compose',
+      'helm',
+      'scan',
+    ].map((name) => [name, { result: 'success' }]),
+  )
+  results.changes.outputs = { server: 'true', stacks: 'true', tooling: 'true' }
+  const run = (reused) =>
+    spawnSync(process.execPath, ['--input-type=module', '-e', gate], {
+      env: { ...process.env, RESULTS: JSON.stringify(results), CHECKS_VALIDATED: String(reused) },
+      encoding: 'utf8',
+    })
+  assert.equal(run(false).status, 0)
+  for (const name of ['release-tooling', 'runtime', 'chart']) results[name].result = 'skipped'
+  assert.equal(run(true).status, 0)
+  assert.notEqual(run(false).status, 0)
+  for (const name of ['image', 'compose', 'helm', 'scan']) {
+    for (const result of ['skipped', 'failure', 'cancelled']) {
+      results[name].result = result
+      assert.notEqual(run(true).status, 0, `${name}: ${result} cannot authorize publication`)
+    }
+    results[name].result = 'success'
+  }
+})
+
+test('every release PR enables all portable checks regardless of its changed files', (t) => {
+  const portable = readFileSync(new URL('../workflows/portable-ci.yml', import.meta.url), 'utf8')
+  const detect = portable
+    .match(/name: Detect server changes[\s\S]*?run: \|\n([\s\S]*?)(?=\n {2}release-tooling:)/)[1]
+    .split('\n')
+    .map((line) => line.slice(10))
+    .join('\n')
+  const directory = mkdtempSync(join(tmpdir(), 'caelestis-release-gates-'))
+  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  const output = join(directory, 'output')
+  const result = spawnSync('bash', ['-e', '-c', detect], {
+    cwd: directory,
+    env: {
+      ...process.env,
+      GITHUB_OUTPUT: output,
+      EVENT: 'pull_request',
+      HEAD_REF: 'changeset-release/main',
+      RELEASE_SHA: '',
+    },
+    encoding: 'utf8',
+  })
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(readFileSync(output, 'utf8'), 'server=true\nstacks=true\ntooling=true\n')
 })
 
 test('release artifacts contain the built bytes, their digest, and only the selected release notes', (t) => {
@@ -123,7 +267,7 @@ test('only the exact merged release commit from this repository authorizes publi
   const pr = {
     merged_at: '2026-01-01T00:00:00Z',
     merge_commit_sha: target.sha,
-    base: { ref: 'main' },
+    base: { ref: 'main', repo: { full_name: target.repository } },
     head: { ref: 'changeset-release/main', repo: { full_name: target.repository } },
   }
   assert.equal(isReleaseMerge([pr], target), true)
@@ -131,9 +275,170 @@ test('only the exact merged release commit from this repository authorizes publi
     { ...pr, merged_at: null },
     { ...pr, merge_commit_sha: 'other' },
     { ...pr, base: { ref: 'other' } },
+    { ...pr, base: { ...pr.base, repo: { full_name: 'other/project' } } },
+    { ...pr, head: { ...pr.head, ref: 'feature' } },
     { ...pr, head: { ...pr.head, repo: { full_name: 'fork/project' } } },
   ])
     assert.equal(isReleaseMerge([invalid], target), false)
+})
+
+test('release check reuse requires successful PR runs of both workflows for the exact same head', () => {
+  const pr = {
+    head: {
+      sha: 'a'.repeat(40),
+      ref: 'changeset-release/main',
+      repo: { full_name: 'mia-cx/Caelestis' },
+    },
+  }
+  const runs = ['portable-ci', 'userscript-ci'].map((name) => ({
+    event: 'pull_request',
+    path: `.github/workflows/${name}.yml@refs/heads/main`,
+    head_sha: pr.head.sha,
+    head_branch: pr.head.ref,
+    head_repository: { full_name: pr.head.repo.full_name },
+    // GitHub empties this list after the PR merges (ditherette #484).
+    pull_requests: [],
+    status: 'completed',
+    conclusion: 'success',
+  }))
+  assert.equal(releaseValidated(runs, pr), true)
+  assert.equal(releaseValidated([], pr), false)
+  for (const index of [0, 1]) {
+    assert.equal(
+      releaseValidated(
+        runs.filter((_, i) => i !== index),
+        pr,
+      ),
+      false,
+    )
+    for (const invalid of [
+      { event: 'push' },
+      { path: '.github/workflows/other.yml' },
+      { head_sha: 'b'.repeat(40) },
+      { head_branch: 'feature' },
+      { head_repository: { full_name: 'fork/Caelestis' } },
+      { head_repository: null },
+      { status: 'in_progress' },
+      { conclusion: 'failure' },
+      { conclusion: 'cancelled' },
+      { conclusion: 'skipped' },
+    ]) {
+      const changed = runs.map((run, i) => (i === index ? { ...run, ...invalid } : run))
+      assert.equal(releaseValidated(changed, pr), false, JSON.stringify(invalid))
+      // An unrelated or failed run must not hide an earlier success.
+      assert.equal(releaseValidated([...changed, runs[index]], pr), true)
+    }
+  }
+})
+
+test('release reuse fetches a squash-merged head and fails closed on tree, API, and ref errors', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'caelestis-release-validation-'))
+  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  const source = join(directory, 'source')
+  const checkout = join(directory, 'checkout')
+  mkdirSync(source)
+  const git = (cwd, ...args) =>
+    execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+  git(source, 'init', '-b', 'main')
+  git(source, 'config', 'user.name', 'Release test')
+  git(source, 'config', 'user.email', 'release@example.test')
+  git(source, 'config', 'commit.gpgsign', 'false')
+  writeFileSync(join(source, 'app'), 'before')
+  git(source, 'add', 'app')
+  git(source, 'commit', '-m', 'base')
+  git(source, 'checkout', '-b', 'release-head')
+  writeFileSync(join(source, 'app'), 'release')
+  git(source, 'commit', '-am', 'release PR head')
+  const head = git(source, 'rev-parse', 'HEAD')
+  git(source, 'update-ref', 'refs/pull/123/head', head)
+  git(source, 'checkout', 'main')
+  writeFileSync(join(source, 'app'), 'release')
+  git(source, 'commit', '-am', 'squash release')
+  const sha = git(source, 'rev-parse', 'HEAD')
+  git(directory, 'clone', '--no-local', '--depth=1', '--branch=main', source, checkout)
+  assert.throws(() => git(checkout, 'cat-file', '-e', head))
+  const repository = 'mia-cx/Caelestis'
+  const pr = {
+    number: 123,
+    merged_at: '2026-01-01T00:00:00Z',
+    merge_commit_sha: sha,
+    base: { ref: 'main', repo: { full_name: repository } },
+    head: { sha: head, ref: 'changeset-release/main', repo: { full_name: repository } },
+  }
+  writeFileSync(
+    join(directory, 'gh'),
+    `#!${process.execPath}
+const fs = require('node:fs');
+fs.appendFileSync(process.env.REQUEST_LOG, JSON.stringify(process.argv.slice(2)) + '\\n');
+if (process.env.API_ERROR === 'true') process.exit(1);
+const workflow = process.argv[3].split('/workflows/')[1].split('/runs')[0];
+console.log(JSON.stringify([{ workflow_runs: [{
+  event: 'pull_request', path: '.github/workflows/' + workflow,
+  head_sha: process.env.PR_HEAD, head_branch: 'changeset-release/main',
+  head_repository: { full_name: 'mia-cx/Caelestis' }, pull_requests: [],
+  status: 'completed', conclusion: 'success'
+}] }]));
+`,
+    { mode: 0o755 },
+  )
+  const script = fileURLToPath(new URL('./release-merge.mjs', import.meta.url))
+  const run = (overrides = {}, pullRequests = [[pr]]) =>
+    spawnSync(process.execPath, [script, sha, repository, 'validated'], {
+      cwd: checkout,
+      input: JSON.stringify(pullRequests),
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: `${directory}:${process.env.PATH}`,
+        GITHUB_OUTPUT: join(directory, 'output'),
+        GITHUB_EVENT_NAME: 'push',
+        GITHUB_REF: 'refs/heads/main',
+        REQUEST_LOG: join(directory, 'requests'),
+        PR_HEAD: pullRequests[0]?.[0]?.head?.sha ?? head,
+        ...overrides,
+      },
+    })
+  const valid = run()
+  assert.equal(valid.status, 0, valid.stderr)
+  assert.equal(valid.stdout, 'validated=true\n', valid.stderr)
+  assert.equal(readFileSync(join(directory, 'output'), 'utf8'), 'validated=true\n')
+  const requests = readFileSync(join(directory, 'requests'), 'utf8').trim().split('\n')
+  assert.equal(requests.length, 2)
+  for (const [index, workflow] of ['portable-ci.yml', 'userscript-ci.yml'].entries()) {
+    assert.deepEqual(JSON.parse(requests[index]), [
+      'api',
+      `repos/${repository}/actions/workflows/${workflow}/runs?event=pull_request&head_sha=${head}&status=success&per_page=100`,
+      '--paginate',
+      '--slurp',
+    ])
+  }
+  for (const [overrides, pulls] of [
+    [{ GITHUB_EVENT_NAME: 'workflow_dispatch' }, [[pr]]],
+    [{ GITHUB_REF: 'refs/heads/staging' }, [[pr]]],
+    [{}, []],
+    [{}, [[{ ...pr, merge_commit_sha: 'other' }]]],
+    [{ API_ERROR: 'true' }, [[pr]]],
+    [{}, [[{ ...pr, head: { ...pr.head, sha: 'bad' } }]]],
+  ]) {
+    const result = run(overrides, pulls)
+    assert.equal(result.status, 0, result.stderr)
+    assert.equal(result.stdout, 'validated=false\n')
+  }
+  // No new API calls for manual retries, staging pushes, or unrelated merges.
+  assert.equal(readFileSync(join(directory, 'requests'), 'utf8').trim().split('\n').length, 3)
+  writeFileSync(join(source, 'app'), 'different merge tree')
+  git(source, 'commit', '-am', 'tree mismatch')
+  const different = git(source, 'rev-parse', 'HEAD')
+  git(source, 'update-ref', 'refs/pull/123/head', different)
+  const mismatch = run({}, [[{ ...pr, head: { ...pr.head, sha: different } }]])
+  assert.equal(mismatch.status, 0, mismatch.stderr)
+  assert.equal(mismatch.stdout, 'validated=false\n')
+  assert.match(mismatch.stderr, /::warning::Release tree differs/)
+  git(source, 'update-ref', '-d', 'refs/pull/123/head')
+  const missing = run()
+  assert.equal(missing.status, 0, missing.stderr)
+  assert.equal(missing.stdout, 'validated=false\n')
+  assert.match(missing.stderr, /::warning::Unable to reuse/)
 })
 
 test('portable releases separate immutable versions from app-scoped moving aliases', () => {
