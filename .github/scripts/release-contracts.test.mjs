@@ -119,6 +119,17 @@ test('validated releases skip only pure checks and retain deployment and portabl
     assert.ok(step(deploy, 'Check code').includes(`pnpm ${command}`))
     assert.ok(releaseChecks.includes(`pnpm ${command}`))
   }
+  for (const source of [job(portable, 'runtime'), job(workflow('userscript-ci'), 'build')]) {
+    assert.match(step(source, 'Record the tested release tree'), /git rev-parse 'HEAD\^\{tree\}'/)
+    const evidence = step(source, 'Upload the tested release tree')
+    assert.match(
+      evidence,
+      /if: github.event_name == 'pull_request' && github.head_ref == 'changeset-release\/main'/,
+    )
+    assert.match(evidence, /name: release-check-tree/)
+    assert.match(evidence, /path: \$\{\{ runner.temp \}\}\/release-check-tree.txt/)
+    assert.match(evidence, /if-no-files-found: error/)
+  }
 })
 
 test('portable release gates require every artifact job even when pure checks are reused', () => {
@@ -355,6 +366,13 @@ test('release reuse fetches a squash-merged head and fails closed on tree, API, 
   writeFileSync(join(source, 'app'), 'release')
   git(source, 'commit', '-am', 'squash release')
   const sha = git(source, 'rev-parse', 'HEAD')
+  const releaseTree = git(source, 'rev-parse', 'HEAD^{tree}')
+  git(source, 'checkout', '-b', 'synthetic-merge')
+  writeFileSync(join(source, 'capability'), 'present only in the tested synthetic merge')
+  git(source, 'add', 'capability')
+  git(source, 'commit', '-m', 'main-only capability in synthetic merge')
+  const syntheticTree = git(source, 'rev-parse', 'HEAD^{tree}')
+  git(source, 'checkout', 'main')
   git(directory, 'clone', '--no-local', '--depth=1', '--branch=main', source, checkout)
   assert.throws(() => git(checkout, 'cat-file', '-e', head))
   const repository = 'mia-cx/Caelestis'
@@ -370,9 +388,19 @@ test('release reuse fetches a squash-merged head and fails closed on tree, API, 
     `#!${process.execPath}
 const fs = require('node:fs');
 fs.appendFileSync(process.env.REQUEST_LOG, JSON.stringify(process.argv.slice(2)) + '\\n');
+if (process.argv[2] === 'run') {
+  const directory = process.argv[process.argv.indexOf('--dir') + 1];
+  fs.mkdirSync(directory, { recursive: true });
+  if (process.env.MISSING_EVIDENCE !== 'true') {
+    const tree = process.argv[4] === process.env.DIFFERENT_RUN ? process.env.TESTED_TREE : process.env.RELEASE_TREE;
+    fs.writeFileSync(directory + '/release-check-tree.txt', tree + '\\n');
+  }
+  process.exit(0);
+}
 if (process.env.API_ERROR === 'true') process.exit(1);
 const workflow = process.argv[3].split('/workflows/')[1].split('/runs')[0];
 console.log(JSON.stringify([{ workflow_runs: [{
+  id: workflow === 'portable-ci.yml' ? 101 : 102,
   event: 'pull_request', path: '.github/workflows/' + workflow,
   head_sha: process.env.PR_HEAD, head_branch: 'changeset-release/main',
   head_repository: { full_name: 'mia-cx/Caelestis' }, pull_requests: [],
@@ -395,6 +423,7 @@ console.log(JSON.stringify([{ workflow_runs: [{
         GITHUB_REF: 'refs/heads/main',
         REQUEST_LOG: join(directory, 'requests'),
         PR_HEAD: pullRequests[0]?.[0]?.head?.sha ?? head,
+        RELEASE_TREE: releaseTree,
         ...overrides,
       },
     })
@@ -402,7 +431,10 @@ console.log(JSON.stringify([{ workflow_runs: [{
   assert.equal(valid.status, 0, valid.stderr)
   assert.equal(valid.stdout, 'validated=true\n', valid.stderr)
   assert.equal(readFileSync(join(directory, 'output'), 'utf8'), 'validated=true\n')
-  const requests = readFileSync(join(directory, 'requests'), 'utf8').trim().split('\n')
+  const requests = readFileSync(join(directory, 'requests'), 'utf8')
+    .trim()
+    .split('\n')
+    .filter((request) => JSON.parse(request)[0] === 'api')
   assert.equal(requests.length, 2)
   for (const [index, workflow] of ['portable-ci.yml', 'userscript-ci.yml'].entries()) {
     assert.deepEqual(JSON.parse(requests[index]), [
@@ -412,6 +444,17 @@ console.log(JSON.stringify([{ workflow_runs: [{
       '--slurp',
     ])
   }
+  // Both successful runs must prove the actual checkout, not just match the PR head metadata.
+  for (const runId of ['101', '102']) {
+    const synthetic = run({ DIFFERENT_RUN: runId, TESTED_TREE: syntheticTree })
+    assert.equal(synthetic.status, 0, synthetic.stderr)
+    assert.equal(synthetic.stdout, 'validated=false\n')
+  }
+  const missingEvidence = run({ MISSING_EVIDENCE: 'true' })
+  assert.equal(missingEvidence.status, 0, missingEvidence.stderr)
+  assert.equal(missingEvidence.stdout, 'validated=false\n')
+  assert.match(missingEvidence.stderr, /::warning::Unable to reuse/)
+  writeFileSync(join(directory, 'requests'), '')
   for (const [overrides, pulls] of [
     [{ GITHUB_EVENT_NAME: 'workflow_dispatch' }, [[pr]]],
     [{ GITHUB_REF: 'refs/heads/staging' }, [[pr]]],
@@ -425,7 +468,7 @@ console.log(JSON.stringify([{ workflow_runs: [{
     assert.equal(result.stdout, 'validated=false\n')
   }
   // No new API calls for manual retries, staging pushes, or unrelated merges.
-  assert.equal(readFileSync(join(directory, 'requests'), 'utf8').trim().split('\n').length, 3)
+  assert.equal(readFileSync(join(directory, 'requests'), 'utf8').trim().split('\n').length, 1)
   writeFileSync(join(source, 'app'), 'different merge tree')
   git(source, 'commit', '-am', 'tree mismatch')
   const different = git(source, 'rev-parse', 'HEAD')

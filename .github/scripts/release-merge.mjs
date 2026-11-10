@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process'
-import { appendFileSync, readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { appendFileSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 /** Only a merged release PR from this repository authorizes publication of this exact commit. */
@@ -21,21 +22,25 @@ export const releasePullRequest = (pullRequests, { sha, repository }) =>
 
 const validatingWorkflows = ['portable-ci.yml', 'userscript-ci.yml']
 
+const validationRun = (workflowRuns, pullRequest, workflow) =>
+  workflowRuns.find(
+    (run) =>
+      run.event === 'pull_request' &&
+      run.path?.split('@')[0] === `.github/workflows/${workflow}` &&
+      run.head_sha === pullRequest.head.sha &&
+      run.head_branch === pullRequest.head.ref &&
+      run.head_repository?.full_name === pullRequest.head.repo.full_name &&
+      run.status === 'completed' &&
+      run.conclusion === 'success',
+  )
+
 /** Require both PR workflows on the exact release head, even after GitHub clears pull_requests. */
 export const releaseValidated = (workflowRuns, pullRequest) =>
   validatingWorkflows.every((workflow) =>
-    workflowRuns.some(
-      (run) =>
-        run.event === 'pull_request' &&
-        run.path?.split('@')[0] === `.github/workflows/${workflow}` &&
-        run.head_sha === pullRequest.head.sha &&
-        run.head_branch === pullRequest.head.ref &&
-        run.head_repository?.full_name === pullRequest.head.repo.full_name &&
-        run.status === 'completed' &&
-        run.conclusion === 'success',
-    ),
+    Boolean(validationRun(workflowRuns, pullRequest, workflow)),
   )
 
+/** Reuse checks only when both successful runs recorded the exact tree being released. */
 function validatedRelease(pullRequests, context) {
   const { sha, repository, event, ref } = context
   if (event !== 'push' || ref !== 'refs/heads/main') return false
@@ -60,10 +65,42 @@ function validatedRelease(pullRequests, context) {
   const git = (...args) => execFileSync('git', args, { encoding: 'utf8' }).trim()
   // Squash merges and branch deletion can leave the tested head outside the checkout's history.
   git('fetch', '--no-tags', 'origin', `refs/pull/${pr.number}/head`)
-  const sameTree = git('rev-parse', `${sha}^{tree}`) === git('rev-parse', `${pr.head.sha}^{tree}`)
+  const releaseTree = git('rev-parse', `${sha}^{tree}`)
+  const sameTree = releaseTree === git('rev-parse', `${pr.head.sha}^{tree}`)
   if (!sameTree)
     console.warn('::warning::Release tree differs from the validated PR; running checks.')
-  return sameTree
+  if (!sameTree) return false
+  const directory = mkdtempSync(join(tmpdir(), 'caelestis-release-check-trees-'))
+  try {
+    for (const workflow of validatingWorkflows) {
+      const run = validationRun(runs, pr, workflow)
+      const destination = join(directory, workflow)
+      execFileSync(
+        'gh',
+        [
+          'run',
+          'download',
+          String(run.id),
+          '--repo',
+          repository,
+          '--name',
+          'release-check-tree',
+          '--dir',
+          destination,
+        ],
+        { stdio: 'pipe' },
+      )
+      // PR runs normally check out a synthetic merge, not the head in the run's API metadata.
+      const testedTree = readFileSync(join(destination, 'release-check-tree.txt'), 'utf8').trim()
+      if (testedTree !== releaseTree) {
+        console.warn(`::warning::${workflow} tested a different tree; running checks.`)
+        return false
+      }
+    }
+    return true
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

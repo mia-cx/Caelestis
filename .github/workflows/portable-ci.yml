@@ -256,6 +256,20 @@ jobs:
           path: test-results/
           retention-days: 7
 
+      - name: Record the tested release tree
+        if: github.event_name == 'pull_request' && github.head_ref == 'changeset-release/main'
+        run: git rev-parse 'HEAD^{tree}' > "$RUNNER_TEMP/release-check-tree.txt"
+
+      - name: Upload the tested release tree
+        if: github.event_name == 'pull_request' && github.head_ref == 'changeset-release/main'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-check-tree
+          path: ${{ runner.temp }}/release-check-tree.txt
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
+
   image:
     needs: [changes, matrix]
     if: needs.changes.outputs.stacks == 'true'
