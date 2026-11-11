@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { copyFileSync, cpSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { build, context } from 'esbuild'
 import { ditherettePlugin } from './ditherette-plugin.mjs'
 
@@ -107,6 +107,11 @@ const options = {
  */
 const extensionDir = 'dist/extension'
 
+/** The community's 16px moon, scaled by whole pixels to each size the stores and browsers ask for. */
+const icons = Object.fromEntries(
+  [16, 32, 48, 128].map((size) => [String(size), `icons/icon-${size}.png`]),
+)
+
 const manifest = {
   manifest_version: 3,
   name: 'Caelestis',
@@ -130,8 +135,9 @@ const manifest = {
     },
     gecko_android: { strict_min_version: '142.0' },
   },
+  icons,
   permissions: ['storage'],
-  action: { default_title: 'Caelestis', default_popup: 'popup.html' },
+  action: { default_title: 'Caelestis', default_popup: 'popup.html', default_icon: icons },
   content_scripts: [
     {
       matches: ['https://wplace.live/*'],
@@ -179,5 +185,6 @@ if (process.argv.includes('--watch')) {
 } else {
   await Promise.all([options, ...extensionOptions].map((each) => build(each)))
   copyFileSync('src/extension/popup.html', `${extensionDir}/popup.html`)
+  cpSync('src/extension/icons', `${extensionDir}/icons`, { recursive: true })
   writeFileSync(`${extensionDir}/manifest.json`, `${JSON.stringify(manifest, null, 2)}\n`)
 }
