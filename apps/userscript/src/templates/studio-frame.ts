@@ -138,6 +138,17 @@ const overlayHost = (surface: TemplateSurface): HTMLElement =>
     ? null
     : activeAllianceEditorStage()?.closest<HTMLElement>('dialog[open]')) ?? document.body
 
+/**
+ * Keep an alliance draft's handles inside the editor's stage, where Wplace clips the art itself.
+ * Clipped parts take no pointer either, so the dialog's own controls stay usable around it.
+ */
+const stageClip = (surface: TemplateSurface): string => {
+  const stage = surface.kind === 'world' ? null : activeAllianceEditorStage()
+  if (stage === null) return ''
+  const { top, right, bottom, left } = stage.getBoundingClientRect()
+  return `inset(${top}px ${window.innerWidth - right}px ${window.innerHeight - bottom}px ${left}px)`
+}
+
 const ensureOverlay = (surface: TemplateSurface): Overlay => {
   const host = overlayHost(surface)
   if (overlay?.root.isConnected && overlay.root.parentElement === host) return overlay
@@ -538,6 +549,7 @@ export const syncStudioFrame = (): void => {
     return
   }
   const parts = ensureOverlay(frame.surface)
+  parts.root.style.clipPath = stageClip(frame.surface)
   const cropping = frame.cropping
   const outline = onScreen(
     frame,
