@@ -21,6 +21,7 @@
   import StudioStyles from './StudioStyles.svelte'
   import StudioWindow from './StudioWindow.svelte'
   import DimensionsWindow from './windows/DimensionsWindow.svelte'
+  import ColourWindow from './windows/ColourWindow.svelte'
   import DitherWindow from './windows/DitherWindow.svelte'
   import EffectsWindow from './windows/EffectsWindow.svelte'
   import PaletteWindow from './windows/PaletteWindow.svelte'
@@ -284,6 +285,8 @@
     <DimensionsWindow {model} {onIntent} />
   {:else if id === 'palette'}
     <PaletteWindow {model} {onIntent} />
+  {:else if id === 'colour'}
+    <ColourWindow {model} {onIntent} />
   {:else if id === 'dither'}
     <DitherWindow {model} {onIntent} />
   {:else if id === 'effects'}

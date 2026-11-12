@@ -13,7 +13,8 @@ import type { Samples, ScopeStage } from './scopes/scopes.js'
 export const STUDIO_WINDOWS = [
   { id: 'dimensions', title: 'Size', edge: 'start' },
   { id: 'dither', title: 'Dither', edge: 'start' },
-  { id: 'palette', title: 'Colours', edge: 'start' },
+  { id: 'palette', title: 'Palette', edge: 'start' },
+  { id: 'colour', title: 'Colour', edge: 'start' },
   { id: 'effects', title: 'Effects', edge: 'end' },
   { id: 'scopes', title: 'Scopes', edge: 'end' },
 ] as const
