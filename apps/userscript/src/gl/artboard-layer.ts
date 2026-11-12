@@ -644,6 +644,8 @@ class ArtboardRenderer {
     string,
     { readonly x: number; readonly y: number; readonly at: number }
   >()
+  /** Moving templates that skipped a native pixel change, so they compare in full once at rest. */
+  private readonly missedPixels = new Set<string>()
   private renderGeneration = 0
   private lastViewportKey: string | null | undefined
   private settleFramePending = false
@@ -856,11 +858,13 @@ class ArtboardRenderer {
       } else if (now - last.at < MARKER_SETTLE_MS) placing.add(template.id)
     }
     for (const id of this.movedAt.keys()) if (!residentIds.has(id)) this.movedAt.delete(id)
+    for (const id of this.missedPixels) if (!residentIds.has(id)) this.missedPixels.delete(id)
     if (placing.size > 0) animating = true
     const staleMarkerIds = new Set(
       resident
         .filter(({ template, appearance }) => {
           if (placing.has(template.id)) return false
+          if (this.missedPixels.has(template.id)) return true
           const held = this.markerWork.get(template.id)
           return held === undefined || !held.index.isCurrent(template, appearance)
         })
@@ -868,11 +872,16 @@ class ArtboardRenderer {
     )
     if (this.markerPixelsDirty || this.markerDirtyRects.length > 0 || staleMarkerIds.size > 0) {
       const regions = readArtboardPixels(this.active, this.geometry)
+      const pixelsChanged = this.markerPixelsDirty || this.markerDirtyRects.length > 0
       for (const { template, appearance } of resident) {
-        if (placing.has(template.id)) continue
+        if (placing.has(template.id)) {
+          if (pixelsChanged) this.missedPixels.add(template.id)
+          continue
+        }
         const held = this.markerWork.get(template.id)
         const stale = staleMarkerIds.has(template.id)
         const rebuild =
+          this.missedPixels.delete(template.id) ||
           this.markerPixelsDirty ||
           held === undefined ||
           !held.index.hasCurrentPixels(template, appearance)
@@ -907,7 +916,8 @@ class ArtboardRenderer {
     const mismatchLayers: MarkerLayer[] = []
     const state = getState()
     for (const { rendered, mismatchFade, selectedFades } of markerScene.templates) {
-      if (rendered.fade <= 0) continue
+      // A moving template's markers belong to where it was, so it shows none until it rests.
+      if (rendered.fade <= 0 || placing.has(rendered.template.id)) continue
       const appearance = rendered.appearance
       const indexed = this.markerWork.get(rendered.template.id)
       if (indexed === undefined) continue
