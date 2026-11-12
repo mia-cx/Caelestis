@@ -147,16 +147,32 @@ describe('pace and chart windows', () => {
     expect(completionPace([], 7200, 3600)).toBeNull()
   })
 
-  it('splits rolling rates at observation gaps', () => {
+  it('runs rolling rates flat at zero through observation gaps', () => {
     expect(
       rollingIntervalPace(
         [
           { from: 0, to: 3600, pixels: 10 },
-          { from: 7200, to: 10800, pixels: 20 },
+          { from: 10800, to: 14400, pixels: 20 },
         ],
         3600,
       ),
-    ).toEqual([[{ t: 3600, v: 10 }], [{ t: 10800, v: 20 }]])
+    ).toEqual([
+      [
+        { t: 3600, v: 10 },
+        { t: 7200, v: 0 },
+        { t: 10800, v: 0 },
+        { t: 14400, v: 20 },
+      ],
+    ])
+  })
+
+  it('spreads an observation longer than the window evenly across it', () => {
+    expect(rollingIntervalPace([{ from: 0, to: 7200, pixels: 20 }], 3600)).toEqual([
+      [
+        { t: 3600, v: 10 },
+        { t: 7200, v: 10 },
+      ],
+    ])
   })
 
   it('constrains keyboard/drag windows and interpolates visible series edges', () => {

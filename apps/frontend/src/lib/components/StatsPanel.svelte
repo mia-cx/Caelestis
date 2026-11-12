@@ -163,10 +163,15 @@ import { persisted } from '#lib/persisted.svelte.js'
       for (const template of scope) {
         if (cancelled) return
         const history = await getTemplateProgressHistory(template.id, start, end)
-        // A lifetime read can be daily; retain hourly measurements for recent zoom windows.
-        const recentStart = Math.floor((end - 6 * DAY_SECONDS) / 3600) * 3600
+        // A lifetime read can be daily. The server keeps hourly measurements for the last week and
+        // every measurement for the last day, so short pace windows read those finer tiers too.
         const samples = new Map(history.samples.map(sample => [sample.at, sample]))
-        if (start < recentStart) {
+        for (const recentStart of [
+          Math.floor((end - 6 * DAY_SECONDS) / 3600) * 3600,
+          // Inside the raw day by more than `end` can trail the server's clock.
+          end - DAY_SECONDS + 10 * 60,
+        ]) {
+          if (start >= recentStart) continue
           const recent = await getTemplateProgressHistory(template.id, recentStart, end)
           let covered = false
           for (const sample of recent.samples) {
