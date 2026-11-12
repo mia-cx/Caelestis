@@ -621,9 +621,62 @@
   const hoverWindowCount = $derived(
     new Set([...activePaces.map(pace => pace.key), ...activePainterLines.map(line => line.window)]).size,
   )
+  // The hover card follows the pointer anywhere on screen, beside it and flipped away from the
+  // viewport's edges. A keyboard walk, with no pointer, anchors it to the walked point instead.
+  const CARD_GAP = 16
+  const CARD_EDGE = 8
+  let viewportWidth = $state(typeof window === 'undefined' ? 1_024 : window.innerWidth)
+  let viewportHeight = $state(typeof window === 'undefined' ? 768 : window.innerHeight)
   const hoverCardWidth = $derived(
-    Math.min(Math.max(0, width - 16), Math.max(260, 140 + 112 * hoverWindowCount)),
+    Math.min(Math.max(0, viewportWidth - 2 * CARD_EDGE), Math.max(260, 140 + 112 * hoverWindowCount)),
   )
+  let pointer = $state<{ x: number; y: number } | null>(null)
+  let plotSvg = $state<SVGSVGElement>()
+  let hoverCard = $state<HTMLDivElement>()
+  let hoverCardHeight = $state(0)
+  const hoverAnchor = $derived.by(() => {
+    if (hover === null) return null
+    if (pointer !== null) return pointer
+    const rect = plotSvg?.getBoundingClientRect()
+    return rect === undefined ? null : { x: rect.left + x(hover.t), y: rect.top + pad.top }
+  })
+  const hoverCardPlace = $derived.by(() => {
+    if (hoverAnchor === null) return null
+    const { x: anchorX, y: anchorY } = hoverAnchor
+    const flipX = anchorX + CARD_GAP + hoverCardWidth > viewportWidth - CARD_EDGE
+    const flipY = anchorY + CARD_GAP + hoverCardHeight > viewportHeight - CARD_EDGE
+    const left = flipX ? anchorX - CARD_GAP - hoverCardWidth : anchorX + CARD_GAP
+    const top = flipY ? anchorY - CARD_GAP - hoverCardHeight : anchorY + CARD_GAP
+    return {
+      left: Math.max(CARD_EDGE, Math.min(viewportWidth - hoverCardWidth - CARD_EDGE, left)),
+      top: Math.max(CARD_EDGE, Math.min(viewportHeight - hoverCardHeight - CARD_EDGE, top)),
+      origin: `${flipX ? '100%' : '0'} ${flipY ? '100%' : '0'}`,
+    }
+  })
+
+  /** The card lives on the body, so no clipped or transformed ancestor confines it to the chart. */
+  const onBody = (node: HTMLElement) => {
+    document.body.append(node)
+    return () => node.remove()
+  }
+
+  /** Over the plot, the wheel scrolls a hover card that overflows the screen instead of the page. */
+  const wheelScrollsCard = (node: SVGSVGElement) => {
+    const onWheel = (event: WheelEvent): void => {
+      const card = hoverCard
+      if (card === undefined || card.scrollHeight <= card.clientHeight) return
+      event.preventDefault()
+      const unit =
+        event.deltaMode === WheelEvent.DOM_DELTA_LINE
+          ? 16
+          : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+            ? card.clientHeight
+            : 1
+      card.scrollTop += event.deltaY * unit
+    }
+    node.addEventListener('wheel', onWheel, { passive: false })
+    return () => node.removeEventListener('wheel', onWheel)
+  }
 
   /** The hover card pops from its anchored corner, on the transitions.dev tooltip timings. */
   const pop = (_node: Element, { duration }: { duration: number }): TransitionConfig => ({
@@ -714,6 +767,7 @@
     }
     event.preventDefault()
     if (next === undefined) return
+    pointer = null
     hoverAt(next)
     announce = hover === null ? '' : hoverSummary(hover)
   }
@@ -1039,6 +1093,8 @@
   )
 </script>
 
+<svelte:window bind:innerWidth={viewportWidth} bind:innerHeight={viewportHeight} />
+
 <div class="flex flex-col gap-3" bind:clientWidth={width}>
   <div class="flex flex-wrap items-center gap-x-5 gap-y-2.5 text-xs">
     <div class="flex items-center gap-4 text-base-content/70">
@@ -1133,7 +1189,10 @@
         class="block touch-pan-y {scrubbing || nearPlayhead
           ? 'cursor-ew-resize'
           : 'cursor-crosshair'} rounded-lg outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+        bind:this={plotSvg}
+        {@attach wheelScrollsCard}
         onpointermove={(event) => {
+          pointer = { x: event.clientX, y: event.clientY }
           if (plotDrag === null && brushDrag === null && !scrubbing) {
             const left = event.currentTarget.getBoundingClientRect().left
             hoverPointer(event.clientX, left)
@@ -1142,7 +1201,10 @@
         }}
         onpointerleave={() => {
           nearPlayhead = false
-          if (plotDrag === null && !scrubbing) hover = null
+          if (plotDrag === null && !scrubbing) {
+            hover = null
+            pointer = null
+          }
         }}
         onpointerdown={onPlotPointerDown}
         ondblclick={resetWindow}
@@ -1381,16 +1443,20 @@
         {/if}
       </svg>
 
-      {#if hover !== null}
+      {#if hover !== null && hoverCardPlace !== null}
         <div
-          class="pointer-events-none absolute z-10 rounded-lg border border-base-300 bg-base-100 px-2.5 py-1.5 text-xs shadow-sm"
+          class="pointer-events-none fixed z-50 overflow-y-auto overscroll-contain rounded-lg border border-base-300 bg-base-100 px-2.5 py-1.5 text-xs shadow-sm"
           data-pace-tooltip
+          {@attach onBody}
+          bind:this={hoverCard}
+          bind:offsetHeight={hoverCardHeight}
           in:pop={{ duration: motion(150) }}
           out:pop={{ duration: motion(100) }}
-          style:transform-origin={x(hover.t) > width * 0.55 ? '100% 0' : '0 0'}
-          style:top="{pad.top}px"
+          style:transform-origin={hoverCardPlace.origin}
+          style:top="{hoverCardPlace.top}px"
+          style:left="{hoverCardPlace.left}px"
           style:width="{hoverCardWidth}px"
-          style:left="{Math.max(8, Math.min(width - hoverCardWidth - 8, x(hover.t) > width * 0.55 ? x(hover.t) - hoverCardWidth - 12 : x(hover.t) + 12))}px"
+          style:max-height="{viewportHeight - 2 * CARD_EDGE}px"
         >
           <div class="font-medium tabular-nums">
             {formatTime(hover.t)}{#if liveEdge !== null && hover.t === liveEdge.t}
