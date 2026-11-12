@@ -60,6 +60,14 @@ const OVERLAY_ATTRIBUTE = 'data-caelestis-alliance-overlay'
 const OUTLINE_ATTRIBUTE = 'data-caelestis-alliance-outline'
 const MARKERS_ATTRIBUTE = 'data-caelestis-alliance-markers'
 
+/**
+ * How long a moved template rests before its markers are compared at the new place.
+ *
+ * A comparison reads every pixel of the template, far too slow to repeat on each frame of a drag
+ * or a held arrow key.
+ */
+const MARKER_SETTLE_MS = 150
+
 export interface ArtboardGeometry {
   readonly originX: number
   readonly originY: number
@@ -624,7 +632,17 @@ class ArtboardRenderer {
   }> = []
   private readonly markerWork = new Map<
     string,
-    { readonly index: ArtboardMarkerIndex; readonly work: ArtboardMarkerWork }
+    {
+      readonly index: ArtboardMarkerIndex
+      readonly work: ArtboardMarkerWork
+      readonly originX: number
+      readonly originY: number
+    }
+  >()
+  /** Where and when each moved template last changed place, until its markers catch up. */
+  private readonly movedAt = new Map<
+    string,
+    { readonly x: number; readonly y: number; readonly at: number }
   >()
   private renderGeneration = 0
   private lastViewportKey: string | null | undefined
@@ -820,9 +838,29 @@ class ArtboardRenderer {
       return pixels === null ? [] : [{ template: { ...template, pixels }, appearance }]
     })
     const residentIds = new Set(resident.map(({ template }) => template.id))
+    // A template that moved hides its markers until it rests, then compares once at its new place.
+    const placing = new Set<string>()
+    for (const { template } of resident) {
+      const held = this.markerWork.get(template.id)
+      if (
+        held === undefined ||
+        (held.originX === template.originX && held.originY === template.originY)
+      ) {
+        this.movedAt.delete(template.id)
+        continue
+      }
+      const last = this.movedAt.get(template.id)
+      if (last === undefined || last.x !== template.originX || last.y !== template.originY) {
+        this.movedAt.set(template.id, { x: template.originX, y: template.originY, at: now })
+        placing.add(template.id)
+      } else if (now - last.at < MARKER_SETTLE_MS) placing.add(template.id)
+    }
+    for (const id of this.movedAt.keys()) if (!residentIds.has(id)) this.movedAt.delete(id)
+    if (placing.size > 0) animating = true
     const staleMarkerIds = new Set(
       resident
         .filter(({ template, appearance }) => {
+          if (placing.has(template.id)) return false
           const held = this.markerWork.get(template.id)
           return held === undefined || !held.index.isCurrent(template, appearance)
         })
@@ -831,6 +869,7 @@ class ArtboardRenderer {
     if (this.markerPixelsDirty || this.markerDirtyRects.length > 0 || staleMarkerIds.size > 0) {
       const regions = readArtboardPixels(this.active, this.geometry)
       for (const { template, appearance } of resident) {
+        if (placing.has(template.id)) continue
         const held = this.markerWork.get(template.id)
         const stale = staleMarkerIds.has(template.id)
         const rebuild =
@@ -853,7 +892,12 @@ class ArtboardRenderer {
           rebuild ? null : this.markerDirtyRects,
         )
         comparedMarkerPixels += index.comparedPixels()
-        this.markerWork.set(template.id, { index, work })
+        this.markerWork.set(template.id, {
+          index,
+          work,
+          originX: template.originX,
+          originY: template.originY,
+        })
       }
       this.markerPixelsDirty = false
       this.markerDirtyRects.length = 0
