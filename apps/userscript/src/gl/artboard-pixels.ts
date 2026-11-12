@@ -566,8 +566,9 @@ const tileDrafts = new WeakMap<
  * Follow Wplace's repaint of `.hq-tile-layer`. Each repaint clears the layer, then draws every
  * visible tile that has pixels, so a clear makes every tile stale and each draw freshens one.
  * Returns the artboard rects whose drafts may have changed: a drawn tile the first time its canvas
- * is seen, because Wplace makes a new tile canvas whenever a tile's colours change, and a fresh
- * tile that held drafts, because Wplace stops drawing a tile once undo leaves it empty.
+ * is seen, because Wplace makes a new tile canvas whenever a tile's colours change, a fresh tile
+ * that held drafts, because Wplace stops drawing a tile once undo leaves it empty, and a drafted
+ * tile drawn again after a repaint that left it out.
  */
 export const trackArtboardTiles = (
   active: ActiveAllianceSurface,
@@ -598,12 +599,17 @@ export const trackArtboardTiles = (
   }
   if (draw === null) {
     const staled: NativePixelRect[] = []
-    for (const tile of tiles.values()) {
+    for (const [key, tile] of tiles) {
       if (!tile.fresh) continue
       tile.fresh = false
-      const draft = tileDrafts.get(tile.canvas)?.draft ?? null
-      if (draft !== null) staled.push(draft)
+      const draft = draftOf(tile.canvas)
+      if (draft === null) continue
+      staled.push(draft)
+      hidden.add(key)
     }
+    // Wplace draws the visible tiles right after the clear, in the same task. A drafted tile still
+    // undrawn once that finishes has left the view.
+    if (hidden.size > 0) queueMicrotask(() => settleHidden(tiles))
     return staled
   }
   const { source } = draw
@@ -615,18 +621,41 @@ export const trackArtboardTiles = (
   const tileY = Math.round(drawn.y / size) * size
   const tolerance = size * TILE_GRID_TOLERANCE
   if (Math.abs(drawn.x - tileX) > tolerance || Math.abs(drawn.y - tileY) > tolerance) return []
-  tiles.set(`${tileX}/${tileY}`, { x: tileX, y: tileY, canvas: source, fresh: true })
-  if (seenTileCanvases.has(source)) return []
+  const key = `${tileX}/${tileY}`
+  const previous = tiles.get(key)
+  tiles.set(key, { x: tileX, y: tileY, canvas: source, fresh: true })
+  const changed = !seenTileCanvases.has(source)
+  // A drafted tile hidden by an earlier repaint, not this one, is back in view with its drafts.
+  const returned =
+    previous?.canvas === source && !previous.fresh && !hidden.has(key) && draftOf(source) !== null
+  if (!changed && !returned) return []
   seenTileCanvases.add(source)
-  for (const listener of tileListeners) listener()
+  announceTiles()
   return [{ x: tileX, y: tileY, width: size, height: size }]
+}
+
+const draftOf = (canvas: HTMLCanvasElement): NativePixelRegion | null =>
+  tileDrafts.get(canvas)?.draft ?? null
+
+/** Drafted tiles the current repaint's clear hid, by tile key, until its draws finish. */
+const hidden = new Set<string>()
+
+const settleHidden = (tiles: ReadonlyMap<string, HeadquartersTile>): void => {
+  const left = [...hidden].some((key) => tiles.get(key)?.fresh !== true)
+  hidden.clear()
+  if (left) announceTiles()
 }
 
 const tileListeners = new Set<() => void>()
 
+const announceTiles = (): void => {
+  for (const listener of tileListeners) listener()
+}
+
 /**
- * Notify when Wplace draws an HQ tile with new pixels. Its `.hq-tile-layer` repaints are otherwise
- * only the visible tiles moving with the view, so they are no artboard change.
+ * Notify when Wplace's HQ tiles change what the artboard holds: a tile drawn with new pixels, or a
+ * drafted tile leaving or re-entering the view. Its `.hq-tile-layer` repaints are otherwise only
+ * the visible tiles moving with the view, so they are no artboard change.
  */
 export const onHeadquartersTilesChange = (listener: () => void): (() => void) => {
   tileListeners.add(listener)

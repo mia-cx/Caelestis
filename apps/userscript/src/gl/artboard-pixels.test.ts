@@ -64,17 +64,21 @@ const commit = async (version: number, pixels: Record<string, number>): Promise<
   await refreshArtboardPixels(active, geometry)
 }
 
-/** Wplace repaints the layer: clear it, then draw each visible tile canvas at its screen spot. */
-const repaint = (visible: Record<number, HTMLCanvasElement>): void => {
+/**
+ * Wplace repaints the layer: clear it, then draw each visible tile canvas at its screen spot.
+ * Returns the artboard rects the draws mark dirty.
+ */
+const repaint = (visible: Record<number, HTMLCanvasElement>) => {
   trackArtboardTiles(active, geometry, layer, null)
-  for (const [x, source] of Object.entries(visible))
+  return Object.entries(visible).flatMap(([x, source]) =>
     trackArtboardTiles(active, geometry, layer, {
       source,
       x: Number(x),
       y: 0,
       width: TILE,
       height: TILE,
-    })
+    }),
+  )
 }
 
 /** Wplace's crosshair tile over HQ tile 0/0, marking the given drafted pixels. */
@@ -192,6 +196,7 @@ it('treats panning, which repaints the layer from tiles Wplace already drew, as 
     height: layer.height,
   })
   repaint({ 3: tile })
+  await Promise.resolve()
   stop()
   expect(readArtboardPixels(active, geometry).revision).toBe(before)
   expect(tilesChanged).not.toHaveBeenCalled()
@@ -206,6 +211,24 @@ it('announces a tile Wplace draws with new pixels', async () => {
   repaint({ 0: tileCanvas({ '1,1': RED }) })
   stop()
   expect(tilesChanged).toHaveBeenCalledOnce()
+})
+
+it('announces an unmarked draft leaving the view and coming back', async () => {
+  await commit(1, {})
+  const tile = tileCanvas({ '1,1': RED })
+  repaint({ 0: tile })
+  expect(pixelAt(1, 1)?.source).toBe('draft')
+  const tilesChanged = vi.fn()
+  const stop = onHeadquartersTilesChange(tilesChanged)
+  repaint({})
+  await Promise.resolve()
+  expect(tilesChanged).toHaveBeenCalledOnce()
+  expect(pixelAt(1, 1)?.source).toBe('committed')
+  expect(repaint({ 0: tile })).toEqual([{ x: 0, y: 0, width: TILE, height: TILE }])
+  await Promise.resolve()
+  stop()
+  expect(tilesChanged).toHaveBeenCalledTimes(2)
+  expect(pixelAt(1, 1)?.source).toBe('draft')
 })
 
 it('keeps the revision across reads while marked drafts stay unchanged', async () => {
