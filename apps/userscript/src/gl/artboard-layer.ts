@@ -31,6 +31,7 @@ import {
 import {
   artboardCanvasWriteRect,
   isArtboardCrosshairCanvas,
+  isHeadquartersTileLayer,
   onArtboardPixelsChange,
   patchArtboardPixels,
   readArtboardPixels,
@@ -754,7 +755,13 @@ class ArtboardRenderer {
         (!this.active.frame.contains(canvas) && !isArtboardCrosshairCanvas(this.active, canvas))
       )
         return
-      this.markerDirtyRects.push(...trackArtboardTiles(this.active, this.geometry, canvas, draw))
+      const tiles = trackArtboardTiles(this.active, this.geometry, canvas, draw)
+      this.markerDirtyRects.push(...tiles)
+      // The layer's own write rects are screen pixels; only the tiles it reveals are artboard cells.
+      if (isHeadquartersTileLayer(canvas)) {
+        if (tiles.length > 0) this.requestRender()
+        return
+      }
       patchArtboardPixels(this.active, this.geometry, canvas, dirty)
       const rect = artboardCanvasWriteRect(this.active, this.geometry, canvas, dirty)
       if (rect === null) this.markerPixelsDirty = true

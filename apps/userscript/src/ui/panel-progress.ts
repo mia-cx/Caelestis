@@ -1,3 +1,5 @@
+import { isHeadquartersTileLayer } from '../gl/artboard-pixels.js'
+
 interface ArtboardCanvasOwner {
   readonly stage: HTMLElement
   readonly frame: HTMLElement
@@ -8,6 +10,8 @@ export const canvasWriteTouchesArtboard = (
   active: ArtboardCanvasOwner,
   canvas: object,
 ): boolean => {
+  // Its repaints move the view; new tile pixels arrive through `onHeadquartersTilesChange`.
+  if (isHeadquartersTileLayer(canvas)) return false
   try {
     const node = canvas as Node
     if (active.frame.contains(node)) return true
