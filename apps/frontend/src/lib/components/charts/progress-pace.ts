@@ -37,44 +37,64 @@ export interface PaceInterval {
   readonly from: number
   readonly to: number
   readonly pixels: number
-  /** Daily capture times may drift; day-or-longer windows use the observed interval's average. */
-  readonly dailyObservation?: boolean
 }
 
-/** Roll complete windows over observed intervals, keeping coverage gaps as separate lines. */
+interface RunPoint {
+  readonly t: number
+  readonly total: number
+}
+
+/**
+ * Cumulative pixels at each interval's ends, spread evenly within an interval. Time between
+ * intervals, where nothing was observed, adds nothing, so the line runs flat through it.
+ */
+const cumulativeRun = (intervals: readonly PaceInterval[]): RunPoint[] => {
+  const run: RunPoint[] = []
+  for (const { from, to, pixels } of intervals) {
+    const last = run.at(-1) ?? { t: from, total: 0 }
+    if (run.length === 0 || from > last.t) run.push({ t: from, total: last.total })
+    if (to > last.t) run.push({ t: to, total: last.total + pixels })
+  }
+  return run
+}
+
+/** Cumulative pixels at `t`, interpolated within the run; `t` lies inside it. */
+const cumulativeAt = (run: readonly RunPoint[], t: number): number => {
+  let low = 0
+  let high = run.length - 1
+  while (high - low > 1) {
+    const middle = (low + high) >> 1
+    if ((run[middle]?.t ?? Infinity) <= t) low = middle
+    else high = middle
+  }
+  const before = run[low]
+  const after = run[high]
+  if (before === undefined || after === undefined || after.t === before.t)
+    return before?.total ?? 0
+  return before.total + ((after.total - before.total) * (t - before.t)) / (after.t - before.t)
+}
+
+/**
+ * Trailing px/h over complete windows, as one continuous line from the first full window to the
+ * last observation. The rate bends only where either edge of the window crosses an observation,
+ * so it is drawn exactly by a point at each.
+ */
 export const rollingIntervalPace = (
   intervals: readonly PaceInterval[],
   windowSeconds: number,
 ): PaceRatePoint[][] => {
-  const segments: PaceRatePoint[][] = []
-  let run: { t: number; total: number }[] = []
-  let segment: PaceRatePoint[] = []
-  let left = 0
-  for (const interval of intervals) {
-    const duration = interval.to - interval.from
-    if (duration > windowSeconds && !(interval.dailyObservation && windowSeconds >= 86_400)) {
-      run = []
-      continue
-    }
-    if (run.at(-1)?.t !== interval.from) {
-      run = [{ t: interval.from, total: 0 }]
-      segment = []
-      left = 0
-    }
-    const total = (run.at(-1)?.total ?? 0) + interval.pixels
-    run.push({ t: interval.to, total })
-    const start = interval.to - windowSeconds
-    if (start < (run[0]?.t ?? interval.from)) continue
-    while ((run[left + 1]?.t ?? Infinity) <= start) left++
-    const before = run[left]
-    const after = run[left + 1]
-    if (before === undefined || after === undefined) continue
-    const baseline =
-      before.total + ((after.total - before.total) * (start - before.t)) / (after.t - before.t)
-    if (segment.length === 0) segments.push(segment)
-    segment.push({ t: interval.to, v: ((total - baseline) * 3_600) / windowSeconds })
-  }
-  return segments
+  const run = cumulativeRun(intervals)
+  const first = run[0]
+  const last = run.at(-1)
+  if (first === undefined || last === undefined) return []
+  const times = [...new Set(run.flatMap(({ t }) => [t, t + windowSeconds]))]
+    .filter((t) => t - windowSeconds >= first.t && t <= last.t)
+    .sort((a, b) => a - b)
+  const series = times.map((t) => ({
+    t,
+    v: ((cumulativeAt(run, t) - cumulativeAt(run, t - windowSeconds)) * 3_600) / windowSeconds,
+  }))
+  return series.length === 0 ? [] : [series]
 }
 
 /** Convert complete placement buckets into intervals without changing their time boundaries. */
