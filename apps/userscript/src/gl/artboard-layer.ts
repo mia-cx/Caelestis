@@ -13,6 +13,7 @@ import { getState, onlySelectedColourFor, onStateChange } from '../state.js'
 import { isPlain, toRgbUnit } from '../templates/appearance.js'
 import {
   displayTemplatesForSurface,
+  isTemplateDraft,
   noteTemplatesInView,
   onLocalChange,
   onLocalPreviewChange,
@@ -834,10 +835,13 @@ class ArtboardRenderer {
     const markerScene = this.scene.advanceMarkers(templateScene.templates, selected, now)
     if (markerScene.animating) animating = true
     let comparedMarkerPixels = 0
-    // Markers compare pixels, so they cover only templates whose pixels are in memory.
+    // Markers compare pixels, so they cover only templates whose pixels are in memory. The editor's
+    // draft changes with every setting and has no progress worth marking, as on the world map.
     const resident = templateScene.templates.flatMap(({ template, appearance }) => {
       const pixels = template.artwork.pixels
-      return pixels === null ? [] : [{ template: { ...template, pixels }, appearance }]
+      return pixels === null || isTemplateDraft(template)
+        ? []
+        : [{ template: { ...template, pixels }, appearance }]
     })
     const residentIds = new Set(resident.map(({ template }) => template.id))
     // A template that moved hides its markers until it rests, then compares once at its new place.
