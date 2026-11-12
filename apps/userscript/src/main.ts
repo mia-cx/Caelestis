@@ -536,7 +536,13 @@ export const installFeatures = (): void => {
   // canvas of its own any more; the tile frames are kept only as the coordinate reference that the
   // overlay controls and the import placement read.
   step('overlay layer', attachOverlayLayer)
-  step('alliance overlay layer', () => installAllianceOverlayLayer(refreshTemplateTreeFocus))
+  // The world map's frames never run while an alliance editor pans, so its handles follow here.
+  step('alliance overlay layer', () =>
+    installAllianceOverlayLayer(() => {
+      refreshTemplateTreeFocus()
+      syncStudioFrame()
+    }),
+  )
   onFrame((frame) => {
     if (activeAllianceSurface() === null) renderOverlayControls(repaint, frame.canvas)
   }, 'Overlay controls')

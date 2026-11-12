@@ -1,5 +1,6 @@
 import type { TemplateSurface } from '@caelestis/shared'
 import type { StudioRect } from '@caelestis/ui/elements'
+import { activeAllianceEditorStage } from '../alliance-surface.js'
 import { placementScale, placementScreenPoint } from './move.js'
 
 /**
@@ -128,8 +129,19 @@ const hitSize = (): number =>
     ? TOUCH_HIT_PX
     : HIT_PX
 
-const ensureOverlay = (): Overlay => {
-  if (overlay?.root.isConnected) return overlay
+/**
+ * Where the handles mount: beside the studio. Wplace's alliance editors are modal dialogs that
+ * leave the rest of the page inert and cover it, so an alliance draft's handles go inside one.
+ */
+const overlayHost = (surface: TemplateSurface): HTMLElement =>
+  (surface.kind === 'world'
+    ? null
+    : activeAllianceEditorStage()?.closest<HTMLElement>('dialog[open]')) ?? document.body
+
+const ensureOverlay = (surface: TemplateSurface): Overlay => {
+  const host = overlayHost(surface)
+  if (overlay?.root.isConnected && overlay.root.parentElement === host) return overlay
+  overlay?.root.remove()
   const root = document.createElement('div')
   root.id = OVERLAY_ID
   Object.assign(root.style, {
@@ -187,7 +199,7 @@ const ensureOverlay = (): Overlay => {
     display: 'none',
   } satisfies Partial<CSSStyleDeclaration>)
   root.append(element, label)
-  document.body.appendChild(root)
+  host.appendChild(root)
   overlay = { root, svg: element, image, dim, area, halo, line, knobs, label }
   return overlay
 }
@@ -525,7 +537,7 @@ export const syncStudioFrame = (): void => {
     placedAt = null
     return
   }
-  const parts = ensureOverlay()
+  const parts = ensureOverlay(frame.surface)
   const cropping = frame.cropping
   const outline = onScreen(
     frame,
