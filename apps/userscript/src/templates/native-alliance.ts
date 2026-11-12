@@ -1,9 +1,5 @@
-import {
-  MAX_TEMPLATE_PIXELS,
-  sameTemplateSurface,
-  type TemplateSurface,
-  templateSurfaceBounds,
-} from '@caelestis/shared'
+import { MAX_TEMPLATE_PIXELS, type PixelBounds, sameTemplateSurface } from '@caelestis/shared'
+import { allianceBounds } from '../alliance-coordinates.js'
 import {
   type ActiveAllianceSurface,
   activeAllianceSurface,
@@ -56,15 +52,18 @@ export const nativeAllianceTarget = (active: ActiveAllianceSurface): NativeAllia
       ? null
       : { target: 'draft', draftId: active.draftId }
 
-/** Validate the response at the native API boundary, retaining only placements for this exact canvas/draft. */
+/**
+ * Validate the response at the native API boundary, retaining only placements for this exact
+ * canvas/draft. Wplace counts a location from the canvas's top-left corner; this converts it into
+ * the canvas's own coordinates, so a signed HQ of any upgrade tier lands where Wplace draws it.
+ */
 export const nativeAlliancePlacements = (
   body: unknown,
   target: NativeAllianceTarget,
-  surface: TemplateSurface,
+  bounds: PixelBounds | null,
 ): readonly AlliancePlacement[] => {
   if (!record(body) || !Array.isArray(body.templates))
     throw new Error('Invalid Wplace alliance templates')
-  const bounds = templateSurfaceBounds(surface)
   if (bounds === null) return []
   return body.templates
     .map((value): AlliancePlacement | null => {
@@ -100,8 +99,8 @@ export const nativeAlliancePlacements = (
         value.name.length > 256
       )
         throw new Error('Invalid Wplace alliance placement')
-      const originX = Number(location.x),
-        originY = Number(location.y)
+      const originX = bounds.minX + Number(location.x),
+        originY = bounds.minY + Number(location.y)
       const width = Number(location.width),
         height = Number(location.height)
       const sourceWidth = Number(value.width),
@@ -183,7 +182,7 @@ export const installNativeAllianceTemplates = (native: NativeTemplates): (() => 
     sequence: number,
   ): Promise<void> => {
     if (!current(active, epoch) || sequence !== requestSequence) return
-    const placements = nativeAlliancePlacements(body, target, active.surface)
+    const placements = nativeAlliancePlacements(body, target, allianceBounds(active))
     const admitted = new Set<string>()
     const signal = controller.signal
     for (const placement of placements) {
