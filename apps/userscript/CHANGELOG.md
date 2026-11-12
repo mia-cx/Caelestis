@@ -1,5 +1,18 @@
 # @caelestis/userscript
 
+## 1.0.1
+
+### Patch Changes
+
+- d5e7a37: The browser extension shows the Caelestis moon in the toolbar and on the extensions page.
+- bc06dc6: The template studio no longer freezes the alliance HQ canvas after each result or move: its draft has no markers to compare, as on the world map.
+- 9696a8b: Dragging a large template on the alliance HQ canvas stays smooth: its markers wait until it rests instead of recomparing every pixel each frame.
+- e94a7c1: Panning the alliance HQ canvas stays smooth with large templates: moving the view no longer recompares every template pixel each frame.
+- 06ca089: Wplace's HQ templates sit where Wplace places them on every HQ size, not only the largest.
+- a602658: The template studio splits Colours into a Palette panel, for which colours the template may use, and a Colour panel, for how pixels match them and how transparency becomes pixels.
+- 92b0f6c: The template studio's handles stay inside the alliance canvas, where Wplace clips the art, instead of spilling over the rest of the editor.
+- d98509b: The template studio shows its resize and crop handles on alliance HQ and picture canvases, as it does on the world map.
+
 ## 1.0.0
 
 ### Major Changes
