@@ -29,13 +29,16 @@ const windowWith = (layout: StudioLayout, id: StudioWindowId) =>
   layout.frames.find((frame) => panelsIn(frame.root).includes(id))
 
 describe('studio layout', () => {
-  it('starts with Size and Dither as tabs over Colours at the start, Effects at the end, Scopes closed', () => {
+  it('starts with Size and Dither as tabs over Palette and Colour at the start, Effects at the end, Scopes closed', () => {
     expect(windows(DEFAULT_STUDIO_LAYOUT)).toEqual([
-      { edge: 'start', panels: ['dimensions', 'dither', 'palette'] },
+      { edge: 'start', panels: ['dimensions', 'dither', 'palette', 'colour'] },
       { edge: 'end', panels: ['effects'] },
     ])
     expect(windowWith(DEFAULT_STUDIO_LAYOUT, 'dimensions')?.root).toMatchObject({
-      children: [{ panels: ['dimensions', 'dither'], active: 'dimensions' }, tabs('palette')],
+      children: [
+        { panels: ['dimensions', 'dither'], active: 'dimensions' },
+        tabs('palette', 'colour'),
+      ],
     })
     expect(isOpen(DEFAULT_STUDIO_LAYOUT, 'scopes')).toBe(false)
   })
@@ -49,7 +52,11 @@ describe('studio layout', () => {
       place: { edge: 'start', x: 300, y: 100 },
       root: tabs('dither'),
     })
-    expect(panelsIn(windowWith(left, 'dimensions')?.root)).toEqual(['dimensions', 'palette'])
+    expect(panelsIn(windowWith(left, 'dimensions')?.root)).toEqual([
+      'dimensions',
+      'palette',
+      'colour',
+    ])
 
     const right = floatPlace(box(700, 100), viewport)
     expect(right).toEqual({ edge: 'end', x: 1200 - 700 - 288, y: 100 })
@@ -61,7 +68,7 @@ describe('studio layout', () => {
     expect(moved.frames.at(-1)).toEqual({ place, root: DEFAULT_STUDIO_LAYOUT.frames[0]?.root })
     expect(windows(moved).map((window) => window.panels)).toEqual([
       ['effects'],
-      ['dimensions', 'dither', 'palette'],
+      ['dimensions', 'dither', 'palette', 'colour'],
     ])
 
     // Dropped on another window's panel, it joins that window.
@@ -71,7 +78,7 @@ describe('studio layout', () => {
       zone: 'bottom',
     })
     expect(windows(joined)).toEqual([
-      { edge: 'start', panels: ['dimensions', 'dither', 'palette', 'effects'] },
+      { edge: 'start', panels: ['dimensions', 'dither', 'palette', 'colour', 'effects'] },
     ])
   })
 
@@ -95,7 +102,7 @@ describe('studio layout', () => {
       zone: 'bottom',
     })
     expect(windows(below)).toEqual([
-      { edge: 'start', panels: ['dimensions', 'dither', 'palette', 'effects'] },
+      { edge: 'start', panels: ['dimensions', 'dither', 'palette', 'colour', 'effects'] },
     ])
 
     const tabbed = movePanel(DEFAULT_STUDIO_LAYOUT, 'effects', {
@@ -106,7 +113,7 @@ describe('studio layout', () => {
     expect(windowWith(tabbed, 'palette')?.root).toMatchObject({
       children: [
         { panels: ['dimensions', 'dither'] },
-        { panels: ['palette', 'effects'], active: 'effects' },
+        { panels: ['palette', 'colour', 'effects'], active: 'effects' },
       ],
     })
   })
@@ -119,7 +126,7 @@ describe('studio layout', () => {
     layout = togglePanel(layout, 'palette', false)
     layout = togglePanel(layout, 'palette', true)
     expect(windows(layout)).toEqual([
-      { edge: 'start', panels: ['dimensions', 'dither', 'palette'] },
+      { edge: 'start', panels: ['dimensions', 'dither', 'colour', 'palette'] },
     ])
 
     // With no window at its edge, it opens in one of its own there.

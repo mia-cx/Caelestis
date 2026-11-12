@@ -57,7 +57,7 @@ const joined = (axis: 'row' | 'column', children: readonly StudioNode[]): Studio
 }
 
 /**
- * Ditherette's: Size and Dither as tabs over Colours at the start edge, Effects at the end.
+ * Ditherette's: Size and Dither as tabs over Palette and Colour at the start edge, Effects at the end.
  * Scopes starts closed.
  */
 export const DEFAULT_STUDIO_LAYOUT: StudioLayout = {
@@ -74,7 +74,12 @@ export const DEFAULT_STUDIO_LAYOUT: StudioLayout = {
             active: 'dimensions',
             collapsed: false,
           },
-          single('palette'),
+          {
+            kind: 'tabs',
+            panels: ['palette', 'colour'],
+            active: 'palette',
+            collapsed: false,
+          },
         ],
       },
     },
