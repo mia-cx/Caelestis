@@ -1,3 +1,5 @@
+The README and CONTRIBUTING.md carry the 0rwx AI:W disclosure.
+
 # Testing
 
 Read [TESTING.md](TESTING.md) when adding, changing, or reviewing tests, or choosing validation for a change.
