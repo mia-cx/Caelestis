@@ -1,9 +1,11 @@
 # Caelestis
 
-<a href="https://0rwx.com"><picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://0rwx.com/static/AI-W-dark.svg">
-  <img alt="AI:W" src="https://0rwx.com/static/AI-W-light.svg" height="48">
-</picture></a>
+<a href="https://0rwx.com">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://0rwx.com/static/AI-W-dark.svg">
+    <img alt="AI:W" src="https://0rwx.com/static/AI-W-light.svg" height="48">
+  </picture>
+</a>
 
 [![Install userscript](https://img.shields.io/badge/Install-userscript-6d28d9)](https://github.com/mia-cx/Caelestis/releases/latest/download/caelestis.user.js)
 [![Userscript downloads](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/mia-cx/Caelestis/main/badges/userscript-downloads.json)](https://github.com/mia-cx/Caelestis/releases)
