@@ -1,12 +1,5 @@
 # Caelestis
 
-<a href="https://0rwx.com">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://0rwx.com/static/AI-W-dark.svg">
-    <img alt="AI:W" src="https://0rwx.com/static/AI-W-light.svg" height="48">
-  </picture>
-</a>
-
 [![Install userscript](https://img.shields.io/badge/Install-userscript-6d28d9)](https://github.com/mia-cx/Caelestis/releases/latest/download/caelestis.user.js)
 [![Userscript downloads](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/mia-cx/Caelestis/main/badges/userscript-downloads.json)](https://github.com/mia-cx/Caelestis/releases)
 [![Discord server](https://img.shields.io/discord/1157300973618872411?label=Discord&logo=discord&logoColor=white)](https://discord.gg/thequilt)
@@ -91,3 +84,10 @@ also cover PostgreSQL, MariaDB, CNPG, S3, and Kubernetes.
 Read the [contribution guide](CONTRIBUTING.md) before opening a pull request. Use the
 [issue forms](https://github.com/mia-cx/Caelestis/issues/new/choose) for bugs and feature
 ideas. Report vulnerabilities through the [security process](SECURITY.md), not a public issue.
+
+<a href="https://0rwx.com">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://0rwx.com/static/AI-W-dark.svg">
+    <img alt="AI:W" src="https://0rwx.com/static/AI-W-light.svg" height="48">
+  </picture>
+</a>
