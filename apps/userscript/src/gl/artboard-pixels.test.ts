@@ -3,7 +3,14 @@ import { WPLACE_PALETTE } from '@caelestis/shared'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { ActiveAllianceSurface } from '../alliance-surface.js'
 import { nativePixelAt } from '../native-pixels.js'
-import { readArtboardPixels, refreshArtboardPixels, trackArtboardTiles } from './artboard-pixels.js'
+import { canvasWriteTouchesArtboard } from '../ui/panel-progress.js'
+import {
+  onHeadquartersTilesChange,
+  patchArtboardPixels,
+  readArtboardPixels,
+  refreshArtboardPixels,
+  trackArtboardTiles,
+} from './artboard-pixels.js'
 
 // Wplace's HQ as Caelestis meets it: a 128×64 artboard drawn at one CSS pixel per HQ pixel, two
 // 64×64 store tiles, a screen-space `.hq-tile-layer`, and 10px crosshair cells marking drafts.
@@ -168,6 +175,37 @@ it('ignores an offscreen tile while Wplace shows no draft marks', async () => {
   repaint({ 0: tileCanvas({ '1,1': RED }) })
   repaint({ 64: tileCanvas({}) })
   expect(pixelAt(1, 1)?.source).toBe('committed')
+})
+
+it('treats panning, which repaints the layer from tiles Wplace already drew, as no pixel change', async () => {
+  await commit(1, {})
+  const tile = tileCanvas({ '1,1': RED })
+  repaint({ 0: tile })
+  const before = readArtboardPixels(active, geometry).revision
+  const tilesChanged = vi.fn()
+  const stop = onHeadquartersTilesChange(tilesChanged)
+  // Each pan frame Wplace clears the whole layer, then draws each visible tile at its new spot.
+  patchArtboardPixels(active, geometry, layer, {
+    x: 0,
+    y: 0,
+    width: layer.width,
+    height: layer.height,
+  })
+  repaint({ 3: tile })
+  stop()
+  expect(readArtboardPixels(active, geometry).revision).toBe(before)
+  expect(tilesChanged).not.toHaveBeenCalled()
+  expect(canvasWriteTouchesArtboard(active, layer)).toBe(false)
+})
+
+it('announces a tile Wplace draws with new pixels', async () => {
+  await commit(1, {})
+  repaint({ 0: tileCanvas({}) })
+  const tilesChanged = vi.fn()
+  const stop = onHeadquartersTilesChange(tilesChanged)
+  repaint({ 0: tileCanvas({ '1,1': RED }) })
+  stop()
+  expect(tilesChanged).toHaveBeenCalledOnce()
 })
 
 it('keeps the revision across reads while marked drafts stay unchanged', async () => {

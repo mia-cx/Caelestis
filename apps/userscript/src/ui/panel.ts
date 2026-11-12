@@ -71,7 +71,7 @@ import { isClaimModeActive, onClaimEditorChange } from '../claim-editor.js'
 import { claimRouter } from '../claim-routing.js'
 import { expectedBackendVersion, userscriptVersion } from '../client-metrics.js'
 import { isEnabled as isDebugEnabled, log, setEnabled as setDebugEnabled } from '../debug.js'
-import { onArtboardPixelsChange } from '../gl/artboard-pixels.js'
+import { onArtboardPixelsChange, onHeadquartersTilesChange } from '../gl/artboard-pixels.js'
 import { consumeInvite } from '../invite.js'
 import { redraw } from '../main.js'
 import { MARKER_BUDGET_OPTIONS } from '../marker-budget.js'
@@ -1973,10 +1973,12 @@ export const installPanel = (): void => {
     pendingCanvasWrites.add(canvas)
     refreshAllianceProgress()
   })
-  onArtboardPixelsChange(() => {
+  const artboardPixelsChange = (): void => {
     artboardPixelsChanged = true
     refreshAllianceProgress()
-  })
+  }
+  onArtboardPixelsChange(artboardPixelsChange)
+  onHeadquartersTilesChange(artboardPixelsChange)
   pixelAccounting.onChange(
     frameQueue(() => {
       if (currentView() !== 'tree') return

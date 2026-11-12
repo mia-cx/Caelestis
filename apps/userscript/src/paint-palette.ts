@@ -13,7 +13,11 @@ import { activeAllianceSurface } from './alliance-surface.js'
 import { onCanvasWrite } from './canvas-write.js'
 import { count, warn } from './debug.js'
 import { artboardColourProgress, artboardColourTargets } from './gl/artboard-markers.js'
-import { onArtboardPixelsChange, readArtboardPixels } from './gl/artboard-pixels.js'
+import {
+  onArtboardPixelsChange,
+  onHeadquartersTilesChange,
+  readArtboardPixels,
+} from './gl/artboard-pixels.js'
 import { getMap } from './map-handle.js'
 import { activeShortcutBindings } from './shortcut-bindings.js'
 import { currentShortcutPlatform } from './shortcuts.js'
@@ -685,6 +689,7 @@ export const installPaintPaletteProgress = (): void => {
   onStateChange(queueRender)
   onLocalChange(queueRender)
   onArtboardPixelsChange(queueRender)
+  onHeadquartersTilesChange(queueRender)
   onCanvasWrite((canvas) => {
     const active = activeAllianceSurface()
     if (active !== null && canvasWriteTouchesArtboard(active, canvas)) queueRender()

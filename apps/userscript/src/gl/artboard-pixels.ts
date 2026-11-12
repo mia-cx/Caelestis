@@ -239,6 +239,7 @@ export const patchArtboardPixels = (
   canvas: HTMLCanvasElement,
   dirty: CanvasWriteRect | null,
 ): void => {
+  if (isHeadquartersTileLayer(canvas)) return
   pixelRevision++
   if (canvas.classList.contains('paint-crosshair-tile')) {
     patchCrosshairPixels(canvas, dirty)
@@ -617,8 +618,25 @@ export const trackArtboardTiles = (
   tiles.set(`${tileX}/${tileY}`, { x: tileX, y: tileY, canvas: source, fresh: true })
   if (seenTileCanvases.has(source)) return []
   seenTileCanvases.add(source)
+  for (const listener of tileListeners) listener()
   return [{ x: tileX, y: tileY, width: size, height: size }]
 }
+
+const tileListeners = new Set<() => void>()
+
+/**
+ * Notify when Wplace draws an HQ tile with new pixels. Its `.hq-tile-layer` repaints are otherwise
+ * only the visible tiles moving with the view, so they are no artboard change.
+ */
+export const onHeadquartersTilesChange = (listener: () => void): (() => void) => {
+  tileListeners.add(listener)
+  return () => tileListeners.delete(listener)
+}
+
+/** Wplace's one screen-sized canvas that it repaints from its HQ tiles on every view change. */
+export const isHeadquartersTileLayer = (canvas: object): boolean =>
+  (canvas as Element).classList?.contains('hq-tile-layer') === true &&
+  (canvas as Element).tagName === 'CANVAS'
 
 /** One tile's candidate drafts: its pixels that differ from committed art. Null when it has none. */
 const tileDraft = (
