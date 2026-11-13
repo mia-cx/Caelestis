@@ -41,7 +41,7 @@ import {
 import { installPresenceLayer, repaintPresence } from './gl/presence-layer.js'
 import { installKeyboardShortcuts } from './keyboard-shortcuts.js'
 import { getMap, installMapCapture, releaseMapCapture } from './map-handle.js'
-import { installPaintCursorTracking, syncPaintCursorMap } from './paint-cursor.js'
+import { installPaintTargetGuard, syncPaintTargetMap } from './paint-cursor.js'
 import {
   installPaintPaletteProgress,
   paintPaletteProgress,
@@ -196,7 +196,7 @@ const attachOverlayLayer = (): void => {
     if (getMap() === null) installMapCapture()
     installOverlayLayer()
     installPresenceLayer()
-    syncPaintCursorMap(getMap())
+    syncPaintTargetMap(getMap())
     syncOfficialOverlays(getMap())
     applyWplacePatches(getMap() as PatchableMap | null)
   }
@@ -459,7 +459,7 @@ export const installFeatures = (): void => {
   onFrame(refreshPaintPaletteFocus, 'Paint palette focus')
   onFrame(refreshWorldTemplateTreeFocus, 'Template tree focus')
   // Middle-click picking, answered from the template when the template is what you can see.
-  step('paint cursor', installPaintCursorTracking)
+  step('paint target guard', installPaintTargetGuard)
   step('colour picker', installColourPicker)
   step('shift paint', installShiftPaint)
   step('keyboard shortcuts', () => {
