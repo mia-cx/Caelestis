@@ -2,35 +2,34 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { ActiveAllianceSurface } from './alliance-surface.js'
 import type { MapLike } from './map-handle.js'
-import { installPaintTargetGuard, syncPaintTargetMap } from './paint-cursor.js'
+import {
+  installPaintTargetGuard,
+  markPaintTargetStale,
+  syncPaintTargetMap,
+} from './paint-cursor.js'
 
 const harness = vi.hoisted(() => ({
   open: true,
   alliance: null as ActiveAllianceSurface | null,
-  surfaceListener: null as ((surface: ActiveAllianceSurface | null) => void) | null,
 }))
 vi.mock('./wplace-paint.js', () => ({ isPaintOpen: () => harness.open }))
-vi.mock('./alliance-surface.js', () => ({
-  activeAllianceSurface: () => harness.alliance,
-  onActiveAllianceSurfaceChange: (listener: (surface: ActiveAllianceSurface | null) => void) => {
-    harness.surfaceListener = listener
-    return () => {
-      harness.surfaceListener = null
-    }
-  },
-}))
+vi.mock('./alliance-surface.js', () => ({ activeAllianceSurface: () => harness.alliance }))
+
+type CameraListener = (event: { readonly originalEvent?: Event }) => void
 
 /** What Wplace's own handlers receive: Space presses on `document`, moves on `window`. */
 let received: string[]
-let cameraListeners: Set<() => void>
+let cameraListeners: Set<CameraListener>
 let teardown: (() => void)[]
 
 const map = {
-  on: (_type: 'move', listener: () => void) => cameraListeners.add(listener),
-  off: (_type: 'move', listener: () => void) => cameraListeners.delete(listener),
+  on: (_type: 'move', listener: CameraListener) => cameraListeners.add(listener),
+  off: (_type: 'move', listener: CameraListener) => cameraListeners.delete(listener),
 } as unknown as MapLike
-const moveCamera = (): void => {
-  for (const listener of cameraListeners) listener()
+/** A world camera move; with an `originalEvent`, the pointer or wheel drove it. */
+const moveCamera = (originalEvent?: Event): void => {
+  for (const listener of cameraListeners)
+    listener(originalEvent === undefined ? {} : { originalEvent })
 }
 const key = (type: 'keydown' | 'keyup', target: EventTarget = document): void => {
   target.dispatchEvent(
@@ -90,6 +89,15 @@ it('holds moves back while Space stays down through a camera move', () => {
   expect(received).toEqual(['keydown:Space', 'mousemove', 'keydown:Space'])
 })
 
+it('keeps drags and wheel zooms flowing, since they keep the same map point under the pointer', () => {
+  key('keydown')
+  moveCamera(new MouseEvent('mousemove'))
+  moveCamera(new WheelEvent('wheel'))
+  move()
+  key('keydown')
+  expect(received).toEqual(['keydown:Space', 'mousemove', 'keydown:Space'])
+})
+
 it('leaves Space alone in text fields and while the paint drawer is closed', () => {
   const input = document.createElement('input')
   document.body.append(input)
@@ -100,16 +108,14 @@ it('leaves Space alone in text fields and while the paint drawer is closed', () 
   expect(received).toEqual(['keydown:Space', 'keydown:Space'])
 })
 
-it("guards HQ's artboard until a pointer move over it", async () => {
+it("guards HQ's artboard after a jump until a pointer move over it", () => {
   const stage = document.createElement('div')
   const frame = document.createElement('div')
   stage.append(frame)
   document.body.append(stage)
   harness.alliance = { stage, frame } as unknown as ActiveAllianceSurface
-  harness.surfaceListener?.(harness.alliance)
 
-  frame.style.transform = 'translate(10px, 0px)'
-  await Promise.resolve()
+  markPaintTargetStale()
   key('keydown')
   move('pointermove')
   move('mousemove', frame)

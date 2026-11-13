@@ -41,8 +41,8 @@ export interface MapLike {
   getCenter(): { lng: number; lat: number }
   getCanvas(): HTMLCanvasElement
   unproject(point: [number, number]): { lng: number; lat: number }
-  on(type: 'move', listener: () => void): unknown
-  off(type: 'move', listener: () => void): unknown
+  on(type: 'move', listener: (event: { readonly originalEvent?: Event }) => void): unknown
+  off(type: 'move', listener: (event: { readonly originalEvent?: Event }) => void): unknown
   cameraForBounds?(
     bounds: [[number, number], [number, number]],
     options?: Record<string, unknown>,

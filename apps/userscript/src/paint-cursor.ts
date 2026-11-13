@@ -1,8 +1,4 @@
-import {
-  type ActiveAllianceSurface,
-  activeAllianceSurface,
-  onActiveAllianceSurfaceChange,
-} from './alliance-surface.js'
+import { activeAllianceSurface } from './alliance-surface.js'
 import type { MapLike } from './map-handle.js'
 import { isPaintOpen } from './wplace-paint.js'
 
@@ -64,17 +60,33 @@ let holding = false
 let movesBlocked = false
 let observedMap: MapLike | null = null
 
-const cameraMoved = (): void => {
+/**
+ * Mark Wplace's paint target stale after the camera moved under a still mouse: a flight, a keyboard
+ * pan, or an HQ jump. Alliance navigation calls this directly; the world map reports its moves.
+ */
+export const markPaintTargetStale = (): void => {
   stale = true
   if (holding) movesBlocked = true
+}
+
+/**
+ * Drags, wheel zooms, and touch gestures keep the same map point under the pointer, so Wplace's
+ * target stays correct and a drag with Space held must keep panning.
+ */
+const worldCameraMoved = ({ originalEvent }: { readonly originalEvent?: Event }): void => {
+  const pointerDriven =
+    originalEvent instanceof MouseEvent ||
+    originalEvent instanceof WheelEvent ||
+    (typeof TouchEvent !== 'undefined' && originalEvent instanceof TouchEvent)
+  if (!pointerDriven) markPaintTargetStale()
 }
 
 /** Follow the current map across SPA replacements without retaining old map listeners. */
 export const syncPaintTargetMap = (map: MapLike | null): void => {
   if (map === observedMap) return
-  observedMap?.off('move', cameraMoved)
+  observedMap?.off('move', worldCameraMoved)
   observedMap = map
-  observedMap?.on('move', cameraMoved)
+  observedMap?.on('move', worldCameraMoved)
 }
 
 /**
@@ -123,15 +135,6 @@ export const installPaintTargetGuard = (): (() => void) => {
         : event.type === 'pointermove' && event.composedPath().includes(alliance.stage)
     if (reached) stale = false
   }
-  const frameObserver = new MutationObserver(cameraMoved)
-  const observeFrame = (alliance: ActiveAllianceSurface | null): void => {
-    frameObserver.disconnect()
-    if (alliance !== null)
-      frameObserver.observe(alliance.frame, { attributes: true, attributeFilter: ['style'] })
-  }
-  observeFrame(activeAllianceSurface())
-  const stopFollowingSurface = onActiveAllianceSurfaceChange(observeFrame)
-
   const moves = ['mousemove', 'pointermove'] as const
   window.addEventListener('keydown', keydown, true)
   window.addEventListener('keyup', keyup, true)
@@ -150,8 +153,6 @@ export const installPaintTargetGuard = (): (() => void) => {
     }
     window.removeEventListener('blur', release)
     document.removeEventListener('visibilitychange', visibility)
-    stopFollowingSurface()
-    frameObserver.disconnect()
     syncPaintTargetMap(null)
     stale = false
     release()
