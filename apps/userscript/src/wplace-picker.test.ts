@@ -362,12 +362,16 @@ it('keeps picking while the middle button drags only with its own switch on', as
     moves.push(`${isForwardedPaintMove(event) ? 'forwarded' : 'real'}:${event.clientX}`)
   }
   // Middle button down over White, dragged across to Black, released.
+  // Like Chromium, send compatibility mouse events only while the pointerdown was not cancelled.
   const drag = (): void => {
     const at = { button: 1, buttons: 4, pointerId: 1, bubbles: true, cancelable: true }
     const moved = { ...at, button: -1, clientX: 30, clientY: 10 }
-    canvas.dispatchEvent(new PointerEvent('pointerdown', { ...at, clientX: 10, clientY: 10 }))
+    const compatible = canvas.dispatchEvent(
+      new PointerEvent('pointerdown', { ...at, clientX: 10, clientY: 10 }),
+    )
+    if (compatible) canvas.dispatchEvent(new MouseEvent('mousedown', { ...at, clientX: 10 }))
     canvas.dispatchEvent(new PointerEvent('pointermove', moved))
-    canvas.dispatchEvent(new MouseEvent('mousemove', moved))
+    if (compatible) canvas.dispatchEvent(new MouseEvent('mousemove', moved))
     canvas.dispatchEvent(
       new PointerEvent('pointerup', { ...at, buttons: 0, clientX: 30, clientY: 10 }),
     )

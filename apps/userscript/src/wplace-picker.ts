@@ -397,12 +397,18 @@ export const installColourPicker = (): void => {
 
       // Only now, once the colour is actually set. Stopping the event on a pick we then failed to
       // answer would leave the middle click doing nothing at all, which is worse than their answer.
-      event.preventDefault()
+      //
+      // A cancelled pointerdown stops the browser sending compatibility mouse events until release.
+      // A drag pick forwards its own moves, so it cancels the press. A single pick leaves it
+      // uncancelled, so the real `mousemove`s Wplace paints from keep coming, and the `mousedown`
+      // listener below cancels the press there instead.
+      const drags = getState().simulatedInput['drag-pick'] === true
+      if (drags) event.preventDefault()
       event.stopImmediatePropagation()
       middlePick = {
         pointerId: event.pointerId,
         target,
-        drags: getState().simulatedInput['drag-pick'] === true,
+        drags,
         lastIndex: index,
         lastPosition: { clientX: event.clientX, clientY: event.clientY },
       }
