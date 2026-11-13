@@ -38,6 +38,7 @@ const settingsModel = (): SettingsModel =>
     servers: [],
     colourNavigationOrder: 'unpainted-first',
     caelestisColourPicking: false,
+    simulateShiftPaint: false,
     reportPaints: true,
     shareTiles: true,
     sharePresence: true,
