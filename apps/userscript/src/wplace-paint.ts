@@ -136,12 +136,15 @@ export const paintDockButton = (root: ParentNode = document): HTMLButtonElement 
 }
 
 /**
- * Open Wplace's paint mode, or submit through the palette's own panel when it is already open.
- * Opening prefers an exact accessible label, then the native dock control. A mounted palette whose
- * controls cannot be identified must not fall through to an unrelated action elsewhere on the page.
+ * Open Wplace's paint mode, or, with `submit`, submit through the palette's own panel when it is
+ * already open. Wplace flags a simulated click on that Paint button (`UntrustedPaintSubmit`), so
+ * an open drawer is left alone unless the painter opted in. Opening is not flagged; it prefers an
+ * exact accessible label, then the native dock control. A mounted palette whose controls cannot be
+ * identified must not fall through to an unrelated action elsewhere on the page.
  */
-export const performPaintAction = (root: ParentNode = document): boolean => {
+export const performPaintAction = (root: ParentNode = document, submit = false): boolean => {
   if (paintPaletteSwatches(root).length > 0) {
+    if (!submit) return false
     const drawer = nativePaintPanel(root)
     const commit = drawer === null ? null : paintDrawerCommitButton(drawer)
     if (commit === null || commit.disabled) return false

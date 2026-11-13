@@ -43,7 +43,7 @@ it('drives a French paint drawer through its translated controls', () => {
   const clicked = clicks()
 
   expect(undoPaintDraft()).toBe(true)
-  expect(performPaintAction()).toBe(true)
+  expect(performPaintAction(document, true)).toBe(true)
   expect(cancelPaintDraft()).toBe(true)
   expect(clicked).toEqual(['Annuler', 'Peindre (0:25)', 'Fermer'])
 })

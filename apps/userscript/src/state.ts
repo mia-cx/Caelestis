@@ -256,6 +256,11 @@ export interface State {
   readonly notifyActivity: boolean
   /** Keyboard actions the user rebound. Absent actions keep their default chords. */
   readonly shortcutOverrides: ShortcutOverrides
+  /**
+   * Let the colour-cycle keys and the paint key's submit press Wplace's swatches and Paint button.
+   * Off by default: those presses are simulated clicks, which Wplace flags on the account.
+   */
+  readonly simulatedClickShortcuts: boolean
   /** Where the template studio's windows sit. */
   readonly studioLayout: StudioLayout
 }
@@ -290,6 +295,7 @@ const DEFAULT_STATE: State = {
   notifyUpdates: true,
   notifyActivity: false,
   shortcutOverrides: {},
+  simulatedClickShortcuts: false,
   studioLayout: DEFAULT_STUDIO_LAYOUT,
 }
 
@@ -720,6 +726,7 @@ export const loadState = (): State => {
         ) ?? DEFAULT_APPEARANCE,
       ...globalSettingsFrom({ ...stored, ...storedSwitches() }),
       shortcutOverrides: normaliseShortcutOverrides(stored.shortcutOverrides),
+      simulatedClickShortcuts: stored.simulatedClickShortcuts === true,
       studioLayout: parseStudioLayout(stored.studioLayout),
     }
     log('install', 'state loaded', { servers: state.servers.length })

@@ -696,6 +696,7 @@ const settingsModel = (): SettingsModel => {
       platform: currentShortcutPlatform(),
       bindings: activeShortcutBindings(),
       customised: Object.keys(state.shortcutOverrides).length > 0,
+      simulatedClicks: state.simulatedClickShortcuts,
       ...(shortcutChange === undefined ? {} : { lastChange: shortcutChange }),
     },
     wplacePatches: wplacePatchSettings(),
@@ -977,6 +978,10 @@ const handleSettingsIntent = (intent: SettingsIntent): void => {
       refreshSettings()
       break
     }
+    case 'set-simulated-clicks':
+      setState({ simulatedClickShortcuts: intent.value })
+      refreshSettings()
+      break
     case 'reset-shortcut-bindings':
       shortcutChange = undefined
       setState({ shortcutOverrides: {} })

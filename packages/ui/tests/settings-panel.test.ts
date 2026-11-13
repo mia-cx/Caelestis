@@ -27,7 +27,12 @@ const settings = (): SettingsModel => ({
   notifyGriefing: false,
   notifyUpdates: true,
   notifyActivity: true,
-  shortcuts: { platform: 'windows-linux', bindings: resolveShortcutBindings(), customised: true },
+  shortcuts: {
+    platform: 'windows-linux',
+    bindings: resolveShortcutBindings(),
+    customised: true,
+    simulatedClicks: false,
+  },
   profile: { note: 'No profile recorded.', metrics: [] },
 })
 
@@ -102,6 +107,40 @@ describe('settings panel intent boundary', () => {
       (hidden.querySelector('input[aria-label="Claims only while painting"]') as HTMLInputElement)
         .disabled,
     ).toBe(true)
+  })
+
+  it('marks the clicking shortcuts until Simulated clicks is switched on', () => {
+    const intents: SettingsIntent[] = []
+    const noteOf = (root: HTMLElement, id: string): string | null =>
+      root
+        .querySelector(`[data-caelestis-shortcut="${id}"]`)
+        ?.closest('.shortcut-row')
+        ?.querySelector('small')?.textContent ?? null
+    const off = document.body.appendChild(document.createElement('div'))
+    mounted.push(
+      mount(SettingsPanel, {
+        target: off,
+        props: { model: settings(), onIntent: (intent) => intents.push(intent) },
+      }),
+    )
+    const toggle = off.querySelector('input[aria-label="Simulated clicks"]') as HTMLInputElement
+    expect(toggle.checked).toBe(false)
+    expect(noteOf(off, 'cycle-colour-next')).toBe('Needs Simulated clicks')
+    expect(noteOf(off, 'paint-action')).toBe('Committing needs Simulated clicks')
+    expect(noteOf(off, 'cancel-paint')).toBeNull()
+    toggle.click()
+    expect(intents).toEqual([{ type: 'set-simulated-clicks', value: true }])
+
+    const on = document.body.appendChild(document.createElement('div'))
+    const model = settings()
+    mounted.push(
+      mount(SettingsPanel, {
+        target: on,
+        props: { model: { ...model, shortcuts: { ...model.shortcuts, simulatedClicks: true } } },
+      }),
+    )
+    expect(noteOf(on, 'cycle-colour-next')).toBeNull()
+    expect(noteOf(on, 'paint-action')).toBeNull()
   })
 
   it('switches each Wplace patch by its own id, and hides the section when there are none', async () => {
