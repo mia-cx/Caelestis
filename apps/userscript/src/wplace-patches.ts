@@ -12,6 +12,11 @@ import { patchTileRefresh } from './wplace-tile-refresh.js'
  *
  * Nothing here touches Wplace's anti-cheat: pawtect, the bot check, the fetch wrapper, the storage
  * sync, and Turnstile run exactly as they would without Caelestis.
+ *
+ * Painting input is handled elsewhere. Wplace flags untrusted events reaching its paint handlers
+ * on the account, so by default Caelestis only filters the painter's real events (shift-paint,
+ * the paint-target guard). Simulating input on Wplace's controls is opt-in, per feature: "Paint
+ * past skipped pixels", "Caelestis colour picking", and "Simulated clicks" for shortcuts.
  */
 export const WPLACE_PATCHES = {
   'hover-canvas': {
