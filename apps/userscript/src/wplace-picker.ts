@@ -480,8 +480,8 @@ export const installColourPicker = (): void => {
   }
   window.addEventListener('blur', () => endMiddlePick(), { capture: true })
 
-  // The claimed press cannot start a native drag. Keep movement flowing so Wplace updates its
-  // crosshair and the pixel painted by Space while we select overlay colours.
+  // The claimed press cannot start a native drag. A drag pick forwards its own moves so Wplace
+  // updates its crosshair and the pixel painted by Space; a single pick lets the real ones through.
   for (const type of ['mousedown', 'mousemove', 'mouseup', 'auxclick'] as const) {
     window.addEventListener(
       type,
@@ -489,7 +489,7 @@ export const installColourPicker = (): void => {
         if (isForwardedPaintMove(event)) return
         const claimed =
           type === 'mousemove'
-            ? middlePick !== null
+            ? middlePick?.drags === true
             : event.button === 1 && pendingMiddleClick !== null
         if (!claimed) return
         event.preventDefault()

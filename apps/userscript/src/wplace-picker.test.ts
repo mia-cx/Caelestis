@@ -7,6 +7,7 @@ import {
 import { expect, it, vi } from 'vitest'
 import type { ActiveAllianceSurface } from './alliance-surface.js'
 import type { NativePixelSnapshot } from './native-pixels.js'
+import { isForwardedPaintMove } from './paint-cursor.js'
 import { setState } from './state.js'
 import { addLocalTemplate, removeLocalTemplate } from './templates/local-store.js'
 import { isPaintOpen, watchPaintSelection } from './wplace-paint.js'
@@ -355,27 +356,39 @@ it('keeps picking while the middle button drags only with its own switch on', as
   const pressed: string[] = []
   for (const swatch of document.querySelectorAll('button'))
     swatch.addEventListener('click', () => pressed.push(swatch.getAttribute('aria-label') ?? ''))
+  // The mouse moves Wplace's world painting follows, real or forwarded by the picker.
+  const moves: string[] = []
+  const recordMove = (event: MouseEvent): void => {
+    moves.push(`${isForwardedPaintMove(event) ? 'forwarded' : 'real'}:${event.clientX}`)
+  }
   // Middle button down over White, dragged across to Black, released.
   const drag = (): void => {
     const at = { button: 1, buttons: 4, pointerId: 1, bubbles: true, cancelable: true }
+    const moved = { ...at, button: -1, clientX: 30, clientY: 10 }
     canvas.dispatchEvent(new PointerEvent('pointerdown', { ...at, clientX: 10, clientY: 10 }))
-    canvas.dispatchEvent(
-      new PointerEvent('pointermove', { ...at, button: -1, clientX: 30, clientY: 10 }),
-    )
+    canvas.dispatchEvent(new PointerEvent('pointermove', moved))
+    canvas.dispatchEvent(new MouseEvent('mousemove', moved))
     canvas.dispatchEvent(
       new PointerEvent('pointerup', { ...at, buttons: 0, clientX: 30, clientY: 10 }),
     )
   }
 
   const teardown = installPicker({ 'middle-click-pick': true })
+  window.addEventListener('mousemove', recordMove)
   try {
+    // One pick, and Wplace keeps following the real pointer.
     drag()
     expect(pressed).toEqual(['White'])
+    expect(moves).toEqual(['real:30'])
 
+    // Dragging picks again, and Wplace sees the picker's moves instead of the real one.
+    moves.length = 0
     setState({ simulatedInput: EVERY_PICK })
     drag()
     expect(pressed).toEqual(['White', 'White', 'Black'])
+    expect(moves.every((move) => move.startsWith('forwarded:'))).toBe(true)
   } finally {
+    window.removeEventListener('mousemove', recordMove)
     teardown()
     await removeLocalTemplate(template.id)
   }
