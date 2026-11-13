@@ -207,6 +207,7 @@
     <select class="caelestis-select" id="colour-navigation-order" aria-label="Middle-click colour order" value={model.colourNavigationOrder} onchange={(event) => emit({ type: 'set-colour-navigation-order', value: event.currentTarget.value as SettingsModel['colourNavigationOrder'] })}><option value="unpainted-first">Unpainted, then mismatched</option><option value="mismatched-first">Mismatched, then unpainted</option></select>
   </div>
   <SettingRow label="Caelestis colour picking" hint="Wplace's picker reads templates and placed pixels, and middle-click on the map picks the template colour. Caelestis picks the colour by simulating a click on Wplace's palette, and Wplace flags simulated input on the account.">{#snippet children()}<Toggle label="Caelestis colour picking" checked={model.caelestisColourPicking} onChange={(value) => emit({ type: 'set-caelestis-colour-picking', value })} />{/snippet}</SettingRow>
+  <SettingRow label="Paint past skipped pixels" hint="Shift+Space keeps painting beyond pixels it skips. This simulates input, and Wplace flags simulated input on your account.">{#snippet children()}<Toggle label="Paint past skipped pixels" checked={model.simulateShiftPaint} onChange={(value) => emit({ type: 'set-simulate-shift-paint', value })} />{/snippet}</SettingRow>
 
   <GlobalSettings section="notifications" {model} onIntent={emitGlobal} />
   <GlobalSettings section="contribution" {model} onIntent={emitGlobal} />

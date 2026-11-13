@@ -395,6 +395,7 @@ export interface SettingsModel extends GlobalSettingsModel {
   readonly colourNavigationOrder: 'unpainted-first' | 'mismatched-first'
   /** Caelestis answers Wplace's picker and middle-click picks by clicking a palette swatch. */
   readonly caelestisColourPicking: boolean
+  readonly simulateShiftPaint: boolean
   readonly shortcuts: ShortcutSettingsModel
   readonly profile?: {
     readonly note: string
@@ -427,6 +428,7 @@ export type SettingsIntent =
       readonly value: SettingsModel['colourNavigationOrder']
     }
   | { readonly type: 'set-caelestis-colour-picking'; readonly value: boolean }
+  | { readonly type: 'set-simulate-shift-paint'; readonly value: boolean }
   | { readonly type: 'set-boolean'; readonly key: SettingsBooleanKey; readonly value: boolean }
   | { readonly type: 'set-wplace-patch'; readonly id: string; readonly enabled: boolean }
   | { readonly type: 'import-from-other-build' }

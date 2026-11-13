@@ -14,6 +14,7 @@ const settings = (): SettingsModel => ({
   servers: [],
   colourNavigationOrder: 'unpainted-first',
   caelestisColourPicking: false,
+  simulateShiftPaint: false,
   reportPaints: true,
   shareTiles: true,
   sharePresence: true,
@@ -75,6 +76,26 @@ describe('settings panel intent boundary', () => {
       { type: 'reset-shortcut-bindings' },
       { type: 'reset-profile' },
     ])
+  })
+
+  it('offers simulated Shift painting as an opt-in that names the account flag', () => {
+    const intents: SettingsIntent[] = []
+    const target = document.body.appendChild(document.createElement('div'))
+    mounted.push(
+      mount(SettingsPanel, {
+        target,
+        props: { model: settings(), onIntent: (intent) => intents.push(intent) },
+      }),
+    )
+    const toggle = target.querySelector(
+      'input[aria-label="Paint past skipped pixels"]',
+    ) as HTMLInputElement
+    expect(toggle.checked).toBe(false)
+    expect(toggle.closest('.row')?.textContent).toContain(
+      'Wplace flags simulated input on your account',
+    )
+    toggle.click()
+    expect(intents).toEqual([{ type: 'set-simulate-shift-paint', value: true }])
   })
 
   it('asks to show claims only while painting, and disables that without claims', () => {

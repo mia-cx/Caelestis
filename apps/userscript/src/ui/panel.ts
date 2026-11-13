@@ -680,6 +680,7 @@ const settingsModel = (): SettingsModel => {
     ...(addServerMessage === undefined ? {} : { addServerMessage }),
     colourNavigationOrder: state.colourNavigationOrder,
     caelestisColourPicking: state.caelestisColourPicking,
+    simulateShiftPaint: state.simulateShiftPaint,
     reportPaints: state.reportPaints,
     shareTiles: state.shareTiles,
     sharePresence: state.sharePresence,
@@ -950,6 +951,10 @@ const handleSettingsIntent = (intent: SettingsIntent): void => {
       break
     case 'set-caelestis-colour-picking':
       setState({ caelestisColourPicking: intent.value })
+      break
+    case 'set-simulate-shift-paint':
+      setState({ simulateShiftPaint: intent.value })
+      refreshSettings()
       break
     case 'set-boolean':
       if (intent.key === 'debugLogging') setDebugEnabled(intent.value)

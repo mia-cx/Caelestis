@@ -227,6 +227,8 @@ export interface State {
    * Both select a colour by clicking a Wplace swatch, which Wplace flags as untrusted input.
    */
   readonly caelestisColourPicking: boolean
+  /** Shift-paint lifts the brush over skipped pixels with simulated input, which Wplace flags. */
+  readonly simulateShiftPaint: boolean
   /** Target mismatch or selected-colour markers submitted across one viewport. */
   readonly markerBudget: number
   readonly localFolders: readonly LocalFolder[]
@@ -276,6 +278,7 @@ const DEFAULT_STATE: State = {
   onlySelectedColour: false,
   colourNavigationOrder: 'unpainted-first',
   caelestisColourPicking: false,
+  simulateShiftPaint: false,
   markerBudget: DEFAULT_MARKER_BUDGET,
   localFolders: [],
   localClaims: [],
@@ -701,6 +704,7 @@ export const loadState = (): State => {
           ? 'mismatched-first'
           : 'unpainted-first',
       caelestisColourPicking: stored.caelestisColourPicking === true,
+      simulateShiftPaint: stored.simulateShiftPaint === true,
       markerBudget: normaliseMarkerBudget(stored.markerBudget),
       localFolders,
       localClaims: Array.isArray(stored.localClaims)

@@ -20,6 +20,8 @@ An administrator connection also shows [access-token management](Authentication-
 
 **Caelestis colour picking** is off by default, so Wplace's own picker answers. Turn it on to make Wplace's picker read templates and placed pixels, and to pick the template colour under the cursor with a middle click on the map. Caelestis picks the colour by simulating a click on Wplace's palette, and Wplace flags simulated input on the account.
 
+**Paint past skipped pixels** is off by default. Holding Shift with Space paints only template pixels that need the selected colour, and the brush waits at the edge of pixels it skips until the cursor has a clear line from there. Turn it on to keep painting beyond skipped pixels. This simulates input, and Wplace flags simulated input on the account.
+
 ## Notifications
 
 These switches control toast messages inside Wplace.
