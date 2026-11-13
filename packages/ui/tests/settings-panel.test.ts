@@ -13,6 +13,7 @@ afterEach(async () => {
 const settings = (): SettingsModel => ({
   servers: [],
   colourNavigationOrder: 'unpainted-first',
+  caelestisColourPicking: false,
   reportPaints: true,
   shareTiles: true,
   sharePresence: true,
@@ -50,6 +51,9 @@ describe('settings panel intent boundary', () => {
     ) as HTMLSelectElement
     order.value = 'mismatched-first'
     order.dispatchEvent(new Event('change', { bubbles: true }))
+    ;(
+      target.querySelector('input[aria-label="Caelestis colour picking"]') as HTMLInputElement
+    ).click()
     ;(target.querySelector('input[aria-label="Template regressions"]') as HTMLInputElement).click()
     ;(
       target.querySelector(
@@ -61,6 +65,7 @@ describe('settings panel intent boundary', () => {
     expect(intents).toEqual([
       { type: 'add-server', url: 'https://templates.example.org' },
       { type: 'set-colour-navigation-order', value: 'mismatched-first' },
+      { type: 'set-caelestis-colour-picking', value: true },
       { type: 'set-boolean', key: 'notifyRegressions', value: false },
       { type: 'reset-shortcut-bindings' },
       { type: 'reset-profile' },

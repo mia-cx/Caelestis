@@ -15,6 +15,7 @@ import { getMap } from './map-handle.js'
 import { nativePixelAt } from './native-pixels.js'
 import { forwardPaintMove, isForwardedPaintKey, isForwardedPaintMove } from './paint-cursor.js'
 import { pickerIndex } from './picker-source.js'
+import { getState } from './state.js'
 import { claimedHiddenFor } from './templates/colour-filter.js'
 import {
   appearanceOf,
@@ -60,6 +61,10 @@ import { isPaintOpen, selectPaintColour } from './wplace-paint.js'
  * back the colour already selected — it could not be used to *change* colour, which is the whole of
  * what it is for. The mode is a way of looking at one colour at a time, not a claim that the rest of
  * the template is not there, so the pick reads through it.
+ *
+ * All of this is opt-in (`caelestisColourPicking`). Every answer selects its colour by clicking a
+ * Wplace swatch, and Wplace flags an untrusted swatch click on the account. With the switch off,
+ * Wplace's own picker answers left clicks and a middle click on the map picks nothing.
  */
 
 /**
@@ -212,7 +217,10 @@ const exitNativePicker = (): void => {
   })
 }
 
-/** Install source-only native picking and continuous middle-button overlay picking. */
+/**
+ * Install source-only native picking and continuous middle-button overlay picking. Each gesture
+ * reads the opt-in when it starts, so a gesture already under way finishes as it began.
+ */
 export const installColourPicker = (): void => {
   type MiddlePick = {
     readonly pointerId: number
@@ -281,6 +289,7 @@ export const installColourPicker = (): void => {
     (event) => {
       // A new pointer sequence supersedes any pick that never produced its click.
       pendingLeftPick = null
+      if (!getState().caelestisColourPicking) return
       if (event.button !== 0 || !isPaintOpen() || !nativePickerIsActive()) return
       const target = event.target
       if (!(target instanceof Element)) return
@@ -369,7 +378,7 @@ export const installColourPicker = (): void => {
     (event) => {
       if (event.button !== 1 || middlePick !== null) return
       pendingMiddleClick = null
-      if (event.defaultPrevented || isMoving()) return
+      if (!getState().caelestisColourPicking || event.defaultPrevented || isMoving()) return
       const target = event.target
       if (!(target instanceof Element)) return
       const point = pickerPointAt(target, event.clientX, event.clientY)

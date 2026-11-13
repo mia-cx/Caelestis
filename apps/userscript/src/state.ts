@@ -222,6 +222,11 @@ export interface State {
   readonly onlySelectedColour: boolean
   /** Which kind of remaining work a middle-clicked Wplace colour swatch visits first. */
   readonly colourNavigationOrder: ColourNavigationOrder
+  /**
+   * Answer Wplace's picker from source pixels and pick template colours with the middle button.
+   * Both select a colour by clicking a Wplace swatch, which Wplace flags as untrusted input.
+   */
+  readonly caelestisColourPicking: boolean
   /** Target mismatch or selected-colour markers submitted across one viewport. */
   readonly markerBudget: number
   readonly localFolders: readonly LocalFolder[]
@@ -265,6 +270,7 @@ const DEFAULT_STATE: State = {
   hiddenColours: [],
   onlySelectedColour: false,
   colourNavigationOrder: 'unpainted-first',
+  caelestisColourPicking: false,
   markerBudget: DEFAULT_MARKER_BUDGET,
   localFolders: [],
   localClaims: [],
@@ -688,6 +694,7 @@ export const loadState = (): State => {
         stored.colourNavigationOrder === 'mismatched-first'
           ? 'mismatched-first'
           : 'unpainted-first',
+      caelestisColourPicking: stored.caelestisColourPicking === true,
       markerBudget: normaliseMarkerBudget(stored.markerBudget),
       localFolders,
       localClaims: Array.isArray(stored.localClaims)
