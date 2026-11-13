@@ -20,7 +20,7 @@ import { overlayIndexAt, paintIndexAt, pickerPointAt } from './wplace-picker.js'
  * blocked while that cell is skipped. The world map starts on the next auto-repeat; HQ needs a
  * fresh press.
  *
- * `simulateShiftPaint` opts into lifting the brush over skipped cells with synthetic keys and moves.
+ * The `shift-paint` simulated-input switch opts into lifting the brush over skipped cells with synthetic keys and moves.
  */
 
 type Position = { readonly clientX: number; readonly clientY: number }
@@ -302,7 +302,7 @@ export const installShiftPaint = (): void => {
   const simulate = simulateInput(keys)
   let current = filter
   const mode = (): Mode => {
-    const next = getState().simulateShiftPaint ? simulate : filter
+    const next = getState().simulatedInput['shift-paint'] ? simulate : filter
     if (next !== current) {
       next.reset()
       current = next

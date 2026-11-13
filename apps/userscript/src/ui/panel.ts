@@ -679,8 +679,7 @@ const settingsModel = (): SettingsModel => {
     ...(addServerPending ? { addServerPending: true } : {}),
     ...(addServerMessage === undefined ? {} : { addServerMessage }),
     colourNavigationOrder: state.colourNavigationOrder,
-    caelestisColourPicking: state.caelestisColourPicking,
-    simulateShiftPaint: state.simulateShiftPaint,
+    simulatedInput: state.simulatedInput,
     reportPaints: state.reportPaints,
     shareTiles: state.shareTiles,
     sharePresence: state.sharePresence,
@@ -697,7 +696,6 @@ const settingsModel = (): SettingsModel => {
       platform: currentShortcutPlatform(),
       bindings: activeShortcutBindings(),
       customised: Object.keys(state.shortcutOverrides).length > 0,
-      simulatedClicks: state.simulatedClickShortcuts,
       ...(shortcutChange === undefined ? {} : { lastChange: shortcutChange }),
     },
     wplacePatches: wplacePatchSettings(),
@@ -949,13 +947,12 @@ const handleSettingsIntent = (intent: SettingsIntent): void => {
     case 'set-colour-navigation-order':
       setState({ colourNavigationOrder: intent.value })
       break
-    case 'set-caelestis-colour-picking':
-      setState({ caelestisColourPicking: intent.value })
-      break
-    case 'set-simulate-shift-paint':
-      setState({ simulateShiftPaint: intent.value })
+    case 'set-simulated-input': {
+      const { [intent.id]: _, ...others } = getState().simulatedInput
+      setState({ simulatedInput: intent.value ? { ...others, [intent.id]: true } : others })
       refreshSettings()
       break
+    }
     case 'set-boolean':
       if (intent.key === 'debugLogging') setDebugEnabled(intent.value)
       else if (intent.key === 'performanceProfiling') setProfileEnabled(intent.value)
@@ -983,10 +980,6 @@ const handleSettingsIntent = (intent: SettingsIntent): void => {
       refreshSettings()
       break
     }
-    case 'set-simulated-clicks':
-      setState({ simulatedClickShortcuts: intent.value })
-      refreshSettings()
-      break
     case 'reset-shortcut-bindings':
       shortcutChange = undefined
       setState({ shortcutOverrides: {} })

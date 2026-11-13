@@ -35,7 +35,7 @@ export const toggleShortcutHelp = (
   help.model = {
     platform,
     bindings: activeShortcutBindings(),
-    simulatedClicks: getState().simulatedClickShortcuts,
+    simulatedInput: getState().simulatedInput,
   }
   help.setAttribute('data-caelestis-shortcut-help', '')
   applyWplaceTheme(help)

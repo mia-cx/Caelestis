@@ -13,8 +13,7 @@ afterEach(async () => {
 const settings = (): SettingsModel => ({
   servers: [],
   colourNavigationOrder: 'unpainted-first',
-  caelestisColourPicking: false,
-  simulateShiftPaint: false,
+  simulatedInput: {},
   reportPaints: true,
   shareTiles: true,
   sharePresence: true,
@@ -32,7 +31,6 @@ const settings = (): SettingsModel => ({
     platform: 'windows-linux',
     bindings: resolveShortcutBindings(),
     customised: true,
-    simulatedClicks: false,
   },
   profile: { note: 'No profile recorded.', metrics: [] },
 })
@@ -57,9 +55,6 @@ describe('settings panel intent boundary', () => {
     ) as HTMLSelectElement
     order.value = 'mismatched-first'
     order.dispatchEvent(new Event('change', { bubbles: true }))
-    ;(
-      target.querySelector('input[aria-label="Caelestis colour picking"]') as HTMLInputElement
-    ).click()
     ;(target.querySelector('input[aria-label="Template regressions"]') as HTMLInputElement).click()
     ;(
       target.querySelector(
@@ -71,14 +66,13 @@ describe('settings panel intent boundary', () => {
     expect(intents).toEqual([
       { type: 'add-server', url: 'https://templates.example.org' },
       { type: 'set-colour-navigation-order', value: 'mismatched-first' },
-      { type: 'set-caelestis-colour-picking', value: true },
       { type: 'set-boolean', key: 'notifyRegressions', value: false },
       { type: 'reset-shortcut-bindings' },
       { type: 'reset-profile' },
     ])
   })
 
-  it('offers simulated Shift painting as an opt-in that names the account flag', () => {
+  it('switches each simulated painting feature on its own and names the flags it trips', () => {
     const intents: SettingsIntent[] = []
     const target = document.body.appendChild(document.createElement('div'))
     mounted.push(
@@ -87,15 +81,23 @@ describe('settings panel intent boundary', () => {
         props: { model: settings(), onIntent: (intent) => intents.push(intent) },
       }),
     )
-    const toggle = target.querySelector(
-      'input[aria-label="Paint past skipped pixels"]',
-    ) as HTMLInputElement
-    expect(toggle.checked).toBe(false)
-    expect(toggle.closest('.row')?.textContent).toContain(
-      'Wplace flags simulated input on your account',
+    const toggle = (label: string): HTMLInputElement =>
+      target.querySelector(`input[aria-label="${label}"]`) as HTMLInputElement
+
+    expect(toggle('Picker reads templates').closest('.row')?.textContent).toContain(
+      'Wplace flags it on your account as UntrustedPalette.',
     )
-    toggle.click()
-    expect(intents).toEqual([{ type: 'set-simulate-shift-paint', value: true }])
+    expect(toggle('Paint past skipped pixels').closest('.row')?.textContent).toContain(
+      'Wplace flags it on your account as UntrustedPaintHold and UntrustedPointer.',
+    )
+    // Dragging extends a middle-click pick, so it waits for that switch.
+    expect(toggle('Keep picking while dragging').disabled).toBe(true)
+    toggle('Middle-click picks template colours').click()
+    toggle('Paint past skipped pixels').click()
+    expect(intents).toEqual([
+      { type: 'set-simulated-input', id: 'middle-click-pick', value: true },
+      { type: 'set-simulated-input', id: 'shift-paint', value: true },
+    ])
   })
 
   it('asks to show claims only while painting, and disables that without claims', () => {
@@ -130,38 +132,38 @@ describe('settings panel intent boundary', () => {
     ).toBe(true)
   })
 
-  it('marks the clicking shortcuts until Simulated clicks is switched on', () => {
+  it('gives each clicking shortcut its own switch beside its key, naming its flag', () => {
     const intents: SettingsIntent[] = []
-    const noteOf = (root: HTMLElement, id: string): string | null =>
-      root
-        .querySelector(`[data-caelestis-shortcut="${id}"]`)
-        ?.closest('.shortcut-row')
-        ?.querySelector('small')?.textContent ?? null
-    const off = document.body.appendChild(document.createElement('div'))
+    const target = document.body.appendChild(document.createElement('div'))
     mounted.push(
       mount(SettingsPanel, {
-        target: off,
-        props: { model: settings(), onIntent: (intent) => intents.push(intent) },
+        target,
+        props: {
+          model: { ...settings(), simulatedInput: { 'cycle-colour-previous': true } },
+          onIntent: (intent) => intents.push(intent),
+        },
       }),
     )
-    const toggle = off.querySelector('input[aria-label="Simulated clicks"]') as HTMLInputElement
-    expect(toggle.checked).toBe(false)
-    expect(noteOf(off, 'cycle-colour-next')).toBe('Needs Simulated clicks')
-    expect(noteOf(off, 'paint-action')).toBe('Committing needs Simulated clicks')
-    expect(noteOf(off, 'cancel-paint')).toBeNull()
-    toggle.click()
-    expect(intents).toEqual([{ type: 'set-simulated-clicks', value: true }])
+    const row = (id: string): Element | null | undefined =>
+      target.querySelector(`[data-caelestis-shortcut="${id}"]`)?.closest('.shortcut-row')
+    const toggleOf = (id: string): HTMLInputElement | null | undefined =>
+      row(id)?.querySelector('input[role="switch"]')
 
-    const on = document.body.appendChild(document.createElement('div'))
-    const model = settings()
-    mounted.push(
-      mount(SettingsPanel, {
-        target: on,
-        props: { model: { ...model, shortcuts: { ...model.shortcuts, simulatedClicks: true } } },
-      }),
+    expect(row('cycle-colour-next')?.querySelector('small')?.textContent).toBe(
+      "Clicks Wplace's palette. Wplace flags it on your account as UntrustedPalette.",
     )
-    expect(noteOf(on, 'cycle-colour-next')).toBeNull()
-    expect(noteOf(on, 'paint-action')).toBeNull()
+    expect(row('paint-action')?.querySelector('small')?.textContent).toBe(
+      "Committing clicks Wplace's Paint button. Wplace flags it on your account as UntrustedPaintSubmit.",
+    )
+    expect(toggleOf('cancel-paint')).toBeNull()
+    expect(toggleOf('cycle-colour-previous')?.checked).toBe(true)
+    expect(toggleOf('cycle-colour-next')?.checked).toBe(false)
+    toggleOf('cycle-colour-next')?.click()
+    toggleOf('paint-action')?.click()
+    expect(intents).toEqual([
+      { type: 'set-simulated-input', id: 'cycle-colour-next', value: true },
+      { type: 'set-simulated-input', id: 'paint-commit', value: true },
+    ])
   })
 
   it('switches each Wplace patch by its own id, and hides the section when there are none', async () => {

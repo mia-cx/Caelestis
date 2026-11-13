@@ -1,4 +1,5 @@
-import type { ShortcutId } from '@caelestis/shared'
+import type { ShortcutId, SimulatedInput, SimulatedInputSwitches } from '@caelestis/shared'
+import { simulatedInputFlags } from '../simulated-input.js'
 
 export type ShortcutCategory = 'Painting' | 'Overlay'
 
@@ -7,14 +8,17 @@ export interface ShortcutAction {
   readonly category: ShortcutCategory
   /** How the action is named wherever its key is shown: the reference and the settings. */
   readonly label: string
-  /** What of the action waits for the Simulated clicks switch, shown wherever it is off. */
-  readonly simulatedClicksNote?: string
+  /** The part of the action that simulates clicks on Wplace's controls, behind its own switch. */
+  readonly simulated?: {
+    readonly id: SimulatedInput
+    /** What the switch lets the action click. */
+    readonly clicks: string
+    /** The reference's note while the switch is off. */
+    readonly off: string
+  }
 }
 
-/** The settings switch that lets shortcuts click Wplace's palette and Paint button. */
-export const SIMULATED_CLICKS_LABEL = 'Simulated clicks'
-
-const NEEDS_SIMULATED_CLICKS = `Needs ${SIMULATED_CLICKS_LABEL}`
+const OFF = 'Off under Settings › Keyboard shortcuts'
 
 /** Every rebindable action in the order the reference and the settings list them. */
 export const SHORTCUT_ACTIONS: readonly ShortcutAction[] = [
@@ -22,19 +26,23 @@ export const SHORTCUT_ACTIONS: readonly ShortcutAction[] = [
     id: 'cycle-colour-previous',
     category: 'Painting',
     label: 'Previous unfinished colour',
-    simulatedClicksNote: NEEDS_SIMULATED_CLICKS,
+    simulated: { id: 'cycle-colour-previous', clicks: "Clicks Wplace's palette.", off: OFF },
   },
   {
     id: 'cycle-colour-next',
     category: 'Painting',
     label: 'Next unfinished colour',
-    simulatedClicksNote: NEEDS_SIMULATED_CLICKS,
+    simulated: { id: 'cycle-colour-next', clicks: "Clicks Wplace's palette.", off: OFF },
   },
   {
     id: 'paint-action',
     category: 'Painting',
     label: 'Open or commit paint draft',
-    simulatedClicksNote: `Committing needs ${SIMULATED_CLICKS_LABEL}`,
+    simulated: {
+      id: 'paint-commit',
+      clicks: "Committing clicks Wplace's Paint button.",
+      off: 'Committing is off under Settings › Keyboard shortcuts',
+    },
   },
   { id: 'cancel-paint', category: 'Painting', label: 'Cancel paint draft' },
   { id: 'fly-to-colour', category: 'Painting', label: 'Jump to selected colour' },
@@ -62,11 +70,19 @@ export const SHORTCUT_ACTIONS: readonly ShortcutAction[] = [
 export const shortcutActionLabel = (id: ShortcutId): string =>
   SHORTCUT_ACTIONS.find((action) => action.id === id)?.label ?? id
 
-/** The note an action carries while Simulated clicks is off, if part of it needs the switch. */
-export const simulatedClicksNote = (
+export const shortcutSimulatedInput = (id: ShortcutId): ShortcutAction['simulated'] =>
+  SHORTCUT_ACTIONS.find((action) => action.id === id)?.simulated
+
+/** What an action's switch does and the flags it trips, shown beside the switch. */
+export const simulatedShortcutHint = (
+  simulated: NonNullable<ShortcutAction['simulated']>,
+): string => `${simulated.clicks} ${simulatedInputFlags(simulated.id)}`
+
+/** The reference's note for an action whose simulated part is switched off. */
+export const simulatedShortcutNote = (
   id: ShortcutId,
-  simulatedClicks: boolean,
-): string | undefined =>
-  simulatedClicks
-    ? undefined
-    : SHORTCUT_ACTIONS.find((action) => action.id === id)?.simulatedClicksNote
+  switches: SimulatedInputSwitches,
+): string | undefined => {
+  const simulated = shortcutSimulatedInput(id)
+  return simulated === undefined || switches[simulated.id] ? undefined : simulated.off
+}
