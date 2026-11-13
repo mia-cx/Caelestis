@@ -3,11 +3,12 @@
   import { onMount } from 'svelte'
   import Button from '../foundations/Button.svelte'
   import type { ShortcutHelpIntent, ShortcutHelpModel, ShortcutHelpPlatform } from '../types.js'
-  import { type ShortcutCategory, shortcutActionLabel } from './actions.js'
+  import { SIMULATED_CLICKS_LABEL, type ShortcutCategory, shortcutActionLabel, simulatedClicksNote } from './actions.js'
 
   interface ShortcutRow {
     readonly key: string
     readonly label: string
+    readonly note?: string | undefined
   }
 
   interface ShortcutSet {
@@ -47,7 +48,7 @@
   } = $props()
 
   const emit = (intent: ShortcutHelpIntent): void => onIntent?.(intent)
-  const sets = $derived(shortcutSetsFor(model.platform, model.bindings))
+  const sets = $derived(shortcutSetsFor(model.platform, model.bindings, model.simulatedClicks))
   /** A modifier such as Shift can belong to several groups; the first listed one answers hover. */
   const setsByKeyboardKey = $derived.by(() => {
     const byKey = new Map<string, ShortcutSet[]>()
@@ -136,7 +137,8 @@
     'set-opacity-80': '80%', 'set-opacity-100': '100%',
   }
 
-  function setDefinitions(): readonly SetDefinition[] {
+  function setDefinitions(simulatedClicks: boolean): readonly SetDefinition[] {
+    const needsSwitch = `Needs ${SIMULATED_CLICKS_LABEL} under Settings › Keyboard shortcuts.`
     return [
       {
         id: 'colour-cycle', category: 'Painting', title: 'Cycle unfinished colours',
@@ -145,14 +147,17 @@
           id === 'cycle-colour-previous'
             ? `${key} selects the previous unfinished colour.`
             : `${key} selects the next unfinished colour.`,
+        ...(simulatedClicks ? {} : { note: needsSwitch }),
       },
       {
         id: 'paint', category: 'Painting', title: 'Open, commit, or cancel a paint draft',
         shortcuts: ['paint-action', 'cancel-paint'],
         sentence: (key, id) =>
-          id === 'paint-action'
-            ? `${key} opens Wplace’s paint drawer, then commits its draft.`
-            : `${key} cancels and discards the open draft.`,
+          id !== 'paint-action'
+            ? `${key} cancels and discards the open draft.`
+            : simulatedClicks
+              ? `${key} opens Wplace’s paint drawer, then commits its draft.`
+              : `${key} opens Wplace’s paint drawer. Committing its draft with ${key} needs ${SIMULATED_CLICKS_LABEL} under Settings › Keyboard shortcuts.`,
       },
       {
         id: 'fly', category: 'Painting', title: 'Jump to the selected colour',
@@ -238,6 +243,7 @@
   function shortcutSetsFor(
     platform: ShortcutHelpPlatform,
     bindings: ShortcutBindings,
+    simulatedClicks: boolean,
   ): readonly ShortcutSet[] {
     const labelOf = (id: ShortcutId): string => shortcutLabel(bindings[id], platform)
     const pencil: ShortcutSet = {
@@ -245,7 +251,7 @@
       description: 'E uses Wplace’s own pencil / eraser shortcut while the paint drawer is open.',
       rows: [{ key: 'E', label: 'Pencil / eraser (Wplace)' }], keyboardKeys: ['KeyE'],
     }
-    const sets = setDefinitions().map((definition): ShortcutSet => {
+    const sets = setDefinitions(simulatedClicks).map((definition): ShortcutSet => {
       const bound = definition.shortcuts.filter((id) => bindings[id].length > 0)
       const sentences = bound.map((id) => definition.sentence(labelOf(id), id))
       const digitRow = digitOpacityRow(definition, labelOf)
@@ -253,8 +259,8 @@
         ? '1–5 set the focused overlay to 20%, 40%, 60%, 80% or 100% opacity.'
         : sentences.length === 0
           ? 'No key is assigned. Choose one under Settings › Keyboard shortcuts.'
-          : sentences.join(' ')
-      const rows = digitRow ?? rowsFor(definition, labelOf)
+          : [...sentences, ...(definition.note === undefined ? [] : [definition.note])].join(' ')
+      const rows = digitRow ?? rowsFor(definition, labelOf, simulatedClicks)
       const keyboardKeys = [...new Set(
         bound.flatMap((id) => bindings[id].flatMap((binding) => keyBindingCodes(binding, platform))),
       )]
@@ -273,10 +279,18 @@
     return consecutiveDigits ? [{ key: '1–5', label: 'Overlay opacity' }] : null
   }
 
-  function rowsFor(definition: SetDefinition, labelOf: (id: ShortcutId) => string): readonly ShortcutRow[] {
+  function rowsFor(
+    definition: SetDefinition,
+    labelOf: (id: ShortcutId) => string,
+    simulatedClicks: boolean,
+  ): readonly ShortcutRow[] {
     return definition.shortcuts.map((id) => {
       const label = labelOf(id)
-      return { key: label === '' ? NO_KEY : label, label: shortcutActionLabel(id) }
+      return {
+        key: label === '' ? NO_KEY : label,
+        label: shortcutActionLabel(id),
+        note: simulatedClicksNote(id, simulatedClicks),
+      }
     })
   }
 
@@ -357,7 +371,7 @@
               <dl class="caelestis-shortcut-list">
                 {#each sets.filter((set) => set.category === category).flatMap((set) => set.rows) as row}
                   <dt><kbd class:caelestis-shortcut-unset={row.key === NO_KEY}>{row.key}</kbd></dt>
-                  <dd>{row.label}</dd>
+                  <dd>{row.label}{#if row.note !== undefined}<small class="caelestis-shortcut-row-note">{row.note}</small>{/if}</dd>
                 {/each}
               </dl>
             </section>
@@ -502,6 +516,7 @@
   .caelestis-shortcut-list kbd { display: inline-flex; inline-size: fit-content; min-inline-size: 2rem; min-block-size: 1.625rem; align-items: center; justify-content: center; padding-inline: 0.5rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-raised-surface); box-shadow: 0 1px 0 var(--caelestis-border); font: 700 0.75rem/1 var(--caelestis-mono-font, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace); white-space: nowrap; }
   .caelestis-shortcut-list kbd.caelestis-shortcut-unset { border-style: dashed; background: transparent; box-shadow: none; color: var(--caelestis-muted-text); font: 400 0.75rem/1 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); }
   .caelestis-shortcut-list dd { font-size: 0.875rem; line-height: 1.25rem; }
+  .caelestis-shortcut-row-note { display: block; color: var(--caelestis-muted-text); font-size: 0.75rem; line-height: 1rem; }
   .caelestis-shortcut-note { margin-block: 1.25rem 0; color: var(--caelestis-muted-text); font-size: 0.75rem; }
   @media (max-width: 53rem) { .caelestis-shortcut-box { --caelestis-shortcut-max-height: 85dvh; } .caelestis-shortcut-layout { grid-template-columns: 1fr; } .caelestis-keymap { display: none; } }
   @media (prefers-reduced-motion: reduce) { .caelestis-keymap-key, .caelestis-keymap-callout-hint, .caelestis-keymap-callout-detail, .caelestis-keymap-connectors { transition: none !important; } }

@@ -51,7 +51,12 @@ const settingsModel = (): SettingsModel =>
     notifyGriefing: false,
     notifyUpdates: true,
     notifyActivity: true,
-    shortcuts: { platform: 'windows-linux', bindings: resolveShortcutBindings(), customised: true },
+    shortcuts: {
+      platform: 'windows-linux',
+      bindings: resolveShortcutBindings(),
+      customised: true,
+      simulatedClicks: false,
+    },
   }) as SettingsModel
 
 const treeModel = (expanded: boolean): TemplateTreeModel =>

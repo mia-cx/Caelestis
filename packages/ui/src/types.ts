@@ -438,6 +438,7 @@ export type SettingsIntent =
       readonly binding: import('@caelestis/shared').KeyBinding | null
     }
   | { readonly type: 'reset-shortcut-bindings' }
+  | { readonly type: 'set-simulated-clicks'; readonly value: boolean }
   | { readonly type: 'reset-profile' }
   | { readonly type: 'copy-profile' }
 
@@ -483,11 +484,15 @@ export interface ShortcutHelpModel {
   readonly platform: ShortcutHelpPlatform
   /** The chords in force, so the reference shows what the keys do right now. */
   readonly bindings: import('@caelestis/shared').ShortcutBindings
+  /** Whether the actions that simulate clicks on Wplace's controls are switched on. */
+  readonly simulatedClicks: boolean
 }
 
 export interface ShortcutSettingsModel {
   readonly platform: ShortcutHelpPlatform
   readonly bindings: import('@caelestis/shared').ShortcutBindings
+  /** Whether the actions that simulate clicks on Wplace's controls are switched on. */
+  readonly simulatedClicks: boolean
   /** Whether any action differs from its default, which is when reset does something. */
   readonly customised: boolean
   /** The last recorded chord and the actions it was taken from, so the panel can say so. */

@@ -20,6 +20,10 @@ modifier waits for the rest of the chord. The section header holds one Reset act
 while any binding differs from its default. One status line under the list names the action that
 lost a key when a chord moved.
 
+A Simulated clicks switch sits above the list. Colour cycling and committing a paint draft press
+Wplace's own swatches and Paint button, which Wplace flags on the account, so they wait for it.
+While it is off, those rows carry a note naming the switch, and the shortcut reference says the same.
+
 # Global settings
 
 `GlobalSettings.svelte` holds the sections that apply to every Wplace tab: Notifications,

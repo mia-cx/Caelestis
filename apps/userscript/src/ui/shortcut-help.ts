@@ -5,6 +5,7 @@ import {
 } from '@caelestis/ui/elements'
 import { activeShortcutBindings } from '../shortcut-bindings.js'
 import { currentShortcutPlatform, type ShortcutPlatform } from '../shortcuts.js'
+import { getState } from '../state.js'
 import { closeDialogHost } from './dialog.js'
 import { applyWplaceTheme } from './theme.js'
 
@@ -31,7 +32,11 @@ export const toggleShortcutHelp = (
   }
 
   const help = document.createElement(SHORTCUT_HELP_TAG)
-  help.model = { platform, bindings: activeShortcutBindings() }
+  help.model = {
+    platform,
+    bindings: activeShortcutBindings(),
+    simulatedClicks: getState().simulatedClickShortcuts,
+  }
   help.setAttribute('data-caelestis-shortcut-help', '')
   applyWplaceTheme(help)
   restoreTargets.set(
