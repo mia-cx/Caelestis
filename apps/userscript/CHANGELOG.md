@@ -1,5 +1,20 @@
 # @caelestis/userscript
 
+## 1.1.0
+
+### Minor Changes
+
+- 82469fa: Colour cycling and committing a paint draft from the keyboard now need the Simulated clicks switch in the shortcut settings, because Wplace flags simulated clicks on your account.
+- cc92c4f: Every feature that simulates input on Wplace has its own switch, which names the Wplace flags it trips.
+
+### Patch Changes
+
+- fced3a9: Wplace's own colour picker answers clicks by default; turn on **Caelestis colour picking** in Settings → Painting to pick from templates and placed pixels, including with the middle button.
+- e94baf3: After the camera moves, Space waits for a real mouse move before painting so it never paints a stale target.
+- 845537e: By default, Shift+Space painting no longer simulates input that Wplace flags.
+  
+  - The brush waits at skipped pixels; enable Paint past skipped pixels in Settings → Painting to restore the old behaviour that simulates input.
+
 ## 1.0.1
 
 ### Patch Changes
