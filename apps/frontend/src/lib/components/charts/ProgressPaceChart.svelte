@@ -634,9 +634,21 @@
   let plotSvg = $state<SVGSVGElement>()
   let hoverCard = $state<HTMLDivElement>()
   let hoverCardHeight = $state(0)
+  /** Bumped when anything scrolls while the card is anchored to a walked point, to follow it. */
+  let scrolled = $state(0)
+  $effect(() => {
+    if (hover === null || pointer !== null) return
+    const onScroll = (): void => {
+      scrolled++
+    }
+    // Capture: a scrolling container's own scroll events never bubble to the window.
+    window.addEventListener('scroll', onScroll, { capture: true, passive: true })
+    return () => window.removeEventListener('scroll', onScroll, { capture: true })
+  })
   const hoverAnchor = $derived.by(() => {
     if (hover === null) return null
     if (pointer !== null) return pointer
+    void scrolled
     const rect = plotSvg?.getBoundingClientRect()
     return rect === undefined ? null : { x: rect.left + x(hover.t), y: rect.top + pad.top }
   })
