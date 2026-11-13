@@ -60,7 +60,10 @@ const HQ: ActiveAllianceSurface = {
   bounds: null,
 }
 
-/** Wplace's paint lines, copied from its bundle: world `$e`, HQ artboard `qn`. */
+/**
+ * Wplace's paint lines, copied from its bundle: world `$e`, HQ artboard `qn`. The world calls it
+ * from the new cell back to the previous one, HQ from the previous cell forward.
+ */
 const wplaceLine = (from: Cell, to: Cell, hq: boolean): Cell[] => {
   const dx = Math.abs(to.x - from.x)
   const dy = Math.abs(to.y - from.y)
@@ -158,7 +161,7 @@ beforeEach(() => {
   window.addEventListener('mousemove', (event) => {
     if (harness.alliance !== null) return
     const cell = cellOf(event)
-    if (wplace.held) paintAt(wplaceLine(wplace.at ?? cell, cell, false))
+    if (wplace.held) paintAt(wplaceLine(cell, wplace.at ?? cell, false))
     wplace.at = cell
   })
   document.addEventListener('keydown', (event) => {
@@ -225,12 +228,16 @@ describe('by default', () => {
     expect(painted()).toEqual(['2,0'])
   })
 
+  // A diagonal tie: drawn from the start, a strict line would step through 1,0; Wplace's lines
+  // both pass through 1,1.
   it.each([
-    ['world map', null, ['0,0']],
-    ['HQ artboard', HQ, ['0,0', '1,1', '2,1']],
-  ])('checks the line the %s paints', (_, alliance, expected) => {
+    ['world map', null, '.#.', '...', ['0,0', '1,1', '2,1']],
+    ['world map', null, '...', '.#.', ['0,0']],
+    ['HQ artboard', HQ, '.#.', '...', ['0,0', '1,1', '2,1']],
+    ['HQ artboard', HQ, '...', '.#.', ['0,0']],
+  ])('checks the line the %s paints (%s / %s)', (_, alliance, top, bottom, expected) => {
     harness.alliance = alliance === null ? null : { ...alliance, stage: canvas, frame: canvas }
-    grid('.#.', '...')
+    grid(top, bottom)
     move(0)
     key('keydown', 'Space', { shiftKey: true })
     move(2, 1)
@@ -244,6 +251,16 @@ describe('by default', () => {
     move(2)
     move(0)
     expect(wplace.at).toEqual({ x: 0, y: 0 })
+  })
+
+  it('stops retracing the stroke once another colour is selected', () => {
+    grid('...')
+    move(0)
+    key('keydown', 'Space', { shiftKey: true })
+    move(2)
+    document.querySelector('button')?.setAttribute('id', 'color-5')
+    move(0)
+    expect(wplace.at).toEqual({ x: 2, y: 0 })
   })
 
   it('paints normally again once Shift is released mid-stroke', () => {

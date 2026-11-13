@@ -83,14 +83,15 @@ const typing = (event: Event): boolean =>
     )
 
 const cellOf = (point: Cell): Cell => ({ ...point, x: Math.floor(point.x), y: Math.floor(point.y) })
-const cellKey = ({ x, y }: Cell): string => `${x},${y}`
+/** A cell painted in one colour. Retracing it is harmless only in that same colour. */
+const strokeKey = ({ x, y }: Cell, colour: number | null): string => `${x},${y},${colour}`
 
 /**
- * The cells Wplace paints for a move, start included. The world (`$e`) and HQ (`qn`) both use
- * Bresenham but break ties differently: the world steps on strict error comparisons, HQ on
- * inclusive ones.
+ * Bresenham from `from` to `to`, both included. The world (`$e`) steps on strict error
+ * comparisons, HQ (`qn`) on inclusive ones. Ties depend on direction, so callers pass the endpoints
+ * in the order Wplace does.
  */
-const paintLine = (from: Cell, to: Cell): Cell[] => {
+const bresenham = (from: Cell, to: Cell): Cell[] => {
   const world = to.alliance === null
   // Wplace's projection keeps a move across the antimeridian continuous; ours wraps.
   const span = to.x - from.x
@@ -118,6 +119,14 @@ const paintLine = (from: Cell, to: Cell): Cell[] => {
   return cells
 }
 
+/**
+ * Every cell Wplace paints for a held move from `previous` to `current`, both ends included. The
+ * world rasterises from the new cell back to the previous one (`$e(current, previous)`), HQ from
+ * the previous cell forward.
+ */
+const paintLine = (previous: Cell, current: Cell): Cell[] =>
+  current.alliance === null ? bresenham(current, previous) : bresenham(previous, current)
+
 /** The default: Wplace receives only the painter's real events, and only those that paint wanted cells. */
 const filterInput = (keys: Keys): Mode => {
   /** Whether Wplace's paint hold is on: a Space keydown reached it since the last keyup. */
@@ -126,7 +135,7 @@ const filterInput = (keys: Keys): Mode => {
   let from: Cell | null = null
   /** What a hold keydown paints: Wplace's last move, HQ's hovered cell. */
   let hover: Cell | null = null
-  /** Cells this hold already painted. Crossing them again changes nothing. */
+  /** Cells this hold already painted, with their colour. Crossing them again in it changes nothing. */
   let stroke = new Set<string>()
 
   /**
@@ -157,7 +166,7 @@ const filterInput = (keys: Keys): Mode => {
       }
       if (event.repeat && activeAllianceSurface() !== null) return
       holding = true
-      stroke = new Set(hover === null ? [] : [cellKey(hover)])
+      stroke = new Set(hover === null ? [] : [strokeKey(hover, selectedIndex())])
       from = hover
     },
     keyup: (event) => {
@@ -171,15 +180,16 @@ const filterInput = (keys: Keys): Mode => {
         return
       }
       if (holding && brushActive()) {
-        const line = from === null ? [cell] : paintLine(from, cell).slice(1)
-        if (keys.shift) {
-          const selected = selectedIndex()
-          if (!line.every((next) => stroke.has(cellKey(next)) || needsPaint(next, selected))) {
-            claim(event)
-            return
-          }
+        // The start is included: after a swatch change, Wplace repaints it in the new colour.
+        const line = from === null ? [cell] : paintLine(from, cell)
+        const selected = selectedIndex()
+        const harmless = (next: Cell): boolean =>
+          stroke.has(strokeKey(next, selected)) || needsPaint(next, selected)
+        if (keys.shift && !line.every(harmless)) {
+          claim(event)
+          return
         }
-        for (const next of line) stroke.add(cellKey(next))
+        for (const next of line) stroke.add(strokeKey(next, selected))
       }
       from = cell
       hover = cell
