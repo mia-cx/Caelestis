@@ -26,7 +26,7 @@ let uninstall: (() => void) | undefined
 afterEach(() => {
   uninstall?.()
   uninstall = undefined
-  setState({ simulatedClickShortcuts: false })
+  setState({ simulatedInput: {} })
   document.body.replaceChildren()
 })
 
@@ -63,25 +63,29 @@ describe('shortcuts that click Wplace controls', () => {
     expect(open).toEqual([])
   })
 
-  it('submit the open draft once Simulated clicks is on, and stop again when it is off', () => {
+  it('submit the open draft only while its own switch is on', () => {
     const clicked = recordClicks(DRAWER)
-    setState({ simulatedClickShortcuts: true })
+    setState({ simulatedInput: { 'cycle-colour-next': true } })
+    pressPaint()
+    expect(clicked).toEqual([])
+
+    setState({ simulatedInput: { 'paint-commit': true } })
     pressPaint()
     expect(clicked).toEqual(['Paint'])
 
-    setState({ simulatedClickShortcuts: false })
+    setState({ simulatedInput: {} })
     pressPaint()
     expect(clicked).toEqual(['Paint'])
   })
 
-  it('keep the opt-in across a reload, and start without it', async () => {
+  it('keep each switch across a reload, and start with none', async () => {
     vi.resetModules()
     const fresh = await import('../src/state.js')
-    expect(fresh.loadState().simulatedClickShortcuts).toBe(false)
-    fresh.setState({ simulatedClickShortcuts: true })
+    expect(fresh.loadState().simulatedInput).toEqual({})
+    fresh.setState({ simulatedInput: { 'paint-commit': true } })
 
     vi.resetModules()
     const reloaded = await import('../src/state.js')
-    expect(reloaded.loadState().simulatedClickShortcuts).toBe(true)
+    expect(reloaded.loadState().simulatedInput).toEqual({ 'paint-commit': true })
   })
 })

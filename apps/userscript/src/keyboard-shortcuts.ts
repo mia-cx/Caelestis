@@ -268,15 +268,15 @@ export const installKeyboardShortcuts = (
       return
     }
     // Cycling clicks a swatch and submitting clicks the drawer's Paint button. Wplace flags both
-    // simulated clicks on the account, so they wait for the painter's opt-in.
+    // simulated clicks on the account, so each waits for its own simulated-input switch.
     if (shortcut === 'cycle-colour-previous' || shortcut === 'cycle-colour-next') {
       claim()
-      if (getState().simulatedClickShortcuts)
+      if (getState().simulatedInput[shortcut])
         cycleFocusedColour(shortcut === 'cycle-colour-previous' ? -1 : 1)
       return
     }
     if (shortcut === 'paint-action') {
-      const handled = performPaintAction(nativeRoot, getState().simulatedClickShortcuts)
+      const handled = performPaintAction(nativeRoot, getState().simulatedInput['paint-commit'])
       if (allianceEditorStage !== null || handled) claim()
       return
     }

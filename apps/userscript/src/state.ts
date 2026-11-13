@@ -4,6 +4,7 @@ import {
   isTemplateSortField,
   isWorkIdentity,
   normaliseShortcutOverrides,
+  normaliseSimulatedInput,
   PALETTE_SIZE,
   type PainterIdentity,
   parseTemplateFilters,
@@ -12,6 +13,7 @@ import {
   SERVER_ASSET_MAX_BYTES,
   type ServerAssetKind,
   type ShortcutOverrides,
+  type SimulatedInputSwitches,
   type SyncTransport,
   type TemplateFilters,
   type TemplateSurface,
@@ -222,13 +224,8 @@ export interface State {
   readonly onlySelectedColour: boolean
   /** Which kind of remaining work a middle-clicked Wplace colour swatch visits first. */
   readonly colourNavigationOrder: ColourNavigationOrder
-  /**
-   * Answer Wplace's picker from source pixels and pick template colours with the middle button.
-   * Both select a colour by clicking a Wplace swatch, which Wplace flags as untrusted input.
-   */
-  readonly caelestisColourPicking: boolean
-  /** Shift-paint lifts the brush over skipped pixels with simulated input, which Wplace flags. */
-  readonly simulateShiftPaint: boolean
+  /** Features the painter allowed to simulate input on Wplace's controls, which Wplace flags. */
+  readonly simulatedInput: SimulatedInputSwitches
   /** Target mismatch or selected-colour markers submitted across one viewport. */
   readonly markerBudget: number
   readonly localFolders: readonly LocalFolder[]
@@ -258,11 +255,6 @@ export interface State {
   readonly notifyActivity: boolean
   /** Keyboard actions the user rebound. Absent actions keep their default chords. */
   readonly shortcutOverrides: ShortcutOverrides
-  /**
-   * Let the colour-cycle keys and the paint key's submit press Wplace's swatches and Paint button.
-   * Off by default: those presses are simulated clicks, which Wplace flags on the account.
-   */
-  readonly simulatedClickShortcuts: boolean
   /** Where the template studio's windows sit. */
   readonly studioLayout: StudioLayout
 }
@@ -277,8 +269,7 @@ const DEFAULT_STATE: State = {
   hiddenColours: [],
   onlySelectedColour: false,
   colourNavigationOrder: 'unpainted-first',
-  caelestisColourPicking: false,
-  simulateShiftPaint: false,
+  simulatedInput: {},
   markerBudget: DEFAULT_MARKER_BUDGET,
   localFolders: [],
   localClaims: [],
@@ -298,7 +289,6 @@ const DEFAULT_STATE: State = {
   notifyUpdates: true,
   notifyActivity: false,
   shortcutOverrides: {},
-  simulatedClickShortcuts: false,
   studioLayout: DEFAULT_STUDIO_LAYOUT,
 }
 
@@ -703,8 +693,7 @@ export const loadState = (): State => {
         stored.colourNavigationOrder === 'mismatched-first'
           ? 'mismatched-first'
           : 'unpainted-first',
-      caelestisColourPicking: stored.caelestisColourPicking === true,
-      simulateShiftPaint: stored.simulateShiftPaint === true,
+      simulatedInput: normaliseSimulatedInput(stored.simulatedInput),
       markerBudget: normaliseMarkerBudget(stored.markerBudget),
       localFolders,
       localClaims: Array.isArray(stored.localClaims)
@@ -730,7 +719,6 @@ export const loadState = (): State => {
         ) ?? DEFAULT_APPEARANCE,
       ...globalSettingsFrom({ ...stored, ...storedSwitches() }),
       shortcutOverrides: normaliseShortcutOverrides(stored.shortcutOverrides),
-      simulatedClickShortcuts: stored.simulatedClickShortcuts === true,
       studioLayout: parseStudioLayout(stored.studioLayout),
     }
     log('install', 'state loaded', { servers: state.servers.length })

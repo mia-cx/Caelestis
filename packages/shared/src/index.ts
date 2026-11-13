@@ -34,6 +34,7 @@ export {
 export * from './region-shape.js'
 export * from './server-branding.js'
 export * from './shortcuts.js'
+export * from './simulated-input.js'
 export {
   type PixelBounds,
   SliceError,

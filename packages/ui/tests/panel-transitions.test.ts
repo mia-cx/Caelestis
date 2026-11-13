@@ -37,8 +37,7 @@ const settingsModel = (): SettingsModel =>
   ({
     servers: [],
     colourNavigationOrder: 'unpainted-first',
-    caelestisColourPicking: false,
-    simulateShiftPaint: false,
+    simulatedInput: {},
     reportPaints: true,
     shareTiles: true,
     sharePresence: true,
@@ -56,7 +55,6 @@ const settingsModel = (): SettingsModel =>
       platform: 'windows-linux',
       bindings: resolveShortcutBindings(),
       customised: true,
-      simulatedClicks: false,
     },
   }) as SettingsModel
 

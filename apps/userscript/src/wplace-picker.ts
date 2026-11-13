@@ -62,9 +62,10 @@ import { isPaintOpen, selectPaintColour } from './wplace-paint.js'
  * what it is for. The mode is a way of looking at one colour at a time, not a claim that the rest of
  * the template is not there, so the pick reads through it.
  *
- * All of this is opt-in (`caelestisColourPicking`). Every answer selects its colour by clicking a
- * Wplace swatch, and Wplace flags an untrusted swatch click on the account. With the switch off,
- * Wplace's own picker answers left clicks and a middle click on the map picks nothing.
+ * Every answer selects its colour by clicking a Wplace swatch, and Wplace flags an untrusted swatch
+ * click on the account, so each gesture has its own simulated-input switch: `picker-reads-templates`
+ * for the picker tool, `middle-click-pick` for a middle click, and `drag-pick` for picking on while
+ * the middle button stays down. With them off, Wplace's own picker answers.
  */
 
 /**
@@ -219,12 +220,14 @@ const exitNativePicker = (): void => {
 
 /**
  * Install source-only native picking and continuous middle-button overlay picking. Each gesture
- * reads the opt-in when it starts, so a gesture already under way finishes as it began.
+ * reads its switches when it starts, so a gesture already under way finishes as it began.
  */
 export const installColourPicker = (): void => {
   type MiddlePick = {
     readonly pointerId: number
     readonly target: Element
+    /** Whether moves keep picking, read from `drag-pick` when the button went down. */
+    readonly drags: boolean
     lastIndex: number
     lastPosition: { clientX: number; clientY: number }
   }
@@ -289,7 +292,7 @@ export const installColourPicker = (): void => {
     (event) => {
       // A new pointer sequence supersedes any pick that never produced its click.
       pendingLeftPick = null
-      if (!getState().caelestisColourPicking) return
+      if (!getState().simulatedInput['picker-reads-templates']) return
       if (event.button !== 0 || !isPaintOpen() || !nativePickerIsActive()) return
       const target = event.target
       if (!(target instanceof Element)) return
@@ -378,7 +381,8 @@ export const installColourPicker = (): void => {
     (event) => {
       if (event.button !== 1 || middlePick !== null) return
       pendingMiddleClick = null
-      if (!getState().caelestisColourPicking || event.defaultPrevented || isMoving()) return
+      if (!getState().simulatedInput['middle-click-pick'] || event.defaultPrevented || isMoving())
+        return
       const target = event.target
       if (!(target instanceof Element)) return
       const point = pickerPointAt(target, event.clientX, event.clientY)
@@ -393,11 +397,18 @@ export const installColourPicker = (): void => {
 
       // Only now, once the colour is actually set. Stopping the event on a pick we then failed to
       // answer would leave the middle click doing nothing at all, which is worse than their answer.
-      event.preventDefault()
+      //
+      // A cancelled pointerdown stops the browser sending compatibility mouse events until release.
+      // A drag pick forwards its own moves, so it cancels the press. A single pick leaves it
+      // uncancelled, so the real `mousemove`s Wplace paints from keep coming, and the `mousedown`
+      // listener below cancels the press there instead.
+      const drags = getState().simulatedInput['drag-pick'] === true
+      if (drags) event.preventDefault()
       event.stopImmediatePropagation()
       middlePick = {
         pointerId: event.pointerId,
         target,
+        drags,
         lastIndex: index,
         lastPosition: { clientX: event.clientX, clientY: event.clientY },
       }
@@ -421,6 +432,8 @@ export const installColourPicker = (): void => {
         endMiddlePick(event.button === 1 && (event.buttons & MIDDLE_BUTTON_MASK) === 0)
         return
       }
+      // Without `drag-pick` the first pick stands, and Wplace sees only the real moves.
+      if (!pick.drags) return
       // Capture retargets events to the initial element. Hit-test the actual cursor so controls
       // and positions outside the drawing surface never sample the map behind them.
       const target = document.elementFromPoint(event.clientX, event.clientY)
@@ -473,8 +486,8 @@ export const installColourPicker = (): void => {
   }
   window.addEventListener('blur', () => endMiddlePick(), { capture: true })
 
-  // The claimed press cannot start a native drag. Keep movement flowing so Wplace updates its
-  // crosshair and the pixel painted by Space while we select overlay colours.
+  // The claimed press cannot start a native drag. A drag pick forwards its own moves so Wplace
+  // updates its crosshair and the pixel painted by Space; a single pick lets the real ones through.
   for (const type of ['mousedown', 'mousemove', 'mouseup', 'auxclick'] as const) {
     window.addEventListener(
       type,
@@ -482,7 +495,7 @@ export const installColourPicker = (): void => {
         if (isForwardedPaintMove(event)) return
         const claimed =
           type === 'mousemove'
-            ? middlePick !== null
+            ? middlePick?.drags === true
             : event.button === 1 && pendingMiddleClick !== null
         if (!claimed) return
         event.preventDefault()

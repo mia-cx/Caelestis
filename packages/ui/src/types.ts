@@ -393,9 +393,8 @@ export interface SettingsModel extends GlobalSettingsModel {
   readonly addServerPending?: boolean
   readonly addServerMessage?: string
   readonly colourNavigationOrder: 'unpainted-first' | 'mismatched-first'
-  /** Caelestis answers Wplace's picker and middle-click picks by clicking a palette swatch. */
-  readonly caelestisColourPicking: boolean
-  readonly simulateShiftPaint: boolean
+  /** Features allowed to simulate input on Wplace's controls. */
+  readonly simulatedInput: import('@caelestis/shared').SimulatedInputSwitches
   readonly shortcuts: ShortcutSettingsModel
   readonly profile?: {
     readonly note: string
@@ -427,8 +426,11 @@ export type SettingsIntent =
       readonly type: 'set-colour-navigation-order'
       readonly value: SettingsModel['colourNavigationOrder']
     }
-  | { readonly type: 'set-caelestis-colour-picking'; readonly value: boolean }
-  | { readonly type: 'set-simulate-shift-paint'; readonly value: boolean }
+  | {
+      readonly type: 'set-simulated-input'
+      readonly id: import('@caelestis/shared').SimulatedInput
+      readonly value: boolean
+    }
   | { readonly type: 'set-boolean'; readonly key: SettingsBooleanKey; readonly value: boolean }
   | { readonly type: 'set-wplace-patch'; readonly id: string; readonly enabled: boolean }
   | { readonly type: 'import-from-other-build' }
@@ -440,7 +442,6 @@ export type SettingsIntent =
       readonly binding: import('@caelestis/shared').KeyBinding | null
     }
   | { readonly type: 'reset-shortcut-bindings' }
-  | { readonly type: 'set-simulated-clicks'; readonly value: boolean }
   | { readonly type: 'reset-profile' }
   | { readonly type: 'copy-profile' }
 
@@ -486,15 +487,13 @@ export interface ShortcutHelpModel {
   readonly platform: ShortcutHelpPlatform
   /** The chords in force, so the reference shows what the keys do right now. */
   readonly bindings: import('@caelestis/shared').ShortcutBindings
-  /** Whether the actions that simulate clicks on Wplace's controls are switched on. */
-  readonly simulatedClicks: boolean
+  /** Which actions may simulate clicks on Wplace's controls. */
+  readonly simulatedInput: import('@caelestis/shared').SimulatedInputSwitches
 }
 
 export interface ShortcutSettingsModel {
   readonly platform: ShortcutHelpPlatform
   readonly bindings: import('@caelestis/shared').ShortcutBindings
-  /** Whether the actions that simulate clicks on Wplace's controls are switched on. */
-  readonly simulatedClicks: boolean
   /** Whether any action differs from its default, which is when reset does something. */
   readonly customised: boolean
   /** The last recorded chord and the actions it was taken from, so the panel can say so. */

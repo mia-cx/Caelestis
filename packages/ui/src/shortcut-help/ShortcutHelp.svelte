@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { keyBindingCodes, type ShortcutBindings, type ShortcutId, shortcutLabel } from '@caelestis/shared'
+  import { keyBindingCodes, type ShortcutBindings, type ShortcutId, type SimulatedInputSwitches, shortcutLabel } from '@caelestis/shared'
   import { onMount } from 'svelte'
   import Button from '../foundations/Button.svelte'
   import type { ShortcutHelpIntent, ShortcutHelpModel, ShortcutHelpPlatform } from '../types.js'
-  import { SIMULATED_CLICKS_LABEL, type ShortcutCategory, shortcutActionLabel, simulatedClicksNote } from './actions.js'
+  import { type ShortcutCategory, shortcutActionLabel, simulatedShortcutNote } from './actions.js'
 
   interface ShortcutRow {
     readonly key: string
@@ -30,7 +30,6 @@
     readonly title: string
     readonly shortcuts: readonly ShortcutId[]
     readonly sentence: (key: string, id: ShortcutId) => string
-    readonly note?: string
   }
 
   interface KeyboardKey {
@@ -48,7 +47,7 @@
   } = $props()
 
   const emit = (intent: ShortcutHelpIntent): void => onIntent?.(intent)
-  const sets = $derived(shortcutSetsFor(model.platform, model.bindings, model.simulatedClicks))
+  const sets = $derived(shortcutSetsFor(model.platform, model.bindings, model.simulatedInput))
   /** A modifier such as Shift can belong to several groups; the first listed one answers hover. */
   const setsByKeyboardKey = $derived.by(() => {
     const byKey = new Map<string, ShortcutSet[]>()
@@ -137,17 +136,17 @@
     'set-opacity-80': '80%', 'set-opacity-100': '100%',
   }
 
-  function setDefinitions(simulatedClicks: boolean): readonly SetDefinition[] {
-    const needsSwitch = `Needs ${SIMULATED_CLICKS_LABEL} under Settings › Keyboard shortcuts.`
+  function setDefinitions(simulatedInput: SimulatedInputSwitches): readonly SetDefinition[] {
     return [
       {
         id: 'colour-cycle', category: 'Painting', title: 'Cycle unfinished colours',
         shortcuts: ['cycle-colour-previous', 'cycle-colour-next'],
-        sentence: (key, id) =>
-          id === 'cycle-colour-previous'
-            ? `${key} selects the previous unfinished colour.`
-            : `${key} selects the next unfinished colour.`,
-        ...(simulatedClicks ? {} : { note: needsSwitch }),
+        sentence: (key, id) => {
+          const which = id === 'cycle-colour-previous' ? 'previous' : 'next'
+          return simulatedShortcutNote(id, simulatedInput) === undefined
+            ? `${key} selects the ${which} unfinished colour.`
+            : `${key} selects the ${which} unfinished colour, once switched on under Settings › Keyboard shortcuts.`
+        },
       },
       {
         id: 'paint', category: 'Painting', title: 'Open, commit, or cancel a paint draft',
@@ -155,9 +154,9 @@
         sentence: (key, id) =>
           id !== 'paint-action'
             ? `${key} cancels and discards the open draft.`
-            : simulatedClicks
+            : simulatedInput['paint-commit']
               ? `${key} opens Wplace’s paint drawer, then commits its draft.`
-              : `${key} opens Wplace’s paint drawer. Committing its draft with ${key} needs ${SIMULATED_CLICKS_LABEL} under Settings › Keyboard shortcuts.`,
+              : `${key} opens Wplace’s paint drawer. Committing its draft with ${key} is off under Settings › Keyboard shortcuts.`,
       },
       {
         id: 'fly', category: 'Painting', title: 'Jump to the selected colour',
@@ -243,7 +242,7 @@
   function shortcutSetsFor(
     platform: ShortcutHelpPlatform,
     bindings: ShortcutBindings,
-    simulatedClicks: boolean,
+    simulatedInput: SimulatedInputSwitches,
   ): readonly ShortcutSet[] {
     const labelOf = (id: ShortcutId): string => shortcutLabel(bindings[id], platform)
     const pencil: ShortcutSet = {
@@ -251,7 +250,7 @@
       description: 'E uses Wplace’s own pencil / eraser shortcut while the paint drawer is open.',
       rows: [{ key: 'E', label: 'Pencil / eraser (Wplace)' }], keyboardKeys: ['KeyE'],
     }
-    const sets = setDefinitions(simulatedClicks).map((definition): ShortcutSet => {
+    const sets = setDefinitions(simulatedInput).map((definition): ShortcutSet => {
       const bound = definition.shortcuts.filter((id) => bindings[id].length > 0)
       const sentences = bound.map((id) => definition.sentence(labelOf(id), id))
       const digitRow = digitOpacityRow(definition, labelOf)
@@ -259,8 +258,8 @@
         ? '1–5 set the focused overlay to 20%, 40%, 60%, 80% or 100% opacity.'
         : sentences.length === 0
           ? 'No key is assigned. Choose one under Settings › Keyboard shortcuts.'
-          : [...sentences, ...(definition.note === undefined ? [] : [definition.note])].join(' ')
-      const rows = digitRow ?? rowsFor(definition, labelOf, simulatedClicks)
+          : sentences.join(' ')
+      const rows = digitRow ?? rowsFor(definition, labelOf, simulatedInput)
       const keyboardKeys = [...new Set(
         bound.flatMap((id) => bindings[id].flatMap((binding) => keyBindingCodes(binding, platform))),
       )]
@@ -282,14 +281,14 @@
   function rowsFor(
     definition: SetDefinition,
     labelOf: (id: ShortcutId) => string,
-    simulatedClicks: boolean,
+    simulatedInput: SimulatedInputSwitches,
   ): readonly ShortcutRow[] {
     return definition.shortcuts.map((id) => {
       const label = labelOf(id)
       return {
         key: label === '' ? NO_KEY : label,
         label: shortcutActionLabel(id),
-        note: simulatedClicksNote(id, simulatedClicks),
+        note: simulatedShortcutNote(id, simulatedInput),
       }
     })
   }

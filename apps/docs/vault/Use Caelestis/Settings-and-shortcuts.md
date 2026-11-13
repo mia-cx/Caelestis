@@ -18,9 +18,20 @@ An administrator connection also shows [access-token management](Authentication-
 
 **Middle-click colour order** chooses whether colour navigation visits unpainted or mismatched pixels first. It uses the template under the viewport centre, or the nearest template when the centre is empty.
 
-**Caelestis colour picking** is off by default, so Wplace's own picker answers. Turn it on to make Wplace's picker read templates and placed pixels, and to pick the template colour under the cursor with a middle click on the map. Caelestis picks the colour by simulating a click on Wplace's palette, and Wplace flags simulated input on the account.
+Holding Shift with Space paints only template pixels that need the selected colour, and the brush waits at the edge of pixels it skips until the cursor has a clear line from there.
 
-**Paint past skipped pixels** is off by default. Holding Shift with Space paints only template pixels that need the selected colour, and the brush waits at the edge of pixels it skips until the cursor has a clear line from there. Turn it on to keep painting beyond skipped pixels. This simulates input, and Wplace flags simulated input on the account.
+The switches below simulate input on Wplace's controls. Wplace records simulated input on your account, so each one is off by default and names the flags it trips:
+
+| Switch | What it does | Wplace flags |
+| --- | --- | --- |
+| **Picker reads templates** | Wplace's picker picks the template colour, then the placed one. | `UntrustedPalette` |
+| **Middle-click picks template colours** | Middle-click on the map picks the template colour. | `UntrustedPalette` |
+| **Keep picking while dragging** | Holding the middle button picks each template colour it passes, so Space paints the template as you drag. Needs the middle-click switch. | `UntrustedPalette`, `UntrustedPointer` |
+| **Paint past skipped pixels** | Shift+Space keeps painting beyond pixels it skips. | `UntrustedPaintHold`, `UntrustedPointer` |
+
+With them off, Wplace's own picker answers.
+
+Under **Keyboard shortcuts**, the previous- and next-colour keys and the paint key's commit each have their own switch beside the key. Cycling clicks Wplace's palette (`UntrustedPalette`), and committing clicks the drawer's Paint button (`UntrustedPaintSubmit`). With its switch off, the paint key still opens the drawer.
 
 ## Notifications
 

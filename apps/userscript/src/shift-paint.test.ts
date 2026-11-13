@@ -19,7 +19,9 @@ const harness = vi.hoisted(() => ({
 }))
 vi.mock('./templates/move.js', () => ({ isMoving: () => harness.moving }))
 vi.mock('./alliance-surface.js', () => ({ activeAllianceSurface: () => harness.alliance }))
-vi.mock('./state.js', () => ({ getState: () => ({ simulateShiftPaint: harness.simulate }) }))
+vi.mock('./state.js', () => ({
+  getState: () => ({ simulatedInput: harness.simulate ? { 'shift-paint': true } : {} }),
+}))
 vi.mock('./map-handle.js', () => ({ getMap: () => ({ getCanvas: () => harness.canvas }) }))
 vi.mock('./wplace-paint.js', () => ({
   isPaintOpen: () => harness.open,

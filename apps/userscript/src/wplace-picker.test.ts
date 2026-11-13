@@ -1,7 +1,13 @@
-import { TRANSPARENT_INDEX, WORLD_TEMPLATE_SURFACE, WPLACE_PALETTE } from '@caelestis/shared'
+import {
+  type SimulatedInputSwitches,
+  TRANSPARENT_INDEX,
+  WORLD_TEMPLATE_SURFACE,
+  WPLACE_PALETTE,
+} from '@caelestis/shared'
 import { expect, it, vi } from 'vitest'
 import type { ActiveAllianceSurface } from './alliance-surface.js'
 import type { NativePixelSnapshot } from './native-pixels.js'
+import { isForwardedPaintMove } from './paint-cursor.js'
 import { setState } from './state.js'
 import { addLocalTemplate, removeLocalTemplate } from './templates/local-store.js'
 import { isPaintOpen, watchPaintSelection } from './wplace-paint.js'
@@ -14,7 +20,10 @@ const page = vi.hoisted(() => ({
 }))
 
 // Wplace owns projection and native tile reads. Keep our template lookup and swatch selection real.
-vi.mock('./main.js', () => ({ canvasPixelAt: () => ({ x: 100, y: 200 }) }))
+// Each 20 screen pixels to the right is the next canvas column.
+vi.mock('./main.js', () => ({
+  canvasPixelAt: (clientX: number) => ({ x: 100 + Math.floor(clientX / 20), y: 200 }),
+}))
 vi.mock('./map-handle.js', () => ({ getMap: () => null }))
 vi.mock('./alliance-surface.js', () => ({
   activeAllianceSurface: () => page.alliance,
@@ -33,12 +42,18 @@ const colour = (name: string) => {
   return entry
 }
 
+const EVERY_PICK: SimulatedInputSwitches = {
+  'picker-reads-templates': true,
+  'middle-click-pick': true,
+  'drag-pick': true,
+}
+
 /**
- * Install the paint watcher and picker with Caelestis picking switched as given; the returned
+ * Install the paint watcher and picker with the given simulated-input switches; the returned
  * teardown removes every listener they add.
  */
-const installPicker = (caelestisColourPicking = true): (() => void) => {
-  setState({ caelestisColourPicking })
+const installPicker = (simulatedInput: SimulatedInputSwitches = EVERY_PICK): (() => void) => {
+  setState({ simulatedInput })
   const removeListeners: (() => void)[] = []
   const add = window.addEventListener.bind(window)
   vi.spyOn(window, 'addEventListener').mockImplementation((type, listener, options) => {
@@ -63,7 +78,7 @@ const installPicker = (caelestisColourPicking = true): (() => void) => {
     for (const observer of observers) observer.disconnect()
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
-    setState({ caelestisColourPicking: false })
+    setState({ simulatedInput: {} })
     document.body.replaceChildren()
     page.alliance = null
     page.artboard = { committed: [], draft: [] }
@@ -296,7 +311,7 @@ it('by default leaves left and middle clicks on the map to Wplace and presses no
       if (!event.defaultPrevented) wplace.push(`${type}:${(event as MouseEvent).button}`)
     })
 
-  const teardown = installPicker(false)
+  const teardown = installPicker({})
   try {
     for (const button of [0, 1]) {
       const at = { button, clientX: 10, clientY: 10, bubbles: true, cancelable: true }
@@ -306,6 +321,78 @@ it('by default leaves left and middle clicks on the map to Wplace and presses no
     expect(wplace).toEqual(['pointerdown:0', 'click:0', 'pointerdown:1', 'auxclick:1'])
     expect(swatchClicks).toEqual([])
   } finally {
+    teardown()
+    await removeLocalTemplate(template.id)
+  }
+})
+
+it('keeps picking while the middle button drags only with its own switch on', async () => {
+  const white = colour('White')
+  const black = colour('Black')
+  const template = await addLocalTemplate(
+    {
+      id: 'picker-drag',
+      name: 'Local template',
+      source: 'wplace',
+      originX: 100,
+      originY: 200,
+      width: 2,
+      height: 1,
+      indices: new Uint8Array([white.index, black.index]),
+      moved: 0,
+      opaque: 2,
+    },
+    undefined,
+    true,
+  )
+  document.body.innerHTML = `
+    <div class="maplibregl-canvas-container"><canvas></canvas></div>
+    <button id="color-${white.index + 1}" aria-label="White"></button>
+    <button id="color-${black.index + 1}" aria-label="Black"></button>
+  `
+  const canvas = document.querySelector('canvas')
+  if (canvas === null) throw new Error('Missing picker fixture canvas')
+  vi.spyOn(document, 'elementFromPoint').mockReturnValue(canvas)
+  const pressed: string[] = []
+  for (const swatch of document.querySelectorAll('button'))
+    swatch.addEventListener('click', () => pressed.push(swatch.getAttribute('aria-label') ?? ''))
+  // The mouse moves Wplace's world painting follows, real or forwarded by the picker.
+  const moves: string[] = []
+  const recordMove = (event: MouseEvent): void => {
+    moves.push(`${isForwardedPaintMove(event) ? 'forwarded' : 'real'}:${event.clientX}`)
+  }
+  // Middle button down over White, dragged across to Black, released.
+  // Like Chromium, send compatibility mouse events only while the pointerdown was not cancelled.
+  const drag = (): void => {
+    const at = { button: 1, buttons: 4, pointerId: 1, bubbles: true, cancelable: true }
+    const moved = { ...at, button: -1, clientX: 30, clientY: 10 }
+    const compatible = canvas.dispatchEvent(
+      new PointerEvent('pointerdown', { ...at, clientX: 10, clientY: 10 }),
+    )
+    if (compatible) canvas.dispatchEvent(new MouseEvent('mousedown', { ...at, clientX: 10 }))
+    canvas.dispatchEvent(new PointerEvent('pointermove', moved))
+    if (compatible) canvas.dispatchEvent(new MouseEvent('mousemove', moved))
+    canvas.dispatchEvent(
+      new PointerEvent('pointerup', { ...at, buttons: 0, clientX: 30, clientY: 10 }),
+    )
+  }
+
+  const teardown = installPicker({ 'middle-click-pick': true })
+  window.addEventListener('mousemove', recordMove)
+  try {
+    // One pick, and Wplace keeps following the real pointer.
+    drag()
+    expect(pressed).toEqual(['White'])
+    expect(moves).toEqual(['real:30'])
+
+    // Dragging picks again, and Wplace sees the picker's moves instead of the real one.
+    moves.length = 0
+    setState({ simulatedInput: EVERY_PICK })
+    drag()
+    expect(pressed).toEqual(['White', 'White', 'Black'])
+    expect(moves.every((move) => move.startsWith('forwarded:'))).toBe(true)
+  } finally {
+    window.removeEventListener('mousemove', recordMove)
     teardown()
     await removeLocalTemplate(template.id)
   }
