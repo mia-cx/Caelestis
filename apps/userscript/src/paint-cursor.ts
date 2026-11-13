@@ -70,15 +70,16 @@ export const markPaintTargetStale = (): void => {
 }
 
 /**
- * Drags, wheel zooms, and touch gestures keep the same map point under the pointer, so Wplace's
- * target stays correct and a drag with Space held must keep panning.
+ * Input that keeps the same map point under the pointer while the camera moves: a drag follows the
+ * pointer and a wheel zoom pivots on it. Inertia after a release carries the release event
+ * (`mouseup`, `touchend`) and moves the map under a still pointer, so it is not listed.
  */
+const POINTER_ANCHORED = new Set(['mousemove', 'pointermove', 'touchmove', 'wheel'])
+
+/** World camera moves; a drag with Space held must keep panning, so anchored moves are exempt. */
 const worldCameraMoved = ({ originalEvent }: { readonly originalEvent?: Event }): void => {
-  const pointerDriven =
-    originalEvent instanceof MouseEvent ||
-    originalEvent instanceof WheelEvent ||
-    (typeof TouchEvent !== 'undefined' && originalEvent instanceof TouchEvent)
-  if (!pointerDriven) markPaintTargetStale()
+  if (originalEvent === undefined || !POINTER_ANCHORED.has(originalEvent.type))
+    markPaintTargetStale()
 }
 
 /** Follow the current map across SPA replacements without retaining old map listeners. */

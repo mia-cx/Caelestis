@@ -98,6 +98,14 @@ it('keeps drags and wheel zooms flowing, since they keep the same map point unde
   expect(received).toEqual(['keydown:Space', 'mousemove', 'keydown:Space'])
 })
 
+it('ignores Space after drag inertia moves the map under a still pointer', () => {
+  move()
+  moveCamera(new MouseEvent('mousemove'))
+  moveCamera(new MouseEvent('mouseup'))
+  key('keydown')
+  expect(received).toEqual(['mousemove'])
+})
+
 it('leaves Space alone in text fields and while the paint drawer is closed', () => {
   const input = document.createElement('input')
   document.body.append(input)
