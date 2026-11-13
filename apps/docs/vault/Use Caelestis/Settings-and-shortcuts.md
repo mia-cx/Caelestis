@@ -18,6 +18,8 @@ An administrator connection also shows [access-token management](Authentication-
 
 **Middle-click colour order** chooses whether colour navigation visits unpainted or mismatched pixels first. It uses the template under the viewport centre, or the nearest template when the centre is empty.
 
+**Caelestis colour picking** is off by default, so Wplace's own picker answers. Turn it on to make Wplace's picker read templates and placed pixels, and to pick the template colour under the cursor with a middle click on the map. Caelestis picks the colour by simulating a click on Wplace's palette, and Wplace flags simulated input on the account.
+
 ## Notifications
 
 These switches control toast messages inside Wplace.

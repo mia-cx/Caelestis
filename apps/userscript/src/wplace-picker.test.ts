@@ -2,6 +2,7 @@ import { TRANSPARENT_INDEX, WORLD_TEMPLATE_SURFACE, WPLACE_PALETTE } from '@cael
 import { expect, it, vi } from 'vitest'
 import type { ActiveAllianceSurface } from './alliance-surface.js'
 import type { NativePixelSnapshot } from './native-pixels.js'
+import { setState } from './state.js'
 import { addLocalTemplate, removeLocalTemplate } from './templates/local-store.js'
 import { isPaintOpen, watchPaintSelection } from './wplace-paint.js'
 import { installColourPicker, overlayIndexAt } from './wplace-picker.js'
@@ -32,8 +33,12 @@ const colour = (name: string) => {
   return entry
 }
 
-/** Install the paint watcher and picker; the returned teardown removes every listener they add. */
-const installPicker = (): (() => void) => {
+/**
+ * Install the paint watcher and picker with Caelestis picking switched as given; the returned
+ * teardown removes every listener they add.
+ */
+const installPicker = (caelestisColourPicking = true): (() => void) => {
+  setState({ caelestisColourPicking })
   const removeListeners: (() => void)[] = []
   const add = window.addEventListener.bind(window)
   vi.spyOn(window, 'addEventListener').mockImplementation((type, listener, options) => {
@@ -58,6 +63,7 @@ const installPicker = (): (() => void) => {
     for (const observer of observers) observer.disconnect()
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
+    setState({ caelestisColourPicking: false })
     document.body.replaceChildren()
     page.alliance = null
     page.artboard = { committed: [], draft: [] }
@@ -253,5 +259,54 @@ it('leaves the armed HQ picker working for swatches, empty pixels and painted pi
     expect([wplace, selected()]).toEqual([['pick', 'paint'], 'Black'])
   } finally {
     teardown()
+  }
+})
+
+it('by default leaves left and middle clicks on the map to Wplace and presses no swatch', async () => {
+  const white = colour('White')
+  const template = await addLocalTemplate(
+    {
+      id: 'picker-default',
+      name: 'Local template',
+      source: 'wplace',
+      originX: 100,
+      originY: 200,
+      width: 1,
+      height: 1,
+      indices: new Uint8Array([white.index]),
+      moved: 0,
+      opaque: 1,
+    },
+    undefined,
+    true,
+  )
+  document.body.innerHTML = `
+    <div class="maplibregl-canvas-container"><canvas></canvas></div>
+    <button class="btn-primary" aria-label="Color Picker" aria-pressed="true"></button>
+    <button id="color-${white.index + 1}" aria-label="White"></button>
+  `
+  const canvas = document.querySelector('canvas')
+  const swatch = document.getElementById(`color-${white.index + 1}`)
+  if (canvas === null || swatch === null) throw new Error('Missing picker fixture controls')
+  const swatchClicks: boolean[] = []
+  swatch.addEventListener('click', (event) => swatchClicks.push(event.isTrusted))
+  const wplace: string[] = []
+  for (const type of ['pointerdown', 'click', 'auxclick'])
+    canvas.addEventListener(type, (event) => {
+      if (!event.defaultPrevented) wplace.push(`${type}:${(event as MouseEvent).button}`)
+    })
+
+  const teardown = installPicker(false)
+  try {
+    for (const button of [0, 1]) {
+      const at = { button, clientX: 10, clientY: 10, bubbles: true, cancelable: true }
+      canvas.dispatchEvent(new PointerEvent('pointerdown', { ...at, pointerId: 1 }))
+      canvas.dispatchEvent(new MouseEvent(button === 0 ? 'click' : 'auxclick', at))
+    }
+    expect(wplace).toEqual(['pointerdown:0', 'click:0', 'pointerdown:1', 'auxclick:1'])
+    expect(swatchClicks).toEqual([])
+  } finally {
+    teardown()
+    await removeLocalTemplate(template.id)
   }
 })

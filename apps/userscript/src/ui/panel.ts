@@ -679,6 +679,7 @@ const settingsModel = (): SettingsModel => {
     ...(addServerPending ? { addServerPending: true } : {}),
     ...(addServerMessage === undefined ? {} : { addServerMessage }),
     colourNavigationOrder: state.colourNavigationOrder,
+    caelestisColourPicking: state.caelestisColourPicking,
     reportPaints: state.reportPaints,
     shareTiles: state.shareTiles,
     sharePresence: state.sharePresence,
@@ -945,6 +946,9 @@ const handleSettingsIntent = (intent: SettingsIntent): void => {
     }
     case 'set-colour-navigation-order':
       setState({ colourNavigationOrder: intent.value })
+      break
+    case 'set-caelestis-colour-picking':
+      setState({ caelestisColourPicking: intent.value })
       break
     case 'set-boolean':
       if (intent.key === 'debugLogging') setDebugEnabled(intent.value)

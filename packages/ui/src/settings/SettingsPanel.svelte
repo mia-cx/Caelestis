@@ -2,6 +2,8 @@
   import MenuStyles from '../foundations/MenuStyles.svelte'
   import Button from '../foundations/Button.svelte'
   import SectionHeader from '../foundations/SectionHeader.svelte'
+  import SettingRow from '../foundations/SettingRow.svelte'
+  import Toggle from '../foundations/Toggle.svelte'
   import GlobalSettings from './GlobalSettings.svelte'
   import { keyBindingFromStroke, keyBindingLabel, type ShortcutId, shortcutLabel } from '@caelestis/shared'
   import { SHORTCUT_ACTIONS, type ShortcutCategory, shortcutActionLabel } from '../shortcut-help/actions.js'
@@ -204,6 +206,7 @@
     <label for="colour-navigation-order">Middle-click colour order<small>Visits remaining pixels only inside the template intersecting the viewport centre; nearest is used only in empty space.</small></label>
     <select class="caelestis-select" id="colour-navigation-order" aria-label="Middle-click colour order" value={model.colourNavigationOrder} onchange={(event) => emit({ type: 'set-colour-navigation-order', value: event.currentTarget.value as SettingsModel['colourNavigationOrder'] })}><option value="unpainted-first">Unpainted, then mismatched</option><option value="mismatched-first">Mismatched, then unpainted</option></select>
   </div>
+  <SettingRow label="Caelestis colour picking" hint="Wplace's picker reads templates and placed pixels, and middle-click on the map picks the template colour. Caelestis picks the colour by simulating a click on Wplace's palette, and Wplace flags simulated input on the account.">{#snippet children()}<Toggle label="Caelestis colour picking" checked={model.caelestisColourPicking} onChange={(value) => emit({ type: 'set-caelestis-colour-picking', value })} />{/snippet}</SettingRow>
 
   <GlobalSettings section="notifications" {model} onIntent={emitGlobal} />
   <GlobalSettings section="contribution" {model} onIntent={emitGlobal} />
