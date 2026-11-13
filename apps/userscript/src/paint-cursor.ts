@@ -48,57 +48,114 @@ export const forwardPaintMove = (
   target.dispatchEvent(event)
 }
 
-let cursor: PointerEvent | null = null
+/** Text fields, where Space types instead of painting. Wplace's paint hold skips the same ones. */
+const TEXT_FIELD =
+  'input:not([type="checkbox"], [type="radio"], [type="button"], [type="submit"], [type="reset"]), textarea, select, [contenteditable]:not([contenteditable="false"])'
+
+/** The camera moved since Wplace last received a mouse move, so its paint target is stale. */
+let stale = false
+/** Wplace received a Space press and no release since, so it paints along every move. */
+let holding = false
+/** Space was held while the camera moved, so moves wait until it is released. */
+let movesBlocked = false
 let observedMap: MapLike | null = null
 
-/** Refresh the native paint target after its canvas moves under a stationary mouse. */
-export const refreshPaintCursor = (root: Element, type: 'mousemove' | 'pointermove'): void => {
-  if (cursor === null || !isPaintOpen() || !root.isConnected) return
-  const target = document.elementFromPoint(cursor.clientX, cursor.clientY)
-  if (target === null || !root.contains(target)) return
-  forwardPaintMove(target, cursor, type)
+/**
+ * Mark Wplace's paint target stale after the camera moved under a still mouse: a flight, a keyboard
+ * pan, or an HQ jump. Alliance navigation calls this directly; the world map reports its moves.
+ */
+export const markPaintTargetStale = (): void => {
+  stale = true
+  if (holding) movesBlocked = true
 }
 
-const refreshWorldCursor = (): void => {
-  if (observedMap !== null && activeAllianceSurface() === null)
-    refreshPaintCursor(observedMap.getCanvas(), 'mousemove')
+/**
+ * Input that keeps the same map point under the pointer while the camera moves: a drag follows the
+ * pointer and a wheel zoom pivots on it. Inertia after a release carries the release event
+ * (`mouseup`, `touchend`) and moves the map under a still pointer, so it is not listed.
+ */
+const POINTER_ANCHORED = new Set(['mousemove', 'pointermove', 'touchmove', 'wheel'])
+
+/** World camera moves; a drag with Space held must keep panning, so anchored moves are exempt. */
+const worldCameraMoved = ({ originalEvent }: { readonly originalEvent?: Event }): void => {
+  if (originalEvent === undefined || !POINTER_ANCHORED.has(originalEvent.type))
+    markPaintTargetStale()
 }
 
 /** Follow the current map across SPA replacements without retaining old map listeners. */
-export const syncPaintCursorMap = (map: MapLike | null): void => {
+export const syncPaintTargetMap = (map: MapLike | null): void => {
   if (map === observedMap) return
-  observedMap?.off('moveend', refreshWorldCursor)
+  observedMap?.off('move', worldCameraMoved)
   observedMap = map
-  observedMap?.on('moveend', refreshWorldCursor)
+  observedMap?.on('move', worldCameraMoved)
 }
 
-/** Remember mouse position while it belongs to this window; return its teardown. */
-export const installPaintCursorTracking = (): (() => void) => {
-  const remember = (event: PointerEvent): void => {
-    if (event.pointerType === 'mouse') cursor = event
+/**
+ * Keep Space from painting where the mouse pointed before the camera moved.
+ *
+ * Wplace paints at the last mouse position it received, so a flight, jump, or pan under a still
+ * mouse leaves that position behind. Until a move reaches Wplace again, Space presses are
+ * swallowed. If Space is already held while the camera moves, moves are swallowed until it is
+ * released, so Wplace never draws a line from the old position to the new one. The guard only
+ * filters the painter's own input and dispatches none. Returns its teardown.
+ */
+export const installPaintTargetGuard = (): (() => void) => {
+  const keydown = (event: KeyboardEvent): void => {
+    if (event.code !== 'Space' || !isPaintOpen()) return
+    const typing = event
+      .composedPath()
+      .some((target) => target instanceof Element && target.matches(TEXT_FIELD))
+    if (typing) return
+    if (!stale) {
+      holding = true
+      return
+    }
+    event.preventDefault()
+    event.stopImmediatePropagation()
   }
-  const clear = (): void => {
-    cursor = null
+  const release = (): void => {
+    holding = false
+    movesBlocked = false
   }
-  const leave = (event: PointerEvent): void => {
-    if (event.relatedTarget === null) clear()
+  const keyup = (event: KeyboardEvent): void => {
+    if (event.code === 'Space') release()
   }
   const visibility = (): void => {
-    if (document.hidden) clear()
+    if (document.hidden) release()
   }
-  const movements = ['pointerdown', 'pointermove', 'pointerup'] as const
-  for (const type of movements) window.addEventListener(type, remember, true)
-  window.addEventListener('pointerout', leave, true)
-  window.addEventListener('pointercancel', clear, true)
-  window.addEventListener('blur', clear)
+  const block = (event: Event): void => {
+    if (movesBlocked) event.stopImmediatePropagation()
+  }
+  // Runs after the page's own listeners: a move that gets here was not stopped on its way to Wplace.
+  // The world map takes its target from any mouse move, HQ's artboard from pointer moves over it.
+  const delivered = (event: Event): void => {
+    const alliance = activeAllianceSurface()
+    const reached =
+      alliance === null
+        ? event.type === 'mousemove'
+        : event.type === 'pointermove' && event.composedPath().includes(alliance.stage)
+    if (reached) stale = false
+  }
+  const moves = ['mousemove', 'pointermove'] as const
+  window.addEventListener('keydown', keydown, true)
+  window.addEventListener('keyup', keyup, true)
+  for (const type of moves) {
+    window.addEventListener(type, block, true)
+    window.addEventListener(type, delivered)
+  }
+  window.addEventListener('blur', release)
   document.addEventListener('visibilitychange', visibility)
   return () => {
-    for (const type of movements) window.removeEventListener(type, remember, true)
-    window.removeEventListener('pointerout', leave, true)
-    window.removeEventListener('pointercancel', clear, true)
-    window.removeEventListener('blur', clear)
+    window.removeEventListener('keydown', keydown, true)
+    window.removeEventListener('keyup', keyup, true)
+    for (const type of moves) {
+      window.removeEventListener(type, block, true)
+      window.removeEventListener(type, delivered)
+    }
+    window.removeEventListener('blur', release)
     document.removeEventListener('visibilitychange', visibility)
-    syncPaintCursorMap(null)
-    clear()
+    syncPaintTargetMap(null)
+    stale = false
+    release()
   }
 }
