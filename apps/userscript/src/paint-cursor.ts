@@ -1,5 +1,6 @@
 import { activeAllianceSurface } from './alliance-surface.js'
 import type { MapLike } from './map-handle.js'
+import { getState } from './state.js'
 import { isPaintOpen } from './wplace-paint.js'
 
 const forwardedMoves = new WeakSet<Event>()
@@ -59,6 +60,8 @@ let holding = false
 /** Space was held while the camera moved, so moves wait until it is released. */
 let movesBlocked = false
 let observedMap: MapLike | null = null
+/** The painter's last real mouse position over this window. */
+let mouse: PointerEvent | null = null
 
 /**
  * Mark Wplace's paint target stale after the camera moved under a still mouse: a flight, a keyboard
@@ -82,12 +85,32 @@ const worldCameraMoved = ({ originalEvent }: { readonly originalEvent?: Event })
     markPaintTargetStale()
 }
 
+/**
+ * With the `cursor-refresh` switch on, move Wplace's paint target to where the still mouse now
+ * points by forwarding a move, which Wplace flags as UntrustedPointer. While Space is held through
+ * the camera move the guard still holds this move back, so no line is drawn.
+ */
+export const refreshPaintTarget = (root: Element, type: 'mousemove' | 'pointermove'): void => {
+  if (!getState().simulatedInput['cursor-refresh']) return
+  if (mouse === null || !isPaintOpen() || !root.isConnected) return
+  const target = document.elementFromPoint(mouse.clientX, mouse.clientY)
+  if (target === null || !root.contains(target)) return
+  forwardPaintMove(target, mouse, type)
+}
+
+const worldCameraSettled = (): void => {
+  if (observedMap !== null && activeAllianceSurface() === null)
+    refreshPaintTarget(observedMap.getCanvas(), 'mousemove')
+}
+
 /** Follow the current map across SPA replacements without retaining old map listeners. */
 export const syncPaintTargetMap = (map: MapLike | null): void => {
   if (map === observedMap) return
   observedMap?.off('move', worldCameraMoved)
+  observedMap?.off('moveend', worldCameraSettled)
   observedMap = map
   observedMap?.on('move', worldCameraMoved)
+  observedMap?.on('moveend', worldCameraSettled)
 }
 
 /**
@@ -117,11 +140,21 @@ export const installPaintTargetGuard = (): (() => void) => {
     holding = false
     movesBlocked = false
   }
+  const remember = (event: PointerEvent): void => {
+    if (event.pointerType === 'mouse' && !isForwardedPaintMove(event)) mouse = event
+  }
+  const leave = (event: PointerEvent): void => {
+    if (event.relatedTarget === null) mouse = null
+  }
   const keyup = (event: KeyboardEvent): void => {
     if (event.code === 'Space') release()
   }
+  const blur = (): void => {
+    release()
+    mouse = null
+  }
   const visibility = (): void => {
-    if (document.hidden) release()
+    if (document.hidden) blur()
   }
   const block = (event: Event): void => {
     if (movesBlocked) event.stopImmediatePropagation()
@@ -137,25 +170,30 @@ export const installPaintTargetGuard = (): (() => void) => {
     if (reached) stale = false
   }
   const moves = ['mousemove', 'pointermove'] as const
+  const pointers = ['pointerdown', 'pointermove', 'pointerup'] as const
+  for (const type of pointers) window.addEventListener(type, remember, true)
+  window.addEventListener('pointerout', leave, true)
   window.addEventListener('keydown', keydown, true)
   window.addEventListener('keyup', keyup, true)
   for (const type of moves) {
     window.addEventListener(type, block, true)
     window.addEventListener(type, delivered)
   }
-  window.addEventListener('blur', release)
+  window.addEventListener('blur', blur)
   document.addEventListener('visibilitychange', visibility)
   return () => {
+    for (const type of pointers) window.removeEventListener(type, remember, true)
+    window.removeEventListener('pointerout', leave, true)
     window.removeEventListener('keydown', keydown, true)
     window.removeEventListener('keyup', keyup, true)
     for (const type of moves) {
       window.removeEventListener(type, block, true)
       window.removeEventListener(type, delivered)
     }
-    window.removeEventListener('blur', release)
+    window.removeEventListener('blur', blur)
     document.removeEventListener('visibilitychange', visibility)
     syncPaintTargetMap(null)
     stale = false
-    release()
+    blur()
   }
 }

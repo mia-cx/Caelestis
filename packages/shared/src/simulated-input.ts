@@ -12,6 +12,8 @@ export const SIMULATED_INPUT_FLAGS = {
   'middle-click-pick': ['UntrustedPalette'],
   /** Holding the middle button keeps picking, forwarding moves so painting follows. */
   'drag-pick': ['UntrustedPalette', 'UntrustedPointer'],
+  /** After a flight, jump, or pan, a forwarded move puts the paint target under the still mouse. */
+  'cursor-refresh': ['UntrustedPointer'],
   /** Shift+Space lifts the brush over skipped pixels with simulated Space presses and moves. */
   'shift-paint': ['UntrustedPaintHold', 'UntrustedPointer'],
   /** The previous- and next-colour shortcuts click a swatch. */

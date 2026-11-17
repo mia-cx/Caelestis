@@ -4,28 +4,42 @@ import type { ActiveAllianceSurface } from './alliance-surface.js'
 import type { MapLike } from './map-handle.js'
 import {
   installPaintTargetGuard,
+  isForwardedPaintMove,
   markPaintTargetStale,
   syncPaintTargetMap,
 } from './paint-cursor.js'
 
 const harness = vi.hoisted(() => ({
   open: true,
+  refresh: false,
   alliance: null as ActiveAllianceSurface | null,
 }))
 vi.mock('./wplace-paint.js', () => ({ isPaintOpen: () => harness.open }))
 vi.mock('./alliance-surface.js', () => ({ activeAllianceSurface: () => harness.alliance }))
+vi.mock('./state.js', () => ({
+  getState: () => ({ simulatedInput: harness.refresh ? { 'cursor-refresh': true } : {} }),
+}))
 
 type CameraListener = (event: { readonly originalEvent?: Event }) => void
 
 /** What Wplace's own handlers receive: Space presses on `document`, moves on `window`. */
 let received: string[]
 let cameraListeners: Set<CameraListener>
+let settledListeners: Set<CameraListener>
 let teardown: (() => void)[]
 
+const canvas = document.createElement('canvas')
 const map = {
-  on: (_type: 'move', listener: CameraListener) => cameraListeners.add(listener),
-  off: (_type: 'move', listener: CameraListener) => cameraListeners.delete(listener),
+  getCanvas: () => canvas,
+  on: (type: 'move' | 'moveend', listener: CameraListener) =>
+    (type === 'move' ? cameraListeners : settledListeners).add(listener),
+  off: (type: 'move' | 'moveend', listener: CameraListener) =>
+    (type === 'move' ? cameraListeners : settledListeners).delete(listener),
 } as unknown as MapLike
+/** A flight, jump, or pan coming to rest. */
+const settleCamera = (): void => {
+  for (const listener of settledListeners) listener({})
+}
 /** A world camera move; with an `originalEvent`, the pointer or wheel drove it. */
 const moveCamera = (originalEvent?: Event): void => {
   for (const listener of cameraListeners)
@@ -49,9 +63,13 @@ const listen = (target: EventTarget, type: string): void => {
 
 beforeEach(() => {
   harness.open = true
+  harness.refresh = false
   harness.alliance = null
   received = []
   cameraListeners = new Set()
+  settledListeners = new Set()
+  document.body.append(canvas)
+  document.elementFromPoint = () => canvas
   teardown = [installPaintTargetGuard()]
   syncPaintTargetMap(map)
   listen(document, 'keydown')
@@ -133,4 +151,37 @@ it("guards HQ's artboard after a jump until a pointer move over it", () => {
   move('pointermove', frame)
   key('keydown')
   expect(received).toEqual(['pointermove', 'mousemove', 'pointermove', 'keydown:Space'])
+})
+
+it('puts the paint target under the still mouse after a flight only with its own switch on', () => {
+  const real = (): void => {
+    canvas.dispatchEvent(
+      new PointerEvent('pointermove', {
+        bubbles: true,
+        pointerType: 'mouse',
+        clientX: 5,
+        clientY: 5,
+      }),
+    )
+  }
+  const forwarded: boolean[] = []
+  const record = (event: Event): void => {
+    forwarded.push(isForwardedPaintMove(event))
+  }
+  window.addEventListener('mousemove', record)
+  teardown.push(() => window.removeEventListener('mousemove', record))
+
+  real()
+  moveCamera()
+  settleCamera()
+  key('keydown')
+  expect(forwarded).toEqual([])
+  expect(received).toEqual(['pointermove'])
+
+  harness.refresh = true
+  moveCamera()
+  settleCamera()
+  key('keydown')
+  expect(forwarded).toEqual([true])
+  expect(received).toEqual(['pointermove', 'mousemove', 'keydown:Space'])
 })

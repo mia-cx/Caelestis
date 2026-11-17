@@ -7,7 +7,7 @@
   import GlobalSettings from './GlobalSettings.svelte'
   import { keyBindingFromStroke, keyBindingLabel, SIMULATED_INPUT_FLAGS, type ShortcutId, shortcutLabel } from '@caelestis/shared'
   import { SHORTCUT_ACTIONS, type ShortcutCategory, shortcutActionLabel } from '../shortcut-help/actions.js'
-  import { SIMULATED_INPUT } from '../simulated-input.js'
+  import { type KeyLabel, SIMULATED_INPUT } from '../simulated-input.js'
   import type { AccessTokenScope, GlobalSettingsIntent, SettingsIntent, SettingsModel, SettingsServerModel } from '../types.js'
 
   let { model, onIntent }: { model: SettingsModel; onIntent?: (intent: SettingsIntent) => void } = $props()
@@ -60,6 +60,8 @@
     const current = shortcutLabel(model.shortcuts.bindings[id], model.shortcuts.platform)
     return `Change key for ${label}, now ${current === '' ? 'not set' : current}`
   }
+  const boundKey: KeyLabel = (id) =>
+    shortcutLabel(model.shortcuts.bindings[id], model.shortcuts.platform) || 'not set'
   let addServer = $state('')
   let tokenDrafts = $state<Record<string, string>>({})
   let accessLabelDrafts = $state<Record<string, string>>({})
@@ -222,13 +224,15 @@
       {#each SHORTCUT_ACTIONS.filter((action) => action.category === category) as action (action.id)}
         {@const bindings = model.shortcuts.bindings[action.id]}
         {@const isRecording = recording === action.id}
-        <div class="shortcut-row">
+        {@const inert = action.simulated?.inert === true && model.simulatedInput[action.simulated.id] !== true}
+        <div class="shortcut-row" class:inert>
           <span class="shortcut-label">{action.label}</span>
           <button
             type="button"
             class="shortcut-key caelestis-bevel"
             class:recording={isRecording}
             data-caelestis-shortcut={action.id}
+            disabled={inert}
             aria-label={keyControlName(action.label, action.id)}
             data-caelestis-key-capture={isRecording ? '' : undefined}
             onclick={(event) => { recording = action.id; event.currentTarget.focus() }}
@@ -239,7 +243,7 @@
             {:else if bindings.length === 0}<span class="shortcut-unset">Not set</span>
             {:else}{#each bindings as binding, index}{#if index > 0}<span class="shortcut-or">or</span>{/if}<kbd>{keyBindingLabel(binding, model.shortcuts.platform)}</kbd>{/each}{/if}
           </button>
-          <span class="shortcut-clear" class:hidden={bindings.length === 0 || isRecording}><Button label={`Remove the key for ${action.label}`} kind="ghost" size="compact" iconOnly onclick={() => emit({ type: 'set-shortcut-binding', id: action.id, binding: null })}>×</Button></span>
+          <span class="shortcut-clear" class:hidden={bindings.length === 0 || isRecording}><Button label={`Remove the key for ${action.label}`} kind="ghost" size="compact" iconOnly disabled={inert} onclick={() => emit({ type: 'set-shortcut-binding', id: action.id, binding: null })}>×</Button></span>
         </div>
       {/each}
     </section>
@@ -259,7 +263,7 @@
   <SectionHeader title="Dangerous settings" icon="flag" />
   <p class="subtle">These quality-of-life patches don't technically break Wplace's rules, but they use functionality that trips flags in Pawtect, Wplace's anticheat, which are sent with every paint. These flags don't get you banned automatically, especially on a high-trust account with no other evidence of rule-breaking, but Caelestis can't guarantee they won't, so these settings are off by default. With them off, Caelestis trips no Pawtect flags.</p>
   {#each SIMULATED_INPUT as feature (feature.id)}
-    <SettingRow label={feature.label} hint={feature.hint}>{#snippet details()}<small class="flags">Trips: {#each SIMULATED_INPUT_FLAGS[feature.id] as flag}<code>{flag}</code>{/each}</small>{/snippet}{#snippet children()}<Toggle label={feature.label} checked={model.simulatedInput[feature.id] === true} disabled={feature.extends !== undefined && model.simulatedInput[feature.extends] !== true} onChange={(value) => emit({ type: 'set-simulated-input', id: feature.id, value })} />{/snippet}</SettingRow>
+    <SettingRow label={feature.label} hint={feature.hint(boundKey)}>{#snippet details()}<small class="flags">Trips: {#each SIMULATED_INPUT_FLAGS[feature.id] as flag}<code>{flag}</code>{/each}</small>{/snippet}{#snippet children()}<Toggle label={feature.label} checked={model.simulatedInput[feature.id] === true} disabled={feature.extends !== undefined && model.simulatedInput[feature.extends] !== true} onChange={(value) => emit({ type: 'set-simulated-input', id: feature.id, value })} />{/snippet}</SettingRow>
   {/each}
 </div>
 
@@ -303,6 +307,7 @@
   .shortcut-group h3 { margin: 0.5rem 0 0.15rem; color: var(--caelestis-muted-text); font-size: 0.72rem; }
   .shortcut-row { display: flex; align-items: center; gap: 0.5rem; min-block-size: 2.25rem; }
   .shortcut-label { flex: 1; min-inline-size: 0; }
+  .shortcut-row.inert { opacity: 0.45; pointer-events: none; }
   .shortcut-key { display: inline-flex; min-inline-size: 5.5rem; block-size: 1.75rem; flex: 0 0 auto; align-items: center; justify-content: center; gap: 0.35rem; padding-inline: 0.5rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-raised-surface); color: inherit; font: inherit; cursor: pointer; }
   .shortcut-key kbd { font: 700 0.75rem/1 var(--caelestis-mono-font, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace); }
   .shortcut-key.recording { border-color: var(--caelestis-primary); box-shadow: 0 0 0 2px color-mix(in oklab, var(--caelestis-primary) 35%, transparent); }

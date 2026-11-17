@@ -93,8 +93,16 @@ describe('settings panel intent boundary', () => {
     expect(flags('Paint key commits drafts')).toEqual(['UntrustedPaintSubmit'])
     // Dragging extends a middle-click pick, so it waits for that switch.
     expect(toggle('Keep picking while dragging').disabled).toBe(true)
-    // Shortcut rows stay plain key bindings.
+    // Hints name the keys as bound.
+    expect(toggle('Cycle unfinished colours').closest('.row')?.textContent).toContain(
+      'Previous (A) and next (D) unfinished colour',
+    )
+    // Shortcut rows stay plain key bindings, and the ones that do nothing without a switch are off.
     expect(target.querySelector('.shortcut-row input[role="switch"]')).toBeNull()
+    const keyFor = (id: string): HTMLButtonElement =>
+      target.querySelector(`[data-caelestis-shortcut="${id}"]`) as HTMLButtonElement
+    expect(keyFor('cycle-colour-next').disabled).toBe(true)
+    expect(keyFor('paint-action').disabled).toBe(false)
     toggle('Middle-click picks template colours').click()
     toggle('Cycle unfinished colours').click()
     expect(intents).toEqual([

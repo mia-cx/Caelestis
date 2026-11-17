@@ -12,6 +12,8 @@ export interface ShortcutAction {
     readonly id: SimulatedInput
     /** The reference's note while the switch is off. */
     readonly off: string
+    /** The action does nothing at all while the switch is off. */
+    readonly inert?: true
   }
 }
 
@@ -23,13 +25,13 @@ export const SHORTCUT_ACTIONS: readonly ShortcutAction[] = [
     id: 'cycle-colour-previous',
     category: 'Painting',
     label: 'Previous unfinished colour',
-    simulated: { id: 'cycle-colour', off: OFF },
+    simulated: { id: 'cycle-colour', off: OFF, inert: true },
   },
   {
     id: 'cycle-colour-next',
     category: 'Painting',
     label: 'Next unfinished colour',
-    simulated: { id: 'cycle-colour', off: OFF },
+    simulated: { id: 'cycle-colour', off: OFF, inert: true },
   },
   {
     id: 'paint-action',
