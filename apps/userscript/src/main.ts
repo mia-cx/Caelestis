@@ -38,6 +38,7 @@ import {
   markerDensityMemoryBytes,
   markerGpuMemoryBytes,
 } from './gl/markers.js'
+import { installPickCellLayer } from './gl/pick-cell-layer.js'
 import { installPresenceLayer, repaintPresence } from './gl/presence-layer.js'
 import { installKeyboardShortcuts } from './keyboard-shortcuts.js'
 import { getMap, installMapCapture, releaseMapCapture } from './map-handle.js'
@@ -196,6 +197,7 @@ const attachOverlayLayer = (): void => {
     if (getMap() === null) installMapCapture()
     installOverlayLayer()
     installPresenceLayer()
+    installPickCellLayer()
     syncPaintTargetMap(getMap())
     syncOfficialOverlays(getMap())
     applyWplacePatches(getMap() as PatchableMap | null)

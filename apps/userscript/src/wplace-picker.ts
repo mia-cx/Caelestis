@@ -10,6 +10,7 @@ import { allianceBounds, alliancePointAt } from './alliance-coordinates.js'
 import { type ActiveAllianceSurface, activeAllianceSurface } from './alliance-surface.js'
 import { log } from './debug.js'
 import { readArtboardPixels } from './gl/artboard-pixels.js'
+import { showPickCell } from './gl/pick-cell-layer.js'
 import { canvasPixelAt } from './main.js'
 import { getMap } from './map-handle.js'
 import { nativePixelAt } from './native-pixels.js'
@@ -66,8 +67,9 @@ import { isPaintOpen, selectPaintColour } from './wplace-paint.js'
  * untrusted swatch click on the account, so each gesture there has its own simulated-input switch:
  * `picker-reads-templates` for the picker tool, `middle-click-pick` for a middle click, and
  * `drag-pick` for picking on while the middle button stays down. With them off, Wplace's own picker
- * answers. Wplace's alliance canvases (HQ, avatar, banner) check no input at all, so picks there
- * always answer from the template.
+ * answers, and still gets the template colour: the pick-cell layer shows it the picked cell solid
+ * for the frame it reads. Wplace's alliance canvases (HQ, avatar, banner) check no input at all, so
+ * picks there always answer from the template.
  */
 
 /**
@@ -298,11 +300,14 @@ export const installColourPicker = (): void => {
       const target = event.target
       if (!(target instanceof Element)) return
       const point = pickerPointAt(target, event.clientX, event.clientY)
-      if (
-        point === null ||
-        !simulatedInputAllowed('picker-reads-templates', point.alliance !== null)
-      )
+      if (point === null) return
+      if (!simulatedInputAllowed('picker-reads-templates', point.alliance !== null)) {
+        // Only the world map gets here. Wplace's picker answers this click itself from the rendered
+        // map, and showing it the template cell solid lets it pick the template colour unflagged.
+        const index = overlayIndexAt(point.surface, point.x, point.y)
+        if (index !== null) showPickCell(point.x, point.y, index)
         return
+      }
 
       // Claim the pick only once a swatch is set. Without a source answer (an empty or unloaded
       // pixel, or a colour with no swatch) Wplace's own picker answers and ends picker mode;
