@@ -12,6 +12,7 @@
   } from '@caelestis/shared'
   import { onMount } from 'svelte'
   import Button from '../foundations/Button.svelte'
+  import Icon from '../foundations/Icon.svelte'
   import type { ServerDetailsFields, ServerDetailsIntent, ServerDetailsModel } from '../types.js'
 
   let {
@@ -121,7 +122,7 @@
         <h2 id="server-details-title">Edit server details</h2>
         <p id="server-details-owner">{model.owner}</p>
       </div>
-      <Button label="Close server details" size="small" kind="ghost" iconOnly onclick={() => emit({ type: 'close' })}>×</Button>
+      <Button label="Close server details" size="small" kind="ghost" iconOnly onclick={() => emit({ type: 'close' })}><Icon name="close" /></Button>
     </header>
     <div class="body" aria-busy={model.busy}>
       {#if model.error}<p class="error" role="alert">{model.error}</p>{/if}

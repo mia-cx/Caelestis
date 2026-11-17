@@ -271,7 +271,7 @@ export const installKeyboardShortcuts = (
     // simulated clicks on the account, so each waits for its own simulated-input switch.
     if (shortcut === 'cycle-colour-previous' || shortcut === 'cycle-colour-next') {
       claim()
-      if (getState().simulatedInput[shortcut])
+      if (getState().simulatedInput['cycle-colour'])
         cycleFocusedColour(shortcut === 'cycle-colour-previous' ? -1 : 1)
       return
     }

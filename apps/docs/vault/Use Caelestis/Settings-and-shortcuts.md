@@ -20,19 +20,6 @@ An administrator connection also shows [access-token management](Authentication-
 
 Holding Shift with Space paints only template pixels that need the selected colour, and the brush waits at the edge of pixels it skips until the cursor has a clear line from there.
 
-The switches below simulate input on Wplace's controls. Wplace records simulated input on your account, so each one is off by default and names the flags it trips:
-
-| Switch | What it does | Wplace flags |
-| --- | --- | --- |
-| **Picker reads templates** | Wplace's picker picks the template colour, then the placed one. | `UntrustedPalette` |
-| **Middle-click picks template colours** | Middle-click on the map picks the template colour. | `UntrustedPalette` |
-| **Keep picking while dragging** | Holding the middle button picks each template colour it passes, so Space paints the template as you drag. Needs the middle-click switch. | `UntrustedPalette`, `UntrustedPointer` |
-| **Paint past skipped pixels** | Shift+Space keeps painting beyond pixels it skips. | `UntrustedPaintHold`, `UntrustedPointer` |
-
-With them off, Wplace's own picker answers.
-
-Under **Keyboard shortcuts**, the previous- and next-colour keys and the paint key's commit each have their own switch beside the key. Cycling clicks Wplace's palette (`UntrustedPalette`), and committing clicks the drawer's Paint button (`UntrustedPaintSubmit`). With its switch off, the paint key still opens the drawer.
-
 ## Notifications
 
 These switches control toast messages inside Wplace.
@@ -80,3 +67,19 @@ Assigning a key already in use removes its previous assignment. **Reset** restor
 **Performance profiling** records Caelestis CPU, GPU, and buffer measurements. While enabled, it adds measurement overhead. Its controls let you reset or copy the profile.
 
 Before sharing logs or profiles, remove tokens and private information. See [Troubleshooting](Troubleshooting#report-a-bug).
+
+## Dangerous settings
+
+These quality-of-life patches don't technically break Wplace's rules, but they simulate input that trips flags in Pawtect, Wplace's anticheat, which are sent with every paint. The flags don't get you banned automatically, especially on a high-trust account with no other evidence of rule-breaking, but Caelestis can't guarantee they won't. Every switch here is off by default, and with all of them off Caelestis trips no Pawtect flags. Each one names the flags it trips:
+
+| Switch | What it does | Wplace flags |
+| --- | --- | --- |
+| **Picker reads templates** | Wplace's picker picks the template colour, then the placed one. | `UntrustedPalette` |
+| **Middle-click picks template colours** | Middle-click on the map picks the template colour. | `UntrustedPalette` |
+| **Keep picking while dragging** | Holding the middle button picks each template colour it passes, so Space paints the template as you drag. Needs the middle-click switch. | `UntrustedPalette`, `UntrustedPointer` |
+| **Update cursor after flying** | When a flight, jump or pan ends under a still mouse, Wplace's hover square and Space target move to where the mouse points. | `UntrustedPointer` |
+| **Paint past skipped pixels** | Shift+Space keeps painting beyond pixels it skips. | `UntrustedPaintHold`, `UntrustedPointer` |
+| **Cycle unfinished colours** | The previous- and next-colour keys select a colour. | `UntrustedPalette` |
+| **Paint key commits drafts** | The paint key commits an open draft. | `UntrustedPaintSubmit` |
+
+Each description names the keys it uses as you have them bound. With them off, Wplace's own picker answers, the colour keys do nothing and are greyed out under **Keyboard shortcuts**, the paint key only opens the drawer, and Space waits for a real mouse move after a flight.

@@ -65,7 +65,7 @@ describe('shortcuts that click Wplace controls', () => {
 
   it('submit the open draft only while its own switch is on', () => {
     const clicked = recordClicks(DRAWER)
-    setState({ simulatedInput: { 'cycle-colour-next': true } })
+    setState({ simulatedInput: { 'cycle-colour': true } })
     pressPaint()
     expect(clicked).toEqual([])
 

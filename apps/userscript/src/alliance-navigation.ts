@@ -1,6 +1,6 @@
 import { allianceBounds } from './alliance-coordinates.js'
 import type { ActiveAllianceSurface } from './alliance-surface.js'
-import { markPaintTargetStale } from './paint-cursor.js'
+import { markPaintTargetStale, refreshPaintTarget } from './paint-cursor.js'
 
 const MAX_ARTBOARD_SCALE = 64
 const WHEEL_STEP = 100
@@ -55,5 +55,6 @@ export const navigateAllianceArtboardTo = (
   wheel(pivot, zoomInFirst ? -WHEEL_STEP : WHEEL_STEP)
   wheel(centre, zoomInFirst ? WHEEL_STEP : -WHEEL_STEP)
   markPaintTargetStale()
+  requestAnimationFrame(() => refreshPaintTarget(active.frame, 'pointermove'))
   return true
 }
