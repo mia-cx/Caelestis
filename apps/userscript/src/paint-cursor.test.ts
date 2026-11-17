@@ -7,6 +7,7 @@ import {
   installPaintTargetGuard,
   isForwardedPaintMove,
   markPaintTargetStale,
+  refreshPaintTarget,
   syncPaintTargetMap,
 } from './paint-cursor.js'
 
@@ -209,4 +210,26 @@ it("never refreshes while Space is physically held, even after shift-paint's for
   moveCamera()
   settleCamera()
   expect(received).toEqual(['pointermove', 'keydown:Space', 'mousemove'])
+})
+
+it('refreshes the HQ artboard after a jump with its switch off, since HQ checks no input', () => {
+  const stage = document.createElement('div')
+  const frame = document.createElement('div')
+  stage.append(frame)
+  document.body.append(stage)
+  harness.alliance = { stage, frame } as unknown as ActiveAllianceSurface
+  document.elementFromPoint = () => frame
+  frame.dispatchEvent(
+    new PointerEvent('pointermove', {
+      bubbles: true,
+      pointerType: 'mouse',
+      clientX: 5,
+      clientY: 5,
+    }),
+  )
+  received.length = 0
+  markPaintTargetStale()
+  refreshPaintTarget(frame, 'pointermove')
+  key('keydown')
+  expect(received).toEqual(['pointermove', 'keydown:Space'])
 })

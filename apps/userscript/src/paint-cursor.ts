@@ -1,6 +1,6 @@
 import { activeAllianceSurface } from './alliance-surface.js'
 import type { MapLike } from './map-handle.js'
-import { getState } from './state.js'
+import { simulatedInputAllowed } from './simulated-input.js'
 import { isPaintOpen } from './wplace-paint.js'
 
 const forwardedMoves = new WeakSet<Event>()
@@ -91,12 +91,14 @@ const worldCameraMoved = ({ originalEvent }: { readonly originalEvent?: Event })
 }
 
 /**
- * With the `cursor-refresh` switch on, move Wplace's paint target to where the still mouse now
- * points by forwarding a move, which Wplace flags as UntrustedPointer. While Space is held through
+ * Move Wplace's paint target to where the still mouse now points by forwarding a move. On the world
+ * map Wplace flags it as UntrustedPointer, so it waits for the `cursor-refresh` switch there; on an
+ * alliance canvas the move is a `pointermove` on its frame, which nothing checks. While Space is held through
  * the camera move nothing is forwarded, so a held gesture never paints where the camera landed.
  */
 export const refreshPaintTarget = (root: Element, type: 'mousemove' | 'pointermove'): void => {
-  if (!getState().simulatedInput['cursor-refresh'] || spaceHeld) return
+  if (!simulatedInputAllowed('cursor-refresh', activeAllianceSurface() !== null) || spaceHeld)
+    return
   if (mouse === null || !isPaintOpen() || !root.isConnected) return
   const target = document.elementFromPoint(mouse.clientX, mouse.clientY)
   if (target === null || !root.contains(target)) return

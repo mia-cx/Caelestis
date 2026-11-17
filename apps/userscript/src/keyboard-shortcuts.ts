@@ -7,6 +7,7 @@ import { setOverlayPeekActive } from './overlay-peek.js'
 import { cycleFocusedColour, navigateFocusedSelectedColour } from './paint-palette.js'
 import { activeShortcutBindings } from './shortcut-bindings.js'
 import { currentShortcutPlatform, type ShortcutPlatform, shortcutFor } from './shortcuts.js'
+import { simulatedInputAllowed } from './simulated-input.js'
 import {
   getState,
   getSurfaceAppearance,
@@ -267,16 +268,21 @@ export const installKeyboardShortcuts = (
       repaintPeek(true)
       return
     }
-    // Cycling clicks a swatch and submitting clicks the drawer's Paint button. Wplace flags both
-    // simulated clicks on the account, so each waits for its own simulated-input switch.
+    // Cycling clicks a swatch and submitting clicks the drawer's Paint button. On the world map
+    // Wplace flags both simulated clicks, so each waits for its own switch there. In an alliance
+    // editor both clicks stay inside its dialog, which checks nothing.
+    const inAllianceEditor = allianceEditorStage !== null
     if (shortcut === 'cycle-colour-previous' || shortcut === 'cycle-colour-next') {
       claim()
-      if (getState().simulatedInput['cycle-colour'])
+      if (simulatedInputAllowed('cycle-colour', inAllianceEditor))
         cycleFocusedColour(shortcut === 'cycle-colour-previous' ? -1 : 1)
       return
     }
     if (shortcut === 'paint-action') {
-      const handled = performPaintAction(nativeRoot, getState().simulatedInput['paint-commit'])
+      const handled = performPaintAction(
+        nativeRoot,
+        simulatedInputAllowed('paint-commit', inAllianceEditor),
+      )
       if (allianceEditorStage !== null || handled) claim()
       return
     }

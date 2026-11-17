@@ -83,3 +83,5 @@ These quality-of-life patches don't technically break Wplace's rules, but they s
 | **Paint key commits drafts** | The paint key commits an open draft. | `UntrustedPaintSubmit` |
 
 Each description names the keys it uses as you have them bound. With them off, Wplace's own picker answers, the colour keys do nothing and are greyed out under **Keyboard shortcuts**, the paint key only opens the drawer, and Space waits for a real mouse move after a flight.
+
+Wplace's alliance canvases (HQ, avatar and banner) don't check for simulated input, so every feature here works there with or without its switch. Paint past skipped pixels is the exception while Wplace's world paint panel is still open under the editor, because the Space presses it simulates would reach that panel.
