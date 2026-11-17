@@ -5,8 +5,10 @@ import { getMap } from '../map-handle.js'
 /**
  * A solid template cell for Wplace's own picker to read, which trips no flag.
  *
- * Wplace's picker answers a click from a fresh render of the map canvas: it reads the pixel under
- * the click, matches it to a palette colour and selects that colour itself, so no swatch is
+ * Both of Wplace's world picks, the picker tool's map click and the middle-click "instant
+ * eyedropper" (`paint.pick-hover`), end in the same function: after its own draft and templates,
+ * it hides the hover square, waits for the next map render, reads the pixel under the click from
+ * the canvas, matches it to a palette colour and selects that colour itself, so no swatch is
  * clicked. Our overlay already draws into that canvas, but blended with the map, and the markers
  * draw over it. While a pick is shown, this layer, on top of every other, clears the picked
  * template cell to its exact palette colour, so the frame Wplace reads holds the template colour.
@@ -29,6 +31,8 @@ interface ProjectingMap {
 }
 
 let shown: { readonly x: number; readonly y: number; readonly rgb: readonly number[] } | null = null
+/** Whether the current cell has been drawn yet, so the debug log notes its first frame only. */
+let drawn = false
 let hide: ReturnType<typeof setTimeout> | undefined
 
 const projectingMap = (): ProjectingMap | null => getMap() as ProjectingMap | null
@@ -38,6 +42,8 @@ export const showPickCell = (x: number, y: number, index: number): void => {
   const rgb = PALETTE_RGB[index]
   if (rgb === undefined) return
   shown = { x: Math.floor(x), y: Math.floor(y), rgb }
+  drawn = false
+  log('draw', 'pick cell shown', { x: shown.x, y: shown.y, index })
   clearTimeout(hide)
   hide = setTimeout(() => {
     shown = null
@@ -88,6 +94,9 @@ export const pickCellLayer = {
     gl.clearColor(red / 255, green / 255, blue / 255, 1)
     gl.clear(gl.COLOR_BUFFER_BIT)
     gl.disable(gl.SCISSOR_TEST)
+    if (drawn) return
+    drawn = true
+    log('draw', 'pick cell drawn', { rect })
   },
 }
 

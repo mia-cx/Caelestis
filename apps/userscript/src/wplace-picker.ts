@@ -67,9 +67,10 @@ import { isPaintOpen, selectPaintColour } from './wplace-paint.js'
  * untrusted swatch click on the account, so each gesture there has its own simulated-input switch:
  * `picker-reads-templates` for the picker tool, `middle-click-pick` for a middle click, and
  * `drag-pick` for picking on while the middle button stays down. With them off, Wplace's own picker
- * answers, and still gets the template colour: the pick-cell layer shows it the picked cell solid
- * for the frame it reads. Wplace's alliance canvases (HQ, avatar, banner) check no input at all, so
- * picks there always answer from the template.
+ * answers, from its picker tool or its own middle-click pick, and still gets the template colour:
+ * the pick-cell layer shows it the picked cell solid for the frame it reads. Wplace's alliance
+ * canvases (HQ, avatar, banner) check no input at all, so picks there always answer from the
+ * template.
  */
 
 /**
@@ -395,14 +396,19 @@ export const installColourPicker = (): void => {
       const target = event.target
       if (!(target instanceof Element)) return
       const point = pickerPointAt(target, event.clientX, event.clientY)
-      if (point === null || !simulatedInputAllowed('middle-click-pick', point.alliance !== null))
-        return
+      if (point === null) return
       // Their picker only exists inside a painting session, and the swatch we would press only
       // exists while the drawer is open. With it closed there is nothing to hand a colour to.
       if (!isPaintOpen()) return
 
       const index = overlayIndexAt(point.surface, point.x, point.y)
       if (index === null) return
+      if (!simulatedInputAllowed('middle-click-pick', point.alliance !== null)) {
+        // Only the world map gets here. Wplace's own middle-click pick reads the rendered map, and
+        // showing it the template cell solid lets it pick the template colour unflagged.
+        showPickCell(point.x, point.y, index)
+        return
+      }
       if (!selectPaintColour(index)) return
 
       // Only now, once the colour is actually set. Stopping the event on a pick we then failed to

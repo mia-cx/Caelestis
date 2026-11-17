@@ -325,8 +325,11 @@ it('by default leaves clicks to Wplace, showing its picker the template cell, an
     }
     expect(wplace).toEqual(['pointerdown:0', 'click:0', 'pointerdown:1', 'auxclick:1'])
     expect(swatchClicks).toEqual([])
-    // Only the picker tool's left click reads the canvas, so only it gets the solid cell.
-    expect(pickCells).toEqual([[100, 200, white.index]])
+    // Wplace's picker tool and its own middle-click pick both read the canvas, so both get the cell.
+    expect(pickCells).toEqual([
+      [100, 200, white.index],
+      [100, 200, white.index],
+    ])
   } finally {
     teardown()
     await removeLocalTemplate(template.id)
