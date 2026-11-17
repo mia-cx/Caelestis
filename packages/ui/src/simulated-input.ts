@@ -5,11 +5,11 @@ export const simulatedInputFlags = (id: SimulatedInput): string => {
   const flags: readonly string[] = SIMULATED_INPUT_FLAGS[id]
   const listed =
     flags.length === 1 ? flags[0] : `${flags.slice(0, -1).join(', ')} and ${flags.at(-1)}`
-  return `Wplace flags it on your account as ${listed}.`
+  return `Trips ${listed}.`
 }
 
-/** The painting features that simulate input, in the order the Painting settings list them. */
-export const PAINTING_SIMULATED_INPUT: readonly {
+/** Every feature that simulates input, in the order the Simulated input settings list them. */
+export const SIMULATED_INPUT: readonly {
   readonly id: SimulatedInput
   readonly label: string
   readonly hint: string
@@ -36,5 +36,15 @@ export const PAINTING_SIMULATED_INPUT: readonly {
     id: 'shift-paint',
     label: 'Paint past skipped pixels',
     hint: 'Shift+Space keeps painting beyond pixels it skips by simulating Space presses and moves.',
+  },
+  {
+    id: 'cycle-colour',
+    label: 'Cycle unfinished colours',
+    hint: 'The previous and next colour keys select a colour by clicking the palette.',
+  },
+  {
+    id: 'paint-commit',
+    label: 'Paint key commits drafts',
+    hint: "The paint draft key commits an open draft by clicking Wplace's Paint button.",
   },
 ]

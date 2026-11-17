@@ -20,11 +20,13 @@ modifier waits for the rest of the chord. The section header holds one Reset act
 while any binding differs from its default. One status line under the list names the action that
 lost a key when a chord moved.
 
-Colour cycling and committing a paint draft press Wplace's own swatches and Paint button, which
-Wplace flags on the account. Each of those rows carries its own compact switch before the key, and a
-note saying what it clicks and which flag that trips. The shortcut reference notes any that are off.
-The Painting section lists its simulated-input switches the same way: one row per feature, with the
-flags in the hint. A switch that extends another is disabled until that one is on.
+# Dangerous settings
+
+The last section holds every feature that simulates input on Wplace's controls, which trips flags in
+Pawtect, Wplace's anticheat. Its intro says what the flags mean and that everything there is off by
+default. Each feature is one switch row, with what it does and the flags it trips in the hint. A
+switch that extends another is disabled until that one is on. Shortcut rows stay plain key bindings;
+the shortcut reference notes a shortcut whose switch is off.
 
 # Global settings
 

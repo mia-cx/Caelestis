@@ -145,7 +145,7 @@
           const which = id === 'cycle-colour-previous' ? 'previous' : 'next'
           return simulatedShortcutNote(id, simulatedInput) === undefined
             ? `${key} selects the ${which} unfinished colour.`
-            : `${key} selects the ${which} unfinished colour, once switched on under Settings › Keyboard shortcuts.`
+            : `${key} selects the ${which} unfinished colour, once switched on under Settings › Dangerous settings.`
         },
       },
       {
@@ -156,7 +156,7 @@
             ? `${key} cancels and discards the open draft.`
             : simulatedInput['paint-commit']
               ? `${key} opens Wplace’s paint drawer, then commits its draft.`
-              : `${key} opens Wplace’s paint drawer. Committing its draft with ${key} is off under Settings › Keyboard shortcuts.`,
+              : `${key} opens Wplace’s paint drawer. Committing its draft with ${key} is off under Settings › Dangerous settings.`,
       },
       {
         id: 'fly', category: 'Painting', title: 'Jump to the selected colour',

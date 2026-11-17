@@ -6,8 +6,8 @@
   import Toggle from '../foundations/Toggle.svelte'
   import GlobalSettings from './GlobalSettings.svelte'
   import { keyBindingFromStroke, keyBindingLabel, type ShortcutId, shortcutLabel } from '@caelestis/shared'
-  import { SHORTCUT_ACTIONS, type ShortcutCategory, shortcutActionLabel, simulatedShortcutHint } from '../shortcut-help/actions.js'
-  import { PAINTING_SIMULATED_INPUT, simulatedInputFlags } from '../simulated-input.js'
+  import { SHORTCUT_ACTIONS, type ShortcutCategory, shortcutActionLabel } from '../shortcut-help/actions.js'
+  import { SIMULATED_INPUT, simulatedInputFlags } from '../simulated-input.js'
   import type { AccessTokenScope, GlobalSettingsIntent, SettingsIntent, SettingsModel, SettingsServerModel } from '../types.js'
 
   let { model, onIntent }: { model: SettingsModel; onIntent?: (intent: SettingsIntent) => void } = $props()
@@ -207,9 +207,6 @@
     <label for="colour-navigation-order">Middle-click colour order<small>Visits remaining pixels only inside the template intersecting the viewport centre; nearest is used only in empty space.</small></label>
     <select class="caelestis-select" id="colour-navigation-order" aria-label="Middle-click colour order" value={model.colourNavigationOrder} onchange={(event) => emit({ type: 'set-colour-navigation-order', value: event.currentTarget.value as SettingsModel['colourNavigationOrder'] })}><option value="unpainted-first">Unpainted, then mismatched</option><option value="mismatched-first">Mismatched, then unpainted</option></select>
   </div>
-  {#each PAINTING_SIMULATED_INPUT as feature (feature.id)}
-    <SettingRow label={feature.label} hint={`${feature.hint} ${simulatedInputFlags(feature.id)}`}>{#snippet children()}<Toggle label={feature.label} checked={model.simulatedInput[feature.id] === true} disabled={feature.extends !== undefined && model.simulatedInput[feature.extends] !== true} onChange={(value) => emit({ type: 'set-simulated-input', id: feature.id, value })} />{/snippet}</SettingRow>
-  {/each}
 
   <GlobalSettings section="notifications" {model} onIntent={emitGlobal} />
   <GlobalSettings section="contribution" {model} onIntent={emitGlobal} />
@@ -225,7 +222,6 @@
       {#each SHORTCUT_ACTIONS.filter((action) => action.category === category) as action (action.id)}
         {@const bindings = model.shortcuts.bindings[action.id]}
         {@const isRecording = recording === action.id}
-        {@const simulated = action.simulated}
         <div class="shortcut-row">
           <span class="shortcut-label">{action.label}</span>
           <button
@@ -244,9 +240,6 @@
             {:else}{#each bindings as binding, index}{#if index > 0}<span class="shortcut-or">or</span>{/if}<kbd>{keyBindingLabel(binding, model.shortcuts.platform)}</kbd>{/each}{/if}
           </button>
           <span class="shortcut-clear" class:hidden={bindings.length === 0 || isRecording}><Button label={`Remove the key for ${action.label}`} kind="ghost" size="compact" iconOnly onclick={() => emit({ type: 'set-shortcut-binding', id: action.id, binding: null })}>×</Button></span>
-          {#if simulated !== undefined}
-            <div class="shortcut-simulated"><small>{simulatedShortcutHint(simulated)}</small><Toggle label={`Let ${action.label} simulate clicks`} compact checked={model.simulatedInput[simulated.id] === true} onChange={(value) => emit({ type: 'set-simulated-input', id: simulated.id, value })} /></div>
-          {/if}
         </div>
       {/each}
     </section>
@@ -262,6 +255,12 @@
       <div class="profile-actions"><span role="status">{model.profile.status ?? ''}</span><Button label="Reset" kind="ghost" size="compact" onclick={() => emit({ type: 'reset-profile' })} /><Button label="Copy report" kind="ghost" size="compact" onclick={() => emit({ type: 'copy-profile' })} /></div>
     </section>
   {/if}
+
+  <SectionHeader title="Dangerous settings" icon="flag" />
+  <p class="subtle">These quality-of-life patches don't technically break Wplace's rules, but they use functionality that trips flags in Pawtect, Wplace's anticheat, which are sent with every paint. These flags don't get you banned automatically, especially on a high-trust account with no other evidence of rule-breaking, but Caelestis can't guarantee they won't, so these settings are off by default. With them off, Caelestis trips no Pawtect flags.</p>
+  {#each SIMULATED_INPUT as feature (feature.id)}
+    <SettingRow label={feature.label} hint={`${feature.hint} ${simulatedInputFlags(feature.id)}`}>{#snippet children()}<Toggle label={feature.label} checked={model.simulatedInput[feature.id] === true} disabled={feature.extends !== undefined && model.simulatedInput[feature.extends] !== true} onChange={(value) => emit({ type: 'set-simulated-input', id: feature.id, value })} />{/snippet}</SettingRow>
+  {/each}
 </div>
 
 <style>
@@ -300,10 +299,8 @@
   .error { color: var(--caelestis-danger); }
   .shortcut-group { padding: 0 var(--caelestis-content-inset, 1rem); }
   .shortcut-group h3 { margin: 0.5rem 0 0.15rem; color: var(--caelestis-muted-text); font-size: 0.72rem; }
-  .shortcut-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; min-block-size: 2.25rem; }
+  .shortcut-row { display: flex; align-items: center; gap: 0.5rem; min-block-size: 2.25rem; }
   .shortcut-label { flex: 1; min-inline-size: 0; }
-  .shortcut-simulated { display: flex; flex: 1 0 100%; align-items: center; gap: 0.75rem; margin-block: -0.25rem 0.35rem; }
-  .shortcut-simulated small { flex: 1; min-inline-size: 0; color: var(--caelestis-muted-text); font-size: 0.72rem; overflow-wrap: anywhere; }
   .shortcut-key { display: inline-flex; min-inline-size: 5.5rem; block-size: 1.75rem; flex: 0 0 auto; align-items: center; justify-content: center; gap: 0.35rem; padding-inline: 0.5rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-raised-surface); color: inherit; font: inherit; cursor: pointer; }
   .shortcut-key kbd { font: 700 0.75rem/1 var(--caelestis-mono-font, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace); }
   .shortcut-key.recording { border-color: var(--caelestis-primary); box-shadow: 0 0 0 2px color-mix(in oklab, var(--caelestis-primary) 35%, transparent); }

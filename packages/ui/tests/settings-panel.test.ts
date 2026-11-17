@@ -72,7 +72,7 @@ describe('settings panel intent boundary', () => {
     ])
   })
 
-  it('switches each simulated painting feature on its own and names the flags it trips', () => {
+  it('switches each dangerous feature on its own and names the flags it trips', () => {
     const intents: SettingsIntent[] = []
     const target = document.body.appendChild(document.createElement('div'))
     mounted.push(
@@ -85,18 +85,23 @@ describe('settings panel intent boundary', () => {
       target.querySelector(`input[aria-label="${label}"]`) as HTMLInputElement
 
     expect(toggle('Picker reads templates').closest('.row')?.textContent).toContain(
-      'Wplace flags it on your account as UntrustedPalette.',
+      'Trips UntrustedPalette.',
     )
     expect(toggle('Paint past skipped pixels').closest('.row')?.textContent).toContain(
-      'Wplace flags it on your account as UntrustedPaintHold and UntrustedPointer.',
+      'Trips UntrustedPaintHold and UntrustedPointer.',
+    )
+    expect(toggle('Paint key commits drafts').closest('.row')?.textContent).toContain(
+      'Trips UntrustedPaintSubmit.',
     )
     // Dragging extends a middle-click pick, so it waits for that switch.
     expect(toggle('Keep picking while dragging').disabled).toBe(true)
+    // Shortcut rows stay plain key bindings.
+    expect(target.querySelector('.shortcut-row input[role="switch"]')).toBeNull()
     toggle('Middle-click picks template colours').click()
-    toggle('Paint past skipped pixels').click()
+    toggle('Cycle unfinished colours').click()
     expect(intents).toEqual([
       { type: 'set-simulated-input', id: 'middle-click-pick', value: true },
-      { type: 'set-simulated-input', id: 'shift-paint', value: true },
+      { type: 'set-simulated-input', id: 'cycle-colour', value: true },
     ])
   })
 
@@ -130,40 +135,6 @@ describe('settings panel intent boundary', () => {
       (hidden.querySelector('input[aria-label="Claims only while painting"]') as HTMLInputElement)
         .disabled,
     ).toBe(true)
-  })
-
-  it('gives each clicking shortcut its own switch beside its key, naming its flag', () => {
-    const intents: SettingsIntent[] = []
-    const target = document.body.appendChild(document.createElement('div'))
-    mounted.push(
-      mount(SettingsPanel, {
-        target,
-        props: {
-          model: { ...settings(), simulatedInput: { 'cycle-colour-previous': true } },
-          onIntent: (intent) => intents.push(intent),
-        },
-      }),
-    )
-    const row = (id: string): Element | null | undefined =>
-      target.querySelector(`[data-caelestis-shortcut="${id}"]`)?.closest('.shortcut-row')
-    const toggleOf = (id: string): HTMLInputElement | null | undefined =>
-      row(id)?.querySelector('input[role="switch"]')
-
-    expect(row('cycle-colour-next')?.querySelector('small')?.textContent).toBe(
-      "Clicks Wplace's palette. Wplace flags it on your account as UntrustedPalette.",
-    )
-    expect(row('paint-action')?.querySelector('small')?.textContent).toBe(
-      "Committing clicks Wplace's Paint button. Wplace flags it on your account as UntrustedPaintSubmit.",
-    )
-    expect(toggleOf('cancel-paint')).toBeNull()
-    expect(toggleOf('cycle-colour-previous')?.checked).toBe(true)
-    expect(toggleOf('cycle-colour-next')?.checked).toBe(false)
-    toggleOf('cycle-colour-next')?.click()
-    toggleOf('paint-action')?.click()
-    expect(intents).toEqual([
-      { type: 'set-simulated-input', id: 'cycle-colour-next', value: true },
-      { type: 'set-simulated-input', id: 'paint-commit', value: true },
-    ])
   })
 
   it('switches each Wplace patch by its own id, and hides the section when there are none', async () => {

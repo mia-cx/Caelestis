@@ -14,10 +14,8 @@ export const SIMULATED_INPUT_FLAGS = {
   'drag-pick': ['UntrustedPalette', 'UntrustedPointer'],
   /** Shift+Space lifts the brush over skipped pixels with simulated Space presses and moves. */
   'shift-paint': ['UntrustedPaintHold', 'UntrustedPointer'],
-  /** The previous-colour shortcut clicks a swatch. */
-  'cycle-colour-previous': ['UntrustedPalette'],
-  /** The next-colour shortcut clicks a swatch. */
-  'cycle-colour-next': ['UntrustedPalette'],
+  /** The previous- and next-colour shortcuts click a swatch. */
+  'cycle-colour': ['UntrustedPalette'],
   /** The paint key commits an open draft by clicking the drawer's Paint button. */
   'paint-commit': ['UntrustedPaintSubmit'],
 } as const satisfies Record<string, readonly WplaceInputFlag[]>
