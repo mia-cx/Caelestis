@@ -25,8 +25,14 @@ vi.mock('./state.js', () => ({
 vi.mock('./map-handle.js', () => ({ getMap: () => ({ getCanvas: () => harness.canvas }) }))
 vi.mock('./wplace-paint.js', () => ({
   isPaintOpen: () => harness.open,
-  paintPaletteSwatches: () => [...document.querySelectorAll('button[id^="color-"]')],
-  paintPaletteIndexOf: (button: Element) => Number(button.id.slice('color-'.length)) - 1,
+  // World swatches carry `color-N`; an alliance swatch here carries its index as `data-index`.
+  paintPaletteSwatches: () => [
+    ...document.querySelectorAll('button[id^="color-"], button[data-index]'),
+  ],
+  paintPaletteIndexOf: (button: Element) =>
+    button.hasAttribute('data-index')
+      ? Number(button.getAttribute('data-index'))
+      : Number(button.id.slice('color-'.length)) - 1,
 }))
 vi.mock('./wplace-picker.js', () => ({
   pickerPointAt: (target: Element, x: number, y: number) =>
@@ -344,6 +350,34 @@ it('stops Shift presses on the HQ artboard, which paints a press on pointerup', 
       )
   }
   expect(painted()).toEqual(['1,0', '2,0'])
+  expect(simulated).toEqual([])
+})
+
+it('simulates on an HQ artboard with its switch off while no world paint panel is mounted', () => {
+  harness.alliance = { ...HQ, stage: canvas, frame: canvas }
+  // Swap the world palette for an alliance one: nothing on the page can flag the simulated Space.
+  document.querySelector('button[id^="color-"]')?.remove()
+  document.body.insertAdjacentHTML(
+    'beforeend',
+    '<button data-index="12" class="ring-primary"></button>',
+  )
+  move(0)
+  key('keydown', 'Space', { shiftKey: true })
+  move(4)
+  move(0)
+  expect(painted()).toEqual(['1,0', '3,0'])
+
+  // With the world panel back under the editor, its listener would flag simulated Space.
+  for (const each of [...document.querySelectorAll('button')]) each.remove()
+  document.body.insertAdjacentHTML(
+    'beforeend',
+    '<button id="color-13" class="ring-primary"></button>',
+  )
+  simulated.length = 0
+  key('keyup', 'Space')
+  move(0)
+  key('keydown', 'Space', { shiftKey: true })
+  move(4)
   expect(simulated).toEqual([])
 })
 

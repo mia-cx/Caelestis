@@ -2,7 +2,7 @@ import { WORLD_PIXELS } from '@caelestis/shared'
 import { activeAllianceSurface } from './alliance-surface.js'
 import { getMap } from './map-handle.js'
 import { forwardPaintKey, forwardPaintMove, isForwardedPaintKey } from './paint-cursor.js'
-import { getState } from './state.js'
+import { simulatedInputAllowed, worldPaintMounted } from './simulated-input.js'
 import { isMoving } from './templates/move.js'
 import { hasWplaceLabel } from './wplace-messages.js'
 import { isPaintOpen, paintPaletteIndexOf, paintPaletteSwatches } from './wplace-paint.js'
@@ -302,7 +302,10 @@ export const installShiftPaint = (): void => {
   const simulate = simulateInput(keys)
   let current = filter
   const mode = (): Mode => {
-    const next = getState().simulatedInput['shift-paint'] ? simulate : filter
+    // Simulated Space goes to `document`, where the world paint panel's listener flags it while
+    // that panel is mounted, even under an alliance editor.
+    const onAlliance = activeAllianceSurface() !== null && !worldPaintMounted()
+    const next = simulatedInputAllowed('shift-paint', onAlliance) ? simulate : filter
     if (next !== current) {
       next.reset()
       current = next

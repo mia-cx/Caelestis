@@ -15,6 +15,22 @@ const DRAWER = `
     <button class="btn btn-primary">Paint</button>
   </section>`
 
+// An HQ editor: Wplace's alliance dialog, its artboard stage, and the same drawer controls with
+// alliance swatches, which carry no ids.
+const HQ_DRAWER = `
+  <dialog open>
+    <div role="application" aria-label="Headquarters canvas"></div>
+    <section>
+      <header>
+        <button aria-label="Undo"></button>
+        <button aria-label="Redo"></button>
+        <button aria-label="Close"></button>
+      </header>
+      <button class="game-color-swatch" aria-pressed="true" aria-label="Black" style="background: rgb(0 0 0)"></button>
+      <button class="btn btn-primary">Paint</button>
+    </section>
+  </dialog>`
+
 // The bottom-centre dock button that opens the drawer.
 const DOCK = `
   <div class="absolute left-1/2 -translate-x-1/2">
@@ -74,6 +90,12 @@ describe('shortcuts that click Wplace controls', () => {
     expect(clicked).toEqual(['Paint'])
 
     setState({ simulatedInput: {} })
+    pressPaint()
+    expect(clicked).toEqual(['Paint'])
+  })
+
+  it('submit an HQ draft with every switch off, since HQ checks no input', () => {
+    const clicked = recordClicks(HQ_DRAWER)
     pressPaint()
     expect(clicked).toEqual(['Paint'])
   })
