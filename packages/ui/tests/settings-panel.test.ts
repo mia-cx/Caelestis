@@ -94,9 +94,12 @@ describe('settings panel intent boundary', () => {
     // Dragging extends a middle-click pick, so it waits for that switch.
     expect(toggle('Keep picking while dragging').disabled).toBe(true)
     // Hints name the keys as bound.
-    expect(toggle('Cycle unfinished colours').closest('.row')?.textContent).toContain(
-      'Previous (A) and next (D) unfinished colour',
-    )
+    const cycle = toggle('Cycle unfinished colours').closest('.row')
+    expect([...(cycle?.querySelectorAll('kbd') ?? [])].map((kbd) => kbd.textContent)).toEqual([
+      'A',
+      'D',
+    ])
+    expect(cycle?.textContent).toContain('A and D select the previous and next unfinished colour')
     // Shortcut rows stay plain key bindings, and the ones that do nothing without a switch are off.
     expect(target.querySelector('.shortcut-row input[role="switch"]')).toBeNull()
     const keyFor = (id: string): HTMLButtonElement =>

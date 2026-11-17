@@ -8,7 +8,7 @@
   import GlobalSettings from './GlobalSettings.svelte'
   import { keyBindingFromStroke, keyBindingLabel, SIMULATED_INPUT_FLAGS, type ShortcutId, shortcutLabel } from '@caelestis/shared'
   import { SHORTCUT_ACTIONS, type ShortcutCategory, shortcutActionLabel } from '../shortcut-help/actions.js'
-  import { type KeyLabel, SIMULATED_INPUT } from '../simulated-input.js'
+  import { SIMULATED_INPUT } from '../simulated-input.js'
   import type { AccessTokenScope, GlobalSettingsIntent, SettingsIntent, SettingsModel, SettingsServerModel } from '../types.js'
 
   let { model, onIntent }: { model: SettingsModel; onIntent?: (intent: SettingsIntent) => void } = $props()
@@ -61,8 +61,6 @@
     const current = shortcutLabel(model.shortcuts.bindings[id], model.shortcuts.platform)
     return `Change key for ${label}, now ${current === '' ? 'not set' : current}`
   }
-  const boundKey: KeyLabel = (id) =>
-    shortcutLabel(model.shortcuts.bindings[id], model.shortcuts.platform) || 'not set'
   let addServer = $state('')
   let tokenDrafts = $state<Record<string, string>>({})
   let accessLabelDrafts = $state<Record<string, string>>({})
@@ -264,7 +262,7 @@
   <SectionHeader title="Dangerous settings" icon="flag" />
   <p class="subtle">These quality-of-life patches don't technically break Wplace's rules, but they use functionality that trips flags in Pawtect, Wplace's anticheat, which are sent with every paint. These flags don't get you banned automatically, especially on a high-trust account with no other evidence of rule-breaking, but Caelestis can't guarantee they won't, so these settings are off by default. With them off, Caelestis trips no Pawtect flags.</p>
   {#each SIMULATED_INPUT as feature (feature.id)}
-    <SettingRow label={feature.label} hint={feature.hint(boundKey)}>{#snippet details()}<small class="flags">Trips: {#each SIMULATED_INPUT_FLAGS[feature.id] as flag}<code>{flag}</code>{/each}</small>{/snippet}{#snippet children()}<Toggle label={feature.label} checked={model.simulatedInput[feature.id] === true} disabled={feature.extends !== undefined && model.simulatedInput[feature.extends] !== true} onChange={(value) => emit({ type: 'set-simulated-input', id: feature.id, value })} />{/snippet}</SettingRow>
+    <SettingRow label={feature.label}>{#snippet hint()}{#each feature.hint as part}{#if typeof part === 'string'}{part}{:else if 'fixed' in part}<kbd class="hint-key">{part.fixed}</kbd>{:else}<kbd class="hint-key">{shortcutLabel(model.shortcuts.bindings[part.key], model.shortcuts.platform) || 'not set'}</kbd>{/if}{/each}{/snippet}{#snippet details()}<small class="flags">Trips: {#each SIMULATED_INPUT_FLAGS[feature.id] as flag}<code>{flag}</code>{/each}</small>{/snippet}{#snippet children()}<Toggle label={feature.label} checked={model.simulatedInput[feature.id] === true} disabled={feature.extends !== undefined && model.simulatedInput[feature.extends] !== true} onChange={(value) => emit({ type: 'set-simulated-input', id: feature.id, value })} />{/snippet}</SettingRow>
   {/each}
 </div>
 
@@ -303,7 +301,7 @@
   .token-error { margin: 0; font-size: 0.72rem; }
   .error { color: var(--caelestis-danger); }
   .flags { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.15rem 0.25rem; margin-block-start: 0.25rem; color: var(--caelestis-muted-text); font-size: 0.72rem; }
-  .flags code { padding: 0.05rem 0.3rem; border: 1px solid var(--caelestis-border); border-radius: 0.3rem; background: var(--caelestis-raised-surface); color: var(--caelestis-text); font: 0.7rem/1.3 var(--caelestis-mono-font, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace); }
+  .hint-key, .flags code { padding: 0.05rem 0.3rem; border: 1px solid var(--caelestis-border); border-radius: 0.3rem; background: var(--caelestis-raised-surface); color: var(--caelestis-text); font: 0.7rem/1.3 var(--caelestis-mono-font, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace); }
   .shortcut-group { padding: 0 var(--caelestis-content-inset, 1rem); }
   .shortcut-group h3 { margin: 0.5rem 0 0.15rem; color: var(--caelestis-muted-text); font-size: 0.72rem; }
   .shortcut-row { display: flex; align-items: center; gap: 0.5rem; min-block-size: 2.25rem; }

@@ -8,13 +8,13 @@
     children,
     compact = false,
     depth,
-  }: { label: string; hint?: string | undefined; details?: Snippet | undefined; children: Snippet; compact?: boolean; depth?: number } = $props()
+  }: { label: string; hint?: string | Snippet | undefined; details?: Snippet | undefined; children: Snippet; compact?: boolean; depth?: number } = $props()
 </script>
 
 <div class:compact class:hierarchy={depth !== undefined} class="row" data-depth={depth} style:--depth={depth ?? 0}>
   <div class="copy">
     <span>{label}</span>
-    {#if hint !== undefined}<small>{hint}</small>{/if}
+    {#if typeof hint === 'string'}<small>{hint}</small>{:else if hint !== undefined}<small>{@render hint()}</small>{/if}
     {#if details !== undefined}{@render details()}{/if}
   </div>
   <div class="control">{@render children()}</div>
