@@ -74,12 +74,14 @@ These quality-of-life patches don't technically break Wplace's rules, but they s
 
 | Switch | What it does | Wplace flags |
 | --- | --- | --- |
-| **Picker reads templates** | Wplace's picker picks the template colour, then the placed one. | `UntrustedPalette` |
-| **Middle-click picks template colours** | Middle-click on the map picks the template colour. | `UntrustedPalette` |
-| **Keep picking while dragging** | Holding the middle button picks each template colour it passes, so Space paints the template as you drag. Needs the middle-click switch. | `UntrustedPalette`, `UntrustedPointer` |
+| **Picker reads templates** | On the world map, Wplace's picker picks the template colour, then the placed one. | `UntrustedPalette` |
+| **Middle-click picks template colours** | Middle-click on the world map picks the template colour. | `UntrustedPalette` |
+| **Keep picking while dragging** | Holding the middle button on the world map picks each template colour it passes, so Space paints the template as you drag. Needs the middle-click switch. | `UntrustedPalette`, `UntrustedPointer` |
 | **Update cursor after flying** | When a flight, jump or pan ends under a still mouse, Wplace's hover square and Space target move to where the mouse points. | `UntrustedPointer` |
 | **Paint past skipped pixels** | Shift+Space keeps painting beyond pixels it skips. | `UntrustedPaintHold`, `UntrustedPointer` |
 | **Cycle unfinished colours** | The previous- and next-colour keys select a colour. | `UntrustedPalette` |
 | **Paint key commits drafts** | The paint key commits an open draft. | `UntrustedPaintSubmit` |
 
-Each description names the keys it uses as you have them bound. With them off, Wplace's own picker answers, the colour keys do nothing and are greyed out under **Keyboard shortcuts**, the paint key only opens the drawer, and Space waits for a real mouse move after a flight.
+Each description names the keys it uses as you have them bound. With them off, Wplace's own picker answers on the world map, the colour keys do nothing and are greyed out under **Keyboard shortcuts**, the paint key only opens the drawer, and Space waits for a real mouse move after a flight.
+
+Wplace's alliance canvases (HQ, avatar and banner) don't check for simulated input, so picking there always reads the template, with or without these switches.

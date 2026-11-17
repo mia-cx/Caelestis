@@ -167,7 +167,7 @@ it('picks the local source colour with translated controls in both Wplace icon t
   }
 })
 
-it('leaves the armed HQ picker working for swatches, empty pixels and painted pixels', async () => {
+it('answers the HQ picker from source pixels with every switch off, since HQ checks no input', async () => {
   const black = colour('Black')
   const red = colour('Red')
   const swatch = (name: string, rgb?: readonly number[]) =>
@@ -253,7 +253,7 @@ it('leaves the armed HQ picker working for swatches, empty pixels and painted pi
     canvas.dispatchEvent(new MouseEvent('click', at))
   }
 
-  const teardown = installPicker()
+  const teardown = installPicker({})
   try {
     picker.click()
     redSwatch.click()

@@ -19,19 +19,19 @@ export const SIMULATED_INPUT: readonly {
     id: 'picker-reads-templates',
     label: 'Picker reads templates',
     hint: [
-      "Wplace's picker picks the template colour, then the placed one, by clicking the palette.",
+      "On the world map, Wplace's picker picks the template colour, then the placed one, by clicking the palette.",
     ],
   },
   {
     id: 'middle-click-pick',
     label: 'Middle-click picks template colours',
-    hint: ['Middle-click on the map picks the template colour by clicking the palette.'],
+    hint: ['Middle-click on the world map picks the template colour by clicking the palette.'],
   },
   {
     id: 'drag-pick',
     label: 'Keep picking while dragging',
     hint: [
-      'Holding the middle button picks each template colour it passes, so ',
+      'Holding the middle button on the world map picks each template colour it passes, so ',
       { fixed: 'Space' },
       ' paints the template as you drag.',
     ],

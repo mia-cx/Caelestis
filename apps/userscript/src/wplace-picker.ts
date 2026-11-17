@@ -1,5 +1,6 @@
 import {
   latLngToCanvasPixel,
+  type SimulatedInput,
   type TemplateSurface,
   TILE_SIZE,
   TRANSPARENT_INDEX,
@@ -62,10 +63,12 @@ import { isPaintOpen, selectPaintColour } from './wplace-paint.js'
  * what it is for. The mode is a way of looking at one colour at a time, not a claim that the rest of
  * the template is not there, so the pick reads through it.
  *
- * Every answer selects its colour by clicking a Wplace swatch, and Wplace flags an untrusted swatch
- * click on the account, so each gesture has its own simulated-input switch: `picker-reads-templates`
- * for the picker tool, `middle-click-pick` for a middle click, and `drag-pick` for picking on while
- * the middle button stays down. With them off, Wplace's own picker answers.
+ * Every answer selects its colour by clicking a Wplace swatch. On the world map Wplace flags an
+ * untrusted swatch click on the account, so each gesture there has its own simulated-input switch:
+ * `picker-reads-templates` for the picker tool, `middle-click-pick` for a middle click, and
+ * `drag-pick` for picking on while the middle button stays down. With them off, Wplace's own picker
+ * answers. Wplace's alliance canvases (HQ, avatar, banner) check no input at all, so picks there
+ * always answer from the template.
  */
 
 /**
@@ -120,6 +123,13 @@ interface PickerPoint {
   readonly y: number
   readonly alliance: ActiveAllianceSurface | null
 }
+
+/**
+ * Whether a pick at `point` may simulate input. Only the world map's painting flags untrusted input;
+ * the alliance canvases never check it, so they need no switch.
+ */
+const simulates = (id: SimulatedInput, point: PickerPoint): boolean =>
+  point.alliance !== null || getState().simulatedInput[id] === true
 
 /** Resolve the logical paint cell using the native surface's projection. */
 export const pickerPointAt = (
@@ -292,12 +302,11 @@ export const installColourPicker = (): void => {
     (event) => {
       // A new pointer sequence supersedes any pick that never produced its click.
       pendingLeftPick = null
-      if (!getState().simulatedInput['picker-reads-templates']) return
       if (event.button !== 0 || !isPaintOpen() || !nativePickerIsActive()) return
       const target = event.target
       if (!(target instanceof Element)) return
       const point = pickerPointAt(target, event.clientX, event.clientY)
-      if (point === null) return
+      if (point === null || !simulates('picker-reads-templates', point)) return
 
       // Claim the pick only once a swatch is set. Without a source answer (an empty or unloaded
       // pixel, or a colour with no swatch) Wplace's own picker answers and ends picker mode;
@@ -381,12 +390,11 @@ export const installColourPicker = (): void => {
     (event) => {
       if (event.button !== 1 || middlePick !== null) return
       pendingMiddleClick = null
-      if (!getState().simulatedInput['middle-click-pick'] || event.defaultPrevented || isMoving())
-        return
+      if (event.defaultPrevented || isMoving()) return
       const target = event.target
       if (!(target instanceof Element)) return
       const point = pickerPointAt(target, event.clientX, event.clientY)
-      if (point === null) return
+      if (point === null || !simulates('middle-click-pick', point)) return
       // Their picker only exists inside a painting session, and the swatch we would press only
       // exists while the drawer is open. With it closed there is nothing to hand a colour to.
       if (!isPaintOpen()) return
@@ -402,7 +410,7 @@ export const installColourPicker = (): void => {
       // A drag pick forwards its own moves, so it cancels the press. A single pick leaves it
       // uncancelled, so the real `mousemove`s Wplace paints from keep coming, and the `mousedown`
       // listener below cancels the press there instead.
-      const drags = getState().simulatedInput['drag-pick'] === true
+      const drags = simulates('drag-pick', point)
       if (drags) event.preventDefault()
       event.stopImmediatePropagation()
       middlePick = {
