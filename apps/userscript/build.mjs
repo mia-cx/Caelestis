@@ -116,8 +116,9 @@ const manifest = {
   manifest_version: 3,
   name: 'Caelestis',
   version: pkg.version,
+  /** The store summary on Chrome, Edge, and AMO; keep it in step with store/listing.md. */
   description:
-    'Shared pixel-art templates for wplace.live, overlaid from one or more alliance servers',
+    'Template overlay for Wplace. Place your pixel art on the map, find the pixels left to paint, and paint with your alliance.',
   homepage_url: 'https://github.com/mia-cx/Caelestis',
   minimum_chrome_version: '111',
   browser_specific_settings: {
