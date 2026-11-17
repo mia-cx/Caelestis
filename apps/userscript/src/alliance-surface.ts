@@ -321,6 +321,13 @@ const observeDraft = (
 
 const selectDraftRequest = (id: number): { readonly sequence: number; readonly epoch: number } => {
   const sequence = ++draftSequence
+  // Wplace polls the open draft's revision and reloads its canvas after every edit. A draft never
+  // changes asset kind, so a request for the draft already in force keeps its surface published;
+  // suppressing it would tear the overlay and panel down and remount them on every poll.
+  if (draft?.id === id) {
+    acceptedDraftSequence = sequence
+    return { sequence, epoch: allianceEpoch }
+  }
   const previousKind =
     active?.surface.kind === 'alliance-picture' || active?.surface.kind === 'alliance-banner'
       ? active.surface.kind
