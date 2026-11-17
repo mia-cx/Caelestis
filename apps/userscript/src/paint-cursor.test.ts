@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { ActiveAllianceSurface } from './alliance-surface.js'
 import type { MapLike } from './map-handle.js'
 import {
+  forwardPaintKey,
   installPaintTargetGuard,
   isForwardedPaintMove,
   markPaintTargetStale,
@@ -175,6 +176,7 @@ it('puts the paint target under the still mouse after a flight only with its own
   moveCamera()
   settleCamera()
   key('keydown')
+  key('keyup')
   expect(forwarded).toEqual([])
   expect(received).toEqual(['pointermove'])
 
@@ -184,4 +186,27 @@ it('puts the paint target under the still mouse after a flight only with its own
   key('keydown')
   expect(forwarded).toEqual([true])
   expect(received).toEqual(['pointermove', 'mousemove', 'keydown:Space'])
+})
+
+it("never refreshes while Space is physically held, even after shift-paint's forwarded release", () => {
+  harness.refresh = true
+  canvas.dispatchEvent(
+    new PointerEvent('pointermove', {
+      bubbles: true,
+      pointerType: 'mouse',
+      clientX: 5,
+      clientY: 5,
+    }),
+  )
+  key('keydown')
+  // Shift-paint pauses Wplace's hold with a forwarded release while the key stays down.
+  forwardPaintKey('keyup')
+  moveCamera()
+  settleCamera()
+  expect(received).toEqual(['pointermove', 'keydown:Space'])
+
+  key('keyup')
+  moveCamera()
+  settleCamera()
+  expect(received).toEqual(['pointermove', 'keydown:Space', 'mousemove'])
 })

@@ -62,6 +62,11 @@ let movesBlocked = false
 let observedMap: MapLike | null = null
 /** The painter's last real mouse position over this window. */
 let mouse: PointerEvent | null = null
+/**
+ * The painter is physically holding Space. Shift-paint's forwarded releases clear `holding` while
+ * the key stays down, so the refresh checks this instead.
+ */
+let spaceHeld = false
 
 /**
  * Mark Wplace's paint target stale after the camera moved under a still mouse: a flight, a keyboard
@@ -88,10 +93,10 @@ const worldCameraMoved = ({ originalEvent }: { readonly originalEvent?: Event })
 /**
  * With the `cursor-refresh` switch on, move Wplace's paint target to where the still mouse now
  * points by forwarding a move, which Wplace flags as UntrustedPointer. While Space is held through
- * the camera move the guard still holds this move back, so no line is drawn.
+ * the camera move nothing is forwarded, so a held gesture never paints where the camera landed.
  */
 export const refreshPaintTarget = (root: Element, type: 'mousemove' | 'pointermove'): void => {
-  if (!getState().simulatedInput['cursor-refresh']) return
+  if (!getState().simulatedInput['cursor-refresh'] || spaceHeld) return
   if (mouse === null || !isPaintOpen() || !root.isConnected) return
   const target = document.elementFromPoint(mouse.clientX, mouse.clientY)
   if (target === null || !root.contains(target)) return
@@ -124,6 +129,7 @@ export const syncPaintTargetMap = (map: MapLike | null): void => {
  */
 export const installPaintTargetGuard = (): (() => void) => {
   const keydown = (event: KeyboardEvent): void => {
+    if (event.code === 'Space' && !isForwardedPaintKey(event)) spaceHeld = true
     if (event.code !== 'Space' || !isPaintOpen()) return
     const typing = event
       .composedPath()
@@ -147,11 +153,14 @@ export const installPaintTargetGuard = (): (() => void) => {
     if (event.relatedTarget === null) mouse = null
   }
   const keyup = (event: KeyboardEvent): void => {
-    if (event.code === 'Space') release()
+    if (event.code !== 'Space') return
+    if (!isForwardedPaintKey(event)) spaceHeld = false
+    release()
   }
   const blur = (): void => {
     release()
     mouse = null
+    spaceHeld = false
   }
   const visibility = (): void => {
     if (document.hidden) blur()
