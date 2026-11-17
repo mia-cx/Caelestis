@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import Button from '../foundations/Button.svelte'
+  import Icon from '../foundations/Icon.svelte'
   import type { BackfillIntent, BackfillModel } from './model.js'
 
   let { model, onIntent }: { model: BackfillModel; onIntent: (intent: BackfillIntent) => void } = $props()
@@ -16,7 +17,7 @@
 <dialog bind:this={dialog} class="caelestis-panel-surface" aria-labelledby="backfill-title" oncancel={(event) => { event.preventDefault(); onIntent({ type: 'close' }) }}>
   <header>
     <h2 id="backfill-title">Backfill template tiles and progress data</h2>
-    <Button label="Close backfill" kind="ghost" size="small" iconOnly onclick={() => onIntent({ type: 'close' })}>×</Button>
+    <Button label="Close backfill" kind="ghost" size="small" iconOnly onclick={() => onIntent({ type: 'close' })}><Icon name="close" /></Button>
   </header>
   <div class="body">
     <div class="template">

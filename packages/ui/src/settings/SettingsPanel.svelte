@@ -1,6 +1,7 @@
 <script lang="ts">
   import MenuStyles from '../foundations/MenuStyles.svelte'
   import Button from '../foundations/Button.svelte'
+  import Icon from '../foundations/Icon.svelte'
   import SectionHeader from '../foundations/SectionHeader.svelte'
   import SettingRow from '../foundations/SettingRow.svelte'
   import Toggle from '../foundations/Toggle.svelte'
@@ -143,7 +144,7 @@
     {#each model.servers as server (server.url)}
       <section class="server">
         <button class="server-head" type="button" aria-expanded={server.expanded} onpointerenter={() => emit({ type: 'prefetch-server', url: server.url })} onclick={() => emit({ type: 'toggle-server', url: server.url, expanded: !server.expanded })}>
-          <span class:open={server.expanded} class="caret" aria-hidden="true">›</span>
+          <span class:open={server.expanded} class="caret" aria-hidden="true"><Icon name="caret" size="0.75rem" /></span>
           <span class="server-name" title={server.url}>{server.name}</span>
           {#if server.version !== undefined}<span class="server-version" title={`Backend ${server.version}`}>{server.version}</span>{/if}
           {#if server.status !== 'connected'}<span class:warning={server.status === 'needs-token'} class="badge caelestis-badge">{server.status === 'needs-token' ? 'token' : 'offline'}</span>{/if}
@@ -171,7 +172,7 @@
                     {#each server.accessTokens.tokens as token (token.tokenHash)}
                       <div class="access-token">
                         <div class="access-copy"><span title={token.label}>{token.label}</span><small>{token.bootstrap ? "admin · set in the server's environment" : `${token.scope} · ${dateText(token.createdAt)}`}</small></div>
-                        {#if !token.bootstrap}<Button label={`Delete ${token.label}`} kind="ghost" size="small" iconOnly ariaDisabled={token.pending === true} onclick={() => emit({ type: 'revoke-access-token', url: server.url, tokenHash: token.tokenHash, label: token.label })}>×</Button>{/if}
+                        {#if !token.bootstrap}<Button label={`Delete ${token.label}`} kind="ghost" size="small" iconOnly ariaDisabled={token.pending === true} onclick={() => emit({ type: 'revoke-access-token', url: server.url, tokenHash: token.tokenHash, label: token.label })}><Icon name="close" /></Button>{/if}
                       </div>
                     {/each}
                   </div>
@@ -243,7 +244,7 @@
             {:else if bindings.length === 0}<span class="shortcut-unset">Not set</span>
             {:else}{#each bindings as binding, index}{#if index > 0}<span class="shortcut-or">or</span>{/if}<kbd>{keyBindingLabel(binding, model.shortcuts.platform)}</kbd>{/each}{/if}
           </button>
-          <span class="shortcut-clear" class:hidden={bindings.length === 0 || isRecording}><Button label={`Remove the key for ${action.label}`} kind="ghost" size="compact" iconOnly disabled={inert} onclick={() => emit({ type: 'set-shortcut-binding', id: action.id, binding: null })}>×</Button></span>
+          <span class="shortcut-clear" class:hidden={bindings.length === 0 || isRecording}><Button label={`Remove the key for ${action.label}`} kind="ghost" size="compact" iconOnly disabled={inert} onclick={() => emit({ type: 'set-shortcut-binding', id: action.id, binding: null })}><Icon name="close" /></Button></span>
         </div>
       {/each}
     </section>
@@ -279,8 +280,8 @@
   .message, .subtle { margin: 0.3rem var(--caelestis-content-inset, 1rem); color: var(--caelestis-muted-text); font-size: 0.72rem; }
   .servers { display: flex; flex-direction: column; }
   .server { padding: 0.35rem var(--caelestis-content-inset, 1rem); }
-  .server-head { display: flex; inline-size: 100%; align-items: center; gap: 0.5rem; min-block-size: 2rem; padding: 0; border: 0; background: transparent; color: inherit; }
-  .caret { font-size: 1.2rem; transition: transform var(--caelestis-duration-quick) var(--caelestis-ease-smooth-out); }.caret.open { transform: rotate(90deg); }
+  .server-head { display: flex; inline-size: 100%; align-items: center; gap: 0.5rem; min-block-size: 2rem; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+  .caret { display: grid; flex: 0 0 auto; place-items: center; opacity: 0.6; transition: transform var(--caelestis-duration-quick) var(--caelestis-ease-smooth-out); }.caret.open { transform: rotate(90deg); }
   .server-name { min-inline-size: 0; flex: 1; overflow: hidden; text-align: start; text-overflow: ellipsis; white-space: nowrap; }
   .server-version { flex: 0 1 auto; min-inline-size: 0; max-inline-size: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--caelestis-muted-text); font-size: 0.7rem; }
   .version-line { margin-block-start: 0.6rem; }

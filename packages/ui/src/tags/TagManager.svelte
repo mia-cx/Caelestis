@@ -2,6 +2,7 @@
   import { tagName, tagNameKey } from '@caelestis/shared'
   import { onMount } from 'svelte'
   import Button from '../foundations/Button.svelte'
+  import Icon from '../foundations/Icon.svelte'
   import Checkbox from '../foundations/Checkbox.svelte'
   import type { TagManagerIntent, TagManagerModel } from '../types.js'
 
@@ -37,7 +38,7 @@
   <div class="content">
     <header>
       <div><h2 id="tag-title">{model.targetName === undefined ? 'Manage tags' : `Tags for ${model.targetName}`}</h2><p id="tag-owner">{model.owner}</p></div>
-      <Button label="Close tags" size="small" kind="ghost" iconOnly onclick={() => emit({ type: 'close' })}>×</Button>
+      <Button label="Close tags" size="small" kind="ghost" iconOnly onclick={() => emit({ type: 'close' })}><Icon name="close" /></Button>
     </header>
     <div class="body" aria-busy={disabled}>
       {#if model.loading}<p role="status">Loading tags…</p>{/if}

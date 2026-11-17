@@ -863,7 +863,7 @@
             </span>
           {/if}
           <div class="row-heading">
-            {#if entry.container}<span class:open={entry.expanded} class="caret" aria-hidden="true">›</span>{/if}
+            {#if entry.container}<span class:open={entry.expanded} class="caret" aria-hidden="true"><Icon name="caret" size="0.75rem" /></span>{/if}
             <TemplateLifecycle finished={entry.lifecycle?.finished ?? false} frozen={entry.lifecycle?.frozen ?? false}>
               {#if entry.claims !== undefined && (entry.claims.people.length > 0 || entry.claims.canAssign)}
                 <TemplateClaims name={entry.name} model={entry.claims} onChange={(release, person) => emit({ type: 'template-claim', key: entry.key, release, ...(person === undefined ? {} : { person }) })}>
@@ -1052,7 +1052,7 @@
   .row.drop-before { box-shadow: inset 0 2px var(--caelestis-primary); }
   .row.drop-after { box-shadow: inset 0 -2px var(--caelestis-primary); }
   .row.drop-inside { outline: 2px dashed var(--caelestis-primary); }
-  .caret { flex: 0 0 1rem; inline-size: 1rem; font-size: 1.25rem; text-align: center; transition: transform var(--caelestis-duration-quick) var(--caelestis-ease-smooth-out); }
+  .caret { display: grid; flex: 0 0 1rem; inline-size: 1rem; place-items: center; transition: transform var(--caelestis-duration-quick) var(--caelestis-ease-smooth-out); }
   .caret.open { transform: rotate(90deg); }
   .kind { display: inline-flex; flex: 0 0 auto; }
   .name { min-inline-size: 2rem; overflow: hidden; flex: 1; text-overflow: ellipsis; white-space: nowrap; }
