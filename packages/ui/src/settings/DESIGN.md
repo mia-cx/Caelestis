@@ -24,7 +24,7 @@ lost a key when a chord moved.
 
 The last section holds every feature that simulates input on Wplace's controls, which trips flags in
 Pawtect, Wplace's anticheat. Its intro says what the flags mean and that everything there is off by
-default. Each feature is one switch row, with what it does and the flags it trips in the hint. A
+default. Each feature is one switch row: what it does in the hint, then a "Trips:" line listing its flags as code. A
 switch that extends another is disabled until that one is on. Shortcut rows stay plain key bindings;
 the shortcut reference notes a shortcut whose switch is off.
 

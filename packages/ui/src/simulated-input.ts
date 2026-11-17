@@ -1,14 +1,6 @@
-import { SIMULATED_INPUT_FLAGS, type SimulatedInput } from '@caelestis/shared'
+import type { SimulatedInput } from '@caelestis/shared'
 
-/** The sentence naming the Wplace flags a simulated-input feature trips. */
-export const simulatedInputFlags = (id: SimulatedInput): string => {
-  const flags: readonly string[] = SIMULATED_INPUT_FLAGS[id]
-  const listed =
-    flags.length === 1 ? flags[0] : `${flags.slice(0, -1).join(', ')} and ${flags.at(-1)}`
-  return `Trips ${listed}.`
-}
-
-/** Every feature that simulates input, in the order the Simulated input settings list them. */
+/** Every feature that simulates input, in the order Dangerous settings lists them. */
 export const SIMULATED_INPUT: readonly {
   readonly id: SimulatedInput
   readonly label: string

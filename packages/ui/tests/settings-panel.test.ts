@@ -84,15 +84,13 @@ describe('settings panel intent boundary', () => {
     const toggle = (label: string): HTMLInputElement =>
       target.querySelector(`input[aria-label="${label}"]`) as HTMLInputElement
 
-    expect(toggle('Picker reads templates').closest('.row')?.textContent).toContain(
-      'Trips UntrustedPalette.',
-    )
-    expect(toggle('Paint past skipped pixels').closest('.row')?.textContent).toContain(
-      'Trips UntrustedPaintHold and UntrustedPointer.',
-    )
-    expect(toggle('Paint key commits drafts').closest('.row')?.textContent).toContain(
-      'Trips UntrustedPaintSubmit.',
-    )
+    const flags = (label: string): string[] =>
+      [...(toggle(label).closest('.row')?.querySelectorAll('.flags code') ?? [])].map(
+        (code) => code.textContent ?? '',
+      )
+    expect(flags('Picker reads templates')).toEqual(['UntrustedPalette'])
+    expect(flags('Paint past skipped pixels')).toEqual(['UntrustedPaintHold', 'UntrustedPointer'])
+    expect(flags('Paint key commits drafts')).toEqual(['UntrustedPaintSubmit'])
     // Dragging extends a middle-click pick, so it waits for that switch.
     expect(toggle('Keep picking while dragging').disabled).toBe(true)
     // Shortcut rows stay plain key bindings.
