@@ -35,6 +35,11 @@ vi.mock('./world-native-pixels.js', () => ({
   worldNativePixels: () => ({ committed: [], draft: [] }),
 }))
 vi.mock('./templates/move.js', () => ({ isMoving: () => false }))
+// The cells shown solid for Wplace's own picker to read.
+const pickCells = vi.hoisted(() => [] as [number, number, number][])
+vi.mock('./gl/pick-cell-layer.js', () => ({
+  showPickCell: (x: number, y: number, index: number) => pickCells.push([x, y, index]),
+}))
 
 const colour = (name: string) => {
   const entry = WPLACE_PALETTE.find((candidate) => candidate.name === name)
@@ -277,7 +282,7 @@ it('answers the HQ picker from source pixels with every switch off, since HQ che
   }
 })
 
-it('by default leaves left and middle clicks on the map to Wplace and presses no swatch', async () => {
+it('by default leaves clicks to Wplace, showing its picker the template cell, and presses no swatch', async () => {
   const white = colour('White')
   const template = await addLocalTemplate(
     {
@@ -320,6 +325,11 @@ it('by default leaves left and middle clicks on the map to Wplace and presses no
     }
     expect(wplace).toEqual(['pointerdown:0', 'click:0', 'pointerdown:1', 'auxclick:1'])
     expect(swatchClicks).toEqual([])
+    // Wplace's picker tool and its own middle-click pick both read the canvas, so both get the cell.
+    expect(pickCells).toEqual([
+      [100, 200, white.index],
+      [100, 200, white.index],
+    ])
   } finally {
     teardown()
     await removeLocalTemplate(template.id)
