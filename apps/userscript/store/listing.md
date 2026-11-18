@@ -86,13 +86,13 @@ Source code: https://github.com/mia-cx/Caelestis
 ### Screenshot captions
 
 AMO shows a caption under each screenshot. Chrome and Edge show none.
-Upload the screenshots in this order:
+Upload the screenshots from [`screenshots/`](screenshots/) in this order. Each one is 1280×800.
 
-1. `Place your pixel art on the map and see which pixels still need painting.`
-2. `See how many pixels each color still needs.`
-3. `Turn any image into Wplace colors in the template studio.`
-4. `See where your alliance is painting, and claim the area you'll take.`
-5. `Follow progress and timelapses on your server's dashboard.`
+1. [`1-place-your-art.png`](screenshots/1-place-your-art.png): `Place your pixel art on the map and see which pixels still need painting.`
+2. [`2-colour-work.png`](screenshots/2-colour-work.png): `See how many pixels each color still needs.`
+3. Template studio, not captured yet: `Turn any image into Wplace colors in the template studio.`
+4. [`4-claims.png`](screenshots/4-claims.png): `See where your alliance is painting, and claim the area you'll take.`
+5. [`5-dashboard.png`](screenshots/5-dashboard.png): `Follow progress and timelapses on your server's dashboard.`
 
 ### Search terms
 
@@ -212,7 +212,7 @@ The source package includes BUILD-EXTENSION.md with the exact build command. The
 | Asset | Chrome | Edge | AMO | File |
 | --- | --- | --- | --- | --- |
 | Icon | 128×128 PNG, from the package | Extension logo: 1:1, at least 128×128, 300×300 recommended | From the package, or upload a square PNG | Package icon for Chrome and AMO, `brand/logo/caelestis-512.png` for Edge |
-| Screenshots | 1 to 5, 1280×800 or 640×400 | Up to 6, 1280×800 or 640×480 | Any number, 1280×800 recommended | Needed: 5 at 1280×800 |
+| Screenshots | 1 to 5, 1280×800 or 640×400 | Up to 6, 1280×800 or 640×480 | Any number, 1280×800 recommended | `screenshots/`, 4 of 5 done |
 | Small promo tile | 440×280, optional | 440×280, optional | None | Needed |
 | Marquee / large promo tile | 1400×560, optional | 1400×560, optional | None | Optional |
 | YouTube video | Optional | Optional | None | Optional |
