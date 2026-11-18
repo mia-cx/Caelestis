@@ -271,6 +271,10 @@ export const insertAllianceArtboardCanvases = (
   outline.style.imageRendering = 'pixelated'
   overlay.style.imageRendering = 'pixelated'
   markers.style.imageRendering = 'pixelated'
+  // The picture and banner art is an in-flow canvas, and positioned siblings paint above in-flow
+  // ones whatever their DOM order. A negative z-index keeps the outline under that art; the frame's
+  // pan transform makes it the stacking context, so the outline stays above its checkerboard.
+  outline.style.zIndex = '-1'
   frame.insertBefore(outline, frame.firstChild)
   // HQ art is a `.hq-tile-layer`: once a container of tile canvases, now one canvas. Either way it
   // is native art, never the draft canvas the overlay sits under.
