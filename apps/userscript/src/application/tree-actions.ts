@@ -322,7 +322,7 @@ const exportTemplate = async (target: TreeTarget, format: 'wplace' | 'png'): Pro
   const id =
     localId ??
     (target.server !== null && target.templateId !== undefined
-      ? serverTemplateKey(target.server.url, target.templateId)
+      ? serverTemplateKey(target.server.url, target.templateId, surfaceOf(target))
       : null)
   const template = id === null ? undefined : templateById(id)
   if (template === undefined) {
