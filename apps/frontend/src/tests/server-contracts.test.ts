@@ -158,7 +158,11 @@ describe('server-side read boundaries', () => {
 
     /** Run a handoff page's inline script; report where it navigated or what form it posted. */
     const runPage = async (response: Response, storage: MemoryStorage) => {
-      const script = (await response.text()).match(/<script>([\s\S]*)<\/script>/)?.[1] ?? ''
+      const html = await response.text()
+      const script = html.slice(
+        html.indexOf('<script>') + '<script>'.length,
+        html.lastIndexOf('</script>'),
+      )
       const result: { replaced?: string; posted?: { action: string; fields: FormData } } = {}
       const document = {
         body: { append: () => {} },
