@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.5.6/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.6.8/schema.json",
   "vcs": {
     "enabled": true,
     "clientKind": "git",
@@ -21,7 +21,8 @@
       "!**/.svelte-kit",
       "!**/.svelte-check",
       "!**/*.svelte",
-      "!apps/frontend/src/app.css"
+      "!apps/frontend/src/app.css",
+      "!deploy/helm/*/templates"
     ]
   },
   "formatter": {
@@ -36,6 +37,16 @@
       "semicolons": "asNeeded",
       "trailingCommas": "all",
       "arrowParentheses": "always"
+    }
+  },
+  "yaml": {
+    "formatter": {
+      "quoteStyle": "single"
+    }
+  },
+  "markdown": {
+    "formatter": {
+      "enabled": false
     }
   },
   "linter": {
@@ -55,6 +66,10 @@
         "scripts/test-cloudflare-remote.mjs"
       ],
       "linter": { "rules": { "suspicious": { "noUndeclaredEnvVars": "off" } } }
+    },
+    {
+      "includes": ["**/*.test.ts", "**/test/**", "**/tests/**"],
+      "linter": { "rules": { "style": { "noNonNullAssertion": "off" } } }
     }
   ],
   "assist": {

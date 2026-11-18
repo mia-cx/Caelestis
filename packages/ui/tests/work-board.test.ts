@@ -39,7 +39,7 @@ describe('work board mutations', () => {
   it('keeps the claim action pending until the real client mutation and refresh complete', async () => {
     let resolveClaim: ((response: Response) => void) | undefined
     let current = item()
-    const request = vi.fn((path: string, init?: RequestInit): Promise<Response> => {
+    const request = vi.fn((_path: string, init?: RequestInit): Promise<Response> => {
       if (init?.method === 'PUT')
         return new Promise((resolve) => {
           resolveClaim = resolve
@@ -73,7 +73,7 @@ describe('work board mutations', () => {
 
   it('restores the claim action and exposes a server refusal', async () => {
     const request = vi.fn(
-      (path: string, init?: RequestInit): Promise<Response> =>
+      (_path: string, init?: RequestInit): Promise<Response> =>
         Promise.resolve(
           init?.method === 'PUT'
             ? new Response(JSON.stringify({ error: 'revision conflict' }), {

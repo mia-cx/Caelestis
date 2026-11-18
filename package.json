@@ -35,7 +35,7 @@
     "test:release": "node .github/scripts/check-userscript-release-notes.mjs && node --test .github/scripts/*.test.mjs"
   },
   "devDependencies": {
-    "@biomejs/biome": "~2.5.15",
+    "@biomejs/biome": "^2.6.8",
     "@changesets/cli": "3.0.3",
     "@vitest/coverage-v8": "5.1.0",
     "sharp": "^0.35.5",
