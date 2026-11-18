@@ -16,8 +16,12 @@ import { getMap } from '../map-handle.js'
 
 export const PICK_CELL_LAYER_ID = 'caelestis-pick-cell'
 
-/** Long enough to cover the render Wplace's picker waits for, short enough to read as a flash. */
-const SHOWN_MS = 500
+/**
+ * How long the cell stays after the button comes up. Wplace's picker tool reads on the map's
+ * `click`, after release, so the cell holds while the button is down and this covers the render
+ * that click waits for, short enough to read as a flash.
+ */
+const SHOWN_AFTER_RELEASE_MS = 500
 
 interface ProjectingMap {
   getCanvas(): HTMLCanvasElement
@@ -37,7 +41,20 @@ let hide: ReturnType<typeof setTimeout> | undefined
 
 const projectingMap = (): ProjectingMap | null => getMap() as ProjectingMap | null
 
-/** Show the world cell at canvas pixel `x`, `y` solid in palette colour `index` for one pick. */
+const hideAfterRelease = (): void => {
+  window.removeEventListener('pointerup', hideAfterRelease, true)
+  window.removeEventListener('pointercancel', hideAfterRelease, true)
+  clearTimeout(hide)
+  hide = setTimeout(() => {
+    shown = null
+    projectingMap()?.triggerRepaint?.()
+  }, SHOWN_AFTER_RELEASE_MS)
+}
+
+/**
+ * Show the world cell at canvas pixel `x`, `y` solid in palette colour `index` for one pick. Call
+ * it from the pick's `pointerdown`: the cell stays until shortly after that button comes up.
+ */
 export const showPickCell = (x: number, y: number, index: number): void => {
   const rgb = PALETTE_RGB[index]
   if (rgb === undefined) return
@@ -45,14 +62,15 @@ export const showPickCell = (x: number, y: number, index: number): void => {
   drawn = false
   log('draw', 'pick cell shown', { x: shown.x, y: shown.y, index })
   clearTimeout(hide)
-  hide = setTimeout(() => {
-    shown = null
-    projectingMap()?.triggerRepaint?.()
-  }, SHOWN_MS)
+  window.addEventListener('pointerup', hideAfterRelease, true)
+  window.addEventListener('pointercancel', hideAfterRelease, true)
   projectingMap()?.triggerRepaint?.()
 }
 
-/** The cell's rectangle in framebuffer pixels, origin bottom-left as `scissor` takes it. */
+/**
+ * The screen box around the cell in framebuffer pixels, origin bottom-left as `scissor` takes it.
+ * It bounds all four projected corners, so a rotated or pitched map still covers the whole cell.
+ */
 const cellRect = (
   map: ProjectingMap,
   x: number,
@@ -63,16 +81,21 @@ const cellRect = (
   const scale = canvas.width / canvas.clientWidth
   // The world repeats horizontally; project the copy nearest the camera.
   const centre = map.getCenter().lng
-  const corner = (cornerX: number, cornerY: number): { x: number; y: number } => {
+  const corners = [
+    [x, y],
+    [x + 1, y],
+    [x, y + 1],
+    [x + 1, y + 1],
+  ].map(([cornerX = 0, cornerY = 0]) => {
     const { lat, lng } = canvasPixelToLatLng({ x: cornerX, y: cornerY })
     return map.project([lng + 360 * Math.round((centre - lng) / 360), lat])
-  }
-  const a = corner(x, y)
-  const b = corner(x + 1, y + 1)
-  const left = Math.floor(Math.min(a.x, b.x) * scale)
-  const right = Math.ceil(Math.max(a.x, b.x) * scale)
-  const top = Math.floor(Math.min(a.y, b.y) * scale)
-  const bottom = Math.ceil(Math.max(a.y, b.y) * scale)
+  })
+  const xs = corners.map((corner) => corner.x)
+  const ys = corners.map((corner) => corner.y)
+  const left = Math.floor(Math.min(...xs) * scale)
+  const right = Math.ceil(Math.max(...xs) * scale)
+  const top = Math.floor(Math.min(...ys) * scale)
+  const bottom = Math.ceil(Math.max(...ys) * scale)
   return [left, canvas.height - bottom, right - left, bottom - top]
 }
 
