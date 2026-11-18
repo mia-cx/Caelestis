@@ -132,7 +132,7 @@ English (United States) on every store.
 | Support | Support URL | Support contact detail | Support site | https://github.com/mia-cx/Caelestis/issues |
 | Privacy policy | Privacy policy, on the Privacy tab | Privacy Policy URL | Privacy policy text | https://docs.caelest.is/privacy/ |
 
-- AMO also has an optional Support email, of up to 100 characters. Leave it empty.
+- AMO also has a Support email field: `help@mia.cx`.
 - AMO asks for the privacy policy as text, not as a link. Paste the text of `apps/docs/vault/Privacy.md` without its front matter.
 - Chrome's Official URL shows a verified badge for a domain you have verified in Google Search Console. Choose `caelest.is` once it is verified, or leave it empty.
 
