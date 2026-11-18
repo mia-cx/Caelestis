@@ -134,7 +134,8 @@ export const templateAsWplace = async (
   return new Blob([`${JSON.stringify(record, null, 2)}\n`], { type: 'application/json' })
 }
 
-export const wplaceFilename = (name: string): string => {
+/** A safe download filename for a template, with its extension replaced by `extension`. */
+export const exportFilename = (name: string, extension: 'wplace' | 'png'): string => {
   const withoutExtension = name.replace(/\.[^.]+$/, '')
   const base = [...withoutExtension]
     .map((character) =>
@@ -142,5 +143,5 @@ export const wplaceFilename = (name: string): string => {
     )
     .join('')
     .trim()
-  return `${base.length === 0 ? 'template' : base}.wplace`
+  return `${base.length === 0 ? 'template' : base}.${extension}`
 }

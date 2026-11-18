@@ -72,7 +72,7 @@ import {
 import { centreOf, navigateTo } from '../templates/navigate.js'
 import { nodeChainVisible, serverNodeParents } from '../templates/server-nodes.js'
 import { serverTemplateKey } from '../templates/server-sync.js'
-import { templateAsWplace, wplaceFilename } from '../templates/wplace-export.js'
+import { exportFilename, templateAsWplace } from '../templates/wplace-export.js'
 import { openTemplateBackfill } from '../ui/backfill.js'
 import { confirmDestructive } from '../ui/confirm.js'
 import { toast } from '../ui/toast.js'
@@ -316,12 +316,13 @@ const download = (file: Blob, filename: string): void => {
   setTimeout(() => URL.revokeObjectURL(url), 0)
 }
 
-const exportTemplate = async (target: TreeTarget): Promise<void> => {
+/** `.wplace` carries placement and authoring for Wplace and Caelestis; `.png` is the artwork alone. */
+const exportTemplate = async (target: TreeTarget, format: 'wplace' | 'png'): Promise<void> => {
   const localId = localTemplateId(target)
   const id =
     localId ??
     (target.server !== null && target.templateId !== undefined
-      ? serverTemplateKey(target.server.url, target.templateId)
+      ? serverTemplateKey(target.server.url, target.templateId, surfaceOf(target))
       : null)
   const template = id === null ? undefined : templateById(id)
   if (template === undefined) {
@@ -335,12 +336,15 @@ const exportTemplate = async (target: TreeTarget): Promise<void> => {
 
   toast(`Preparing “${template.name}”…`)
   try {
-    const file = await templateAsWplace(template, await authoringOf(template))
+    const file =
+      format === 'png'
+        ? await templateAsPng(template)
+        : await templateAsWplace(template, await authoringOf(template))
     if (file === null) {
       toast(`“${template.name}” changed while it was being exported. Try again.`, 'warning')
       return
     }
-    download(file, wplaceFilename(template.name))
+    download(file, exportFilename(template.name, format))
     toast(`Exported “${template.name}”.`)
   } catch (error) {
     warn('install', `could not export ${template.name}`, String(error))
@@ -1243,11 +1247,10 @@ export const openContextMenu = (
     danger: true,
     run: () => void applyDelete(target, rerender),
   }
-  const exportEntry: MenuEntry = {
-    icon: 'download',
-    label: 'Export .wplace',
-    run: () => void exportTemplate(target),
-  }
+  const exportEntries: MenuEntry[] = [
+    { icon: 'download', label: 'Export .wplace', run: () => void exportTemplate(target, 'wplace') },
+    { icon: 'download', label: 'Export .png', run: () => void exportTemplate(target, 'png') },
+  ]
   const showOnly = target.showOnly
   const showOnlyEntry: MenuEntry | null =
     showOnly === undefined
@@ -1326,7 +1329,7 @@ export const openContextMenu = (
     // template: it can be moved between folders, published, and replaced with new artwork.
     target.templateId !== undefined
       ? target.server === null || !hasServerAdminToken(target.server)
-        ? { organise: [exportEntry] }
+        ? { organise: exportEntries }
         : {
             organise: [
               {
@@ -1334,7 +1337,7 @@ export const openContextMenu = (
                 label: 'Move to folder',
                 run: () => void moveServerTemplate(target, rerender),
               },
-              exportEntry,
+              ...exportEntries,
             ],
             publish: [
               published
@@ -1440,7 +1443,7 @@ export const openContextMenu = (
                 label: 'Copy to a server',
                 run: () => void copyToServer(templateId, rerender),
               },
-              exportEntry,
+              ...exportEntries,
             ],
             artwork: [
               { icon: 'reset', label: 'Use canvas artwork', run: updateArtwork },
