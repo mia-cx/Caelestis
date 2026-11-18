@@ -150,8 +150,8 @@ jobs:
         uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2
         with:
           version-script: pnpm release:version
-          commit-message: "chore(release): version apps"
-          pr-title: "chore(release): version apps"
+          commit-message: 'chore(release): version apps'
+          pr-title: 'chore(release): version apps'
           pr-base-branch: main
           create-github-releases: false
           push-git-tags: false

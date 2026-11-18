@@ -122,7 +122,7 @@ describe('template studio', () => {
       surface: WORLD_TEMPLATE_SURFACE,
       save: async () => true,
     })
-    const fit = (look: 'fitted' | 'vivid'): EffectLayer => ({
+    const paletteFit = (look: 'fitted' | 'vivid'): EffectLayer => ({
       id: 'fit',
       name: 'Palette fit',
       step: {
@@ -139,14 +139,14 @@ describe('template studio', () => {
       const step = templateStudioModel().effects[0]?.step
       return step?.effect === 'palette-fit' ? step : undefined
     }
-    handleTemplateStudioIntent({ type: 'effects', effects: [fit('vivid')] })
+    handleTemplateStudioIntent({ type: 'effects', effects: [paletteFit('vivid')] })
     handleTemplateStudioIntent({ type: 'analyse-fit', layer: 'fit' })
     const vivid = (await analysed())?.curves
     expect(vivid).not.toBeNull()
 
-    handleTemplateStudioIntent({ type: 'effects', effects: [fit('fitted')] })
+    handleTemplateStudioIntent({ type: 'effects', effects: [paletteFit('fitted')] })
     handleTemplateStudioIntent({ type: 'analyse-fit', layer: 'fit' })
-    handleTemplateStudioIntent({ type: 'effects', effects: [fit('vivid')] })
+    handleTemplateStudioIntent({ type: 'effects', effects: [paletteFit('vivid')] })
     expect(await analysed()).toMatchObject({ look: 'vivid', curves: vivid })
   })
 

@@ -327,7 +327,7 @@ export const rankLeaderboard = (
       placed: entry.placed + day.placed,
       correct: entry.correct + day.correct,
       repairs: entry.repairs + day.repairs,
-      lastDay: day.day > entry.lastDay ? day.day : entry.lastDay,
+      lastDay: seconds(Math.max(day.day, entry.lastDay)),
     })
   }
   return [...byUser.values()]

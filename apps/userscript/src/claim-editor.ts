@@ -1515,7 +1515,7 @@ const onPointerMove = (event: PointerEvent): void => {
       let sy = spanY === 0 ? 1 : keep(point.y - anchor.y, spanY) / spanY
       if (event.shiftKey) {
         // Shift keeps the proportions, following whichever axis was pulled further.
-        const uniform = Math.abs(sx) >= Math.abs(sy) ? Math.abs(sx) : Math.abs(sy)
+        const uniform = Math.max(Math.abs(sx), Math.abs(sy))
         sx = Math.sign(sx) * uniform
         sy = Math.sign(sy) * uniform
       }
