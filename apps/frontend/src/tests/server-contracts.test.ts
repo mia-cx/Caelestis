@@ -141,6 +141,21 @@ describe('server-side read boundaries', () => {
     expect(resolve).not.toHaveBeenCalled()
   })
 
+  it('forwards the former dashboard host to caelest.is', async () => {
+    const resolve = vi.fn()
+    const event = requestEvent(
+      'https://caelestis.mia.cx/folder/abc?view=grid',
+      vi.fn<typeof fetch>(),
+    )
+    const response = await handle({ event, resolve })
+
+    expect([response.status, response.headers.get('location')]).toEqual([
+      308,
+      'https://caelest.is/folder/abc?view=grid',
+    ])
+    expect(resolve).not.toHaveBeenCalled()
+  })
+
   it('proxy forwards conditional reads but removes headers describing compressed upstream bytes', async () => {
     const fetcher = vi.fn<typeof fetch>(async (_input, init) => {
       expect(new Headers(init?.headers).get('if-none-match')).toBe('"version"')
