@@ -69,8 +69,7 @@ const cumulativeAt = (run: readonly RunPoint[], t: number): number => {
   }
   const before = run[low]
   const after = run[high]
-  if (before === undefined || after === undefined || after.t === before.t)
-    return before?.total ?? 0
+  if (before === undefined || after === undefined || after.t === before.t) return before?.total ?? 0
   return before.total + ((after.total - before.total) * (t - before.t)) / (after.t - before.t)
 }
 
