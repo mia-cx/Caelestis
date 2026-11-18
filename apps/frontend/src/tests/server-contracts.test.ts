@@ -141,19 +141,108 @@ describe('server-side read boundaries', () => {
     expect(resolve).not.toHaveBeenCalled()
   })
 
-  it('forwards the former dashboard host to caelest.is', async () => {
-    const resolve = vi.fn()
-    const event = requestEvent(
-      'https://caelestis.mia.cx/folder/abc?view=grid',
-      vi.fn<typeof fetch>(),
-    )
-    const response = await handle({ event, resolve })
+  describe('former dashboard host', () => {
+    /** localStorage stand-in: own enumerable keys are the entries, like the real Storage. */
+    class MemoryStorage {
+      [key: string]: unknown
+      constructor(entries: Record<string, string>) {
+        Object.assign(this, entries)
+      }
+      getItem(key: string) {
+        return Object.hasOwn(this, key) ? (this[key] as string) : null
+      }
+      setItem(key: string, value: string) {
+        this[key] = value
+      }
+    }
 
-    expect([response.status, response.headers.get('location')]).toEqual([
-      308,
-      'https://caelest.is/folder/abc?view=grid',
-    ])
-    expect(resolve).not.toHaveBeenCalled()
+    /** Run a handoff page's inline script; report where it navigated or what form it posted. */
+    const runPage = async (response: Response, storage: MemoryStorage) => {
+      const script = (await response.text()).match(/<script>([\s\S]*)<\/script>/)?.[1] ?? ''
+      const result: { replaced?: string; posted?: { action: string; fields: FormData } } = {}
+      const document = {
+        body: { append: () => {} },
+        createElement: () => {
+          const element = {
+            action: '',
+            inputs: [] as { name: string; value: string }[],
+            append: (input: { name: string; value: string }) => element.inputs.push(input),
+            submit: () => {
+              const fields = new FormData()
+              for (const { name, value } of element.inputs) fields.set(name, value)
+              result.posted = { action: element.action, fields }
+            },
+          }
+          return element
+        },
+      }
+      const location = { replace: (url: string) => (result.replaced = url) }
+      new Function('localStorage', 'location', 'document', script)(storage, location, document)
+      return result
+    }
+
+    const visit = (url: string, init: RequestInit = {}) =>
+      handle({ event: requestEvent(url, vi.fn<typeof fetch>(), init), resolve: vi.fn() })
+    const pageVisit = (url: string) => visit(url, { headers: { 'sec-fetch-dest': 'document' } })
+    const move = (fields: FormData, origin = 'https://caelestis.mia.cx') =>
+      visit('https://caelest.is/moved', { method: 'POST', body: fields, headers: { origin } })
+
+    it('redirects crawlers and non-page requests with a 308', async () => {
+      const response = await visit('https://caelestis.mia.cx/folder/abc?view=grid')
+
+      expect([response.status, response.headers.get('location')]).toEqual([
+        308,
+        'https://caelest.is/folder/abc?view=grid',
+      ])
+    })
+
+    it('sends a visitor without saved state straight to the same page on caelest.is', async () => {
+      const response = await pageVisit('https://caelestis.mia.cx/folder/abc?view=grid')
+
+      expect(await runPage(response, new MemoryStorage({ unrelated: 'x' }))).toEqual({
+        replaced: 'https://caelest.is/folder/abc?view=grid',
+      })
+    })
+
+    it('carries the saved connection and preferences to caelest.is', async () => {
+      const old = new MemoryStorage({
+        'caelestis:server': 'https://raid.example/backend',
+        'caelestis:token': 'secret',
+        'caelestis:theme': 'caelestis-dark',
+        unrelated: 'x',
+      })
+      const { posted } = await runPage(await pageVisit('https://caelestis.mia.cx/folder/abc'), old)
+      expect(posted?.action).toBe('https://caelest.is/moved')
+
+      const current = new MemoryStorage({ 'caelestis:theme': 'caelestis' })
+      const arrival = await runPage(await move(posted?.fields ?? new FormData()), current)
+
+      expect(arrival.replaced).toBe('/folder/abc')
+      expect({ ...current }).toEqual({
+        'caelestis:server': 'https://raid.example/backend',
+        'caelestis:token': 'secret',
+        'caelestis:theme': 'caelestis',
+      })
+    })
+
+    it('never pairs a carried token with a server caelest.is already holds', async () => {
+      const fields = new FormData()
+      fields.set('storage', JSON.stringify({ 'caelestis:token': 'secret' }))
+      fields.set('to', '//evil.example/')
+      const current = new MemoryStorage({ 'caelestis:server': 'https://other.example' })
+
+      const arrival = await runPage(await move(fields), current)
+
+      expect(arrival.replaced).toBe('/')
+      expect({ ...current }).toEqual({ 'caelestis:server': 'https://other.example' })
+    })
+
+    it('refuses state posted from any other origin', async () => {
+      const fields = new FormData()
+      fields.set('storage', JSON.stringify({ 'caelestis:server': 'https://evil.example' }))
+
+      expect((await move(fields, 'https://evil.example')).status).toBe(403)
+    })
   })
 
   it('proxy forwards conditional reads but removes headers describing compressed upstream bytes', async () => {

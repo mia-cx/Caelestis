@@ -63,6 +63,8 @@ export default defineConfig(({ command }) => {
         },
 
         adapter: node ? nodeAdapter({ out: 'build' }) : adapter(),
+        // The former dashboard host posts saved browser state to /moved (see dashboard-move.ts).
+        csrf: { trustedOrigins: ['https://caelestis.mia.cx'] },
       }),
     ],
   }

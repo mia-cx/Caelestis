@@ -1,19 +1,24 @@
 import { env } from 'cloudflare:workers'
 import { R2ObjectStorage } from '@caelestis/storage/r2'
 import type { Handle } from '@sveltejs/kit/hooks'
+import {
+  DASHBOARD_ORIGIN,
+  FORMER_DASHBOARD_ORIGIN,
+  leaveFormerHost,
+  MOVE_PATH,
+  receiveMove,
+} from '#lib/server/dashboard-move.js'
 import { dev } from '$app/env'
 
 /** The Caelestis docs site. Every dashboard forwards its `/docs` paths there. */
 const DOCS_ORIGIN = 'https://docs.caelest.is'
-/** The official dashboard. Its former host forwards here, so search engines index one origin. */
-const DASHBOARD_ORIGIN = 'https://caelest.is'
-const FORMER_DASHBOARD_HOST = 'caelestis.mia.cx'
 
 /** Resolve host config once, so routes read `locals` alone on either host. */
 export const handle: Handle = ({ event, resolve }) => {
-  const { hostname, pathname, search } = event.url
-  if (hostname === FORMER_DASHBOARD_HOST) {
-    return Response.redirect(`${DASHBOARD_ORIGIN}${pathname}${search}`, 308)
+  const { origin, pathname, search } = event.url
+  if (origin === FORMER_DASHBOARD_ORIGIN) return leaveFormerHost(event.request, event.url)
+  if (origin === DASHBOARD_ORIGIN && pathname === MOVE_PATH && event.request.method === 'POST') {
+    return receiveMove(event.request)
   }
   if (pathname === '/docs' || pathname.startsWith('/docs/')) {
     const path = pathname.slice('/docs'.length) || '/'
