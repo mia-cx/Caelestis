@@ -67,10 +67,7 @@ export const showPickCell = (x: number, y: number, index: number): void => {
   projectingMap()?.triggerRepaint?.()
 }
 
-/**
- * The screen box around the cell in framebuffer pixels, origin bottom-left as `scissor` takes it.
- * It bounds all four projected corners, so a rotated or pitched map still covers the whole cell.
- */
+/** The cell's rectangle in framebuffer pixels, origin bottom-left as `scissor` takes it. */
 const cellRect = (
   map: ProjectingMap,
   x: number,
@@ -81,21 +78,16 @@ const cellRect = (
   const scale = canvas.width / canvas.clientWidth
   // The world repeats horizontally; project the copy nearest the camera.
   const centre = map.getCenter().lng
-  const corners = [
-    [x, y],
-    [x + 1, y],
-    [x, y + 1],
-    [x + 1, y + 1],
-  ].map(([cornerX = 0, cornerY = 0]) => {
+  const corner = (cornerX: number, cornerY: number): { x: number; y: number } => {
     const { lat, lng } = canvasPixelToLatLng({ x: cornerX, y: cornerY })
     return map.project([lng + 360 * Math.round((centre - lng) / 360), lat])
-  })
-  const xs = corners.map((corner) => corner.x)
-  const ys = corners.map((corner) => corner.y)
-  const left = Math.floor(Math.min(...xs) * scale)
-  const right = Math.ceil(Math.max(...xs) * scale)
-  const top = Math.floor(Math.min(...ys) * scale)
-  const bottom = Math.ceil(Math.max(...ys) * scale)
+  }
+  const a = corner(x, y)
+  const b = corner(x + 1, y + 1)
+  const left = Math.floor(Math.min(a.x, b.x) * scale)
+  const right = Math.ceil(Math.max(a.x, b.x) * scale)
+  const top = Math.floor(Math.min(a.y, b.y) * scale)
+  const bottom = Math.ceil(Math.max(a.y, b.y) * scale)
   return [left, canvas.height - bottom, right - left, bottom - top]
 }
 
