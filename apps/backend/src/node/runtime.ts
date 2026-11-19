@@ -133,7 +133,11 @@ const liveActor = <Coordinator extends LiveCoordinator>(
 export const openNodeRuntime = async (
   config: NodeConfig,
   objects: ObjectStorage,
-  options: { onOwnershipLost: (error: Error) => void; refreshSocial?: () => Promise<void> },
+  options: {
+    onOwnershipLost: (error: Error) => void
+    /** Render the share images through this server's API, read with its frontend token. */
+    refreshSocial?: (readToken: string) => Promise<void>
+  },
 ) => {
   let releaseSqlite: (() => void) | undefined
   if (config.adapter === 'sqlite') {
@@ -234,9 +238,10 @@ export const openNodeRuntime = async (
       config,
     )
 
+    const { refreshSocial } = options
     const jobs: Partial<Record<JobName, () => Promise<void>>> = {
       ...backend.jobs,
-      ...(options.refreshSocial ? { social: options.refreshSocial } : {}),
+      ...(refreshSocial ? { social: () => refreshSocial(readToken) } : {}),
     }
     const wake = async (name: string): Promise<void> => {
       const actor = parseWoken(name)
