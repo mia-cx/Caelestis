@@ -1,8 +1,8 @@
 import { resolveShortcutBindings } from '@caelestis/shared'
 import { mount, unmount } from 'svelte'
 import { afterEach, describe, expect, it } from 'vitest'
+import type { SettingsIntent, SettingsModel } from '../src/settings/model.js'
 import SettingsPanel from '../src/settings/SettingsPanel.svelte'
-import type { SettingsIntent, SettingsModel } from '../src/types.js'
 
 const mounted: object[] = []
 afterEach(async () => {

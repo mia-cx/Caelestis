@@ -1,7 +1,7 @@
 <script lang="ts">
   import MenuStyles from '../foundations/MenuStyles.svelte'
   import { onMount, tick } from 'svelte'
-  import type { TemplateTreeModel } from '../types.js'
+  import type { TemplateTreeModel } from './model.js'
   import Icon from '../foundations/Icon.svelte'
 
   let { options, selected, active, onChange }: {

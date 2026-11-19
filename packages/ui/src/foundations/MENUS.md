@@ -4,9 +4,9 @@ Render MenuStyles in components that own a select or menu. Svelte installs its C
 document or shadow root. Use `caelestis-select` on native selects, `caelestis-menu` on custom
 menu containers, and `caelestis-menu-item` on their choices.
 
-MenuStyles owns borders, 0.5rem outer corners, 0.25rem option corners, padding, typography,
-hover/focus states, and shadows. Component styles own placement and width. Menu corners remain
-compact regardless of Wplace's field and card radius settings.
+MenuStyles owns borders, corners, padding, typography, hover/focus states, and shadows. Component
+styles own placement and width. Menus and their options follow `--caelestis-radius` like every
+other surface.
 
 Use `caelestis-menu-separator` for the hairline between groups of related actions. Render one only
 between two non-empty groups, never at either end of a menu. A submenu is another `caelestis-menu`

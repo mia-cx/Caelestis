@@ -23,7 +23,7 @@ import {
   templateSurfaceKey,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
-import { DEFAULT_STUDIO_LAYOUT, parseStudioLayout, type StudioLayout } from '@caelestis/ui/elements'
+import { DEFAULT_STUDIO_LAYOUT, parseStudioLayout, type StudioLayout } from '@caelestis/ui/studio'
 import { userscriptClientHeaders } from './client-metrics.js'
 import { log, warn } from './debug.js'
 import { DEFAULT_MARKER_BUDGET, normaliseMarkerBudget } from './marker-budget.js'

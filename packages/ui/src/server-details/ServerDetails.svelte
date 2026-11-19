@@ -10,33 +10,24 @@
     type ServerAssetKind,
     sniffServerAssetContentType,
   } from '@caelestis/shared'
-  import { onMount } from 'svelte'
   import Button from '../foundations/Button.svelte'
   import Icon from '../foundations/Icon.svelte'
-  import type { ServerDetailsFields, ServerDetailsIntent, ServerDetailsModel } from '../types.js'
+  import Modal from '../foundations/Modal.svelte'
+  import type { ServerDetailsFields, ServerDetailsIntent, ServerDetailsModel } from './model.js'
 
   let {
     model,
     onIntent,
   }: { model: ServerDetailsModel; onIntent?: (intent: ServerDetailsIntent) => void } = $props()
 
-  let dialog: HTMLDialogElement
   let name = $state('')
   let description = $state('')
   let discordInviteUrl = $state('')
   let homeCopy = $state('')
   let logoText = $state('')
   let validation = $state('')
-  // A drag that starts on an input and ends outside the panel fires `click` on the dialog itself.
-  // Only a press that began on the backdrop counts as a backdrop click.
-  let backdropPress = false
   const savedRevision = $derived(model.revision)
   const emit = (intent: ServerDetailsIntent): void => onIntent?.(intent)
-
-  onMount(() => {
-    dialog.showModal()
-    return () => dialog.close()
-  })
 
   // Re-seed the form from the model after every committed write, and never while typing.
   $effect(() => {
@@ -86,6 +77,25 @@
     emit({ type: 'save', fields })
   }
 
+  const assets = $derived([
+    {
+      kind: 'logo',
+      legend: 'Logo image',
+      url: model.logoImageUrl,
+      alt: 'Current logo',
+      empty: 'No logo image. The header shows the logo text.',
+      hint: 'PNG, JPEG, WebP or GIF.',
+    },
+    {
+      kind: 'preview',
+      legend: 'Link preview image',
+      url: model.previewImageUrl,
+      alt: 'Current link preview',
+      empty: 'No preview image. Links use the Caelestis artwork.',
+      hint: 'Used by Discord and other link previews for the home page. 1200 × 630 works best.',
+    },
+  ] as const)
+
   const limitLabel = (kind: ServerAssetKind): string =>
     `${Math.round(SERVER_ASSET_MAX_BYTES[kind] / 1024)} KiB`
 
@@ -107,15 +117,7 @@
   }
 </script>
 
-<dialog
-  bind:this={dialog}
-  class="caelestis-panel-surface"
-  aria-labelledby="server-details-title"
-  aria-describedby="server-details-owner"
-  oncancel={(event) => { event.preventDefault(); emit({ type: 'close' }) }}
-  onpointerdown={(event) => { backdropPress = event.target === dialog }}
-  onclick={(event) => { if (backdropPress && event.target === dialog) emit({ type: 'close' }); backdropPress = false }}
->
+<Modal labelledby="server-details-title" describedby="server-details-owner" width="32rem" onClose={() => emit({ type: 'close' })}>
   <form class="content" onsubmit={(event) => { event.preventDefault(); save() }}>
     <header>
       <div>
@@ -154,47 +156,28 @@
         <small>Header text when no logo image is set. Leave empty to use the name.</small>
       </label>
 
-      <fieldset>
-        <legend>Logo image</legend>
-        <div class="asset">
-          {#if model.logoImageUrl !== null}
-            <img src={model.logoImageUrl} alt="Current logo" class="logo" />
-          {:else}
-            <span class="empty">No logo image. The header shows the logo text.</span>
-          {/if}
-          <div class="row">
-            <label class="file">
-              <input type="file" accept={SERVER_ASSET_CONTENT_TYPES.join(',')} disabled={model.busy} onchange={(event) => void upload('logo', event.currentTarget)} />
-              <span>{model.logoImageUrl === null ? 'Upload logo' : 'Replace logo'}</span>
-            </label>
-            {#if model.logoImageUrl !== null}
-              <Button label="Remove logo" size="small" kind="danger-ghost" disabled={model.busy} onclick={() => emit({ type: 'clear-asset', kind: 'logo' })} />
+      {#each assets as asset (asset.kind)}
+        <fieldset>
+          <legend>{asset.legend}</legend>
+          <div class="asset">
+            {#if asset.url !== null}
+              <img src={asset.url} alt={asset.alt} class={asset.kind} />
+            {:else}
+              <span class="empty">{asset.empty}</span>
             {/if}
+            <div class="row">
+              <label class="file">
+                <input type="file" accept={SERVER_ASSET_CONTENT_TYPES.join(',')} disabled={model.busy} onchange={(event) => void upload(asset.kind, event.currentTarget)} />
+                <span>{asset.url === null ? `Upload ${asset.kind}` : `Replace ${asset.kind}`}</span>
+              </label>
+              {#if asset.url !== null}
+                <Button label={`Remove ${asset.kind}`} size="small" kind="danger-ghost" disabled={model.busy} onclick={() => emit({ type: 'clear-asset', kind: asset.kind })} />
+              {/if}
+            </div>
+            <small>{asset.hint} At most {limitLabel(asset.kind)}.</small>
           </div>
-          <small>PNG, JPEG, WebP or GIF, at most {limitLabel('logo')}.</small>
-        </div>
-      </fieldset>
-
-      <fieldset>
-        <legend>Link preview image</legend>
-        <div class="asset">
-          {#if model.previewImageUrl !== null}
-            <img src={model.previewImageUrl} alt="Current link preview" class="preview" />
-          {:else}
-            <span class="empty">No preview image. Links use the Caelestis artwork.</span>
-          {/if}
-          <div class="row">
-            <label class="file">
-              <input type="file" accept={SERVER_ASSET_CONTENT_TYPES.join(',')} disabled={model.busy} onchange={(event) => void upload('preview', event.currentTarget)} />
-              <span>{model.previewImageUrl === null ? 'Upload preview' : 'Replace preview'}</span>
-            </label>
-            {#if model.previewImageUrl !== null}
-              <Button label="Remove preview" size="small" kind="danger-ghost" disabled={model.busy} onclick={() => emit({ type: 'clear-asset', kind: 'preview' })} />
-            {/if}
-          </div>
-          <small>Used by Discord and other link previews for the home page. 1200 × 630 works best. At most {limitLabel('preview')}.</small>
-        </div>
-      </fieldset>
+        </fieldset>
+      {/each}
     </div>
     <footer>
       {#if model.busy}<p class="saving" role="status">Saving…</p>{/if}
@@ -202,43 +185,9 @@
       <Button type="submit" label="Save details" size="small" kind="primary" disabled={model.busy || !dirty} />
     </footer>
   </form>
-</dialog>
+</Modal>
 
 <style>
-  dialog {
-    --modal-open-dur: var(--caelestis-duration-fast);
-    --modal-close-dur: var(--caelestis-duration-quick);
-    --modal-scale: var(--caelestis-scale-large);
-    --modal-scale-close: var(--caelestis-scale-large);
-    --modal-ease: var(--caelestis-ease-smooth-out);
-    box-sizing: border-box; inline-size: min(32rem, calc(100vw - 2rem)); max-block-size: calc(100dvh - 2rem); padding: 0; border: 1px solid color-mix(in oklab, var(--caelestis-text) 20%, transparent); border-radius: var(--caelestis-box-radius, var(--caelestis-radius, 1rem)); background: var(--caelestis-surface, white); color: var(--caelestis-text, #222); box-shadow: 0 1rem 3rem #0004; font: 0.875rem/1.4 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
-    transform-origin: center;
-    transform: scale(var(--modal-scale));
-    opacity: 0;
-    pointer-events: none;
-    transition:
-      transform var(--modal-close-dur) var(--modal-ease),
-      opacity   var(--modal-close-dur) var(--modal-ease),
-      overlay   var(--modal-close-dur) var(--modal-ease) allow-discrete,
-      display   var(--modal-close-dur) var(--modal-ease) allow-discrete;
-    will-change: transform, opacity;
-  }
-  dialog[open] {
-    transform: scale(1);
-    opacity: 1;
-    pointer-events: auto;
-    transition:
-      transform var(--modal-open-dur) var(--modal-ease),
-      opacity   var(--modal-open-dur) var(--modal-ease),
-      overlay   var(--modal-open-dur) var(--modal-ease),
-      display   var(--modal-open-dur) var(--modal-ease) allow-discrete;
-    @starting-style { transform: scale(var(--modal-scale)); opacity: 0; }
-  }
-  dialog::backdrop { background: #0006; opacity: 0; transition: opacity var(--modal-close-dur) var(--modal-ease), overlay var(--modal-close-dur) var(--modal-ease) allow-discrete, display var(--modal-close-dur) var(--modal-ease) allow-discrete; }
-  dialog[open]::backdrop { opacity: 1; transition-duration: var(--modal-open-dur); @starting-style { opacity: 0; } }
-  @media (prefers-reduced-motion: reduce) {
-    dialog, dialog::backdrop { transition: none !important; }
-  }
   .content { display: flex; flex-direction: column; max-block-size: calc(100dvh - 2rem); margin: 0; }
   header { display: flex; align-items: start; justify-content: space-between; gap: 0.75rem; padding: 1rem; border-block-end: 1px solid color-mix(in oklab, currentColor 12%, transparent); }
   header > div { min-inline-size: 0; }
@@ -248,14 +197,14 @@
   label:not(.file) { display: flex; flex-direction: column; gap: 0.25rem; }
   label > span:first-child, legend { font-weight: 600; }
   small { opacity: 0.7; }
-  input:not([type='file']), textarea { box-sizing: border-box; inline-size: 100%; font: inherit; color: inherit; border: 1px solid color-mix(in oklab, currentColor 25%, transparent); border-radius: var(--caelestis-field-radius, 0.5rem); padding: 0.375rem 0.625rem; background: var(--caelestis-raised-surface, #f4f4f4); }
+  input:not([type='file']), textarea { box-sizing: border-box; inline-size: 100%; font: inherit; color: inherit; border: 1px solid color-mix(in oklab, currentColor 25%, transparent); border-radius: 0.5rem; padding: 0.375rem 0.625rem; background: var(--caelestis-raised-surface, #f4f4f4); }
   textarea { resize: vertical; min-block-size: 3rem; }
   input:focus-visible, textarea:focus-visible, .file:has(input:focus-visible) { outline: 2px solid var(--caelestis-primary, #467ee5); outline-offset: 2px; }
   input:disabled, textarea:disabled { opacity: 0.5; }
-  fieldset { margin: 0; padding: 0.625rem 0.75rem 0.75rem; border: 1px solid color-mix(in oklab, currentColor 15%, transparent); border-radius: var(--caelestis-field-radius, 0.5rem); }
+  fieldset { margin: 0; padding: 0.625rem 0.75rem 0.75rem; border: 1px solid color-mix(in oklab, currentColor 15%, transparent); border-radius: 0.5rem; }
   .asset { display: flex; flex-direction: column; gap: 0.5rem; }
   .row { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
-  .file { position: relative; display: inline-flex; align-items: center; block-size: 2rem; padding-inline: 0.75rem; border: 1px solid color-mix(in oklab, currentColor 25%, transparent); border-radius: var(--caelestis-field-radius, 0.5rem); cursor: pointer; }
+  .file { position: relative; display: inline-flex; align-items: center; block-size: 2rem; padding-inline: 0.75rem; border: 1px solid color-mix(in oklab, currentColor 25%, transparent); border-radius: 0.5rem; cursor: pointer; }
   .file input { position: absolute; inset: 0; opacity: 0; cursor: pointer; inline-size: 100%; }
   .file:has(input:disabled) { opacity: 0.5; cursor: default; }
   img { display: block; background: repeating-conic-gradient(#8884 0 25%, transparent 0 50%) 0 0 / 1rem 1rem; border-radius: 0.375rem; }

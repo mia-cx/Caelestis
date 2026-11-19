@@ -1,5 +1,5 @@
 import type { BackfillPreview, BackfillProgress, FolderBackfillPreview } from '@caelestis/shared'
-import { BACKFILL_TAG, type BackfillIntent, type BackfillModel } from '@caelestis/ui/elements'
+import type { BackfillModel } from '@caelestis/ui/elements'
 import {
   activeServerToken,
   hasServerAdminToken,
@@ -36,7 +36,7 @@ export const openBackfill = (target: TreeTarget): void => {
   )
     return
   closeBackfill?.()
-  const element = document.createElement(BACKFILL_TAG)
+  const element = document.createElement('caelestis-backfill')
   let focused = document.activeElement
   while (focused?.shadowRoot?.activeElement) focused = focused.shadowRoot.activeElement
   const focusRoot = focused?.getRootNode()
@@ -183,7 +183,7 @@ export const openBackfill = (target: TreeTarget): void => {
   applyWplaceTheme(element)
   element.addEventListener('caelestis-backfill-intent', (event) => {
     if (closed) return
-    const intent = (event as CustomEvent<BackfillIntent>).detail
+    const intent = event.detail
     if (intent.type === 'close') close()
     else if (intent.type === 'select') update({ selectedSnapshot: intent.snapshotId })
     else if (intent.type === 'reload') {

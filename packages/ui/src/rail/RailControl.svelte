@@ -1,26 +1,8 @@
 <script lang="ts">
-  import Icon, { type IconName } from '../foundations/Icon.svelte'
-  import type { RailControlIntent, RailControlModel } from '../types.js'
+  import Icon from '../foundations/Icon.svelte'
+  import type { RailControlModel } from './model.js'
 
-  let { model, onIntent }: { model: RailControlModel; onIntent?: (intent: RailControlIntent) => void } = $props()
-
-  const icons: Record<RailControlModel['id'], IconName> = {
-    panel: 'extension',
-    more: 'kebab',
-    'alliance-panel': 'extension',
-    colour: 'palette',
-    mismatch: 'bug',
-    claim: 'shapes',
-    presence: 'painters',
-    'overlay-menu': 'kebab',
-    'overlay-finished': 'check',
-    'overlay-frozen': 'snowflake',
-    'overlay-visible': 'image',
-    'overlay-move': 'move',
-    'overlay-delete': 'trash',
-    'placement-apply': 'check',
-    'placement-cancel': 'close',
-  }
+  let { model }: { model: RailControlModel } = $props()
 </script>
 
 <button
@@ -36,10 +18,8 @@
   aria-controls={model.controls}
   aria-haspopup={model.popup}
   aria-disabled={model.disabled}
-  data-caelestis-control={model.control}
-  onclick={() => onIntent?.({ type: 'activate', id: model.id })}
 >
-  <Icon name={icons[model.id]} size="1.25rem" />
+  <Icon name={model.icon} size="1.25rem" />
   {#if model.badge !== undefined && model.badge > 0}
     <span class="badge" aria-label={`${model.badge} new alarms`}>{model.badge}</span>
   {/if}
@@ -52,11 +32,11 @@
     position: relative;
     display: grid;
     place-items: center;
-    inline-size: var(--caelestis-touch-target, 2.5rem);
-    block-size: var(--caelestis-touch-target, 2.5rem);
+    inline-size: var(--caelestis-touch-target);
+    block-size: var(--caelestis-touch-target);
     padding: 0;
     border: var(--border, 1px) solid color-mix(in oklab, var(--button-colour), #000 calc(var(--depth, 1) * 5%));
-    border-radius: var(--caelestis-pill-radius, 999px);
+    border-radius: var(--caelestis-pill-radius);
     outline-color: var(--button-colour);
     background: var(--button-colour);
     color: var(--caelestis-text, oklch(0.91 0.015 264));
@@ -71,12 +51,12 @@
   @media (hover: hover) { button:hover:not([aria-disabled='true']) { --button-colour: color-mix(in oklab, var(--button-base-colour), #000 7%); } }
   button:active:not([aria-disabled='true']) { translate: 0 0.5px; box-shadow: none; }
   button:focus-visible { outline: 2px solid var(--button-colour, var(--caelestis-focus, currentColor)); outline-offset: 2px; }
-  .badge { position: absolute; inset-block-start: -0.35rem; inset-inline-end: -0.35rem; display: grid; place-items: center; min-inline-size: 1.2rem; block-size: 1.2rem; padding-inline: 0.25rem; border: 2px solid var(--button-colour); border-radius: var(--caelestis-pill-radius, 999px); background: var(--caelestis-danger, oklch(0.72 0.18 27)); color: white; font: 800 0.65rem/1 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); }
+  .badge { position: absolute; inset-block-start: -0.35rem; inset-inline-end: -0.35rem; display: grid; place-items: center; min-inline-size: 1.2rem; block-size: 1.2rem; padding-inline: 0.25rem; border: 2px solid var(--button-colour); border-radius: var(--caelestis-pill-radius); background: var(--caelestis-danger, oklch(0.72 0.18 27)); color: white; font: 800 0.65rem/1 var(--caelestis-font); }
   @media (prefers-reduced-motion: no-preference) { button { transition: color 200ms, background-color 200ms, border-color 200ms, box-shadow 200ms, translate 200ms; } }
 
   /* Pixel chrome: square bevel flush with Wplace's own rail buttons. */
   :host([data-caelestis-style='pixel']) button {
-    --bevel-size: var(--caelestis-touch-target, 2.5rem);
+    --bevel-size: var(--caelestis-touch-target);
     border-radius: 0;
     box-shadow: 3px 3px 0 var(--caelestis-pixel-shadow);
   }

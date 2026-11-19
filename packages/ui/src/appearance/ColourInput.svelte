@@ -4,7 +4,7 @@
   const clamp = (value: number, min: number, max: number): number =>
     Math.min(max, Math.max(min, value))
 
-  export const hexToHsv = (hex: string): Hsv => {
+  const hexToHsv =(hex: string): Hsv => {
     const match = /^#?([0-9a-f]{6})$/i.exec(hex.trim())
     if (match?.[1] === undefined) return { h: 0, s: 0, v: 0 }
     const value = Number.parseInt(match[1], 16)
@@ -23,7 +23,7 @@
     return { h, s: max === 0 ? 0 : span / max, v: max }
   }
 
-  export const hsvToHex = ({ h, s, v }: Hsv): string => {
+  const hsvToHex =({ h, s, v }: Hsv): string => {
     const channel = (offset: number): number => {
       const k = (offset + h / 60) % 6
       return v - v * s * Math.max(0, Math.min(k, 4 - k, 1))
@@ -35,7 +35,8 @@
 </script>
 
 <script lang="ts">
-  import { tick } from 'svelte'
+  import { onDestroy, tick } from 'svelte'
+  import { commitOnGestureEnd } from '../foundations/gesture.js'
 
   interface Props {
     label: string
@@ -43,9 +44,11 @@
     disabled?: boolean
     onPreview?: (value: string) => void
     onCommit?: (value: string) => void
+    /** The picker opened or closed, including closing because the input unmounted. */
+    onOpenChange?: (open: boolean) => void
   }
 
-  let { label, value, disabled = false, onPreview, onCommit }: Props = $props()
+  let { label, value, disabled = false, onPreview, onCommit, onOpenChange }: Props = $props()
   let open = $state(false)
   let anchor = $state<HTMLButtonElement>()
   let popover = $state<HTMLDivElement>()
@@ -53,8 +56,6 @@
   let hsv = $state<Hsv>({ h: 0, s: 0, v: 0 })
   let pending = $state<string | null>(null)
   let hex = $state('')
-  let squareKeyHeld = false
-  let hueKeyHeld = false
 
   const hueHex = (h: number): string => hsvToHex({ h, s: 1, v: 1 })
   const current = $derived(hsvToHex(hsv))
@@ -99,6 +100,7 @@
     hex = value
     pending = null
     open = true
+    onOpenChange?.(true)
     await tick()
     popover?.showPopover?.()
     place()
@@ -110,8 +112,11 @@
     commit()
     popover?.hidePopover?.()
     open = false
+    onOpenChange?.(false)
     if (restoreFocus) anchor?.focus()
   }
+
+  onDestroy(() => { if (open) onOpenChange?.(false) })
 
   const fromPoint = (event: PointerEvent): void => {
     if (square === undefined) return
@@ -131,7 +136,6 @@
     const delta = movement[event.key]
     if (delta === undefined) return
     event.preventDefault()
-    squareKeyHeld = true
     preview({ ...hsv, s: clamp(hsv.s + delta[0], 0, 1), v: clamp(hsv.v + delta[1], 0, 1) })
   }
 
@@ -175,7 +179,7 @@
 
   <!-- Mounted permanently: a manual popover's exit transition only runs while the node exists, so
        the top layer owns its lifetime and `hidePopover()` animates the close itself. -->
-  <div bind:this={popover} class="picker caelestis-cp caelestis-surface" data-caelestis-colour-picker popover="manual" role="dialog" aria-label={label} tabindex="-1" onpointerdown={(event) => event.stopPropagation()}>
+  <div bind:this={popover} class="picker caelestis-cp caelestis-surface" popover="manual" role="dialog" aria-label={label} tabindex="-1" onpointerdown={(event) => event.stopPropagation()}>
     <div
       bind:this={square}
       class="sv caelestis-cp-sv"
@@ -189,12 +193,8 @@
       style:background={squareBackground}
       onpointerdown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); event.currentTarget.focus(); fromPoint(event) }}
       onpointermove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) fromPoint(event) }}
-      onpointerup={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) commit() }}
-      onpointercancel={commit}
-      onlostpointercapture={commit}
       onkeydown={squareKey}
-      onkeyup={(event) => { if (squareKeyHeld && event.key.startsWith('Arrow')) { squareKeyHeld = false; commit() } }}
-      onblur={commit}
+      {@attach commitOnGestureEnd(commit)}
     >
       <span class="handle" style:left={`${hsv.s * 100}%`} style:top={`${(1 - hsv.v) * 100}%`} style:background={current}></span>
     </div>
@@ -206,11 +206,8 @@
       step="1"
       aria-label="Hue"
       value={Math.round(hsv.h)}
-      onkeydown={(event) => { if (event.key.startsWith('Arrow') || ['Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) hueKeyHeld = true }}
       oninput={(event) => preview({ ...hsv, h: Number(event.currentTarget.value) })}
-      onchange={() => { if (!hueKeyHeld) commit() }}
-      onkeyup={() => { if (hueKeyHeld) { hueKeyHeld = false; commit() } }}
-      onblur={commit}
+      {@attach commitOnGestureEnd(commit)}
     />
     <div class="bottom">
       <span class="preview" style:background={current}></span>
@@ -231,7 +228,7 @@
   </div>
 
 <style>
-  .swatch, .preview { display: block; inline-size: 1.75rem; block-size: 1.75rem; flex: 0 0 auto; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); }
+  .swatch, .preview { display: block; inline-size: 1.75rem; block-size: 1.75rem; flex: 0 0 auto; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius); }
   .swatch { padding: 0; cursor: pointer; }
   .swatch:disabled { cursor: not-allowed; opacity: 0.45; }
   .picker {
@@ -240,7 +237,7 @@
     --dropdown-pre-scale: var(--caelestis-scale-medium);
     --dropdown-closing-scale: var(--caelestis-scale-tiny);
     --dropdown-ease: var(--caelestis-ease-smooth-out);
-    position: fixed; inset: auto; z-index: 50; inline-size: min(15rem, calc(100vw - 1rem)); margin: 0; padding: 1rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-surface); color: var(--caelestis-text); box-shadow: var(--caelestis-popover-shadow, 0 1px 2px rgb(0 0 0 / 0.12), 0 10px 24px -6px rgb(0 0 0 / 0.28));
+    position: fixed; inset: auto; z-index: 50; inline-size: min(15rem, calc(100vw - 1rem)); margin: 0; padding: 1rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius); background: var(--caelestis-surface); color: var(--caelestis-text); box-shadow: var(--caelestis-popover-shadow, 0 1px 2px rgb(0 0 0 / 0.12), 0 10px 24px -6px rgb(0 0 0 / 0.28));
     /* The picker opens above the swatch it edits. */
     transform-origin: bottom center;
     transform: scale(var(--dropdown-pre-scale));
@@ -267,10 +264,10 @@
   @media (prefers-reduced-motion: reduce) {
     .picker { transition: none !important; }
   }
-  .sv { position: relative; inline-size: 100%; aspect-ratio: 1.35; overflow: hidden; border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); cursor: crosshair; touch-action: none; }
+  .sv { position: relative; inline-size: 100%; aspect-ratio: 1.35; overflow: hidden; border-radius: var(--caelestis-radius); cursor: crosshair; touch-action: none; }
   .handle { position: absolute; inline-size: 0.8rem; block-size: 0.8rem; border: 2px solid white; border-radius: 50%; box-shadow: 0 0 0 1px black; transform: translate(-50%, -50%); pointer-events: none; }
   .hue { inline-size: 100%; margin-block: 0.65rem 0.35rem; accent-color: var(--caelestis-primary); }
   .bottom { display: flex; align-items: center; gap: 0.5rem; }
-  .hex { min-inline-size: 0; flex: 1; block-size: 2rem; padding-inline: 0.5rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-raised-surface); color: inherit; font: 500 0.8rem var(--caelestis-mono-font, ui-monospace, monospace); }
+  .hex { min-inline-size: 0; flex: 1; block-size: 2rem; padding-inline: 0.5rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius); background: var(--caelestis-raised-surface); color: inherit; font: 500 0.8rem var(--caelestis-mono-font); }
   .swatch:focus-visible, .sv:focus-visible, .hue:focus-visible, .hex:focus-visible { outline: 3px solid color-mix(in oklch, var(--caelestis-focus) 55%, transparent); outline-offset: 2px; }
 </style>

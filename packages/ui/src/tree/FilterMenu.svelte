@@ -4,7 +4,7 @@
   import Icon from '../foundations/Icon.svelte'
   import Checkbox from '../foundations/Checkbox.svelte'
   import TagFilter from './TagFilter.svelte'
-  import type { TemplateTreeModel } from '../types.js'
+  import type { TemplateTreeModel } from './model.js'
 
   let { filters, serverFiltersAvailable = false, tagOptions = [], onFilter }: {
     filters: TemplateFilters

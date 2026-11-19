@@ -6,7 +6,7 @@ import {
   shortcutLabel,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
-import type { CaelestisPaletteProgress } from '@caelestis/ui/elements'
+import type { CaelestisElement } from '@caelestis/ui/elements'
 import { allianceBounds, alliancePointAt } from './alliance-coordinates.js'
 import { navigateAllianceArtboardTo } from './alliance-navigation.js'
 import { activeAllianceSurface } from './alliance-surface.js'
@@ -566,7 +566,7 @@ const render = (): void => {
     if (index === null) continue
     wire(element, index)
     const entry = progress.get(index)
-    const existing = element.querySelector<CaelestisPaletteProgress>(
+    const existing = element.querySelector<CaelestisElement<'caelestis-palette-progress'>>(
       ':scope > caelestis-palette-progress',
     )
     const remaining = entry === undefined ? 0 : Math.max(0, entry.total - entry.completed)

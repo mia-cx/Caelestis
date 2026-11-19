@@ -3,24 +3,24 @@
 <script lang="ts">
   import Panel from '../panel/Panel.svelte'
   import PixelStyles from '../foundations/PixelStyles.svelte'
-  import type { PanelIntent, PanelModel } from '../types.js'
+  import type { PanelIntent, PanelModel } from '../panel/model.js'
+  import { intentEmitter } from './registry.js'
 
-  const DEFAULT_MODEL: PanelModel = { view: 'tree', width: 360, minWidth: 260, maxWidth: 720 }
-  let { model = DEFAULT_MODEL }: { model?: PanelModel } = $props()
+  let { model }: { model?: PanelModel } = $props()
   const element: HTMLElement = $host()
+  const dispatch = intentEmitter(element, 'caelestis-panel')
 
-  $effect(() => { element.style.width = `${model.width}px` })
+  $effect(() => { if (model) element.style.width = `${model.width}px` })
 
   const emit = (detail: PanelIntent): void => {
     if (detail.type === 'resize-preview' || detail.type === 'resize-commit') {
       element.style.width = `${detail.width}px`
     }
-    element.dispatchEvent(new CustomEvent('caelestis-panel-intent', { detail, bubbles: true, composed: true }))
+    dispatch(detail)
   }
 </script>
 
-{#snippet content()}<svelte:element this={'slot'} />{/snippet}
-<div class="pane"><Panel {model} onIntent={emit} children={content} /></div>
+{#if model}<div class="pane"><Panel {model} onIntent={emit} /></div>{/if}
 
 <PixelStyles />
 

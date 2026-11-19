@@ -1,7 +1,3 @@
-<script lang="ts" module>
-  export type { IconName } from './icons.svelte.js'
-</script>
-
 <script lang="ts">
   import { activeIcons, activeIconSet, type IconName } from './icons.svelte.js'
 

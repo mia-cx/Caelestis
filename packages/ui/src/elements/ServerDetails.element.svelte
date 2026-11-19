@@ -2,12 +2,12 @@
 <script lang="ts">
   import ServerDetails from '../server-details/ServerDetails.svelte'
   import PixelStyles from '../foundations/PixelStyles.svelte'
-  import type { ServerDetailsIntent, ServerDetailsModel } from '../types.js'
-  let { model }: { model: ServerDetailsModel } = $props()
-  const element: HTMLElement = $host()
-  const emit = (detail: ServerDetailsIntent): void => { element.dispatchEvent(new CustomEvent('caelestis-server-details-intent', { detail, bubbles: true, composed: true })) }
+  import type { ServerDetailsModel } from '../server-details/model.js'
+  import { intentEmitter } from './registry.js'
+  let { model }: { model?: ServerDetailsModel } = $props()
+  const emit = intentEmitter($host(), 'caelestis-server-details')
 </script>
-<ServerDetails {model} onIntent={emit} />
+{#if model}<ServerDetails {model} onIntent={emit} />{/if}
 <PixelStyles />
 
 <style>:host { display: block; }</style>

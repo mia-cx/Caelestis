@@ -4,27 +4,15 @@
   import Icon from '../foundations/Icon.svelte'
   import SettingRow from '../foundations/SettingRow.svelte'
   import TemplateTree from '../tree/TemplateTree.svelte'
-  import type { ClaimRowModel, PanelModel, TemplateTreeIntent } from '../types.js'
+  import type { ClaimRowModel, PanelDrawersModel, PanelIntent } from './model.js'
   let {
     model,
-    onIntent,
-    onretry,
     showOtherClaims = false,
-    onshowothers,
-    onclaimregion,
-    onflyto,
-    onflytoclaim,
-    onclearclaim,
+    onIntent,
   }: {
-    model: NonNullable<PanelModel['work']>
-    onIntent: (intent: TemplateTreeIntent) => void
-    onretry: () => void
+    model: PanelDrawersModel
     showOtherClaims?: boolean
-    onshowothers: (show: boolean) => void
-    onclaimregion?: () => void
-    onflyto?: (key: string) => void
-    onflytoclaim?: (key: string) => void
-    onclearclaim?: (key: string) => void
+    onIntent: (intent: PanelIntent) => void
   } = $props()
   const count = $derived(model.tree.entries.length)
   const presence = $derived(model.presence)
@@ -49,7 +37,7 @@
                 label="Show everyone's favourites"
                 compact
                 checked={showOtherClaims}
-                onChange={onshowothers}
+                onChange={(show) => onIntent({ type: 'work-visibility', showOtherClaims: show })}
               />
             </SettingRow>
           </div>
@@ -57,13 +45,13 @@
         {#if model.error}
           <div class="notice" role="status">
             <span>{model.error}</span>
-            <Button label="Retry" size="compact" onclick={onretry} />
+            <Button label="Retry" size="compact" onclick={() => onIntent({ type: 'work-retry' })} />
           </div>
         {/if}
         {#if count === 0}
           <p class="empty">No favourites yet. Right-click a template and choose Favourite to keep it here.</p>
         {:else}
-          <TemplateTree model={model.tree} toolbar={false} {onIntent} />
+          <TemplateTree model={model.tree} toolbar={false} onIntent={(intent) => onIntent({ type: 'work-tree', intent })} />
         {/if}
       </div>
     </div>
@@ -89,11 +77,11 @@
           <div class="claim-actions">
             <Button
               label="Claim a region"
-              title="Draw a rectangle, ellipse, polygon, or star on the map (M)"
+              title={`Draw a rectangle, ellipse, polygon, or star on the map${presence.claimShortcut}`}
               size="compact"
               kind="ghost"
               disabled={!presence.canClaim || presence.pending === true}
-              onclick={() => onclaimregion?.()}
+              onclick={() => onIntent({ type: 'region-claim' })}
             />
           </div>
           {#if presence.message}
@@ -115,7 +103,7 @@
                   </span>
                   <span class="player-actions">
                     {#if player.canFly}
-                      <Button label={`Fly to ${player.name}`} title={`Fly to ${player.name}`} size="compact" kind="ghost" iconOnly onclick={() => onflyto?.(player.key)}>
+                      <Button label={`Fly to ${player.name}`} size="compact" kind="ghost" iconOnly onclick={() => onIntent({ type: 'presence-fly', key: player.key })}>
                         <Icon name="flyTo" size="1rem" />
                       </Button>
                     {/if}
@@ -144,11 +132,11 @@
                       </span>
                       <span class="player-actions">
                         {#if claim.canClear}
-                          <Button label="Clear claim" title="Clear claim" size="compact" kind="ghost" iconOnly disabled={claim.clearing ?? false} onclick={() => onclearclaim?.(claim.key)}>
+                          <Button label="Clear claim" size="compact" kind="ghost" iconOnly disabled={claim.clearing ?? false} onclick={() => onIntent({ type: 'claim-clear', key: claim.key })}>
                             <Icon name="trash" size="1rem" />
                           </Button>
                         {/if}
-                        <Button label={`Fly to ${claim.mine ? 'your' : `${claim.name}'s`} claim`} title={`Fly to ${claim.mine ? 'your' : `${claim.name}'s`} claim`} size="compact" kind="ghost" iconOnly onclick={() => onflytoclaim?.(claim.key)}>
+                        <Button label={`Fly to ${claim.mine ? 'your' : `${claim.name}'s`} claim`} size="compact" kind="ghost" iconOnly onclick={() => onIntent({ type: 'claim-fly', key: claim.key })}>
                           <Icon name="flyTo" size="1rem" />
                         </Button>
                       </span>
@@ -196,14 +184,14 @@
     border-block-start: 1px solid var(--caelestis-border);
     flex: 0 0 auto;
     font:
-      400 13px/1.4 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
+      400 13px/1.4 var(--caelestis-font);
   }
   .t-acc-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
     min-block-size: 44px;
-    border-radius: var(--caelestis-radius, calc(0.7rem + 1px));
+    border-radius: var(--caelestis-radius);
     padding: 10px 12px;
     font-weight: 600;
     background: var(--caelestis-raised-surface, transparent);
@@ -307,7 +295,7 @@
     width: 100%;
     text-align: start;
     border: 0;
-    border-radius: var(--caelestis-radius, calc(0.7rem + 1px));
+    border-radius: var(--caelestis-radius);
     background: transparent;
     color: inherit;
     font: inherit;
@@ -337,7 +325,7 @@
     gap: 0.75rem;
     margin: 0.25rem 0.5rem;
     padding: 0.375rem 0.375rem 0.375rem 0.625rem;
-    border-radius: var(--caelestis-radius, calc(0.7rem + 1px));
+    border-radius: var(--caelestis-radius);
     background: color-mix(in oklab, var(--caelestis-danger, oklch(0.59 0.2 27)) 10%, transparent);
     color: var(--caelestis-text);
     font-size: 12px;

@@ -1,8 +1,9 @@
 import { resolveShortcutBindings } from '@caelestis/shared'
 import { tick } from 'svelte'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
-import { type CaelestisPanel, registerCaelestisUi } from '../src/elements/index.js'
-import type { SettingsModel, TemplateTreeModel, TreeRowModel } from '../src/types.js'
+import { registerCaelestisUi } from '../src/elements/index.js'
+import type { SettingsModel } from '../src/settings/model.js'
+import type { TemplateTreeModel, TreeRowModel } from '../src/tree/model.js'
 
 // Happy DOM has no top layer; real popover placement is a browser contract.
 const showPopover = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'showPopover')
@@ -70,7 +71,7 @@ const treeModel = (expanded: boolean): TemplateTreeModel =>
 describe('tree grow inside caelestis-panel element', () => {
   it('keeps collapsed rows mounted while the outro runs', async () => {
     registerCaelestisUi()
-    const element = document.createElement('caelestis-panel') as CaelestisPanel
+    const element = document.createElement('caelestis-panel')
     element.model = {
       view: 'tree',
       width: 320,
@@ -116,7 +117,7 @@ describe('tree grow inside caelestis-panel element', () => {
 describe('page slide inside caelestis-panel element', () => {
   it('overlaps outgoing and incoming pages during the swap', async () => {
     registerCaelestisUi()
-    const element = document.createElement('caelestis-panel') as CaelestisPanel
+    const element = document.createElement('caelestis-panel')
     element.model = {
       view: 'tree',
       width: 320,
@@ -178,7 +179,7 @@ const menuTree = (): TemplateTreeModel =>
 describe('context menu inside caelestis-panel element', () => {
   it('keeps an open menu and submenu steady across model refreshes', async () => {
     registerCaelestisUi()
-    const element = document.createElement('caelestis-panel') as CaelestisPanel
+    const element = document.createElement('caelestis-panel')
     let tree = menuTree()
     element.model = { view: 'tree', width: 320, minWidth: 280, maxWidth: 400, tree } as never
     document.body.append(element)

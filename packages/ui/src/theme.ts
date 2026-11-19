@@ -14,17 +14,13 @@ export interface CaelestisThemeTokens {
   readonly warning: string
   readonly success: string
   readonly danger: string
-  readonly finished: string
-  readonly frozen: string
   readonly radius: string
   readonly pillRadius: string
   readonly font: string
   readonly monoFont: string
-  readonly compactTarget: string
   readonly touchTarget: string
   readonly shadow: string
   readonly popoverShadow: string
-  readonly motionDuration: string
   readonly pixelInk: string
   readonly pixelShadow: string
   readonly pixelButton: string
@@ -41,14 +37,8 @@ export interface CaelestisThemeTokens {
   readonly durationQuick: string
   readonly durationFast: string
   readonly durationMedium: string
-  readonly durationSlow: string
-  readonly durationVerySlow: string
   readonly easeSmoothOut: string
-  readonly easeInOut: string
-  readonly easeOut: string
-  readonly easeLinear: string
   readonly easeBounce: string
-  readonly easeBounceStrong: string
   readonly distanceMicro: string
   readonly distanceSmall: string
   readonly distanceBase: string
@@ -59,8 +49,6 @@ export interface CaelestisThemeTokens {
   readonly scaleSmall: string
   readonly scaleTiny: string
   readonly blurSmall: string
-  readonly blurMedium: string
-  readonly blurLarge: string
 }
 
 export type CaelestisThemeToken = keyof CaelestisThemeTokens
@@ -76,17 +64,13 @@ const PROPERTIES: Record<CaelestisThemeToken, `--caelestis-${string}`> = {
   warning: '--caelestis-warning',
   success: '--caelestis-success',
   danger: '--caelestis-danger',
-  finished: '--caelestis-finished',
-  frozen: '--caelestis-frozen',
   radius: '--caelestis-radius',
   pillRadius: '--caelestis-pill-radius',
   font: '--caelestis-font',
   monoFont: '--caelestis-mono-font',
-  compactTarget: '--caelestis-compact-target',
   touchTarget: '--caelestis-touch-target',
   shadow: '--caelestis-shadow',
   popoverShadow: '--caelestis-popover-shadow',
-  motionDuration: '--caelestis-motion-duration',
   pixelInk: '--caelestis-pixel-ink',
   pixelShadow: '--caelestis-pixel-shadow',
   pixelButton: '--caelestis-pixel-button',
@@ -103,14 +87,8 @@ const PROPERTIES: Record<CaelestisThemeToken, `--caelestis-${string}`> = {
   durationQuick: '--caelestis-duration-quick',
   durationFast: '--caelestis-duration-fast',
   durationMedium: '--caelestis-duration-medium',
-  durationSlow: '--caelestis-duration-slow',
-  durationVerySlow: '--caelestis-duration-very-slow',
   easeSmoothOut: '--caelestis-ease-smooth-out',
-  easeInOut: '--caelestis-ease-in-out',
-  easeOut: '--caelestis-ease-out',
-  easeLinear: '--caelestis-ease-linear',
   easeBounce: '--caelestis-ease-bounce',
-  easeBounceStrong: '--caelestis-ease-bounce-strong',
   distanceMicro: '--caelestis-distance-micro',
   distanceSmall: '--caelestis-distance-small',
   distanceBase: '--caelestis-distance-base',
@@ -121,12 +99,7 @@ const PROPERTIES: Record<CaelestisThemeToken, `--caelestis-${string}`> = {
   scaleSmall: '--caelestis-scale-small',
   scaleTiny: '--caelestis-scale-tiny',
   blurSmall: '--caelestis-blur-small',
-  blurMedium: '--caelestis-blur-medium',
-  blurLarge: '--caelestis-blur-large',
 }
-
-export const themeProperty = (token: CaelestisThemeToken): `--caelestis-${string}` =>
-  PROPERTIES[token]
 
 export const applyThemeTokens = (
   target: HTMLElement,

@@ -4,8 +4,9 @@
   interface Props {
     type?: 'button' | 'submit'
     label: string
+    /** The tooltip; an icon-only button shows its label when this is absent. */
     title?: string
-    kind?: 'default' | 'primary' | 'danger' | 'danger-ghost' | 'ghost'
+    kind?: 'default' | 'primary' | 'success' | 'warning' | 'danger' | 'danger-ghost' | 'ghost'
     size?: 'compact' | 'small' | 'normal'
     pressed?: boolean
     popup?: 'dialog' | 'menu' | undefined
@@ -13,6 +14,8 @@
     ariaDisabled?: boolean
     iconOnly?: boolean
     control?: string
+    /** The rendered `<button>`, for callers that move focus to it. */
+    element?: HTMLButtonElement | undefined
     onclick?: (event: MouseEvent) => void
     children?: Snippet
   }
@@ -29,22 +32,26 @@
     ariaDisabled = false,
     iconOnly = false,
     control,
+    element = $bindable(),
     onclick,
     children,
   }: Props = $props()
 </script>
 
 <button
+  bind:this={element}
   {type}
   class="caelestis-bevel"
   class:icon-only={iconOnly}
   class:compact={size === 'compact'}
   class:small={size === 'small'}
   class:primary={kind === 'primary'}
+  class:success={kind === 'success'}
+  class:warning={kind === 'warning'}
   class:danger={kind === 'danger'}
   class:danger-ghost={kind === 'danger-ghost'}
   class:ghost={kind === 'ghost'}
-  {title}
+  title={title ?? (iconOnly ? label : undefined)}
   {disabled}
   aria-disabled={ariaDisabled}
   aria-label={iconOnly ? label : undefined}
@@ -73,7 +80,7 @@
     min-block-size: 0;
     padding-inline: var(--button-padding);
     border: var(--border, 1px) solid color-mix(in oklab, var(--button-colour), #000 calc(var(--depth, 1) * 5%));
-    border-radius: var(--caelestis-radius, calc(0.7rem + 1px));
+    border-radius: var(--caelestis-radius);
     outline-color: var(--button-colour);
     background: var(--button-colour);
     color: var(--button-foreground);
@@ -81,7 +88,7 @@
       0 0.5px 0 0.5px oklch(100% 0 0 / calc(var(--depth, 1) * 6%)) inset,
       0 3px 2px -2px color-mix(in oklab, var(--button-colour) calc(var(--depth, 1) * 30%), transparent),
       0 4px 3px -2px color-mix(in oklab, var(--button-colour) calc(var(--depth, 1) * 30%), transparent);
-    font: 600 var(--button-font-size)/1 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
+    font: 600 var(--button-font-size)/1 var(--caelestis-font);
     cursor: pointer;
     touch-action: manipulation;
     user-select: none;
@@ -89,8 +96,10 @@
 
   button.compact { --button-size: 1.5rem; --button-padding: 0.5rem; --button-font-size: 0.6875rem; }
   button.small { --button-size: 2rem; --button-padding: 0.75rem; --button-font-size: 0.75rem; }
-  button.icon-only { inline-size: var(--button-size); padding-inline: 0; border-radius: var(--caelestis-pill-radius, 999px); }
+  button.icon-only { inline-size: var(--button-size); padding-inline: 0; border-radius: var(--caelestis-pill-radius); }
   button.primary { --button-colour: var(--caelestis-primary, var(--color-primary, oklch(0.58 0.17 252))); --button-foreground: var(--color-primary-content, white); }
+  button.success { --button-colour: var(--caelestis-success); --button-foreground: var(--color-success-content, white); }
+  button.warning { --button-colour: var(--caelestis-warning); --button-foreground: var(--color-warning-content, black); }
   button.danger { --button-colour: var(--caelestis-danger, var(--color-error, oklch(0.59 0.2 27))); --button-foreground: var(--color-error-content, white); }
   button.ghost, button.danger-ghost { border-color: transparent; background: transparent; box-shadow: none; }
   button.danger-ghost { color: var(--caelestis-danger, var(--color-error, currentColor)); }
@@ -109,7 +118,7 @@
 
   @media (forced-colors: active) {
     button { border-color: ButtonText; }
-    button.primary, button.danger { background: Highlight; color: HighlightText; }
+    button:is(.primary, .success, .warning, .danger) { background: Highlight; color: HighlightText; }
   }
 
   /* Pixel chrome: the .caelestis-bevel stack from PixelStyles does the drawing; these rules only
@@ -125,13 +134,14 @@
     --button-foreground: var(--color-primary-content, white);
     background: var(--bevel-stack);
   }
-  :host([data-caelestis-style='pixel']) button.danger {
-    --bevel-color: var(--caelestis-danger);
+  :host([data-caelestis-style='pixel']) button:is(.success, .warning, .danger) {
     --bevel-light: color-mix(in srgb, var(--bevel-color) 65%, white);
     --bevel-dark: color-mix(in srgb, var(--bevel-color) 62%, black);
-    --button-foreground: var(--color-error-content, white);
     background: var(--bevel-stack);
   }
+  :host([data-caelestis-style='pixel']) button.success { --bevel-color: var(--caelestis-success); }
+  :host([data-caelestis-style='pixel']) button.warning { --bevel-color: var(--caelestis-warning); }
+  :host([data-caelestis-style='pixel']) button.danger { --bevel-color: var(--caelestis-danger); }
   :host([data-caelestis-style='pixel']) button:is(.ghost, .danger-ghost) {
     --bevel-fill: transparent;
     --bevel-frame: transparent;

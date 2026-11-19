@@ -1,5 +1,5 @@
 import type {
-  CaelestisNotifications,
+  CaelestisElement,
   ConfirmDialogModel,
   NotificationsIntent,
   NotificationsModel,
@@ -22,7 +22,7 @@ const TOAST_MAX_WIDTH = 384
 /** Below this, a column beside the panel is too narrow to read, so toasts run along the bottom instead. */
 const TOAST_MIN_BESIDE_PANEL = 240
 
-let root: CaelestisNotifications | null = null
+let root: CaelestisElement<'caelestis-notifications'> | null = null
 /** Where the root lives while the panel is popped out into a modal, so toasts stay above it. */
 let mountTarget: HTMLElement | null = null
 let placementBound = false
@@ -169,7 +169,7 @@ const handleIntent = (intent: NotificationsIntent): void => {
 const mountParent = (): HTMLElement =>
   mountTarget?.isConnected === true ? mountTarget : document.body
 
-const ensureRoot = (): CaelestisNotifications => {
+const ensureRoot = (): CaelestisElement<'caelestis-notifications'> => {
   if (root?.isConnected === true) return root
   if (root !== null) resetDetachedState()
   root = document.createElement('caelestis-notifications')
@@ -177,7 +177,7 @@ const ensureRoot = (): CaelestisNotifications => {
   applyWplaceTheme(root)
   root.model = model()
   root.addEventListener('caelestis-notifications-intent', (event) => {
-    handleIntent((event as CustomEvent<NotificationsIntent>).detail)
+    handleIntent(event.detail)
   })
   mountParent().append(root)
   if (!placementBound) {

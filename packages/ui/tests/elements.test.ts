@@ -1,11 +1,6 @@
 import { tick } from 'svelte'
 import { afterEach, describe, expect, it } from 'vitest'
-import {
-  type CaelestisPanel,
-  type CaelestisRailControl,
-  registerCaelestisUi,
-  useIconSet,
-} from '../src/elements/index.js'
+import { registerCaelestisUi, useIconSet } from '../src/elements/index.js'
 
 afterEach(() => {
   document.body.replaceChildren()
@@ -15,12 +10,10 @@ afterEach(() => {
 describe('custom element host boundary', () => {
   it('accepts its public model and forwards a composed panel intent', async () => {
     registerCaelestisUi()
-    const element = document.createElement('caelestis-panel') as CaelestisPanel
+    const element = document.createElement('caelestis-panel')
     element.model = { view: 'tree', width: 320, minWidth: 280, maxWidth: 400 }
     const details: unknown[] = []
-    element.addEventListener('caelestis-panel-intent', (event) =>
-      details.push((event as CustomEvent).detail),
-    )
+    element.addEventListener('caelestis-panel-intent', (event) => details.push(event.detail))
     document.body.append(element)
     await tick()
     const close = element.shadowRoot?.querySelector(
@@ -32,8 +25,8 @@ describe('custom element host boundary', () => {
 
   it('re-renders mounted icons when the active icon set changes', async () => {
     registerCaelestisUi()
-    const element = document.createElement('caelestis-rail-control') as CaelestisRailControl
-    element.model = { id: 'panel', label: 'Panel' }
+    const element = document.createElement('caelestis-rail-control')
+    element.model = { icon: 'extension', label: 'Panel' }
     document.body.append(element)
     await tick()
     const svg = element.shadowRoot?.querySelector('svg')

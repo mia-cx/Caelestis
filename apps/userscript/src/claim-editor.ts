@@ -27,14 +27,13 @@ import {
   translateRegionShape,
   WORLD_PIXELS,
 } from '@caelestis/shared'
-import {
-  type CaptureAction,
-  CLAIM_MODE_TAG,
-  type ClaimModeIntent,
-  type ClaimModeModel,
-  type ClaimTool,
-  type ClaimToolEntry,
-  type ClaimToolGroupId,
+import type {
+  CaptureAction,
+  ClaimModeIntent,
+  ClaimModeModel,
+  ClaimTool,
+  ClaimToolEntry,
+  ClaimToolGroupId,
 } from '@caelestis/ui/elements'
 import { cancelSurfaceClose, closeSurface, openSurface } from '@caelestis/ui/motion'
 import {
@@ -2036,7 +2035,7 @@ const ensureMode = (): void => {
     return
   }
   closingMode = null
-  const element = document.createElement(CLAIM_MODE_TAG) as HTMLElement & { model: ClaimModeModel }
+  const element = document.createElement('caelestis-claim-mode')
   element.id = MODE_ID
   Object.assign(element.style, {
     position: 'fixed',
@@ -2047,7 +2046,7 @@ const ensureMode = (): void => {
   } satisfies Partial<CSSStyleDeclaration>)
   applyWplaceTheme(element)
   element.addEventListener('caelestis-claim-mode-intent', (event) => {
-    handleClaimModeIntent((event as CustomEvent<ClaimModeIntent>).detail)
+    handleClaimModeIntent(event.detail)
   })
   element.model = claimModeModel()
   document.body.appendChild(element)

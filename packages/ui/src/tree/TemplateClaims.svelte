@@ -4,7 +4,7 @@
   import type { Snippet } from 'svelte'
   import Button from '../foundations/Button.svelte'
   import Icon from '../foundations/Icon.svelte'
-  import type { TemplateClaimsModel } from '../types.js'
+  import type { TemplateClaimsModel } from './model.js'
 
   let {
     model,

@@ -6,7 +6,7 @@
   } = $props()
 </script>
 
-<input class="checkbox checkbox-sm checkbox-primary" type="checkbox" {checked} {disabled} onchange={(event) => onChange(event.currentTarget.checked)} />
+<input class="checkbox" type="checkbox" {checked} {disabled} onchange={(event) => onChange(event.currentTarget.checked)} />
 
 <style>
   /* DaisyUI checkbox-sm/checkbox-primary rules, scoped for our shadow-root hosts. */

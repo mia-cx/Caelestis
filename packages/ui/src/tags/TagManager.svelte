@@ -1,26 +1,21 @@
 <script lang="ts">
   import { tagName, tagNameKey } from '@caelestis/shared'
-  import { onMount } from 'svelte'
   import Button from '../foundations/Button.svelte'
   import Icon from '../foundations/Icon.svelte'
   import Checkbox from '../foundations/Checkbox.svelte'
-  import type { TagManagerIntent, TagManagerModel } from '../types.js'
+  import Modal from '../foundations/Modal.svelte'
+  import type { TagManagerIntent, TagManagerModel } from './model.js'
 
   let { model, onIntent }: { model: TagManagerModel; onIntent?: (intent: TagManagerIntent) => void } = $props()
-  let dialog: HTMLDialogElement
   let draft = $state('')
   let editing = $state<string | null>(null)
   let rename = $state('')
   let deleting = $state<string | null>(null)
   let validation = $state('')
-  // A drag from an input to outside the panel fires `click` on the dialog; only a press that began
-  // on the backdrop closes it.
-  let backdropPress = false
   const disabled = $derived(model.busy || model.loading || !model.ready)
   const savedRevision = $derived(model.revision)
   const sorted = $derived([...model.tags].sort((a, b) => a.name.localeCompare(b.name)))
   const emit = (intent: TagManagerIntent): void => onIntent?.(intent)
-  onMount(() => { dialog.showModal(); return () => dialog.close() })
   $effect(() => { savedRevision; draft = ''; editing = null; deleting = null; validation = '' })
   const save = (value: string, id?: string): void => {
     const name = tagName(value)
@@ -34,7 +29,7 @@
   const focusInput = (input: HTMLInputElement): void => { input.focus(); input.select() }
 </script>
 
-<dialog bind:this={dialog} class="caelestis-panel-surface" aria-labelledby="tag-title" aria-describedby="tag-owner" oncancel={(event) => { event.preventDefault(); emit({ type: 'close' }) }} onpointerdown={(event) => { backdropPress = event.target === dialog }} onclick={(event) => { if (backdropPress && event.target === dialog) emit({ type: 'close' }); backdropPress = false }}>
+<Modal labelledby="tag-title" describedby="tag-owner" onClose={() => emit({ type: 'close' })}>
   <div class="content">
     <header>
       <div><h2 id="tag-title">{model.targetName === undefined ? 'Manage tags' : `Tags for ${model.targetName}`}</h2><p id="tag-owner">{model.owner}</p></div>
@@ -59,8 +54,8 @@
             {:else}
               <div class="row">
                 {#if model.targetName !== undefined}<label><Checkbox checked={model.selected.includes(tag.id)} {disabled} onChange={(attached) => emit({ type: 'assign', id: tag.id, attached })} /><span>{tag.name}</span></label>{:else}<span class="name">{tag.name}</span>{/if}
-                <Button label={`Rename ${tag.name}`} title="Rename tag" size="small" kind="ghost" iconOnly disabled={disabled} onclick={() => { editing = tag.id; rename = tag.name; validation = '' }}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m16 3 5 5-12 12H4v-5L16 3Zm-1 1 5 5" /></svg></Button>
-                <Button label={`Delete ${tag.name}`} title="Delete tag" size="small" kind="danger-ghost" iconOnly disabled={disabled} onclick={() => { deleting = tag.id; validation = '' }}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7m4-7v7" /></svg></Button>
+                <Button label={`Rename ${tag.name}`} title="Rename tag" size="small" kind="ghost" iconOnly disabled={disabled} onclick={() => { editing = tag.id; rename = tag.name; validation = '' }}><Icon name="rename" /></Button>
+                <Button label={`Delete ${tag.name}`} title="Delete tag" size="small" kind="danger-ghost" iconOnly disabled={disabled} onclick={() => { deleting = tag.id; validation = '' }}><Icon name="trash" /></Button>
               </div>
             {/if}
           </li>
@@ -73,43 +68,9 @@
       {#if model.busy}<p class="saving" role="status">Saving…</p>{/if}
     </div>
   </div>
-</dialog>
+</Modal>
 
 <style>
-  dialog {
-    --modal-open-dur: var(--caelestis-duration-fast);
-    --modal-close-dur: var(--caelestis-duration-quick);
-    --modal-scale: var(--caelestis-scale-large);
-    --modal-scale-close: var(--caelestis-scale-large);
-    --modal-ease: var(--caelestis-ease-smooth-out);
-    box-sizing: border-box; inline-size: min(28rem, calc(100vw - 2rem)); max-block-size: calc(100dvh - 2rem); padding: 0; border: 1px solid color-mix(in oklab, var(--caelestis-text) 20%, transparent); border-radius: var(--caelestis-box-radius, var(--caelestis-radius, 1rem)); background: var(--caelestis-surface, white); color: var(--caelestis-text, #222); box-shadow: 0 1rem 3rem #0004; font: 0.875rem/1.4 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
-    transform-origin: center;
-    transform: scale(var(--modal-scale));
-    opacity: 0;
-    pointer-events: none;
-    transition:
-      transform var(--modal-close-dur) var(--modal-ease),
-      opacity   var(--modal-close-dur) var(--modal-ease),
-      overlay   var(--modal-close-dur) var(--modal-ease) allow-discrete,
-      display   var(--modal-close-dur) var(--modal-ease) allow-discrete;
-    will-change: transform, opacity;
-  }
-  dialog[open] {
-    transform: scale(1);
-    opacity: 1;
-    pointer-events: auto;
-    transition:
-      transform var(--modal-open-dur) var(--modal-ease),
-      opacity   var(--modal-open-dur) var(--modal-ease),
-      overlay   var(--modal-open-dur) var(--modal-ease) allow-discrete,
-      display   var(--modal-open-dur) var(--modal-ease) allow-discrete;
-    @starting-style { transform: scale(var(--modal-scale)); opacity: 0; }
-  }
-  dialog::backdrop { background: #0006; opacity: 0; transition: opacity var(--modal-close-dur) var(--modal-ease), overlay var(--modal-close-dur) var(--modal-ease) allow-discrete, display var(--modal-close-dur) var(--modal-ease) allow-discrete; }
-  dialog[open]::backdrop { opacity: 1; transition-duration: var(--modal-open-dur); @starting-style { opacity: 0; } }
-  @media (prefers-reduced-motion: reduce) {
-    dialog, dialog::backdrop { transition: none !important; }
-  }
   .content { overflow: hidden; }
   header { display: flex; align-items: start; justify-content: space-between; gap: 0.75rem; padding: 1rem; border-block-end: 1px solid color-mix(in oklab, currentColor 12%, transparent); }
   header > div { min-inline-size: 0; }
@@ -123,7 +84,7 @@
   label { display: flex; align-items: center; gap: 0.625rem; cursor: pointer; }
   label, .name { flex: 1; min-inline-size: 0; overflow-wrap: anywhere; }
   input { box-sizing: border-box; font: inherit; color: inherit; }
-  input:not([type='checkbox']) { flex: 1; min-inline-size: 0; inline-size: 100%; block-size: 2rem; border: 1px solid color-mix(in oklab, currentColor 25%, transparent); border-radius: var(--caelestis-field-radius, 0.5rem); padding-inline: 0.625rem; background: var(--caelestis-raised-surface, #f4f4f4); }
+  input:not([type='checkbox']) { flex: 1; min-inline-size: 0; inline-size: 100%; block-size: 2rem; border: 1px solid color-mix(in oklab, currentColor 25%, transparent); border-radius: 0.5rem; padding-inline: 0.625rem; background: var(--caelestis-raised-surface, #f4f4f4); }
   input:focus-visible { outline: 2px solid var(--caelestis-primary, #467ee5); outline-offset: 2px; }
   input:disabled { opacity: 0.5; }
   .create { margin-block-start: 0.75rem; }
@@ -132,5 +93,4 @@
   .error span { flex: 1; }
   .delete p { margin: 0.5rem 0 0; overflow-wrap: anywhere; }
   .saving { margin: 0.5rem 0 0; opacity: 0.7; }
-  svg { inline-size: 1rem; block-size: 1rem; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 </style>

@@ -112,7 +112,6 @@ export const cancelSurfaceClose = (element: HTMLElement): boolean => {
  */
 export const openSurface = (element: HTMLElement): void => {
   if (element.dataset.state === 'open' || pendingOpens.has(element)) return
-  // Reopening a still-closing element continues from the current frame, so it stays visible.
   const reuse = cancelSurfaceClose(element)
   if (!reuse) {
     // A custom element's shadow styles attach a task or more after connection, and the jump from

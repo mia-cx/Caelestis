@@ -6,7 +6,7 @@ import type {
   ResizeAnchor,
   ResizeId,
   StudioDither,
-} from '@caelestis/ui/elements'
+} from '@caelestis/ui/studio'
 import type { Field, Matching, Placement, RecipeV2, WorkingSpace } from 'ditherette'
 
 /**

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { TreePreviewArt, TreeRowModel } from '../types.js'
+  import type { TreePreviewArt, TreeRowModel } from './model.js'
   import { previewPixels } from './preview-pixels.js'
 
   type Preview = NonNullable<TreeRowModel['preview']>

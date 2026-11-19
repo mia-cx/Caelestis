@@ -9,11 +9,8 @@ import {
 import type {
   AppearanceEditorIntent,
   AppearanceEditorModel,
-  CaelestisPanel,
-  CaelestisRailControl,
-  PanelIntent,
+  CaelestisElement,
   PanelModel,
-  RailControlIntent,
   RailControlModel,
   SettingsIntent,
   SettingsModel,
@@ -117,7 +114,7 @@ import {
 import { onStoredValueChange } from '../stored-values.js'
 import { onServerAlarmChange, onServerStatusChange } from '../telemetry.js'
 import {
-  APPEARANCE_CONTROLS,
+  appearanceSliders,
   DEFAULT_APPEARANCE,
   PIXEL_STYLE_PRESETS,
   pixelStylePresetOf,
@@ -238,6 +235,9 @@ import {
  * logged-in rail has Overlays; the logged-out rail has Search and Leaderboard. Ours then lands
  * directly beneath whichever native rail is on screen.
  */
+type PanelHost = CaelestisElement<'caelestis-panel'>
+type RailControl = CaelestisElement<'caelestis-rail-control'>
+
 const BUTTON_ID = 'caelestis-rail-button'
 const ALLIANCE_BUTTON_WRAPPER_ID = 'caelestis-alliance-rail'
 const ALLIANCE_BUTTON_ID = 'caelestis-alliance-rail-button'
@@ -286,7 +286,7 @@ const currentPanelId = (): string =>
  * in whatever their theme calls primary, now and after any theme change.
  */
 const panelRailModel = (scope: PanelScope): RailControlModel => ({
-  id: scope === 'alliance' ? 'alliance-panel' : 'panel',
+  icon: 'extension',
   label: buttonTooltip(),
   pressed: panelSessions.isOpen(scope),
   expanded: panelSessions.isOpen(scope),
@@ -295,48 +295,45 @@ const panelRailModel = (scope: PanelScope): RailControlModel => ({
 })
 
 const syncRailButtonState = (): void => {
-  const main = document.getElementById(BUTTON_ID) as CaelestisRailControl | null
+  const main = document.getElementById(BUTTON_ID) as RailControl | null
   if (main !== null) main.model = panelRailModel('world')
-  const alliance = document.getElementById(ALLIANCE_BUTTON_ID) as CaelestisRailControl | null
+  const alliance = document.getElementById(ALLIANCE_BUTTON_ID) as RailControl | null
   if (alliance !== null) alliance.model = panelRailModel('alliance')
 }
 
 const syncAllianceModeState = (active = activeAllianceSurface()): void => {
-  const colour = document.getElementById(ALLIANCE_COLOUR_MODE_ID) as CaelestisRailControl | null
+  const colour = document.getElementById(ALLIANCE_COLOUR_MODE_ID) as RailControl | null
   if (colour !== null && active !== null) colour.model = colourRailModel(active.surface)
-  const mismatch = document.getElementById(ALLIANCE_MISMATCH_MODE_ID) as CaelestisRailControl | null
+  const mismatch = document.getElementById(ALLIANCE_MISMATCH_MODE_ID) as RailControl | null
   if (mismatch === null || active === null) return
   const on = getSurfaceAppearance(active.surface).markMismatch
   mismatch.model = {
-    id: 'mismatch',
+    icon: 'bug',
     label: `${on ? 'Hide' : 'Show'} mismatch markers on this canvas${shortcutHint('toggle-markers')}`,
     pressed: on,
   }
 }
 
-const railButton = (): CaelestisRailControl => {
+const railButton = (): RailControl => {
   const existing = document.getElementById(BUTTON_ID)
-  if (existing !== null) return existing as CaelestisRailControl
+  if (existing !== null) return existing as RailControl
   const button = document.createElement('caelestis-rail-control')
   button.id = BUTTON_ID
   button.model = panelRailModel('world')
   applyWplaceTheme(button)
-  bindRailActivation(button, 'panel', () => togglePanelFor('world'))
+  bindRailActivation(button, () => togglePanelFor('world'))
   return button
 }
 
-const allianceRailButton = (active: ActiveAllianceSurface): CaelestisRailControl => {
+const allianceRailButton = (active: ActiveAllianceSurface): RailControl => {
   const existing = active.stage.ownerDocument.getElementById(ALLIANCE_BUTTON_ID)
-  if (existing !== null) return existing as CaelestisRailControl
-  const button = active.stage.ownerDocument.createElement(
-    'caelestis-rail-control',
-  ) as CaelestisRailControl
+  if (existing !== null) return existing as RailControl
+  const button = active.stage.ownerDocument.createElement('caelestis-rail-control')
   button.id = ALLIANCE_BUTTON_ID
   button.model = panelRailModel('alliance')
   applyWplaceTheme(button)
   bindRailActivation(
     button,
-    'alliance-panel',
     () => {
       selectAlliancePanelSurface(active)
       togglePanelFor('alliance')
@@ -346,30 +343,26 @@ const allianceRailButton = (active: ActiveAllianceSurface): CaelestisRailControl
   return button
 }
 
-const allianceColourModeButton = (active: ActiveAllianceSurface): CaelestisRailControl => {
+const allianceColourModeButton = (active: ActiveAllianceSurface): RailControl => {
   const existing = document.getElementById(ALLIANCE_COLOUR_MODE_ID)
-  if (existing !== null) return existing as CaelestisRailControl
+  if (existing !== null) return existing as RailControl
   const button = document.createElement('caelestis-rail-control')
   button.id = ALLIANCE_COLOUR_MODE_ID
   button.model = colourRailModel(active.surface)
   applyWplaceTheme(button)
-  button.addEventListener('caelestis-rail-intent', (event) => {
-    const intent = (event as CustomEvent<RailControlIntent>).detail
-    if (intent.id !== 'colour') return
+  button.addEventListener('click', () => {
     setOnlySelectedColourFor(active.surface, !onlySelectedColourFor(active.surface))
   })
   return button
 }
 
-const allianceMismatchModeButton = (active: ActiveAllianceSurface): CaelestisRailControl => {
+const allianceMismatchModeButton = (active: ActiveAllianceSurface): RailControl => {
   const existing = document.getElementById(ALLIANCE_MISMATCH_MODE_ID)
-  if (existing !== null) return existing as CaelestisRailControl
+  if (existing !== null) return existing as RailControl
   const button = document.createElement('caelestis-rail-control')
   button.id = ALLIANCE_MISMATCH_MODE_ID
   applyWplaceTheme(button)
-  button.addEventListener('caelestis-rail-intent', (event) => {
-    const intent = (event as CustomEvent<RailControlIntent>).detail
-    if (intent.id !== 'mismatch') return
+  button.addEventListener('click', () => {
     const appearance = getSurfaceAppearance(active.surface)
     setSurfaceAppearance(active.surface, {
       ...appearance,
@@ -471,14 +464,16 @@ const onlyExpansionChanged = (previous: State, next: State): boolean =>
     (key) => key === 'collapsed' || previous[key] === next[key],
   )
 
+/** Whether a colour picker in the panel's appearance view is open, as the view last reported. */
+let colourPickerOpen = false
+
 /** `refreshView` for a change the claimed list cannot see, so its cached build survives. */
 const redrawView = (): void => {
   if (!panelOpen()) return
   const root = document.getElementById(currentPanelId())
   if (root === null) return
   const held =
-    (root.shadowRoot?.querySelector('[data-caelestis-colour-picker]:popover-open') ?? null) !==
-      null ||
+    colourPickerOpen ||
     isTreeDragActive() ||
     heldPanelPointers.size > 0 ||
     (root.contains(document.activeElement) && document.activeElement instanceof HTMLInputElement)
@@ -1021,24 +1016,8 @@ const appearanceModel = (): AppearanceEditorModel => {
   const selectedColourName = selected === null ? undefined : WPLACE_PALETTE[selected]?.name
   return {
     values,
-    sliders: APPEARANCE_CONTROLS.map((control) => ({
-      key: control.key,
-      label: control.label,
-      value: values[control.key],
-      defaultValue: DEFAULT_APPEARANCE[control.key],
-      min: control.min,
-      max: control.max,
-      step: control.step,
-      format:
-        control.key === 'rotation'
-          ? 'degrees'
-          : control.key === 'contrastOutlineSize'
-            ? 'decimal-pixels'
-            : 'percent',
-      ...(control.key === 'contrastOutlineSize' && !values.contrastOutline
-        ? { disabled: true }
-        : {}),
-    })),
+    variant: 'defaults',
+    sliders: appearanceSliders(values, DEFAULT_APPEARANCE),
     pixelPresets: PIXEL_STYLE_PRESETS.map((preset) => ({
       id: preset.id,
       label: preset.label,
@@ -1084,6 +1063,9 @@ const commitPanelAppearance = (appearance: typeof DEFAULT_APPEARANCE): void => {
 const handleAppearanceIntent = (intent: AppearanceEditorIntent): void => {
   const values = getSurfaceAppearance(panelSurface)
   switch (intent.type) {
+    case 'picker':
+      colourPickerOpen = intent.open
+      break
     case 'layout':
       break
     case 'preview-number':
@@ -1254,7 +1236,7 @@ const presenceField = (): Pick<NonNullable<PanelModel['work']>, 'presence'> => {
 /** Follow a presence message by replacing only the Painters drawer; the trees do not read it. */
 const refreshPresenceDrawer = (): void => {
   if (!panelOpen() || currentView() !== 'tree') return
-  const panel = document.getElementById(currentPanelId()) as CaelestisPanel | null
+  const panel = document.getElementById(currentPanelId()) as PanelHost | null
   const work = panel?.model.work
   if (panel == null || work === undefined) return
   const { presence: _previous, ...rest } = work
@@ -1264,18 +1246,18 @@ const refreshPresenceDrawer = (): void => {
 /** Follow a pixel-progress change by updating row progress in both trees, keeping their rows. */
 const refreshTreeProgress = (): void => {
   if (!panelOpen() || currentView() !== 'tree' || activeTreeAdapter === null) return
-  const panel = document.getElementById(currentPanelId()) as CaelestisPanel | null
+  const panel = document.getElementById(currentPanelId()) as PanelHost | null
   if (panel === null) return
   const tree = activeTreeAdapter.refreshProgress()
   const claimed = claimedTreeAdapter?.refreshProgress() ?? false
   if (tree || claimed) panel.model = panelModel(currentPanelWidth(panel))
 }
 
-const currentPanelWidth = (panel: CaelestisPanel): number =>
+const currentPanelWidth = (panel: PanelHost): number =>
   panelWidthAfterMount(panel.getBoundingClientRect().width, panel.model.width)
 
-/** Wplace adapter around the shared panel shell. View contents migrate in the following slices. */
-const buildSveltePanel = (): CaelestisPanel => {
+/** Wplace adapter around the shared panel shell. */
+const buildSveltePanel = (): PanelHost => {
   const panel = (panelHost?.ownerDocument ?? document).createElement('caelestis-panel')
   const alliance = panelSessions.scope() === 'alliance'
   panel.id = currentPanelId()
@@ -1297,7 +1279,7 @@ const buildSveltePanel = (): CaelestisPanel => {
   panel.model = panelModel()
   applyWplaceTheme(panel)
   panel.addEventListener('caelestis-panel-intent', (event) => {
-    const intent = (event as CustomEvent<PanelIntent>).detail
+    const intent = event.detail
     switch (intent.type) {
       case 'work-retry':
         retryTemplateClaims(panelSurface, rerenderTree)
@@ -1447,7 +1429,7 @@ const rerenderTree = (): void => {
 /** Rebuild the main tree only, for inputs the claimed list ignores, such as the search query. */
 const renderTree = (): void => {
   if (!panelOpen() || currentView() !== 'tree') return
-  const panel = document.getElementById(currentPanelId()) as CaelestisPanel | null
+  const panel = document.getElementById(currentPanelId()) as PanelHost | null
   if (panel === null) return
   buildActiveTree()
   panel.model = panelModel(currentPanelWidth(panel))
@@ -1473,7 +1455,7 @@ const buildActiveTree = (): void => {
 /** Move the focused-row marker without rebuilding the full template tree. */
 export const refreshTemplateTreeFocus = (): void => {
   if (!panelOpen() || currentView() !== 'tree' || activeTreeAdapter === null) return
-  const panel = document.getElementById(currentPanelId()) as CaelestisPanel | null
+  const panel = document.getElementById(currentPanelId()) as PanelHost | null
   if (panel === null) return
   const focusedKey = currentFocusedTreeKey()
   if (panel.model.tree?.focusedKey === focusedKey) return
@@ -1490,7 +1472,7 @@ export const refreshTemplateTreeFocus = (): void => {
 const showView = (view: PanelView): void => {
   if (panelSurface.kind !== 'world' && view === 'settings') return
   panelSessions.setView(view)
-  const panel = document.getElementById(currentPanelId()) as CaelestisPanel | null
+  const panel = document.getElementById(currentPanelId()) as PanelHost | null
   if (panel === null) return
 
   if (view === 'settings') settingsModel()
@@ -1679,11 +1661,11 @@ const railContainer = (): HTMLElement => {
 
 const MORE_ID = 'caelestis-rail-more'
 const TRAY_ID = 'caelestis-rail-tray'
-let moreControl: CaelestisRailControl | null = null
+let moreControl: RailControl | null = null
 let tray: HTMLElement | null = null
 
 /** Every rail button in rail order; the first ones win the slots when the column is short. */
-const railButtons = (): CaelestisRailControl[] => [
+const railButtons = (): RailControl[] => [
   railButton(),
   colourModeButton(),
   mismatchModeButton(),
@@ -1696,7 +1678,7 @@ const trayOpen = (): boolean => tray !== null && !tray.hidden
 const syncMoreState = (): void => {
   if (moreControl === null) return
   moreControl.model = {
-    id: 'more',
+    icon: 'kebab',
     label: 'More Caelestis controls',
     popup: 'menu',
     controls: TRAY_ID,
@@ -1730,15 +1712,12 @@ const closeTrayOnEscape = (event: KeyboardEvent): void => {
 }
 
 /** The rail's last slot when the column is short: opens the buttons that did not fit. */
-const moreButton = (): CaelestisRailControl => {
+const moreButton = (): RailControl => {
   if (moreControl !== null) return moreControl
   moreControl = document.createElement('caelestis-rail-control')
   moreControl.id = MORE_ID
   applyWplaceTheme(moreControl)
-  moreControl.addEventListener('caelestis-rail-intent', (event) => {
-    if ((event as CustomEvent<RailControlIntent>).detail.id !== 'more') return
-    setTrayOpen(!trayOpen())
-  })
+  moreControl.addEventListener('click', () => setTrayOpen(!trayOpen()))
   syncMoreState()
   return moreControl
 }
@@ -1757,7 +1736,9 @@ const trayContainer = (): HTMLElement => {
   tray.setAttribute('aria-label', 'More Caelestis controls')
   Object.assign(tray.style, { position: 'fixed', zIndex: '30' })
   tray.hidden = true
-  tray.addEventListener('caelestis-rail-intent', () => setTrayOpen(false))
+  tray.addEventListener('click', (event) => {
+    if (event.target !== tray) setTrayOpen(false)
+  })
   document.body.appendChild(tray)
   return tray
 }
@@ -1836,22 +1817,20 @@ const colourRailModel = (surface: TemplateSurface = WORLD_TEMPLATE_SURFACE): Rai
   const on = onlySelectedColourFor(surface)
   const label = on ? 'Showing only the selected colour' : 'Show only the selected colour'
   return {
-    id: 'colour',
+    icon: 'palette',
     label: `${isPaintOpen() ? label : `${label} — open wplace's paint drawer to pick one`}${shortcutHint('toggle-colour')}`,
     pressed: on,
   }
 }
 
-const colourModeButton = (): CaelestisRailControl => {
+const colourModeButton = (): RailControl => {
   const existing = document.getElementById(COLOUR_MODE_ID)
-  if (existing !== null) return existing as CaelestisRailControl
+  if (existing !== null) return existing as RailControl
   const button = document.createElement('caelestis-rail-control')
   button.id = COLOUR_MODE_ID
   button.model = colourRailModel()
   applyWplaceTheme(button)
-  button.addEventListener('caelestis-rail-intent', (event) => {
-    const intent = (event as CustomEvent<RailControlIntent>).detail
-    if (intent.id !== 'colour') return
+  button.addEventListener('click', () => {
     setOnlySelectedColourFor(WORLD_TEMPLATE_SURFACE, !onlySelectedColourFor(WORLD_TEMPLATE_SURFACE))
     syncColourModeState()
   })
@@ -1861,7 +1840,7 @@ const colourModeButton = (): CaelestisRailControl => {
 const COLOUR_MODE_ID = 'caelestis-colour-mode'
 
 export const syncColourModeState = (): void => {
-  const button = document.getElementById(COLOUR_MODE_ID) as CaelestisRailControl | null
+  const button = document.getElementById(COLOUR_MODE_ID) as RailControl | null
   if (button === null) return
   button.model = colourRailModel()
 }
@@ -1916,7 +1895,7 @@ export const installPanel = (): void => {
     closePanelForMobileDrawing()
     positionRail()
     positionChargeForecast()
-    const panel = document.getElementById(currentPanelId()) as CaelestisPanel | null
+    const panel = document.getElementById(currentPanelId()) as PanelHost | null
     if (panel !== null) {
       const width = panelWidthForViewport(getState().panelWidth)
       panel.model = panelModel(width)

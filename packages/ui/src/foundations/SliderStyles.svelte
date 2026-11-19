@@ -10,7 +10,7 @@
     block-size: 1rem;
     overflow: hidden;
     border: 0;
-    border-radius: var(--caelestis-radius, calc(0.7rem + 1px));
+    border-radius: var(--caelestis-radius);
     background: transparent;
     color: var(--caelestis-primary, var(--color-primary, oklch(0.58 0.17 252)));
     cursor: pointer;
@@ -19,7 +19,7 @@
   :global(.caelestis-slider::-webkit-slider-runnable-track) {
     inline-size: 100%;
     block-size: 0.5rem;
-    border-radius: var(--caelestis-radius, calc(0.7rem + 1px));
+    border-radius: var(--caelestis-radius);
     background: linear-gradient(to right, currentColor var(--fill), color-mix(in oklab, currentColor 10%, transparent) var(--fill));
   }
   :global(.caelestis-slider::-webkit-slider-thumb) {
@@ -29,14 +29,14 @@
     inline-size: 1rem;
     block-size: 1rem;
     border: 0.25rem solid currentColor;
-    border-radius: var(--caelestis-radius, calc(0.7rem + 1px));
+    border-radius: var(--caelestis-radius);
     background: var(--caelestis-surface, var(--color-base-100, white));
     transform: translateY(-50%);
   }
   :global(.caelestis-slider::-moz-range-track) {
     inline-size: 100%;
     block-size: 0.5rem;
-    border-radius: var(--caelestis-radius, calc(0.7rem + 1px));
+    border-radius: var(--caelestis-radius);
     background: color-mix(in oklab, currentColor 10%, transparent);
   }
   :global(.caelestis-slider::-moz-range-progress) { block-size: 0.5rem; background: currentColor; }
@@ -44,7 +44,7 @@
     inline-size: 0.5rem;
     block-size: 0.5rem;
     border: 0.25rem solid currentColor;
-    border-radius: var(--caelestis-radius, calc(0.7rem + 1px));
+    border-radius: var(--caelestis-radius);
     background: var(--caelestis-surface, var(--color-base-100, white));
   }
   :global(.caelestis-slider:focus-visible) { outline: 2px solid var(--caelestis-focus, currentColor); outline-offset: 2px; }

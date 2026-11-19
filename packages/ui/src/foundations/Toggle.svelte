@@ -47,7 +47,7 @@
     margin: 0;
     padding: var(--toggle-padding);
     border: var(--border, 1px) solid currentColor;
-    border-radius: var(--caelestis-radius, calc(0.7rem + 1px));
+    border-radius: var(--caelestis-radius);
     background: transparent;
     color: var(--toggle-colour);
     box-shadow: 0 1px color-mix(in oklab, currentColor calc(var(--depth, 1) * 10%), transparent) inset;
@@ -63,7 +63,7 @@
     inline-size: 100%;
     block-size: 100%;
     aspect-ratio: 1;
-    border-radius: var(--caelestis-radius, calc(0.7rem + 1px));
+    border-radius: var(--caelestis-radius);
     background: currentColor;
     translate: 0 0;
     will-change: translate;

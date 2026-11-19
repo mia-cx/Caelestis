@@ -3,31 +3,19 @@
 <script lang="ts">
   import OverlayControls from '../overlay/OverlayControls.svelte'
   import PixelStyles from '../foundations/PixelStyles.svelte'
-  import type { OverlayControlsIntent, OverlayControlsModel } from '../types.js'
+  import type { OverlayControlsModel } from '../overlay/model.js'
+  import { intentEmitter } from './registry.js'
 
-  const DEFAULT_MODEL: OverlayControlsModel = {
-    name: 'Template',
-    failures: [],
-    appearance: {
-      values: { size: 1, radius: 0, translateX: 0, translateY: 0, rotation: 0, opacity: 1, contrastOutline: false, contrastOutlineSize: 1, markMismatch: false, markUnpainted: false, unpaintedLimit: 0.05, markerColour: '#ff0000', markerSize: 9, markSelectedColour: false, selectedMarkerColour: '#ffffff', selectedMarkerSize: 9, dimOthers: false, otherOpacity: 0.15, otherColour: null },
-      sliders: [], pixelPresets: [], colourPresets: [], palette: [], onlySelectedColour: false, paintOpen: false,
-    },
-  }
-  let { model = DEFAULT_MODEL }: { model?: OverlayControlsModel } = $props()
-  const element: HTMLElement = $host()
-  const emit = (detail: OverlayControlsIntent): void => {
-    element.dispatchEvent(new CustomEvent('caelestis-overlay-intent', { detail, bubbles: true, composed: true }))
-  }
+  let { model }: { model?: OverlayControlsModel } = $props()
+  const emit = intentEmitter($host(), 'caelestis-overlay-controls')
 </script>
 
-<OverlayControls {model} onIntent={emit} />
+{#if model}<OverlayControls {model} onIntent={emit} />{/if}
 
 <PixelStyles />
 
 <style>
   :host { display: block; max-block-size: inherit; }
-  /* The userscript mounts/removes this host directly, so the transition lives on the host and the
-     JS helper drives it through data-state. */
   :host {
     --dropdown-open-dur: var(--caelestis-duration-fast);
     --dropdown-close-dur: var(--caelestis-duration-quick);

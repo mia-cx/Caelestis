@@ -1,8 +1,9 @@
 import { mount, tick, unmount } from 'svelte'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { NotificationsIntent } from '../src/notifications/model.js'
 import Notifications from '../src/notifications/Notifications.svelte'
+import type { PanelIntent } from '../src/panel/model.js'
 import Panel from '../src/panel/Panel.svelte'
-import type { NotificationsIntent, PanelIntent } from '../src/types.js'
 
 const mounted: object[] = []
 afterEach(async () => {
@@ -77,12 +78,11 @@ describe('notification and panel interactions', () => {
     ;(
       target.querySelector('button[aria-label="Dismiss notification"]') as HTMLButtonElement
     ).click()
-    Array.from(target.querySelectorAll('button'))
-      .find((button) => button.textContent?.trim() === 'Delete')!
-      .click()
-    Array.from(target.querySelectorAll('button'))
-      .find((button) => button.textContent?.trim() === 'Delete')!
-      .click()
+    const confirm = Array.from(target.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === 'Delete',
+    )
+    confirm?.click()
+    confirm?.click()
     expect(intents).toEqual([
       { type: 'dismiss-toast', id: 'toast' },
       { type: 'resolve-confirm', id: 'confirm', value: true },

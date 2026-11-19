@@ -3,13 +3,15 @@
   import { cancelSurfaceClose, closeSurface, prefersReducedMotion, shift, surfaceCloseDurationMs, tokenized } from '../foundations/motion.js'
   import Button from '../foundations/Button.svelte'
   import Icon from '../foundations/Icon.svelte'
+  import ModalStyles from '../foundations/ModalStyles.svelte'
   import AppearanceEditor from '../appearance/AppearanceEditor.svelte'
   import TemplateTree from '../tree/TemplateTree.svelte'
-  import WorkSummary from '../work/WorkSummary.svelte'
+  import PanelDrawers from './PanelDrawers.svelte'
   import SettingsPanel from '../settings/SettingsPanel.svelte'
-  import type { PanelIntent, PanelProps, PanelView, TemplateTreeIntent } from '../types.js'
+  import type { TemplateTreeIntent } from '../tree/model.js'
+  import type { PanelIntent, PanelModel, PanelView } from './model.js'
 
-  let { model, children, onIntent }: PanelProps = $props()
+  let { model, onIntent }: { model: PanelModel; onIntent?: (intent: PanelIntent) => void } = $props()
   let width = $state(0)
   let held = false
   let resizing = $state(false)
@@ -18,7 +20,7 @@
   let poppedOut = $state(false)
   let closingPopout = $state(false)
   let dialog = $state<HTMLDialogElement>()
-  let dockedPanel = $state<HTMLElement>()
+  let popoutButton = $state<HTMLButtonElement>()
 
   /**
    * Morph between the dialog's box and the docked panel's box. The dialog's parent is `.pane`,
@@ -66,9 +68,7 @@
     closeSurface(dialog, () => {
       poppedOut = false
       closingPopout = false
-      void tick().then(() => {
-        dockedPanel?.querySelector<HTMLButtonElement>('[aria-label="Pop out menu"]')?.focus()
-      })
+      void tick().then(() => popoutButton?.focus())
     })
   }
 
@@ -84,6 +84,13 @@
         : undefined
     if (poppedOut && action?.returnToCanvas === true) void dock()
     emit({ type: work ? 'work-tree' : 'tree', intent })
+  }
+
+  const drawerIntent = (intent: PanelIntent): void => {
+    if (intent.type === 'work-tree') return treeIntent(intent.intent, true)
+    // Claiming and flying act on the map, so the popout returns to the sidebar first.
+    if (poppedOut && (intent.type === 'region-claim' || intent.type === 'presence-fly' || intent.type === 'claim-fly')) void dock()
+    emit(intent)
   }
 
   $effect(() => { width = model.width })
@@ -129,7 +136,10 @@
     resizing = true
     startX = event.clientX
     startWidth = width
-    try { (event.currentTarget as HTMLElement | null)?.setPointerCapture(event.pointerId) } catch { /* optional */ }
+    // Move and up are read from the window, so capture only carries the drag past the page's edge.
+    // A pointer that has already ended cannot be captured, which the browser reports as a DOMException.
+    if (!(event.currentTarget instanceof Element)) return
+    try { event.currentTarget.setPointerCapture(event.pointerId) } catch (error) { if (!(error instanceof DOMException)) throw error }
   }
 
   const pointermove = (event: PointerEvent): void => {
@@ -167,26 +177,26 @@
 
   <header>
     {#if model.view !== 'tree'}
-      <Button label="Back to templates" title="Back to templates" kind="ghost" size="compact" iconOnly onclick={() => emit({ type: 'navigate', view: 'tree' })}>
+      <Button label="Back to templates" kind="ghost" size="compact" iconOnly onclick={() => emit({ type: 'navigate', view: 'tree' })}>
         <Icon name="arrowBack" />
       </Button>
     {/if}
     <h2>{title}</h2>
-    <Button label="Reload tiles" title="Reload tiles" kind="ghost" size="compact" iconOnly onclick={() => emit({ type: 'reload-tiles' })}>
+    <Button label="Reload tiles" kind="ghost" size="compact" iconOnly onclick={() => emit({ type: 'reload-tiles' })}>
       <Icon name="reset" />
     </Button>
-    <Button label={poppedOut ? 'Return to sidebar' : 'Pop out menu'} title={poppedOut ? 'Return to sidebar' : 'Pop out menu'} popup={poppedOut ? undefined : 'dialog'} kind="ghost" size="compact" iconOnly onclick={() => { if (poppedOut) void dock(); else poppedOut = true }}>
+    <Button bind:element={popoutButton} label={poppedOut ? 'Return to sidebar' : 'Pop out menu'} popup={poppedOut ? undefined : 'dialog'} kind="ghost" size="compact" iconOnly onclick={() => { if (poppedOut) void dock(); else poppedOut = true }}>
       <Icon name={poppedOut ? 'dock' : 'popout'} />
     </Button>
-    <Button label="Appearance" title="Appearance" kind="ghost" size="compact" iconOnly pressed={model.view === 'appearance'} onclick={() => navigate('appearance')}>
+    <Button label="Appearance" kind="ghost" size="compact" iconOnly pressed={model.view === 'appearance'} onclick={() => navigate('appearance')}>
       <Icon name="tune" />
     </Button>
     {#if model.showSettings !== false}
-      <Button label="Settings" title="Settings" kind="ghost" size="compact" iconOnly pressed={model.view === 'settings'} onclick={() => navigate('settings')}>
+      <Button label="Settings" kind="ghost" size="compact" iconOnly pressed={model.view === 'settings'} onclick={() => navigate('settings')}>
         <Icon name="settings" />
       </Button>
     {/if}
-    <Button label="Close" title="Close" kind="ghost" size="compact" iconOnly onclick={() => { if (poppedOut) void dock(); else emit({ type: 'close' }) }}>
+    <Button label="Close" kind="ghost" size="compact" iconOnly onclick={() => { if (poppedOut) void dock(); else emit({ type: 'close' }) }}>
       <Icon name="close" />
     </Button>
   </header>
@@ -197,14 +207,12 @@
         {#if view === 'tree' && model.tree !== undefined}
           <TemplateTree model={model.tree} allowGrid={poppedOut} onIntent={treeIntent} />
           {#if model.work !== undefined}
-            <WorkSummary model={model.work} showOtherClaims={model.showOtherClaims ?? false} onshowothers={(showOtherClaims) => emit({ type: 'work-visibility', showOtherClaims })} onIntent={(intent) => treeIntent(intent, true)} onretry={() => emit({ type: 'work-retry' })} onclaimregion={() => { if (poppedOut) void dock(); emit({ type: 'region-claim' }) }} onflyto={(key) => { if (poppedOut) void dock(); emit({ type: 'presence-fly', key }) }} onflytoclaim={(key) => { if (poppedOut) void dock(); emit({ type: 'claim-fly', key }) }} onclearclaim={(key) => emit({ type: 'claim-clear', key })} />
+            <PanelDrawers model={model.work} showOtherClaims={model.showOtherClaims ?? false} onIntent={drawerIntent} />
           {/if}
         {:else if view === 'appearance' && model.appearance !== undefined}
           <AppearanceEditor model={model.appearance} onIntent={(intent) => emit({ type: 'appearance', intent })} />
         {:else if view === 'settings' && model.settings !== undefined}
           <SettingsPanel model={model.settings} onIntent={(intent) => emit({ type: 'settings', intent })} />
-        {:else if children !== undefined}
-          {@render children()}
         {/if}
       </div>
     {/each}
@@ -212,53 +220,35 @@
 </section>
 {/snippet}
 
+<ModalStyles />
+
 {#if poppedOut}
-  <dialog bind:this={dialog} aria-label="Caelestis menu" oncancel={(event) => { event.preventDefault(); if (model.tree?.contextMenu === undefined) void dock() }} onclick={(event) => { if (event.target === dialog) void dock() }}>
+  <dialog bind:this={dialog} class="caelestis-modal" aria-label="Caelestis menu" oncancel={(event) => { event.preventDefault(); if (model.tree?.contextMenu === undefined) void dock() }} onclick={(event) => { if (event.target === dialog) void dock() }}>
     {@render contents()}
   </dialog>
 {:else}
-  <div class="docked" bind:this={dockedPanel}>{@render contents()}</div>
+  <div class="docked">{@render contents()}</div>
 {/if}
 
 <style>
   .docked { block-size: 100%; min-block-size: 0; }
+  /* The popout morphs out of the docked panel instead of scaling, so it only fades. */
   dialog {
     --modal-open-dur: var(--caelestis-duration-medium);
     --modal-close-dur: var(--caelestis-duration-fast);
-    --caelestis-surface-close-duration: var(--modal-close-dur);
-    --modal-ease: var(--caelestis-ease-smooth-out);
-    position: fixed; inset: 0; inline-size: 96vw; block-size: 96dvh; max-inline-size: none; max-block-size: none; margin: auto; padding: 0; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); overflow: visible; color: inherit; background: transparent;
-    opacity: 0;
-    pointer-events: none;
-    transition:
-      opacity   var(--modal-close-dur) var(--modal-ease),
-      overlay   var(--modal-close-dur) var(--modal-ease) allow-discrete,
-      display   var(--modal-close-dur) var(--modal-ease) allow-discrete;
+    --modal-scale: none;
+    position: fixed; inset: 0; inline-size: 96vw; block-size: 96dvh; max-inline-size: none; max-block-size: none; margin: auto; padding: 0; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius); overflow: visible; color: inherit; background: transparent;
   }
-  dialog[open] {
-    opacity: 1;
-    pointer-events: auto;
-    transition:
-      opacity   var(--modal-open-dur) var(--modal-ease),
-      overlay   var(--modal-open-dur) var(--modal-ease) allow-discrete,
-      display   var(--modal-open-dur) var(--modal-ease) allow-discrete;
-    @starting-style { opacity: 0; }
-  }
-  dialog::backdrop { background: rgb(0 0 0 / 0.4); opacity: 0; transition: opacity var(--modal-close-dur) var(--modal-ease), overlay var(--modal-close-dur) var(--modal-ease) allow-discrete, display var(--modal-close-dur) var(--modal-ease) allow-discrete; }
-  dialog[open]::backdrop { opacity: 1; transition-duration: var(--modal-open-dur); @starting-style { opacity: 0; } }
-  @media (prefers-reduced-motion: reduce) {
-    dialog, dialog::backdrop { transition: none !important; }
-  }
-  dialog .panel { border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); }
+  dialog .panel { border-radius: var(--caelestis-radius); }
   .panel { container: panel / inline-size; }
-  .panel { --caelestis-content-inset: 1rem; position: relative; display: flex; flex-direction: column; min-block-size: 0; block-size: 100%; overflow: hidden; border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-surface, oklch(0.97 0.01 264)); color: var(--caelestis-text, oklch(0.26 0.025 264)); box-shadow: var(--caelestis-shadow, 0 24px 80px rgb(0 0 0 / 0.35)); }
+  .panel { --caelestis-content-inset: 1rem; position: relative; display: flex; flex-direction: column; min-block-size: 0; block-size: 100%; overflow: hidden; border-radius: var(--caelestis-radius); background: var(--caelestis-surface, oklch(0.97 0.01 264)); color: var(--caelestis-text, oklch(0.26 0.025 264)); box-shadow: var(--caelestis-shadow, 0 24px 80px rgb(0 0 0 / 0.35)); }
   header { display: flex; flex: 0 0 auto; align-items: center; gap: 0.5rem; padding: 1rem 1.5rem; border-block-end: 1px solid var(--caelestis-border, oklch(0.78 0.025 264 / 0.7)); }
-  h2 { flex: 1; margin: 0; font: 600 0.875rem/1.25 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); }
+  h2 { flex: 1; margin: 0; font: 600 0.875rem/1.25 var(--caelestis-font); }
   .body { display: grid; flex: 1; min-block-size: 0; }
   /* Outgoing and incoming pages share one grid cell so the swap never shifts layout. */
   .page { grid-area: 1 / 1; display: flex; flex-direction: column; min-block-size: 0; min-inline-size: 0; }
   .resize { position: absolute; inset-block: 0; inset-inline-start: 0; z-index: 1; inline-size: 6px; cursor: ew-resize; }
-  .resize:hover::after, .resize.resizing::after, .resize:focus-visible::after { content: ''; position: absolute; inset: 0 2px 0 1px; border-radius: var(--caelestis-pill-radius, 999px); background: var(--caelestis-primary, currentColor); opacity: 0.5; }
+  .resize:hover::after, .resize.resizing::after, .resize:focus-visible::after { content: ''; position: absolute; inset: 0 2px 0 1px; border-radius: var(--caelestis-pill-radius); background: var(--caelestis-primary, currentColor); opacity: 0.5; }
   .resize:focus-visible { outline: none; }
   @container panel (max-width: 24rem) {
     header { gap: 0.25rem; padding-inline: 0.75rem; }

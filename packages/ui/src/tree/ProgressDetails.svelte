@@ -4,11 +4,12 @@
   import Button from '../foundations/Button.svelte'
   import Icon from '../foundations/Icon.svelte'
   import ProgressMeter from '../progress/ProgressMeter.svelte'
-  import type { TreeColourProgressModel, TreeProgressModel } from '../types.js'
+  import type { ProgressModel } from '../progress/model.js'
+  import type { TreeColourProgressModel } from './model.js'
 
   let { name, progress, colours = [], onClose }: {
     name: string
-    progress: TreeProgressModel
+    progress: ProgressModel
     colours?: readonly TreeColourProgressModel[] | undefined
     onClose: () => void
   } = $props()

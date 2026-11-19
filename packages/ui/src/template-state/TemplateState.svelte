@@ -1,7 +1,6 @@
 <script lang="ts">
-  import { formatPixels } from '@caelestis/shared'
+  import { type AlarmKind, formatPixels } from '@caelestis/shared'
   import TemplateLifecycle from './TemplateLifecycle.svelte'
-  import type { TemplateStateProps } from '../types.js'
 
   let {
     finished = false,
@@ -12,15 +11,25 @@
     pixelsLost,
     compact = false,
     showLifecycle = true,
-  }: TemplateStateProps = $props()
+  }: {
+    finished?: boolean
+    frozen?: boolean
+    griefed?: boolean
+    /** The most severe active alarm among a container's descendants. */
+    descendantAlarmKind?: AlarmKind | undefined
+    alarmKind?: AlarmKind | undefined
+    pixelsLost?: number | undefined
+    compact?: boolean
+    /** Hide the lifecycle indicator when the host overlays it on its template icon. */
+    showLifecycle?: boolean
+  } = $props()
 
-  const griefDetected = $derived(griefed)
   const alarmTitle = $derived(
     alarmKind === 'sustained-griefing'
       ? 'Sustained griefing'
       : alarmKind === 'regression'
         ? 'Regression'
-        : griefDetected ? 'Grief detected'
+        : griefed ? 'Grief detected'
         : descendantAlarmKind === 'sustained-griefing' ? 'Contains griefed templates'
         : descendantAlarmKind === 'regression' ? 'Contains templates with regression' : null,
   )

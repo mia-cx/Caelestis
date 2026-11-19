@@ -1,13 +1,9 @@
 import { mount, tick, unmount } from 'svelte'
 import { afterEach, describe, expect, it } from 'vitest'
 import AppearanceEditor from '../src/appearance/AppearanceEditor.svelte'
+import type { AppearanceEditorIntent, AppearanceEditorModel } from '../src/appearance/model.js'
 import ClaimMode from '../src/claim/ClaimMode.svelte'
-import type {
-  AppearanceEditorIntent,
-  AppearanceEditorModel,
-  ClaimModeIntent,
-  ClaimModeModel,
-} from '../src/types.js'
+import type { ClaimModeIntent, ClaimModeModel } from '../src/claim/model.js'
 
 const mounted: object[] = []
 afterEach(async () => {
@@ -120,6 +116,7 @@ describe('claim and appearance intent boundaries', () => {
   it('separates slider preview from commit and respects group ownership', async () => {
     const intents: AppearanceEditorIntent[] = []
     const model = {
+      variant: 'overlay',
       values: {
         size: 1,
         radius: 0,
@@ -144,6 +141,7 @@ describe('claim and appearance intent boundaries', () => {
       sliders: [
         {
           key: 'opacity',
+          group: 'pixels',
           label: 'Opacity',
           value: 0.5,
           defaultValue: 1,
@@ -167,6 +165,7 @@ describe('claim and appearance intent boundaries', () => {
         props: { model, onIntent: (intent: AppearanceEditorIntent) => intents.push(intent) },
       }),
     )
+    await tick()
     const ownership = target.querySelector(
       'input[aria-label="Use default pixels"]',
     ) as HTMLInputElement
