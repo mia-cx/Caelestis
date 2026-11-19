@@ -180,8 +180,6 @@ export class DirectStatusReadModel implements StatusReadModelPort {
 
   /** Live commands, where any ran, ran in this process. */
   async readIngestTimings(_season: number, reset: boolean): Promise<IngestTimingSnapshot> {
-    const snapshot = ingestTimings.snapshot()
-    if (reset) ingestTimings.reset()
-    return snapshot
+    return ingestTimings.read(reset)
   }
 }

@@ -11,7 +11,6 @@ export class StorageError extends Data.TaggedError('StorageError')<{
   readonly status = 500
 }
 
-/** Run one dependency call, turning a rejection into a `StorageError` that names the operation. */
 export const storage = <A>(
   operation: string,
   run: () => Promise<A>,

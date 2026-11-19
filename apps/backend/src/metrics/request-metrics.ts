@@ -331,7 +331,6 @@ const writeRequestMetric = (
   }
 }
 
-/** Measure one request and preserve its D1 attribution across concurrent async work. */
 export const measureRequest = async (
   dataset: MetricDataset | undefined,
   request: Request,
