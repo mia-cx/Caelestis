@@ -1,8 +1,9 @@
 import {
-  decodePresenceServerEvent,
+  decodeRegionSnapshot,
   type PainterIdentity,
   type RegionClaim,
   type RegionClaimRequest,
+  type RegionSnapshot,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { warn } from './debug.js'
@@ -95,13 +96,6 @@ export const releaseRegion = async (
   return result.kind === 'deleted' ? OK : result
 }
 
-/** A server's claims as its HTTP snapshot reports them. */
-export interface RegionSnapshot {
-  readonly regions: readonly RegionClaim[]
-  readonly ownedRegionIds: readonly string[]
-  readonly canWrite: boolean
-}
-
 const fetchRegions = async (
   server: ServerConnection,
   signal: AbortSignal,
@@ -116,14 +110,7 @@ const fetchRegions = async (
     read: 'json',
     signal,
   })
-  if (!response.ok || typeof body !== 'object' || body === null || !('regions' in body)) return null
-  const event = decodePresenceServerEvent({ ...body, type: 'regions' })
-  if (event === null || event === 'unknown' || event.type !== 'regions') return null
-  return {
-    regions: event.regions,
-    ownedRegionIds: event.ownedRegionIds ?? [],
-    canWrite: 'canWrite' in body && body.canWrite === true,
-  }
+  return response.ok ? decodeRegionSnapshot(body) : null
 }
 
 /**

@@ -1,4 +1,4 @@
-import { isSafeInteger } from './guards.js'
+import { isRecord, isSafeInteger } from './guards.js'
 import {
   isPresenceDraft,
   isPresenceRect,
@@ -115,5 +115,22 @@ export const decodePresenceServerEvent = (
       return { type: 'claims-renewed', expiresAt: event.expiresAt, ids: strings(event.ids) }
     default:
       return 'unknown'
+  }
+}
+
+/** A server's claims as its HTTP snapshot, `GET /work/regions`, reports them. */
+export interface RegionSnapshot {
+  readonly regions: readonly RegionClaim[]
+  readonly ownedRegionIds: readonly string[]
+  readonly canWrite: boolean
+}
+
+/** A region snapshot from parsed JSON. Null when malformed; malformed claims are dropped. */
+export const decodeRegionSnapshot = (value: unknown): RegionSnapshot | null => {
+  if (!isRecord(value) || !Array.isArray(value.regions)) return null
+  return {
+    regions: value.regions.filter(isRegionClaim),
+    ownedRegionIds: strings(value.ownedRegionIds),
+    canWrite: value.canWrite === true,
   }
 }

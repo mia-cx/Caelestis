@@ -30,7 +30,7 @@ import {
   recordProfileMessage,
   recordProfileWorkload,
 } from './profile.js'
-import { pollRegionSnapshots, type RegionSnapshot } from './region-api.js'
+import { pollRegionSnapshots } from './region-api.js'
 import {
   activeServerToken,
   isCurrentServerConnection,
@@ -355,7 +355,7 @@ const stopSnapshots = (connection: Connection): void => {
 /** Read claims over HTTP while this server has no presence session. */
 const startSnapshots = (connection: Connection): void => {
   if (connection.sessionId !== null || connection.stopSnapshots !== null) return
-  connection.stopSnapshots = pollRegionSnapshots(connection.server, (snapshot: RegionSnapshot) => {
+  connection.stopSnapshots = pollRegionSnapshots(connection.server, (snapshot) => {
     if (connection.sessionId !== null) return
     applyClaims(connection, snapshot.regions, snapshot.ownedRegionIds)
     connection.canWriteClaims = snapshot.canWrite

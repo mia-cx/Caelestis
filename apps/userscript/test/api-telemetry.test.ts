@@ -1,5 +1,6 @@
 import {
   createWorkClient,
+  decodeRegionSnapshot,
   encodeIndexedPng,
   type PainterIdentity,
   sha256Hex,
@@ -183,7 +184,8 @@ describe('userscript telemetry HTTP boundary', () => {
     const regions = await endpointRequest(reportToken)(
       '/work/regions?season=3&surface=world&painterId=42',
     )
-    expect(await regions.json()).toMatchObject({
+    // The client's snapshot decoder agrees with what the backend sends.
+    expect(decodeRegionSnapshot(await regions.json())).toMatchObject({
       canWrite: true,
       ownedRegionIds: [id],
       regions: [
