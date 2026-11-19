@@ -77,9 +77,4 @@
       opacity: 0;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    :global(.select-content[data-state='open']) {
-      animation: none;
-    }
-  }
 </style>
