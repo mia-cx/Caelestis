@@ -58,7 +58,6 @@ const reclaimTileBlob = async (
   return 'reclaimed'
 }
 
-/** Read the currently registered generation, with the pre-GC hash key as the migration fallback. */
 export const readTileBlob = async (
   ports: TileBlobStores,
   hash: string,
@@ -97,7 +96,6 @@ export const reserveTileBlob = async (
   return reservation === null ? null : { reservation, bytes }
 }
 
-/** Finish durable deletion work for one hash before restoring it under a new key. */
 const recoverDeletingHash = async (
   ports: TileBlobStores,
   hash: string,
@@ -112,7 +110,6 @@ const recoverDeletingHash = async (
   return true
 }
 
-/** Reserve an unfenced generation, recovering any interrupted older deletion once if needed. */
 export const reserveTileBlobUpload = async (
   ports: TileBlobStores,
   hash: string,
