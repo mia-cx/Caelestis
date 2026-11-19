@@ -8,10 +8,10 @@ import {
 import { claimEditorEditingIds } from './claim-editor.js'
 import type { ScreenProjection, TileFrame } from './coordinates.js'
 import { displayedPresenceRect } from './gl/presence-layer.js'
+import { framePixelAt, rectOnScreen } from './map-pointer.js'
 import { claimsVisible, displayClaims } from './presence-claims.js'
 import { presenceView } from './presence-client.js'
 import { presenceCss } from './presence-colour.js'
-import { canvasPixelAt, rectOnScreen } from './presence-geometry.js'
 import { setHoveredPresenceItems } from './presence-hover.js'
 import {
   measureProfileDetail,
@@ -414,7 +414,7 @@ export const renderPresenceLabels = (
   }
   const ratioX = frame.canvas.width / box.width
   const ratioY = frame.canvas.height / box.height
-  const at = canvasPixelAt(frame, (pointer.x - box.left) * ratioX, (pointer.y - box.top) * ratioY)
+  const at = framePixelAt(frame, (pointer.x - box.left) * ratioX, (pointer.y - box.top) * ratioY)
   if (at === null) {
     removeAll()
     return

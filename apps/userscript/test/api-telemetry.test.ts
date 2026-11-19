@@ -156,6 +156,7 @@ describe('userscript telemetry HTTP boundary', () => {
     vi.stubGlobal('WebSocket', IdleWebSocket)
     const state = await importStateModules()
     const presence = await import('../src/presence-client.js')
+    const regionApi = await import('../src/region-api.js')
     const probed = await state.probeServer(origin, reportToken)
     if (probed.info === null) throw new Error('test backend did not return server metadata')
     const server = { ...probed, info: { ...probed.info, presence: 1 as const } }
@@ -177,7 +178,7 @@ describe('userscript telemetry HTTP boundary', () => {
         ],
       },
     }
-    expect(await presence.claimRegion(server, id, request)).toBeNull()
+    expect(await regionApi.claimRegion(server, id, request)).toEqual({ kind: 'ok' })
 
     const regions = await endpointRequest(reportToken)(
       '/work/regions?season=3&surface=world&painterId=42',
@@ -195,9 +196,9 @@ describe('userscript telemetry HTTP boundary', () => {
       ],
     })
     expect(
-      await presence.releaseRegion(server, id, { wplaceUserId: 7, displayName: 'Other painter' }),
-    ).toBe('forbidden')
-    expect(await presence.releaseRegion(server, id, painter)).toBeNull()
+      await regionApi.releaseRegion(server, id, { wplaceUserId: 7, displayName: 'Other painter' }),
+    ).toEqual({ kind: 'error', message: 'forbidden' })
+    expect(await regionApi.releaseRegion(server, id, painter)).toEqual({ kind: 'ok' })
     expect(
       await (await endpointRequest(reportToken)('/work/regions?season=3&surface=world')).json(),
     ).toEqual({ regions: [] })

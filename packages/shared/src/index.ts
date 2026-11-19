@@ -27,6 +27,7 @@ export {
   type RgbaImage,
 } from './png.js'
 export * from './presence.js'
+export * from './presence-events.js'
 export {
   OPAQUE_ALPHA_THRESHOLD,
   type QuantiseReport,

@@ -1,30 +1,37 @@
 import type { RegionClaim, RegionDocument } from '@caelestis/shared'
-import { expect, it, vi } from 'vitest'
+import { expect, it } from 'vitest'
+import { ClaimRouter } from '../src/claim-routing.js'
 import type { ConnectedServer } from '../src/settings.js'
 
-vi.mock('../src/presence-client.js', () => ({ presenceCanWriteClaims: () => true }))
+type Entries = ConstructorParameters<typeof ClaimRouter>[1]
+type Host = ConstructorParameters<typeof ClaimRouter>[0]
 
-import { ClaimRouter } from '../src/claim-routing.js'
+const server: ConnectedServer = {
+  url: 'https://claims.test',
+  token: 'report',
+  status: 'connected',
+  season: 3,
+  isAdmin: false,
+  info: { id: 'claims', name: 'Claims', auth: 'access_token', presence: 1 },
+}
+const actor = { wplaceUserId: 42, displayName: 'Painter' }
+
+/** The claims the journal holds as live: not deleted and not awaiting replacement. */
+const live = (entries: Entries) =>
+  (entries ?? [])
+    .filter((entry) => !entry.deleted && entry.replaceAfter === undefined)
+    .map((entry) => entry.region)
 
 it('retains delivery intent across reload, ignores unchanged snapshot churn, and retries terminal deletion', async () => {
-  const server: ConnectedServer = {
-    url: 'https://claims.test',
-    token: 'report',
-    status: 'connected',
-    season: 3,
-    isAdmin: false,
-    info: { id: 'claims', name: 'Claims', auth: 'access_token', presence: 1 },
-  }
-  const actor = { wplaceUserId: 42, displayName: 'Painter' }
   const document: RegionDocument = {
     items: [{ id: 'shape', op: 'add', shape: { kind: 'rectangle', x: 0, y: 0, w: 2, h: 2 } }],
   }
-  let saved: ConstructorParameters<typeof ClaimRouter>[1] = []
+  let saved: Entries = []
   let regions: RegionClaim[] = []
   let revision = 0
   let unavailable = true
   const writes: Array<{ method: string; id: string; withdraw?: boolean }> = []
-  const host: ConstructorParameters<typeof ClaimRouter>[0] = {
+  const host: Host = {
     servers: () => [server],
     actor: () => actor,
     templates: () => [],
@@ -37,25 +44,27 @@ it('retains delivery intent across reload, ignores unchanged snapshot churn, and
     persist: (entries) => {
       saved = structuredClone(entries)
     },
+    saved: () => saved ?? [],
     retired: () => false,
     retire: () => {},
     put: async (_server, region) => {
       writes.push({ method: 'PUT', id: region.id })
-      if (unavailable) return 'offline'
+      if (unavailable) return { kind: 'error', message: 'offline' }
       regions = [structuredClone(region)]
-      return null
+      return { kind: 'ok' }
     },
     remove: async (_server, region, _signal, withdraw) => {
       writes.push({ method: 'DELETE', id: region.id, withdraw })
-      if (unavailable) return 'offline'
+      if (unavailable) return { kind: 'error', message: 'offline' }
       regions = []
-      return null
+      return { kind: 'ok' }
     },
   }
   let router = new ClaimRouter(host)
-  expect(await router.save(null, document)).toContain('offline')
-  const id = router.mine()[0]?.id
-  expect(id).toBeDefined()
+  const first = await router.saveAll([], [document])
+  expect(first.error).toContain('offline')
+  const [id] = first.ids
+  expect(live(saved).map((region) => region.id)).toEqual([id])
   expect(regions).toEqual([])
   unavailable = false
   router = new ClaimRouter(host, saved)
@@ -68,7 +77,7 @@ it('retains delivery intent across reload, ignores unchanged snapshot churn, and
   expect(writes).toEqual([])
   unavailable = true
   expect(await router.remove(id ?? '')).toContain('offline')
-  expect(router.mine()).toEqual([])
+  expect(live(saved)).toEqual([])
   router = new ClaimRouter(host, saved)
   unavailable = false
   await router.reconcile()
@@ -80,37 +89,34 @@ it('retains delivery intent across reload, ignores unchanged snapshot churn, and
 })
 
 it('keeps an unchanged claim document across reloads of the shared journal', async () => {
-  const server: ConnectedServer = {
-    url: 'https://claims.test',
-    token: 'report',
-    status: 'connected',
-    season: 3,
-    isAdmin: false,
-    info: { id: 'claims', name: 'Claims', auth: 'access_token', presence: 1 },
-  }
-  let saved: ConstructorParameters<typeof ClaimRouter>[1] = []
+  let saved: Entries = []
+  let persisted: Entries = []
   const router = new ClaimRouter({
     servers: () => [server],
-    actor: () => ({ wplaceUserId: 42, displayName: 'Painter' }),
+    actor: () => actor,
     templates: () => [],
     claims: () => ({ ready: true, regions: [], revision: 0, ownedRegionIds: [] }),
     persist: (entries) => {
+      persisted = entries
       saved = JSON.parse(JSON.stringify(entries))
     },
+    saved: () => saved ?? [],
     retired: () => false,
     retire: () => {},
-    put: async () => null,
-    remove: async () => null,
+    put: async () => ({ kind: 'ok' }),
+    remove: async () => ({ kind: 'ok' }),
   })
   const ellipse = { kind: 'ellipse', x: 0, y: 0, w: 40, h: 40 } as const
-  await router.save(null, { items: [{ id: 'shape', op: 'add', shape: ellipse }] })
-  const document = router.mine()[0]?.document
+  await router.saveAll([], [{ items: [{ id: 'shape', op: 'add', shape: ellipse }] }])
+  const document = live(persisted)[0]?.document
   router.restore(JSON.parse(JSON.stringify(saved)))
-  expect(router.mine()[0]?.document).toBe(document)
+  await router.reconcile()
+  expect(live(persisted)[0]?.document).toBe(document)
   const edited = JSON.parse(JSON.stringify(saved))
   edited[0].region.document.items[0].shape.w = 20
   router.restore(edited)
-  expect(router.mine()[0]?.document).toEqual({
+  await router.reconcile()
+  expect(live(persisted)[0]?.document).toEqual({
     items: [{ id: 'shape', op: 'add', shape: { ...ellipse, w: 20 } }],
   })
 })
