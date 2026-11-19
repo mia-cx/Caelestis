@@ -6,6 +6,7 @@ import {
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { allianceSurfaceCentre, currentSurface } from '../alliance-surface.js'
+import { importTemplatesToServer, type ServerUpload } from '../application/import-to-server.js'
 import { startCaptureMode } from '../claim-editor.js'
 import { errorText } from '../error-text.js'
 import { viewportCentre } from '../map-view.js'
@@ -20,10 +21,9 @@ import {
   setTemplateFolder,
 } from '../templates/template-edits.js'
 import { localFolderIdOf } from '../tree-keys.js'
-import { showToast } from '../ui/notification-host.js'
-import type { TreeTarget } from '../ui/tree-context.js'
-import { importTemplatesToServer, type ServerUpload } from './import-to-server.js'
+import { showToast } from './notification-host.js'
 import { openTemplateStudio } from './template-studio.js'
+import type { TreeTarget } from './tree-context.js'
 import { hiddenNotice } from './tree-target.js'
 
 /** Save `file` as `filename` through the browser's own download. */

@@ -1,3 +1,5 @@
+import { plural } from '../application/plural.js'
+import { refreshEditedSurface } from '../application/tree-server.js'
 import { warn } from '../debug.js'
 import { removeLocalFolder } from '../local-folders.js'
 import {
@@ -10,10 +12,8 @@ import { templateIdsInLocalFolder } from '../templates/catalog.js'
 import { stopMoveForDeletion } from '../templates/move.js'
 import { removeLocalTemplate, setTemplatesFolder } from '../templates/template-edits.js'
 import { localFolderIdOf, localTemplateIdOf } from '../tree-keys.js'
-import { requestConfirmation, showToast } from '../ui/notification-host.js'
-import type { TreeTarget } from '../ui/tree-context.js'
-import { plural } from './plural.js'
-import { refreshEditedSurface } from './tree-server.js'
+import { requestConfirmation, showToast } from './notification-host.js'
+import type { TreeTarget } from './tree-context.js'
 import { surfaceOf } from './tree-target.js'
 
 /**

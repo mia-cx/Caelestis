@@ -1,4 +1,3 @@
-import { goToLocalTemplate } from '../application/tree-navigation.js'
 import { isScopeVisible, setScopeVisible } from '../settings.js'
 import { isTemplateVisible } from '../templates/catalog.js'
 import { copyWplaceTemplate, NATIVE_ALLIANCE_TREE_KEY } from '../templates/native-alliance.js'
@@ -14,6 +13,7 @@ import { setLocalVisible } from '../templates/template-edits.js'
 import { WPLACE_OWNER_URL } from '../templates/wplace-owned.js'
 import { eventTemplateKey, nativeTemplateKey, nodeScopeKey, serverScopeKey } from '../tree-keys.js'
 import type { TreeContext } from './tree-context.js'
+import { goToLocalTemplate } from './tree-navigation.js'
 import { isTreeExpanded, previewArt, renderLevel, reportTreeError } from './tree-rows.js'
 import {
   groupedTreeSource,

@@ -8,7 +8,6 @@ import {
 } from '@caelestis/shared'
 import { activeAllianceEditorStage } from './alliance-editor-dom.js'
 import { type ActiveAllianceSurface, activeAllianceSurface } from './alliance-surface.js'
-import { handleTemplateStudioIntent, isTemplateStudioOpen } from './application/template-studio.js'
 import { isClaimModeActive } from './claim-editor.js'
 import { openClaimTool } from './claims.js'
 import { requestMapFrame } from './map-view.js'
@@ -30,6 +29,7 @@ import { toggleSurfaceAppearance } from './ui/appearance.js'
 import { refreshOverlayMenu, toggleOverlayMenu } from './ui/overlay-menu.js'
 import { togglePanel } from './ui/panel.js'
 import { toggleShortcutHelp } from './ui/shortcut-help.js'
+import { handleTemplateStudioIntent, isTemplateStudioOpen } from './ui/template-studio.js'
 import {
   cancelPaintDraft,
   performPaintAction,

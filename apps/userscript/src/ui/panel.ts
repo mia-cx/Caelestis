@@ -22,9 +22,7 @@ import {
   currentSurface,
   onActiveAllianceSurfaceChange,
 } from '../alliance-surface.js'
-import { onTemplateStudioChange } from '../application/template-studio.js'
 import { cancelDestinationAdmissions } from '../application/transfer.js'
-import { treeActionUsesServer } from '../application/tree-copy.js'
 import { cancelTreeActionSetup } from '../application/tree-presentation.js'
 import { onServerSnapshot } from '../application/tree-server-state.js'
 import { onOtherBuildChange } from '../build-transfer.js'
@@ -102,7 +100,9 @@ import {
   setSettingsVisible,
   settingsModel,
 } from './settings-controller.js'
+import { onTemplateStudioChange } from './template-studio.js'
 import { applyWplaceTheme } from './theme.js'
+import { treeActionUsesServer } from './tree-copy.js'
 import {
   buildTreeView,
   clearTreeView,

@@ -25,16 +25,16 @@ vi.mock('../src/wplace-account.js', async (original) => ({
   loadAccount: () => account.load,
 }))
 
+import { templateDraft } from '../src/templates/catalog.js'
+import type { ImportedTemplate } from '../src/templates/import.js'
+import { processRecipe } from '../src/templates/import.js'
+import { requestConfirmation } from '../src/ui/notification-host.js'
 import {
   closeTemplateStudio,
   handleTemplateStudioIntent,
   openTemplateStudio,
   templateStudioModel,
-} from '../src/application/template-studio.js'
-import { templateDraft } from '../src/templates/catalog.js'
-import type { ImportedTemplate } from '../src/templates/import.js'
-import { processRecipe } from '../src/templates/import.js'
-import { requestConfirmation } from '../src/ui/notification-host.js'
+} from '../src/ui/template-studio.js'
 import { celesteRoom, firstDifference, warmUp } from './celeste.js'
 
 /** Open the studio on the Celeste room and wait for its first result. */

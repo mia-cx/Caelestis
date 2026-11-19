@@ -1,5 +1,4 @@
 import { type AlarmKind, WORLD_PIXELS } from '@caelestis/shared'
-import { goToServerTemplate } from '../application/tree-navigation.js'
 import {
   hasRefreshedServer,
   isServerRefreshing,
@@ -29,6 +28,7 @@ import {
   serverTemplateColourProgress,
   serverTemplateProgress,
 } from './tree-facts.js'
+import { goToServerTemplate } from './tree-navigation.js'
 import {
   type CategoryRoot,
   categoryRoot,

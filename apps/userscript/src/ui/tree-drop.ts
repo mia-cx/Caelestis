@@ -1,4 +1,17 @@
 import { type TemplateSurface, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
+import { busyRefusal } from '../application/template-busy.js'
+import {
+  copyLocalTemplateToServer,
+  moveServerTemplateToLocal,
+  moveServerTemplateToServer,
+} from '../application/transfer.js'
+import { type Destination, type Source, transplant } from '../application/transplant.js'
+import { refreshEditedSurface, retryOptimisticMutation } from '../application/tree-server.js'
+import {
+  findServerNode,
+  findServerTemplate,
+  optimisticallyPlaceServerRow,
+} from '../application/tree-server-state.js'
 import { moveNode as moveNodeOnServer, patchTemplate } from '../server-api.js'
 import { serverByUrl, serverLabel } from '../server-connections.js'
 import type { ServerConnection } from '../settings.js'
@@ -13,20 +26,7 @@ import {
   serverTemplateKey,
   serverTemplateTreeKey,
 } from '../tree-keys.js'
-import { requestConfirmation, showToast } from '../ui/notification-host.js'
-import { busyRefusal } from './template-busy.js'
-import {
-  copyLocalTemplateToServer,
-  moveServerTemplateToLocal,
-  moveServerTemplateToServer,
-} from './transfer.js'
-import { type Destination, type Source, transplant } from './transplant.js'
-import { refreshEditedSurface, retryOptimisticMutation } from './tree-server.js'
-import {
-  findServerNode,
-  findServerTemplate,
-  optimisticallyPlaceServerRow,
-} from './tree-server-state.js'
+import { requestConfirmation, showToast } from './notification-host.js'
 
 /**
  * Move a whole folder — a server's node or a Local one — to wherever it was dropped.

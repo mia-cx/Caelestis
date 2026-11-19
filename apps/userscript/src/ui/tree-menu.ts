@@ -1,4 +1,11 @@
 import { type TemplateSurface, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
+import { authoringOf } from '../application/template-authoring.js'
+import { templateBusy } from '../application/template-busy.js'
+import {
+  type MenuEntry,
+  type MenuGroups,
+  showContextMenu,
+} from '../application/tree-presentation.js'
 import { warn } from '../debug.js'
 import { serverAlarmFor } from '../server-alarms.js'
 import { dismissTemplateAlarm } from '../server-api.js'
@@ -9,23 +16,18 @@ import { beginMove } from '../templates/move.js'
 import { templateAsPng } from '../templates/residency.js'
 import { exportFilename, templateAsWplace } from '../templates/wplace-export.js'
 import { localTemplateIdOf, serverTemplateKey } from '../tree-keys.js'
-import { openBackfill } from '../ui/backfill.js'
-import { showToast } from '../ui/notification-host.js'
+import { openBackfill } from './backfill.js'
+import { showToast } from './notification-host.js'
 import {
   requestTemplateAreaUpdate,
   requestTemplateArtworkUpdate,
-} from '../ui/template-artwork-update.js'
-import type { TreeTarget } from '../ui/tree-context.js'
-import { startRenaming } from '../ui/tree-view-state.js'
-import { canClaimTemplate, claimTemplate, hasOwnTemplateClaim } from '../ui/work.js'
-import { authoringOf } from './template-authoring.js'
-import { templateBusy } from './template-busy.js'
+} from './template-artwork-update.js'
+import type { TreeTarget } from './tree-context.js'
 import { copyToServer } from './tree-copy.js'
 import { deleteTreeRow } from './tree-delete.js'
 import { createFolder } from './tree-folders.js'
 import { captureTemplate, createFromImage, download, importTemplate } from './tree-import.js'
 import { goToLocalTemplate, goToServerTemplate } from './tree-navigation.js'
-import { type MenuEntry, type MenuGroups, showContextMenu } from './tree-presentation.js'
 import {
   folderTemplatesFor,
   moveServerTemplate,
@@ -36,6 +38,8 @@ import {
   templateStateOf,
 } from './tree-server-template.js'
 import { hiddenNotice, surfaceOf } from './tree-target.js'
+import { startRenaming } from './tree-view-state.js'
+import { canClaimTemplate, claimTemplate, hasOwnTemplateClaim } from './work.js'
 
 /** `.wplace` carries placement and authoring for Wplace and Caelestis; `.png` is the artwork alone. */
 const exportTemplate = async (target: TreeTarget, format: 'wplace' | 'png'): Promise<void> => {

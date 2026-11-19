@@ -17,11 +17,11 @@ vi.mock('../src/ui/notification-host.js', async (importOriginal) => ({
   showToast: vi.fn(),
 }))
 
-import { openContextMenu } from '../src/application/tree-menu.js'
 import {
   handleTreeActionPresentationIntent,
   treeActionPresentation,
 } from '../src/application/tree-presentation.js'
+import { openContextMenu } from '../src/ui/tree-menu.js'
 
 const folder = (name: string, parentId: string | null = null): string => {
   const created = createLocalFolder(parentId, name)

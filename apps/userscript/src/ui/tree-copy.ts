@@ -1,20 +1,20 @@
-import { runWhileBusy } from '../concurrency.js'
-import { listServerNodes, type ServerNodesResult } from '../server-api.js'
-import { serverLabel } from '../server-connections.js'
-import { getState, type ServerConnection } from '../settings.js'
-import { templateById } from '../templates/catalog.js'
-import { showToast } from '../ui/notification-host.js'
-import { plural } from './plural.js'
-import { serverDestinations } from './server-destinations.js'
-import { busyRefusal } from './template-busy.js'
-import { copyCurrentLocalTemplateToServer } from './transfer.js'
+import { plural } from '../application/plural.js'
+import { serverDestinations } from '../application/server-destinations.js'
+import { busyRefusal } from '../application/template-busy.js'
+import { copyCurrentLocalTemplateToServer } from '../application/transfer.js'
 import {
   closeOperation,
   isOperationOpen,
   MAX_DESTINATIONS,
   showOperation,
   updateOperation,
-} from './tree-presentation.js'
+} from '../application/tree-presentation.js'
+import { runWhileBusy } from '../concurrency.js'
+import { listServerNodes, type ServerNodesResult } from '../server-api.js'
+import { serverLabel } from '../server-connections.js'
+import { getState, type ServerConnection } from '../settings.js'
+import { templateById } from '../templates/catalog.js'
+import { showToast } from './notification-host.js'
 
 let copySetupRunning = false
 /** The servers the running copy setup is asking for folders, so their disconnect can stop it. */

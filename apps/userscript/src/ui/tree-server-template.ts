@@ -5,6 +5,28 @@ import {
   WORLD_PIXELS,
 } from '@caelestis/shared'
 import { refreshAllianceManifest } from '../alliance-server-sync.js'
+import {
+  claimFolderPublication,
+  setFolderTemplatesPublished,
+} from '../application/folder-publication.js'
+import { plural } from '../application/plural.js'
+import { serverDestinations } from '../application/server-destinations.js'
+import { transferAuthoring } from '../application/template-authoring.js'
+import { busyRefusal, templateBusy } from '../application/template-busy.js'
+import {
+  closeOperation,
+  isOperationOpen,
+  MAX_DESTINATIONS,
+  showOperation,
+  updateOperation,
+} from '../application/tree-presentation.js'
+import {
+  refreshCurrentNodes,
+  refreshEditedSurface,
+  retryOptimisticMutation,
+  serverNodesFailure,
+} from '../application/tree-server.js'
+import { serverTemplateAt } from '../application/tree-server-state.js'
 import { runWhileBusy } from '../concurrency.js'
 import { listServerNodes, patchTemplate, uploadTemplateVersion } from '../server-api.js'
 import { isCurrentServerConnection, serverByUrl, serverLabel } from '../server-connections.js'
@@ -12,28 +34,9 @@ import type { ServerTemplate } from '../server-manifest.js'
 import { manifestRows } from '../server-manifests.js'
 import { isCurrentTemplate, localTemplates, templateById } from '../templates/catalog.js'
 import { templateAsPng } from '../templates/residency.js'
-import { showToast } from '../ui/notification-host.js'
-import type { TreeTarget } from '../ui/tree-context.js'
-import { claimFolderPublication, setFolderTemplatesPublished } from './folder-publication.js'
-import { plural } from './plural.js'
-import { serverDestinations } from './server-destinations.js'
-import { transferAuthoring } from './template-authoring.js'
-import { busyRefusal, templateBusy } from './template-busy.js'
+import { showToast } from './notification-host.js'
 import { openTemplateStudio } from './template-studio.js'
-import {
-  closeOperation,
-  isOperationOpen,
-  MAX_DESTINATIONS,
-  showOperation,
-  updateOperation,
-} from './tree-presentation.js'
-import {
-  refreshCurrentNodes,
-  refreshEditedSurface,
-  retryOptimisticMutation,
-  serverNodesFailure,
-} from './tree-server.js'
-import { serverTemplateAt } from './tree-server-state.js'
+import type { TreeTarget } from './tree-context.js'
 import { surfaceOf } from './tree-target.js'
 
 /** The template state from the same admitted snapshot that drew this row. */

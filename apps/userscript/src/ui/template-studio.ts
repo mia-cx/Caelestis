@@ -57,9 +57,9 @@ import {
   studioRecipe,
 } from '../templates/studio-recipe.js'
 import { MAX_TEMPLATE_NAME_LENGTH } from '../templates/template-record.js'
-import { requestConfirmation } from '../ui/notification-host.js'
-import { applyWplaceTheme } from '../ui/theme.js'
 import { loadAccount, ownedColours } from '../wplace-account.js'
+import { requestConfirmation } from './notification-host.js'
+import { applyWplaceTheme } from './theme.js'
 
 /**
  * The template studio: Ditherette web's controls over the live map.

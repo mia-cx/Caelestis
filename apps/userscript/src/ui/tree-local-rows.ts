@@ -1,5 +1,4 @@
 import { sameTemplateSurface, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
-import { goToLocalTemplate } from '../application/tree-navigation.js'
 import {
   localFolderChainVisible,
   moveLocalFolder,
@@ -13,6 +12,7 @@ import { LOCAL_ROOT_KEY, localFolderKey, localTemplateKey, parseTreeKey } from '
 import { sumProgress } from './progress.js'
 import type { TreeContext, TreeTarget } from './tree-context.js'
 import { completeColourProgress } from './tree-facts.js'
+import { goToLocalTemplate } from './tree-navigation.js'
 import {
   categoryRoot,
   claimFacts,

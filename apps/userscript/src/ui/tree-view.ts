@@ -1,14 +1,5 @@
 import type { TemplateSurface } from '@caelestis/shared'
 import type { PanelModel, TemplateTreeIntent } from '@caelestis/ui/elements'
-import { copyToServer } from '../application/tree-copy.js'
-import {
-  copyServerTemplateToLocal,
-  dropOnServerNode,
-  moveBranch,
-} from '../application/tree-drop.js'
-import { createFolder } from '../application/tree-folders.js'
-import { captureTemplate, importTemplate } from '../application/tree-import.js'
-import { openContextMenu } from '../application/tree-menu.js'
 import {
   handleTreeActionPresentationIntent,
   treeActionPresentation,
@@ -21,6 +12,11 @@ import { showToast } from './notification-host.js'
 import { presenceSummaryModel } from './presence-actions.js'
 import { templateTreeAdapter } from './tree.js'
 import { type TemplateTreeAdapter, type TreeCallbacks, templateTreeKeyFor } from './tree-context.js'
+import { copyToServer } from './tree-copy.js'
+import { copyServerTemplateToLocal, dropOnServerNode, moveBranch } from './tree-drop.js'
+import { createFolder } from './tree-folders.js'
+import { captureTemplate, importTemplate } from './tree-import.js'
+import { openContextMenu } from './tree-menu.js'
 import { changeTemplateClaim, withTemplateClaims, workSectionModel } from './work.js'
 
 /**
