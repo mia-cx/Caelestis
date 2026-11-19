@@ -576,8 +576,6 @@ const selectAlliancePanelSurface = (active: ActiveAllianceSurface | null): void 
   else syncPanelButtons()
 }
 
-export const isPanelOpen = (): boolean => panelOpen()
-
 /** Whether the open world tree presents this template after search, filters, and collapse. */
 export const isWorldTemplatePresented = (server: ServerConnection, templateId: string): boolean =>
   panelSessions.isWorldTreeVisible() && treeViewPresents(serverTemplateTreeKey(server, templateId))

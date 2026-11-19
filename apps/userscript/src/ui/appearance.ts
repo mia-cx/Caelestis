@@ -113,7 +113,7 @@ export const appearanceEditorModel = ({
 }
 
 /** One change to save: what it touches, how a refusal names it, and the patch over stored values. */
-export interface AppearanceChange {
+interface AppearanceChange {
   readonly properties: readonly string[]
   readonly label: string
   readonly patch: AppearanceUpdater

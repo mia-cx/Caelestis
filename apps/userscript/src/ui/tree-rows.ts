@@ -44,7 +44,7 @@ export const claimFacts = (ctx: TreeContext, key: string) => {
 }
 
 /** Capture selects with the claim editor, which only works over the world canvas. */
-export const captureActions = (ctx: TreeContext, target: TreeTarget): RowAction[] =>
+const captureActions = (ctx: TreeContext, target: TreeTarget): RowAction[] =>
   ctx.surface.kind === 'world'
     ? [
         {

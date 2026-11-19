@@ -29,7 +29,7 @@ import { changeTemplateClaim, withTemplateClaims, workSectionModel } from './wor
  */
 
 /** What the tree view asks of the panel it lives in. */
-export interface TreeViewHost {
+interface TreeViewHost {
   readonly surface: () => TemplateSurface
   /**
    * Whichever tree is currently on screen.

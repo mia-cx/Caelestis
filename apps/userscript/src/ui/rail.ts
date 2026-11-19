@@ -53,7 +53,7 @@ import {
  */
 
 /** What the rail asks of the panel its buttons open. */
-export interface RailPanel {
+interface RailPanel {
   readonly isOpen: (scope: PanelScope) => boolean
   readonly toggleWorld: () => void
   readonly toggleAlliance: (active: ActiveAllianceSurface) => void
