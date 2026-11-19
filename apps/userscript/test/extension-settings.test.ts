@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 const STATE_KEY = 'caelestis.state.v2'
 const SHARE_TILES_KEY = 'caelestis.setting.shareTiles'
-const SIMULATED_INPUT_KEY = 'caelestis.setting.simulatedInput'
+const SHIFT_PAINT_KEY = 'caelestis.setting.simulatedInput.shift-paint'
 
 /**
  * A tab or the popup: its modules over its own cache of one shared extension store. Writes reach
@@ -76,19 +76,20 @@ describe('global settings in the extension', () => {
     expect(loaded.shareTiles).toBe(false)
   })
 
-  it('a popup Dangerous switch reaches an open tab and outlives its save', async () => {
+  it('Dangerous switches flipped in a tab and the popup at once both stand', async () => {
     const store = sharedStore({ simulatedInput: { 'cycle-colour': true } })
     const tab = await extensionContext(store)
     const popup = await extensionContext(store)
     tab.state.loadState()
 
+    tab.state.setState({ simulatedInput: {} })
     popup.state.storeSimulatedInput('shift-paint', true)
-    tab.state.setState({ panelWidth: 500 })
-    tab.adopt({ [SIMULATED_INPUT_KEY]: store.get(SIMULATED_INPUT_KEY) ?? null })
+    tab.adopt({ [SHIFT_PAINT_KEY]: store.get(SHIFT_PAINT_KEY) ?? null })
 
-    const expected = { 'cycle-colour': true, 'shift-paint': true }
-    expect(tab.state.getState().simulatedInput).toEqual(expected)
-    expect((await extensionContext(store)).state.loadState().simulatedInput).toEqual(expected)
+    expect(tab.state.getState().simulatedInput).toEqual({ 'shift-paint': true })
+    expect((await extensionContext(store)).state.loadState().simulatedInput).toEqual({
+      'shift-paint': true,
+    })
   })
 
   it('a tab save keeps a popup switch it has not heard about yet', async () => {
