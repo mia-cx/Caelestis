@@ -23,7 +23,6 @@ import {
 } from '../runtime/backend-runtime.js'
 import { runBackendHttp } from '../runtime/hono.js'
 import { parseSurface } from './params.js'
-import type { TelemetryRouteOptions } from './telemetry.js'
 
 const LIVE_PROTOCOLS = [LIVE_PROTOCOL_V2, LIVE_PROTOCOL_V1] as const
 /** Browsers cannot set headers on a websocket, so clients carry a bearer token as a subprotocol. */
@@ -76,23 +75,32 @@ const metricClientOf = (c: Context) =>
 /** Anonymous readers share one token, so their client id tells their connections apart. */
 const isAnonymous = (caller: Caller): boolean => caller.token === null && caller.scope === 'read'
 
-const NOT_SERVED = 'season is not served by this live endpoint'
+/** One connection's identity: the caller's credential plus the client id it names, or null. */
+const clientHashOf = (c: Context, caller: Caller): Promise<string | null> => {
+  const clientId = c.req.query('clientId')
+  return clientId === undefined || !isUuidV7(clientId)
+    ? Promise.resolve(null)
+    : hashToken(`${caller.tokenHash}\u0000${clientId}`)
+}
 
-/** Websocket endpoints for presence and live status. They serve the current season only. */
+const NOT_SERVED = 'season is not served by this live endpoint'
+const INVALID_CLIENT_ID = 'clientId must be a UUID'
+
 export const createTelemetryLiveRoutes = (
   runtime: BackendRuntime,
   auth: AuthOptions,
-  options: TelemetryRouteOptions,
+  currentSeason: number,
 ) => {
   const routes = new Hono()
   const presence = Services.get(runtime.context, PresenceService)
   const liveSync = Services.get(runtime.context, LiveSyncService)
-  const servedSeason = (c: Context): number | null => {
-    const season = parseWholeNumber(c.req.query('season'))
-    return season === options.currentSeason ? season : null
-  }
+  const isServed = (c: Context): boolean =>
+    parseWholeNumber(c.req.query('season')) === currentSeason
 
-  /** Check the upgrade, authenticate the credential its subprotocol carries, then connect. */
+  /**
+   * Check the upgrade, authenticate the credential its subprotocol carries, check the season, then
+   * connect.
+   */
   const upgrade =
     (
       presence: boolean,
@@ -111,7 +119,9 @@ export const createTelemetryLiveRoutes = (
         c,
         runtime,
         Effect.flatMap(authenticateRequest(credentials.authorization, auth, 'read'), (caller) =>
-          Effect.promise(() => connect(c, caller, credentials.protocol)),
+          isServed(c)
+            ? Effect.promise(() => connect(c, caller, credentials.protocol))
+            : Effect.succeed(c.json({ error: NOT_SERVED }, 404)),
         ),
         (response) => response,
       )
@@ -119,18 +129,15 @@ export const createTelemetryLiveRoutes = (
 
   routes.get('/presence/online', requireScopeEffect(runtime, auth, 'read'), async (c) => {
     c.header('cache-control', 'no-store')
-    const season = servedSeason(c)
-    if (season === null) return c.json({ error: NOT_SERVED }, 404)
+    if (!isServed(c)) return c.json({ error: NOT_SERVED }, 404)
     const surface = parseSurface(c.req.query('surface'), c.req.query('allianceId'))
     if (surface === null) return c.json({ error: 'invalid drawing surface' }, 400)
-    return c.json({ online: await presence.online(season, surface) })
+    return c.json({ online: await presence.online(currentSeason, surface) })
   })
 
   routes.get(
     '/presence',
     upgrade(true, async (c, caller) => {
-      const season = servedSeason(c)
-      if (season === null) return c.json({ error: NOT_SERVED }, 404)
       const surface = parseSurface(c.req.query('surface'), c.req.query('allianceId'))
       const painter = {
         wplaceUserId: parseWholeNumber(c.req.query('painterId')),
@@ -138,16 +145,14 @@ export const createTelemetryLiveRoutes = (
       }
       if (surface === null || !isWorkIdentity(painter))
         return c.json({ error: 'invalid drawing surface or painter identity' }, 400)
-      const clientId = c.req.query('clientId')
-      if (clientId === undefined || !isUuidV7(clientId))
-        return c.json({ error: 'clientId must be a UUID' }, 400)
-      const clientHash = await hashToken(`${caller.tokenHash}\u0000${clientId}`)
+      const clientHash = await clientHashOf(c, caller)
+      if (clientHash === null) return c.json({ error: INVALID_CLIENT_ID }, 400)
       const publisherId = c.req.query('publisherId')
       if (publisherId !== undefined && !isUuidV7(publisherId))
         return c.json({ error: 'publisherId must be a UUID' }, 400)
       const metricClient = metricClientOf(c)
       return presence.connect(c.req.raw, {
-        season,
+        season: currentSeason,
         surface,
         painter,
         credentialScope: caller.scope,
@@ -165,8 +170,6 @@ export const createTelemetryLiveRoutes = (
   routes.get(
     '/live',
     upgrade(false, async (c, caller, protocol) => {
-      const season = servedSeason(c)
-      if (season === null) return c.json({ error: NOT_SERVED }, 404)
       const requestedScope = c.req.query('scope')
       const scope =
         requestedScope === 'public' || (requestedScope === 'admin' && caller.scope === 'admin')
@@ -179,17 +182,11 @@ export const createTelemetryLiveRoutes = (
         return c.json({ error: 'revision must be a non-negative integer' }, 400)
       }
       const anonymous = isAnonymous(caller)
-      let clientHash = caller.tokenHash
-      if (anonymous) {
-        const clientId = c.req.query('clientId')
-        if (clientId === undefined || !isUuidV7(clientId)) {
-          return c.json({ error: 'clientId must be a UUID' }, 400)
-        }
-        clientHash = await hashToken(`${caller.tokenHash}\u0000${clientId}`)
-      }
+      const clientHash = anonymous ? await clientHashOf(c, caller) : caller.tokenHash
+      if (clientHash === null) return c.json({ error: INVALID_CLIENT_ID }, 400)
       const metricClient = metricClientOf(c)
       return liveSync.connect(c.req.raw, {
-        season,
+        season: currentSeason,
         scope,
         credentialScope: caller.scope,
         tokenHash: caller.tokenHash,

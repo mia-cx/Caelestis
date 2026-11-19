@@ -7,7 +7,7 @@ import {
 } from '@caelestis/shared'
 import { Effect } from 'effect'
 import { BlobStoreService, SqlStoreService } from '../runtime/backend-runtime.js'
-import { StorageError, storage } from '../runtime/errors.js'
+import { NotFoundError, StorageError, storage } from '../runtime/errors.js'
 import type { TemplateVersionRecord } from '../templates/store.js'
 import { readHistoricalTileMeasurement } from './classification.js'
 import { type HistoryRange, selectTileHistoryResolution } from './queries.js'
@@ -179,4 +179,30 @@ export const readTemplateProgressHistory = (
       }
     }
     return { templateId, resolution, samples }
+  })
+
+/**
+ * One template's progress across its versions, or one version's when `versionId` is named. An
+ * unpublished template answers as though it did not exist.
+ */
+export const readVisibleProgressHistory = (
+  templateId: string,
+  versionId: string | undefined,
+  range: HistoryRange,
+  includeUnpublished: boolean,
+): Effect.Effect<
+  TemplateProgressHistoryResponse | ProgressHistoryResponse,
+  StorageError | NotFoundError,
+  SqlStoreService | BlobStoreService
+> =>
+  Effect.gen(function* () {
+    const sql = yield* SqlStoreService
+    const template = yield* storage('readTemplate', () => sql.readTemplate(templateId))
+    if (template === null || (!includeUnpublished && !template.published))
+      return yield* Effect.fail(new NotFoundError({ message: 'Template not found.' }))
+    if (versionId === undefined) return yield* readTemplateProgressHistory(templateId, range)
+    const version = yield* storage('readTemplateVersion', () => sql.readTemplateVersion(versionId))
+    if (version?.templateId !== templateId)
+      return yield* Effect.fail(new NotFoundError({ message: 'Template version not found.' }))
+    return yield* readProgressHistory(version, range)
   })

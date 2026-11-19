@@ -26,7 +26,7 @@ import { runBackendHttp } from '../runtime/hono.js'
 import type { StatusProjectionChange } from '../status-read-model/model.js'
 import { MAX_CANVAS_TILE_BYTES, offerTiles, uploadTile } from '../telemetry/ingest.js'
 import { recordPaint } from '../telemetry/paint.js'
-import type { TelemetryRouteOptions } from './telemetry.js'
+import { readBoundedBody } from './body.js'
 
 /** A reply carries its status delta only while it stays small; a client reconciles otherwise. */
 const MAX_MUTATION_STATUS_BYTES = 32 * 1024
@@ -53,36 +53,6 @@ const decodedHeader = (value: string | undefined): string | null => {
   }
 }
 
-const readBoundedBody = async (request: Request, limit: number): Promise<Uint8Array | null> => {
-  const declared = Number(request.headers.get('content-length'))
-  if (Number.isFinite(declared) && declared > limit) return null
-  if (request.body === null) return null
-  const reader = request.body.getReader()
-  const parts: Uint8Array[] = []
-  let length = 0
-  try {
-    while (true) {
-      const part = await reader.read()
-      if (part.done) break
-      length += part.value.byteLength
-      if (length > limit) {
-        await reader.cancel()
-        return null
-      }
-      parts.push(part.value)
-    }
-  } finally {
-    reader.releaseLock()
-  }
-  const bytes = new Uint8Array(length)
-  let at = 0
-  for (const part of parts) {
-    bytes.set(part, at)
-    at += part.byteLength
-  }
-  return bytes
-}
-
 const parseJson = (bytes: Uint8Array | null): unknown => {
   if (bytes === null) return null
   try {
@@ -92,11 +62,10 @@ const parseJson = (bytes: Uint8Array | null): unknown => {
   }
 }
 
-/** Reporter writes: tile offers, tile uploads, and paint events. */
 export const createTelemetryReportRoutes = (
   runtime: BackendRuntime,
   auth: AuthOptions,
-  options: TelemetryRouteOptions,
+  currentSeason: number,
 ) => {
   const routes = new Hono()
   const report = requireScopeEffect(runtime, auth, 'report')
@@ -108,7 +77,7 @@ export const createTelemetryReportRoutes = (
       ),
     )
     if (body === null) return c.json({ error: 'invalid tile offer batch' }, 400)
-    if (body.season !== options.currentSeason) {
+    if (body.season !== currentSeason) {
       return c.json({ error: 'season is not served by this telemetry endpoint' }, 400)
     }
     recordTileOfferBatchRequested(body.offers.length)
@@ -161,7 +130,7 @@ export const createTelemetryReportRoutes = (
       y >= WORLD_TILES ||
       !isSha256Hex(hash) ||
       season === null ||
-      season !== options.currentSeason ||
+      season !== currentSeason ||
       observedAt === null ||
       observedAt < MIN_EPOCH_SECONDS ||
       observedAt > MAX_EPOCH_SECONDS ||

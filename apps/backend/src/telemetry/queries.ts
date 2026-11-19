@@ -228,10 +228,10 @@ export const readAlarms = (
     return { version, alarms }
   })
 
-/** A status response and, for the cached current season, an entity tag naming its content. */
+/** A status response and, for the cached current season, the entity tag value naming its content. */
 export interface StatusRead {
   readonly response: StatusResponse
-  readonly etag: string | null
+  readonly version: string | null
 }
 
 export const readStatus = (
@@ -245,7 +245,7 @@ export const readStatus = (
       const templates = yield* storage('readTemplateStatuses', () =>
         sql.readTemplateStatuses(season, includeUnpublished),
       )
-      return { response: { templates }, etag: null }
+      return { response: { templates }, version: null }
     }
     const scope = includeUnpublished ? 'admin' : 'public'
     const readModel = yield* StatusReadModelService
@@ -253,7 +253,7 @@ export const readStatus = (
       readModel.reconcileSnapshot(season, scope),
     )
     recordCacheOutcome(read.cacheOutcome)
-    return { response: read.snapshot, etag: `"status.${season}.${scope}.${read.validator}"` }
+    return { response: read.snapshot, version: `status.${season}.${scope}.${read.validator}` }
   })
 
 export const readHistory = (input: {
