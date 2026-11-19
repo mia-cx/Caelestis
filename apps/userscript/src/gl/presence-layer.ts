@@ -9,7 +9,7 @@ import {
 } from '@caelestis/shared'
 import type { TileQuad } from '../coordinates.js'
 import { log, warn } from '../debug.js'
-import { getMap } from '../map-handle.js'
+import { requestMapFrame } from '../map-view.js'
 import { presenceRgb } from '../presence-colour.js'
 import {
   hoveredSceneItems,
@@ -591,16 +591,9 @@ class PresenceLayer {
     for (const key of [...this.motions.keys()])
       if (!this.retained.has(key)) this.motions.delete(key)
     if (animating) {
-      const map = getMap() as { triggerRepaint?: () => void } | null
-      map?.triggerRepaint?.()
+      requestMapFrame()
     }
   }
 }
 
 export const presenceLayer = new PresenceLayer()
-
-/** Ask MapLibre for a frame after presence data changed while the map is idle. */
-export const repaintPresence = (): void => {
-  const map = getMap() as { triggerRepaint?: () => void } | null
-  map?.triggerRepaint?.()
-}

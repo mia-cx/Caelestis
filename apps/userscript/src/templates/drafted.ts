@@ -31,12 +31,6 @@ const PATCH = 200
 /** Their layer, and the field on it that holds the patches. */
 const CROSSHAIR_LAYER = 'paint-crosshair-annotations'
 
-interface CrosshairLayer {
-  style?: {
-    _layers?: Record<string, { implementation?: CrosshairRenderer }>
-  }
-}
-
 interface CrosshairRenderer {
   tiles?: Map<string, { annotations?: Uint8Array }>
   markDirty?: (key: string) => unknown
@@ -75,8 +69,8 @@ const observeWrites = (renderer: CrosshairRenderer): boolean => {
  * they only add it while a draft exists, so its absence and an empty draft mean the same.
  */
 export const draftedPixelsIn = (tile: TileCoord, tileSize: number): number[] => {
-  const map = getMap() as CrosshairLayer | null
-  const renderer = map?.style?._layers?.[CROSSHAIR_LAYER]?.implementation
+  const renderer: CrosshairRenderer | undefined =
+    getMap()?.style?._layers?.[CROSSHAIR_LAYER]?.implementation
   const tiles = renderer?.tiles
   if (tiles === undefined || tiles.size === 0) return []
   const observed = renderer !== undefined && observeWrites(renderer)

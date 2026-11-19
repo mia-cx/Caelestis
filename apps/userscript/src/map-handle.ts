@@ -48,6 +48,8 @@ export interface MapLike {
   jumpTo(options: Record<string, unknown>): unknown
   getZoom(): number
   getCenter(): { lng: number; lat: number }
+  panBy(offset: [number, number], options?: Record<string, unknown>): unknown
+  setStyle(style: string): unknown
   getCanvas(): HTMLCanvasElement
   unproject(point: [number, number]): { lng: number; lat: number }
   project(lngLat: [number, number]): { x: number; y: number }
@@ -70,6 +72,8 @@ export interface MapLike {
     readonly _order?: readonly string[]
     /** Whether the style can take layers. */
     readonly _loaded?: boolean
+    /** Style layers by id; a custom layer's `implementation` is the object its owner added. */
+    readonly _layers?: Readonly<Record<string, { readonly implementation?: object }>>
     /** Per source; MapLibre has used both a `Map` and a plain record here. */
     readonly tileManagers?: Record<string, unknown>
   }

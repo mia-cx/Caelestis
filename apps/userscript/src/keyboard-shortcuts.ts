@@ -14,7 +14,7 @@ import {
 import { handleTemplateStudioIntent, isTemplateStudioOpen } from './application/template-studio.js'
 import { isClaimModeActive } from './claim-editor.js'
 import { openClaimTool } from './claims.js'
-import { getMap } from './map-handle.js'
+import { requestMapFrame } from './map-view.js'
 import { setOverlayPeekActive } from './overlay-peek.js'
 import { cycleFocusedColour, navigateFocusedSelectedColour } from './palette-navigation.js'
 import {
@@ -48,11 +48,6 @@ import {
 import { toggleWplaceTheme } from './wplace-theme.js'
 
 type AllianceSurface = ActiveAllianceSurface['surface']
-
-const triggerMapRepaint = (): void => {
-  const map = getMap() as { triggerRepaint?: () => void } | null
-  map?.triggerRepaint?.()
-}
 
 /** Claim a handled shortcut inside an alliance editor so it cannot reach the world behind it. */
 const claimShortcut = (
@@ -92,7 +87,7 @@ const toggleRings = (allianceSurface: AllianceSurface | null): void => {
     void toggleAppearanceBoolean(focused.id, 'contrastOutline').then((changed) => {
       if (!changed) return
       refreshOverlayMenu()
-      if (allianceSurface === null) triggerMapRepaint()
+      if (allianceSurface === null) requestMapFrame()
     })
     return
   }
@@ -108,7 +103,7 @@ const toggleRings = (allianceSurface: AllianceSurface | null): void => {
   setState({
     appearance: { ...appearance, contrastOutline: !appearance.contrastOutline },
   })
-  triggerMapRepaint()
+  requestMapFrame()
 }
 
 interface ShortcutContext {
@@ -142,7 +137,7 @@ export const installKeyboardShortcuts = (
   let peekBindings: readonly KeyBinding[] = []
   const repaintPeek = (active: boolean): void => {
     if (!setOverlayPeekActive(active)) return
-    triggerMapRepaint()
+    requestMapFrame()
   }
   const endPeek = (): void => {
     if (!peeking) return

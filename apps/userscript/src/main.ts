@@ -12,7 +12,7 @@ import { outlineLayer, overlayLayer } from './gl/layer.js'
 import { installLayerStack } from './gl/layer-stack.js'
 import { markerLayer } from './gl/markers.js'
 import { pickCellLayer } from './gl/pick-cell-layer.js'
-import { presenceLayer, repaintPresence } from './gl/presence-layer.js'
+import { presenceLayer } from './gl/presence-layer.js'
 import { installKeyboardShortcuts } from './keyboard-shortcuts.js'
 import { getMap, installMapCapture, onMapAttached } from './map-handle.js'
 import {
@@ -189,8 +189,8 @@ const installPresenceFeatures = (): void => {
   installPresence()
   installClaims()
   // MapLibre coalesces message bursts into one frame, which also refreshes the screen controls.
-  onPresenceChange(repaintPresence)
-  onSceneHoverChange(repaintPresence)
+  onPresenceChange(requestMapFrame)
+  onSceneHoverChange(requestMapFrame)
   // The socket is throttled inside, so feeding it every frame costs a rect comparison.
   onMapFrame(observePresenceFrame, 'Presence viewport')
   onViewChange(syncStudioFrame, 'Template studio handles')

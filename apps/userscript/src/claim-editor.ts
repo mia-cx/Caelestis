@@ -347,10 +347,8 @@ const onKeyup = (event: KeyboardEvent): void => {
 const onWheel = (event: WheelEvent): void => {
   if (editor === null || event.altKey || event.ctrlKey || event.metaKey) return
   if (!isMapInteractionTarget(event.target)) return
-  const map = getMap() as {
-    panBy?: (offset: [number, number], options?: unknown) => unknown
-  } | null
-  if (map?.panBy === undefined) return
+  const map = getMap()
+  if (map === null) return
   consume(event)
   const scale =
     event.deltaMode === WheelEvent.DOM_DELTA_LINE

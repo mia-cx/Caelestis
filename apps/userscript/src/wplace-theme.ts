@@ -142,9 +142,9 @@ const applyDirectly = (theme: string): void => {
   } catch {
     // Storage can be unavailable; the attribute is what the page reads.
   }
-  const map = getMap() as { setStyle?: (style: string) => unknown } | null
+  const map = getMap()
   const style = styleUrlFor(theme)
-  if (map?.setStyle !== undefined && style !== null) {
+  if (map !== null && style !== null) {
     try {
       map.setStyle(style)
     } catch (error) {

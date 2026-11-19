@@ -24,8 +24,7 @@ import {
 } from './claim-editor.js'
 import { claimRouter, installClaimRouting } from './claim-routing.js'
 import { registerDebugEntry } from './console-api.js'
-import { repaintPresence } from './gl/presence-layer.js'
-import { onMapFrame } from './map-view.js'
+import { onMapFrame, requestMapFrame } from './map-view.js'
 import { presenceServers, presenceView } from './presence-client.js'
 import { installQuickClaims, onQuickClaimPreviewChange } from './quick-claims.js'
 import { activeServerToken } from './server-connections.js'
@@ -153,8 +152,8 @@ export const installClaims = (): void => {
   installClaimRouting()
   installClaimEditor(editorHost)
   installQuickClaims()
-  onClaimEditorChange(repaintPresence)
-  onQuickClaimPreviewChange(repaintPresence)
+  onClaimEditorChange(requestMapFrame)
+  onQuickClaimPreviewChange(requestMapFrame)
   onMapFrame(syncClaimEditorFrame, 'Claim editor overlay')
   /** Claim mode, openable here without a presence server for pointer testing. */
   registerDebugEntry('claimTool', {
