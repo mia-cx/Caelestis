@@ -45,13 +45,13 @@
     touch-action: manipulation;
     user-select: none;
   }
-  button.pressed { --button-base-colour: var(--caelestis-primary); color: white; }
+  button.pressed { --button-base-colour: var(--caelestis-primary); color: var(--caelestis-primary-content); }
   button.danger { color: var(--caelestis-danger); }
   button[aria-disabled='true'] { cursor: not-allowed; opacity: 0.5; }
   @media (hover: hover) { button:hover:not([aria-disabled='true']) { --button-colour: color-mix(in oklab, var(--button-base-colour), #000 7%); } }
   button:active:not([aria-disabled='true']) { translate: 0 0.5px; box-shadow: none; }
   button:focus-visible { outline: 2px solid var(--button-colour, var(--caelestis-focus)); outline-offset: 2px; }
-  .badge { position: absolute; inset-block-start: -0.35rem; inset-inline-end: -0.35rem; display: grid; place-items: center; min-inline-size: 1.2rem; block-size: 1.2rem; padding-inline: 0.25rem; border: 2px solid var(--button-colour); border-radius: var(--caelestis-pill-radius); background: var(--caelestis-danger); color: white; font: 800 0.65rem/1 var(--caelestis-font); }
+  .badge { position: absolute; inset-block-start: -0.35rem; inset-inline-end: -0.35rem; display: grid; place-items: center; min-inline-size: 1.2rem; block-size: 1.2rem; padding-inline: 0.25rem; border: 2px solid var(--button-colour); border-radius: var(--caelestis-pill-radius); background: var(--caelestis-danger); color: var(--caelestis-danger-content); font: 800 0.65rem/1 var(--caelestis-font); }
   @media (prefers-reduced-motion: no-preference) { button { transition: color 200ms, background-color 200ms, border-color 200ms, box-shadow 200ms, translate 200ms; } }
 
   /* Pixel chrome: square bevel flush with Wplace's own rail buttons. */
