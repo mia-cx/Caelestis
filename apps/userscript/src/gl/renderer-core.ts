@@ -7,7 +7,7 @@ const compile = (gl: WebGL2RenderingContext, type: number, source: string): WebG
   gl.shaderSource(shader, source)
   gl.compileShader(shader)
   if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    warn('install', 'overlay shader failed to compile', gl.getShaderInfoLog(shader))
+    warn('overlay shader failed to compile', gl.getShaderInfoLog(shader))
     gl.deleteShader(shader)
     return null
   }
@@ -38,7 +38,7 @@ export const linkTemplateProgram = (
   gl.deleteShader(vertex)
   gl.deleteShader(fragment)
   if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    warn('install', 'overlay program failed to link', gl.getProgramInfoLog(program))
+    warn('overlay program failed to link', gl.getProgramInfoLog(program))
     gl.deleteProgram(program)
     return null
   }

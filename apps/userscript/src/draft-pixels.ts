@@ -584,7 +584,7 @@ const capture = (tile: TileCoord, bitmap: CanvasSource, dirty: PixelRect | null 
       return true
     } catch (error) {
       count('pixels:draft readback failures')
-      warn('bitmap', 'could not read tile pixels', String(error))
+      warn('could not read tile pixels', String(error))
       return false
     }
   })

@@ -146,7 +146,7 @@ export const pollRegionSnapshots = (
           apply(snapshot)
       })
       .catch((error: unknown) => {
-        if (!signal.aborted) warn('install', 'claim snapshot failed', String(error))
+        if (!signal.aborted) warn('claim snapshot failed', String(error))
       })
       .finally(() => {
         if (signal.aborted || !isCurrentServerConnection(server)) return

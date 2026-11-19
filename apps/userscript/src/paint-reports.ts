@@ -48,7 +48,7 @@ onServerRemoved((serverUrl) => {
 })
 
 const reportError = (error: unknown): void => {
-  warn('install', 'paint report failed', String(error))
+  warn('paint report failed', String(error))
 }
 
 /** Remember bounded recent event ids; old values may safely be reported again after eviction. */
@@ -94,7 +94,7 @@ const deliverPaint = async (
     } else {
       dedupe.values.delete(eventId)
       if (result?.error !== undefined)
-        warn('install', 'telemetry paint report was rejected', {
+        warn('telemetry paint report was rejected', {
           server: server.url,
           eventId,
           error: result.error,
@@ -129,7 +129,7 @@ const deliverPaint = async (
     queueMicrotask(() => void deliverPaint(server, dedupe, eventId, event).catch(reportError))
   } else dedupe.values.delete(eventId)
   if (response !== null)
-    warn('install', 'telemetry paint report was rejected', {
+    warn('telemetry paint report was rejected', {
       server: server.url,
       status: response.status,
     })

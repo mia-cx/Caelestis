@@ -17,15 +17,11 @@ import { storedFlag } from './stored-values.js'
  * something looks wrong.
  */
 
-export type Category =
-  | 'fetch'
-  | 'bitmap'
-  | 'texture'
-  | 'quad'
-  | 'frame'
-  | 'clear'
-  | 'draw'
-  | 'install'
+/** The render path's stages, from Wplace's tile fetch to the overlay's frame. */
+export type RenderStage = 'fetch' | 'bitmap' | 'texture' | 'quad' | 'frame' | 'clear' | 'draw'
+
+/** What an entry is about: a render stage, or `app` for everything else. */
+type Category = RenderStage | 'app'
 
 interface Entry {
   readonly at: number
@@ -41,13 +37,13 @@ const MAX_DATA_STRING_LENGTH = 512
 const MAX_DATA_ENTRIES = 20
 const MAX_DATA_DEPTH = 3
 
-/** Categories that fire per frame; logged to the ring always, to the console only when they change. */
-const NOISY: ReadonlySet<Category> = new Set(['frame', 'draw', 'quad'])
+/** Stages that fire per frame; logged to the ring always, to the console only when they change. */
+const PER_FRAME: ReadonlySet<Category> = new Set(['frame', 'draw', 'quad'])
 
 let enabled = false
 let ring: Entry[] = []
 const counters = new Map<string, number>()
-const lastNoisy = new Map<Category, string>()
+const lastPerFrame = new Map<Category, string>()
 const started = Date.now()
 
 /** The stored Debug logging setting, which may differ from this tab's until it reloads. */
@@ -148,7 +144,7 @@ export const count = (key: string, by = 1): void => {
 const counterKey = (category: Category, message: string): string =>
   `${category}:${message.replace(/\s*\S*\d\S*/g, '').trim()}`
 
-export const log = (category: Category, message: string, data?: unknown): void => {
+const record = (category: Category, message: string, data: unknown): void => {
   try {
     const boundedMessage = truncate(message, MAX_MESSAGE_LENGTH)
     count(counterKey(category, boundedMessage))
@@ -164,11 +160,11 @@ export const log = (category: Category, message: string, data?: unknown): void =
     ring.push(entry)
     if (ring.length > RING_SIZE) ring.shift()
 
-    // A per-frame category would drown the console, so it only speaks when its story changes.
-    if (NOISY.has(category)) {
+    // A per-frame stage would drown the console, so it only speaks when its story changes.
+    if (PER_FRAME.has(category)) {
       const signature = `${boundedMessage}:${JSON.stringify(boundedData ?? null)}`
-      if (lastNoisy.get(category) === signature) return
-      lastNoisy.set(category, signature)
+      if (lastPerFrame.get(category) === signature) return
+      lastPerFrame.set(category, signature)
     }
     if (boundedData === undefined) console.info(`[caelestis:${category}] ${boundedMessage}`)
     else console.info(`[caelestis:${category}] ${boundedMessage}`, boundedData)
@@ -178,21 +174,33 @@ export const log = (category: Category, message: string, data?: unknown): void =
   }
 }
 
+/** Record a diagnostic; it reaches the console while debug logging is on. */
+export const log = (message: string, data?: unknown): void => record('app', message, data)
+
+/** Like `log`, tagged with its render stage; per-frame stages reach the console only on change. */
+export const logRender = (stage: RenderStage, message: string, data?: unknown): void =>
+  record(stage, message, data)
+
 /** Always reaches the console, debug on or off: something that should not have happened. */
-export const warn = (category: Category, message: string, data?: unknown): void => {
+export const warn = (message: string, data?: unknown): void => {
   try {
     // Same stable key as `log`. Keyed on the raw message, the two hottest warnings carry tile
     // coordinates and filled the 200-key table with single-use entries — after which every genuinely
     // new counter was refused, and `dump()` stopped showing the ones worth reading.
     const boundedMessage = truncate(message, MAX_MESSAGE_LENGTH)
     const boundedData = snapshot(data)
-    count(counterKey(category, boundedMessage))
-    ring.push({ at: Date.now() - started, category, message: boundedMessage, data: boundedData })
+    count(counterKey('app', boundedMessage))
+    ring.push({
+      at: Date.now() - started,
+      category: 'app',
+      message: boundedMessage,
+      data: boundedData,
+    })
     if (ring.length > RING_SIZE) ring.shift()
     // Keep the bounded snapshot in the ring, but let devtools see the original Error so its stack
     // remains inspectable. This is a console argument only; the diagnostic store retains no page or
     // import-owned object.
-    console.warn(`[caelestis:${category}] ${boundedMessage}`, data ?? '')
+    console.warn(`[caelestis:app] ${boundedMessage}`, data ?? '')
   } catch {
     // Warnings report failures; they must not create a second failure of their own.
   }
@@ -234,7 +242,7 @@ export const installDebugApi = (): void => {
   registerDebugEntry('clear', () => {
     ring = []
     counters.clear()
-    lastNoisy.clear()
+    lastPerFrame.clear()
   })
   exposeDebugApi()
 }

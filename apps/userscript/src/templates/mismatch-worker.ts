@@ -104,7 +104,7 @@ const ofTemplate = (key: string, id: string): boolean => key.startsWith(`${id}|`
 
 /** Give up on the worker entirely, answering everything still in flight so nothing hangs. */
 const abandon = (why: string, detail: unknown): void => {
-  warn('install', `mismatch scanning moved to the main thread — ${why}`, detail)
+  warn(`mismatch scanning moved to the main thread — ${why}`, detail)
   worker?.terminate()
   worker = null
   sent.clear()

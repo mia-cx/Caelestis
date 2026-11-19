@@ -121,7 +121,7 @@ const run = (list: readonly (() => void)[], what: string): void => {
     try {
       listener()
     } catch (error) {
-      warn('install', `${what} listener failed`, String(error))
+      warn(`${what} listener failed`, String(error))
     }
   }
 }
@@ -172,7 +172,7 @@ const send = (connection: Connection, event: PresenceClientEvent): boolean => {
       recordProfileMessage('Presence sent', payload)
     })
   } catch (error) {
-    warn('install', 'presence send failed', String(error))
+    warn('presence send failed', String(error))
     return false
   }
   armHeartbeat(connection)
@@ -468,7 +468,7 @@ const open = (connection: Connection): void => {
   try {
     socket = new WebSocket(endpoint, protocols)
   } catch (error) {
-    warn('install', 'presence socket could not open', String(error))
+    warn('presence socket could not open', String(error))
     scheduleReconnect(connection)
     return
   }
@@ -481,7 +481,7 @@ const open = (connection: Connection): void => {
       return
     }
     connection.sent = nothingSent()
-    log('install', 'presence connected', { server: server.url })
+    log('presence connected', { server: server.url })
     armHeartbeat(connection)
     scheduleFlush(connection)
     changed()

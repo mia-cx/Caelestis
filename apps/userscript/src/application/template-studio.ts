@@ -483,7 +483,7 @@ const refreshScopes = async (): Promise<void> => {
                 })
   } catch (error) {
     if (!(error instanceof DOMException && error.name === 'AbortError'))
-      warn('install', 'the studio could not sample its scopes', String(error))
+      warn('the studio could not sample its scopes', String(error))
     return
   }
   if (ticket !== scopeTicket) return
@@ -1360,7 +1360,7 @@ export const openTemplateStudio = (
       render()
     })
   )
-    warn('install', 'the template studio could not take placement')
+    warn('the template studio could not take placement')
   void loadAccount().then(() => {
     if (target !== next) return
     // Owned colours arrive after the studio opens; follow them until the author picks colours.

@@ -73,7 +73,7 @@ export const installWplaceStateCapture = (
     try {
       if (captured === null && looksLikeState(key)) {
         captured = key
-        log('install', 'captured the Wplace state via WeakMap.set')
+        log('captured the Wplace state via WeakMap.set')
         remove()
       }
     } catch {

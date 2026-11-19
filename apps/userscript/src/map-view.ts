@@ -40,7 +40,7 @@ const runFollower = ({ run, name }: Follower, frame: TileFrame | null): void => 
   try {
     measureProfile(name, () => run(frame))
   } catch (error) {
-    warn('install', 'frame hook failed', String(error))
+    warn('frame hook failed', String(error))
   }
 }
 

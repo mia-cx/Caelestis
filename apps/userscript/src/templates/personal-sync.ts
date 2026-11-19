@@ -38,7 +38,7 @@ export const installPersonalTemplates = async (): Promise<void> => {
             stop()
             observer?.disconnect()
           })
-          .catch((error) => warn('install', 'native alliance discovery failed', String(error)))
+          .catch((error) => warn('native alliance discovery failed', String(error)))
           .finally(() => {
             discovering = false
             if (requested) discover()
@@ -82,7 +82,7 @@ export const installPersonalTemplates = async (): Promise<void> => {
           await refreshPersonalTemplates()
         } while (changed)
       } catch (error) {
-        warn('install', 'personal template synchronization failed', String(error))
+        warn('personal template synchronization failed', String(error))
       } finally {
         syncing = false
       }
@@ -103,7 +103,7 @@ export const installPersonalTemplates = async (): Promise<void> => {
     await synchronizePersonalTemplates()
     await refreshPersonalTemplates()
   } catch (error) {
-    warn('install', 'native personal templates unavailable; retaining local records', String(error))
+    warn('native personal templates unavailable; retaining local records', String(error))
     await restoreLocalTemplates()
   }
 }

@@ -350,7 +350,7 @@ export const markerLayer = {
     try {
       profileGpu(gl, 'Marker GPU', () => measureProfile('Marker render', () => drawAll(gl, peek)))
     } catch (error) {
-      warn('install', 'marker layer render failed; skipping this frame', String(error))
+      warn('marker layer render failed; skipping this frame', String(error))
     }
   },
 }

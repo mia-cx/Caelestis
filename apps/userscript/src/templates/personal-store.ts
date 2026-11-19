@@ -219,7 +219,7 @@ export const synchronizePersonalTemplates = (): Promise<void> =>
         const current = await synchronizeOne(api, template)
         if (current?.native !== undefined) known.add(current.native.id)
       } catch (error) {
-        warn('install', `could not sync personal template ${template.name}`, String(error))
+        warn(`could not sync personal template ${template.name}`, String(error))
       }
     }
     const identities = await disk.loadNativeTemplateIds()
@@ -237,7 +237,7 @@ export const synchronizePersonalTemplates = (): Promise<void> =>
         if (previous?.native?.status === 'pending') continue
         await project(api, snapshot, previous)
       } catch (error) {
-        warn('install', `could not mirror Wplace template ${id}`, String(error))
+        warn(`could not mirror Wplace template ${id}`, String(error))
       }
     }
   })
@@ -256,7 +256,7 @@ const loadCurrent = async (
       const current = await synchronizeOne(native, previous)
       return current === null ? { status: 'missing' } : { status: 'loaded', template: current }
     } catch (error) {
-      warn('install', `could not read native template ${id}`, String(error))
+      warn(`could not read native template ${id}`, String(error))
       return { status: 'unavailable' }
     }
   })
@@ -386,7 +386,7 @@ export const saveTemplate = async (
       )
       return result.status === 'saved' ? { ...result, native: link } : { status: 'conflict' }
     } catch (error) {
-      warn('install', `could not save personal template ${template.name}`, String(error))
+      warn(`could not save personal template ${template.name}`, String(error))
       return { status: error instanceof NativeConflict ? 'conflict' : 'unavailable' }
     }
   }).finally(() => onMutation?.())
@@ -413,7 +413,7 @@ export const deleteTemplate = async (id: IDBValidKey, revision: number): Promise
       }
       return await disk.deleteTemplate(id, revision)
     } catch (error) {
-      warn('install', `could not delete native template ${String(id)}`, String(error))
+      warn(`could not delete native template ${String(id)}`, String(error))
       return { status: error instanceof NativeConflict ? 'conflict' : 'unavailable' }
     }
   })

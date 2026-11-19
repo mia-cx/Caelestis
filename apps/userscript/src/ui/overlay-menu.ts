@@ -597,7 +597,7 @@ const openOverlayMenu = (id: string, rerender: () => void): void => {
   focusRequest = isMoving() ? null : templateBusy(id, 'deleting') ? 'close' : 'hide'
   watchEscape(rerender)
   rerender()
-  log('install', `overlay menu opened for ${id}`)
+  log(`overlay menu opened for ${id}`)
 }
 
 /** Open or close the menu for one template, from the keyboard. */

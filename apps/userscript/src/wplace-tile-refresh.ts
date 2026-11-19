@@ -1,5 +1,5 @@
 import { type TileKey, tileKey as worldTileKey } from '@caelestis/shared'
-import { count, log } from './debug.js'
+import { count, logRender } from './debug.js'
 import type { PatchableMap } from './map-handle.js'
 import { pageWindow } from './page-world.js'
 import { isWplacePatchEnabled } from './wplace-switches.js'
@@ -451,7 +451,10 @@ export const patchTileRefresh = (map: PatchableMap): void => {
         count('wplace-patch:checked tiles', visible.length)
         count('wplace-patch:reloaded changed tiles', changed.length)
         if (changed.length > 0) original.call(receiver, SOURCE, changed)
-        log('fetch', 'checked Wplace tiles', { checked: visible.length, changed: changed.length })
+        logRender('fetch', 'checked Wplace tiles', {
+          checked: visible.length,
+          changed: changed.length,
+        })
       })
       .catch(() => {
         checking = false
@@ -512,7 +515,7 @@ export const patchTileRefresh = (map: PatchableMap): void => {
             resetCache(manager)
             refreshRevision++
             original.call(this, SOURCE, changed)
-            log('fetch', 'narrowed draft tile refresh', { tiles: changed.length })
+            logRender('fetch', 'narrowed draft tile refresh', { tiles: changed.length })
           } catch {
             count('wplace-patch:draft refresh fallback')
             full(this)

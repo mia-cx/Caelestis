@@ -157,7 +157,7 @@ const writeVersioned = async (
       db.close()
     }
   } catch (error) {
-    warn('install', 'local template storage unavailable', String(error))
+    warn('local template storage unavailable', String(error))
     return { status: 'unavailable' }
   }
 }
@@ -333,7 +333,7 @@ export const saveTemplateFolders = async (
       db.close()
     }
   } catch (error) {
-    warn('install', 'local template storage unavailable', String(error))
+    warn('local template storage unavailable', String(error))
     return { status: 'unavailable' }
   }
 }
@@ -510,7 +510,7 @@ const hydrateCandidate = async (candidate: StoredRecord): Promise<HydrationResul
     if (buffer.byteLength !== indices.size) return await rebuildArtwork(candidate, 'invalid')
     return await accept(new Uint8Array(buffer))
   } catch (error) {
-    warn('install', `could not read local template ${String(candidate.id)}`, String(error))
+    warn(`could not read local template ${String(candidate.id)}`, String(error))
     return await rebuildArtwork(candidate, 'unavailable')
   }
 }
@@ -540,7 +540,7 @@ const rebuildArtwork = async (
       repaired: packedRecord(candidate, pixels),
     }
   } catch (error) {
-    warn('install', `could not rebuild local template ${String(candidate.id)}`, String(error))
+    warn(`could not rebuild local template ${String(candidate.id)}`, String(error))
     return { status: 'unavailable' }
   }
 }
@@ -630,7 +630,7 @@ const loadRecord = async (
       db.close()
     }
   } catch (error) {
-    warn('install', 'local template storage unavailable', String(error))
+    warn('local template storage unavailable', String(error))
     return { status: 'unavailable' }
   }
 }
@@ -747,7 +747,7 @@ export const loadTemplateIds = async (): Promise<readonly string[]> => {
       db.close()
     }
   } catch (error) {
-    warn('install', 'local template storage unavailable', String(error))
+    warn('local template storage unavailable', String(error))
     return []
   }
 }
@@ -798,7 +798,7 @@ export const loadTemplateCatalog = async (
       db.close()
     }
   } catch (error) {
-    warn('install', 'local template storage unavailable', String(error))
+    warn('local template storage unavailable', String(error))
     return { records: [], invalid: [], retryAfterUnavailable: blockedOpenSettled() }
   }
 }

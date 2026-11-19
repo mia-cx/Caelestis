@@ -105,7 +105,7 @@ const run = async <T>(
       db.close()
     }
   } catch (error) {
-    warn('install', 'server cache unavailable', String(error))
+    warn('server cache unavailable', String(error))
     return null
   }
 }
@@ -231,7 +231,7 @@ export const loadServerCache = async (
       db.close()
     }
   } catch (error) {
-    warn('install', 'server cache unavailable', String(error))
+    warn('server cache unavailable', String(error))
     return []
   }
 }

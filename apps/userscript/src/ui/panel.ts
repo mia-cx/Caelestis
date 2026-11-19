@@ -344,7 +344,7 @@ const showView = (view: PanelView): void => {
   panel.model = panelModel(currentPanelWidth(panel))
   syncSettingsVisible()
   notifyWorldTreeVisible()
-  log('install', `panel view: ${view}`)
+  log(`panel view: ${view}`)
 }
 
 /**

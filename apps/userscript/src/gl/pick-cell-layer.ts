@@ -1,5 +1,5 @@
 import { canvasPixelToLatLng, PALETTE_RGB } from '@caelestis/shared'
-import { log } from '../debug.js'
+import { logRender } from '../debug.js'
 import { getMap, type MapLike } from '../map-handle.js'
 import { LAYER_IDS } from './layer-stack.js'
 
@@ -46,7 +46,7 @@ export const showPickCell = (x: number, y: number, index: number): void => {
   if (rgb === undefined) return
   shown = { x: Math.floor(x), y: Math.floor(y), rgb }
   drawn = false
-  log('draw', 'pick cell shown', { x: shown.x, y: shown.y, index })
+  logRender('draw', 'pick cell shown', { x: shown.x, y: shown.y, index })
   clearTimeout(hide)
   window.addEventListener('pointerup', hideAfterRelease, true)
   window.addEventListener('pointercancel', hideAfterRelease, true)
@@ -105,6 +105,6 @@ export const pickCellLayer = {
     gl.disable(gl.SCISSOR_TEST)
     if (drawn) return
     drawn = true
-    log('draw', 'pick cell drawn', { rect })
+    logRender('draw', 'pick cell drawn', { rect })
   },
 }

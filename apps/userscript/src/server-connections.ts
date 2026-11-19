@@ -235,7 +235,7 @@ export const removeServer = async (url: string): Promise<void> => {
   )
   for (const outcome of settled)
     if (outcome.status === 'rejected')
-      warn('install', 'server removal observer failed', String(outcome.reason))
+      warn('server removal observer failed', String(outcome.reason))
 }
 
 /**
@@ -357,7 +357,7 @@ export const probeServer = async (
     const info = parseServerInfo(body)
     if (info === null) throw new TypeError('server returned invalid metadata')
     observedInfo = info
-    log('install', `probed ${base}`, { name: info.name, auth: info.auth })
+    log(`probed ${base}`, { name: info.name, auth: info.auth })
     const version = apiVersion === 'legacy' ? { apiVersion } : {}
 
     if (info.auth === 'access_token' && token === null) {
@@ -399,7 +399,7 @@ export const probeServer = async (
       effectiveToken !== null &&
       (authed.status === 401 || authed.status === 403)
     ) {
-      log('install', `${base} rejected the stored code; retrying open access`)
+      log(`${base} rejected the stored code; retrying open access`)
       effectiveToken = null
       const anonymous = await fetchManifest(null)
       authed = anonymous.response
@@ -407,7 +407,7 @@ export const probeServer = async (
       manifestRequest = anonymous.sequence
     }
     if (authed.status === 401 || authed.status === 403) {
-      log('install', `${base} rejected the code`, { status: authed.status })
+      log(`${base} rejected the code`, { status: authed.status })
       return {
         url: base,
         info,
@@ -483,7 +483,7 @@ const refreshServers = async (
     try {
       onRefreshed?.(getState().servers !== before)
     } catch (error) {
-      warn('install', 'server refresh observer failed', String(error))
+      warn('server refresh observer failed', String(error))
     }
   })
 }

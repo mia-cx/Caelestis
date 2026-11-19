@@ -74,7 +74,7 @@ const notify = (): void => {
     try {
       listener()
     } catch (error) {
-      warn('install', 'status listener failed', String(error))
+      warn('status listener failed', String(error))
     }
   }
 }

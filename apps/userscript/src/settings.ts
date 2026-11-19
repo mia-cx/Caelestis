@@ -531,7 +531,7 @@ const storeSwitches = (patch: Partial<State>): void => {
     try {
       storeValue(`${SWITCH_PREFIX}${name}`, String(value))
     } catch (error) {
-      warn('install', `could not persist ${name}`, String(error))
+      warn(`could not persist ${name}`, String(error))
     }
   }
 }
@@ -554,7 +554,7 @@ const readRaw = (): {
     const legacy = storedValue(LEGACY_STORAGE_KEY)
     return legacy === null ? null : { value: legacy, legacyPalette: true }
   } catch (error) {
-    warn('install', 'could not read stored state', String(error))
+    warn('could not read stored state', String(error))
     return null
   }
 }
@@ -564,7 +564,7 @@ const writeRaw = (value: string): boolean => {
     storeValue(STORAGE_KEY, value)
     return true
   } catch (error) {
-    warn('install', 'could not persist state', String(error))
+    warn('could not persist state', String(error))
     return false
   }
 }
@@ -578,7 +578,7 @@ const notifyStateListeners = (): void => {
       listener(state)
     } catch (error) {
       // An observer must never turn an already-applied state change into a reported failure.
-      warn('install', 'state observer failed', String(error))
+      warn('state observer failed', String(error))
     }
   }
 }
@@ -646,11 +646,11 @@ export const loadState = (): State => {
       migrated: false,
     }
     state = stateFrom((name) => FIELDS[name].decode(stored[name], context))
-    log('install', 'state loaded', { servers: state.servers.length })
+    log('state loaded', { servers: state.servers.length })
     if (storedRaw.legacyPalette || context.migrated) writeRaw(JSON.stringify(state))
     notifyStateListeners()
   } catch (error) {
-    warn('install', 'stored state was unreadable; starting fresh', String(error))
+    warn('stored state was unreadable; starting fresh', String(error))
   }
   return state
 }

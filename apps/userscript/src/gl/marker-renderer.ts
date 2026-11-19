@@ -72,7 +72,7 @@ const compile = (gl: WebGL2RenderingContext, type: number, source: string): WebG
   gl.shaderSource(shader, source)
   gl.compileShader(shader)
   if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    warn('install', 'marker shader failed to compile', gl.getShaderInfoLog(shader))
+    warn('marker shader failed to compile', gl.getShaderInfoLog(shader))
     gl.deleteShader(shader)
     return null
   }
@@ -251,7 +251,7 @@ export class MarkerRenderer {
     gl.deleteShader(vertex)
     gl.deleteShader(fragment)
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-      warn('install', 'marker program failed to link', gl.getProgramInfoLog(program))
+      warn('marker program failed to link', gl.getProgramInfoLog(program))
       gl.deleteProgram(program)
       return
     }

@@ -70,7 +70,7 @@ export const refreshAccount = (rerender?: () => void): void => {
     try {
       rerender()
     } catch (error) {
-      warn('install', 'account refresh callback failed', String(error))
+      warn('account refresh callback failed', String(error))
     }
   })
 }
@@ -107,7 +107,7 @@ const fetchAccount = async (): Promise<void> => {
         replaceIdentity(null)
         forgetCharges()
       }
-      log('install', `/me said ${response.status}; owned colours unavailable`)
+      log(`/me said ${response.status}; owned colours unavailable`)
       return
     }
     const body = await readBoundedJson(response)
@@ -145,10 +145,10 @@ const fetchAccount = async (): Promise<void> => {
       if (mask === -1 || (mask & (1 << bit)) !== 0) set.add(paletteIndex)
     })
     owned = set
-    log('install', 'owned colours read from /me', { premium: set.size, mask })
+    log('owned colours read from /me', { premium: set.size, mask })
   } catch (error) {
     // Signed out, offline, or blocked. The preset simply stays unavailable.
-    warn('install', 'could not read /me', String(error))
+    warn('could not read /me', String(error))
   } finally {
     clearTimeout(timeout)
     lastAttemptAt = Date.now()

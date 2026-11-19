@@ -272,7 +272,7 @@ const guardedRender = (gl: WebGL2RenderingContext, name: string, draw: () => voi
   try {
     profileGpu(gl, `${name} GPU`, () => measureProfile(`${name} render`, draw))
   } catch (error) {
-    warn('install', `${name.toLowerCase()} layer render failed; skipping this frame`, String(error))
+    warn(`${name.toLowerCase()} layer render failed; skipping this frame`, String(error))
   }
 }
 
@@ -368,7 +368,7 @@ export const overlayLayer = {
     gpu = new TemplateGpuStore(gl)
     renderGeneration = 0
     overlay = TemplatePass.create(gl, 'overlay')
-    if (overlay !== null) log('install', 'overlay layer added to Wplace’s own canvas')
+    if (overlay !== null) log('overlay layer added to Wplace’s own canvas')
   },
 
   onRemove(_map: unknown, gl: WebGL2RenderingContext): void {
@@ -466,7 +466,7 @@ export const outlineLayer = {
     outlineOwner = gl
     lastOutlineQuadKey = ''
     outline = TemplatePass.create(gl, 'outline')
-    if (outline !== null) log('install', 'outline layer added below Wplace art')
+    if (outline !== null) log('outline layer added below Wplace art')
   },
 
   onRemove(_map: unknown, gl: WebGL2RenderingContext): void {

@@ -11,7 +11,7 @@ export const templateDisplayMode = (): TemplateDisplayMode => {
   try {
     return storedValue(STORAGE_KEY) === 'grid' ? 'grid' : 'tree'
   } catch (error) {
-    warn('install', 'could not read template display preference', String(error))
+    warn('could not read template display preference', String(error))
     return 'tree'
   }
 }
@@ -22,7 +22,7 @@ export const setTemplateDisplayMode = (mode: TemplateDisplayMode): boolean => {
     storeValue(STORAGE_KEY, mode)
     return true
   } catch (error) {
-    warn('install', 'could not save template display preference', String(error))
+    warn('could not save template display preference', String(error))
     return false
   }
 }

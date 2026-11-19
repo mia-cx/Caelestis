@@ -60,9 +60,7 @@ const patches = storedSwitches(
   },
 )
 
-patches.onChange((patch, enabled) =>
-  log('install', `Wplace patch ${patch} ${enabled ? 'on' : 'off'}`),
-)
+patches.onChange((patch, enabled) => log(`Wplace patch ${patch} ${enabled ? 'on' : 'off'}`))
 
 export const isWplacePatchEnabled = (patch: WplacePatch): boolean => patches.isOn(patch)
 

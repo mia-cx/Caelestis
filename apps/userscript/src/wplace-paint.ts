@@ -127,7 +127,7 @@ const read = (): void => {
   selected = nextSelected
   if (remounted) for (const listener of swatchListeners) listener()
   if (!changed) return
-  log('install', 'paint selection changed', { open, selected })
+  log('paint selection changed', { open, selected })
   for (const listener of selectionListeners) listener()
 }
 

@@ -254,7 +254,7 @@ export const parseStoredMetadata = (value: unknown): LocalRecord => {
   const owns = parseOwns(value.owns, appearance)
   const authoring = storedAuthoring(rawAuthoring, core)
   if (rawAuthoring !== undefined && authoring === null)
-    warn('install', `dropping unreadable source and recipe of ${core.name}`)
+    warn(`dropping unreadable source and recipe of ${core.name}`)
   return {
     origin: 'local',
     ...(native === undefined ? {} : { native }),

@@ -133,7 +133,7 @@ export const installWplaceMessages = async (): Promise<void> => {
   const found = await findWplaceModules({
     locale: (source) => source.includes('PARAGLIDE_LOCALE'),
   }).catch((error: unknown) => {
-    warn('install', 'Wplace modules unreadable; matching English labels', String(error))
+    warn('Wplace modules unreadable; matching English labels', String(error))
     return null
   })
   if (found === null) return
@@ -143,7 +143,7 @@ export const installWplaceMessages = async (): Promise<void> => {
       Function.prototype.toString.call(value).includes('initializeLocale() completed'),
   )
   if (getter === undefined) {
-    warn('install', 'Wplace message catalog not found; matching English labels')
+    warn('Wplace message catalog not found; matching English labels')
     return
   }
   useWplaceCatalog(getter)

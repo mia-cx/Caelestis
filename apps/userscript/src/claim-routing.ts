@@ -366,7 +366,7 @@ export class ClaimRouter {
       })
       .catch((error: unknown) => {
         for (const entry of this.entries.values()) this.errors.set(entry.region.id, String(error))
-        warn('install', 'claim reconciliation failed', String(error))
+        warn('claim reconciliation failed', String(error))
       })
     return this.pending
   }
@@ -542,8 +542,7 @@ export class ClaimRouter {
         new AbortController().signal,
         !entry.deleted,
       )
-      if (cleanup.kind === 'error')
-        warn('install', 'late claim disconnect cleanup failed', cleanup.message)
+      if (cleanup.kind === 'error') warn('late claim disconnect cleanup failed', cleanup.message)
       return false
     }
     if (result.kind === 'error') {
@@ -599,8 +598,7 @@ export class ClaimRouter {
             controller.signal,
             !deleted.has(region.id),
           )
-          if (result.kind === 'error')
-            warn('install', 'claim disconnect cleanup failed', result.message)
+          if (result.kind === 'error') warn('claim disconnect cleanup failed', result.message)
         }),
       ).then(() => undefined)
     })
@@ -631,7 +629,7 @@ const journal = {
       const raw: unknown = JSON.parse(storedValue(STORAGE_KEY) ?? '[]')
       return Array.isArray(raw) ? raw.filter(isEntry) : []
     } catch (error) {
-      warn('install', 'could not load claims', String(error))
+      warn('could not load claims', String(error))
       return []
     }
   },
@@ -688,7 +686,7 @@ const scheduleRetry = (): void => {
     retryTimer = null
     void operations
       .reconcile()
-      .catch((error: unknown) => warn('install', 'claim routing failed', String(error)))
+      .catch((error: unknown) => warn('claim routing failed', String(error)))
   }, RETRY_MS)
 }
 
@@ -752,7 +750,7 @@ export const installClaimRouting = (): void => {
   const reconcile = () => {
     void claimRouter()
       .reconcile()
-      .catch((error: unknown) => warn('install', 'claim routing failed', String(error)))
+      .catch((error: unknown) => warn('claim routing failed', String(error)))
   }
   onPresenceClaimsChange(reconcile)
   onStateChange(reconcile)

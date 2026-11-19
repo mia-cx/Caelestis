@@ -540,7 +540,7 @@ const confirmDelete = (id: string, host: MenuHost): void => {
     },
     (error: unknown) => {
       releaseDeleting()
-      warn('install', `delete for ${nameFor(id)} threw`, error)
+      warn(`delete for ${nameFor(id)} threw`, error)
       refuse(id, 'delete', (name) => `Could not delete “${name}”.`, host)
     },
   )

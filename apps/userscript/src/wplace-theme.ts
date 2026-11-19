@@ -148,10 +148,10 @@ const applyDirectly = (theme: string): void => {
     try {
       map.setStyle(style)
     } catch (error) {
-      warn('install', 'could not swap the map style for the theme', String(error))
+      warn('could not swap the map style for the theme', String(error))
     }
   }
-  log('install', 'theme applied directly', { theme, style })
+  log('theme applied directly', { theme, style })
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
@@ -192,7 +192,7 @@ const syncThroughSettings = async (theme: string): Promise<boolean> => {
     dialog?.close()
     return currentWplaceTheme() === theme
   } catch (error) {
-    warn('install', 'theme sync through settings failed', String(error))
+    warn('theme sync through settings failed', String(error))
     return false
   } finally {
     hide.remove()
@@ -223,7 +223,7 @@ export const toggleWplaceTheme = (): boolean => {
       state.theme = theme
       if (currentWplaceTheme() === theme) return true
     } catch (error) {
-      warn('install', 'Wplace theme setter failed; falling back', String(error))
+      warn('Wplace theme setter failed; falling back', String(error))
     }
   }
   const visible = nativeControlFor(theme)

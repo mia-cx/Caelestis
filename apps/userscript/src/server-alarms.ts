@@ -48,7 +48,7 @@ const notify = (): void => {
     try {
       listener()
     } catch (error) {
-      warn('install', 'alarm listener failed', String(error))
+      warn('alarm listener failed', String(error))
     }
   }
 }

@@ -98,7 +98,7 @@ const navigateArtboard = async (
     lastNavigation = { index, target: { ...target, templateId: template.id } }
     return navigateAllianceArtboardTo(active, { x: target.x + 0.5, y: target.y + 0.5 })
   }
-  warn('install', `no remaining pixel for palette colour ${index} in template ${template.id}`)
+  warn(`no remaining pixel for palette colour ${index} in template ${template.id}`)
   return false
 }
 
@@ -124,7 +124,7 @@ const navigateWorld = async (
     navigateTo({ x: target.x + 0.5, y: target.y + 0.5, width: 1, height: 1 })
     return true
   }
-  warn('install', `no remaining pixel for palette colour ${index} in template ${template.id}`)
+  warn(`no remaining pixel for palette colour ${index} in template ${template.id}`)
   return false
 }
 

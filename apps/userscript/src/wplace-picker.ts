@@ -147,7 +147,7 @@ export const installColourPicker = (): void => {
       const { x, y } = point
       const index = pickedIndexAt(point)
       if (index === null || !selectPaintColour(index)) {
-        log('install', 'picker source has no colour here; Wplace picks', { x, y })
+        log('picker source has no colour here; Wplace picks', { x, y })
         return
       }
       event.preventDefault()
@@ -163,7 +163,7 @@ export const installColourPicker = (): void => {
       // Wplace's swatch normally exits this one-shot tool itself. Check after its render and only
       // use the picker button as a fallback if that state change did not happen.
       exitNativePicker()
-      log('install', 'picked a colour from source pixels', { x, y, index })
+      log('picked a colour from source pixels', { x, y, index })
     },
     { capture: true },
   )
@@ -261,7 +261,7 @@ export const installColourPicker = (): void => {
       }
       pendingMiddleClick = middlePick
       target.setPointerCapture(event.pointerId)
-      log('install', 'picked a colour from the overlay', { x: point.x, y: point.y, index })
+      log('picked a colour from the overlay', { x: point.x, y: point.y, index })
     },
     { capture: true },
   )

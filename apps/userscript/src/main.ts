@@ -67,7 +67,7 @@ const step = (what: string, run: () => void): void => {
   try {
     run()
   } catch (error) {
-    warn('install', `${what} failed to start`, String(error))
+    warn(`${what} failed to start`, String(error))
   }
 }
 

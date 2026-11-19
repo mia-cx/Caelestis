@@ -167,7 +167,7 @@ export const addLocalTemplate = async (
     }
     const admitted = { ...placed, revision }
     installEntry(admitted)
-    log('install', `placed ${template.name}`, { tiles: tiles.size })
+    log(`placed ${template.name}`, { tiles: tiles.size })
     notifyLocalChange()
     return admitted
   } finally {
@@ -367,7 +367,7 @@ const drainMoves = async (id: string, queue: MoveQueue): Promise<void> => {
         },
       )
       if (!saved) {
-        warn('install', `move for ${current.name} was not saved`)
+        warn(`move for ${current.name} was not saved`)
       }
       resolveMove(target, saved)
     } catch (error) {
@@ -430,13 +430,13 @@ const commitEdit = (
       const committed = committedRevision(result)
       if (committed === null) {
         if (result.status === 'conflict') await reconcileConflict(id)
-        if (label !== null) warn('install', `${label} for ${next.name} was not saved`)
+        if (label !== null) warn(`${label} for ${next.name} was not saved`)
         return false
       }
       revision = committed
     }
     if (beforePublish !== undefined && !beforePublish(next)) {
-      if (label !== null) warn('install', `${label} for ${next.name} was not saved`)
+      if (label !== null) warn(`${label} for ${next.name} was not saved`)
       return false
     }
     installEntry({ ...next, revision })
@@ -550,7 +550,7 @@ export const setTemplatesFolder = async (
         if (result.status === 'conflict') {
           for (const template of durable) await reconcileConflict(template.id)
         }
-        warn('install', 'folder changes were not saved as one transaction')
+        warn('folder changes were not saved as one transaction')
         return false
       }
       for (const template of changed) {
@@ -703,7 +703,7 @@ export const removeLocalTemplate = async (id: string): Promise<boolean> => {
       if (!removed) notifyLocalChange()
     }
     if (!removed) {
-      warn('install', `deletion of ${existing.name} was not saved`)
+      warn(`deletion of ${existing.name} was not saved`)
       return false
     }
     return true

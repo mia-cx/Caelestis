@@ -117,7 +117,7 @@ const emit = (server: ServerConnection, surface: TemplateSurface, change: Manife
     try {
       listener(server, surface, change)
     } catch (error) {
-      warn('install', 'manifest observer failed', String(error))
+      warn('manifest observer failed', String(error))
     }
   }
 }

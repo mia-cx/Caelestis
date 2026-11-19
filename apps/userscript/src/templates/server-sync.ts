@@ -156,7 +156,7 @@ const decodeChunk = async (
     // a non-event.
     return quantiseToPalette(new Uint8Array(image.data.buffer), PALETTE_RGB).indices
   } catch (error) {
-    warn('install', 'could not decode a chunk', String(error))
+    warn('could not decode a chunk', String(error))
     return null
   }
 }
@@ -473,7 +473,7 @@ const syncServerTemplatesOnce = async (
       if (outcome === undefined) continue
       if (outcome === 'stop') return
     } catch (error) {
-      warn('install', `could not sync server template ${template.name}`, String(error))
+      warn(`could not sync server template ${template.name}`, String(error))
     } finally {
       if (inFlight.get(server.url, key) === lifetime) inFlight.delete(server.url, key)
       // After the install, so the row already says draft: a public row of an older version may

@@ -338,7 +338,7 @@ const notifyListeners = (subscribers: readonly (() => void)[], what: string): vo
     try {
       listener()
     } catch (error) {
-      warn('install', `${what} listener failed`, String(error))
+      warn(`${what} listener failed`, String(error))
     }
   }
 }

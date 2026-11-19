@@ -79,7 +79,7 @@ const noteReconciliation = (id: string): void => {
     try {
       observer()
     } catch (error) {
-      warn('install', 'local reconciliation observer failed', String(error))
+      warn('local reconciliation observer failed', String(error))
     }
   }
 }
@@ -207,7 +207,7 @@ const reconcileConflictExclusive = async (id: string, verifyPixels: boolean): Pr
         return
       }
       if (deleted.status === 'conflict') continue
-      warn('install', `could not remove invalid conflict winner for ${existing.name}`)
+      warn(`could not remove invalid conflict winner for ${existing.name}`)
       return
     }
     let winner: LocalRecord & { readonly pixels: SparsePixels | null }
@@ -225,11 +225,7 @@ const reconcileConflictExclusive = async (id: string, verifyPixels: boolean): Pr
         return
       }
       if (deleted.status === 'conflict') continue
-      warn(
-        'install',
-        `could not remove invalid conflict winner for ${existing.name}`,
-        String(error),
-      )
+      warn(`could not remove invalid conflict winner for ${existing.name}`, String(error))
       return
     }
     // Unchanged on disk: keep this artwork, so progress and textures keyed on it survive.
@@ -259,11 +255,7 @@ const reconcileConflictExclusive = async (id: string, verifyPixels: boolean): Pr
         return
       }
       if (deleted.status === 'conflict') continue
-      warn(
-        'install',
-        `could not remove invalid conflict winner for ${existing.name}`,
-        String(error),
-      )
+      warn(`could not remove invalid conflict winner for ${existing.name}`, String(error))
       return
     }
     if (templateById(id) !== existing) continue
@@ -278,7 +270,7 @@ const reconcileConflictExclusive = async (id: string, verifyPixels: boolean): Pr
     notifyLocalChange()
     return
   }
-  warn('install', `could not reconcile ${id}: conflict retry limit reached`)
+  warn(`could not reconcile ${id}: conflict retry limit reached`)
 }
 
 /** Take the stored winner for one template, one reconciliation at a time. */
@@ -339,7 +331,7 @@ const discardRecord = async (
   seen: Map<string, number>,
   error?: unknown,
 ): Promise<RestoreOutcome> => {
-  warn('install', `discarded invalid local template ${String(key)}`, String(error ?? 'invalid'))
+  warn(`discarded invalid local template ${String(key)}`, String(error ?? 'invalid'))
   const deleted = await discardStoredRecord(key, revision)
   if (deleted.status !== 'conflict' || typeof key !== 'string') return 'skipped'
   seen.delete(key)
@@ -369,7 +361,7 @@ const restoreRecord = async (
     const loaded = await hydrateStoredTemplate(record, MAX_RESIDENT_PIXELS)
     // Unreadable now is environmental, and must never destroy data.
     if (loaded.status === 'unavailable') {
-      warn('install', `could not read local template ${id}`)
+      warn(`could not read local template ${id}`)
       return 'skipped'
     }
     const stored = loaded.status === 'loaded' ? storedTemplateOrNull(loaded.template) : null
@@ -413,7 +405,7 @@ const restoreRecord = async (
         ? (repaired.revisions.get(id) ?? template.revision)
         : template.revision
     if (repaired.status === 'unavailable') {
-      warn('install', `could not durably repair missing folder for ${template.name}`)
+      warn(`could not durably repair missing folder for ${template.name}`)
     }
     template = { ...template, folderId: null, revision }
     seen.set(id, revision)
@@ -428,7 +420,7 @@ const restoreRecord = async (
     void saveTemplateTileKeys(id, template.revision, [...tiles])
   }
   if (isIdTaken(id)) {
-    warn('install', `could not restore ${template.name}: local template id already exists`)
+    warn(`could not restore ${template.name}: local template id already exists`)
     return 'skipped'
   }
   if (pixels === null) {
@@ -467,7 +459,7 @@ const restoreStoredTemplates = async (): Promise<void> => {
       if (outcome === 'retry') retry = true
     }
   } while (retry && passes < MAX_RESTORE_PASSES)
-  if (restored > 0) log('install', `restored ${restored} local templates`)
+  if (restored > 0) log(`restored ${restored} local templates`)
   notifyLocalChange()
   void fillResidentSet()
 }

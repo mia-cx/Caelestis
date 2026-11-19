@@ -5,7 +5,7 @@ import {
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { activeAllianceSurface, allianceSurfaceBounds } from '../alliance-surface.js'
-import { log, warn } from '../debug.js'
+import { log, logRender, warn } from '../debug.js'
 import { isMapPress, swallowNextClick } from '../map-pointer.js'
 import { canvasPixelAt, cssPixelsPerCanvasPixel, repaint, screenPointFor } from '../map-view.js'
 import { ALLIANCE_PANEL_ID, PANEL_ID } from '../ui/panel-scope.js'
@@ -311,7 +311,7 @@ const onPointerDown = (event: PointerEvent): void => {
     session.x = next.x
     session.y = next.y
     previewMove(session.id, session.x, session.y)
-    log('draw', 'template centred on cursor', { x: session.x, y: session.y })
+    logRender('draw', 'template centred on cursor', { x: session.x, y: session.y })
     return
   }
   if (event.button !== 0) return
@@ -361,9 +361,9 @@ const previewMove = (id: string, x: number, y: number): void => {
       if (moveTemplateDraft(x, y)) session.onDraftMove(x, y)
       return
     }
-    if (!previewLocalTemplate(id, x, y)) warn('install', 'template move could not be previewed')
+    if (!previewLocalTemplate(id, x, y)) warn('template move could not be previewed')
   } catch (error) {
-    warn('install', 'template move failed', String(error))
+    warn('template move failed', String(error))
   }
 }
 
@@ -583,7 +583,7 @@ const begin = (
       }
     } catch (error) {
       session = null
-      warn('install', 'template placement could not be restored', String(error))
+      warn('template placement could not be restored', String(error))
       return false
     }
   }
@@ -597,9 +597,9 @@ const begin = (
   try {
     repaint()
   } catch (error) {
-    warn('install', 'repaint after starting placement failed', error)
+    warn('repaint after starting placement failed', error)
   }
-  log('install', `move started for ${template.name}`)
+  log(`move started for ${template.name}`)
   return true
 }
 
@@ -617,7 +617,7 @@ const finish = (reserveNext = false): MoveReservation | null => {
   try {
     repaint()
   } catch (error) {
-    warn('install', 'repaint after placement failed', error)
+    warn('repaint after placement failed', error)
   }
   finishing = false
   suppressMiddleAuxClickFor = null
@@ -632,7 +632,7 @@ const finish = (reserveNext = false): MoveReservation | null => {
     // Completion is an observer notification, not part of the durable placement transaction.
     // Never let it reopen capture-phase listeners after teardown.
     try {
-      warn('install', 'placement completion callback failed', String(error))
+      warn('placement completion callback failed', String(error))
     } catch {}
   }
   return reservation
@@ -654,7 +654,7 @@ export const stopMoveForDeletion = (
 }
 
 const resumeAfterFailure = (action: string, error?: unknown): void => {
-  warn('install', `${action} could not be saved; placement is still open`, String(error ?? ''))
+  warn(`${action} could not be saved; placement is still open`, String(error ?? ''))
   finishing = false
   listen(true)
   // Resuming is a state change like any other, and `finish` announces its own. Without this a
@@ -663,7 +663,7 @@ const resumeAfterFailure = (action: string, error?: unknown): void => {
   try {
     repaint()
   } catch (error) {
-    warn('install', 'repaint after resuming placement failed', error)
+    warn('repaint after resuming placement failed', error)
   }
 }
 
@@ -699,7 +699,7 @@ export const commit = async (): Promise<void> => {
       resumeAfterFailure('placement')
       return
     }
-    log('install', 'placement applied', { x: current.x, y: current.y })
+    log('placement applied', { x: current.x, y: current.y })
     finish()
   } catch (error) {
     resumeAfterFailure('placement', error)

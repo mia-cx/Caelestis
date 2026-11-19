@@ -134,7 +134,7 @@ const finish = (event: PointerEvent): void => {
     showToast('That quick claim is too large. Draw a smaller one.', 'warning')
   else {
     setPresenceQuickClaims(next)
-    log('install', 'quick claim added', { count: next.length })
+    log('quick claim added', { count: next.length })
   }
 }
 

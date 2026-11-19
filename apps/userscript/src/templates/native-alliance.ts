@@ -282,8 +282,7 @@ export const installNativeAllianceTemplates = (native: NativeTemplates): (() => 
       tail = tail
         .then(() => apply(body, target, active, epoch, sequence))
         .catch((error) => {
-          if (current(active, epoch))
-            warn('install', 'native alliance templates unavailable', String(error))
+          if (current(active, epoch)) warn('native alliance templates unavailable', String(error))
         })
     }
     return body
@@ -300,9 +299,7 @@ export const installNativeAllianceTemplates = (native: NativeTemplates): (() => 
     if (target !== null)
       void api
         .getAllianceTemplates(target)
-        .catch((error) =>
-          warn('install', 'could not load native alliance templates', String(error)),
-        )
+        .catch((error) => warn('could not load native alliance templates', String(error)))
   }
   const stop = onActiveAllianceSurfaceChange(select)
   selected = null

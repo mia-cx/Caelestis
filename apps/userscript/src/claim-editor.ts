@@ -120,7 +120,7 @@ const notify = (): void => {
     try {
       listener()
     } catch (error) {
-      warn('install', 'claim editor listener failed', String(error))
+      warn('claim editor listener failed', String(error))
     }
   }
   syncMode()

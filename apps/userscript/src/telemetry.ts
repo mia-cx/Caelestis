@@ -70,7 +70,7 @@ export const installTelemetry = (): void => {
   })
   onFetchedTile((tile, bytes, observedAt) => {
     void observeTile(tile, bytes, observedAt).catch((error: unknown) =>
-      warn('install', 'telemetry failed', String(error)),
+      warn('telemetry failed', String(error)),
     )
   }, wantsObservedTile)
   installPaintReports()

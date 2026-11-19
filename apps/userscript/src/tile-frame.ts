@@ -1,6 +1,6 @@
 import type { TileCoord } from '@caelestis/shared'
 import type { TileFrame, TileQuad } from './coordinates.js'
-import { count, isEnabled, log } from './debug.js'
+import { count, isEnabled, logRender } from './debug.js'
 import { getMap } from './map-handle.js'
 import { notifyEach } from './page-hooks.js'
 import { PIXEL_ART_LAYER } from './wplace-raster.js'
@@ -90,7 +90,7 @@ const quadFromMatrix = (
   const height = bottomLeft[1] - y
 
   const reject = (why: string, data: unknown): null => {
-    log('quad', `rejected ${tile.x}/${tile.y}: ${why}`, data)
+    logRender('quad', `rejected ${tile.x}/${tile.y}: ${why}`, data)
     return null
   }
   const finite = [topLeft, topRight, bottomLeft, bottomRight].flat().every(Number.isFinite)
@@ -208,7 +208,7 @@ const flush = (): void => {
   pending = []
   if (quads.length > 0) lastQuads = quads
 
-  log(
+  logRender(
     'frame',
     'rendered',
     isEnabled()
@@ -231,7 +231,7 @@ const flush = (): void => {
   else if (drewAnything) drawingTiles = false
 
   if (quads.length > 0) {
-    if (!overlayHasContent) log('clear', 'overlay has content again')
+    if (!overlayHasContent) logRender('clear', 'overlay has content again')
     overlayHasContent = true
     emit(quads)
     return
@@ -244,7 +244,7 @@ const flush = (): void => {
   }
 
   // No tiles this frame, and the overlay has ink on it: clear now, in this same browser frame.
-  log('clear', 'no tiles this frame — clearing now')
+  logRender('clear', 'no tiles this frame — clearing now')
   emit([])
   overlayHasContent = false
 }

@@ -476,7 +476,7 @@ class PresenceLayer {
     const quad = createQuadVertexArray(gl, this.program)
     this.quad = quad?.buffer ?? null
     this.vao = quad?.vao ?? null
-    log('install', 'presence layer added over the artwork')
+    log('presence layer added over the artwork')
   }
 
   onRemove(_map: unknown, gl: WebGL2RenderingContext): void {
@@ -500,7 +500,7 @@ class PresenceLayer {
         profileGpu(gl, 'Presence overlay GPU', () => this.draw(gl)),
       )
     } catch (error) {
-      warn('install', 'presence layer render failed; skipping this frame', String(error))
+      warn('presence layer render failed; skipping this frame', String(error))
     }
   }
 

@@ -118,7 +118,7 @@ const metric = (
 ): void => count(`telemetry:tile-offers-${outcome}`, by)
 
 const reportError = (error: unknown): void => {
-  warn('install', 'tile offer failed', String(error))
+  warn('tile offer failed', String(error))
 }
 
 /** The receipt key of a connection: its URL, lifetime and season. */
@@ -492,7 +492,7 @@ const uploadWanted = async (
         if (delta === null) missingStatus = true
         else deltas.push(delta)
       } else if (response !== null)
-        warn('install', 'telemetry tile upload was rejected', {
+        warn('telemetry tile upload was rejected', {
           server: server.url,
           tile: entry.tile,
           status: response.status,
@@ -516,7 +516,7 @@ const httpOffers: Transport = async (server, identity, entries) => {
   if (answer === null || response === null || !response.ok) {
     if (response !== null) {
       if (response.status >= 400 && response.status < 500) metric('rejected', entries.length)
-      warn('install', 'telemetry tile offer was rejected', {
+      warn('telemetry tile offer was rejected', {
         server: server.url,
         status: response.status,
       })

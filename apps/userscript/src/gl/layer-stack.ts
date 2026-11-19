@@ -112,16 +112,15 @@ const reconcile = (map: MapLike): void => {
         if (placement.anchor === null) continue
         map.addLayer(layer, placement.anchor)
         log(
-          'install',
           `${layer.id} inserted ${placement.anchor === undefined ? 'on top' : `before ${placement.anchor}`}`,
         )
         continue
       }
       if (placement.anchor === null || inPlace(order, layer.id, placement)) continue
       map.moveLayer(layer.id, placement.anchor)
-      log('install', `${layer.id} moved back into place`)
+      log(`${layer.id} moved back into place`)
     } catch (error) {
-      warn('install', `could not place ${layer.id}`, String(error))
+      warn(`could not place ${layer.id}`, String(error))
     }
   }
 }

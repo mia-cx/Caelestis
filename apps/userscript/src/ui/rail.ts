@@ -517,5 +517,5 @@ export const installRail = (owner: RailPanel): void => {
     positionRail()
     positionChargeForecast()
   })
-  log('install', 'rail installed beside wplace’s')
+  log('rail installed beside wplace’s')
 }

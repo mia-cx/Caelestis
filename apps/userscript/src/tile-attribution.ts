@@ -1,5 +1,5 @@
 import { TILE_SIZE, type TileCoord } from '@caelestis/shared'
-import { count, log, warn } from './debug.js'
+import { count, logRender, warn } from './debug.js'
 import { type InstalledValueHook, installValueHook, notifyEach } from './page-hooks.js'
 import { observePageRequests, type RequestRoute } from './page-requests.js'
 import { isPageInstance } from './page-world.js'
@@ -158,7 +158,7 @@ const tagTileResponse = (
       // The size queue is only a last resort. Queue when the page actually consumes the body,
       // rather than delaying fetch to duplicate every response pre-emptively.
       enqueueBySize(bytes, tile)
-      log('fetch', `tile ${tile.x}/${tile.y}`, {
+      logRender('fetch', `tile ${tile.x}/${tile.y}`, {
         bytes,
         status: tappedResponse.status,
         sizesWaiting: tilesByByteLength.size,
@@ -207,7 +207,7 @@ const tagTileResponse = (
     return response
   } catch (error) {
     // A body we cannot read is a tile we cannot attribute; it simply goes undrawn.
-    warn('fetch', `could not read body for ${tile.x}/${tile.y}`, String(error))
+    warn(`could not read body for ${tile.x}/${tile.y}`, String(error))
     return response
   }
 }
@@ -322,7 +322,9 @@ export const installBlobTap = (
               // A missing or failing page crypto leaves the normal capture path intact.
             }
           }
-          log('bitmap', `blob built from tagged buffer ${tile.x}/${tile.y}`, { bytes: blob.size })
+          logRender('bitmap', `blob built from tagged buffer ${tile.x}/${tile.y}`, {
+            bytes: blob.size,
+          })
           break
         }
       }
@@ -393,7 +395,9 @@ export const installBitmapTap = (
           if (sourceBlob !== undefined && sourceBytes !== undefined) {
             if (exact !== undefined) {
               tileOfBitmaps.set(bitmap, exact)
-              log('bitmap', `matched ${exact.x}/${exact.y} by identity`, { bytes: sourceBytes })
+              logRender('bitmap', `matched ${exact.x}/${exact.y} by identity`, {
+                bytes: sourceBytes,
+              })
               // Decode and hash ran together. A failed digest resolves to null and reads in full.
               decoded(exact, bitmap, sourceBlob, digestOfBlobs.get(sourceBlob))
               return bitmap
@@ -403,13 +407,17 @@ export const installBitmapTap = (
             if (tile !== undefined) {
               tileOfBitmaps.set(bitmap, tile)
               decoded(tile, bitmap, sourceBlob, undefined)
-              log('bitmap', `matched ${tile.x}/${tile.y}`, { bytes: sourceBytes })
+              logRender('bitmap', `matched ${tile.x}/${tile.y}`, { bytes: sourceBytes })
             } else if (bitmap.width === TILE_SIZE && bitmap.height === TILE_SIZE) {
               // A tile-shaped image we cannot name: it will overwrite a texture's identity.
-              log('bitmap', 'unmatched 1000x1000 bitmap — no tile queued at this byte length', {
-                bytes: sourceBytes,
-                sizesWaiting: [...tilesByByteLength.keys()].slice(0, 8).join(' '),
-              })
+              logRender(
+                'bitmap',
+                'unmatched 1000x1000 bitmap — no tile queued at this byte length',
+                {
+                  bytes: sourceBytes,
+                  sizesWaiting: [...tilesByByteLength.keys()].slice(0, 8).join(' '),
+                },
+              )
             }
           }
         } catch {

@@ -1,5 +1,5 @@
 import { TILE_SIZE, type TileCoord } from '@caelestis/shared'
-import { count, log } from './debug.js'
+import { count, log, logRender } from './debug.js'
 import { createDraftCaptureStamps, markCanvasDirty, refreshDraftCanvas } from './draft-pixels.js'
 import { getMap } from './map-handle.js'
 import {
@@ -94,7 +94,7 @@ export const installMapContextObserver = (
       wrapped && candidateLooksLikeMap && looksLikeMapCanvas(mapCanvas)
     if (mapOwned !== undefined && mapOwned !== this) {
       if (!replacingMeasuredMapCanvas) {
-        log('install', 'skipped a WebGL context that is not the map canvas', { type })
+        log('skipped a WebGL context that is not the map canvas', { type })
         return context
       }
       // The captured Map belongs to a previous SPA mount. Its canvas cannot veto the next measured
@@ -106,7 +106,7 @@ export const installMapContextObserver = (
       // MapLibre's. Once the measured map class is wrapped, an unrelated context cannot steal it.
       if (looksLikeMapCanvas(mapCanvas) || !candidateLooksLikeMap) return context
     }
-    if (wrapped) log('install', 're-targeting onto the map canvas', { type })
+    if (wrapped) log('re-targeting onto the map canvas', { type })
     const previousWrapped = wrapped
     const previousContextGeneration = activeContextGeneration
     const previousActiveContextRestore = restoreActiveContextHooks
@@ -437,7 +437,7 @@ export const installMapContextObserver = (
         ) {
           if (texture !== null && tileOfTexture.has(texture)) {
             const had = tileOfTexture.get(texture)
-            log(
+            logRender(
               'texture',
               `DROPPED attribution ${had?.x}/${had?.y} — re-uploaded from non-bitmap`,
               {
@@ -456,7 +456,7 @@ export const installMapContextObserver = (
         if (tile !== undefined) {
           const had = tileOfTexture.get(texture)
           tileOfTexture.set(texture, tile)
-          log('texture', `attributed ${tile.x}/${tile.y}`, {
+          logRender('texture', `attributed ${tile.x}/${tile.y}`, {
             size: `${bitmap.width}x${bitmap.height}`,
             replaced: had ? `${had.x}/${had.y}` : null,
           })
@@ -464,7 +464,7 @@ export const installMapContextObserver = (
         }
         const had = tileOfTexture.get(texture)
         if (had !== undefined) {
-          log('texture', `DROPPED attribution ${had.x}/${had.y} — re-uploaded unattributed`, {
+          logRender('texture', `DROPPED attribution ${had.x}/${had.y} — re-uploaded unattributed`, {
             size: `${bitmap.width}x${bitmap.height}`,
           })
           tileOfTexture.delete(texture)
@@ -743,7 +743,7 @@ export const installMapContextObserver = (
       }.drawElements
 
       if (glHookFailed) return abandonGlHooks()
-      log('install', 'wrapped the map WebGL context', {
+      log('wrapped the map WebGL context', {
         type,
         canvas: `${this.width}x${this.height}`,
       })

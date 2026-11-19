@@ -327,7 +327,7 @@ const moveSettings = async (
       importing ? `Could not import from the ${other}.` : `Could not send to the ${other}.`,
       'error',
     )
-    log('install', 'moving settings failed', String(error))
+    log('moving settings failed', String(error))
   }
 }
 

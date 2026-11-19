@@ -69,7 +69,7 @@ const exportTemplate = async (target: TreeTarget, format: 'wplace' | 'png'): Pro
     download(file, exportFilename(template.name, format))
     showToast(`Exported “${template.name}”.`)
   } catch (error) {
-    warn('install', `could not export ${template.name}`, String(error))
+    warn(`could not export ${template.name}`, String(error))
     showToast(`Could not export “${template.name}”.`, 'error')
   }
 }

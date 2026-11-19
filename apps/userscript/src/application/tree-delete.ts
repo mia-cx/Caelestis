@@ -72,7 +72,7 @@ const deleteLocalTemplate = async (
     removeTreeStateKeys(new Set([target.key]))
     rerender()
   } catch (error) {
-    warn('install', 'local delete failed', String(error))
+    warn('local delete failed', String(error))
     failed()
   } finally {
     stoppedMove?.reservation.release()

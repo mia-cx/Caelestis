@@ -602,7 +602,7 @@ class ArtboardRenderer {
       try {
         this.draw()
       } catch (error) {
-        warn('install', 'alliance artboard render failed; skipping this frame', String(error))
+        warn('alliance artboard render failed; skipping this frame', String(error))
       }
     })
   }

@@ -155,7 +155,7 @@ export const makeRoom = (area: number, keep?: string): boolean => {
     evicted++
   }
   if (evicted > 0) {
-    log('install', `evicted ${evicted} templates from memory`)
+    log(`evicted ${evicted} templates from memory`)
     notifyLocalChange()
   }
   return fitsResident(area)
@@ -253,7 +253,7 @@ export const peekTemplatePixels = async (
     return await residentPixels(template, false)
   } catch (error) {
     failedLoads.set(template.artwork, performance.now())
-    warn('install', `could not load ${template.name}`, String(error))
+    warn(`could not load ${template.name}`, String(error))
     return null
   }
 }
@@ -272,7 +272,7 @@ export const fillResidentSet = async (): Promise<void> => {
     try {
       await residentPixels(template, false)
     } catch (error) {
-      warn('install', `could not load ${template.name}`, String(error))
+      warn(`could not load ${template.name}`, String(error))
     }
   }
 }
@@ -299,7 +299,7 @@ const loadInView = async (): Promise<void> => {
         await residentPixels(template, true)
       } catch (error) {
         failedLoads.set(template.artwork, performance.now())
-        warn('install', `could not load ${template.name}`, String(error))
+        warn(`could not load ${template.name}`, String(error))
       }
     }
   } finally {

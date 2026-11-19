@@ -112,7 +112,7 @@ export const installWplaceSettings = (): (() => void) => {
           setWplaceOption(def.key, input.checked)
           applyAttributes()
           syncRows()
-          log('install', `${def.label} ${input.checked ? 'on' : 'off'}`)
+          log(`${def.label} ${input.checked ? 'on' : 'off'}`)
         })
         anchor.after(row)
       }

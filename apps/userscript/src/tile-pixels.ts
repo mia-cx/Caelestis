@@ -53,7 +53,7 @@ export const captureTilePixels = (
   if (capturePixels === on) return
   capturePixels = on
   if (on) generation++
-  log('install', `tile pixel capture ${on ? 'on' : 'off'}`)
+  log(`tile pixel capture ${on ? 'on' : 'off'}`)
 }
 
 /** Whether capture is on at all. */
@@ -411,7 +411,7 @@ export const ensureTilePixels = (tile: TileCoord): boolean => {
     try {
       if (await readTile(tile)) count('pixels:chased a tile we missed')
     } catch (error) {
-      warn('fetch', `could not chase tile ${tile.x}/${tile.y}`, String(error))
+      warn(`could not chase tile ${tile.x}/${tile.y}`, String(error))
     } finally {
       chasing--
       activeChases.delete(key)
@@ -505,7 +505,7 @@ export const rereadKeptTiles = (skip: Iterable<TileCoord>): Promise<void> => {
       try {
         await readTile(tile)
       } catch (error) {
-        warn('fetch', `could not re-read tile ${tile.x}/${tile.y}`, String(error))
+        warn(`could not re-read tile ${tile.x}/${tile.y}`, String(error))
       }
     }
   }
@@ -685,7 +685,7 @@ const readCaptures = async (): Promise<void> => {
       if (read !== null) commitTile(next, read, base)
     } catch (error) {
       count('pixels:tile readback failures')
-      warn('bitmap', 'could not read tile pixels', String(error))
+      warn('could not read tile pixels', String(error))
     } finally {
       for (const done of next.done) done()
     }

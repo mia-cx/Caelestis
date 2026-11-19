@@ -176,7 +176,7 @@ export const installOfficialEvents = async (): Promise<void> => {
     for (const map of watched) sync(map)
     notify()
   } catch (error) {
-    warn('install', 'official events unavailable', String(error))
+    warn('official events unavailable', String(error))
     return
   }
   const scheduleOpening = (): void => {
@@ -194,9 +194,7 @@ export const installOfficialEvents = async (): Promise<void> => {
   const refresh = (): void => {
     void progressStore
       ?.refresh()
-      .then(notify, (error) =>
-        warn('install', 'official event progress unavailable', String(error)),
-      )
+      .then(notify, (error) => warn('official event progress unavailable', String(error)))
   }
   refresh()
   setInterval(refresh, REFRESH_MS)
@@ -234,9 +232,7 @@ const mirrored = new Map<string, string>()
 let tail: Promise<void> = Promise.resolve()
 
 const queue = (task: () => Promise<void>): void => {
-  tail = tail
-    .then(task)
-    .catch((error) => warn('install', 'official overlay unavailable', String(error)))
+  tail = tail.then(task).catch((error) => warn('official overlay unavailable', String(error)))
 }
 
 const mirror = async (map: OverlayMap, layerId: string, index: number): Promise<void> => {
@@ -253,7 +249,7 @@ const mirror = async (map: OverlayMap, layerId: string, index: number): Promise<
   const id = templateIdOf(index)
   if (mirrored.get(layerId) === version) return
   if (!hasRoomForCopy(id, pixels.width * pixels.height)) {
-    warn('install', 'official overlay over the template memory budget', layerId)
+    warn('official overlay over the template memory budget', layerId)
     return
   }
   let art = decoded.get(pixels)

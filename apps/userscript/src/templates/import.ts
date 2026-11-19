@@ -414,7 +414,7 @@ const blockAuthoring = async (block: CaelestisBlock): Promise<TemplateAuthoring 
     (await sha256Hex(new Uint8Array(await source.arrayBuffer()))) === recipe.source.sha256
   )
     return { source, recipe, artwork: block.artwork }
-  warn('install', 'the source image in this file is damaged or too large to keep')
+  warn('the source image in this file is damaged or too large to keep')
   return null
 }
 
@@ -461,7 +461,7 @@ const importWplace = async (file: Record<string, unknown>): Promise<ImportedTemp
   const bounds = isRecord(file.bounds) ? file.bounds : null
   const dataUrl = image?.dataUrl
   if (typeof dataUrl !== 'string' || bounds === null) {
-    warn('install', 'skipping .wplace template: missing embedded image or bounds')
+    warn('skipping .wplace template: missing embedded image or bounds')
     return []
   }
   const name = checkedName(file.name, 'Imported template')
@@ -481,7 +481,7 @@ const importWplace = async (file: Record<string, unknown>): Promise<ImportedTemp
     north < -MAX_MERCATOR_LATITUDE ||
     north > MAX_MERCATOR_LATITUDE
   ) {
-    warn('install', 'skipping .wplace template: invalid geographic bounds')
+    warn('skipping .wplace template: invalid geographic bounds')
     return []
   }
 
@@ -499,7 +499,7 @@ const importWplace = async (file: Record<string, unknown>): Promise<ImportedTemp
   const south = anchorOnly ? fallback.lat : bounds.south
   const east = anchorOnly ? fallback.lng : bounds.east
   if (typeof south !== 'number' || typeof east !== 'number') {
-    warn('install', 'skipping .wplace template: incomplete geographic bounds')
+    warn('skipping .wplace template: incomplete geographic bounds')
     return []
   }
   const { nativePlacement } = await import('./native-store.js')
@@ -508,7 +508,7 @@ const importWplace = async (file: Record<string, unknown>): Promise<ImportedTemp
   try {
     placement = nativePlacement({ bounds: geographicBounds })
   } catch (error) {
-    warn('install', 'skipping .wplace template: invalid geographic bounds', String(error))
+    warn('skipping .wplace template: invalid geographic bounds', String(error))
     return []
   }
   if (
@@ -518,7 +518,7 @@ const importWplace = async (file: Record<string, unknown>): Promise<ImportedTemp
     originY + placement.height > WORLD_PIXELS ||
     (anchorOnly && originY + dimensions.height > WORLD_PIXELS)
   ) {
-    warn('install', 'skipping .wplace template: projected image leaves the canvas')
+    warn('skipping .wplace template: projected image leaves the canvas')
     return []
   }
   const templateColorIdxs = Array.isArray(file.templateColorIdxs)
@@ -642,7 +642,7 @@ const importMarble = async (file: MarbleFile): Promise<ImportedTemplate[]> => {
   let decodedWorkPixels = 0
   for (const [key, entryValue] of entries) {
     if (!isRecord(entryValue)) {
-      warn('install', `skipping Marble template "${key}": unreadable record`)
+      warn(`skipping Marble template "${key}": unreadable record`)
       continue
     }
     const entry = entryValue
@@ -650,12 +650,12 @@ const importMarble = async (file: MarbleFile): Promise<ImportedTemplate[]> => {
     try {
       name = checkedName(entry.name, key)
     } catch (error) {
-      warn('install', 'skipping Marble template with oversized metadata', String(error))
+      warn('skipping Marble template with oversized metadata', String(error))
       continue
     }
     const parts = parseMarbleCoords(typeof entry.coords === 'string' ? entry.coords : '', ',')
     if (parts === null) {
-      warn('install', `skipping Marble template "${key}": unreadable coords`, entry.coords)
+      warn(`skipping Marble template "${key}": unreadable coords`, entry.coords)
       continue
     }
     const [tileX, tileY, pixelX, pixelY] = parts as [number, number, number, number]
@@ -673,12 +673,12 @@ const importMarble = async (file: MarbleFile): Promise<ImportedTemplate[]> => {
       encodedDimensions: { width: number; height: number }
     }> = []
     if (entry.tiles !== undefined && !isRecord(entry.tiles)) {
-      warn('install', `skipping Marble template "${key}": unreadable tiles`)
+      warn(`skipping Marble template "${key}": unreadable tiles`)
       continue
     }
     const pieces = boundedEntries(isRecord(entry.tiles) ? entry.tiles : {}, MAX_MARBLE_TILES)
     if (pieces === null) {
-      warn('install', `skipping Marble template "${key}": too many tiles`)
+      warn(`skipping Marble template "${key}": too many tiles`)
       continue
     }
     let malformed = false
@@ -687,19 +687,19 @@ const importMarble = async (file: MarbleFile): Promise<ImportedTemplate[]> => {
     for (const [tileKey, base64Value] of pieces) {
       const coords = parseMarbleCoords(tileKey, /[,\s]+/)
       if (coords === null) {
-        warn('install', `skipping Marble template "${key}": unreadable tile coords`, tileKey)
+        warn(`skipping Marble template "${key}": unreadable tile coords`, tileKey)
         malformed = true
         break
       }
       const coordinateKey = coords.join(',')
       if (seenCoordinates.has(coordinateKey)) {
-        warn('install', `skipping Marble template "${key}": duplicate tile coords`, tileKey)
+        warn(`skipping Marble template "${key}": duplicate tile coords`, tileKey)
         malformed = true
         break
       }
       seenCoordinates.add(coordinateKey)
       if (typeof base64Value !== 'string') {
-        warn('install', `skipping Marble template "${key}": unreadable tile`, tileKey)
+        warn(`skipping Marble template "${key}": unreadable tile`, tileKey)
         malformed = true
         break
       }
@@ -707,7 +707,7 @@ const importMarble = async (file: MarbleFile): Promise<ImportedTemplate[]> => {
         ? base64Value
         : `data:image/png;base64,${base64Value}`
       if (!/^data:image\/png;base64,/i.test(source)) {
-        warn('install', `skipping Marble template "${key}": tile is not an embedded PNG`, tileKey)
+        warn(`skipping Marble template "${key}": tile is not an embedded PNG`, tileKey)
         malformed = true
         break
       }
@@ -739,7 +739,7 @@ const importMarble = async (file: MarbleFile): Promise<ImportedTemplate[]> => {
           encodedDimensions: dimensions,
         })
       } catch (error) {
-        warn('install', `skipping Marble template "${key}": unreadable tile ${tileKey}`, error)
+        warn(`skipping Marble template "${key}": unreadable tile ${tileKey}`, error)
         malformed = true
         break
       }
@@ -766,7 +766,7 @@ const importMarble = async (file: MarbleFile): Promise<ImportedTemplate[]> => {
       maxX > WORLD_PIXELS ||
       maxY > WORLD_PIXELS
     ) {
-      warn('install', `skipping Marble template "${key}": assembled image is too large or invalid`)
+      warn(`skipping Marble template "${key}": assembled image is too large or invalid`)
       continue
     }
 
@@ -793,14 +793,14 @@ const importMarble = async (file: MarbleFile): Promise<ImportedTemplate[]> => {
           ...(quantised.movedPixels === undefined ? {} : { movedPixels: quantised.movedPixels }),
         })
       } catch (error) {
-        warn('install', `skipping Marble template "${key}": unreadable tile`, error)
+        warn(`skipping Marble template "${key}": unreadable tile`, error)
         malformed = true
         break
       }
     }
     if (malformed) continue
     if (!hasPaintedPixels) {
-      warn('install', `skipping ${name}: image has no painted pixels`)
+      warn(`skipping ${name}: image has no painted pixels`)
       continue
     }
     const indices = new Uint8Array(width * height).fill(TRANSPARENT_INDEX)
@@ -924,12 +924,12 @@ export const importFile = async (
 
     result = result.filter((template) => {
       if (template.opaque > 0) return true
-      warn('install', `skipping ${template.name}: image has no painted pixels`)
+      warn(`skipping ${template.name}: image has no painted pixels`)
       return false
     })
 
     for (const template of result) {
-      log('install', `imported ${template.name}`, {
+      log(`imported ${template.name}`, {
         source: template.source,
         size: `${template.width}x${template.height}`,
         origin: `${template.originX},${template.originY}`,

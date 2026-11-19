@@ -147,7 +147,7 @@ export const serveOtherBuild = (port: MessagePort, build: Build): void => {
         const values = request.type === 'read' ? { values: portableValues() } : {}
         post(port, { type: 'done', id: request.id, ok: true, ...values })
       } catch (error) {
-        warn('install', `could not ${request.type} for the other build`, String(error))
+        warn(`could not ${request.type} for the other build`, String(error))
         post(port, { type: 'done', id: request.id, ok: false })
       }
     })()
@@ -226,7 +226,7 @@ export const linkOtherBuild = (port: MessagePort, running: Build, awaiting: bool
     other = reply.build
     for (const listener of listeners) listener()
     handOff(running, reply.empty, awaiting).catch((error: unknown) =>
-      warn('install', 'could not hand settings over', String(error)),
+      warn('could not hand settings over', String(error)),
     )
   }
 }

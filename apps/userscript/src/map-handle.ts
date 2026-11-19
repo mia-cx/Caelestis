@@ -201,14 +201,14 @@ export const installMapCapture = (realm: Window & typeof globalThis = pageWindow
               return
             if (looksLikeMap(this) && captured === null) {
               captured = this
-              log('install', `captured the map via ${property}`)
+              log(`captured the map via ${property}`)
               removeTraps()
               // The Map is mid-construction; listen once its constructor has returned.
               queueMicrotask(() => {
                 try {
                   announceWhenReady(this)
                 } catch (error) {
-                  warn('install', 'could not watch the map for its style', String(error))
+                  warn('could not watch the map for its style', String(error))
                 }
               })
             }

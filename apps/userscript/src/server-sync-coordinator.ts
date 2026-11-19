@@ -207,7 +207,7 @@ const runResource = async (
     )
     .then((result) => applyResult(server, scope, resource.id, result))
     .catch((error: unknown) => {
-      warn('install', `server sync of ${resource.id} failed`, String(error))
+      warn(`server sync of ${resource.id} failed`, String(error))
       applyResult(server, scope, resource.id, { status: 'failed' })
     })
     .finally(() => {
@@ -428,7 +428,7 @@ export const applyServerSyncDelta = (
   try {
     apply()
   } catch (error) {
-    warn('install', `could not apply a ${resource} delta`, String(error))
+    warn(`could not apply a ${resource} delta`, String(error))
     requestServerSync('revision-gap', resource, server)
     return 'reconcile'
   }

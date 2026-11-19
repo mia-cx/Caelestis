@@ -156,7 +156,7 @@ export const settle = (id: string, write: DurableWrite, rerender: () => void): v
       (error: unknown) => {
         // Without this the intent is never released and the menu asserts, indefinitely, a state
         // that was never saved.
-        warn('install', `${write.keys.join(', ')} for ${nameFor(id)} threw`, error)
+        warn(`${write.keys.join(', ')} for ${nameFor(id)} threw`, error)
         fail()
       },
     )
@@ -313,9 +313,7 @@ export const templateAppearanceStore = (
     ),
     groupOwned: (group, owned) => {
       void setOwnsGroup(id, group, owned)
-        .catch((error: unknown) =>
-          warn('install', `could not change ${group} ownership`, String(error)),
-        )
+        .catch((error: unknown) => warn(`could not change ${group} ownership`, String(error)))
         .finally(rerender)
     },
   }

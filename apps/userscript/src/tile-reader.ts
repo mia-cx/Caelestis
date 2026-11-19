@@ -164,7 +164,7 @@ const waiting = new Map<number, (reply: Reply | null) => void>()
  * so reads already waiting on it settle null as well and move to the page like later ones.
  */
 const abandon = (detail: unknown): void => {
-  warn('fetch', 'tile reads moved to the page', String(detail))
+  warn('tile reads moved to the page', String(detail))
   reader?.terminate()
   reader = null
   for (const settle of waiting.values()) settle(null)
