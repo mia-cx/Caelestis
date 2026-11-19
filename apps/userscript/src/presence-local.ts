@@ -23,7 +23,7 @@ const MAX_PUBLISHED_DRAFT_PIXELS = 4_096
  *
  * `offsetsOf` yields tile-local `y * TILE_SIZE + x` offsets, the shape the draft capture keeps.
  */
-export const draftIn = (
+const draftIn = (
   tiles: readonly TileCoord[],
   offsetsOf: (tile: TileCoord) => Iterable<number>,
 ): PresenceDraft | null => {

@@ -269,7 +269,7 @@ const clusterFor = (
  * piece of each hovered claim (or the cluster of pieces it shares a tag with at this zoom).
  * `measure` gives a tag's width in CSS pixels; `ratio` is device pixels per CSS pixel.
  */
-export const presenceTagsAt = (
+const presenceTagsAt = (
   frame: TileFrame,
   at: Point,
   measure: (text: string) => number = estimateWidth,

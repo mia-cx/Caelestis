@@ -270,14 +270,14 @@ export const keyBindingReleasedBy = (
     : binding.key !== '' && binding.key === normaliseKey(released.key)
 
 /** Whether two bindings would claim the same stroke, so both cannot stay assigned. */
-export const sameKeyBinding = (a: KeyBinding, b: KeyBinding): boolean =>
+const sameKeyBinding = (a: KeyBinding, b: KeyBinding): boolean =>
   sameModifiers(a, b) && ((a.code !== '' && a.code === b.code) || (a.key !== '' && a.key === b.key))
 
 const MAX_KEY_LENGTH = 32
 const CODE_PATTERN = /^[A-Za-z0-9]*$/
 
 /** Accept one stored chord, or nothing when it is not one this version understands. */
-export const normaliseKeyBinding = (value: unknown): KeyBinding | null => {
+const normaliseKeyBinding = (value: unknown): KeyBinding | null => {
   if (typeof value !== 'object' || value === null) return null
   const candidate = value as Record<string, unknown>
   const key = typeof candidate.key === 'string' ? normaliseKey(candidate.key) : ''

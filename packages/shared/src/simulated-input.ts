@@ -122,7 +122,7 @@ export const DANGEROUS_SETTINGS = 'Settings › Dangerous settings'
 /** The features switched on. An absent feature is off. */
 export type SimulatedInputSwitches = Readonly<Partial<Record<SimulatedInput, true>>>
 
-export const isSimulatedInput = (value: unknown): value is SimulatedInput =>
+const isSimulatedInput = (value: unknown): value is SimulatedInput =>
   typeof value === 'string' && Object.hasOwn(SIMULATED_INPUT, value)
 
 /** Keep only known features switched on, so stored junk never turns anything on. */

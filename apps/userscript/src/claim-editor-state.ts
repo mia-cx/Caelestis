@@ -75,7 +75,7 @@ import { CLICK_SLOP_PX } from './map-pointer.js'
  */
 
 /** Hit radius around handles and paths, in CSS pixels. */
-export const HIT_RADIUS_CSS = 9
+const HIT_RADIUS_CSS = 9
 const STROKE_STEP_PX = 2
 /** Just outside a bounding-box corner, this far in CSS pixels, the pointer rotates the shape. */
 const ROTATE_ZONE_CSS = 28
@@ -238,9 +238,9 @@ const defaultShown = (): Record<ClaimToolGroupId, ClaimTool> => ({
   navigate: 'hand',
 })
 
-export const isSelectionTool = (of: ClaimTool): boolean => of === 'select' || of === 'direct'
+const isSelectionTool = (of: ClaimTool): boolean => of === 'select' || of === 'direct'
 
-export const toolCursor = (of: ClaimTool): string =>
+const toolCursor = (of: ClaimTool): string =>
   isSelectionTool(of) ? 'default' : of === 'hand' ? 'grab' : of === 'pen' ? 'copy' : 'crosshair'
 
 const nextItemId = (): string => uuidV7()

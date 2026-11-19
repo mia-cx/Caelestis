@@ -22,7 +22,7 @@ const MAX_REGION_ID = 64
 const MAX_TEMPLATE_ID = 128
 const MAX_LABEL = 64
 
-export const isPresencePeer = (value: unknown): value is PresencePeer => {
+const isPresencePeer = (value: unknown): value is PresencePeer => {
   if (typeof value !== 'object' || value === null) return false
   const peer = value as PresencePeer
   return (

@@ -40,14 +40,14 @@ export const quickClaimRect = (from: Point, to: Point): PresenceRect => {
 }
 
 /** The newest quick claim containing a canvas pixel, or -1. */
-export const quickClaimAt = (rects: readonly PresenceRect[], point: Point): number => {
+const quickClaimAt = (rects: readonly PresenceRect[], point: Point): number => {
   for (let index = rects.length - 1; index >= 0; index--)
     if (rectContains(rects[index] as PresenceRect, point)) return index
   return -1
 }
 
 /** Add a rectangle, or say why it cannot be added. */
-export const withQuickClaim = (
+const withQuickClaim = (
   rects: readonly PresenceRect[],
   rect: PresenceRect,
 ): readonly PresenceRect[] | 'limit' | 'area' => {

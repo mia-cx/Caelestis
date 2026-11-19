@@ -65,7 +65,7 @@ const tool = (
 })
 
 /** Illustrator's keys where it has them: V, A, Q, P, N, B, M, L. */
-export const CLAIM_TOOLS: readonly ClaimToolEntry[] = [
+const CLAIM_TOOLS: readonly ClaimToolEntry[] = [
   tool({
     tool: 'select',
     group: 'selection',
