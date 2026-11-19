@@ -1,41 +1,38 @@
-<script lang="ts">
+<script lang="ts" module>
   import { type AlarmKind, formatPixels } from '@caelestis/shared'
 
-  let {
-    griefed = false,
-    descendantAlarmKind,
-    alarmKind,
-    pixelsLost,
-    compact = false,
-  }: {
-    griefed?: boolean
+  export interface AlarmState {
+    readonly griefed?: boolean
     /** The most severe active alarm among a container's descendants. */
-    descendantAlarmKind?: AlarmKind | undefined
-    alarmKind?: AlarmKind | undefined
-    pixelsLost?: number | undefined
-    compact?: boolean
-  } = $props()
+    readonly descendantAlarmKind?: AlarmKind | undefined
+    readonly alarmKind?: AlarmKind | undefined
+    readonly pixelsLost?: number | undefined
+  }
 
-  const alarmTitle = $derived(
-    alarmKind === 'sustained-griefing'
-      ? 'Sustained griefing'
-      : alarmKind === 'regression'
-        ? 'Regression'
-        : griefed ? 'Grief detected'
-        : descendantAlarmKind === 'sustained-griefing' ? 'Contains griefed templates'
-        : descendantAlarmKind === 'regression' ? 'Contains templates with regression' : null,
-  )
-  const alarmLabel = $derived(
-    alarmTitle === null
-      ? null
-      : `${alarmTitle}${alarmKind === undefined || pixelsLost === undefined ? '' : ` · ${formatPixels(pixelsLost)} lost`}`,
-  )
+  /** What the alarm badge says, or null when there is no alarm to show. */
+  export const alarmLabel = ({ griefed = false, descendantAlarmKind, alarmKind, pixelsLost }: AlarmState): string | null => {
+    const title =
+      alarmKind === 'sustained-griefing' ? 'Sustained griefing'
+      : alarmKind === 'regression' ? 'Regression'
+      : griefed ? 'Grief detected'
+      : descendantAlarmKind === 'sustained-griefing' ? 'Contains griefed templates'
+      : descendantAlarmKind === 'regression' ? 'Contains templates with regression'
+      : null
+    if (title === null) return null
+    return alarmKind === undefined || pixelsLost === undefined ? title : `${title} · ${formatPixels(pixelsLost)} lost`
+  }
 </script>
 
-{#if alarmLabel !== null}
-  <span class:compact class="alarm" role="status" title={alarmLabel} aria-label={`Template alarm: ${alarmLabel}`} aria-atomic="true">
+<script lang="ts">
+  let { compact = false, ...state }: AlarmState & { compact?: boolean } = $props()
+
+  const label = $derived(alarmLabel(state))
+</script>
+
+{#if label !== null}
+  <span class:compact class="alarm" role="status" title={label} aria-label={`Template alarm: ${label}`} aria-atomic="true">
     <span class="alarm-mark" aria-hidden="true">⚠️</span>
-    <span class="alarm-description">{alarmLabel}</span>
+    <span class="alarm-description">{label}</span>
   </span>
 {/if}
 

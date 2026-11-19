@@ -406,9 +406,7 @@
               <span class="kind"><Icon name={entry.icon} /></span>
               {/if}
             </TemplateLifecycle>
-            {#if alarmKind !== undefined}
-              <TemplateAlarm compact {...(entry.descendantAlarmKind === undefined ? {} : { descendantAlarmKind: entry.descendantAlarmKind })} {...entry.lifecycle} />
-            {/if}
+            <TemplateAlarm compact {...(entry.descendantAlarmKind === undefined ? {} : { descendantAlarmKind: entry.descendantAlarmKind })} {...entry.lifecycle} />
             {#if grid && entry.navigate !== undefined}
               {@const navigate = entry.navigate}
               <button class="icon-action" type="button" title={navigate.label} aria-label={navigate.label} onclick={(event) => action(entry, navigate, event)}>

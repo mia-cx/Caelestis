@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { AlarmKind } from '@caelestis/shared'
-  import TemplateAlarm from './TemplateAlarm.svelte'
+  import TemplateAlarm, { alarmLabel } from './TemplateAlarm.svelte'
   import TemplateLifecycle from './TemplateLifecycle.svelte'
 
   let {
@@ -22,7 +22,7 @@
     compact?: boolean
   } = $props()
 
-  const alarmed = $derived(griefed || alarmKind !== undefined || descendantAlarmKind !== undefined)
+  const alarmed = $derived(alarmLabel({ griefed, descendantAlarmKind, alarmKind, pixelsLost }) !== null)
 </script>
 
 {#if finished || frozen || alarmed}
