@@ -4,7 +4,7 @@ import type {
   ServerAssetContentType,
   TemplateSurfaceKind,
 } from '@caelestis/shared'
-import { TEMPLATE_SURFACE_KINDS, WORLD_PIXELS } from '@caelestis/shared'
+import { MAX_NODE_PATH_LENGTH, TEMPLATE_SURFACE_KINDS, WORLD_PIXELS } from '@caelestis/shared'
 import { sql } from 'drizzle-orm'
 import {
   type AnySQLiteColumn,
@@ -19,7 +19,6 @@ import {
   unique,
   uniqueIndex,
 } from 'drizzle-orm/sqlite-core'
-import { MAX_NODE_PATH_LENGTH } from '../nodes/store.js'
 import { LADDER_RESOLUTIONS } from '../telemetry/history/ladder.js'
 import { TILE_HISTORY_RESOLUTIONS } from '../telemetry/tiles/ladder.js'
 import { sha256Hex, surfaceCheck, tileCoordinate } from './checks.js'

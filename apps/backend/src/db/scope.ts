@@ -1,5 +1,14 @@
-import { type TemplateSurface, templateSurface } from '@caelestis/shared'
+import { sameTemplateSurface, type TemplateSurface, templateSurface } from '@caelestis/shared'
 import { type AnyColumn, and, eq, isNull, type SQL } from 'drizzle-orm'
+
+/** Where a node, template, region, or work item lives: one season of one drawing surface. */
+export interface DrawingScope {
+  readonly season: number
+  readonly surface: TemplateSurface
+}
+
+export const sameScope = (left: DrawingScope, right: DrawingScope): boolean =>
+  left.season === right.season && sameTemplateSurface(left.surface, right.surface)
 
 /** A table whose rows each live in one season of one drawing surface. */
 interface ScopedTable {
@@ -8,7 +17,6 @@ interface ScopedTable {
   readonly allianceId: AnyColumn
 }
 
-/** `table`'s rows in `season` on `surface`. */
 export const scopeWhere = (table: ScopedTable, season: number, surface: TemplateSurface): SQL =>
   and(
     eq(table.season, season),

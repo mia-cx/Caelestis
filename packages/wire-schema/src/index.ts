@@ -13,6 +13,7 @@ import {
   MAX_LIVE_TEMPLATE_IDS,
   MAX_LOGO_TEXT_LENGTH,
   MAX_NAME_LENGTH,
+  MAX_NODE_PATH_LENGTH,
   MAX_PATH_NODES,
   MAX_PRESENCE_PEERS,
   MAX_PRESENCE_REGION_LABEL,
@@ -43,12 +44,6 @@ import {
 import { Schema } from 'effect'
 
 const MAX_IDENTIFIER_LENGTH = 64
-/**
- * A materialized path is a handful of group names joined by slashes, not prose. At the description
- * bound, MAX_MANIFEST_NODES paths would be worth ~442 MB — 22x the ceiling MAX_MANIFEST_CHUNKS is
- * sized to, on an array the decoder refines only after building it.
- */
-const MAX_PATH_LENGTH = 256
 /**
  * Array caps sized from what each field actually bounds. One shared round number cannot fit them
  * all: a manifest may span more than 1,000 tiles, a paint payload carries a whole charge drain, and
@@ -462,9 +457,14 @@ export const ServerInfo = Schema.Struct({
  */
 const foldPath = (path: string): string => path.replace(/[A-Z]/g, (c) => c.toLowerCase())
 
+/**
+ * A materialized path is a handful of group names joined by slashes, not prose. At the description
+ * bound, MAX_MANIFEST_NODES paths would be worth ~442 MB — 22x the ceiling MAX_MANIFEST_CHUNKS is
+ * sized to, on an array the decoder refines only after building it.
+ */
 const NodePath = Schema.String.pipe(
   Schema.check(
-    Schema.isBetweenLength(1, MAX_PATH_LENGTH),
+    Schema.isBetweenLength(1, MAX_NODE_PATH_LENGTH),
     Schema.isPattern(/^(\/[\p{L}\p{N}][\p{L}\p{N}\p{M}. -]*)+$/u, {
       description: 'a slash-separated group path without LIKE metacharacters',
     }),

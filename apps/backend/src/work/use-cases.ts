@@ -11,7 +11,8 @@ import {
 } from '@caelestis/shared'
 import { Effect } from 'effect'
 import type { Caller } from '../auth/middleware.js'
-import { type NodeStore, sameScope } from '../nodes/store.js'
+import { type DrawingScope, sameScope } from '../db/scope.js'
+import type { NodeStore } from '../nodes/store.js'
 import { SqlStoreService, StatusReadModelService } from '../runtime/backend-runtime.js'
 import {
   ForbiddenError,
@@ -97,10 +98,8 @@ export const workHistory = (id: string, before: number, includeUnpublished: bool
   })
 
 /** The item a mutation addresses, in the drawing scope the route named. */
-interface WorkTarget {
+interface WorkTarget extends DrawingScope {
   readonly id: string
-  readonly season: number
-  readonly surface: TemplateSurface
 }
 
 type WorkStores = NodeStore & TemplateStore & { readonly work: WorkStore }

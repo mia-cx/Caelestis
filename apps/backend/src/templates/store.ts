@@ -15,13 +15,8 @@ import {
   WORLD_PIXELS,
   WORLD_TILES,
 } from '@caelestis/shared'
+import type { DrawingScope } from '../db/scope.js'
 import { PortError } from '../runtime/errors.js'
-
-/** Exact drawing surface selected by one manifest request. */
-export interface TemplateManifestScope {
-  readonly season: number
-  readonly surface: TemplateSurface
-}
 
 export interface TemplateVersionRecord {
   readonly templateId: string
@@ -320,12 +315,12 @@ export interface TemplateStore {
   deleteTemplate(templateId: string, expected: TemplateDeletePrecondition): Promise<boolean>
 
   listManifestTemplates(
-    scope: TemplateManifestScope,
+    scope: DrawingScope,
     includeUnpublished: boolean,
   ): Promise<readonly ManifestTemplateRecord[]>
 
   listManifestTiles(
-    scope: TemplateManifestScope,
+    scope: DrawingScope,
     includeUnpublished: boolean,
   ): Promise<readonly ManifestTileRecord[]>
 

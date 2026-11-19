@@ -17,7 +17,7 @@ import {
   VERSION_TILE_ROWS_PER_INSERT,
 } from '../db/d1-limits.js'
 import { contributions, templates, templateVersions, versionTiles } from '../db/schema.js'
-import { scopeWhere, surfaceOf } from '../db/scope.js'
+import { type DrawingScope, scopeWhere, surfaceOf } from '../db/scope.js'
 import { selectNode } from '../nodes/relational.js'
 import { assertSameScope, NodeNotFoundError } from '../nodes/store.js'
 import {
@@ -26,7 +26,6 @@ import {
   type ManifestTemplateRecord,
   type ManifestTileRecord,
   type TemplateDeletePrecondition,
-  type TemplateManifestScope,
   TemplateNotFoundError,
   type TemplatePatch,
   type TemplateRecord,
@@ -381,7 +380,7 @@ export class RelationalTemplateStore extends RelationalStore implements Template
   }
 
   async listManifestTemplates(
-    scope: TemplateManifestScope,
+    scope: DrawingScope,
     includeUnpublished: boolean,
   ): Promise<readonly ManifestTemplateRecord[]> {
     const scoped = scopeWhere(templates, scope.season, scope.surface)
@@ -423,7 +422,7 @@ export class RelationalTemplateStore extends RelationalStore implements Template
   }
 
   async listManifestTiles(
-    scope: TemplateManifestScope,
+    scope: DrawingScope,
     includeUnpublished: boolean,
   ): Promise<readonly ManifestTileRecord[]> {
     const scoped = scopeWhere(templates, scope.season, scope.surface)

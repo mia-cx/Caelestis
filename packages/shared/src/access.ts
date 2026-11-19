@@ -6,6 +6,12 @@ export type Scope = (typeof SCOPES)[number]
 /** The longest name a server, template, node or tag may carry. */
 export const MAX_NAME_LENGTH = 256
 
+/**
+ * The longest a node's materialized path may be. The `nodes_path_check` CHECK, the node store and
+ * the wire's `NodePath` all read this one bound.
+ */
+export const MAX_NODE_PATH_LENGTH = 256
+
 /** The longest free-text description a server or work region may carry. */
 export const MAX_DESCRIPTION_LENGTH = 4_096
 

@@ -9,8 +9,7 @@ import {
 } from '@caelestis/shared'
 import { violates } from '../adapters/constraint-violation.js'
 import { RelationalStore } from '../adapters/relational-store.js'
-import { scopeBindings, scopeCondition } from '../db/scope.js'
-import type { TemplateManifestScope } from '../templates/store.js'
+import { type DrawingScope, scopeBindings, scopeCondition } from '../db/scope.js'
 import { TagConflictError, type TagMutation, type TagStore } from './store.js'
 
 /** SQLite reports this plain unique index by its column; the portable schemas by its name. */
@@ -32,7 +31,7 @@ export class RelationalTagStore extends RelationalStore implements TagStore {
     return result.results.map(({ id }) => id)
   }
 
-  async listManifestTags(scope: TemplateManifestScope, includeUnpublished: boolean) {
+  async listManifestTags(scope: DrawingScope, includeUnpublished: boolean) {
     const result = await this.client
       .prepare(`SELECT tt.template_id AS "templateId", tags.id, tags.name
       FROM template_tags tt JOIN tags ON tags.id = tt.tag_id JOIN templates t ON t.id = tt.template_id
@@ -51,7 +50,7 @@ export class RelationalTagStore extends RelationalStore implements TagStore {
     return result.results.map(({ id }) => id)
   }
 
-  async listManifestNodeTags(scope: TemplateManifestScope) {
+  async listManifestNodeTags(scope: DrawingScope) {
     const result = await this.client
       .prepare(`SELECT nt.node_id AS "nodeId", tags.id, tags.name
       FROM node_tags nt JOIN tags ON tags.id = nt.tag_id JOIN nodes n ON n.id = nt.node_id
@@ -61,7 +60,7 @@ export class RelationalTagStore extends RelationalStore implements TagStore {
     return result.results.map(({ nodeId, id, name }) => ({ nodeId, tag: { id, name } }))
   }
 
-  async listTagScopes(): Promise<readonly TemplateManifestScope[]> {
+  async listTagScopes(): Promise<readonly DrawingScope[]> {
     const result = await this.client
       .prepare(
         'SELECT season, surface_kind AS kind, alliance_id AS "allianceId" FROM templates UNION SELECT season, surface_kind AS kind, alliance_id AS "allianceId" FROM nodes',
