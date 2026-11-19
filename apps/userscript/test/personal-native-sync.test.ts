@@ -1,4 +1,4 @@
-import { decodePng, encodeIndexedPng } from '@caelestis/shared'
+import { decodePng, encodeIndexedPng, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { expect, it, vi } from 'vitest'
 import * as catalog from '../src/templates/catalog.js'
 import {
@@ -114,6 +114,7 @@ const add = async (id: string) => {
       pixels: cutPixels(4, 2, indices),
       moved: 0,
       opaque: 8,
+      surface: WORLD_TEMPLATE_SURFACE,
       visible: true,
       everPlaced: true,
       revision: 0,
@@ -336,6 +337,7 @@ it('shows Wplace artwork edited while a hide links an unlinked template', async 
         pixels: cutPixels(4, 2, indices),
         moved: 0,
         opaque: 8,
+        surface: WORLD_TEMPLATE_SURFACE,
         visible: true,
         everPlaced: true,
         revision: 0,

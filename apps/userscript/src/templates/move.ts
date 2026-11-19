@@ -159,13 +159,13 @@ const boundedOrigin = (
     width: number
     height: number
     wrapX?: boolean
-    surface?: TemplateSurface
+    surface: TemplateSurface
   },
   x: number,
   y: number,
 ): { x: number; y: number } => {
   const roundedX = Math.round(x)
-  const surface = template.surface ?? WORLD_TEMPLATE_SURFACE
+  const { surface } = template
   if (surface.kind !== 'world') {
     const bounds = allianceSurfaceBounds(surface)
     return bounds === null

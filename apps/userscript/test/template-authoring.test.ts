@@ -3,6 +3,7 @@ import {
   encodeIndexedPng,
   PALETTE_RGB,
   TRANSPARENT_INDEX,
+  WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -39,6 +40,7 @@ const importedAndSaved = async () => {
       {
         ...metadata,
         pixels: cutPixels(imported.width, imported.height, indices),
+        surface: WORLD_TEMPLATE_SURFACE,
         visible: true,
         everPlaced: true,
         revision: 0,

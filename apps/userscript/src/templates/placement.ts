@@ -4,7 +4,6 @@ import {
   TRANSPARENT_INDEX,
   templateSurfaceBounds,
   WORLD_PIXELS,
-  WORLD_TEMPLATE_SURFACE,
   WPLACE_PALETTE,
 } from '@caelestis/shared'
 import { yieldToBrowser } from '../concurrency.js'
@@ -16,7 +15,7 @@ export interface Placement {
   readonly originY: number
   readonly width: number
   readonly height: number
-  readonly surface?: TemplateSurface
+  readonly surface: TemplateSurface
   /** The source continues at x=0 past the world's east edge. Only server copies set it. */
   readonly wrapX?: boolean
 }
@@ -43,7 +42,7 @@ export const validatePlacement = (
   ) {
     throw new RangeError('template dimensions do not match its pixels')
   }
-  const surface = template.surface ?? WORLD_TEMPLATE_SURFACE
+  const { surface } = template
   if (surface.kind !== 'world') {
     const bounds = templateSurfaceBounds(surface)
     if (
@@ -89,7 +88,7 @@ export const paintedTileKeys = async (
   let opaque = 0
   const tiles = new Set<string>()
   const worldTilesWide = Math.ceil(WORLD_PIXELS / TILE_SIZE)
-  const world = (template.surface ?? WORLD_TEMPLATE_SURFACE).kind === 'world'
+  const world = template.surface.kind === 'world'
   let scanned = 0
   for (const chunk of pixels.chunks.values()) {
     let lastPaintedTile = -1

@@ -86,8 +86,8 @@ export interface StoredTemplate extends TemplateRecord {
   readonly nativeTags?: readonly TemplateTag[]
   readonly native?: NativeLink
   readonly updatedAt?: number
-  /** Exact drawing surface. Records written before alliance support are world-scoped. */
-  readonly surface?: TemplateSurface
+  /** Exact drawing surface. Records written before alliance support are read as world-scoped. */
+  readonly surface: TemplateSurface
   readonly visible: boolean
   readonly everPlaced: boolean
   /** Null means "follow the global appearance"; absent means the same, from before this was stored. */
@@ -149,8 +149,9 @@ type StoredCore = Pick<
   | 'opaque'
   | 'visible'
   | 'everPlaced'
+  | 'surface'
   | 'revision'
-> & { readonly surface: TemplateSurface }
+>
 
 /**
  * Check the fields every stored record shares, throwing a RangeError on the first bad one.

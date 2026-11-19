@@ -1,4 +1,4 @@
-import { sameTemplateSurface, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
+import { sameTemplateSurface } from '@caelestis/shared'
 import { log, warn } from '../debug.js'
 import { getState } from '../settings.js'
 import { APPEARANCE_GROUPS } from './appearance.js'
@@ -128,7 +128,6 @@ const placedFromStored = (
   return {
     ...stored,
     artwork,
-    surface: stored.surface ?? WORLD_TEMPLATE_SURFACE,
     appearance: stored.appearance ?? null,
     owns: stored.owns ?? (stored.appearance != null ? APPEARANCE_GROUPS : []),
     folderId: stored.folderId ?? null,
@@ -168,7 +167,7 @@ const unchangedArtworkTiles = async (
     if (
       winner.originX === existing.originX &&
       winner.originY === existing.originY &&
-      sameTemplateSurface(winner.surface ?? WORLD_TEMPLATE_SURFACE, existing.surface)
+      sameTemplateSurface(winner.surface, existing.surface)
     )
       return existing.tiles
     const pixels = existing.artwork.pixels
@@ -379,8 +378,7 @@ const restoreRecord = async (
     template.folderId != null &&
     !getState().localFolders.some(
       (folder) =>
-        folder.id === template.folderId &&
-        sameTemplateSurface(folder.surface, template.surface ?? WORLD_TEMPLATE_SURFACE),
+        folder.id === template.folderId && sameTemplateSurface(folder.surface, template.surface),
     )
   ) {
     // Folder state and template records live in different stores. Another tab can delete the

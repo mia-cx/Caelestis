@@ -32,8 +32,7 @@ const exclusive = <T>(operation: () => Promise<T>): Promise<T> => {
   return pending
 }
 
-const isWorld = (template: TemplateSave): boolean =>
-  (template.surface ?? WORLD_TEMPLATE_SURFACE).kind === 'world'
+const isWorld = (template: TemplateSave): boolean => template.surface.kind === 'world'
 
 /** A loaded record. Its pixels are null when it was loaded as metadata. */
 const loadedTemplate = (loaded: disk.LoadTemplateResult): TemplateSave | null =>
