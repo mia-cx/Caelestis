@@ -6,8 +6,9 @@ import {
   setLocalFolderVisible,
 } from '../local-folders.js'
 import { getState } from '../settings.js'
-import { isTemplateVisible, setLocalVisible, setTemplateFolder } from '../templates/local-store.js'
+import { isTemplateVisible } from '../templates/catalog.js'
 import { localFolderTags, localTemplateTags } from '../templates/tags.js'
+import { setLocalVisible, setTemplateFolder } from '../templates/template-edits.js'
 import { LOCAL_ROOT_KEY, localFolderKey, localTemplateKey, parseTreeKey } from '../tree-keys.js'
 import { sumProgress } from './progress.js'
 import type { TreeContext, TreeTarget } from './tree-context.js'

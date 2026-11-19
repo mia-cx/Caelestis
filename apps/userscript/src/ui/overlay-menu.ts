@@ -27,7 +27,7 @@ import {
   localTemplates,
   type PlacedTemplate,
   previewOriginFor,
-} from '../templates/local-store.js'
+} from '../templates/catalog.js'
 import {
   abort as abortMove,
   alreadyAnswered,

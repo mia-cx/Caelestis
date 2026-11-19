@@ -36,16 +36,15 @@ import { applyServerSyncRevision, registerServerSyncResource } from '../server-s
 import { onStateChange, type ServerConnection } from '../settings.js'
 import { serverTemplateIdPrefix, serverTemplateKey } from '../tree-keys.js'
 import { ByteCache } from './byte-cache.js'
+import { localTemplates, type PlacedTemplate } from './catalog.js'
 import {
   forgetServerTemplate,
   forgetServerTemplates,
   hasRoomForServerTemplate,
-  localTemplates,
-  type PlacedTemplate,
   putServerTemplate,
   setServerPixelSource,
   updateServerTemplateMetadata,
-} from './local-store.js'
+} from './server-copies.js'
 import { cachedServerCopy, retainServerPixels } from './server-pixel-cache.js'
 
 /**

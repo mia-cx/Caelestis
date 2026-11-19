@@ -6,12 +6,9 @@ import {
   deleteTemplate as deleteTemplateOnServer,
 } from '../server-api.js'
 import { getState, removeTreeStateKeys } from '../settings.js'
-import {
-  removeLocalTemplate,
-  setTemplatesFolder,
-  templateIdsInLocalFolder,
-} from '../templates/local-store.js'
+import { templateIdsInLocalFolder } from '../templates/catalog.js'
 import { stopMoveForDeletion } from '../templates/move.js'
+import { removeLocalTemplate, setTemplatesFolder } from '../templates/template-edits.js'
 import { localFolderIdOf, localTemplateIdOf } from '../tree-keys.js'
 import { requestConfirmation, showToast } from '../ui/notification-host.js'
 import type { TreeTarget } from '../ui/tree-context.js'

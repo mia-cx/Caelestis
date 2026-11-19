@@ -17,16 +17,8 @@ import {
   removeTreeStateKeys,
   type ServerConnection,
 } from '../settings.js'
+import { isServerTemplate, ownsGroup, type PlacedTemplate } from '../templates/catalog.js'
 import { hiddenColoursFor } from '../templates/colour-filter.js'
-import {
-  forgetServerTemplate,
-  isServerTemplate,
-  ownsGroup,
-  type PlacedTemplate,
-  removeLocalTemplate,
-  setLocalVisible,
-  templateAsPng,
-} from '../templates/local-store.js'
 import {
   abort as abortMove,
   beginMove,
@@ -36,6 +28,9 @@ import {
   movingId,
   placementSeq,
 } from '../templates/move.js'
+import { templateAsPng } from '../templates/residency.js'
+import { forgetServerTemplate } from '../templates/server-copies.js'
+import { removeLocalTemplate, setLocalVisible } from '../templates/template-edits.js'
 import { localTemplateKey } from '../tree-keys.js'
 import { appearanceEditorModel } from './appearance.js'
 import { requestConfirmation } from './notification-host.js'

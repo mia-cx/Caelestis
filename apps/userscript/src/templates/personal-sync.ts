@@ -1,9 +1,9 @@
 import { currentSurface, onActiveAllianceSurfaceChange } from '../alliance-surface.js'
 import { warn } from '../debug.js'
-import { refreshPersonalTemplates, restoreLocalTemplates } from './local-store.js'
 import { installNativeAllianceTemplates } from './native-alliance.js'
 import { connectNativeTemplates } from './native-store.js'
 import { connectPersonalStore, synchronizePersonalTemplates } from './personal-store.js'
+import { refreshPersonalTemplates, restoreLocalTemplates } from './restore.js'
 
 let installed = false
 

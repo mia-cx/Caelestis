@@ -4,7 +4,7 @@ import { getMap } from './map-handle.js'
 import { presenceView } from './presence-client.js'
 import type { ProfileContext } from './profile.js'
 import { getState } from './settings.js'
-import { isTemplateVisible, localTemplates } from './templates/local-store.js'
+import { isTemplateVisible, localTemplates } from './templates/catalog.js'
 import { isPaintOpen, selectedColour } from './wplace-paint.js'
 
 /** Read report metadata on demand; no environment probes run in the render loop. */

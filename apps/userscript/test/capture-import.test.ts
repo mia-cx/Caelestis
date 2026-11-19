@@ -4,9 +4,11 @@ import type { ClaimCaptureHost } from '../src/claim-editor.js'
 import { createLocalFolder } from '../src/local-folders.js'
 import { UNPAINTED } from '../src/native-pixels.js'
 import { type ServerConnection, setScopeVisible } from '../src/settings.js'
+import * as catalog from '../src/templates/catalog.js'
 import type { ImportedTemplate } from '../src/templates/import.js'
-import * as store from '../src/templates/local-store.js'
 import { abort, commit, isMoving, movingId, reserveMove } from '../src/templates/move.js'
+import * as residency from '../src/templates/residency.js'
+import * as edits from '../src/templates/template-edits.js'
 import { loadCommittedTilePixels } from '../src/tile-pixels.js'
 import type { TreeTarget } from '../src/ui/tree-context.js'
 
@@ -55,7 +57,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   await abort()
-  for (const template of store.localTemplates()) await store.removeLocalTemplate(template.id)
+  for (const template of catalog.localTemplates()) await edits.removeLocalTemplate(template.id)
 })
 
 describe('capture template import', () => {
@@ -66,8 +68,8 @@ describe('capture template import', () => {
 
     await expect(capture(undefined, target)).resolves.toBeNull()
 
-    expect(store.localTemplates()).toHaveLength(1)
-    const template = store.localTemplates()[0]
+    expect(catalog.localTemplates()).toHaveLength(1)
+    const template = catalog.localTemplates()[0]
     expect(template).toMatchObject({
       folderId: folder.id,
       originX: 0,
@@ -79,7 +81,7 @@ describe('capture template import', () => {
       everPlaced: false,
     })
     if (template === undefined) throw new Error('the capture was not placed')
-    expect(await store.templatePixels(template)).toEqual(new Uint8Array([5, 9]))
+    expect(await residency.templatePixels(template)).toEqual(new Uint8Array([5, 9]))
     expect(movingId()).toBe(template?.id)
   })
 
@@ -87,9 +89,9 @@ describe('capture template import', () => {
     setScopeVisible('local', false)
     try {
       await expect(capture(undefined, remote)).resolves.toBeNull()
-      const placing = store.templateById(movingId() ?? '')
+      const placing = catalog.templateById(movingId() ?? '')
       if (placing === undefined) throw new Error('the capture was not placed')
-      expect(store.isTemplateVisible(placing)).toBe(true)
+      expect(catalog.isTemplateVisible(placing)).toBe(true)
     } finally {
       setScopeVisible('local', true)
     }
@@ -99,12 +101,12 @@ describe('capture template import', () => {
     // The test server is not a current connection, so Apply's upload is refused.
     await expect(capture(undefined, remote)).resolves.toBeNull()
     const id = movingId() ?? ''
-    expect(store.templateById(id)?.staged).toBe(true)
+    expect(catalog.templateById(id)?.staged).toBe(true)
 
     await commit()
 
-    await vi.waitFor(() => expect(store.templateById(id)?.staged).toBeUndefined())
-    expect(store.templateById(id)).toMatchObject({ everPlaced: true })
+    await vi.waitFor(() => expect(catalog.templateById(id)?.staged).toBeUndefined())
+    expect(catalog.templateById(id)).toMatchObject({ everPlaced: true })
   })
 
   it('refuses a busy placement before admitting a capture', async () => {
@@ -112,17 +114,17 @@ describe('capture template import', () => {
     if (reservation === null) throw new Error('Move slot was already occupied')
     try {
       await expect(capture()).resolves.toMatch(/current placement/)
-      expect(store.localTemplates()).toHaveLength(0)
+      expect(catalog.localTemplates()).toHaveLength(0)
     } finally {
       reservation.release()
     }
   })
 
   it('reports an admission failure without opening placement', async () => {
-    vi.spyOn(store, 'addLocalTemplate').mockRejectedValueOnce(new Error('storage unavailable'))
+    vi.spyOn(edits, 'addLocalTemplate').mockRejectedValueOnce(new Error('storage unavailable'))
 
     await expect(capture()).resolves.toMatch(/Try again/)
-    expect(store.localTemplates()).toHaveLength(0)
+    expect(catalog.localTemplates()).toHaveLength(0)
     expect(isMoving()).toBe(false)
   })
 
@@ -130,7 +132,7 @@ describe('capture template import', () => {
     await expect(
       capture(undefined, { ...remote, server: { ...server, isAdmin: false } }),
     ).resolves.toMatch(/Try again/)
-    expect(store.localTemplates()).toHaveLength(0)
+    expect(catalog.localTemplates()).toHaveLength(0)
     expect(isMoving()).toBe(false)
   })
 
@@ -147,7 +149,7 @@ describe('capture template import', () => {
     finishTile(new Uint8Array(TILE_SIZE * TILE_SIZE).fill(5))
 
     await outcome
-    expect(store.localTemplates()).toHaveLength(0)
+    expect(catalog.localTemplates()).toHaveLength(0)
     expect(isMoving()).toBe(false)
   })
 
@@ -155,15 +157,15 @@ describe('capture template import', () => {
     'removes a cancelled admission into $name before placement starts',
     async (target) => {
       const controller = new AbortController()
-      const add = store.addLocalTemplate
-      vi.spyOn(store, 'addLocalTemplate').mockImplementationOnce(async (...args) => {
+      const add = edits.addLocalTemplate
+      vi.spyOn(edits, 'addLocalTemplate').mockImplementationOnce(async (...args) => {
         const admitted = await add(...args)
         controller.abort()
         return admitted
       })
 
       await expect(capture(controller.signal, target)).rejects.toMatchObject({ name: 'AbortError' })
-      expect(store.localTemplates()).toHaveLength(0)
+      expect(catalog.localTemplates()).toHaveLength(0)
       expect(isMoving()).toBe(false)
     },
   )
@@ -189,20 +191,20 @@ describe('server file import', () => {
     })
 
   it('keeps a template admitted after the first was refused in Local', async () => {
-    vi.spyOn(store, 'addLocalTemplate').mockRejectedValueOnce(new Error('pixel budget'))
+    vi.spyOn(edits, 'addLocalTemplate').mockRejectedValueOnce(new Error('pixel budget'))
 
     await expect(importBoth()).resolves.toMatchObject({ started: false })
-    expect(store.templateById('second')).toBeDefined()
-    expect(store.templateById('second')?.staged).toBeUndefined()
+    expect(catalog.templateById('second')).toBeDefined()
+    expect(catalog.templateById('second')?.staged).toBeUndefined()
   })
 
   it('keeps the templates in Local when preparing an upload throws', async () => {
-    vi.spyOn(store, 'templateAsPng').mockRejectedValueOnce(new Error('pixels unavailable'))
+    vi.spyOn(residency, 'templateAsPng').mockRejectedValueOnce(new Error('pixels unavailable'))
 
     const result = await importBoth()
     if (!result.started) throw new Error('The import did not start')
     await expect(result.upload).rejects.toThrow('pixels unavailable')
-    expect(store.localTemplates().filter((template) => template.staged)).toEqual([])
-    expect(store.localTemplates()).toHaveLength(2)
+    expect(catalog.localTemplates().filter((template) => template.staged)).toEqual([])
+    expect(catalog.localTemplates()).toHaveLength(2)
   })
 })

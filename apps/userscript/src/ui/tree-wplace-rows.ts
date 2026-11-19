@@ -1,6 +1,6 @@
 import { goToLocalTemplate } from '../application/tree-navigation.js'
 import { isScopeVisible, setScopeVisible } from '../settings.js'
-import { isTemplateVisible, setLocalVisible } from '../templates/local-store.js'
+import { isTemplateVisible } from '../templates/catalog.js'
 import { copyWplaceTemplate, NATIVE_ALLIANCE_TREE_KEY } from '../templates/native-alliance.js'
 import { centreOf, navigateTo } from '../templates/navigate.js'
 import {
@@ -10,6 +10,7 @@ import {
 } from '../templates/official-overlays.js'
 import type { TemplateProgress } from '../templates/progress-types.js'
 import { nodeChainVisible } from '../templates/server-nodes.js'
+import { setLocalVisible } from '../templates/template-edits.js'
 import { NATIVE_ALLIANCE_OWNER, OFFICIAL_OVERLAY_OWNER } from '../templates/wplace-owned.js'
 import { eventTemplateKey, nativeTemplateKey, nodeScopeKey, serverScopeKey } from '../tree-keys.js'
 import type { TreeContext } from './tree-context.js'

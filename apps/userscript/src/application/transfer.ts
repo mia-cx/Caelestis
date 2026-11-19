@@ -9,16 +9,14 @@ import { isCurrentServerConnection, serverLabel } from '../server-connections.js
 import type { ServerTemplate, TreeNode } from '../server-manifest.js'
 import { admittedManifest, readManifest } from '../server-manifests.js'
 import type { ServerConnection } from '../settings.js'
+import { isCurrentTemplate, type PlacedTemplate, templateById } from '../templates/catalog.js'
 import { newTemplateId } from '../templates/import.js'
+import { templateAsPng } from '../templates/residency.js'
 import {
   copyAsLocalTemplate,
-  isCurrentTemplate,
   leaseLocalTemplate,
-  type PlacedTemplate,
   setTemplateFolder,
-  templateAsPng,
-  templateById,
-} from '../templates/local-store.js'
+} from '../templates/template-edits.js'
 import { transferAuthoring } from './template-authoring.js'
 import { templateBusy } from './template-busy.js'
 import { refreshEditedSurface } from './tree-server.js'

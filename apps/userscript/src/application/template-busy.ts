@@ -1,5 +1,6 @@
-import { isDeletingLocal, isLeasedLocal } from '../templates/local-store.js'
+import { isDeletingLocal } from '../templates/catalog.js'
 import { movingId } from '../templates/move.js'
+import { isLeasedLocal } from '../templates/template-edits.js'
 
 /**
  * What a template is in the middle of, for workflows that must not start on it meanwhile.

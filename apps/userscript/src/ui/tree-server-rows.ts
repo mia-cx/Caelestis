@@ -12,8 +12,9 @@ import type { ServerTemplate } from '../server-manifest.js'
 import { manifestRows } from '../server-manifests.js'
 import { serverProgressFor } from '../server-status.js'
 import { isScopeVisible, type ServerConnection, setScopeVisible } from '../settings.js'
-import { isTemplateVisible, setLocalVisible } from '../templates/local-store.js'
+import { isTemplateVisible } from '../templates/catalog.js'
 import { nodeChainVisible } from '../templates/server-nodes.js'
+import { setLocalVisible } from '../templates/template-edits.js'
 import {
   nodeScopeKey,
   nodeTreeKey,

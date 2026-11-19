@@ -1,9 +1,13 @@
 import {
   type TemplateSurface,
+  TILE_SIZE,
+  TRANSPARENT_INDEX,
   templateSurfaceBounds,
   WORLD_PIXELS,
   WORLD_TEMPLATE_SURFACE,
+  WPLACE_PALETTE,
 } from '@caelestis/shared'
+import type { SparsePixels } from './sparse-pixels.js'
 
 /** Where a template sits, without its pixels. */
 export interface Placement {
@@ -65,6 +69,67 @@ export const validatePlacement = (
   }
   if (originY + template.height > WORLD_PIXELS)
     throw new RangeError('template runs past the south edge')
+}
+
+const yieldToBrowser = async (): Promise<void> => {
+  const browserScheduler = (
+    globalThis as typeof globalThis & { scheduler?: { yield?: () => Promise<void> } }
+  ).scheduler
+  if (browserScheduler?.yield !== undefined) {
+    await browserScheduler.yield()
+    return
+  }
+  await new Promise<void>((resolve) => setTimeout(resolve, 0))
+}
+
+/**
+ * Validate indexed pixels against their placement and return the world tiles (`x/y`) they paint.
+ *
+ * Throws a RangeError when the placement, dimensions, palette indices or opaque count disagree.
+ * Off the world surface no tiles are tracked. Yields to the browser through large images.
+ */
+export const paintedTileKeys = async (
+  template: Placement & { readonly opaque: number },
+  pixels: SparsePixels,
+): Promise<ReadonlySet<string>> => {
+  validatePlacement(template)
+  if (pixels.width !== template.width || pixels.height !== template.height) {
+    throw new RangeError('template dimensions do not match its pixels')
+  }
+  await yieldToBrowser()
+  let opaque = 0
+  const tiles = new Set<string>()
+  const worldTilesWide = Math.ceil(WORLD_PIXELS / TILE_SIZE)
+  const world = (template.surface ?? WORLD_TEMPLATE_SURFACE).kind === 'world'
+  let scanned = 0
+  for (const chunk of pixels.chunks.values()) {
+    let lastPaintedTile = -1
+    for (let pixel = 0; pixel < chunk.indices.length; pixel++) {
+      const index = chunk.indices[pixel] ?? TRANSPARENT_INDEX
+      if (index === TRANSPARENT_INDEX) continue
+      if (index >= WPLACE_PALETTE.length) throw new RangeError('template palette index is invalid')
+      opaque++
+      if (!world) continue
+      const unwrappedX = template.originX + chunk.x + (pixel % chunk.width)
+      const worldX = unwrappedX >= WORLD_PIXELS ? unwrappedX - WORLD_PIXELS : unwrappedX
+      const tileX = Math.floor(worldX / TILE_SIZE)
+      const tileY = Math.floor(
+        (template.originY + chunk.y + Math.floor(pixel / chunk.width)) / TILE_SIZE,
+      )
+      const tile = tileY * worldTilesWide + tileX
+      if (tile !== lastPaintedTile) {
+        lastPaintedTile = tile
+        tiles.add(`${tileX}/${tileY}`)
+      }
+    }
+    scanned += chunk.indices.length
+    if (scanned >= 250_000) {
+      scanned = 0
+      await yieldToBrowser()
+    }
+  }
+  if (opaque !== template.opaque) throw new RangeError('template opaque count is invalid')
+  return tiles
 }
 
 export interface HorizontalPlacement {

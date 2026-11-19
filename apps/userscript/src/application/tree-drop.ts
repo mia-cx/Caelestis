@@ -2,7 +2,8 @@ import { type TemplateSurface, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { moveNode as moveNodeOnServer, patchTemplate } from '../server-api.js'
 import { serverByUrl, serverLabel } from '../server-connections.js'
 import type { ServerConnection } from '../settings.js'
-import { canCopyAsLocalTemplate, templateById } from '../templates/local-store.js'
+import { templateById } from '../templates/catalog.js'
+import { canCopyAsLocalTemplate } from '../templates/template-edits.js'
 import {
   localFolderIdOf,
   localFolderKey,

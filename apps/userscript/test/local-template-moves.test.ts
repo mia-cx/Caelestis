@@ -1,16 +1,18 @@
 import { WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { describe, expect, it } from 'vitest'
 import {
-  addLocalTemplate,
   clearLocalPreview,
   displayTemplates,
   displayTemplatesForSurface,
   localTemplates,
-  placeLocalTemplate,
   previewLocalTemplate,
-  removeLocalTemplate,
   templateById,
-} from '../src/templates/local-store.js'
+} from '../src/templates/catalog.js'
+import {
+  addLocalTemplate,
+  placeLocalTemplate,
+  removeLocalTemplate,
+} from '../src/templates/template-edits.js'
 
 const imported = (id: string) => ({
   id,

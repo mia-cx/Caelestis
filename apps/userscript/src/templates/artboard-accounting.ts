@@ -8,7 +8,7 @@ import {
 import { artboardPixelsFor } from '../active-artboard.js'
 import type { ArtboardPixels } from '../gl/artboard-pixels.js'
 import { type NativePixelSnapshot, nativePixelWindow } from '../native-pixels.js'
-import type { PlacedPixels, PlacedTemplate, TemplateArtwork } from './local-store.js'
+import type { PlacedPixels, PlacedTemplate, TemplateArtwork } from './catalog.js'
 import { classifyPixel, colourSlot, type ProgressCounts } from './pixel-tally.js'
 import type { ColourTargetKind } from './progress-types.js'
 import { forEachPixel, type SparsePixels } from './sparse-pixels.js'

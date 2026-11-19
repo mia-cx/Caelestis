@@ -11,12 +11,7 @@ import { comparisonDraftPixels } from '../draft-pixels.js'
 import { UNPAINTED } from '../native-pixels.js'
 import { loadTilePixels, tilePixels } from '../tile-pixels.js'
 import { worldTemplates } from './capture-scope.js'
-import {
-  isTemplateVisible,
-  type PlacedTemplate,
-  templateChunks,
-  templateTileKeys,
-} from './local-store.js'
+import { isTemplateVisible, type PlacedTemplate, templateTileKeys } from './catalog.js'
 import { classifyPixel } from './pixel-tally.js'
 import { horizontalSpans, wrappedDeltaX } from './placement.js'
 import type {
@@ -24,6 +19,7 @@ import type {
   ColourNavigationTarget,
   ColourTargetKind,
 } from './progress-types.js'
+import { templateChunks } from './residency.js'
 import { pixelRect, type SparsePixels } from './sparse-pixels.js'
 
 /** Finding the nearest pixel of one colour that still needs painting, or is painted wrong. */

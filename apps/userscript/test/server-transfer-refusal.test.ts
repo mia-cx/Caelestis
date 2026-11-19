@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { copyLocalTemplateToServer } from '../src/application/transfer.js'
 import { upsertServer } from '../src/server-connections.js'
 import { getState } from '../src/settings.js'
-import { addLocalTemplate, templateById } from '../src/templates/local-store.js'
+import { templateById } from '../src/templates/catalog.js'
+import { addLocalTemplate } from '../src/templates/template-edits.js'
 
 const serverId = '018f1b8c-7f4e-7a8c-8a01-123456789abc'
 

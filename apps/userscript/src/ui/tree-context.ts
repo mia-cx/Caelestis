@@ -7,7 +7,7 @@ import type {
   TreeRowModel,
 } from '@caelestis/ui/elements'
 import type { ServerConnection } from '../settings.js'
-import type { PlacedTemplate } from '../templates/local-store.js'
+import type { PlacedTemplate } from '../templates/catalog.js'
 import type { TemplateColourProgress, TemplateProgress } from '../templates/progress-types.js'
 import { NATIVE_ALLIANCE_OWNER, OFFICIAL_OVERLAY_OWNER } from '../templates/wplace-owned.js'
 import {

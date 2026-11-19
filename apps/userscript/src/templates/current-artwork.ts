@@ -16,7 +16,8 @@ import {
   UNPAINTED,
 } from '../native-pixels.js'
 import { loadCommittedTilePixels } from '../tile-pixels.js'
-import { type PlacedTemplate, templatePixels } from './local-store.js'
+import type { PlacedTemplate } from './catalog.js'
+import { templatePixels } from './residency.js'
 
 /**
  * A placement with a dense copy of its pixels. Capture writes a whole new image, so it works on

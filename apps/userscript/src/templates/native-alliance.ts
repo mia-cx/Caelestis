@@ -6,16 +6,8 @@ import {
 } from '../alliance-surface.js'
 import { warn } from '../debug.js'
 import { serverTemplateKey } from '../tree-keys.js'
+import { localTemplates } from './catalog.js'
 import { newTemplateId } from './import.js'
-import {
-  addLocalTemplate,
-  forgetServerTemplate,
-  forgetServerTemplates,
-  hasRoomForServerTemplate,
-  localTemplates,
-  putServerTemplate,
-  templatePixels,
-} from './local-store.js'
 import {
   type NativeAllianceTarget,
   type NativeTemplate,
@@ -23,6 +15,14 @@ import {
   nativeLocalId,
   nativeMetadata,
 } from './native-store.js'
+import { templatePixels } from './residency.js'
+import {
+  forgetServerTemplate,
+  forgetServerTemplates,
+  hasRoomForServerTemplate,
+  putServerTemplate,
+} from './server-copies.js'
+import { addLocalTemplate } from './template-edits.js'
 import { isWplaceOwned, NATIVE_ALLIANCE_OWNER } from './wplace-owned.js'
 
 export const NATIVE_ALLIANCE_TREE_KEY = 'native-alliance'

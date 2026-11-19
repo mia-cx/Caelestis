@@ -24,15 +24,15 @@ import {
 } from './settings.js'
 import { activeShortcutBindings, currentShortcutPlatform, shortcutFor } from './shortcuts.js'
 import { simulatedInputAllowed } from './simulated-input.js'
+import { ownsGroup } from './templates/catalog.js'
+import { isMoving } from './templates/move.js'
+import { focusedTemplate } from './templates/nearest.js'
 import {
-  ownsGroup,
   setAppearance,
   setLocalVisible,
   setOwnsGroup,
   toggleAppearanceBoolean,
-} from './templates/local-store.js'
-import { isMoving } from './templates/move.js'
-import { focusedTemplate } from './templates/nearest.js'
+} from './templates/template-edits.js'
 import { refreshOverlayMenu, toggleOverlayMenu } from './ui/overlay-menu.js'
 import { togglePanel } from './ui/panel.js'
 import { toggleShortcutHelp } from './ui/shortcut-help.js'

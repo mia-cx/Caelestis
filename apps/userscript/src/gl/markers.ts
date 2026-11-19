@@ -12,11 +12,7 @@ import {
   registerProfileMemorySource,
 } from '../profile.js'
 import { getState } from '../settings.js'
-import {
-  displayTemplates,
-  isTemplateVisible,
-  type PlacedTemplate,
-} from '../templates/local-store.js'
+import { displayTemplates, isTemplateVisible, type PlacedTemplate } from '../templates/catalog.js'
 import type { MarkList } from '../templates/mark-list.js'
 import { pixelAccounting } from '../templates/mismatch.js'
 import { horizontalSpans } from '../templates/placement.js'

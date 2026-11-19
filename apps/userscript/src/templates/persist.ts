@@ -395,7 +395,7 @@ const isStoredRecord = (value: unknown): value is StoredRecord => {
   const appearance = record.appearance
   return (
     indexPixels === expectedStoredPixels(record) &&
-    // A plain image is stored only once it has been placed; see local-store's `isPendingImage`.
+    // A plain image is stored only once it has been placed; see the catalog's `isPendingImage`.
     !(record.source === 'image' && record.everPlaced === false) &&
     !(
       typeof appearance === 'object' &&

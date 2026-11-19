@@ -61,15 +61,15 @@ const loaded = async (id: string): Promise<StoredTemplate & { readonly indices: 
 /** Export a placed local template, returning the parsed `.wplace` JSON. */
 const exported = async () => {
   const { imported, decode } = await importedAndSaved()
-  const store = await import('../src/templates/local-store.js')
+  const edits = await import('../src/templates/template-edits.js')
   const { templateAsWplace } = await import('../src/templates/wplace-export.js')
-  const placed = await store.addLocalTemplate(
+  const placed = await edits.addLocalTemplate(
     { ...imported, id: `${imported.id}-placed` },
     undefined,
     true,
   )
   const file = await templateAsWplace(placed, placed.authoring ?? null)
-  await store.removeLocalTemplate(placed.id)
+  await edits.removeLocalTemplate(placed.id)
   if (file === null) throw new Error('nothing exported')
   return { imported, decode, json: JSON.parse(await file.text()) as Record<string, unknown> }
 }

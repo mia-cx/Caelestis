@@ -6,7 +6,7 @@ import {
 import { navigateAllianceArtboardTo } from '../alliance-navigation.js'
 import { activeAllianceSurface } from '../alliance-surface.js'
 import type { ServerTemplate } from '../server-manifest.js'
-import { previewOriginFor, templateById } from '../templates/local-store.js'
+import { previewOriginFor, templateById } from '../templates/catalog.js'
 import { centreOf, centreOfBounds, navigateTo } from '../templates/navigate.js'
 import { showToast } from '../ui/notification-host.js'
 

@@ -11,12 +11,8 @@ import { type ActiveAllianceSurface, activeAllianceSurface } from './alliance-su
 import { getMap } from './map-handle.js'
 import { canvasPixelAt } from './map-view.js'
 import { nativePixelAt } from './native-pixels.js'
+import { appearanceOf, displayTemplatesForSurface, isTemplateVisible } from './templates/catalog.js'
 import { claimedHiddenFor } from './templates/colour-filter.js'
-import {
-  appearanceOf,
-  displayTemplatesForSurface,
-  isTemplateVisible,
-} from './templates/local-store.js'
 import { sourceXAt } from './templates/placement.js'
 import { pixelAt } from './templates/sparse-pixels.js'
 import { ensureTilePixels } from './tile-pixels.js'

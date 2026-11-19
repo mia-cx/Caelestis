@@ -7,7 +7,7 @@ import {
   WRONG,
 } from '@caelestis/shared'
 import type { Appearance } from './appearance.js'
-import type { TemplateArtwork } from './local-store.js'
+import type { TemplateArtwork } from './catalog.js'
 import type { TemplateColourProgress, TemplateProgress } from './progress-types.js'
 
 /**

@@ -12,8 +12,8 @@ import { warn } from './debug.js'
 import { getMap } from './map-handle.js'
 import { getState } from './settings.js'
 import { artboardColourTargets } from './templates/artboard-accounting.js'
+import type { PlacedTemplate } from './templates/catalog.js'
 import { projectedColourProgress } from './templates/draft-projection.js'
-import { type PlacedTemplate, templateChunks } from './templates/local-store.js'
 import { pixelAccounting } from './templates/mismatch.js'
 import { navigateTo } from './templates/navigate.js'
 import { focusedTemplate } from './templates/nearest.js'
@@ -22,6 +22,7 @@ import type {
   ColourTargetKind,
   TemplateColourProgress,
 } from './templates/progress-types.js'
+import { templateChunks } from './templates/residency.js'
 import { paintPaletteIndexOf } from './wplace-dom.js'
 import {
   currentPaintSwatches,

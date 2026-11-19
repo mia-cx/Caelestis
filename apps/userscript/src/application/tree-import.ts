@@ -11,13 +11,13 @@ import { viewportCentre } from '../map-view.js'
 import type { ServerConnection } from '../settings.js'
 import { captureSelectedArtwork } from '../templates/current-artwork.js'
 import { type ImportedTemplate, importFile, newTemplateId } from '../templates/import.js'
+import { type MoveReservation, reserveMove } from '../templates/move.js'
+import { centreOf, navigateTo } from '../templates/navigate.js'
 import {
   addLocalTemplate,
   removeLocalTemplate,
   setTemplateFolder,
-} from '../templates/local-store.js'
-import { type MoveReservation, reserveMove } from '../templates/move.js'
-import { centreOf, navigateTo } from '../templates/navigate.js'
+} from '../templates/template-edits.js'
 import { localFolderIdOf } from '../tree-keys.js'
 import { showToast } from '../ui/notification-host.js'
 import type { TreeTarget } from '../ui/tree-context.js'

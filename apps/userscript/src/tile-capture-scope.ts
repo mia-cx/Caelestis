@@ -1,6 +1,6 @@
 import { onMapFrame } from './map-view.js'
 import { onStateChange } from './settings.js'
-import { onLocalChange } from './templates/local-store.js'
+import { onLocalChange } from './templates/catalog.js'
 import { pixelAccounting } from './templates/mismatch.js'
 import { captureTilePixels } from './tile-pixels.js'
 import { isPaintOpen, onPaintSelectionChange } from './wplace-paint.js'

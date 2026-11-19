@@ -3,7 +3,8 @@ import { serverRequest } from '../server-request.js'
 import type { ServerRead } from '../server-transport.js'
 import { getState, type ServerConnection } from '../settings.js'
 import { currentAuthoring, type TemplateAuthoring } from '../templates/authoring.js'
-import { isServerTemplate, type PlacedTemplate, templatePixels } from '../templates/local-store.js'
+import { isServerTemplate, type PlacedTemplate } from '../templates/catalog.js'
+import { templatePixels } from '../templates/residency.js'
 
 const serverGet = <Read extends ServerRead>(server: ServerConnection, path: string, read: Read) =>
   serverRequest(server, path, { limits: 'interactive', read })

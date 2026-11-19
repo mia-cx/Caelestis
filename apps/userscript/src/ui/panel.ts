@@ -54,7 +54,7 @@ import {
   setState,
 } from '../settings.js'
 import { onStoredValueChange } from '../stored-values.js'
-import { onLocalChange } from '../templates/local-store.js'
+import { onLocalChange } from '../templates/catalog.js'
 import { pixelAccounting } from '../templates/mismatch.js'
 import { onOfficialOverlaysChange } from '../templates/official-overlays.js'
 import { ensureLocalTags } from '../templates/tags.js'

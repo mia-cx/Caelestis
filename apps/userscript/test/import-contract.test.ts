@@ -167,7 +167,7 @@ describe('Blue Marble import contract', () => {
     const fixture = JSON.parse(await readFile(fixturePath, 'utf8')) as MarbleFixture
     const expected = await expectedTemplate(fixture)
     const { importFile } = await import('../src/templates/import.js')
-    const localStore = await import('../src/templates/local-store.js')
+    const localStoreEdits = await import('../src/templates/template-edits.js')
     const [imported] = await importFile(
       new File([JSON.stringify(fixture)], '__prologue-a.json', { type: 'application/json' }),
       { x: 0, y: 0 },
@@ -187,12 +187,15 @@ describe('Blue Marble import contract', () => {
     expect(Buffer.compare(imported.indices, expected.indices)).toBe(0)
     expect(transparentPixels(imported.indices)).toBe(transparentPixels(expected.indices))
 
-    const admitted = await localStore.addLocalTemplate(imported, undefined, true)
+    const admitted = await localStoreEdits.addLocalTemplate(imported, undefined, true)
     vi.resetModules()
-    const restoredStore = await import('../src/templates/local-store.js')
+    const restoredStoreCatalog = await import('../src/templates/catalog.js')
+    const restoredStoreResidency = await import('../src/templates/residency.js')
+    const restoredStoreRestore = await import('../src/templates/restore.js')
+    const restoredStoreEdits = await import('../src/templates/template-edits.js')
     try {
-      await restoredStore.restoreLocalTemplates()
-      const restored = restoredStore.templateById(admitted.id)
+      await restoredStoreRestore.restoreLocalTemplates()
+      const restored = restoredStoreCatalog.templateById(admitted.id)
       expect(restored).toMatchObject({
         name: expected.entry.name,
         source: 'marble',
@@ -205,10 +208,10 @@ describe('Blue Marble import contract', () => {
         everPlaced: true,
       })
       if (restored === undefined) throw new Error('Persisted template did not restore')
-      const pixels = await restoredStore.templatePixels(restored)
+      const pixels = await restoredStoreResidency.templatePixels(restored)
       expect(Buffer.compare(pixels, expected.indices)).toBe(0)
     } finally {
-      await restoredStore.removeLocalTemplate(admitted.id)
+      await restoredStoreEdits.removeLocalTemplate(admitted.id)
     }
   })
 })

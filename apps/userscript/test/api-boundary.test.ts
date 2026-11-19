@@ -642,7 +642,7 @@ describe('admin drafts and page-readable storage', () => {
     const { loadServerCache } = await import('../src/server-cache.js')
     const { serverTemplateKey } = await import('../src/tree-keys.js')
     const { cachedServerCopy } = await import('../src/templates/server-pixel-cache.js')
-    const store = await import('../src/templates/local-store.js')
+    const catalog = await import('../src/templates/catalog.js')
     const folder = await state.createNode(server, 'Drafts', null)
     if (!folder.ok) throw new Error(folder.message)
     const uploaded = await state.uploadTemplate(server, {
@@ -658,10 +658,10 @@ describe('admin drafts and page-readable storage', () => {
 
     // The admin still sees and draws the draft; only the disk copies are missing.
     await state.readManifest(server)
-    await vi.waitFor(() => expect(store.templateById(key)).toBeDefined())
+    await vi.waitFor(() => expect(catalog.templateById(key)).toBeDefined())
     await vi.waitFor(async () => expect((await cached())?.fetchedAt).toBeDefined())
     expect(await cached()).toMatchObject({ nodes: [], templates: [] })
-    const version = store.templateById(key)?.serverVersion ?? ''
+    const version = catalog.templateById(key)?.serverVersion ?? ''
     expect(await cachedServerCopy(key, version)).toBeNull()
 
     expect(await state.patchTemplate(server, uploaded.id, { published: true })).toEqual({
@@ -767,7 +767,8 @@ describe('server data reuse', () => {
     const decode = installBitmapDecoder()
     const { state, server } = await connect()
     await import('../src/templates/server-sync.js')
-    const store = await import('../src/templates/local-store.js')
+    const catalog = await import('../src/templates/catalog.js')
+    const residency = await import('../src/templates/residency.js')
     const { serverTemplateKey } = await import('../src/tree-keys.js')
     // Four pixels across the boundary of tiles 0/0 and 1/0: one chunk on each side.
     const artwork = async (right: readonly number[]) => {
@@ -785,8 +786,8 @@ describe('server data reuse', () => {
     const key = serverTemplateKey(origin, uploaded.id)
     await state.readManifest(server)
     const pixels = async () => {
-      const template = store.templateById(key)
-      return template === undefined ? [] : [...(await store.templatePixels(template))]
+      const template = catalog.templateById(key)
+      return template === undefined ? [] : [...(await residency.templatePixels(template))]
     }
     await vi.waitFor(async () => expect(await pixels()).toEqual([1, 2, 3, 4]))
     expect(decode).toHaveBeenCalledTimes(2)
@@ -800,7 +801,9 @@ describe('server data reuse', () => {
     })
     if (!replaced.ok) throw new Error(replaced.message)
     await state.readManifest(server)
-    await vi.waitFor(() => expect(store.templateById(key)?.serverVersion).toBe(replaced.versionId))
+    await vi.waitFor(() =>
+      expect(catalog.templateById(key)?.serverVersion).toBe(replaced.versionId),
+    )
     expect(await pixels()).toEqual([1, 2, 5, 6])
     expect(decode).toHaveBeenCalledTimes(1)
   })
@@ -863,7 +866,7 @@ describe('server data reuse', () => {
     vi.resetModules()
     const state = await importStateModules()
     await import('../src/application/tree-server-state.js')
-    const store = await import('../src/templates/local-store.js')
+    const catalog = await import('../src/templates/catalog.js')
     const serverSync = await import('../src/templates/server-sync.js')
     const coordinator = await import('../src/server-sync-coordinator.js')
     serverSync.installServerSync()
@@ -873,7 +876,7 @@ describe('server data reuse', () => {
 
     const { serverTemplateKey } = await import('../src/tree-keys.js')
     const key = serverTemplateKey(origin, uploaded.id)
-    await vi.waitFor(() => expect(store.templateById(key)).toBeDefined())
+    await vi.waitFor(() => expect(catalog.templateById(key)).toBeDefined())
     const socket = sockets[0]
     if (socket === undefined) throw new Error('coordinator did not open a live socket')
     socket.open()

@@ -1,6 +1,6 @@
 import type { PixelRect } from '../geometry.js'
 import { isPlain } from '../templates/appearance.js'
-import type { PlacedTemplate } from '../templates/local-store.js'
+import type { PlacedTemplate } from '../templates/catalog.js'
 import { isDarkMapTheme } from './contrast-outline.js'
 import type { SceneTemplate } from './render-scene.js'
 import { createQuadVertexArray, linkTemplateProgram, QUAD_FLOATS } from './renderer-core.js'

@@ -28,7 +28,7 @@ import { onMapFrame, requestMapFrame } from './map-view.js'
 import { presenceServers, presenceView } from './presence-client.js'
 import { installQuickClaims, onQuickClaimPreviewChange } from './quick-claims.js'
 import { activeServerToken } from './server-connections.js'
-import { isServerTemplate, localTemplates, type PlacedTemplate } from './templates/local-store.js'
+import { isServerTemplate, localTemplates, type PlacedTemplate } from './templates/catalog.js'
 import { showToast } from './ui/notification-host.js'
 
 /**

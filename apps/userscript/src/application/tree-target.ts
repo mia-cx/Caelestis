@@ -1,7 +1,7 @@
 import { type TemplateSurface, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { localFolderChainVisible } from '../local-folders.js'
 import { getState, isScopeVisible } from '../settings.js'
-import { isTemplateVisible, type PlacedTemplate } from '../templates/local-store.js'
+import { isTemplateVisible, type PlacedTemplate } from '../templates/catalog.js'
 import { nodeChainVisible, serverNodeParents } from '../templates/server-nodes.js'
 import { LOCAL_ROOT_KEY, localFolderIdOf, serverScopeKey, serverTemplateKey } from '../tree-keys.js'
 import type { TreeTarget } from '../ui/tree-context.js'

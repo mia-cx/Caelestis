@@ -7,7 +7,7 @@ import {
   recordProfileCounter,
   recordProfileWorkload,
 } from '../profile.js'
-import type { PlacedTemplate, TemplateArtwork } from '../templates/local-store.js'
+import type { PlacedTemplate, TemplateArtwork } from '../templates/catalog.js'
 import { pixelRect, type SparsePixels } from '../templates/sparse-pixels.js'
 import { gpuCacheEvictions } from './gpu-cache.js'
 import { TEXTURE_HALO } from './shaders.js'

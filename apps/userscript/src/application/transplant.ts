@@ -20,19 +20,21 @@ import {
   MAX_LOCAL_FOLDERS,
   type ServerConnection,
 } from '../settings.js'
+import {
+  isCurrentTemplate,
+  localTemplates,
+  type PlacedTemplate,
+  templateById,
+} from '../templates/catalog.js'
 import { newTemplateId } from '../templates/import.js'
+import { templateAsPng } from '../templates/residency.js'
 import {
   canCopyAsLocalTemplate,
   copyAsLocalTemplate,
-  isCurrentTemplate,
   leaseLocalTemplate,
-  localTemplates,
-  type PlacedTemplate,
   removeLocalTemplate,
   setTemplateFolder,
-  templateAsPng,
-  templateById,
-} from '../templates/local-store.js'
+} from '../templates/template-edits.js'
 import { serverTemplateKey } from '../tree-keys.js'
 import { plural } from './plural.js'
 import { transferAuthoring } from './template-authoring.js'

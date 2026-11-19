@@ -11,15 +11,15 @@ import {
 import { admittedManifest, readManifest } from '../server-manifests.js'
 import { invalidateServerReads } from '../server-read-coalescer.js'
 import { getState } from '../settings.js'
-import { captureCurrentArtwork, captureTemplateArea } from '../templates/current-artwork.js'
 import {
   isCurrentTemplate,
   isServerTemplate,
   type PlacedTemplate,
-  replaceLocalArtwork,
   templateById,
-  templatePixels,
-} from '../templates/local-store.js'
+} from '../templates/catalog.js'
+import { captureCurrentArtwork, captureTemplateArea } from '../templates/current-artwork.js'
+import { templatePixels } from '../templates/residency.js'
+import { replaceLocalArtwork } from '../templates/template-edits.js'
 import { requestConfirmation, showToast } from '../ui/notification-host.js'
 import { holdUpdating, templateBusy } from './template-busy.js'
 

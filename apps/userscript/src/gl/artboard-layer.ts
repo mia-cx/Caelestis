@@ -19,13 +19,10 @@ import {
   registerProfileMemorySource,
 } from '../profile.js'
 import { getState } from '../settings.js'
-import {
-  displayTemplatesForSurface,
-  isTemplateDraft,
-  noteTemplatesInView,
-} from '../templates/local-store.js'
+import { displayTemplatesForSurface, isTemplateDraft } from '../templates/catalog.js'
 import { fixedMarkList, type MarkList, markSeed } from '../templates/mark-list.js'
 import { abortMoveOutsideSurface } from '../templates/move.js'
+import { noteTemplatesInView } from '../templates/residency.js'
 import { detachOverlayControls, renderAllianceOverlayControls } from '../ui/overlay-menu.js'
 import { selectedColour } from '../wplace-paint.js'
 import { prefersReducedMotion } from './appearance-transition.js'

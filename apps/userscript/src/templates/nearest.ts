@@ -1,14 +1,14 @@
 import { type TemplateSurface, TRANSPARENT_INDEX, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { activeAllianceSurface, allianceSurfaceBounds } from '../alliance-surface.js'
 import { viewportCentre } from '../map-view.js'
-import { claimedHiddenFor } from './colour-filter.js'
 import {
   appearanceOf,
   displayTemplatesForSurface,
   isTemplateDraft,
   isTemplateVisible,
   type PlacedTemplate,
-} from './local-store.js'
+} from './catalog.js'
+import { claimedHiddenFor } from './colour-filter.js'
 import { horizontalCentre, sourceXAt, wrappedDeltaX } from './placement.js'
 import { pixelAt } from './sparse-pixels.js'
 

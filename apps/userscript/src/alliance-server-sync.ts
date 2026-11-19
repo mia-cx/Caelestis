@@ -25,7 +25,7 @@ import {
   type ServerSyncResult,
 } from './server-sync-coordinator.js'
 import { getState, type ServerConnection } from './settings.js'
-import { forgetServerSurfaceTemplates } from './templates/local-store.js'
+import { forgetServerSurfaceTemplates } from './templates/server-copies.js'
 import { serverTemplatesSettled } from './templates/server-sync.js'
 
 /**

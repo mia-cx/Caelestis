@@ -46,15 +46,15 @@ import {
   wantsTilePixels,
   worldTemplates,
 } from './capture-scope.js'
-import { claimedHiddenFor } from './colour-filter.js'
-import { nearestColourTarget } from './colour-navigation.js'
 import {
   appearanceOf,
   onLocalChange,
   type PlacedTemplate,
   type TemplateArtwork,
   templateTileKeys,
-} from './local-store.js'
+} from './catalog.js'
+import { claimedHiddenFor } from './colour-filter.js'
+import { nearestColourTarget } from './colour-navigation.js'
 import { MarkList, markSeed } from './mark-list.js'
 import { markWanted, packMismatchMark } from './mismatch-marks.js'
 import { type ScanJob, type ScanOutcome, scanTile } from './mismatch-scan.js'

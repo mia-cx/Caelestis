@@ -3,7 +3,7 @@ import { expect, it } from 'vitest'
 import type { ArtboardPixels } from '../gl/artboard-pixels.js'
 import { UNPAINTED } from '../native-pixels.js'
 import { artboardCounts } from './artboard-accounting.js'
-import type { PlacedPixels, TemplateArtwork } from './local-store.js'
+import type { PlacedPixels, TemplateArtwork } from './catalog.js'
 import { colourProgressFrom } from './pixel-tally.js'
 import { cutPixels } from './sparse-pixels.js'
 

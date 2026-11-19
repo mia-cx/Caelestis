@@ -14,15 +14,14 @@ import {
   isDeletingLocal,
   isServerTemplate,
   moveTemplateDraft,
-  onLocalReconciliation,
   type PlacedTemplate,
-  placeLocalTemplate,
   previewLocalTemplate,
-  removeLocalTemplate,
   templateById,
   templateDraft,
-} from './local-store.js'
+} from './catalog.js'
 import { horizontalSpans } from './placement.js'
+import { onLocalReconciliation } from './restore.js'
+import { placeLocalTemplate, removeLocalTemplate } from './template-edits.js'
 
 /**
  * Placing a template on the map.

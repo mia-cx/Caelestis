@@ -2,7 +2,7 @@ import { BLANK, MATCH, type MismatchClass, TRANSPARENT_INDEX, WRONG } from '@cae
 import { intersectRects, type PixelRect } from '../geometry.js'
 import { type NativePixelSnapshot, nativePixelWindow } from '../native-pixels.js'
 import type { Appearance } from '../templates/appearance.js'
-import type { PlacedPixels } from '../templates/local-store.js'
+import type { PlacedPixels } from '../templates/catalog.js'
 import { packMismatchMark } from '../templates/mismatch-marks.js'
 import { classifyPixel, countsUnpainted } from '../templates/pixel-tally.js'
 import { pixelRect, type SparsePixels } from '../templates/sparse-pixels.js'

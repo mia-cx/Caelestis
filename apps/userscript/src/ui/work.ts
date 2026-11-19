@@ -14,7 +14,7 @@ import { isCurrentServerConnection, serverConnectionSignal } from '../server-con
 import { admittedManifest, manifestRows } from '../server-manifests.js'
 import { serverRequest } from '../server-request.js'
 import { commitState, getState, type ServerConnection } from '../settings.js'
-import { isServerTemplate, localTemplates } from '../templates/local-store.js'
+import { isServerTemplate, localTemplates } from '../templates/catalog.js'
 import { localTemplateIdOf, localTemplateKey, serverTemplateTreeKey } from '../tree-keys.js'
 import { accountIdentity, loadAccount } from '../wplace-account.js'
 import { showToast } from './notification-host.js'

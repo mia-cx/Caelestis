@@ -8,8 +8,9 @@ import {
   renameServer as renameServerOnServer,
 } from '../server-api.js'
 import { getState, isScopeVisible, type ServerConnection, setScopeVisible } from '../settings.js'
-import { type PlacedTemplate, renameLocalTemplate } from '../templates/local-store.js'
+import type { PlacedTemplate } from '../templates/catalog.js'
 import type { TemplateColourProgress, TemplateProgress } from '../templates/progress-types.js'
+import { renameLocalTemplate } from '../templates/template-edits.js'
 import { loadTemplateThumbnail, templateThumbnail } from '../templates/thumbnail.js'
 import { LOCAL_ROOT_KEY, parseTreeKey, serverScopeKey } from '../tree-keys.js'
 import { showToast } from './notification-host.js'

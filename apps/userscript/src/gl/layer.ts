@@ -14,12 +14,9 @@ import {
   recordProfileWorkload,
   registerProfileMemorySource,
 } from '../profile.js'
-import {
-  displayTemplatesForSurface,
-  noteTemplatesInView,
-  type PlacedTemplate,
-} from '../templates/local-store.js'
+import { displayTemplatesForSurface, type PlacedTemplate } from '../templates/catalog.js'
 import { type HorizontalSpan, horizontalSpans } from '../templates/placement.js'
+import { noteTemplatesInView } from '../templates/residency.js'
 import { currentQuads, isDrawingTiles, underlayQuads } from '../tile-frame.js'
 import { prefersReducedMotion } from './appearance-transition.js'
 import { LAYER_IDS } from './layer-stack.js'

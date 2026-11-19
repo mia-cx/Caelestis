@@ -156,7 +156,8 @@ const setup = async () => {
     ...(await import('../src/draft-pixels.js')),
     ...(await import('../src/paint-requests.js')),
   }
-  const store = await import('../src/templates/local-store.js')
+  const catalog = await import('../src/templates/catalog.js')
+  const edits = await import('../src/templates/template-edits.js')
   const { pixelAccounting } = await import('../src/templates/mismatch.js')
   const { MarkerRenderer } = await import('../src/gl/marker-renderer.js')
 
@@ -201,7 +202,7 @@ const setup = async () => {
   let added = 0
   const addTemplate = async (): Promise<string> => {
     const id = `patching-${added++}`
-    await store.addLocalTemplate(
+    await edits.addLocalTemplate(
       {
         id,
         name: id,
@@ -218,12 +219,12 @@ const setup = async () => {
       true,
     )
     // Unpainted pixels are shown too, so the markers are the merged list and are patched as one.
-    await store.setOwnsGroup(id, 'markers', true)
-    await store.setAppearance(id, { markUnpainted: true, unpaintedLimit: 1 })
+    await edits.setOwnsGroup(id, 'markers', true)
+    await edits.setAppearance(id, { markUnpainted: true, unpaintedLimit: 1 })
     return id
   }
   const read = (id: string) => {
-    const template = store.displayTemplates().find((candidate) => candidate.id === id)
+    const template = catalog.displayTemplates().find((candidate) => candidate.id === id)
     if (template === undefined) throw new Error(`no template ${id}`)
     const accounting = pixelAccounting.read(template)
     return pixelAccounting.frame(() => {
@@ -247,7 +248,7 @@ const setup = async () => {
   const rescan = async () => {
     const id = await addTemplate()
     const fresh = lists(read(id))
-    await store.removeLocalTemplate(id)
+    await edits.removeLocalTemplate(id)
     return fresh
   }
 

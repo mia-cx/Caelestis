@@ -1,4 +1,5 @@
-import { type PlacedTemplate, peekTemplatePixels, type TemplateArtwork } from './local-store.js'
+import type { PlacedTemplate, TemplateArtwork } from './catalog.js'
+import { peekTemplatePixels } from './residency.js'
 import { joinPixels, pixelAt, type SparsePixels } from './sparse-pixels.js'
 
 /** Longest edge of a preview thumbnail. A tree card shows art at most 8rem tall. */

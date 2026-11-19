@@ -1,5 +1,5 @@
 import { registerCaelestisUi } from '@caelestis/ui/elements'
-import { addLocalTemplate } from '../src/templates/local-store.js'
+import { addLocalTemplate } from '../src/templates/template-edits.js'
 import { GAP } from '../src/ui/metrics.js'
 import { renderAllianceOverlayControls } from '../src/ui/overlay-menu.js'
 

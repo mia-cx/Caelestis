@@ -11,8 +11,8 @@ import {
   appearanceWithPreview,
   hasAppearancePreview,
 } from '../templates/appearance-preview.js'
+import { appearanceOf, isTemplateVisible, type PlacedTemplate } from '../templates/catalog.js'
 import { hiddenColoursFor } from '../templates/colour-filter.js'
-import { appearanceOf, isTemplateVisible, type PlacedTemplate } from '../templates/local-store.js'
 import { serverNodesRevision } from '../templates/server-nodes.js'
 import { selectedColour } from '../wplace-paint.js'
 import { appearanceTransitionSet } from './appearance-transition.js'

@@ -7,7 +7,7 @@ import type { ServerTemplate } from '../server-manifest.js'
 import { serverColourProgressFor, serverProgressFor } from '../server-status.js'
 import { getState, type ServerConnection } from '../settings.js'
 import { artboardProgressCounts } from '../templates/artboard-accounting.js'
-import { isServerTemplate, localTemplates, type PlacedTemplate } from '../templates/local-store.js'
+import { isServerTemplate, localTemplates, type PlacedTemplate } from '../templates/catalog.js'
 import { pixelAccounting } from '../templates/mismatch.js'
 import type { TemplateColourProgress, TemplateProgress } from '../templates/progress-types.js'
 import {

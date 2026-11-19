@@ -1,10 +1,6 @@
 import { canvasPixelToLatLng, PALETTE_RGB } from '@caelestis/shared'
 import { describe, expect, it, vi } from 'vitest'
-import {
-  localTemplates,
-  type PlacedTemplate,
-  templateTileKeys,
-} from '../src/templates/local-store.js'
+import { localTemplates, type PlacedTemplate, templateTileKeys } from '../src/templates/catalog.js'
 import { syncOfficialOverlays } from '../src/templates/official-overlays.js'
 import { joinPixels } from '../src/templates/sparse-pixels.js'
 

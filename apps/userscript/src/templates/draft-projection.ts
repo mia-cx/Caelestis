@@ -6,7 +6,7 @@ import { serverColourProgressFor } from '../server-status.js'
 import { getState, type ServerConnection } from '../settings.js'
 import { onTilePixelsEvicted } from '../tile-pixels.js'
 import { applyColourProgressDelta } from '../ui/progress.js'
-import { type PlacedTemplate, templateById } from './local-store.js'
+import { type PlacedTemplate, templateById } from './catalog.js'
 import { pixelAccounting } from './mismatch.js'
 import { focusedTemplate } from './nearest.js'
 import type {

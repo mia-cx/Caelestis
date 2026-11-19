@@ -11,12 +11,8 @@ import { listServerNodes, patchTemplate, uploadTemplateVersion } from '../server
 import { isCurrentServerConnection, serverByUrl, serverLabel } from '../server-connections.js'
 import type { ServerTemplate } from '../server-manifest.js'
 import { manifestRows } from '../server-manifests.js'
-import {
-  isCurrentTemplate,
-  localTemplates,
-  templateAsPng,
-  templateById,
-} from '../templates/local-store.js'
+import { isCurrentTemplate, localTemplates, templateById } from '../templates/catalog.js'
+import { templateAsPng } from '../templates/residency.js'
 import { showToast } from '../ui/notification-host.js'
 import type { TreeTarget } from '../ui/tree-context.js'
 import { claimFolderPublication, setFolderTemplatesPublished } from './folder-publication.js'

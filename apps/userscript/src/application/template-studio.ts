@@ -32,9 +32,9 @@ import { warn } from '../debug.js'
 import { getMap } from '../map-handle.js'
 import { viewportCentre } from '../map-view.js'
 import { getState, setState } from '../settings.js'
+import { setTemplateDraft } from '../templates/catalog.js'
 import type { DitheretteEngine } from '../templates/ditherette.js'
 import { decodeToRgba, type ImportedTemplate, newTemplateId } from '../templates/import.js'
-import { setTemplateDraft } from '../templates/local-store.js'
 import {
   beginDraftPlacement,
   endDraftPlacement,

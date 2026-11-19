@@ -13,7 +13,7 @@ import {
   isTemplateDraft,
   isTemplateVisible,
   type PlacedTemplate,
-} from './local-store.js'
+} from './catalog.js'
 import { horizontalSpans } from './placement.js'
 import { serverNodesRevision } from './server-nodes.js'
 import { type TemplateTileKey, templatePrefix, templateTileKey, tileOf } from './template-tile.js'

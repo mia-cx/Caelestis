@@ -2,7 +2,8 @@ import { WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createLocalFolder, setLocalFolderVisible } from '../src/local-folders.js'
 import { setScopeVisible } from '../src/settings.js'
-import * as store from '../src/templates/local-store.js'
+import * as catalog from '../src/templates/catalog.js'
+import * as edits from '../src/templates/template-edits.js'
 import { showToast } from '../src/ui/notification-host.js'
 import { templateTreeAdapter } from '../src/ui/tree.js'
 import type { TreeCallbacks, TreeTarget } from '../src/ui/tree-context.js'
@@ -28,7 +29,7 @@ const folder = (name: string, parentId: string | null = null): string => {
 
 const template = async (name: string, folderId: string | null): Promise<string> => {
   const id = `show-only-${crypto.randomUUID()}`
-  await store.addLocalTemplate(
+  await edits.addLocalTemplate(
     {
       id,
       name,
@@ -44,14 +45,14 @@ const template = async (name: string, folderId: string | null): Promise<string> 
     undefined,
     true,
   )
-  if (folderId !== null) await store.setTemplateFolder(id, folderId)
+  if (folderId !== null) await edits.setTemplateFolder(id, folderId)
   return id
 }
 
 const shown = (id: string): boolean => {
-  const placed = store.templateById(id)
+  const placed = catalog.templateById(id)
   if (placed === undefined) throw new Error(`${id} is missing`)
-  return store.isTemplateVisible(placed)
+  return catalog.isTemplateVisible(placed)
 }
 
 /** Choose "Show only this" from a row's menu, the way the panel's tree does. */
@@ -78,7 +79,7 @@ const chooseShowOnly = (key: string, query = ''): void => {
 
 afterEach(async () => {
   setScopeVisible('local', true)
-  for (const placed of store.localTemplates()) await store.removeLocalTemplate(placed.id)
+  for (const placed of catalog.localTemplates()) await edits.removeLocalTemplate(placed.id)
 })
 
 describe('show only this', () => {
@@ -93,7 +94,7 @@ describe('show only this', () => {
     const outerPeer = await template('Outer peer', outer)
     const elsewhere = await template('Elsewhere', null)
     const stillHidden = await template('Still hidden', asleep)
-    await store.setLocalVisible(target, false)
+    await edits.setLocalVisible(target, false)
     setLocalFolderVisible(outer, false)
     setLocalFolderVisible(asleep, false)
 
@@ -150,7 +151,7 @@ describe('show only this', () => {
     const group = folder('Group')
     const target = await template('Target', group)
     await template('Peer', group)
-    vi.spyOn(store, 'setLocalVisible').mockResolvedValueOnce(false)
+    vi.spyOn(edits, 'setLocalVisible').mockResolvedValueOnce(false)
 
     chooseShowOnly(`local:${target}`)
 

@@ -7,14 +7,8 @@ import {
   DEFAULT_APPEARANCE,
 } from '../templates/appearance.js'
 import { clearAppearancePreview, setAppearancePreview } from '../templates/appearance-preview.js'
-import {
-  appearanceOf,
-  type PlacedTemplate,
-  setAppearance,
-  setLocalVisible,
-  setOwnsGroup,
-  templateById,
-} from '../templates/local-store.js'
+import { appearanceOf, type PlacedTemplate, templateById } from '../templates/catalog.js'
+import { setAppearance, setLocalVisible, setOwnsGroup } from '../templates/template-edits.js'
 import { type AppearanceChange, type AppearanceStore, appearanceLabel } from './appearance.js'
 import { overlayAppearanceState } from './overlay-appearance-state.js'
 import { type OverlayFailureKey, overlayFailures } from './overlay-failures.js'

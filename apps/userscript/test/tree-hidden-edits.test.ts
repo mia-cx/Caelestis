@@ -2,8 +2,9 @@ import { WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createLocalFolder, setLocalFolderVisible } from '../src/local-folders.js'
 import { type ServerConnection, setScopeVisible } from '../src/settings.js'
-import * as store from '../src/templates/local-store.js'
+import * as catalog from '../src/templates/catalog.js'
 import { abort, movingId } from '../src/templates/move.js'
+import * as edits from '../src/templates/template-edits.js'
 import { serverTemplateKey } from '../src/tree-keys.js'
 import { showToast } from '../src/ui/notification-host.js'
 import { templateTreeAdapter } from '../src/ui/tree.js'
@@ -30,7 +31,7 @@ const folder = (name: string, parentId: string | null = null): string => {
 
 const template = async (folderId: string | null = null): Promise<string> => {
   const id = `hidden-edit-${crypto.randomUUID()}`
-  await store.addLocalTemplate(
+  await edits.addLocalTemplate(
     {
       id,
       name: 'Target',
@@ -46,7 +47,7 @@ const template = async (folderId: string | null = null): Promise<string> => {
     undefined,
     true,
   )
-  if (folderId !== null) await store.setTemplateFolder(id, folderId)
+  if (folderId !== null) await edits.setTemplateFolder(id, folderId)
   return id
 }
 
@@ -81,20 +82,20 @@ const MANIFEST_ONLY_KEY = serverTemplateKey(
 afterEach(async () => {
   setScopeVisible(MANIFEST_ONLY_KEY, true)
   await abort()
-  for (const placed of store.localTemplates()) await store.removeLocalTemplate(placed.id)
+  for (const placed of catalog.localTemplates()) await edits.removeLocalTemplate(placed.id)
   vi.mocked(showToast).mockClear()
 })
 
 describe('hidden templates and folders', () => {
   it('starts no placement on a switched-off template and leaves it hidden', async () => {
     const id = await template()
-    await store.setLocalVisible(id, false)
+    await edits.setLocalVisible(id, false)
 
     choose(`local:${id}`, 'Move')
 
     expect(showToast).toHaveBeenCalledWith('“Target” is hidden. Show it first.', 'warning')
     expect(movingId()).toBeNull()
-    expect(store.templateById(id)?.visible).toBe(false)
+    expect(catalog.templateById(id)?.visible).toBe(false)
   })
 
   it('names the hidden folder rather than the template', async () => {

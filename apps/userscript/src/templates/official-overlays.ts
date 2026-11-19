@@ -2,9 +2,13 @@ import { latLngToCanvasPixel } from '@caelestis/shared'
 import { warn } from '../debug.js'
 import { serverTemplateKey } from '../tree-keys.js'
 import { findWplaceModules } from '../wplace-modules.js'
-import { forgetServerTemplate, hasRoomForServerTemplate, putServerTemplate } from './local-store.js'
 import { paletteIndices } from './native-store.js'
 import type { TemplateProgress } from './progress-types.js'
+import {
+  forgetServerTemplate,
+  hasRoomForServerTemplate,
+  putServerTemplate,
+} from './server-copies.js'
 import { rememberWplaceOwnedNodes } from './server-nodes.js'
 import { OFFICIAL_OVERLAY_OWNER } from './wplace-owned.js'
 
