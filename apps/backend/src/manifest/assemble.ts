@@ -12,6 +12,7 @@ import {
   MAX_MANIFEST_NODES,
   MAX_MANIFEST_TEMPLATES,
 } from '@caelestis/wire-schema'
+import { LIVE_CAPABILITIES } from '../live/session.js'
 import type { NodeStore } from '../nodes/store.js'
 import type { TagStore } from '../tags/store.js'
 import type { TemplateStore } from '../templates/store.js'
@@ -165,11 +166,13 @@ export const assembleManifest = async (
     name: server.name,
     ...(server.description === undefined ? {} : { description: server.description }),
     auth: server.auth,
-    ...(server.liveSync === undefined ? {} : { liveSync: server.liveSync }),
-    ...(server.liveSyncMax === undefined ? {} : { liveSyncMax: server.liveSyncMax }),
-    ...(server.liveTileOffers === undefined ? {} : { liveTileOffers: server.liveTileOffers }),
-    ...(server.presence === undefined ? {} : { presence: server.presence }),
-    ...(server.livePaintParts === undefined ? {} : { livePaintParts: server.livePaintParts }),
+    // Every capability `/server` can advertise, in the order `LIVE_CAPABILITIES` lists them.
+    ...Object.fromEntries(
+      Object.keys(LIVE_CAPABILITIES).flatMap((name) => {
+        const version: unknown = Reflect.get(server, name)
+        return version === undefined ? [] : [[name, version]]
+      }),
+    ),
     ...(server.discordInviteUrl === undefined ? {} : { discordInviteUrl: server.discordInviteUrl }),
     ...(server.version === undefined ? {} : { version: server.version }),
     ...(server.build === undefined ? {} : { build: server.build }),
