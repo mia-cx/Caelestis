@@ -7,11 +7,8 @@ import type {
 import { untrack } from 'svelte'
 import { getHistory, getPainterHistory, getPainterTotals } from '#lib/api/client.js'
 import { type HeldHistory, refreshHistory } from './history-tail.js'
-import {
-  MAX_PAINTER_OPTIONS,
-  maxPaceResolution,
-  type PaceSelection,
-} from './pace-selection.svelte.js'
+import { maxPaceResolution } from './pace-model.js'
+import { MAX_PAINTER_OPTIONS, type PaceSelection } from './pace-selection.svelte.js'
 import { PACE_WINDOWS, type PainterHistorySource } from './progress-pace.js'
 import type { StatsScope } from './stats-scope.svelte.js'
 

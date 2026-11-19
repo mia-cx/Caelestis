@@ -4,49 +4,50 @@
 </script>
 
 <script lang="ts">
-  import {
-    formatCount,
-    formatExactCount,
-    formatPixels,
-    type HistoryBucket,
-    type PainterHistoryBucket,
-    type PainterTotal,
-  } from '@caelestis/shared'
+  import { formatCount, formatPixels, type HistoryBucket, type PainterTotal } from '@caelestis/shared'
+  import { prefersReducedMotion } from '@caelestis/ui/motion'
   import { untrack } from 'svelte'
   import { cubicOut } from 'svelte/easing'
   import { Tween } from 'svelte/motion'
-  import { fade, type TransitionConfig } from 'svelte/transition'
-  import { painterColour, painterLabel } from '#lib/components/stats/painter-identity.js'
-  import { type PaceSelection, paceWindowUsable } from '#lib/components/stats/pace-selection.svelte.js'
-  import PainterPicker from '#lib/components/stats/PainterPicker.svelte'
-  import PacePicker from '#lib/components/stats/PacePicker.svelte'
-  import RangePresets from './RangePresets.svelte'
-  import { ChartWindow } from './time-window.svelte.js'
+  import { fade } from 'svelte/transition'
+  import { formatTime } from '#lib/time-format.js'
+  import PaceHoverCard, { ARCHIVE_SOURCE, type PaceRow } from './PaceHoverCard.svelte'
+  import PacePicker from './PacePicker.svelte'
+  import {
+    brushSeries,
+    hasActivity,
+    lerpProgress,
+    paceLines,
+    painterLines,
+    painterSource,
+    progressSegments,
+    type Readout,
+    readoutAt,
+    snapTimes,
+  } from './pace-model.js'
+  import type { PaceSelection } from './pace-selection.svelte.js'
+  import { painterColour, painterLabel } from './painter-identity.js'
+  import PainterPicker from './PainterPicker.svelte'
+  import type { ObservedProgressSample } from './progress-history.js'
   import {
     axisScale,
     clampWindow,
-    DRAG_THRESHOLD_PX,
-    interpolateValue,
-    paceAt,
-    lerpRate,
     clipSeries,
+    DRAG_THRESHOLD_PX,
+    followPointer,
+    lerpRate,
     nearestSorted,
-    PACE_WINDOWS,
-    type PacePoint,
     type PaceRatePoint,
     type PainterHistorySource,
-    rollingPaceSeries,
-    rollingIntervalPace,
+    paceAt,
     snapTime,
-    timeTickStep,
     type TimeWindow,
-    windowKeyStep,
-  } from '#lib/components/stats/progress-pace.js'
-  import {
-    archiveCountsFor,
-    type ObservedProgressSample,
-    observedProgressIntervals,
-  } from '#lib/components/stats/progress-history.js'
+    timeTickStep,
+  } from './progress-pace.js'
+  import RangeBrush from './RangeBrush.svelte'
+  import RangePresets from './RangePresets.svelte'
+  import { DAY_SECONDS } from './stats-scope.svelte.js'
+  import { ChartWindow } from './time-window.svelte.js'
 
   let {
     samples,
@@ -92,171 +93,37 @@
     onScrubStart?: () => () => void
   } = $props()
 
-  const archiveSamples = $derived(samples.filter((sample) => sample.archive))
-  /** Anything observed before the right edge, as opposed to only the current counts there. */
-  const observed = $derived(samples.some((sample) => sample.at < to))
-  const anchor = $derived(samples.findLast((sample) => sample.at === to))
-
-  interface Point {
-    t: number
-    placed: number
-    cumPlaced: number
-  }
-
-  const points = $derived.by<Point[]>(() => {
-    if (buckets.length === 0) return []
-    const byStart = new Map<number, number>()
-    for (const bucket of buckets) {
-      byStart.set(bucket.bucketStart, (byStart.get(bucket.bucketStart) ?? 0) + bucket.placed)
-    }
-    const filled: Point[] = []
-    let cumPlaced = 0
-    const reportStart = archiveSamples.length === 0 ? from : Math.max(from, Math.min(...buckets.map((bucket) => bucket.bucketStart)))
-    const first = Math.ceil(reportStart / resolution) * resolution
-    for (let t = first; t < to; t += resolution) {
-      const placed = byStart.get(t) ?? 0
-      cumPlaced += placed
-      filled.push({
-        t,
-        placed,
-        cumPlaced,
-      })
-    }
-    return filled
-  })
-
-  // Painter buckets are written per report while template buckets wait for the counter flush, so
-  // the plot also opens when only painters have reported yet.
-  const hasActivity = $derived(
-    observed ||
-    (anchor?.correct ?? 0) + (anchor?.mismatched ?? 0) > 0 ||
-    points.some((p) => p.placed > 0) ||
-      painterHistories.some((source) => source.history.buckets.length > 0),
-  )
-
   const timeWindow = new ChartWindow(() => ({ from, to, resolution }))
   const view = $derived(timeWindow.view)
-  const span = $derived(timeWindow.span)
 
-
-
-  const observedPaces = $derived(observedProgressIntervals(samples))
-  /** A window's place from shortest (0) to longest (1), which sets its line's colour and width. */
-  const paceRank = (key: string): number =>
-    PACE_WINDOWS.findIndex((pace) => pace.key === key) / (PACE_WINDOWS.length - 1)
-  const paceWindows = $derived(
-    PACE_WINDOWS.map((pace) => {
-      const intervals = observedPaces.filter(interval => interval.to <= to && (!interval.archive || archiveCountsFor(pace.seconds)))
-      const segments = rollingIntervalPace(intervals, pace.seconds)
-      return { ...pace, rank: paceRank(pace.key), usable: segments.length > 0, segments, importedUntil: intervals.findLast(interval => interval.archive)?.to ?? -Infinity }
-    }),
-  )
-
-  // Everyone's rolling pace lines are one more entry in the pace picker, pinned at the top, so a
-  // reader can leave painters alone on the axis or bring the whole template back.
+  const segments = $derived(progressSegments(samples))
+  const paceWindows = $derived(paceLines(samples, to))
+  const painterPaces = $derived(painterLines(paces, painters, painterHistories, to))
+  const active = $derived(hasActivity(samples, buckets, painterHistories, to))
+  const anchor = $derived(samples.findLast((sample) => sample.at === to))
   const enabledPaces = $derived(
     paces.allUsers
-      ? paceWindows.filter((pace) => paces.windows.has(pace.key) && pace.usable)
+      ? paceWindows.filter((pace) => paces.windows.has(pace.key) && pace.segments.length > 0)
       : [],
   )
-
-  // ── Painters ─────────────────────────────────────────────────────────────────────────────────
-  // Painter lines keep reported activity, one per painter per enabled window.
-  // Colour says who; width says which window, as for the combined net progress lines.
-  const painterMetricNoun = 'placed pixels'
   /** The painter under the picker's pointer or keyboard, drawn on top with the others dimmed. */
   let spotlightPainter = $state<number | null>(null)
 
-  /** One painter's cumulative points at a source's tier, zero-filled through complete buckets. */
-  const painterPacePoints = (
-    buckets: readonly PainterHistoryBucket[],
-    wplaceUserId: number,
-    resolution: number,
-    coverageStart: number,
-  ): PacePoint[] => {
-    const byStart = new Map<number, number>()
-    for (const bucket of buckets) {
-      if (bucket.wplaceUserId !== wplaceUserId) continue
-      byStart.set(
-        bucket.bucketStart,
-        (byStart.get(bucket.bucketStart) ?? 0) + bucket.placed,
-      )
-    }
-    const firstBucket = Math.ceil(coverageStart / resolution) * resolution
-    const filled: PacePoint[] = []
-    let cumPlaced = 0
-    for (let t = firstBucket; t + resolution <= to; t += resolution) {
-      cumPlaced += byStart.get(t) ?? 0
-      filled.push({ t, cumPlaced })
-    }
-    return filled
-  }
-
-  interface PainterLine {
-    readonly painter: PainterTotal
-    readonly window: (typeof PACE_WINDOWS)[number]['key']
-    readonly rank: number
-    readonly fullSeries: PaceRatePoint[]
-  }
-
-  // Each enabled window draws from its own retained painter source, fetched for the selected
-  // painters only, at the tier the template line for that window would use.
-  const painterLines = $derived.by<PainterLine[]>(() => {
-    const lines: PainterLine[] = []
-    PACE_WINDOWS.forEach((pace) => {
-      if (!paces.windows.has(pace.key)) return
-      const source = painterHistories.find((candidate) => candidate.window === pace.key)?.history
-      if (
-        source?.resolution === undefined ||
-        source.coverageStart === undefined ||
-        !paceWindowUsable(pace.seconds, source.resolution)
-      )
-        return
-      for (const painter of painters) {
-        if (!paces.painters.has(painter.wplaceUserId)) continue
-        const fullSeries = rollingPaceSeries(
-          painterPacePoints(
-            source.buckets,
-            painter.wplaceUserId,
-            source.resolution,
-            source.coverageStart,
-          ),
-          source.resolution,
-          pace.seconds,
-        )
-        if (fullSeries.length === 0) continue
-        lines.push({
-          painter,
-          window: pace.key,
-          rank: paceRank(pace.key),
-          fullSeries,
-        })
-      }
-    })
-    return lines
-  })
-
-  /** Snap the crosshair to every vertex that is actually rendered, including retained fine data. */
-  const hoverSnapTimes = $derived.by(() => {
-    const times = new Set<number>()
-    for (const sample of samples) {
-      if (sample.at >= shownView.from && sample.at <= shownView.to) times.add(sample.at)
-    }
-    for (const pace of activePaces) {
-      for (const point of pace.series) times.add(point.t)
-    }
-    for (const line of activePainterLines) {
-      for (const point of line.series) times.add(point.t)
-    }
-    return [...times].sort((a, b) => a - b)
-  })
-
-  /** Short windows are darker magenta; longer windows become lighter blue in both themes. */
   const paceColor = (rank: number): string =>
     `color-mix(in oklch shorter hue, var(--pace-short) ${Math.round(100 - rank * 100)}%, var(--pace-long))`
   const paceWidth = (rank: number): number => 1.5 + rank * 1.25
 
-  // ── Geometry ─────────────────────────────────────────────────────────────────────────────────
+  const paceOptions = $derived(
+    paceWindows.map((pace) => ({
+      key: pace.key,
+      colour: paceColor(pace.rank),
+      selected: paces.windows.has(pace.key),
+      available:
+        pace.segments.length > 0 ||
+        (painterSource(painterHistories, pace)?.buckets.length ?? 0) > 0,
+    })),
+  )
+
   let width = $state(640)
   const height = CHART_HEIGHT
   const pad = { top: 18, right: 48, bottom: 22, left: 48 }
@@ -264,84 +131,45 @@
   const plotHeight = height - pad.top - pad.bottom
 
   // The axis tops come from the target window, so a zoom re-fits to where it is going.
-  interface ProgressPoint extends PaceRatePoint {
-    mismatched: number
-    archive: boolean
-  }
-  const lerpProgress = (a: ProgressPoint, b: ProgressPoint, fraction: number): ProgressPoint => ({
-    ...lerpRate(a, b, fraction),
-    mismatched: a.mismatched + (b.mismatched - a.mismatched) * fraction,
-    archive: a.archive || b.archive,
-  })
-  const progressSegments = $derived.by(() => {
-    const segments: ProgressPoint[][] = []
-    let segment: ProgressPoint[] | null = null
-    let revision: string | undefined
-    for (const sample of samples) {
-      if (sample.correct === null || sample.mismatched === null) {
-        segment = null
-        continue
-      }
-      if (segment === null) {
-        segment = []
-        segments.push(segment)
-      }
-      const previous = segment.at(-1)
-      if (
-        previous !== undefined && segment.length > 1 &&
-        segment.some((point) => point.archive) !== (previous.archive || sample.archive)
-      ) {
-        segment = [previous]
-        segments.push(segment)
-      }
-      // A revision changes the artwork at an instant; hold the preceding level until then.
-      if (previous !== undefined && revision !== sample.revision)
-        segment.push({ ...previous, t: sample.at })
-      segment.push({
-        t: sample.at, v: sample.correct, mismatched: sample.mismatched, archive: sample.archive,
-      })
-      revision = sample.revision
-    }
-    return segments
-  })
-  const paceOptions = $derived(
-    paceWindows.map((pace) => ({
-      key: pace.key,
-      colour: paceColor(pace.rank),
-      selected: paces.windows.has(pace.key),
-      available: pace.usable || painterHistories.some((source) => source.window === pace.key && source.history.resolution !== undefined && paceWindowUsable(pace.seconds, source.history.resolution) && source.history.buckets.length > 0),
-    })),
+  const targetPaces = $derived(
+    enabledPaces.flatMap((pace) =>
+      pace.segments.flatMap((segment) => clipSeries(segment, view.from, view.to, lerpRate)),
+    ),
   )
-  const visibleProgressSegments = $derived(progressSegments.map((segment) => clipSeries(segment, shownView.from, shownView.to, lerpProgress)).filter((segment) => segment.length > 1))
-  const isolatedProgressPoints = $derived(progressSegments.filter((segment) => segment.length === 1).flat().filter((point) => point.t >= shownView.from && point.t <= shownView.to))
-  const targetPaces = $derived(enabledPaces.flatMap((pace) => pace.segments.flatMap((segment) => clipSeries(segment, view.from, view.to, lerpRate))))
   const rightMin = $derived(Math.min(0, ...targetPaces.map((point) => point.v)))
   const leftScale = $derived(
-    axisScale(Math.max(0, ...progressSegments.flatMap((segment) => clipSeries(segment, view.from, view.to, lerpProgress).map((point) => point.v + point.mismatched))), 4, 1),
+    axisScale(
+      Math.max(
+        0,
+        ...segments.flatMap((segment) =>
+          clipSeries(segment, view.from, view.to, lerpProgress).map(
+            (point) => point.v + point.mismatched,
+          ),
+        ),
+      ),
+      4,
+      1,
+    ),
   )
   const rightScale = $derived(
     axisScale(
       Math.max(
         0,
         ...targetPaces.map((point) => point.v),
-        ...painterLines.flatMap((line) =>
-          clipSeries(line.fullSeries, view.from, view.to, lerpRate).map((point) => point.v),
+        ...painterPaces.flatMap((line) =>
+          clipSeries(line.series, view.from, view.to, lerpRate).map((point) => point.v),
         ),
       ),
       4,
     ),
   )
 
-  // ── Refit ────────────────────────────────────────────────────────────────────────────────────
   // The drawn domain and both axis tops chase their targets, so a preset, a plot-drag zoom, or a
   // toggled pace line re-fits the plot instead of snapping it. A brush drag moves the window
   // under the pointer while the axis tops keep gliding, and reduced motion turns every tween and
   // transition into a cut.
   const REFIT_MS = 400
-  const reduceMotion =
-    typeof window === 'undefined' ? null : window.matchMedia('(prefers-reduced-motion: reduce)')
-  const motion = (ms: number): number => (reduceMotion?.matches ? 0 : ms)
-  // The tweens start on the first frame's targets; the effects below keep them chasing.
+  const motion = (ms: number): number => (prefersReducedMotion() ? 0 : ms)
   const shownWindow = new Tween(
     untrack(() => ({ from: view.from, to: view.to })),
     { duration: REFIT_MS, easing: cubicOut },
@@ -350,8 +178,9 @@
     untrack(() => ({ leftMax: leftScale.max, rightMax: rightScale.max })),
     { duration: REFIT_MS, easing: cubicOut },
   )
+  let brushDragging = $state(false)
   $effect(() => {
-    const duration = brushDrag === null ? motion(REFIT_MS) : 0
+    const duration = brushDragging ? 0 : motion(REFIT_MS)
     void shownWindow.set({ from: view.from, to: view.to }, { duration })
   })
   $effect(() => {
@@ -364,29 +193,40 @@
     from: shownWindow.current.from,
     to: shownWindow.current.to,
   })
-  const activePaces = $derived(
-    enabledPaces.flatMap((pace) => pace.segments.map((fullSeries, index) => {
-      const series = clipSeries(fullSeries, shownView.from, shownView.to, lerpRate)
-      const imported = series.filter(point => point.t <= pace.importedUntil)
-      const observed = series.filter(point => point.t >= pace.importedUntil)
-      const strokes = [
-        ...(imported.length > 0 ? [{ series: imported, imported: true }] : []),
-        ...(observed.some(point => point.t > pace.importedUntil) ? [{ series: observed, imported: false }] : []),
-      ]
-      return {
-        ...pace,
-        id: `${pace.key}:${index}`,
-        fullSeries,
-        strokes,
-        series,
-      }
-    })),
-  )
 
+  const visibleProgressSegments = $derived(
+    segments
+      .map((segment) => clipSeries(segment, shownView.from, shownView.to, lerpProgress))
+      .filter((segment) => segment.length > 1),
+  )
+  const isolatedProgressPoints = $derived(
+    segments
+      .filter((segment) => segment.length === 1)
+      .flat()
+      .filter((point) => point.t >= shownView.from && point.t <= shownView.to),
+  )
+  // Imported stretches draw dashed and meet the observed stroke at a shared point.
+  const activePaces = $derived(
+    enabledPaces.flatMap((pace) =>
+      pace.segments.map((fullSeries, index) => {
+        const series = clipSeries(fullSeries, shownView.from, shownView.to, lerpRate)
+        const imported = series.filter((point) => point.t <= pace.importedUntil)
+        const observed = series.filter((point) => point.t >= pace.importedUntil)
+        const strokes = [
+          ...(imported.length > 0 ? [{ series: imported, imported: true }] : []),
+          ...(observed.some((point) => point.t > pace.importedUntil)
+            ? [{ series: observed, imported: false }]
+            : []),
+        ]
+        return { ...pace, id: `${pace.key}:${index}`, fullSeries, strokes, series }
+      }),
+    ),
+  )
+  // A painter line holds its last rate to the right edge.
   const activePainterLines = $derived(
-    painterLines.map((line) => {
-      const series = clipSeries(line.fullSeries, shownView.from, shownView.to, lerpRate)
-      const last = series[series.length - 1]
+    painterPaces.map((line) => {
+      const series = clipSeries(line.series, shownView.from, shownView.to, lerpRate)
+      const last = series.at(-1)
       if (last !== undefined && last.t < shownView.to) series.push({ ...last, t: shownView.to })
       return { ...line, series }
     }),
@@ -402,20 +242,19 @@
     (v: number) => height - pad.bottom - (v / shownAxes.current.leftMax) * plotHeight,
   )
   const yRight = $derived(
-    (v: number) => height - pad.bottom - ((v - rightMin) / (shownAxes.current.rightMax - rightMin)) * plotHeight,
+    (v: number) =>
+      height - pad.bottom - ((v - rightMin) / (shownAxes.current.rightMax - rightMin)) * plotHeight,
   )
   /** The time under a pointer, given the plot's left edge and displayed domain. */
   const timeIn = (range: TimeWindow, clientX: number, left: number): number =>
     range.from + ((clientX - left - pad.left) / plotWidth) * (range.to - range.from)
 
-  const linePath = (series: readonly { t: number; v: number }[]): string =>
+  const linePath = (series: readonly PaceRatePoint[]): string =>
     series
       .map((p, i) => `${i === 0 ? 'M' : 'L'}${x(p.t).toFixed(1)},${yRight(p.v).toFixed(1)}`)
       .join('')
 
-  const DAY_SECONDS = 86_400
   const tickStep = $derived(timeTickStep(shownView.to - shownView.from, plotWidth))
-
   const xTicks = $derived.by(() => {
     const ticks: number[] = []
     for (let t = Math.ceil(shownView.from / tickStep) * tickStep; t < shownView.to; t += tickStep) {
@@ -450,61 +289,31 @@
     })
   }
 
-  const formatTime = (t: number): string =>
-    new Date(t * 1000).toLocaleString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-
-  // ── Hover ────────────────────────────────────────────────────────────────────────────────────
-  interface HoverPoint {
-    t: number
-    cumCorrect: number | null
-    cumMismatched: number | null
-    archive: boolean
-  }
-
-
-  let hover = $state<HoverPoint | null>(null)
+  const hoverSnapTimes = $derived(
+    snapTimes(
+      samples,
+      [...activePaces.map((pace) => pace.series), ...activePainterLines.map((line) => line.series)],
+      shownView,
+    ),
+  )
+  let hover = $state<Readout | null>(null)
   /** What the keyboard walk just landed on, for assistive technology. Pointer hovers stay quiet. */
   let announce = $state('')
+  let pointer = $state<{ x: number; y: number } | null>(null)
+  let plotSvg = $state<SVGSVGElement>()
 
   const hoverAt = (t: number | null): void => {
-    if (t === null) {
-      hover = null
-      return
-    }
-    if (hover?.t === t) return
-    const sample = samples.find((sample) => sample.at === t)
-    const cumCorrect = sample === undefined
-      ? visibleProgressSegments.map(segment => interpolateValue(segment, t, point => point.v)).find(value => value !== null) ?? null
-      : sample.correct
-    const cumMismatched = sample === undefined
-      ? visibleProgressSegments.map(segment => interpolateValue(segment, t, point => point.mismatched)).find(value => value !== null) ?? null
-      : sample.mismatched
-    hover = {
-      t,
-      cumCorrect: cumCorrect === null ? null : Math.round(cumCorrect),
-      cumMismatched: cumMismatched === null ? null : Math.round(cumMismatched),
-      archive: sample?.archive === true,
-    }
+    if (t === null) hover = null
+    else if (hover?.t !== t) hover = readoutAt(samples, visibleProgressSegments, t)
   }
-
-
   const hoverPointer = (clientX: number, left: number): void =>
     hoverAt(nearestSorted(hoverSnapTimes, timeIn(shownView, clientX, left)))
 
-
   /** Each painter appears once, with their available rolling windows in chart order. */
-  const hoverPaceRows = $derived.by(() => {
+  const hoverPaceRows = $derived.by((): PaceRow[] => {
     if (hover === null) return []
     const { t } = hover
-    const rows = new Map<
-      string,
-      { name: string; rates: { window: string; value: number; colour: string }[] }
-    >()
+    const rows = new Map<string, { name: string; rates: PaceRow['rates'][number][] }>()
     const add = (
       id: string,
       name: string,
@@ -518,8 +327,7 @@
       row.rates.push({ window, value, colour })
       rows.set(id, row)
     }
-    for (const pace of activePaces)
-      add('all', 'All users', pace.key, paceColor(pace.rank), pace.series)
+    for (const pace of activePaces) add('all', 'All users', pace.key, paceColor(pace.rank), pace.series)
     for (const line of activePainterLines) {
       add(
         String(line.painter.wplaceUserId),
@@ -532,96 +340,37 @@
     return [...rows].map(([id, row]) => ({ id, ...row }))
   })
   const hoverWindowCount = $derived(
-    new Set([...activePaces.map(pace => pace.key), ...activePainterLines.map(line => line.window)]).size,
+    new Set([
+      ...activePaces.map((pace) => pace.key),
+      ...activePainterLines.map((line) => line.window),
+    ]).size,
   )
-  // The hover card follows the pointer anywhere on screen, beside it and flipped away from the
-  // viewport's edges. A keyboard walk, with no pointer, anchors it to the walked point instead.
-  const CARD_GAP = 16
-  const CARD_EDGE = 8
-  let viewportWidth = $state(typeof window === 'undefined' ? 1_024 : window.innerWidth)
-  let viewportHeight = $state(typeof window === 'undefined' ? 768 : window.innerHeight)
-  const hoverCardWidth = $derived(
-    Math.min(Math.max(0, viewportWidth - 2 * CARD_EDGE), Math.max(260, 140 + 112 * hoverWindowCount)),
+  const hoverIncludesImport = $derived(
+    hover !== null &&
+      activePaces.some(
+        (pace) =>
+          hover !== null &&
+          hover.t - pace.seconds < pace.importedUntil &&
+          paceAt(pace.series, hover.t) !== null,
+      ),
   )
-  let pointer = $state<{ x: number; y: number } | null>(null)
-  let plotSvg = $state<SVGSVGElement>()
-  let hoverCard = $state<HTMLDivElement>()
-  let hoverCardHeight = $state(0)
-  /** Bumped when anything scrolls while the card is anchored to a walked point, to follow it. */
-  let scrolled = $state(0)
-  $effect(() => {
-    if (hover === null || pointer !== null) return
-    const onScroll = (): void => {
-      scrolled++
-    }
-    // Capture: a scrolling container's own scroll events never bubble to the window.
-    window.addEventListener('scroll', onScroll, { capture: true, passive: true })
-    return () => window.removeEventListener('scroll', onScroll, { capture: true })
-  })
-  const hoverAnchor = $derived.by(() => {
-    if (hover === null) return null
-    if (pointer !== null) return pointer
-    void scrolled
+  const walkedPoint = (): { x: number; y: number } | null => {
     const rect = plotSvg?.getBoundingClientRect()
-    return rect === undefined ? null : { x: rect.left + x(hover.t), y: rect.top + pad.top }
-  })
-  const hoverCardPlace = $derived.by(() => {
-    if (hoverAnchor === null) return null
-    const { x: anchorX, y: anchorY } = hoverAnchor
-    const flipX = anchorX + CARD_GAP + hoverCardWidth > viewportWidth - CARD_EDGE
-    const flipY = anchorY + CARD_GAP + hoverCardHeight > viewportHeight - CARD_EDGE
-    const left = flipX ? anchorX - CARD_GAP - hoverCardWidth : anchorX + CARD_GAP
-    const top = flipY ? anchorY - CARD_GAP - hoverCardHeight : anchorY + CARD_GAP
-    return {
-      left: Math.max(CARD_EDGE, Math.min(viewportWidth - hoverCardWidth - CARD_EDGE, left)),
-      top: Math.max(CARD_EDGE, Math.min(viewportHeight - hoverCardHeight - CARD_EDGE, top)),
-      origin: `${flipX ? '100%' : '0'} ${flipY ? '100%' : '0'}`,
-    }
-  })
-
-  /** The card lives on the body, so no clipped or transformed ancestor confines it to the chart. */
-  const onBody = (node: HTMLElement) => {
-    document.body.append(node)
-    return () => node.remove()
+    return hover === null || rect === undefined
+      ? null
+      : { x: rect.left + x(hover.t), y: rect.top + pad.top }
   }
-
-  /** Over the plot, the wheel scrolls a hover card that overflows the screen instead of the page. */
-  const wheelScrollsCard = (node: SVGSVGElement) => {
-    const onWheel = (event: WheelEvent): void => {
-      const card = hoverCard
-      if (card === undefined || card.scrollHeight <= card.clientHeight) return
-      event.preventDefault()
-      const unit =
-        event.deltaMode === WheelEvent.DOM_DELTA_LINE
-          ? 16
-          : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
-            ? card.clientHeight
-            : 1
-      card.scrollTop += event.deltaY * unit
-    }
-    node.addEventListener('wheel', onWheel, { passive: false })
-    return () => node.removeEventListener('wheel', onWheel)
-  }
-
-  /** The hover card pops from its anchored corner, on the transitions.dev tooltip timings. */
-  const pop = (_node: Element, { duration }: { duration: number }): TransitionConfig => ({
-    duration,
-    easing: cubicOut,
-    css: (t) => `opacity:${t};transform:scale(${0.98 + 0.02 * t})`,
-  })
 
   const liveEdge = $derived(
-    live && view.to === to && anchor?.correct != null ? { t: to, cumCorrect: anchor.correct } : null,
+    live && view.to === to && anchor?.correct != null ? { t: to, correct: anchor.correct } : null,
   )
 
-  // ── Timelapse playhead ───────────────────────────────────────────────────────────────────────
-  // The plot draws the playhead only inside the shown window; the strip keeps it in view across
+  // The plot draws the playhead only inside the shown window; the brush keeps it in view across
   // the whole range, so a zoomed reader still sees where playback is.
   const linked = $derived(onSeek !== undefined)
   const playheadShown = $derived(
     playhead !== null && playhead >= shownView.from && playhead <= shownView.to ? playhead : null,
   )
-  const playheadInRange = $derived(playhead !== null && playhead >= from && playhead <= to ? playhead : null)
   /** How far from the playhead a press still grabs it. Fingers need more room than a mouse. */
   const playheadGrabHalfWidth = (pointerType: string): number =>
     pointerType === 'mouse' ? 10 : 22
@@ -633,26 +382,27 @@
   let nearPlayhead = $state(false)
   let scrubbing = $state(false)
 
-  const hoverSummary = (point: HoverPoint): string => {
-    const paces = activePaces.flatMap((pace) => {
+  const painterMetricNoun = 'placed pixels'
+  const hoverSummary = (point: Readout): string => {
+    const paceValues = activePaces.flatMap((pace) => {
       const value = paceAt(pace.series, point.t)
       return value === null ? [] : [`${pace.key} pace ${formatCount(value)} px/h`]
     })
-    const painterPaces = activePainterLines.flatMap((line) => {
+    const painterValues = activePainterLines.flatMap((line) => {
       const value = paceAt(line.series, point.t)
       return value === null
         ? []
-        : [
-            `${painterLabel(line.painter)} ${line.window} ${painterMetricNoun} ${formatCount(value)} px/h`,
-          ]
+        : [`${painterLabel(line.painter)} ${line.window} ${painterMetricNoun} ${formatCount(value)} px/h`]
     })
     return [
-      `${formatTime(point.t)}${liveEdge !== null && point.t === liveEdge.t ? ' (now)' : ''}`,
-      ...(point.archive ? ['Eralyon snapshot'] : []),
-      point.cumCorrect === null ? 'No completion coverage' : `${point.cumCorrect.toLocaleString()} correct`,
-      point.cumMismatched === null ? 'No mismatch coverage' : `${point.cumMismatched.toLocaleString()} mismatched`,
-      ...paces,
-      ...painterPaces,
+      `${formatTime(point.t)}${point.t === liveEdge?.t ? ' (now)' : ''}`,
+      ...(point.archive ? [ARCHIVE_SOURCE] : []),
+      point.correct === null ? 'No completion coverage' : `${point.correct.toLocaleString()} correct`,
+      point.mismatched === null
+        ? 'No mismatch coverage'
+        : `${point.mismatched.toLocaleString()} mismatched`,
+      ...paceValues,
+      ...painterValues,
     ].join(', ')
   }
 
@@ -697,20 +447,9 @@
     announce = hover === null ? '' : hoverSummary(hover)
   }
 
-  // ── Drag on the plot to zoom, click or drag the playhead to seek ─────────────────────────────
-  // Listeners live on `window` for the length of a drag, so the gesture keeps working when the
-  // pointer leaves the plot, the strip, or even the page.
-  // They attach synchronously: the next pointer event may arrive before any microtask runs.
-  // A press that moves under 4px is a click. On a linked chart that seeks the timelapse; a press
-  // that starts on the playhead and moves scrubs it instead of zooming. Everything else zooms.
-  const listen = <K extends keyof WindowEventMap>(
-    type: K,
-    handler: (event: WindowEventMap[K]) => void,
-  ): (() => void) => {
-    window.addEventListener(type, handler)
-    return () => window.removeEventListener(type, handler)
-  }
-
+  // A press that moves under the drag threshold is a click. On a linked chart that seeks the
+  // timelapse; a press that starts on the playhead and moves scrubs it instead of zooming.
+  // Everything else zooms.
   let plotDrag = $state<TimeWindow | null>(null)
 
   const onPlotPointerDown = (event: PointerEvent): void => {
@@ -724,43 +463,13 @@
     const dragView = { from: shownView.from, to: shownView.to }
     void shownWindow.set(dragView, { duration: 0 })
     const clampView = (t: number): number => Math.min(dragView.to, Math.max(dragView.from, t))
-    const anchor = clampView(timeIn(dragView, event.clientX, plot.getBoundingClientRect().left))
+    const start = clampView(timeIn(dragView, event.clientX, plot.getBoundingClientRect().left))
     const startX = event.clientX
     let moved = false
     event.preventDefault()
     plot.focus({ preventScroll: true })
-    let stops: (() => void)[] = []
-    const finish = (clientX?: number, clientY?: number): void => {
-      for (const stop of stops) stop()
-      stops = []
-      const drag = plotDrag
-      plotDrag = null
-      scrubbing = false
-      if (drag !== null) {
-        timeWindow.select(
-          clampWindow(
-            {
-              from: snapTime(Math.min(drag.from, drag.to), resolution, from, to),
-              to: snapTime(Math.max(drag.from, drag.to), resolution, from, to),
-            },
-            from,
-            to,
-            timeWindow.minSelection,
-          ),
-        )
-      }
-      if (clientX === undefined || clientY === undefined) return
-      const bounds = plot.getBoundingClientRect()
-      const inside =
-        clientX >= bounds.left &&
-        clientX <= bounds.right &&
-        clientY >= bounds.top &&
-        clientY <= bounds.bottom
-      if (!inside) hover = null
-    }
-    stops = [
-      listen('pointermove', (move) => {
-        if (move.pointerId !== event.pointerId) return
+    followPointer(event.pointerId, {
+      move: (move) => {
         const left = plot.getBoundingClientRect().left
         const current = clampView(timeIn(dragView, move.clientX, left))
         if (!moved && Math.abs(move.clientX - startX) > DRAG_THRESHOLD_PX) moved = true
@@ -768,192 +477,41 @@
           scrubbing = true
           seek(current)
         } else if (moved) {
-          plotDrag = { from: anchor, to: current }
+          plotDrag = { from: start, to: current }
         }
         hoverPointer(move.clientX, left)
-      }),
-      listen('pointerup', (up) => {
-        if (up.pointerId !== event.pointerId) return
+      },
+      end: (end, cancelled) => {
         // A cancelled press, such as a touch the browser took for scrolling, never seeks.
-        if (!moved && seek !== undefined) seek(anchor)
-        finish(up.clientX, up.clientY)
-      }),
-      listen('pointercancel', (cancel) => {
-        if (cancel.pointerId !== event.pointerId) return
-        if (moved && scrub) cancelScrub?.()
-        finish()
-      }),
-    ]
-  }
-
-  // ── Brush strip ──────────────────────────────────────────────────────────────────────────────
-  // The strip under the chart holds the whole fetched range in miniature. Drag a grip to resize
-  // the window, drag the window to slide it, drag empty track to draw a fresh one.
-  const BRUSH_HEIGHT = 40
-  const BRUSH_OBSERVATION_HALF_WIDTH = 2
-  const brushPad = { top: 4, bottom: 4 }
-
-  const bx = $derived((t: number) => pad.left + ((t - from) / Math.max(1, span)) * plotWidth)
-  const brushTime = (clientX: number, left: number): number =>
-    snapTime(from + ((clientX - left - pad.left) / plotWidth) * span, resolution, from, to)
-
-  /** The full range's observed progress, with placement totals only when observations are absent. */
-  const brushGeometry = $derived.by(() => {
-    const segments = observed
-      ? progressSegments.map((segment) =>
-          clipSeries(segment, from, to, lerpProgress).map((point) => ({
-            t: point.t, v: point.v + point.mismatched,
-          })),
-        )
-      : [points.map((point) => ({ t: point.t, v: point.cumPlaced }))]
-    const max = Math.max(1, ...segments.flatMap((segment) => segment.map((point) => point.v)))
-    const y = (v: number) =>
-      BRUSH_HEIGHT - brushPad.bottom - (v / max) * (BRUSH_HEIGHT - brushPad.top - brushPad.bottom)
-    const outline = segments.filter((segment) => segment.length > 1).map((segment) => {
-      const first = segment[0]
-      const last = segment.at(-1)
-      if (first === undefined || last === undefined) return ''
-      const top = segment
-        .map((point, index) => `${index === 0 ? 'M' : 'L'}${bx(point.t).toFixed(1)},${y(point.v).toFixed(1)}`)
-        .join('')
-      return `${top}L${bx(last.t).toFixed(1)},${BRUSH_HEIGHT - brushPad.bottom}L${bx(first.t).toFixed(1)},${BRUSH_HEIGHT - brushPad.bottom}Z`
-    }).join('')
-    const isolated = segments.filter((segment) => segment.length === 1).flat()
-      .map((point) => ({ x: bx(point.t), y: y(point.v) }))
-    return { outline, isolated }
-  })
-
-  type Edge = 'head' | 'tail'
-  type BrushDrag = Edge | 'move' | 'new'
-  let brushDrag = $state<BrushDrag | null>(null)
-
-  const BRUSH_TARGET_SIZE = 44
-  const BRUSH_HANDLE_TARGET_SIZE = BRUSH_TARGET_SIZE * 1.5
-  const brushWindowWidth = $derived(bx(view.to) - bx(view.from))
-  const moveTargetWidth = $derived(Math.max(BRUSH_TARGET_SIZE, brushWindowWidth))
-  const moveTargetLeft = $derived(
-    (bx(view.from) + bx(view.to) - moveTargetWidth) / 2,
-  )
-  const keyStep = $derived(windowKeyStep(span, resolution))
-
-  const onBrushPointerDown = (event: PointerEvent): void => {
-    if (event.button !== 0) return
-    const strip = event.currentTarget as HTMLDivElement
-    const grip =
-      event.target instanceof Element ? event.target.closest<HTMLElement>('[data-handle]') : null
-    const moveTarget =
-      event.target instanceof Element
-        ? event.target.closest<HTMLElement>('[data-brush-move]')
-        : null
-    const t = brushTime(event.clientX, strip.getBoundingClientRect().left)
-    const start = view
-    const kind: BrushDrag =
-      grip?.dataset.handle === 'head'
-        ? 'head'
-        : grip?.dataset.handle === 'tail'
-          ? 'tail'
-          : moveTarget !== null || (t > start.from && t < start.to)
-            ? 'move'
-            : 'new'
-    const grabOffset = t - start.from
-    const startX = event.clientX
-    let moved = false
-    brushDrag = kind
-    event.preventDefault()
-    grip?.focus({ preventScroll: true })
-    let stops: (() => void)[] = []
-    const finish = (): void => {
-      for (const stop of stops) stop()
-      stops = []
-      brushDrag = null
-    }
-    const move = (moveEvent: PointerEvent): void => {
-      if (moveEvent.pointerId !== event.pointerId) return
-      const current = brushTime(moveEvent.clientX, strip.getBoundingClientRect().left)
-      if (!moved && Math.abs(moveEvent.clientX - startX) > DRAG_THRESHOLD_PX) moved = true
-      switch (kind) {
-        case 'head':
-          timeWindow.select({ from: Math.min(current, view.to - timeWindow.minSelection), to: view.to })
-          break
-        case 'tail':
-          timeWindow.select({ from: view.from, to: Math.max(current, view.from + timeWindow.minSelection) })
-          break
-        case 'move': {
-          const size = start.to - start.from
-          const next = Math.min(to - size, Math.max(from, current - grabOffset))
-          timeWindow.select({ from: next, to: next + size })
-          break
+        if (cancelled && moved && scrub) cancelScrub?.()
+        if (!cancelled && !moved && seek !== undefined) seek(start)
+        const drag = plotDrag
+        plotDrag = null
+        scrubbing = false
+        if (drag !== null) {
+          timeWindow.select(
+            clampWindow(
+              {
+                from: snapTime(Math.min(drag.from, drag.to), resolution, from, to),
+                to: snapTime(Math.max(drag.from, drag.to), resolution, from, to),
+              },
+              from,
+              to,
+              timeWindow.minSelection,
+            ),
+          )
         }
-        case 'new':
-          if (moved) timeWindow.select({ from: Math.min(t, current), to: Math.max(t, current) })
-          break
-      }
-    }
-    stops = [
-      listen('pointermove', move),
-      listen('pointerup', (up) => {
-        if (up.pointerId === event.pointerId) finish()
-      }),
-      listen('pointercancel', (cancel) => {
-        if (cancel.pointerId === event.pointerId) finish()
-      }),
-    ]
+        if (cancelled) return
+        const bounds = plot.getBoundingClientRect()
+        const inside =
+          end.clientX >= bounds.left &&
+          end.clientX <= bounds.right &&
+          end.clientY >= bounds.top &&
+          end.clientY <= bounds.bottom
+        if (!inside) hover = null
+      },
+    })
   }
-
-  const onGripKey = (edge: Edge, event: KeyboardEvent): void => {
-    const step = keyStep * (event.shiftKey ? 10 : 1)
-    let delta: number | null = null
-    switch (event.key) {
-      case 'ArrowLeft':
-      case 'ArrowDown':
-        delta = -step
-        break
-      case 'ArrowRight':
-      case 'ArrowUp':
-        delta = step
-        break
-      case 'PageDown':
-        delta = -keyStep * 10
-        break
-      case 'PageUp':
-        delta = keyStep * 10
-        break
-      case 'Home':
-        timeWindow.select(
-          edge === 'head'
-            ? { from, to: view.to }
-            : { from: view.from, to: view.from + timeWindow.minSelection },
-        )
-        break
-      case 'End':
-        timeWindow.select(
-          edge === 'head'
-            ? { from: view.to - timeWindow.minSelection, to: view.to }
-            : { from: view.from, to },
-        )
-        break
-      case 'Escape':
-        timeWindow.reset()
-        break
-      default:
-        return
-    }
-    event.preventDefault()
-    if (delta === null) return
-    timeWindow.select(
-      edge === 'head'
-        ? { from: Math.min(view.to - timeWindow.minSelection, Math.max(from, view.from + delta)), to: view.to }
-        : {
-            from: view.from,
-            to: Math.max(view.from + timeWindow.minSelection, Math.min(to, view.to + delta)),
-          },
-    )
-  }
-
-  const grips = $derived<readonly { edge: Edge; t: number; min: number; max: number }[]>([
-    { edge: 'head', t: view.from, min: from, max: view.to - timeWindow.minSelection },
-    { edge: 'tail', t: view.to, min: view.from + timeWindow.minSelection, max: to },
-  ])
 
   const chartLabel = $derived(
     `Cumulative pixels painted and rolling pace from ${formatTime(view.from)} to ${formatTime(view.to)}${
@@ -966,9 +524,7 @@
   )
 </script>
 
-<svelte:window bind:innerWidth={viewportWidth} bind:innerHeight={viewportHeight} />
-
-<div class="flex flex-col gap-3" bind:clientWidth={width}>
+<div class="chart flex flex-col gap-3" bind:clientWidth={width}>
   <div class="flex flex-wrap items-center gap-x-5 gap-y-2.5 text-xs">
     <div class="flex items-center gap-4 text-base-content/70">
       <span class="inline-flex items-center gap-2">
@@ -989,7 +545,7 @@
       <PacePicker options={paceOptions} onToggle={paces.toggleWindow} />
     </div>
 
-    {#if painters.length > 0 || paceWindows.some((pace) => pace.usable)}
+    {#if painters.length > 0 || paceWindows.some((pace) => pace.segments.length > 0)}
       <div class="flex flex-wrap items-center gap-2" role="group" aria-label="whose pace lines">
         <span class="text-base-content/65">who</span>
         <PainterPicker
@@ -1006,7 +562,7 @@
       </div>
     {/if}
 
-    {#if hasActivity}
+    {#if active}
       <div class="ms-auto flex items-center gap-2">
         <span class="text-base-content/65">range</span>
         <RangePresets
@@ -1019,7 +575,7 @@
     {/if}
   </div>
 
-  {#if hasActivity}
+  {#if active}
     <div class="relative">
       <!-- The image is focusable so keyboard users can walk the data points; the live region below
            reads each one out. -->
@@ -1036,10 +592,9 @@
           ? 'cursor-ew-resize'
           : 'cursor-crosshair'} rounded-lg outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
         bind:this={plotSvg}
-        {@attach wheelScrollsCard}
         onpointermove={(event) => {
           pointer = { x: event.clientX, y: event.clientY }
-          if (plotDrag === null && brushDrag === null && !scrubbing) {
+          if (plotDrag === null && !brushDragging && !scrubbing) {
             const left = event.currentTarget.getBoundingClientRect().left
             hoverPointer(event.clientX, left)
             nearPlayhead = overPlayhead(event.clientX, left, event.pointerType)
@@ -1193,7 +748,7 @@
           {#if liveEdge !== null}
             <circle
               cx={x(liveEdge.t)}
-              cy={yLeft(liveEdge.cumCorrect)}
+              cy={yLeft(liveEdge.correct)}
               r="4"
               fill="var(--chart-correct)"
               class="motion-safe:animate-ping"
@@ -1203,7 +758,7 @@
             />
             <circle
               cx={x(liveEdge.t)}
-              cy={yLeft(liveEdge.cumCorrect)}
+              cy={yLeft(liveEdge.correct)}
               r="3"
               fill="var(--chart-correct)"
               class="stroke-base-100"
@@ -1251,9 +806,9 @@
               y2={height - pad.bottom}
               class="stroke-base-content/25"
             />
-            {#if hover.cumCorrect !== null}<circle
+            {#if hover.correct !== null}<circle
               cx={x(hover.t)}
-              cy={yLeft(hover.cumCorrect)}
+              cy={yLeft(hover.correct)}
               r="3"
               fill="var(--chart-correct)"
               class="stroke-base-100"
@@ -1289,154 +844,31 @@
         {/if}
       </svg>
 
-      {#if hover !== null && hoverCardPlace !== null}
-        <div
-          class="pointer-events-none fixed z-50 overflow-y-auto overscroll-contain rounded-lg border border-base-300 bg-base-100 px-2.5 py-1.5 text-xs shadow-sm"
-          data-pace-tooltip
-          {@attach onBody}
-          bind:this={hoverCard}
-          bind:offsetHeight={hoverCardHeight}
-          in:pop={{ duration: motion(150) }}
-          out:pop={{ duration: motion(100) }}
-          style:transform-origin={hoverCardPlace.origin}
-          style:top="{hoverCardPlace.top}px"
-          style:left="{hoverCardPlace.left}px"
-          style:width="{hoverCardWidth}px"
-          style:max-height="{viewportHeight - 2 * CARD_EDGE}px"
-        >
-          <div class="font-medium tabular-nums">
-            {formatTime(hover.t)}{#if liveEdge !== null && hover.t === liveEdge.t}
-              <span class="ms-1 text-base-content/50">now</span>{/if}
-          </div>
-          {#if hover.archive}<div class="text-base-content/60">Eralyon snapshot</div>{/if}
-          <div class="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 tabular-nums">
-            <span class="inline-flex items-center gap-1.5">
-              <span class="size-2 rounded-xs" style:background="var(--chart-correct)"></span>
-              <span class="text-base-content/70">correct</span>
-              <span>{hover.cumCorrect?.toLocaleString() ?? 'No coverage'}</span>
-            </span>
-            <span class="inline-flex items-center gap-1.5">
-              <span class="size-2 rounded-xs bg-error"></span>
-              <span class="text-base-content/70">mismatched</span>
-              <span>{hover.cumMismatched?.toLocaleString() ?? 'No coverage'}</span>
-            </span>
-          </div>
-          {#if archiveSamples.length > 0 && activePaces.some((pace) => hover !== null && archiveCountsFor(pace.seconds) && hover.t - pace.seconds < (points[0]?.t ?? Infinity) && paceAt(pace.series, hover.t) !== null)}
-            <p class="mt-2 text-base-content/60">Includes imported net progress.</p>
-          {/if}
-          {#if hoverPaceRows.length > 0}
-            <div class="mt-2 flex items-center justify-between border-t border-base-300 pt-1.5 text-base-content/60">
-              <span>Pace</span><span>px/h</span>
-            </div>
-            <div class="divide-y divide-base-300/60 tabular-nums">
-              {#each hoverPaceRows as row (row.id)}
-                <div data-pace-row={row.id} class="grid items-start gap-x-3 gap-y-1 py-1.5 {hoverCardWidth < 480 && hoverWindowCount > 2 ? 'grid-cols-1' : 'grid-cols-[6rem_minmax(0,1fr)]'}">
-                  <span class="break-words font-medium">{row.name}</span>
-                  <div class="grid gap-x-3 gap-y-1" style:grid-template-columns="repeat(auto-fit, minmax(5.5rem, 1fr))">
-                    {#each row.rates as rate (rate.window)}
-                      <span data-pace-rate={rate.window} class="flex items-center gap-1 whitespace-nowrap">
-                        <span class="size-1.5 shrink-0 rounded-full" style:background={rate.colour} aria-hidden="true"></span>
-                        <span class="text-base-content/70">{rate.window}</span>
-                        <span class="ms-auto">{formatExactCount(Math.round(rate.value * 10) / 10)}</span>
-                      </span>
-                    {/each}
-                  </div>
-                </div>
-              {/each}
-            </div>
-          {/if}
-        </div>
-      {/if}
+      <PaceHoverCard
+        readout={hover}
+        now={hover !== null && hover.t === liveEdge?.t}
+        includesImport={hoverIncludesImport}
+        rows={hoverPaceRows}
+        windowCount={hoverWindowCount}
+        {pointer}
+        pinned={walkedPoint}
+        plot={plotSvg}
+      />
       <div class="sr-only" aria-live="polite">{announce}</div>
     </div>
 
-    <!-- The strip is a pointer gesture surface; its keyboard equivalent is the two grips inside. -->
-    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-    <div
-      class="relative isolate touch-none select-none {brushDrag === 'move'
-        ? 'cursor-grabbing'
-        : brushDrag === 'head' || brushDrag === 'tail'
-          ? 'cursor-ew-resize'
-          : 'cursor-crosshair'}"
-      style:height="{BRUSH_HEIGHT}px"
-      role="group"
-      aria-label="time window"
-      title="Drag to choose the time window. Double-click to show everything."
-      onpointerdown={onBrushPointerDown}
-      ondblclick={timeWindow.reset}
-    >
-      <svg {width} height={BRUSH_HEIGHT} shape-rendering="crispEdges" class="block" aria-hidden="true">
-        <rect
-          x={pad.left}
-          y={brushPad.top}
-          width={plotWidth}
-          height={BRUSH_HEIGHT - brushPad.top - brushPad.bottom}
-          rx="0"
-          class="fill-base-200"
-        />
-        <g class="chart-reveal">
-          <path data-brush-outline d={brushGeometry.outline} fill="var(--chart-placed)" opacity="0.35" />
-          {#each brushGeometry.isolated as point}
-            <line data-brush-observation
-              x1={point.x - BRUSH_OBSERVATION_HALF_WIDTH} x2={point.x + BRUSH_OBSERVATION_HALF_WIDTH}
-              y1={point.y} y2={point.y} stroke="var(--chart-placed)" stroke-width="2" />
-          {/each}
-        </g>
-        <rect
-          data-brush-window
-          x={bx(view.from)}
-          y={brushPad.top}
-          width={Math.max(0, bx(view.to) - bx(view.from))}
-          height={BRUSH_HEIGHT - brushPad.top - brushPad.bottom}
-          class="fill-primary/15 stroke-primary/70 {brushDrag === 'move' ? 'cursor-grabbing' : 'cursor-grab'}"
-        />
-        {#if playheadInRange !== null}
-          <line
-            data-brush-playhead
-            x1={bx(playheadInRange)}
-            x2={bx(playheadInRange)}
-            y1={brushPad.top}
-            y2={BRUSH_HEIGHT - brushPad.bottom}
-            class="pointer-events-none stroke-primary"
-            stroke-width="1.5"
-          />
-        {/if}
-      </svg>
-      {#if timeWindow.zoomed}
-        <span
-          data-brush-move
-          class="absolute inset-y-0 z-20 cursor-grab"
-          style:left="{moveTargetLeft}px"
-          style:width="{moveTargetWidth}px"
-          aria-hidden="true"
-        ></span>
-      {/if}
-      {#each grips as grip (grip.edge)}
-        <span
-          role="slider"
-          tabindex="0"
-          data-handle={grip.edge}
-          aria-label={grip.edge === 'head' ? 'window start' : 'window end'}
-          aria-orientation="horizontal"
-          aria-valuemin={grip.min}
-          aria-valuemax={grip.max}
-          aria-valuenow={grip.t}
-          aria-valuetext={formatTime(grip.t)}
-          class="absolute inset-y-0 z-10 flex cursor-ew-resize items-center outline-none focus-visible:outline-solid focus-visible:outline-[3px] focus-visible:outline-primary {grip.edge ===
-          'head'
-            ? 'justify-end'
-            : 'justify-start'}"
-          style:left="{grip.edge === 'head' ? bx(grip.t) - BRUSH_HANDLE_TARGET_SIZE : bx(grip.t)}px"
-          style:width="{BRUSH_HANDLE_TARGET_SIZE}px"
-          onkeydown={(event) => onGripKey(grip.edge, event)}
-        >
-          <span
-            class="h-[calc(100%-8px)] w-1.5 rounded-xs bg-primary"
-            aria-hidden="true"
-          ></span>
-        </span>
-      {/each}
-    </div>
+    <RangeBrush
+      {timeWindow}
+      {from}
+      {to}
+      {resolution}
+      {width}
+      plotLeft={pad.left}
+      {plotWidth}
+      series={brushSeries(samples, segments, buckets, { from, to, resolution })}
+      {playhead}
+      bind:dragging={brushDragging}
+    />
   {:else}
     <div
       style:height="{CHART_HEIGHT}px"
@@ -1455,7 +887,7 @@
    * out of the clip while it is active. Pace lines switched on later only fade, so the wipe stays a
    * once-per-load moment, and the global reduced-motion rule in app.css turns it into a cut.
    */
-  .chart-reveal {
+  .chart :global(.chart-reveal) {
     clip-path: none;
     animation: chart-reveal 600ms ease-out;
   }

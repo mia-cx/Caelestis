@@ -3,6 +3,7 @@
   import TemplateViewer from '#lib/components/TemplateViewer.svelte'
   import { persisted } from '#lib/persisted.svelte.js'
   import { STORAGE_KEYS } from '#lib/deployment.js'
+  import { formatTime } from '#lib/time-format.js'
   import { MIN_SPEED, speedToFit } from '#lib/timelapse.js'
   import type { TimelapsePlayer } from '#lib/timelapse-player.svelte.js'
 
@@ -45,14 +46,6 @@
   })
   const formatSpeed = (speed: number): string =>
     `${(speed < 1e15 ? compact : scientific).format(speed)}×`
-
-  const formatFrame = (t: number): string =>
-    new Date(t * 1000).toLocaleString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
 </script>
 
 {#if player.archiveError}<p class="text-sm text-error" role="alert">{player.archiveError}</p>{/if}
@@ -163,14 +156,14 @@
           player.seekTo(player.transport.toTime(event.currentTarget.valueAsNumber))}
         class="range range-xs range-primary min-w-40 flex-1"
         aria-label="timelapse position"
-        aria-valuetext={formatFrame(player.playhead)}
+        aria-valuetext={formatTime(player.playhead)}
         data-playhead={player.playhead}
       />
       <span class="w-32 shrink-0 text-end text-xs tabular-nums text-base-content/70">
         {#if player.live}
           <span class="badge badge-success badge-xs align-middle">{finished ? 'current' : 'live'}</span>
         {:else if player.scrubTime != null}
-          {formatFrame(player.playhead)}
+          {formatTime(player.playhead)}
         {/if}
       </span>
     {/if}

@@ -10,11 +10,6 @@ export const MAX_PAINTER_OPTIONS = 500
 export const MAX_SELECTED_PAINTERS = 50
 const DEFAULT_WINDOWS = ['1h', '6h']
 
-/** The coarsest bucket a rolling window can use: it needs at least two buckets. */
-export const maxPaceResolution = (windowSeconds: number): number => windowSeconds / 2
-export const paceWindowUsable = (windowSeconds: number, bucketSeconds: number): boolean =>
-  bucketSeconds <= maxPaceResolution(windowSeconds)
-
 /**
  * The next override map after toggling one painter, refusing to grow the selection past `max`
  * because `/painter-history` would refuse the request and every line would vanish with it.
