@@ -2,6 +2,7 @@ import {
   canvasPixelToLatLng,
   decodeWplaceIndexedPng,
   type ImportTemplateRecipe,
+  isRecord,
   latLngToCanvasPixel,
   MAX_MERCATOR_LATITUDE,
   MAX_TEMPLATE_PIXELS,
@@ -80,9 +81,6 @@ const checkedName = (value: unknown, fallback: string): string => {
   if (name.length > MAX_TEMPLATE_NAME_LENGTH) throw new Error('template name is too long')
   return name
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value)
 
 const yieldToBrowser = async (): Promise<void> => {
   const browserScheduler = (

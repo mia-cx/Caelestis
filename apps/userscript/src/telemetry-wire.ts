@@ -1,5 +1,6 @@
 import {
   type Alarm,
+  isRecord,
   PALETTE_SIZE,
   parseTileKey,
   type StatusDelta,
@@ -17,9 +18,6 @@ const UUID_V7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f
 const SHA256_HEX = /^[0-9a-f]{64}$/
 /** Status rows, alarms and removals are each bounded by the templates a manifest may carry. */
 const MAX_ROWS = MAX_MANIFEST_TEMPLATES
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value)
 
 const alarmFrom = (value: unknown): Alarm | null => {
   if (typeof value !== 'object' || value === null) return null

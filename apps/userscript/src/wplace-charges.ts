@@ -1,3 +1,4 @@
+import { isRecord } from '@caelestis/shared'
 import { count } from './debug.js'
 import { observePageRequests, type RequestRoute } from './page-requests.js'
 import { BACKEND_ORIGIN } from './wplace-raster.js'
@@ -41,9 +42,6 @@ const notify = (): void => {
     }
   }
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value)
 
 const projectedCount = (state: ChargeSnapshot, now: number): number =>
   Math.min(state.max, state.count + Math.max(0, now - state.at) / state.cooldownMs)

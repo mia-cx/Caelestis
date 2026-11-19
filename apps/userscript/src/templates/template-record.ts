@@ -1,4 +1,5 @@
 import {
+  isRecord,
   type TemplateSurface,
   type TemplateTag,
   templateSurface,
@@ -107,9 +108,6 @@ export const storedShape = <T extends { readonly origin: 'local' }>({
   origin: _origin,
   ...stored
 }: T): Omit<T, 'origin'> => stored
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value)
 
 const safeInteger = (value: unknown): number | null =>
   typeof value === 'number' && Number.isSafeInteger(value) ? value : null

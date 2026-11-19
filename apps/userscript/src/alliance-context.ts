@@ -1,5 +1,6 @@
 import {
   type AllianceTemplateSurfaceKind,
+  isRecord,
   type PixelBounds,
   type TemplateSurface,
   templateSurfaceBounds,
@@ -47,9 +48,6 @@ export interface AllianceContext {
   /** Called when the HQ advances without changing bounds. Returns the unsubscribe. */
   readonly onHeadquartersRevision: (listener: (allianceId: number) => void) => () => void
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value)
 
 const positiveInteger = (value: unknown): number | null =>
   Number.isSafeInteger(value) && Number(value) > 0 ? Number(value) : null

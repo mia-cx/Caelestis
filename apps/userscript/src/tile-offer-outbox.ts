@@ -1,4 +1,5 @@
 import {
+  isRecord,
   MAX_TILE_OFFERS,
   type PainterIdentity,
   type StatusDelta,
@@ -446,9 +447,6 @@ const telemetryWrite = (
     retry: true,
     maxBytes: MUTATION_REPLY_BYTES,
   }).catch(() => null)
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value)
 
 /** The tiles in `value` that were offered, or null when it is not a list. */
 const offeredTiles = (value: unknown, offered: ReadonlySet<string>): ReadonlySet<string> | null =>

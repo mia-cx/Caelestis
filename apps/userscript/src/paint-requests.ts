@@ -1,3 +1,4 @@
+import { isRecord } from '@caelestis/shared'
 import { count } from './debug.js'
 import { flushDraftWrites } from './draft-pixels.js'
 import { notifyEach } from './page-hooks.js'
@@ -42,9 +43,6 @@ export const onPaintSubmission = (listener: PaintSubmissionListener): (() => voi
   paintSubmissionListeners.add(listener)
   return () => paintSubmissionListeners.delete(listener)
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value)
 
 const observedPaintFrom = (
   body: unknown,

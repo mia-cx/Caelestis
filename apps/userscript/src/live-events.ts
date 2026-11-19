@@ -1,4 +1,5 @@
 import {
+  isRecord,
   type LiveMutationError,
   type LiveProjectionResource,
   type LiveProjectionState,
@@ -63,9 +64,6 @@ export type LiveEvent =
   | { readonly type: 'dashboard-snapshot' }
 
 type Fields = Record<string, unknown>
-
-const isRecord = (value: unknown): value is Fields =>
-  typeof value === 'object' && value !== null && !Array.isArray(value)
 
 const revisionOf = (value: unknown): number | null =>
   Number.isSafeInteger(value) && Number(value) >= 0 ? Number(value) : null

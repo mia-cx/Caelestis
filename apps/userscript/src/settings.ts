@@ -1,6 +1,7 @@
 import {
   defaultTemplateSort,
   EMPTY_TEMPLATE_FILTERS,
+  isRecord,
   isTemplateSortField,
   isWorkIdentity,
   normaliseShortcutOverrides,
@@ -164,9 +165,6 @@ const MAX_ALLIANCE_SURFACE_APPEARANCES = MAX_CONNECTED_SERVERS * 3
 /** As many browser-local folders as a reload will restore. Written past, the rest is dropped. */
 export const MAX_LOCAL_FOLDERS = 32_000
 const DEFAULT_PANEL_WIDTH = 320
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value)
 
 /** What a field's decoder may need beyond its own stored value. */
 interface DecodeContext {

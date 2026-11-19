@@ -1,4 +1,5 @@
 import {
+  isRecord,
   parseTemplateTags,
   SERVER_ASSET_MAX_BYTES,
   type ServerAssetKind,
@@ -29,9 +30,6 @@ import type { TemplateAuthoring } from './templates/authoring.js'
 /** The template server's admin HTTP API; manifests are read through `server-manifests.ts`. */
 
 const UUID_V7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value)
 
 type Failure = { readonly ok: false; readonly message: string }
 type Done = { readonly ok: true } | Failure

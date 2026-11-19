@@ -1,4 +1,9 @@
-import { MAX_TEMPLATE_PIXELS, type PixelBounds, sameTemplateSurface } from '@caelestis/shared'
+import {
+  isRecord,
+  MAX_TEMPLATE_PIXELS,
+  type PixelBounds,
+  sameTemplateSurface,
+} from '@caelestis/shared'
 import {
   type ActiveAllianceSurface,
   activeAllianceSurface,
@@ -47,9 +52,6 @@ interface AlliancePlacement {
   readonly colorPaletteMode: NonNullable<NativeTemplate['colorPaletteMode']>
 }
 
-const record = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value)
-
 export const nativeAllianceTarget = (active: ActiveAllianceSurface): NativeAllianceTarget | null =>
   active.surface.kind === 'alliance-headquarters'
     ? { target: 'headquarters' }
@@ -67,16 +69,16 @@ export const nativeAlliancePlacements = (
   target: NativeAllianceTarget,
   bounds: PixelBounds | null,
 ): readonly AlliancePlacement[] => {
-  if (!record(body) || !Array.isArray(body.templates))
+  if (!isRecord(body) || !Array.isArray(body.templates))
     throw new Error('Invalid Wplace alliance templates')
   if (bounds === null) return []
   return body.templates
     .map((value): AlliancePlacement | null => {
-      if (!record(value) || !Array.isArray(value.locations))
+      if (!isRecord(value) || !Array.isArray(value.locations))
         throw new Error('Invalid Wplace alliance template')
       const location = value.locations.find(
         (item): item is Record<string, unknown> =>
-          record(item) &&
+          isRecord(item) &&
           item.target === target.target &&
           (target.target !== 'draft' || item.draftId === target.draftId),
       )

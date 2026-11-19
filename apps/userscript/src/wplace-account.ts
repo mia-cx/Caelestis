@@ -1,4 +1,9 @@
-import { type PainterIdentity, TRANSPARENT_INDEX, WPLACE_PALETTE } from '@caelestis/shared'
+import {
+  isRecord,
+  type PainterIdentity,
+  TRANSPARENT_INDEX,
+  WPLACE_PALETTE,
+} from '@caelestis/shared'
 import { log, warn } from './debug.js'
 import { discardResponseBody } from './response.js'
 import { forgetCharges, observeCharges } from './wplace-charges.js'
@@ -51,9 +56,6 @@ const readBoundedJson = async (response: Response): Promise<unknown> => {
   }
   return text === '' ? null : JSON.parse(text)
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value)
 
 const premiumIndices = (): readonly number[] =>
   WPLACE_PALETTE.filter(

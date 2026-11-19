@@ -1,4 +1,4 @@
-import { latLngToCanvasPixel } from '@caelestis/shared'
+import { isRecord, latLngToCanvasPixel } from '@caelestis/shared'
 import { warn } from '../debug.js'
 import { serverTemplateKey } from '../tree-keys.js'
 import { findWplaceModules } from '../wplace-modules.js'
@@ -65,9 +65,6 @@ interface ProgressStore {
   refresh(): Promise<void>
 }
 
-const record = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null
-
 const templateIdOf = (index: number): string =>
   serverTemplateKey(WPLACE_OWNER_URL.event, `seven-seals-template-${index}`)
 
@@ -94,7 +91,7 @@ export const officialEvent = (now = Date.now()): OfficialEvent | null =>
 export const officialProgress = (fragment: OfficialFragment): TemplateProgress | undefined => {
   const state = progressStore?.copyState(fragment)
   if (
-    !record(state) ||
+    !isRecord(state) ||
     !Number.isSafeInteger(state.paintedPixels) ||
     !Number.isSafeInteger(state.totalPixels)
   )
@@ -114,19 +111,19 @@ const readEvent = (module: Record<string, unknown>): OfficialEvent | null => {
   const exports = Object.values(module)
   const info = exports.find(
     (value): value is { id: string; titleEn: string } =>
-      record(value) && typeof value.id === 'string' && typeof value.titleEn === 'string',
+      isRecord(value) && typeof value.id === 'string' && typeof value.titleEn === 'string',
   )
   const copies = exports.find(
     (value): value is unknown[] =>
       Array.isArray(value) &&
       value.length > 0 &&
-      value.every((item) => record(item) && 'bounds' in item),
+      value.every((item) => isRecord(item) && 'bounds' in item),
   )
   if (info === undefined || copies === undefined) return null
   const groups = new Map<number, OfficialGroup>()
   const fragments: OfficialFragment[] = []
   for (const copy of copies) {
-    if (!record(copy) || !record(copy.bounds) || !record(copy.seal)) return null
+    if (!isRecord(copy) || !isRecord(copy.bounds) || !isRecord(copy.seal)) return null
     const { index, number, opensAt } = copy
     const { x, y, width, height } = copy.bounds
     const { index: sealIndex, numeral } = copy.seal
@@ -168,7 +165,7 @@ export const installOfficialEvents = async (): Promise<void> => {
     progressStore =
       (Object.values(found.progress?.module ?? {}).find(
         (value) =>
-          record(value) &&
+          isRecord(value) &&
           typeof value.copyState === 'function' &&
           typeof value.refresh === 'function',
       ) as ProgressStore | undefined) ?? null
@@ -223,7 +220,7 @@ interface OverlayMap {
 }
 
 const isOverlayMap = (map: unknown): map is OverlayMap =>
-  record(map) &&
+  isRecord(map) &&
   ['getLayersOrder', 'getLayer', 'getLayoutProperty', 'setLayoutProperty', 'on'].every(
     (method) => typeof map[method] === 'function',
   )

@@ -1,3 +1,4 @@
+import { isRecord } from '@caelestis/shared'
 import { registerDebugEntry } from './console-api.js'
 import { log } from './debug.js'
 import { storedSwitches } from './stored-switches.js'
@@ -93,7 +94,7 @@ type WplaceOption = keyof typeof OPTION_DEFAULTS
 
 const options = storedSwitches<WplaceOption>('caelestis.wplace-options.v1', OPTION_DEFAULTS, {
   parse: (stored) =>
-    typeof stored === 'object' && stored !== null
+    isRecord(stored)
       ? Object.fromEntries(
           Object.entries(stored).filter(
             ([key, value]) => Object.hasOwn(OPTION_DEFAULTS, key) && typeof value === 'boolean',

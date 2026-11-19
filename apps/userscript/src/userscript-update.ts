@@ -1,3 +1,4 @@
+import { isRecord } from '@caelestis/shared'
 import { userscriptVersion } from './client-metrics.js'
 import { getState } from './settings.js'
 import { showAmbientToast } from './ui/notification-host.js'
@@ -51,9 +52,6 @@ export const backendVersionOutdated = (
     compareVersions(advertised.parts, baseline.parts) < 0
   )
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value)
 
 const decodeLatestVersion = (value: unknown): PublishedVersion | null => {
   if (!isRecord(value) || value.draft !== false || value.prerelease !== false) return null

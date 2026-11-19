@@ -1,3 +1,4 @@
+import { isRecord } from './guards.js'
 import type { PainterIdentity } from './telemetry.js'
 import type { TemplateSurface } from './template-surface.js'
 
@@ -102,8 +103,6 @@ export const filterWork = (items: readonly WorkItem[], filter: WorkFilter): read
   })
 }
 
-const record = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value)
 const text = (value: unknown, min: number, max: number): value is string =>
   typeof value === 'string' && value.trim().length >= min && value.length <= max
 const uuid = (value: unknown): value is string =>
@@ -117,7 +116,7 @@ const ids = (value: unknown): value is readonly string[] =>
 
 /** Validate public identity labels, without asserting ownership of the Wplace account. */
 export const isWorkIdentity = (value: unknown): value is PainterIdentity =>
-  record(value) &&
+  isRecord(value) &&
   typeof value.wplaceUserId === 'number' &&
   Number.isSafeInteger(value.wplaceUserId) &&
   value.wplaceUserId >= 0 &&
@@ -125,7 +124,7 @@ export const isWorkIdentity = (value: unknown): value is PainterIdentity =>
 
 /** Validate editable work fields at HTTP and persisted-client boundaries. */
 export const isWorkFields = (value: unknown): value is WorkFields =>
-  record(value) &&
+  isRecord(value) &&
   text(value.title, 1, 160) &&
   text(value.description, 0, 4096) &&
   WORK_STATUSES.some((status) => status === value.status) &&
@@ -140,7 +139,7 @@ export const isWorkFields = (value: unknown): value is WorkFields =>
 
 /** Validate the work response before rendering data supplied by a server. */
 export const isWorkItem = (value: unknown): value is WorkItem => {
-  if (!isWorkFields(value) || !record(value)) return false
+  if (!isWorkFields(value) || !isRecord(value)) return false
   const surface = value.surface
   return (
     uuid(value.id) &&
@@ -159,7 +158,7 @@ export const isWorkItem = (value: unknown): value is WorkItem => {
         value.claimants.every(isWorkIdentity) &&
         new Set(value.claimants.map((person) => person.wplaceUserId)).size ===
           value.claimants.length)) &&
-    record(surface) &&
+    isRecord(surface) &&
     ((surface.kind === 'world' && surface.allianceId === null) ||
       (['alliance-headquarters', 'alliance-picture', 'alliance-banner'].includes(
         String(surface.kind),
