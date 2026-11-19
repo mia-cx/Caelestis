@@ -537,11 +537,9 @@ const buildMenu = (template: PlacedTemplate, rerender: () => void): BuiltOverlay
       'input[type="range"]',
     ) ?? []) {
       if (input.disabled || input.getAttribute('aria-disabled') === 'true') continue
-      rangeGestures.bind(input, () => {}, {
-        // After the element has dispatched its own commit for the gesture's last value, so the
-        // rebuild the held slider deferred sees it.
-        afterSettle: () => setTimeout(() => lastRerender?.(), 0),
-      })
+      // After the element has dispatched its own commit for the gesture's last value, so the
+      // rebuild the held slider deferred sees it.
+      rangeGestures.bind(input, () => setTimeout(() => lastRerender?.(), 0))
     }
   }, 0)
   return { menu, actions }

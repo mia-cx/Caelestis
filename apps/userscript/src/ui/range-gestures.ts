@@ -11,16 +11,8 @@ const MOVEMENT_KEYS = new Set([
 
 const POINTER_ENDINGS = ['pointerup', 'pointercancel', 'lostpointercapture'] as const
 
-interface RangeGestureOptions {
-  readonly afterSettle?: () => void
-}
-
 interface RangeGestures {
-  readonly bind: (
-    input: HTMLInputElement,
-    settle: () => void,
-    options?: RangeGestureOptions,
-  ) => void
+  readonly bind: (input: HTMLInputElement, settle: () => void) => void
   readonly isHeldWithin: (root: HTMLElement | null) => boolean
   readonly releaseDisconnected: (isConnected: (input: HTMLInputElement) => boolean) => void
   readonly releaseAll: () => void
@@ -75,11 +67,10 @@ export const createRangeGestures = (): RangeGestures => {
   }
 
   return {
-    bind: (input, settle, options = {}) => {
+    bind: (input, settle) => {
       const finish = (): void => {
         if (heldByKey === input) heldByKey = null
         settle()
-        options.afterSettle?.()
       }
       input.addEventListener('pointerdown', (event) => beginPointer(input, event, finish))
       for (const ending of POINTER_ENDINGS) {
