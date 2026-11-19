@@ -23,7 +23,11 @@ import { onServerSnapshot } from './application/tree-server-state.js'
 import { canWriteClaims, claimServers, onClaimsChange, serverClaims } from './claim-store.js'
 import { warn } from './debug.js'
 import { claimRegion, type RegionWriteResult, releaseRegion } from './region-api.js'
-import { serverConnectionIdentity } from './server-connections.js'
+import {
+  onServerConnected,
+  onServerRemoving,
+  serverConnectionIdentity,
+} from './server-connections.js'
 import type { ServerTemplate } from './server-manifest.js'
 import { manifestRows } from './server-manifests.js'
 import { onStateChange, type ServerConnection } from './settings.js'
@@ -679,7 +683,7 @@ const scheduleRetry = (): void => {
   if (retryTimer !== null || !localRouter().failing) return
   retryTimer = setTimeout(() => {
     retryTimer = null
-    void operations
+    void claimRouter
       .reconcile()
       .catch((error: unknown) => warn('claim routing failed', String(error)))
   }, RETRY_MS)
@@ -712,7 +716,9 @@ const withClaims = <T>(operation: (router: ClaimRouter) => Promise<T>): Promise<
 }
 
 let pendingReconciliation: Promise<void> | null = null
-const operations = {
+
+/** Share claim intent across tabs; one browser-wide writer reconciles it at a time. */
+export const claimRouter = {
   /** This painter's unexpired live claims, as the journal holds them now. */
   mine: (): RegionClaim[] =>
     journal
@@ -731,24 +737,24 @@ const operations = {
     (pendingReconciliation ??= withClaims((router) => router.reconcile()).finally(() => {
       pendingReconciliation = null
     })),
-  // Disconnection must retain its deadline even if another tab holds the mutation lock.
-  disconnect: (server: ServerConnection) => localRouter().disconnect(server),
-  /** An explicit reconnect authorizes claim delivery to this server again. */
-  connect: (server: ServerConnection) => journal.setRetired(server, false),
 }
 
-/** Share claim intent across tabs; one browser-wide writer reconciles it at a time. */
-export const claimRouter = () => operations
-
-/** Reconcile whenever claims, connections, or catalogs change; failures retry on their own. */
+/**
+ * Reconcile whenever claims, connections, or catalogs change; failures retry on their own. A
+ * server the user connects may receive claims again; one they disconnect is retired, and this
+ * painter's claims on it are withdrawn while its credential still exists.
+ */
 export const installClaimRouting = (): void => {
   const reconcile = () => {
-    void claimRouter()
+    void claimRouter
       .reconcile()
       .catch((error: unknown) => warn('claim routing failed', String(error)))
   }
   onClaimsChange(reconcile)
   onStateChange(reconcile)
   onServerSnapshot(reconcile)
+  onServerConnected((server) => journal.setRetired(server, false))
+  // Not behind the mutation lock: disconnecting keeps its deadline even while another tab holds it.
+  onServerRemoving((server) => localRouter().disconnect(server))
   reconcile()
 }

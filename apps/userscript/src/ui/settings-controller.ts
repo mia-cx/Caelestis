@@ -1,17 +1,22 @@
 import { assignShortcutBinding } from '@caelestis/shared'
 import type { SettingsIntent, SettingsModel } from '@caelestis/ui/elements'
 import { prefetchAccessTokens } from '../application/token-inventory.js'
-import { cancelDestinationAdmissions } from '../application/transfer.js'
+import { cancelTreeActionSetup } from '../application/tree-presentation.js'
 import { importFromOtherBuild, otherBuild, sendToOtherBuild } from '../build-transfer.js'
-import { claimRouter } from '../claim-routing.js'
 import { expectedBackendVersion, userscriptVersion } from '../client-metrics.js'
 import { log } from '../debug.js'
 import { applyGlobalSettingsIntent, globalSettingsModel } from '../global-settings.js'
 import { consumeInvite } from '../invite.js'
+import { redraw } from '../map-view.js'
 import { runningBuild } from '../page-claim.js'
 import { isProfileEnabled, profileReport, profileSnapshot, resetProfile } from '../profile.js'
-import { isCurrentServerConnection, probeServer, upsertServer } from '../server-connections.js'
-import { canonicalServerUrl } from '../server-url.js'
+import {
+  connectServer,
+  onServerRemoved,
+  removeServer,
+  serverByUrl,
+  serverLabel,
+} from '../server-connections.js'
 import { getState, MAX_CONNECTED_SERVERS, setState } from '../settings.js'
 import { activeShortcutBindings, currentShortcutPlatform } from '../shortcuts.js'
 import { backendVersionOutdated } from '../userscript-update.js'
@@ -24,6 +29,7 @@ import {
 } from './access-tokens.js'
 import { requestConfirmation, showToast } from './notification-host.js'
 import { syncPanelButtons } from './rail.js'
+import { treeActionUsesServer } from './tree-copy.js'
 
 /**
  * The panel's settings view: its model, what its intents do, and the state only it keeps — which
@@ -31,7 +37,7 @@ import { syncPanelButtons } from './rail.js'
  */
 
 /** Which servers' rows are open. Kept across re-renders, which rebuild the whole pane. */
-export const expandedServers = new Set<string>()
+const expandedServers = new Set<string>()
 
 /**
  * Servers whose row has already been opened for them, so it is done once and not fought over.
@@ -39,8 +45,12 @@ export const expandedServers = new Set<string>()
  * A server asking for a token is opened without being asked, because the one thing it needs is
  * inside. Doing that on every render would mean it could never be closed again.
  */
-export const autoExpanded = new Set<string>()
-export const disconnectingServerUrls = new Set<string>()
+const autoExpanded = new Set<string>()
+
+onServerRemoved((url) => {
+  expandedServers.delete(url)
+  autoExpanded.delete(url)
+})
 
 const settingsMessages = new Map<string, string>()
 /** The last recorded chord and the actions it displaced, shown until the next change. */
@@ -205,42 +215,35 @@ export const setSettingsVisible = (visible: boolean): void => {
   }
 }
 
-const connectServer = async (value: string): Promise<void> => {
+const SERVER_LIMIT_MESSAGE = `Already connected to ${MAX_CONNECTED_SERVERS} servers. Disconnect one first.`
+
+const addServer = async (value: string): Promise<void> => {
   if (addServerPending) return
   addServerPending = true
   addServerMessage = 'Connecting…'
   refreshSettings()
   try {
-    let canonical: string | null = null
-    try {
-      canonical = canonicalServerUrl(value)
-    } catch {
-      /* probe reports the address error */
+    const outcome = await connectServer(value, null)
+    switch (outcome.kind) {
+      case 'connected':
+        addServerMessage = undefined
+        break
+      case 'superseded':
+        break
+      case 'already':
+        addServerMessage = `${outcome.server.url} is already connected.`
+        break
+      case 'busy':
+        addServerMessage = `${outcome.disconnecting ? 'Still disconnecting' : 'Still connecting to'} ${outcome.url}. Try again in a moment.`
+        break
+      case 'unreachable':
+      case 'refused':
+        addServerMessage = `Could not reach ${outcome.server.url}. Check the address and that the server allows this origin.`
+        break
+      case 'full':
+        addServerMessage = SERVER_LIMIT_MESSAGE
+        break
     }
-    if (canonical !== null && getState().servers.some((server) => server.url === canonical)) {
-      addServerMessage = `${canonical} is already connected.`
-      return
-    }
-    if (canonical !== null && disconnectingServerUrls.has(canonical)) {
-      addServerMessage = `Still disconnecting ${canonical}. Try again in a moment.`
-      return
-    }
-    const server = await probeServer(value, null)
-    if (server.superseded === true) return
-    if (server.status === 'unreachable') {
-      addServerMessage = `Could not reach ${server.url}. Check the address and that the server allows this origin.`
-      return
-    }
-    if (getState().servers.some((one) => one.url === server.url)) {
-      addServerMessage = `${server.url} is already connected.`
-      return
-    }
-    if (!upsertServer(server)) {
-      addServerMessage = `Already connected to ${MAX_CONNECTED_SERVERS} servers. Disconnect one first.`
-      return
-    }
-    claimRouter().connect(server)
-    addServerMessage = undefined
   } finally {
     addServerPending = false
     refreshSettings()
@@ -248,32 +251,47 @@ const connectServer = async (value: string): Promise<void> => {
 }
 
 const updateServerToken = async (url: string, token: string): Promise<void> => {
-  const server = getState().servers.find((candidate) => candidate.url === url)
-  if (server === undefined || pendingServers.has(url)) return
+  if (serverByUrl(url) === undefined || pendingServers.has(url)) return
   pendingServers.add(url)
   settingsMessages.set(url, 'Checking…')
   refreshSettings()
   try {
-    const next = await probeServer(url, token)
-    // The panel stays usable during the probe; a server disconnected meanwhile must not come back.
-    if (next.superseded === true || !isCurrentServerConnection(server)) return
-    if (next.status === 'connected') {
-      cancelDestinationAdmissions(url)
-      if (upsertServer(next)) claimRouter().connect(next)
-      expandedServers.delete(url)
-      settingsMessages.delete(url)
-      return
+    const outcome = await connectServer(url, token)
+    switch (outcome.kind) {
+      case 'connected':
+        expandedServers.delete(url)
+        settingsMessages.delete(url)
+        break
+      case 'refused':
+        settingsMessages.set(
+          url,
+          'That token was not accepted. Ask whoever runs the server for a current one.',
+        )
+        break
+      case 'unreachable':
+        settingsMessages.set(
+          url,
+          `Could not reach the server. ${outcome.server.error ?? ''}`.trim(),
+        )
+        break
     }
-    settingsMessages.set(
-      url,
-      next.status === 'needs-token'
-        ? 'That token was not accepted. Ask whoever runs the server for a current one.'
-        : `Could not reach the server. ${next.error ?? ''}`.trim(),
-    )
   } finally {
     pendingServers.delete(url)
     refreshSettings()
   }
+}
+
+/**
+ * Disconnect: take the server out of the list, and everything it put on this machine with it.
+ * The connection's own teardown (`removeServer`) clears every per-server cache; what is left here
+ * is the tree action waiting on it as a destination.
+ */
+const disconnectServer = async (url: string): Promise<void> => {
+  if (serverByUrl(url) === undefined) return
+  if (treeActionUsesServer(url)) cancelTreeActionSetup(new Error('copy destination disconnected'))
+  await removeServer(url)
+  redraw()
+  refreshSettings()
 }
 
 /**
@@ -283,20 +301,32 @@ const updateServerToken = async (url: string, token: string): Promise<void> => {
  * Wplace's own query string and history state.
  */
 export const openInviteFromLocation = async (): Promise<void> => {
-  await consumeInvite({
-    hash: location.hash,
-    clearHash: () => history.replaceState(history.state, '', location.pathname + location.search),
-    servers: () => getState().servers,
-    probe: (url, token) => probeServer(url, token),
-    upsert: (server) => upsertServer(server),
-    connected: (server, replacing) => {
-      if (replacing) cancelDestinationAdmissions(server.url)
-      claimRouter().connect(server)
-    },
-    notify: (message, tone) => showToast(message, tone),
-    isBusy: (url) =>
-      pendingServers.has(url) || disconnectingServerUrls.has(url) || addServerPending,
-  })
+  const outcome = await consumeInvite(location.hash, () =>
+    history.replaceState(history.state, '', location.pathname + location.search),
+  )
+  switch (outcome?.kind) {
+    case 'malformed':
+      showToast("That invite link isn't valid.", 'error')
+      break
+    case 'busy':
+      showToast(`Still connecting to ${outcome.url}. Open the invite again in a moment.`, 'error')
+      break
+    case 'already':
+      showToast(`Already connected to ${serverLabel(outcome.server)}.`, 'info')
+      break
+    case 'connected':
+      showToast(`Connected to ${serverLabel(outcome.server)}.`, 'info')
+      break
+    case 'full':
+      showToast(SERVER_LIMIT_MESSAGE, 'error')
+      break
+    case 'refused':
+      showToast(`${outcome.server.url} didn't accept the invite's token.`, 'error')
+      break
+    case 'unreachable':
+      showToast(`Could not reach ${outcome.server.url}.`, 'error')
+      break
+  }
   refreshSettings()
 }
 
@@ -331,24 +361,25 @@ const moveSettings = async (
   }
 }
 
-/** Every settings intent but disconnecting, which the panel owns. */
-export const handleSettingsIntent = (
-  intent: Exclude<SettingsIntent, { readonly type: 'disconnect-server' }>,
-): void => {
+/** Carry out one intent from the settings view. */
+export const handleSettingsIntent = (intent: SettingsIntent): void => {
   switch (intent.type) {
     case 'add-server':
-      void connectServer(intent.url)
+      void addServer(intent.url)
+      break
+    case 'disconnect-server':
+      void disconnectServer(intent.url)
       break
     case 'toggle-server':
       if (intent.expanded) {
         expandedServers.add(intent.url)
-        const server = getState().servers.find((candidate) => candidate.url === intent.url)
+        const server = serverByUrl(intent.url)
         if (server?.isAdmin === true) reloadAccessTokens(server, refreshSettings)
       } else expandedServers.delete(intent.url)
       refreshSettings()
       break
     case 'prefetch-server': {
-      const server = getState().servers.find((candidate) => candidate.url === intent.url)
+      const server = serverByUrl(intent.url)
       if (server !== undefined) prefetchAccessTokens(server)
       break
     }
@@ -356,18 +387,18 @@ export const handleSettingsIntent = (
       void updateServerToken(intent.url, intent.token)
       break
     case 'load-more-access-tokens': {
-      const server = getState().servers.find((candidate) => candidate.url === intent.url)
+      const server = serverByUrl(intent.url)
       if (server?.isAdmin === true) loadMoreAccessTokens(server, refreshSettings)
       break
     }
     case 'create-access-token': {
-      const server = getState().servers.find((candidate) => candidate.url === intent.url)
+      const server = serverByUrl(intent.url)
       if (server?.isAdmin === true)
         createServerAccessToken(server, intent.label, intent.scope, refreshSettings)
       break
     }
     case 'revoke-access-token': {
-      const server = getState().servers.find((candidate) => candidate.url === intent.url)
+      const server = serverByUrl(intent.url)
       if (server?.isAdmin === true)
         revokeServerAccessToken(server, intent.tokenHash, intent.label, refreshSettings)
       break

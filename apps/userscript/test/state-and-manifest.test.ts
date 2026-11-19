@@ -56,6 +56,25 @@ describe('saved server state', () => {
     expect(signal.aborted).toBe(true)
   })
 
+  it('gives a reconnected server a new live client id', async () => {
+    const state = await loadState()
+    const { liveClientId } = await import('../src/live-identity.js')
+    const server = {
+      url: 'https://example.test',
+      info: { id: serverId, name: 'Example', auth: 'none' as const },
+      token: null,
+      status: 'connected' as const,
+      isAdmin: false,
+      season: 1,
+    }
+    state.upsertServer(server)
+    const first = liveClientId(server.url)
+    await state.removeServer(server.url)
+    expect(Object.keys(localStorage).some((key) => key.includes('live-client-id'))).toBe(false)
+    state.upsertServer(server)
+    expect(liveClientId(server.url)).not.toBe(first)
+  })
+
   it('notifies nobody when an offline retry finds the server still offline', async () => {
     vi.useFakeTimers({ toFake: ['setInterval'] })
     const state = await loadState()
@@ -69,8 +88,7 @@ describe('saved server state', () => {
       season: null,
     }
     state.upsertServer(offline)
-    const redraw = vi.fn()
-    state.installServerConnectionRetry(redraw)
+    state.installServerConnections()
     // Each retry probes the blocked network, so the server stays unreachable.
     const retry = async () => {
       await vi.advanceTimersByTimeAsync(5_000)
@@ -79,10 +97,8 @@ describe('saved server state', () => {
     await retry()
     const listener = vi.fn()
     state.onStateChange(listener)
-    redraw.mockClear()
     await retry()
     expect(listener).not.toHaveBeenCalled()
-    expect(redraw).not.toHaveBeenCalled()
     const { error: _, ...reachable } = offline
     state.upsertServer({ ...reachable, status: 'connected', season: 1 })
     expect(listener).toHaveBeenCalledTimes(1)

@@ -542,28 +542,19 @@ describe('userscript to backend API boundary', () => {
       const saved = localStorage.getItem('caelestis.state.v2')
       const { consumeInvite, encodeInvite } = await import('../src/invite.js')
       const connected = vi.fn()
-      const notify = vi.fn()
+      state.onServerConnected(connected)
       const clearHash = vi.fn()
 
-      await consumeInvite({
-        hash: `#${encodeInvite(origin, 'rejected-invite-token')}`,
+      const outcome = await consumeInvite(
+        `#${encodeInvite(origin, 'rejected-invite-token')}`,
         clearHash,
-        servers: () => state.getState().servers,
-        probe: state.probeServer,
-        upsert: state.upsertServer,
-        connected,
-        notify,
-        isBusy: () => false,
-      })
+      )
 
       expect(clearHash).toHaveBeenCalledOnce()
       expect(state.getState().servers).toEqual(servers)
       expect(localStorage.getItem('caelestis.state.v2')).toBe(saved)
       expect(connected).not.toHaveBeenCalled()
-      expect(notify).toHaveBeenCalledExactlyOnceWith(
-        `${origin} didn't accept the invite's token.`,
-        'error',
-      )
+      expect(outcome?.kind).toBe('refused')
     },
   )
 

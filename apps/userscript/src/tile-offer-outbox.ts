@@ -23,6 +23,7 @@ import {
   connectedServerAt,
   connectedServers,
   isCurrentServerConnection,
+  onServerRemoved,
   serverConnectionIdentity,
 } from './server-connections.js'
 import { manifestCoverage } from './server-manifests.js'
@@ -196,6 +197,8 @@ const clearServer = (serverUrl: string): void => {
   dropOutbox(serverUrl)
   retrying.delete(serverUrl)
 }
+
+onServerRemoved(clearServer)
 
 const clearAll = (): void => {
   for (const serverUrl of new Set([...flushTimers.keys(), ...outboxes.keys(), ...retrying]))
@@ -763,13 +766,7 @@ export const reconcileTileOffers = (server: ConnectedServer, coverageChanged: bo
   if (coverageChanged) receipts.invalidateRejections(...receiptOf(server))
 }
 
-/** Drop every offer when sharing is off, and the offers of servers no longer configured. */
+/** Drop every offer when sharing is off. */
 export const pruneTileOffers = (): void => {
-  if (!getState().shareTiles) {
-    clearAll()
-    return
-  }
-  const configured = new Set(getState().servers.map((server) => server.url))
-  for (const serverUrl of new Set([...flushTimers.keys(), ...outboxes.keys(), ...retrying]))
-    if (!configured.has(serverUrl)) clearServer(serverUrl)
+  if (!getState().shareTiles) clearAll()
 }

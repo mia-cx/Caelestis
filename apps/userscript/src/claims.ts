@@ -118,12 +118,12 @@ const templateNear = (rect: PresenceRect | null): PlacedTemplate | null => {
 const editorHost: ClaimEditorHost = {
   templateFor: (document) => templateNear(regionDocumentBounds(document))?.name ?? null,
   myRegions: () =>
-    claimRouter()
+    claimRouter
       .mine()
       .filter(isShownClaim)
       .map((region) => ({ id: region.id, document: region.document })),
   save: async (ids, documents) => {
-    const result = await claimRouter().saveAll(ids, documents)
+    const result = await claimRouter.saveAll(ids, documents)
     if (result.error === null && documents.length > 0)
       showToast(
         `Saved your regions: ${documentName({ items: documents.flatMap((document) => document.items) })}.`,

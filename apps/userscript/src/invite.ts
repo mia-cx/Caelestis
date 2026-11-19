@@ -1,6 +1,6 @@
 import { decodeBase64Url, encodeBase64Url } from './base64url.js'
+import { type ConnectOutcome, connectServer } from './server-connections.js'
 import { canonicalServerUrl } from './server-url.js'
-import { MAX_CONNECTED_SERVERS, type ServerConnection } from './settings.js'
 
 export interface Invite {
   readonly serverUrl: string
@@ -55,83 +55,31 @@ export const readInvite = (hash: string): Invite | 'malformed' | null => {
   return { serverUrl, token }
 }
 
-export interface InviteDeps {
-  /** The fragment to read, usually `location.hash`. */
-  readonly hash: string
-  /** Drop the fragment from the address bar without reloading or firing `hashchange`. */
-  readonly clearHash: () => void
-  readonly servers: () => readonly ServerConnection[]
-  readonly probe: (url: string, token: string) => Promise<ServerConnection>
-  readonly upsert: (server: ServerConnection) => boolean
-  /** Post-upsert side effects; `replacing` is true when an existing server's token rotated. */
-  readonly connected: (server: ServerConnection, replacing: boolean) => void
-  readonly notify: (message: string, tone: 'info' | 'error') => void
-  /** True while that URL is mid connect or disconnect, so an invite must not interleave. */
-  readonly isBusy: (url: string) => boolean
-}
-
-const displayName = (server: ServerConnection, fallback: string): string =>
-  server.info?.name ?? fallback
-
 let inviteInFlight = false
 
 /**
- * Consume an invite fragment: validate it, clear it from the address bar, and connect.
+ * Consume an invite fragment: validate it, clear it from the address bar, and connect with
+ * {@link connectServer}. `null` means `hash` is not an invite and was left alone.
  *
  * The hash is cleared before any network call so the token leaves the address bar even when the
- * probe fails. A second invite arriving while one is in flight is ignored. No message, log line or
- * thrown error may contain the token or the raw fragment — probes carry the token in a header, so
- * their `error` strings describe statuses and URLs, never credentials; only canonical URLs and
- * server names reach notifications.
+ * probe fails. A second invite arriving while one is in flight is `busy`. An existing server keeps
+ * its stored credentials when the invite's token fails: the invite only ever proves the token it
+ * carried, never that the old one stopped working. Nothing returned contains the token or the raw
+ * fragment: probes carry the token in a header, so their `error` strings describe statuses and
+ * URLs, never credentials.
  */
-export const consumeInvite = async (deps: InviteDeps): Promise<void> => {
-  const invite = readInvite(deps.hash)
-  if (invite === null) return
-  deps.clearHash()
-  if (invite === 'malformed') {
-    deps.notify("That invite link isn't valid.", 'error')
-    return
-  }
-  if (inviteInFlight || deps.isBusy(invite.serverUrl)) {
-    deps.notify(
-      `Still connecting to ${invite.serverUrl}. Open the invite again in a moment.`,
-      'error',
-    )
-    return
-  }
-  const existing = deps.servers().find((server) => server.url === invite.serverUrl)
-  if (
-    existing !== undefined &&
-    existing.token === invite.token &&
-    existing.status === 'connected'
-  ) {
-    deps.notify(`Already connected to ${displayName(existing, invite.serverUrl)}.`, 'info')
-    return
-  }
+export const consumeInvite = async (
+  hash: string,
+  clearHash: () => void,
+): Promise<ConnectOutcome | { readonly kind: 'malformed' } | null> => {
+  const invite = readInvite(hash)
+  if (invite === null) return null
+  clearHash()
+  if (invite === 'malformed') return { kind: 'malformed' }
+  if (inviteInFlight) return { kind: 'busy', url: invite.serverUrl, disconnecting: false }
   inviteInFlight = true
   try {
-    const probed = await deps.probe(invite.serverUrl, invite.token)
-    if (probed.superseded === true) return
-    if (probed.status === 'connected' && probed.tokenUsable !== false) {
-      if (!deps.upsert(probed)) {
-        deps.notify(
-          `Already connected to ${MAX_CONNECTED_SERVERS} servers. Disconnect one first.`,
-          'error',
-        )
-        return
-      }
-      deps.connected(probed, existing !== undefined)
-      deps.notify(`Connected to ${displayName(probed, invite.serverUrl)}.`, 'info')
-      return
-    }
-    // An existing server keeps its stored credentials on either failure: the invite only ever
-    // proves the token it carried, never that the old one stopped working.
-    deps.notify(
-      probed.status === 'needs-token' || probed.tokenUsable === false
-        ? `${invite.serverUrl} didn't accept the invite's token.`
-        : `Could not reach ${invite.serverUrl}.`,
-      'error',
-    )
+    return await connectServer(invite.serverUrl, invite.token, { requireToken: true })
   } finally {
     inviteInFlight = false
   }

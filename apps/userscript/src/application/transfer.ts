@@ -6,7 +6,12 @@ import {
   patchTemplate,
   uploadTemplate,
 } from '../server-api.js'
-import { isCurrentServerConnection, serverLabel } from '../server-connections.js'
+import {
+  isCurrentServerConnection,
+  onServerConnected,
+  onServerRemoving,
+  serverLabel,
+} from '../server-connections.js'
 import type { ServerTemplate, TreeNode } from '../server-manifest.js'
 import { admittedManifest, readManifest } from '../server-manifests.js'
 import type { ServerConnection } from '../settings.js'
@@ -141,12 +146,15 @@ export interface DestinationAdmission {
 
 const destinationAdmissionControllers = new Map<string, Set<AbortController>>()
 
-export const cancelDestinationAdmissions = (serverUrl: string): void => {
-  const controllers = destinationAdmissionControllers.get(serverUrl)
+/** An admission check asked with the old credential is void once the server goes or is replaced. */
+const cancelDestinationAdmissions = (server: ServerConnection): void => {
+  const controllers = destinationAdmissionControllers.get(server.url)
   if (controllers === undefined) return
   for (const controller of controllers) controller.abort(new Error('destination disconnected'))
-  destinationAdmissionControllers.delete(serverUrl)
+  destinationAdmissionControllers.delete(server.url)
 }
+onServerConnected(cancelDestinationAdmissions)
+onServerRemoving(cancelDestinationAdmissions)
 
 /** The destination's folders, and its template rows by id, as freshly admitted. */
 const admittedRows = async (

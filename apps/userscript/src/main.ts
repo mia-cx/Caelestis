@@ -32,6 +32,7 @@ import { observePresenceFrame } from './presence-local.js'
 import { onSceneHoverChange } from './presence-scene.js'
 import { installProfile, recordProfileAction, registerProfileContextSource } from './profile.js'
 import { readProfileContext } from './profile-context.js'
+import { installServerConnections } from './server-connections.js'
 import { installServerSyncCoordinator } from './server-sync-coordinator.js'
 import { loadState, onStateChange } from './settings.js'
 import { installShiftPaint } from './shift-paint.js'
@@ -118,6 +119,7 @@ export const installFeatures = (): void => {
   step('performance profile', installProfile)
   step('Wplace settings', installWplaceSettings)
   step('settings', () => void loadState())
+  step('server connections', installServerConnections)
   // Templates outlive a page load, which is what makes navigating to one survivable at all.
   step('local templates', () => void installPersonalTemplates())
   // Wplace's own event overlays, such as the Seven Seals, listed read-only under Events.

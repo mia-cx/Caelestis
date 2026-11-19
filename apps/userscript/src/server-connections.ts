@@ -1,5 +1,6 @@
 import { mapLimit } from './concurrency.js'
 import { log, warn } from './debug.js'
+import { notifyListeners } from './listeners.js'
 import {
   parseServerInfo,
   parseServerManifest,
@@ -67,17 +68,14 @@ export const sameServerConnection = (left: ServerConnection, right: ServerConnec
 const serverConnectionLifetimes = new WeakMap<ServerConnection, object>()
 const serverConnectionControllers = new WeakMap<object, AbortController>()
 
-const serverConnectionLifetime = (server: ServerConnection): object => {
+/** Opaque owner of one connection lifetime, for sharing reads without credentials in a cache key. */
+export const serverConnectionIdentity = (server: ServerConnection): object => {
   const existing = serverConnectionLifetimes.get(server)
   if (existing !== undefined) return existing
   const created = {}
   serverConnectionLifetimes.set(server, created)
   return created
 }
-
-/** Opaque owner for sharing reads without exposing credentials in a cache key. */
-export const serverConnectionIdentity = (server: ServerConnection): object =>
-  serverConnectionLifetime(server)
 
 const lifetimeController = (lifetime: object): AbortController => {
   let controller = serverConnectionControllers.get(lifetime)
@@ -89,7 +87,7 @@ const lifetimeController = (lifetime: object): AbortController => {
 }
 
 export const serverConnectionSignal = (server: ServerConnection): AbortSignal =>
-  lifetimeController(serverConnectionLifetime(server)).signal
+  lifetimeController(serverConnectionIdentity(server)).signal
 
 const retireServerConnection = (server: ServerConnection): void => {
   const lifetime = serverConnectionLifetimes.get(server)
@@ -118,7 +116,7 @@ export const hasServerAdminToken = (server: ServerConnection): boolean =>
 
 /** Whether this immutable connection snapshot is still the configured lifetime for its URL. */
 export const isCurrentServerConnection = (server: ServerConnection): boolean => {
-  const current = getState().servers.find((candidate) => candidate.url === server.url)
+  const current = serverByUrl(server.url)
   if (current === undefined) return false
   if (current === server) return true
   const lifetime = serverConnectionLifetimes.get(server)
@@ -145,17 +143,46 @@ export const takeProbedManifest = (serverUrl: string) => {
   return probed
 }
 
+type RemovingListener = (server: ServerConnection) => void | Promise<void>
 type RemovedListener = (url: string) => void | Promise<void>
+const removingListeners = new Set<RemovingListener>()
 const removedListeners = new Set<RemovedListener>()
+const connectedListeners = new Set<(server: ServerConnection) => void>()
+
+/**
+ * Run `listener` with each server the user disconnects while its row and credential still exist.
+ * The row stays until every listener settles, so this is where a server is told goodbye.
+ */
+export const onServerRemoving = (listener: RemovingListener): void => {
+  removingListeners.add(listener)
+}
 
 /**
  * Run `listener` with the URL of each server the user disconnects, after its row is gone. Every
  * module that keeps state per server subscribes here, so nothing a connection left behind leaks
  * into the next connection to the same URL.
  */
-export const onServerRemoved = (listener: RemovedListener): (() => void) => {
+export const onServerRemoved = (listener: RemovedListener): void => {
   removedListeners.add(listener)
-  return () => removedListeners.delete(listener)
+}
+
+/**
+ * Run `listener` with each row {@link connectServer} stores: a server added, its token replaced, or
+ * an invite accepted. Re-probes of a stored row are not connects.
+ */
+export const onServerConnected = (listener: (server: ServerConnection) => void): void => {
+  connectedListeners.add(listener)
+}
+
+/** Call every listener with `value` and wait for all of them; a failure is reported, not thrown. */
+const settleEach = async <T>(
+  listeners: Iterable<(value: T) => void | Promise<void>>,
+  value: T,
+  failure: string,
+): Promise<void> => {
+  const settled = await Promise.allSettled([...listeners].map(async (listener) => listener(value)))
+  for (const outcome of settled)
+    if (outcome.status === 'rejected') warn(failure, String(outcome.reason))
 }
 
 /** A stored switch or preference key that belongs to the server at `url` and nothing else. */
@@ -197,7 +224,7 @@ export const upsertServer = (server: ServerConnection): boolean => {
   const next = canRetainIdentity ? { ...candidate, lastVerified: current.lastVerified } : candidate
   const retainsLifetime = current !== undefined && sameServerConnection(current, candidate)
   if (current !== undefined && !retainsLifetime) retireServerConnection(current)
-  const lifetime = retainsLifetime ? serverConnectionLifetime(current) : {}
+  const lifetime = retainsLifetime ? serverConnectionIdentity(current) : {}
   serverConnectionLifetimes.set(server, lifetime)
   serverConnectionLifetimes.set(candidate, lifetime)
   serverConnectionLifetimes.set(next, lifetime)
@@ -210,32 +237,106 @@ export const upsertServer = (server: ServerConnection): boolean => {
   return true
 }
 
+/** URLs a connect or a disconnect is working on; another must wait for it. */
+const connecting = new Set<string>()
+const removing = new Set<string>()
+
 /**
- * Disconnect the server at `url`: end its connection lifetime, which aborts its requests, drop its
- * row and the switches and preferences that can only refer to it, then let every per-server cache
- * forget it. Settles once they all have.
+ * Disconnect the server at `url`: say goodbye while its credential still exists, end its connection
+ * lifetime, which aborts its requests, drop its row and the switches and preferences that can only
+ * refer to it, then let every per-server cache forget it. Settles once they all have; a second call
+ * while one is running does nothing.
  */
 export const removeServer = async (url: string): Promise<void> => {
-  cancelServerProbe(url)
-  probedManifests.delete(url)
-  const current = getState().servers.find((server) => server.url === url)
-  if (current !== undefined) retireServerConnection(current)
-  const state = getState()
-  const templatePrefix = serverTemplateIdPrefix(url)
-  setState({
-    servers: state.servers.filter((s) => s.url !== url),
-    customOrder: state.customOrder.filter((candidate) => candidate !== serverScopeKey(url)),
-    serverTemplatePreferences: state.serverTemplatePreferences.filter(
-      (preference) => !preference.id.startsWith(templatePrefix),
-    ),
-    hiddenScopes: state.hiddenScopes.filter((key) => !ownedByServer(key, url)),
-  })
-  const settled = await Promise.allSettled(
-    [...removedListeners].map(async (listener) => listener(url)),
+  if (removing.has(url)) return
+  removing.add(url)
+  try {
+    const leaving = serverByUrl(url)
+    // With nobody to say goodbye, the row goes in this same task.
+    if (leaving !== undefined && removingListeners.size > 0)
+      await settleEach(removingListeners, leaving, 'server removal observer failed')
+    cancelServerProbe(url)
+    probedManifests.delete(url)
+    const current = serverByUrl(url)
+    if (current !== undefined) retireServerConnection(current)
+    const state = getState()
+    const templatePrefix = serverTemplateIdPrefix(url)
+    setState({
+      servers: state.servers.filter((s) => s.url !== url),
+      customOrder: state.customOrder.filter((candidate) => candidate !== serverScopeKey(url)),
+      serverTemplatePreferences: state.serverTemplatePreferences.filter(
+        (preference) => !preference.id.startsWith(templatePrefix),
+      ),
+      hiddenScopes: state.hiddenScopes.filter((key) => !ownedByServer(key, url)),
+    })
+    await settleEach(removedListeners, url, 'server removal observer failed')
+  } finally {
+    removing.delete(url)
+  }
+}
+
+/** What {@link connectServer} came to. */
+export type ConnectOutcome =
+  | {
+      /** `connected` stored `server`; `already` found it stored and changed nothing. */
+      readonly kind: 'connected' | 'already' | 'refused' | 'unreachable'
+      readonly server: ServerConnection
+    }
+  | { readonly kind: 'busy'; readonly url: string; readonly disconnecting: boolean }
+  | { readonly kind: 'full' | 'superseded' }
+
+/**
+ * Connect the server at `url` with `token`: probe it, store the row, and tell every
+ * {@link onServerConnected} listener. Adding, replacing a token and accepting an invite all come
+ * through here.
+ *
+ * Without a token an address already configured is `already` connected, and a server that asks for
+ * one is stored so its row can ask. With a token only a verified connection is stored, and a refused
+ * token leaves the stored row and its credential alone. `requireToken` also refuses a connection
+ * that works only without the token, and treats a row already connected with it as `already`.
+ * A connect or disconnect running for the same URL makes this `busy`; one superseded by a newer
+ * probe, or whose row was disconnected meanwhile, is `superseded` and changes nothing.
+ */
+export const connectServer = async (
+  url: string,
+  token: string | null,
+  { requireToken = false }: { readonly requireToken?: boolean } = {},
+): Promise<ConnectOutcome> => {
+  let canonical: string | null = null
+  try {
+    canonical = canonicalServerUrl(url)
+  } catch {
+    // The probe reports the address error.
+  }
+  const existing = canonical === null ? undefined : serverByUrl(canonical)
+  if (
+    existing !== undefined &&
+    (token === null ||
+      (requireToken && existing.token === token && existing.status === 'connected'))
   )
-  for (const outcome of settled)
-    if (outcome.status === 'rejected')
-      warn('server removal observer failed', String(outcome.reason))
+    return { kind: 'already', server: existing }
+  if (canonical !== null && (connecting.has(canonical) || removing.has(canonical)))
+    return { kind: 'busy', url: canonical, disconnecting: removing.has(canonical) }
+  if (canonical !== null) connecting.add(canonical)
+  try {
+    const probed = await probeServer(url, token)
+    if (probed.superseded === true) return { kind: 'superseded' }
+    // The panel stays usable during the probe; a server disconnected meanwhile must not come back.
+    if (existing !== undefined && !isCurrentServerConnection(existing))
+      return { kind: 'superseded' }
+    if (probed.status === 'unreachable') return { kind: 'unreachable', server: probed }
+    const appeared = existing === undefined ? serverByUrl(probed.url) : undefined
+    if (appeared !== undefined) return { kind: 'already', server: appeared }
+    const accepted =
+      token === null ||
+      (probed.status === 'connected' && !(requireToken && probed.tokenUsable === false))
+    if (!accepted) return { kind: 'refused', server: probed }
+    if (!upsertServer(probed)) return { kind: 'full' }
+    notifyListeners(connectedListeners, 'server connection observer failed', probed)
+    return { kind: 'connected', server: probed }
+  } finally {
+    if (canonical !== null) connecting.delete(canonical)
+  }
 }
 
 /**
@@ -243,7 +344,7 @@ export const removeServer = async (url: string): Promise<void> => {
  * it lacks admin scope.
  */
 export const noteAuthFailure = (server: ServerConnection, status: number): void => {
-  const current = getState().servers.find((candidate) => candidate.url === server.url)
+  const current = serverByUrl(server.url)
   if (current === undefined || !isCurrentServerConnection(server)) return
   const needsToken = status === 401
   upsertServer({
@@ -279,10 +380,31 @@ const probeAdminScope = async (
 
 const activeServerProbes = new Map<string, AbortController>()
 
-export const cancelServerProbe = (serverUrl: string): void => {
+const cancelServerProbe = (serverUrl: string): void => {
   activeServerProbes.get(serverUrl)?.abort(new Error('server probe cancelled'))
   activeServerProbes.delete(serverUrl)
 }
+
+/** A probe that verified nothing; `info` is what it learnt before failing. */
+const failedProbe = (
+  url: string,
+  token: string | null,
+  status: 'unreachable' | 'needs-token',
+  {
+    info = null,
+    error,
+    ...extra
+  }: Partial<Pick<ServerConnection, 'info' | 'error' | 'apiVersion' | 'superseded'>> = {},
+): ServerConnection => ({
+  url,
+  info,
+  token,
+  status,
+  ...(error === undefined ? {} : { error }),
+  isAdmin: false,
+  season: null,
+  ...extra,
+})
 
 /**
  * Ask a server who it is.
@@ -300,28 +422,14 @@ export const probeServer = async (
   try {
     base = canonicalServerUrl(url)
   } catch (error) {
-    return {
-      url: url.trim(),
-      info: null,
-      token,
-      status: 'unreachable',
-      error: String(error),
-      isAdmin: false,
-      season: null,
-    }
+    return failedProbe(url.trim(), token, 'unreachable', { error: String(error) })
   }
   const activeProbe = activeServerProbes.get(base)
   if (activeProbe !== undefined && options.supersedeActive === false) {
-    return {
-      url: base,
-      info: null,
-      token,
-      status: 'unreachable',
+    return failedProbe(base, token, 'unreachable', {
       error: 'superseded by an active foreground server probe',
-      isAdmin: false,
-      season: null,
       superseded: true,
-    }
+    })
   }
   activeProbe?.abort(new Error('superseded by a newer server probe'))
   const probeController = new AbortController()
@@ -343,34 +451,16 @@ export const probeServer = async (
       metadata = await readMetadata(apiVersion)
     }
     const { response, body } = metadata
-    if (!response.ok) {
-      return {
-        url: base,
-        info: null,
-        token,
-        status: 'unreachable',
-        error: `HTTP ${response.status}`,
-        isAdmin: false,
-        season: null,
-      }
-    }
+    if (!response.ok)
+      return failedProbe(base, token, 'unreachable', { error: `HTTP ${response.status}` })
     const info = parseServerInfo(body)
     if (info === null) throw new TypeError('server returned invalid metadata')
     observedInfo = info
     log(`probed ${base}`, { name: info.name, auth: info.auth })
     const version = apiVersion === 'legacy' ? { apiVersion } : {}
 
-    if (info.auth === 'access_token' && token === null) {
-      return {
-        url: base,
-        info,
-        token: null,
-        status: 'needs-token',
-        isAdmin: false,
-        season: null,
-        ...version,
-      }
-    }
+    if (info.auth === 'access_token' && token === null)
+      return failedProbe(base, null, 'needs-token', { info, ...version })
 
     // `GET /server` is public and never looks at the Authorization header, so reaching it proves
     // nothing about a code. Without this second call any non-empty string would read as "connected"
@@ -408,28 +498,10 @@ export const probeServer = async (
     }
     if (authed.status === 401 || authed.status === 403) {
       log(`${base} rejected the code`, { status: authed.status })
-      return {
-        url: base,
-        info,
-        token,
-        status: 'needs-token',
-        error: 'rejected',
-        isAdmin: false,
-        season: null,
-        ...version,
-      }
+      return failedProbe(base, token, 'needs-token', { info, error: 'rejected', ...version })
     }
-    if (!authed.ok) {
-      return {
-        url: base,
-        info,
-        token,
-        status: 'unreachable',
-        error: `HTTP ${authed.status}`,
-        isAdmin: false,
-        season: null,
-      }
-    }
+    if (!authed.ok)
+      return failedProbe(base, token, 'unreachable', { info, error: `HTTP ${authed.status}` })
     const manifest = parseServerManifest(manifestBody, info)
     if (manifest === null) throw new TypeError('server returned an invalid manifest')
     const isAdmin = await probeAdminScope(base, apiVersion, effectiveToken, manifest.season, signal)
@@ -450,59 +522,41 @@ export const probeServer = async (
   } catch (error) {
     // A bad hostname, a refused connection, or a server without CORS all land here, and the
     // distinction is not visible to us — the browser withholds it deliberately.
-    return {
-      url: base,
+    return failedProbe(base, token, 'unreachable', {
       info: observedInfo,
-      token,
-      status: 'unreachable',
       error: String(error),
-      isAdmin: false,
-      season: null,
       ...(probeController.signal.aborted ? { superseded: true as const } : {}),
-    }
+    })
   } finally {
     if (activeServerProbes.get(base) === probeController) activeServerProbes.delete(base)
   }
 }
 
-/** Probe each row and apply the answer; `onRefreshed` learns whether that changed the stored row. */
-const refreshServers = async (
-  snapshot: readonly ServerConnection[],
-  onRefreshed?: (changed: boolean) => void,
-): Promise<void> => {
+/** Probe each row and apply the answer, without letting a stale probe resurrect a removed row. */
+const refreshServers = async (snapshot: readonly ServerConnection[]): Promise<void> => {
   await mapLimit(snapshot, SERVER_REFRESH_CONCURRENCY, async (server) => {
     if (!isCurrentServerConnection(server)) return
     const refreshed = await probeServer(server.url, server.token, { supersedeActive: false })
     if (refreshed.superseded === true) return
-    const current = getState().servers.find((candidate) => candidate.url === server.url)
+    const current = serverByUrl(server.url)
     if (current === undefined || !isCurrentServerConnection(server)) return
     // A cosmetic replacement can land while the probe is in flight. Preserve that newer local
     // metadata while still applying the probe's current connectivity, season, and scope result.
-    const before = getState().servers
     upsertServer(current === server ? refreshed : { ...refreshed, info: current.info })
-    try {
-      onRefreshed?.(getState().servers !== before)
-    } catch (error) {
-      warn('server refresh observer failed', String(error))
-    }
   })
 }
 
-/** Revalidate persisted identity, auth and scope without allowing stale requests to resurrect rows. */
-export const refreshStoredServers = async (onRefreshed?: () => void): Promise<void> =>
-  refreshServers([...getState().servers], onRefreshed)
-
 let serverRetryTimer: ReturnType<typeof setInterval> | null = null
 
-/** Keep offline rows alive through short server restarts, reusing their persisted credentials. */
-export const installServerConnectionRetry = (onRefreshed?: () => void): void => {
+/**
+ * Start every stored connection: revalidate its identity, auth and scope now, and keep re-probing
+ * offline rows through short server restarts with their persisted credentials.
+ */
+export const installServerConnections = (): void => {
+  void refreshServers([...getState().servers])
   if (serverRetryTimer !== null) clearInterval(serverRetryTimer)
   serverRetryTimer = setInterval(() => {
     const unreachable = getState().servers.filter((server) => server.status === 'unreachable')
-    // A server that is still offline gives the same answer, which needs no redraw.
-    if (unreachable.length > 0)
-      void refreshServers(unreachable, (changed) => {
-        if (changed) onRefreshed?.()
-      })
+    if (unreachable.length > 0) void refreshServers(unreachable)
   }, SERVER_RETRY_MS)
 }

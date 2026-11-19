@@ -22,14 +22,12 @@ import {
   currentSurface,
   onActiveAllianceSurfaceChange,
 } from '../alliance-surface.js'
-import { cancelDestinationAdmissions } from '../application/transfer.js'
 import { cancelTreeActionSetup } from '../application/tree-presentation.js'
 import { onServerSnapshot } from '../application/tree-server-state.js'
 import { onOtherBuildChange } from '../build-transfer.js'
 import { onCanvasWrite } from '../canvas-write.js'
 import { ALLIANCE_PANEL_ID, PANEL_ID } from '../chrome-ids.js'
 import { isClaimModeActive, onClaimEditorChange } from '../claim-editor.js'
-import { claimRouter } from '../claim-routing.js'
 import { openClaimTool } from '../claims.js'
 import { log } from '../debug.js'
 import { frameQueue } from '../frame-queue.js'
@@ -42,11 +40,6 @@ import { onViewChange, redraw, viewportCentre } from '../map-view.js'
 import { onPresenceChange } from '../presence-client.js'
 import { measureProfile, recordProfileCounter } from '../profile.js'
 import { onServerAlarmChange } from '../server-alarms.js'
-import {
-  installServerConnectionRetry,
-  refreshStoredServers,
-  removeServer,
-} from '../server-connections.js'
 import { admittedManifest, primeFromCache } from '../server-manifests.js'
 import { onServerStatusChange } from '../server-status.js'
 import {
@@ -92,9 +85,6 @@ import {
   unmountAllianceRail,
 } from './rail.js'
 import {
-  autoExpanded,
-  disconnectingServerUrls,
-  expandedServers,
   handleSettingsIntent,
   onSettingsViewChange,
   setSettingsVisible,
@@ -102,7 +92,6 @@ import {
 } from './settings-controller.js'
 import { onTemplateStudioChange } from './template-studio.js'
 import { applyWplaceTheme } from './theme.js'
-import { treeActionUsesServer } from './tree-copy.js'
 import {
   buildTreeView,
   clearTreeView,
@@ -348,38 +337,8 @@ const showView = (view: PanelView): void => {
   log(`panel view: ${view}`)
 }
 
-/**
- * Disconnect: take the server out of the list, and everything it put on this machine with it.
- * The connection's own teardown (`removeServer`) clears every per-server cache; what is left here
- * belongs to the panel and the actions it started.
- */
-const disconnectServer = async (server: ServerConnection): Promise<void> => {
-  if (disconnectingServerUrls.has(server.url)) return
-  disconnectingServerUrls.add(server.url)
-  try {
-    await claimRouter().disconnect(server)
-    if (treeActionUsesServer(server.url)) {
-      cancelTreeActionSetup(new Error('copy destination disconnected'))
-    }
-    cancelDestinationAdmissions(server.url)
-    await removeServer(server.url)
-    expandedServers.delete(server.url)
-    autoExpanded.delete(server.url)
-    redraw()
-    showView('settings')
-  } finally {
-    disconnectingServerUrls.delete(server.url)
-  }
-}
-
 const handleSettings = (intent: SettingsIntent): void => {
-  if (!showsSettings()) return
-  if (intent.type !== 'disconnect-server') {
-    handleSettingsIntent(intent)
-    return
-  }
-  const server = getState().servers.find((candidate) => candidate.url === intent.url)
-  if (server !== undefined) void disconnectServer(server)
+  if (showsSettings()) handleSettingsIntent(intent)
 }
 
 /** Make room beside the alliance drawer at `width`, and line its rail up again. */
@@ -613,8 +572,6 @@ export const installPanel = (): void => {
     render: renderTree,
     addServer: () => showView('settings'),
   })
-  void refreshStoredServers(refreshView)
-  installServerConnectionRetry(refreshView)
   installRail({
     isOpen: (scope) => panelSessions.isOpen(scope),
     toggleWorld: () => togglePanelFor('world'),

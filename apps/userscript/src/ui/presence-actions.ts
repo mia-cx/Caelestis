@@ -106,7 +106,7 @@ export const clearClaim = async (id: string, changed: () => void): Promise<void>
   clearing.add(id)
   changed()
   try {
-    const error = await claimRouter().remove(id)
+    const error = await claimRouter.remove(id)
     if (error !== null) showToast(error, 'error')
   } catch (error) {
     showToast(error instanceof Error ? error.message : 'Could not clear the claim. Retry.', 'error')

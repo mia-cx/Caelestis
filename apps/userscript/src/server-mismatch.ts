@@ -10,6 +10,7 @@ import {
   type ConnectedServer,
   connectedServerAt,
   isCurrentServerConnection,
+  onServerRemoved,
 } from './server-connections.js'
 import {
   deleteCachedServerMismatch,
@@ -87,8 +88,9 @@ export const serverMismatchMemoryBytes = (): number => {
 }
 registerProfileMemorySource('Server mismatch masks', serverMismatchMemoryBytes)
 
+const invalidationPrefix = (serverUrl: string): string => `${serverUrl}\u0000`
 const invalidationKeyFor = (serverUrl: string, tile: TileCoord): string =>
-  `${serverUrl}\u0000${tile.x}/${tile.y}`
+  `${invalidationPrefix(serverUrl)}${tile.x}/${tile.y}`
 
 const tileName = (tile: TileCoord): string => `${tile.x}/${tile.y}`
 
@@ -354,6 +356,12 @@ export const invalidateServerMismatchTiles = (
 
 /** A missed status revision can cover any tile, so discard every derived mask for that server. */
 export const invalidateServerMismatches = (serverUrl: string): void => {
+  forgetHeldMismatches(serverUrl)
+  void deleteCachedServerMismatches(serverUrl)
+}
+
+/** Drop the server's held masks and misses, and fence its reads in flight. */
+const forgetHeldMismatches = (serverUrl: string): void => {
   serverInvalidations.set(serverUrl, (serverInvalidations.get(serverUrl) ?? 0) + 1)
   let changed = false
   for (const held of [masks, misses]) {
@@ -363,9 +371,17 @@ export const invalidateServerMismatches = (serverUrl: string): void => {
       changed = true
     }
   }
-  void deleteCachedServerMismatches(serverUrl)
   if (changed) notify()
 }
+
+// A disconnected server's masks go from memory and from Cache Storage, which the page can read.
+// The server-wide fence above outlives the tile fences, so dropping those cannot admit a stale read.
+onServerRemoved(async (serverUrl) => {
+  forgetHeldMismatches(serverUrl)
+  for (const key of [...tileInvalidations.keys()])
+    if (key.startsWith(invalidationPrefix(serverUrl))) tileInvalidations.delete(key)
+  await deleteCachedServerMismatches(serverUrl)
+})
 
 export const onServerMismatchesChanged = (listener: () => void): (() => void) => {
   listeners.add(listener)
