@@ -460,18 +460,8 @@ export class PresenceCoordinator<Client> {
           byte.toString(16).padStart(2, '0'),
         ).join('')
         const attachment: Attachment = {
+          ...connection,
           sessionId,
-          season,
-          surface,
-          painter,
-          tokenHash,
-          clientHash,
-          ...(connection.publisherId === undefined ? {} : { publisherId: connection.publisherId }),
-          credentialScope,
-          anonymous,
-          revocable: connection.revocable,
-          metricClient: connection.metricClient,
-          metricClientVersion: connection.metricClientVersion,
           viewport: null,
           draftRect: null,
           draftPixels: 0,
@@ -539,10 +529,6 @@ export class PresenceCoordinator<Client> {
       this.close(socket, 1009, 'presence message too large')
       return
     }
-    if (message === 'ping') {
-      socket.send('pong')
-      return
-    }
     let event: Schema.Schema.Type<typeof PresenceClientEvent>
     try {
       event = Schema.decodeUnknownSync(PresenceClientEvent)(JSON.parse(message))
@@ -603,6 +589,11 @@ export class PresenceCoordinator<Client> {
   /** Count open sockets, including hibernated sessions, without scheduling or sending updates. */
   async online(): Promise<number> {
     return this.sessionsOpen().length
+  }
+
+  /** The open sessions admission counts against the room's capacity. */
+  occupants(): readonly PresenceConnection[] {
+    return this.sessionsOpen().map(({ held }) => held)
   }
 
   /** Reload committed claims and deliver the surface's authoritative region list. */

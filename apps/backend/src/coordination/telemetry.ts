@@ -63,6 +63,22 @@ const hasActivity = ({ placed, correct, repairs }: CounterDelta): boolean =>
 const eventBucketStart = (occurredAt: Seconds): Seconds =>
   seconds(Math.floor(occurredAt / RESOLUTION_SECONDS) * RESOLUTION_SECONDS)
 
+/** Every method the telemetry coordinator serves the hosts that address it. */
+export const TELEMETRY_SHARD_METHODS = [
+  'record',
+  'readPending',
+  'readDroppedLateCount',
+  'readFlushFailureCount',
+  'exportCounterRows',
+  'importCounterRows',
+  'discardCounterRows',
+  'beginCounterImport',
+  'beginCounterDiscard',
+  'closeCounterOperation',
+  'freeze',
+  'thaw',
+] as const
+
 /**
  * The durable counter ledger: it validates and records deltas once each, answers what has not
  * reached D1 yet, and admits writes only while no archive operation holds it still. Flushing to D1

@@ -49,19 +49,23 @@ export interface LiveHost<Client> {
   upgradeResponse(client: Client, headers: Headers): Response | Promise<Response>
 }
 
-/** An authenticated live-sync connection, as the HTTP boundary admitted it. */
-export interface StatusLiveConnection {
+/** What every live connection carries, live sync and presence alike, as the HTTP boundary admitted it. */
+export interface LiveCredential {
   readonly season: number
-  readonly scope: VisibilityScope
   readonly credentialScope: Scope
   readonly tokenHash: string
   readonly clientHash: string
   readonly anonymous: boolean
   readonly revocable: boolean
-  /** The status revision the client holds, or null for none. */
-  readonly lastRevision: number | null
   readonly metricClient: string
   readonly metricClientVersion: string
+}
+
+/** An authenticated live-sync connection. */
+export interface StatusLiveConnection extends LiveCredential {
+  readonly scope: VisibilityScope
+  /** The status revision the client holds, or null for none. */
+  readonly lastRevision: number | null
   readonly protocol: LiveSyncProtocol
   /** The client opens with a state vector instead of being told the current revision. */
   readonly stateVector: boolean

@@ -78,10 +78,11 @@ export const listenNodeServer = async (
       resolve()
     })
   })
-  http.listening()
+  const { port } = server.address() as AddressInfo
+  runtime.start(port)
   return {
     server,
-    port: (server.address() as AddressInfo).port,
+    port,
     close: () =>
       http.close({
         stop: () =>

@@ -140,7 +140,7 @@ export class StatusCoordinator<Client> implements StatusShard {
   private runtime: BackendRuntime | null = null
 
   constructor(
-    private readonly objectState: LiveHost<Client>,
+    private readonly host: LiveHost<Client>,
     /** The season this coordinator serves; its host addresses it by `statusShardName(season)`. */
     private readonly season: number,
     private readonly sql: SqlStore,
@@ -160,8 +160,8 @@ export class StatusCoordinator<Client> implements StatusShard {
       season,
       sql,
       persistence: {
-        status: createKeyedStatusPersistence(objectState.storage, season),
-        manifest: createChunkedManifestPersistence(objectState.storage, season),
+        status: createKeyedStatusPersistence(host.storage, season),
+        manifest: createChunkedManifestPersistence(host.storage, season),
       },
     })
   }
@@ -308,7 +308,7 @@ export class StatusCoordinator<Client> implements StatusShard {
 
   /** Open, unrevoked subscribers of this season, optionally of one visibility scope. */
   private subscribers(scope?: VisibilityScope): readonly Subscriber[] {
-    return this.objectState.getWebSockets('status').flatMap((socket) => {
+    return this.host.getWebSockets('status').flatMap((socket) => {
       const attachment = subscriberOf(socket)
       return attachment !== null &&
         attachment.season === this.season &&
@@ -319,7 +319,6 @@ export class StatusCoordinator<Client> implements StatusShard {
     })
   }
 
-  /** Subscribers that speak protocol 2, the only ones owed snapshots. */
   private snapshotSubscribers(): readonly Subscriber[] {
     return this.subscribers().filter(({ attachment }) => attachment.protocol === 2)
   }
@@ -356,7 +355,6 @@ export class StatusCoordinator<Client> implements StatusShard {
   }
 
   reconcileSnapshot(scope: VisibilityScope): Promise<StatusSnapshotRead> {
-    if (scope !== 'public' && scope !== 'admin') throw new RangeError('invalid visibility scope')
     return this.readModels.status.reconcileSnapshot(scope)
   }
 
@@ -795,8 +793,7 @@ export class StatusCoordinator<Client> implements StatusShard {
   /** Persist routing before presence attachment so revocation also reaches hibernating rooms. */
   async registerPresenceSurface(tokenHash: string, surface: TemplateSurface): Promise<void> {
     const key = `presence:${tokenHash}:${templateSurfaceKey(surface)}`
-    if ((await this.objectState.storage.get(key)) === undefined)
-      await this.objectState.storage.put(key, surface)
+    if ((await this.host.storage.get(key)) === undefined) await this.host.storage.put(key, surface)
   }
 
   async closeCredential(tokenHash: string): Promise<void> {
@@ -810,31 +807,39 @@ export class StatusCoordinator<Client> implements StatusShard {
         socket.close(1008, 'credential revoked')
       }
     })
-    const rooms = await this.objectState.storage.list<TemplateSurface>({
+    const rooms = await this.host.storage.list<TemplateSurface>({
       prefix: `presence:${tokenHash}:`,
     })
     for (const [key, surface] of rooms) {
       await this.closePresence(tokenHash, surface)
-      await this.objectState.storage.delete(key)
+      await this.host.storage.delete(key)
     }
+  }
+
+  /**
+   * Every socket admission counts against the season's capacity, revoked ones included, with its
+   * attachment or null where that does not decode.
+   */
+  occupants(): readonly (LiveSubscriberAttachment | null)[] {
+    return this.host.getWebSockets('status').map(subscriberOf)
   }
 
   /** Admit one live-sync connection within the season's capacity and its credential's rights. */
   async connect(connection: StatusLiveConnection): Promise<LiveAdmission> {
-    const { season, scope, tokenHash, clientHash, anonymous, revocable, protocol } = connection
+    const { stateVector, ...held } = connection
+    const { scope, tokenHash, clientHash, anonymous, revocable, protocol } = held
     const status = this.readModels.status
     let capacityExceeded = false
     const admitted = await this.liveSessions.attach(
       async () => {
-        const sockets = this.objectState.getWebSockets('status')
-        if (sockets.length >= (this.limits.liveSubscribers ?? MAX_LIVE_SUBSCRIBERS)) {
+        const occupants = this.occupants()
+        if (occupants.length >= (this.limits.liveSubscribers ?? MAX_LIVE_SUBSCRIBERS)) {
           capacityExceeded = true
           return false
         }
         let anonymousConnections = 0
         let clientConnections = 0
-        for (const socket of sockets) {
-          const attachment = subscriberOf(socket)
+        for (const attachment of occupants) {
           if (attachment === null || attachment.revoked === true) continue
           if (attachment.anonymous === true) anonymousConnections += 1
           if (attachment.clientHash === clientHash) clientConnections += 1
@@ -850,21 +855,7 @@ export class StatusCoordinator<Client> implements StatusShard {
         const token = await this.sql.readAccessToken(tokenHash)
         return token !== null && (scope === 'public' || token.scope === 'admin')
       },
-      () =>
-        this.objectState.connect({
-          season,
-          scope,
-          credentialScope: connection.credentialScope,
-          tokenHash,
-          clientHash,
-          anonymous,
-          revocable,
-          lastRevision: connection.lastRevision,
-          revoked: false,
-          metricClient: connection.metricClient,
-          metricClientVersion: connection.metricClientVersion,
-          protocol,
-        } satisfies LiveSubscriberAttachment),
+      () => this.host.connect({ ...held, revoked: false } satisfies LiveSubscriberAttachment),
     )
     if (capacityExceeded) {
       const response = new Response('Live subscriber limit reached', {
@@ -877,13 +868,13 @@ export class StatusCoordinator<Client> implements StatusShard {
       return { response: new Response('Credential revoked', { status: 401 }), cacheOutcome: 'none' }
     }
     const upgrade = async (cacheOutcome: CacheOutcome): Promise<LiveAdmission> => ({
-      response: await this.objectState.upgradeResponse(
+      response: await this.host.upgradeResponse(
         admitted.client,
         new Headers({ 'sec-websocket-protocol': `caelestis.live.v${protocol}` }),
       ),
       cacheOutcome,
     })
-    if (connection.stateVector) return upgrade('none')
+    if (stateVector) return upgrade('none')
     try {
       const read = await status.reconcileSnapshot(scope)
       this.send(
@@ -905,10 +896,6 @@ export class StatusCoordinator<Client> implements StatusShard {
     if (attachment?.revoked === true) {
       this.paints.discard(socket)
       socket.close(1008, 'credential revoked')
-      return
-    }
-    if (typeof message === 'string' && message === 'ping') {
-      socket.send('pong')
       return
     }
     if (message instanceof ArrayBuffer) {

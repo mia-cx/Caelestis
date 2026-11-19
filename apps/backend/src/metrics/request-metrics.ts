@@ -156,8 +156,11 @@ export const normalizeMetricRoute = (method: string, pathname: string): string =
 const isTileOfferRoute = (state: RequestMetricState): boolean =>
   state.route === route('POST', TILE_OFFERS_PATH)
 
+/** The route a live tile-offer-cache command is recorded under. */
+const TILE_OFFER_CACHE_ROUTE = 'WS /telemetry/live:tile-offer-cache'
+
 const isTileOfferMetric = (state: RequestMetricState): boolean =>
-  isTileOfferRoute(state) || state.route === 'WS /telemetry/live:tile-offer-cache'
+  isTileOfferRoute(state) || state.route === TILE_OFFER_CACHE_ROUTE
 
 const finiteCount = (value: unknown): number =>
   typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0
@@ -239,7 +242,7 @@ export const recordLiveTileOfferCacheMetric = (
   writeRequestMetric(
     dataset,
     {
-      route: 'WS /telemetry/live:tile-offer-cache',
+      route: TILE_OFFER_CACHE_ROUTE,
       method: 'WS',
       client: input.client,
       clientVersion: input.clientVersion,

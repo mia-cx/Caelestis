@@ -4,10 +4,9 @@ import {
   isWorkIdentity,
   parseWholeNumber,
   SCOPES,
-  type Scope,
   templateSurface,
 } from '@caelestis/shared'
-import type { StatusLiveConnection } from '../../live/session.js'
+import type { LiveCredential, StatusLiveConnection } from '../../live/session.js'
 import {
   type CacheOutcome,
   type D1Usage,
@@ -50,24 +49,12 @@ const PUBLISHER_ID = 'x-caelestis-publisher-id'
 const D1_USAGE = 'x-caelestis-live-d1-usage'
 const CACHE_OUTCOME = 'x-caelestis-live-cache-outcome'
 
-/** What every live connection carries, live sync and presence alike. */
-interface Credential {
-  readonly season: number
-  readonly tokenHash: string
-  readonly clientHash: string
-  readonly credentialScope: Scope
-  readonly anonymous: boolean
-  readonly revocable: boolean
-  readonly metricClient: string
-  readonly metricClientVersion: string
-}
-
 const flag = (value: boolean): string => (value ? '1' : '0')
 
 const readFlag = (value: string | null): boolean | null =>
   value === '1' ? true : value === '0' ? false : null
 
-const forwardRequest = (request: Request, credential: Credential): Headers => {
+const forwardRequest = (request: Request, credential: LiveCredential): Headers => {
   const headers = new Headers(request.headers)
   headers.delete('authorization')
   headers.set(SEASON, String(credential.season))
@@ -81,7 +68,7 @@ const forwardRequest = (request: Request, credential: Credential): Headers => {
   return headers
 }
 
-const readCredential = (headers: Headers): Credential | null => {
+const readCredential = (headers: Headers): LiveCredential | null => {
   const season = parseWholeNumber(headers.get(SEASON))
   const tokenHash = headers.get(TOKEN_HASH)
   const clientHash = headers.get(CLIENT_HASH)

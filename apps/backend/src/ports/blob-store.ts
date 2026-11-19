@@ -8,9 +8,9 @@
 /**
  * Blobs are segregated by kind: template chunks, original template sources, mirrored canvas
  * tiles, derived products, archives, and operator branding. Tile garbage collection never scans
- * the other namespaces.
+ * the other namespaces. Archives carry the namespaces in this order: append a new one, never
+ * insert it.
  */
-/** Archives carry the namespaces in this order: append a new one, never insert it. */
 export const BLOB_NAMESPACES = [
   'branding',
   'chunks',

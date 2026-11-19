@@ -79,7 +79,7 @@ export const listenBunServer = async (runtime: NodeRuntime, config: NodeConfig) 
     await server.stop(true)
     throw new Error('Bun did not bind a TCP port')
   }
-  http.listening()
+  runtime.start(port)
   return {
     server,
     port,

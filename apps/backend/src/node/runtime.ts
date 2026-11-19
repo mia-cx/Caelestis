@@ -135,8 +135,8 @@ export const openNodeRuntime = async (
   objects: ObjectStorage,
   options: {
     onOwnershipLost: (error: Error) => void
-    /** Render the share images through this server's API, read with its frontend token. */
-    refreshSocial?: (readToken: string) => Promise<void>
+    /** Render the share images through this server's API at `api`, read with its frontend token. */
+    refreshSocial?: (api: string, readToken: string) => Promise<void>
   },
 ) => {
   let releaseSqlite: (() => void) | undefined
@@ -228,7 +228,7 @@ export const openNodeRuntime = async (
         serverId,
         counters,
         statusShard: (season) => shards.get(season).coordinator,
-        connectLive: async (_request, live) =>
+        connectLive: async (live) =>
           (await shards.get(live.season).coordinator.connect(live)).response,
         presenceRoom: (season: number, surface: TemplateSurface) =>
           rooms.get({ season, surface }).coordinator,
@@ -239,9 +239,19 @@ export const openNodeRuntime = async (
     )
 
     const { refreshSocial } = options
+    // Set by `start`, which runs jobs only once the listener has bound its port; `PORT=0` binds
+    // one the config does not know.
+    let api: string | undefined
     const jobs: Partial<Record<JobName, () => Promise<void>>> = {
       ...backend.jobs,
-      ...(refreshSocial ? { social: () => refreshSocial(readToken) } : {}),
+      ...(refreshSocial
+        ? {
+            social: () =>
+              api === undefined
+                ? Promise.reject(new Error('Share images render through a listening server'))
+                : refreshSocial(api, readToken),
+          }
+        : {}),
     }
     const wake = async (name: string): Promise<void> => {
       const actor = parseWoken(name)
@@ -283,23 +293,30 @@ export const openNodeRuntime = async (
       readToken,
       serverId,
       connection,
+      /** Run durable jobs, now that the listener has bound `port`. */
+      start(port: number) {
+        api = `http://127.0.0.1:${port}${config.basePath}/v1/`
+        scheduler.start()
+      },
       capacity: {
         admissions: new AdmissionCounters(),
         eventLoopLag,
         snapshot: () =>
           snapshotCapacity(
             [
-              ...[...shards.entries()].map(([season, { host }]) => ({
+              ...[...shards.entries()].map(([season, { host, coordinator }]) => ({
                 kind: 'live-sync' as const,
                 key: String(season),
-                host,
+                occupants: coordinator.occupants(),
+                pendingWork: host.pendingWork,
               })),
               // Rooms are keyed by caller-chosen surfaces, so they aggregate per season to keep
               // the metric label domain bounded.
-              ...[...rooms.entries()].map(([, { season, host }]) => ({
+              ...[...rooms.entries()].map(([, { season, host, coordinator }]) => ({
                 kind: 'presence' as const,
                 key: String(season),
-                host,
+                occupants: coordinator.occupants(),
+                pendingWork: host.pendingWork,
               })),
             ],
             config.liveSubscriberLimit,

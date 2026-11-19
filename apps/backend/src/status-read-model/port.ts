@@ -104,7 +104,10 @@ export const bestEffort = async <A>(run: () => Promise<A>): Promise<A | null> =>
   }
 }
 
-/** Process-local read models for hosts with no live connections, such as tests and scripts. */
+/**
+ * Process-local read models for hosts with no live connections, such as tests and scripts. With
+ * no sessions there is nobody to wake and nothing to close, so those notifications do nothing.
+ */
 export class DirectStatusReadModel implements StatusReadModelPort {
   private readonly seasons = new Map<number, SeasonReadModels>()
 
@@ -172,13 +175,10 @@ export class DirectStatusReadModel implements StatusReadModelPort {
     return this.season(season).finishTileCommit(tile, commit)
   }
 
-  /** Without live connections there is nobody to wake. */
   async notifyAlarmChange(): Promise<void> {}
 
-  /** Without live connections there is nobody to wake. */
   async notifyDashboardChange(): Promise<void> {}
 
-  /** Without live connections there is no session to close. */
   async closeCredential(): Promise<void> {}
 
   /** Live commands, where any ran, ran in this process. */

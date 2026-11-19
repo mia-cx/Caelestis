@@ -14,7 +14,7 @@ export const durableStatusShards =
   (namespace: DurableObjectNamespace<StatusReadModelObject>) =>
   (season: number): StatusShard =>
     forwardingClient<StatusShard>()(
-      namespace.getByName(statusShardName(season)),
+      () => namespace.getByName(statusShardName(season)),
       STATUS_SHARD_METHODS,
       MEASURED_STATUS_METHODS,
     )
@@ -22,5 +22,5 @@ export const durableStatusShards =
 /** Live sync through the season's Durable Object, which holds the socket. */
 export const durableLiveSync =
   (namespace: DurableObjectNamespace<StatusReadModelObject>): LiveSyncPort['connect'] =>
-  (request, connection) =>
+  (connection, request) =>
     forwardStatusLive(namespace.getByName(statusShardName(connection.season)), request, connection)

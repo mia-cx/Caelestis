@@ -2,7 +2,7 @@ import { Context, Effect } from 'effect'
 import { type BackfillClients, noBackfill } from '../backfill/port.js'
 import { type LiveSyncPort, noLiveSync } from '../live/port.js'
 import type { BlobStore, CounterStore, SqlStore } from '../ports/index.js'
-import { noPresence, type PresencePort } from '../presence/port.js'
+import { noPresence, type PresenceRooms } from '../presence/port.js'
 import { DirectStatusReadModel, type StatusReadModelPort } from '../status-read-model/port.js'
 
 export class BlobStoreService extends Context.Service<BlobStoreService, BlobStore>()(
@@ -22,7 +22,7 @@ export class StatusReadModelService extends Context.Service<
   StatusReadModelPort
 >()('@caelestis/backend/StatusReadModel') {}
 
-export class PresenceService extends Context.Service<PresenceService, PresencePort>()(
+export class PresenceService extends Context.Service<PresenceService, PresenceRooms>()(
   '@caelestis/backend/Presence',
 ) {}
 
@@ -46,7 +46,7 @@ export type BackendContext = Context.Context<BackendServices>
 
 /** What a host with live sockets and import workers adds; hosts without them leave it out. */
 export interface HostPorts {
-  readonly presence?: PresencePort
+  readonly presence?: PresenceRooms
   readonly liveSync?: LiveSyncPort
   readonly backfill?: BackfillClients
 }
@@ -76,16 +76,14 @@ export interface BackendRuntime {
   ) => Promise<A | B>
 }
 
-export const createBackendRuntime = (context: BackendContext): BackendRuntime => {
-  return {
-    context,
-    run: (effect) => Effect.runPromise(Effect.provideContext(effect, context)),
-    runHandled: (effect, onError) =>
-      Effect.runPromise(
-        Effect.provideContext(
-          Effect.catch(effect, (error) => Effect.succeed(onError(error))),
-          context,
-        ),
+export const createBackendRuntime = (context: BackendContext): BackendRuntime => ({
+  context,
+  run: (effect) => Effect.runPromise(Effect.provideContext(effect, context)),
+  runHandled: (effect, onError) =>
+    Effect.runPromise(
+      Effect.provideContext(
+        Effect.catch(effect, (error) => Effect.succeed(onError(error))),
+        context,
       ),
-  }
-}
+    ),
+})

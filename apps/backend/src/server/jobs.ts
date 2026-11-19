@@ -3,7 +3,7 @@ import { type FetcherStores, fetchCanvasTiles } from '../telemetry/fetcher.js'
 import { runTileBlobGc } from '../telemetry/tile-blobs.js'
 import type { ServerConfig } from './config.js'
 
-const SIX_HOURS = ALARM_SCAN_INTERVAL_SECONDS * 1_000
+const SCAN_INTERVAL_MS = ALARM_SCAN_INTERVAL_SECONDS * 1_000
 const DAY = 24 * 60 * 60 * 1_000
 
 /**
@@ -12,9 +12,9 @@ const DAY = 24 * 60 * 60 * 1_000
  */
 export const JOBS = {
   /** Refetch template tiles and their surroundings, so timelapses keep moving. */
-  mirror: { cron: '0 */6 * * *', every: SIX_HOURS },
+  mirror: { cron: '0 */6 * * *', every: SCAN_INTERVAL_MS },
   /** Expire region claims and reclaim unreferenced tile blobs. */
-  gc: { cron: '0 */6 * * *', every: SIX_HOURS },
+  gc: { cron: '0 */6 * * *', every: SCAN_INTERVAL_MS },
   /** Render each published template's share GIF. */
   social: { cron: '37 7 * * *', every: DAY },
 } as const satisfies Record<string, { readonly cron: string; readonly every: number }>

@@ -1,7 +1,7 @@
 import {
   alarmWatcher,
+  cloudflareBindings,
   cloudflareConfig,
-  cloudflareStores,
   durablePresenceRooms,
 } from './adapters/cloudflare/bindings.js'
 import { forwardingObject } from './adapters/cloudflare/forwarding-object.js'
@@ -19,7 +19,7 @@ type Coordinator = StatusCoordinator<WebSocket>
 
 /** One season's status coordinator, named `statusShardName(season)`. */
 export class StatusReadModelObject extends forwardingObject<Coordinator>()(
-  STATUS_SHARD_METHODS,
+  [...STATUS_SHARD_METHODS, 'webSocketMessage', 'webSocketClose'],
   MEASURED_STATUS_METHODS,
 ) {
   protected readonly target: Coordinator
@@ -28,7 +28,10 @@ export class StatusReadModelObject extends forwardingObject<Coordinator>()(
     const season = parseStatusShardName(ctx.id.name ?? '')
     if (season === null) throw new Error(`Status shard name ${ctx.id.name} names no season`)
     const config = cloudflareConfig(env)
-    const { sql, blobs, counters } = cloudflareStores(env)
+    const {
+      stores: { sql, blobs },
+      counters,
+    } = cloudflareBindings(env)
     const rooms = durablePresenceRooms(env)
     this.target = new StatusCoordinator(
       durableLiveHost(ctx, 'status'),
@@ -45,11 +48,5 @@ export class StatusReadModelObject extends forwardingObject<Coordinator>()(
   }
   override fetch(request: Request) {
     return receiveStatusLive(request, (connection) => this.target.connect(connection))
-  }
-  override webSocketMessage(...args: Parameters<Coordinator['webSocketMessage']>) {
-    return this.target.webSocketMessage(...args)
-  }
-  override webSocketClose(...args: Parameters<Coordinator['webSocketClose']>) {
-    return this.target.webSocketClose(...args)
   }
 }

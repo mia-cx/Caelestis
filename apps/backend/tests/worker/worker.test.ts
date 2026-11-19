@@ -67,4 +67,29 @@ describe('Cloudflare Worker composition', { timeout: 120_000 }, () => {
       presenceRoom: { season: 0, surface: { kind: 'world' } },
     })
   })
+
+  it("delivers a room's socket messages to its coordinator", async () => {
+    const cloudflare = await open()
+    const response = await cloudflare.dispatchFetch(
+      `${cloudflare.api}/telemetry/presence?season=0&painterId=42&painterName=Mia&clientId=01890f3e-7b2c-7abc-8def-000000000005`,
+      {
+        headers: {
+          upgrade: 'websocket',
+          'sec-websocket-protocol': `caelestis.presence.v1, caelestis.auth.b64.${Buffer.from(ARCHIVE_ADMIN).toString('base64url')}`,
+        },
+      },
+    )
+    const socket = response.webSocket
+    if (socket === null) throw new Error(`Expected a presence socket, got ${response.status}`)
+    const ready = new Promise<string>((resolve) =>
+      socket.addEventListener('message', (event) => resolve(String(event.data)), { once: true }),
+    )
+    const closed = new Promise<number>((resolve) =>
+      socket.addEventListener('close', (event) => resolve(event.code)),
+    )
+    socket.accept()
+    expect(JSON.parse(await ready)).toMatchObject({ type: 'presence-ready', online: 1 })
+    socket.send(new Uint8Array([1]))
+    expect(await closed).toBe(1003)
+  })
 })

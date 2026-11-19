@@ -163,6 +163,9 @@ export class NodeLiveHost implements LiveHost<NodeLiveSocket> {
         const enqueuedAt = performance.now()
         pending = pending
           .then(() => {
+            // Answered here, as Cloudflare's auto-response answers it, so no coordinator sees a
+            // ping. In the queue, so a pong still follows this socket's earlier messages.
+            if (message === 'ping') return socket.send('pong')
             // Time spent behind this socket's earlier messages, before any work starts.
             if (command !== null)
               ingestTimings.record(command, 'queue', performance.now() - enqueuedAt)

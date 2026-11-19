@@ -1,6 +1,5 @@
 import type { CoordinatorDatabase } from './database.js'
 
-/** The three counts every counter row carries. */
 export const COUNTER_VALUES = ['placed', 'correct', 'repairs'] as const
 
 interface CounterTable {

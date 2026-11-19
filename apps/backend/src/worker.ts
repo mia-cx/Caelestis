@@ -1,13 +1,13 @@
 import type { Manifest } from '@caelestis/shared'
 import type { ReadApi } from '@caelestis/social'
+import { R2ObjectStorage } from '@caelestis/storage/r2'
 import {
   alarmWatcher,
+  cloudflareBindings,
   cloudflareConfig,
-  cloudflareStorage,
   durablePresenceRooms,
 } from './adapters/cloudflare/bindings.js'
-import { DurableObjectCounterStore } from './adapters/cloudflare/do-counter-store.js'
-import { durableLiveSync, durableStatusShards } from './adapters/cloudflare/do-status-read-model.js'
+import { durableLiveSync } from './adapters/cloudflare/do-status-read-model.js'
 import { IN_PROCESS_READ } from './auth/middleware.js'
 import { measureRequest } from './metrics/request-metrics.js'
 import { type Backend, composeBackend } from './server/compose.js'
@@ -33,10 +33,8 @@ const backendFor = (env: Env): Backend => {
   const config = cloudflareConfig(env)
   const created = composeBackend(
     {
-      ...cloudflareStorage(env),
+      ...cloudflareBindings(env),
       serverId: config.serverId,
-      counters: new DurableObjectCounterStore(env.TELEMETRY),
-      statusShard: durableStatusShards(env.STATUS_READ_MODEL),
       connectLive: durableLiveSync(env.STATUS_READ_MODEL),
       presenceRoom: durablePresenceRooms(env),
       backfill: (name) => env.TEMPLATE_BACKFILL.getByName(name),
@@ -125,7 +123,7 @@ export default {
 
   // One template per batch (max_batch_size = 1). A throw retries it, and its previous GIF stays.
   async queue(batch, env): Promise<void> {
-    const { objects } = cloudflareStorage(env)
+    const objects = new R2ObjectStorage(env.BLOBS)
     for (const message of batch.messages)
       await publishSocialImages(readSelf(env), objects, message.body.templateId)
   },
