@@ -35,7 +35,7 @@ import {
 } from './claim-editor-state.js'
 import { CLAIM_OVERLAY_ID, handleOf, overlayMarks, renderOverlay } from './claim-overlay.js'
 import type { ClaimSaveResult } from './claim-routing.js'
-import { warn } from './debug.js'
+import { notifyListeners } from './listeners.js'
 import { getMap } from './map-handle.js'
 import { isMapPress, mapPointAt, swallowNextClick } from './map-pointer.js'
 import { isMapInteractionTarget, screenProjection } from './map-view.js'
@@ -116,13 +116,7 @@ let closingMode: CaelestisClaimMode | null = null
 const listeners: (() => void)[] = []
 
 const notify = (): void => {
-  for (const listener of listeners) {
-    try {
-      listener()
-    } catch (error) {
-      warn('claim editor listener failed', String(error))
-    }
-  }
+  notifyListeners(listeners, 'claim editor listener failed')
   syncMode()
   syncOverlay()
   applyCursor()

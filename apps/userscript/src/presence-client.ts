@@ -20,6 +20,7 @@ import {
 } from '@caelestis/shared'
 import { userscriptVersion } from './client-metrics.js'
 import { log, warn } from './debug.js'
+import { notifyListeners } from './listeners.js'
 import { liveClientId, liveCredentialProtocol } from './live-identity.js'
 import {
   isProfileEnabled,
@@ -116,21 +117,11 @@ const local: {
   quickClaims: readonly PresenceRect[]
 } = { viewport: null, draft: null, quickClaims: [] }
 
-const run = (list: readonly (() => void)[], what: string): void => {
-  for (const listener of list) {
-    try {
-      listener()
-    } catch (error) {
-      warn(`${what} listener failed`, String(error))
-    }
-  }
-}
-
 /** Tell listeners; claim listeners too when the claims changed. */
 const changed = (claims = false): void => {
   revision++
-  if (claims) run(claimListeners, 'presence claims')
-  run(listeners, 'presence')
+  if (claims) notifyListeners(claimListeners, 'presence claims listener failed')
+  notifyListeners(listeners, 'presence listener failed')
 }
 
 /** Runs after any peer, region, or connection change. */

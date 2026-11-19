@@ -5,7 +5,7 @@ import {
   type SyncTransport,
   type TemplateStatus,
 } from '@caelestis/shared'
-import { warn } from './debug.js'
+import { notifyListeners } from './listeners.js'
 import {
   type ConnectedServer,
   isCurrentServerConnection,
@@ -70,13 +70,7 @@ const sameStatus = (left: TemplateStatus | undefined, right: TemplateStatus): bo
       }))
 
 const notify = (): void => {
-  for (const listener of listeners) {
-    try {
-      listener()
-    } catch (error) {
-      warn('status listener failed', String(error))
-    }
-  }
+  notifyListeners(listeners, 'status listener failed')
 }
 
 export const onServerStatusChange = (listener: () => void): (() => void) => {

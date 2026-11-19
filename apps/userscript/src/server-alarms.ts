@@ -1,5 +1,5 @@
 import type { Alarm, ReconciliationReason, SyncTransport } from '@caelestis/shared'
-import { warn } from './debug.js'
+import { notifyListeners } from './listeners.js'
 import { PerServerMap } from './per-server-map.js'
 import {
   type ConnectedServer,
@@ -44,13 +44,7 @@ onServerRemoved((serverUrl) => {
 
 const notify = (): void => {
   notifiedAlarms = activeServerAlarms().map(({ alarm }) => alarm)
-  for (const listener of listeners) {
-    try {
-      listener()
-    } catch (error) {
-      warn('alarm listener failed', String(error))
-    }
-  }
+  notifyListeners(listeners, 'alarm listener failed')
 }
 
 export const onServerAlarmChange = (listener: () => void): (() => void) => {

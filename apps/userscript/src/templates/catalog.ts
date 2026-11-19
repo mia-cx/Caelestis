@@ -5,7 +5,7 @@ import {
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { registerDebugEntry } from '../console-api.js'
-import { warn } from '../debug.js'
+import { notifyListeners } from '../listeners.js'
 import { localFolderChainVisible } from '../local-folders.js'
 import { isCurrentServerConnection } from '../server-connections.js'
 import {
@@ -333,23 +333,13 @@ export const onLocalPreviewChange = (listener: () => void): void => {
   previewListeners.push(listener)
 }
 
-const notifyListeners = (subscribers: readonly (() => void)[], what: string): void => {
-  for (const listener of subscribers) {
-    try {
-      listener()
-    } catch (error) {
-      warn(`${what} listener failed`, String(error))
-    }
-  }
-}
-
 /** Announce a catalog change: entries, their pixels, or a delete starting or ending. */
 export const notifyLocalChange = (): void => {
   templateRevision++
-  notifyListeners(listeners, 'local template')
+  notifyListeners(listeners, 'local template listener failed')
 }
 
-const notifyPreview = (): void => notifyListeners(previewListeners, 'local preview')
+const notifyPreview = (): void => notifyListeners(previewListeners, 'local preview listener failed')
 
 export const localTemplates = (): readonly PlacedTemplate[] => orderedTemplates()
 

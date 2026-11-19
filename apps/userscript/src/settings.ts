@@ -20,6 +20,7 @@ import {
 } from '@caelestis/shared'
 import { DEFAULT_STUDIO_LAYOUT, parseStudioLayout, type StudioLayout } from '@caelestis/ui/elements'
 import { log, warn } from './debug.js'
+import { notifyListeners } from './listeners.js'
 import { DEFAULT_MARKER_BUDGET, normaliseMarkerBudget } from './marker-budget.js'
 import { parseServerInfo, type ServerInfo } from './server-manifest.js'
 import { canonicalServerUrl } from './server-url.js'
@@ -573,14 +574,8 @@ let state: State = DEFAULT_STATE
 const listeners: Array<(next: State) => void> = []
 
 const notifyStateListeners = (): void => {
-  for (const listener of listeners) {
-    try {
-      listener(state)
-    } catch (error) {
-      // An observer must never turn an already-applied state change into a reported failure.
-      warn('state observer failed', String(error))
-    }
-  }
+  // An observer must never turn an already-applied state change into a reported failure.
+  notifyListeners(listeners, 'state observer failed', state)
 }
 
 /**
