@@ -226,21 +226,34 @@ export const surfaceAppearanceModel = (surface: TemplateSurface): AppearanceEdit
   }
 }
 
+/** The one write path for a canvas's defaults. */
+const commitSurfaceAppearance = (surface: TemplateSurface, next: Appearance): void => {
+  if (surface.kind !== 'world') {
+    setSurfaceAppearance(surface, next)
+    return
+  }
+  // The world keeps its hidden colours apart from the rest of its appearance.
+  if (next.hiddenColours !== getSurfaceAppearance(surface).hiddenColours)
+    setState({ hiddenColours: next.hiddenColours })
+  else setState({ appearance: next })
+}
+
+type AppearanceSwitch = {
+  [K in keyof Appearance]: Appearance[K] extends boolean ? K : never
+}[keyof Appearance]
+
+/** Flip one of a canvas's default switches, for shortcuts and rail buttons. */
+export const toggleSurfaceAppearance = (surface: TemplateSurface, key: AppearanceSwitch): void => {
+  const values = getSurfaceAppearance(surface)
+  commitSurfaceAppearance(surface, { ...values, [key]: !values[key] })
+}
+
 /**
  * A canvas's defaults as a store. Committed changes notify state listeners, which redraw; a
  * preview notifies nobody, so it redraws itself.
  */
 export const surfaceAppearanceStore = (surface: TemplateSurface): AppearanceStore => {
-  const commit = (next: Appearance): void => {
-    if (surface.kind !== 'world') {
-      setSurfaceAppearance(surface, next)
-      return
-    }
-    // The world keeps its hidden colours apart from the rest of its appearance.
-    if (next.hiddenColours !== getSurfaceAppearance(surface).hiddenColours)
-      setState({ hiddenColours: next.hiddenColours })
-    else setState({ appearance: next })
-  }
+  const commit = (next: Appearance): void => commitSurfaceAppearance(surface, next)
   return {
     preview: (key, value) => {
       previewSurfaceAppearance(surface, { ...getSurfaceAppearance(surface), [key]: value })

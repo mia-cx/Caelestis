@@ -17,10 +17,10 @@ import {
   onStateChange,
   setOnlySelectedColourFor,
   setState,
-  setSurfaceAppearance,
 } from '../settings.js'
 import { shortcutHint } from '../shortcuts.js'
 import { isPaintOpen, onPaintSelectionChange } from '../wplace-paint.js'
+import { toggleSurfaceAppearance } from './appearance.js'
 import { positionChargeForecast } from './charge-forecast.js'
 import { EDGE, GAP, RAIL_BUTTON } from './metrics.js'
 import { refreshOverlayMenu } from './overlay-menu.js'
@@ -231,8 +231,7 @@ const worldButtons = (): CaelestisRailControl[] => [
       id: MISMATCH_MODE_ID,
       model: mismatchModel(),
       activate: () => {
-        const appearance = getState().appearance
-        setState({ appearance: { ...appearance, markMismatch: !appearance.markMismatch } })
+        toggleSurfaceAppearance(WORLD_TEMPLATE_SURFACE, 'markMismatch')
         syncMismatchMode()
       },
     }),
@@ -465,13 +464,7 @@ export const mountAllianceRail = (active: ActiveAllianceSurface): void => {
       mountRailButton({
         id: ALLIANCE_MISMATCH_MODE_ID,
         model: allianceMismatchModel(active.surface),
-        activate: () => {
-          const appearance = getSurfaceAppearance(active.surface)
-          setSurfaceAppearance(active.surface, {
-            ...appearance,
-            markMismatch: !appearance.markMismatch,
-          })
-        },
+        activate: () => toggleSurfaceAppearance(active.surface, 'markMismatch'),
       }),
   )
   ;(active.stage.parentElement ?? active.stage).appendChild(wrapper)

@@ -14,14 +14,7 @@ import { openClaimTool } from './claims.js'
 import { requestMapFrame } from './map-view.js'
 import { setOverlayPeekActive } from './overlay-peek.js'
 import { cycleFocusedColour, navigateFocusedSelectedColour } from './palette-navigation.js'
-import {
-  getState,
-  getSurfaceAppearance,
-  onlySelectedColourFor,
-  setOnlySelectedColourFor,
-  setState,
-  setSurfaceAppearance,
-} from './settings.js'
+import { getState, onlySelectedColourFor, setOnlySelectedColourFor, setState } from './settings.js'
 import { activeShortcutBindings, currentShortcutPlatform, shortcutFor } from './shortcuts.js'
 import { simulatedInputAllowed } from './simulated-input.js'
 import { ownsGroup } from './templates/catalog.js'
@@ -33,6 +26,7 @@ import {
   setOwnsGroup,
   toggleAppearanceBoolean,
 } from './templates/template-edits.js'
+import { toggleSurfaceAppearance } from './ui/appearance.js'
 import { refreshOverlayMenu, toggleOverlayMenu } from './ui/overlay-menu.js'
 import { togglePanel } from './ui/panel.js'
 import { toggleShortcutHelp } from './ui/shortcut-help.js'
@@ -66,16 +60,7 @@ const toggleMarkerKind = (
     refreshOverlayMenu()
     return
   }
-  if (allianceSurface !== null) {
-    const appearance = getSurfaceAppearance(allianceSurface)
-    setSurfaceAppearance(allianceSurface, {
-      ...appearance,
-      [property]: !appearance[property],
-    })
-    return
-  }
-  const appearance = getState().appearance
-  setState({ appearance: { ...appearance, [property]: !appearance[property] } })
+  toggleSurfaceAppearance(allianceSurface ?? WORLD_TEMPLATE_SURFACE, property)
 }
 
 const toggleRings = (allianceSurface: AllianceSurface | null): void => {
@@ -88,19 +73,8 @@ const toggleRings = (allianceSurface: AllianceSurface | null): void => {
     })
     return
   }
-  if (allianceSurface !== null) {
-    const appearance = getSurfaceAppearance(allianceSurface)
-    setSurfaceAppearance(allianceSurface, {
-      ...appearance,
-      contrastOutline: !appearance.contrastOutline,
-    })
-    return
-  }
-  const appearance = getState().appearance
-  setState({
-    appearance: { ...appearance, contrastOutline: !appearance.contrastOutline },
-  })
-  requestMapFrame()
+  toggleSurfaceAppearance(allianceSurface ?? WORLD_TEMPLATE_SURFACE, 'contrastOutline')
+  if (allianceSurface === null) requestMapFrame()
 }
 
 interface ShortcutContext {
