@@ -56,16 +56,27 @@ const DEFAULT_SERVER_NAME = 'Caelestis'
  * over-long name, is refused here, so the operator hears about it at startup instead of from a
  * client that cannot decode the manifest.
  */
+/** A whole-number environment variable, or `fallback` when it is unset or empty. */
+export const wholeNumberVariable = (
+  env: Readonly<Record<string, string | undefined>>,
+  name: string,
+  fallback: number,
+): number => {
+  const value = env[name] || undefined
+  if (value === undefined) return fallback
+  const parsed = parseWholeNumber(value)
+  if (parsed === null)
+    throw new Error(`${name} must be a non-negative integer: ${JSON.stringify(value)}`)
+  return parsed
+}
+
 export const parseServerConfig = (env: ServerEnvironment, release: Release = {}): ServerConfig => {
   const read = (name: keyof ServerEnvironment): string | undefined => env[name] || undefined
   const refuse = (name: keyof ServerEnvironment, rule: string): never => {
     throw new Error(`${name} must be ${rule}: ${JSON.stringify(env[name])}`)
   }
-  const wholeNumber = (name: keyof ServerEnvironment, fallback: number): number => {
-    const value = read(name)
-    if (value === undefined) return fallback
-    return parseWholeNumber(value) ?? refuse(name, 'a non-negative integer')
-  }
+  const wholeNumber = (name: keyof ServerEnvironment, fallback: number): number =>
+    wholeNumberVariable(env, name, fallback)
 
   const shardStrategy = read('SHARD_STRATEGY')
   if (shardStrategy !== undefined && shardStrategy !== 'single')
