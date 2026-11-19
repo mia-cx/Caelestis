@@ -1,5 +1,5 @@
 import type { CounterArchive } from '../../archive/port.js'
-import type { CounterArchiveTable } from '../../coordination/telemetry.js'
+import type { CounterArchiveTable } from '../../coordination/counter-tables.js'
 import type { CounterDelta, CounterStore, PendingCounters } from '../../ports/index.js'
 import type { TelemetryShard } from '../../telemetry-shard.js'
 

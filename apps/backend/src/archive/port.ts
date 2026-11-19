@@ -1,7 +1,7 @@
 import type { ObjectStorage } from '@caelestis/storage'
 import type { SqlConnection } from '../adapters/sql-connection.js'
 import type { BackfillStatePage } from '../backfill/port.js'
-import type { CounterArchiveTable } from '../coordination/telemetry.js'
+import type { CounterArchiveTable } from '../coordination/counter-tables.js'
 
 /** The telemetry coordinator's durable tables, wherever the runtime keeps them. */
 export interface CounterArchive {

@@ -1,5 +1,5 @@
 import { type Millis, millis, type Seconds, seconds } from '@caelestis/shared'
-import { ArchiveOperationActiveError, StaleArchiveOperationError } from '../archive/errors.js'
+import { ArchiveOperationActiveError } from '../archive/errors.js'
 import type { SqlStore } from '../ports/index.js'
 import {
   addCounters,
@@ -7,45 +7,33 @@ import {
   type CounterDelta,
   type CounterValues,
   canAccumulateCounters,
-  EXPIRES_AFTER_SECONDS,
-  FLUSH_BATCH_LIMIT,
-  FLUSHABLE_AFTER_SECONDS,
   isValidCounterDelta,
   MAX_COUNTER_DELTAS_PER_RECORD,
   type PendingCounters,
   RESOLUTION_SECONDS,
-  type TelemetryBucket,
 } from '../ports/index.js'
+import {
+  COUNTER_OPERATION,
+  discardCounterRows,
+  exportCounterRows,
+  importCounterRows,
+  moveCounterOperation,
+} from './counter-archive.js'
+import { bindMillis, bindSeconds, CounterFlusher } from './counter-flush.js'
+import {
+  COUNTER_VALUES,
+  type CounterArchiveTable,
+  CUMULATIVE_BUCKET,
+  initializeCounterTables,
+  outstandingRows,
+} from './counter-tables.js'
 import type { AlarmStorage, CoordinatorDatabase } from './database.js'
 
-const INITIAL_FLUSH_RETRY_DELAY_MILLISECONDS = 1_000
-const MAX_FLUSH_RETRY_DELAY_MILLISECONDS = 60_000
 // The counters query binds every id twice. Stay below SQLite's conservative 999-variable default,
 // not merely workerd's current higher limit, so large manifest groups remain portable.
 const READ_PENDING_CHUNK_SIZE = 400
 
 const ARCHIVE_RETRY_DELAY_MILLISECONDS = 60_000
-
-const COUNTER_COLUMNS = ['template_id', 'bucket_start_s', 'placed', 'correct', 'repairs'] as const
-const COUNTER_KEY = ['template_id', 'bucket_start_s'] as const
-
-/** Durable coordinator tables in archive order. Each key orders its keyset pages. */
-export const COUNTER_ARCHIVE_TABLES = {
-  pending_counters: { key: COUNTER_KEY, columns: COUNTER_COLUMNS },
-  flush_batch: { key: COUNTER_KEY, columns: COUNTER_COLUMNS },
-  retained_counters: { key: COUNTER_KEY, columns: COUNTER_COLUMNS },
-  counter_meta: { key: ['template_id'], columns: ['template_id', 'flushed_at'] },
-  counter_stats: { key: ['singleton'], columns: ['singleton', 'dropped_late_deltas'] },
-  flush_retry_state: { key: ['singleton'], columns: ['singleton', 'consecutive_failures'] },
-  applied_counter_events: { key: ['event_id'], columns: ['event_id', 'seen_at_ms'] },
-} as const satisfies Record<string, { key: readonly string[]; columns: readonly string[] }>
-export type CounterArchiveTable = keyof typeof COUNTER_ARCHIVE_TABLES
-
-const flushRetryDelay = (failureCount: number): number =>
-  Math.min(
-    INITIAL_FLUSH_RETRY_DELAY_MILLISECONDS * 2 ** Math.max(0, failureCount - 1),
-    MAX_FLUSH_RETRY_DELAY_MILLISECONDS,
-  )
 
 interface CounterValuesRow {
   readonly placed: number
@@ -53,9 +41,8 @@ interface CounterValuesRow {
   readonly repairs: number
 }
 
-interface CounterRow extends CounterValuesRow {
+interface PendingRow extends CounterValuesRow {
   readonly template_id: string
-  readonly bucket_start_s: Seconds
 }
 
 interface FlushedAtRow {
@@ -67,14 +54,7 @@ interface CountRow {
   readonly count: number
 }
 
-interface NextBucketRow {
-  readonly bucket_start_s: Seconds | null
-}
-
-// SqlStorage's variadic bind API accepts every numeric unit. Route timestamp values through these
-// unit-specific adapters so a seconds/milliseconds swap is rejected before it reaches that API.
-const bindSeconds = (value: Seconds): number => value
-const bindMillis = (value: Millis): number => value
+const SUMMED = COUNTER_VALUES.map((value) => `COALESCE(SUM(${value}), 0) AS ${value}`).join(', ')
 
 const hasActivity = ({ placed, correct, repairs }: CounterDelta): boolean =>
   placed > 0 || correct > 0 || repairs > 0
@@ -82,33 +62,35 @@ const hasActivity = ({ placed, correct, repairs }: CounterDelta): boolean =>
 const eventBucketStart = (occurredAt: Seconds): Seconds =>
   seconds(Math.floor(occurredAt / RESOLUTION_SECONDS) * RESOLUTION_SECONDS)
 
-/** Shared durable counter validation, retry, retention, and cumulative bucket flushing. */
+/**
+ * The durable counter ledger: it validates and records deltas once each, answers what has not
+ * reached D1 yet, and admits writes only while no archive operation holds it still. Flushing to D1
+ * is the `CounterFlusher`'s; archive row transfer is `counter-archive.ts`'s.
+ */
 export class TelemetryCoordinator {
-  private alarmUpdates: Promise<void> = Promise.resolve()
+  private readonly flusher: CounterFlusher
   /** Archive operations holding this state; see `freeze`. Durable in `counter_freeze`. */
   private freezes: ReadonlySet<string> = new Set()
   /** Records and flushes that passed the freeze check and may still write. */
   private readonly admitted = new Set<Promise<void>>()
-  /**
-   * When the oldest unexpired retained row expires, as of the last prune. `null` is unknown, after
-   * startup or a restore, and makes the next record prune.
-   */
-  private retainedExpiresAt: Seconds | null = null
+
   constructor(
     private readonly database: CoordinatorDatabase,
-    private readonly alarms: AlarmStorage,
+    alarms: AlarmStorage,
     private readonly sql: SqlStore,
     private readonly clock: () => Millis = () => millis(Date.now()),
-  ) {}
+  ) {
+    this.flusher = new CounterFlusher(database, alarms, sql, clock)
+  }
 
   async initialize(): Promise<void> {
-    await this.initializeSchema()
+    await initializeCounterTables(this.database)
     // Union, not replace: a freeze taken while this read ran must survive it.
     this.freezes = new Set([...this.freezes, ...(await this.readFreezes())])
     const now = this.clock()
     // Pruning would change state an archive is reading; a frozen coordinator prunes after thawing.
-    if (this.freezes.size === 0) await this.pruneRetained(seconds(Math.floor(now / 1_000)))
-    await this.scheduleNextAlarm(now)
+    if (this.freezes.size === 0) await this.flusher.pruneRetained(seconds(Math.floor(now / 1_000)))
+    await this.flusher.scheduleNext(now)
   }
 
   private async readFreezes(): Promise<ReadonlySet<string>> {
@@ -118,8 +100,15 @@ export class TelemetryCoordinator {
     return new Set(rows.map((row) => row.operation_id))
   }
 
-  /** Track mutating work from its freeze check to its last write, so `freeze` can wait for it. */
-  private async admit(work: () => Promise<void>): Promise<void> {
+  /**
+   * Run mutating work only while no archive operation holds this state, and track it from that
+   * check to its last write so `freeze` can wait for it. Returns false, running nothing, while
+   * frozen.
+   */
+  private async admit(work: () => Promise<void>): Promise<boolean> {
+    if (this.freezes.size > 0) await this.clearStaleFreezes()
+    // Checked again with no await before admission, so a freeze cannot slip in between.
+    if (this.freezes.size > 0) return false
     const running = work()
     this.admitted.add(running)
     try {
@@ -127,13 +116,12 @@ export class TelemetryCoordinator {
     } finally {
       this.admitted.delete(running)
     }
+    return true
   }
 
   async record(deltas: readonly CounterDelta[], idempotencyKey?: string): Promise<void> {
-    if (this.freezes.size > 0) await this.clearStaleFreezes()
-    // Checked again with no await before admission, so a freeze cannot slip in between.
-    if (this.freezes.size > 0) throw new ArchiveOperationActiveError()
-    await this.admit(() => this.recordUnfrozen(deltas, idempotencyKey))
+    if (!(await this.admit(() => this.recordUnfrozen(deltas, idempotencyKey))))
+      throw new ArchiveOperationActiveError()
   }
 
   private async recordUnfrozen(
@@ -142,10 +130,7 @@ export class TelemetryCoordinator {
   ): Promise<void> {
     const nowMilliseconds = this.clock()
     const nowSeconds = seconds(Math.floor(nowMilliseconds / 1_000))
-    // A successful flush leaves retained reconciliation state but no alarm. The next write is a
-    // lifecycle opportunity to reclaim expired rows, taken only once a retained row has expired.
-    if (this.retainedExpiresAt === null || this.retainedExpiresAt <= nowSeconds)
-      await this.pruneRetained(nowSeconds)
+    await this.flusher.pruneExpired(nowSeconds)
 
     await this.database.transaction(async (database) => {
       await database.run(
@@ -179,10 +164,17 @@ export class TelemetryCoordinator {
         const key = `${delta.templateId}\u0000${bucketStart}`
         const outstanding =
           outstandingByTemplate.get(delta.templateId) ??
-          (await this.readOutstandingCounters(delta.templateId, database))
+          (await database.one<CounterValuesRow>(
+            `SELECT ${SUMMED} FROM (${outstandingRows((column) => `${column} = ?1`)}) AS outstanding`,
+            delta.templateId,
+          ))
         const cumulative =
           cumulativeByBucket.get(key) ??
-          (await this.readCumulativeBucket(delta.templateId, bucketStart, database))
+          (await database.one<CounterValuesRow>(
+            CUMULATIVE_BUCKET,
+            delta.templateId,
+            bindSeconds(bucketStart),
+          ))
         if (
           !canAccumulateCounters(outstanding, delta) ||
           !canAccumulateCounters(cumulative, delta)
@@ -209,8 +201,6 @@ export class TelemetryCoordinator {
         outstandingByTemplate.set(delta.templateId, addCounters(outstanding, delta))
         cumulativeByBucket.set(key, addCounters(cumulative, delta))
       }
-      // Only deltas with activity reach pending_counters and every count only grows, so a record
-      // cannot leave a zero row behind; the flush prunes any that another path might.
 
       if (droppedLate > 0) {
         await database.run(
@@ -224,42 +214,22 @@ export class TelemetryCoordinator {
       }
     })
 
-    await this.scheduleNextAlarm(nowMilliseconds)
+    await this.flusher.scheduleNext(nowMilliseconds)
   }
 
   async readPending(templateIds: readonly string[]): Promise<readonly PendingCounters[]> {
-    await this.scheduleNextAlarm(this.clock())
+    await this.flusher.scheduleNext(this.clock())
     if (templateIds.length === 0) return []
 
-    const countersByTemplate = new Map<string, CounterRow>()
+    const countersByTemplate = new Map<string, PendingRow>()
     const flushedAtByTemplate = new Map<string, Millis>()
     for (let offset = 0; offset < templateIds.length; offset += READ_PENDING_CHUNK_SIZE) {
       const chunk = templateIds.slice(offset, offset + READ_PENDING_CHUNK_SIZE)
       const placeholders = chunk.map(() => '?').join(', ')
-      const counters = await this.database.all<CounterRow>(
+      const counters = await this.database.all<PendingRow>(
         `
-          SELECT
-            template_id,
-            0 AS bucket_start_s,
-            SUM(placed) AS placed,
-            SUM(correct) AS correct,
-            SUM(repairs) AS repairs
-          FROM (
-            SELECT template_id, placed, correct, repairs
-            FROM pending_counters
-            WHERE template_id IN (${placeholders})
-            UNION ALL
-            SELECT
-              batch.template_id,
-              batch.placed - COALESCE(retained.placed, 0),
-              batch.correct - COALESCE(retained.correct, 0),
-              batch.repairs - COALESCE(retained.repairs, 0)
-            FROM flush_batch AS batch
-            LEFT JOIN retained_counters AS retained
-              ON retained.template_id = batch.template_id
-             AND retained.bucket_start_s = batch.bucket_start_s
-            WHERE batch.template_id IN (${placeholders})
-          ) AS outstanding
+          SELECT template_id, ${SUMMED}
+          FROM (${outstandingRows((column) => `${column} IN (${placeholders})`)}) AS outstanding
           GROUP BY template_id
         `,
         ...chunk,
@@ -293,135 +263,59 @@ export class TelemetryCoordinator {
   async readDroppedLateCount(): Promise<number> {
     return (
       await this.database.one<CountRow>(
-        `
-          SELECT dropped_late_deltas AS count
-          FROM counter_stats
-          WHERE singleton = 1
-        `,
+        'SELECT dropped_late_deltas AS count FROM counter_stats WHERE singleton = 1',
       )
     ).count
   }
 
-  async readFlushFailureCount(): Promise<number> {
-    return (
-      await this.database.one<CountRow>(
-        'SELECT consecutive_failures AS count FROM flush_retry_state WHERE singleton = 1',
-      )
-    ).count
+  readFlushFailureCount(): Promise<number> {
+    return this.flusher.readFailureCount()
   }
 
-  /** One keyset page of a coordinator table, for server archives. */
-  async exportCounterRows(
+  exportCounterRows(
     table: CounterArchiveTable,
     after: readonly (string | number)[] | null,
     limit: number,
   ): Promise<Record<string, string | number>[]> {
-    const { key } = COUNTER_ARCHIVE_TABLES[table]
-    const columns = key.join(', ')
-    return this.database.all<Record<string, string | number>>(
-      `SELECT * FROM ${table}${after === null ? '' : ` WHERE (${columns}) > (${key.map(() => '?').join(', ')})`} ORDER BY ${columns} LIMIT ${Math.trunc(limit)}`,
-      ...(after ?? []),
-    )
-  }
-
-  /**
-   * Advance `operationId`'s counter state, which only moves forward: importing (0), cleaning
-   * (1), closed (2). The row appears in state 0 for an operation that never opened — a discard
-   * or release of a restore that crashed before its first hold still closes it cleanly.
-   */
-  private async moveCounterOperation(operationId: string, to: number): Promise<void> {
-    await this.database.run(
-      'INSERT INTO counter_archive_operation (operation_id, state) VALUES (?1, 0) ON CONFLICT DO NOTHING',
-      operationId,
-    )
-    await this.database.run(
-      'UPDATE counter_archive_operation SET state = ?1 WHERE operation_id = ?2 AND state < ?1',
-      to,
-      operationId,
-    )
+    return exportCounterRows(this.database, table, after, limit)
   }
 
   /** Open counter rows to `operationId`'s imports. */
-  async beginCounterImport(operationId: string): Promise<void> {
-    await this.moveCounterOperation(operationId, 0)
+  beginCounterImport(operationId: string): Promise<void> {
+    return moveCounterOperation(this.database, operationId, COUNTER_OPERATION.importing)
   }
 
   /** Stop `operationId`'s imports; its own discard may still clean the rows it wrote. */
-  async beginCounterDiscard(operationId: string): Promise<void> {
-    await this.moveCounterOperation(operationId, 1)
+  beginCounterDiscard(operationId: string): Promise<void> {
+    return moveCounterOperation(this.database, operationId, COUNTER_OPERATION.cleaning)
   }
 
-  /** Close `operationId`'s counters: neither imports nor cleanup may write for it again. */
-  async closeCounterOperation(operationId: string): Promise<void> {
-    await this.moveCounterOperation(operationId, 2)
+  /** Neither imports nor cleanup may write for `operationId` again. */
+  closeCounterOperation(operationId: string): Promise<void> {
+    return moveCounterOperation(this.database, operationId, COUNTER_OPERATION.closed)
   }
 
-  /**
-   * The fence every counter import or cleanup must move inside its own transaction: it really
-   * modifies the operation's row (MariaDB reports no-op updates as zero rows), so contending
-   * writers serialize on it and a revoked grant reports zero changes.
-   */
-  private async claimCounterState(
-    database: CoordinatorDatabase,
-    operationId: string,
-    state: number,
-  ): Promise<void> {
-    const claimed = await database.run(
-      'UPDATE counter_archive_operation SET uses = uses + 1 WHERE operation_id = ?1 AND state = ?2',
-      operationId,
-      state,
-    )
-    if (claimed.rowsWritten !== 1) throw new StaleArchiveOperationError()
-  }
-
-  /** Restore archived rows over the seeded singletons, then wake the flush they may need. */
+  /** Restore archived rows, then wake the flush they may need. */
   async importCounterRows(
     operationId: string,
     table: CounterArchiveTable,
     rows: readonly Readonly<Record<string, string | number>>[],
   ): Promise<void> {
-    const { key, columns } = COUNTER_ARCHIVE_TABLES[table]
-    const updates = columns.filter((column) => !(key as readonly string[]).includes(column))
-    await this.database.transaction(async (database) => {
-      // Checked in the same transaction as the writes: once a discard or release moved this
-      // operation's counter state forward, its late imports change nothing.
-      await this.claimCounterState(database, operationId, 0)
-      const held = await database.all(
-        'SELECT 1 FROM counter_freeze WHERE operation_id = ?1',
-        operationId,
-      )
-      if (held.length === 0) throw new StaleArchiveOperationError()
-      for (const row of rows)
-        await database.run(
-          `INSERT INTO ${table} (${columns.join(', ')}) VALUES (${columns.map((_, index) => `?${index + 1}`).join(', ')}) ON CONFLICT (${key.join(', ')}) DO UPDATE SET ${updates.map((column) => `${column} = excluded.${column}`).join(', ')}`,
-          ...columns.map((column) => row[column] ?? null),
-        )
-    })
-    // Restored retained rows may expire sooner than any row the last prune saw.
-    if (table === 'retained_counters') this.retainedExpiresAt = null
-    await this.scheduleNextAlarm(this.clock())
+    await importCounterRows(this.database, operationId, table, rows)
+    if (table === 'retained_counters') this.flusher.forgetRetainedExpiry()
+    await this.flusher.scheduleNext(this.clock())
   }
 
-  /** Return to a new server's state after a discarded restore. */
-  async discardCounterRows(operationId: string): Promise<void> {
-    await this.database.transaction(async (database) => {
-      // A stale discard cannot empty counters its operation already closed.
-      await this.claimCounterState(database, operationId, 1)
-      for (const table of Object.keys(COUNTER_ARCHIVE_TABLES))
-        await database.run(`DELETE FROM ${table}`)
-    })
-    await this.initializeSchema()
+  discardCounterRows(operationId: string): Promise<void> {
+    return discardCounterRows(this.database, operationId)
   }
 
   /**
-   * Hold this state still for an archive operation. New records fail at once and records already
-   * admitted finish first, so each one is either in the archive or refused. A refused paint is
-   * retried by its client, and the retry re-records it wherever the server's data now lives.
-   */
-  /**
-   * A freeze belongs to an archive operation, keyed by its id, not to whichever call made it.
-   * The in-memory set only grows here and shrinks in `thaw` for the same id; no database read
-   * ever replaces it, so a stale read cannot reopen admission.
+   * Hold this state still for an archive operation, keyed by its id. New records fail at once and
+   * records already admitted finish first, so each one is either in the archive or refused; a
+   * refused paint is retried by its client wherever the server's data then lives. The in-memory
+   * set only grows here and shrinks in `thaw` for the same id, so a stale read cannot reopen
+   * admission.
    */
   async freeze(operationId: string): Promise<void> {
     this.freezes = new Set([...this.freezes, operationId])
@@ -438,7 +332,7 @@ export class TelemetryCoordinator {
     const remaining = new Set(this.freezes)
     remaining.delete(operationId)
     this.freezes = remaining
-    if (remaining.size === 0) await this.scheduleNextAlarm(this.clock())
+    if (remaining.size === 0) await this.flusher.scheduleNext(this.clock())
   }
 
   /**
@@ -459,410 +353,7 @@ export class TelemetryCoordinator {
    */
   async alarm(): Promise<void> {
     const nowMilliseconds = this.clock()
-    if (this.freezes.size > 0) await this.clearStaleFreezes()
-    if (this.freezes.size > 0) {
-      await this.updateAlarm(() =>
-        this.alarms.setAlarm(millis(nowMilliseconds + ARCHIVE_RETRY_DELAY_MILLISECONDS)),
-      )
-      return
-    }
-    await this.admit(() => this.flushDue(nowMilliseconds))
-  }
-
-  private async flushDue(nowMilliseconds: Millis): Promise<void> {
-    const nowSeconds = seconds(Math.floor(nowMilliseconds / 1_000))
-    await this.pruneRetained(nowSeconds)
-    await this.pruneZeroPending()
-    let rows = await this.readFlushBatch()
-
-    if (rows.length === 0) {
-      // Pending activity accumulated during a failed D1 write stays put. Once the preserved batch
-      // succeeds and clears, the next alarm promotes and drains that pending activity.
-      await this.database.transaction(async (database) => {
-        await database.run(
-          `
-            INSERT INTO flush_batch (
-              template_id, bucket_start_s, placed, correct, repairs
-            )
-            SELECT
-              pending.template_id,
-              pending.bucket_start_s,
-              pending.placed + COALESCE(retained.placed, 0),
-              pending.correct + COALESCE(retained.correct, 0),
-              pending.repairs + COALESCE(retained.repairs, 0)
-            FROM pending_counters AS pending
-            LEFT JOIN retained_counters AS retained
-              ON retained.template_id = pending.template_id
-             AND retained.bucket_start_s = pending.bucket_start_s
-            WHERE pending.bucket_start_s + ?1 <= ?2
-              AND (pending.placed <> 0 OR pending.correct <> 0 OR pending.repairs <> 0)
-          `,
-          FLUSHABLE_AFTER_SECONDS,
-          bindSeconds(nowSeconds),
-        )
-        await database.run(
-          `
-            DELETE FROM pending_counters
-            WHERE bucket_start_s + ?1 <= ?2
-              AND (placed <> 0 OR correct <> 0 OR repairs <> 0)
-          `,
-          FLUSHABLE_AFTER_SECONDS,
-          bindSeconds(nowSeconds),
-        )
-      })
-      rows = await this.readFlushBatch()
-    }
-
-    if (rows.length > 0) {
-      const buckets: readonly TelemetryBucket[] = rows.map((row) => ({
-        templateId: row.template_id,
-        resolution: RESOLUTION_SECONDS,
-        bucketStart: row.bucket_start_s,
-        placed: row.placed,
-        correct: row.correct,
-        repairs: row.repairs,
-      }))
-
-      // D1 must commit before retained_counters advances. Advancing retained first makes
-      // readPending subtract the batch from itself and report zero for an unbounded D1 outage.
-      //
-      // The cost, stated accurately: if D1 commits but the response is lost, retained does not
-      // advance, so readPending keeps counting a batch D1 already holds and live totals read high
-      // by that batch. This is NOT a one-alarm window — it persists until the next flush succeeds,
-      // which during an outage means the whole outage, at up to 60s per retry. It always heals.
-      //
-      // Reporting high while recovering beats reporting zero for the duration, which is what the
-      // opposite ordering does. Both are wrong; only one of them is wrong in a direction that hides
-      // work rather than exaggerating it.
-      try {
-        const sql = this.sql
-        await sql.appendBuckets(buckets)
-        const templateIds = buckets.map((bucket) => bucket.templateId)
-        await sql.foldTelemetryBuckets(templateIds, nowSeconds)
-        // Painter buckets are written by the paint route, not flushed from here, but they age on
-        // the same ladder, so the flush that folds a template's buckets folds its painters' too.
-        await sql.foldPainterBuckets(templateIds, nowSeconds)
-      } catch (error) {
-        // Schedule the retry and return normally rather than rethrowing.
-        //
-        // Cloudflare retries a throwing alarm() with exponential backoff "starting at a 2 second
-        // delay from the first failure with up to 6 retries allowed", and its docs recommend
-        // catching inside the handler and scheduling a new alarm "if you want to make sure your
-        // alarm handler will be retried indefinitely". Rethrowing would cap recovery at six
-        // attempts — a D1 outage longer than roughly two minutes would exhaust them and strand
-        // flush_batch until unrelated traffic happened to re-arm the alarm. Owning the retry is the
-        // whole reason the backoff exists.
-        //
-        // The failure is not silent: readFlushFailureCount() exposes the consecutive-failure count,
-        // console.error records the cause, and the batch stays in flush_batch until D1 confirms.
-        // Note what is given up — a throwing alarm() registers as a platform error that Cloudflare
-        // retains and can alert on. Returning normally reports success while flushing nothing, so
-        // the counter above is the replacement and has to be watched.
-        // https://developers.cloudflare.com/durable-objects/api/alarms/
-        const failureCount = await this.incrementFlushFailureCount()
-        const retryDelay = flushRetryDelay(failureCount)
-        console.error(
-          `telemetry flush failed (attempt ${failureCount}), retrying in ${retryDelay}ms`,
-          error,
-        )
-        await this.updateAlarm(() => this.alarms.setAlarm(millis(this.clock() + retryDelay)))
-        return
-      }
-
-      await this.database.transaction(async (database) => {
-        await this.resetFlushFailureCount(database)
-        for (const row of rows) {
-          await database.run(
-            `
-              INSERT INTO retained_counters (
-                template_id, bucket_start_s, placed, correct, repairs
-              ) VALUES (?1, ?2, ?3, ?4, ?5)
-              ON CONFLICT (template_id, bucket_start_s) DO UPDATE SET
-                placed = excluded.placed,
-                correct = excluded.correct,
-                repairs = excluded.repairs
-            `,
-            row.template_id,
-            bindSeconds(row.bucket_start_s),
-            row.placed,
-            row.correct,
-            row.repairs,
-          )
-          await database.run(
-            `
-              INSERT INTO counter_meta (template_id, flushed_at)
-              VALUES (?1, ?2)
-              ON CONFLICT (template_id) DO UPDATE SET flushed_at = excluded.flushed_at
-            `,
-            row.template_id,
-            bindMillis(nowMilliseconds),
-          )
-          await database.run(
-            'DELETE FROM flush_batch WHERE template_id = ?1 AND bucket_start_s = ?2',
-            row.template_id,
-            bindSeconds(row.bucket_start_s),
-          )
-        }
-      })
-    }
-
-    await this.pruneRetained(nowSeconds)
-    await this.scheduleNextAlarm(nowMilliseconds)
-  }
-
-  /** Preserve the deployed Durable Object schema and create the same tables on portable databases. */
-  private async initializeSchema(): Promise<void> {
-    for (const statement of `
-      CREATE TABLE IF NOT EXISTS pending_counters (
-        template_id TEXT NOT NULL,
-        bucket_start_s BIGINT NOT NULL,
-        placed BIGINT NOT NULL,
-        correct BIGINT NOT NULL,
-        repairs BIGINT NOT NULL,
-        PRIMARY KEY (template_id, bucket_start_s)
-      );
-      CREATE TABLE IF NOT EXISTS flush_batch (
-        template_id TEXT NOT NULL,
-        bucket_start_s BIGINT NOT NULL,
-        placed BIGINT NOT NULL,
-        correct BIGINT NOT NULL,
-        repairs BIGINT NOT NULL,
-        PRIMARY KEY (template_id, bucket_start_s)
-      );
-      CREATE TABLE IF NOT EXISTS retained_counters (
-        template_id TEXT NOT NULL,
-        bucket_start_s BIGINT NOT NULL,
-        placed BIGINT NOT NULL,
-        correct BIGINT NOT NULL,
-        repairs BIGINT NOT NULL,
-        PRIMARY KEY (template_id, bucket_start_s)
-      );
-      CREATE TABLE IF NOT EXISTS counter_meta (
-        template_id TEXT PRIMARY KEY,
-        flushed_at BIGINT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS counter_stats (
-        singleton BIGINT PRIMARY KEY CHECK (singleton = 1),
-        dropped_late_deltas BIGINT NOT NULL
-      );
-      INSERT INTO counter_stats (singleton, dropped_late_deltas) VALUES (1, 0) ON CONFLICT DO NOTHING;
-      CREATE TABLE IF NOT EXISTS flush_retry_state (
-        singleton BIGINT PRIMARY KEY CHECK (singleton = 1),
-        consecutive_failures BIGINT NOT NULL
-      );
-      INSERT INTO flush_retry_state (singleton, consecutive_failures) VALUES (1, 0) ON CONFLICT DO NOTHING;
-      CREATE TABLE IF NOT EXISTS applied_counter_events (
-        event_id TEXT PRIMARY KEY,
-        seen_at_ms BIGINT NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS applied_counter_events_seen_at_idx
-        ON applied_counter_events (seen_at_ms);
-      CREATE INDEX IF NOT EXISTS retained_counters_bucket_idx
-        ON retained_counters (bucket_start_s);
-      CREATE INDEX IF NOT EXISTS pending_counters_bucket_idx
-        ON pending_counters (bucket_start_s);
-      CREATE TABLE IF NOT EXISTS counter_freeze (
-        operation_id VARCHAR(128) PRIMARY KEY
-      );
-      CREATE TABLE IF NOT EXISTS counter_archive_operation (
-        operation_id VARCHAR(128) PRIMARY KEY,
-        state BIGINT NOT NULL,
-        uses BIGINT NOT NULL DEFAULT 0
-      );
-`
-      .split(';')
-      .filter((part) => part.trim()))
-      await this.database.run(statement)
-  }
-
-  private async readFlushBatch(): Promise<CounterRow[]> {
-    return await this.database.all<CounterRow>(
-      `
-          SELECT template_id, bucket_start_s, placed, correct, repairs
-          FROM flush_batch
-          ORDER BY template_id, bucket_start_s
-          LIMIT ?1
-        `,
-      FLUSH_BATCH_LIMIT,
-    )
-  }
-
-  /** Current unflushed amount exposed by `readPending` for one template. */
-  private async readOutstandingCounters(
-    templateId: string,
-    database = this.database,
-  ): Promise<CounterValues> {
-    return await database.one<CounterValuesRow>(
-      `
-          SELECT
-            COALESCE(SUM(placed), 0) AS placed,
-            COALESCE(SUM(correct), 0) AS correct,
-            COALESCE(SUM(repairs), 0) AS repairs
-          FROM (
-            SELECT placed, correct, repairs
-            FROM pending_counters
-            WHERE template_id = ?1
-            UNION ALL
-            SELECT
-              batch.placed - COALESCE(retained.placed, 0),
-              batch.correct - COALESCE(retained.correct, 0),
-              batch.repairs - COALESCE(retained.repairs, 0)
-            FROM flush_batch AS batch
-            LEFT JOIN retained_counters AS retained
-              ON retained.template_id = batch.template_id
-             AND retained.bucket_start_s = batch.bucket_start_s
-            WHERE batch.template_id = ?1
-          ) AS outstanding
-        `,
-      templateId,
-    )
-  }
-
-  /** Full cumulative bucket value after pending work eventually joins retained or flushing work. */
-  private async readCumulativeBucket(
-    templateId: string,
-    bucketStart: Seconds,
-    database = this.database,
-  ): Promise<CounterValues> {
-    return await database.one<CounterValuesRow>(
-      `
-          SELECT
-            COALESCE((
-              SELECT placed FROM pending_counters
-              WHERE template_id = ?1 AND bucket_start_s = ?2
-            ), 0) + COALESCE(
-              (SELECT placed FROM flush_batch
-               WHERE template_id = ?1 AND bucket_start_s = ?2),
-              (SELECT placed FROM retained_counters
-               WHERE template_id = ?1 AND bucket_start_s = ?2),
-              0
-            ) AS placed,
-            COALESCE((
-              SELECT correct FROM pending_counters
-              WHERE template_id = ?1 AND bucket_start_s = ?2
-            ), 0) + COALESCE(
-              (SELECT correct FROM flush_batch
-               WHERE template_id = ?1 AND bucket_start_s = ?2),
-              (SELECT correct FROM retained_counters
-               WHERE template_id = ?1 AND bucket_start_s = ?2),
-              0
-            ) AS correct,
-            COALESCE((
-              SELECT repairs FROM pending_counters
-              WHERE template_id = ?1 AND bucket_start_s = ?2
-            ), 0) + COALESCE(
-              (SELECT repairs FROM flush_batch
-               WHERE template_id = ?1 AND bucket_start_s = ?2),
-              (SELECT repairs FROM retained_counters
-               WHERE template_id = ?1 AND bucket_start_s = ?2),
-              0
-            ) AS repairs
-        `,
-      templateId,
-      bindSeconds(bucketStart),
-    )
-  }
-
-  private async pruneRetained(nowSeconds: Seconds): Promise<void> {
-    // The bound is on the bare column so the bucket index can serve it.
-    const expiredThrough = bindSeconds(seconds(nowSeconds - EXPIRES_AFTER_SECONDS))
-    await this.database.run(
-      `
-        DELETE FROM retained_counters
-        WHERE bucket_start_s <= ?1
-          AND NOT EXISTS (
-            SELECT 1
-            FROM pending_counters
-            WHERE pending_counters.template_id = retained_counters.template_id
-              AND pending_counters.bucket_start_s = retained_counters.bucket_start_s
-          )
-          AND NOT EXISTS (
-            SELECT 1
-            FROM flush_batch
-            WHERE flush_batch.template_id = retained_counters.template_id
-              AND flush_batch.bucket_start_s = retained_counters.bucket_start_s
-          )
-      `,
-      expiredThrough,
-    )
-    // Rows that outlived expiry because pending or flush-batch state still needs them are retried
-    // by every flush, so records wait only for the oldest row that has not expired yet.
-    const { bucket_start_s: oldest } = await this.database.one<NextBucketRow>(
-      'SELECT MIN(bucket_start_s) AS bucket_start_s FROM retained_counters WHERE bucket_start_s > ?1',
-      expiredThrough,
-    )
-    // With nothing retained, nothing expires until a flush retains a row, and that flush prunes.
-    this.retainedExpiresAt = seconds(
-      oldest === null ? Number.POSITIVE_INFINITY : Number(oldest) + EXPIRES_AFTER_SECONDS,
-    )
-  }
-
-  private async pruneZeroPending(): Promise<void> {
-    // Defensive: valid deltas currently cannot create a zero row, but keep cleanup safe if input or
-    // migration rules change later.
-    await this.database.run(
-      'DELETE FROM pending_counters WHERE placed = 0 AND correct = 0 AND repairs = 0',
-    )
-  }
-
-  /** Keep a stale empty read from deleting a newer record's wakeup or replacing its backoff. */
-  private updateAlarm(operation: () => Promise<void>): Promise<void> {
-    const running = this.alarmUpdates.then(operation, operation)
-    this.alarmUpdates = running.then(
-      () => undefined,
-      () => undefined,
-    )
-    return running
-  }
-
-  private scheduleNextAlarm(nowMilliseconds: Millis): Promise<void> {
-    return this.updateAlarm(() => this.reconcileAlarm(nowMilliseconds))
-  }
-
-  private async reconcileAlarm(nowMilliseconds: Millis): Promise<void> {
-    const flushBatchPending =
-      (await this.database.all('SELECT 1 FROM flush_batch LIMIT 1')).length > 0
-    if (flushBatchPending) {
-      const scheduledAlarm = await this.alarms.getAlarm()
-      if (scheduledAlarm === null || scheduledAlarm <= nowMilliseconds) {
-        await this.alarms.setAlarm(nowMilliseconds)
-      }
-      return
-    }
-
-    const nextBucket = (
-      await this.database.one<NextBucketRow>(
-        `
-          SELECT MIN(bucket_start_s) AS bucket_start_s
-          FROM pending_counters
-          WHERE placed <> 0 OR correct <> 0 OR repairs <> 0
-        `,
-      )
-    ).bucket_start_s
-    if (nextBucket === null) {
-      await this.alarms.deleteAlarm()
-      return
-    }
-
-    const flushableAtMilliseconds = millis((nextBucket + FLUSHABLE_AFTER_SECONDS) * 1_000)
-    await this.alarms.setAlarm(Math.max(nowMilliseconds, flushableAtMilliseconds))
-  }
-
-  private async incrementFlushFailureCount(): Promise<number> {
-    const current = (
-      await this.database.one<CountRow>(
-        'SELECT consecutive_failures AS count FROM flush_retry_state WHERE singleton = 1',
-      )
-    ).count
-    const next = current + 1
-    await this.database.run(
-      'UPDATE flush_retry_state SET consecutive_failures = ?1 WHERE singleton = 1',
-      next,
-    )
-    return next
-  }
-
-  private async resetFlushFailureCount(database = this.database): Promise<void> {
-    await database.run('UPDATE flush_retry_state SET consecutive_failures = 0 WHERE singleton = 1')
+    if (await this.admit(() => this.flusher.flush(nowMilliseconds))) return
+    await this.flusher.wakeAt(millis(nowMilliseconds + ARCHIVE_RETRY_DELAY_MILLISECONDS))
   }
 }

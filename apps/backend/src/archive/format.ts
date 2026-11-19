@@ -1,7 +1,7 @@
 import { isSha256Hex } from '@caelestis/shared'
 import { getTableColumns, getTableName } from 'drizzle-orm'
 import { getTableConfig, type SQLiteColumn, type SQLiteTable } from 'drizzle-orm/sqlite-core'
-import { COUNTER_ARCHIVE_TABLES, type CounterArchiveTable } from '../coordination/telemetry.js'
+import { COUNTER_ARCHIVE_TABLES, type CounterArchiveTable } from '../coordination/counter-tables.js'
 import * as schema from '../db/schema.js'
 import { ArchiveError } from './errors.js'
 

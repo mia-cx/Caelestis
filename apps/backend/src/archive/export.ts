@@ -1,5 +1,5 @@
 import { sha256Hex } from '@caelestis/shared'
-import { COUNTER_ARCHIVE_TABLES, type CounterArchiveTable } from '../coordination/telemetry.js'
+import { COUNTER_ARCHIVE_TABLES, type CounterArchiveTable } from '../coordination/counter-tables.js'
 import { ArchiveError } from './errors.js'
 import {
   ARCHIVE_CHAIN_SEED,
