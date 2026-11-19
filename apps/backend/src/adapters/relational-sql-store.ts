@@ -2694,7 +2694,7 @@ export class RelationalSqlStore implements SqlStore {
       if (rows.length === 0) continue
       const folded = foldTileReporterRows(rows, edge.target)
       const statements: SqlStatement[] = []
-      for (const group of chunkRows(folded.rows, 10)) {
+      for (const group of chunkRows(folded, 10)) {
         const values = group.map(() => '(?, ?, ?, ?, ?, ?, ?, ?)').join(', ')
         statements.push(
           this.client

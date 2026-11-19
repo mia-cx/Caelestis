@@ -6,7 +6,6 @@ import {
   PALETTE_SIZE,
   type PixelBounds,
   parseTemplateRecipe,
-  SCOPES,
   type Scope,
   type Seconds,
   type ServerAssetContentType,
@@ -105,7 +104,7 @@ export const DECAY_FOLD_GROUP_LIMIT = 20
  * one. The ladder-fold writer that fills tiers 300 through 21600 is exactly where a misfloored start
  * would appear.
  */
-export const invalidBucket = (bucket: TelemetryBucket): string | null => {
+const invalidBucket = (bucket: TelemetryBucket): string | null => {
   const { resolution, bucketStart, placed, correct, repairs } = bucket
   if (!LADDER_RESOLUTIONS.includes(resolution))
     return `resolution ${resolution} is not a ladder tier`
@@ -158,7 +157,7 @@ export interface PainterTelemetryBucket extends TelemetryBucket {
   readonly wplaceUserId: number
 }
 
-export const invalidPainterBucket = (bucket: PainterTelemetryBucket): string | null => {
+const invalidPainterBucket = (bucket: PainterTelemetryBucket): string | null => {
   if (!Number.isSafeInteger(bucket.wplaceUserId) || bucket.wplaceUserId < 0) {
     return `wplaceUserId ${bucket.wplaceUserId} is not a non-negative integer`
   }
@@ -300,48 +299,6 @@ export const compareContributionDays = (left: ContributionDay, right: Contributi
   return left.day - right.day || left.wplaceUserId - right.wplaceUserId
 }
 
-/**
- * Sum reduced contribution days per painter and keep the `limit` leading ones: correct, then
- * placed, both descending, with the id as a stable tiebreak that is not part of the ranking.
- * `activeDays` counts distinct days across templates.
- */
-export const rankLeaderboard = (
-  days: readonly ContributionDay[],
-  limit: number,
-): readonly LeaderboardEntry[] => {
-  const byUser = new Map<number, LeaderboardEntry & { readonly days: Set<number> }>()
-  for (const day of days) {
-    const held = byUser.get(day.wplaceUserId)
-    const entry = held ?? {
-      wplaceUserId: day.wplaceUserId,
-      displayName: day.displayName,
-      placed: 0,
-      correct: 0,
-      repairs: 0,
-      activeDays: 0,
-      lastDay: day.day,
-      days: new Set<number>(),
-    }
-    entry.days.add(day.day)
-    byUser.set(day.wplaceUserId, {
-      ...entry,
-      placed: entry.placed + day.placed,
-      correct: entry.correct + day.correct,
-      repairs: entry.repairs + day.repairs,
-      lastDay: seconds(Math.max(day.day, entry.lastDay)),
-    })
-  }
-  return [...byUser.values()]
-    .map(({ days, ...entry }) => ({ ...entry, activeDays: days.size }))
-    .sort(
-      (left, right) =>
-        right.correct - left.correct ||
-        right.placed - left.placed ||
-        left.wplaceUserId - right.wplaceUserId,
-    )
-    .slice(0, limit)
-}
-
 /** Bucket widths `tile_history` folds to, matching `tile_history_resolution_s_check`. 0 is raw. */
 export const TILE_HISTORY_RESOLUTIONS: readonly number[] = [0, 3_600, 21_600, 86_400]
 
@@ -362,16 +319,11 @@ export interface TileHistoryReporterRow {
   readonly reportedByUserId: number
 }
 
-export interface FoldedTileRows {
-  readonly rows: readonly TileHistoryReporterRow[]
-  readonly deletedHashes: readonly string[]
-}
-
 /** Latest source bucket wins; quorum chooses its hash; every winning reporter row survives. */
 export const foldTileReporterRows = (
   rows: readonly TileHistoryReporterRow[],
   targetResolution: number,
-): FoldedTileRows => {
+): readonly TileHistoryReporterRow[] => {
   const targetGroups = new Map<number, TileHistoryReporterRow[]>()
   for (const row of rows) {
     const targetStart = Math.floor(row.bucketStart / targetResolution) * targetResolution
@@ -411,7 +363,7 @@ export const foldTileReporterRows = (
         })),
     )
   }
-  return { rows: folded, deletedHashes: [...new Set(rows.map((row) => row.hash))] }
+  return folded
 }
 
 export interface TileHistoryQuery {
@@ -467,15 +419,6 @@ export const foldTileFrames = (
     .map(({ bucketStart, hash, reporters }) => ({ bucketStart, hash, reporters }))
 }
 
-/**
- * The scope domain `access_tokens_scope_check` enforces, stated where both adapters can honour it.
- *
- * D1 rejects anything outside this list and the memory store accepted it, so the oracle the
- * differential tests measure against was wider than production — the same defect `invalidBucket`
- * exists to close, on the sibling column. Fails closed either way, since `satisfiesScope` denies an
- * unrecognised scope, but a writer that passes green in tests and throws in D1 is worth catching
- * here rather than there.
- */
 /**
  * The domain the `templates`, `template_versions` and `version_tiles` CHECKs enforce, stated where
  * both adapters can honour it.
@@ -580,24 +523,6 @@ export const assertValidTemplateVersion = (version: TemplateVersionRecord): void
     if (!isDigest(chunk.hash)) fail(`chunk hash ${chunk.hash} is not a sha256 digest`)
   }
 }
-
-export const assertValidAccessToken = (token: AccessToken): void => {
-  if (!(SCOPES as readonly string[]).includes(token.scope)) {
-    throw new Error(`insertAccessToken rejected ${token.tokenHash}: unknown scope ${token.scope}`)
-  }
-}
-
-/**
- * The single order every `listAccessTokens` implementation returns.
- *
- * Newest first, and `createdAt` alone is not a total order — `Date.now()` has millisecond
- * resolution and scripted provisioning mints a read and a report token in the same tick. Memory
- * then falls back to `Map` insertion order and SQLite leaves equal keys unspecified, so the two
- * adapters can disagree on input the boundary permits. Same reasoning as `compareBuckets`.
- */
-export const compareAccessTokens = (left: AccessToken, right: AccessToken): number =>
-  right.createdAt - left.createdAt ||
-  (left.tokenHash < right.tokenHash ? -1 : left.tokenHash > right.tokenHash ? 1 : 0)
 
 /** A stored credential. The plaintext token exists only in the response that mints it. */
 export interface AccessToken {
@@ -1415,8 +1340,9 @@ export interface SqlStore extends TagStore {
   readContributions(query: ContributionQuery): Promise<readonly ContributionDay[]>
 
   /**
-   * The `limit` leading painters over the same reduced rows `readContributions` returns, ranked as
-   * `rankLeaderboard` ranks them. Takes the same query and rejects what it rejects.
+   * The `limit` leading painters over the same reduced rows `readContributions` returns: correct,
+   * then placed, both descending, with the painter id as a stable tiebreak. `activeDays` counts
+   * distinct days across templates. Takes the same query and rejects what it rejects.
    */
   readLeaderboard(query: ContributionQuery, limit: number): Promise<readonly LeaderboardEntry[]>
 
