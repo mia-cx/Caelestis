@@ -5,6 +5,7 @@ import { parseServerConfig, type ServerConfig } from '../../server/config.js'
 import { bundledRelease } from '../../server/release.js'
 import { portableStores } from '../../server/stores.js'
 import { CoordinatedStatusReadModel } from '../coordinated-status-read-model.js'
+import { d1Connection } from './d1-connection.js'
 import { DurableObjectCounterStore } from './do-counter-store.js'
 import { durableStatusShards } from './do-status-read-model.js'
 import { forwardPresence } from './live-connect.js'
@@ -29,7 +30,7 @@ export const alarmWatcher = (env: Env) => env.ALARM_WATCHER.getByName('global')
 
 /** The database, object storage, and the stores over them, as every Worker and object reaches them. */
 export const cloudflareStorage = (env: Env) => {
-  const connection = instrumentD1(env.DB)
+  const connection = d1Connection(instrumentD1(env.DB))
   const objects = new R2ObjectStorage(env.BLOBS)
   return { connection, objects, stores: portableStores(connection, objects) }
 }

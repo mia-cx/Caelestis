@@ -158,7 +158,7 @@ export const fencedConnection = (connection: SqlConnection): SqlConnection => {
   const unwrap = (statement: SqlStatement): SqlStatement =>
     statement instanceof FencedStatement ? statement.inner : statement
   return {
-    ...(connection.dialect === undefined ? {} : { dialect: connection.dialect }),
+    dialect: connection.dialect,
     prepare: (query) => new FencedStatement(connection.prepare(query), mutates(query), fence),
     batch<T = unknown>(statements: SqlStatement[]) {
       const inner = statements.map(unwrap)

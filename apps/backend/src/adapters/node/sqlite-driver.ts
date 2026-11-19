@@ -9,7 +9,7 @@ export const nodeSqliteDatabase = (filename: string): SqliteDatabase => {
     prepare(query) {
       const statement = database.prepare(query)
       return {
-        columns: () => statement.columns(),
+        columns: () => statement.columns().map(({ name }) => name),
         all: (...values) => statement.all(...values),
         get: (...values) => statement.get(...values),
         run: (...values) => statement.run(...values),

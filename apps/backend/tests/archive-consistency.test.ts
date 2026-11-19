@@ -119,6 +119,7 @@ describe('archive snapshot boundary', () => {
       }
     }
     const connection: TransactionalSqlConnection = {
+      dialect: 'sqlite',
       prepare: () => new HeldStatement(),
       batch: async () => [],
       transaction: (operation) => operation(connection),

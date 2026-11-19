@@ -1,3 +1,5 @@
+export type SqlDialectName = 'sqlite' | 'postgres' | 'mariadb'
+
 export interface SqlResult<T = Record<string, unknown>> {
   readonly results: T[]
   readonly meta: { readonly changes: number }
@@ -13,7 +15,7 @@ export interface SqlStatement {
 
 /** The SQL the relational stores run. Batches commit atomically, in order. */
 export interface SqlConnection {
-  readonly dialect?: 'sqlite' | 'postgres' | 'mariadb'
+  readonly dialect: SqlDialectName
   prepare(query: string): SqlStatement
   batch<T = unknown>(statements: SqlStatement[]): Promise<SqlResult<T>[]>
 }

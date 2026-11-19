@@ -1,6 +1,4 @@
-import { createHash } from 'node:crypto'
-import { readdirSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { serialQueue } from '../../runtime/serial-queue.js'
 import { sqliteConstraintViolation } from '../constraint-violation.js'
 import type { SqliteDatabase, SqliteValue } from '../database-driver.js'
 import type {
@@ -9,6 +7,13 @@ import type {
   SqlStatement,
   TransactionalSqlConnection,
 } from '../sql-connection.js'
+import {
+  DriverStatement,
+  type Executed,
+  runBatch,
+  type StatementDriver,
+} from './driver-statement.js'
+import { assertUnchanged, readMigrations } from './migrations.js'
 import { nodeSqliteDatabase } from './sqlite-driver.js'
 
 const binding = (value: unknown): SqliteValue => {
@@ -24,63 +29,13 @@ const binding = (value: unknown): SqliteValue => {
   throw new TypeError('Unsupported SQL binding')
 }
 
-/** Run one driver call, throwing SQLite's constraint failures as typed violations. */
-const typedConstraints = <T>(run: () => T): T => {
-  try {
-    return run()
-  } catch (error) {
-    throw sqliteConstraintViolation(error) ?? error
-  }
-}
-
-class Statement implements SqlStatement {
-  constructor(
-    readonly owner: SqliteConnection,
-    readonly query: string,
-    readonly values: SqliteValue[] = [],
-    readonly direct = false,
-  ) {}
-
-  bind(...values: unknown[]): Statement {
-    return new Statement(this.owner, this.query, values.map(binding), this.direct)
-  }
-
-  execute<T>(): SqlResult<T> {
-    return typedConstraints(() => {
-      const statement = this.owner.sqlite.prepare(this.query)
-      if (statement.columns().length > 0) {
-        const results = statement.all(...this.values) as T[]
-        return {
-          results,
-          meta: { changes: /\breturning\b/i.test(this.query) ? results.length : 0 },
-        }
-      }
-      return { results: [], meta: { changes: Number(statement.run(...this.values).changes) } }
-    })
-  }
-
-  async run<T>(): Promise<SqlResult<T>> {
-    return this.owner.exclusive(() => this.execute<T>(), this.direct)
-  }
-  async all<T>(): Promise<SqlResult<T>> {
-    return this.run<T>()
-  }
-  async first<T>(): Promise<T | null> {
-    return (await this.run<T>()).results[0] ?? null
-  }
-  async raw<T>(): Promise<T[]> {
-    return this.owner.exclusive(
-      () =>
-        typedConstraints(() => this.owner.sqlite.prepare(this.query).raw(...this.values) as T[]),
-      this.direct,
-    )
-  }
-}
-
 /** Persistent SQLite connection with serialized access across asynchronous transaction callbacks. */
-export class SqliteConnection implements TransactionalSqlConnection {
+export class SqliteConnection
+  implements TransactionalSqlConnection, StatementDriver<SqliteDatabase>
+{
+  readonly dialect = 'sqlite'
   readonly sqlite: SqliteDatabase
-  private tail: Promise<unknown> = Promise.resolve()
+  private readonly queue = serialQueue()
 
   constructor(filename: string, sqlite: SqliteDatabase = nodeSqliteDatabase(filename)) {
     this.sqlite = sqlite
@@ -89,48 +44,56 @@ export class SqliteConnection implements TransactionalSqlConnection {
     )
   }
 
+  withClient<T>(operation: (sqlite: SqliteDatabase) => Promise<T>): Promise<T> {
+    return this.queue(() => operation(this.sqlite))
+  }
+
+  /** Run one statement, throwing SQLite's constraint failures as typed violations. */
+  async execute(
+    sqlite: SqliteDatabase,
+    query: string,
+    values: readonly unknown[],
+  ): Promise<Executed> {
+    try {
+      const statement = sqlite.prepare(query)
+      const bound = values.map(binding)
+      const columns = statement.columns()
+      if (columns.length === 0)
+        return { rows: [], columns, changes: Number(statement.run(...bound).changes) }
+      const rows = statement.raw(...bound) as unknown[][]
+      return { rows, columns, changes: /\breturning\b/i.test(query) ? rows.length : 0 }
+    } catch (error) {
+      throw sqliteConstraintViolation(error) ?? error
+    }
+  }
+
+  /** SQLite reads the previous count natively with `changes()`. */
+  async setPreviousChanges(): Promise<void> {}
+
   prepare(query: string): SqlStatement {
-    return new Statement(this, query)
-  }
-
-  /** Serialize connection use across asynchronous transaction callbacks. */
-  exclusive<T>(operation: () => T | Promise<T>, direct = false): Promise<T> {
-    if (direct) return Promise.resolve().then(operation)
-    const running = this.tail.then(operation, operation)
-    this.tail = running.then(
-      () => undefined,
-      () => undefined,
-    )
-    return running
-  }
-
-  private statements<T>(statements: SqlStatement[]): SqlResult<T>[] {
-    return statements.map((statement) => {
-      if (!(statement instanceof Statement) || statement.owner !== this)
-        throw new Error('Statement belongs to another connection')
-      return statement.execute<T>()
-    })
+    return new DriverStatement(this, query)
   }
 
   transaction<T>(operation: (connection: SqlConnection) => Promise<T>): Promise<T> {
-    return this.exclusive(async () => {
-      this.sqlite.exec('BEGIN IMMEDIATE')
+    return this.withClient(async (sqlite) => {
+      sqlite.exec('BEGIN IMMEDIATE')
       try {
         const result = await operation({
-          prepare: (query) => new Statement(this, query, [], true),
-          batch: async <R>(statements: SqlStatement[]) => this.statements<R>(statements),
+          dialect: this.dialect,
+          prepare: (query) => new DriverStatement(this, query, [], sqlite),
+          batch: (statements) => runBatch(this, sqlite, statements),
         })
-        this.sqlite.exec('COMMIT')
+        sqlite.exec('COMMIT')
         return result
       } catch (error) {
-        this.sqlite.exec('ROLLBACK')
+        sqlite.exec('ROLLBACK')
         throw error
       }
     })
   }
 
   batch<T>(statements: SqlStatement[]): Promise<SqlResult<T>[]> {
-    return this.transaction(async () => this.statements<T>(statements))
+    return this.transaction((connection) => connection.batch<T>(statements))
   }
 
   /** Apply immutable migrations once, recording their digest in the same transaction. */
@@ -138,26 +101,23 @@ export class SqliteConnection implements TransactionalSqlConnection {
     this.sqlite.exec(
       'CREATE TABLE IF NOT EXISTS caelestis_migrations (name TEXT PRIMARY KEY, sha256 TEXT NOT NULL)',
     )
-    for (const name of readdirSync(directory)
-      .filter((name) => name.endsWith('.sql'))
-      .sort()) {
-      const source = readFileSync(join(directory, name), 'utf8')
-      const digest = createHash('sha256').update(source).digest('hex')
-      const previous = this.sqlite
+    for (const migration of readMigrations(directory)) {
+      const applied = this.sqlite
         .prepare('SELECT sha256 FROM caelestis_migrations WHERE name = ?')
-        .get(name)
-      if (previous) {
-        if (previous.sha256 !== digest)
-          throw new Error(`Migration changed after application: ${name}`)
+        .get(migration.name)
+      if (applied) {
+        assertUnchanged(migration, String(applied.sha256))
         continue
       }
       // Historic table-rebuild migrations require foreign keys disabled outside their transaction.
       this.sqlite.exec('PRAGMA foreign_keys = OFF; BEGIN IMMEDIATE')
       try {
-        this.sqlite.exec(source)
+        this.sqlite.exec(migration.source)
         if (this.sqlite.prepare('PRAGMA foreign_key_check').all().length)
-          throw new Error(`Foreign key violation after ${name}`)
-        this.sqlite.prepare('INSERT INTO caelestis_migrations VALUES (?, ?)').run(name, digest)
+          throw new Error(`Foreign key violation after ${migration.name}`)
+        this.sqlite
+          .prepare('INSERT INTO caelestis_migrations VALUES (?, ?)')
+          .run(migration.name, migration.digest)
         this.sqlite.exec('COMMIT')
       } catch (error) {
         this.sqlite.exec('ROLLBACK')

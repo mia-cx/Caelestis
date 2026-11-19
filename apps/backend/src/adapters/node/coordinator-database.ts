@@ -4,7 +4,7 @@ import type { SqlConnection, TransactionalSqlConnection } from '../sql-connectio
 /** Coordinator tables in the application database, for hosts without Durable Object storage. */
 export const coordinatorDatabase = (root: TransactionalSqlConnection): CoordinatorDatabase => {
   const scoped = (connection: SqlConnection, inTransaction = false): CoordinatorDatabase => ({
-    dialect: connection.dialect ?? 'sqlite',
+    dialect: connection.dialect,
     async all<T>(query: string, ...values: (string | number | null)[]) {
       return (
         await connection

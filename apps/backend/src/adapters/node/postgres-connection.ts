@@ -1,15 +1,22 @@
-import { createHash, randomUUID } from 'node:crypto'
-import { readdir, readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { DatabaseError, Pool, type PoolClient, type PoolConfig, types } from 'pg'
+import { type SerialQueue, serialQueue } from '../../runtime/serial-queue.js'
 import { ingestTimings } from '../../telemetry/ingest-timing.js'
 import { type ConstraintKind, ConstraintViolation } from '../constraint-violation.js'
+import { SET_PREVIOUS_CHANGES } from '../previous-changes.js'
 import type {
   SqlConnection,
   SqlResult,
   SqlStatement,
   TransactionalSqlConnection,
 } from '../sql-connection.js'
+import {
+  DriverStatement,
+  type Executed,
+  runBatch,
+  type StatementDriver,
+} from './driver-statement.js'
+import { assertUnchanged, readMigrations } from './migrations.js'
 
 /** Translate parameter markers while preserving quoted strings and identifiers verbatim. */
 export const postgresParameters = (query: string): string => {
@@ -42,7 +49,7 @@ const TILE_LANE_TABLES =
   /\b(canvas_tiles|status_read_model_revisions|template_alarm_tile_statuses|template_tile_measurements|template_tile_statuses|tile_blob_objects|tile_blob_reservations|tile_history)\b/
 const laneFor = (statements: readonly SqlStatement[]): string | undefined =>
   statements.some(
-    (statement) => statement instanceof Statement && TILE_LANE_TABLES.test(statement.query),
+    (statement) => statement instanceof DriverStatement && TILE_LANE_TABLES.test(statement.query),
   )
     ? 'tiles'
     : undefined
@@ -75,60 +82,6 @@ const postgresConstraintViolation = (error: unknown): ConstraintViolation | null
     : new ConstraintViolation(kind, error.constraint ?? null, { cause: error })
 }
 
-class Statement implements SqlStatement {
-  constructor(
-    readonly owner: PostgresConnection,
-    readonly query: string,
-    readonly values: unknown[] = [],
-    readonly client?: PoolClient,
-  ) {}
-  bind(...values: unknown[]): Statement {
-    return new Statement(this.owner, this.query, values, this.client)
-  }
-
-  async execute(client: PoolClient) {
-    const text = postgresParameters(this.query)
-    const startedAt = performance.now()
-    try {
-      return await client.query<unknown[]>({ text, values: this.values, rowMode: 'array' })
-    } catch (cause) {
-      throw (
-        postgresConstraintViolation(cause) ??
-        new Error(`PostgreSQL query failed: ${text}`, { cause })
-      )
-    } finally {
-      ingestTimings.record('sql', 'statement', performance.now() - startedAt)
-    }
-  }
-
-  async run<T>(): Promise<SqlResult<T>> {
-    const run = async (client: PoolClient): Promise<SqlResult<T>> => {
-      const result = await this.execute(client)
-      return {
-        results: result.rows.map((row) =>
-          Object.fromEntries(result.fields.map((field, index) => [field.name, row[index]])),
-        ) as T[],
-        meta: {
-          changes: ['INSERT', 'UPDATE', 'DELETE'].includes(result.command)
-            ? (result.rowCount ?? 0)
-            : 0,
-        },
-      }
-    }
-    return this.client ? run(this.client) : this.owner.withClient(run)
-  }
-  all<T>(): Promise<SqlResult<T>> {
-    return this.run<T>()
-  }
-  async first<T>(): Promise<T | null> {
-    return (await this.run<T>()).results[0] ?? null
-  }
-  async raw<T>(): Promise<T[]> {
-    const run = async (client: PoolClient) => (await this.execute(client)).rows as T[]
-    return this.client ? run(this.client) : this.owner.withClient(run)
-  }
-}
-
 const OWNERSHIP_LOCK = "hashtext('caelestis-runtime'), hashtext(current_schema())"
 const SESSION_LOCK = "hashtext('caelestis-runtime-sessions'), hashtext(current_schema())"
 
@@ -143,7 +96,7 @@ const SESSION_LOCK = "hashtext('caelestis-runtime-sessions'), hashtext(current_s
  * once, so no query of a former owner can commit after a replacement starts writing. Reads and
  * single statements run concurrently on the pool; transactions take turns, see `transaction`.
  */
-export class PostgresConnection implements TransactionalSqlConnection {
+export class PostgresConnection implements TransactionalSqlConnection, StatementDriver<PoolClient> {
   readonly dialect = 'postgres'
   readonly pool: Pool
   private owner: PoolClient | undefined
@@ -152,7 +105,7 @@ export class PostgresConnection implements TransactionalSqlConnection {
   private ownerFailure: Error | undefined
   private lostOwnership: ((error: Error) => void) | undefined
   private readonly fenced = new WeakSet<PoolClient>()
-  private readonly lanes = new Map<string, Promise<unknown>>()
+  private readonly lanes = new Map<string, SerialQueue>()
   private retriesLogged = 0
   private closing = false
   private ended: Promise<void> | undefined
@@ -281,8 +234,34 @@ export class PostgresConnection implements TransactionalSqlConnection {
     }
   }
 
+  async execute(client: PoolClient, query: string, values: readonly unknown[]): Promise<Executed> {
+    const text = postgresParameters(query)
+    const startedAt = performance.now()
+    try {
+      const result = await client.query<unknown[]>({ text, values: [...values], rowMode: 'array' })
+      return {
+        rows: result.rows,
+        columns: result.fields.map((field) => field.name),
+        changes: ['INSERT', 'UPDATE', 'DELETE'].includes(result.command)
+          ? (result.rowCount ?? 0)
+          : 0,
+      }
+    } catch (cause) {
+      throw (
+        postgresConstraintViolation(cause) ??
+        new Error(`PostgreSQL query failed: ${text}`, { cause })
+      )
+    } finally {
+      ingestTimings.record('sql', 'statement', performance.now() - startedAt)
+    }
+  }
+
+  async setPreviousChanges(client: PoolClient, changes: number): Promise<void> {
+    await client.query(SET_PREVIOUS_CHANGES.postgres, [String(changes)])
+  }
+
   prepare(query: string): SqlStatement {
-    return new Statement(this, query)
+    return new DriverStatement(this, query)
   }
 
   async batch<T>(statements: SqlStatement[]): Promise<SqlResult<T>[]> {
@@ -330,34 +309,12 @@ export class PostgresConnection implements TransactionalSqlConnection {
       ingestTimings.record(command, 'queue', wait)
       return ingestTimings.timed(command, 'total', run)
     }
-    const tail = this.lanes.get(lane) ?? Promise.resolve()
-    const running = tail.then(turn, turn)
-    this.lanes.set(
-      lane,
-      running.then(
-        () => undefined,
-        () => undefined,
-      ),
-    )
-    return running
-  }
-
-  private async executeBatch<T>(
-    client: PoolClient,
-    statements: SqlStatement[],
-  ): Promise<SqlResult<T>[]> {
-    const results: SqlResult<T>[] = []
-    for (const statement of statements) {
-      if (!(statement instanceof Statement) || statement.owner !== this)
-        throw new Error('Statement belongs to another connection')
-      if (statement.query.includes("current_setting('caelestis.changed_rows')")) {
-        await client.query("SELECT set_config('caelestis.changed_rows', $1, true)", [
-          String(results.at(-1)?.meta.changes ?? 0),
-        ])
-      }
-      results.push(await new Statement(this, statement.query, statement.values, client).run<T>())
+    let queue = this.lanes.get(lane)
+    if (queue === undefined) {
+      queue = serialQueue()
+      this.lanes.set(lane, queue)
     }
-    return results
+    return queue(turn)
   }
 
   /** A batch is its own transaction, in the lane `batch` chose rather than the callbacks' lane. */
@@ -386,9 +343,9 @@ export class PostgresConnection implements TransactionalSqlConnection {
       await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE')
       try {
         const result = await operation({
-          dialect: 'postgres',
-          prepare: (query) => new Statement(this, query, [], client),
-          batch: <R>(statements: SqlStatement[]) => this.executeBatch<R>(client, statements),
+          dialect: this.dialect,
+          prepare: (query) => new DriverStatement(this, query, [], client),
+          batch: (statements) => runBatch(this, client, statements),
         })
         await client.query('COMMIT')
         return result
@@ -408,22 +365,20 @@ export class PostgresConnection implements TransactionalSqlConnection {
         await client.query(
           'CREATE TABLE IF NOT EXISTS caelestis_migrations (name TEXT PRIMARY KEY, sha256 TEXT NOT NULL)',
         )
-        for (const name of (await readdir(directory))
-          .filter((name) => name.endsWith('.sql'))
-          .sort()) {
-          const source = await readFile(join(directory, name), 'utf8')
-          const digest = createHash('sha256').update(source).digest('hex')
-          const previous = await client.query<{ sha256: string }>(
+        for (const migration of readMigrations(directory)) {
+          const applied = await client.query<{ sha256: string }>(
             'SELECT sha256 FROM caelestis_migrations WHERE name = $1',
-            [name],
+            [migration.name],
           )
-          if (previous.rows[0]) {
-            if (previous.rows[0].sha256 !== digest)
-              throw new Error(`Migration changed after application: ${name}`)
+          if (applied.rows[0]) {
+            assertUnchanged(migration, applied.rows[0].sha256)
             continue
           }
-          await client.query(source)
-          await client.query('INSERT INTO caelestis_migrations VALUES ($1, $2)', [name, digest])
+          await client.query(migration.source)
+          await client.query('INSERT INTO caelestis_migrations VALUES ($1, $2)', [
+            migration.name,
+            migration.digest,
+          ])
         }
         await client.query('COMMIT')
       } catch (error) {
