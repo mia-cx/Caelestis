@@ -632,9 +632,7 @@ const finish = (reserveNext = false): MoveReservation | null => {
   } catch (error) {
     // Completion is an observer notification, not part of the durable placement transaction.
     // Never let it reopen capture-phase listeners after teardown.
-    try {
-      warn('placement completion callback failed', String(error))
-    } catch {}
+    warn('placement completion callback failed', String(error))
   }
   return reservation
 }
