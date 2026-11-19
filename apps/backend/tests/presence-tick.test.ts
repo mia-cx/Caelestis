@@ -1,10 +1,11 @@
-import { type PresenceServerEvent, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
+import { millis, type PresenceServerEvent, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { expect, it } from 'vitest'
 import { coordinatorDatabase } from '../src/adapters/node/coordinator-database.js'
 import { SqlCoordinatorStorage } from '../src/adapters/node/coordinator-storage.js'
 import type { LiveSocket } from '../src/live/session.js'
 import { openMemoryDatabase } from '../src/node/memory-stores.js'
-import { PresenceCoordinator, type PresenceHost } from '../src/presence-coordinator.js'
+import { PresenceCoordinator, type PresenceHost } from '../src/presence/coordinator.js'
+import { IngestTimings } from '../src/telemetry/ingest-timing.js'
 
 class Socket implements LiveSocket {
   readyState = 1
@@ -61,7 +62,13 @@ for (const renewing of ['observer', 'mover'] as const)
       upgradeResponse: () => new Response(null),
       waitUntil: () => {},
     }
-    const coordinator = new PresenceCoordinator(host, store.sql)
+    const coordinator = new PresenceCoordinator(
+      host,
+      { season: 0, surface: WORLD_TEMPLATE_SURFACE },
+      store.sql,
+      new IngestTimings(),
+      async () => {},
+    )
     coordinator.stop()
     try {
       await coordinator.alarm()
@@ -94,3 +101,84 @@ for (const renewing of ['observer', 'mover'] as const)
       await store.close()
     }
   })
+
+/** A room over `sockets`, with every credential it routes revocation to recorded in `routed`. */
+const openRoom = async (sockets: Socket[]) => {
+  const store = openMemoryDatabase()
+  const database = coordinatorDatabase(store.connection)
+  await SqlCoordinatorStorage.initialize(database)
+  const routed: string[] = []
+  const host: PresenceHost<Socket> = {
+    storage: new SqlCoordinatorStorage(database, 'presence'),
+    getWebSockets: () => sockets,
+    connect: (attachment) => {
+      const socket = new Socket(attachment)
+      sockets.push(socket)
+      return { client: socket, server: socket }
+    },
+    upgradeResponse: () => new Response(null),
+    waitUntil: () => {},
+  }
+  const coordinator = new PresenceCoordinator(
+    host,
+    { season: 0, surface: WORLD_TEMPLATE_SURFACE },
+    store.sql,
+    new IngestTimings(),
+    async (tokenHash) => {
+      routed.push(tokenHash)
+    },
+  )
+  coordinator.stop()
+  return { store, coordinator, routed }
+}
+
+it('serves the room around a socket whose attachment an earlier deploy wrote', async () => {
+  const observer = session(1, { x: 0, y: 0 }, Date.now())
+  const { store, coordinator } = await openRoom([new Socket({ sessionId: 'legacy' }), observer])
+  try {
+    await coordinator.alarm()
+    expect(observer.events.at(-1)).toMatchObject({ type: 'presence-ready', online: 1 })
+  } finally {
+    await store.close()
+  }
+})
+
+it('routes revocation only to a room that admitted the credential', async () => {
+  const client = '9'.repeat(64)
+  const full = Array.from({ length: 4 }, (_, index) => {
+    const socket = session(index + 1, { x: 0, y: 0 }, Date.now())
+    socket.serializeAttachment({
+      ...(socket.deserializeAttachment() as object),
+      clientHash: client,
+    })
+    return socket
+  })
+  const { store, coordinator, routed } = await openRoom(full)
+  const tokenHash = 'a'.repeat(64)
+  await store.sql.insertAccessToken({
+    tokenHash,
+    label: 'reporter',
+    scope: 'report',
+    createdWithToken: tokenHash,
+    createdAt: millis(Date.now()),
+  })
+  const connection = {
+    season: 0,
+    surface: WORLD_TEMPLATE_SURFACE,
+    painter: { wplaceUserId: 7, displayName: 'Painter 7' },
+    tokenHash,
+    credentialScope: 'report',
+    anonymous: false,
+    revocable: true,
+    metricClient: 'frontend',
+    metricClientVersion: 'development',
+  } as const
+  try {
+    expect((await coordinator.connect({ ...connection, clientHash: client })).status).toBe(503)
+    expect(routed).toEqual([])
+    expect((await coordinator.connect({ ...connection, clientHash: 'b'.repeat(64) })).ok).toBe(true)
+    expect(routed).toEqual([tokenHash])
+  } finally {
+    await store.close()
+  }
+})

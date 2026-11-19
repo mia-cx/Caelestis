@@ -16,7 +16,7 @@ import {
   recordCacheOutcome,
 } from '../../metrics/request-metrics.js'
 import type { PresenceConnection } from '../../presence/port.js'
-import type { LiveAdmission } from '../../status-coordinator.js'
+import type { LiveAdmission } from '../../status-read-model/coordinator.js'
 
 /**
  * A Durable Object can only return a WebSocket from `fetch`, so a live connection crosses from the

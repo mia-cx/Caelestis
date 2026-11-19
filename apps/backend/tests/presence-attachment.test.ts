@@ -5,14 +5,21 @@ import { coordinatorDatabase } from '../src/adapters/node/coordinator-database.j
 import { SqlCoordinatorStorage } from '../src/adapters/node/coordinator-storage.js'
 import { liveRequestContext, NodeLiveHost } from '../src/node/live.js'
 import { openMemoryDatabase } from '../src/node/memory-stores.js'
-import { PresenceCoordinator } from '../src/presence-coordinator.js'
+import { PresenceCoordinator } from '../src/presence/coordinator.js'
+import { IngestTimings } from '../src/telemetry/ingest-timing.js'
 
 it('keeps a fully populated maximum-claim attachment below 2,048 bytes', async () => {
   const store = openMemoryDatabase()
   const database = coordinatorDatabase(store.connection)
   await SqlCoordinatorStorage.initialize(database)
   const host = new NodeLiveHost(new SqlCoordinatorStorage(database, 'presence'), () => coordinator)
-  const coordinator = new PresenceCoordinator(host, store.sql)
+  const coordinator = new PresenceCoordinator(
+    host,
+    { season: 0, surface: WORLD_TEMPLATE_SURFACE },
+    store.sql,
+    new IngestTimings(),
+    async () => {},
+  )
   // This tests the attachment boundary without a TCP listener or a delivery timer.
   coordinator.stop()
   try {

@@ -18,6 +18,21 @@ export interface TileOfferCounts {
   readonly rejected: number
 }
 
+/** The D1 work a request or a Durable Object call did. */
+export interface D1Usage {
+  rowsRead: number
+  rowsWritten: number
+  measuredQueries: number
+  unmeasuredQueries: number
+}
+
+const noD1Usage = (): D1Usage => ({
+  rowsRead: 0,
+  rowsWritten: 0,
+  measuredQueries: 0,
+  unmeasuredQueries: 0,
+})
+
 interface RequestMetricState {
   readonly route: string
   readonly method: string
@@ -28,29 +43,19 @@ interface RequestMetricState {
   cacheOutcome: CacheOutcome
   tileOfferOutcome: TileOfferBatchOutcome
   tileOfferCounts: TileOfferCounts
-  d1RowsRead: number
-  d1RowsWritten: number
-  d1MeasuredQueries: number
-  d1UnmeasuredQueries: number
-}
-
-export interface D1Usage {
-  readonly rowsRead: number
-  readonly rowsWritten: number
-  readonly measuredQueries: number
-  readonly unmeasuredQueries: number
+  readonly d1: D1Usage
 }
 
 export type MeasuredD1Operation<A> =
   | {
       readonly success: true
       readonly value: A
-      readonly usage: D1Usage
+      readonly usage: Readonly<D1Usage>
     }
   | {
       readonly success: false
       readonly error: unknown
-      readonly usage: D1Usage
+      readonly usage: Readonly<D1Usage>
     }
 
 type MetricDataset = Pick<AnalyticsEngineDataset, 'writeDataPoint'>
@@ -61,17 +66,12 @@ export interface MetricClientIdentity {
 }
 
 const requestMetricStorage = new AsyncLocalStorage<RequestMetricState>()
-const d1UsageStorage = new AsyncLocalStorage<{
-  rowsRead: number
-  rowsWritten: number
-  measuredQueries: number
-  unmeasuredQueries: number
-}>()
+const d1UsageStorage = new AsyncLocalStorage<D1Usage>()
 const deploymentVersion = buildId(bundledRelease.build)
-const userscriptVersions = new Set(
-  typeof __CAELESTIS_USERSCRIPT_VERSIONS__ === 'object'
-    ? __CAELESTIS_USERSCRIPT_VERSIONS__
-    : ['0.5.4'],
+// The deploy workflow defines the released userscript versions. Any other build knows none, so
+// every userscript version reads as `unknown`.
+const userscriptVersions = new Set<string>(
+  typeof __CAELESTIS_USERSCRIPT_VERSIONS__ === 'object' ? __CAELESTIS_USERSCRIPT_VERSIONS__ : [],
 )
 
 /** Collapse caller-controlled client labels before they become metric dimensions. */
@@ -93,12 +93,8 @@ export const normalizeMetricClientIdentity = (
   }
 }
 
-export const metricClientIdentity = (accept: string | null): MetricClientIdentity => {
-  const client = parseClientMetricsAccept(accept)
-  return normalizeMetricClientIdentity(client.client, client.version)
-}
-
 const route = (method: string, pattern: string): string => `${method} ${pattern}`
+const TILE_OFFERS_PATH = '/telemetry/tiles/offers'
 const metricMethods = new Set(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'])
 const normalizeMetricMethod = (method: string): string => {
   const normalized = method.toUpperCase()
@@ -119,7 +115,7 @@ const exactRoutes = new Set([
   '/telemetry/leaderboard',
   '/telemetry/canvas',
   '/telemetry/live',
-  '/telemetry/tiles/offers',
+  TILE_OFFERS_PATH,
   '/telemetry/paints',
 ])
 
@@ -158,7 +154,7 @@ export const normalizeMetricRoute = (method: string, pathname: string): string =
 }
 
 const isTileOfferRoute = (state: RequestMetricState): boolean =>
-  state.route === 'POST /telemetry/tiles/offers'
+  state.route === route('POST', TILE_OFFERS_PATH)
 
 const isTileOfferMetric = (state: RequestMetricState): boolean =>
   isTileOfferRoute(state) || state.route === 'WS /telemetry/live:tile-offer-cache'
@@ -166,38 +162,27 @@ const isTileOfferMetric = (state: RequestMetricState): boolean =>
 const finiteCount = (value: unknown): number =>
   typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0
 
-const recordMeasuredD1Queries = (count = 1): void => {
-  const state = requestMetricStorage.getStore()
-  if (state !== undefined) state.d1MeasuredQueries += count
-  const usage = d1UsageStorage.getStore()
-  if (usage !== undefined) usage.measuredQueries += count
+const addD1Usage = (into: D1Usage, delta: Partial<D1Usage>): void => {
+  into.rowsRead += finiteCount(delta.rowsRead)
+  into.rowsWritten += finiteCount(delta.rowsWritten)
+  into.measuredQueries += finiteCount(delta.measuredQueries)
+  into.unmeasuredQueries += finiteCount(delta.unmeasuredQueries)
 }
 
-const recordD1Rows = (result: D1Result): void => {
+/** Count D1 work toward the current request's metric and the Durable Object call measuring it. */
+const recordD1Usage = (delta: Partial<D1Usage>): void => {
   const state = requestMetricStorage.getStore()
-  const rowsRead = finiteCount(result.meta.rows_read)
-  const rowsWritten = finiteCount(result.meta.rows_written)
-  if (state !== undefined) {
-    state.d1RowsRead += rowsRead
-    state.d1RowsWritten += rowsWritten
-  }
+  if (state !== undefined) addD1Usage(state.d1, delta)
   const usage = d1UsageStorage.getStore()
-  if (usage !== undefined) {
-    usage.rowsRead += rowsRead
-    usage.rowsWritten += rowsWritten
-  }
+  if (usage !== undefined) addD1Usage(usage, delta)
 }
 
-const recordUnmeasuredD1Query = (): void => {
-  const state = requestMetricStorage.getStore()
-  if (state !== undefined) state.d1UnmeasuredQueries++
-  const usage = d1UsageStorage.getStore()
-  if (usage !== undefined) usage.unmeasuredQueries++
-}
+const recordD1Rows = (result: D1Result): void =>
+  recordD1Usage({ rowsRead: result.meta.rows_read, rowsWritten: result.meta.rows_written })
 
 /** Collect D1 work inside a Durable Object so its caller can attribute the RPC to one request. */
 export const measureD1Usage = async <A>(run: () => Promise<A>): Promise<MeasuredD1Operation<A>> => {
-  const usage = { rowsRead: 0, rowsWritten: 0, measuredQueries: 0, unmeasuredQueries: 0 }
+  const usage = noD1Usage()
   try {
     const value = await d1UsageStorage.run(usage, run)
     return { success: true, value, usage }
@@ -208,13 +193,9 @@ export const measureD1Usage = async <A>(run: () => Promise<A>): Promise<Measured
 }
 
 /** Merge Durable Object D1 metadata into the originating Worker's active request metric. */
-export const mergeD1Usage = (usage: D1Usage): void => {
+export const mergeD1Usage = (usage: Readonly<D1Usage>): void => {
   const state = requestMetricStorage.getStore()
-  if (state === undefined) return
-  state.d1RowsRead += finiteCount(usage.rowsRead)
-  state.d1RowsWritten += finiteCount(usage.rowsWritten)
-  state.d1MeasuredQueries += finiteCount(usage.measuredQueries)
-  state.d1UnmeasuredQueries += finiteCount(usage.unmeasuredQueries)
+  if (state !== undefined) addD1Usage(state.d1, usage)
 }
 
 export const recordCacheOutcome = (outcome: Exclude<CacheOutcome, 'none'>): void => {
@@ -267,10 +248,7 @@ export const recordLiveTileOfferCacheMetric = (
       cacheOutcome: input.cacheOutcome,
       tileOfferOutcome: acknowledged > 0 ? 'already-known' : 'requested',
       tileOfferCounts: { requested, accepted: 0, alreadyKnown: acknowledged, rejected: 0 },
-      d1RowsRead: 0,
-      d1RowsWritten: 0,
-      d1MeasuredQueries: 0,
-      d1UnmeasuredQueries: 0,
+      d1: noD1Usage(),
     },
     200,
     input.durationMs,
@@ -315,10 +293,10 @@ const writeRequestMetric = (
       doubles: [
         1,
         durationMs,
-        state.d1RowsRead,
-        state.d1RowsWritten,
-        state.d1MeasuredQueries,
-        state.d1UnmeasuredQueries,
+        state.d1.rowsRead,
+        state.d1.rowsWritten,
+        state.d1.measuredQueries,
+        state.d1.unmeasuredQueries,
         state.tileOfferCounts.requested,
         state.tileOfferCounts.accepted,
         state.tileOfferCounts.alreadyKnown,
@@ -331,7 +309,6 @@ const writeRequestMetric = (
   }
 }
 
-/** Measure one request and preserve its D1 attribution across concurrent async work. */
 export const measureRequest = async (
   dataset: MetricDataset | undefined,
   request: Request,
@@ -340,7 +317,7 @@ export const measureRequest = async (
 ): Promise<Response> => {
   const applicationPath = unversionedMetricPath(pathname)
   const parsedClient = parseClientMetricsAccept(request.headers.get('accept'))
-  const client = metricClientIdentity(request.headers.get('accept'))
+  const client = normalizeMetricClientIdentity(parsedClient.client, parsedClient.version)
   const method = normalizeMetricMethod(request.method)
   const state: RequestMetricState = {
     route: normalizeMetricRoute(request.method, pathname),
@@ -350,12 +327,9 @@ export const measureRequest = async (
     syncTransport: parsedClient.transport,
     reconciliationReason: parsedClient.reason,
     cacheOutcome: 'none',
-    tileOfferOutcome: applicationPath === '/telemetry/tiles/offers' ? 'requested' : 'none',
+    tileOfferOutcome: applicationPath === TILE_OFFERS_PATH ? 'requested' : 'none',
     tileOfferCounts: { requested: 0, accepted: 0, alreadyKnown: 0, rejected: 0 },
-    d1RowsRead: 0,
-    d1RowsWritten: 0,
-    d1MeasuredQueries: 0,
-    d1UnmeasuredQueries: 0,
+    d1: noD1Usage(),
   }
   const startedAt = performance.now()
   return requestMetricStorage.run(state, async () => {
@@ -389,23 +363,23 @@ export const instrumentD1 = (database: D1Database): D1Database => {
     const wrapped = {
       bind: (...values: unknown[]) => wrapStatement(statement.bind(...values)),
       first: (...args: [] | [string]) => {
-        recordUnmeasuredD1Query()
+        recordD1Usage({ unmeasuredQueries: 1 })
         return args.length === 0 ? statement.first() : statement.first(args[0])
       },
       run: async <T = Record<string, unknown>>() => {
-        recordMeasuredD1Queries()
+        recordD1Usage({ measuredQueries: 1 })
         const result = await statement.run<T>()
         recordD1Rows(result)
         return result
       },
       all: async <T = Record<string, unknown>>() => {
-        recordMeasuredD1Queries()
+        recordD1Usage({ measuredQueries: 1 })
         const result = await statement.all<T>()
         recordD1Rows(result)
         return result
       },
       raw: (options?: { columnNames?: boolean }) => {
-        recordUnmeasuredD1Query()
+        recordD1Usage({ unmeasuredQueries: 1 })
         return options?.columnNames === true
           ? statement.raw({ columnNames: true })
           : statement.raw()
@@ -422,7 +396,7 @@ export const instrumentD1 = (database: D1Database): D1Database => {
     ({
       prepare: (query: string) => wrapStatement(session.prepare(query)),
       batch: async <T = unknown>(statements: D1PreparedStatement[]) => {
-        recordMeasuredD1Queries(statements.length)
+        recordD1Usage({ measuredQueries: statements.length })
         const results = await session.batch<T>(statements.map(unwrap))
         for (const result of results) recordD1Rows(result)
         return results
@@ -433,13 +407,13 @@ export const instrumentD1 = (database: D1Database): D1Database => {
   const wrapped = {
     prepare: (query: string) => wrapStatement(database.prepare(query)),
     batch: async <T = unknown>(statements: D1PreparedStatement[]) => {
-      recordMeasuredD1Queries(statements.length)
+      recordD1Usage({ measuredQueries: statements.length })
       const results = await database.batch<T>(statements.map(unwrap))
       for (const result of results) recordD1Rows(result)
       return results
     },
     exec: async (query: string) => {
-      recordUnmeasuredD1Query()
+      recordD1Usage({ unmeasuredQueries: 1 })
       return database.exec(query)
     },
     withSession: (constraint?: D1SessionBookmark | D1SessionConstraint) =>

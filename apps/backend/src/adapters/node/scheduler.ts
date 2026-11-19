@@ -1,4 +1,4 @@
-import type { CoordinatorDatabase } from './database.js'
+import type { CoordinatorDatabase } from '../../coordination/database.js'
 
 const RETRY_DELAY_MS = 1000
 const POLL_INTERVAL_MS = 250
@@ -41,6 +41,14 @@ export class DurableScheduler {
     this.owner = options.owner ?? crypto.randomUUID()
     this.claimTtlMs = options.claimTtlMs ?? DEFAULT_CLAIM_TTL_MS
     this.now = databaseNow(database.dialect)
+  }
+
+  /** How many wakeups are stored, due or not. */
+  async pending(): Promise<number> {
+    const { count } = await this.database.one<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM runtime_alarms',
+    )
+    return Number(count)
   }
 
   /** `now` decides which alarms are due; lease expiry always follows the database clock. */

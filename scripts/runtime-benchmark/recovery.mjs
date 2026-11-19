@@ -25,7 +25,7 @@ for (const claims of [37, 512]) {
         relational,
         { IngestTimings },
       ] = await Promise.all([
-        load('presence-coordinator.js'),
+        load('presence/coordinator.js'),
         load('node/database.js'),
         load('adapters/relational-sql-store.js'),
         load('telemetry/ingest-timing.js'),
@@ -152,7 +152,7 @@ for (const claims of [37, 512]) {
           runtime: process.versions,
           samples,
           coordinatorSha256: createHash('sha256')
-            .update(await readFile(`${root}/presence-coordinator.js`))
+            .update(await readFile(`${root}/presence/coordinator.js`))
             .digest('hex'),
           correctness: true,
         })

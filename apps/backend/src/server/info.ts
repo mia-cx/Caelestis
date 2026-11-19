@@ -1,15 +1,7 @@
 import type { ServerAsset, ServerInfo } from '@caelestis/shared'
-import type { ServerConfig } from './server/config.js'
-import type { ServerAssetRecord, ServerSettings } from './server/store.js'
-
-/** The live protocol versions a host that holds live sockets serves. */
-export const LIVE_CAPABILITIES = {
-  liveSync: 1,
-  liveSyncMax: 2,
-  liveTileOffers: 1,
-  presence: 1,
-  livePaintParts: 1,
-} as const satisfies Partial<ServerInfo>
+import { LIVE_CAPABILITIES } from '../live/session.js'
+import type { ServerConfig } from './config.js'
+import type { ServerAssetRecord, ServerSettings } from './store.js'
 
 /** What `/server` and every manifest say about this deployment before operator settings apply. */
 export const serverInfo = (

@@ -1,12 +1,15 @@
 import type { TemplateSurface, TileCoord } from '@caelestis/shared'
-import type { ManifestProjectionInput, ManifestProjectionRead } from '../manifest/read-model.js'
+import type {
+  ManifestProjectionInput,
+  ManifestProjectionRead,
+  VisibilityScope,
+} from '../manifest/read-model.js'
 import type { SqlStore } from '../ports/index.js'
 import { type IngestTimingSnapshot, ingestTimings } from '../telemetry/ingest-timing.js'
 import type {
   StatusProjectionChange,
   StatusProjectionMutation,
   StatusSnapshotRead,
-  StatusVisibilityScope,
 } from './model.js'
 import {
   createSeasonReadModels,
@@ -28,7 +31,7 @@ export interface StatusProjectionPort {
   ) => Promise<StatusProjectionChange | null>
   readonly reconcileSnapshot: (
     season: number,
-    scope: StatusVisibilityScope,
+    scope: VisibilityScope,
   ) => Promise<StatusSnapshotRead>
 }
 
@@ -49,7 +52,7 @@ export interface ManifestProjectionPort {
 export interface TileGenerationPort {
   readonly resolveCurrentTileOffers: (
     season: number,
-    scope: StatusVisibilityScope,
+    scope: VisibilityScope,
     offers: readonly TileGenerationOffer[],
   ) => Promise<TileGenerationCacheRead>
   readonly prepareTileGenerationCommit: (
@@ -126,7 +129,7 @@ export class DirectStatusReadModel implements StatusReadModelPort {
     return this.season(season).status.applyCommittedChange(mutation)
   }
 
-  reconcileSnapshot(season: number, scope: StatusVisibilityScope): Promise<StatusSnapshotRead> {
+  reconcileSnapshot(season: number, scope: VisibilityScope): Promise<StatusSnapshotRead> {
     return this.season(season).status.reconcileSnapshot(scope)
   }
 
@@ -144,7 +147,7 @@ export class DirectStatusReadModel implements StatusReadModelPort {
 
   async resolveCurrentTileOffers(
     season: number,
-    scope: StatusVisibilityScope,
+    scope: VisibilityScope,
     offers: readonly TileGenerationOffer[],
   ): Promise<TileGenerationCacheRead> {
     return this.season(season).resolveTileOffers(scope, offers)
@@ -180,8 +183,6 @@ export class DirectStatusReadModel implements StatusReadModelPort {
 
   /** Live commands, where any ran, ran in this process. */
   async readIngestTimings(_season: number, reset: boolean): Promise<IngestTimingSnapshot> {
-    const snapshot = ingestTimings.snapshot()
-    if (reset) ingestTimings.reset()
-    return snapshot
+    return ingestTimings.read(reset)
   }
 }

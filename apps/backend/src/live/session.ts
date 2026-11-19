@@ -5,10 +5,26 @@ import {
   MAX_LIVE_BINARY_HEADER_BYTES,
   MAX_LIVE_BINARY_PAYLOAD_BYTES,
   type Scope,
+  type ServerInfo,
 } from '@caelestis/shared'
 import type { CoordinatorStorage } from '../coordination/database.js'
+import type { VisibilityScope } from '../manifest/read-model.js'
 import { serialQueue } from '../runtime/serial-queue.js'
-import type { StatusVisibilityScope } from '../status-read-model/model.js'
+
+/** The live-sync protocol versions this server speaks. */
+export type LiveSyncProtocol = 1 | 2
+
+/** The live protocol versions a host that holds live sockets serves, as `/server` advertises them. */
+export const LIVE_CAPABILITIES = {
+  liveSync: 1,
+  liveSyncMax: 2,
+  liveTileOffers: 1,
+  presence: 1,
+  livePaintParts: 1,
+} as const satisfies Partial<ServerInfo> & {
+  readonly liveSync: LiveSyncProtocol
+  readonly liveSyncMax: LiveSyncProtocol
+}
 
 export const MAX_LIVE_SUBSCRIBERS = 256
 export const MAX_LIVE_ANONYMOUS_SUBSCRIBERS = 128
@@ -36,7 +52,7 @@ export interface LiveHost<Client> {
 /** An authenticated live-sync connection, as the HTTP boundary admitted it. */
 export interface StatusLiveConnection {
   readonly season: number
-  readonly scope: StatusVisibilityScope
+  readonly scope: VisibilityScope
   readonly credentialScope: Scope
   readonly tokenHash: string
   readonly clientHash: string
@@ -46,7 +62,7 @@ export interface StatusLiveConnection {
   readonly lastRevision: number | null
   readonly metricClient: string
   readonly metricClientVersion: string
-  readonly protocol: 1 | 2
+  readonly protocol: LiveSyncProtocol
   /** The client opens with a state vector instead of being told the current revision. */
   readonly stateVector: boolean
 }
@@ -54,7 +70,7 @@ export interface StatusLiveConnection {
 /** What a live-sync socket remembers across messages, and across hibernation on Cloudflare. */
 export interface LiveSubscriberAttachment {
   readonly season: number
-  readonly scope: StatusVisibilityScope
+  readonly scope: VisibilityScope
   readonly credentialScope?: Scope
   readonly tokenHash: string
   readonly clientHash?: string
@@ -65,7 +81,7 @@ export interface LiveSubscriberAttachment {
   readonly revoked?: boolean
   readonly metricClient?: string
   readonly metricClientVersion?: string
-  readonly protocol: 1 | 2
+  readonly protocol: LiveSyncProtocol
   readonly projections?: readonly LiveProjectionState[]
   readonly dashboardSubscriptions?: readonly LiveDashboardSubscription[]
 }

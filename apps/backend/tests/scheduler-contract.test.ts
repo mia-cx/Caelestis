@@ -1,7 +1,7 @@
 import { expect, it, vi } from 'vitest'
 import { coordinatorDatabase } from '../src/adapters/node/coordinator-database.js'
 import { SqlCoordinatorStorage } from '../src/adapters/node/coordinator-storage.js'
-import { DurableScheduler } from '../src/coordination/scheduler.js'
+import { DurableScheduler } from '../src/adapters/node/scheduler.js'
 import { openMemoryDatabase } from '../src/node/memory-stores.js'
 import { schedulerContract } from './support/scheduler-contract.js'
 

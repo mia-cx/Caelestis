@@ -1,10 +1,9 @@
 import type { ServerInfo, TemplateSurface } from '@caelestis/shared'
 import { Effect } from 'effect'
-import { type SqlStoreService, StatusReadModelService } from '../runtime/backend-runtime.js'
+import { SqlStoreService, StatusReadModelService } from '../runtime/backend-runtime.js'
 import { type StorageError, storage } from '../runtime/errors.js'
-import { resolveServerInfo } from '../server/use-cases.js'
-import { assembleManifestEffect } from './assemble.js'
-import { type ManifestProjectionRead, matchesIfNoneMatch } from './read-model.js'
+import { type ManifestProjectionRead, projectionRead } from './read-model.js'
+import { assembleManifestProjection } from './source.js'
 
 export interface ReadManifestInput {
   readonly server: ServerInfo
@@ -21,33 +20,27 @@ export const readManifestProjection = (
   input: ReadManifestInput,
 ): Effect.Effect<ManifestProjectionRead, StorageError, SqlStoreService | StatusReadModelService> =>
   Effect.gen(function* () {
+    const projection = {
+      server: input.server,
+      season: input.season,
+      surface: input.surface,
+      scope: input.includeUnpublished ? 'admin' : 'public',
+      ifNoneMatch: input.ifNoneMatch,
+    } as const
     if (input.cacheable) {
       const readModel = yield* StatusReadModelService
       return yield* storage('readManifestProjection', () =>
-        readModel.readManifestProjection({
-          server: input.server,
-          season: input.season,
-          surface: input.surface,
-          scope: input.includeUnpublished ? 'admin' : 'public',
-          ifNoneMatch: input.ifNoneMatch,
-        }),
+        readModel.readManifestProjection(projection),
       )
     }
-    const manifest = yield* assembleManifestEffect({
-      server: yield* resolveServerInfo(input.server),
-      season: input.season,
-      surface: input.surface,
-      includeUnpublished: input.includeUnpublished,
-    })
+    const sql = yield* SqlStoreService
+    const manifest = yield* storage('assembleManifest', () =>
+      assembleManifestProjection(sql, projection),
+    )
     // An uncached read has no projection revision of its own.
-    const base = {
-      version: manifest.version,
-      revision: 1,
-      coverageRevision: 1,
-      cacheOutcome: 'miss' as const,
-      revisionChanged: false,
-    }
-    return matchesIfNoneMatch(input.ifNoneMatch, manifest.version)
-      ? { ...base, notModified: true as const }
-      : { ...base, notModified: false as const, manifest }
+    return projectionRead(
+      { revision: 1, coverageRevision: 1, cacheOutcome: 'miss', revisionChanged: false },
+      manifest,
+      input.ifNoneMatch,
+    )
   })

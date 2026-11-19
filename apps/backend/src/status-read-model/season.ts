@@ -5,6 +5,8 @@ import {
   type ManifestProjectionRead,
   type ManifestReadModelPersistence,
   type PersistedManifestReadModel,
+  seesUnpublished,
+  type VisibilityScope,
 } from '../manifest/read-model.js'
 import { assembleManifestProjection } from '../manifest/source.js'
 import type { SqlStore } from '../ports/index.js'
@@ -13,7 +15,6 @@ import {
   type PersistedStatusReadModel,
   type SeasonStatusReadModel,
   type StatusReadModelPersistence,
-  type StatusVisibilityScope,
 } from './model.js'
 import {
   type CommittedTileGeneration,
@@ -40,11 +41,11 @@ export interface SeasonReadModels {
   ) => Promise<number>
   /** Current unexpired manifest version, or null when an authoritative read is required. */
   readonly knownManifestVersion: (
-    scope: StatusVisibilityScope,
+    scope: VisibilityScope,
     surface: TemplateSurface,
   ) => Promise<string | null>
   readonly resolveTileOffers: (
-    scope: StatusVisibilityScope,
+    scope: VisibilityScope,
     offers: readonly TileGenerationOffer[],
   ) => TileGenerationCacheRead
   readonly prepareTileCommit: (tile: TileCoord) => Promise<PreparedTileGenerationCommit>
@@ -91,7 +92,7 @@ export const createSeasonReadModels = (options: {
     season,
     source: {
       read: (requestedSeason, scope) =>
-        sql.readTemplateStatuses(requestedSeason, scope === 'admin'),
+        sql.readTemplateStatuses(requestedSeason, seesUnpublished(scope)),
     },
     persistence: persistence.status,
     revisions: {

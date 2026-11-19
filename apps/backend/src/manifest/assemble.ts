@@ -12,10 +12,7 @@ import {
   MAX_MANIFEST_NODES,
   MAX_MANIFEST_TEMPLATES,
 } from '@caelestis/wire-schema'
-import { Effect } from 'effect'
 import type { NodeStore } from '../nodes/store.js'
-import { SqlStoreService } from '../runtime/backend-runtime.js'
-import { type StorageError, storage } from '../runtime/errors.js'
 import type { TagStore } from '../tags/store.js'
 import type { TemplateStore } from '../templates/store.js'
 import type { WorkStore } from '../work/store.js'
@@ -208,12 +205,3 @@ export const assembleManifest = async (
   const version = await sha256Hex(new TextEncoder().encode(JSON.stringify(unsigned)))
   return { ...unsigned, version }
 }
-
-/** Assemble one manifest from the SQL service supplied by the prepared backend runtime. */
-export const assembleManifestEffect = (
-  options: AssembleManifestOptions,
-): Effect.Effect<Manifest, StorageError, SqlStoreService> =>
-  Effect.gen(function* () {
-    const sql = yield* SqlStoreService
-    return yield* storage('assembleManifest', () => assembleManifest(sql, options))
-  })
