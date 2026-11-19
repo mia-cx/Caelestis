@@ -12,12 +12,21 @@ import {
   type PresenceRect,
   type PresenceServerEvent,
   type RegionClaim,
-  reuseDocument,
   sameRect,
-  sameTemplateSurface,
   uuidV7,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
+import {
+  endLiveClaims,
+  onClaimsChange,
+  pollClaims,
+  receiveClaims,
+  receiveLiveClaims,
+  renewClaims,
+  serverClaims,
+  trackClaims,
+  untrackClaims,
+} from './claim-store.js'
 import { userscriptVersion } from './client-metrics.js'
 import { log, warn } from './debug.js'
 import { notifyListeners } from './listeners.js'
@@ -30,7 +39,6 @@ import {
   recordProfileMessage,
   recordProfileWorkload,
 } from './profile.js'
-import { pollRegionSnapshots } from './region-api.js'
 import {
   activeServerToken,
   isCurrentServerConnection,
@@ -46,8 +54,8 @@ import { accountIdentity, loadAccount } from './wplace-account.js'
  * A random tab publisher ID identifies copies without sharing credential admission IDs.
  *
  * The socket publishes what it is given (`setPresenceViewport`, `setPresenceDraft`,
- * `setPresenceQuickClaims`) and holds what the server says. While a server has no socket open,
- * its claims come from `region-api`'s snapshot poll instead.
+ * `setPresenceQuickClaims`), holds the peers the server reports, and feeds its claims to
+ * `claim-store`, which polls snapshots while a server has no session.
  */
 
 const MAX_RECONNECT_MS = 30_000
@@ -79,11 +87,6 @@ interface Connection {
   socket: WebSocket | null
   sessionId: string | null
   peers: Map<string, PresencePeer>
-  regions: readonly RegionClaim[]
-  claimsRevision: number
-  ownedRegionIds: readonly string[]
-  canWriteClaims: boolean
-  stopSnapshots: (() => void) | null
   attempts: number
   reconnectTimer: ReturnType<typeof setTimeout> | null
   heartbeatTimer: ReturnType<typeof setTimeout> | null
@@ -101,7 +104,6 @@ export interface PresenceView {
 
 const connections = new Map<object, Connection>()
 const listeners: (() => void)[] = []
-const claimListeners: (() => void)[] = []
 const receivedOrder = new WeakMap<PresencePeer, number>()
 let receivedSequence = 0
 /** Bumped on every change to what `presenceView` reads, so it can reuse its last answer. */
@@ -117,21 +119,17 @@ const local: {
   quickClaims: readonly PresenceRect[]
 } = { viewport: null, draft: null, quickClaims: [] }
 
-/** Tell listeners; claim listeners too when the claims changed. */
-const changed = (claims = false): void => {
+const changed = (): void => {
   revision++
-  if (claims) notifyListeners(claimListeners, 'presence claims listener failed')
   notifyListeners(listeners, 'presence listener failed')
 }
+
+// The view merges claims too, so every claim change is a presence change.
+onClaimsChange(changed)
 
 /** Runs after any peer, region, or connection change. */
 export const onPresenceChange = (listener: () => void): void => {
   listeners.push(listener)
-}
-
-/** Runs after claims change only, so reconciling claims skips every viewport update. */
-export const onPresenceClaimsChange = (listener: () => void): void => {
-  claimListeners.push(listener)
 }
 
 const eligible = (server: ServerConnection): boolean =>
@@ -168,21 +166,6 @@ const send = (connection: Connection, event: PresenceClientEvent): boolean => {
   }
   armHeartbeat(connection)
   return true
-}
-
-/** This server's claims, keeping held objects where nothing changed so their caches survive. */
-const receivedRegions = (
-  connection: Connection,
-  incoming: readonly RegionClaim[],
-): RegionClaim[] => {
-  const previous = new Map(connection.regions.map((region) => [region.id, region]))
-  return incoming
-    .filter(
-      (region) =>
-        region.season === connection.server.season &&
-        sameTemplateSurface(region.surface, WORLD_TEMPLATE_SURFACE),
-    )
-    .map((region) => reuseDocument(previous.get(region.id), region))
 }
 
 const armHeartbeat = (connection: Connection): void => {
@@ -292,23 +275,17 @@ const scheduleAll = (): void => {
   for (const connection of connections.values()) scheduleFlush(connection)
 }
 
-const applyClaims = (
-  connection: Connection,
-  regions: readonly RegionClaim[],
-  ownedRegionIds: readonly string[] | undefined,
-): void => {
-  connection.regions = receivedRegions(connection, regions)
-  connection.claimsRevision++
-  connection.ownedRegionIds = ownedRegionIds ?? []
-}
-
 const receivePeer = (connection: Connection, peer: PresencePeer): void => {
   receivedOrder.set(peer, ++receivedSequence)
   connection.peers.set(peer.sessionId, peer)
 }
 
-/** Apply one server event; true when it changed the claims. */
+/**
+ * Apply one server event. True when it changed the claims, whose store has then told every
+ * listener already.
+ */
 const applyServerEvent = (connection: Connection, event: PresenceServerEvent): boolean => {
+  const { server } = connection
   switch (event.type) {
     case 'presence-ready':
       connection.sessionId = event.sessionId
@@ -317,24 +294,18 @@ const applyServerEvent = (connection: Connection, event: PresenceServerEvent): b
       connection.attempts = 0
       connection.peers = new Map()
       for (const peer of event.peers) receivePeer(connection, peer)
-      applyClaims(connection, event.regions, event.ownedRegionIds)
-      connection.canWriteClaims = event.canWrite === true
-      stopSnapshots(connection)
+      receiveLiveClaims(server, event.regions, event.ownedRegionIds, event.canWrite === true)
       return true
     case 'presence-delta':
       for (const id of event.remove) connection.peers.delete(id)
       for (const peer of event.upsert) receivePeer(connection, peer)
       return false
     case 'regions':
-      applyClaims(connection, event.regions, event.ownedRegionIds)
+      receiveClaims(server, event.regions, event.ownedRegionIds)
       return true
-    case 'claims-renewed': {
-      const ids = new Set(event.ids)
-      connection.regions = connection.regions.map((region) =>
-        ids.has(region.id) ? { ...region, expiresAt: event.expiresAt } : region,
-      )
+    case 'claims-renewed':
+      renewClaims(server, event.ids, event.expiresAt)
       return true
-    }
   }
 }
 
@@ -347,24 +318,8 @@ const clearTimers = (connection: Connection): void => {
   connection.flushTimer = null
 }
 
-const stopSnapshots = (connection: Connection): void => {
-  connection.stopSnapshots?.()
-  connection.stopSnapshots = null
-}
-
-/** Read claims over HTTP while this server has no presence session. */
-const startSnapshots = (connection: Connection): void => {
-  if (connection.sessionId !== null || connection.stopSnapshots !== null) return
-  connection.stopSnapshots = pollRegionSnapshots(connection.server, (snapshot) => {
-    if (connection.sessionId !== null) return
-    applyClaims(connection, snapshot.regions, snapshot.ownedRegionIds)
-    connection.canWriteClaims = snapshot.canWrite
-    changed(true)
-  })
-}
-
 const closeConnection = (connection: Connection): void => {
-  stopSnapshots(connection)
+  endLiveClaims(connection.server)
   clearTimers(connection)
   const socket = connection.socket
   connection.socket = null
@@ -384,7 +339,7 @@ const closeConnection = (connection: Connection): void => {
 }
 
 const scheduleReconnect = (connection: Connection): void => {
-  startSnapshots(connection)
+  pollClaims(connection.server)
   if (connection.reconnectTimer !== null) return
   const delay = Math.min(MAX_RECONNECT_MS, INITIAL_RECONNECT_MS * 2 ** connection.attempts)
   connection.attempts = Math.min(connection.attempts + 1, MAX_RECONNECT_ATTEMPTS)
@@ -414,17 +369,18 @@ const onMessage = (connection: Connection, socket: WebSocket, data: string): voi
   const claims =
     event !== 'unknown' &&
     measureProfile('Presence state update', () => applyServerEvent(connection, event))
-  measureProfileDetail('Presence notify', () => changed(claims))
+  if (!claims) measureProfileDetail('Presence notify', changed)
   if (!isProfileEnabled()) return
+  const { regions } = serverClaims(connection.server)
   recordProfileWorkload('Presence peers', connection.peers.size)
-  recordProfileWorkload('Presence regions', connection.regions.length)
+  recordProfileWorkload('Presence regions', regions.length)
   recordProfileWorkload(
     'Presence region shapes',
-    connection.regions.reduce((sum, region) => sum + region.document.items.length, 0),
+    regions.reduce((sum, region) => sum + region.document.items.length, 0),
   )
   recordProfileWorkload(
     'Presence region bounding pixels',
-    connection.regions.reduce((sum, region) => sum + region.rect.w * region.rect.h, 0),
+    regions.reduce((sum, region) => sum + region.rect.w * region.rect.h, 0),
   )
 }
 
@@ -486,6 +442,7 @@ const open = (connection: Connection): void => {
     if (connection.socket !== socket) return
     connection.socket = null
     connection.sessionId = null
+    endLiveClaims(server)
     clearTimers(connection)
     connection.peers = new Map()
     changed()
@@ -509,16 +466,12 @@ const reconcile = (): void => {
     const owner = serverConnectionIdentity(server)
     retained.add(owner)
     if (connections.has(owner)) continue
+    trackClaims(server)
     connections.set(owner, {
       server,
       socket: null,
       sessionId: null,
       peers: new Map(),
-      regions: [],
-      claimsRevision: 0,
-      ownedRegionIds: [],
-      canWriteClaims: false,
-      stopSnapshots: null,
       attempts: 0,
       reconnectTimer: null,
       heartbeatTimer: null,
@@ -530,11 +483,12 @@ const reconcile = (): void => {
   for (const [owner, connection] of connections) {
     if (retained.has(owner)) continue
     closeConnection(connection)
+    untrackClaims(connection.server)
     connections.delete(owner)
   }
   for (const connection of connections.values()) {
     open(connection)
-    startSnapshots(connection)
+    pollClaims(connection.server)
   }
 }
 
@@ -573,7 +527,7 @@ const merged = (): NonNullable<typeof shared> => {
         )
           peers.set(key, peer)
       }
-    for (const region of connection.regions) {
+    for (const region of serverClaims(connection.server).regions) {
       const key = `${region.season}:${region.surface.kind}:${region.surface.allianceId}:${region.claimant.wplaceUserId}:${region.id}`
       regions.set(key, region)
     }
@@ -602,31 +556,6 @@ export const presenceView = (): PresenceView => {
 /** Every connected server supporting presence, including sockets currently reconnecting. */
 export const presenceServers = (): readonly ServerConnection[] =>
   [...connections.values()].map((connection) => connection.server)
-
-const connectionFor = (server: ServerConnection): Connection | null =>
-  connections.get(serverConnectionIdentity(server)) ?? null
-
-/** Raw copies and handshake state for claim reconciliation. */
-export const presenceServerClaims = (
-  server: ServerConnection,
-): {
-  readonly ready: boolean
-  readonly regions: readonly RegionClaim[]
-  readonly revision: number
-  readonly ownedRegionIds: readonly string[]
-} => {
-  const connection = connectionFor(server)
-  return {
-    ready: (connection?.claimsRevision ?? 0) > 0,
-    regions: connection?.regions ?? [],
-    revision: connection?.claimsRevision ?? 0,
-    ownedRegionIds: connection?.ownedRegionIds ?? [],
-  }
-}
-
-/** Claims require report/admin capability from an authenticated server snapshot. */
-export const presenceCanWriteClaims = (server: ServerConnection): boolean =>
-  activeServerToken(server) !== null && connectionFor(server)?.canWriteClaims === true
 
 /** Publish this tab's viewport. */
 export const setPresenceViewport = (viewport: PresenceRect | null): void => {

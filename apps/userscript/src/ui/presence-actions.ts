@@ -2,14 +2,9 @@ import type { PresencePeer, PresenceRect, RegionClaim } from '@caelestis/shared'
 import type { ClaimRowModel, PainterRowModel, PresenceSummaryModel } from '@caelestis/ui/elements'
 import { isClaimModeActive } from '../claim-editor.js'
 import { claimRouter } from '../claim-routing.js'
+import { canWriteClaims, claimServers, serverClaims } from '../claim-store.js'
 import { claimAvailability, shapesName } from '../claims.js'
-import {
-  type PresenceView,
-  presenceCanWriteClaims,
-  presenceServerClaims,
-  presenceServers,
-  presenceView,
-} from '../presence-client.js'
+import { type PresenceView, presenceView } from '../presence-client.js'
 import { presenceCss } from '../presence-colour.js'
 import { navigateTo } from '../templates/navigate.js'
 import { showToast } from './notification-host.js'
@@ -82,9 +77,9 @@ const claimSummary = (region: RegionClaim): string =>
 
 const clearableClaimIds = (view: PresenceView): Set<string> =>
   new Set(
-    presenceServers()
-      .filter(presenceCanWriteClaims)
-      .flatMap((server) => presenceServerClaims(server).regions)
+    claimServers()
+      .filter(canWriteClaims)
+      .flatMap((server) => serverClaims(server).regions)
       .filter((region) => region.claimant.wplaceUserId === view.me?.wplaceUserId)
       .map((region) => region.id),
   )

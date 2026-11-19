@@ -4,6 +4,7 @@ import {
   PRESENCE_PROTOCOL_V1,
   PRESENCE_QUICK_CLAIMS_MIN_MS,
   type PresenceRect,
+  WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { afterEach, expect, it, vi } from 'vitest'
 import { importStateModules } from './state-modules.js'
@@ -192,4 +193,45 @@ it("shows a peer's quick claims and drops a peer carrying too many", async () =>
     remove: [],
   })
   expect(presence.presenceView().peers.map((peer) => peer.quickClaims)).toEqual([[rect(0)]])
+})
+
+it('shows polled claims until a session starts, then only what the socket reports', async () => {
+  vi.useFakeTimers()
+  vi.stubGlobal('WebSocket', FakeWebSocket)
+  const polled = {
+    id: 'polled',
+    season: 1,
+    surface: WORLD_TEMPLATE_SURFACE,
+    templateId: null,
+    claimant: other,
+    document: {
+      items: [{ id: 'a', op: 'add', shape: { kind: 'rectangle', x: 0, y: 0, w: 2, h: 2 } }],
+    },
+    rect: { x: 0, y: 0, w: 2, h: 2 },
+    label: '',
+    createdAt: 1,
+  }
+  const fetch = vi.fn(async () => Response.json({ regions: [polled], canWrite: false }))
+  vi.stubGlobal('fetch', fetch)
+  const state = await importStateModules()
+  const presence = await import('../src/presence-client.js')
+  const server = {
+    url: 'https://presence.test',
+    info: { id: SERVER_ID, name: 'Presence test', auth: 'none' as const, presence: 1 as const },
+    token: null,
+    status: 'connected' as const,
+    isAdmin: false,
+    season: 1,
+  }
+  dispose = () => state.removeServer(server.url)
+  state.upsertServer(server)
+  presence.installPresence()
+  await vi.advanceTimersByTimeAsync(0)
+  expect(presence.presenceView().regions.map((region) => region.id)).toEqual(['polled'])
+
+  FakeWebSocket.instances[0]?.open()
+  expect(presence.presenceView().regions).toEqual([])
+  const reads = fetch.mock.calls.length
+  await vi.advanceTimersByTimeAsync(60_000)
+  expect(fetch.mock.calls.length).toBe(reads)
 })

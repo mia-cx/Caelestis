@@ -20,13 +20,8 @@ import {
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { onServerSnapshot } from './application/tree-server-state.js'
+import { canWriteClaims, claimServers, onClaimsChange, serverClaims } from './claim-store.js'
 import { warn } from './debug.js'
-import {
-  onPresenceClaimsChange,
-  presenceCanWriteClaims,
-  presenceServerClaims,
-  presenceServers,
-} from './presence-client.js'
 import { claimRegion, type RegionWriteResult, releaseRegion } from './region-api.js'
 import { serverConnectionIdentity } from './server-connections.js'
 import type { ServerTemplate } from './server-manifest.js'
@@ -650,9 +645,9 @@ let router: ClaimRouter | undefined
 const localRouter = (): ClaimRouter =>
   (router ??= new ClaimRouter(
     {
-      servers: () => presenceServers().filter(presenceCanWriteClaims),
+      servers: () => claimServers().filter(canWriteClaims),
       templates: (server, region) => manifestRows(server, region.surface)?.templates,
-      claims: presenceServerClaims,
+      claims: serverClaims,
       actor: accountIdentity,
       persist: journal.persist,
       saved: journal.load,
@@ -752,7 +747,7 @@ export const installClaimRouting = (): void => {
       .reconcile()
       .catch((error: unknown) => warn('claim routing failed', String(error)))
   }
-  onPresenceClaimsChange(reconcile)
+  onClaimsChange(reconcile)
   onStateChange(reconcile)
   onServerSnapshot(reconcile)
   reconcile()
