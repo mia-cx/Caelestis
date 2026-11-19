@@ -135,6 +135,43 @@ export const planTimelapseTiles = (templates: readonly BoundingBox[]): TileCoord
   return [...planned.values()]
 }
 
+/** A template chunk's rectangle in tile-local pixels. */
+export interface ChunkRect {
+  readonly left: number
+  readonly top: number
+  readonly width: number
+  readonly height: number
+}
+
+/**
+ * Where a template's bounds cross one canvas tile, or null when they miss it. A box whose `maxX`
+ * is not past its `minX` wraps the antimeridian, as `timelapseCaptureRect` reads it.
+ */
+export const chunkRect = (bounds: BoundingBox, tile: TileCoord): ChunkRect | null => {
+  const tileLeft = tile.x * TILE_SIZE
+  const tileTop = tile.y * TILE_SIZE
+  const spans =
+    bounds.minX < bounds.maxX
+      ? [{ start: bounds.minX, end: bounds.maxX }]
+      : [
+          { start: bounds.minX, end: WORLD_PIXELS },
+          { start: 0, end: bounds.maxX },
+        ]
+  const span = spans.find(({ start, end }) => start < tileLeft + TILE_SIZE && end > tileLeft)
+  if (span === undefined) return null
+  const startX = Math.max(span.start, tileLeft)
+  const endX = Math.min(span.end, tileLeft + TILE_SIZE)
+  const startY = Math.max(bounds.minY, tileTop)
+  const endY = Math.min(bounds.maxY, tileTop + TILE_SIZE)
+  if (startX >= endX || startY >= endY) return null
+  return {
+    left: startX - tileLeft,
+    top: startY - tileTop,
+    width: endX - startX,
+    height: endY - startY,
+  }
+}
+
 const DEGREES_PER_RADIAN = 180 / Math.PI
 const RADIANS_PER_DEGREE = Math.PI / 180
 

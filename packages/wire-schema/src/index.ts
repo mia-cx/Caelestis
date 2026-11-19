@@ -76,8 +76,8 @@ const MAX_MANIFEST_TEMPLATES = 100_000
 const MAX_PALETTE_INDEX = 65_535
 
 // Wide enough for every v1 timestamp while still making seconds and milliseconds disjoint.
-const MIN_EPOCH_SECONDS = 1_577_836_800 // 2020-01-01
-const MAX_EPOCH_SECONDS = 4_102_444_800 // 2100-01-01
+export const MIN_EPOCH_SECONDS = 1_577_836_800 // 2020-01-01
+export const MAX_EPOCH_SECONDS = 4_102_444_800 // 2100-01-01
 const MIN_EPOCH_MILLISECONDS = MIN_EPOCH_SECONDS * 1_000
 const MAX_EPOCH_MILLISECONDS = MAX_EPOCH_SECONDS * 1_000
 
@@ -1225,7 +1225,7 @@ export const PainterHistoryBucket = PainterHistoryBucketStruct.pipe(
 )
 
 /** The route clamps `limit` to 500, so anything larger is not a response this server produced. */
-const MAX_PAINTER_TOTALS = 500
+export const MAX_PAINTER_TOTALS = 500
 
 const PainterTotalStruct = Schema.Struct({
   wplaceUserId: NonNegativeInteger,

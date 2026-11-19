@@ -7,13 +7,9 @@ import {
   SqlStoreService,
   StatusReadModelService,
 } from './runtime/backend-runtime.js'
-import {
-  ALARM_FOLLOW_UP_RETRY_MILLISECONDS,
-  type FetcherStores,
-  fetchAlarmFollowUps,
-} from './telemetry/fetcher.js'
+import { ALARM_FOLLOW_UP_RETRY_MILLISECONDS } from './telemetry/alarm-policy.js'
+import { type FetcherStores, fetchAlarmFollowUps } from './telemetry/fetcher.js'
 
-export const ALARM_RETRY_DELAY_MILLISECONDS = ALARM_FOLLOW_UP_RETRY_MILLISECONDS
 export const ALARM_BATCH_DELAY_MILLISECONDS = 1_000
 
 interface AlarmStorage {
@@ -48,7 +44,7 @@ export const runAlarmWatcherCycle = async (
           })
           const decidedAt = clock()
           if (report.failed > 0) {
-            await storage.setAlarm(decidedAt + ALARM_RETRY_DELAY_MILLISECONDS)
+            await storage.setAlarm(decidedAt + ALARM_FOLLOW_UP_RETRY_MILLISECONDS)
             return
           }
           const dueAt = await sql.nextAlarmProbeAt()
@@ -65,7 +61,7 @@ export const runAlarmWatcherCycle = async (
         } catch {
           // Cloudflare gives a throwing alarm only a bounded retry series. Keep the durable D1 probe
           // and own an indefinite, paced retry instead of stranding it until the next six-hour cron.
-          await storage.setAlarm(clock() + ALARM_RETRY_DELAY_MILLISECONDS)
+          await storage.setAlarm(clock() + ALARM_FOLLOW_UP_RETRY_MILLISECONDS)
         }
       })
     }),

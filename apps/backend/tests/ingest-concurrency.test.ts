@@ -12,7 +12,7 @@ import { MemoryBlobStore } from '../src/adapters/memory/memory-blob-store.js'
 import { MemoryCounterStore } from '../src/adapters/memory/memory-counter-store.js'
 import { RelationalSqlStore } from '../src/adapters/relational-sql-store.js'
 import { createBackendRuntime, makeBackendContext } from '../src/runtime/backend-runtime.js'
-import { offerTilesWithOutcome, type TileMetadata, uploadTile } from '../src/telemetry/ingest.js'
+import { offerTiles, type TileMetadata, uploadTile } from '../src/telemetry/ingest.js'
 import { openRelationalStore } from './support/relational.js'
 
 const seed = async (sql: RelationalSqlStore, blobs: MemoryBlobStore) => {
@@ -163,12 +163,16 @@ it('settles started offers before reporting batch failure and never starts queue
     let settled = false
     batch = runtime
       .run(
-        offerTilesWithOutcome(
-          Array.from({ length: 6 }, (_, x) => ({
-            key: `${x}/0`,
-            metadata: metadata(3, x),
+        offerTiles({
+          season: 3,
+          reporter: metadata(3),
+          includeUnpublished: true,
+          offers: Array.from({ length: 6 }, (_, x) => ({
+            tile: `${x}/0`,
+            sha256: metadata(3).hash,
+            ts: metadata(3).observedAt,
           })),
-        ),
+        }),
       )
       .then(
         () => {

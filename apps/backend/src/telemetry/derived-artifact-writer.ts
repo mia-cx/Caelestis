@@ -1,8 +1,12 @@
 import type { BlobStore } from '../ports/index.js'
-import { type MismatchArtifactIdentity, mismatchArtifactKey } from './derived-classification.js'
+import {
+  type ClassificationKey,
+  logArtifactFailure,
+  mismatchArtifactKey,
+} from './classification.js'
 
 export interface DerivedArtifactWrite {
-  readonly identity: MismatchArtifactIdentity
+  readonly identity: ClassificationKey
   readonly bytes: Uint8Array
 }
 
@@ -10,10 +14,9 @@ export interface DerivedArtifactWriterOptions {
   /** Queued bytes above this are dropped, newest first. Reads rebuild a missing artifact. */
   readonly maxQueuedBytes?: number
   readonly maxQueuedEntries?: number
-  /** Concurrent object-storage writes across every request on this runtime. */
+  /** Concurrent object-storage writes across every caller of this writer. */
   readonly concurrency?: number
   readonly onError?: (error: unknown, write: DerivedArtifactWrite) => void
-  readonly onDropped?: (write: DerivedArtifactWrite) => void
 }
 
 export interface DerivedArtifactWriterStats {
@@ -28,18 +31,18 @@ export interface DerivedArtifactWriterStats {
 
 export interface DerivedArtifactWriter {
   /**
-   * Queue reconstructible writes and return at once. Identical immutable keys already queued are
-   * not queued twice. Nothing here can fail a caller: overflow drops, errors are reported.
+   * Queue writes and return at once. An immutable key already queued or in flight is not queued
+   * twice. Nothing here can fail a caller: overflow drops, errors go to `onError`.
    */
   readonly schedule: (blobs: BlobStore, writes: readonly DerivedArtifactWrite[]) => void
-  /** Resolve once every queued and in-flight write has settled. Shutdown and tests wait on this. */
+  /** Resolve once every queued and in-flight write has settled. */
   readonly drain: () => Promise<void>
   readonly stats: () => DerivedArtifactWriterStats
 }
 
-export const DEFAULT_DERIVED_ARTIFACT_QUEUE_BYTES = 64 * 1024 * 1024
-export const DEFAULT_DERIVED_ARTIFACT_QUEUE_ENTRIES = 256
-export const DEFAULT_DERIVED_ARTIFACT_CONCURRENCY = 4
+const DEFAULT_QUEUE_BYTES = 64 * 1024 * 1024
+const DEFAULT_QUEUE_ENTRIES = 256
+const DEFAULT_CONCURRENCY = 4
 
 interface QueuedWrite extends DerivedArtifactWrite {
   readonly blobs: BlobStore
@@ -47,21 +50,16 @@ interface QueuedWrite extends DerivedArtifactWrite {
 }
 
 /**
- * Live commands used to wait for these writes after their authoritative work had committed, so a
- * slow object store stretched every reply. Masks are derived from durable inputs and keyed by
- * every input that shapes them, so a lost write only costs a later rebuild. This writer owns the
- * bound on queued bytes, entries, and concurrency across all requests on the runtime.
+ * A bounded background queue for derived mask writes, so a slow object store never stretches a
+ * reply. It owns the bound on queued bytes, entries, and concurrency across all its callers.
  */
 export const createDerivedArtifactWriter = (
   options: DerivedArtifactWriterOptions = {},
 ): DerivedArtifactWriter => {
-  const maxQueuedBytes = options.maxQueuedBytes ?? DEFAULT_DERIVED_ARTIFACT_QUEUE_BYTES
-  const maxQueuedEntries = options.maxQueuedEntries ?? DEFAULT_DERIVED_ARTIFACT_QUEUE_ENTRIES
-  const concurrency = Math.max(1, options.concurrency ?? DEFAULT_DERIVED_ARTIFACT_CONCURRENCY)
-  const onError =
-    options.onError ??
-    ((error: unknown) => console.error('failed to persist derived mismatch artifact', error))
-  const onDropped = options.onDropped ?? (() => {})
+  const maxQueuedBytes = options.maxQueuedBytes ?? DEFAULT_QUEUE_BYTES
+  const maxQueuedEntries = options.maxQueuedEntries ?? DEFAULT_QUEUE_ENTRIES
+  const concurrency = Math.max(1, options.concurrency ?? DEFAULT_CONCURRENCY)
+  const onError = options.onError ?? logArtifactFailure
 
   const queue: QueuedWrite[] = []
   const queuedKeys = new Set<string>()
@@ -96,8 +94,9 @@ export const createDerivedArtifactWriter = (
             failed += 1
             try {
               onError(error, next)
-            } catch {
-              // A failing error hook must not stop the queue.
+            } catch (hookError) {
+              // A failing hook must not stop the queue.
+              console.error('derived artifact error hook failed', hookError)
             }
           },
         )
@@ -126,7 +125,6 @@ export const createDerivedArtifactWriter = (
           queuedBytes + write.bytes.byteLength > maxQueuedBytes
         ) {
           dropped += 1
-          onDropped(write)
           continue
         }
         queue.push({ ...write, blobs, key })
@@ -159,5 +157,34 @@ export const createDerivedArtifactWriter = (
   }
 }
 
-/** One writer per runtime: the bound applies across requests, not per job. */
+/**
+ * One writer per isolate, at module scope because concurrent Worker requests share nothing else,
+ * so its bound applies across requests. Hosts drain it before shutdown.
+ */
 export const derivedArtifactWriter = createDerivedArtifactWriter()
+
+export interface DerivedArtifactWriteBatch {
+  /** Queue one write while this job still has artifact allowance. */
+  readonly add: (identity: ClassificationKey, bytes: Uint8Array) => void
+  /** Hand the queued writes to the writer, after the authoritative work has published. */
+  readonly flush: () => void
+}
+
+/** Leave most of the Worker's 1,000 internal-service subrequests for authoritative D1/R2 work. */
+const MAX_DERIVED_ARTIFACT_WRITES_PER_JOB = 64
+
+export const createDerivedArtifactWriteBatch = (
+  blobs: BlobStore,
+  writer: DerivedArtifactWriter,
+): DerivedArtifactWriteBatch => {
+  const queued: DerivedArtifactWrite[] = []
+  let remaining = MAX_DERIVED_ARTIFACT_WRITES_PER_JOB
+  return {
+    add: (identity, bytes) => {
+      if (remaining === 0) return
+      remaining--
+      queued.push({ identity, bytes })
+    },
+    flush: () => writer.schedule(blobs, queued.splice(0)),
+  }
+}

@@ -11,8 +11,9 @@ import { expect, it } from 'vitest'
 import { createBackendRuntime, makeBackendContext } from '../src/runtime/backend-runtime.js'
 import { DirectStatusReadModel } from '../src/status-read-model/port.js'
 import { evaluateAlarmSnapshot } from '../src/telemetry/alarm-policy.js'
+import { readMismatchMask } from '../src/telemetry/classification.js'
 import { fetchCanvasTiles } from '../src/telemetry/fetcher.js'
-import { readMismatchMask, uploadTile } from '../src/telemetry/ingest.js'
+import { uploadTile } from '../src/telemetry/ingest.js'
 import { authorized, createTestBackend } from './support/backend.js'
 
 it('classifies uploaded canvas bytes against persisted artwork and exposes the same mismatch mask', async () => {
@@ -315,4 +316,32 @@ it('wakes alarm subscribers for changes committed before a later alarm evaluatio
   evaluations = 0
   await expect(scan(3)).rejects.toThrow('evaluation failed')
   expect(alarmNotifications).toBe(2)
+})
+
+it('counts a tile whose refresh fails only as failed', async () => {
+  const { app, sql, blobs, counters } = await createTestBackend()
+  const form = new FormData()
+  form.set('png', new File([await encodeIndexedPng(3, 1, new Uint8Array([1, 1, 1]))], 'art.png'))
+  form.set('name', 'Refreshed')
+  form.set('season', '3')
+  form.set('originX', '10')
+  form.set('originY', '20')
+  expect(
+    (await app.fetch(authorized('/admin/templates', { method: 'POST', body: form }))).status,
+  ).toBe(201)
+  const canvas = await encodeIndexedPng(1000, 1000, new Uint8Array(1000000).fill(TRANSPARENT_INDEX))
+  // Stands in for Wplace's tile server, which the scan reads over `fetch`.
+  const fetchImpl = Object.assign(async () => new Response(canvas), {
+    preconnect: fetch.preconnect,
+  })
+  let now = Math.floor(Date.now() / 1000)
+  const scan = () =>
+    fetchCanvasTiles({ blobs, sql, counters }, { season: 3, now: seconds((now += 60)), fetchImpl })
+  const first = await scan()
+  expect(first.fetched).toBeGreaterThan(0)
+  // The latest observation still names these bytes, but the object holding them is gone, so the
+  // next scan sees an unchanged hash and its refresh fails.
+  await blobs.delete('tiles', (await blobs.list('tiles', { limit: 100 })).keys)
+
+  expect(await scan()).toMatchObject({ fetched: 0, unchanged: 0, failed: first.fetched })
 })

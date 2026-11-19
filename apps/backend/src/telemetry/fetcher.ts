@@ -11,22 +11,36 @@ import {
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import type { AlarmProbe, BlobStore, CounterStore, SqlStore } from '../ports/index.js'
-import { createBackendRuntime, makeBackendContext } from '../runtime/backend-runtime.js'
+import {
+  type BackendRuntime,
+  createBackendRuntime,
+  makeBackendContext,
+} from '../runtime/backend-runtime.js'
 import {
   DirectStatusReadModel,
   publishAlarmChange,
   type StatusReadModelPort,
 } from '../status-read-model/port.js'
-import { createDerivedArtifactWriteBatch } from './derived-classification.js'
 import {
-  createStatusProjectionBatch,
+  ALARM_FOLLOW_UP_RETRY_MILLISECONDS,
+  ALARM_SCAN_INTERVAL_SECONDS,
+  ALARM_SCAN_JITTER_SECONDS,
+} from './alarm-policy.js'
+import {
+  createDerivedArtifactWriter,
+  type DerivedArtifactWriter,
+} from './derived-artifact-writer.js'
+import {
+  createIngestSinks,
+  flushIngestSinks,
+  type IngestSinks,
   MAX_CANVAS_TILE_BYTES,
-  refreshAuthoritativeTile,
-  uploadTile,
+  type MirrorOutcome,
+  mirrorTile,
 } from './ingest.js'
 
 /**
- * The server's own tile mirror, run from the 6-hour cron.
+ * The server's own tile mirror, run every `ALARM_SCAN_INTERVAL_SECONDS`.
  *
  * Userscript reports keep template tiles fresh while anyone is painting; this keeps them from
  * going dark when nobody is, and collects enough surroundings to centre each template in a 16:9
@@ -47,21 +61,15 @@ export const FETCHER_USER_ID = 0
  * Workers cap subrequests per invocation. Template tiles stay first for alarm freshness. Within
  * template and context work, the oldest observation goes first so deferred tiles rotate.
  */
-export const MAX_FETCH_TILES_PER_RUN = 100
-export const MAX_ALARM_PROBES_PER_RUN = 25
-export const ALARM_FOLLOW_UP_RETRY_MILLISECONDS = 60_000
+const MAX_FETCH_TILES_PER_RUN = 100
+const MAX_ALARM_PROBES_PER_RUN = 25
 
-/** The three concrete adapters used by server-owned background tile refreshes. */
 export interface FetcherStores {
   readonly blobs: BlobStore
   readonly sql: SqlStore
   readonly counters: CounterStore
   readonly statusReadModel?: StatusReadModelPort
 }
-
-export const ALARM_SCAN_INTERVAL_SECONDS = 6 * 60 * 60
-/** Cron delivery is not exact; keep a small overlap between adjacent bounded batches. */
-export const ALARM_SCAN_JITTER_SECONDS = 5 * 60
 
 const WPLACE_TILE_USER_AGENT = 'Caelestis-Tile-Fetcher/1.0'
 
@@ -93,6 +101,86 @@ const compareAlarmTileFreshness = (
 const wplaceTileUrl = (season: number, tile: TileCoord): string =>
   `https://backend.wplace.live/files/s${season}/tiles/${tile.x}/${tile.y}.png`
 
+/** One fetcher job: its stores, clock, and the sinks its tiles share until the job ends. */
+interface FetchRun {
+  readonly runtime: BackendRuntime
+  readonly statusReadModel: StatusReadModelPort
+  readonly sinks: IngestSinks
+  /** The job's own writer, so the job can wait for its masks; it has no reply to keep fast. */
+  readonly writer: DerivedArtifactWriter
+  readonly fetchImpl: typeof fetch
+  readonly now: Seconds
+  readonly tokenHash: string
+}
+
+const startRun = async (
+  ports: FetcherStores,
+  options: { readonly now?: Seconds; readonly fetchImpl?: typeof fetch },
+): Promise<FetchRun> => {
+  const statusReadModel = ports.statusReadModel ?? new DirectStatusReadModel(ports.sql)
+  const writer = createDerivedArtifactWriter()
+  return {
+    runtime: createBackendRuntime(
+      makeBackendContext(ports.blobs, ports.sql, ports.counters, statusReadModel),
+    ),
+    statusReadModel,
+    sinks: createIngestSinks({ blobs: ports.blobs, statusReadModel }, writer),
+    writer,
+    fetchImpl: options.fetchImpl ?? fetch,
+    now: options.now ?? seconds(Math.floor(Date.now() / 1_000)),
+    tokenHash: await sha256Hex(new TextEncoder().encode('caelestis-tile-fetcher')),
+  }
+}
+
+const finishRun = async (run: FetchRun): Promise<void> => {
+  try {
+    await flushIngestSinks(run.sinks)
+  } finally {
+    await run.writer.drain()
+  }
+}
+
+/**
+ * Fetch one tile from Wplace and mirror it. `unavailable` means Wplace served nothing usable; a
+ * failure to record what it served throws.
+ */
+const fetchTile = async (
+  run: FetchRun,
+  season: number,
+  tile: TileCoord,
+  options: {
+    readonly latestHash: () => Promise<string | null>
+    readonly recordHistory?: boolean
+  },
+): Promise<MirrorOutcome | 'unavailable'> => {
+  const response = await run.fetchImpl(wplaceTileUrl(season, tile), {
+    headers: { 'user-agent': WPLACE_TILE_USER_AGENT },
+  })
+  if (!response.ok) return 'unavailable'
+  const bytes = new Uint8Array(await response.arrayBuffer())
+  if (bytes.byteLength === 0 || bytes.byteLength > MAX_CANVAS_TILE_BYTES) return 'unavailable'
+  return run.runtime.run(
+    mirrorTile(
+      {
+        wplaceUserId: FETCHER_USER_ID,
+        displayName: FETCHER_DISPLAY_NAME,
+        tokenHash: run.tokenHash,
+        season,
+        tile,
+        hash: await sha256Hex(bytes),
+        observedAt: run.now,
+        includeUnpublished: true,
+      },
+      bytes,
+      {
+        latestHash: await options.latestHash(),
+        ...(options.recordHistory === undefined ? {} : { recordHistory: options.recordHistory }),
+        sinks: run.sinks,
+      },
+    ),
+  )
+}
+
 export const fetchCanvasTiles = async (
   ports: FetcherStores,
   options: {
@@ -102,16 +190,10 @@ export const fetchCanvasTiles = async (
     readonly alarmIdFactory?: () => string
   },
 ): Promise<FetchReport> => {
-  const now = options.now ?? seconds(Math.floor(Date.now() / 1_000))
-  const fetchImpl = options.fetchImpl ?? fetch
+  const run = await startRun(ports, options)
+  const { now } = run
   const alarmIdFactory = options.alarmIdFactory ?? uuidV7
   const { season } = options
-  const statusReadModel = ports.statusReadModel ?? new DirectStatusReadModel(ports.sql)
-  const runtime = createBackendRuntime(
-    makeBackendContext(ports.blobs, ports.sql, ports.counters, statusReadModel),
-  )
-  const projectionBatch = createStatusProjectionBatch(statusReadModel)
-  const artifactWriteBatch = createDerivedArtifactWriteBatch(ports.blobs)
 
   // Plan the whole run before making an upstream request. Unpublished templates are included too:
   // an admin's draft deserves the same timelapse the published version will show.
@@ -146,7 +228,6 @@ export const fetchCanvasTiles = async (
     ),
   )
 
-  const tokenHash = await sha256Hex(new TextEncoder().encode('caelestis-tile-fetcher'))
   const work = [...plannedTiles].map(([key, tile]) => {
     const template = templateTiles.get(key)
     const latest = latestTiles.get(key) ?? null
@@ -177,75 +258,25 @@ export const fetchCanvasTiles = async (
   try {
     for (const { tile, template, recordHistory, latest } of budgeted) {
       try {
-        const response = await fetchImpl(wplaceTileUrl(season, tile), {
-          headers: { 'user-agent': WPLACE_TILE_USER_AGENT },
+        const outcome = await fetchTile(run, season, tile, {
+          latestHash: async () => latest?.hash ?? null,
+          recordHistory,
         })
-        if (!response.ok) {
+        if (outcome === 'unavailable') {
           failed++
           continue
         }
-        const bytes = new Uint8Array(await response.arrayBuffer())
-        if (bytes.byteLength === 0 || bytes.byteLength > MAX_CANVAS_TILE_BYTES) {
-          failed++
-          continue
-        }
-        const hash = await sha256Hex(bytes)
-        if (latest?.hash === hash) {
-          unchanged++
-          await runtime.run(
-            refreshAuthoritativeTile(
-              {
-                wplaceUserId: FETCHER_USER_ID,
-                displayName: FETCHER_DISPLAY_NAME,
-                tokenHash,
-                season,
-                tile,
-                hash,
-                observedAt: now,
-                includeUnpublished: true,
-              },
-              bytes,
-              { projectionBatch, artifactWriteBatch },
-            ),
-          )
-          if (template) serverRefreshedTemplateTiles.add(tileKey(tile))
-          continue
-        }
-        await runtime.run(
-          uploadTile(
-            {
-              wplaceUserId: FETCHER_USER_ID,
-              displayName: FETCHER_DISPLAY_NAME,
-              tokenHash,
-              season,
-              tile,
-              hash,
-              observedAt: now,
-              includeUnpublished: true,
-            },
-            bytes,
-            {
-              requireCoverage: false,
-              recordHistory,
-              authoritative: true,
-              projectionBatch,
-              artifactWriteBatch,
-            },
-          ),
-        )
+        if (outcome === 'unchanged') unchanged++
+        else fetched++
         if (template) serverRefreshedTemplateTiles.add(tileKey(tile))
-        fetched++
-      } catch {
+      } catch (error) {
         // One unreachable tile must not starve the rest of the run.
+        console.error(`tile mirror failed for ${season}:${tileKey(tile)}`, error)
         failed++
       }
     }
   } finally {
-    try {
-      await projectionBatch.flush()
-    } finally {
-      await artifactWriteBatch.flush()
-    }
+    await finishRun(run)
   }
 
   const refreshedAlarmTiles = await ports.sql.listAlarmTiles(season)
@@ -305,7 +336,7 @@ export const fetchCanvasTiles = async (
   } finally {
     // A scan that moves no alarm owes subscribers nothing; a changed alarm covers its follow-up.
     // Each evaluation commits on its own, so a later failure still owes the earlier changes.
-    if (alarmChanged) await publishAlarmChange(statusReadModel, season)
+    if (alarmChanged) await publishAlarmChange(run.statusReadModel, season)
   }
 
   return {
@@ -326,15 +357,8 @@ export const fetchAlarmFollowUps = async (
     readonly fetchImpl?: typeof fetch
   } = {},
 ): Promise<AlarmFollowUpReport> => {
-  const now = options.now ?? seconds(Math.floor(Date.now() / 1_000))
-  const fetchImpl = options.fetchImpl ?? fetch
-  const statusReadModel = ports.statusReadModel ?? new DirectStatusReadModel(ports.sql)
-  const runtime = createBackendRuntime(
-    makeBackendContext(ports.blobs, ports.sql, ports.counters, statusReadModel),
-  )
-  const projectionBatch = createStatusProjectionBatch(statusReadModel)
-  const artifactWriteBatch = createDerivedArtifactWriteBatch(ports.blobs)
-  const tokenHash = await sha256Hex(new TextEncoder().encode('caelestis-tile-fetcher'))
+  const run = await startRun(ports, options)
+  const { now } = run
   let evaluated = 0
   let failed = 0
   const changedSeasons = new Set<number>()
@@ -377,61 +401,16 @@ export const fetchAlarmFollowUps = async (
       for (const { tile } of batch) {
         remaining--
         try {
-          const response = await fetchImpl(wplaceTileUrl(probe.season, tile), {
-            headers: { 'user-agent': WPLACE_TILE_USER_AGENT },
+          const outcome = await fetchTile(run, probe.season, tile, {
+            latestHash: async () =>
+              (await ports.sql.readLatestTile(probe.season, tile))?.hash ?? null,
           })
-          if (!response.ok) {
+          if (outcome === 'unavailable') {
             complete = false
             break
           }
-          const bytes = new Uint8Array(await response.arrayBuffer())
-          if (bytes.byteLength === 0 || bytes.byteLength > MAX_CANVAS_TILE_BYTES) {
-            complete = false
-            break
-          }
-          const hash = await sha256Hex(bytes)
-          const latest = await ports.sql.readLatestTile(probe.season, tile)
-          if (latest?.hash === hash) {
-            await runtime.run(
-              refreshAuthoritativeTile(
-                {
-                  wplaceUserId: FETCHER_USER_ID,
-                  displayName: FETCHER_DISPLAY_NAME,
-                  tokenHash,
-                  season: probe.season,
-                  tile,
-                  hash,
-                  observedAt: now,
-                  includeUnpublished: true,
-                },
-                bytes,
-                { projectionBatch, artifactWriteBatch },
-              ),
-            )
-            continue
-          }
-          await runtime.run(
-            uploadTile(
-              {
-                wplaceUserId: FETCHER_USER_ID,
-                displayName: FETCHER_DISPLAY_NAME,
-                tokenHash,
-                season: probe.season,
-                tile,
-                hash,
-                observedAt: now,
-                includeUnpublished: true,
-              },
-              bytes,
-              {
-                requireCoverage: false,
-                authoritative: true,
-                projectionBatch,
-                artifactWriteBatch,
-              },
-            ),
-          )
-        } catch {
+        } catch (error) {
+          console.error(`alarm probe tile fetch failed for ${probe.season}:${tileKey(tile)}`, error)
           complete = false
           break
         }
@@ -495,14 +474,10 @@ export const fetchAlarmFollowUps = async (
     }
   } finally {
     try {
-      await projectionBatch.flush()
+      await finishRun(run)
     } finally {
-      try {
-        await artifactWriteBatch.flush()
-      } finally {
-        // Each evaluation commits on its own, so a later failure still owes the earlier changes.
-        for (const season of changedSeasons) await publishAlarmChange(statusReadModel, season)
-      }
+      // Each evaluation commits on its own, so a later failure still owes the earlier changes.
+      for (const season of changedSeasons) await publishAlarmChange(run.statusReadModel, season)
     }
   }
 

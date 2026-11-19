@@ -13,7 +13,18 @@ export type {
   TemplateAlarmState,
 } from '../ports/index.js'
 
+/**
+ * How often the tile mirror scans every template. The six-hourly cron in `wrangler.toml` and
+ * `wrangler.self-hosted.example.toml` and the Node scheduler run it at this interval; change them
+ * together.
+ */
+export const ALARM_SCAN_INTERVAL_SECONDS = 6 * 60 * 60
+/** Cron delivery is not exact; keep a small overlap between adjacent bounded batches. */
+export const ALARM_SCAN_JITTER_SECONDS = 5 * 60
+/** A regression's probe refetches its template this long after the scan that opened it. */
 export const ALARM_FOLLOW_UP_DELAY_MILLISECONDS = 10 * 60 * 1_000
+/** A probe that could not finish tries again this much later. */
+export const ALARM_FOLLOW_UP_RETRY_MILLISECONDS = 60_000
 
 /**
  * Evaluate a server-classified template snapshot. Any loss of correct pixels opens a regression.

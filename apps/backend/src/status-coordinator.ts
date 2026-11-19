@@ -85,13 +85,9 @@ import {
   type TileGenerationCacheRead,
   type TileGenerationOffer,
 } from './status-read-model/tile-generation-cache.js'
-import {
-  MAX_CANVAS_TILE_BYTES,
-  offerTilesWithOutcome,
-  recordPaint,
-  uploadTile,
-} from './telemetry/ingest.js'
+import { MAX_CANVAS_TILE_BYTES, offerTiles, uploadTile } from './telemetry/ingest.js'
 import { type IngestTimingSnapshot, ingestTimings } from './telemetry/ingest-timing.js'
+import { recordPaint } from './telemetry/paint.js'
 import { readAlarms, readContributions, readLeaderboard } from './telemetry/queries.js'
 
 export interface LiveSocket {
@@ -124,7 +120,6 @@ export const MAX_LIVE_CLIENT_MESSAGE_CODE_UNITS = 64 * 1024
 export const MAX_LIVE_CLIENT_BINARY_BYTES =
   4 + MAX_LIVE_BINARY_HEADER_BYTES + MAX_LIVE_BINARY_PAYLOAD_BYTES
 const MANIFEST_CACHE_INDEX_KEY = 'manifest-read-model:v1:index'
-const MAX_TILE_FUTURE_SKEW_SECONDS = 5 * 60
 const MAX_DASHBOARD_SUBSCRIPTIONS = 4
 // 128 Ki UTF-16 code units are at most 384 KiB in UTF-8, below the intended 512 KiB ceiling.
 const MANIFEST_CACHE_CHUNK_CODE_UNITS = 128 * 1024
@@ -1205,33 +1200,25 @@ export class StatusCoordinator<Client> {
       })
       return
     }
-    const receivedAt = seconds(Math.floor(Date.now() / 1_000))
     try {
       const result = await ingestTimings.timed('offer', 'total', () =>
         this.backendRuntime().run(
-          offerTilesWithOutcome(
-            parsed.map(({ offer, tile }) => ({
-              key: offer.tile,
-              metadata: {
-                wplaceUserId: event.batch.wplaceUserId,
-                displayName: event.batch.displayName,
-                tokenHash: attachment?.tokenHash ?? '',
-                season: event.batch.season,
-                tile: tile ?? { x: -1, y: -1 },
-                hash: offer.sha256,
-                observedAt: seconds(Math.min(offer.ts, receivedAt + MAX_TILE_FUTURE_SKEW_SECONDS)),
-                includeUnpublished: attachment?.scope === 'admin',
-              },
-            })),
-          ),
+          offerTiles({
+            season: event.batch.season,
+            reporter: {
+              wplaceUserId: event.batch.wplaceUserId,
+              displayName: event.batch.displayName,
+              tokenHash: attachment?.tokenHash ?? '',
+            },
+            includeUnpublished: attachment?.scope === 'admin',
+            offers: event.batch.offers,
+          }),
         ),
       )
       const byTile = new Map<string, string>(
         event.batch.offers.map((offer) => [offer.tile, offer.deliveryId]),
       )
-      const coverageToken = result.coverageTokens.get(
-        `${event.batch.season}:${attachment?.scope === 'admin' ? 'admin' : 'public'}`,
-      )
+      const { coverageToken } = result
       this.send(socket, {
         type: 'tile-offer-result',
         requestId: event.requestId,
@@ -1246,7 +1233,7 @@ export class StatusCoordinator<Client> {
               ? []
               : [{ deliveryId, ...(coverageToken === undefined ? {} : { coverageToken }) }]
           }),
-          rejectedDeliveryIds: result.rejectedKeys.flatMap((tile) => {
+          rejectedDeliveryIds: result.rejected.flatMap((tile) => {
             const deliveryId = byTile.get(tile)
             return deliveryId === undefined ? [] : [deliveryId]
           }),
@@ -1301,7 +1288,6 @@ export class StatusCoordinator<Client> {
       })
       return
     }
-    const receivedAt = seconds(Math.floor(Date.now() / 1_000))
     try {
       await ingestTimings.timed('upload', 'total', () =>
         this.backendRuntime().run(
@@ -1313,11 +1299,11 @@ export class StatusCoordinator<Client> {
               season: metadata.season,
               tile,
               hash: metadata.sha256,
-              observedAt: seconds(Math.min(metadata.ts, receivedAt + MAX_TILE_FUTURE_SKEW_SECONDS)),
+              observedAt: seconds(metadata.ts),
               includeUnpublished: attachment?.scope === 'admin',
             },
             frame.payload,
-            metadata.coverageToken === undefined ? {} : { coverageToken: metadata.coverageToken },
+            metadata.coverageToken,
           ),
         ),
       )
