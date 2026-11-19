@@ -1,73 +1,40 @@
 <script lang="ts">
-  import MenuStyles from '../foundations/MenuStyles.svelte'
   import { formatCount, formatExactCount, formatPixels, type TemplateColourStatus, WPLACE_PALETTE } from '@caelestis/shared'
-  import type { Snippet } from 'svelte'
-  import { type ColourProgressSort, COLOUR_PROGRESS_SORTS as sorts } from './colour-sorts.js'
+  import { type ColourProgressSort, compareColours } from './colour-sorts.js'
 
-  let { colours, sort = 'index', onSortChange, sortControl }: {
+  /** One row per palette colour in `colours`, ordered by `sort`; the host renders the sort control. */
+  let { colours, sort = 'index' }: {
     colours: readonly TemplateColourStatus[]
     sort?: ColourProgressSort
-    onSortChange?: (sort: ColourProgressSort) => void
-    /** A host's own picker in place of the native select, which no stylesheet can reach. */
-    sortControl?: Snippet
   } = $props()
 
-
-  const rows = $derived.by(() => {
-    const resolved = colours.flatMap((colour) => {
-      const palette = WPLACE_PALETTE[colour.index]
-      return palette === undefined
-        ? []
-        : [{
-            colour,
-            palette,
-            done: colour.total === 0 ? 0 : colour.correct / colour.total,
-            remaining: colour.total - colour.correct,
-          }]
-    })
-    const byIndex = (a: (typeof resolved)[number], b: (typeof resolved)[number]) =>
-      a.colour.index - b.colour.index
-    switch (sort) {
-      case 'progress': return resolved.sort((a, b) => b.done - a.done || byIndex(a, b))
-      case 'progress-asc': return resolved.sort((a, b) => a.done - b.done || byIndex(a, b))
-      case 'remaining': return resolved.sort((a, b) => b.remaining - a.remaining || byIndex(a, b))
-      case 'remaining-asc': return resolved.sort((a, b) => a.remaining - b.remaining || byIndex(a, b))
-      case 'total': return resolved.sort((a, b) => b.colour.total - a.colour.total || byIndex(a, b))
-      case 'free': return resolved.sort((a, b) => Number(a.palette.kind !== 'free') - Number(b.palette.kind !== 'free') || byIndex(a, b))
-      case 'premium': return resolved.sort((a, b) => Number(a.palette.kind !== 'premium') - Number(b.palette.kind !== 'premium') || byIndex(a, b))
-      default: return resolved.sort(byIndex)
-    }
-  })
+  const rows = $derived(
+    colours
+      .flatMap((colour) => {
+        const palette = WPLACE_PALETTE[colour.index]
+        return palette === undefined
+          ? []
+          : [{ colour, palette, index: colour.index, completed: colour.correct, mismatched: colour.wrong, unpainted: colour.blank, total: colour.total }]
+      })
+      .sort(compareColours(sort)),
+  )
 </script>
 
-<MenuStyles />
-
-<div class="toolbar">
-  {#if sortControl}
-    {@render sortControl()}
-  {:else}
-    <label for="caelestis-colour-sort">Sort by</label>
-    <select class="caelestis-select" id="caelestis-colour-sort" value={sort} onchange={(event) => onSortChange?.(event.currentTarget.value as ColourProgressSort)}>
-      {#each sorts as option (option.key)}<option value={option.key}>{option.label}</option>{/each}
-    </select>
-  {/if}
-</div>
 <ul>
-  {#each rows as { colour, palette, done } (colour.index)}
-    <li title={`${palette.name}: ${formatExactCount(colour.correct)} of ${formatPixels(colour.total)} complete`} aria-label={`${palette.name}: ${formatExactCount(colour.correct)} of ${formatPixels(colour.total)} complete`}>
+  {#each rows as { colour, palette, completed, total } (colour.index)}
+    {@const done = total === 0 ? 0 : completed / total}
+    <li title={`${palette.name}: ${formatExactCount(completed)} of ${formatPixels(total)} complete`} aria-label={`${palette.name}: ${formatExactCount(completed)} of ${formatPixels(total)} complete`}>
       <span class="index">{colour.index}</span>
       <span class="swatch" style:background={palette.hex} title={`${palette.name} (${palette.kind})`}></span>
       <span class="name" title={palette.name}>{palette.name}</span>
       <span class="track"><span style:width={`${done * 100}%`} style:background={palette.hex}></span></span>
-      <span class="count">{formatCount(colour.correct)}/{formatCount(colour.total)}</span>
+      <span class="count">{formatCount(completed)}/{formatCount(total)}</span>
       <span class="percent">{(done * 100).toFixed(1)}%</span>
     </li>
   {/each}
 </ul>
 
 <style>
-  .toolbar { display: flex; align-items: center; justify-content: flex-end; gap: 0.5rem; margin-block-end: 0.5rem; color: var(--caelestis-muted-text); font-family: inherit; font-size: inherit; line-height: 1.2; }
-  select { inline-size: 11rem; }
   ul { display: flex; flex-direction: column; gap: 0.375rem; margin: 0; padding: 0; list-style: none; }
   li { display: grid; grid-template-columns: 1.5rem 1rem minmax(5rem, 9rem) minmax(4rem, 1fr) 8.5rem; align-items: center; gap: 0.5rem; color: var(--caelestis-text); font-family: inherit; font-size: inherit; line-height: 1.2; }
   .index, .count, .percent { color: var(--caelestis-muted-text); text-align: end; font-size: inherit; font-variant-numeric: tabular-nums; white-space: nowrap; }
