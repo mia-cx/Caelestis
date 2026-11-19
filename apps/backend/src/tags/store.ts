@@ -42,6 +42,6 @@ export interface TagStore {
   ): Promise<readonly { readonly templateId: string; readonly tag: TemplateTag }[]>
   /** Atomically change a tag and affected template revisions. False means a missing tag or template. */
   mutateTag(mutation: TagMutation, now: Millis): Promise<boolean>
-  /** Manifest scopes that may carry this server's tags. */
-  listTagScopes(): Promise<readonly DrawingScope[]>
+  /** Seasons whose manifests may carry this server's tags. */
+  listTagSeasons(): Promise<readonly number[]>
 }

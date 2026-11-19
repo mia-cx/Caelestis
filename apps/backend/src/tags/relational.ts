@@ -1,12 +1,4 @@
-import {
-  MAX_TEMPLATE_TAGS,
-  type Millis,
-  type TemplateSurface,
-  type TemplateTag,
-  tagNameKey,
-  templateSurface,
-  WORLD_TEMPLATE_SURFACE,
-} from '@caelestis/shared'
+import { MAX_TEMPLATE_TAGS, type Millis, type TemplateTag, tagNameKey } from '@caelestis/shared'
 import { violates } from '../adapters/constraint-violation.js'
 import { RelationalStore } from '../adapters/relational-store.js'
 import { type DrawingScope, scopeBindings, scopeCondition } from '../db/scope.js'
@@ -60,22 +52,16 @@ export class RelationalTagStore extends RelationalStore implements TagStore {
     return result.results.map(({ nodeId, id, name }) => ({ nodeId, tag: { id, name } }))
   }
 
-  async listTagScopes(): Promise<readonly DrawingScope[]> {
+  async listTagSeasons(): Promise<readonly number[]> {
     const result = await this.client
-      .prepare(
-        'SELECT season, surface_kind AS kind, alliance_id AS "allianceId" FROM templates UNION SELECT season, surface_kind AS kind, alliance_id AS "allianceId" FROM nodes',
-      )
-      .all<{ season: number; kind: TemplateSurface['kind']; allianceId: number | null }>()
-    return result.results.map((row) => ({
-      season: row.season,
-      surface: templateSurface(row.kind, row.allianceId) ?? WORLD_TEMPLATE_SURFACE,
-    }))
+      .prepare('SELECT season FROM templates UNION SELECT season FROM nodes')
+      .all<{ season: number }>()
+    return result.results.map(({ season }) => season)
   }
 
   async mutateTag(mutation: TagMutation, now: Millis): Promise<boolean> {
     const prepare = (query: string, ...values: (string | number | null)[]) =>
       this.client.prepare(query).bind(...values)
-    // A tag change alters the manifest, so it moves each affected template's revision forward.
     const bumpRevisions = `UPDATE templates SET updated_at_ms = ${this.syntax.greatest}(updated_at_ms + 1, ?) WHERE`
     try {
       if (mutation.type === 'assign-folder') {

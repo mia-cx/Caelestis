@@ -32,7 +32,7 @@ export const mutateTag = (mutation: TagMutation, currentSeason: number) =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
     const readModel = yield* StatusReadModelService
-    const scopes = yield* storage('listTagScopes', () => sql.listTagScopes())
+    const seasons = yield* storage('listTagSeasons', () => sql.listTagSeasons())
     const changed = yield* fromPort('mutateTag', () => sql.mutateTag(mutation, millis(Date.now())))
     if (!changed)
       return yield* Effect.fail(
@@ -40,7 +40,7 @@ export const mutateTag = (mutation: TagMutation, currentSeason: number) =>
       )
     yield* Effect.promise(() =>
       Promise.all(
-        [...new Set([currentSeason, ...scopes.map(({ season }) => season)])].map((season) =>
+        [...new Set([currentSeason, ...seasons])].map((season) =>
           bestEffort(() => readModel.notifyManifestChange(season, undefined, false)),
         ),
       ),
