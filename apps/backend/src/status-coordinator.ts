@@ -185,10 +185,14 @@ interface StoredManifestRetirement {
 interface StoredManifestCacheIndex {
   readonly season: number
   readonly revision: number
+  /** Absent in indexes written before coverage was tracked, when every revision changed coverage. */
   readonly coverageRevision?: number
   readonly entries: readonly StoredManifestProjection[]
   readonly retired: readonly StoredManifestRetirement[]
 }
+
+const coverageOf = (stored: StoredManifestCacheIndex): number =>
+  stored.coverageRevision ?? stored.revision
 
 const manifestChunkKey = (generation: string, index: number): string =>
   `manifest-read-model:v1:chunk:${generation}:${index}`
@@ -241,7 +245,7 @@ export const createChunkedManifestPersistence = (
   return {
     loadCoverageRevision: async () => {
       const stored = await loadIndex()
-      return stored?.season === season ? (stored.coverageRevision ?? stored.revision) : null
+      return stored?.season === season ? coverageOf(stored) : null
     },
     load: async () => {
       const stored = await loadIndex()
@@ -249,7 +253,7 @@ export const createChunkedManifestPersistence = (
       const revisions = {
         season: stored.season,
         revision: stored.revision,
-        coverageRevision: stored.coverageRevision ?? stored.revision,
+        coverageRevision: coverageOf(stored),
       }
       const entries: PersistedManifestProjection[] = []
       for (const entry of stored.entries) {
@@ -340,7 +344,7 @@ export const createChunkedManifestPersistence = (
       const published: StoredManifestCacheIndex = {
         season: next.season,
         revision: next.revision,
-        coverageRevision: next.coverageRevision ?? next.revision,
+        coverageRevision: next.coverageRevision,
         entries,
         retired,
       }
@@ -503,6 +507,7 @@ export class StatusCoordinator<Client> {
     const liveReadModel: StatusReadModelPort = {
       applyCommittedChange: (season, mutation) => this.applyCommittedChange(season, mutation),
       reconcileSnapshot: (season, scope) => this.reconcileSnapshot(season, scope),
+      readManifestProjection: (input) => this.readManifestProjection(input),
       resolveCurrentTileOffers: async (season, scope, offers) =>
         this.resolveCurrentTileOffers(season, scope, offers),
       prepareTileGenerationCommit: (season, tile) => this.prepareTileGenerationCommit(season, tile),

@@ -41,15 +41,15 @@ export interface PersistedManifestProjection {
 export interface PersistedManifestReadModel {
   readonly season: number
   readonly revision: number
-  /** Absent in older snapshots, where every manifest revision also changed tile coverage. */
-  readonly coverageRevision?: number
+  /** The latest revision that changed which tiles templates cover. */
+  readonly coverageRevision: number
   readonly entries: readonly PersistedManifestProjection[]
 }
 
 export interface ManifestReadModelPersistence {
   readonly load: () => Promise<PersistedManifestReadModel | null>
   /** Read the durable tile coverage revision without loading manifest projections. */
-  readonly loadCoverageRevision?: () => Promise<number | null>
+  readonly loadCoverageRevision: () => Promise<number | null>
   readonly save: (state: PersistedManifestReadModel) => Promise<void>
 }
 
@@ -73,10 +73,16 @@ const projectionKey = (scope: ManifestVisibilityScope, surface: TemplateSurface)
 
 const configuredServer = (server: ServerInfo): string => JSON.stringify(server)
 
-const matches = (candidates: readonly string[], version: string): boolean => {
-  const etag = `"${version}"`
-  return candidates.includes(etag) || candidates.includes('*')
-}
+/**
+ * RFC 9110 lets If-None-Match carry a comma-separated list and mark each entry weak with `W/`.
+ * Weak comparison is right here: a manifest version is a content hash, so a weak and a strong tag
+ * over the same bytes mean the same.
+ */
+export const parseIfNoneMatch = (header: string | undefined): readonly string[] =>
+  (header ?? '').split(',').map((candidate) => candidate.trim().replace(/^W\//, ''))
+
+export const matchesIfNoneMatch = (candidates: readonly string[], version: string): boolean =>
+  candidates.includes(`"${version}"`) || candidates.includes('*')
 
 /** Bounded, revisioned manifest cache. The source remains authoritative on misses and TTL repair. */
 export const createSeasonManifestReadModel = (options: {
@@ -111,7 +117,7 @@ export const createSeasonManifestReadModel = (options: {
       state = persisted?.season === options.season ? persisted : null
       loaded = true
     }
-    state ??= { season: options.season, revision: 1, entries: [] }
+    state ??= { season: options.season, revision: 1, coverageRevision: 1, entries: [] }
     return state
   }
 
@@ -128,11 +134,11 @@ export const createSeasonManifestReadModel = (options: {
           const base = {
             version: held.manifest.version,
             revision: current.revision,
-            coverageRevision: current.coverageRevision ?? current.revision,
+            coverageRevision: current.coverageRevision,
             cacheOutcome: 'hit' as const,
             revisionChanged: false,
           }
-          return matches(input.ifNoneMatch, held.manifest.version)
+          return matchesIfNoneMatch(input.ifNoneMatch, held.manifest.version)
             ? { ...base, notModified: true as const }
             : { ...base, notModified: false as const, manifest: held.manifest }
         }
@@ -141,9 +147,7 @@ export const createSeasonManifestReadModel = (options: {
         const serializedBytes = new TextEncoder().encode(JSON.stringify(manifest)).byteLength
         const revisionChanged = keyed !== undefined && keyed.manifest.version !== manifest.version
         const revision = revisionChanged ? current.revision + 1 : current.revision
-        const coverageRevision = revisionChanged
-          ? revision
-          : (current.coverageRevision ?? current.revision)
+        const coverageRevision = revisionChanged ? revision : current.coverageRevision
         const configuredServerChanged = keyed !== undefined && keyed.configuredServer !== server
         const retained = configuredServerChanged
           ? []
@@ -183,7 +187,7 @@ export const createSeasonManifestReadModel = (options: {
           cacheOutcome: keyed === undefined ? ('miss' as const) : ('stale' as const),
           revisionChanged,
         }
-        return matches(input.ifNoneMatch, manifest.version)
+        return matchesIfNoneMatch(input.ifNoneMatch, manifest.version)
           ? { ...base, notModified: true as const }
           : { ...base, notModified: false as const, manifest }
       }),
@@ -197,9 +201,7 @@ export const createSeasonManifestReadModel = (options: {
         const next = {
           season: options.season,
           revision: current.revision + 1,
-          coverageRevision: affectsTileCoverage
-            ? current.revision + 1
-            : (current.coverageRevision ?? current.revision),
+          coverageRevision: affectsTileCoverage ? current.revision + 1 : current.coverageRevision,
           entries:
             invalidatedKeys === null
               ? []
@@ -209,15 +211,7 @@ export const createSeasonManifestReadModel = (options: {
         state = next
         return next.revision
       }),
-    coverageRevision: async () => {
-      if (options.persistence.loadCoverageRevision !== undefined) {
-        return (await options.persistence.loadCoverageRevision()) ?? 1
-      }
-      return exclusive(async () => {
-        const current = await load()
-        return current.coverageRevision ?? current.revision
-      })
-    },
+    coverageRevision: async () => (await options.persistence.loadCoverageRevision()) ?? 1,
     knownVersion: (scope, surface) =>
       exclusive(async () => {
         const current = await load()

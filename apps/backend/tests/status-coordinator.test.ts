@@ -16,7 +16,7 @@ const SEASON = 3
 /** A socket that records every message the coordinator sends it. */
 class RecordingSocket implements LiveSocket {
   readonly sent: string[] = []
-  closed: { code?: number; reason?: string } | null = null
+  closed: { code: number | undefined; reason: string | undefined } | null = null
   constructor(private attachment: unknown) {}
   send(message: string | ArrayBuffer | ArrayBufferView): void {
     this.sent.push(String(message))

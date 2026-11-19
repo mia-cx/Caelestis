@@ -48,8 +48,7 @@ export interface StatusReadModelPort {
    * dashboards and resolves before it runs, so the paint that caused it is not held up.
    */
   readonly notifyDashboardChange?: (season: number) => Promise<void>
-  /** Optional for compatibility adapters; prepared production and direct adapters cache manifests. */
-  readonly readManifestProjection?: (
+  readonly readManifestProjection: (
     input: ManifestProjectionInput,
   ) => Promise<ManifestProjectionRead>
   /** Optional on portable adapters; production closes live sessions through this current season. */
@@ -263,6 +262,7 @@ export class DirectStatusReadModel implements StatusReadModelPort {
       source: (input) => assembleManifestProjection(this.sql, input),
       persistence: {
         load: async () => persisted,
+        loadCoverageRevision: async () => persisted?.coverageRevision ?? null,
         save: async (next) => {
           persisted = next
         },

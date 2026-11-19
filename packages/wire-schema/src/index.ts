@@ -57,7 +57,7 @@ const MAX_PATH_LENGTH = 256
  */
 const MAX_MANIFEST_TILES = WORLD_TILES * WORLD_TILES
 const MAX_TEMPLATE_CHUNKS = MAX_MANIFEST_TILES
-const MAX_MANIFEST_NODES = 100_000
+export const MAX_MANIFEST_NODES = 100_000
 /**
  * Chunks summed across every template, checked before anything flattens them.
  *
@@ -69,8 +69,8 @@ const MAX_MANIFEST_NODES = 100_000
  * a tile key and a 64-character hash, so 200,000 of them is already ~20 MB of JSON — past what a
  * manifest response should be, and far short of the 4,194,304 the per-template cap allowed.
  */
-const MAX_MANIFEST_CHUNKS = 200_000
-const MAX_MANIFEST_TEMPLATES = 100_000
+export const MAX_MANIFEST_CHUNKS = 200_000
+export const MAX_MANIFEST_TEMPLATES = 100_000
 // 09-recon-palette has not recovered Wplace's complete index order yet. Keep this permissive until
 // that ticket establishes the real upper bound instead of deriving it from the incomplete palette.
 const MAX_PALETTE_INDEX = 65_535

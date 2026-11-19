@@ -1,5 +1,6 @@
 import { parseWholeNumber, type ServerInfo } from '@caelestis/shared'
 import { Hono } from 'hono'
+import { parseIfNoneMatch } from '../manifest/read-model.js'
 import { readManifestProjection } from '../manifest/use-cases.js'
 import { recordCacheOutcome } from '../metrics/request-metrics.js'
 import type { BackendRuntime } from '../runtime/backend-runtime.js'
@@ -26,9 +27,6 @@ export const createManifestRoutes = (
       )
     }
 
-    const candidates = (c.req.header('if-none-match') ?? '')
-      .split(',')
-      .map((candidate) => candidate.trim().replace(/^W\//, ''))
     return runBackendHttp(
       c,
       runtime,
@@ -40,7 +38,7 @@ export const createManifestRoutes = (
         season,
         surface,
         includeUnpublished: c.get('caller').canSeeDrafts,
-        ifNoneMatch: candidates,
+        ifNoneMatch: parseIfNoneMatch(c.req.header('if-none-match')),
         // Only the deployed season owns a bounded Durable Object projection. Historical season
         // reads remain authoritative without materializing attacker-selected shards.
         cacheable: season === options.currentSeason,
@@ -49,10 +47,6 @@ export const createManifestRoutes = (
         recordCacheOutcome(projection.cacheOutcome)
         const etag = `"${projection.version}"`
         const headers = { ETag: etag, Vary: 'Authorization' }
-        // RFC 9110 lets If-None-Match carry a comma-separated list and mark each entry weak with `W/`.
-        // An exact string compare therefore missed a conforming client entirely: send two etags, or one
-        // a cache has weakened, and you never get a 304 again. Weak comparison is the right one here —
-        // the manifest is a content hash, so a weak and a strong tag over the same bytes mean the same.
         return projection.notModified
           ? c.body(null, 304, headers)
           : c.json(projection.manifest, 200, headers)
