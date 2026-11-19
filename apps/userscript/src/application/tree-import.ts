@@ -8,6 +8,7 @@ import {
 import { allianceSurfaceCentre, currentSurface } from '../alliance-surface.js'
 import { startCaptureMode } from '../claim-editor.js'
 import { viewportCentre } from '../map-view.js'
+import type { ServerConnection } from '../settings.js'
 import { captureSelectedArtwork } from '../templates/current-artwork.js'
 import { type ImportedTemplate, importFile, newTemplateId } from '../templates/import.js'
 import {
@@ -20,7 +21,7 @@ import { centreOf, navigateTo } from '../templates/navigate.js'
 import { localFolderIdOf } from '../tree-keys.js'
 import { showToast } from '../ui/notification-host.js'
 import type { TreeTarget } from '../ui/tree-context.js'
-import { importTemplatesToServer } from './import-to-server.js'
+import { importTemplatesToServer, type ServerUpload } from './import-to-server.js'
 import { openTemplateStudio } from './template-studio.js'
 import { hiddenNotice } from './tree-target.js'
 
@@ -126,6 +127,20 @@ const importTemplateFile = async (
   }
 }
 
+const announceUpload = (server: ServerConnection, { uploaded, failures }: ServerUpload): void => {
+  const serverName = server.info?.name ?? server.url
+  if (uploaded > 0) {
+    showToast(
+      uploaded === 1
+        ? `Imported template into ${serverName}.`
+        : `Imported ${uploaded} templates into ${serverName}.`,
+    )
+  }
+  if (failures.length > 0) {
+    showToast(`Kept in Local: ${failures.join('. ')}`, 'error')
+  }
+}
+
 /**
  * Admit decoded files or captured indices through the same destination and placement flow.
  * `placed` images were positioned in the template studio, so no placement follows.
@@ -145,13 +160,27 @@ const importTemplateData = async (
     return false
   }
   if (target.server !== null) {
-    return await importTemplatesToServer(imported, target.server, target.nodeId ?? null, {
+    const server = target.server
+    const result = await importTemplatesToServer(imported, server, target.nodeId ?? null, {
       reservation,
       rerender,
       surface,
       ...(signal === undefined ? {} : { signal }),
       placed,
     })
+    if (result.failures.length > 0) showToast(result.failures.join('. '), 'error')
+    if (!result.started) {
+      if (result.refusal !== null) showToast(result.refusal, 'warning')
+      return false
+    }
+    const announced = result.upload.then((upload) => announceUpload(server, upload))
+    if (!result.placementStarted) {
+      await announced
+      return true
+    }
+    showToast(`Place “${first.name}”, then Apply to upload it.`, 'warning')
+    void announced
+    return true
   }
   // Straight into whichever Local folder was clicked. Importing from a folder's own button
   // and then finding the result at the top level would make the button a lie.

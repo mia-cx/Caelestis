@@ -13,9 +13,32 @@ import {
 } from '../templates/local-store.js'
 import type { MoveReservation } from '../templates/move.js'
 import { movingId } from '../templates/move.js'
-import { showToast } from '../ui/notification-host.js'
 import { authoringOf } from './template-authoring.js'
 import { refreshEditedSurface } from './tree-server.js'
+
+/** What uploading the admitted templates did. Each failure was kept in Local. */
+export interface ServerUpload {
+  readonly uploaded: number
+  readonly failures: readonly string[]
+}
+
+/**
+ * What an import to a server did. `failures` are templates Local refused to admit. A started import
+ * uploads straight away, or once `placementStarted` finishes; `refusal` says why one did not start,
+ * when the user can do something about it.
+ */
+export type ServerImport =
+  | {
+      readonly started: false
+      readonly failures: readonly string[]
+      readonly refusal: string | null
+    }
+  | {
+      readonly started: true
+      readonly failures: readonly string[]
+      readonly placementStarted: boolean
+      readonly upload: Promise<ServerUpload>
+    }
 
 const uploadAdmitted = async (
   server: ServerConnection,
@@ -23,7 +46,7 @@ const uploadAdmitted = async (
   templateIds: readonly string[],
   rerender: () => void,
   surface: TemplateSurface,
-): Promise<void> => {
+): Promise<ServerUpload> => {
   let uploaded = 0
   const failures: string[] = []
 
@@ -77,18 +100,7 @@ const uploadAdmitted = async (
   }
   if (uploaded > 0) await refreshEditedSurface(server, surface, rerender)
   rerender()
-
-  const serverName = server.info?.name ?? server.url
-  if (uploaded > 0) {
-    showToast(
-      uploaded === 1
-        ? `Imported template into ${serverName}.`
-        : `Imported ${uploaded} templates into ${serverName}.`,
-    )
-  }
-  if (failures.length > 0) {
-    showToast(`Kept in Local: ${failures.join('. ')}`, 'error')
-  }
+  return { uploaded, failures }
 }
 
 /** Stage file imports locally only long enough to place and upload them to their chosen server. */
@@ -97,6 +109,7 @@ export interface ServerImportOptions {
   readonly reservation: MoveReservation | null
   readonly rerender: () => void
   readonly surface?: TemplateSurface
+  /** Cancels admission and the placement start; an upload that began runs to its end. */
   readonly signal?: AbortSignal
   /** Positioned in the template studio: upload straight away, without a placement. */
   readonly placed?: boolean
@@ -113,22 +126,28 @@ export const importTemplatesToServer = async (
     signal,
     placed = false,
   }: ServerImportOptions,
-): Promise<boolean> => {
+): Promise<ServerImport> => {
   if (!server.isAdmin) {
     reservation?.release()
-    showToast('This server needs an admin code before it can accept templates.', 'warning')
-    return false
+    return {
+      started: false,
+      failures: [],
+      refusal: 'This server needs an admin code before it can accept templates.',
+    }
   }
 
   const first = imported[0]
   if (first === undefined) {
     reservation?.release()
-    return false
+    return { started: false, failures: [], refusal: null }
   }
   const needsPlacement = first.source === 'image' && !placed
   if (needsPlacement && reservation === null) {
-    showToast('Finish the current placement, then import this image again.', 'warning')
-    return false
+    return {
+      started: false,
+      failures: [],
+      refusal: 'Finish the current placement, then import this image again.',
+    }
   }
 
   const admitted: string[] = []
@@ -146,33 +165,35 @@ export const importTemplatesToServer = async (
     }
     signal?.throwIfAborted()
     rerender()
-    if (failures.length > 0) showToast(failures.join('. '), 'error')
     if (!admitted.includes(first.id)) {
       for (const id of admitted) await unstageLocalTemplate(id)
-      return false
+      return { started: false, failures, refusal: null }
     }
 
-    if (needsPlacement) {
-      signal?.throwIfAborted()
-      const started = reservation?.start(first.id, () => {
-        rerender()
-        void uploadAdmitted(server, nodeId, admitted, rerender, surface)
-      })
-      if (started !== true) {
-        for (const templateId of admitted) await removeLocalTemplate(templateId)
-        rerender()
-        showToast(
-          'Another placement started. Import the image again when it is finished.',
-          'warning',
-        )
-        return false
+    if (!needsPlacement) {
+      const upload = uploadAdmitted(server, nodeId, admitted, rerender, surface)
+      return { started: true, failures, placementStarted: false, upload }
+    }
+
+    signal?.throwIfAborted()
+    let uploadAfterPlacement: (upload: Promise<ServerUpload>) => void = () => {}
+    const upload = new Promise<ServerUpload>((resolve) => {
+      uploadAfterPlacement = resolve
+    })
+    const started = reservation?.start(first.id, () => {
+      rerender()
+      uploadAfterPlacement(uploadAdmitted(server, nodeId, admitted, rerender, surface))
+    })
+    if (started !== true) {
+      for (const templateId of admitted) await removeLocalTemplate(templateId)
+      rerender()
+      return {
+        started: false,
+        failures,
+        refusal: 'Another placement started. Import the image again when it is finished.',
       }
-      showToast(`Place “${first.name}”, then Apply to upload it.`, 'warning')
-      return true
     }
-
-    await uploadAdmitted(server, nodeId, admitted, rerender, surface)
-    return true
+    return { started: true, failures, placementStarted: true, upload }
   } catch (error) {
     if (signal?.aborted) {
       for (const id of admitted) await removeLocalTemplate(id)

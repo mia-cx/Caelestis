@@ -191,7 +191,7 @@ describe('server file import', () => {
   it('keeps a template admitted after the first was refused in Local', async () => {
     vi.spyOn(store, 'addLocalTemplate').mockRejectedValueOnce(new Error('pixel budget'))
 
-    await expect(importBoth()).resolves.toBe(false)
+    await expect(importBoth()).resolves.toMatchObject({ started: false })
     expect(store.templateById('second')).toBeDefined()
     expect(store.templateById('second')?.staged).toBeUndefined()
   })
@@ -199,7 +199,9 @@ describe('server file import', () => {
   it('keeps the templates in Local when preparing an upload throws', async () => {
     vi.spyOn(store, 'templateAsPng').mockRejectedValueOnce(new Error('pixels unavailable'))
 
-    await expect(importBoth()).rejects.toThrow('pixels unavailable')
+    const result = await importBoth()
+    if (!result.started) throw new Error('The import did not start')
+    await expect(result.upload).rejects.toThrow('pixels unavailable')
     expect(store.localTemplates().filter((template) => template.staged)).toEqual([])
     expect(store.localTemplates()).toHaveLength(2)
   })
