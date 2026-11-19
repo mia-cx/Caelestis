@@ -89,4 +89,62 @@
   :global(.caelestis-menu-item:focus-visible) { outline: 2px solid var(--caelestis-focus, var(--color-primary, currentColor)); outline-offset: -2px; }
   :global(select.caelestis-select:focus-visible) { outline: 2px solid var(--caelestis-focus, var(--color-primary, currentColor)); outline-offset: 2px; }
   :global(select.caelestis-select:disabled), :global(.caelestis-menu-item:is(:disabled, [data-disabled])) { opacity: 0.5; cursor: not-allowed; }
+
+  /*
+   * A floating menu or popover placed by `anchorPopover`: it scales and fades out of its anchor.
+   * A popover opens with `:popover-open`. A surface mounted and removed through
+   * `openSurface`/`closeSurface` carries `data-surface`, and its `data-state` drives the motion.
+   */
+  :global(.caelestis-dropdown) {
+    --dropdown-open-dur: var(--caelestis-duration-fast);
+    --dropdown-close-dur: var(--caelestis-duration-quick);
+    --dropdown-pre-scale: var(--caelestis-scale-medium);
+    --dropdown-closing-scale: var(--caelestis-scale-tiny);
+    --dropdown-ease: var(--caelestis-ease-smooth-out);
+    --caelestis-surface-close-duration: var(--dropdown-close-dur);
+    position: fixed;
+    inset: auto;
+    margin: 0;
+    z-index: 60;
+    flex-direction: column;
+    max-inline-size: calc(100vw - 1rem);
+    max-block-size: calc(100vh - 1rem);
+    overflow: auto;
+    transform: scale(var(--dropdown-pre-scale));
+    opacity: 0;
+    pointer-events: none;
+    transition:
+      transform var(--dropdown-close-dur) var(--dropdown-ease),
+      opacity var(--dropdown-close-dur) var(--dropdown-ease),
+      overlay var(--dropdown-close-dur) var(--dropdown-ease) allow-discrete,
+      display var(--dropdown-close-dur) var(--dropdown-ease) allow-discrete;
+    will-change: transform, opacity;
+  }
+  :global(.caelestis-dropdown:is(:popover-open:not([data-surface]), [data-surface][data-state='open'])) {
+    display: flex;
+    transform: scale(1);
+    opacity: 1;
+    pointer-events: auto;
+    transition:
+      transform var(--dropdown-open-dur) var(--dropdown-ease),
+      opacity var(--dropdown-open-dur) var(--dropdown-ease),
+      overlay var(--dropdown-open-dur) var(--dropdown-ease) allow-discrete,
+      display var(--dropdown-open-dur) var(--dropdown-ease) allow-discrete;
+  }
+  :global(.caelestis-dropdown:popover-open:not([data-surface])) {
+    @starting-style { transform: scale(var(--dropdown-pre-scale)); opacity: 0; }
+  }
+  :global(.caelestis-dropdown[data-surface]:popover-open) { display: flex; }
+  :global(.caelestis-dropdown[data-surface][data-state='closing']) { transform: scale(var(--dropdown-closing-scale)); }
+  @media (prefers-reduced-motion: reduce) {
+    :global(.caelestis-dropdown) { transition: none !important; }
+  }
+
+  /* The field look: a search box and the square triggers that sit beside it. */
+  :global(.caelestis-field-look) {
+    border: var(--border, 1px) solid color-mix(in oklab, var(--caelestis-text) 20%, transparent);
+    border-radius: var(--caelestis-radius);
+    background: var(--caelestis-surface);
+    box-shadow: 0 1px color-mix(in oklab, var(--caelestis-text) 10%, transparent) inset;
+  }
 </style>

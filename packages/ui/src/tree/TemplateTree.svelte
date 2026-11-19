@@ -16,6 +16,7 @@
   import { SvelteMap } from 'svelte/reactivity'
   import { slide, type EasingFunction, type TransitionConfig } from 'svelte/transition'
   import { cancelSurfaceClose, closeSurface, openSurface, prefersReducedMotion, surfaceCloseDurationMs, tokenized } from '../foundations/motion.js'
+  import { type Anchor, anchorPopover, pointAnchor } from '../foundations/popover.js'
   import { descendantKeys } from './descendants.js'
   import type {
     TemplateTreeIntent,
@@ -601,62 +602,37 @@
     else void openSubmenu(id, true)
   }
 
-  const viewportMargin = 8
-
-  /** Place the menu at the pointer from its rendered size: it opens upward when the viewport ends first, and scrolls when taller than the viewport. */
-  const placeContextMenu = (node: HTMLElement, anchor: { x: number; y: number }): { update: (next: { x: number; y: number }) => void; destroy: () => void } => {
-    // The top layer preserves viewport coordinates through animated, clipping panel ancestors.
+  /**
+   * Show a mounted menu in the top layer, which keeps viewport coordinates through animated,
+   * clipping panel ancestors, and keep it placed against its anchor.
+   */
+  const floatMenu = (node: HTMLElement, anchor: () => Anchor): { update: (next: () => Anchor) => void; destroy: () => void } => {
     node.showPopover()
     let current = anchor
-    const place = (): void => {
-      node.style.maxBlockSize = `${window.innerHeight - viewportMargin * 2}px`
-      const maxLeft = window.innerWidth - viewportMargin - node.offsetWidth
-      const maxTop = window.innerHeight - viewportMargin - node.offsetHeight
-      const top = current.y > maxTop ? current.y - node.offsetHeight : current.y
-      const left = Math.max(viewportMargin, Math.min(current.x, maxLeft))
-      node.style.left = `${left}px`
-      node.style.top = `${Math.max(viewportMargin, Math.min(top, maxTop))}px`
-      // Grow out of the pointer: the origin follows whichever corner the pointer ended up in.
-      node.style.transformOrigin = `${current.y > maxTop ? 'bottom' : 'top'} ${current.x > maxLeft ? 'right' : 'left'}`
-    }
-    window.addEventListener('resize', place)
-    place()
+    const placement = anchorPopover(node, { anchor: () => current() })
     return {
       update(next) {
         current = next
-        place()
+        placement.place()
       },
-      destroy() {
-        window.removeEventListener('resize', place)
-      },
+      destroy: placement.stop,
     }
   }
 
-  /** Keep a submenu beside its trigger and inside the viewport, following the trigger as the parent menu scrolls; fixed placement escapes the menu's scroll clip. */
-  const placeSubmenu = (node: HTMLElement): { destroy: () => void } | undefined => {
+  /** A submenu sits beside its trigger, its first row level with the trigger past the menu's padding. */
+  const MENU_PADDING = 4
+  const floatSubmenu = (node: HTMLElement): { destroy: () => void } | undefined => {
     const trigger = node.parentElement?.querySelector('button')
-    const parent = contextMenuElement
-    if (!trigger || !parent) return
+    if (!trigger) return
     node.showPopover()
-    const place = (): void => {
-      const anchor = trigger.getBoundingClientRect()
-      const width = node.offsetWidth
-      const height = node.offsetHeight
-      const padding = 4
-      const left = anchor.right + width > window.innerWidth - viewportMargin ? Math.max(viewportMargin, anchor.left - width) : anchor.right
-      const top = Math.max(viewportMargin, Math.min(anchor.top - padding, window.innerHeight - viewportMargin - height))
-      node.style.left = `${left}px`
-      node.style.top = `${top}px`
-    }
-    parent.addEventListener('scroll', place)
-    window.addEventListener('resize', place)
-    place()
-    return {
-      destroy() {
-        parent.removeEventListener('scroll', place)
-        window.removeEventListener('resize', place)
+    const placement = anchorPopover(node, {
+      side: 'beside',
+      anchor: () => {
+        const { left, right, top, bottom } = trigger.getBoundingClientRect()
+        return { left, right, top: top - MENU_PADDING, bottom }
       },
-    }
+    })
+    return { destroy: placement.stop }
   }
 
   const navigateContextMenu = (event: KeyboardEvent): void => {
@@ -708,7 +684,7 @@
 
 {#if toolbar}
 <div class="toolbar">
-  <label class="search caelestis-field">
+  <label class="search caelestis-field caelestis-field-look">
     <Icon name="search" />
     <input type="search" placeholder="Search templates" aria-label="Search templates" value={query} oninput={search} />
   </label>
@@ -754,11 +730,12 @@
     bind:this={contextMenuElement}
     popover="manual"
     data-caelestis-context-menu
-    class="context-menu caelestis-menu"
+    data-surface
+    class="context-menu caelestis-menu caelestis-dropdown"
     role="menu"
     tabindex="-1"
     onkeydown={navigateContextMenu}
-    use:placeContextMenu={{ x: shownMenu.x, y: shownMenu.y }}
+    use:floatMenu={() => pointAnchor(shownMenu.x, shownMenu.y)}
   >
     {#each shownMenu.items as item, index (item.id)}
       {#if index > 0 && item.group !== shownMenu.items[index - 1]?.group}
@@ -774,7 +751,7 @@
             <Icon name="chevronRight" class="menu-trailing" />
           </button>
           {#if openSubmenuId === item.id}
-            <div class="submenu caelestis-menu" popover="manual" role="menu" aria-label={item.label} tabindex="-1" use:placeSubmenu>
+            <div class="submenu caelestis-menu" popover="manual" role="menu" aria-label={item.label} tabindex="-1" use:floatSubmenu>
               {#each item.children as child (child.id)}
                 {@render menuRow(child, shownMenu.id, false)}
               {/each}
@@ -993,7 +970,7 @@
   .view-switcher button { display: grid; place-items: center; inline-size: 2rem; block-size: 2rem; border: 0; background: var(--caelestis-surface); color: var(--caelestis-muted-text); cursor: pointer; }
   .view-switcher button[aria-pressed='true'] { background: var(--caelestis-raised-surface); color: var(--caelestis-primary); box-shadow: inset 0 -2px var(--caelestis-primary); }
   .view-switcher button:focus-visible { outline: 2px solid var(--caelestis-focus); outline-offset: -2px; }
-  .search { display: flex; flex: 1; align-items: center; gap: 0.5rem; min-inline-size: 0; block-size: 2rem; padding-inline: 0.75rem; border: var(--border, 1px) solid color-mix(in oklab, var(--caelestis-text) 20%, transparent); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-surface); box-shadow: 0 1px color-mix(in oklab, var(--caelestis-text) 10%, transparent) inset; }
+  .search { display: flex; flex: 1; align-items: center; gap: 0.5rem; min-inline-size: 0; block-size: 2rem; padding-inline: 0.75rem; }
   .search :global(svg) { opacity: 0.55; }
   .search input { flex: 1; min-inline-size: 0; border: 0; outline: 0; background: transparent; color: inherit; font: inherit; }
   .browser { position: relative; display: flex; flex: 1; min-block-size: 0; min-inline-size: 0; overflow: hidden; }
@@ -1015,7 +992,7 @@
   .progress-pane:global([data-state='open']) { transform: translateX(0); opacity: 1; }
   .progress-pane:global([data-state='closing']) { transform: translateX(var(--pane-shift)); opacity: 0; pointer-events: none; transition-duration: var(--pane-close-dur); }
   @media (prefers-reduced-motion: reduce) {
-    .context-menu, .progress-pane { transition: none !important; }
+    .progress-pane { transition: none !important; }
   }
   /* Entering rows start collapsed so the grow reads from the first painted frame. */
   @media (prefers-reduced-motion: no-preference) {
@@ -1098,25 +1075,7 @@
   .operation button.primary { padding-inline: 0.75rem; background: var(--caelestis-primary); color: var(--caelestis-primary-text, white); }
   .operation button:disabled { cursor: wait; opacity: 0.55; }
   /* 12.5rem seats every current label on one line at 14px; wrapping stays as the fallback for long translations. */
-  .context-menu {
-    --dropdown-open-dur: var(--caelestis-duration-fast);
-    --dropdown-close-dur: var(--caelestis-duration-quick);
-    --dropdown-pre-scale: var(--caelestis-scale-medium);
-    --dropdown-closing-scale: var(--caelestis-scale-tiny);
-    --dropdown-ease: var(--caelestis-ease-smooth-out);
-    --caelestis-surface-close-duration: var(--dropdown-close-dur);
-    position: fixed; inset: auto; margin: 0; z-index: 60; display: flex; inline-size: 12.5rem; max-inline-size: calc(100vw - 1rem); overflow: auto; flex-direction: column;
-    transform-origin: top left;
-    transform: scale(var(--dropdown-pre-scale));
-    opacity: 0;
-    pointer-events: none;
-    transition:
-      transform var(--dropdown-open-dur) var(--dropdown-ease),
-      opacity   var(--dropdown-open-dur) var(--dropdown-ease);
-    will-change: transform, opacity;
-  }
-  .context-menu:global([data-state='open']) { transform: scale(1); opacity: 1; pointer-events: auto; }
-  .context-menu:global([data-state='closing']) { transform: scale(var(--dropdown-closing-scale)); opacity: 0; pointer-events: none; transition-duration: var(--dropdown-close-dur); }
+  .context-menu { inline-size: 12.5rem; }
   .context-menu button { inline-size: 100%; }
   .context-menu button.danger { color: var(--caelestis-danger); }
   .context-menu :global(.menu-trailing) { margin-inline-start: auto; opacity: 0.7; }

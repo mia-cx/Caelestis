@@ -4,6 +4,7 @@
   import type { Snippet } from 'svelte'
   import Button from '../foundations/Button.svelte'
   import Icon from '../foundations/Icon.svelte'
+  import { anchorPopover } from '../foundations/popover.js'
   import type { FavouritesModel } from './model.js'
 
   let {
@@ -23,39 +24,11 @@
   let trigger: HTMLButtonElement
   let popup: HTMLDivElement
   let open = $state(false)
-  let left = $state(0)
-  let top = $state(0)
-  let originX = $state(0)
   const popupId = $props.id()
-  const position = (): void => {
-    const rect = trigger.getBoundingClientRect()
-    left = Math.max(8, Math.min(rect.left, window.innerWidth - popup.offsetWidth - 8))
-    top = Math.max(8, Math.min(rect.bottom + 8, window.innerHeight - popup.offsetHeight - 8))
-    // Grow out of the marker: the origin follows the trigger horizontally even when the popup is
-    // clamped away from it at a viewport edge.
-    originX = Math.min(Math.max(rect.left + rect.width / 2 - left, 0), popup.offsetWidth)
-  }
   const close = (restoreFocus = false): void => {
     popup.hidePopover()
     if (restoreFocus) trigger.focus()
   }
-  $effect(() => {
-    if (!open) return
-    const observer = new ResizeObserver(position)
-    observer.observe(popup)
-    const scroll = (event: Event): void => {
-      if (!event.composedPath().includes(popup)) close()
-    }
-    const root = popup.getRootNode()
-    // Scroll events inside the userscript's shadow root do not reach window.
-    if (root instanceof ShadowRoot) root.addEventListener('scroll', scroll, true)
-    window.addEventListener('scroll', scroll, true)
-    return () => {
-      observer.disconnect()
-      if (root instanceof ShadowRoot) root.removeEventListener('scroll', scroll, true)
-      window.removeEventListener('scroll', scroll, true)
-    }
-  })
   const assignee = $derived.by(() => {
     const person = { displayName: username.trim(), wplaceUserId: /^\d+$/.test(userId) ? Number(userId) : Number.NaN }
     return isWorkIdentity(person) ? person : undefined
@@ -71,9 +44,7 @@
 
 <MenuStyles />
 
-<svelte:window onresize={() => { if (open) close() }} />
-
-<button bind:this={trigger} class="claim-marker" type="button" popovertarget={popupId}
+<button bind:this={trigger} class="marker" type="button" popovertarget={popupId}
   aria-label={`Claims for ${name}`} aria-haspopup="dialog" aria-expanded={open}
   title={model.people.length > 0 ? model.people.map((person) => `${person.displayName} #${person.wplaceUserId}`).join(', ') : 'Assign someone'}
   onclick={(event) => {
@@ -81,14 +52,13 @@
     event.stopPropagation()
     if (open) { close(true); return }
     popup.showPopover()
-    position()
+    anchorPopover(popup, { anchor: () => trigger.getBoundingClientRect(), gap: 8 })
     ;(popup.querySelector<HTMLElement>('.action') ?? popup.querySelector<HTMLElement>('button') ?? popup).focus()
   }}>
   {@render children()}
-  {#if model.people.length > 0}<span class="claim-count caelestis-badge" class:mine={model.mine} aria-hidden="true">{model.people.length > 99 ? '99+' : model.people.length}</span>{/if}
+  {#if model.people.length > 0}<span class="count caelestis-badge" class:mine={model.mine} aria-hidden="true">{model.people.length > 99 ? '99+' : model.people.length}</span>{/if}
 </button>
-<div bind:this={popup} id={popupId} class="claims caelestis-menu" popover="auto" role="dialog" tabindex="-1" aria-label={`Claims for ${name}`}
-  style:left={`${left}px`} style:top={`${top}px`} style:transform-origin={`${originX}px top`}
+<div bind:this={popup} id={popupId} class="favourites caelestis-menu caelestis-dropdown" popover="auto" role="dialog" tabindex="-1" aria-label={`Claims for ${name}`}
   onbeforetoggle={(event) => { open = event.newState === 'open'; if (!open) assigning = false }}
   onclick={(event) => event.stopPropagation()}
   onkeydown={(event) => { event.stopPropagation(); if (event.key === 'Escape') { event.preventDefault(); close(true) } }}>
@@ -116,7 +86,7 @@
     {/each}
   </ul>
   {#if model.canClaim || model.canAssign}
-    <div class="claim-actions">
+    <div class="actions">
       {#if model.canClaim}
         <button type="button" class="action caelestis-menu-item" onclick={() => onChange(model.mine)}>
           <Icon name={model.mine ? 'close' : 'check'} />
@@ -170,45 +140,14 @@
 </div>
 
 <style>
-  .claims {
-    --dropdown-open-dur: var(--caelestis-duration-fast);
-    --dropdown-close-dur: var(--caelestis-duration-quick);
-    --dropdown-pre-scale: var(--caelestis-scale-medium);
-    --dropdown-closing-scale: var(--caelestis-scale-tiny);
-    --dropdown-ease: var(--caelestis-ease-smooth-out);
-    position: fixed; inset: auto; margin: 0; inline-size: 15rem; max-inline-size: calc(100vw - 1rem); max-block-size: calc(100vh - 1rem); overflow: auto; flex-direction: column;
-    transform: scale(var(--dropdown-pre-scale));
-    opacity: 0;
-    pointer-events: none;
-    transition:
-      transform var(--dropdown-close-dur) var(--dropdown-ease),
-      opacity   var(--dropdown-close-dur) var(--dropdown-ease),
-      overlay   var(--dropdown-close-dur) var(--dropdown-ease) allow-discrete,
-      display   var(--dropdown-close-dur) var(--dropdown-ease) allow-discrete;
-    will-change: transform, opacity;
-  }
-  .claims:popover-open {
-    display: flex;
-    transform: scale(1);
-    opacity: 1;
-    pointer-events: auto;
-    transition:
-      transform var(--dropdown-open-dur) var(--dropdown-ease),
-      opacity   var(--dropdown-open-dur) var(--dropdown-ease),
-      overlay   var(--dropdown-open-dur) var(--dropdown-ease) allow-discrete,
-      display   var(--dropdown-open-dur) var(--dropdown-ease) allow-discrete;
-    @starting-style { transform: scale(var(--dropdown-pre-scale)); opacity: 0; }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .claims { transition: none !important; }
-  }
-  .claims:focus-visible { outline: 2px solid var(--caelestis-focus); outline-offset: -2px; }
-  .claim-marker { position: relative; display: inline-flex; align-items: center; justify-content: center; inline-size: 1rem; block-size: 1rem; padding: 0; border: 0; background: transparent; color: inherit; cursor: pointer; }
-  .claim-marker::before { content: ''; position: absolute; inset: -0.375rem -0.25rem; border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); }
-  .claim-marker:hover::before, .claim-marker[aria-expanded='true']::before { background: color-mix(in oklab, currentColor 10%, transparent); }
-  .claim-marker:focus-visible { outline: 2px solid var(--caelestis-focus); outline-offset: 3px; }
-  .claim-count { position: absolute; inset-inline-end: -0.25rem; inset-block-start: -0.375rem; display: grid; place-items: center; inline-size: 1.125rem; block-size: 0.75rem; border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-raised-surface); color: var(--caelestis-text); outline: 1px solid var(--caelestis-surface); font: 600 0.5rem/1 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); font-variant-numeric: tabular-nums; }
-  .claim-count.mine { color: var(--caelestis-primary); }
+  .favourites { inline-size: 15rem; }
+  .favourites:focus-visible { outline: 2px solid var(--caelestis-focus); outline-offset: -2px; }
+  .marker { position: relative; display: inline-flex; align-items: center; justify-content: center; inline-size: 1rem; block-size: 1rem; padding: 0; border: 0; background: transparent; color: inherit; cursor: pointer; }
+  .marker::before { content: ''; position: absolute; inset: -0.375rem -0.25rem; border-radius: var(--caelestis-radius); }
+  .marker:hover::before, .marker[aria-expanded='true']::before { background: color-mix(in oklab, currentColor 10%, transparent); }
+  .marker:focus-visible { outline: 2px solid var(--caelestis-focus); outline-offset: 3px; }
+  .count { position: absolute; inset-inline-end: -0.25rem; inset-block-start: -0.375rem; display: grid; place-items: center; inline-size: 1.125rem; block-size: 0.75rem; border-radius: var(--caelestis-radius); background: var(--caelestis-raised-surface); color: var(--caelestis-text); outline: 1px solid var(--caelestis-surface); font: 600 0.5rem/1 var(--caelestis-font); font-variant-numeric: tabular-nums; }
+  .count.mine { color: var(--caelestis-primary); }
   .head {
     display: flex;
     align-items: baseline;
@@ -267,7 +206,7 @@
     font-size: 0.6875rem;
     font-variant-numeric: tabular-nums;
   }
-  .claim-actions {
+  .actions {
     display: flex;
     flex-direction: column;
     margin-block-start: 0.25rem;
