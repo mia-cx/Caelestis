@@ -53,7 +53,10 @@ export const createNodeRoutes = (runtime: BackendRuntime) => {
         description.length === 0 ||
         description.length > MAX_DESCRIPTION_LENGTH)
     ) {
-      return c.json({ error: 'description must be 1..4096 characters when provided' }, 400)
+      return c.json(
+        { error: `description must be 1..${MAX_DESCRIPTION_LENGTH} characters when provided` },
+        400,
+      )
     }
     const slug = nodeSlug(name)
     if (slug.length === 0) return c.json({ error: UNSLUGGABLE_NAME }, 400)

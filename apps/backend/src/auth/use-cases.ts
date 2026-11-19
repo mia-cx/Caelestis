@@ -6,7 +6,10 @@ import { type StorageError, storage, ValidationError } from '../runtime/errors.j
 import type { AccessToken } from './store.js'
 import { hashToken, mintToken } from './tokens.js'
 
-/** Even 128 control characters per label remain below the userscript's 64 KiB JSON cap. */
+/**
+ * A page of labels at `MAX_LABEL_LENGTH` control characters each stays below the userscript's
+ * 64 KiB JSON cap.
+ */
 const TOKEN_PAGE_SIZE = 50
 
 /** Everything about a token except the secret, which is not stored and cannot be shown again. */

@@ -1,5 +1,8 @@
 import type { Millis, Scope } from '@caelestis/shared'
 
+/** The longest label a token may carry. */
+export const MAX_LABEL_LENGTH = 128
+
 /** A stored credential. The plaintext token exists only in the response that mints it. */
 export interface AccessToken {
   /** Lowercase hex SHA-256 of the token. The primary key. */
