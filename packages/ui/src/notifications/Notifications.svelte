@@ -170,8 +170,6 @@
 {/if}
 
 <style>
-  :global(*) { box-sizing: border-box; }
-
   .sr-only {
     position: absolute;
     inset: 0 auto auto 0;

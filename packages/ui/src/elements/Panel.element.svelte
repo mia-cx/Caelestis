@@ -26,7 +26,6 @@
 
 <style>
   :host { display: block; min-block-size: 0; }
-  :global(*) { box-sizing: border-box; }
   /* The userscript mounts/removes this host directly; the JS helper drives it through data-state.
      The slide lives on .pane, not :host: the host's layout box stays untransformed so the map
      controls measuring its left edge always see the resting position, and a transformed
