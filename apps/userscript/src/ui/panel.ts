@@ -114,7 +114,7 @@ import {
 import { onStoredValueChange } from '../stored-values.js'
 import { onServerAlarmChange, onServerStatusChange } from '../telemetry.js'
 import {
-  APPEARANCE_CONTROLS,
+  appearanceSliders,
   DEFAULT_APPEARANCE,
   PIXEL_STYLE_PRESETS,
   pixelStylePresetOf,
@@ -1019,24 +1019,8 @@ const appearanceModel = (): AppearanceEditorModel => {
   const selectedColourName = selected === null ? undefined : WPLACE_PALETTE[selected]?.name
   return {
     values,
-    sliders: APPEARANCE_CONTROLS.map((control) => ({
-      key: control.key,
-      label: control.label,
-      value: values[control.key],
-      defaultValue: DEFAULT_APPEARANCE[control.key],
-      min: control.min,
-      max: control.max,
-      step: control.step,
-      format:
-        control.key === 'rotation'
-          ? 'degrees'
-          : control.key === 'contrastOutlineSize'
-            ? 'decimal-pixels'
-            : 'percent',
-      ...(control.key === 'contrastOutlineSize' && !values.contrastOutline
-        ? { disabled: true }
-        : {}),
-    })),
+    variant: 'defaults',
+    sliders: appearanceSliders(values, DEFAULT_APPEARANCE),
     pixelPresets: PIXEL_STYLE_PRESETS.map((preset) => ({
       id: preset.id,
       label: preset.label,

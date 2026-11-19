@@ -46,6 +46,7 @@ import {
   APPEARANCE_CONTROLS,
   type Appearance,
   type AppearanceGroup,
+  appearanceSliders,
   DEFAULT_APPEARANCE,
   GROUP_FIELDS,
   PIXEL_STYLE_PRESETS,
@@ -981,24 +982,12 @@ const overlayAppearanceModel = (template: PlacedTemplate): AppearanceEditorModel
   const activePreset = activeColourPreset(appearance.hiddenColours)
   return {
     values: appearance,
-    sliders: APPEARANCE_CONTROLS.map((control) => ({
-      key: control.key,
-      label: control.label,
-      value: appearance[control.key],
-      defaultValue: getSurfaceAppearance(template.surface ?? WORLD_TEMPLATE_SURFACE)[control.key],
-      min: control.min,
-      max: control.max,
-      step: control.step,
-      format:
-        control.key === 'rotation'
-          ? 'degrees'
-          : control.key === 'contrastOutlineSize'
-            ? 'decimal-pixels'
-            : 'percent',
-      ...(disabled || (control.key === 'contrastOutlineSize' && !appearance.contrastOutline)
-        ? { disabled: true }
-        : {}),
-    })),
+    variant: 'overlay',
+    sliders: appearanceSliders(
+      appearance,
+      getSurfaceAppearance(template.surface ?? WORLD_TEMPLATE_SURFACE),
+      disabled,
+    ),
     pixelPresets: PIXEL_STYLE_PRESETS.map((preset) => ({
       id: preset.id,
       label: preset.label,

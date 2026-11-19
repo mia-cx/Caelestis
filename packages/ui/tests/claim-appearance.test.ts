@@ -116,6 +116,7 @@ describe('claim and appearance intent boundaries', () => {
   it('separates slider preview from commit and respects group ownership', async () => {
     const intents: AppearanceEditorIntent[] = []
     const model = {
+      variant: 'overlay',
       values: {
         size: 1,
         radius: 0,
@@ -140,6 +141,7 @@ describe('claim and appearance intent boundaries', () => {
       sliders: [
         {
           key: 'opacity',
+          group: 'pixels',
           label: 'Opacity',
           value: 0.5,
           defaultValue: 1,

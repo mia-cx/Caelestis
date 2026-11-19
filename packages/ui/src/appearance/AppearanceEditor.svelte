@@ -6,6 +6,8 @@
   import SliderRow from '../foundations/SliderRow.svelte'
   import Toggle from '../foundations/Toggle.svelte'
   import Icon from '../foundations/Icon.svelte'
+  import type { IconName } from '../foundations/icons.svelte.js'
+  import type { Snippet } from 'svelte'
   import ColourInput from './ColourInput.svelte'
   import type {
     AppearanceEditorIntent,
@@ -25,17 +27,15 @@
       case 'decimal-pixels': return (value) => `${Number(value.toFixed(2))}px`
     }
   }
-  const markerSizeSlider = $derived<AppearanceSliderModel>({ key: 'markerSize', label: 'Size', value: model.values.markerSize, defaultValue: 9, min: 3, max: 33, step: 1, format: 'pixels', disabled: !model.values.markMismatch })
-  const unpaintedSlider = $derived<AppearanceSliderModel>({ key: 'unpaintedLimit', label: 'Only under', value: model.values.unpaintedLimit, defaultValue: 0.05, min: 0, max: 0.2, step: 0.005, format: 'percent', disabled: !model.values.markMismatch || !model.values.markUnpainted })
-  const otherOpacitySlider = $derived<AppearanceSliderModel>({ key: 'otherOpacity', label: 'Faded to', value: model.values.otherOpacity, defaultValue: 0.15, min: 0.05, max: 1, step: 0.05, format: 'percent', disabled: !model.values.markMismatch || !model.values.dimOthers })
-  const selectedMarkerSizeSlider = $derived<AppearanceSliderModel>({ key: 'selectedMarkerSize', label: 'Size', value: model.values.selectedMarkerSize, defaultValue: 9, min: 3, max: 33, step: 1, format: 'pixels', disabled: !model.values.markSelectedColour })
-
   const sliderInput = (key: AppearanceNumberKey, value: number): void =>
     emit({ type: 'preview-number', key, value })
   const sliderCommit = (key: AppearanceNumberKey, value: number): void =>
     emit({ type: 'commit-number', key, value })
+  const pixelSliders = $derived(model.sliders.filter((slider) => slider.group === 'pixels'))
+  const markerSlider = (key: AppearanceNumberKey): AppearanceSliderModel | undefined =>
+    model.sliders.find((slider) => slider.key === key)
   const group = (key: AppearanceGroupKey) => model.groups?.[key]
-  const compact = $derived(model.groups !== undefined)
+  const compact = $derived(model.variant === 'overlay')
   const groupDisabled = (key: AppearanceGroupKey): boolean =>
     model.disabled === true || group(key)?.owned === false
   // svelte-ignore state_referenced_locally -- group ownership chooses only the initial disclosure;
@@ -58,18 +58,31 @@
 
 <MenuStyles />
 
-<div class:compact class="editor" data-caelestis-scroller>
+{#snippet section(key: AppearanceGroupKey, title: string, icon: IconName, body: Snippet)}
   <section>
-    <SectionHeader title={compact ? 'Pixels' : 'Appearance'} icon={compact ? undefined : 'tune'} expanded={expanded.pixels} onToggle={compact ? () => toggleGroup('pixels') : undefined}>
+    <SectionHeader {title} icon={compact ? undefined : icon} expanded={expanded[key]} onToggle={compact ? () => toggleGroup(key) : undefined}>
       {#snippet actions()}
-        {#if group('pixels') !== undefined}
-        <label class="defaults"><Toggle label="Use default pixels" compact checked={!group('pixels')?.owned} disabled={model.disabled || group('pixels')?.locked === true} onChange={(checked) => emit({ type: 'set-group-owned', group: 'pixels', owned: !checked })} /> Use defaults</label>
+        {#if group(key) !== undefined}
+        <label class="defaults"><Toggle label={`Use default ${key}`} compact checked={!group(key)?.owned} disabled={model.disabled || group(key)?.locked === true} onChange={(checked) => emit({ type: 'set-group-owned', group: key, owned: !checked })} /> Use defaults</label>
         {/if}
       {/snippet}
     </SectionHeader>
-    <div class="acc" data-open={String(expanded.pixels)}>
-      <div class="acc-panel" inert={!expanded.pixels} aria-hidden={!expanded.pixels} ontransitionend={groupSettled}>
-    <fieldset class="acc-inner" disabled={groupDisabled('pixels')}>
+    <div class="acc" data-open={String(expanded[key])}>
+      <div class="acc-panel" inert={!expanded[key]} aria-hidden={!expanded[key]} ontransitionend={groupSettled}>
+        <fieldset class="acc-inner" disabled={groupDisabled(key)}>{@render body()}</fieldset>
+      </div>
+    </div>
+  </section>
+{/snippet}
+
+{#snippet nestedSlider(key: AppearanceNumberKey, depth: number)}
+  {@const slider = markerSlider(key)}
+  {#if slider !== undefined}
+    <SliderRow {...slider} {compact} {depth} resettable={false} format={format(slider)} onInput={(value) => sliderInput(key, value)} onCommit={(value) => sliderCommit(key, value)} onReset={(value) => sliderCommit(key, value)} />
+  {/if}
+{/snippet}
+
+{#snippet pixels()}
     <SettingRow label="Pixel style" {compact}>
       {#snippet children()}
         <div class="presets" role="group" aria-label="Pixel style">
@@ -87,27 +100,13 @@
       {/snippet}
     </SettingRow>
     <div class="sliders">
-      {#each model.sliders as slider (slider.key)}
+      {#each pixelSliders as slider (slider.key)}
         <SliderRow {...slider} {compact} control={slider.key} format={format(slider)} onInput={(value) => sliderInput(slider.key, value)} onCommit={(value) => sliderCommit(slider.key, value)} onReset={(value) => sliderCommit(slider.key, value)} />
       {/each}
     </div>
-    </fieldset>
-      </div>
-    </div>
-  </section>
+{/snippet}
 
-  {#if model.showMarkers !== false}
-  <section>
-    <SectionHeader title="Markers" icon={compact ? undefined : 'search'} expanded={expanded.markers} onToggle={compact ? () => toggleGroup('markers') : undefined}>
-      {#snippet actions()}
-        {#if group('markers') !== undefined}
-        <label class="defaults"><Toggle label="Use default markers" compact checked={!group('markers')?.owned} disabled={model.disabled || group('markers')?.locked === true} onChange={(checked) => emit({ type: 'set-group-owned', group: 'markers', owned: !checked })} /> Use defaults</label>
-        {/if}
-      {/snippet}
-    </SectionHeader>
-    <div class="acc" data-open={String(expanded.markers)}>
-      <div class="acc-panel" inert={!expanded.markers} aria-hidden={!expanded.markers} ontransitionend={groupSettled}>
-    <fieldset class="acc-inner" disabled={groupDisabled('markers')}>
+{#snippet markers()}
     <div class="marker-settings">
     <SettingRow label="Mark mismatched pixels" {compact} depth={0}>
       {#snippet children()}
@@ -115,7 +114,7 @@
       {/snippet}
     </SettingRow>
     <div class:disabled={!model.values.markMismatch} class="nested">
-      <SliderRow {...markerSizeSlider} {compact} depth={1} resettable={false} format={format(markerSizeSlider)} onInput={(value) => sliderInput('markerSize', value)} onCommit={(value) => sliderCommit('markerSize', value)} onReset={(value) => sliderCommit('markerSize', value)} />
+      {@render nestedSlider('markerSize', 1)}
       <SettingRow label="Colour" {compact} depth={1}>
         {#snippet children()}
           <ColourInput label="Marker colour" value={model.values.markerColour} disabled={!model.values.markMismatch} onPreview={(value) => emit({ type: 'preview-colour', key: 'markerColour', value })} onCommit={(value) => emit({ type: 'commit-colour', key: 'markerColour', value })} />
@@ -126,14 +125,14 @@
           <Toggle label="Include unpainted pixels" checked={model.values.markUnpainted} {compact} disabled={!model.values.markMismatch} onChange={(value) => emit({ type: 'set-boolean', key: 'markUnpainted', value })} />
         {/snippet}
       </SettingRow>
-      <SliderRow {...unpaintedSlider} {compact} depth={2} resettable={false} format={format(unpaintedSlider)} onInput={(value) => sliderInput('unpaintedLimit', value)} onCommit={(value) => sliderCommit('unpaintedLimit', value)} onReset={(value) => sliderCommit('unpaintedLimit', value)} />
+      {@render nestedSlider('unpaintedLimit', 2)}
       <SettingRow label="Dim other colours" hint="While following the selected colour" {compact} depth={1}>
         {#snippet children()}
           <Toggle label="Dim other colours" checked={model.values.dimOthers} {compact} disabled={!model.values.markMismatch} onChange={(value) => emit({ type: 'set-boolean', key: 'dimOthers', value })} />
         {/snippet}
       </SettingRow>
       <div>
-        <SliderRow {...otherOpacitySlider} {compact} depth={2} resettable={false} format={format(otherOpacitySlider)} onInput={(value) => sliderInput('otherOpacity', value)} onCommit={(value) => sliderCommit('otherOpacity', value)} onReset={(value) => sliderCommit('otherOpacity', value)} />
+        {@render nestedSlider('otherOpacity', 2)}
         <SettingRow label="Marked in" {compact} depth={2}>
           {#snippet children()}
             <div class="same-colour">
@@ -151,7 +150,7 @@
       {/snippet}
     </SettingRow>
     <div class:disabled={!model.values.markSelectedColour} class="nested">
-      <SliderRow {...selectedMarkerSizeSlider} {compact} depth={1} resettable={false} format={format(selectedMarkerSizeSlider)} onInput={(value) => sliderInput('selectedMarkerSize', value)} onCommit={(value) => sliderCommit('selectedMarkerSize', value)} onReset={(value) => sliderCommit('selectedMarkerSize', value)} />
+      {@render nestedSlider('selectedMarkerSize', 1)}
       <SettingRow label="Colour" {compact} depth={1}>
         {#snippet children()}
           <ColourInput label="Selected colour marker colour" value={model.values.selectedMarkerColour} disabled={!model.values.markSelectedColour} onPreview={(value) => emit({ type: 'preview-colour', key: 'selectedMarkerColour', value })} onCommit={(value) => emit({ type: 'commit-colour', key: 'selectedMarkerColour', value })} />
@@ -169,23 +168,9 @@
         {/snippet}
       </SettingRow>
     {/if}
-    </fieldset>
-      </div>
-    </div>
-  </section>
-  {/if}
+{/snippet}
 
-  <section>
-    <SectionHeader title="Colours" icon={compact ? undefined : 'palette'} expanded={expanded.colours} onToggle={compact ? () => toggleGroup('colours') : undefined}>
-      {#snippet actions()}
-        {#if group('colours') !== undefined}
-        <label class="defaults"><Toggle label="Use default colours" compact checked={!group('colours')?.owned} disabled={model.disabled || group('colours')?.locked === true} onChange={(checked) => emit({ type: 'set-group-owned', group: 'colours', owned: !checked })} /> Use defaults</label>
-        {/if}
-      {/snippet}
-    </SectionHeader>
-    <div class="acc" data-open={String(expanded.colours)}>
-      <div class="acc-panel" inert={!expanded.colours} aria-hidden={!expanded.colours} ontransitionend={groupSettled}>
-    <fieldset class="acc-inner" disabled={groupDisabled('colours')}>
+{#snippet colours()}
     <div class="colour-toolbar">
       <div class="presets" role="group" aria-label="Colour presets">
         {#each model.colourPresets as preset (preset.id)}
@@ -207,10 +192,12 @@
         {/each}
       </div>
     </div>
-    </fieldset>
-      </div>
-    </div>
-  </section>
+{/snippet}
+
+<div class:compact class="editor" data-caelestis-scroller>
+  {@render section('pixels', compact ? 'Pixels' : 'Appearance', 'tune', pixels)}
+  {#if model.showMarkers !== false}{@render section('markers', 'Markers', 'search', markers)}{/if}
+  {@render section('colours', 'Colours', 'palette', colours)}
 </div>
 
 <style>

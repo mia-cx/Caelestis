@@ -51,6 +51,8 @@ export interface AppearanceValuesModel {
 
 export interface AppearanceSliderModel {
   readonly key: AppearanceNumberKey
+  /** Pixel sliders list in model order; marker sliders sit under the switch they refine. */
+  readonly group: 'pixels' | 'markers'
   readonly label: string
   readonly value: number
   readonly defaultValue: number
@@ -77,6 +79,8 @@ export interface AppearancePaletteColourModel {
 }
 
 export interface AppearanceEditorModel {
+  /** The global defaults page, or one template's compact overlay menu with collapsible groups. */
+  readonly variant: 'defaults' | 'overlay'
   readonly values: AppearanceValuesModel
   readonly sliders: readonly AppearanceSliderModel[]
   readonly pixelPresets: readonly AppearancePresetModel[]
