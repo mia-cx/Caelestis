@@ -1,11 +1,12 @@
 <!--
   The theme values every component starts from: on each custom element's host, and on the page
   root when the frontend renders this once in its layout. `:where()` keeps them at zero
-  specificity, so any host theme overrides them (the userscript paints radius and fonts per Wplace
-  style, the frontend sets its own radius and colours). The motion scale is the transitions.dev
+  specificity, so any host theme overrides them (the userscript paints radius, fonts and shadows
+  per Wplace style, the frontend sets its own radius). The motion scale is the transitions.dev
   one, prefixed so Tailwind's own --ease-* never shadows it.
 
-  Colours have no defaults: every host sets each colour token of `CaelestisThemeTokens`.
+  Defaulted here: geometry (radii, touch target), fonts, motion, and the classic shadows.
+  Every host sets the colour tokens of `CaelestisThemeTokens` itself; none has a default.
 
   Optional hooks a host may set, each read with its own fallback by one component:
   `--caelestis-track-pattern` (ProgressMeter's track background), `--caelestis-meter-size` and
@@ -18,6 +19,8 @@
     --caelestis-font: ui-sans-serif, system-ui, sans-serif;
     --caelestis-mono-font: ui-monospace, monospace;
     --caelestis-touch-target: 2.5rem;
+    --caelestis-shadow: 0 24px 80px rgb(0 0 0 / 0.35);
+    --caelestis-popover-shadow: 0 1px 2px rgb(0 0 0 / 0.12), 0 10px 24px -6px rgb(0 0 0 / 0.28);
     --caelestis-duration-stagger: 40ms;
     --caelestis-duration-micro: 80ms;
     --caelestis-duration-quick: 150ms;
