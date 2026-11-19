@@ -5,8 +5,9 @@ import {
   onActiveAllianceSurfaceChange,
   onHeadquartersRevisionChange,
 } from '../alliance-surface.js'
-import { type CanvasDraw, type CanvasWriteRect, onCanvasWrite } from '../canvas-write.js'
+import { type CanvasDraw, onCanvasWrite } from '../canvas-write.js'
 import { warn } from '../debug.js'
+import type { PixelRect, Placement } from '../geometry.js'
 import { onOverlayPeekChange, overlayPeekFade } from '../overlay-peek.js'
 import {
   isProfileEnabled,
@@ -23,7 +24,6 @@ import {
   noteTemplatesInView,
   onLocalChange,
   onLocalPreviewChange,
-  type PlacedTemplate,
 } from '../templates/local-store.js'
 import { fixedMarkList, type MarkList, markSeed } from '../templates/mark-list.js'
 import { abortMoveOutsideSurface } from '../templates/move.js'
@@ -36,8 +36,10 @@ import {
   type ArtboardMarkerWork,
 } from './artboard-markers.js'
 import {
+  ARTBOARD_CANVAS_ATTRIBUTES,
   artboardCanvasWriteRect,
   isArtboardCrosshairCanvas,
+  isCaelestisCanvas,
   isHeadquartersTileLayer,
   onArtboardPixelsChange,
   patchArtboardPixels,
@@ -60,12 +62,7 @@ import {
   type TemplateGpuEntry,
   TemplateGpuStore,
   type TemplateGpuTile,
-  type TemplateRect,
 } from './template-gpu-store.js'
-
-const OVERLAY_ATTRIBUTE = 'data-caelestis-alliance-overlay'
-const OUTLINE_ATTRIBUTE = 'data-caelestis-alliance-outline'
-const MARKERS_ATTRIBUTE = 'data-caelestis-alliance-markers'
 
 /**
  * How long a moved template rests before its markers are compared at the new place.
@@ -74,13 +71,6 @@ const MARKERS_ATTRIBUTE = 'data-caelestis-alliance-markers'
  * or a held arrow key.
  */
 const MARKER_SETTLE_MS = 150
-
-export interface ArtboardGeometry {
-  readonly originX: number
-  readonly originY: number
-  readonly width: number
-  readonly height: number
-}
 
 export interface ArtboardViewport {
   readonly bufferWidth: number
@@ -115,7 +105,7 @@ export const reconcileAllianceControlsForViewport = (
   return true
 }
 
-export const artboardGeometry = (active: ActiveAllianceSurface): ArtboardGeometry | null => {
+export const artboardGeometry = (active: ActiveAllianceSurface): Placement | null => {
   const bounds =
     active.surface.kind === 'alliance-headquarters'
       ? active.bounds
@@ -130,10 +120,7 @@ export const artboardGeometry = (active: ActiveAllianceSurface): ArtboardGeometr
 }
 
 /** Signed HQ placement becomes frame-local only at this final projection boundary. */
-export const artboardPlacement = (
-  template: Pick<PlacedTemplate, 'originX' | 'originY' | 'width' | 'height'>,
-  geometry: ArtboardGeometry,
-) => ({
+export const artboardPlacement = (template: Placement, geometry: Placement) => ({
   left: template.originX - geometry.originX,
   top: template.originY - geometry.originY,
   right: template.originX - geometry.originX + template.width,
@@ -142,8 +129,8 @@ export const artboardPlacement = (
 
 /** Project an artboard cell rectangle into the viewport-resolution WebGL backing store. */
 export const artboardDevicePlacement = (
-  template: Pick<PlacedTemplate, 'originX' | 'originY' | 'width' | 'height'>,
-  geometry: ArtboardGeometry,
+  template: Placement,
+  geometry: Placement,
   viewport: ArtboardViewport,
   margin = 0,
 ) => {
@@ -160,8 +147,8 @@ export const artboardDevicePlacement = (
 
 /** Whether a template, grown by `margin` cells, shows: inside the frame and on the stage's buffer. */
 const overlapsArtboardFrame = (
-  template: Pick<PlacedTemplate, 'originX' | 'originY' | 'width' | 'height'>,
-  geometry: ArtboardGeometry,
+  template: Placement,
+  geometry: Placement,
   viewport: ArtboardViewport,
   margin = 0,
 ): boolean => {
@@ -176,10 +163,10 @@ const overlapsArtboardFrame = (
 
 /** The part of a template inside the frame and on the stage's buffer, in template coordinates. */
 const artboardVisibleRects = (
-  template: Pick<PlacedTemplate, 'originX' | 'originY' | 'width' | 'height'>,
-  geometry: ArtboardGeometry,
+  template: Placement,
+  geometry: Placement,
   viewport: ArtboardViewport,
-): readonly TemplateRect[] => {
+): readonly PixelRect[] => {
   const scaleX = viewport.frameWidth / geometry.width
   const scaleY = viewport.frameHeight / geometry.height
   const offsetX = geometry.originX - template.originX
@@ -203,9 +190,9 @@ const artboardVisibleRects = (
 
 /** Project one shared GPU chunk, including only the outer outline halo, into an artboard. */
 export const artboardGpuTilePlacement = (
-  template: Pick<PlacedTemplate, 'originX' | 'originY' | 'width' | 'height'>,
+  template: Placement,
   source: Omit<TemplateGpuTile, 'texture'>,
-  geometry: ArtboardGeometry,
+  geometry: Placement,
   viewport: ArtboardViewport,
   margin: number,
 ) => {
@@ -242,7 +229,7 @@ const batchMarkList = (batch: ArtboardMarkerBatch): MarkList =>
 /** Count marker points in the blocks the current alliance artboard viewport shows, as submitted. */
 export const visibleArtboardMarkerPoints = (
   batch: ArtboardMarkerBatch,
-  geometry: ArtboardGeometry,
+  geometry: Placement,
   viewport: ArtboardViewport,
 ): number => {
   const box = artboardDevicePlacement(
@@ -261,11 +248,6 @@ export const visibleArtboardMarkerPoints = (
     ),
   )
 }
-
-const isCaelestisCanvas = (element: Element): boolean =>
-  element.hasAttribute(OVERLAY_ATTRIBUTE) ||
-  element.hasAttribute(OUTLINE_ATTRIBUTE) ||
-  element.hasAttribute(MARKERS_ATTRIBUTE)
 
 /** Match the world pass order: outline, native art, overlay, native draft, then markers. */
 export const insertAllianceArtboardCanvases = (
@@ -337,14 +319,7 @@ class ArtboardPass {
 
   static create(document: Document, kind: 'outline' | 'overlay' | 'markers'): ArtboardPass | null {
     const canvas = document.createElement('canvas')
-    canvas.setAttribute(
-      kind === 'outline'
-        ? OUTLINE_ATTRIBUTE
-        : kind === 'overlay'
-          ? OVERLAY_ATTRIBUTE
-          : MARKERS_ATTRIBUTE,
-      '',
-    )
+    canvas.setAttribute(ARTBOARD_CANVAS_ATTRIBUTES[kind], '')
     canvas.setAttribute('aria-hidden', 'true')
     Object.assign(canvas.style, {
       position: 'absolute',
@@ -440,7 +415,7 @@ class ArtboardPass {
     templates: readonly SceneTemplate[],
     markers: readonly RenderMarker[],
     allIds: ReadonlySet<string>,
-    geometry: ArtboardGeometry,
+    geometry: Placement,
     viewport: ArtboardViewport,
     uploadAllowance: number,
     generation: number,
@@ -583,7 +558,7 @@ class ArtboardPass {
     templates: readonly SceneTemplate[],
     markers: readonly RenderMarker[],
     allIds: ReadonlySet<string>,
-    geometry: ArtboardGeometry,
+    geometry: Placement,
     viewport: ArtboardViewport,
     uploadAllowance: number,
     generation: number,
@@ -635,12 +610,7 @@ class ArtboardRenderer {
   private readonly stopDraftMarks: () => void
   private framePending = false
   private markerPixelsDirty = true
-  private readonly markerDirtyRects: Array<{
-    readonly x: number
-    readonly y: number
-    readonly width: number
-    readonly height: number
-  }> = []
+  private readonly markerDirtyRects: PixelRect[] = []
   private readonly markerWork = new Map<
     string,
     {
@@ -665,7 +635,7 @@ class ArtboardRenderer {
   private constructor(
     private readonly active: ActiveAllianceSurface,
     readonly surface: TemplateSurface,
-    readonly geometry: ArtboardGeometry,
+    readonly geometry: Placement,
     private readonly outline: ArtboardPass,
     private readonly overlay: ArtboardPass,
     private readonly markers: ArtboardPass,
@@ -683,7 +653,7 @@ class ArtboardRenderer {
 
   static create(
     active: ActiveAllianceSurface,
-    geometry: ArtboardGeometry,
+    geometry: Placement,
     onViewportChange: () => void,
   ): ArtboardRenderer | null {
     const outline = ArtboardPass.create(active.frame.ownerDocument, 'outline')
@@ -775,11 +745,7 @@ class ArtboardRenderer {
     return created
   }
 
-  nativeCanvasWritten(
-    canvas: object,
-    dirty: CanvasWriteRect | null,
-    draw: CanvasDraw | null,
-  ): void {
+  nativeCanvasWritten(canvas: object, dirty: PixelRect | null, draw: CanvasDraw | null): void {
     try {
       if (
         !(canvas instanceof HTMLCanvasElement) ||

@@ -6,15 +6,22 @@ import {
   tileKey,
   WPLACE_PALETTE,
 } from '@caelestis/shared'
-import { announceCanvasWrite, type CanvasDraw, type CanvasWriteRect } from './canvas-write.js'
+import { announceCanvasWrite, type CanvasDraw } from './canvas-write.js'
 import { registerDebugEntry } from './console-api.js'
 import type { TileFrame, TileQuad } from './coordinates.js'
 import { count, isEnabled, log, warn } from './debug.js'
+import type { PixelRect } from './geometry.js'
 import { getMap } from './map-handle.js'
+import { UNPAINTED } from './native-pixels.js'
 import { isPageInstance, pageWindow } from './page-world.js'
 import { nextPixelObservation, recordPixelObservation } from './pixel-observation.js'
 import { measureProfile, registerProfileMemorySource } from './profile.js'
-import { buildExactRgbIndex, canvasRgbIndex } from './rgb-index.js'
+import {
+  canvasRgbIndex,
+  paletteRgbIndex,
+  paletteRgbIndexMemoryBytes,
+  rgbaPaletteIndex,
+} from './rgb-index.js'
 import { draftedPixelsIn } from './templates/drafted.js'
 import { tilePixelCacheLimit } from './tile-pixel-cache.js'
 import {
@@ -1120,9 +1127,6 @@ const KEEP_TILE_PIXELS = tilePixelCacheLimit(
 let capturePixels = false
 let captureInterest: ((tile: TileCoord) => boolean) | null = null
 
-/** Index meaning "nobody has painted here". Distinct from every palette entry. */
-export const UNPAINTED = 255
-
 /**
  * Bumped every time capture is switched on, so everything already on screen is read again.
  *
@@ -1432,30 +1436,15 @@ export const loadCommittedTilePixels = async (tile: TileCoord): Promise<Uint8Arr
 }
 
 /**
- * Exact RGB to palette index, keyed by red and blue with green held in the entry.
- *
- * The palette has no red-blue collisions. That gives the hot conversion loop one small typed-array
- * lookup and one green comparison without retaining a sparse 16 MiB table or hashing boxed numbers.
- */
-let rgbToIndex: Uint32Array | null = null
-
-const indexTable = (): Uint32Array => {
-  if (rgbToIndex !== null) return rgbToIndex
-  const table = buildExactRgbIndex(WPLACE_PALETTE)
-  rgbToIndex = table
-  return table
-}
-
-/**
  * Canvases whose pixels have changed since they were last read.
  *
  * wplace redraws a paint-preview tile only when a pixel changes, but MapLibre *draws* it every
  * frame. Without this the capture below would run on every frame of every tile on screen.
  */
-const dirtyCanvases = new WeakMap<object, CanvasWriteRect | null>()
+const dirtyCanvases = new WeakMap<object, PixelRect | null>()
 
 /** Note that a tile-sized canvas has been written to, so the next draw re-reads it. */
-export const markCanvasDirty = (canvas: object, rect: CanvasWriteRect | null = null): void => {
+export const markCanvasDirty = (canvas: object, rect: PixelRect | null = null): void => {
   const held = dirtyCanvases.get(canvas)
   if (held === null) return
   if (held === undefined || rect === null) {
@@ -1500,7 +1489,7 @@ const draftedOffsets = new Map<string, Map<number, number>>()
 const KEEP_DRAFT_TILES = 64
 
 export const capturedPixelMemoryBytes = (): number => {
-  let bytes = rgbToIndex?.byteLength ?? 0
+  let bytes = paletteRgbIndexMemoryBytes()
   for (const pixels of pixelsOfTile.values()) bytes += pixels.byteLength
   for (const pixels of draftOfTile.values()) bytes += pixels.byteLength
   return bytes
@@ -1791,9 +1780,9 @@ const readWrite = (
   image: ImageData,
   dx: number,
   dy: number,
-  rect: CanvasWriteRect = { x: dx, y: dy, width: image.width, height: image.height },
+  rect: PixelRect = { x: dx, y: dy, width: image.width, height: image.height },
 ): number[] => {
-  const table = indexTable()
+  const table = paletteRgbIndex()
   const { data, width } = image
   const triples: number[] = []
   for (let j = rect.y - dy; j < rect.y - dy + rect.height; j++) {
@@ -1802,14 +1791,7 @@ const readWrite = (
     for (let i = rect.x - dx; i < rect.x - dx + rect.width; i++) {
       const x = dx + i
       if (x < 0 || x >= TILE_SIZE) continue
-      const at = (j * width + i) * 4
-      triples.push(
-        x,
-        y,
-        data[at + 3] === 0
-          ? UNPAINTED
-          : canvasRgbIndex(table, data[at] ?? 0, data[at + 1] ?? 0, data[at + 2] ?? 0, UNPAINTED),
-      )
+      triples.push(x, y, rgbaPaletteIndex(table, data, (j * width + i) * 4, UNPAINTED))
     }
   }
   return triples
@@ -2016,7 +1998,7 @@ const sameDigest = (a: ArrayBuffer, b: ArrayBuffer): boolean => {
 const capture = (
   tile: TileCoord,
   bitmap: CanvasImageSource & { width: number; height: number },
-  dirty: CanvasWriteRect | null = null,
+  dirty: PixelRect | null = null,
 ): boolean =>
   measureProfile('Draft pixel capture', () => {
     const key = tileKey(tile)
@@ -2050,14 +2032,9 @@ const capture = (
       count('pixels:draft readback bytes', data.byteLength)
       count('pixels:draft full reads')
       count('pixels:draft readback pixels', TILE_SIZE * TILE_SIZE)
-      const table = indexTable()
+      const table = paletteRgbIndex()
       for (let i = 0, p = 0; p < indices.length; i += 4, p++) {
-        // Fully transparent is unpainted. Opaque pixels are palette colours, allowing for bounded
-        // privacy noise added by browsers such as Helium during canvas readback.
-        const index =
-          data[i + 3] === 0
-            ? UNPAINTED
-            : canvasRgbIndex(table, data[i] ?? 0, data[i + 1] ?? 0, data[i + 2] ?? 0, UNPAINTED)
+        const index = rgbaPaletteIndex(table, data, i, UNPAINTED)
         // A draft canvas is upside down relative to its tile — see `flipRow`. The tile PNG is not.
         const x = p % TILE_SIZE
         const y = flipRow((p - x) / TILE_SIZE)
@@ -2176,7 +2153,7 @@ const queueCapture = (capture: QueuedCapture): void => {
 }
 
 const pageTileReading = (): TileReading => ({
-  table: indexTable(),
+  table: paletteRgbIndex(),
   decode: decodeOnPage,
   context: reusableCaptureContext,
   rgbIndex: canvasRgbIndex,

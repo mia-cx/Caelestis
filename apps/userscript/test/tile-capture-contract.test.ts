@@ -1,5 +1,6 @@
 import { WPLACE_PALETTE } from '@caelestis/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { UNPAINTED } from '../src/native-pixels.js'
 
 /**
  * Wplace refetches visible tiles, usually with identical bytes. Capturing a tile reads back a full
@@ -423,7 +424,7 @@ describe('unchanged tile capture', () => {
     const { tileTransform, readback, fetchTile } = await setup()
     await fetchTile(TILE.x, new Uint8Array([0]))
     await fetchTile(TILE.x, new Uint8Array([0]))
-    expect(tileTransform.tilePixels(TILE)?.[0]).toBe(tileTransform.UNPAINTED)
+    expect(tileTransform.tilePixels(TILE)?.[0]).toBe(UNPAINTED)
     expect(readback).not.toHaveBeenCalled()
   })
 
@@ -438,7 +439,7 @@ describe('unchanged tile capture', () => {
   it('reads identical bytes after a draft wrote to the tile', async () => {
     const { tileTransform, readback, fetchTile } = await setup()
     await fetchTile()
-    tileTransform.captureDraftPixels(TILE, new Uint8Array(1_000_000).fill(tileTransform.UNPAINTED))
+    tileTransform.captureDraftPixels(TILE, new Uint8Array(1_000_000).fill(UNPAINTED))
     await fetchTile()
     expect(readback).toHaveBeenCalledTimes(2)
   })

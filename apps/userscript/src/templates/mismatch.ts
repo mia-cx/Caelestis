@@ -11,6 +11,7 @@ import {
   WORLD_PIXELS,
 } from '@caelestis/shared'
 import { count } from '../debug.js'
+import { UNPAINTED } from '../native-pixels.js'
 import { pixelObservationOf } from '../pixel-observation.js'
 import { measureProfile, registerProfileMemorySource } from '../profile.js'
 import {
@@ -29,7 +30,6 @@ import {
   onTilePixelsAvailable,
   onTilePixelsEvicted,
   tilePixels,
-  UNPAINTED,
 } from '../tile-transform.js'
 import {
   announceCaptureScope,

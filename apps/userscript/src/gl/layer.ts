@@ -2,6 +2,7 @@ import { TILE_SIZE, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { registerDebugEntry } from '../console-api.js'
 import type { TileQuad } from '../coordinates.js'
 import { log, warn } from '../debug.js'
+import type { PixelRect } from '../geometry.js'
 import { getMap } from '../map-handle.js'
 import { redraw } from '../map-view.js'
 import { overlayPeekFade } from '../overlay-peek.js'
@@ -33,7 +34,6 @@ import {
   type TemplateGpuEntry,
   TemplateGpuStore,
   type TemplateGpuTile,
-  type TemplateRect,
 } from './template-gpu-store.js'
 
 /**
@@ -163,8 +163,8 @@ const visibleSourceRects = (
   tiles: readonly TileQuad[],
   bufferWidth: number,
   bufferHeight: number,
-): TemplateRect[] => {
-  const rects: TemplateRect[] = []
+): PixelRect[] => {
+  const rects: PixelRect[] = []
   const top = template.originY + nudgeY
   for (const tile of tiles) {
     const scaleX = tile.width / TILE_SIZE
