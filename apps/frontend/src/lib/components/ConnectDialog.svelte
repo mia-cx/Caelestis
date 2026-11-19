@@ -15,6 +15,7 @@ let { open = $bindable(false) }: { open?: boolean } = $props()
 
 let serverUrl = $state('')
 let token = $state('')
+let refused = $state<string | null>(null)
 
 $effect(() => {
   if (open) {
@@ -25,7 +26,14 @@ $effect(() => {
 
 const connect = async (event: SubmitEvent): Promise<void> => {
   event.preventDefault()
-  writeConnection(serverUrl, token.length > 0 ? token : null)
+  try {
+    writeConnection(serverUrl, token.length > 0 ? token : null)
+  } catch (error) {
+    if (!(error instanceof TypeError)) throw error
+    refused = `This server URL can't be used: ${error.message}.`
+    return
+  }
+  refused = null
   open = false
   await app.load()
 }
@@ -66,6 +74,9 @@ const connect = async (event: SubmitEvent): Promise<void> => {
           bind:value={token}
         />
       </label>
+      {#if refused !== null}
+        <p class="text-sm text-error">{refused}</p>
+      {/if}
       {#if app.authRequired}
         <p class="text-sm text-error">This server requires a token with read access.</p>
       {/if}

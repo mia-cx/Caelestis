@@ -1,16 +1,20 @@
 import {
   type AlarmsResponse,
+  API_VERSION_PATH,
   type ArchiveHistory,
   type CanvasTilesResponse,
   type ContributionsResponse,
   type HistoryResponse,
+  isTransientStatus,
   type LeaderboardResponse,
   LIVE_PROTOCOL_V1,
   LIVE_PROTOCOL_V2,
+  liveCredentialProtocol,
   type Manifest,
   type PainterHistoryResponse,
   type PainterTotalsResponse,
   type ProgressHistoryResponse,
+  resolveServerUrl,
   type ServerAsset,
   type ServerAssetKind,
   type ServerInfo,
@@ -18,11 +22,11 @@ import {
   serverAssetPath,
   type TemplateProgressHistoryResponse,
   type TileHistoryResponse,
+  tileImagePath,
   uuidV7,
 } from '@caelestis/shared'
 import { sanitizeServerInfo } from '../server-info.js'
 import { frontendClientAccept } from './client-metrics.js'
-import { isServerUrlConfigured, resolveSelectedServerUrl, resolveServerUrl } from './server-url.js'
 
 /**
  * A configured server is fixed for the deployment. Without one, the selected server and access
@@ -31,20 +35,26 @@ import { isServerUrlConfigured, resolveSelectedServerUrl, resolveServerUrl } fro
 const SERVER_KEY = 'caelestis:server'
 const TOKEN_KEY = 'caelestis:token'
 const LIVE_CLIENT_ID_KEY = 'caelestis:live-client-id'
-const API_VERSION_PATH = '/v1'
 type ApiVersionPath = typeof API_VERSION_PATH | ''
 let apiVersionPath: ApiVersionPath = API_VERSION_PATH
-const configuredServer = import.meta.env.VITE_CAELESTIS_SERVER as string | undefined
+const DEV_SERVER = 'http://127.0.0.1:8787'
+const configuredServer =
+  (import.meta.env.VITE_CAELESTIS_SERVER as string | undefined)?.replace(/\/+$/, '') || null
 
-export const serverUrlIsConfigured = isServerUrlConfigured(configuredServer)
+export const serverUrlIsConfigured = configuredServer !== null
 
-export const readServerUrl = (): string =>
-  resolveServerUrl(
-    configuredServer,
-    localStorage.getItem(SERVER_KEY),
-    import.meta.env.DEV,
-    window.location.origin,
+/** The deployment's configured base URL as given, else the stored or default server's. */
+export const readServerUrl = (): string => {
+  if (configuredServer !== null) return configuredServer
+  const stored = localStorage.getItem(SERVER_KEY)
+  return resolveServerUrl(
+    stored !== null && stored.length > 0
+      ? stored
+      : import.meta.env.DEV
+        ? DEV_SERVER
+        : window.location.origin,
   )
+}
 
 export const readToken = (): string | null => localStorage.getItem(TOKEN_KEY)
 
@@ -64,22 +74,13 @@ export const usesServerReadProxy = (): boolean =>
   readToken() === null &&
   (serverUrlIsConfigured ||
     localStorage.getItem(SERVER_KEY) === null ||
-    readServerUrl() === `${window.location.origin.replace(/\/+$/, '')}/backend`)
+    readServerUrl() === resolveServerUrl(window.location.origin))
 
+/** Throws a TypeError for a server URL that is not HTTP(S) or carries credentials. */
 export const writeConnection = (url: string, token: string | null): void => {
-  if (!serverUrlIsConfigured) localStorage.setItem(SERVER_KEY, resolveSelectedServerUrl(url))
+  if (!serverUrlIsConfigured) localStorage.setItem(SERVER_KEY, resolveServerUrl(url))
   if (token === null || token.length === 0) localStorage.removeItem(TOKEN_KEY)
   else localStorage.setItem(TOKEN_KEY, token)
-}
-
-const liveCredentialProtocol = (token: string): string => {
-  const bytes = new TextEncoder().encode(token)
-  let binary = ''
-  for (const byte of bytes) binary += String.fromCharCode(byte)
-  return `caelestis.auth.b64.${btoa(binary)
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '')}`
 }
 
 /** Open live reads through the Worker when it owns the credential. */
@@ -122,9 +123,6 @@ export class ApiError extends Error {
 const retryableMethod = (method: string | undefined): boolean =>
   method === undefined || method.toUpperCase() === 'GET' || method.toUpperCase() === 'HEAD'
 
-const transientStatus = (status: number): boolean =>
-  status === 408 || status === 429 || status >= 500
-
 /** One transient edge/backend failure must not strand the app until the user reloads it. */
 const fetchWithTransientRetry = async (url: string, init: RequestInit): Promise<Response> => {
   let first: Response
@@ -134,7 +132,7 @@ const fetchWithTransientRetry = async (url: string, init: RequestInit): Promise<
     if (!retryableMethod(init.method)) throw error
     return fetch(url, init)
   }
-  if (!retryableMethod(init.method) || !transientStatus(first.status)) return first
+  if (!retryableMethod(init.method) || !isTransientStatus(first.status)) return first
   return fetch(url, init)
 }
 
@@ -334,11 +332,7 @@ export const loadImageUrl = (path: string): Promise<string> => {
 
 export const chunkImageUrl = (hash: string): Promise<string> => loadImageUrl(`/chunks/${hash}`)
 export const tileImageUrl = (hash: string): Promise<string> =>
-  loadImageUrl(
-    hash.startsWith('archive:')
-      ? `/archive/tiles/${hash.slice('archive:'.length)}`
-      : `/tiles/${hash}`,
-  )
+  loadImageUrl(`/${tileImagePath(hash)}`)
 
 /** Read sparse observations, treating older backends without this route as no archive. */
 export const getArchiveHistory = async (

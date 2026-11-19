@@ -1,9 +1,13 @@
 import {
   isWorkIdentity,
+  LIVE_AUTH_PREFIX,
+  LIVE_PROTOCOL_V1,
+  LIVE_PROTOCOL_V2,
   MAX_TILE_OFFERS,
   millis,
   type PaintEvent as PaintEventValue,
   PRESENCE_PROTOCOL_V1,
+  parseLiveCredentialProtocol,
   parseTileKey,
   type Seconds,
   type ServerInfo,
@@ -70,8 +74,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 /** Larger leaderboards stop being leaderboards; page by narrowing the window instead. */
 const MAX_LEADERBOARD_LIMIT = 200
 const DEFAULT_LEADERBOARD_LIMIT = 50
-const LIVE_PROTOCOLS = ['caelestis.live.v2', 'caelestis.live.v1'] as const
-const LIVE_AUTH_PREFIX = 'caelestis.auth.b64.'
+const LIVE_PROTOCOLS = [LIVE_PROTOCOL_V2, LIVE_PROTOCOL_V1] as const
 const MAX_MUTATION_STATUS_BYTES = 32 * 1024
 const MAX_TILE_OFFER_BODY_BYTES = 64 * 1024
 
@@ -80,19 +83,6 @@ const mutationStatus = (status: StatusDelta | undefined): StatusDelta | undefine
   new TextEncoder().encode(JSON.stringify(status)).byteLength <= MAX_MUTATION_STATUS_BYTES
     ? status
     : undefined
-
-const decodeLiveCredential = (encoded: string): string | null => {
-  if (!/^[A-Za-z0-9_-]+$/.test(encoded)) return null
-  try {
-    const base64 = encoded.replace(/-/g, '+').replace(/_/g, '/')
-    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=')
-    const bytes = Uint8Array.from(atob(padded), (character) => character.charCodeAt(0))
-    const token = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes)
-    return token.length === 0 ? null : token
-  } catch {
-    return null
-  }
-}
 
 const liveAuthorization = (
   header: string | undefined,
@@ -114,7 +104,7 @@ const liveAuthorization = (
       protocol: selected === LIVE_PROTOCOLS[0] ? 2 : 1,
     }
   }
-  const token = decodeLiveCredential(credential.slice(LIVE_AUTH_PREFIX.length))
+  const token = parseLiveCredentialProtocol(credential)
   return token === null
     ? null
     : {
