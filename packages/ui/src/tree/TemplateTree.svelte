@@ -9,7 +9,7 @@
   import TreeOperation from './TreeOperation.svelte'
   import TreeToolbar from './TreeToolbar.svelte'
   import Icon from '../foundations/Icon.svelte'
-  import TemplateState from '../template-state/TemplateState.svelte'
+  import TemplateAlarm from '../template-state/TemplateAlarm.svelte'
   import TemplateLifecycle from '../template-state/TemplateLifecycle.svelte'
   import ColourProgress from '../progress/ColourProgress.svelte'
   import ProgressMeter, { wholePercent } from '../progress/ProgressMeter.svelte'
@@ -409,7 +409,7 @@
               {/if}
             </TemplateLifecycle>
             {#if alarmKind !== undefined}
-              <TemplateState compact showLifecycle={false} {...(entry.descendantAlarmKind === undefined ? {} : { descendantAlarmKind: entry.descendantAlarmKind })} {...entry.lifecycle} />
+              <TemplateAlarm compact {...(entry.descendantAlarmKind === undefined ? {} : { descendantAlarmKind: entry.descendantAlarmKind })} {...entry.lifecycle} />
             {/if}
             {#if grid && entry.navigate !== undefined}
               {@const navigate = entry.navigate}
