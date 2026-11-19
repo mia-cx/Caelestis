@@ -207,10 +207,9 @@
   <svg {width} height={HEIGHT} shape-rendering="crispEdges" class="block" aria-hidden="true">
     <rect x={plotLeft} y={INSET} width={plotWidth} height={HEIGHT - 2 * INSET} class="fill-base-200" />
     <g class="chart-reveal">
-      <path data-brush-outline d={geometry.outline} fill="var(--chart-placed)" opacity="0.35" />
+      <path d={geometry.outline} fill="var(--chart-placed)" opacity="0.35" />
       {#each geometry.isolated as point}
         <line
-          data-brush-observation
           x1={point.x - OBSERVATION_HALF_WIDTH}
           x2={point.x + OBSERVATION_HALF_WIDTH}
           y1={point.y}
@@ -221,7 +220,6 @@
       {/each}
     </g>
     <rect
-      data-brush-window
       x={bx(view.from)}
       y={INSET}
       width={Math.max(0, bx(view.to) - bx(view.from))}

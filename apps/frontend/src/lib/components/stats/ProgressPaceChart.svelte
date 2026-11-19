@@ -668,7 +668,6 @@
             class="stroke-base-content/20"
           />
           <text
-            data-axis="time"
             x={x(tick)}
             y={height - 6}
             text-anchor="middle"
@@ -684,11 +683,7 @@
             <path
               in:fade={{ duration: motion(250) }}
               out:fade={{ duration: motion(150) }}
-              data-pace-window={pace.key}
-              data-series-start={pace.fullSeries[0]?.t}
-              data-series-first-value={pace.fullSeries[0]?.v}
               d={linePath(stroke.series)}
-              data-pace-source={stroke.imported ? 'imported' : 'observed'}
               fill="none"
               stroke={paceColor(pace.rank)}
               stroke-width={paceWidth(pace.rank)}
@@ -697,7 +692,7 @@
             />
             {/each}
             {#if pace.series.length === 1}
-              <circle data-pace-singleton={pace.key} cx={x(pace.series[0].t)} cy={yRight(pace.series[0].v)} r="3" fill={paceColor(pace.rank)} />
+              <circle cx={x(pace.series[0].t)} cy={yRight(pace.series[0].v)} r="3" fill={paceColor(pace.rank)} />
             {/if}
           {/each}
 
@@ -705,23 +700,23 @@
             {@const archived = segment.some(point => point.archive)}
             {@const line = segment.map((point, index) => `${index === 0 ? 'M' : 'L'}${x(point.t).toFixed(1)},${yLeft(point.v).toFixed(1)}`).join('')}
             {@const mismatchedLine = segment.map((point, index) => `${index === 0 ? 'M' : 'L'}${x(point.t).toFixed(1)},${yLeft(point.v + point.mismatched).toFixed(1)}`).join('')}
-            <path data-archive-progress-area
+            <path
               d={`${line}L${x(segment[segment.length - 1].t).toFixed(1)},${yLeft(0).toFixed(1)}L${x(segment[0].t).toFixed(1)},${yLeft(0).toFixed(1)}Z`}
               fill="var(--chart-correct)" opacity="0.3" />
-            <path data-archive-mismatched-area
+            <path
               d={`${mismatchedLine}${[...segment].reverse().map((point) => `L${x(point.t).toFixed(1)},${yLeft(point.v).toFixed(1)}`).join('')}Z`}
               class="fill-error" opacity="0.25" />
             {#if segment.some((point) => point.mismatched > 0)}
-              <path data-archive-mismatched d={mismatchedLine} fill="none" class="stroke-error"
+              <path d={mismatchedLine} fill="none" class="stroke-error"
                 stroke-width="1.5" stroke-dasharray={archived ? '3 3' : undefined} stroke-linejoin="round" />
             {/if}
-            <path data-archive-progress d={line} fill="none" stroke="var(--chart-correct)"
+            <path d={line} fill="none" stroke="var(--chart-correct)"
               stroke-width="1.5" stroke-dasharray={archived ? '3 3' : undefined} stroke-linejoin="round" />
           {/each}
 
 
           {#each isolatedProgressPoints as point (point.t)}
-            <g data-archive-singleton>
+            <g>
               <path d={`M${Math.max(pad.left, x(point.t) - 3)},${yLeft(point.v)}H${Math.min(width - pad.right, x(point.t) + 3)}`}
                 stroke="var(--chart-correct)" stroke-width="2" />
               {#if point.mismatched > 0}<path d={`M${Math.max(pad.left, x(point.t) - 3)},${yLeft(point.v + point.mismatched)}H${Math.min(width - pad.right, x(point.t) + 3)}`}
@@ -733,8 +728,6 @@
             <path
               in:fade={{ duration: motion(250) }}
               out:fade={{ duration: motion(150) }}
-              data-painter-line={line.painter.wplaceUserId}
-              data-pace-window={line.window}
               d={linePath(line.series)}
               fill="none"
               stroke={painterColour(line.painter.wplaceUserId)}
@@ -799,7 +792,6 @@
         {#if hover !== null}
           <g in:fade={{ duration: motion(150) }} out:fade={{ duration: motion(100) }}>
             <line
-              data-crosshair
               x1={x(hover.t)}
               x2={x(hover.t)}
               y1={pad.top}
