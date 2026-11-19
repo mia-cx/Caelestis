@@ -13,7 +13,7 @@
 import { quintOut } from 'svelte/easing'
 import type { EasingFunction, TransitionConfig } from 'svelte/transition'
 
-export const SURFACE_CLOSE_DURATION = '--caelestis-surface-close-duration'
+const SURFACE_CLOSE_DURATION = '--caelestis-surface-close-duration'
 
 /** Tail margin after a transition's duration before held state (closing rows, control glides) is released. */
 export const SETTLE_MARGIN_MS = 50

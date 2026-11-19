@@ -27,12 +27,10 @@ export type * from '../settings/model.js'
 export type * from '../shortcut-help/model.js'
 export type * from '../tags/model.js'
 export type * from '../tree/model.js'
-export {
-  type CaelestisElement,
-  type CaelestisElementTable,
-  type CaelestisIntent,
-  type CaelestisTag,
-  intentEvent,
+export type {
+  CaelestisElement,
+  CaelestisIntent,
+  CaelestisTag,
 } from './registry.js'
 
 const ELEMENTS: Readonly<Record<CaelestisTag, { readonly element?: typeof HTMLElement }>> = {

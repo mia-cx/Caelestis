@@ -416,7 +416,7 @@
               </button>
             {/if}
             {#if model.renamingKey === entry.key}
-              <input use:focusRename class="rename caelestis-field" data-caelestis-rename aria-label={`Rename ${entry.name}`} bind:value={renameDraft} onkeydown={(event) => { event.stopPropagation(); if (event.key === 'Enter') commitRename(entry); if (event.key === 'Escape') { event.preventDefault(); emit({ type: 'cancel-rename', key: entry.key }) } }} />
+              <input use:focusRename class="rename caelestis-field" aria-label={`Rename ${entry.name}`} bind:value={renameDraft} onkeydown={(event) => { event.stopPropagation(); if (event.key === 'Enter') commitRename(entry); if (event.key === 'Escape') { event.preventDefault(); emit({ type: 'cancel-rename', key: entry.key }) } }} />
             {:else}
               <span class="name" title={entry.name}>{entry.name}</span>
             {/if}

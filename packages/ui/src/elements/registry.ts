@@ -49,12 +49,9 @@ export type CaelestisElement<Tag extends CaelestisTag> = HTMLElement &
   CaelestisElementTable[Tag]['props']
 export type CaelestisIntent<Tag extends CaelestisTag> = CaelestisElementTable[Tag]['intent']
 
-/** The name of the event an element's intents arrive on. */
-export const intentEvent = <Tag extends CaelestisTag>(tag: Tag): `${Tag}-intent` => `${tag}-intent`
-
 /** Dispatches each intent from `host` as its composed `${tag}-intent` event. */
 export const intentEmitter =
   <Tag extends CaelestisTag>(host: HTMLElement, tag: Tag) =>
   (detail: CaelestisIntent<Tag>): void => {
-    host.dispatchEvent(new CustomEvent(intentEvent(tag), { detail, bubbles: true, composed: true }))
+    host.dispatchEvent(new CustomEvent(`${tag}-intent`, { detail, bubbles: true, composed: true }))
   }

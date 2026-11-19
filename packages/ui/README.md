@@ -24,7 +24,7 @@ loading orchestration, mutations, and page layout.
 intent it emits. `HTMLElementTagNameMap` and `HTMLElementEventMap` derive from that table, so
 `document.createElement('caelestis-panel')` returns a typed element and
 `addEventListener('caelestis-panel-intent', …)` receives a typed `CustomEvent`. Every element
-emits its intents as one composed `${tag}-intent` event; `intentEvent(tag)` returns that name.
+emits its intents as one composed `${tag}-intent` event.
 
 Two constraints are enforced by the implementation:
 

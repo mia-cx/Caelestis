@@ -8,7 +8,7 @@ import type { TreeEntryModel } from './model.js'
  * collapsing a row adds or removes exactly this run, so it is also the set of rows a
  * grow/shrink transition should touch.
  */
-export const descendantKeys = (
+const descendantKeys = (
   entries: readonly { key: string; depth: number }[],
   key: string,
 ): Set<string> => {
