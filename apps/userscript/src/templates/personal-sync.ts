@@ -27,6 +27,7 @@ export const installPersonalTemplates = async (): Promise<void> => {
       visible: template.visible,
       drawing: isTemplateVisible(template),
       origin: template.origin,
+      owner: template.origin === 'wplace' ? template.owner : null,
       folderId: template.origin === 'local' ? template.folderId : null,
       server: template.origin === 'server' ? template.server.url : null,
       serverTemplateId: template.origin === 'server' ? template.serverTemplateId : null,
