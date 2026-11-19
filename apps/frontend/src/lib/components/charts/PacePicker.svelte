@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Icon, MenuStyles } from '@caelestis/ui'
+  import { Icon } from '@caelestis/ui'
   import { Command, Popover } from 'bits-ui'
 
   let { options, onToggle }: {
@@ -13,7 +13,6 @@
   const matches = $derived(options.filter((option) => `${option.label} ${option.description}`.toLowerCase().includes(query.trim().toLowerCase())))
 </script>
 
-<MenuStyles />
 <Popover.Root bind:open onOpenChange={(next) => { if (!next) query = '' }}>
   <Popover.Trigger data-pace-trigger class="btn btn-xs btn-soft gap-1.5 tabular-nums" aria-label={`Pace lines: ${summary}`}>
     <span>{summary}</span><Icon name="unfoldMore" class="size-4.5 text-base-content/60" />

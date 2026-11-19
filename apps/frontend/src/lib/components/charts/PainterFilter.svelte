@@ -4,7 +4,7 @@
    * picker's searchable popover, but picks one row instead of toggling many. Rows show the Wplace
    * id so namesakes stay apart, and the choice is that id, so renames and refreshes keep it.
    */
-  import { Icon, MenuStyles } from '@caelestis/ui'
+  import { Icon } from '@caelestis/ui'
   import { Command, Popover } from 'bits-ui'
   import {
     type ContributionPainter,
@@ -50,7 +50,6 @@
   }
 </script>
 
-<MenuStyles />
 
 <Popover.Root bind:open onOpenChange={(next) => { if (!next) query = '' }}>
   <Popover.Trigger

@@ -136,59 +136,35 @@
  * contrast). Series colors are entities, not statuses: "placed" wears the canvas blue, "correct"
  * the canvas green, in both modes at that mode's legal lightness. The heat ramp is one hue,
  * light-to-dark, for the contribution heatmap. Painter lines wear Wplace's ID colour in both modes;
- * see `painterColour`.
+ * see `painterColour`. Each value is `light-dark(light, dark)`, resolved by the theme's colour scheme.
  */
-:root,
-[data-theme='caelestis'] {
-  --chart-placed: #4093e4;
-  --pace-short: oklch(52% 0.19 325);
-  --pace-long: oklch(65% 0.16 265);
-  --chart-correct: #0eb968;
-  --heat-1: oklch(90% 0.05 253);
-  --heat-2: oklch(78% 0.09 253);
-  --heat-3: oklch(66% 0.13 253);
-  --heat-4: oklch(54% 0.14 253);
-  --heat-5: oklch(42% 0.13 253);
-  --caelestis-surface: var(--color-base-100);
-  --caelestis-text: var(--color-base-content);
-  --caelestis-border: var(--color-base-300);
-  --caelestis-focus: var(--color-primary);
-  --caelestis-finished: var(--color-success);
-  --caelestis-frozen: var(--color-primary);
-  --caelestis-danger: var(--color-error);
+:root {
+  --chart-placed: light-dark(#4093e4, #4a8cd9);
+  --pace-short: light-dark(oklch(52% 0.19 325), oklch(64% 0.18 325));
+  --pace-long: light-dark(oklch(65% 0.16 265), oklch(84% 0.1 265));
+  --chart-correct: light-dark(#0eb968, #16a566);
+  --heat-1: light-dark(oklch(90% 0.05 253), oklch(44% 0.09 253));
+  --heat-2: light-dark(oklch(78% 0.09 253), oklch(53% 0.11 253));
+  --heat-3: light-dark(oklch(66% 0.13 253), oklch(62% 0.13 253));
+  --heat-4: light-dark(oklch(54% 0.14 253), oklch(71% 0.13 253));
+  --heat-5: light-dark(oklch(42% 0.13 253), oklch(80% 0.12 253));
 }
 
-[data-theme='caelestis-dark'] {
-  --chart-placed: #4a8cd9;
-  --pace-short: oklch(64% 0.18 325);
-  --pace-long: oklch(84% 0.1 265);
-  --chart-correct: #16a566;
-  --heat-1: oklch(44% 0.09 253);
-  --heat-2: oklch(53% 0.11 253);
-  --heat-3: oklch(62% 0.13 253);
-  --heat-4: oklch(71% 0.13 253);
-  --heat-5: oklch(80% 0.12 253);
+/*
+ * The shared UI's theme contract on the DaisyUI palette. The values are references, so the active
+ * theme resolves them and one mapping serves both themes.
+ */
+:root {
   --caelestis-surface: var(--color-base-100);
+  --caelestis-raised-surface: var(--color-base-200);
   --caelestis-text: var(--color-base-content);
+  --caelestis-muted-text: color-mix(in oklab, var(--color-base-content) 64%, transparent);
   --caelestis-border: var(--color-base-300);
   --caelestis-focus: var(--color-primary);
-  --caelestis-finished: var(--color-success);
-  --caelestis-frozen: var(--color-primary);
+  --caelestis-primary: var(--color-primary);
+  --caelestis-warning: var(--color-warning);
+  --caelestis-success: var(--color-success);
   --caelestis-danger: var(--color-error);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme]) {
-    --chart-placed: #4a8cd9;
-    --pace-short: oklch(64% 0.18 325);
-    --pace-long: oklch(84% 0.1 265);
-    --chart-correct: #16a566;
-    --heat-1: oklch(44% 0.09 253);
-    --heat-2: oklch(53% 0.11 253);
-    --heat-3: oklch(62% 0.13 253);
-    --heat-4: oklch(71% 0.13 253);
-    --heat-5: oklch(80% 0.12 253);
-  }
 }
 
 @layer base {

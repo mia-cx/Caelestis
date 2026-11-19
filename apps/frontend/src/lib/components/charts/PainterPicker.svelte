@@ -6,7 +6,7 @@
    * cut at a bounded page, so a thousand painters cost a thousand entries in memory and fifty in
    * the DOM.
    */
-  import { Icon, MenuStyles } from '@caelestis/ui'
+  import { Icon } from '@caelestis/ui'
   import { Command, Popover } from 'bits-ui'
   import {
     MAX_SELECTED_PAINTERS,
@@ -71,7 +71,6 @@
     onHover(value === '' || value === ALL_USERS ? null : Number(value))
 </script>
 
-<MenuStyles />
 
 <Popover.Root
   bind:open
