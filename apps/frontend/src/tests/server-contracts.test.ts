@@ -392,6 +392,21 @@ describe('public social metadata and stored image routes', () => {
       ])
     })
 
+    it("leaves out a replaced artwork's previous progress", async () => {
+      const data = manifest()
+      const metadata = await socialMetadata(
+        new URL(`https://frontend.test/artwork/${template().id}`),
+        {
+          server: data.server,
+          manifest: data,
+          statuses: [{ templateId: template().id, correct: 2, total: 2 } as TemplateStatus],
+        },
+      )
+      expect(metadata.description).toBe(
+        '4 pixels on Wplace. Watch the timelapse and follow its progress.',
+      )
+    })
+
     it('reveals nothing about an unpublished template', async () => {
       const data = manifest({ templates: [template({ published: false, name: 'Secret plan' })] })
       const metadata = await socialMetadata(

@@ -1,5 +1,5 @@
 import type { Manifest, ServerInfo, Template, TemplateStatus } from '@caelestis/shared'
-import { API_VERSION_PATH, serverAssetPath } from '@caelestis/shared'
+import { API_VERSION_PATH, progressFromStatus, serverAssetPath } from '@caelestis/shared'
 import {
   DEFAULT_SOCIAL_IMAGE,
   SOCIAL_IMAGE_HEIGHT,
@@ -109,12 +109,15 @@ const pageMetadata = async (
   const template = manifest?.templates.find((entry) => entry.id === id && entry.published)
   if (template === undefined || manifest === null) return metadata
   metadata.title = pageTitle(server?.name, template.name)
-  const status = statuses.find((entry) => entry.templateId === template.id)
-  const progress =
-    status === undefined || status.total === 0
+  const progress = progressFromStatus(
+    template.totalPixels,
+    statuses.find((entry) => entry.templateId === template.id),
+  )
+  const painted =
+    progress === undefined || progress.total === 0
       ? ''
-      : ` ${Math.round((status.correct / status.total) * 100)}% painted correctly.`
-  metadata.description = `${template.totalPixels.toLocaleString('en-US')} pixels on Wplace.${progress} Watch the timelapse and follow its progress.`
+      : ` ${Math.round((progress.completed / progress.total) * 100)}% painted correctly.`
+  metadata.description = `${template.totalPixels.toLocaleString('en-US')} pixels on Wplace.${painted} Watch the timelapse and follow its progress.`
   const image = ensureImage
     ? await ensureImage(template)
     : await images?.head(socialImageKey(manifest.season, template))
