@@ -1,5 +1,6 @@
 import type { Millis, TemplateTag } from '@caelestis/shared'
-import type { TemplateManifestScope } from '../ports/sql-store.js'
+import type { DrawingScope } from '../db/scope.js'
+import { PortError } from '../runtime/errors.js'
 
 export type TagMutation =
   | { readonly type: 'create'; readonly id: string; readonly name: string }
@@ -18,7 +19,10 @@ export type TagMutation =
       readonly attached: boolean
     }
 
-export class TagConflictError extends Error {}
+export class TagConflictError extends PortError {
+  override readonly name = 'TagConflictError'
+  readonly kind = 'conflict'
+}
 
 export interface TagStore {
   /** All reusable names, including tags with no assignments. */
@@ -29,15 +33,15 @@ export interface TagStore {
   listNodeTagIds(nodeId: string): Promise<readonly string[]>
   /** Folder labels in one manifest scope, including empty folders. */
   listManifestNodeTags(
-    scope: TemplateManifestScope,
+    scope: DrawingScope,
   ): Promise<readonly { readonly nodeId: string; readonly tag: TemplateTag }[]>
   /** Read labels and assignments together, respecting manifest publication and canvas scope. */
   listManifestTags(
-    scope: TemplateManifestScope,
+    scope: DrawingScope,
     includeUnpublished: boolean,
   ): Promise<readonly { readonly templateId: string; readonly tag: TemplateTag }[]>
   /** Atomically change a tag and affected template revisions. False means a missing tag or template. */
   mutateTag(mutation: TagMutation, now: Millis): Promise<boolean>
-  /** Manifest scopes that may carry this server's tags. */
-  listTagScopes(): Promise<readonly TemplateManifestScope[]>
+  /** Seasons whose manifests may carry this server's tags. */
+  listTagSeasons(): Promise<readonly number[]>
 }

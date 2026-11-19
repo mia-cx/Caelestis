@@ -1,5 +1,16 @@
 # @caelestis/userscript
 
+## 1.2.0
+
+### Minor Changes
+
+- f1ac26b: Server folders can backfill history for every template inside them at once, reading each archive tile only once even when several templates share it.
+- 6f89915: The extension's toolbar popup shows Dangerous settings, and a switch changed there applies to open Wplace tabs at once.
+
+### Patch Changes
+
+- 484f8b8: Settings move from the userscript to the extension, and Import and Send appear, when the userscript manager starts Caelestis after Wplace's own scripts, as Violentmonkey does.
+
 ## 1.1.0
 
 ### Minor Changes

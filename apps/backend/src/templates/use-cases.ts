@@ -1,12 +1,12 @@
-import { type Millis, millis, PngError, SliceError, type TemplateSurface } from '@caelestis/shared'
-import { Effect } from 'effect'
-import type { TemplatePatch } from '../ports/index.js'
 import {
-  InvalidNodeParentError,
-  NodeNotFoundError,
-  TemplateIdentityError,
-  TemplateNotFoundError,
-} from '../ports/index.js'
+  isUuidV7,
+  type Millis,
+  millis,
+  parseInteger,
+  parseWholeNumber,
+  type TemplateSurface,
+} from '@caelestis/shared'
+import { Effect } from 'effect'
 import {
   BlobStoreService,
   PresenceService,
@@ -14,156 +14,177 @@ import {
   StatusReadModelService,
 } from '../runtime/backend-runtime.js'
 import {
-  BackendStorageError,
-  RequestValidationError,
-  ResourceConflictError,
-  ResourceNotFoundError,
+  ConflictError,
+  fromPort,
+  NotFoundError,
+  storage,
+  ValidationError,
 } from '../runtime/errors.js'
-import {
-  publishAlarmChange,
-  publishManifestChange,
-  repairCommittedStatusProjection,
-} from '../status-read-model/port.js'
+import { bestEffort } from '../status-read-model/port.js'
 import { readTileBlob } from '../telemetry/tile-blobs.js'
 import {
-  type StoredTemplate,
-  StoreTemplateError,
-  storeTemplate,
+  createStoredTemplate,
+  replaceStoredTemplate,
   type TemplateAuthoringInput,
-} from './store.js'
+} from './authoring.js'
+import type { TemplatePatch } from './store.js'
 
-type TemplateError =
-  | RequestValidationError
-  | ResourceNotFoundError
-  | ResourceConflictError
-  | BackendStorageError
+const notFound = () => Effect.fail(new NotFoundError({ message: 'not found' }))
 
-const WHOLE_NUMBER = /^(0|[1-9]\d*)$/
+const readExisting = (templateId: string) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlStoreService
+    const template = yield* storage('readTemplate', () => sql.readTemplate(templateId))
+    return template ?? (yield* notFound())
+  })
+
+/** A guarded write changed nothing: the template is gone, or another write got there first. */
+const lostRace = (templateId: string) =>
+  Effect.gen(function* () {
+    yield* readExisting(templateId)
+    return yield* Effect.fail(new ConflictError({ message: 'template changed concurrently' }))
+  })
 
 /**
- * Presence carries region hints only for published templates. A publication change re-sends the
- * list; a failed send never undoes the change it follows.
+ * World origins are canvas pixels, so never negative; alliance canvases are signed. Origins
+ * arrive as form text.
  */
-const republishRegions = (season: number, surface: TemplateSurface) =>
+const parseOrigin = (surface: TemplateSurface, x: unknown, y: unknown) => {
+  const signed = surface.kind !== 'world'
+  const parse = signed ? parseInteger : parseWholeNumber
+  const originX = parse(x)
+  const originY = parse(y)
+  if (originX !== null && originY !== null) return Effect.succeed({ originX, originY })
+  return Effect.fail(
+    new ValidationError({
+      message: signed
+        ? 'originX and originY must be integers'
+        : 'originX and originY must be non-negative integers',
+    }),
+  )
+}
+
+/**
+ * What a committed change means for everyone else, and therefore whom to tell:
+ * - `created`: manifests list a new template.
+ * - `pixels`: a new version changed the tiles it covers, so the status projection is repaired.
+ * - `publication`: it became visible or invisible (deletion included), so presence region hints
+ *   are re-sent as well.
+ * - `metadata`: names and folders, which leave tile coverage alone.
+ */
+type TemplateChange = 'created' | 'pixels' | 'publication' | 'metadata'
+
+const afterTemplateChange = (
+  template: { readonly season: number; readonly surface: TemplateSurface },
+  change: TemplateChange,
+) =>
   Effect.gen(function* () {
-    const presence = yield* PresenceService
-    yield* Effect.promise(() => presence.publishRegions(season, surface).catch(console.error))
+    const statusReadModel = yield* StatusReadModelService
+    if (change === 'pixels' || change === 'publication')
+      yield* Effect.promise(() =>
+        bestEffort(() => statusReadModel.applyCommittedChange(template.season)),
+      )
+    if (change === 'publication') {
+      // Presence carries region hints only for published templates; a failed send never undoes
+      // the change it follows.
+      const presence = yield* PresenceService
+      yield* Effect.promise(() =>
+        presence(template.season, template.surface).publishRegions().catch(console.error),
+      )
+    }
+    yield* Effect.promise(() =>
+      bestEffort(() =>
+        statusReadModel.notifyManifestChange(
+          template.season,
+          template.surface,
+          change !== 'metadata',
+        ),
+      ),
+    )
   })
-const INTEGER = /^(?:0|-?[1-9]\d*)$/
-
-const parseInteger = (value: unknown, signed: boolean): number | null => {
-  if (typeof value !== 'string' || !(signed ? INTEGER : WHOLE_NUMBER).test(value)) return null
-  const parsed = Number(value)
-  return Number.isSafeInteger(parsed) ? parsed : null
-}
-
-const templateFailure = (operation: string, cause: unknown): TemplateError => {
-  if (
-    cause instanceof PngError ||
-    cause instanceof SliceError ||
-    cause instanceof StoreTemplateError ||
-    cause instanceof NodeNotFoundError
-  ) {
-    return new RequestValidationError({ message: cause.message })
-  }
-  if (cause instanceof TemplateIdentityError) {
-    return new ResourceConflictError({ message: cause.message })
-  }
-  if (cause instanceof TemplateNotFoundError) {
-    return new ResourceNotFoundError({ message: 'not found' })
-  }
-  return new BackendStorageError({ operation, cause })
-}
 
 /** Dismiss only the episode the admin saw; future loss starts a fresh episode. */
 export const dismissTemplateAlarm = (templateId: string, alarmId: string) =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
-    const readModel = yield* StatusReadModelService
-    const template = yield* Effect.tryPromise({
-      try: () => sql.readTemplate(templateId),
-      catch: (cause) => templateFailure('readTemplate', cause),
-    })
-    if (template === null)
-      return yield* Effect.fail(new ResourceNotFoundError({ message: 'not found' }))
-    const dismissed = yield* Effect.tryPromise({
-      try: () => sql.dismissTemplateAlarm(templateId, alarmId, millis(Date.now())),
-      catch: (cause) => templateFailure('dismissTemplateAlarm', cause),
-    })
+    const template = yield* readExisting(templateId)
+    const dismissed = yield* storage('dismissTemplateAlarm', () =>
+      sql.dismissTemplateAlarm(templateId, alarmId, millis(Date.now())),
+    )
     if (!dismissed)
       return yield* Effect.fail(
-        new ResourceConflictError({
-          message: 'That grief alert has changed; refresh and try again.',
-        }),
+        new ConflictError({ message: 'That grief alert has changed; refresh and try again.' }),
       )
-    yield* Effect.promise(() => publishAlarmChange(readModel, template.season))
+    const readModel = yield* StatusReadModelService
+    yield* Effect.promise(() => bestEffort(() => readModel.notifyAlarmChange(template.season)))
     return { ok: true as const }
   })
 
 export interface CreateTemplateInput {
   readonly surface: TemplateSurface
-  readonly season?: number
+  /** Form text; required for a root template, and inherited from the folder otherwise. */
+  readonly season: unknown
   readonly nodeId: string | null
   readonly name: string
   readonly createdWithToken: string
-  readonly originX: number
-  readonly originY: number
+  readonly originX: unknown
+  readonly originY: unknown
   readonly png: Uint8Array
   readonly authoring?: TemplateAuthoringInput
 }
 
-export const createTemplate = (
-  input: CreateTemplateInput,
-): Effect.Effect<
-  StoredTemplate,
-  TemplateError,
-  BlobStoreService | SqlStoreService | StatusReadModelService
-> =>
+export const createTemplate = (input: CreateTemplateInput) =>
   Effect.gen(function* () {
     const blobs = yield* BlobStoreService
     const sql = yield* SqlStoreService
-    const statusReadModel = yield* StatusReadModelService
-    let season = input.season
-    if (season === undefined) {
-      if (input.nodeId === null) {
-        return yield* Effect.fail(
-          new RequestValidationError({
-            message: 'season must be a non-negative integer for a root template',
-          }),
-        )
-      }
-      const parent = yield* Effect.tryPromise({
-        try: () => sql.readNode(input.nodeId as string),
-        catch: (cause) => new BackendStorageError({ operation: 'readNode', cause }),
-      })
-      if (parent === null) {
-        return yield* Effect.fail(
-          new RequestValidationError({ message: `node does not exist: ${input.nodeId}` }),
-        )
-      }
-      season = parent.season
-    }
-
-    const stored = yield* Effect.tryPromise({
-      try: () =>
-        storeTemplate(blobs, sql, {
-          surface: input.surface,
-          season,
-          nodeId: input.nodeId,
-          name: input.name,
-          createdWithToken: input.createdWithToken,
-          createdByUserId: null,
-          originX: input.originX,
-          originY: input.originY,
-          png: input.png,
-          ...(input.authoring === undefined ? {} : { authoring: input.authoring }),
-        }),
-      catch: (cause) => templateFailure('storeTemplate', cause),
-    })
-    yield* Effect.promise(() => publishManifestChange(statusReadModel, season, input.surface))
+    const season = yield* templateSeason(input.season, input.nodeId)
+    const { originX, originY } = yield* parseOrigin(input.surface, input.originX, input.originY)
+    const stored = yield* fromPort('createTemplate', () =>
+      createStoredTemplate(blobs, sql, {
+        surface: input.surface,
+        season,
+        nodeId: input.nodeId,
+        name: input.name,
+        createdWithToken: input.createdWithToken,
+        // No wplace session on this route: an admin uploads with a token and nothing else.
+        createdByUserId: null,
+        originX,
+        originY,
+        png: input.png,
+        ...(input.authoring === undefined ? {} : { authoring: input.authoring }),
+      }),
+    )
+    yield* afterTemplateChange({ season, surface: input.surface }, 'created')
     return stored
   })
 
+/** A root template names its season; one in a folder takes the folder's. */
+const templateSeason = (raw: unknown, nodeId: string | null) =>
+  Effect.gen(function* () {
+    if (raw !== undefined) {
+      const season = parseWholeNumber(raw)
+      if (season !== null) return season
+      return yield* Effect.fail(
+        new ValidationError({ message: 'season must be a non-negative integer' }),
+      )
+    }
+    if (nodeId === null)
+      return yield* Effect.fail(
+        new ValidationError({
+          message: 'season must be a non-negative integer for a root template',
+        }),
+      )
+    const sql = yield* SqlStoreService
+    const parent = yield* storage('readNode', () => sql.readNode(nodeId))
+    if (parent === null)
+      return yield* Effect.fail(new ValidationError({ message: `node does not exist: ${nodeId}` }))
+    return parent.season
+  })
+
+/**
+ * Replace a template's pixels, keeping its identity. Origin is per version: moving a template on
+ * the canvas is a new slicing.
+ */
 export const replaceTemplateVersion = (input: {
   readonly templateId: string
   readonly createdWithToken: string
@@ -171,56 +192,24 @@ export const replaceTemplateVersion = (input: {
   readonly originY: unknown
   readonly png: Uint8Array
   readonly authoring?: TemplateAuthoringInput
-}): Effect.Effect<
-  StoredTemplate,
-  TemplateError,
-  BlobStoreService | SqlStoreService | StatusReadModelService
-> =>
+}) =>
   Effect.gen(function* () {
     const blobs = yield* BlobStoreService
     const sql = yield* SqlStoreService
-    const statusReadModel = yield* StatusReadModelService
-    const existing = yield* Effect.tryPromise({
-      try: () => sql.readTemplate(input.templateId),
-      catch: (cause) => new BackendStorageError({ operation: 'readTemplate', cause }),
-    })
-    if (existing === null) {
-      return yield* Effect.fail(new ResourceNotFoundError({ message: 'not found' }))
-    }
-    const signed = existing.surface.kind !== 'world'
-    const originX = parseInteger(input.originX, signed)
-    const originY = parseInteger(input.originY, signed)
-    if (originX === null || originY === null) {
-      return yield* Effect.fail(
-        new RequestValidationError({
-          message: signed
-            ? 'originX and originY must be integers'
-            : 'originX and originY must be non-negative integers',
-        }),
-      )
-    }
-
-    const stored = yield* Effect.tryPromise({
-      try: () =>
-        storeTemplate(blobs, sql, {
-          templateId: input.templateId,
-          surface: existing.surface,
-          season: existing.season,
-          nodeId: existing.nodeId,
-          name: existing.name,
-          createdWithToken: input.createdWithToken,
-          createdByUserId: null,
-          originX,
-          originY,
-          png: input.png,
-          ...(input.authoring === undefined ? {} : { authoring: input.authoring }),
-        }),
-      catch: (cause) => templateFailure('replaceTemplateVersion', cause),
-    })
-    yield* Effect.promise(() => repairCommittedStatusProjection(statusReadModel, existing.season))
-    yield* Effect.promise(() =>
-      publishManifestChange(statusReadModel, existing.season, existing.surface),
+    const existing = yield* readExisting(input.templateId)
+    const { originX, originY } = yield* parseOrigin(existing.surface, input.originX, input.originY)
+    const stored = yield* fromPort('replaceTemplateVersion', () =>
+      replaceStoredTemplate(blobs, sql, input.templateId, {
+        surface: existing.surface,
+        createdWithToken: input.createdWithToken,
+        createdByUserId: null,
+        originX,
+        originY,
+        png: input.png,
+        ...(input.authoring === undefined ? {} : { authoring: input.authoring }),
+      }),
     )
+    yield* afterTemplateChange(existing, 'pixels')
     return stored
   })
 
@@ -233,79 +222,40 @@ export interface PatchTemplateInput {
   readonly finished?: boolean
 }
 
-export const patchTemplate = (
-  input: PatchTemplateInput,
-): Effect.Effect<
-  Record<string, unknown>,
-  TemplateError,
-  SqlStoreService | StatusReadModelService | PresenceService
-> =>
+/**
+ * Rename, move, publish, freeze or finish a template. A finished template's timelapse is frozen:
+ * finishing freezes it, and thawing needs the template reopened first.
+ */
+export const patchTemplate = (input: PatchTemplateInput) =>
   Effect.gen(function* () {
+    if (input.finished === true && input.timelapseFrozen === false)
+      return yield* Effect.fail(
+        new ValidationError({ message: 'a finished template must keep its timelapse frozen' }),
+      )
     const sql = yield* SqlStoreService
-    const statusReadModel = yield* StatusReadModelService
-    const existing = yield* Effect.tryPromise({
-      try: () => sql.readTemplate(input.templateId),
-      catch: (cause) => new BackendStorageError({ operation: 'readTemplate', cause }),
-    })
-    if (existing === null) {
-      return yield* Effect.fail(new ResourceNotFoundError({ message: 'not found' }))
-    }
-    if (input.timelapseFrozen === false && input.finished !== false) {
-      if (existing.finished === true) {
-        return yield* Effect.fail(
-          new RequestValidationError({
-            message: 'reopen the template before thawing its timelapse',
-          }),
-        )
-      }
-    }
+    const existing = yield* readExisting(input.templateId)
+    const frozen = input.finished === true ? true : input.timelapseFrozen
+    if (frozen === false && input.finished !== false && existing.finished === true)
+      return yield* Effect.fail(
+        new ValidationError({ message: 'reopen the template before thawing its timelapse' }),
+      )
 
     const now = millis(Date.now())
     const patch: TemplatePatch = {
       ...(input.name === undefined ? {} : { name: input.name }),
       ...(input.nodeId === undefined ? {} : { nodeId: input.nodeId }),
       ...(input.published === undefined ? {} : { publishedAt: input.published ? now : null }),
-      ...(input.finished === true
-        ? { finishedAt: now, timelapseFrozenAt: now }
-        : {
-            ...(input.finished === false ? { finishedAt: null } : {}),
-            ...(input.timelapseFrozen === undefined
-              ? {}
-              : { timelapseFrozenAt: input.timelapseFrozen ? now : null }),
-          }),
+      ...(input.finished === undefined ? {} : { finishedAt: input.finished ? now : null }),
+      ...(frozen === undefined ? {} : { timelapseFrozenAt: frozen ? now : null }),
     }
-    const updated = yield* Effect.tryPromise({
-      try: () => sql.updateTemplate(input.templateId, patch, now),
-      catch: (cause): RequestValidationError | BackendStorageError =>
-        cause instanceof NodeNotFoundError || cause instanceof InvalidNodeParentError
-          ? new RequestValidationError({ message: cause.message })
-          : new BackendStorageError({ operation: 'updateTemplate', cause }),
-    })
-    if (!updated) {
-      const current = yield* Effect.tryPromise({
-        try: () => sql.readTemplate(input.templateId),
-        catch: (cause) => new BackendStorageError({ operation: 'readTemplate', cause }),
-      })
-      if (current === null) {
-        return yield* Effect.fail(new ResourceNotFoundError({ message: 'not found' }))
-      }
-      return yield* Effect.fail(
-        new ResourceConflictError({ message: 'template changed concurrently' }),
-      )
-    }
-
-    if (input.published !== undefined) {
-      yield* Effect.promise(() => repairCommittedStatusProjection(statusReadModel, existing.season))
-      yield* republishRegions(existing.season, existing.surface)
-    }
-    yield* Effect.promise(() =>
-      publishManifestChange(
-        statusReadModel,
-        existing.season,
-        existing.surface,
-        input.published !== undefined,
-      ),
+    // A folder the template moves into is input, so a missing one is a bad request.
+    const updated = yield* fromPort(
+      'updateTemplate',
+      () => sql.updateTemplate(input.templateId, patch, now),
+      { 'not-found': 'invalid' },
     )
+    if (!updated) return yield* lostRace(input.templateId)
+    yield* afterTemplateChange(existing, input.published === undefined ? 'metadata' : 'publication')
 
     return {
       id: input.templateId,
@@ -315,55 +265,45 @@ export const patchTemplate = (
       ...(input.finished === undefined
         ? {}
         : { finished: input.finished, finishedAt: input.finished ? now : null }),
-      ...(input.finished === true
-        ? { timelapseFrozen: true }
-        : input.timelapseFrozen === undefined
-          ? {}
-          : { timelapseFrozen: input.timelapseFrozen }),
+      ...(frozen === undefined ? {} : { timelapseFrozen: frozen }),
       updatedAt: now,
     }
   })
 
+/** Delete exactly the revision the caller confirmed; a newer one wins and the delete is refused. */
 export const deleteTemplate = (
   templateId: string,
   expected: { readonly versionId: string; readonly updatedAt: Millis },
-): Effect.Effect<
-  void,
-  ResourceNotFoundError | ResourceConflictError | BackendStorageError,
-  SqlStoreService | StatusReadModelService | PresenceService
-> =>
+) =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
-    const statusReadModel = yield* StatusReadModelService
-    const existing = yield* Effect.tryPromise({
-      try: () => sql.readTemplate(templateId),
-      catch: (cause) => new BackendStorageError({ operation: 'readTemplate', cause }),
-    })
-    if (existing === null) {
-      return yield* Effect.fail(new ResourceNotFoundError({ message: 'not found' }))
-    }
-    const deleted = yield* Effect.tryPromise({
-      try: () => sql.deleteTemplate(templateId, expected),
-      catch: (cause) => new BackendStorageError({ operation: 'deleteTemplate', cause }),
-    })
-    if (deleted) {
-      yield* Effect.promise(() => repairCommittedStatusProjection(statusReadModel, existing.season))
-      yield* republishRegions(existing.season, existing.surface)
-      yield* Effect.promise(() =>
-        publishManifestChange(statusReadModel, existing.season, existing.surface),
-      )
-      return
-    }
-    const current = yield* Effect.tryPromise({
-      try: () => sql.readTemplate(templateId),
-      catch: (cause) => new BackendStorageError({ operation: 'readTemplate', cause }),
-    })
-    if (current === null) {
-      return yield* Effect.fail(new ResourceNotFoundError({ message: 'not found' }))
-    }
-    return yield* Effect.fail(
-      new ResourceConflictError({ message: 'template changed concurrently' }),
-    )
+    const existing = yield* readExisting(templateId)
+    const deleted = yield* storage('deleteTemplate', () => sql.deleteTemplate(templateId, expected))
+    if (!deleted) return yield* lostRace(templateId)
+    yield* afterTemplateChange(existing, 'publication')
+  })
+
+/**
+ * The version a read names, or the template's current one, once the caller may see the template.
+ * An unpublished template answers as though it did not exist.
+ */
+export const readVisibleVersion = (
+  templateId: string,
+  versionId: string | undefined,
+  includeUnpublished: boolean,
+) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlStoreService
+    const template = yield* storage('readTemplate', () => sql.readTemplate(templateId))
+    if (template === null || (!includeUnpublished && !template.published))
+      return yield* Effect.fail(new NotFoundError({ message: 'Template not found.' }))
+    const version = versionId ?? template.currentVersionId
+    if (version === null || !isUuidV7(version))
+      return yield* Effect.fail(new ValidationError({ message: 'Invalid template version.' }))
+    const record = yield* storage('readTemplateVersion', () => sql.readTemplateVersion(version))
+    if (record?.templateId !== templateId)
+      return yield* Effect.fail(new NotFoundError({ message: 'Template version not found.' }))
+    return version
   })
 
 /**
@@ -373,19 +313,11 @@ export const deleteTemplate = (
 export const readTemplateRecipe = (versionId: string, includeUnpublished: boolean) =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
-    const version = yield* Effect.tryPromise({
-      try: () => sql.readTemplateVersion(versionId),
-      catch: (cause) => new BackendStorageError({ operation: 'readTemplateVersion', cause }),
-    })
-    if (version?.recipe === undefined)
-      return yield* Effect.fail(new ResourceNotFoundError({ message: 'not found' }))
+    const version = yield* storage('readTemplateVersion', () => sql.readTemplateVersion(versionId))
+    if (version?.recipe === undefined) return yield* notFound()
     if (!includeUnpublished) {
-      const template = yield* Effect.tryPromise({
-        try: () => sql.readTemplate(version.templateId),
-        catch: (cause) => new BackendStorageError({ operation: 'readTemplate', cause }),
-      })
-      if (template?.published !== true)
-        return yield* Effect.fail(new ResourceNotFoundError({ message: 'not found' }))
+      const template = yield* storage('readTemplate', () => sql.readTemplate(version.templateId))
+      if (template?.published !== true) return yield* notFound()
     }
     return { templateId: version.templateId, versionId, recipe: version.recipe }
   })
@@ -398,28 +330,18 @@ export const readBlob = (
   namespace: 'chunks' | 'sources' | 'tiles',
   hash: string,
   includeUnpublished: boolean,
-): Effect.Effect<
-  Uint8Array,
-  ResourceNotFoundError | BackendStorageError,
-  BlobStoreService | SqlStoreService
-> =>
+) =>
   Effect.gen(function* () {
     const blobs = yield* BlobStoreService
     const sql = yield* SqlStoreService
     if (namespace !== 'tiles' && !includeUnpublished) {
-      const published = yield* Effect.tryPromise({
-        try: () => sql.isPublishedArtwork(namespace, hash),
-        catch: (cause) => new BackendStorageError({ operation: 'isPublishedArtwork', cause }),
-      })
-      if (!published) return yield* Effect.fail(new ResourceNotFoundError({ message: 'not found' }))
+      const published = yield* storage('isPublishedArtwork', () =>
+        sql.isPublishedArtwork(namespace, hash),
+      )
+      if (!published) return yield* notFound()
     }
-    const bytes = yield* Effect.tryPromise({
-      try: () =>
-        namespace === 'tiles' ? readTileBlob({ blobs, sql }, hash) : blobs.get(namespace, hash),
-      catch: (cause) => new BackendStorageError({ operation: `read ${namespace} blob`, cause }),
-    })
-    if (bytes === null) {
-      return yield* Effect.fail(new ResourceNotFoundError({ message: 'not found' }))
-    }
-    return bytes
+    const bytes = yield* storage(`read ${namespace} blob`, () =>
+      namespace === 'tiles' ? readTileBlob({ blobs, sql }, hash) : blobs.get(namespace, hash),
+    )
+    return bytes ?? (yield* notFound())
   })

@@ -1,330 +1,291 @@
 import { mkdir } from 'node:fs/promises'
-import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
-import {
-  millis,
-  type TemplateSurface,
-  templateSurface,
-  templateSurfaceKey,
-  uuidV7,
-} from '@caelestis/shared'
+import { millis, type TemplateSurface, uuidV7 } from '@caelestis/shared'
 import type { ObjectStorage } from '@caelestis/storage'
-import { CoordinatedStatusReadModel } from '../adapters/coordinated-status-read-model.js'
 import { coordinatorDatabase } from '../adapters/node/coordinator-database.js'
 import { SqlCoordinatorStorage } from '../adapters/node/coordinator-storage.js'
 import { MariaConnection } from '../adapters/node/mariadb-connection.js'
 import { PostgresConnection } from '../adapters/node/postgres-connection.js'
-import type { SqliteConnection } from '../adapters/node/sqlite-connection.js'
+import { DurableScheduler } from '../adapters/node/scheduler.js'
 import { claimSqliteOwnership } from '../adapters/node/sqlite-ownership.js'
-import { ObjectBlobStore } from '../adapters/object-blob-store.js'
-import { RelationalSqlStore } from '../adapters/relational-sql-store.js'
-import { runAlarmWatcherCycle } from '../alarm-watcher-cycle.js'
-import { createApp } from '../app.js'
-import { closeProcessWrites, readArchiveOperation } from '../archive/gate.js'
-import { hashToken, mintToken } from '../auth/tokens.js'
-import { EralyonArchive } from '../backfill/eralyon.js'
-import { TemplateBackfill } from '../backfill/import.js'
-import { localBackfillClient } from '../backfill/port.js'
-import { DurableScheduler } from '../coordination/scheduler.js'
+import { closeProcessWrites } from '../archive/fence.js'
+import { readArchiveOperation } from '../archive/operation-row.js'
 import { TelemetryCoordinator } from '../coordination/telemetry.js'
-import { presenceRequest } from '../presence/port.js'
-import { PresenceCoordinator } from '../presence-coordinator.js'
-import { createBackendRuntime, makeBackendContext } from '../runtime/backend-runtime.js'
-import { StatusCoordinator } from '../status-coordinator.js'
+import { IngestTimings } from '../metrics/ingest-timing.js'
+import { PresenceCoordinator } from '../presence/coordinator.js'
+import { type PresenceRoomId, parsePresenceRoomName, presenceRoomName } from '../presence/port.js'
+import { serialQueue } from '../runtime/serial-queue.js'
+import { type BackfillHandle, openBackfill } from '../server/backfill.js'
+import { composeBackend } from '../server/compose.js'
+import { serverInfo } from '../server/info.js'
+import { JOB_NAMES, JOBS, type JobName } from '../server/jobs.js'
+import { portableStores } from '../server/stores.js'
+import { StatusCoordinator } from '../status-read-model/coordinator.js'
+import { statusShardName } from '../status-read-model/shard.js'
+import { runAlarmWatcherCycle, scheduleAlarmWakeup } from '../telemetry/alarm-watcher-cycle.js'
 import { derivedArtifactWriter } from '../telemetry/derived-artifact-writer.js'
-import { fetchCanvasTiles } from '../telemetry/fetcher.js'
-import { runTileBlobGc } from '../telemetry/tile-blobs.js'
 import { AdmissionCounters, EventLoopLag, snapshotCapacity } from './capacity.js'
 import type { NodeConfig } from './config.js'
 import { sqliteConnection } from './database.js'
 import { NodeLiveHost } from './live.js'
+import { provisionReadToken } from './read-token.js'
 
 const DERIVED_ARTIFACT_DRAIN_TIMEOUT_MS = 10_000
 
-// `../../package.json` resolves to apps/backend/package.json from both `src/node/` and `dist/node/`.
-const backendVersion = (
-  createRequire(import.meta.url)('../../package.json') as { version?: string }
-).version
-const backendBuild = process.env.CAELESTIS_BUILD_ID?.slice(0, 12) || 'development'
+/** Who owns a row of durable state and its wakeup. The names are stored, so they must not change. */
+type Actor =
+  | { readonly kind: 'server' }
+  | { readonly kind: 'season'; readonly season: number }
+  | Woken
 
-const MIRROR_INTERVAL_MS = 6 * 60 * 60 * 1000
-const SOCIAL_INTERVAL_MS = 24 * 60 * 60 * 1000
+/** The actors that set wakeups, which the scheduler hands back by name. */
+type Woken =
+  | { readonly kind: 'telemetry' | 'alarms' }
+  | { readonly kind: 'job'; readonly name: JobName }
+  | ({ readonly kind: 'presence' } & PresenceRoomId)
+  | { readonly kind: 'backfill'; readonly name: string }
+
+const actorName = (actor: Actor): string => {
+  switch (actor.kind) {
+    case 'job':
+      return actor.name
+    case 'season':
+      return statusShardName(actor.season)
+    case 'presence':
+      return `presence:${presenceRoomName(actor.season, actor.surface)}`
+    case 'backfill':
+      return `backfill:${actor.name}`
+    default:
+      return actor.kind
+  }
+}
+
+/** The actor a stored wakeup belongs to, or null when no actor that sets wakeups has the name. */
+const parseWoken = (name: string): Woken | null => {
+  if (name === 'telemetry' || name === 'alarms') return { kind: name }
+  const job = JOB_NAMES.find((candidate) => candidate === name)
+  if (job !== undefined) return { kind: 'job', name: job }
+  const separator = name.indexOf(':')
+  const kind = name.slice(0, separator)
+  const rest = name.slice(separator + 1)
+  if (kind === 'backfill') return { kind, name: rest }
+  if (kind !== 'presence') return null
+  const room = parsePresenceRoomName(rest)
+  return room === null ? null : { kind, ...room }
+}
+
+/**
+ * The configured database, the migrations that shape it, and how a shared server claims it. A
+ * SQLite file is claimed before it opens.
+ */
+const openConnection = (config: NodeConfig) => {
+  switch (config.adapter) {
+    case 'mariadb': {
+      const connection = new MariaConnection(config.maria)
+      return {
+        connection,
+        migrations: 'migrations-mariadb',
+        claim: (lost: (error: Error) => void) => connection.claimOwnership(lost),
+      }
+    }
+    case 'postgres': {
+      const connection = new PostgresConnection(config.pg)
+      return {
+        connection,
+        migrations: 'migrations-postgres',
+        claim: (lost: (error: Error) => void) => connection.claimOwnership(lost),
+      }
+    }
+    default:
+      return { connection: sqliteConnection(config.databaseFile), migrations: 'migrations' }
+  }
+}
+
+/** Values built on first use, one per key. */
+const lazily = <Key, Value>(id: (key: Key) => string | number, make: (key: Key) => Value) => {
+  const held = new Map<string | number, Value>()
+  return {
+    get: (key: Key): Value => {
+      const name = id(key)
+      const existing = held.get(name)
+      if (existing !== undefined) return existing
+      const created = make(key)
+      held.set(name, created)
+      return created
+    },
+    entries: () => held.entries(),
+  }
+}
+
+type LiveCoordinator = ReturnType<ConstructorParameters<typeof NodeLiveHost>[1]>
+
+/** A live coordinator and the host whose sockets it serves; each needs the other. */
+const liveActor = <Coordinator extends LiveCoordinator>(
+  storage: SqlCoordinatorStorage,
+  make: (host: NodeLiveHost) => Coordinator,
+) => {
+  const host: NodeLiveHost = new NodeLiveHost(storage, () => coordinator)
+  const coordinator = make(host)
+  return { host, coordinator }
+}
 
 /** Open one owned runtime. HTTP starts only after migrations and durable state recover. */
 export const openNodeRuntime = async (
   config: NodeConfig,
   objects: ObjectStorage,
-  options: { onOwnershipLost: (error: Error) => void; refreshSocial?: () => Promise<void> },
+  options: {
+    onOwnershipLost: (error: Error) => void
+    /** Render the share images through this server's API at `api`, read with its frontend token. */
+    refreshSocial?: (api: string, readToken: string) => Promise<void>
+  },
 ) => {
   let releaseSqlite: (() => void) | undefined
   if (config.adapter === 'sqlite') {
     await mkdir(dirname(config.databaseFile), { recursive: true, mode: 0o700 })
     releaseSqlite = claimSqliteOwnership(config.databaseFile)
   }
-  let connection: PostgresConnection | SqliteConnection | MariaConnection
+  let opened: ReturnType<typeof openConnection>
   try {
-    connection =
-      config.adapter === 'mariadb'
-        ? new MariaConnection(config.maria)
-        : config.adapter === 'postgres'
-          ? new PostgresConnection(config.pg)
-          : sqliteConnection(config.databaseFile)
+    opened = openConnection(config)
   } catch (error) {
     releaseSqlite?.()
     throw error
   }
+  const { connection } = opened
   try {
-    if (connection instanceof PostgresConnection || connection instanceof MariaConnection)
-      await connection.claimOwnership(options.onOwnershipLost)
-    await connection.migrate(
-      join(
-        import.meta.dirname,
-        connection instanceof MariaConnection
-          ? '../../migrations-mariadb'
-          : connection instanceof PostgresConnection
-            ? '../../migrations-postgres'
-            : '../../migrations',
-      ),
-    )
+    if ('claim' in opened) await opened.claim(options.onOwnershipLost)
+    await connection.migrate(join(import.meta.dirname, '../..', opened.migrations))
     // A restart during an archive operation must not reopen writes the operation closed.
     const held = await readArchiveOperation(connection)
     if (held !== null) await closeProcessWrites(connection, held.operationId)
     const database = coordinatorDatabase(connection)
     await SqlCoordinatorStorage.initialize(database)
-    const state = (actor: string) => new SqlCoordinatorStorage(database, actor)
-    const serverState = state('server')
+    const state = (actor: Actor) => new SqlCoordinatorStorage(database, actorName(actor))
+    const serverState = state({ kind: 'server' })
     const serverId = config.serverId ?? (await serverState.get<string>('id')) ?? uuidV7()
     await serverState.put('id', serverId)
-    const sql = new RelationalSqlStore(connection)
-    const blobs = new ObjectBlobStore(objects)
-    const counterState = state('telemetry')
-    const counters = new TelemetryCoordinator(database, counterState, sql)
+    const alarmState = state({ kind: 'alarms' })
+
+    const stores = portableStores(connection, objects)
+    const { sql, blobs } = stores
+    const server = serverInfo(config, serverId)
+    const counters = new TelemetryCoordinator(database, state({ kind: 'telemetry' }), sql)
     await counters.initialize()
-    const storedReadToken = await serverState.get<string>('frontend-token')
-    let readToken = config.readToken ?? storedReadToken
-    if (
-      !storedReadToken &&
-      (!readToken || !(await sql.readAccessToken(await hashToken(readToken))))
-    ) {
-      readToken ??= mintToken()
-      const tokenHash = await hashToken(readToken)
-      const generated = readToken
-      await connection.transaction(async (transaction) => {
-        await new RelationalSqlStore(transaction).insertAccessToken({
-          tokenHash,
-          label: 'Built-in frontend',
-          scope: 'read',
-          createdWithToken: tokenHash,
-          createdAt: millis(Date.now()),
-        })
-        await transaction
-          .prepare('INSERT INTO runtime_values (actor, key, value) VALUES (?, ?, ?)')
-          .bind('server', 'frontend-token', JSON.stringify(generated))
-          .run()
-      })
-    }
-    if (!readToken) throw new Error('Missing frontend read token')
-    const token = await sql.readAccessToken(await hashToken(readToken))
-    if (token?.scope !== 'read')
-      throw new Error(
-        'CAELESTIS_READ_TOKEN must identify an active read-only token; the stored frontend token may have been revoked',
-      )
-    if (!storedReadToken) await serverState.put('frontend-token', readToken)
-    const alarmState = state('alarms')
-    const scheduleAlarms = async () => {
-      const due = await sql.nextAlarmProbeAt()
-      if (due !== null) await alarmState.setAlarm(due)
-    }
-    const seasons = new Map<
-      number,
-      {
-        coordinator: StatusCoordinator<ReturnType<NodeLiveHost['connect']>['client']>
-        host: NodeLiveHost
-      }
-    >()
-    const rooms = new Map<
-      string,
-      {
-        season: number
-        coordinator: PresenceCoordinator<ReturnType<NodeLiveHost['connect']>['client']>
-        host: NodeLiveHost
-      }
-    >()
-    const presenceRoom = (season: number, surface: TemplateSurface) => {
-      const key = `${season}:${templateSurfaceKey(surface)}`
-      const existing = rooms.get(key)
-      if (existing) return existing.coordinator
-      const host: NodeLiveHost = new NodeLiveHost(state(`presence:${key}`), () => coordinator)
-      const coordinator = new PresenceCoordinator(host, sql)
-      rooms.set(key, { season, coordinator, host })
-      return coordinator
-    }
-    const status = new CoordinatedStatusReadModel((season) => {
-      const existing = seasons.get(season)
-      if (existing) return existing.coordinator
-      const host: NodeLiveHost = new NodeLiveHost(state(`season:${season}`), () => coordinator)
-      const coordinator = new StatusCoordinator(
-        host,
-        sql,
-        blobs,
-        () => counters,
-        {
-          id: serverId,
-          name: config.serverName,
-          auth: config.openAccess ? 'none' : 'access_token',
-          ...(config.serverDescription === undefined
-            ? {}
-            : { description: config.serverDescription }),
-        },
-        scheduleAlarms,
-        (season, tokenHash, surface) => presenceRoom(season, surface).closeCredential(tokenHash),
-        undefined,
-        { liveSubscribers: config.liveSubscriberLimit },
-      )
-      seasons.set(season, { coordinator, host })
-      return coordinator
-    }, scheduleAlarms)
-    const stores = { sql, blobs, counters, statusReadModel: status }
-    const context = makeBackendContext(blobs, sql, counters, status, {
-      publishRegions: (season, surface) =>
-        presenceRoom(season, surface).publishRegions(season, surface),
-    })
-    const backendRuntime = createBackendRuntime(context)
-    interface HeldImport {
-      importer: TemplateBackfill
-      exclusive<T>(operation: () => Promise<T>): Promise<T>
-    }
-    const imports = new Map<string, HeldImport>()
-    const importer = (id: string): HeldImport => {
-      const existing = imports.get(id)
-      if (existing) return existing
-      let tail: Promise<unknown> = Promise.resolve()
-      const created: HeldImport = {
-        importer: new TemplateBackfill(
-          state(`backfill:${id}`),
-          sql,
-          blobs,
-          new EralyonArchive(),
-          Date.now,
-          (templateId) => {
-            const template = importer(templateId)
-            return {
-              get: <T>(key: string) =>
-                template.exclusive(() => template.importer.readState<T>(key)),
-              put: (entries) => template.exclusive(() => template.importer.importState(entries)),
-            }
-          },
+    const readToken = await provisionReadToken(connection, sql, serverState, config.readToken)
+    const scheduleAlarms = () => scheduleAlarmWakeup(sql, alarmState)
+    const shards = lazily(
+      (season: number) => season,
+      (season) =>
+        liveActor(
+          state({ kind: 'season', season }),
+          (host) =>
+            new StatusCoordinator(
+              host,
+              season,
+              sql,
+              blobs,
+              () => counters,
+              server,
+              scheduleAlarms,
+              (tokenHash, surface): Promise<void> =>
+                rooms.get({ season, surface }).coordinator.closeCredential(tokenHash),
+              undefined,
+              { liveSubscribers: config.liveSubscriberLimit },
+            ),
         ),
-        exclusive<T>(operation: () => Promise<T>): Promise<T> {
-          const running = tail.then(operation, operation)
-          tail = running.then(
-            () => undefined,
-            () => undefined,
-          )
-          return running
-        },
-      }
-      imports.set(id, created)
-      return created
-    }
-    const app = createApp(context, {
-      archive: {
+    )
+    const rooms = lazily(
+      (room: PresenceRoomId) => presenceRoomName(room.season, room.surface),
+      (room) => ({
+        season: room.season,
+        ...liveActor(
+          state({ kind: 'presence', ...room }),
+          (host) =>
+            // Each room keeps its own timings, as a Durable Object's isolate does.
+            new PresenceCoordinator(
+              host,
+              room,
+              sql,
+              new IngestTimings(),
+              (tokenHash): Promise<void> =>
+                shards
+                  .get(room.season)
+                  .coordinator.registerPresenceSurface(tokenHash, room.surface),
+            ),
+        ),
+      }),
+    )
+    const backfills = lazily(
+      (name: string) => name,
+      (name): BackfillHandle =>
+        openBackfill(state({ kind: 'backfill', name }), stores, serialQueue(), backfills.get),
+    )
+    const backend = composeBackend(
+      {
         connection,
         objects,
-        counters,
-        backfill: (id) => {
-          const held = importer(id)
-          return {
-            // A step admitted before the gate finishes before its state is read.
-            exportState: (startAfter, limit) =>
-              held.exclusive(() => held.importer.exportState(startAfter, limit)),
-            importState: (page) => held.exclusive(() => held.importer.importState(page)),
-            discardState: (limit) => held.exclusive(() => held.importer.discardState(limit)),
-          }
-        },
+        stores,
         serverId,
-        activated: scheduleAlarms,
-        settleMilliseconds: config.archiveSettleMilliseconds,
+        counters,
+        statusShard: (season) => shards.get(season).coordinator,
+        connectLive: async (live) =>
+          (await shards.get(live.season).coordinator.connect(live)).response,
+        presenceRoom: (season: number, surface: TemplateSurface) =>
+          rooms.get({ season, surface }).coordinator,
+        backfill: backfills.get,
+        scheduleAlarms,
       },
-      bootstrapAdminToken: config.adminToken,
-      currentSeason: config.season,
-      openAccess: config.openAccess,
-      serverId,
-      serverName: config.serverName,
-      serverDescription: config.serverDescription,
-      version: backendVersion,
-      build: backendBuild,
-      connectStatusLive: (request, connection) => status.connectLive(request, connection),
-      presenceOnline: (season, surface) => presenceRoom(season, surface).online(),
-      connectPresence: async (request, connection) => {
-        if (connection.revocable)
-          await status.registerPresenceSurface(
-            connection.season,
-            connection.tokenHash,
-            connection.surface,
-          )
-        return presenceRoom(connection.season, connection.surface).fetch(
-          presenceRequest(request, connection),
-        )
-      },
-      backfillClients: (id) => {
-        const held = importer(id)
-        return localBackfillClient(held.importer, held.exclusive)
-      },
-    })
-    const scheduler = new DurableScheduler(database, async (actor) => {
-      if (actor === 'telemetry') return counters.alarm()
-      if (actor.startsWith('presence:')) {
-        const [season, kind, alliance] = actor.slice('presence:'.length).split(':')
-        const surface = templateSurface(kind, alliance === undefined ? null : Number(alliance))
-        if (surface === null) throw new Error(`Invalid presence room: ${actor}`)
-        return presenceRoom(Number(season), surface).alarm()
-      }
-      if (actor === 'alarms')
-        return runAlarmWatcherCycle(
-          backendRuntime,
-          { setAlarm: (time) => alarmState.setAlarm(time instanceof Date ? time.getTime() : time) },
-          millis(Date.now()),
-        )
-      if (actor.startsWith('backfill:')) {
-        const held = importer(actor.slice('backfill:'.length))
-        return held.exclusive(() => held.importer.step())
-      }
-      if (actor === 'mirror') {
-        try {
-          await fetchCanvasTiles(stores, { season: config.season })
-        } finally {
-          await scheduleAlarms()
+      config,
+    )
+
+    const { refreshSocial } = options
+    // Set by `start`, which runs jobs only once the listener has bound its port; `PORT=0` binds
+    // one the config does not know.
+    let api: string | undefined
+    const jobs: Partial<Record<JobName, () => Promise<void>>> = {
+      ...backend.jobs,
+      ...(refreshSocial
+        ? {
+            social: () =>
+              api === undefined
+                ? Promise.reject(new Error('Share images render through a listening server'))
+                : refreshSocial(api, readToken),
+          }
+        : {}),
+    }
+    const wake = async (name: string): Promise<void> => {
+      const actor = parseWoken(name)
+      switch (actor?.kind) {
+        case 'telemetry':
+          return counters.alarm()
+        case 'alarms':
+          return runAlarmWatcherCycle(backend.stores, alarmState, millis(Date.now()))
+        case 'presence':
+          return rooms.get(actor).coordinator.alarm()
+        case 'backfill':
+          return backfills.get(actor.name).step()
+        case 'job': {
+          const job = jobs[actor.name]
+          if (job === undefined) break
+          await job()
+          return state(actor).setAlarm(Date.now() + JOBS[actor.name].every)
         }
-        await state(actor).setAlarm(Date.now() + MIRROR_INTERVAL_MS)
-        return
       }
-      if (actor === 'gc') {
-        await sql.regions.expireRegions(Date.now())
-        await runTileBlobGc(stores, { mode: config.tileGc })
-        await state(actor).setAlarm(Date.now() + MIRROR_INTERVAL_MS)
-        return
-      }
-      if (actor === 'social' && options.refreshSocial) {
-        await options.refreshSocial()
-        await state(actor).setAlarm(Date.now() + SOCIAL_INTERVAL_MS)
-        return
-      }
-      throw new Error(`Unknown durable job: ${actor}`)
-    })
+      // Retrying a wakeup nothing handles, such as a job this process no longer runs, could
+      // never succeed. Returning lets the scheduler delete it.
+      console.warn(`Dropped a durable wakeup nothing handles: ${name}`)
+    }
+    const scheduler = new DurableScheduler(database, wake)
     await scheduleAlarms()
-    for (const [actor, interval] of [
-      ['mirror', MIRROR_INTERVAL_MS],
-      ['gc', MIRROR_INTERVAL_MS],
-      ...(options.refreshSocial ? [['social', SOCIAL_INTERVAL_MS] as const] : []),
-    ] as const) {
-      const job = state(actor)
-      if ((await job.getAlarm()) === null) await job.setAlarm(Date.now() + interval)
+    for (const name of JOB_NAMES) {
+      if (jobs[name] === undefined) continue
+      const job = state({ kind: 'job', name })
+      if ((await job.getAlarm()) === null) await job.setAlarm(Date.now() + JOBS[name].every)
     }
     const eventLoopLag = new EventLoopLag()
     let closed = false
     return {
-      app,
+      app: backend.app,
       sql,
       counters,
       scheduler,
@@ -332,33 +293,42 @@ export const openNodeRuntime = async (
       readToken,
       serverId,
       connection,
-      /** Pod-local capacity for `/metrics`; one process is one shard in the sharding roadmap. */
+      /** Run durable jobs, now that the listener has bound `port`. */
+      start(port: number) {
+        api = `http://127.0.0.1:${port}${config.basePath}/v1/`
+        scheduler.start()
+      },
       capacity: {
         admissions: new AdmissionCounters(),
         eventLoopLag,
         snapshot: () =>
-          snapshotCapacity([
-            ...[...seasons].map(([season, { host }]) => ({
-              kind: 'live-sync' as const,
-              key: String(season),
-              host,
-            })),
-            // Rooms are keyed by caller-chosen surfaces, so they aggregate per season to keep the
-            // metric label domain bounded.
-            ...[...rooms.values()].map(({ season, host }) => ({
-              kind: 'presence' as const,
-              key: String(season),
-              host,
-            })),
-          ]),
+          snapshotCapacity(
+            [
+              ...[...shards.entries()].map(([season, { host, coordinator }]) => ({
+                kind: 'live-sync' as const,
+                key: String(season),
+                occupants: coordinator.occupants(),
+                pendingWork: host.pendingWork,
+              })),
+              // Rooms are keyed by caller-chosen surfaces, so they aggregate per season to keep
+              // the metric label domain bounded.
+              ...[...rooms.entries()].map(([, { season, host, coordinator }]) => ({
+                kind: 'presence' as const,
+                key: String(season),
+                occupants: coordinator.occupants(),
+                pendingWork: host.pendingWork,
+              })),
+            ],
+            config.liveSubscriberLimit,
+          ),
       },
       async close() {
         if (closed) return
         closed = true
         eventLoopLag.stop()
         await scheduler.stop()
-        for (const { host } of seasons.values()) await host.close()
-        for (const { coordinator, host } of rooms.values()) {
+        for (const [, { host }] of shards.entries()) await host.close()
+        for (const [, { coordinator, host }] of rooms.entries()) {
           await host.close()
           coordinator.stop()
         }
@@ -379,3 +349,5 @@ export const openNodeRuntime = async (
     throw error
   }
 }
+
+export type NodeRuntime = Awaited<ReturnType<typeof openNodeRuntime>>

@@ -29,3 +29,6 @@ export interface CoordinatorTransaction extends AlarmStorage {
 export interface CoordinatorStorage extends CoordinatorTransaction {
   transaction<T>(operation: (storage: CoordinatorTransaction) => Promise<T>): Promise<T>
 }
+
+/** Durable Object storage deletes at most this many keys per call. */
+export const STORAGE_DELETE_BATCH = 128

@@ -1,7 +1,7 @@
 import { drizzle, type SqliteRemoteResult } from 'drizzle-orm/sqlite-proxy'
 import type { SqlConnection } from './sql-connection.js'
 
-/** Share query construction and row decoding across relational adapters. */
+/** Drizzle over any `SqlConnection`. A `run` answers its changed-row count as its one row. */
 export const relationalDatabase = (connection: SqlConnection) =>
   drizzle(
     async (query, parameters, method) => {
@@ -23,6 +23,6 @@ export const relationalDatabase = (connection: SqlConnection) =>
     },
   )
 
-/** The SQL execution callback returns the affected-row count for mutation queries. */
+/** The rows a `run` changed, read from the row `relationalDatabase` answers with. */
 export const changedRows = (result: SqliteRemoteResult | undefined): number =>
   Number(result?.rows?.[0] ?? 0)

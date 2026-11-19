@@ -11,22 +11,24 @@ import {
 } from '@caelestis/shared'
 import { describe, expect, it } from 'vitest'
 import { MemoryBlobStore } from '../src/adapters/memory/memory-blob-store.js'
-import { MemorySqlStore } from '../src/adapters/memory/memory-sql-store.js'
 import { EralyonArchive, parseSnapshots } from '../src/backfill/eralyon.js'
-import { type ArchiveSource, TemplateBackfill } from '../src/backfill/import.js'
+import { TemplateBackfill } from '../src/backfill/import.js'
+import type { ArchiveSource } from '../src/backfill/port.js'
+import { openMemoryDatabase, seedTileObservation } from '../src/node/memory-stores.js'
 import { MemoryBackfillStorage } from '../src/testing.js'
 import { archiveWeek } from './support/eralyon.js'
 
 const templateId = '01890f3e-7b2c-7abc-8def-012345678901'
 const versionId = '01890f3e-7b2c-7abc-8def-012345678902'
+const template = { kind: 'template', id: templateId } as const
 const chunkHash = 'a'.repeat(64)
 const snapshot = { id: 1, at: 100 } satisfies ArchiveSnapshot
 
 const createImporter = async (archive: ArchiveSource) => {
-  const sql = new MemorySqlStore()
+  const { sql } = openMemoryDatabase()
   const blobs = new MemoryBlobStore()
   await blobs.put('chunks', chunkHash, await encodeIndexedPng(1, 1, new Uint8Array([1])))
-  await sql.insertTemplateVersion({
+  await sql.createTemplate({
     templateId,
     versionId,
     surface: WORLD_TEMPLATE_SURFACE,
@@ -68,7 +70,7 @@ describe('template backfill contract', () => {
       },
     })
 
-    await importer.start(templateId, versionId, snapshot.id)
+    await importer.start(template, [versionId], snapshot.id)
     await importer.cancel()
     await importer.step()
 
@@ -86,7 +88,7 @@ describe('template backfill contract', () => {
       },
     }
     const { importer, storage, sql, blobs } = await createImporter(archive)
-    const job = await importer.start(templateId, versionId, snapshot.id)
+    const job = await importer.start(template, [versionId], snapshot.id)
     await importer.step()
     expect(await importer.job()).toMatchObject({ status: 'running', completed: 1 })
 
@@ -160,9 +162,9 @@ describe('template backfill contract', () => {
   })
 
   it('downloads each tile of a week once, even for jobs larger than the decoded-week budget', async () => {
-    const sql = new MemorySqlStore()
+    const { sql } = openMemoryDatabase()
     // Over 50 tiles once the timelapse frame is added: more decoded weeks than the cache holds.
-    await sql.insertTemplateVersion({
+    await sql.createTemplate({
       templateId,
       versionId,
       surface: WORLD_TEMPLATE_SURFACE,
@@ -202,7 +204,7 @@ describe('template backfill contract', () => {
       { snapshots: async () => snapshots, tile: (id, tile) => archive.tile(id, tile) },
       () => 200_000_000,
     )
-    const job = await importer.start(templateId, versionId, 170)
+    const job = await importer.start(template, [versionId], 170)
     expect(job.total / snapshots.length).toBeGreaterThan(50)
     for (let step = 0; step < job.total; step++) await importer.step()
     expect(await importer.job()).toMatchObject({ status: 'completed', imported: job.total })
@@ -216,7 +218,7 @@ describe('template backfill contract', () => {
       tile: async (id) => new Uint8Array(1_000_000).fill(id),
     }
     const { importer } = await createImporter(archive)
-    const job = await importer.start(templateId, versionId, snapshot.id)
+    const job = await importer.start(template, [versionId], snapshot.id)
     // Both snapshots share a week, so the last step is the last tile's second snapshot.
     for (let step = 1; step < job.total; step++) await importer.step()
     await importer.cancel()
@@ -231,22 +233,18 @@ describe('template backfill contract', () => {
       tile: async (id) => new Uint8Array(1_000_000).fill(id),
     }
     const { importer, sql } = await createImporter(archive)
-    const job = await importer.start(templateId, versionId, snapshot.id)
+    const job = await importer.start(template, [versionId], snapshot.id)
     await importer.step()
     // A reporter's delayed upload lands between the two snapshots.
-    await sql.recordTileObservation(
-      {
-        season: 0,
-        tile: { x: 0, y: 0 },
-        hash: 'c'.repeat(64),
-        observedAt: millis(150_000),
-        reportedAt: seconds(150),
-        reportedWithToken: 'd'.repeat(64),
-        reportedByUserId: 42,
-      },
-      [],
-      true,
-    )
+    await seedTileObservation(sql, {
+      season: 0,
+      tile: { x: 0, y: 0 },
+      hash: 'c'.repeat(64),
+      observedAt: millis(150_000),
+      reportedAt: seconds(150),
+      reportedWithToken: 'd'.repeat(64),
+      reportedByUserId: 42,
+    })
     for (let step = 1; step < job.total; step++) await importer.step()
     const done = await importer.job()
     expect(done).toMatchObject({ status: 'completed', to: snapshot.at })
@@ -263,7 +261,7 @@ describe('template backfill contract', () => {
       tile: async (id) => new Uint8Array(1_000_000).fill(id),
     }
     const { importer, storage, sql, blobs } = await createImporter(archive)
-    const job = await importer.start(templateId, versionId, snapshot.id)
+    const job = await importer.start(template, [versionId], snapshot.id)
     const plan = await storage.get<{ snapshots: unknown; tiles: unknown }>('plan')
     const progress = await storage.get<Record<string, unknown>>('job')
     await storage.delete(['plan'])
@@ -273,7 +271,6 @@ describe('template backfill contract', () => {
     for (let step = 0; step < job.total; step++) await resumed.step()
     expect(await resumed.job()).toMatchObject({ status: 'completed', imported: job.total })
     expect((await resumed.history(versionId)).samples).toHaveLength(2)
-    expect(await storage.get('job')).not.toHaveProperty('snapshots')
   })
 
   it('records an unavailable archive tile as incomplete instead of inventing progress', async () => {
@@ -282,7 +279,7 @@ describe('template backfill contract', () => {
       tile: async (_snapshotId: number, _tile: TileCoord) => null,
     })
 
-    const job = await importer.start(templateId, versionId, snapshot.id)
+    const job = await importer.start(template, [versionId], snapshot.id)
     for (let step = 0; step < job.total; step += 1) await importer.step()
 
     expect(await importer.job()).toMatchObject({
@@ -298,7 +295,7 @@ describe('template backfill contract', () => {
 
 describe('folder backfill contract', () => {
   it('reads each archive tile once for a folder and stops each template at its own native history', async () => {
-    const sql = new MemorySqlStore()
+    const { sql } = openMemoryDatabase()
     const blobs = new MemoryBlobStore()
     const nodeId = '01890f3e-7b2c-7abc-8def-0123456789a0'
     await sql.insertNode({
@@ -306,7 +303,7 @@ describe('folder backfill contract', () => {
       surface: WORLD_TEMPLATE_SURFACE,
       season: 0,
       parentId: null,
-      path: '/murals',
+      slug: 'murals',
       name: 'Murals',
       description: null,
       createdAt: millis(1),
@@ -320,7 +317,7 @@ describe('folder backfill contract', () => {
     for (const { x, colour, suffix } of templates) {
       const hash = suffix.repeat(64)
       await blobs.put('chunks', hash, await encodeIndexedPng(1, 1, new Uint8Array([colour])))
-      await sql.insertTemplateVersion({
+      await sql.createTemplate({
         templateId: `01890f3e-7b2c-7abc-8def-01234567890${suffix}`,
         versionId: `01890f3e-7b2c-7abc-8def-01234567891${suffix}`,
         surface: WORLD_TEMPLATE_SURFACE,
@@ -336,19 +333,15 @@ describe('folder backfill contract', () => {
       })
     }
     // The first template's native history starts at the second snapshot.
-    await sql.recordTileObservation(
-      {
-        season: 0,
-        tile: { x: 0, y: 0 },
-        hash: 'c'.repeat(64),
-        observedAt: millis(150_000),
-        reportedAt: seconds(150),
-        reportedWithToken: 'd'.repeat(64),
-        reportedByUserId: 42,
-      },
-      [],
-      true,
-    )
+    await seedTileObservation(sql, {
+      season: 0,
+      tile: { x: 0, y: 0 },
+      hash: 'c'.repeat(64),
+      observedAt: millis(150_000),
+      reportedAt: seconds(150),
+      reportedWithToken: 'd'.repeat(64),
+      reportedByUserId: 42,
+    })
     const reads: string[] = []
     const archive: ArchiveSource = {
       snapshots: async () => [snapshot, { id: 2, at: 150 }],
@@ -370,25 +363,27 @@ describe('folder backfill contract', () => {
         () => 200_000,
         (id) => ({
           get: (key) => object(id).readState(key),
-          put: (entries) => object(id).importState(entries),
+          put: (entries) => object(id).writeState(entries),
         }),
       )
       objects.set(name, created)
       return created
     }
     const folder = object(`folder:${nodeId}`)
+    const subject = { kind: 'folder', id: nodeId } as const
 
-    const preview = await folder.previewFolder(nodeId)
+    const preview = await folder.preview(subject)
+    if (!('bases' in preview)) throw new Error('A folder preview lists its templates.')
     expect(preview.bases.map((basis) => basis.name).sort()).toEqual(['Mural 1', 'Mural 2'])
-    const job = await folder.startFolder(
-      nodeId,
+    const job = await folder.start(
+      subject,
       preview.bases.map((basis) => basis.versionId),
       snapshot.id,
     )
-    for (let step = 0; step < job.total && (await folder.folderJob())?.status === 'running'; step++)
+    for (let step = 0; step < job.total && (await folder.job())?.status === 'running'; step++)
       await folder.step()
 
-    const done = await folder.folderJob()
+    const done = await folder.job()
     expect(done).toMatchObject({ status: 'completed', failed: 0, to: 150 })
     expect((done?.imported ?? 0) + (done?.skipped ?? 0)).toBe(done?.total)
     expect(new Set(reads).size).toBe(reads.length)

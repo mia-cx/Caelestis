@@ -1,9 +1,9 @@
 import { seconds } from '@caelestis/shared'
 import { describe, expect, it, vi } from 'vitest'
-import type { SqlStore } from '../ports/index.js'
 import { foldTileHistoryThrottled } from './history-fold-throttle.js'
+import type { TileStore } from './tiles/store.js'
 
-const store = () => ({ foldTileHistory: vi.fn(async () => undefined) }) as unknown as SqlStore
+const store = () => ({ foldTileHistory: vi.fn(async () => undefined) }) as unknown as TileStore
 
 describe('history fold throttle', () => {
   it('folds a tile on its first observation and then at most once per interval', async () => {
@@ -28,7 +28,7 @@ describe('history fold throttle', () => {
     const gate = new Promise<void>((resolve) => {
       release = resolve
     })
-    const sql = { foldTileHistory: vi.fn(() => gate) } as unknown as SqlStore
+    const sql = { foldTileHistory: vi.fn(() => gate) } as unknown as TileStore
     const tile = { x: 1, y: 2 }
     let now = 1_000
     const options = { intervalMs: 30_000, clock: () => now }

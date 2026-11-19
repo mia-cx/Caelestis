@@ -17,7 +17,7 @@
 {#if model}
   <div class="settings">
     <p class="version">Extension {model.version}</p>
-    {#each ['notifications', 'contribution', 'painters', 'wplace-performance', 'diagnostics', 'accessibility'] as const as section}
+    {#each ['notifications', 'contribution', 'painters', 'wplace-performance', 'diagnostics', 'accessibility', 'dangerous'] as const as section}
       <GlobalSettings {section} {model} onIntent={emit} />
     {/each}
   </div>

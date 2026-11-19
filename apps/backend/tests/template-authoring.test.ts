@@ -7,23 +7,14 @@ import {
   type TemplateRecipe,
   templateRecipeJson,
 } from '@caelestis/shared'
-import { afterEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { hashToken } from '../src/auth/tokens.js'
+import { seedTileObservation } from '../src/node/memory-stores.js'
 import { adminToken, authorized, createTestBackend } from './support/backend.js'
-import { openRelationalStore } from './support/relational.js'
 
 type Backend = Awaited<ReturnType<typeof createTestBackend>>
 
-const closers: Array<() => Promise<void>> = []
-afterEach(async () => {
-  await Promise.all(closers.splice(0).map((close) => close()))
-})
-
-const backend = async (): Promise<Backend> => {
-  const store = await openRelationalStore()
-  closers.push(store.close)
-  return await createTestBackend({ sql: store.sql })
-}
+const backend = (): Promise<Backend> => createTestBackend()
 
 /** A 2x1 processed artwork and the 4x2 source it was sampled from. */
 const fixture = async (palette: readonly number[] = [0, 1, 2]) => {
@@ -245,19 +236,15 @@ describe('template authoring inputs', () => {
     expect(
       (await call(reporter, regionPath, { method: 'PUT', body: JSON.stringify(region) })).status,
     ).toBe(200)
-    await server.sql.recordTileObservation(
-      {
-        season: 3,
-        tile: { x: 0, y: 0 },
-        hash: 'a'.repeat(64),
-        observedAt: millis(1_000),
-        reportedAt: seconds(1),
-        reportedWithToken: await hashToken(reporter),
-        reportedByUserId: 42,
-      },
-      [],
-      true,
-    )
+    await seedTileObservation(server.sql, {
+      season: 3,
+      tile: { x: 0, y: 0 },
+      hash: 'a'.repeat(64),
+      observedAt: millis(1_000),
+      reportedAt: seconds(1),
+      reportedWithToken: await hashToken(reporter),
+      reportedByUserId: 42,
+    })
     const history = `/telemetry/tiles/0/0/history?season=3&from=0&to=${4_000_000_000}`
 
     const view = async (bearer: string) => ({

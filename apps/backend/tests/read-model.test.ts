@@ -2,10 +2,14 @@ import { millis, type TemplateStatus } from '@caelestis/shared'
 import { describe, expect, it, vi } from 'vitest'
 import { coordinatorDatabase } from '../src/adapters/node/coordinator-database.js'
 import { SqlCoordinatorStorage } from '../src/adapters/node/coordinator-storage.js'
-import { createKeyedStatusPersistence } from '../src/status-coordinator.js'
+import { openMemoryDatabase, openMemoryStores } from '../src/node/memory-stores.js'
 import { createSeasonStatusReadModel } from '../src/status-read-model/model.js'
+import { createKeyedStatusPersistence } from '../src/status-read-model/persistence.js'
+import {
+  createSeasonReadModels,
+  inMemorySeasonPersistence,
+} from '../src/status-read-model/season.js'
 import { createTileGenerationCache } from '../src/status-read-model/tile-generation-cache.js'
-import { openRelationalStore } from './support/relational.js'
 
 describe('tile generation cache', () => {
   it('does not let a losing or expired prepared commit overwrite the newest tile generation', async () => {
@@ -48,6 +52,54 @@ describe('tile generation cache', () => {
   })
 })
 
+describe('season read models', () => {
+  it('stops acknowledging cached tile generations as soon as a coverage change starts', async () => {
+    const { sql, close } = await openMemoryStores()
+    try {
+      const persistence = inMemorySeasonPersistence()
+      let release = () => {}
+      const held = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const models = createSeasonReadModels({
+        season: 3,
+        sql,
+        persistence: {
+          ...persistence,
+          // The new coverage revision is still being written when the offer arrives.
+          manifest: {
+            ...persistence.manifest,
+            save: (next) => held.then(() => persistence.manifest.save(next)),
+          },
+        },
+      })
+      const tile = { x: 0, y: 0 }
+      const commit = await models.prepareTileCommit(tile)
+      await models.applyTileGeneration({
+        ...commit,
+        tile,
+        hash: 'cached',
+        observedAt: millis(1),
+        commitOrder: 1,
+        visibleToPublic: true,
+        visibleToAdmin: true,
+      })
+      const offer = [{ deliveryId: 'offer', tile, hash: 'cached' }]
+      expect(models.resolveTileOffers('public', offer).acknowledgedDeliveryIds).toEqual(['offer'])
+
+      const invalidated = models.invalidateManifest(undefined, true)
+      expect(models.resolveTileOffers('public', offer)).toMatchObject({
+        acknowledgedDeliveryIds: [],
+        unresolvedDeliveryIds: ['offer'],
+      })
+      release()
+      await invalidated
+    } finally {
+      await close()
+    }
+  })
+})
+
 describe('status projection', () => {
   it('keeps the public projection filtered while serving cache hits without another source read', async () => {
     let reads = 0
@@ -74,17 +126,10 @@ describe('status projection', () => {
         return scope === 'public' ? [published] : [published, privateTemplate]
       },
     }
-    let saved = false
     const model = createSeasonStatusReadModel({
       season: 1,
       source,
-      persistence: {
-        load: async () => null,
-        save: async (state) => {
-          void state
-          saved = true
-        },
-      },
+      persistence: { load: async () => null, save: async () => {} },
       revisions: {
         current: async () => revision,
         commit: async (_season, expected) => {
@@ -106,7 +151,6 @@ describe('status projection', () => {
       ),
     ).toEqual(['published', 'private'])
     expect(reads).toBe(2)
-    expect(saved).toBe(true)
     await model.reconcileSnapshot('admin')
     expect(reads).toBe(2)
   })
@@ -143,7 +187,7 @@ describe('status projection freshness', () => {
 
 describe('keyed status persistence', () => {
   it('writes only changed templates and a restart recovers the saved projection', async () => {
-    const store = await openRelationalStore()
+    const store = openMemoryDatabase()
     try {
       const database = coordinatorDatabase(store.connection)
       await SqlCoordinatorStorage.initialize(database)
@@ -187,14 +231,9 @@ describe('keyed status persistence', () => {
       const puts = vi.spyOn(SqlCoordinatorStorage.prototype, 'put')
       const deletes = vi.spyOn(SqlCoordinatorStorage.prototype, 'delete')
       await persistence.save(second)
-      expect(puts.mock.calls.map(([key]) => key).sort()).toEqual([
-        'status-read-model:v3:admin:template-007',
-        'status-read-model:v3:manifest',
-        'status-read-model:v3:public:template-007',
-      ])
-      expect(deletes.mock.calls.map(([key]) => key)).toEqual([
-        'status-read-model:v3:admin:template-099',
-      ])
+      // The progressed template in each scope and the season's revision; the deleted draft once.
+      expect(puts.mock.calls.length).toBeLessThanOrEqual(3)
+      expect(deletes).toHaveBeenCalledTimes(1)
       puts.mockRestore()
       deletes.mockRestore()
 

@@ -5,6 +5,7 @@ import {
   type BackfillClients,
   localBackfillClient,
   MemoryBackfillStorage,
+  seedTileObservation,
   TemplateBackfill,
 } from '@caelestis/backend/testing'
 import {
@@ -178,7 +179,7 @@ const seedArchive = async (backend: Awaited<ReturnType<typeof createTestBackend>
   const chunk = await encodeIndexedPng(1, 1, new Uint8Array([1]))
   const chunkHash = await sha256Hex(chunk)
   await backend.blobs.put('chunks', chunkHash, chunk)
-  await backend.sql.insertTemplateVersion({
+  await backend.sql.createTemplate({
     templateId: archiveTemplateId,
     versionId: archiveVersionId,
     surface: WORLD_TEMPLATE_SURFACE,
@@ -309,28 +310,29 @@ describe('frontend API client against the built backend', () => {
     const backend = await createTestBackend({ backfillClients: backfill.client })
     const importer = await seedArchive(backend)
     backfill.importers.set(archiveTemplateId, importer)
-    const job = await importer.start(archiveTemplateId, archiveVersionId, archiveSnapshot.id)
+    const job = await importer.start(
+      { kind: 'template', id: archiveTemplateId },
+      [archiveVersionId],
+      archiveSnapshot.id,
+    )
     for (let step = 0; step < job.total; step += 1) await importer.step()
     const hash = 'd'.repeat(64)
-    await backend.sql.recordTileObservation(
-      {
-        season: 0,
-        tile: { x: 0, y: 0 },
-        hash,
-        observedAt: millis((fixtureNow - 3_600) * 1_000),
-        reportedAt: seconds(fixtureNow - 3_600),
-        reportedWithToken: 'a'.repeat(64),
-        reportedByUserId: 42,
-      },
-      [],
-    )
+    await seedTileObservation(backend.sql, {
+      season: 0,
+      tile: { x: 0, y: 0 },
+      hash,
+      observedAt: millis((fixtureNow - 3_600) * 1_000),
+      reportedAt: seconds(fixtureNow - 3_600),
+      reportedWithToken: 'a'.repeat(64),
+      reportedByUserId: 42,
+    })
     await backend.sql.writeTileMeasurements(archiveVersionId, { x: 0, y: 0 }, [
       { hash, correct: 1, wrong: 0, blank: 0 },
     ])
     const original = await backend.sql.readTemplateVersion(archiveVersionId)
     if (original === null) throw new Error('Missing archive artwork')
     const replacementId = '01890f3e-7b2c-7abc-8def-012345678913'
-    await backend.sql.insertTemplateVersion({
+    await backend.sql.addTemplateVersion({
       ...original,
       versionId: replacementId,
       createdAt: millis((fixtureNow + 300) * 1_000),
@@ -435,7 +437,11 @@ describe('frontend API client against the built backend', () => {
     const { backend, template } = await createPublishedTemplate(backfill.client)
     const importer = await seedArchive(backend)
     backfill.importers.set(archiveTemplateId, importer)
-    const job = await importer.start(archiveTemplateId, archiveVersionId, archiveSnapshot.id)
+    const job = await importer.start(
+      { kind: 'template', id: archiveTemplateId },
+      [archiveVersionId],
+      archiveSnapshot.id,
+    )
     for (let step = 0; step < job.total; step += 1) await importer.step()
     const renamed = await backend.app.fetch(
       authorized('/admin/server', { method: 'PATCH', ...json({ name: 'Boundary server' }) }),

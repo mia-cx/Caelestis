@@ -4,6 +4,7 @@ import {
   isRegionDocument,
   isRegionItem,
   isRegionShape,
+  MAX_DESCRIPTION_LENGTH,
   MAX_HOME_COPY_LENGTH,
   MAX_LIVE_MESSAGE_BYTES,
   MAX_LIVE_PAINT_BYTES,
@@ -11,6 +12,8 @@ import {
   MAX_LIVE_PROJECTIONS,
   MAX_LIVE_TEMPLATE_IDS,
   MAX_LOGO_TEXT_LENGTH,
+  MAX_NAME_LENGTH,
+  MAX_NODE_PATH_LENGTH,
   MAX_PATH_NODES,
   MAX_PRESENCE_PEERS,
   MAX_PRESENCE_REGION_LABEL,
@@ -29,33 +32,26 @@ import {
   parseHomeCopy,
   parseTemplateTags,
   SERVER_ASSET_CONTENT_TYPES,
+  SHA256_HEX_PATTERN,
   TILE_SIZE,
   TRANSPARENT_INDEX,
   templateSurface,
   templateSurfaceBounds,
+  UUID_V7_PATTERN,
   WORLD_PIXELS,
   WORLD_TILES,
 } from '@caelestis/shared'
 import { Schema } from 'effect'
 
 const MAX_IDENTIFIER_LENGTH = 64
-const MAX_NAME_LENGTH = 256
-const MAX_DESCRIPTION_LENGTH = 4_096
 /**
- * A materialized path is a handful of group names joined by slashes, not prose. Reusing the
- * description bound made MAX_MANIFEST_NODES paths worth ~442 MB — 22x the ceiling MAX_MANIFEST_CHUNKS
- * is sized to, on an array the decoder refines only after building it. That is the same "one shared
- * round number" mistake the array caps above already had to unlearn.
- */
-const MAX_PATH_LENGTH = 256
-/**
- * Array caps sized from what each field actually bounds. A single shared round number was wrong
- * three separate ways: it made a >1,000-tile manifest impossible to encode, capped a paint payload
- * at a tenth of a real charge drain, and rejected an ordinary 40x30-tile template.
+ * Array caps sized from what each field actually bounds. One shared round number cannot fit them
+ * all: a manifest may span more than 1,000 tiles, a paint payload carries a whole charge drain, and
+ * an ordinary template covers 40x30 tiles.
  */
 const MAX_MANIFEST_TILES = WORLD_TILES * WORLD_TILES
 const MAX_TEMPLATE_CHUNKS = MAX_MANIFEST_TILES
-const MAX_MANIFEST_NODES = 100_000
+export const MAX_MANIFEST_NODES = 100_000
 /**
  * Chunks summed across every template, checked before anything flattens them.
  *
@@ -65,17 +61,17 @@ const MAX_MANIFEST_NODES = 100_000
  *
  * Sized to a payload that can actually be processed rather than to the canvas. Each chunk record is
  * a tile key and a 64-character hash, so 200,000 of them is already ~20 MB of JSON — past what a
- * manifest response should be, and far short of the 4,194,304 the per-template cap allowed.
+ * manifest response should be, and far short of the 4,194,304 the per-template cap allows.
  */
-const MAX_MANIFEST_CHUNKS = 200_000
-const MAX_MANIFEST_TEMPLATES = 100_000
-// 09-recon-palette has not recovered Wplace's complete index order yet. Keep this permissive until
-// that ticket establishes the real upper bound instead of deriving it from the incomplete palette.
+export const MAX_MANIFEST_CHUNKS = 200_000
+export const MAX_MANIFEST_TEMPLATES = 100_000
+// Wplace's complete palette index order is not known, so this stays permissive rather than being
+// derived from the incomplete palette.
 const MAX_PALETTE_INDEX = 65_535
 
 // Wide enough for every v1 timestamp while still making seconds and milliseconds disjoint.
-const MIN_EPOCH_SECONDS = 1_577_836_800 // 2020-01-01
-const MAX_EPOCH_SECONDS = 4_102_444_800 // 2100-01-01
+export const MIN_EPOCH_SECONDS = 1_577_836_800 // 2020-01-01
+export const MAX_EPOCH_SECONDS = 4_102_444_800 // 2100-01-01
 const MIN_EPOCH_MILLISECONDS = MIN_EPOCH_SECONDS * 1_000
 const MAX_EPOCH_MILLISECONDS = MAX_EPOCH_SECONDS * 1_000
 
@@ -112,7 +108,7 @@ const Season = NonNegativeInteger
 
 const Identifier = Schema.String.pipe(
   Schema.check(
-    Schema.isPattern(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/, {
+    Schema.isPattern(UUID_V7_PATTERN, {
       message: 'must be a canonical lowercase UUIDv7',
     }),
   ),
@@ -122,7 +118,7 @@ const Name = boundedString(MAX_NAME_LENGTH)
 const Description = boundedString(MAX_DESCRIPTION_LENGTH)
 const Hash = Schema.String.pipe(
   Schema.check(
-    Schema.isPattern(/^[0-9a-f]{64}$/, {
+    Schema.isPattern(SHA256_HEX_PATTERN, {
       message: 'must be a lowercase SHA-256 hex digest',
     }),
   ),
@@ -461,9 +457,14 @@ export const ServerInfo = Schema.Struct({
  */
 const foldPath = (path: string): string => path.replace(/[A-Z]/g, (c) => c.toLowerCase())
 
+/**
+ * A materialized path is a handful of group names joined by slashes, not prose. At the description
+ * bound, MAX_MANIFEST_NODES paths would be worth ~442 MB — 22x the ceiling MAX_MANIFEST_CHUNKS is
+ * sized to, on an array the decoder refines only after building it.
+ */
 const NodePath = Schema.String.pipe(
   Schema.check(
-    Schema.isBetweenLength(1, MAX_PATH_LENGTH),
+    Schema.isBetweenLength(1, MAX_NODE_PATH_LENGTH),
     Schema.isPattern(/^(\/[\p{L}\p{N}][\p{L}\p{N}\p{M}. -]*)+$/u, {
       description: 'a slash-separated group path without LIKE metacharacters',
     }),
@@ -1223,7 +1224,7 @@ export const PainterHistoryBucket = PainterHistoryBucketStruct.pipe(
 )
 
 /** The route clamps `limit` to 500, so anything larger is not a response this server produced. */
-const MAX_PAINTER_TOTALS = 500
+export const MAX_PAINTER_TOTALS = 500
 
 const PainterTotalStruct = Schema.Struct({
   wplaceUserId: NonNegativeInteger,

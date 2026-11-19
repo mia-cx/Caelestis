@@ -1,61 +1,65 @@
-import type { PainterIdentity, TemplateSurface } from '@caelestis/shared'
-import type { Scope } from '../auth/tokens.js'
-import type { IngestTimingSnapshot } from '../telemetry/ingest-timing.js'
+import {
+  type PainterIdentity,
+  parseTemplateSurfaceKey,
+  parseWholeNumber,
+  type TemplateSurface,
+  templateSurfaceKey,
+} from '@caelestis/shared'
+import type { LiveCredential } from '../live/session.js'
+import { type IngestTimingSnapshot, IngestTimings } from '../metrics/ingest-timing.js'
+import { NotFoundError } from '../runtime/errors.js'
 
-/** Runtime delivery of persisted region changes. */
-export interface PresencePort {
-  publishRegions(season: number, surface: TemplateSurface): Promise<void>
-  /** Reach a room's own timing collector when it lives in another isolate. */
-  readIngestTimings?(
-    season: number,
-    surface: TemplateSurface,
-    reset: boolean,
-  ): Promise<IngestTimingSnapshot>
-}
-
-/** Authenticated metadata passed from the HTTP boundary to a presence transport. */
-export interface PresenceConnection {
+/** An authenticated presence connection: who paints, and on which surface. */
+export interface PresenceConnection extends LiveCredential {
   readonly publisherId?: string
-  readonly season: number
   readonly surface: TemplateSurface
   readonly painter: PainterIdentity
-  readonly credentialScope: Scope
-  readonly tokenHash: string
-  readonly clientHash: string
-  readonly anonymous: boolean
-  readonly revocable: boolean
-  readonly metricClient: string
-  readonly metricClientVersion: string
 }
 
-export type ConnectPresence = (
-  request: Request,
-  connection: PresenceConnection,
-) => Promise<Response>
+/** A room's identity: the season and drawing surface it serves. */
+export interface PresenceRoomId {
+  readonly season: number
+  readonly surface: TemplateSurface
+}
 
-/** Count open room sockets without starting presence delivery. */
-export type PresenceOnline = (season: number, surface: TemplateSurface) => Promise<number>
+/** One room, in process or behind a Durable Object stub. */
+export interface PresenceRoom {
+  /** Deliver persisted region changes to the room's sockets. */
+  publishRegions(): Promise<void>
+  /**
+   * The room's own timing collector. Every host gives each room its own, as a Durable Object's
+   * isolate does, so the admin endpoint reads the same room on every host.
+   */
+  readIngestTimings(reset: boolean): IngestTimingSnapshot | Promise<IngestTimingSnapshot>
+  /** Count open room sockets without starting presence delivery. */
+  online(): Promise<number>
+  closeCredential(tokenHash: string): Promise<void>
+  /** `request` is what a Durable Object hop forwards; an in-process room needs only the connection. */
+  connect(connection: PresenceConnection, request: Request): Promise<Response>
+}
 
-/** Pass authenticated metadata to the shared presence room through its internal request boundary. */
-export const presenceRequest = (request: Request, connection: PresenceConnection): Request => {
-  const { season, surface, painter } = connection
-  const headers = new Headers(request.headers)
-  headers.set('x-caelestis-season', String(season))
-  headers.set('x-caelestis-surface-kind', surface.kind)
-  headers.delete('x-caelestis-alliance-id')
-  if (surface.allianceId !== null)
-    headers.set('x-caelestis-alliance-id', String(surface.allianceId))
-  headers.set('x-caelestis-painter-id', String(painter.wplaceUserId))
-  headers.set('x-caelestis-painter-name', encodeURIComponent(painter.displayName))
-  headers.set('x-caelestis-token-hash', connection.tokenHash)
-  headers.set('x-caelestis-client-hash', connection.clientHash)
-  headers.delete('x-caelestis-publisher-id')
-  if (connection.publisherId !== undefined)
-    headers.set('x-caelestis-publisher-id', connection.publisherId)
-  headers.set('x-caelestis-credential-scope', connection.credentialScope)
-  headers.set('x-caelestis-anonymous', connection.anonymous ? '1' : '0')
-  headers.set('x-caelestis-revocable', connection.revocable ? '1' : '0')
-  headers.set('x-caelestis-metric-client', connection.metricClient)
-  headers.set('x-caelestis-metric-client-version', connection.metricClientVersion)
-  return new Request(request, { headers })
+/** The presence rooms, one per season and drawing surface. */
+export type PresenceRooms = (season: number, surface: TemplateSurface) => PresenceRoom
+
+const notServed = (): Promise<never> => Promise.reject(new NotFoundError({ message: 'not found' }))
+
+/** A host without live sockets, such as tests and scripts: nothing to deliver, nothing to join. */
+export const noPresence: PresenceRooms = () => ({
+  publishRegions: async () => {},
+  readIngestTimings: () => new IngestTimings().snapshot(),
+  online: notServed,
+  closeCredential: async () => {},
+  connect: notServed,
+})
+
+/** A room's durable name: its season and surface. Node also keys its state by it. */
+export const presenceRoomName = (season: number, surface: TemplateSurface): string =>
+  `${season}:${templateSurfaceKey(surface)}`
+
+/** The season and surface a room name was built from, or null when it names no room. */
+export const parsePresenceRoomName = (name: string): PresenceRoomId | null => {
+  const separator = name.indexOf(':')
+  const season = parseWholeNumber(name.slice(0, separator))
+  const surface = parseTemplateSurfaceKey(name.slice(separator + 1))
+  return season !== null && surface !== null ? { season, surface } : null
 }

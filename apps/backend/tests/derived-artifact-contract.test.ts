@@ -2,13 +2,11 @@ import { expect, it } from 'vitest'
 import { MemoryBlobStore } from '../src/adapters/memory/memory-blob-store.js'
 import type { BlobStore } from '../src/ports/index.js'
 import {
+  createDerivedArtifactWriteBatch,
   createDerivedArtifactWriter,
   type DerivedArtifactWrite,
 } from '../src/telemetry/derived-artifact-writer.js'
-import {
-  createDerivedArtifactWriteBatch,
-  mismatchArtifactKey,
-} from '../src/telemetry/derived-classification.js'
+import { mismatchArtifactKey } from '../src/telemetry/derived-artifacts.js'
 
 const artifact = (hash: string): DerivedArtifactWrite => ({
   identity: {
@@ -34,11 +32,11 @@ it('acknowledges a derived batch before storage completes, bounds its queue, and
     maxQueuedEntries: 1,
     maxQueuedBytes: 1,
   })
-  const batch = createDerivedArtifactWriteBatch(blobs, { writer })
+  const batch = createDerivedArtifactWriteBatch(blobs, writer)
   // The same immutable key coalesces while in flight. One waiting byte fits; the newest drops.
   const writes = [artifact('a'), artifact('a'), artifact('b'), artifact('c')]
   for (const write of writes) batch.add(write.identity, write.bytes)
-  await batch.flush()
+  batch.flush()
   expect(writer.stats()).toMatchObject({
     inFlight: 1,
     queuedEntries: 1,

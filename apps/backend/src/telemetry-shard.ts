@@ -1,60 +1,20 @@
-import { DurableObject } from 'cloudflare:workers'
-import { type Millis, millis } from '@caelestis/shared'
+import { cloudflareBindings } from './adapters/cloudflare/bindings.js'
 import { durableCoordinatorDatabase } from './adapters/cloudflare/coordinator-database.js'
-import { D1SqlStore } from './adapters/cloudflare/d1-sql-store.js'
-import { TelemetryCoordinator } from './coordination/telemetry.js'
-import type { CounterDelta } from './ports/index.js'
+import { forwardingObject } from './adapters/cloudflare/forwarding-object.js'
+import { TELEMETRY_SHARD_METHODS, TelemetryCoordinator } from './coordination/telemetry.js'
 
-/** Cloudflare lifecycle and storage binding for the shared telemetry coordinator. */
-export class TelemetryShard extends DurableObject<Env> {
-  private readonly coordinator: TelemetryCoordinator
-  constructor(ctx: DurableObjectState, env: Env, clock: () => Millis = () => millis(Date.now())) {
+export class TelemetryShard extends forwardingObject<TelemetryCoordinator>()([
+  ...TELEMETRY_SHARD_METHODS,
+  'alarm',
+]) {
+  protected readonly target: TelemetryCoordinator
+  constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
-    this.coordinator = new TelemetryCoordinator(
+    this.target = new TelemetryCoordinator(
       durableCoordinatorDatabase(ctx.storage),
       ctx.storage,
-      new D1SqlStore(env.DB),
-      clock,
+      cloudflareBindings(env).stores.sql,
     )
-    void ctx.blockConcurrencyWhile(() => this.coordinator.initialize())
-  }
-  record(deltas: readonly CounterDelta[], key?: string) {
-    return this.coordinator.record(deltas, key)
-  }
-  readPending(ids: readonly string[]) {
-    return this.coordinator.readPending(ids)
-  }
-  readDroppedLateCount() {
-    return this.coordinator.readDroppedLateCount()
-  }
-  readFlushFailureCount() {
-    return this.coordinator.readFlushFailureCount()
-  }
-  exportCounterRows(...args: Parameters<TelemetryCoordinator['exportCounterRows']>) {
-    return this.coordinator.exportCounterRows(...args)
-  }
-  importCounterRows(...args: Parameters<TelemetryCoordinator['importCounterRows']>) {
-    return this.coordinator.importCounterRows(...args)
-  }
-  discardCounterRows(operationId: string) {
-    return this.coordinator.discardCounterRows(operationId)
-  }
-  beginCounterImport(operationId: string) {
-    return this.coordinator.beginCounterImport(operationId)
-  }
-  beginCounterDiscard(operationId: string) {
-    return this.coordinator.beginCounterDiscard(operationId)
-  }
-  closeCounterOperation(operationId: string) {
-    return this.coordinator.closeCounterOperation(operationId)
-  }
-  freeze(operationId: string) {
-    return this.coordinator.freeze(operationId)
-  }
-  thaw(operationId: string) {
-    return this.coordinator.thaw(operationId)
-  }
-  override alarm() {
-    return this.coordinator.alarm()
+    void ctx.blockConcurrencyWhile(() => this.target.initialize())
   }
 }

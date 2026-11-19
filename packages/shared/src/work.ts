@@ -1,5 +1,7 @@
+import { MAX_DESCRIPTION_LENGTH } from './access.js'
 import type { PainterIdentity } from './telemetry.js'
 import type { TemplateSurface } from './template-surface.js'
+import { isUuidV7 } from './uuid.js'
 
 export const WORK_STATUSES = ['open', 'blocked', 'completed'] as const
 export const WORK_PRIORITIES = ['low', 'normal', 'high'] as const
@@ -106,13 +108,10 @@ const record = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 const text = (value: unknown, min: number, max: number): value is string =>
   typeof value === 'string' && value.trim().length >= min && value.length <= max
-const uuid = (value: unknown): value is string =>
-  typeof value === 'string' &&
-  /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value)
 const ids = (value: unknown): value is readonly string[] =>
   Array.isArray(value) &&
   value.length <= 20 &&
-  value.every(uuid) &&
+  value.every(isUuidV7) &&
   new Set(value).size === value.length
 
 /** Validate public identity labels, without asserting ownership of the Wplace account. */
@@ -127,7 +126,7 @@ export const isWorkIdentity = (value: unknown): value is PainterIdentity =>
 export const isWorkFields = (value: unknown): value is WorkFields =>
   record(value) &&
   text(value.title, 1, 160) &&
-  text(value.description, 0, 4096) &&
+  text(value.description, 0, MAX_DESCRIPTION_LENGTH) &&
   WORK_STATUSES.some((status) => status === value.status) &&
   WORK_PRIORITIES.some((priority) => priority === value.priority) &&
   Array.isArray(value.tags) &&
@@ -135,7 +134,7 @@ export const isWorkFields = (value: unknown): value is WorkFields =>
   value.tags.every((tag) => text(tag, 1, 40)) &&
   new Set(value.tags).size === value.tags.length &&
   ids(value.blockerIds) &&
-  (value.nodeId === null || uuid(value.nodeId)) &&
+  (value.nodeId === null || isUuidV7(value.nodeId)) &&
   ids(value.templateIds)
 
 /** Validate the work response before rendering data supplied by a server. */
@@ -143,7 +142,7 @@ export const isWorkItem = (value: unknown): value is WorkItem => {
   if (!isWorkFields(value) || !record(value)) return false
   const surface = value.surface
   return (
-    uuid(value.id) &&
+    isUuidV7(value.id) &&
     Number.isSafeInteger(value.season) &&
     Number(value.season) >= 0 &&
     Number.isSafeInteger(value.revision) &&

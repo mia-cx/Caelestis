@@ -16,6 +16,9 @@ export default defineConfig({
   },
   test: {
     environment: 'happy-dom',
+    // Run the built backend natively: Node 22's experimental node:sqlite is absent from
+    // builtinModules, so Vitest otherwise tries to bundle it for the DOM environment.
+    server: { deps: { external: [/\/backend\/dist\//] } },
     include: ['test/**/*.test.ts', 'src/**/*.test.ts'],
     setupFiles: ['./test/setup.ts'],
     restoreMocks: true,

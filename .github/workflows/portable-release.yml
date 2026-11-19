@@ -62,7 +62,7 @@ jobs:
           ref: ${{ inputs.release_sha }}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 24.22.1
+          node-version: 24.22.3
       - name: Prepare artifact versions
         id: version
         run: GITHUB_SHA="${{ inputs.release_sha }}" node .github/scripts/prepare-portable-release.mjs --output-dir release --github-output "$GITHUB_OUTPUT"

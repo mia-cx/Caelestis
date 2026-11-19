@@ -1,12 +1,8 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { WebSocketServer } from 'ws'
 import type { CoordinatorStorage } from '../coordination/database.js'
-import {
-  type LiveHost,
-  type LiveSocket,
-  MAX_LIVE_CLIENT_BINARY_BYTES,
-} from '../status-coordinator.js'
-import { type IngestCommand, ingestTimings } from '../telemetry/ingest-timing.js'
+import { type LiveHost, type LiveSocket, MAX_LIVE_CLIENT_BINARY_BYTES } from '../live/session.js'
+import { type IngestCommand, ingestTimings } from '../metrics/ingest-timing.js'
 
 export const MAX_BUFFERED_BYTES = 8 * 1024 * 1024
 const HANDSHAKE_TIMEOUT_MS = 10000
@@ -96,7 +92,7 @@ class NodeLiveSocket implements LiveSocket {
   }
   serializeAttachment(attachment: unknown): void {
     // Clone once here, then hand the same frozen object to every reader. Broadcasts read the
-    // attachment of every socket, and cloning on each read was a fifth of the event loop under
+    // attachment of every socket, and cloning on each read costs a fifth of the event loop under
     // 512 subscribers. Freezing keeps the Durable Object contract that a read cannot mutate
     // stored state.
     this.attachment = deepFreeze(structuredClone(attachment))
@@ -106,7 +102,7 @@ class NodeLiveSocket implements LiveSocket {
   }
 }
 
-/** Node transport preserves the shared coordinator's auth, capacity, and attachment contracts. */
+/** In-process sockets as a live coordinator's host, for both ws and Bun's native WebSocket. */
 export class NodeLiveHost implements LiveHost<NodeLiveSocket> {
   private readonly sockets = new Set<NodeLiveSocket>()
   private readonly pending = new Set<Promise<void>>()
@@ -167,6 +163,9 @@ export class NodeLiveHost implements LiveHost<NodeLiveSocket> {
         const enqueuedAt = performance.now()
         pending = pending
           .then(() => {
+            // Answered here, as Cloudflare's auto-response answers it, so no coordinator sees a
+            // ping. In the queue, so a pong still follows this socket's earlier messages.
+            if (message === 'ping') return socket.send('pong')
             // Time spent behind this socket's earlier messages, before any work starts.
             if (command !== null)
               ingestTimings.record(command, 'queue', performance.now() - enqueuedAt)

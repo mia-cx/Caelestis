@@ -1,72 +1,114 @@
-import { Data } from 'effect'
+import { Data, Effect } from 'effect'
 
-/** A rejected SQL read that the HTTP edge must not expose to callers. */
-export class SqlStoreReadError extends Data.TaggedError('SqlStoreReadError')<{
+/**
+ * A store or other dependency rejected an otherwise valid operation. The HTTP edge logs the cause
+ * and answers a bare 500, so internals never reach the caller.
+ */
+export class StorageError extends Data.TaggedError('StorageError')<{
   readonly operation: string
   readonly cause: unknown
-}> {}
+}> {
+  readonly status = 500
+}
 
-/** A telemetry dependency rejected an otherwise valid operation. */
-export class TelemetryStorageError extends Data.TaggedError('TelemetryStorageError')<{
-  readonly operation: string
-  readonly cause: unknown
-}> {}
+export const storage = <A>(
+  operation: string,
+  run: () => Promise<A>,
+): Effect.Effect<A, StorageError> =>
+  Effect.tryPromise({ try: run, catch: (cause) => new StorageError({ operation, cause }) })
 
-/** Telemetry input passed HTTP parsing but failed domain validation. */
-export class TelemetryValidationError extends Data.TaggedError('TelemetryValidationError')<{
+export class ValidationError extends Data.TaggedError('ValidationError')<{
   readonly message: string
-}> {}
+}> {
+  readonly status = 400
+}
 
-/** A non-telemetry dependency rejected an otherwise valid backend operation. */
-export class BackendStorageError extends Data.TaggedError('BackendStorageError')<{
-  readonly operation: string
-  readonly cause: unknown
-}> {}
-
-/** Parsed input failed a migrated use case's domain validation. */
-export class RequestValidationError extends Data.TaggedError('RequestValidationError')<{
+export class NotFoundError extends Data.TaggedError('NotFoundError')<{
   readonly message: string
-}> {}
+}> {
+  readonly status = 404
+}
 
-/** A migrated use case could not find the requested resource. */
-export class ResourceNotFoundError extends Data.TaggedError('ResourceNotFoundError')<{
+/** A write lost an optimistic concurrency race. */
+export class ConflictError extends Data.TaggedError('ConflictError')<{
   readonly message: string
-}> {}
-
-/** A migrated write lost an optimistic concurrency race. */
-export class ResourceConflictError extends Data.TaggedError('ResourceConflictError')<{
-  readonly message: string
-}> {}
+}> {
+  readonly status = 409
+}
 
 /** A permanently deleted identity cannot be recreated by a stale writer. */
-export class ResourceGoneError extends Data.TaggedError('ResourceGoneError')<{
+export class GoneError extends Data.TaggedError('GoneError')<{
   readonly message: string
-}> {}
+}> {
+  readonly status = 410
+}
 
-/** A destructive write omitted the revision precondition required to make it safe. */
-export class PreconditionRequiredError extends Data.TaggedError('PreconditionRequiredError')<{
-  readonly message: string
-}> {}
-
-/** Authentication failed without revealing whether a credential exists or was revoked. */
-export class UnauthorizedError extends Data.TaggedError('UnauthorizedError')<{
-  readonly message: 'unauthorized'
-}> {}
+/** Authentication failed. The body never reveals whether a credential exists or was revoked. */
+export class UnauthorizedError extends Data.TaggedError('UnauthorizedError') {
+  readonly status = 401
+  override readonly message = 'unauthorized'
+}
 
 /** The authenticated caller does not hold the required scope. */
-export class ForbiddenError extends Data.TaggedError('ForbiddenError')<{
-  readonly message: 'forbidden'
-}> {}
+export class ForbiddenError extends Data.TaggedError('ForbiddenError') {
+  readonly status = 403
+  override readonly message = 'forbidden'
+}
+
+/** How a store refusal reads to the caller. */
+export type PortErrorKind = 'invalid' | 'not-found' | 'conflict' | 'gone'
+
+/** A store refused an operation for a reason the caller can act on; `kind` decides the answer. */
+export abstract class PortError extends Error {
+  abstract readonly kind: PortErrorKind
+}
+
+const ANSWER = {
+  invalid: ValidationError,
+  conflict: ConflictError,
+  gone: GoneError,
+} as const
+
+/**
+ * Run one store call. A `PortError` becomes the error its kind names, and anything else a
+ * `StorageError`. A 404 never echoes what it missed. `refine` re-reads a kind where the call site
+ * knows better, such as a missing folder in a template write being bad input, not a missing
+ * resource.
+ */
+export const fromPort = <A>(
+  operation: string,
+  run: () => Promise<A>,
+  refine: Partial<Record<PortErrorKind, PortErrorKind>> = {},
+): Effect.Effect<A, ValidationError | NotFoundError | ConflictError | GoneError | StorageError> =>
+  Effect.tryPromise({
+    try: run,
+    catch: (cause) => {
+      if (!(cause instanceof PortError)) return new StorageError({ operation, cause })
+      const kind = refine[cause.kind] ?? cause.kind
+      return kind === 'not-found'
+        ? new NotFoundError({ message: 'not found' })
+        : new ANSWER[kind]({ message: cause.message })
+    },
+  })
 
 export type BackendHttpError =
-  | SqlStoreReadError
-  | TelemetryStorageError
-  | TelemetryValidationError
-  | BackendStorageError
-  | RequestValidationError
-  | ResourceNotFoundError
-  | ResourceConflictError
-  | ResourceGoneError
-  | PreconditionRequiredError
+  | StorageError
+  | ValidationError
+  | NotFoundError
+  | ConflictError
+  | GoneError
   | UnauthorizedError
   | ForbiddenError
+
+/** `cause` is an ordinary property, so a chain may point back at itself; a walk stops here. */
+const MAX_CAUSE_DEPTH = 8
+
+/** `error` and the errors in its cause chain, outermost first, up to the first non-`Error`. */
+export const causes = (error: unknown): Error[] => {
+  const chain: Error[] = []
+  for (let current = error; current instanceof Error && chain.length < MAX_CAUSE_DEPTH; ) {
+    chain.push(current)
+    current = current.cause
+  }
+  return chain
+}

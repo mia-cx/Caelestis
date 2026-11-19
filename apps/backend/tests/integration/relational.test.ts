@@ -1,17 +1,18 @@
 import { join } from 'node:path'
 import { millis, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
+import { createConnection } from 'mariadb'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { coordinatorDatabase } from '../../src/adapters/node/coordinator-database.js'
 import { MariaConnection } from '../../src/adapters/node/mariadb-connection.js'
 import { PostgresConnection } from '../../src/adapters/node/postgres-connection.js'
-import { RelationalSqlStore } from '../../src/adapters/relational-sql-store.js'
-import { InvalidNodeParentError } from '../../src/ports/sql-store.js'
+import { relationalSqlStore } from '../../src/adapters/relational-sql-store.js'
 import { schedulerContract } from '../support/scheduler-contract.js'
 import {
-  contractRecipe,
   leaderboardContractExpected,
+  nodeTemplateContractExpected,
   regionRenewalContractExpected,
   runLeaderboardContract,
+  runNodeTemplateContract,
   runRegionRenewalContract,
 } from '../support/sql-contract.js'
 
@@ -88,6 +89,56 @@ afterAll(async () => {
 })
 
 describe('external relational adapter contract', () => {
+  it.runIf(maria !== undefined)(
+    'runs a MariaDB callback transaction again after it loses a deadlock',
+    async () => {
+      if (!(connection instanceof MariaConnection))
+        throw new Error('Integration fixture did not open MariaDB')
+      await connection.prepare('CREATE TABLE deadlock_probe (id INT PRIMARY KEY, v INT)').run()
+      await connection.prepare('CREATE TABLE deadlock_weight (id INT PRIMARY KEY, v INT)').run()
+      await connection.batch([
+        connection.prepare('INSERT INTO deadlock_probe VALUES (1, 0), (2, 0)'),
+        connection.prepare(
+          `INSERT INTO deadlock_weight VALUES ${Array.from({ length: 50 }, (_, id) => `(${id}, 0)`).join(', ')}`,
+        ),
+      ])
+      // A second session holds row 1, and outweighs the transaction under test with many changed
+      // rows, so InnoDB picks the transaction under test as the deadlock victim.
+      const rival = await createConnection({ ...connection.config, database: databaseName })
+      await rival.beginTransaction()
+      await rival.query('UPDATE deadlock_probe SET v = v + 1 WHERE id = 1')
+      await rival.query('UPDATE deadlock_weight SET v = v + 1')
+      let rivalDone: Promise<void> | undefined
+      let attempts = 0
+      await connection.transaction(async (sql) => {
+        attempts += 1
+        await sql.prepare('UPDATE deadlock_probe SET v = v + 10 WHERE id = 2').run()
+        if (attempts === 1) {
+          // The rival waits on this transaction for row 2, and commits once it gets it.
+          rivalDone = rival
+            .query('UPDATE deadlock_probe SET v = v + 1 WHERE id = 2')
+            .then(() => rival.commit())
+          const rivalWaiting = sql.prepare(
+            "SELECT COUNT(*) AS waiting FROM information_schema.innodb_trx WHERE trx_state = 'LOCK WAIT'",
+          )
+          for (;;) if ((await rivalWaiting.first<{ waiting: number }>())?.waiting === 1) break
+        }
+        // Closes the cycle on the first attempt: this waits on the rival for row 1.
+        await sql.prepare('UPDATE deadlock_probe SET v = v + 10 WHERE id = 1').run()
+      })
+      await rivalDone
+      await rival.end()
+      expect(attempts).toBe(2)
+      expect(
+        await connection.prepare('SELECT id, v FROM deadlock_probe ORDER BY id').all(),
+      ).toMatchObject({
+        results: [
+          { id: 1, v: 11 },
+          { id: 2, v: 11 },
+        ],
+      })
+    },
+  )
   it('fences concurrent durable jobs on the selected database', async () => {
     if (connection === undefined) throw new Error('Integration fixture did not open a database')
     await schedulerContract(coordinatorDatabase(connection))
@@ -95,21 +146,21 @@ describe('external relational adapter contract', () => {
   it('ranks the leaderboard from reporter-reduced painter days in the selected real database', async () => {
     if (connection === undefined) throw new Error('Integration fixture did not open a database')
     await connection.migrate(migrations)
-    expect(await runLeaderboardContract(new RelationalSqlStore(connection))).toEqual(
+    expect(await runLeaderboardContract(relationalSqlStore(connection))).toEqual(
       leaderboardContractExpected,
     )
   })
   it('renews many claim owners in one statement in the selected real database', async () => {
     if (connection === undefined) throw new Error('Integration fixture did not open a database')
     await connection.migrate(migrations)
-    expect(await runRegionRenewalContract(new RelationalSqlStore(connection))).toEqual(
+    expect(await runRegionRenewalContract(relationalSqlStore(connection))).toEqual(
       regionRenewalContractExpected,
     )
   })
   it('migrates and preserves shared persistence boundaries in the selected real database', async () => {
     if (connection === undefined) throw new Error('Integration fixture did not open a database')
     await connection.migrate(migrations)
-    const sql = new RelationalSqlStore(connection)
+    const sql = relationalSqlStore(connection)
     const createdAt = millis(Date.now())
     await sql.insertAccessToken({
       tokenHash: 'c'.repeat(64),
@@ -130,60 +181,7 @@ describe('external relational adapter contract', () => {
       'd'.repeat(64),
     ])
 
-    const root = '01890f3e-7b2c-7abc-8def-012345678901'
-    const child = '01890f3e-7b2c-7abc-8def-012345678902'
-    const otherSeason = '01890f3e-7b2c-7abc-8def-012345678903'
-    const node = (id: string, parentId: string | null, path: string, season = 1) => ({
-      id,
-      parentId,
-      path,
-      season,
-      surface: WORLD_TEMPLATE_SURFACE,
-      name: path,
-      description: null,
-      createdAt,
-    })
-    await sql.insertNode(node(root, null, '/root'))
-    await sql.insertNode(node(child, root, '/root/child'))
-    await sql.insertNode(node(otherSeason, null, '/other', 2))
-    await sql.renameNode(root, 'Renamed', 'renamed')
-    expect((await sql.readNode(child))?.path).toBe('/renamed/child')
-    await expect(sql.moveNode(root, child, '/renamed/child/root')).rejects.toBeInstanceOf(
-      InvalidNodeParentError,
-    )
-
-    await sql.insertTemplateVersion({
-      templateId: '01890f3e-7b2c-7abc-8def-012345678904',
-      versionId: '01890f3e-7b2c-7abc-8def-012345678905',
-      surface: WORLD_TEMPLATE_SURFACE,
-      season: 1,
-      nodeId: root,
-      name: 'Template',
-      createdWithToken: 'c'.repeat(64),
-      createdByUserId: null,
-      createdAt,
-      bbox: { minX: 0, minY: 0, maxX: 1, maxY: 1 },
-      totalPixels: 1,
-      chunks: [{ tileX: 0, tileY: 0, hash: 'a'.repeat(64) }],
-      recipe: contractRecipe,
-    })
-    expect((await sql.readTemplateVersion('01890f3e-7b2c-7abc-8def-012345678905'))?.recipe).toEqual(
-      contractRecipe,
-    )
-    await expect(
-      sql.updateTemplate(
-        '01890f3e-7b2c-7abc-8def-012345678904',
-        { nodeId: otherSeason },
-        millis(Date.now() + 1),
-      ),
-    ).rejects.toBeInstanceOf(InvalidNodeParentError)
-    expect(
-      await sql.updateTemplate(
-        '01890f3e-7b2c-7abc-8def-012345678904',
-        { nodeId: null },
-        millis(Date.now() + 2),
-      ),
-    ).toBe(true)
+    expect(await runNodeTemplateContract(sql)).toEqual(nodeTemplateContractExpected)
 
     const now = Date.now()
     const document = {

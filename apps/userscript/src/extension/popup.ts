@@ -1,3 +1,4 @@
+import { resolveShortcutBindings } from '@caelestis/shared'
 import {
   type ExtensionSettingsModel,
   type GlobalSettingsIntent,
@@ -6,7 +7,14 @@ import {
 import { userscriptVersion } from '../client-metrics.js'
 import { setEnabled as setDebugLogging, storedDebugLogging } from '../debug.js'
 import { storedProfiling, storeProfiling } from '../profile.js'
-import { storedGlobalSettings, storeGlobalSetting } from '../state.js'
+import { currentShortcutPlatform } from '../shortcuts.js'
+import {
+  storedGlobalSettings,
+  storedShortcutOverrides,
+  storedSimulatedInput,
+  storeGlobalSetting,
+  storeSimulatedInput,
+} from '../state.js'
 import { onStoredValueChange, useStoredValues } from '../stored-values.js'
 import { applyWplaceTheme } from '../ui/theme.js'
 import { isWplacePatch, setWplacePatchEnabled, wplacePatchSettings } from '../wplace-patches.js'
@@ -31,6 +39,11 @@ const model = (): ExtensionSettingsModel => {
     debugLogging: storedDebugLogging(),
     performanceProfiling: storedProfiling(),
     accessibility: wplaceOptions(),
+    simulatedInput: storedSimulatedInput(),
+    shortcuts: {
+      platform: currentShortcutPlatform(),
+      bindings: resolveShortcutBindings(storedShortcutOverrides()),
+    },
   }
 }
 
@@ -46,6 +59,9 @@ const apply = (intent: GlobalSettingsIntent): void => {
       break
     case 'set-accessibility':
       setWplaceOption(intent.key, intent.value)
+      break
+    case 'set-simulated-input':
+      storeSimulatedInput(intent.id, intent.value)
       break
   }
 }

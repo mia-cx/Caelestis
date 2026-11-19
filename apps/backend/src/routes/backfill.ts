@@ -1,150 +1,117 @@
-import { Context as Services } from 'effect'
+import { isSha256Hex, isUuidV7, parseTileKey } from '@caelestis/shared'
+import { Effect, Context as Services } from 'effect'
 import { type Context, Hono } from 'hono'
-import { type AuthOptions, requireScopeEffect } from '../auth/middleware.js'
-import { type BackfillClients, type BackfillReply, folderBackfillName } from '../backfill/port.js'
+import {
+  type BackfillClients,
+  type BackfillReply,
+  type BackfillSubject,
+  folderBackfillName,
+} from '../backfill/port.js'
 import { mergeD1Usage } from '../metrics/request-metrics.js'
 import {
   type BackendRuntime,
+  BackfillService,
   BlobStoreService,
-  SqlStoreService,
 } from '../runtime/backend-runtime.js'
+import { runBackendHttp } from '../runtime/hono.js'
+import { readVisibleVersion } from '../templates/use-cases.js'
+import { jsonObject } from './params.js'
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const respond = <T>(c: Context, result: BackfillReply<T>): Response => {
   mergeD1Usage(result.usage)
   return result.ok ? Response.json(result.value) : c.json({ error: result.error }, result.status)
 }
 
-/** Admin-only preview/start/status/cancel for one server template, or every one below a folder. */
-export const createBackfillAdminRoutes = (
-  runtime: BackendRuntime,
-  auth: AuthOptions,
-  clients?: BackfillClients,
-) => {
+/** How one kind of subject reads its routes: the object it names, and the artwork its start shows. */
+interface SubjectRoutes {
+  readonly kind: BackfillSubject['kind']
+  readonly invalidId: string
+  readonly invalidStart: string
+  readonly objectName: (id: string) => string
+  /** The artwork versions a start body names, or null when it names none validly. */
+  readonly versionIds: (body: Partial<Record<string, unknown>>) => readonly string[] | null
+}
+
+const SUBJECTS = {
+  folder: {
+    kind: 'folder',
+    invalidId: 'Invalid folder ID.',
+    invalidStart: 'Choose an available snapshot for the folder.',
+    objectName: folderBackfillName,
+    versionIds: ({ versionIds }) =>
+      Array.isArray(versionIds) && versionIds.every(isUuidV7) ? versionIds : null,
+  },
+  template: {
+    kind: 'template',
+    invalidId: 'Invalid template ID.',
+    invalidStart: 'Choose a template version and available snapshot.',
+    objectName: (id) => id,
+    versionIds: ({ versionId }) =>
+      typeof versionId === 'string' && isUuidV7(versionId) ? [versionId] : null,
+  },
+} as const satisfies Record<string, SubjectRoutes>
+
+const isSnapshotId = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+
+/** Preview, start, status and cancel for one kind of subject, each under `/:id`. */
+const subjectRoutes = (clientFor: BackfillClients, subject: SubjectRoutes) => {
   const routes = new Hono()
-  routes.use('/*', requireScopeEffect(runtime, auth, 'admin'))
-  const clientFor = (id: string) => {
-    if (clients === undefined) throw new Error('Backfill is unavailable')
-    return clients(id)
-  }
-  // Registered before the template routes, whose `:templateId` would otherwise claim `folders`.
-  routes.use('/folders/:nodeId/*', async (c, next) => {
-    if (!UUID.test(c.req.param('nodeId') ?? '')) return c.json({ error: 'Invalid folder ID.' }, 400)
-    if (clients === undefined)
-      return c.json({ error: 'This server does not support backfill yet.' }, 503)
+  routes.use('/:id/*', async (c, next) => {
+    if (!isUuidV7(c.req.param('id'))) return c.json({ error: subject.invalidId }, 400)
     await next()
   })
-  const folderClient = (c: Context) => clientFor(folderBackfillName(c.req.param('nodeId') ?? ''))
-  routes.get('/folders/:nodeId/preview', async (c) =>
-    respond(c, await folderClient(c).previewFolder(c.req.param('nodeId'))),
-  )
-  routes.get('/folders/:nodeId/job', async (c) => respond(c, await folderClient(c).folderJob()))
-  routes.post('/folders/:nodeId/start', async (c) => {
-    const body: unknown = await c.req.json().catch(() => null)
-    if (
-      body === null ||
-      typeof body !== 'object' ||
-      !('versionIds' in body) ||
-      !('snapshotId' in body) ||
-      !Array.isArray(body.versionIds) ||
-      !body.versionIds.every((id) => typeof id === 'string' && UUID.test(id)) ||
-      typeof body.snapshotId !== 'number' ||
-      !Number.isSafeInteger(body.snapshotId) ||
-      body.snapshotId < 0
-    )
-      return c.json({ error: 'Choose an available snapshot for the folder.' }, 400)
-    return respond(
-      c,
-      await folderClient(c).startFolder(c.req.param('nodeId'), body.versionIds, body.snapshotId),
-    )
+  const named = (c: Context): BackfillSubject => ({
+    kind: subject.kind,
+    id: c.req.param('id') ?? '',
   })
-  routes.post('/folders/:nodeId/cancel', async (c) =>
-    respond(c, await folderClient(c).cancelFolder()),
-  )
-  routes.use('/:templateId/*', async (c, next) => {
-    if (!UUID.test(c.req.param('templateId') ?? ''))
-      return c.json({ error: 'Invalid template ID.' }, 400)
-    if (clients === undefined)
-      return c.json({ error: 'This server does not support backfill yet.' }, 503)
-    await next()
+  const client = (c: Context) => clientFor(subject.objectName(c.req.param('id') ?? ''))
+  routes.get('/:id/preview', async (c) => respond(c, await client(c).preview(named(c))))
+  routes.get('/:id/job', async (c) => respond(c, await client(c).job()))
+  routes.post('/:id/start', async (c) => {
+    const body = await jsonObject(c)
+    const versionIds = body === null ? null : subject.versionIds(body)
+    if (body === null || !isSnapshotId(body.snapshotId) || versionIds === null)
+      return c.json({ error: subject.invalidStart }, 400)
+    return respond(c, await client(c).start(named(c), versionIds, body.snapshotId))
   })
-  routes.get('/:templateId/preview', async (c) =>
-    respond(c, await clientFor(c.req.param('templateId')).preview(c.req.param('templateId'))),
-  )
-  routes.get('/:templateId/job', async (c) =>
-    respond(c, await clientFor(c.req.param('templateId')).job()),
-  )
-  routes.post('/:templateId/start', async (c) => {
-    const body: unknown = await c.req.json().catch(() => null)
-    if (
-      body === null ||
-      typeof body !== 'object' ||
-      !('versionId' in body) ||
-      !('snapshotId' in body) ||
-      typeof body.versionId !== 'string' ||
-      !UUID.test(body.versionId) ||
-      typeof body.snapshotId !== 'number' ||
-      !Number.isSafeInteger(body.snapshotId) ||
-      body.snapshotId < 0
-    )
-      return c.json({ error: 'Choose a template version and available snapshot.' }, 400)
-    return respond(
-      c,
-      await clientFor(c.req.param('templateId')).start(
-        c.req.param('templateId'),
-        body.versionId,
-        body.snapshotId,
-      ),
-    )
-  })
-  routes.post('/:templateId/cancel', async (c) =>
-    respond(c, await clientFor(c.req.param('templateId')).cancel()),
-  )
+  routes.post('/:id/cancel', async (c) => respond(c, await client(c).cancel()))
   return routes
 }
 
-/** Sparse reads share template visibility rules; PNGs remain outside live tile GC. */
-export const createArchiveRoutes = (
-  runtime: BackendRuntime,
-  auth: AuthOptions,
-  clients?: BackfillClients,
-) => {
+/** Admin-only preview/start/status/cancel for one server template, or every one below a folder. */
+export const createBackfillAdminRoutes = (runtime: BackendRuntime) => {
+  const clientFor = Services.get(runtime.context, BackfillService)
+  // Folders mount first, so the template routes' `:id` never claims `folders`.
+  return new Hono()
+    .route('/folders', subjectRoutes(clientFor, SUBJECTS.folder))
+    .route('/', subjectRoutes(clientFor, SUBJECTS.template))
+}
+
+/**
+ * Backfilled canvas history, read through templates. Sparse reads share template visibility rules;
+ * PNGs remain outside live tile GC.
+ */
+export const createCanvasHistoryRoutes = (runtime: BackendRuntime) => {
   const routes = new Hono()
-  const sql = Services.get(runtime.context, SqlStoreService)
   const blobs = Services.get(runtime.context, BlobStoreService)
-  routes.use('/*', requireScopeEffect(runtime, auth, 'read'))
+  const clients = Services.get(runtime.context, BackfillService)
   routes.get('/templates/:templateId', async (c) => {
     const id = c.req.param('templateId')
-    if (!UUID.test(id)) return c.json({ error: 'Invalid template ID.' }, 400)
-    const template = await sql.readTemplate(id)
-    if (template === null || (c.get('caller').scope !== 'admin' && !template.published))
-      return c.json({ error: 'Template not found.' }, 404)
-    const version = c.req.query('version') ?? template.currentVersionId
-    if (version === null || !UUID.test(version))
-      return c.json({ error: 'Invalid template version.' }, 400)
-    const record = await sql.readTemplateVersion(version)
-    if (record?.templateId !== id) return c.json({ error: 'Template version not found.' }, 404)
-    const x = c.req.query('x'),
-      y = c.req.query('y')
-    if (
-      (x === undefined) !== (y === undefined) ||
-      (x !== undefined &&
-        (!/^\d+$/.test(x) || !/^\d+$/.test(y ?? '') || Number(x) > 2047 || Number(y) > 2047))
+    if (!isUuidV7(id)) return c.json({ error: 'Invalid template ID.' }, 400)
+    const x = c.req.query('x')
+    const y = c.req.query('y')
+    const tile = x === undefined && y === undefined ? undefined : parseTileKey(`${x}/${y}`)
+    if (tile === null) return c.json({ error: 'Invalid tile coordinates.' }, 400)
+    const history = Effect.flatMap(
+      readVisibleVersion(id, c.req.query('version'), c.get('caller').canSeeDrafts),
+      (version) => Effect.promise(() => clients(id).history(version, tile)),
     )
-      return c.json({ error: 'Invalid tile coordinates.' }, 400)
-    if (clients === undefined)
-      return c.json({ source: 'eralyon', basis: null, samples: [], frames: [] })
-    return respond(
-      c,
-      await clients(id).history(
-        version,
-        x === undefined ? undefined : { x: Number(x), y: Number(y) },
-      ),
-    )
+    return runBackendHttp(c, runtime, history, (reply) => respond(c, reply))
   })
   routes.get('/tiles/:hash', async (c) => {
     const hash = c.req.param('hash')
-    if (!/^[0-9a-f]{64}$/.test(hash)) return c.json({ error: 'Invalid tile hash.' }, 400)
+    if (!isSha256Hex(hash)) return c.json({ error: 'Invalid tile hash.' }, 400)
     const bytes = await blobs.get('archives', hash)
     if (bytes === null) return c.notFound()
     return new Response(Uint8Array.from(bytes), {

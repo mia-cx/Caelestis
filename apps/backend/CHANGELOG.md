@@ -1,5 +1,15 @@
 # @caelestis/backend
 
+## 1.1.0
+
+### Minor Changes
+
+- f1ac26b: Server folders can backfill history for every template inside them at once, reading each archive tile only once even when several templates share it.
+
+### Patch Changes
+
+- 304a94e: The Node container images run Node 24.22.3, which fixes seven high-severity vulnerabilities in Node 24.22.1.
+
 ## 1.0.0
 
 ### Major Changes

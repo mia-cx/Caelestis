@@ -1,37 +1,19 @@
-import { millis, nodeSlug, type TemplateSurface, uuidV7 } from '@caelestis/shared'
+import { millis, type TemplateSurface, uuidV7 } from '@caelestis/shared'
 import { Effect } from 'effect'
-import type { NodeDeletion, NodeRecord } from '../ports/index.js'
-import {
-  InvalidNodeParentError,
-  NodeNotEmptyError,
-  NodeNotFoundError,
-  NodePathConflictError,
-  NodePathTooLongError,
-  NodeSubtreeChangedError,
-} from '../ports/index.js'
 import { SqlStoreService, StatusReadModelService } from '../runtime/backend-runtime.js'
 import {
-  BackendStorageError,
-  RequestValidationError,
-  ResourceConflictError,
-  ResourceNotFoundError,
+  type ConflictError,
+  fromPort,
+  type GoneError,
+  NotFoundError,
+  type StorageError,
+  storage,
+  type ValidationError,
 } from '../runtime/errors.js'
-import {
-  publishManifestChange,
-  repairCommittedStatusProjection,
-} from '../status-read-model/port.js'
+import { bestEffort } from '../status-read-model/port.js'
+import type { NewNode, NodeDeletion, NodeRecord, NodeRename } from './store.js'
 
-type NodeError =
-  | RequestValidationError
-  | ResourceNotFoundError
-  | ResourceConflictError
-  | BackendStorageError
-
-const storage = <A>(operation: string, run: () => Promise<A>) =>
-  Effect.tryPromise({
-    try: run,
-    catch: (cause) => new BackendStorageError({ operation, cause }),
-  })
+type NodeError = ValidationError | NotFoundError | ConflictError | GoneError | StorageError
 
 export const publicNode = ({
   season: _season,
@@ -40,11 +22,13 @@ export const publicNode = ({
   ...node
 }: NodeRecord) => (description === null ? node : { ...node, description })
 
+/** Create a node; `slug` is the path segment the caller derived from `name` with `nodeSlug`. */
 export const createNode = (input: {
   readonly season: number
   readonly surface: TemplateSurface
   readonly parentId: string | null
   readonly name: string
+  readonly slug: string
   readonly description?: string
 }): Effect.Effect<
   ReturnType<typeof publicNode>,
@@ -54,53 +38,23 @@ export const createNode = (input: {
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
     const statusReadModel = yield* StatusReadModelService
-    const segment = nodeSlug(input.name)
-    let parentPath = ''
-    if (input.parentId !== null) {
-      const parent = yield* storage('readNode', () => sql.readNode(input.parentId as string))
-      if (parent === null) {
-        return yield* Effect.fail(
-          new RequestValidationError({ message: 'parent node does not exist' }),
-        )
-      }
-      if (parent.season !== input.season) {
-        return yield* Effect.fail(
-          new RequestValidationError({ message: 'parent node belongs to a different season' }),
-        )
-      }
-      if (
-        parent.surface.kind !== input.surface.kind ||
-        parent.surface.allianceId !== input.surface.allianceId
-      ) {
-        return yield* Effect.fail(
-          new RequestValidationError({ message: 'parent node belongs to a different surface' }),
-        )
-      }
-      parentPath = parent.path
-    }
-
-    const node: NodeRecord = {
+    const node: NewNode = {
       id: uuidV7(),
       surface: input.surface,
       season: input.season,
       parentId: input.parentId,
-      path: `${parentPath}/${segment}`,
+      slug: input.slug,
       name: input.name,
       description: input.description ?? null,
       createdAt: millis(Date.now()),
     }
-    const inserted = yield* Effect.tryPromise({
-      try: () => sql.insertNode(node),
-      catch: (cause): RequestValidationError | BackendStorageError =>
-        cause instanceof NodePathConflictError ||
-        cause instanceof InvalidNodeParentError ||
-        cause instanceof NodePathTooLongError
-          ? new RequestValidationError({ message: cause.message })
-          : new BackendStorageError({ operation: 'insertNode', cause }),
+    // A taken path on create is bad input (400); a rename into one is a conflict (409).
+    const inserted = yield* fromPort('insertNode', () => sql.insertNode(node), {
+      conflict: 'invalid',
     })
     // A folder alone covers no tiles and owns no alarms.
     yield* Effect.promise(() =>
-      publishManifestChange(statusReadModel, input.season, input.surface, false),
+      bestEffort(() => statusReadModel.notifyManifestChange(input.season, input.surface, false)),
     )
     return publicNode(inserted)
   })
@@ -108,7 +62,7 @@ export const createNode = (input: {
 export const listNodes = (
   season: number,
   surface: TemplateSurface,
-): Effect.Effect<readonly ReturnType<typeof publicNode>[], BackendStorageError, SqlStoreService> =>
+): Effect.Effect<readonly ReturnType<typeof publicNode>[], StorageError, SqlStoreService> =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
     const nodes = yield* storage('listNodes', () => sql.listNodes(season, surface))
@@ -117,7 +71,7 @@ export const listNodes = (
 
 export const patchNode = (input: {
   readonly nodeId: string
-  readonly name?: string
+  readonly rename?: NodeRename
   readonly parentId?: string | null
 }): Effect.Effect<
   ReturnType<typeof publicNode>,
@@ -127,58 +81,26 @@ export const patchNode = (input: {
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
     const statusReadModel = yield* StatusReadModelService
-    const node = yield* storage('readNode', () => sql.readNode(input.nodeId))
-    if (node === null) {
-      return yield* Effect.fail(new ResourceNotFoundError({ message: 'not found' }))
-    }
-    const segment = input.name === undefined ? nodeSlug(node.name) : nodeSlug(input.name)
-    const nextParentId = input.parentId === undefined ? node.parentId : input.parentId
-    let parentPath = node.path.slice(0, node.path.lastIndexOf('/'))
-    if (input.parentId !== undefined) {
-      if (nextParentId === null) parentPath = ''
-      else {
-        const parent = yield* storage('readNode', () => sql.readNode(nextParentId))
-        if (parent === null) {
-          return yield* Effect.fail(
-            new RequestValidationError({ message: 'parent node does not exist' }),
-          )
-        }
-        parentPath = parent.path
+    const { rename, parentId } = input
+    const changed = yield* fromPort('patchNode', async () => {
+      if (parentId !== undefined) return sql.moveNode(input.nodeId, parentId, rename)
+      if (rename !== undefined) {
+        return (await sql.renameNode(input.nodeId, rename.name, rename.slug)) !== null
       }
-    }
-    const path = `${parentPath}/${segment}`
-    const changed = yield* Effect.tryPromise({
-      try: async () => {
-        if (input.parentId !== undefined) {
-          return sql.moveNode(input.nodeId, nextParentId, path, {
-            ...(input.name === undefined ? {} : { name: input.name }),
-          })
-        }
-        if (input.name !== undefined) {
-          return (await sql.renameNode(input.nodeId, input.name, segment)) !== null
-        }
-        return true
-      },
-      catch: (cause): RequestValidationError | ResourceConflictError | BackendStorageError => {
-        if (cause instanceof InvalidNodeParentError || cause instanceof NodePathTooLongError) {
-          return new RequestValidationError({ message: cause.message })
-        }
-        if (cause instanceof NodePathConflictError) {
-          return new ResourceConflictError({ message: cause.message })
-        }
-        return new BackendStorageError({ operation: 'patchNode', cause })
-      },
+      return true
     })
     if (!changed) {
-      return yield* Effect.fail(new ResourceNotFoundError({ message: 'not found' }))
+      return yield* Effect.fail(new NotFoundError({ message: 'not found' }))
     }
     const updated = yield* storage('readNode', () => sql.readNode(input.nodeId))
     if (updated === null) {
-      return yield* Effect.fail(new ResourceNotFoundError({ message: 'not found' }))
+      return yield* Effect.fail(new NotFoundError({ message: 'not found' }))
     }
     yield* Effect.promise(() =>
       // Renaming or moving a folder leaves its templates' tiles and alarms alone.
-      publishManifestChange(statusReadModel, updated.season, updated.surface, false),
+      bestEffort(() =>
+        statusReadModel.notifyManifestChange(updated.season, updated.surface, false),
+      ),
     )
     return publicNode(updated)
   })
@@ -187,77 +109,50 @@ export const countNodeSubtree = (
   nodeId: string,
 ): Effect.Effect<
   { readonly nodes: number; readonly templates: number },
-  ResourceNotFoundError | BackendStorageError,
+  NodeError,
   SqlStoreService
 > =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
-    return yield* Effect.tryPromise({
-      try: () => sql.countNodeSubtree(nodeId),
-      catch: (cause): ResourceNotFoundError | BackendStorageError =>
-        cause instanceof NodeNotFoundError
-          ? new ResourceNotFoundError({ message: 'not found' })
-          : new BackendStorageError({ operation: 'countNodeSubtree', cause }),
-    })
+    return yield* fromPort('countNodeSubtree', () => sql.countNodeSubtree(nodeId))
   })
 
 export const deleteNodeCascade = (
   nodeId: string,
   expected: NodeDeletion,
-): Effect.Effect<
-  NodeDeletion,
-  ResourceNotFoundError | ResourceConflictError | BackendStorageError,
-  SqlStoreService | StatusReadModelService
-> =>
+): Effect.Effect<NodeDeletion, NodeError, SqlStoreService | StatusReadModelService> =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
     const statusReadModel = yield* StatusReadModelService
     const node = yield* storage('readNode', () => sql.readNode(nodeId))
     if (node === null) {
-      return yield* Effect.fail(new ResourceNotFoundError({ message: 'not found' }))
+      return yield* Effect.fail(new NotFoundError({ message: 'not found' }))
     }
-    const deleted = yield* Effect.tryPromise({
-      try: () => sql.deleteNodeCascade(nodeId, expected),
-      catch: (cause): ResourceNotFoundError | ResourceConflictError | BackendStorageError => {
-        if (cause instanceof NodeNotFoundError) {
-          return new ResourceNotFoundError({ message: 'not found' })
-        }
-        if (cause instanceof NodeSubtreeChangedError) {
-          return new ResourceConflictError({ message: cause.message })
-        }
-        return new BackendStorageError({ operation: 'deleteNodeCascade', cause })
-      },
-    })
-    if (deleted.templates > 0) {
-      yield* Effect.promise(() => repairCommittedStatusProjection(statusReadModel, node.season))
+    yield* fromPort('deleteNodeCascade', () => sql.deleteNodeCascade(nodeId, expected))
+    if (expected.templates > 0) {
+      yield* Effect.promise(() =>
+        bestEffort(() => statusReadModel.applyCommittedChange(node.season)),
+      )
     }
-    yield* Effect.promise(() => publishManifestChange(statusReadModel, node.season, node.surface))
-    return deleted
+    yield* Effect.promise(() =>
+      bestEffort(() => statusReadModel.notifyManifestChange(node.season, node.surface)),
+    )
+    return expected
   })
 
 export const deleteEmptyNode = (
   nodeId: string,
-): Effect.Effect<
-  void,
-  ResourceNotFoundError | ResourceConflictError | BackendStorageError,
-  SqlStoreService | StatusReadModelService
-> =>
+): Effect.Effect<void, NodeError, SqlStoreService | StatusReadModelService> =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
     const statusReadModel = yield* StatusReadModelService
     const node = yield* storage('readNode', () => sql.readNode(nodeId))
     if (node === null) {
-      return yield* Effect.fail(new ResourceNotFoundError({ message: 'not found' }))
+      return yield* Effect.fail(new NotFoundError({ message: 'not found' }))
     }
-    yield* Effect.tryPromise({
-      try: () => sql.deleteNode(nodeId),
-      catch: (cause): ResourceConflictError | BackendStorageError =>
-        cause instanceof NodeNotEmptyError
-          ? new ResourceConflictError({ message: cause.message })
-          : new BackendStorageError({ operation: 'deleteNode', cause }),
-    })
+    yield* fromPort('deleteNode', () => sql.deleteNode(nodeId))
     // Only an empty folder reaches here.
     yield* Effect.promise(() =>
-      publishManifestChange(statusReadModel, node.season, node.surface, false),
+      bestEffort(() => statusReadModel.notifyManifestChange(node.season, node.surface, false)),
     )
   })

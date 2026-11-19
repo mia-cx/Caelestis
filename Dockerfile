@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM node:24.22.1-bookworm-slim@sha256:1681862882da07ee5476fee047bcf34138833f1df42633bb25bcb0f438d5bf3d AS build
+FROM node:24.22.3-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54 AS build
 WORKDIR /build
 RUN npm install --global pnpm@12.3.4
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
@@ -25,12 +25,12 @@ RUN pnpm --filter @caelestis/backend deploy --prod --legacy /output/apps/backend
 RUN pnpm --filter @caelestis/frontend deploy --prod --legacy /output/apps/frontend
 RUN cp -R apps/frontend/build /output/apps/frontend/build
 
-FROM node:24.22.1-bookworm-slim@sha256:1681862882da07ee5476fee047bcf34138833f1df42633bb25bcb0f438d5bf3d AS runtime
+FROM node:24.22.3-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54 AS runtime
 ARG CAELESTIS_BUILD_ID=development
 LABEL org.opencontainers.image.source="https://github.com/mia-cx/Caelestis" \
       org.opencontainers.image.revision=$CAELESTIS_BUILD_ID \
       cx.mia.caelestis.runtime="node" \
-      cx.mia.caelestis.runtime.version="24.22.1"
+      cx.mia.caelestis.runtime.version="24.22.3"
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000 DATA_DIRECTORY=/data CAELESTIS_BUILD_ID=$CAELESTIS_BUILD_ID
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends --only-upgrade libpcre2-8-0 perl-base apt libapt-pkg6.0 \

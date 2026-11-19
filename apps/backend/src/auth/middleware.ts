@@ -1,10 +1,11 @@
+import { type Scope, satisfiesScope } from '@caelestis/shared'
 import { Effect } from 'effect'
 import type { MiddlewareHandler } from 'hono'
-import type { AccessToken } from '../ports/index.js'
 import { type BackendRuntime, SqlStoreService } from '../runtime/backend-runtime.js'
-import { BackendStorageError, ForbiddenError, UnauthorizedError } from '../runtime/errors.js'
-import { runBackendMiddleware } from '../runtime/hono.js'
-import { hashToken, type Scope, satisfiesScope } from './tokens.js'
+import { ForbiddenError, type StorageError, storage, UnauthorizedError } from '../runtime/errors.js'
+import { errorResponse, runBackendMiddleware } from '../runtime/hono.js'
+import type { AccessToken } from './store.js'
+import { hashToken } from './tokens.js'
 
 /** What a request proved about itself. */
 export interface Caller {
@@ -19,6 +20,8 @@ export interface Caller {
    * digest by CHECK, so a literal like `'bootstrap'` is not storable — this is.
    */
   readonly tokenHash: string
+  /** Admins see unpublished templates and their artwork; everyone else sees what is published. */
+  readonly canSeeDrafts: boolean
 }
 
 declare module 'hono' {
@@ -71,8 +74,8 @@ export interface AuthOptions {
    *
    * `/server` advertises `auth: 'none'` when this is set, and that advertisement is the entire
    * reason `/server` is public: a userscript reads it to decide whether to ask its user for a token
-   * before adding the server. When the flag only changed the advertisement, a client that believed
-   * it got a 401 from `/manifest` — the one thing the endpoint exists to prevent.
+   * before adding the server. So the flag must open the reads too, or a client that believed the
+   * advertisement would get a 401 from `/manifest`.
    *
    * `read` only. `report` writes counters and `admin` writes everything, and neither becomes public
    * because a server chose to publish its manifest.
@@ -86,75 +89,16 @@ export interface AuthOptions {
 }
 
 /**
- * Require at least `required` scope.
- *
- * Every rejection is a bare 401 or 403 with no detail. Distinguishing "no such token" from "revoked"
- * from "wrong scope" would let a holder of one credential probe for the existence of others.
- *
- * "Bare" is about detail, not about the body. Three reviewers have now read it as "send no body at
- * all" and filed the `{"error":"unauthorized"}` payload as a violation, so: the body is a constant
- * per status, identical for a missing header, a malformed scheme, an unknown token and a deleted
- * one. Nothing in it varies with the cause, which is the whole property. 401 versus 403 is the one
- * distinction that is deliberate — it tells a caller whether to authenticate or give up, and it
- * says nothing about any credential the caller does not already hold.
+ * The caller for a tokenless read: an anonymous request on an open server, or the server reading
+ * itself in-process. Its digest is not a credential and cannot be one: no token hashes to all
+ * zeroes, so it never collides with a real one, and author columns still receive the right shape.
  */
-/**
- * The digest recorded for a tokenless reader: an anonymous caller on an open server, or the server
- * reading itself in-process. Not a credential and cannot be one:
- * no token hashes to all zeroes, so it can never collide with a real one, and the author columns
- * still receive something of the right shape.
- */
-const OPEN_ACCESS_HASH = '0'.repeat(64)
-
-/** Authenticate one request against the SQL service supplied by the prepared Effect runtime. */
-export const authenticateRequest = (
-  authorization: string | undefined,
-  config: AuthOptions,
-  required: Scope,
-): Effect.Effect<
-  Caller,
-  UnauthorizedError | ForbiddenError | BackendStorageError,
-  SqlStoreService
-> =>
-  Effect.gen(function* () {
-    const sql = yield* SqlStoreService
-    const presented = bearerToken(authorization)
-    const anonymousRead = required === 'read' && config.openAccess === true
-    if (presented === null) {
-      if (!anonymousRead) {
-        return yield* Effect.fail(new UnauthorizedError({ message: 'unauthorized' }))
-      }
-      return { scope: 'read', token: null, tokenHash: OPEN_ACCESS_HASH }
-    }
-
-    if (
-      config.bootstrapAdminToken !== undefined &&
-      config.bootstrapAdminToken.length > 0 &&
-      equalsConstantTime(presented, config.bootstrapAdminToken)
-    ) {
-      const tokenHash = yield* Effect.tryPromise({
-        try: () => hashToken(presented),
-        catch: (cause) => new BackendStorageError({ operation: 'hashToken', cause }),
-      })
-      return { scope: 'admin', token: null, tokenHash }
-    }
-
-    const tokenHash = yield* Effect.tryPromise({
-      try: () => hashToken(presented),
-      catch: (cause) => new BackendStorageError({ operation: 'hashToken', cause }),
-    })
-    const token = yield* Effect.tryPromise({
-      try: () => sql.readAccessToken(tokenHash),
-      catch: (cause) => new BackendStorageError({ operation: 'readAccessToken', cause }),
-    })
-    if (token === null) {
-      return yield* Effect.fail(new UnauthorizedError({ message: 'unauthorized' }))
-    }
-    if (!satisfiesScope(token.scope, required)) {
-      return yield* Effect.fail(new ForbiddenError({ message: 'forbidden' }))
-    }
-    return { scope: token.scope, token, tokenHash: token.tokenHash }
-  })
+const TOKENLESS_READER: Caller = {
+  scope: 'read',
+  token: null,
+  tokenHash: '0'.repeat(64),
+  canSeeDrafts: false,
+}
 
 /**
  * Marks a request the server makes to its own app, such as the share-image renderer reading the
@@ -164,22 +108,77 @@ export const authenticateRequest = (
  */
 export const IN_PROCESS_READ = Symbol('in-process read')
 
-/** Effect-backed scope middleware for routes migrated off hand-passed SQL authentication. */
+/**
+ * Authenticate one request, requiring at least `required` scope. `inProcess` is whether the
+ * request carries `IN_PROCESS_READ`.
+ *
+ * Every rejection is a bare 401 or 403: the body is a constant per status, identical for a missing
+ * header, a malformed scheme, an unknown token and a deleted one. Distinguishing them would let a
+ * holder of one credential probe for the existence of others. 401 versus 403 is the one deliberate
+ * distinction — it tells a caller whether to authenticate or give up.
+ */
+export const authenticateRequest = (
+  authorization: string | undefined,
+  config: AuthOptions,
+  required: Scope,
+  inProcess = false,
+): Effect.Effect<Caller, UnauthorizedError | ForbiddenError | StorageError, SqlStoreService> =>
+  Effect.gen(function* () {
+    const presented = bearerToken(authorization)
+    if (presented === null) {
+      const tokenless = required === 'read' && (inProcess || config.openAccess === true)
+      return tokenless ? TOKENLESS_READER : yield* Effect.fail(new UnauthorizedError())
+    }
+
+    const tokenHash = yield* Effect.promise(() => hashToken(presented))
+    if (
+      config.bootstrapAdminToken !== undefined &&
+      config.bootstrapAdminToken.length > 0 &&
+      equalsConstantTime(presented, config.bootstrapAdminToken)
+    ) {
+      return { scope: 'admin', token: null, tokenHash, canSeeDrafts: true }
+    }
+
+    const sql = yield* SqlStoreService
+    const token = yield* storage('readAccessToken', () => sql.readAccessToken(tokenHash))
+    if (token === null) return yield* Effect.fail(new UnauthorizedError())
+    if (!satisfiesScope(token.scope, required)) return yield* Effect.fail(new ForbiddenError())
+    return { scope: token.scope, token, tokenHash, canSeeDrafts: token.scope === 'admin' }
+  })
+
+/** Authenticate every request a mount guards and record its `caller`. */
 export const requireScopeEffect =
   (runtime: BackendRuntime, config: AuthOptions, required: Scope): MiddlewareHandler =>
   async (c, next) => {
     const env: { [IN_PROCESS_READ]?: boolean } | undefined = c.env
-    if (required === 'read' && env?.[IN_PROCESS_READ] === true) {
-      c.set('caller', { scope: 'read', token: null, tokenHash: OPEN_ACCESS_HASH })
-      return next()
-    }
     return runBackendMiddleware(
       c,
       runtime,
-      authenticateRequest(c.req.header('authorization'), config, required),
+      authenticateRequest(
+        c.req.header('authorization'),
+        config,
+        required,
+        env?.[IN_PROCESS_READ] === true,
+      ),
       (caller) => {
         c.set('caller', caller)
         return next()
       },
+    )
+  }
+
+/**
+ * Raise one route above its mount's scope, such as a `report` write under a `read` mount. The
+ * mount already authenticated the caller, so this only compares scopes: a tokenless reader is
+ * asked to authenticate, and anyone else holding too little is refused.
+ */
+export const requireScope =
+  (required: Scope): MiddlewareHandler =>
+  async (c, next) => {
+    const caller = c.get('caller')
+    if (satisfiesScope(caller.scope, required)) return next()
+    return errorResponse(
+      c,
+      caller === TOKENLESS_READER ? new UnauthorizedError() : new ForbiddenError(),
     )
   }

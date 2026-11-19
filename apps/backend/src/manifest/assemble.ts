@@ -4,12 +4,22 @@ import {
   type SurfaceChunkKey,
   sha256Hex,
   type TemplateSurface,
+  type TemplateTag,
   tileKey,
 } from '@caelestis/shared'
-import { Effect } from 'effect'
-import type { SqlStore } from '../ports/index.js'
-import { SqlStoreService } from '../runtime/backend-runtime.js'
-import { BackendStorageError } from '../runtime/errors.js'
+import {
+  MAX_MANIFEST_CHUNKS,
+  MAX_MANIFEST_NODES,
+  MAX_MANIFEST_TEMPLATES,
+} from '@caelestis/wire-schema'
+import { LIVE_CAPABILITIES } from '../live/session.js'
+import type { NodeStore } from '../nodes/store.js'
+import type { TagStore } from '../tags/store.js'
+import type { TemplateStore } from '../templates/store.js'
+import type { WorkStore } from '../work/store.js'
+
+/** The stores a manifest is assembled from. */
+export type ManifestStores = NodeStore & TemplateStore & TagStore & { readonly work: WorkStore }
 
 export interface AssembleManifestOptions {
   readonly server: ServerInfo
@@ -20,13 +30,9 @@ export interface AssembleManifestOptions {
 
 const VERSION_PLACEHOLDER = '0'.repeat(64)
 
-/** Mirror the bounds in `@caelestis/wire-schema`, which is what refuses the assembled result. */
-const MAX_MANIFEST_CHUNKS = 200_000
-const MAX_MANIFEST_NODES = 100_000
-const MAX_MANIFEST_TEMPLATES = 100_000
-
-const assembleManifestWithSql = async (
-  sql: SqlStore,
+/** Assemble one visibility-scoped manifest and sign it with the hash of its content. */
+export const assembleManifest = async (
+  sql: ManifestStores,
   options: AssembleManifestOptions,
 ): Promise<Manifest> => {
   const surface = options.surface ?? { kind: 'world', allianceId: null }
@@ -48,14 +54,14 @@ const assembleManifestWithSql = async (
     sql.work.revision(options.season, surface),
   ])
 
-  const tagsByTemplate = new Map<string, import('@caelestis/shared').TemplateTag[]>()
+  const tagsByTemplate = new Map<string, TemplateTag[]>()
   for (const { templateId, tag } of tagRecords) {
     const tags = tagsByTemplate.get(templateId) ?? []
     tags.push(tag)
     tagsByTemplate.set(templateId, tags)
   }
   for (const tags of tagsByTemplate.values()) tags.sort((a, b) => a.id.localeCompare(b.id))
-  const tagsByNode = new Map<string, import('@caelestis/shared').TemplateTag[]>()
+  const tagsByNode = new Map<string, TemplateTag[]>()
   for (const { nodeId, tag } of nodeTagRecords) {
     const tags = tagsByNode.get(nodeId) ?? []
     tags.push(tag)
@@ -87,18 +93,13 @@ const assembleManifestWithSql = async (
     else chunks.push(chunk)
   }
 
-  // Templates and tiles are separate reads with no snapshot between them, so a publish landing in
-  // the gap can be seen by one and not the other. A template that arrives with no tiles is emitted
-  // as `chunks: []`, which the wire refuses outright — one admin publish concurrent with one member
-  // poll would produce a 200 nobody can decode. Dropping it is the recoverable direction: the next
-  // poll, microseconds later, carries it complete. The reverse ordering is already benign, since
-  // orphan tile rows simply find no template to attach to.
+  // Nodes, templates and tiles are separate reads with no snapshot between them, so a write landing
+  // in the gap can be seen by one and not another. A template with no tiles, or naming a node the
+  // manifest does not carry, would make a manifest the wire refuses to decode. Dropping it is the
+  // recoverable direction: the next poll carries it complete. Orphan tile rows simply find no
+  // template to attach to.
   const nodeIds = new Set(allNodes.map((node) => node.id))
   const templates = templateRecords
-    // Both directions of the same tear. The node read can also land before a group is created while
-    // the template read lands after one is placed in it, leaving a template naming a node the
-    // manifest does not carry — which the wire refuses just as firmly as `chunks: []`. Dropping is
-    // recoverable; the next poll has both.
     .filter(
       (template) =>
         (template.nodeId === null || nodeIds.has(template.nodeId)) &&
@@ -137,19 +138,9 @@ const assembleManifestWithSql = async (
     ? allNodes
     : allNodes.filter((node) => shown.has(node.id))
 
-  // The wire caps a manifest at 200,000 chunks in total, and nothing on the write path enforces an
-  // aggregate: 400 chunks per template is bounded, the number of published templates in a season is
-  // not, so ~500 of them cross the line. Past it, every client rejects the 200 this would return.
-  //
-  // INTERIM. Failing here turns a silent client-side break into a server-side error naming the
-  // cause, which is strictly better but still an outage for that season's manifest. The real fix is
-  // to refuse the publish that crosses the line, so an admin learns at the moment they cause it —
-  // that needs the season and the season's current chunk total at the publish route, which is port
-  // surface this slice does not have.
-  // Nodes and templates are bounded arrays on the wire for the same reason chunks are, and nothing
-  // on the write path enforces either. Guarding only chunks was an oversight, not a judgement: a
-  // season past 100,000 nodes assembles no chunks at all, sails through the check below, and fails
-  // decode at the client — the exact silent break this is here to convert into a named cause.
+  // The wire bounds nodes, templates and total chunks, and no write path enforces those aggregates.
+  // A season past one would assemble a manifest every client refuses to decode, so name the cause
+  // here instead.
   const refuse = (count: number, limit: number, what: string) => {
     if (count > limit) {
       throw new Error(
@@ -175,11 +166,13 @@ const assembleManifestWithSql = async (
     name: server.name,
     ...(server.description === undefined ? {} : { description: server.description }),
     auth: server.auth,
-    ...(server.liveSync === undefined ? {} : { liveSync: server.liveSync }),
-    ...(server.liveSyncMax === undefined ? {} : { liveSyncMax: server.liveSyncMax }),
-    ...(server.liveTileOffers === undefined ? {} : { liveTileOffers: server.liveTileOffers }),
-    ...(server.presence === undefined ? {} : { presence: server.presence }),
-    ...(server.livePaintParts === undefined ? {} : { livePaintParts: server.livePaintParts }),
+    // Every capability `/server` can advertise, in the order `LIVE_CAPABILITIES` lists them.
+    ...Object.fromEntries(
+      Object.keys(LIVE_CAPABILITIES).flatMap((name) => {
+        const version: unknown = Reflect.get(server, name)
+        return version === undefined ? [] : [[name, version]]
+      }),
+    ),
     ...(server.discordInviteUrl === undefined ? {} : { discordInviteUrl: server.discordInviteUrl }),
     ...(server.version === undefined ? {} : { version: server.version }),
     ...(server.build === undefined ? {} : { build: server.build }),
@@ -215,21 +208,3 @@ const assembleManifestWithSql = async (
   const version = await sha256Hex(new TextEncoder().encode(JSON.stringify(unsigned)))
   return { ...unsigned, version }
 }
-
-/** Compatibility entry point for assembler tests and callers that have not migrated yet. */
-export const assembleManifest = (
-  sql: SqlStore,
-  options: AssembleManifestOptions,
-): Promise<Manifest> => assembleManifestWithSql(sql, options)
-
-/** Assemble one manifest from the SQL service supplied by the prepared backend runtime. */
-export const assembleManifestEffect = (
-  options: AssembleManifestOptions,
-): Effect.Effect<Manifest, BackendStorageError, SqlStoreService> =>
-  Effect.gen(function* () {
-    const sql = yield* SqlStoreService
-    return yield* Effect.tryPromise({
-      try: () => assembleManifestWithSql(sql, options),
-      catch: (cause) => new BackendStorageError({ operation: 'assembleManifest', cause }),
-    })
-  })

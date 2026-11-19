@@ -1,35 +1,35 @@
 /**
- * The real backend app over memory adapters, for client contract suites in other packages.
- * Exported as `@caelestis/backend/testing`; importing the built package keeps the backend's own
- * compiler environment out of client test runners.
+ * The real backend app over the production stores on a private in-memory database, for contract
+ * suites. Exported as `@caelestis/backend/testing`; importing the built package keeps the backend's
+ * own compiler environment out of client test runners.
  */
-import { type Millis, millis } from '@caelestis/shared'
-import { MemoryBlobStore } from './adapters/memory/memory-blob-store.js'
-import { MemoryCounterStore } from './adapters/memory/memory-counter-store.js'
-import { MemorySqlStore } from './adapters/memory/memory-sql-store.js'
-import { type AppOptions, createApp } from './app.js'
-import { hashToken, type Scope } from './auth/tokens.js'
-import type { BackfillStorage } from './backfill/import.js'
+import { type Millis, millis, type Scope } from '@caelestis/shared'
+import { createApp } from './app.js'
+import { hashToken } from './auth/tokens.js'
+import type { BackfillClients, BackfillStorage } from './backfill/port.js'
+import { openMemoryStores } from './node/memory-stores.js'
 import { makeBackendContext } from './runtime/backend-runtime.js'
 
-export type { ArchiveSource } from './backfill/import.js'
 export { TemplateBackfill } from './backfill/import.js'
-export { type BackfillClients, localBackfillClient } from './backfill/port.js'
+export { type ArchiveSource, type BackfillClients, localBackfillClient } from './backfill/port.js'
+export { openMemoryDatabase, seedTileObservation } from './node/memory-stores.js'
 
-export interface TestBackendOptions extends AppOptions {
+export interface TestBackendOptions {
   /** Access tokens to seed, by secret. The first one is recorded as the creator of all of them. */
   readonly tokens?: Readonly<Record<string, Scope>>
+  readonly openAccess?: boolean
   readonly clock?: () => Millis
+  readonly backfillClients?: BackfillClients
 }
 
 export const createTestBackend = async ({
   tokens = {},
+  openAccess = false,
   clock,
-  ...options
+  backfillClients,
 }: TestBackendOptions = {}) => {
-  const sql = new MemorySqlStore()
-  const blobs = new MemoryBlobStore()
-  const counters = new MemoryCounterStore(sql, clock)
+  const stores = await openMemoryStores({ clock })
+  const { sql, blobs, counters } = stores
   const seeded = await Promise.all(
     Object.entries(tokens).map(async ([token, scope]) => ({
       tokenHash: await hashToken(token),
@@ -45,12 +45,24 @@ export const createTestBackend = async ({
       createdAt: millis(index + 1),
     })
   }
-  const app = createApp(makeBackendContext(blobs, sql, counters), {
-    serverName: 'Test server',
-    currentSeason: 3,
-    ...options,
-  })
-  return { app, sql, blobs, counters }
+  const app = createApp(
+    makeBackendContext(
+      blobs,
+      sql,
+      counters,
+      undefined,
+      backfillClients === undefined ? {} : { backfill: backfillClients },
+    ),
+    {
+      server: {
+        id: '00000000-0000-7000-8000-000000000000',
+        name: 'Test server',
+        auth: openAccess ? 'none' : 'access_token',
+      },
+      currentSeason: 3,
+    },
+  )
+  return { ...stores, app }
 }
 
 /** Durable Object storage for a `TemplateBackfill` outside workerd. */

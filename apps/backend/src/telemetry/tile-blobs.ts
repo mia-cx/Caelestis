@@ -1,15 +1,18 @@
 import { type Millis, millis } from '@caelestis/shared'
-import type { BlobStore, SqlStore, TileBlobObject, TileBlobReservation } from '../ports/index.js'
+import { ingestTimings } from '../metrics/ingest-timing.js'
+import type { BlobStore } from '../ports/index.js'
+import { BoundedCache } from '../runtime/bounded-cache.js'
+import type { TileBlobObject, TileBlobReservation, TileBlobStore } from './blobs/store.js'
 
 interface TileBlobStores {
   readonly blobs: BlobStore
-  readonly sql: SqlStore
+  readonly sql: TileBlobStore
 }
 
 const RESERVATION_MILLISECONDS = 5 * 60 * 1_000
 const INGEST_RECOVERY_LIMIT = 100
-export const TILE_BLOB_GC_SCAN_LIMIT = 10
-export const TILE_BLOB_GC_DELETE_LIMIT = 5
+const TILE_BLOB_GC_SCAN_LIMIT = 10
+const TILE_BLOB_GC_DELETE_LIMIT = 5
 
 const TILE_BLOB_KEY = /^([0-9a-f]{64})(?:\/[0-9a-f-]{36})?$/
 
@@ -55,7 +58,6 @@ const reclaimTileBlob = async (
   return 'reclaimed'
 }
 
-/** Read the currently registered generation, with the pre-GC hash key as the migration fallback. */
 export const readTileBlob = async (
   ports: TileBlobStores,
   hash: string,
@@ -94,7 +96,6 @@ export const reserveTileBlob = async (
   return reservation === null ? null : { reservation, bytes }
 }
 
-/** Finish durable deletion work for one hash before restoring it under a new key. */
 const recoverDeletingHash = async (
   ports: TileBlobStores,
   hash: string,
@@ -109,7 +110,6 @@ const recoverDeletingHash = async (
   return true
 }
 
-/** Reserve an unfenced generation, recovering any interrupted older deletion once if needed. */
 export const reserveTileBlobUpload = async (
   ports: TileBlobStores,
   hash: string,
@@ -128,6 +128,58 @@ export const reserveTileBlobUpload = async (
     break
   }
   throw new Error(`tile blob ${hash} is fenced by deletion work that could not be recovered`)
+}
+
+// Module scope, because concurrent requests in one Worker isolate share nothing else.
+
+/** Tile-object PUTs in flight, by blob key, so concurrent uploaders share one. */
+const inFlightTilePuts = new Map<string, Promise<void>>()
+
+/**
+ * Blob keys whose bytes this isolate has stored or seen active. A generation stays `uploading`
+ * until its owner's observation commits, long after the PUT settled, and every reporter reserving
+ * it in that gap would PUT again. `generationKey` never reuses a key, so a remembered key cannot
+ * point at reclaimed bytes; forgetting one costs only a state read.
+ */
+const storedTileBlobKeys = new BoundedCache<true>({ maxEntries: 512 })
+
+/**
+ * Store one reserved generation's bytes at most once at a time.
+ *
+ * Reporters that offer the same fresh hash inside one commit window all reserve the same
+ * `uploading` generation, and none of them sees it `active` yet. The first PUT for a key is
+ * shared with every concurrent caller; a failed PUT rejects them all so each retries its own.
+ */
+export const storeTileBlob = async (
+  ports: TileBlobStores,
+  reservation: TileBlobReservation,
+  bytes: Uint8Array,
+): Promise<void> => {
+  const { hash, blobKey } = reservation
+  if (storedTileBlobKeys.get(blobKey) !== undefined) {
+    ingestTimings.count('upload.blobPut.skipped')
+    return
+  }
+  const joined = inFlightTilePuts.get(blobKey)
+  if (joined !== undefined) {
+    ingestTimings.count('upload.blobPut.joined')
+    return joined
+  }
+  // Register before any await: the active-state read and the PUT belong to one owner, so a
+  // caller arriving during either joins it instead of racing past the lookup.
+  const work = (async () => {
+    const registered = await ports.sql.readTileBlob(hash)
+    if (registered?.state === 'active' && registered.blobKey === blobKey) {
+      ingestTimings.count('upload.blobPut.skipped')
+    } else {
+      await ports.blobs.put('tiles', blobKey, bytes)
+    }
+    storedTileBlobKeys.set(blobKey, true)
+  })().finally(() => {
+    inFlightTilePuts.delete(blobKey)
+  })
+  inFlightTilePuts.set(blobKey, work)
+  return work
 }
 
 /**

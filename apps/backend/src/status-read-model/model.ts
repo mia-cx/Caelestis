@@ -6,8 +6,8 @@ import {
   type TemplateStatus,
   type TileKey,
 } from '@caelestis/shared'
-
-export type StatusVisibilityScope = 'public' | 'admin'
+import type { VisibilityScope } from '../manifest/read-model.js'
+import { serialQueue } from '../runtime/serial-queue.js'
 
 export interface RevisionedStatusSnapshot extends StatusResponse {
   readonly revision: number
@@ -32,10 +32,7 @@ export interface PersistedStatusReadModel {
 }
 
 export interface StatusReadModelSource {
-  readonly read: (
-    season: number,
-    scope: StatusVisibilityScope,
-  ) => Promise<readonly TemplateStatus[]>
+  readonly read: (season: number, scope: VisibilityScope) => Promise<readonly TemplateStatus[]>
 }
 
 export interface StatusReadModelPersistence {
@@ -54,22 +51,11 @@ export interface StatusRevisionStore {
   ) => Promise<number | null>
 }
 
-export interface StatusSubscriber {
-  readonly scope: StatusVisibilityScope
-  readonly publish: (snapshot: RevisionedStatusSnapshot) => void | Promise<void>
-}
-
-export interface StatusSubscriberAttachment {
-  readonly snapshot: RevisionedStatusSnapshot
-  readonly detach: () => void
-}
-
 export interface SeasonStatusReadModel {
   readonly applyCommittedChange: (
     mutation?: StatusProjectionMutation,
   ) => Promise<StatusProjectionChange | null>
-  readonly reconcileSnapshot: (scope: StatusVisibilityScope) => Promise<StatusSnapshotRead>
-  readonly attachSubscriber: (subscriber: StatusSubscriber) => Promise<StatusSubscriberAttachment>
+  readonly reconcileSnapshot: (scope: VisibilityScope) => Promise<StatusSnapshotRead>
 }
 
 export interface StatusProjectionChange {
@@ -121,38 +107,43 @@ const sameTemplates = (
   right: readonly TemplateStatus[],
 ): boolean => JSON.stringify(left) === JSON.stringify(right)
 
+/** The templates one visibility scope sees. */
+export const scopeTemplates = (
+  state: PersistedStatusReadModel,
+  scope: VisibilityScope,
+): readonly TemplateStatus[] => (scope === 'admin' ? state.adminTemplates : state.publicTemplates)
+
+/**
+ * Whether a template's status is unchanged. A mutation keeps every template it did not touch as
+ * the same object, so only replaced templates pay for a deep comparison.
+ */
+export const sameStatus = (held: TemplateStatus | undefined, status: TemplateStatus): boolean =>
+  held === status || JSON.stringify(held) === JSON.stringify(status)
+
 const snapshotFor = (
   state: PersistedStatusReadModel,
-  scope: StatusVisibilityScope,
+  scope: VisibilityScope,
 ): RevisionedStatusSnapshot => ({
   revision: state.revision,
-  templates: scope === 'admin' ? state.adminTemplates : state.publicTemplates,
+  templates: scopeTemplates(state, scope),
 })
 
 const deltaFor = (
   previous: PersistedStatusReadModel,
   next: PersistedStatusReadModel,
-  scope: StatusVisibilityScope,
+  scope: VisibilityScope,
   invalidatedTiles?: readonly TileKey[],
   invalidateAllTiles = false,
 ): StatusDelta => {
   const before = new Map(
-    (scope === 'admin' ? previous.adminTemplates : previous.publicTemplates).map((status) => [
-      status.templateId,
-      status,
-    ]),
+    scopeTemplates(previous, scope).map((status) => [status.templateId, status]),
   )
-  const after = scope === 'admin' ? next.adminTemplates : next.publicTemplates
+  const after = scopeTemplates(next, scope)
   const afterIds = new Set(after.map((status) => status.templateId))
   return {
     baseRevision: previous.revision,
     revision: next.revision,
-    // A mutation keeps every template it did not touch as the same object, so only replaced
-    // templates pay for a deep comparison.
-    templates: after.filter((status) => {
-      const held = before.get(status.templateId)
-      return held !== status && JSON.stringify(held) !== JSON.stringify(status)
-    }),
+    templates: after.filter((status) => !sameStatus(before.get(status.templateId), status)),
     removedTemplateIds: [...before.keys()].filter((templateId) => !afterIds.has(templateId)),
     ...(invalidateAllTiles
       ? { invalidateAllTiles: true as const }
@@ -165,7 +156,7 @@ const deltaFor = (
 const applyScopeMutation = (
   templates: readonly TemplateStatus[],
   mutation: StatusProjectionMutation,
-  scope: StatusVisibilityScope,
+  scope: VisibilityScope,
 ): readonly TemplateStatus[] | null => {
   const next = new Map(templates.map((status) => [status.templateId, status]))
   for (const change of mutation.changes) {
@@ -260,37 +251,15 @@ export const createSeasonStatusReadModel = (options: {
 }): SeasonStatusReadModel => {
   const now = options.now ?? Date.now
   const ttlMilliseconds = options.ttlMilliseconds ?? STATUS_READ_MODEL_TTL_MILLISECONDS
-  const subscribers = new Set<StatusSubscriber>()
   let state: PersistedStatusReadModel | null = null
   let loaded = false
-  let tail = Promise.resolve()
-
-  const exclusive = <A>(operation: () => Promise<A>): Promise<A> => {
-    const running = tail.then(operation, operation)
-    tail = running.then(
-      () => undefined,
-      () => undefined,
-    )
-    return running
-  }
+  const exclusive = serialQueue()
 
   const load = async (): Promise<void> => {
     if (loaded) return
     const persisted = await options.persistence.load()
     state = persisted?.season === options.season ? persisted : null
     loaded = true
-  }
-
-  const publish = async (next: PersistedStatusReadModel): Promise<void> => {
-    await Promise.all(
-      [...subscribers].map(async (subscriber) => {
-        try {
-          await subscriber.publish(snapshotFor(next, subscriber.scope))
-        } catch {
-          subscribers.delete(subscriber)
-        }
-      }),
-    )
   }
 
   const reconcile = async (
@@ -341,11 +310,6 @@ export const createSeasonStatusReadModel = (options: {
       )
       if (revision === null) continue
       const previous = state
-      const changed =
-        state === null ||
-        state.revision !== revision ||
-        !sameTemplates(state.publicTemplates, publicTemplates) ||
-        !sameTemplates(state.adminTemplates, adminTemplates)
       const next: PersistedStatusReadModel = {
         season: options.season,
         revision,
@@ -353,11 +317,8 @@ export const createSeasonStatusReadModel = (options: {
         publicTemplates,
         adminTemplates,
       }
-
-      // Persist first. Subscribers may only observe a revision that reconstruction can recover.
       await options.persistence.save(next)
       state = next
-      if (changed) await publish(next)
       return {
         state: next,
         cacheOutcome,
@@ -408,7 +369,6 @@ export const createSeasonStatusReadModel = (options: {
     }
     await options.persistence.save(next)
     state = next
-    await publish(next)
     return {
       public: deltaFor(previous, next, 'public', mutation.publicInvalidatedTiles),
       admin: deltaFor(previous, next, 'admin', mutation.invalidatedTiles),
@@ -427,15 +387,6 @@ export const createSeasonStatusReadModel = (options: {
           snapshot: snapshotFor(read.state, scope),
           cacheOutcome: read.cacheOutcome,
           validator: `${read.state.revision}.${read.state.reconciledAt}`,
-        }
-      }),
-    attachSubscriber: (subscriber) =>
-      exclusive(async () => {
-        const current = (await reconcile(false)).state
-        subscribers.add(subscriber)
-        return {
-          snapshot: snapshotFor(current, subscriber.scope),
-          detach: () => subscribers.delete(subscriber),
         }
       }),
   }

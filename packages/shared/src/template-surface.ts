@@ -1,3 +1,6 @@
+import type { BoundingBox } from './manifest.js'
+import { WORLD_PIXELS } from './tiles.js'
+
 /** The Wplace drawing surface a template is placed on. */
 export const TEMPLATE_SURFACE_KINDS = [
   'world',
@@ -52,3 +55,40 @@ export const sameTemplateSurface = (left: TemplateSurface, right: TemplateSurfac
 
 export const templateSurfaceKey = (surface: TemplateSurface): string =>
   surface.kind === 'world' ? 'world' : `${surface.kind}:${surface.allianceId}`
+
+/** The surface a `templateSurfaceKey` names, or null when the key is not one it produces. */
+export const parseTemplateSurfaceKey = (key: string): TemplateSurface | null => {
+  const [kind, allianceId] = key.split(':')
+  const surface = templateSurface(kind, allianceId === undefined ? null : Number(allianceId))
+  return surface !== null && templateSurfaceKey(surface) === key ? surface : null
+}
+
+/** A template's painted width and height. A world box wraps through x = 0 when `minX > maxX`. */
+export const bboxSize = (
+  surface: TemplateSurface,
+  bbox: BoundingBox,
+): { readonly width: number; readonly height: number } => ({
+  width:
+    surface.kind === 'world' && bbox.maxX < bbox.minX
+      ? WORLD_PIXELS - bbox.minX + bbox.maxX
+      : bbox.maxX - bbox.minX,
+  height: bbox.maxY - bbox.minY,
+})
+
+/**
+ * Why `next` cannot be a new version of the template painted at `previous`, or null when it can.
+ *
+ * A version replaces a template's content in place, and every client keeps its own placement and
+ * progress against it, so the dimensions must match. Position may move: that is a re-place.
+ */
+export const templateSizeChange = (
+  surface: TemplateSurface,
+  previous: BoundingBox,
+  next: BoundingBox,
+): string | null => {
+  const was = bboxSize(surface, previous)
+  const now = bboxSize(surface, next)
+  return was.width === now.width && was.height === now.height
+    ? null
+    : `is ${was.width}x${was.height}, not ${now.width}x${now.height}`
+}

@@ -1,9 +1,7 @@
 import { millis } from '@caelestis/shared'
-import { MemoryBlobStore } from '../../backend/dist/adapters/memory/memory-blob-store.js'
-import { MemoryCounterStore } from '../../backend/dist/adapters/memory/memory-counter-store.js'
-import { MemorySqlStore } from '../../backend/dist/adapters/memory/memory-sql-store.js'
 import { createApp } from '../../backend/dist/app.js'
 import { hashToken } from '../../backend/dist/auth/tokens.js'
+import { openMemoryStores } from '../../backend/dist/node/memory-stores.js'
 import { makeBackendContext } from '../../backend/dist/runtime/backend-runtime.js'
 
 export const adminToken = 'USERSCRIPT-CONTRACT-ADMIN'
@@ -37,9 +35,7 @@ export const createTestBackend = async ({
   version?: string
   build?: string
 } = {}) => {
-  const sql = new MemorySqlStore()
-  const blobs = new MemoryBlobStore()
-  const counters = new MemoryCounterStore(sql)
+  const { sql, blobs, counters } = await openMemoryStores()
   const tokenHash = await hashToken(adminToken)
   await sql.insertAccessToken({
     tokenHash,
@@ -66,11 +62,13 @@ export const createTestBackend = async ({
   })
   return {
     app: createApp(makeBackendContext(blobs, sql, counters), {
-      serverId: '00000000-0000-7000-8000-000000000000',
-      serverName: 'Userscript contract server',
+      server: {
+        id: '00000000-0000-7000-8000-000000000000',
+        name: 'Userscript contract server',
+        auth: openAccess ? 'none' : 'access_token',
+        ...release,
+      },
       currentSeason: 3,
-      openAccess,
-      ...release,
     }),
   }
 }

@@ -10,9 +10,10 @@ import {
 import { expect, it } from 'vitest'
 import { createBackendRuntime, makeBackendContext } from '../src/runtime/backend-runtime.js'
 import { DirectStatusReadModel } from '../src/status-read-model/port.js'
-import { evaluateAlarmSnapshot } from '../src/telemetry/alarm-policy.js'
+import { evaluateAlarmSnapshot } from '../src/telemetry/alarms/policy.js'
 import { fetchCanvasTiles } from '../src/telemetry/fetcher.js'
-import { readMismatchMask, uploadTile } from '../src/telemetry/ingest.js'
+import { uploadTile } from '../src/telemetry/ingest.js'
+import { readMismatchMask } from '../src/telemetry/queries.js'
 import { authorized, createTestBackend } from './support/backend.js'
 
 it('classifies uploaded canvas bytes against persisted artwork and exposes the same mismatch mask', async () => {
@@ -65,6 +66,39 @@ it('classifies uploaded canvas bytes against persisted artwork and exposes the s
   expect(await sql.readTemplateStatuses(3, true)).toMatchObject([
     { total: 3, correct: 1, wrong: 1, blank: 1 },
   ])
+})
+
+it('refuses a tile that does not decode as bad input, not a server fault the reporter retries', async () => {
+  const { app } = await createTestBackend()
+  const form = new FormData()
+  form.set('png', new File([await encodeIndexedPng(1, 1, new Uint8Array([1]))], 'art.png'))
+  form.set('name', 'Undecodable')
+  form.set('season', '3')
+  form.set('originX', '0')
+  form.set('originY', '0')
+  expect(
+    (await app.fetch(authorized('/admin/templates', { method: 'POST', body: form }))).status,
+  ).toBe(201)
+  const canvas = await encodeIndexedPng(
+    1000,
+    1000,
+    new Uint8Array(1_000_000).fill(TRANSPARENT_INDEX),
+  )
+  // IHDR bit depth: an indexed PNG cannot be 16-bit.
+  canvas[24] = 16
+  const response = await app.fetch(
+    authorized(`/v1/telemetry/tiles/0/0/${await sha256Hex(canvas)}`, {
+      method: 'PUT',
+      body: canvas,
+      headers: {
+        'x-caelestis-season': '3',
+        'x-caelestis-observed-at': String(Math.floor(Date.now() / 1000) - 10),
+        'x-caelestis-wplace-user-id': '42',
+        'x-caelestis-display-name': 'Painter',
+      },
+    }),
+  )
+  expect(response.status).toBe(400)
 })
 
 it('keeps a regression open through partial recovery and ignores follow-ups from an old episode', () => {
@@ -163,7 +197,7 @@ it('wakes alarm subscribers only when an observation changes an alarm', async ()
   ).toBe(201)
   let alarmNotifications = 0
   const readModel = new (class extends DirectStatusReadModel {
-    async notifyAlarmChange(): Promise<void> {
+    override async notifyAlarmChange(): Promise<void> {
       alarmNotifications++
     }
   })(sql)
@@ -200,7 +234,7 @@ it('wakes alarm subscribers only when an observation changes an alarm', async ()
 })
 
 it('wakes alarm subscribers from a tile scan only when it changes an alarm', async () => {
-  const { app, sql, blobs, counters } = await createTestBackend()
+  const { app, sql, blobs } = await createTestBackend()
   const form = new FormData()
   form.set('png', new File([await encodeIndexedPng(3, 1, new Uint8Array([1, 1, 1]))], 'art.png'))
   form.set('name', 'Scanned')
@@ -212,7 +246,7 @@ it('wakes alarm subscribers from a tile scan only when it changes an alarm', asy
   ).toBe(201)
   let alarmNotifications = 0
   const statusReadModel = new (class extends DirectStatusReadModel {
-    async notifyAlarmChange(): Promise<void> {
+    override async notifyAlarmChange(): Promise<void> {
       alarmNotifications++
     }
   })(sql)
@@ -227,7 +261,7 @@ it('wakes alarm subscribers from a tile scan only when it changes an alarm', asy
       preconnect: fetch.preconnect,
     })
     await fetchCanvasTiles(
-      { blobs, sql, counters, statusReadModel },
+      { blobs, sql, statusReadModel },
       { season: 3, now: seconds(now), fetchImpl },
     )
   }
@@ -255,7 +289,7 @@ it('wakes alarm subscribers for changes committed before a later alarm evaluatio
   }
   let alarmNotifications = 0
   const statusReadModel = new (class extends DirectStatusReadModel {
-    async notifyAlarmChange(): Promise<void> {
+    override async notifyAlarmChange(): Promise<void> {
       alarmNotifications++
     }
   })(sql)
@@ -301,7 +335,7 @@ it('wakes alarm subscribers for changes committed before a later alarm evaluatio
       preconnect: fetch.preconnect,
     })
     await fetchCanvasTiles(
-      { blobs, sql, counters, statusReadModel },
+      { blobs, sql, statusReadModel },
       { season: 3, now: seconds(now), fetchImpl },
     )
   }
@@ -315,4 +349,34 @@ it('wakes alarm subscribers for changes committed before a later alarm evaluatio
   evaluations = 0
   await expect(scan(3)).rejects.toThrow('evaluation failed')
   expect(alarmNotifications).toBe(2)
+})
+
+it('counts a tile whose refresh fails only as failed', async () => {
+  const { app, sql, blobs } = await createTestBackend()
+  const form = new FormData()
+  form.set('png', new File([await encodeIndexedPng(3, 1, new Uint8Array([1, 1, 1]))], 'art.png'))
+  form.set('name', 'Refreshed')
+  form.set('season', '3')
+  form.set('originX', '10')
+  form.set('originY', '20')
+  expect(
+    (await app.fetch(authorized('/admin/templates', { method: 'POST', body: form }))).status,
+  ).toBe(201)
+  const canvas = await encodeIndexedPng(1000, 1000, new Uint8Array(1000000).fill(TRANSPARENT_INDEX))
+  // Stands in for Wplace's tile server, which the scan reads over `fetch`.
+  const fetchImpl = Object.assign(async () => new Response(canvas), {
+    preconnect: fetch.preconnect,
+  })
+  let now = Math.floor(Date.now() / 1000)
+  const scan = () => {
+    now += 60
+    return fetchCanvasTiles({ blobs, sql }, { season: 3, now: seconds(now), fetchImpl })
+  }
+  const first = await scan()
+  expect(first.fetched).toBeGreaterThan(0)
+  // The latest observation still names these bytes, but the object holding them is gone, so the
+  // next scan sees an unchanged hash and its refresh fails.
+  await blobs.delete('tiles', (await blobs.list('tiles', { limit: 100 })).keys)
+
+  expect(await scan()).toMatchObject({ fetched: 0, unchanged: 0, failed: first.fetched })
 })
