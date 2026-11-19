@@ -8,8 +8,8 @@ import {
   type ServerInfo,
 } from '@caelestis/shared'
 import type { CoordinatorStorage } from '../coordination/database.js'
+import type { VisibilityScope } from '../manifest/read-model.js'
 import { serialQueue } from '../runtime/serial-queue.js'
-import type { StatusVisibilityScope } from '../status-read-model/model.js'
 
 /** The live-sync protocol versions this server speaks. */
 export type LiveSyncProtocol = 1 | 2
@@ -52,7 +52,7 @@ export interface LiveHost<Client> {
 /** An authenticated live-sync connection, as the HTTP boundary admitted it. */
 export interface StatusLiveConnection {
   readonly season: number
-  readonly scope: StatusVisibilityScope
+  readonly scope: VisibilityScope
   readonly credentialScope: Scope
   readonly tokenHash: string
   readonly clientHash: string
@@ -70,7 +70,7 @@ export interface StatusLiveConnection {
 /** What a live-sync socket remembers across messages, and across hibernation on Cloudflare. */
 export interface LiveSubscriberAttachment {
   readonly season: number
-  readonly scope: StatusVisibilityScope
+  readonly scope: VisibilityScope
   readonly credentialScope?: Scope
   readonly tokenHash: string
   readonly clientHash?: string

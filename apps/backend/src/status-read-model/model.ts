@@ -6,9 +6,8 @@ import {
   type TemplateStatus,
   type TileKey,
 } from '@caelestis/shared'
+import type { VisibilityScope } from '../manifest/read-model.js'
 import { serialQueue } from '../runtime/serial-queue.js'
-
-export type StatusVisibilityScope = 'public' | 'admin'
 
 export interface RevisionedStatusSnapshot extends StatusResponse {
   readonly revision: number
@@ -33,10 +32,7 @@ export interface PersistedStatusReadModel {
 }
 
 export interface StatusReadModelSource {
-  readonly read: (
-    season: number,
-    scope: StatusVisibilityScope,
-  ) => Promise<readonly TemplateStatus[]>
+  readonly read: (season: number, scope: VisibilityScope) => Promise<readonly TemplateStatus[]>
 }
 
 export interface StatusReadModelPersistence {
@@ -59,7 +55,7 @@ export interface SeasonStatusReadModel {
   readonly applyCommittedChange: (
     mutation?: StatusProjectionMutation,
   ) => Promise<StatusProjectionChange | null>
-  readonly reconcileSnapshot: (scope: StatusVisibilityScope) => Promise<StatusSnapshotRead>
+  readonly reconcileSnapshot: (scope: VisibilityScope) => Promise<StatusSnapshotRead>
 }
 
 export interface StatusProjectionChange {
@@ -113,7 +109,7 @@ const sameTemplates = (
 
 const snapshotFor = (
   state: PersistedStatusReadModel,
-  scope: StatusVisibilityScope,
+  scope: VisibilityScope,
 ): RevisionedStatusSnapshot => ({
   revision: state.revision,
   templates: scope === 'admin' ? state.adminTemplates : state.publicTemplates,
@@ -122,7 +118,7 @@ const snapshotFor = (
 const deltaFor = (
   previous: PersistedStatusReadModel,
   next: PersistedStatusReadModel,
-  scope: StatusVisibilityScope,
+  scope: VisibilityScope,
   invalidatedTiles?: readonly TileKey[],
   invalidateAllTiles = false,
 ): StatusDelta => {
@@ -155,7 +151,7 @@ const deltaFor = (
 const applyScopeMutation = (
   templates: readonly TemplateStatus[],
   mutation: StatusProjectionMutation,
-  scope: StatusVisibilityScope,
+  scope: VisibilityScope,
 ): readonly TemplateStatus[] | null => {
   const next = new Map(templates.map((status) => [status.templateId, status]))
   for (const change of mutation.changes) {

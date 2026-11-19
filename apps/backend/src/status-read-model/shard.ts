@@ -1,12 +1,15 @@
 import { parseWholeNumber, type TemplateSurface, type TileCoord } from '@caelestis/shared'
-import type { ManifestProjectionInput, ManifestProjectionRead } from '../manifest/read-model.js'
+import type {
+  ManifestProjectionInput,
+  ManifestProjectionRead,
+  VisibilityScope,
+} from '../manifest/read-model.js'
 import type { IngestTimingSnapshot } from '../telemetry/ingest-timing.js'
 import type { StatusCoordinator } from './coordinator.js'
 import type {
   StatusProjectionChange,
   StatusProjectionMutation,
   StatusSnapshotRead,
-  StatusVisibilityScope,
 } from './model.js'
 import type { StatusReadModelPort } from './port.js'
 import type {
@@ -68,7 +71,7 @@ export class CoordinatedStatusReadModel implements StatusReadModelPort {
     return this.shard(season).applyCommittedChange(mutation)
   }
 
-  reconcileSnapshot(season: number, scope: StatusVisibilityScope): Promise<StatusSnapshotRead> {
+  reconcileSnapshot(season: number, scope: VisibilityScope): Promise<StatusSnapshotRead> {
     return this.shard(season).reconcileSnapshot(scope)
   }
 
@@ -103,7 +106,7 @@ export class CoordinatedStatusReadModel implements StatusReadModelPort {
 
   resolveCurrentTileOffers(
     season: number,
-    scope: StatusVisibilityScope,
+    scope: VisibilityScope,
     offers: readonly TileGenerationOffer[],
   ): Promise<TileGenerationCacheRead> {
     return this.shard(season).resolveCurrentTileOffers(scope, offers)

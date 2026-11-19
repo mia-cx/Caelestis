@@ -1,13 +1,16 @@
 import type { Manifest, ServerInfo, TemplateSurface } from '@caelestis/shared'
 import { serialQueue } from '../runtime/serial-queue.js'
 
-export type ManifestVisibilityScope = 'public' | 'admin'
+/** Who reads a projection: the public, or an administrator who also sees unpublished templates. */
+export type VisibilityScope = 'public' | 'admin'
+
+export const seesUnpublished = (scope: VisibilityScope): boolean => scope === 'admin'
 
 export interface ManifestProjectionInput {
   readonly server: ServerInfo
   readonly season: number
   readonly surface: TemplateSurface
-  readonly scope: ManifestVisibilityScope
+  readonly scope: VisibilityScope
   readonly ifNoneMatch: readonly string[]
 }
 
@@ -60,7 +63,7 @@ export interface SeasonManifestReadModel {
   readonly coverageRevision: () => Promise<number>
   /** Current unexpired version, or null when an authoritative manifest read is required. */
   readonly knownVersion: (
-    scope: ManifestVisibilityScope,
+    scope: VisibilityScope,
     surface: TemplateSurface,
   ) => Promise<string | null>
 }
@@ -69,7 +72,7 @@ export const MANIFEST_READ_MODEL_TTL_MILLISECONDS = 3 * 60_000
 export const MAX_MANIFEST_PROJECTIONS_PER_SEASON = 16
 export const MAX_MANIFEST_PROJECTION_BYTES_PER_SEASON = 16 * 1024 * 1024
 
-const projectionKey = (scope: ManifestVisibilityScope, surface: TemplateSurface): string =>
+const projectionKey = (scope: VisibilityScope, surface: TemplateSurface): string =>
   surface.kind === 'world' ? `${scope}:world` : `${scope}:${surface.kind}:${surface.allianceId}`
 
 const configuredServer = (server: ServerInfo): string => JSON.stringify(server)
@@ -85,6 +88,16 @@ export const parseIfNoneMatch = (header: string | undefined): readonly string[] 
 export const matchesIfNoneMatch = (candidates: readonly string[], version: string): boolean =>
   candidates.includes(`"${version}"`) || candidates.includes('*')
 
+/** A projection read of `manifest`, which a matching If-None-Match answers without the body. */
+export const projectionRead = (
+  base: Omit<ManifestProjectionRead, 'notModified' | 'manifest' | 'version'>,
+  manifest: Manifest,
+  ifNoneMatch: readonly string[],
+): ManifestProjectionRead =>
+  matchesIfNoneMatch(ifNoneMatch, manifest.version)
+    ? { ...base, version: manifest.version, notModified: true }
+    : { ...base, version: manifest.version, notModified: false, manifest }
+
 /** Bounded, revisioned manifest cache. The source remains authoritative on misses and TTL repair. */
 export const createSeasonManifestReadModel = (options: {
   readonly season: number
@@ -92,13 +105,9 @@ export const createSeasonManifestReadModel = (options: {
   readonly persistence: ManifestReadModelPersistence
   readonly now?: () => number
   readonly ttlMilliseconds?: number
-  readonly maximumEntries?: number
-  readonly maximumBytes?: number
 }): SeasonManifestReadModel => {
   const now = options.now ?? Date.now
   const ttl = options.ttlMilliseconds ?? MANIFEST_READ_MODEL_TTL_MILLISECONDS
-  const maximumEntries = options.maximumEntries ?? MAX_MANIFEST_PROJECTIONS_PER_SEASON
-  const maximumBytes = options.maximumBytes ?? MAX_MANIFEST_PROJECTION_BYTES_PER_SEASON
   let state: PersistedManifestReadModel | null = null
   let loaded = false
   const exclusive = serialQueue()
@@ -123,16 +132,16 @@ export const createSeasonManifestReadModel = (options: {
         const held = keyed?.configuredServer === server ? keyed : undefined
         const readAt = now()
         if (held !== undefined && held.expiresAt > readAt) {
-          const base = {
-            version: held.manifest.version,
-            revision: current.revision,
-            coverageRevision: current.coverageRevision,
-            cacheOutcome: 'hit' as const,
-            revisionChanged: false,
-          }
-          return matchesIfNoneMatch(input.ifNoneMatch, held.manifest.version)
-            ? { ...base, notModified: true as const }
-            : { ...base, notModified: false as const, manifest: held.manifest }
+          return projectionRead(
+            {
+              revision: current.revision,
+              coverageRevision: current.coverageRevision,
+              cacheOutcome: 'hit',
+              revisionChanged: false,
+            },
+            held.manifest,
+            input.ifNoneMatch,
+          )
         }
 
         const manifest = await options.source(input)
@@ -162,8 +171,8 @@ export const createSeasonManifestReadModel = (options: {
               0,
             )
             if (
-              bounded.length < maximumEntries &&
-              retainedBytes + entry.serializedBytes <= maximumBytes
+              bounded.length < MAX_MANIFEST_PROJECTIONS_PER_SEASON &&
+              retainedBytes + entry.serializedBytes <= MAX_MANIFEST_PROJECTION_BYTES_PER_SEASON
             ) {
               bounded.push(entry)
             }
@@ -172,16 +181,16 @@ export const createSeasonManifestReadModel = (options: {
         const next = { season: options.season, revision, coverageRevision, entries }
         await options.persistence.save(next)
         state = next
-        const base = {
-          version: manifest.version,
-          revision,
-          coverageRevision,
-          cacheOutcome: keyed === undefined ? ('miss' as const) : ('stale' as const),
-          revisionChanged,
-        }
-        return matchesIfNoneMatch(input.ifNoneMatch, manifest.version)
-          ? { ...base, notModified: true as const }
-          : { ...base, notModified: false as const, manifest }
+        return projectionRead(
+          {
+            revision,
+            coverageRevision,
+            cacheOutcome: keyed === undefined ? 'miss' : 'stale',
+            revisionChanged,
+          },
+          manifest,
+          input.ifNoneMatch,
+        )
       }),
     invalidate: (surface, affectsTileCoverage = true) =>
       exclusive(async () => {

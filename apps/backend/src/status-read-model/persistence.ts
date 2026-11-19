@@ -1,10 +1,10 @@
 import type { TemplateStatus } from '@caelestis/shared'
 import { type CoordinatorStorage, STORAGE_DELETE_BATCH } from '../coordination/database.js'
+import type { VisibilityScope } from '../manifest/read-model.js'
 import {
   byTemplateId,
   type PersistedStatusReadModel,
   type StatusReadModelPersistence,
-  type StatusVisibilityScope,
 } from './model.js'
 
 const STATUS_PREFIX = 'status-read-model:v3:'
@@ -20,11 +20,11 @@ interface StoredStatusManifest {
 
 const STATUS_SCOPES = ['public', 'admin'] as const
 
-const statusTemplatePrefix = (scope: StatusVisibilityScope): string => `${STATUS_PREFIX}${scope}:`
+const statusTemplatePrefix = (scope: VisibilityScope): string => `${STATUS_PREFIX}${scope}:`
 
 const scopeTemplates = (
   state: PersistedStatusReadModel,
-  scope: StatusVisibilityScope,
+  scope: VisibilityScope,
 ): readonly TemplateStatus[] => (scope === 'admin' ? state.adminTemplates : state.publicTemplates)
 
 /**
@@ -38,7 +38,7 @@ export const createKeyedStatusPersistence = (
   // The projection storage holds, as the objects last loaded or saved. A mutation keeps every
   // template it did not touch as the same object, so identity finds what changed.
   let saved: PersistedStatusReadModel | null = null
-  const listScope = async (scope: StatusVisibilityScope) =>
+  const listScope = async (scope: VisibilityScope) =>
     [
       ...(await storage.list<TemplateStatus>({ prefix: statusTemplatePrefix(scope) })).values(),
     ].sort(byTemplateId)

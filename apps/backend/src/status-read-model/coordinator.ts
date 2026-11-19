@@ -50,7 +50,12 @@ import {
   subscriberOf,
 } from '../live/session.js'
 import { createChunkedManifestPersistence } from '../manifest/persistence.js'
-import type { ManifestProjectionInput, ManifestProjectionRead } from '../manifest/read-model.js'
+import {
+  type ManifestProjectionInput,
+  type ManifestProjectionRead,
+  seesUnpublished,
+  type VisibilityScope,
+} from '../manifest/read-model.js'
 import { type CacheOutcome, recordLiveTileOfferCacheMetric } from '../metrics/request-metrics.js'
 import type { BlobStore, CounterStore, SqlStore } from '../ports/index.js'
 import {
@@ -67,7 +72,6 @@ import type {
   StatusProjectionChange,
   StatusProjectionMutation,
   StatusSnapshotRead,
-  StatusVisibilityScope,
 } from './model.js'
 import { createKeyedStatusPersistence } from './persistence.js'
 import { createSeasonReadModels, type SeasonReadModels } from './season.js'
@@ -216,7 +220,7 @@ export class StatusCoordinator<Client> implements StatusShard {
     if (projection.resource === 'telemetry-alarms') {
       if (projection.scope !== 'world') return null
       const alarms = await this.backendRuntime().run(
-        readAlarms(attachment.season, attachment.scope === 'admin'),
+        readAlarms(attachment.season, seesUnpublished(attachment.scope)),
       )
       return { type: 'alarms-snapshot', alarms }
     }
@@ -249,12 +253,12 @@ export class StatusCoordinator<Client> implements StatusShard {
 
   private async liveProjectionVersion(
     season: number,
-    scope: StatusVisibilityScope,
+    scope: VisibilityScope,
     projection: LiveProjectionState,
   ): Promise<string | null> {
     if (projection.resource === 'telemetry-alarms') {
       if (projection.scope !== 'world') return null
-      const alarms = await this.sql.readActiveAlarms(season, scope === 'admin')
+      const alarms = await this.sql.readActiveAlarms(season, seesUnpublished(scope))
       return sha256Hex(new TextEncoder().encode(JSON.stringify(alarms)))
     }
     const surface = manifestSurface(projection)
@@ -303,7 +307,7 @@ export class StatusCoordinator<Client> implements StatusShard {
   }
 
   /** Open, unrevoked subscribers of this season, optionally of one visibility scope. */
-  private subscribers(scope?: StatusVisibilityScope): readonly Subscriber[] {
+  private subscribers(scope?: VisibilityScope): readonly Subscriber[] {
     return this.objectState.getWebSockets('status').flatMap((socket) => {
       const attachment = subscriberOf(socket)
       return attachment !== null &&
@@ -320,7 +324,7 @@ export class StatusCoordinator<Client> implements StatusShard {
     return this.subscribers().filter(({ attachment }) => attachment.protocol === 2)
   }
 
-  private broadcastStatus(scope: StatusVisibilityScope, delta: StatusDelta): void {
+  private broadcastStatus(scope: VisibilityScope, delta: StatusDelta): void {
     const subscribers = this.subscribers(scope)
     if (subscribers.length === 0) return
     // Serialize once to measure the delta, then frame that same text for every subscriber.
@@ -351,7 +355,7 @@ export class StatusCoordinator<Client> implements StatusShard {
     return change
   }
 
-  reconcileSnapshot(scope: StatusVisibilityScope): Promise<StatusSnapshotRead> {
+  reconcileSnapshot(scope: VisibilityScope): Promise<StatusSnapshotRead> {
     if (scope !== 'public' && scope !== 'admin') throw new RangeError('invalid visibility scope')
     return this.readModels.status.reconcileSnapshot(scope)
   }
@@ -414,7 +418,7 @@ export class StatusCoordinator<Client> implements StatusShard {
   }
 
   async resolveCurrentTileOffers(
-    scope: StatusVisibilityScope,
+    scope: VisibilityScope,
     offers: readonly TileGenerationOffer[],
   ): Promise<TileGenerationCacheRead> {
     return this.readModels.resolveTileOffers(scope, offers)
@@ -463,7 +467,7 @@ export class StatusCoordinator<Client> implements StatusShard {
       encoded(`${season}:${scope}`, async () =>
         tryEncode({
           type: 'alarms-snapshot',
-          alarms: await this.backendRuntime().run(readAlarms(season, scope === 'admin')),
+          alarms: await this.backendRuntime().run(readAlarms(season, seesUnpublished(scope))),
         }),
       )
     await Promise.all(
@@ -486,7 +490,7 @@ export class StatusCoordinator<Client> implements StatusShard {
       subscription: LiveDashboardSubscription,
     ): Promise<LiveSyncServerEvent | null> => {
       if (subscription.contributionsFrom >= now) return null
-      const includeUnpublished = attachment.scope === 'admin'
+      const includeUnpublished = seesUnpublished(attachment.scope)
       const audience = `${attachment.season}:${attachment.scope}:${JSON.stringify(subscription.templateIds)}`
       const [contributions, leaderboard] = await Promise.all([
         contributionReads(`${audience}:${subscription.contributionsFrom}`, () =>
@@ -581,7 +585,7 @@ export class StatusCoordinator<Client> implements StatusShard {
       reply(
         await ingestTimings.timed('paint', 'total', () =>
           this.backendRuntime().run(
-            recordPaint(event.event, attachment.tokenHash, attachment.scope === 'admin'),
+            recordPaint(event.event, attachment.tokenHash, seesUnpublished(attachment.scope)),
           ),
         ),
       )
@@ -655,7 +659,7 @@ export class StatusCoordinator<Client> implements StatusShard {
               displayName: event.batch.displayName,
               tokenHash: attachment.tokenHash,
             },
-            includeUnpublished: attachment.scope === 'admin',
+            includeUnpublished: seesUnpublished(attachment.scope),
             offers: event.batch.offers,
           }),
         ),
@@ -753,7 +757,7 @@ export class StatusCoordinator<Client> implements StatusShard {
           tile,
           hash: metadata.sha256,
           observedAt: seconds(metadata.ts),
-          includeUnpublished: attachment.scope === 'admin',
+          includeUnpublished: seesUnpublished(attachment.scope),
         },
         frame.payload,
       )

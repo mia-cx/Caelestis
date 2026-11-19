@@ -1,5 +1,5 @@
 import type { Millis, TileCoord } from '@caelestis/shared'
-import type { StatusVisibilityScope } from './model.js'
+import type { VisibilityScope } from '../manifest/read-model.js'
 
 export const TILE_GENERATION_CACHE_TTL_MILLISECONDS = 5 * 60_000
 
@@ -133,7 +133,7 @@ export const createTileGenerationCache = (
     },
 
     resolve(
-      scope: StatusVisibilityScope,
+      scope: VisibilityScope,
       offers: readonly TileGenerationOffer[],
     ): TileGenerationCacheRead {
       const acknowledgedDeliveryIds: string[] = []
