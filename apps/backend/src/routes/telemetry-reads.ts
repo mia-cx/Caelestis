@@ -13,7 +13,6 @@ import { MAX_IDS_PER_READ } from '../db/d1-limits.js'
 import { matchesIfNoneMatch, parseIfNoneMatch } from '../manifest/read-model.js'
 import type { BackendRuntime } from '../runtime/backend-runtime.js'
 import { runBackendHttp } from '../runtime/hono.js'
-import { readMismatchMask } from '../telemetry/classification.js'
 import { MAX_PAINTER_HISTORY_IDS } from '../telemetry/history/store.js'
 import { LADDER_RESOLUTIONS, TILE_HISTORY_RESOLUTIONS } from '../telemetry/ladder.js'
 import { readVisibleProgressHistory } from '../telemetry/progress-history.js'
@@ -23,6 +22,7 @@ import {
   readContributions,
   readHistory,
   readLeaderboard,
+  readMismatchMask,
   readPainterHistory,
   readPainterTotals,
   readStatus,

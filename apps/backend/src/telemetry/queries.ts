@@ -22,9 +22,21 @@ import {
 import { Effect } from 'effect'
 import { readManifestProjection } from '../manifest/use-cases.js'
 import { recordCacheOutcome } from '../metrics/request-metrics.js'
-import { SqlStoreService, StatusReadModelService } from '../runtime/backend-runtime.js'
+import type { BlobStore } from '../ports/index.js'
+import {
+  BlobStoreService,
+  SqlStoreService,
+  StatusReadModelService,
+} from '../runtime/backend-runtime.js'
 import { type StorageError, storage } from '../runtime/errors.js'
 import type { TemplateStore } from '../templates/store.js'
+import type { TileBlobStore } from './blobs/store.js'
+import { classificationKey, classifyTarget, readDecodedCanvas } from './classification.js'
+import {
+  logArtifactFailure,
+  putMismatchArtifact,
+  readMismatchArtifact,
+} from './derived-artifacts.js'
 import {
   type DecayEdge,
   LADDER_RESOLUTIONS,
@@ -32,6 +44,7 @@ import {
   TILE_HISTORY_DECAY_EDGES,
   TILE_HISTORY_RESOLUTIONS,
 } from './ladder.js'
+import type { TileStore } from './tiles/store.js'
 
 interface HistoryTier {
   readonly resolution: number
@@ -604,4 +617,54 @@ export const readTileHistory = (input: {
       ...(resolution === undefined ? {} : { resolution }),
       frames: resolution === undefined ? mergeTileHistory(tiers) : (tiers[0]?.frames ?? []),
     }
+  })
+
+export type MismatchMaskRead =
+  | { readonly kind: 'found'; readonly bytes: Uint8Array; readonly hash: string }
+  | { readonly kind: 'not-found' }
+  | { readonly kind: 'unobserved' }
+
+export interface MismatchMaskQuery {
+  readonly season: number
+  readonly templateId: string
+  readonly versionId: string
+  readonly tile: TileCoord
+  readonly includeUnpublished: boolean
+}
+
+const readMismatchMaskPromise = async (
+  ports: { readonly blobs: BlobStore; readonly sql: TileStore & TileBlobStore },
+  query: MismatchMaskQuery,
+): Promise<MismatchMaskRead> => {
+  const targets = await ports.sql.listTelemetryTargets(
+    query.season,
+    query.tile,
+    query.includeUnpublished,
+  )
+  const target = targets.find(
+    (candidate) =>
+      candidate.templateId === query.templateId && candidate.versionId === query.versionId,
+  )
+  if (target === undefined) return { kind: 'not-found' }
+  const latest = await ports.sql.readLatestTile(query.season, query.tile)
+  if (latest === null) return { kind: 'unobserved' }
+  const key = classificationKey(target, latest.hash)
+  const artifact = await readMismatchArtifact(ports.blobs, key)
+  if (artifact !== null) return { kind: 'found', bytes: artifact, hash: await sha256Hex(artifact) }
+  const canvas = await readDecodedCanvas(ports, latest.hash)
+  if (canvas === null) return { kind: 'unobserved' }
+  const classified = await classifyTarget(ports, target, canvas, latest.hash)
+  if (classified === null) return { kind: 'unobserved' }
+  await putMismatchArtifact(ports.blobs, key, classified.mask).catch(logArtifactFailure)
+  return { kind: 'found', bytes: classified.mask, hash: await sha256Hex(classified.mask) }
+}
+
+/** The server-owned classification mask of the latest accepted canvas observation. */
+export const readMismatchMask = (
+  query: MismatchMaskQuery,
+): Effect.Effect<MismatchMaskRead, StorageError, BlobStoreService | SqlStoreService> =>
+  Effect.gen(function* () {
+    const blobs = yield* BlobStoreService
+    const sql = yield* SqlStoreService
+    return yield* storage('readMismatchMask', () => readMismatchMaskPromise({ blobs, sql }, query))
   })

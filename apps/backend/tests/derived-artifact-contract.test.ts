@@ -1,12 +1,12 @@
 import { expect, it } from 'vitest'
 import { MemoryBlobStore } from '../src/adapters/memory/memory-blob-store.js'
 import type { BlobStore } from '../src/ports/index.js'
-import { mismatchArtifactKey } from '../src/telemetry/classification.js'
 import {
   createDerivedArtifactWriteBatch,
   createDerivedArtifactWriter,
   type DerivedArtifactWrite,
 } from '../src/telemetry/derived-artifact-writer.js'
+import { mismatchArtifactKey } from '../src/telemetry/derived-artifacts.js'
 
 const artifact = (hash: string): DerivedArtifactWrite => ({
   identity: {

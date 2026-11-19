@@ -2,7 +2,6 @@ import {
   BLANK,
   type ChunkRect,
   chunkRect,
-  decodeMismatchMask,
   decodePng,
   decodeWplaceIndexedPng,
   encodeMismatchMask,
@@ -11,21 +10,18 @@ import {
   PALETTE_RGB,
   pngSize,
   quantiseToPalette,
-  sha256Hex,
   TILE_SIZE,
-  type TileCoord,
   TRANSPARENT_INDEX,
   WRONG,
 } from '@caelestis/shared'
-import { Effect } from 'effect'
 import { ingestTimings } from '../metrics/ingest-timing.js'
 import type { BlobStore } from '../ports/index.js'
-import { BlobStoreService, SqlStoreService } from '../runtime/backend-runtime.js'
 import { BoundedCache, memoize } from '../runtime/bounded-cache.js'
-import { PortError, type StorageError, storage } from '../runtime/errors.js'
+import { PortError } from '../runtime/errors.js'
 import type { TileBlobStore } from './blobs/store.js'
+import { type ClassificationKey, mismatchArtifactKey } from './derived-artifacts.js'
 import { readTileBlob } from './tile-blobs.js'
-import type { TelemetryTarget, TileMeasurement, TileStore } from './tiles/store.js'
+import type { TelemetryTarget, TileStore } from './tiles/store.js'
 
 export interface ColourClassification {
   readonly index: number
@@ -114,30 +110,10 @@ export const classifyChunk = (
   return { correct, wrong, blank, colours, classifications }
 }
 
-/** The template chunk a classification compares, as the telemetry target rows carry it. */
 export type ClassificationTarget = Pick<
   TelemetryTarget,
   'templateId' | 'versionId' | 'bbox' | 'tileX' | 'tileY' | 'hash'
 >
-
-/**
- * Everything a classification depends on. A version's chunks never change, so the chunk is
- * implied by the version and tile, and the key also names the derived mask object.
- */
-export interface ClassificationKey {
-  readonly templateId: string
-  readonly versionId: string
-  readonly tile: TileCoord
-  readonly canvasHash: string
-}
-
-export const mismatchArtifactKey = ({
-  templateId,
-  versionId,
-  tile,
-  canvasHash,
-}: ClassificationKey): string =>
-  `mismatches/templates/${templateId}/versions/${versionId}/tiles/${tile.x}/${tile.y}/canvas/${canvasHash}.cmm`
 
 /** A classification without anything observation-specific: no reporter, no timestamp. */
 export interface Classification {
@@ -206,7 +182,6 @@ export const decodeCanvasBytes = async (hash: string, bytes: Uint8Array): Promis
   return (image ?? (await decodeCanvas(bytes))).indices
 }
 
-/** A stored canvas as palette indices, or null when it is missing or unreadable. */
 export const readDecodedCanvas = async (
   ports: { readonly blobs: BlobStore; readonly sql: TileStore & TileBlobStore },
   hash: string,
@@ -229,7 +204,6 @@ export const readDecodedCanvas = async (
   }
 }
 
-/** A template chunk as palette indices, or null when it is missing or not a Wplace PNG. */
 export const readDecodedChunk = (
   ports: { readonly blobs: BlobStore },
   hash: string,
@@ -302,85 +276,3 @@ export const classifyTarget = async (
   ingestTimings.count(computed ? 'classification.computed' : 'classification.shared')
   return classified
 }
-
-/** Derive counts for a retained canvas image against one artwork revision. */
-export const readHistoricalTileMeasurement = async (
-  ports: { readonly blobs: BlobStore; readonly sql: TileStore & TileBlobStore },
-  target: ClassificationTarget,
-  hash: string,
-): Promise<TileMeasurement | null> => {
-  const canvas = await readDecodedCanvas(ports, hash)
-  if (canvas === null) return null
-  const classified = await classifyTarget(ports, target, canvas, hash)
-  if (classified === null) return null
-  const { correct, wrong, blank } = classified
-  return { hash, correct, wrong, blank }
-}
-
-/**
- * The one policy for a failed derived write: masks rebuild from durable inputs, so a lost write
- * costs only a later recomputation and never fails or rolls back the work that produced it.
- */
-export const logArtifactFailure = (error: unknown): void => {
-  console.error('failed to persist derived mismatch artifact', error)
-}
-
-const readMismatchArtifact = async (
-  blobs: BlobStore,
-  key: ClassificationKey,
-): Promise<Uint8Array | null> => {
-  const bytes = await blobs.get('derived', mismatchArtifactKey(key))
-  return bytes !== null && decodeMismatchMask(bytes) !== null ? bytes : null
-}
-
-export type MismatchMaskRead =
-  | { readonly kind: 'found'; readonly bytes: Uint8Array; readonly hash: string }
-  | { readonly kind: 'not-found' }
-  | { readonly kind: 'unobserved' }
-
-export interface MismatchMaskQuery {
-  readonly season: number
-  readonly templateId: string
-  readonly versionId: string
-  readonly tile: TileCoord
-  readonly includeUnpublished: boolean
-}
-
-const readMismatchMaskPromise = async (
-  ports: { readonly blobs: BlobStore; readonly sql: TileStore & TileBlobStore },
-  query: MismatchMaskQuery,
-): Promise<MismatchMaskRead> => {
-  const targets = await ports.sql.listTelemetryTargets(
-    query.season,
-    query.tile,
-    query.includeUnpublished,
-  )
-  const target = targets.find(
-    (candidate) =>
-      candidate.templateId === query.templateId && candidate.versionId === query.versionId,
-  )
-  if (target === undefined) return { kind: 'not-found' }
-  const latest = await ports.sql.readLatestTile(query.season, query.tile)
-  if (latest === null) return { kind: 'unobserved' }
-  const key = classificationKey(target, latest.hash)
-  const artifact = await readMismatchArtifact(ports.blobs, key)
-  if (artifact !== null) return { kind: 'found', bytes: artifact, hash: await sha256Hex(artifact) }
-  const canvas = await readDecodedCanvas(ports, latest.hash)
-  if (canvas === null) return { kind: 'unobserved' }
-  const classified = await classifyTarget(ports, target, canvas, latest.hash)
-  if (classified === null) return { kind: 'unobserved' }
-  await ports.blobs
-    .put('derived', mismatchArtifactKey(key), classified.mask)
-    .catch(logArtifactFailure)
-  return { kind: 'found', bytes: classified.mask, hash: await sha256Hex(classified.mask) }
-}
-
-/** The server-owned classification mask of the latest accepted canvas observation. */
-export const readMismatchMask = (
-  query: MismatchMaskQuery,
-): Effect.Effect<MismatchMaskRead, StorageError, BlobStoreService | SqlStoreService> =>
-  Effect.gen(function* () {
-    const blobs = yield* BlobStoreService
-    const sql = yield* SqlStoreService
-    return yield* storage('readMismatchMask', () => readMismatchMaskPromise({ blobs, sql }, query))
-  })

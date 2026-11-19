@@ -6,12 +6,28 @@ import {
   type TemplateProgressHistoryResponse,
 } from '@caelestis/shared'
 import { Effect } from 'effect'
+import type { BlobStore } from '../ports/index.js'
 import { BlobStoreService, SqlStoreService } from '../runtime/backend-runtime.js'
 import { NotFoundError, StorageError, storage } from '../runtime/errors.js'
 import type { TemplateVersionRecord } from '../templates/store.js'
-import { readHistoricalTileMeasurement } from './classification.js'
+import type { TileBlobStore } from './blobs/store.js'
+import { type ClassificationTarget, classifyTarget, readDecodedCanvas } from './classification.js'
 import { type HistoryRange, selectTileHistoryResolution } from './queries.js'
-import type { MeasuredTileFrame } from './tiles/store.js'
+import type { MeasuredTileFrame, TileMeasurement, TileStore } from './tiles/store.js'
+
+/** Derive counts for a retained canvas image against one artwork revision. */
+const readHistoricalTileMeasurement = async (
+  ports: { readonly blobs: BlobStore; readonly sql: TileStore & TileBlobStore },
+  target: ClassificationTarget,
+  hash: string,
+): Promise<TileMeasurement | null> => {
+  const canvas = await readDecodedCanvas(ports, hash)
+  if (canvas === null) return null
+  const classified = await classifyTarget(ports, target, canvas, hash)
+  if (classified === null) return null
+  const { correct, wrong, blank } = classified
+  return { hash, correct, wrong, blank }
+}
 
 /** Unmeasured frames classified at once: each holds a decoded 1000×1000 canvas while it runs. */
 const CLASSIFY_CONCURRENCY = 8
