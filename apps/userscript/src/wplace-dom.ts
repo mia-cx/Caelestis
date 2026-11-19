@@ -1,5 +1,4 @@
 import { PALETTE_RGB, PALETTE_SIZE, TRANSPARENT_INDEX } from '@caelestis/shared'
-import { activeAllianceEditorStage } from './alliance-surface.js'
 import {
   findWplaceLabelled,
   hasWplaceLabel,
@@ -13,7 +12,7 @@ import {
  * Wplace exposes no state for its paint drawer, palette or tools, so Caelestis reads them from the
  * DOM. Every selector for that markup lives here, so a Wplace redesign changes one file. Controls
  * are found by their translated labels (`wplace-messages.ts`) or by structure, never by English
- * text (#624).
+ * text (#624). Paint queries take the root to search: `wplace-paint.ts` knows which one is active.
  */
 
 /** Wplace's MapLibre canvas. It exists only once Wplace's page has rendered. */
@@ -29,10 +28,6 @@ export const MAP_SURFACE = '.maplibregl-canvas-container, canvas.maplibregl-canv
 /** An open Wplace modal: an alliance editor, or its settings. */
 export const OPEN_DIALOG = 'dialog[open]'
 
-/** Where Wplace's paint controls live right now: the open alliance editor's dialog, else the page. */
-export const activePaintRoot = (): ParentNode =>
-  activeAllianceEditorStage()?.closest(OPEN_DIALOG) ?? document
-
 /** World swatches carry `color-N`, where N is Wplace's palette index (ours plus one). */
 const WORLD_SWATCH = '[id^="color-"]'
 /** Alliance swatches carry no id; their label is the translated colour name. */
@@ -41,7 +36,7 @@ const ALLIANCE_SWATCH = 'button.game-color-swatch[aria-pressed]:not([id^="color-
 const SWATCH_RGB = /rgb\((\d+)[\s,]+(\d+)[\s,]+(\d+)/
 
 /** Wplace's mounted world or alliance paint swatches, in their rendered order. */
-export const paintPaletteSwatches = (root: ParentNode = activePaintRoot()): HTMLElement[] => [
+export const paintPaletteSwatches = (root: ParentNode): HTMLElement[] => [
   ...root.querySelectorAll<HTMLElement>(WORLD_SWATCH),
   ...root.querySelectorAll<HTMLElement>(ALLIANCE_SWATCH),
 ]
@@ -70,11 +65,8 @@ export const paintPaletteIndexOf = (element: Element): number | null => {
 const isSelectedSwatch = (swatch: Element): boolean =>
   swatch.className.includes('ring-primary') || swatch.getAttribute('aria-pressed') === 'true'
 
-/**
- * The colour Wplace has selected, read synchronously. `wplace-paint.ts` caches this per frame;
- * read it directly only where one frame of lag matters.
- */
-export const readSelectedColour = (swatches = paintPaletteSwatches()): number | null => {
+/** The colour selected among these swatches. */
+export const readSelectedColour = (swatches: readonly Element[]): number | null => {
   const selected = swatches.find(isSelectedSwatch)
   return selected === undefined ? null : paintPaletteIndexOf(selected)
 }
@@ -101,7 +93,7 @@ export const insidePaintDrawer = (element: Element): boolean => {
 }
 
 /** Wplace's paint drawer under `root`: the smallest ancestor of a swatch holding its history. */
-export const paintDrawer = (root: ParentNode = activePaintRoot()): HTMLElement | null => {
+export const paintDrawer = (root: ParentNode): HTMLElement | null => {
   const swatch = paintPaletteSwatches(root)[0]
   if (swatch === undefined) return null
   for (let drawer = swatch.parentElement; drawer !== null; drawer = drawer.parentElement) {
@@ -176,7 +168,7 @@ export const paintDockButton = (root: ParentNode = document): HTMLButtonElement 
 }
 
 /** The control that opens paint mode: an exact Paint label first, then the dock button. */
-export const paintOpenButton = (root: ParentNode = activePaintRoot()): HTMLButtonElement | null => {
+export const paintOpenButton = (root: ParentNode): HTMLButtonElement | null => {
   const labels = new Set(
     [wplaceLabel('paint'), wplaceLabel('paint_pixel')].map((label) => label.toLowerCase()),
   )

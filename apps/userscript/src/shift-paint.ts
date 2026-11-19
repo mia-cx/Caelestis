@@ -11,7 +11,7 @@ import {
 } from './simulated-input.js'
 import { isMoving } from './templates/move.js'
 import { activeNativeTool, readSelectedColour, typingInTextField } from './wplace-dom.js'
-import { isPaintOpen } from './wplace-paint.js'
+import { currentPaintSwatches, isPaintOpen } from './wplace-paint.js'
 import { overlayIndexAt, paintIndexAt, pickerPointAt } from './wplace-picker.js'
 
 /**
@@ -45,6 +45,9 @@ interface Mode {
   readonly reset: () => void
 }
 
+/** Read the swatch synchronously: continuous picking can change it twice within one frame. */
+const selectedNow = (): number | null => readSelectedColour(currentPaintSwatches())
+
 const brushActive = (): boolean =>
   isPaintOpen() &&
   !isMoving() &&
@@ -61,7 +64,7 @@ const needsPaint = (cell: Cell, selected: number | null): boolean => {
 
 const shouldPaint = (target: Element, position: Position): boolean => {
   const point = pickerPointAt(target, position.clientX, position.clientY)
-  return point !== null && needsPaint(point, readSelectedColour())
+  return point !== null && needsPaint(point, selectedNow())
 }
 
 const claim = (event: Event): void => {
@@ -147,18 +150,13 @@ const filterInput = (keys: Keys): Mode => {
   return {
     keydown: (event) => {
       if (event.code !== 'Space' || holding) return
-      if (
-        keys.shift &&
-        brushActive() &&
-        hover !== null &&
-        !needsPaint(hover, readSelectedColour())
-      ) {
+      if (keys.shift && brushActive() && hover !== null && !needsPaint(hover, selectedNow())) {
         claim(event)
         return
       }
       if (event.repeat && activeAllianceSurface() !== null) return
       holding = true
-      stroke = new Set(hover === null ? [] : [strokeKey(hover, readSelectedColour())])
+      stroke = new Set(hover === null ? [] : [strokeKey(hover, selectedNow())])
       from = hover
     },
     keyup: (event) => {
@@ -174,7 +172,7 @@ const filterInput = (keys: Keys): Mode => {
       if (holding && brushActive()) {
         // The start is included: after a swatch change, Wplace repaints it in the new colour.
         const line = from === null ? [cell] : paintLine(from, cell)
-        const selected = readSelectedColour()
+        const selected = selectedNow()
         const harmless = (next: Cell): boolean =>
           stroke.has(strokeKey(next, selected)) || needsPaint(next, selected)
         if (keys.shift && !line.every(harmless)) {

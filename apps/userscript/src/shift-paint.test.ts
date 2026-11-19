@@ -27,7 +27,13 @@ vi.mock('./settings.js', () => ({
   getState: () => ({ simulatedInput: harness.simulate ? { 'shift-paint': true } : {} }),
 }))
 vi.mock('./map-handle.js', () => ({ getMap: () => ({ getCanvas: () => harness.canvas }) }))
-vi.mock('./wplace-paint.js', () => ({ isPaintOpen: () => harness.open }))
+vi.mock('./wplace-paint.js', async () => {
+  const dom = await vi.importActual<typeof import('./wplace-dom.js')>('./wplace-dom.js')
+  return {
+    isPaintOpen: () => harness.open,
+    currentPaintSwatches: () => dom.paintPaletteSwatches(document),
+  }
+})
 vi.mock('./wplace-picker.js', () => ({
   pickerPointAt: (target: Element, x: number, y: number) =>
     target.tagName === 'CANVAS'

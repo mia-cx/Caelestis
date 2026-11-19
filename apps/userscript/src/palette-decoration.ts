@@ -19,8 +19,8 @@ import { pixelAccounting } from './templates/mismatch.js'
 import { focusedTemplate } from './templates/nearest.js'
 import { canvasWriteTouchesArtboard } from './ui/panel-progress.js'
 import { applyWplaceTheme } from './ui/theme.js'
-import { paintPaletteIndexOf, paintPaletteSwatches } from './wplace-dom.js'
-import { isPaintOpen, onPaintSwatchesChange } from './wplace-paint.js'
+import { paintPaletteIndexOf } from './wplace-dom.js'
+import { currentPaintSwatches, isPaintOpen, onPaintSwatchesChange } from './wplace-paint.js'
 
 /**
  * Wplace's palette swatches, decorated with how many pixels of each colour the focused template
@@ -52,7 +52,7 @@ const wire = (swatch: HTMLElement, index: number): void => {
 }
 
 const render = (): void => {
-  const swatches = paintPaletteSwatches()
+  const swatches = currentPaintSwatches()
   count('paint:palette renders')
   count('paint:palette swatches', swatches.length)
   // Mismatch and telemetry updates also arrive while Wplace's paint drawer is closed. Do not walk

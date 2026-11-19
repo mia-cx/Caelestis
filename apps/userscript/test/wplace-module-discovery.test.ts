@@ -45,11 +45,24 @@ afterEach(() => {
 })
 
 /** A fresh copy of the discovery, so each case starts with nothing read. */
-const discovery = async () => (await import('../src/templates/native-store.js')).findWplaceModules
+const discovery = async () => (await import('../src/wplace-modules.js')).findWplaceModules
 
 const nothing = { absent: () => false }
 
 describe('Wplace module discovery', () => {
+  // Evaluating Wplace's chunks before its map exists breaks Wplace's own boot for good (#416).
+  it('reads no module until Wplace has built its map canvas', async () => {
+    document.body.innerHTML = ''
+    const find = await discovery()
+    const lookup = find(nothing)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(reads).toEqual([])
+
+    document.body.innerHTML = '<canvas class="maplibregl-canvas"></canvas>'
+    await lookup
+    expect(reads.sort()).toEqual([chunk('a'), chunk('b'), chunk('entry')])
+  })
+
   it('reads each module once for lookups that start together', async () => {
     const find = await discovery()
     await Promise.all([find(nothing), find(nothing), find(nothing)])

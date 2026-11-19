@@ -22,8 +22,13 @@ import type {
   ColourTargetKind,
   TemplateColourProgress,
 } from './templates/progress-types.js'
-import { paintPaletteIndexOf, paintPaletteSwatches } from './wplace-dom.js'
-import { isPaintOpen, selectedColour, selectPaintColour } from './wplace-paint.js'
+import { paintPaletteIndexOf } from './wplace-dom.js'
+import {
+  currentPaintSwatches,
+  isPaintOpen,
+  selectedColour,
+  selectPaintColour,
+} from './wplace-paint.js'
 
 /**
  * Moving between the focused template's unfinished colours: jumping to a colour's nearest remaining
@@ -152,7 +157,7 @@ export const navigateFocusedSelectedColour = async (): Promise<boolean> => {
 const renderedPaletteOrder = (): readonly number[] => {
   const seen = new Set<number>()
   const order: number[] = []
-  for (const element of paintPaletteSwatches()) {
+  for (const element of currentPaintSwatches()) {
     const index = paintPaletteIndexOf(element)
     if (index === null || seen.has(index)) continue
     seen.add(index)

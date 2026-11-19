@@ -1,8 +1,9 @@
 import { TRANSPARENT_INDEX } from '@caelestis/shared'
+import { activeAllianceEditorStage } from './alliance-surface.js'
 import { log } from './debug.js'
 import { simulatedInputAllowed } from './simulated-input.js'
 import {
-  activePaintRoot,
+  OPEN_DIALOG,
   paintDrawer,
   paintDrawerCloseButton,
   paintDrawerCommitButton,
@@ -45,10 +46,17 @@ export const onPaintSwatchesChange = (listener: () => void): (() => void) => {
   return () => swatchListeners.delete(listener)
 }
 
+/** Where Wplace's paint controls live right now: the open alliance editor's dialog, else the page. */
+const activePaintRoot = (): ParentNode =>
+  activeAllianceEditorStage()?.closest(OPEN_DIALOG) ?? document
+
+/** Wplace's paint swatches in the active root, read now rather than as of the last frame. */
+export const currentPaintSwatches = (): HTMLElement[] => paintPaletteSwatches(activePaintRoot())
+
 /** Select one of Wplace's own paint swatches without owning a second palette state. */
 export const selectPaintColour = (index: number): boolean => {
   if (!Number.isInteger(index) || index < 0 || index >= TRANSPARENT_INDEX) return false
-  const swatch = paintPaletteSwatches().find(
+  const swatch = currentPaintSwatches().find(
     (candidate) => paintPaletteIndexOf(candidate) === index,
   )
   if (swatch === undefined) return false
@@ -71,7 +79,7 @@ const clickEnabled = (button: HTMLButtonElement | null): boolean => {
  * like a hand-painted pixel.
  */
 const movePaintHistory = (control: 'undo' | 'redo'): boolean => {
-  const drawer = paintDrawer()
+  const drawer = paintDrawer(activePaintRoot())
   return clickEnabled(drawer === null ? null : paintHistoryButton(drawer, control))
 }
 
@@ -88,19 +96,20 @@ export const redoPaintDraft = (): boolean => movePaintHistory('redo')
  * be identified must not fall through to an unrelated action elsewhere on the page.
  */
 export const performPaintAction = (): boolean => {
-  if (paintPaletteSwatches().length > 0) {
+  const root = activePaintRoot()
+  if (paintPaletteSwatches(root).length > 0) {
     if (!simulatedInputAllowed('paint-commit')) return false
-    const drawer = paintDrawer()
+    const drawer = paintDrawer(root)
     return clickEnabled(drawer === null ? null : paintDrawerCommitButton(drawer))
   }
-  const button = paintOpenButton()
+  const button = paintOpenButton(root)
   button?.click()
   return button !== null
 }
 
 /** Discard the current native Wplace draft, leaving unrelated Escape handling alone when closed. */
 export const cancelPaintDraft = (): boolean => {
-  const drawer = paintDrawer()
+  const drawer = paintDrawer(activePaintRoot())
   return clickEnabled(drawer === null ? null : paintDrawerCloseButton(drawer))
 }
 
@@ -108,7 +117,7 @@ const sameElements = (left: readonly Element[], right: readonly Element[]): bool
   left.length === right.length && left.every((element, index) => element === right[index])
 
 const read = (): void => {
-  const next = paintPaletteSwatches(activePaintRoot())
+  const next = currentPaintSwatches()
   const nextOpen = next.length > 0
   const nextSelected = readSelectedColour(next)
   const remounted = !sameElements(swatches, next)
