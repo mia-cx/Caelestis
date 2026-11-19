@@ -2,9 +2,13 @@ import { millis, type TemplateStatus } from '@caelestis/shared'
 import { describe, expect, it, vi } from 'vitest'
 import { coordinatorDatabase } from '../src/adapters/node/coordinator-database.js'
 import { SqlCoordinatorStorage } from '../src/adapters/node/coordinator-storage.js'
-import { openMemoryDatabase } from '../src/node/memory-stores.js'
+import { openMemoryDatabase, openMemoryStores } from '../src/node/memory-stores.js'
 import { createSeasonStatusReadModel } from '../src/status-read-model/model.js'
 import { createKeyedStatusPersistence } from '../src/status-read-model/persistence.js'
+import {
+  createSeasonReadModels,
+  inMemorySeasonPersistence,
+} from '../src/status-read-model/season.js'
 import { createTileGenerationCache } from '../src/status-read-model/tile-generation-cache.js'
 
 describe('tile generation cache', () => {
@@ -45,6 +49,54 @@ describe('tile generation cache', () => {
         unresolvedDeliveryIds: ['old'],
       },
     )
+  })
+})
+
+describe('season read models', () => {
+  it('stops acknowledging cached tile generations as soon as a coverage change starts', async () => {
+    const { sql, close } = await openMemoryStores()
+    try {
+      const persistence = inMemorySeasonPersistence()
+      let release = () => {}
+      const held = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const models = createSeasonReadModels({
+        season: 3,
+        sql,
+        persistence: {
+          ...persistence,
+          // The new coverage revision is still being written when the offer arrives.
+          manifest: {
+            ...persistence.manifest,
+            save: (next) => held.then(() => persistence.manifest.save(next)),
+          },
+        },
+      })
+      const tile = { x: 0, y: 0 }
+      const commit = await models.prepareTileCommit(tile)
+      await models.applyTileGeneration({
+        ...commit,
+        tile,
+        hash: 'cached',
+        observedAt: millis(1),
+        commitOrder: 1,
+        visibleToPublic: true,
+        visibleToAdmin: true,
+      })
+      const offer = [{ deliveryId: 'offer', tile, hash: 'cached' }]
+      expect(models.resolveTileOffers('public', offer).acknowledgedDeliveryIds).toEqual(['offer'])
+
+      const invalidated = models.invalidateManifest(undefined, true)
+      expect(models.resolveTileOffers('public', offer)).toMatchObject({
+        acknowledgedDeliveryIds: [],
+        unresolvedDeliveryIds: ['offer'],
+      })
+      release()
+      await invalidated
+    } finally {
+      await close()
+    }
   })
 })
 

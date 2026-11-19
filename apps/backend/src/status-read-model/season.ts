@@ -122,6 +122,9 @@ export const createSeasonReadModels = (options: {
       return read
     },
     invalidateManifest: async (surface, affectsTileCoverage) => {
+      // Fence before the first await. Until the new coverage revision persists, an offer must not
+      // be acknowledged from a generation classified without the templates this change covers.
+      if (affectsTileCoverage) tiles.invalidate()
       const revision = await manifest.invalidate(surface, affectsTileCoverage)
       await loadCoverage()
       return revision

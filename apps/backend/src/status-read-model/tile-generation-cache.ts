@@ -62,6 +62,12 @@ export const createTileGenerationCache = (
   const createCoverageToken = options.createCoverageToken ?? (() => crypto.randomUUID())
   let coverageToken = createCoverageToken()
 
+  const retire = (next: string): void => {
+    coverageToken = next
+    entries.clear()
+    pendingCommits.clear()
+  }
+
   const releaseSettledCandidate = (
     key: string,
     pending: PendingTileGenerationCommits,
@@ -195,10 +201,12 @@ export const createTileGenerationCache = (
     },
 
     synchronizeCoverageToken(next: string): void {
-      if (coverageToken === next) return
-      coverageToken = next
-      entries.clear()
-      pendingCommits.clear()
+      if (coverageToken !== next) retire(next)
+    },
+
+    /** Retire every cached generation and in-flight commit under a token no coverage revision names. */
+    invalidate(): void {
+      retire(createCoverageToken())
     },
   }
 }
