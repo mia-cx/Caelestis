@@ -17,7 +17,7 @@ import {
   templateById,
 } from '../templates/local-store.js'
 import { showToast } from '../ui/notification-host.js'
-import type { TreeTarget } from '../ui/tree.js'
+import type { TreeTarget } from '../ui/tree-context.js'
 import { claimFolderPublication, setFolderTemplatesPublished } from './folder-publication.js'
 import { plural } from './plural.js'
 import { serverDestinations } from './server-destinations.js'

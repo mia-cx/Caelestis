@@ -10,7 +10,7 @@ import { isCurrentServerConnection } from '../server-connections.js'
 import { mutateLocalTag, onLocalTags, readLocalTags } from '../templates/tags.js'
 import { closeDialogHost } from './dialog.js'
 import { applyWplaceTheme } from './theme.js'
-import type { TreeTarget } from './tree.js'
+import type { TreeTarget } from './tree-context.js'
 
 let closeManager: (() => void) | undefined
 

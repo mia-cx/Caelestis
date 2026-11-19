@@ -9,7 +9,20 @@ import type { TreeIcon, TreeRowModel } from '@caelestis/ui/elements'
 import { pixelAccounting } from '../templates/mismatch.js'
 import type { TemplateColourProgress, TemplateProgress } from '../templates/progress-types.js'
 import { sumColourProgress, sumProgress } from './progress.js'
-import type { RowAction } from './tree-state.js'
+
+export interface RowAction {
+  readonly icon: TreeIcon
+  readonly label: string
+  readonly run: () => void
+  readonly returnToCanvas?: boolean
+}
+
+/** Land a dragged row at a place in this row's level; resolves to the key it landed as, or null. */
+export type DropAt = (
+  draggedKey: string,
+  parentKey: string | null,
+  beforeKey: string | null,
+) => Promise<string | null>
 
 /** One row, as the domain supplying it sees it. Placement and recursion belong to the renderer. */
 export interface TreeItem {
@@ -49,13 +62,7 @@ export interface TreeItem {
   readonly leadingActions?: readonly RowAction[] | undefined
   readonly onRename?: ((name: string) => void) | undefined
   readonly onContextMenu?: ((event: MouseEvent) => void) | undefined
-  readonly onDropAt?:
-    | ((
-        draggedKey: string,
-        parentKey: string | null,
-        beforeKey: string | null,
-      ) => Promise<string | null>)
-    | undefined
+  readonly onDropAt?: DropAt | undefined
 }
 
 /** A row and the folder it is listed in; `null` is the source's top level. */

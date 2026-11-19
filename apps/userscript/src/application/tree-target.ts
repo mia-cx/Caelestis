@@ -4,7 +4,7 @@ import { getState, isScopeVisible } from '../settings.js'
 import { isTemplateVisible, type PlacedTemplate } from '../templates/local-store.js'
 import { nodeChainVisible, serverNodeParents } from '../templates/server-nodes.js'
 import { LOCAL_ROOT_KEY, localFolderIdOf, serverScopeKey, serverTemplateKey } from '../tree-keys.js'
-import type { TreeTarget } from '../ui/tree.js'
+import type { TreeTarget } from '../ui/tree-context.js'
 
 export const surfaceOf = (target: TreeTarget): TemplateSurface =>
   target.surface ?? WORLD_TEMPLATE_SURFACE

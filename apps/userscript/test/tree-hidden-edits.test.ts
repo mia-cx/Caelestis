@@ -6,7 +6,8 @@ import * as store from '../src/templates/local-store.js'
 import { abort, movingId } from '../src/templates/move.js'
 import { serverTemplateKey } from '../src/tree-keys.js'
 import { showToast } from '../src/ui/notification-host.js'
-import { type TreeCallbacks, type TreeTarget, templateTreeAdapter } from '../src/ui/tree.js'
+import { templateTreeAdapter } from '../src/ui/tree.js'
+import type { TreeCallbacks, TreeTarget } from '../src/ui/tree-context.js'
 
 vi.mock('../src/claim-editor.js', () => ({ startCaptureMode: () => false }))
 vi.mock('../src/map-view.js', () => ({ repaint: () => {}, viewportCentre: () => null }))
@@ -55,7 +56,12 @@ const choose = (key: string, label: string): void => {
     onContextMenu: (target: TreeTarget, event: MouseEvent) =>
       openContextMenu(target, event, () => {}),
   } as Partial<TreeCallbacks> as TreeCallbacks
-  templateTreeAdapter(callbacks, () => {}).handle({ type: 'context-menu', key, x: 0, y: 0 })
+  templateTreeAdapter(callbacks, () => {}, { surface: WORLD_TEMPLATE_SURFACE }).handle({
+    type: 'context-menu',
+    key,
+    x: 0,
+    y: 0,
+  })
   const menu = treeActionPresentation().contextMenu
   const item = menu?.items.find((candidate) => candidate.label === label)
   if (menu === undefined || item === undefined) throw new Error(`${label} is not offered`)

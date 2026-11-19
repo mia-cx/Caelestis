@@ -14,7 +14,7 @@ import {
 import { stopMoveForDeletion } from '../templates/move.js'
 import { localFolderIdOf, localTemplateIdOf } from '../tree-keys.js'
 import { requestConfirmation, showToast } from '../ui/notification-host.js'
-import type { TreeTarget } from '../ui/tree.js'
+import type { TreeTarget } from '../ui/tree-context.js'
 import { plural } from './plural.js'
 import { refreshEditedSurface } from './tree-server.js'
 import { surfaceOf } from './tree-target.js'

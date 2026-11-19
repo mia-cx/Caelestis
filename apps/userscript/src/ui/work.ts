@@ -25,7 +25,7 @@ import { isServerTemplate, localTemplates } from '../templates/local-store.js'
 import { serverTemplateTreeKey } from '../tree-keys.js'
 import { accountIdentity, loadAccount } from '../wplace-account.js'
 import { showToast } from './notification-host.js'
-import type { TreeTarget } from './tree.js'
+import type { TreeTarget } from './tree-context.js'
 
 const workClient = (
   server: ServerConnection,

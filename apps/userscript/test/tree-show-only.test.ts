@@ -1,9 +1,11 @@
+import { WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createLocalFolder, setLocalFolderVisible } from '../src/local-folders.js'
 import { setScopeVisible } from '../src/settings.js'
 import * as store from '../src/templates/local-store.js'
 import { showToast } from '../src/ui/notification-host.js'
-import { type TreeCallbacks, type TreeTarget, templateTreeAdapter } from '../src/ui/tree.js'
+import { templateTreeAdapter } from '../src/ui/tree.js'
+import type { TreeCallbacks, TreeTarget } from '../src/ui/tree-context.js'
 
 vi.mock('../src/claim-editor.js', () => ({ startCaptureMode: () => false }))
 vi.mock('../src/map-view.js', () => ({ repaint: () => {}, viewportCentre: () => null }))
@@ -58,7 +60,12 @@ const chooseShowOnly = (key: string, query = ''): void => {
     onContextMenu: (target: TreeTarget, event: MouseEvent) =>
       openContextMenu(target, event, () => {}),
   } as Partial<TreeCallbacks> as TreeCallbacks
-  templateTreeAdapter(callbacks, () => {}, query).handle({ type: 'context-menu', key, x: 0, y: 0 })
+  templateTreeAdapter(callbacks, () => {}, { surface: WORLD_TEMPLATE_SURFACE, query }).handle({
+    type: 'context-menu',
+    key,
+    x: 0,
+    y: 0,
+  })
   const menu = treeActionPresentation().contextMenu
   const item = menu?.items.find((candidate) => candidate.label === 'Show only this')
   if (menu === undefined || item === undefined) throw new Error('Show only this is not offered')

@@ -165,13 +165,9 @@ import {
   syncPresenceModeState,
 } from './rail-controls.js'
 import { applyWplaceTheme } from './theme.js'
-import {
-  isTreeDragActive,
-  type TemplateTreeAdapter,
-  type TreeCallbacks,
-  templateTreeAdapter,
-  templateTreeKeyFor,
-} from './tree.js'
+import { templateTreeAdapter } from './tree.js'
+import { type TemplateTreeAdapter, type TreeCallbacks, templateTreeKeyFor } from './tree-context.js'
+import { isTreeDragActive } from './tree-view-state.js'
 import {
   changeTemplateClaim,
   retryTemplateClaims,
@@ -1081,8 +1077,8 @@ const treeCallbacks = (): TreeCallbacks => ({
   onCaptureTemplate: (target) => captureTemplate(target, rerenderTree),
   onContextMenu: (target, event) => openContextMenu(target, event, rerenderTree, panelSurface),
   onCopyToServer: (id) => void copyToServer(id, rerenderTree),
-  onDropInServer: (server, nodeId, draggedKey, beforeKey) =>
-    dropOnServerNode(server, nodeId, draggedKey, beforeKey, rerenderTree, panelSurface),
+  onDropInServer: (server, nodeId, draggedKey) =>
+    dropOnServerNode(server, nodeId, draggedKey, rerenderTree, panelSurface),
   onDropInLocal: async (draggedKey, folderId) => {
     if (draggedKey.startsWith('node:')) {
       return await moveBranch(draggedKey, { kind: 'local', folderId }, rerenderTree, panelSurface)
@@ -1133,15 +1129,12 @@ const claimTreeModels = (
     keys.length !== claimedTreeKeys.length ||
     keys.some((key, index) => key !== claimedTreeKeys[index])
   ) {
-    claimedTreeAdapter = templateTreeAdapter(
-      treeCallbacks(),
-      rerenderTree,
-      '',
-      panelSurface,
-      true,
-      new Set(keys),
-      claims.templates,
-    )
+    claimedTreeAdapter = templateTreeAdapter(treeCallbacks(), rerenderTree, {
+      surface: panelSurface,
+      includeCollapsed: true,
+      templateKeys: new Set(keys),
+      claims: claims.templates,
+    })
     claimedTreeStale = false
     claimedTreeKeys = keys
   }
@@ -1356,15 +1349,11 @@ const renderTree = (): void => {
 /** Build the main tree with one pass over the claims, which every panel model then reuses. */
 const buildActiveTree = (): void => {
   activeTreeClaims = workSectionModel(panelSurface, rerenderTree)
-  activeTreeAdapter = templateTreeAdapter(
-    treeCallbacks(),
-    rerenderTree,
-    searchQuery,
-    panelSurface,
-    false,
-    undefined,
-    activeTreeClaims.templates,
-  )
+  activeTreeAdapter = templateTreeAdapter(treeCallbacks(), rerenderTree, {
+    surface: panelSurface,
+    query: searchQuery,
+    claims: activeTreeClaims.templates,
+  })
 }
 
 let lastFocusCentre: { readonly x: number; readonly y: number } | null | undefined

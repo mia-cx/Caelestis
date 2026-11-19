@@ -10,8 +10,8 @@ import { isCurrentServerConnection } from '../server-connections.js'
 import { getState, type LocalFolder, MAX_LOCAL_FOLDERS, setState } from '../settings.js'
 import { LOCAL_ROOT_KEY, localFolderIdOf, localFolderKey, nodeTreeKey } from '../tree-keys.js'
 import { showToast } from '../ui/notification-host.js'
-import type { TreeTarget } from '../ui/tree.js'
-import { startRenaming } from '../ui/tree-state.js'
+import type { TreeTarget } from '../ui/tree-context.js'
+import { startRenaming } from '../ui/tree-view-state.js'
 import { refreshEditedSurface, serverNodesFailure } from './tree-server.js'
 
 /**

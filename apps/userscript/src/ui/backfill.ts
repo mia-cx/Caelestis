@@ -11,7 +11,7 @@ import { templateAsPng, templateById } from '../templates/local-store.js'
 import { serverTemplateKey } from '../tree-keys.js'
 import { closeDialogHost } from './dialog.js'
 import { applyWplaceTheme } from './theme.js'
-import type { TreeTarget } from './tree.js'
+import type { TreeTarget } from './tree-context.js'
 
 let closeBackfill: (() => void) | undefined
 

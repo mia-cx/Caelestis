@@ -167,7 +167,6 @@ export const dropOnServerNode = async (
   server: ServerConnection,
   nodeId: string | null,
   draggedKey: string,
-  _beforeKey: string | null,
   rerender: () => void,
   surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
 ): Promise<string | null> => {
