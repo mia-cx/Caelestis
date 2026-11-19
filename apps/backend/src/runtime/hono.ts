@@ -1,5 +1,6 @@
 import { Effect } from 'effect'
 import type { Context } from 'hono'
+import { HTTPException } from 'hono/http-exception'
 import {
   ARCHIVE_RETRY_AFTER_SECONDS,
   ArchiveError,
@@ -15,7 +16,9 @@ const retryAfter = (at: number) => String(Math.max(1, Math.ceil((at - Date.now()
  * Answer a failure with its status. A write refused by an archive hold answers 503 however deep a
  * store wrapped it. Storage causes and unexpected errors are logged and never sent.
  */
-export const errorResponse = (context: Context, error: BackendHttpError | unknown): Response => {
+export const errorResponse = (context: Context, error: unknown): Response => {
+  // Hono's own default for the errors its helpers throw.
+  if (error instanceof HTTPException) return error.getResponse()
   if (isArchiveError(error, 'ArchiveOperationActiveError')) {
     context.header('retry-after', String(ARCHIVE_RETRY_AFTER_SECONDS))
     return context.json({ error: new ArchiveOperationActiveError().message }, 503)

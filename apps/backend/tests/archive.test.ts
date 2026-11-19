@@ -342,7 +342,9 @@ describe('server archives', { timeout: 60_000 }, () => {
   it('bounds a restore request by its bytes, even without Content-Length', async () => {
     const destination = await server()
     const line = new Uint8Array(1024 * 1024).fill(0x0a)
-    const endless = new ReadableStream<Uint8Array>({ pull: (controller) => controller.enqueue(line) })
+    const endless = new ReadableStream<Uint8Array>({
+      pull: (controller) => controller.enqueue(line),
+    })
     const refused = await admin(destination, '/admin/archive/import/records?position=1', {
       method: 'POST',
       body: endless,
