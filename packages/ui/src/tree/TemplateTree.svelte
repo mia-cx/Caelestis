@@ -305,10 +305,8 @@
   }
 
   const focusRename = (node: HTMLInputElement): void => {
-    requestAnimationFrame(() => {
-      node.focus()
-      node.select()
-    })
+    node.focus()
+    node.select()
   }
 </script>
 

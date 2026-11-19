@@ -151,3 +151,38 @@ describe('context menu inside caelestis-panel element', () => {
     expect(s.activeElement).toBe(child)
   })
 })
+
+describe('rename from the context menu', () => {
+  it('runs the action from the row that opened the menu, then leaves focus in the rename field', async () => {
+    registerCaelestisUi()
+    const element = document.createElement('caelestis-panel')
+    const { contextMenu: _, ...withoutMenu } = menuTree()
+    element.model = panel(withoutMenu)
+    document.body.append(element)
+    await tick()
+    const s = element.shadowRoot!
+    const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    s.querySelector<HTMLElement>('[data-caelestis-tree-key="art"]')!.focus()
+    element.model = panel(menuTree())
+    await tick()
+    const menu = s.querySelector<HTMLElement>('[data-caelestis-context-menu]')!
+    for (let frame = 0; frame < 60 && menu.dataset.state !== 'open'; frame++) await nextFrame()
+    // The host closes the menu and starts the rename in one update, as the userscript does.
+    // Whatever the action opens (here a rename field, elsewhere a dialog) sees the row focused.
+    let focusedWhenRun: Element | null = null
+    element.addEventListener(
+      'caelestis-panel-intent',
+      () => {
+        focusedWhenRun = s.activeElement
+        element.model = panel({ ...withoutMenu, renamingKey: 'art' })
+      },
+      { once: true },
+    )
+    s.querySelector<HTMLButtonElement>('[data-caelestis-context-menu] [role="menuitem"]')!.click()
+    expect(focusedWhenRun).toBe(s.querySelector('[data-caelestis-tree-key="art"]'))
+    await tick()
+    await nextFrame()
+    await nextFrame()
+    expect(s.activeElement).toBe(s.querySelector('input[aria-label="Rename art"]'))
+  })
+})

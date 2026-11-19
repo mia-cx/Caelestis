@@ -7,7 +7,8 @@
 
   /**
    * A row's actions at the pointer, with submenus. It takes focus when it opens and returns it to
-   * whatever had it when it closes; a press outside it asks the host to dismiss it.
+   * whatever had it when it closes, unless focus has moved on; a press outside it asks the host to
+   * dismiss it.
    */
   let { menu, emit }: { menu: TreeContextMenuModel | undefined; emit: (intent: TemplateTreeIntent) => void } = $props()
 
@@ -68,9 +69,20 @@
     } else if (previous !== undefined) {
       const target = invoker
       invoker = null
-      requestAnimationFrame(() => target?.focus())
+      // Focus that already moved on, such as a press elsewhere or a rename field, stays put.
+      const active = activeElement()
+      if (active === null || active === document.body || element?.contains(active) === true) target?.focus()
     }
   })
+
+  /**
+   * Hand focus back before the host runs the action, so whatever the action opens (a rename field,
+   * a dialog) starts from the row that opened the menu.
+   */
+  const choose = (menuId: string, item: TreeContextMenuItemModel): void => {
+    invoker?.focus()
+    emit({ type: 'context-menu-action', menuId, actionId: item.id, returnToCanvas: item.returnToCanvas === true })
+  }
 
   const dismiss = (event: PointerEvent): void => {
     if (menu === undefined || (element !== undefined && event.composedPath().includes(element))) return
@@ -209,7 +221,7 @@
 {/if}
 
 {#snippet row(item: TreeContextMenuItemModel, menuId: string, topLevel: boolean)}
-  <button class="caelestis-menu-item" class:danger={item.danger === true} type="button" role={item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'} aria-checked={item.checked} onclick={() => emit({ type: 'context-menu-action', menuId, actionId: item.id, returnToCanvas: item.returnToCanvas === true })} onpointerenter={topLevel ? (event) => hoverRow(event, item) : undefined}>
+  <button class="caelestis-menu-item" class:danger={item.danger === true} type="button" role={item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'} aria-checked={item.checked} onclick={() => choose(menuId, item)} onpointerenter={topLevel ? (event) => hoverRow(event, item) : undefined}>
     <Icon name={item.icon} />
     <span>{item.label}</span>
     {#if item.checked === true}<Icon name="check" class="menu-trailing" />{/if}
