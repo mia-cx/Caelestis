@@ -1,13 +1,6 @@
 import { assignShortcutBinding } from '@caelestis/shared'
 import type { SettingsIntent, SettingsModel } from '@caelestis/ui/elements'
-import {
-  accessTokensModel,
-  createServerAccessToken,
-  loadMoreAccessTokens,
-  prefetchAccessTokens,
-  refreshAccessTokens,
-  revokeServerAccessToken,
-} from '../application/access-tokens.js'
+import { prefetchAccessTokens } from '../application/token-inventory.js'
 import { cancelDestinationAdmissions } from '../application/transfer.js'
 import { importFromOtherBuild, otherBuild, sendToOtherBuild } from '../build-transfer.js'
 import { claimRouter } from '../claim-routing.js'
@@ -22,6 +15,13 @@ import { canonicalServerUrl } from '../server-url.js'
 import { getState, MAX_CONNECTED_SERVERS, setState } from '../settings.js'
 import { activeShortcutBindings, currentShortcutPlatform } from '../shortcuts.js'
 import { backendVersionOutdated } from '../userscript-update.js'
+import {
+  accessTokensModel,
+  createServerAccessToken,
+  loadMoreAccessTokens,
+  reloadAccessTokens,
+  revokeServerAccessToken,
+} from './access-tokens.js'
 import { requestConfirmation, showToast } from './notification-host.js'
 import { syncPanelButtons } from './rail.js'
 
@@ -343,7 +343,7 @@ export const handleSettingsIntent = (
       if (intent.expanded) {
         expandedServers.add(intent.url)
         const server = getState().servers.find((candidate) => candidate.url === intent.url)
-        if (server?.isAdmin === true) refreshAccessTokens(server, refreshSettings)
+        if (server?.isAdmin === true) reloadAccessTokens(server, refreshSettings)
       } else expandedServers.delete(intent.url)
       refreshSettings()
       break

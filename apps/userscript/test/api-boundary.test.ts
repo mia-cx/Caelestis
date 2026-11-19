@@ -74,7 +74,7 @@ describe('access token creation through the backend', () => {
     await installBackend()
     const { server, state } = await connect()
     const { registerCaelestisUi } = await import('@caelestis/ui/elements')
-    const { createServerAccessToken } = await import('../src/application/access-tokens.js')
+    const { createServerAccessToken } = await import('../src/ui/access-tokens.js')
     const { readInvite } = await import('../src/invite.js')
     registerCaelestisUi()
     const copied: string[] = []
@@ -576,7 +576,7 @@ describe('userscript to backend API boundary', () => {
       }),
     )
 
-    const accessTokens = await import('../src/application/access-tokens.js')
+    const accessTokens = await import('../src/ui/access-tokens.js')
     let firstPage: (() => void) | undefined
     let finalPage: (() => void) | undefined
     const firstReady = new Promise<void>((resolve) => {
