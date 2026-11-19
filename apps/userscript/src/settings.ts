@@ -33,6 +33,14 @@ import {
   normaliseAppearance,
 } from './templates/appearance.js'
 import { remapPaletteColours, remapStoredAppearance } from './templates/palette-migration.js'
+import {
+  isServerOwnedKey,
+  isServerTemplateId,
+  nodeScopeKey,
+  serverScopeKey,
+  serverTemplateIdPrefix,
+  serverTemplateKey,
+} from './tree-keys.js'
 
 /**
  * Everything the panel remembers between sessions.
@@ -324,29 +332,34 @@ const decodeLocalFolders = (stored: unknown): LocalFolder[] => {
   return localFolders
 }
 
+/** The node id of a `node:<nodeId>` key, written before node keys named their server. */
+const legacyNodeId = (key: string): string | null => {
+  const id = key.startsWith('node:') ? key.slice('node:'.length) : ''
+  return UUID_V7.test(id) ? id : null
+}
+
 const decodeHiddenScopes = (stored: unknown, context: DecodeContext): string[] => {
   const storedScopes = Array.isArray(stored)
     ? stored.filter((key): key is string => typeof key === 'string' && key.length <= 2_048)
     : []
   const migrateServerTemplateScope = (key: string): string => {
     for (const server of context.servers) {
+      // Server template ids were once namespaced by the raw, unencoded URL.
       const prefix = `srv:${server.url}:`
       if (!key.startsWith(prefix)) continue
       const templateId = key.slice(prefix.length)
-      if (UUID_V7.test(templateId)) return `srv:${encodeURIComponent(server.url)}:${templateId}`
+      if (UUID_V7.test(templateId)) return serverTemplateKey(server.url, templateId)
     }
     return key
   }
   const hiddenScopes = [
     ...new Set(
       storedScopes.flatMap((key) => {
-        const legacyNodeId = key.startsWith('node:') ? key.slice('node:'.length) : ''
-        if (!UUID_V7.test(legacyNodeId)) return [migrateServerTemplateScope(key)]
+        const nodeId = legacyNodeId(key)
+        if (nodeId === null) return [migrateServerTemplateScope(key)]
         // The old key hid this node id without naming a server. Preserve that meaning for every
         // connection that existed with the setting, then store only the collision-safe form.
-        return context.servers.map(
-          (server) => `node:${encodeURIComponent(server.url)}:${legacyNodeId}`,
-        )
+        return context.servers.map((server) => nodeScopeKey(server.url, nodeId))
       }),
     ),
   ].slice(0, MAX_CUSTOM_ORDER)
@@ -369,7 +382,7 @@ const decodeServerTemplatePreferences = (
     if (
       !isRecord(candidate) ||
       typeof candidate.id !== 'string' ||
-      !candidate.id.startsWith('srv:') ||
+      !isServerTemplateId(candidate.id) ||
       candidate.id.length > 2_048 ||
       preferenceIds.has(candidate.id) ||
       !Array.isArray(candidate.owns)
@@ -427,8 +440,7 @@ const FIELDS = {
   servers: { default: [], decode: (_, context) => context.servers },
   customOrder: {
     default: [],
-    decode: (stored) =>
-      uniqueStrings(stored, (key) => !(key.startsWith('node:') && UUID_V7.test(key.slice(5)))),
+    decode: (stored) => uniqueStrings(stored, (key) => legacyNodeId(key) === null),
   },
   collapsed: { default: [], decode: (stored) => uniqueStrings(stored) },
   panelWidth: {
@@ -802,7 +814,7 @@ export const setServerTemplatePreference = (
   appearance: Appearance | null,
   owns: readonly AppearanceGroup[],
 ): boolean => {
-  if (!id.startsWith('srv:') || id.length > 2_048) return false
+  if (!isServerTemplateId(id) || id.length > 2_048) return false
   const preferences = state.serverTemplatePreferences
   const index = preferences.findIndex((preference) => preference.id === id)
   if (appearance === null && owns.length === 0) {
@@ -837,9 +849,15 @@ export const removeTreeStateKeys = (keys: ReadonlySet<string>): void => {
     setState({ customOrder, collapsed })
 }
 
-/** Drop visibility state that belongs to a disconnected source. */
-export const forgetScopes = (keys: Iterable<string>): void => {
-  const drop = new Set(keys)
-  const hiddenScopes = state.hiddenScopes.filter((key) => !drop.has(key))
-  if (hiddenScopes.length !== state.hiddenScopes.length) setState({ hiddenScopes })
+/** Drop the row of the server at `url`, and the order, switches and preferences only it used. */
+export const forgetServer = (url: string): void => {
+  const templatePrefix = serverTemplateIdPrefix(url)
+  setState({
+    servers: state.servers.filter((server) => server.url !== url),
+    customOrder: state.customOrder.filter((key) => key !== serverScopeKey(url)),
+    serverTemplatePreferences: state.serverTemplatePreferences.filter(
+      (preference) => !preference.id.startsWith(templatePrefix),
+    ),
+    hiddenScopes: state.hiddenScopes.filter((key) => !isServerOwnedKey(key, url)),
+  })
 }

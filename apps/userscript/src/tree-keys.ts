@@ -139,3 +139,19 @@ export const serverTemplateKey = (
 /** Prefix shared by every template id one owner URL holds, on any surface. */
 export const serverTemplateIdPrefix = (serverUrl: string): string =>
   `srv:${encodeURIComponent(serverUrl)}:`
+
+/** Whether `id` is a server template id, of any server on any surface. */
+export const isServerTemplateId = (id: string): boolean => id.startsWith('srv:')
+
+/** A stored switch or preference key that belongs to the server at `url` and nothing else. */
+export const isServerOwnedKey = (key: string, url: string): boolean => {
+  const singleSegmentAfter = (prefix: string): boolean =>
+    key.startsWith(prefix) && key.length > prefix.length && !key.slice(prefix.length).includes(':')
+  return (
+    key === serverScopeKey(url) ||
+    singleSegmentAfter(serverRowPrefix('node', url)) ||
+    singleSegmentAfter(serverTemplateIdPrefix(url)) ||
+    // Template switches written before server template ids were `srv:` keys.
+    singleSegmentAfter(serverRowPrefix('st', url))
+  )
+}

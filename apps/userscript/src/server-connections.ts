@@ -10,13 +10,13 @@ import {
 import { sendServerRequest, withManifestReadSlot } from './server-transport.js'
 import { canonicalServerUrl, endpointUrl, type ServerApiVersion } from './server-url.js'
 import {
+  forgetServer,
   getState,
   MAX_CONNECTED_SERVERS,
   type ServerConnection,
   type State,
   setState,
 } from './settings.js'
-import { serverRowPrefix, serverScopeKey, serverTemplateIdPrefix } from './tree-keys.js'
 
 /**
  * The lifetime of each configured server connection: probing, refreshing, replacing and removing
@@ -185,19 +185,6 @@ const settleEach = async <T>(
     if (outcome.status === 'rejected') warn(failure, String(outcome.reason))
 }
 
-/** A stored switch or preference key that belongs to the server at `url` and nothing else. */
-const ownedByServer = (key: string, url: string): boolean => {
-  const singleSegmentAfter = (prefix: string): boolean =>
-    key.startsWith(prefix) && key.length > prefix.length && !key.slice(prefix.length).includes(':')
-  return (
-    key === serverScopeKey(url) ||
-    singleSegmentAfter(serverRowPrefix('node', url)) ||
-    singleSegmentAfter(serverTemplateIdPrefix(url)) ||
-    // Template switches written before server template ids were `srv:` keys.
-    singleSegmentAfter(serverRowPrefix('st', url))
-  )
-}
-
 /**
  * Replace one server in place, keyed by url, preserving its saved token and the order of the rest.
  * A row identical to the stored one changes nothing and notifies no listener.
@@ -259,16 +246,7 @@ export const removeServer = async (url: string): Promise<void> => {
     probedManifests.delete(url)
     const current = serverByUrl(url)
     if (current !== undefined) retireServerConnection(current)
-    const state = getState()
-    const templatePrefix = serverTemplateIdPrefix(url)
-    setState({
-      servers: state.servers.filter((s) => s.url !== url),
-      customOrder: state.customOrder.filter((candidate) => candidate !== serverScopeKey(url)),
-      serverTemplatePreferences: state.serverTemplatePreferences.filter(
-        (preference) => !preference.id.startsWith(templatePrefix),
-      ),
-      hiddenScopes: state.hiddenScopes.filter((key) => !ownedByServer(key, url)),
-    })
+    forgetServer(url)
     await settleEach(removedListeners, url, 'server removal observer failed')
   } finally {
     removing.delete(url)
