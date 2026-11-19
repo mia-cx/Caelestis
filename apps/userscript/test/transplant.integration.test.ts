@@ -57,18 +57,24 @@ const fullManifest = (owner: ConnectedServer) => ({
   ],
 })
 
-// The source row is what the tree last drew, and refreshing the tree after each write is the
-// panel's business. Admission still reads the destination over the network.
+/** The source row the tree last drew; a test replaces it to simulate another admin's edit. */
+const sourceRow = vi.hoisted(() => ({ edited: null as object | null }))
+
+// Refreshing the tree after each write is the panel's business. Admission still reads the
+// destination over the network.
 vi.mock('../src/application/tree-server-state.js', async (original) => ({
   ...(await original<typeof import('../src/application/tree-server-state.js')>()),
-  serverTemplateAt: () => published,
+  serverTemplateAt: () => sourceRow.edited ?? published,
 }))
 vi.mock('../src/application/tree-server.js', async (original) => ({
   ...(await original<typeof import('../src/application/tree-server.js')>()),
   refreshEditedSurface: async () => {},
 }))
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  sourceRow.edited = null
+  vi.unstubAllGlobals()
+})
 
 describe('cross-server template transplant', () => {
   it('admits a Local folder branch at the server before removing its persisted source', async () => {
@@ -327,5 +333,66 @@ describe('cross-server template transplant', () => {
       expect.stringContaining(`/admin/templates/${ids.source}`),
       expect.objectContaining({ method: 'DELETE' }),
     )
+  })
+
+  it('keeps the source when it is edited while its copy uploads', async () => {
+    const source = server('https://source-edited.test', '018f1b8c-7f4e-7a8c-8a01-123456789abc')
+    const destination = server(
+      'https://destination-edited.test',
+      '018f1b8c-7f4e-7a8c-8a01-123456789abd',
+    )
+    upsertServer(source)
+    upsertServer(destination)
+    const currentSource = getState().servers.find((item) => item.url === source.url)!
+    const currentDestination = getState().servers.find((item) => item.url === destination.url)!
+    const drawn = await addLocalTemplate(
+      {
+        id: serverTemplateKey(source.url, ids.source),
+        name: published.name,
+        source: 'wplace',
+        originX: 10,
+        originY: 20,
+        width: 2,
+        height: 2,
+        indices: new Uint8Array([1, 2, 3, 4]),
+        moved: 0,
+        opaque: 4,
+      },
+      undefined,
+      true,
+    )
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input))
+      if (
+        url.hostname === 'destination-edited.test' &&
+        url.pathname.endsWith('/admin/templates') &&
+        init?.method === 'POST'
+      ) {
+        sourceRow.edited = { ...published, name: 'Renamed meanwhile', updatedAt: stamp + 1 }
+        return Response.json(
+          { templateId: ids.destination, versionId: ids.destinationVersion },
+          { status: 201 },
+        )
+      }
+      throw new Error(`unexpected request: ${init?.method ?? 'GET'} ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    window.fetch = fetchMock as typeof window.fetch
+    const serverDrawn = Object.assign(templateById(drawn.id)!, { serverVersion: ids.sourceVersion })
+    const result = await moveServerTemplateToServer(
+      currentSource,
+      currentDestination,
+      null,
+      published,
+      serverDrawn,
+      () => {},
+    )
+    expect(result).toEqual({
+      ok: false,
+      tone: 'warning',
+      destinationId: ids.destination,
+      message: `Copied to ${destination.url} as a draft, but the source changed and was kept.`,
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 })
