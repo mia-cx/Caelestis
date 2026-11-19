@@ -20,7 +20,7 @@ import {
 } from '../server-connections.js'
 import { requestServerTree } from '../server-transport.js'
 import { serverEndpoint } from '../server-url.js'
-import { type ConnectedServer, commitState, getState } from '../settings.js'
+import { commitState, getState, type ServerConnection } from '../settings.js'
 import { isServerTemplate, localTemplates } from '../templates/local-store.js'
 import { serverTemplateTreeKey } from '../tree-keys.js'
 import { accountIdentity, loadAccount } from '../wplace-account.js'
@@ -28,7 +28,7 @@ import { toast } from './toast.js'
 import type { TreeTarget } from './tree.js'
 
 const workClient = (
-  server: ConnectedServer,
+  server: ServerConnection,
   season: number,
   surface: TemplateSurface,
   signal: AbortSignal,
@@ -60,7 +60,7 @@ interface WorkPreview {
 const previews = new Map<string, WorkPreview>()
 let identityChecked = false
 let identityRequest: Promise<void> | null = null
-const previewKey = (server: ConnectedServer, surface: TemplateSurface): string =>
+const previewKey = (server: ServerConnection, surface: TemplateSurface): string =>
   `${server.url}:${server.season}:${surface.kind}:${surface.allianceId}`
 
 /** Aggregate template participants across admitted servers and local storage. Live revisions refresh remote claims. */

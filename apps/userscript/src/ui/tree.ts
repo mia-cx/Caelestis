@@ -45,9 +45,9 @@ import {
 } from '../server-api.js'
 import type { ServerTemplate } from '../server-cache.js'
 import {
-  type ConnectedServer,
   getState,
   isScopeVisible,
+  type ServerConnection,
   setScopeVisible,
   setState,
 } from '../settings.js'
@@ -120,7 +120,7 @@ export const isTreeDragActive = (): boolean => modelTreeDragActive
 /** Resolve a drawn template to the stable key used by its main-menu row. */
 export const templateTreeKeyFor = (
   template: Pick<PlacedTemplate, 'id' | 'serverUrl' | 'serverTemplateId'> | null,
-  servers: readonly ConnectedServer[],
+  servers: readonly ServerConnection[],
 ): string | undefined => {
   if (template === null) return undefined
   if (template.serverUrl === OFFICIAL_OVERLAY_OWNER) return `event:${template.id}`
@@ -145,7 +145,7 @@ export const templateTreeKeyFor = (
  */
 
 export interface TreeTarget {
-  readonly server: ConnectedServer | null
+  readonly server: ServerConnection | null
   /** Canvas whose manifest or local catalog produced this row. */
   readonly surface?: TemplateSurface
   readonly nodeId: string | null
@@ -186,7 +186,7 @@ export interface TreeCallbacks {
    * the folder means the server's top level, which only a folder may occupy.
    */
   readonly onDropInServer: (
-    server: ConnectedServer,
+    server: ServerConnection,
     nodeId: string | null,
     draggedKey: string,
     beforeKey: string | null,
@@ -207,7 +207,7 @@ const lastAllianceProgress = new WeakMap<
   { progress: TemplateProgress; colours: readonly TemplateColourProgress[] }
 >()
 
-const openServerDetails = (server: ConnectedServer, rerender: () => void): void => {
+const openServerDetails = (server: ServerConnection, rerender: () => void): void => {
   void import('./server-details.js')
     .then((editor) => editor.openServerDetails(server, rerender))
     .catch((error: unknown) => reportTreeError(String(error)))
@@ -226,7 +226,7 @@ const localFolderId = (target: TreeTarget): string | null =>
   target.server === null && target.key.startsWith('lf:') ? target.key.slice('lf:'.length) : null
 
 const refreshCurrentSnapshot = async (
-  server: ConnectedServer,
+  server: ServerConnection,
   rerender: () => void,
   surface: TemplateSurface,
 ): Promise<void> => {
@@ -534,7 +534,7 @@ const buildTree = <Result>(
     surface.kind === 'world'
       ? pixelAccounting.read(template).colours
       : (allianceProgress.get(template.id)?.colours ?? [])
-  const scopedRowsFor = (server: ConnectedServer) => {
+  const scopedRowsFor = (server: ServerConnection) => {
     const rows = rowsForSurface(server, surface)
     if (rows === undefined || templateKeys === undefined) return rows
     return {
@@ -553,7 +553,7 @@ const buildTree = <Result>(
     drawnByServer.set(template.serverUrl, templates)
   }
   const serverTemplateProgress = (
-    server: ConnectedServer,
+    server: ServerConnection,
     template: ServerTemplate,
   ): TemplateProgress => {
     const serverProgress = serverProgressFor(server, template)
@@ -571,7 +571,7 @@ const buildTree = <Result>(
     return freshestProgress(baseline, pixelAccounting.read(drawn).progress)
   }
   const serverTemplateColourProgress = (
-    server: ConnectedServer,
+    server: ServerConnection,
     template: ServerTemplate,
   ): readonly TemplateColourProgress[] | undefined => {
     if (surface.kind !== 'world') {

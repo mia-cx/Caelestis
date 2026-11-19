@@ -1,7 +1,7 @@
 import { type TemplateSurface, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { uploadTemplate } from '../server-api.js'
 import { isCurrentServerConnection } from '../server-connections.js'
-import type { ConnectedServer } from '../settings.js'
+import type { ServerConnection } from '../settings.js'
 import type { ImportedTemplate } from '../templates/import.js'
 import {
   addLocalTemplate,
@@ -16,10 +16,10 @@ import { movingId } from '../templates/move.js'
 import { toast } from '../ui/toast.js'
 import { authoringOf } from './template-authoring.js'
 
-type RefreshServer = (server: ConnectedServer, rerender: () => void) => Promise<void>
+type RefreshServer = (server: ServerConnection, rerender: () => void) => Promise<void>
 
 const uploadAdmitted = async (
-  server: ConnectedServer,
+  server: ServerConnection,
   nodeId: string | null,
   templateIds: readonly string[],
   rerender: () => void,
@@ -96,7 +96,7 @@ const uploadAdmitted = async (
 /** Stage file imports locally only long enough to place and upload them to their chosen server. */
 export const importTemplatesToServer = async (
   imported: readonly ImportedTemplate[],
-  server: ConnectedServer,
+  server: ServerConnection,
   nodeId: string | null,
   reservation: MoveReservation | null,
   rerender: () => void,

@@ -30,7 +30,7 @@ import {
 import { claimRegion, type RegionWriteResult, releaseRegion } from './region-api.js'
 import type { ServerTemplate } from './server-cache.js'
 import { serverConnectionIdentity } from './server-connections.js'
-import { type ConnectedServer, onStateChange } from './settings.js'
+import { onStateChange, type ServerConnection } from './settings.js'
 import { storedValue, storeValue, syncStoredValues } from './stored-values.js'
 import { accountIdentity } from './wplace-account.js'
 
@@ -78,7 +78,7 @@ const isEntry = (value: unknown): value is Entry => {
   )
 }
 
-const isCopyOn = (copy: Copy, server: ConnectedServer): boolean =>
+const isCopyOn = (copy: Copy, server: ServerConnection): boolean =>
   copy.url === server.url && copy.serverId === server.info?.id
 
 /** Whether an entry is a live claim rather than a deletion or a record awaiting replacement. */
@@ -117,16 +117,16 @@ const overlaps = (pixels: RegionShapePixels, template: ServerTemplate): boolean 
  */
 const claimRecipients = (
   region: RegionClaim,
-  servers: readonly ConnectedServer[],
+  servers: readonly ServerConnection[],
   templates: (
-    server: ConnectedServer,
+    server: ServerConnection,
     region: RegionClaim,
   ) => readonly ServerTemplate[] | undefined,
-): Map<ConnectedServer, string | null> | null => {
+): Map<ServerConnection, string | null> | null => {
   const candidates = servers.filter((server) => server.season === region.season)
   const pixels = claimDocumentPixels(region.document)
   if (pixels === null) return new Map()
-  const matching = new Map<ConnectedServer, string | null>()
+  const matching = new Map<ServerConnection, string | null>()
   for (const server of candidates) {
     const rows = templates(server, region)
     if (rows === undefined) return null
@@ -143,9 +143,9 @@ const claimRecipients = (
 /** What the router needs from the page: servers, their claims, storage, and the claim API. */
 interface RoutingHost {
   /** Servers that accept claim writes. */
-  servers(): readonly ConnectedServer[]
-  templates(server: ConnectedServer, region: RegionClaim): readonly ServerTemplate[] | undefined
-  claims(server: ConnectedServer): {
+  servers(): readonly ServerConnection[]
+  templates(server: ServerConnection, region: RegionClaim): readonly ServerTemplate[] | undefined
+  claims(server: ServerConnection): {
     readonly ready: boolean
     readonly regions: readonly RegionClaim[]
     readonly revision?: number
@@ -155,11 +155,15 @@ interface RoutingHost {
   persist(entries: readonly Entry[]): void
   /** The journal as stored now, which another tab may have written since. */
   saved(): readonly Entry[]
-  retired(server: ConnectedServer): boolean
-  retire(server: ConnectedServer): void
-  put(server: ConnectedServer, region: RegionClaim, signal: AbortSignal): Promise<RegionWriteResult>
+  retired(server: ServerConnection): boolean
+  retire(server: ServerConnection): void
+  put(
+    server: ServerConnection,
+    region: RegionClaim,
+    signal: AbortSignal,
+  ): Promise<RegionWriteResult>
   remove(
-    server: ConnectedServer,
+    server: ServerConnection,
     region: RegionClaim,
     signal: AbortSignal,
     withdraw: boolean,
@@ -340,7 +344,7 @@ export class ClaimRouter {
     this.host.persist([...this.entries.values()])
   }
 
-  private servers(): readonly ConnectedServer[] {
+  private servers(): readonly ServerConnection[] {
     return this.host
       .servers()
       .filter(
@@ -429,7 +433,7 @@ export class ClaimRouter {
         }
       }
       const recipients = entry.deleted
-        ? new Map<ConnectedServer, string | null>()
+        ? new Map<ServerConnection, string | null>()
         : claimRecipients(entry.region, servers, this.host.templates)
       if (recipients === null) {
         this.errors.set(
@@ -477,18 +481,18 @@ export class ClaimRouter {
     return undefined
   }
 
-  private hasCopy(entry: Entry, server: ConnectedServer): boolean {
+  private hasCopy(entry: Entry, server: ServerConnection): boolean {
     return entry.copies.some((copy) => isCopyOn(copy, server))
   }
 
-  private rememberCopy(entry: Entry, server: ConnectedServer): void {
+  private rememberCopy(entry: Entry, server: ServerConnection): void {
     if (!this.hasCopy(entry, server) && server.info !== null)
       entry.copies.push({ url: server.url, serverId: server.info.id })
   }
 
   private async write(
     entry: Entry,
-    server: ConnectedServer,
+    server: ServerConnection,
     region: RegionClaim | null,
   ): Promise<boolean> {
     const owner = serverConnectionIdentity(server)
@@ -553,7 +557,7 @@ export class ClaimRouter {
   }
 
   /** Stop new writes and attempt only this painter's cleanup within a fixed disconnect deadline. */
-  async disconnect(server: ConnectedServer): Promise<void> {
+  async disconnect(server: ServerConnection): Promise<void> {
     this.host.retire(server)
     const owner = serverConnectionIdentity(server)
     this.retiring.add(owner)
@@ -611,7 +615,7 @@ export class ClaimRouter {
 const writeSignature = (region: RegionClaim): string =>
   JSON.stringify([region.document, region.label, region.templateId])
 
-const retirementKey = (server: ConnectedServer): string =>
+const retirementKey = (server: ServerConnection): string =>
   `${STORAGE_KEY}.retired:${encodeURIComponent(server.url)}`
 
 /**
@@ -636,8 +640,8 @@ const journal = {
     journal.written = true
     storeValue(STORAGE_KEY, raw)
   },
-  retired: (server: ConnectedServer): boolean => storedValue(retirementKey(server)) === 'true',
-  setRetired(server: ConnectedServer, retired: boolean): void {
+  retired: (server: ServerConnection): boolean => storedValue(retirementKey(server)) === 'true',
+  setRetired(server: ServerConnection, retired: boolean): void {
     journal.written = true
     storeValue(retirementKey(server), JSON.stringify(retired))
   },
@@ -734,9 +738,9 @@ const operations = {
       pendingReconciliation = null
     })),
   // Disconnection must retain its deadline even if another tab holds the mutation lock.
-  disconnect: (server: ConnectedServer) => localRouter().disconnect(server),
+  disconnect: (server: ServerConnection) => localRouter().disconnect(server),
   /** An explicit reconnect authorizes claim delivery to this server again. */
-  connect: (server: ConnectedServer) => journal.setRetired(server, false),
+  connect: (server: ServerConnection) => journal.setRetired(server, false),
 }
 
 /** Share claim intent across tabs; one browser-wide writer reconciles it at a time. */

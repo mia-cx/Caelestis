@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { consumeInvite, encodeInvite, type InviteDeps, readInvite } from './invite.js'
-import { type ConnectedServer, MAX_CONNECTED_SERVERS } from './settings.js'
+import { MAX_CONNECTED_SERVERS, type ServerConnection } from './settings.js'
 
 const base64url = (bytes: number[]): string =>
   btoa(String.fromCharCode(...bytes))
@@ -9,7 +9,7 @@ const base64url = (bytes: number[]): string =>
     .replaceAll('/', '_')
     .replace(/=+$/, '')
 
-const server = (overrides: Partial<ConnectedServer> = {}): ConnectedServer => ({
+const server = (overrides: Partial<ServerConnection> = {}): ServerConnection => ({
   url: 'https://caelestis.example',
   info: { id: '018f1b8c-7f4e-7a8c-8a01-123456789abc', name: 'Example', auth: 'access_token' },
   token: 'example-token',
@@ -23,24 +23,24 @@ interface FakeDeps {
   readonly deps: InviteDeps
   readonly cleared: string[]
   readonly probes: Array<{ url: string; token: string }>
-  readonly upserts: ConnectedServer[]
-  readonly connects: Array<{ server: ConnectedServer; replacing: boolean }>
+  readonly upserts: ServerConnection[]
+  readonly connects: Array<{ server: ServerConnection; replacing: boolean }>
   readonly notices: Array<{ message: string; tone: string }>
 }
 
 const fakeDeps = (
   options: {
     readonly hash?: string
-    readonly servers?: ConnectedServer[]
-    readonly probe?: (url: string, token: string) => Promise<ConnectedServer>
-    readonly upsert?: (server: ConnectedServer) => boolean
+    readonly servers?: ServerConnection[]
+    readonly probe?: (url: string, token: string) => Promise<ServerConnection>
+    readonly upsert?: (server: ServerConnection) => boolean
     readonly busy?: (url: string) => boolean
   } = {},
 ): FakeDeps => {
   const cleared: string[] = []
   const probes: Array<{ url: string; token: string }> = []
-  const upserts: ConnectedServer[] = []
-  const connects: Array<{ server: ConnectedServer; replacing: boolean }> = []
+  const upserts: ServerConnection[] = []
+  const connects: Array<{ server: ServerConnection; replacing: boolean }> = []
   const notices: Array<{ message: string; tone: string }> = []
   const deps: InviteDeps = {
     hash: options.hash ?? '#',

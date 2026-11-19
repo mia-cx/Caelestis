@@ -1,12 +1,12 @@
 // @vitest-environment happy-dom
 import type { ServerDetailsIntent, ServerDetailsModel } from '@caelestis/ui/elements'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import type { ConnectedServer } from '../settings.js'
+import type { ServerConnection } from '../settings.js'
 
 const SERVER_ID = '019fed50-87a1-7523-a88c-bdeafad49681'
 const asset = { etag: 'a'.repeat(64), contentType: 'image/png' as const }
 
-const servers = vi.hoisted(() => ({ list: [] as ConnectedServer[] }))
+const servers = vi.hoisted(() => ({ list: [] as ServerConnection[] }))
 
 vi.mock('@caelestis/ui/elements', () => ({ SERVER_DETAILS_TAG: 'caelestis-server-details' }))
 vi.mock('../settings.js', () => ({ getState: () => ({ servers: servers.list }) }))
@@ -24,7 +24,7 @@ vi.mock('./theme.js', () => ({ applyWplaceTheme: vi.fn() }))
 import { deleteServerAsset, updateServerDetails, uploadServerAsset } from '../server-api.js'
 import { openServerDetails } from './server-details.js'
 
-const server = (info: ConnectedServer['info']): ConnectedServer => ({
+const server = (info: ServerConnection['info']): ServerConnection => ({
   url: 'https://example.com',
   info,
   token: 'admin',

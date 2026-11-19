@@ -16,11 +16,11 @@ import { leaseLocalFolder, localFolderChainVisible } from '../local-folders.js'
 import { registerProfileMemorySource } from '../profile.js'
 import { isCurrentServerConnection } from '../server-connections.js'
 import {
-  type ConnectedServer,
   getState,
   getSurfaceAppearance,
   isScopeVisible,
   type LocalFolder,
+  type ServerConnection,
   serverTemplatePreference,
   setScopeVisible,
   setServerTemplatePreference,
@@ -109,7 +109,7 @@ export interface PlacedTemplate extends TemplateRecord {
   /** Drawing surface this placement belongs to. Legacy browser-owned templates are world-scoped. */
   readonly surface?: TemplateSurface
   /** Runtime owner for server rows; absent on Local and legacy restored records. */
-  readonly serverConnection?: ConnectedServer
+  readonly serverConnection?: ServerConnection
   /** Painted world-tile keys (`x/y`) used to bound mismatch and navigation work. */
   readonly tiles: ReadonlySet<string>
   readonly visible: boolean
@@ -665,7 +665,7 @@ let displayOrderCache:
   | {
       readonly customOrder: readonly string[]
       readonly localFolders: readonly LocalFolder[]
-      readonly servers: readonly ConnectedServer[]
+      readonly servers: readonly ServerConnection[]
       readonly nodeRevision: number
       readonly templateRevision: number
       readonly templates: readonly PlacedTemplate[]
@@ -1333,7 +1333,7 @@ export const putServerTemplate = async (
     serverVersion: string
     serverUnpublished?: boolean
     sourceOpacity?: number
-    serverConnection?: ConnectedServer
+    serverConnection?: ServerConnection
     serverTileKeys?: readonly string[]
     wrapX?: boolean
   },
@@ -1394,7 +1394,7 @@ export const updateServerTemplateMetadata = async (
   name: string,
   serverNodeId: string | null,
   serverUnpublished: boolean,
-  serverConnection?: ConnectedServer,
+  serverConnection?: ServerConnection,
 ): Promise<boolean> =>
   await writeInOrder(id, async () => {
     const existing = templates.get(id)

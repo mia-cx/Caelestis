@@ -36,7 +36,7 @@ import {
 } from './server-connections.js'
 import { liveClientId, liveCredentialProtocol } from './server-sync-coordinator.js'
 import { serverEndpoint } from './server-url.js'
-import { type ConnectedServer, getState, onStateChange } from './settings.js'
+import { getState, onStateChange, type ServerConnection } from './settings.js'
 import { accountIdentity, loadAccount } from './wplace-account.js'
 
 /**
@@ -74,7 +74,7 @@ const nothingSent = (): Sent => ({
 })
 
 interface Connection {
-  readonly server: ConnectedServer
+  readonly server: ServerConnection
   socket: WebSocket | null
   sessionId: string | null
   peers: Map<string, PresencePeer>
@@ -143,7 +143,7 @@ export const onPresenceClaimsChange = (listener: () => void): void => {
   claimListeners.push(listener)
 }
 
-const eligible = (server: ConnectedServer): boolean =>
+const eligible = (server: ServerConnection): boolean =>
   server.status === 'connected' &&
   server.season !== null &&
   server.info?.presence === 1 &&
@@ -609,15 +609,15 @@ export const presenceView = (): PresenceView => {
 }
 
 /** Every connected server supporting presence, including sockets currently reconnecting. */
-export const presenceServers = (): readonly ConnectedServer[] =>
+export const presenceServers = (): readonly ServerConnection[] =>
   [...connections.values()].map((connection) => connection.server)
 
-const connectionFor = (server: ConnectedServer): Connection | null =>
+const connectionFor = (server: ServerConnection): Connection | null =>
   connections.get(serverConnectionIdentity(server)) ?? null
 
 /** Raw copies and handshake state for claim reconciliation. */
 export const presenceServerClaims = (
-  server: ConnectedServer,
+  server: ServerConnection,
 ): {
   readonly ready: boolean
   readonly regions: readonly RegionClaim[]
@@ -634,7 +634,7 @@ export const presenceServerClaims = (
 }
 
 /** Claims require report/admin capability from an authenticated server snapshot. */
-export const presenceCanWriteClaims = (server: ConnectedServer): boolean =>
+export const presenceCanWriteClaims = (server: ServerConnection): boolean =>
   activeServerToken(server) !== null && connectionFor(server)?.canWriteClaims === true
 
 /** Publish this tab's viewport. */

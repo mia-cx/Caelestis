@@ -2,12 +2,12 @@ import type { TemplateSurface } from '@caelestis/shared'
 import { refreshAllianceManifest } from '../alliance-server-sync.js'
 import type { ServerNodesResult } from '../server-api.js'
 import { serverByUrl } from '../server-connections.js'
-import type { ConnectedServer } from '../settings.js'
+import type { ServerConnection } from '../settings.js'
 import { refreshServerSnapshot, type ServerSnapshotResult } from './tree-server-state.js'
 
 /** Refresh with the connection that is configured now, never credentials captured before an await. */
 export const refreshCurrentNodes = async (
-  server: ConnectedServer,
+  server: ServerConnection,
   rerender: () => void,
   force = false,
 ): Promise<ServerSnapshotResult | null> => {
@@ -24,7 +24,7 @@ export const refreshCurrentNodes = async (
 
 /** Re-read the surface a tree edit changed, so its rows show what the server now holds. */
 export const refreshEditedSurface = async (
-  server: ConnectedServer,
+  server: ServerConnection,
   surface: TemplateSurface,
   rerender: () => void,
 ): Promise<void> => {

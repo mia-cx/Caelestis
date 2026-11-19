@@ -1,7 +1,7 @@
 import { type TemplateSurface, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { moveNode as moveNodeOnServer, patchTemplate } from '../server-api.js'
 import { serverByUrl, serverLabel } from '../server-connections.js'
-import type { ConnectedServer } from '../settings.js'
+import type { ServerConnection } from '../settings.js'
 import { canCopyAsLocalTemplate, templateById } from '../templates/local-store.js'
 import {
   localFolderIdOf,
@@ -165,7 +165,7 @@ export const copyServerTemplateToLocal = async (
  * A drop that would change nothing is silently ignored rather than round-tripping to say so.
  */
 export const dropOnServerNode = async (
-  server: ConnectedServer,
+  server: ServerConnection,
   nodeId: string | null,
   draggedKey: string,
   _beforeKey: string | null,

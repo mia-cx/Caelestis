@@ -6,7 +6,7 @@ import '../src/application/tree-server-state.js'
 import { createLocalFolder } from '../src/local-folders.js'
 import { admittedServerContentsFor } from '../src/server-api.js'
 import { upsertServer } from '../src/server-connections.js'
-import { type ConnectedServer, getState } from '../src/settings.js'
+import { getState, type ServerConnection } from '../src/settings.js'
 import { addLocalTemplate, setTemplateFolder, templateById } from '../src/templates/local-store.js'
 import { serverTemplateKey } from '../src/tree-keys.js'
 import { adminToken, createTestBackend } from './backend.js'
@@ -18,7 +18,7 @@ const ids = {
   destinationVersion: '018f1b8c-7f4e-7a8c-8234-223456789abd',
 }
 const stamp = 1_700_000_000_000
-const server = (url: string, id: string): ConnectedServer => ({
+const server = (url: string, id: string): ServerConnection => ({
   url,
   info: { id, name: url, auth: 'access_token' },
   token: 'admin',
@@ -34,7 +34,7 @@ const published = {
   published: true,
   updatedAt: stamp,
 }
-const fullManifest = (owner: ConnectedServer) => ({
+const fullManifest = (owner: ServerConnection) => ({
   version: 'revision',
   season: 7,
   surface: { kind: 'world', allianceId: null },
@@ -106,7 +106,7 @@ describe('cross-server template transplant', () => {
       },
     )
     const { app } = await createTestBackend()
-    const destination: ConnectedServer = {
+    const destination: ServerConnection = {
       url: 'https://destination-local-folder.test',
       info: {
         id: '00000000-0000-7000-8000-000000000000',

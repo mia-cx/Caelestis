@@ -8,7 +8,7 @@ import {
   revokeAccessToken,
 } from '../server-api.js'
 import { isCurrentServerConnection, sameServerConnection } from '../server-connections.js'
-import type { ConnectedServer } from '../settings.js'
+import type { ServerConnection } from '../settings.js'
 import { confirmDestructive } from '../ui/confirm.js'
 import { showOneTimeSecret } from '../ui/notification-host.js'
 import { toast } from '../ui/toast.js'
@@ -38,7 +38,7 @@ import { toast } from '../ui/toast.js'
  * writing them to disk would mean the answer outliving the admin rights that were allowed to see it.
  */
 interface TokenConnectionState {
-  readonly server: ConnectedServer
+  readonly server: ServerConnection
   cached?: AccessTokenPage
   readonly inFlight: Map<string | null, Promise<AccessTokenPage | null>>
   generation: number
@@ -52,7 +52,7 @@ interface TokenConnectionState {
   onChange?: () => void
 }
 
-const newConnectionState = (server: ConnectedServer): TokenConnectionState => ({
+const newConnectionState = (server: ServerConnection): TokenConnectionState => ({
   server,
   inFlight: new Map(),
   generation: 0,
@@ -66,7 +66,7 @@ const newConnectionState = (server: ConnectedServer): TokenConnectionState => ({
 
 const connections = new Map<string, TokenConnectionState>()
 
-const connectionState = (server: ConnectedServer): TokenConnectionState => {
+const connectionState = (server: ServerConnection): TokenConnectionState => {
   const current = connections.get(server.url)
   // A stale detached caller must neither inherit nor replace cache state for a reconnected row.
   if (!isCurrentServerConnection(server)) return newConnectionState(server)
@@ -100,7 +100,7 @@ const tokenKey = (token: AccessToken): string =>
   token.bootstrap === true ? 'bootstrap' : token.tokenHash
 
 const fetchTokens = (
-  server: ConnectedServer,
+  server: ServerConnection,
   cursor: string | null = null,
   supersede = false,
 ): Promise<AccessTokenPage | null> => {
@@ -179,7 +179,7 @@ export const forgetCachedTokens = (serverUrl: string): void => {
  * that someone is about to open it, and the request costs one GET that would have happened a moment
  * later anyway. Nothing is drawn from this; it only warms the cache above.
  */
-export const prefetchAccessTokens = (server: ConnectedServer): void => {
+export const prefetchAccessTokens = (server: ServerConnection): void => {
   if (!server.isAdmin || connectionState(server).cached !== undefined) return
   void fetchTokens(server)
 }
@@ -187,7 +187,7 @@ export const prefetchAccessTokens = (server: ConnectedServer): void => {
 const notify = (state: TokenConnectionState): void => state.onChange?.()
 
 const reloadAccessTokens = (
-  server: ConnectedServer,
+  server: ServerConnection,
   onChange: () => void,
   supersede = false,
 ): void => {
@@ -209,7 +209,7 @@ const reloadAccessTokens = (
 
 /** Presentation-ready token state; network and mutation state remain in this controller. */
 export const accessTokensModel = (
-  server: ConnectedServer,
+  server: ServerConnection,
   onChange: () => void,
 ): SettingsAccessTokensModel => {
   const state = connectionState(server)
@@ -237,11 +237,11 @@ export const accessTokensModel = (
 }
 
 /** A row opening is also a background refresh of any cached inventory. */
-export const refreshAccessTokens = (server: ConnectedServer, onChange: () => void): void => {
+export const refreshAccessTokens = (server: ServerConnection, onChange: () => void): void => {
   reloadAccessTokens(server, onChange)
 }
 
-export const loadMoreAccessTokens = (server: ConnectedServer, onChange: () => void): void => {
+export const loadMoreAccessTokens = (server: ServerConnection, onChange: () => void): void => {
   const state = connectionState(server)
   const cursor = state.cached?.nextCursor
   if (cursor === null || cursor === undefined || state.loadingMore) return
@@ -258,7 +258,7 @@ export const loadMoreAccessTokens = (server: ConnectedServer, onChange: () => vo
 
 /** Create credentials and show both the token and invite before refreshing the inventory. */
 export const createServerAccessToken = (
-  server: ConnectedServer,
+  server: ServerConnection,
   label: string,
   scope: AccessTokenScope,
   onChange: () => void,
@@ -290,7 +290,7 @@ export const createServerAccessToken = (
 }
 
 export const revokeServerAccessToken = (
-  server: ConnectedServer,
+  server: ServerConnection,
   tokenHash: string,
   label: string,
   onChange: () => void,

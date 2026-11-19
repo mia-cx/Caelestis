@@ -1,5 +1,5 @@
 import { canonicalServerUrl } from './server-url.js'
-import { type ConnectedServer, MAX_CONNECTED_SERVERS } from './settings.js'
+import { MAX_CONNECTED_SERVERS, type ServerConnection } from './settings.js'
 
 export interface Invite {
   readonly serverUrl: string
@@ -83,17 +83,17 @@ export interface InviteDeps {
   readonly hash: string
   /** Drop the fragment from the address bar without reloading or firing `hashchange`. */
   readonly clearHash: () => void
-  readonly servers: () => readonly ConnectedServer[]
-  readonly probe: (url: string, token: string) => Promise<ConnectedServer>
-  readonly upsert: (server: ConnectedServer) => boolean
+  readonly servers: () => readonly ServerConnection[]
+  readonly probe: (url: string, token: string) => Promise<ServerConnection>
+  readonly upsert: (server: ServerConnection) => boolean
   /** Post-upsert side effects; `replacing` is true when an existing server's token rotated. */
-  readonly connected: (server: ConnectedServer, replacing: boolean) => void
+  readonly connected: (server: ServerConnection, replacing: boolean) => void
   readonly notify: (message: string, tone: 'info' | 'error') => void
   /** True while that URL is mid connect or disconnect, so an invite must not interleave. */
   readonly isBusy: (url: string) => boolean
 }
 
-const displayName = (server: ConnectedServer, fallback: string): string =>
+const displayName = (server: ServerConnection, fallback: string): string =>
   server.info?.name ?? fallback
 
 let inviteInFlight = false

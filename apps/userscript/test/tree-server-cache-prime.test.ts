@@ -1,11 +1,11 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { forgetServerRows, primeFromCache, rowsFor } from '../src/application/tree-server-state.js'
 import { cacheServer, forgetServer } from '../src/server-cache.js'
-import { type ConnectedServer, setState } from '../src/settings.js'
+import { type ServerConnection, setState } from '../src/settings.js'
 
 const URL = 'https://prime.example'
 
-const server = (season: number): ConnectedServer => ({
+const server = (season: number): ServerConnection => ({
   url: URL,
   info: null,
   token: null,

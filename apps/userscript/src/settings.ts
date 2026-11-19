@@ -47,7 +47,7 @@ import { DEFAULT_SORT, type SortOrder } from './ui/sort.js'
 const STORAGE_KEY = 'caelestis.state.v2'
 const LEGACY_STORAGE_KEY = 'caelestis.state.v1'
 
-export interface ConnectedServer {
+export interface ServerConnection {
   /** Host and optional base path as the user typed them, normalised — the connection identity. */
   readonly url: string
   readonly info: ServerInfo | null
@@ -103,7 +103,7 @@ export interface AllianceSurfaceAppearance {
 type ColourNavigationOrder = 'unpainted-first' | 'mismatched-first'
 
 export interface State {
-  readonly servers: readonly ConnectedServer[]
+  readonly servers: readonly ServerConnection[]
   /** Row keys in the user's own order. Keys absent from this list sort after those present. */
   readonly customOrder: readonly string[]
   /** Containers the user explicitly collapsed. Search may reveal them without changing this. */
@@ -171,7 +171,7 @@ interface DecodeContext {
   /** The record was written before the palette was reordered. */
   readonly legacyPalette: boolean
   /** The servers already decoded from the same record. */
-  readonly servers: readonly ConnectedServer[]
+  readonly servers: readonly ServerConnection[]
   /** Set by a decoder that migrated its value, so the record is written back once. */
   migrated: boolean
 }
@@ -207,8 +207,8 @@ const uniqueStrings = (stored: unknown, keep: (key: string) => boolean = () => t
       ].slice(0, MAX_CUSTOM_ORDER)
     : []
 
-const decodeServers = (stored: unknown): ConnectedServer[] => {
-  const servers: ConnectedServer[] = []
+const decodeServers = (stored: unknown): ServerConnection[] => {
+  const servers: ServerConnection[] = []
   const seenServers = new Set<string>()
   if (!Array.isArray(stored)) return servers
   for (const candidate of stored) {

@@ -9,7 +9,7 @@ import { warn } from './debug.js'
 import { activeServerToken, isCurrentServerConnection } from './server-connections.js'
 import { requestServerMutation, requestServerTree } from './server-transport.js'
 import { serverEndpoint } from './server-url.js'
-import type { ConnectedServer } from './settings.js'
+import type { ServerConnection } from './settings.js'
 import { accountIdentity } from './wplace-account.js'
 
 /**
@@ -30,7 +30,7 @@ const failed = (message: string): RegionWriteResult => ({ kind: 'error', message
 
 type ClaimScope = Pick<RegionClaim, 'season' | 'surface'>
 
-const scopedEndpoint = (server: ConnectedServer, path: string, scope?: ClaimScope): URL => {
+const scopedEndpoint = (server: ServerConnection, path: string, scope?: ClaimScope): URL => {
   const endpoint = new URL(serverEndpoint(server.url, path))
   endpoint.searchParams.set('season', String(scope?.season ?? server.season))
   endpoint.searchParams.set('surface', (scope?.surface ?? WORLD_TEMPLATE_SURFACE).kind)
@@ -40,7 +40,7 @@ const scopedEndpoint = (server: ConnectedServer, path: string, scope?: ClaimScop
 }
 
 const regionRequest = async (
-  server: ConnectedServer,
+  server: ServerConnection,
   method: 'PUT' | 'DELETE',
   id: string,
   body: unknown,
@@ -76,7 +76,7 @@ const regionRequest = async (
 
 /** Persist a claim, distinguishing permanent deletion from a retryable failure. */
 export const claimRegion = (
-  server: ConnectedServer,
+  server: ServerConnection,
   id: string,
   request: RegionClaimRequest,
   scope?: ClaimScope,
@@ -88,7 +88,7 @@ export const claimRegion = (
  * the server already deleted for good is released.
  */
 export const releaseRegion = async (
-  server: ConnectedServer,
+  server: ServerConnection,
   id: string,
   actor: PainterIdentity,
   scope?: ClaimScope,
@@ -107,7 +107,7 @@ export interface RegionSnapshot {
 }
 
 const fetchRegions = async (
-  server: ConnectedServer,
+  server: ServerConnection,
   signal: AbortSignal,
 ): Promise<RegionSnapshot | null> => {
   const endpoint = scopedEndpoint(server, '/work/regions')
@@ -133,7 +133,7 @@ const fetchRegions = async (
  * readable when admission limits or network failures prevent a socket. Returns the stop.
  */
 export const pollRegionSnapshots = (
-  server: ConnectedServer,
+  server: ServerConnection,
   apply: (snapshot: RegionSnapshot) => void,
 ): (() => void) => {
   let timer: ReturnType<typeof setTimeout> | null = null

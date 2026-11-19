@@ -1,12 +1,12 @@
 import type { RegionClaim, RegionDocument } from '@caelestis/shared'
 import { expect, it } from 'vitest'
 import { ClaimRouter } from '../src/claim-routing.js'
-import type { ConnectedServer } from '../src/settings.js'
+import type { ServerConnection } from '../src/settings.js'
 
 type Entries = ConstructorParameters<typeof ClaimRouter>[1]
 type Host = ConstructorParameters<typeof ClaimRouter>[0]
 
-const server: ConnectedServer = {
+const server: ServerConnection = {
   url: 'https://claims.test',
   token: 'report',
   status: 'connected',

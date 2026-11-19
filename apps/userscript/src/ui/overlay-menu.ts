@@ -41,10 +41,10 @@ import {
 } from '../server-api.js'
 import { activeServerToken, hasServerAdminToken } from '../server-connections.js'
 import {
-  type ConnectedServer,
   getState,
   getSurfaceAppearance,
   removeTreeStateKeys,
+  type ServerConnection,
 } from '../settings.js'
 import { shortcutHint } from '../shortcuts.js'
 import {
@@ -558,7 +558,7 @@ const templateFor = (id: string): PlacedTemplate | undefined =>
   frameTemplates?.get(id) ?? templateById(id)
 
 interface ServerActionTarget {
-  readonly server: ConnectedServer
+  readonly server: ServerConnection
   readonly templateId: string
   readonly published: boolean
   readonly version: string
@@ -625,7 +625,7 @@ const serverDraftIsEditable = (id: string): boolean => {
 }
 
 const refreshServerTemplateSurface = async (
-  server: ConnectedServer,
+  server: ServerConnection,
   template: PlacedTemplate,
 ): Promise<void> => {
   const surface = template.surface ?? WORLD_TEMPLATE_SURFACE

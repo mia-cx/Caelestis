@@ -99,7 +99,6 @@ import {
 } from '../server-connections.js'
 import { canonicalServerUrl } from '../server-url.js'
 import {
-  type ConnectedServer,
   forgetScopes,
   getState,
   getSurfaceAppearance,
@@ -107,6 +106,7 @@ import {
   onlySelectedColourFor,
   onStateChange,
   previewSurfaceAppearance,
+  type ServerConnection,
   type State,
   setOnlySelectedColourFor,
   setState,
@@ -549,7 +549,7 @@ const hasSingleKeySegmentAfter = (key: string, prefix: string): boolean => {
  * things that describe them, then the bytes they were built from, then the preferences that can no
  * longer refer to anything.
  */
-const disconnectServer = async (server: ConnectedServer): Promise<void> => {
+const disconnectServer = async (server: ServerConnection): Promise<void> => {
   if (disconnectingServerUrls.has(server.url)) return
   disconnectingServerUrls.add(server.url)
   try {
@@ -1391,7 +1391,7 @@ const buildSveltePanel = (): CaelestisPanel => {
  * is being talked to. Disconnecting during a token probe used to put the removed server back, since
  * `upsertServer` cannot tell "update this row" from "add this row".
  */
-const stillConnected = (server: ConnectedServer): boolean => isCurrentServerConnection(server)
+const stillConnected = (server: ServerConnection): boolean => isCurrentServerConnection(server)
 
 /**
  * Whichever tree is currently on screen.
@@ -1593,7 +1593,7 @@ export const isPanelOpen = (): boolean => panelOpen()
 export const isWorldTemplateTreeVisible = (): boolean => panelSessions.isWorldTreeVisible()
 
 /** Whether the open world tree presents this template after search, filters, and collapse. */
-export const isWorldTemplatePresented = (server: ConnectedServer, templateId: string): boolean =>
+export const isWorldTemplatePresented = (server: ServerConnection, templateId: string): boolean =>
   isWorldTemplateTreeVisible() &&
   (activeTreeAdapter?.model.entries.some(
     (entry) => entry.type === 'row' && entry.key === serverTemplateTreeKey(server, templateId),

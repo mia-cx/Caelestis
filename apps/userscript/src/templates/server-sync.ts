@@ -22,12 +22,18 @@ import {
   type ServerContents,
 } from '../server-api.js'
 import type { ServerTemplate } from '../server-cache.js'
-import { activeServerToken, isCurrentServerConnection } from '../server-connections.js'
+import {
+  activeServerToken,
+  type ConnectedServer,
+  connectedServers,
+  isConnected,
+  isCurrentServerConnection,
+} from '../server-connections.js'
 import { invalidateServerMismatches } from '../server-mismatch.js'
 import { deleteCachedServerMismatches } from '../server-mismatch-cache.js'
 import { applyServerSyncRevision, registerServerSyncResource } from '../server-sync-coordinator.js'
 import { serverEndpoint } from '../server-url.js'
-import { type ConnectedServer, getState, onStateChange } from '../settings.js'
+import { onStateChange, type ServerConnection } from '../settings.js'
 import { serverTemplateIdPrefix, serverTemplateKey } from '../tree-keys.js'
 import { ByteCache } from './byte-cache.js'
 import {
@@ -81,7 +87,7 @@ const decodedChunks = new ByteCache<string>(CHUNK_CACHE_LIMIT, 32 * TILE_SIZE * 
 
 /** Fetch one chunk without spending more than this template still has left. */
 export const fetchChunkWithinBudget = async (
-  server: ConnectedServer,
+  server: ServerConnection,
   hash: string,
   generationSignal: AbortSignal,
   remainingBytes: number,
@@ -650,7 +656,7 @@ const ensureServerSyncRun = (key: string): Promise<void> => {
  * one assembly per server can own network, decode, and bitmap memory at a time.
  */
 export const syncServerTemplates = async (
-  server: ConnectedServer,
+  server: ServerConnection,
   known?: readonly ServerTemplate[],
   snapshotCurrent?: () => boolean,
   surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
@@ -658,7 +664,7 @@ export const syncServerTemplates = async (
 ): Promise<void> => {
   // Immutable state rows may change cosmetic server metadata in place. Credentials, deployment,
   // season, scope, and connectivity define the lifetime that is allowed to continue this work.
-  if (!isCurrentServerConnection(server)) return
+  if (!isConnected(server) || !isCurrentServerConnection(server)) return
   if (snapshotCurrent?.() === false) return
   const key = serverSyncKey(server.url, surface)
   const pending = pendingServerSyncs.get(key)
@@ -698,12 +704,12 @@ export const syncServerTemplates = async (
  */
 export const installServerSync = (): void => {
   setServerPixelSource(downloadAgain)
-  lastConnected = getState().servers.filter((server) => server.status === 'connected')
+  lastConnected = connectedServers()
   registerServerSyncResource({
     id: 'world-manifest',
     live: true,
     reconcileOnManifestEvent: true,
-    scope: (server) => (server.status === 'connected' && server.season !== null ? 'world' : null),
+    scope: () => 'world',
     refresh: async (server, reason, transport) => {
       const contents = await listServerContents(server, undefined, reason, transport)
       if (contents === null) return { status: 'failed' }
@@ -746,7 +752,7 @@ export const installServerSync = (): void => {
    * changes remain local.
    */
   onStateChange(() => {
-    const connected = getState().servers.filter((server) => server.status === 'connected')
+    const connected = connectedServers()
     if (
       connected.length === lastConnected.length &&
       lastConnected.every((previous) => isCurrentServerConnection(previous))

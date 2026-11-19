@@ -1,7 +1,7 @@
 import { WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createLocalFolder, setLocalFolderVisible } from '../src/local-folders.js'
-import { type ConnectedServer, setScopeVisible } from '../src/settings.js'
+import { type ServerConnection, setScopeVisible } from '../src/settings.js'
 import * as store from '../src/templates/local-store.js'
 import { abort, movingId } from '../src/templates/move.js'
 import { serverTemplateKey } from '../src/tree-keys.js'
@@ -103,7 +103,7 @@ describe('hidden templates and folders', () => {
   })
 
   it('refuses new artwork for a hidden server template whose pixels have not arrived', () => {
-    const server: ConnectedServer = {
+    const server: ServerConnection = {
       url: 'https://hidden-edits.test',
       info: null,
       token: 'admin',

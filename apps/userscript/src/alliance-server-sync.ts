@@ -11,6 +11,9 @@ import { registerDebugEntry } from './console-api.js'
 import { count } from './debug.js'
 import {
   activeServerToken,
+  type ConnectedServer,
+  connectedServerAt,
+  connectedServers,
   isCurrentServerConnection,
   sameServerConnection,
   serverConnectionIdentity,
@@ -25,7 +28,7 @@ import {
   type ServerSyncResult,
 } from './server-sync-coordinator.js'
 import { serverEndpoint } from './server-url.js'
-import { type ConnectedServer, getState, onStateChange, type State } from './settings.js'
+import { getState, onStateChange, type ServerConnection, type State } from './settings.js'
 import { forgetServerSurfaceTemplates } from './templates/local-store.js'
 import { forgetSurfaceNodes, rememberNodes } from './templates/server-nodes.js'
 import { syncServerTemplates } from './templates/server-sync.js'
@@ -56,7 +59,7 @@ const notifyManifestChange = (): void => {
 
 /** The scoped rows behind the alliance panel; absent until that exact manifest has arrived. */
 export const allianceManifestFor = (
-  server: ConnectedServer,
+  server: ServerConnection,
   surface: TemplateSurface,
 ): ServerManifest | null => {
   const admitted = manifests.get(manifestKey(server.url, surface))
@@ -74,7 +77,7 @@ export const onAllianceManifestChange = (listener: () => void): (() => void) => 
 
 /** Refresh an edited alliance surface and report whether its manifest was admitted. */
 export const refreshAllianceManifest = async (
-  server: ConnectedServer,
+  server: ServerConnection,
   surface: TemplateSurface,
 ): Promise<ServerSyncResult> => {
   const ownGeneration = generation
@@ -86,8 +89,8 @@ export const refreshAllianceManifest = async (
     !sameTemplateSurface(selected, surface)
   )
     return { status: 'skipped' }
-  const current = getState().servers.find((candidate) => candidate.url === server.url)
-  if (current === undefined || !isCurrentServerConnection(current)) return { status: 'skipped' }
+  const current = connectedServerAt(server.url)
+  if (current === undefined) return { status: 'skipped' }
   return await readServer(current, surface, ownGeneration, signal, 'manual', 'compatibility-poll')
 }
 
@@ -107,16 +110,8 @@ const readServer = async (
   transport: SyncTransport,
 ): Promise<ServerSyncResult> => {
   count('alliance-sync:server considered')
-  if (server.status !== 'connected' || !isCurrentServerConnection(server)) {
-    count('alliance-sync:server not connected')
-    return { status: 'skipped' }
-  }
-  if (server.info === null || server.season === null) {
-    count('alliance-sync:server identity unavailable')
-    return { status: 'skipped' }
-  }
   if (!isCurrentServerConnection(server)) {
-    count('alliance-sync:server superseded')
+    count('alliance-sync:server not connected')
     return { status: 'skipped' }
   }
   if (!currentSurface(surface, ownGeneration)) {
@@ -182,9 +177,7 @@ const retire = async (surface: TemplateSurface): Promise<void> => {
   for (const server of getState().servers) {
     changed = manifests.delete(manifestKey(server.url, surface)) || changed
     forgetSurfaceNodes(server.url, surface)
-    if (server.status === 'connected') {
-      removals.push(syncServerTemplates(server, [], undefined, surface))
-    }
+    removals.push(syncServerTemplates(server, [], undefined, surface))
   }
   if (changed) notifyManifestChange()
   await Promise.all(removals)
@@ -214,9 +207,6 @@ const selectActiveSurface = (): void => {
     })
   void transition.catch(() => undefined)
 }
-
-const connectedServers = (state: State): readonly ConnectedServer[] =>
-  state.servers.filter((server) => server.status === 'connected')
 
 const connectionsChanged = (next: readonly ConnectedServer[]): boolean =>
   next.length !== lastConnectedServers.length ||

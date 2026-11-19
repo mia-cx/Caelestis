@@ -42,7 +42,7 @@ import {
   serverManifestSequence,
 } from './server-transport.js'
 import { serverEndpoint } from './server-url.js'
-import { type ConnectedServer, getState } from './settings.js'
+import { getState, type ServerConnection } from './settings.js'
 import type { TemplateAuthoring } from './templates/authoring.js'
 
 /** The template server's HTTP API: the manifest every member reads, and the admin routes. */
@@ -67,7 +67,7 @@ const failureMessage = (response: Response, body: unknown, forbidden = FORBIDDEN
 
 const retryable = (status: number): boolean => status === 408 || status === 429 || status >= 500
 
-const adminHeaders = (server: ConnectedServer): Record<string, string> => ({
+const adminHeaders = (server: ServerConnection): Record<string, string> => ({
   'content-type': 'application/json',
   ...bearer(activeServerToken(server)),
 })
@@ -79,7 +79,7 @@ type Send = typeof requestServerMutation
  * the connection here, so every route reports it the same way.
  */
 const adminRequest = async (
-  server: ConnectedServer,
+  server: ServerConnection,
   path: string,
   init: {
     readonly method?: string
@@ -108,7 +108,7 @@ const adminRequest = async (
  * cannot even be addressed fails like any other.
  */
 const adminWrite = async (
-  server: ConnectedServer,
+  server: ServerConnection,
   path: string | (() => string),
   init: Parameters<typeof adminRequest>[2],
 ): Promise<Done> => {
@@ -126,7 +126,7 @@ const adminWrite = async (
 
 /** An admin write a caller may retry after a timeout, rate limit, server error or network failure. */
 const retryableAdminWrite = async (
-  server: ConnectedServer,
+  server: ServerConnection,
   path: string,
   init: Parameters<typeof adminRequest>[2],
 ): Promise<Done | (Failure & { readonly retryable: true })> => {
@@ -192,7 +192,7 @@ const fetchNodes = async (
  * code is a read code, which is a different problem from the server being down.
  */
 export const createNode = async (
-  server: ConnectedServer,
+  server: ServerConnection,
   name: string,
   parentId: string | null,
   description?: string,
@@ -245,7 +245,7 @@ interface PendingUploadAmbiguity {
 const pendingUploadAmbiguities = new Map<string, PendingUploadAmbiguity>()
 const activeUploads = new Map<string, { readonly token: object }>()
 
-const markUploadAmbiguous = (server: ConnectedServer, message: string): UploadFailure => {
+const markUploadAmbiguous = (server: ServerConnection, message: string): UploadFailure => {
   const existing = pendingUploadAmbiguities.get(server.url)
   pendingUploadAmbiguities.set(server.url, {
     afterManifestRequest: Math.max(existing?.afterManifestRequest ?? 0, serverManifestSequence()),
@@ -253,7 +253,7 @@ const markUploadAmbiguous = (server: ConnectedServer, message: string): UploadFa
   return { ok: false, message, ambiguous: true }
 }
 
-const clearUploadAmbiguity = (server: ConnectedServer, manifestRequest: number): void => {
+const clearUploadAmbiguity = (server: ServerConnection, manifestRequest: number): void => {
   const pending = pendingUploadAmbiguities.get(server.url)
   if (pending !== undefined && manifestRequest > pending.afterManifestRequest) {
     pendingUploadAmbiguities.delete(server.url)
@@ -261,7 +261,7 @@ const clearUploadAmbiguity = (server: ConnectedServer, manifestRequest: number):
 }
 
 const beginUpload = (
-  server: ConnectedServer,
+  server: ServerConnection,
 ): { readonly token: object } | { readonly failure: UploadFailure } => {
   if (!isCurrentServerConnection(server)) {
     return { failure: { ok: false, message: 'The server connection changed before upload.' } }
@@ -289,7 +289,7 @@ const endUpload = (serverUrl: string, token: object): void => {
 }
 
 /** Multipart uploads set their own content type, so only the credential travels as a header. */
-const uploadInit = (server: ConnectedServer, body: FormData) =>
+const uploadInit = (server: ServerConnection, body: FormData) =>
   ({
     method: 'POST',
     headers: bearer(activeServerToken(server)),
@@ -297,11 +297,11 @@ const uploadInit = (server: ConnectedServer, body: FormData) =>
     send: requestServerUpload,
   }) as const
 
-export const renameNode = (server: ConnectedServer, nodeId: string, name: string): Promise<Done> =>
+export const renameNode = (server: ServerConnection, nodeId: string, name: string): Promise<Done> =>
   adminWrite(server, `/admin/nodes/${nodeId}`, { method: 'PATCH', json: { name } })
 
 export const deleteNode = (
-  server: ConnectedServer,
+  server: ServerConnection,
   nodeId: string,
   expected: {
     readonly nodes: number
@@ -335,7 +335,7 @@ const setAuthoringParts = async (
  * conversion, and the placement someone got right locally is the placement the server stores.
  */
 export const uploadTemplate = async (
-  server: ConnectedServer,
+  server: ServerConnection,
   input: {
     nodeId: string | null
     name: string
@@ -391,11 +391,11 @@ export const uploadTemplate = async (
   }
 }
 
-export const moveNode = (server: ConnectedServer, nodeId: string, parentId: string | null) =>
+export const moveNode = (server: ServerConnection, nodeId: string, parentId: string | null) =>
   retryableAdminWrite(server, `/admin/nodes/${nodeId}`, { method: 'PATCH', json: { parentId } })
 
 export const countNodeSubtree = async (
-  server: ConnectedServer,
+  server: ServerConnection,
   nodeId: string,
 ): Promise<{ nodes: number; templates: number } | null> => {
   try {
@@ -441,10 +441,10 @@ const latestManifestResponse = new Map<string, number>()
 const manifestResponseOf = new WeakMap<ServerContents, number>()
 const admittedServerContents = new Map<
   string,
-  { readonly server: ConnectedServer; readonly contents: ServerContents }
+  { readonly server: ServerConnection; readonly contents: ServerContents }
 >()
 const serverContentsListeners = new Set<
-  (server: ConnectedServer, contents: ServerContents) => void
+  (server: ServerConnection, contents: ServerContents) => void
 >()
 
 // Request ids are process-wide and monotonic, so an old response can never tie a request made
@@ -453,7 +453,7 @@ onServerRemoved((url) => latestManifestResponse.delete(url))
 
 /** Observe each newest successful manifest, no matter which UI or poll requested it. */
 export const onServerContents = (
-  listener: (server: ConnectedServer, contents: ServerContents) => void,
+  listener: (server: ServerConnection, contents: ServerContents) => void,
 ): (() => void) => {
   serverContentsListeners.add(listener)
   return () => serverContentsListeners.delete(listener)
@@ -472,7 +472,10 @@ export const isLatestServerContents = (serverUrl: string, contents: ServerConten
  * Keeping the winning snapshot here gives admin helpers and the canvas repair path the same answer,
  * while retaining the connection that earned it prevents a same-URL reconnect from inheriting it.
  */
-export const admitServerContents = (server: ConnectedServer, contents: ServerContents): boolean => {
+export const admitServerContents = (
+  server: ServerConnection,
+  contents: ServerContents,
+): boolean => {
   const current = getState().servers.find((candidate) => candidate.url === server.url)
   if (
     current === undefined ||
@@ -487,7 +490,7 @@ export const admitServerContents = (server: ConnectedServer, contents: ServerCon
 }
 
 /** The admitted snapshot belonging to this exact connection lifetime, if one exists. */
-export const admittedServerContentsFor = (server: ConnectedServer): ServerContents | null => {
+export const admittedServerContentsFor = (server: ServerConnection): ServerContents | null => {
   const admitted = admittedServerContents.get(server.url)
   return admitted !== undefined &&
     isCurrentServerConnection(server) &&
@@ -520,7 +523,7 @@ const awaitReadOrAbort = <T>(read: Promise<T>, signal: AbortSignal): Promise<T |
     )
   })
 
-const refreshServerRelease = (server: ConnectedServer, release: ServerInfo): ConnectedServer => {
+const refreshServerRelease = (server: ServerConnection, release: ServerInfo): ServerConnection => {
   if (
     server.info === null ||
     (server.info.version === release.version && server.info.build === release.build)
@@ -547,7 +550,7 @@ const contentsOf = (manifest: ServerManifest): ServerContents => ({
 })
 
 const publishContents = (
-  current: ConnectedServer,
+  current: ServerConnection,
   manifest: ServerManifest,
   contents: ServerContents,
   failure: string,
@@ -563,7 +566,7 @@ const publishContents = (
 }
 
 export const listServerContents = async (
-  server: ConnectedServer,
+  server: ServerConnection,
   signal?: AbortSignal,
   reason: ReconciliationReason = 'unknown',
   transport: SyncTransport = 'compatibility-poll',
@@ -611,7 +614,7 @@ export const listServerContents = async (
 
 /** Record one manifest response and, when it is this server's newest, hand it to every listener. */
 const publishManifestResponse = (
-  server: ConnectedServer,
+  server: ServerConnection,
   manifest: ServerManifest,
   request: number,
 ): ServerContents => {
@@ -637,7 +640,7 @@ const publishManifestResponse = (
  * manifest once. One use only, and never once a newer response has arrived: a later read must
  * fetch, because a mutation may have changed the manifest since.
  */
-export const adoptProbedServerContents = (server: ConnectedServer): ServerContents | null => {
+export const adoptProbedServerContents = (server: ServerConnection): ServerContents | null => {
   const probed = takeProbedManifest(server.url)
   if (
     probed === undefined ||
@@ -652,7 +655,7 @@ export const adoptProbedServerContents = (server: ConnectedServer): ServerConten
 
 /** Publish one authenticated live manifest through the same listeners as the initial read. */
 export const applyLiveServerManifest = (
-  server: ConnectedServer,
+  server: ServerConnection,
   body: unknown,
 ): ServerContents | null => {
   if (server.info === null || server.season === null || !isCurrentServerConnection(server))
@@ -682,7 +685,7 @@ export type ServerNodesResult =
  * rows the tree and canvas refused would let admin actions commit against state the UI cannot show.
  */
 export const listServerNodes = async (
-  server: ConnectedServer,
+  server: ServerConnection,
   signal?: AbortSignal,
   surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
 ): Promise<ServerNodesResult> => {
@@ -710,14 +713,14 @@ export const listServerNodes = async (
 
 /** Dismiss an observed grief episode for everyone on this server. */
 export const dismissTemplateAlarm = (
-  server: ConnectedServer,
+  server: ServerConnection,
   templateId: string,
   alarmId: string,
 ): Promise<Done> =>
   adminWrite(server, `/admin/templates/${templateId}/alarms/${alarmId}`, { method: 'DELETE' })
 
 export const patchTemplate = (
-  server: ConnectedServer,
+  server: ServerConnection,
   templateId: string,
   patch: {
     name?: string
@@ -747,7 +750,7 @@ type ServerTagMutation =
 
 /** Fetch the authoritative server catalog and optional template assignments with admin credentials. */
 export const listServerTags = async (
-  server: ConnectedServer,
+  server: ServerConnection,
   templateId?: string,
   folderId?: string,
 ): Promise<
@@ -788,7 +791,7 @@ export const listServerTags = async (
 
 /** Apply one tag mutation under the same authorization boundary as template metadata. */
 export const mutateServerTag = (
-  server: ConnectedServer,
+  server: ServerConnection,
   mutation: ServerTagMutation,
 ): Promise<Done> => {
   const suffix = (): string =>
@@ -828,7 +831,7 @@ const readServerInfo = async (serverUrl: string): Promise<ServerInfo | null> => 
  */
 const activeServerRenames = new Set<string>()
 
-export const renameServer = async (server: ConnectedServer, name: string): Promise<Done> => {
+export const renameServer = async (server: ServerConnection, name: string): Promise<Done> => {
   const trimmed = name.trim()
   if (trimmed === '') return { ok: false, message: 'A server needs a name.' }
   if (activeServerRenames.has(server.url)) {
@@ -886,7 +889,7 @@ export const renameServer = async (server: ConnectedServer, name: string): Promi
  * connection that wrote is still the current one for its URL and still describes the same server.
  * A failed re-read is not a failed write, so it is swallowed.
  */
-const adoptRefreshedServerInfo = async (server: ConnectedServer): Promise<void> => {
+const adoptRefreshedServerInfo = async (server: ServerConnection): Promise<void> => {
   const current = getState().servers.find((candidate) => candidate.url === server.url)
   if (current === undefined || current.info === null || server.info === null) return
   let refreshed: ServerInfo | null = null
@@ -910,7 +913,7 @@ const adoptRefreshedServerInfo = async (server: ConnectedServer): Promise<void> 
 
 /** An admin write to the server's public presentation, followed by re-reading what it now shows. */
 const presentationWrite = async (
-  server: ConnectedServer,
+  server: ServerConnection,
   path: string,
   init: Parameters<typeof adminRequest>[2],
 ): Promise<Done> => {
@@ -929,7 +932,7 @@ export interface ServerDetailsPatch {
 
 /** Edit the public presentation every member and crawler sees. Null clears a field. */
 export const updateServerDetails = async (
-  server: ConnectedServer,
+  server: ServerConnection,
   patch: ServerDetailsPatch,
 ): Promise<Done> => {
   if (Object.values(patch).every((value) => value === undefined))
@@ -939,7 +942,7 @@ export const updateServerDetails = async (
 
 /** Upload a logo or link preview image. The server sniffs the container and bounds the size. */
 export const uploadServerAsset = async (
-  server: ConnectedServer,
+  server: ServerConnection,
   kind: ServerAssetKind,
   bytes: Uint8Array,
   contentType: string,
@@ -958,11 +961,11 @@ export const uploadServerAsset = async (
   })
 }
 
-export const deleteServerAsset = (server: ConnectedServer, kind: ServerAssetKind): Promise<Done> =>
+export const deleteServerAsset = (server: ServerConnection, kind: ServerAssetKind): Promise<Done> =>
   presentationWrite(server, `/admin/server/assets/${kind}`, { method: 'DELETE' })
 
 export const deleteTemplate = (
-  server: ConnectedServer,
+  server: ServerConnection,
   templateId: string,
   expected: { readonly version: string; readonly updatedAt: number },
 ): Promise<Done> => {
@@ -980,7 +983,7 @@ export const deleteTemplate = (
  * canvas is a different picture as far as the chunk index is concerned, not an edit to the old one.
  */
 export const uploadTemplateVersion = async (
-  server: ConnectedServer,
+  server: ServerConnection,
   templateId: string,
   input: {
     originX: number
@@ -1081,7 +1084,7 @@ const asAccessToken = (value: unknown): AccessToken | null => {
 }
 
 export const listAccessTokens = async (
-  server: ConnectedServer,
+  server: ServerConnection,
   cursor: string | null = null,
 ): Promise<AccessTokenPage | null> => {
   try {
@@ -1109,7 +1112,7 @@ export const listAccessTokens = async (
 
 /** Mint one. The `token` in the result is the only time the plaintext will ever exist here. */
 export const createAccessToken = async (
-  server: ConnectedServer,
+  server: ServerConnection,
   label: string,
   scope: AccessToken['scope'],
 ): Promise<{ ok: true; token: string } | Failure> => {
@@ -1127,5 +1130,5 @@ export const createAccessToken = async (
 }
 
 /** Revoke one, by the hash the list gave us. Revocation deletes the stored token row. */
-export const revokeAccessToken = (server: ConnectedServer, tokenHash: string): Promise<Done> =>
+export const revokeAccessToken = (server: ServerConnection, tokenHash: string): Promise<Done> =>
   adminWrite(server, () => `/admin/tokens/${encodeURIComponent(tokenHash)}`, { method: 'DELETE' })

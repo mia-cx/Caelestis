@@ -13,20 +13,20 @@ import {
 } from '../server-api.js'
 import { isCurrentServerConnection } from '../server-connections.js'
 import { serverEndpoint } from '../server-url.js'
-import { type ConnectedServer, getState } from '../settings.js'
+import { getState, type ServerConnection } from '../settings.js'
 import { closeDialogHost } from './dialog.js'
 import { applyWplaceTheme } from './theme.js'
 
 let closeEditor: (() => void) | undefined
 
 const assetUrl = (
-  server: ConnectedServer,
+  server: ServerConnection,
   kind: ServerAssetKind,
   asset: ServerAsset | undefined,
 ) => (asset === undefined ? null : serverEndpoint(server.url, serverAssetPath(kind, asset)))
 
 /** What the dialog shows: the server's current public presentation, as this browser last read it. */
-const fieldsFor = (server: ConnectedServer): ServerDetailsFields => ({
+const fieldsFor = (server: ServerConnection): ServerDetailsFields => ({
   name: server.info?.name ?? '',
   description: server.info?.description ?? '',
   discordInviteUrl: server.info?.discordInviteUrl ?? '',
@@ -58,11 +58,11 @@ const patchBetween = (
 })
 
 /** Open the public presentation editor for one connected server. Admin only; the tree gates it. */
-export const openServerDetails = (server: ConnectedServer, rerender: () => void): void => {
+export const openServerDetails = (server: ServerConnection, rerender: () => void): void => {
   closeEditor?.()
   const editor = document.createElement(SERVER_DETAILS_TAG)
   const restoreFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
-  const current = (): ConnectedServer =>
+  const current = (): ServerConnection =>
     getState().servers.find((candidate) => candidate.url === server.url) ?? server
   let model: ServerDetailsModel = {
     owner: `${server.info?.name ?? server.url} · Server`,

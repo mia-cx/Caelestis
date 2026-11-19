@@ -7,7 +7,12 @@ import {
 import { userscriptClientHeaders } from './client-metrics.js'
 import { nextPixelObservation, recordPixelObservation } from './pixel-observation.js'
 import { registerProfileMemorySource } from './profile.js'
-import { activeServerToken, isCurrentServerConnection } from './server-connections.js'
+import {
+  activeServerToken,
+  type ConnectedServer,
+  connectedServerAt,
+  isCurrentServerConnection,
+} from './server-connections.js'
 import {
   deleteCachedServerMismatch,
   deleteCachedServerMismatches,
@@ -17,7 +22,6 @@ import {
   writeCachedServerMismatch,
 } from './server-mismatch-cache.js'
 import { serverEndpoint } from './server-url.js'
-import { type ConnectedServer, getState } from './settings.js'
 
 const REQUEST_TIMEOUT_MS = 15_000
 /**
@@ -97,17 +101,6 @@ const invalidationKeyFor = (serverUrl: string, tile: TileCoord): string =>
   `${serverUrl}\u0000${tile.x}/${tile.y}`
 
 const tileName = (tile: TileCoord): string => `${tile.x}/${tile.y}`
-
-const serverFor = (template: ServerTemplateRef): ConnectedServer | null => {
-  if (
-    template.serverUrl === undefined ||
-    template.serverTemplateId === undefined ||
-    template.serverVersion === undefined
-  )
-    return null
-  const server = getState().servers.find((candidate) => candidate.url === template.serverUrl)
-  return server?.status === 'connected' && server.season !== null ? server : null
-}
 
 const notify = (): void => {
   for (const listener of listeners) listener()
@@ -293,17 +286,18 @@ export const serverMismatchMaskFor = (
   template: ServerTemplateRef,
   tile: TileCoord,
 ): MismatchMask | null => {
-  const server = serverFor(template)
   if (
-    server === null ||
+    template.serverUrl === undefined ||
     template.serverTemplateId === undefined ||
     template.serverVersion === undefined
   )
     return null
+  const server = connectedServerAt(template.serverUrl)
+  if (server === undefined) return null
   const mismatch: MismatchKey = {
     serverUrl: server.url,
-    serverId: server.info?.id ?? '',
-    season: server.season ?? 0,
+    serverId: server.info.id,
+    season: server.season,
     templateId: template.serverTemplateId,
     version: template.serverVersion,
     tile,

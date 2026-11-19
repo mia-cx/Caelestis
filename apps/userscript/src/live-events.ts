@@ -202,16 +202,27 @@ const commandResult = (event: Fields, requestId: string): LiveEvent | null => {
     }
     case 'paint-part-result':
       return typeof event.eventId === 'string' && Number.isSafeInteger(event.index)
-        ? { type: 'paint-part-result', requestId, eventId: event.eventId, index: Number(event.index) }
+        ? {
+            type: 'paint-part-result',
+            requestId,
+            eventId: event.eventId,
+            index: Number(event.index),
+          }
         : null
     case 'tile-offer-result': {
       const error = event.error
       if (!mutationError(error)) return null
       // A refusal carries no disposition the client acts on.
-      const response = tileOfferResponse(event.response) ?? (error === undefined ? null : NO_TILE_OFFERS)
+      const response =
+        tileOfferResponse(event.response) ?? (error === undefined ? null : NO_TILE_OFFERS)
       return response === null
         ? null
-        : { type: 'tile-offer-result', requestId, response, ...(error === undefined ? {} : { error }) }
+        : {
+            type: 'tile-offer-result',
+            requestId,
+            response,
+            ...(error === undefined ? {} : { error }),
+          }
     }
     case 'tile-upload-result': {
       const error = event.error

@@ -2,7 +2,7 @@ import { WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { runWhileBusy } from '../concurrency.js'
 import { listServerNodes, type ServerNodesResult } from '../server-api.js'
 import { serverLabel } from '../server-connections.js'
-import { type ConnectedServer, getState } from '../settings.js'
+import { getState, type ServerConnection } from '../settings.js'
 import { templateById } from '../templates/local-store.js'
 import { toast } from '../ui/toast.js'
 import { plural } from './plural.js'
@@ -73,7 +73,7 @@ export const copyToServer = async (
     setupTimedOut = true
     setupController.abort(new Error('copy setup timed out'))
   }, COPY_SETUP_TIMEOUT_MS)
-  let listed: Array<readonly [ConnectedServer, ServerNodesResult]>
+  let listed: Array<readonly [ServerConnection, ServerNodesResult]>
   try {
     listed = await Promise.all(
       targets.map(

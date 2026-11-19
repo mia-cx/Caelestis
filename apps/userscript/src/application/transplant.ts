@@ -15,7 +15,12 @@ import {
 } from '../server-api.js'
 import type { ServerTemplate } from '../server-cache.js'
 import type { TreeNode } from '../server-manifest.js'
-import { type ConnectedServer, getState, type LocalFolder, MAX_LOCAL_FOLDERS } from '../settings.js'
+import {
+  getState,
+  type LocalFolder,
+  MAX_LOCAL_FOLDERS,
+  type ServerConnection,
+} from '../settings.js'
 import { newTemplateId } from '../templates/import.js'
 import {
   canCopyAsLocalTemplate,
@@ -57,12 +62,12 @@ import { templatesForServer } from './tree-server-state.js'
 
 /** Where a branch is going. */
 export type Destination =
-  | { readonly kind: 'server'; readonly server: ConnectedServer; readonly nodeId: string | null }
+  | { readonly kind: 'server'; readonly server: ServerConnection; readonly nodeId: string | null }
   | { readonly kind: 'local'; readonly folderId: string | null }
 
 /** Where it came from. */
 export type Source =
-  | { readonly kind: 'server'; readonly server: ConnectedServer; readonly nodeId: string }
+  | { readonly kind: 'server'; readonly server: ServerConnection; readonly nodeId: string }
   | { readonly kind: 'local'; readonly folderId: string }
 
 /** One template inside a branch, and the folder directly holding it. */
@@ -100,7 +105,7 @@ const drawnFor = (serverUrl: string, template: ServerTemplate): PlacedTemplate |
 }
 
 const serverBranch = async (
-  server: ConnectedServer,
+  server: ServerConnection,
   rootId: string,
   surface: TemplateSurface,
 ): Promise<Branch | { readonly error: string } | null> => {
@@ -272,7 +277,7 @@ const transferBranch = async (
 
   let indexedServerTemplates: readonly ServerTemplate[] | null = null
   let serverTemplateById = new Map<string, ServerTemplate>()
-  const currentServerTemplate = (server: ConnectedServer, id: string) => {
+  const currentServerTemplate = (server: ServerConnection, id: string) => {
     const current = templatesForServer(server.url, surface)
     if (current !== indexedServerTemplates) {
       indexedServerTemplates = current
@@ -587,7 +592,7 @@ export const transplant = async (
   activeSources.add(key)
   try {
     const result = await transferBranch(source, destination, surface, rerender)
-    const servers = new Map<string, ConnectedServer>()
+    const servers = new Map<string, ServerConnection>()
     if (source.kind === 'server') servers.set(source.server.url, source.server)
     if (destination.kind === 'server') servers.set(destination.server.url, destination.server)
     void Promise.all(

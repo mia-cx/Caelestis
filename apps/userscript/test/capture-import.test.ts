@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ClaimCaptureHost } from '../src/claim-editor.js'
 import { createLocalFolder } from '../src/local-folders.js'
 import { UNPAINTED } from '../src/native-pixels.js'
-import { type ConnectedServer, setScopeVisible } from '../src/settings.js'
+import { type ServerConnection, setScopeVisible } from '../src/settings.js'
 import type { ImportedTemplate } from '../src/templates/import.js'
 import * as store from '../src/templates/local-store.js'
 import { abort, commit, isMoving, movingId, reserveMove } from '../src/templates/move.js'
@@ -29,7 +29,7 @@ import { captureTemplate } from '../src/application/tree-import.js'
 
 const selection = { rect: { x: 0, y: 0, w: 2, h: 1 }, mask: new Uint8Array([1, 1]), count: 2 }
 const local: TreeTarget = { key: 'local', name: 'Local', nodeId: null, server: null }
-const server: ConnectedServer = {
+const server: ServerConnection = {
   url: 'https://example.test',
   isAdmin: true,
   token: 'admin',

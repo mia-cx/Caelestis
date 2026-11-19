@@ -25,6 +25,10 @@ import { onServerContents, type ServerContents } from './server-api.js'
 import type { ServerTemplate } from './server-cache.js'
 import {
   activeServerToken,
+  type ConnectedServer,
+  connectedServerAt,
+  connectedServers,
+  isConnected,
   isCurrentServerConnection,
   serverConnectionIdentity,
   serverConnectionSignal,
@@ -48,7 +52,7 @@ import {
   serverSyncRevision,
 } from './server-sync-coordinator.js'
 import { serverEndpoint } from './server-url.js'
-import { type ConnectedServer, getState, onStateChange } from './settings.js'
+import { getState, onStateChange, type ServerConnection } from './settings.js'
 import { ClientStatusProjection } from './status-client-projection.js'
 import type { TemplateColourProgress, TemplateProgress } from './templates/progress-types.js'
 import { onFetchedTile } from './tile-attribution.js'
@@ -312,9 +316,7 @@ const coverageFor = (server: ConnectedServer): ReadonlySet<string> | null => {
 
 const wantsObservedTile = (tile: TileCoord): boolean => {
   if (!getState().shareTiles) return false
-  const connected = getState().servers.filter(
-    (server) => server.status === 'connected' && server.season !== null,
-  )
+  const connected = connectedServers()
   if (connected.length === 0) return false
   const key = tileKey(tile)
   let awaitingCoverage = false
@@ -425,13 +427,11 @@ const flushOffers = async (serverUrl: string): Promise<void> => {
   if (
     pending === undefined ||
     pending.entries.size === 0 ||
-    !isCurrentServerConnection(pending.server) ||
-    pending.server.season === null
+    !isCurrentServerConnection(pending.server)
   )
     return
   const server = pending.server
   const season = server.season
-  if (season === null) return
   activeOfferFlushes.add(serverUrl)
   const entries: OfferedTile[] = []
   const selectedTiles = new Set<string>()
@@ -756,12 +756,7 @@ const flushOffers = async (serverUrl: string): Promise<void> => {
     if (completeDisposition) tileOfferMetric('rejected', rejected.size)
   } finally {
     activeOfferFlushes.delete(serverUrl)
-    const retryServer = getState().servers.find(
-      (candidate) =>
-        candidate.url === serverUrl &&
-        candidate.status === 'connected' &&
-        candidate.season !== null,
-    )
+    const retryServer = connectedServerAt(serverUrl)
     const retryCoverage = retryServer === undefined ? null : coverageFor(retryServer)
     if (getState().shareTiles && retryServer !== undefined && retryCoverage !== null) {
       const held = unsettledOffers.get(serverUrl)
@@ -810,13 +805,8 @@ const scheduleFlush = (serverUrl: string, delay = OFFER_DELAY_MS): void => {
 
 const shareObservedTile = (entry: OfferedTile): void => {
   if (!getState().shareTiles) return
-  for (const server of getState().servers) {
-    if (
-      server.status !== 'connected' ||
-      server.season === null ||
-      !coverageFor(server)?.has(entry.tile)
-    )
-      continue
+  for (const server of connectedServers()) {
+    if (!coverageFor(server)?.has(entry.tile)) continue
     const decision = tileOfferAcknowledgements.decision(
       server.url,
       serverConnectionIdentity(server),
@@ -960,14 +950,9 @@ const reportPaint = async (observation: ObservedPaint): Promise<void> => {
   const { eventId, paint } = observation
   const submitted = paint.tiles.reduce((total, tile) => total + tile.pixels.x.length, 0)
   await Promise.all(
-    getState().servers.map(async (server) => {
+    connectedServers().map(async (server) => {
       const serverCoverage = coverageFor(server)
-      if (
-        server.status !== 'connected' ||
-        server.season !== paint.season ||
-        serverCoverage === null
-      )
-        return
+      if (server.season !== paint.season || serverCoverage === null) return
       const tiles = paint.tiles.filter((tile) => serverCoverage.has(tileKey(tile)))
       if (tiles.length === 0) return
       const previousDedupe = reportedPaints.get(server.url)
@@ -1024,8 +1009,8 @@ const replayRecent = (server: ConnectedServer, includeRecentTiles = true): void 
   for (const paint of recentPaints) void reportPaint(paint).catch(reportTelemetryError)
 }
 
-const rememberContents = (server: ConnectedServer, contents: ServerContents): void => {
-  if (!isCurrentServerConnection(server)) return
+const rememberContents = (server: ServerConnection, contents: ServerContents): void => {
+  if (!isConnected(server) || !isCurrentServerConnection(server)) return
   const held = coverage.get(server.url)
   const previous = coverageFor(server)
   const next = coverageFrom(contents)
@@ -1490,7 +1475,7 @@ const alarmEnabled = (server: ConnectedServer, template: ServerTemplate): boolea
 
 /** Current authoritative episode, including templates hidden from the canvas. */
 export const serverAlarmFor = (
-  server: ConnectedServer,
+  server: ServerConnection,
   template: Pick<ServerTemplate, 'id' | 'nodeId' | 'published'>,
 ): Alarm | null => {
   const known = alarms.get(statusKey(server.url, template.id))
@@ -1510,7 +1495,7 @@ export const serverAlarmFor = (
 
 /** Current alarm kind, confirmed absence, or undefined while telemetry is unknown. */
 export const serverAlarmKindFor = (
-  server: ConnectedServer,
+  server: ServerConnection,
   template: Pick<ServerTemplate, 'id' | 'nodeId' | 'published'>,
 ): Alarm['kind'] | 'none' | undefined => {
   const snapshot = coverage.get(server.url)
@@ -1534,9 +1519,9 @@ export const activeServerAlarms = (): readonly {
     template: ServerTemplate
     alarm: Alarm
   }> = []
-  for (const server of getState().servers) {
+  for (const server of connectedServers()) {
     const contents = coverage.get(server.url)?.contents
-    if (server.status !== 'connected' || contents === undefined) continue
+    if (contents === undefined) continue
     for (const template of contents.templates) {
       if (!alarmEnabled(server, template)) continue
       const alarm = serverAlarmFor(server, template)
@@ -1552,7 +1537,7 @@ export const onServerAlarmChange = (listener: () => void): (() => void) => {
 }
 
 export const serverProgressFor = (
-  server: ConnectedServer,
+  server: ServerConnection,
   template: Pick<ServerTemplate, 'id' | 'totalPixels'>,
 ): TemplateProgress | null => {
   const known = statuses.entry(server.url, template.id)
@@ -1569,7 +1554,7 @@ export const serverProgressFor = (
 }
 
 export const serverColourProgressFor = (
-  server: ConnectedServer,
+  server: ServerConnection,
   template: Pick<ServerTemplate, 'id' | 'totalPixels'>,
 ): readonly TemplateColourProgress[] | null => {
   const known = statuses.entry(server.url, template.id)
@@ -1625,15 +1610,12 @@ export const installTelemetry = (): void => {
       for (const serverUrl of retainedServerUrls)
         if (!currentServerUrls.has(serverUrl)) clearServerTileOfferDelivery(serverUrl)
     }
-    for (const server of getState().servers) {
-      if (server.status !== 'connected') continue
-      replayRecent(server, shareTiles)
-    }
+    for (const server of connectedServers()) replayRecent(server, shareTiles)
   })
   registerServerSyncResource({
     id: 'telemetry-status',
     live: true,
-    scope: (server) => (server.status === 'connected' && server.season !== null ? 'world' : null),
+    scope: () => 'world',
     refresh: refreshStatus,
     applyLiveEvent: (server, event) => {
       if (
@@ -1653,10 +1635,7 @@ export const installTelemetry = (): void => {
   registerServerSyncResource({
     id: 'telemetry-alarms',
     live: true,
-    scope: (server) =>
-      server.status === 'connected' && server.season !== null && coverageFor(server) !== null
-        ? 'world'
-        : null,
+    scope: (server) => (coverageFor(server) !== null ? 'world' : null),
     refresh: refreshAlarms,
     applyLiveEvent: (server, event) =>
       typeof event === 'object' &&

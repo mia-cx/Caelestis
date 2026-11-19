@@ -2,13 +2,13 @@ import { MAX_TEMPLATE_SOURCE_BYTES, parseTemplateRecipe, sha256Hex } from '@cael
 import { userscriptClientHeaders } from '../client-metrics.js'
 import { activeServerToken } from '../server-connections.js'
 import { serverEndpoint } from '../server-url.js'
-import { type ConnectedServer, getState } from '../settings.js'
+import { getState, type ServerConnection } from '../settings.js'
 import { currentAuthoring, type TemplateAuthoring } from '../templates/authoring.js'
 import { isServerTemplate, type PlacedTemplate, templatePixels } from '../templates/local-store.js'
 
 const AUTHORING_FETCH_TIMEOUT_MS = 30_000
 
-const serverGet = async (server: ConnectedServer, path: string): Promise<Response> => {
+const serverGet = async (server: ServerConnection, path: string): Promise<Response> => {
   const token = activeServerToken(server)
   return await fetch(serverEndpoint(server.url, path), {
     headers: {
@@ -24,7 +24,7 @@ const serverGet = async (server: ConnectedServer, path: string): Promise<Respons
  * not trusted: the source must hash to what the recipe names.
  */
 export const readServerAuthoring = async (
-  server: ConnectedServer,
+  server: ServerConnection,
   versionId: string,
   indices: Uint8Array,
 ): Promise<TemplateAuthoring | null> => {

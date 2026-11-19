@@ -17,7 +17,7 @@ import {
   MAX_TREE_NODES,
   type TreeNode,
 } from '../server-manifest.js'
-import { type ConnectedServer, getState } from '../settings.js'
+import { getState, type ServerConnection } from '../settings.js'
 import { rememberNodes } from '../templates/server-nodes.js'
 import { rejectServerContentsForSync, syncServerTemplates } from '../templates/server-sync.js'
 import {
@@ -74,7 +74,7 @@ export const renderedParent = (key: string, serverParent: string | null): string
 }
 
 export const rowsFor = (
-  server: ConnectedServer,
+  server: ServerConnection,
 ): { nodes: readonly TreeNode[]; templates: readonly ServerTemplate[] } | undefined => {
   const identity = serverIdentity(server)
   if (identity === null || rowIdentityByServer.get(server.url) !== identity) return undefined
@@ -85,7 +85,7 @@ export const rowsFor = (
 
 /** The exact manifest rows that back one world or alliance tree. */
 export const rowsForSurface = (
-  server: ConnectedServer,
+  server: ServerConnection,
   surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
 ): { nodes: readonly TreeNode[]; templates: readonly ServerTemplate[] } | undefined =>
   surface.kind === 'world' ? rowsFor(server) : (allianceManifestFor(server, surface) ?? undefined)
@@ -105,7 +105,7 @@ export interface OptimisticServerPlacement {
  * supplies canonical paths and any other server-derived fields.
  */
 export const optimisticallyPlaceServerRow = (
-  server: ConnectedServer,
+  server: ServerConnection,
   key: string,
   parentId: string | null,
 ): OptimisticServerPlacement | null => {
@@ -262,10 +262,12 @@ export type ServerSnapshotResult =
   | { readonly status: 'refused' | 'failed' | 'superseded'; readonly message: string }
 
 const snapshotResults = new WeakMap<ServerContents, ServerSnapshotResult>()
-const snapshotListeners = new Set<(server: ConnectedServer, result: ServerSnapshotResult) => void>()
+const snapshotListeners = new Set<
+  (server: ServerConnection, result: ServerSnapshotResult) => void
+>()
 
 export const onServerSnapshot = (
-  listener: (server: ConnectedServer, result: ServerSnapshotResult) => void,
+  listener: (server: ServerConnection, result: ServerSnapshotResult) => void,
 ): (() => void) => {
   snapshotListeners.add(listener)
   return () => snapshotListeners.delete(listener)
@@ -275,22 +277,22 @@ type RememberResult =
   | { readonly ok: true; readonly changed: boolean }
   | { readonly ok: false; readonly message: string; readonly superseded?: true }
 
-const refreshing = new WeakMap<ConnectedServer, Promise<ServerSnapshotResult>>()
+const refreshing = new WeakMap<ServerConnection, Promise<ServerSnapshotResult>>()
 const refreshControllers = new Map<string, AbortController>()
-const refreshedConnections = new WeakSet<ConnectedServer>()
-const nodeErrors = new WeakMap<ConnectedServer, string>()
+const refreshedConnections = new WeakSet<ServerConnection>()
+const nodeErrors = new WeakMap<ServerConnection, string>()
 
-export const hasRefreshedServer = (server: ConnectedServer): boolean =>
+export const hasRefreshedServer = (server: ServerConnection): boolean =>
   refreshedConnections.has(server)
 
-export const serverSnapshotError = (server: ConnectedServer): string | undefined =>
+export const serverSnapshotError = (server: ServerConnection): string | undefined =>
   nodeErrors.get(server)
 
-export const isServerRefreshing = (server: ConnectedServer): boolean => refreshing.has(server)
+export const isServerRefreshing = (server: ServerConnection): boolean => refreshing.has(server)
 const refreshGeneration = new Map<string, number>()
 
 export const refreshServerSnapshot = async (
-  server: ConnectedServer,
+  server: ServerConnection,
   rerender: () => void,
   force = false,
 ): Promise<ServerSnapshotResult> => {
@@ -324,7 +326,7 @@ export const refreshServerSnapshot = async (
 }
 
 const refreshOnce = async (
-  server: ConnectedServer,
+  server: ServerConnection,
   generation: number,
   signal: AbortSignal,
 ): Promise<ServerSnapshotResult> => {
@@ -383,7 +385,7 @@ const sameRows = <T>(
 
 /** Retain one live manifest for the tree, irrespective of which consumer requested it. */
 const rememberServerContents = (
-  server: ConnectedServer,
+  server: ServerConnection,
   contents: ServerContents,
 ): RememberResult => {
   const current = getState().servers.find((candidate) => candidate.url === server.url)
@@ -543,7 +545,7 @@ export const forgetServerRows = (serverUrl: string): readonly string[] => {
  * publication, the previous snapshot is restored before its canvas reconciliation is queued.
  */
 export const acceptServerSnapshot = (
-  server: ConnectedServer,
+  server: ServerConnection,
   contents: ServerContents,
 ): ServerSnapshotResult => {
   const cached = snapshotResults.get(contents)

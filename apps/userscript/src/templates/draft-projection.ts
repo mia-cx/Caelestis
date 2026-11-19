@@ -1,7 +1,7 @@
 import { onAcceptedPaint, onPaintSubmission, type PaintSubmission } from '../paint-requests.js'
 import { onTilePixels } from '../pixel-changes.js'
 import { serverConnectionIdentity } from '../server-connections.js'
-import { type ConnectedServer, getState } from '../settings.js'
+import { getState, type ServerConnection } from '../settings.js'
 import { serverColourProgressFor } from '../telemetry.js'
 import { onTilePixelsEvicted } from '../tile-pixels.js'
 import { applyColourProgressDelta } from '../ui/progress.js'
@@ -22,7 +22,7 @@ import { measuresLocally } from './wplace-owned.js'
  * the server as their complete baseline and project only the exact category transfers made by this
  * browser's native draft. This does not depend on an offscreen tile having been scanned locally.
  */
-const connectedServers = (): ReadonlyMap<string, ConnectedServer> =>
+const connectedServers = (): ReadonlyMap<string, ServerConnection> =>
   new Map(getState().servers.map((server) => [server.url, server]))
 
 interface DraftProjection {
@@ -64,7 +64,7 @@ const forgetRebasedTile = (tile: { readonly x: number; readonly y: number }): bo
 
 const projectionIdentity = (
   template: PlacedTemplate,
-  server: ConnectedServer,
+  server: ServerConnection,
 ): DraftProjectionIdentity => ({
   connection: serverConnectionIdentity(server),
   season: server.season,
@@ -249,7 +249,7 @@ const progressWithDrafts = (
 /** A world template's per-colour progress, with this browser's native draft projected onto it. */
 export const projectedColourProgress = (
   template: PlacedTemplate | null,
-  servers: ReadonlyMap<string, ConnectedServer> = connectedServers(),
+  servers: ReadonlyMap<string, ServerConnection> = connectedServers(),
 ): readonly TemplateColourProgress[] => {
   if (template === null) return []
   const accounting = pixelAccounting.read(template)

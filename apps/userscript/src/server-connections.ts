@@ -17,7 +17,13 @@ import {
   type ServerApiVersion,
   serverEndpoint,
 } from './server-url.js'
-import { type ConnectedServer, getState, MAX_CONNECTED_SERVERS, setState } from './settings.js'
+import {
+  getState,
+  MAX_CONNECTED_SERVERS,
+  type ServerConnection,
+  type State,
+  setState,
+} from './settings.js'
 
 /**
  * The lifetime of each configured server connection: probing, refreshing, replacing and removing
@@ -27,8 +33,28 @@ import { type ConnectedServer, getState, MAX_CONNECTED_SERVERS, setState } from 
 const SERVER_REFRESH_CONCURRENCY = 4
 const SERVER_RETRY_MS = 5_000
 
+/** A configured server whose probe verified it: its metadata and season are known. */
+export type ConnectedServer = ServerConnection & {
+  readonly status: 'connected'
+  readonly info: ServerInfo
+  readonly season: number
+}
+
+export const isConnected = (server: ServerConnection): server is ConnectedServer =>
+  server.status === 'connected' && server.info !== null && server.season !== null
+
+/** The configured servers that are connected now, in their configured order. */
+export const connectedServers = (state: Pick<State, 'servers'> = getState()) =>
+  state.servers.filter(isConnected)
+
+/** The connected row configured at `url`, if there is one. */
+export const connectedServerAt = (url: string): ConnectedServer | undefined => {
+  const server = serverByUrl(url)
+  return server !== undefined && isConnected(server) ? server : undefined
+}
+
 /** Whether two immutable state rows still describe the same remote connection lifetime. */
-export const sameServerConnection = (left: ConnectedServer, right: ConnectedServer): boolean =>
+export const sameServerConnection = (left: ServerConnection, right: ServerConnection): boolean =>
   left.url === right.url &&
   left.token === right.token &&
   (left.tokenUsable !== false) === (right.tokenUsable !== false) &&
@@ -46,10 +72,10 @@ export const sameServerConnection = (left: ConnectedServer, right: ConnectedServ
  * lifetime even when every wire value happens to be equal. Immutable replacements made while the
  * row remains configured inherit the token in {@link upsertServer}.
  */
-const serverConnectionLifetimes = new WeakMap<ConnectedServer, object>()
+const serverConnectionLifetimes = new WeakMap<ServerConnection, object>()
 const serverConnectionControllers = new WeakMap<object, AbortController>()
 
-const serverConnectionLifetime = (server: ConnectedServer): object => {
+const serverConnectionLifetime = (server: ServerConnection): object => {
   const existing = serverConnectionLifetimes.get(server)
   if (existing !== undefined) return existing
   const created = {}
@@ -58,7 +84,7 @@ const serverConnectionLifetime = (server: ConnectedServer): object => {
 }
 
 /** Opaque owner for sharing reads without exposing credentials in a cache key. */
-export const serverConnectionIdentity = (server: ConnectedServer): object =>
+export const serverConnectionIdentity = (server: ServerConnection): object =>
   serverConnectionLifetime(server)
 
 const lifetimeController = (lifetime: object): AbortController => {
@@ -70,17 +96,17 @@ const lifetimeController = (lifetime: object): AbortController => {
   return controller
 }
 
-export const serverConnectionSignal = (server: ConnectedServer): AbortSignal =>
+export const serverConnectionSignal = (server: ServerConnection): AbortSignal =>
   lifetimeController(serverConnectionLifetime(server)).signal
 
-const retireServerConnection = (server: ConnectedServer): void => {
+const retireServerConnection = (server: ServerConnection): void => {
   const lifetime = serverConnectionLifetimes.get(server)
   if (lifetime === undefined) return
   lifetimeController(lifetime).abort(new Error('server connection retired'))
 }
 
 /** The saved token remains sealed in state; only a currently accepted token leaves in a request. */
-export const activeServerToken = (server: ConnectedServer): string | null =>
+export const activeServerToken = (server: ServerConnection): string | null =>
   server.tokenUsable === false ? null : server.token
 
 /** The authorization header for `token`, if there is one. */
@@ -88,18 +114,18 @@ export const bearer = (token: string | null): Record<string, string> =>
   token === null ? {} : { authorization: `Bearer ${token}` }
 
 /** The configured connection for `url`, if there is one. */
-export const serverByUrl = (url: string): ConnectedServer | undefined =>
+export const serverByUrl = (url: string): ServerConnection | undefined =>
   getState().servers.find((candidate) => candidate.url === url)
 
 /** What a sentence calls a server: the name it reports, or its URL until it has reported one. */
-export const serverLabel = (server: ConnectedServer): string => server.info?.name ?? server.url
+export const serverLabel = (server: ServerConnection): string => server.info?.name ?? server.url
 
 /** Whether this connection has a usable token whose admin scope the server has verified. */
-export const hasServerAdminToken = (server: ConnectedServer): boolean =>
+export const hasServerAdminToken = (server: ServerConnection): boolean =>
   server.status === 'connected' && server.isAdmin && Boolean(activeServerToken(server))
 
 /** Whether this immutable connection snapshot is still the configured lifetime for its URL. */
-export const isCurrentServerConnection = (server: ConnectedServer): boolean => {
+export const isCurrentServerConnection = (server: ServerConnection): boolean => {
   const current = getState().servers.find((candidate) => candidate.url === server.url)
   if (current === undefined) return false
   if (current === server) return true
@@ -113,7 +139,7 @@ export const isCurrentServerConnection = (server: ConnectedServer): boolean => {
  */
 const probedManifests = new Map<
   string,
-  { readonly server: ConnectedServer; readonly manifest: ServerManifest; readonly request: number }
+  { readonly server: ServerConnection; readonly manifest: ServerManifest; readonly request: number }
 >()
 
 /** Hand over, once, the manifest the probe for this URL downloaded. */
@@ -135,7 +161,7 @@ export const onServerRemoved = (listener: (url: string) => void): (() => void) =
  * Replace one server in place, keyed by url, preserving its saved token and the order of the rest.
  * A row identical to the stored one changes nothing and notifies no listener.
  */
-export const upsertServer = (server: ConnectedServer): boolean => {
+export const upsertServer = (server: ServerConnection): boolean => {
   const servers = getState().servers
   const index = servers.findIndex((s) => s.url === server.url)
   if (index === -1 && servers.length >= MAX_CONNECTED_SERVERS) {
@@ -196,7 +222,7 @@ export const removeServer = (url: string): void => {
  * Mark a connection whose credential an admin route refused: 401 means the token expired, 403 that
  * it lacks admin scope.
  */
-export const noteAuthFailure = (server: ConnectedServer, status: number): void => {
+export const noteAuthFailure = (server: ServerConnection, status: number): void => {
   const current = getState().servers.find((candidate) => candidate.url === server.url)
   if (current === undefined || !isCurrentServerConnection(server)) return
   const needsToken = status === 401
@@ -248,7 +274,7 @@ export const probeServer = async (
   url: string,
   token: string | null,
   options: { readonly supersedeActive?: boolean } = {},
-): Promise<ConnectedServer> => {
+): Promise<ServerConnection> => {
   let base: string
   try {
     base = canonicalServerUrl(url)
@@ -380,7 +406,7 @@ export const probeServer = async (
       probeController.signal,
     )
     if (probeController.signal.aborted) throw probeController.signal.reason
-    const connected: ConnectedServer = {
+    const connected: ServerConnection = {
       url: base,
       info,
       token,
@@ -412,7 +438,7 @@ export const probeServer = async (
 
 /** Probe each row and apply the answer; `onRefreshed` learns whether that changed the stored row. */
 const refreshServers = async (
-  snapshot: readonly ConnectedServer[],
+  snapshot: readonly ServerConnection[],
   onRefreshed?: (changed: boolean) => void,
 ): Promise<void> => {
   await mapLimit(snapshot, SERVER_REFRESH_CONCURRENCY, async (server) => {

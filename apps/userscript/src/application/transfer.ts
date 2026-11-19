@@ -10,7 +10,7 @@ import {
 import type { ServerTemplate } from '../server-cache.js'
 import { isCurrentServerConnection, serverLabel } from '../server-connections.js'
 import type { TreeNode } from '../server-manifest.js'
-import type { ConnectedServer } from '../settings.js'
+import type { ServerConnection } from '../settings.js'
 import { newTemplateId } from '../templates/import.js'
 import {
   copyAsLocalTemplate,
@@ -58,7 +58,7 @@ export interface TransferSteps {
 
 export interface Transfer<Copied extends { readonly id: string }> {
   /** The server at either end. Each must stay the configured connection throughout. */
-  readonly connections: readonly ConnectedServer[]
+  readonly connections: readonly ServerConnection[]
   readonly sourceIsCurrent: () => boolean
   /** Make the destination copy. Nothing at the source is touched yet. */
   readonly copy: (steps: TransferSteps) => Promise<Copied>
@@ -156,7 +156,7 @@ export const cancelDestinationAdmissions = (serverUrl: string): void => {
 
 /** The destination's folders, and its template rows by id, as freshly admitted. */
 const admittedRows = async (
-  server: ConnectedServer,
+  server: ServerConnection,
   surface: TemplateSurface,
   signal: AbortSignal,
 ): Promise<{
@@ -181,7 +181,7 @@ const admittedRows = async (
 }
 
 export const destinationIsAdmitted = async (
-  server: ConnectedServer,
+  server: ServerConnection,
   expected: DestinationAdmission,
   surface: TemplateSurface,
 ): Promise<boolean> => {
@@ -239,7 +239,7 @@ export type LocalTemplateCopyResult =
 /** Encode and upload one Local template while its placement and destination stay current. */
 export const copyLocalTemplateToServer = async (
   template: PlacedTemplate,
-  destination: ConnectedServer,
+  destination: ServerConnection,
   nodeId: string | null,
   rerender: () => void,
   options: { readonly beforeUpload?: (png: Blob) => boolean } = {},
@@ -284,7 +284,7 @@ export const copyLocalTemplateToServer = async (
 export const copyCurrentLocalTemplateToServer = async (
   templateId: string,
   templateName: string,
-  destination: ConnectedServer,
+  destination: ServerConnection,
   nodeId: string | null,
   rerender: () => void,
   options: { readonly beforeUpload?: (png: Blob) => boolean },
@@ -310,14 +310,14 @@ const sameRevision = (first: ServerTemplate, latest: ServerTemplate | null): boo
  * The server row `drawn` was drawn from, while the two agree on its version. The pixels come from
  * the drawn copy, so a row that has moved on has nothing current to move yet.
  */
-const sourceRow = (server: ConnectedServer, drawn: PlacedTemplate, id: string) => {
+const sourceRow = (server: ServerConnection, drawn: PlacedTemplate, id: string) => {
   const row = serverTemplateAt(server.url, id, drawn.surface ?? WORLD_TEMPLATE_SURFACE)
   return row === null || drawn.serverVersion !== row.version ? null : row
 }
 
 /** Copy one server template into Local, verify its source revision, then remove the source. */
 export const moveServerTemplateToLocal = async (
-  source: ConnectedServer,
+  source: ServerConnection,
   published: Pick<ServerTemplate, 'id' | 'name'>,
   drawn: PlacedTemplate,
   folderId: string | null,
@@ -373,8 +373,8 @@ export const moveServerTemplateToLocal = async (
 
 /** Copy one server template across servers, verify admission, then remove its source revision. */
 export const moveServerTemplateToServer = async (
-  source: ConnectedServer,
-  destination: ConnectedServer,
+  source: ServerConnection,
+  destination: ServerConnection,
   nodeId: string | null,
   published: Pick<ServerTemplate, 'id' | 'name'>,
   drawn: PlacedTemplate,
@@ -382,7 +382,7 @@ export const moveServerTemplateToServer = async (
 ): Promise<TransferResult> => {
   const surface = drawn.surface ?? WORLD_TEMPLATE_SURFACE
   const destinationName = serverLabel(destination)
-  const reconcile = (server: ConnectedServer) => refreshEditedSurface(server, surface, rerender)
+  const reconcile = (server: ServerConnection) => refreshEditedSurface(server, surface, rerender)
   if (!isCurrentServerConnection(source) || !isCurrentServerConnection(destination)) {
     return refused('A server connection changed before the move began.', 'warning')
   }

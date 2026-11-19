@@ -28,9 +28,14 @@ import {
   recordProfileMessage,
   recordProfileWorkload,
 } from './profile.js'
-import { isCurrentServerConnection, serverConnectionIdentity } from './server-connections.js'
+import {
+  type ConnectedServer,
+  connectedServers,
+  isCurrentServerConnection,
+  serverConnectionIdentity,
+} from './server-connections.js'
 import { canonicalServerUrl, serverEndpoint } from './server-url.js'
-import { type ConnectedServer, getState, onStateChange } from './settings.js'
+import { onStateChange, type ServerConnection } from './settings.js'
 
 const INITIAL_POLL_MS = 60_000
 const MAX_UNCHANGED_POLL_MS = 5 * 60_000
@@ -167,11 +172,6 @@ let timer: ReturnType<typeof setTimeout> | null = null
 let sweepRun: Promise<void> | null = null
 let requestedResources: Map<string, PendingResourceRequest> | null = new Map()
 const liveConnections = new Map<object, LiveConnection>()
-
-const connected = (): readonly ConnectedServer[] =>
-  getState().servers.filter(
-    (server) => server.status === 'connected' && server.info !== null && server.season !== null,
-  )
 
 const activeDocument = (): boolean =>
   (typeof document === 'undefined' || document.visibilityState !== 'hidden') &&
@@ -339,7 +339,7 @@ const sweep = async (
   const now = Date.now()
   const work: Array<() => Promise<void>> = []
   const liveKeys = new Set<string>()
-  for (const server of connected()) {
+  for (const server of connectedServers()) {
     for (const resource of resources.values()) {
       const scope = resource.scope(server)
       if (scope === null) continue
@@ -390,7 +390,7 @@ function runRequestedSweep(): void {
 export const requestServerSync = (
   reason: ReconciliationReason,
   resource?: string,
-  server?: ConnectedServer,
+  server?: ServerConnection,
 ): void => {
   requestedResources ??= new Map()
   for (const id of resource === undefined ? resources.keys() : [resource]) {
@@ -410,7 +410,7 @@ const requestLiveServerSync = (reason: ReconciliationReason, server: ConnectedSe
 
 const requestAvailableServerSync = (reason: ReconciliationReason, onlyResource?: string): void => {
   const now = Date.now()
-  for (const server of connected()) {
+  for (const server of connectedServers()) {
     for (const resource of resources.values()) {
       if (onlyResource !== undefined && resource.id !== onlyResource) continue
       if (socketOnly(server, resource)) continue
@@ -1048,7 +1048,7 @@ const openLiveConnection = (connection: LiveConnection): void => {
 
 const reconcileLiveConnections = (): void => {
   const retained = new Set<object>()
-  for (const server of connected()) {
+  for (const server of connectedServers()) {
     if (!liveCapable(server)) continue
     const owner = serverConnectionIdentity(server)
     retained.add(owner)
@@ -1086,7 +1086,7 @@ const reconcileLiveConnections = (): void => {
 const recover = (reason: 'focus' | 'online'): void => {
   if (activeDocument()) {
     reconcileLiveConnections()
-    for (const server of connected()) {
+    for (const server of connectedServers()) {
       const connection = liveConnections.get(serverConnectionIdentity(server))
       if (connection !== undefined && liveHealthy(server)) probeLiveConnection(connection)
       for (const resource of resources.values()) {
@@ -1103,9 +1103,9 @@ const recover = (reason: 'focus' | 'online'): void => {
 export const installServerSyncCoordinator = (): void => {
   if (installed) return
   installed = true
-  let previousConnections = connected()
+  let previousConnections = connectedServers()
   onStateChange(() => {
-    const next = connected()
+    const next = connectedServers()
     const changed =
       next.length !== previousConnections.length ||
       next.some((server) => {
