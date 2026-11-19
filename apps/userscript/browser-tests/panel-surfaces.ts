@@ -146,8 +146,6 @@ export const runPanelSurfaceContracts = async () => {
         expanded: false,
         visible: true,
         contextMenu: true,
-        setSize: 1,
-        positionInSet: 1,
         progress: { completed: 50, mismatched: 20, unpainted: 30, known: 100, total: 100 },
       },
     ],

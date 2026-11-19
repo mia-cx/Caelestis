@@ -2,232 +2,61 @@
   import MenuStyles from '../foundations/MenuStyles.svelte'
   import { formatCount, formatPixels, type Progress } from '@caelestis/shared'
   import Button from '../foundations/Button.svelte'
-  import SortMenu from './SortMenu.svelte'
   import TemplatePreview from './TemplatePreview.svelte'
-  import TemplateClaims from './TemplateClaims.svelte'
+  import Favourites from './Favourites.svelte'
   import ProgressDetails from './ProgressDetails.svelte'
-  import FilterMenu from './FilterMenu.svelte'
+  import TreeContextMenu from './TreeContextMenu.svelte'
+  import TreeOperation from './TreeOperation.svelte'
+  import TreeToolbar from './TreeToolbar.svelte'
   import Icon from '../foundations/Icon.svelte'
   import TemplateState from '../template-state/TemplateState.svelte'
   import TemplateLifecycle from '../template-state/TemplateLifecycle.svelte'
-  import ProgressMeter from '../progress/ProgressMeter.svelte'
+  import ColourProgress from '../progress/ColourProgress.svelte'
+  import ProgressMeter, { wholePercent } from '../progress/ProgressMeter.svelte'
   import { onDestroy, tick } from 'svelte'
   import { SvelteMap } from 'svelte/reactivity'
   import { slide, type EasingFunction, type TransitionConfig } from 'svelte/transition'
-  import { cancelSurfaceClose, closeSurface, MAX_STYLE_WAIT_FRAMES, openSurface, prefersReducedMotion, SETTLE_MARGIN_MS, surfaceCloseDurationMs, tokenized } from '../foundations/motion.js'
-  import { descendantKeys } from './descendants.js'
-  import type {
-    TemplateTreeIntent,
-    TemplateTreeModel,
-    TreeActionModel,
-    TreeContextMenuItemModel,
-    TreeContextMenuModel,
-    TreeEntryModel,
-    TreeRowModel,
-  } from './model.js'
+  import { cancelSurfaceClose, closeSurface, openSurface, tokenized } from '../foundations/motion.js'
+  import { TreeMotion } from './tree-motion.svelte.js'
+  import type { TemplateTreeIntent, TemplateTreeModel, TreeActionModel, TreeRowModel } from './model.js'
 
-  let { model, allowGrid = false, toolbar = true, onIntent }: { model: TemplateTreeModel; allowGrid?: boolean; toolbar?: boolean; onIntent?: (intent: TemplateTreeIntent) => void } = $props()
-  let query = $state('')
+  /**
+   * The template browser: toolbar, operation banner, context menu, and the rows or grid cards
+   * with their focus, keyboard, drag-and-drop, and progress disclosures.
+   */
+  let { model, toolbar = true, onIntent }: { model: TemplateTreeModel; toolbar?: boolean; onIntent?: (intent: TemplateTreeIntent) => void } = $props()
   let activeKey = $state<string | null>(null)
   let renameDraft = $state('')
   let draggingKey = $state<string | null>(null)
   let dropTarget = $state<{ key: string; position: 'before' | 'inside' | 'after' } | null>(null)
   let treeElement = $state<HTMLElement>()
-  let contextMenuElement = $state<HTMLElement>()
+  let scroller = $state<HTMLElement>()
   let progressKey = $state<string | null>(null)
   let progressPane = $state<HTMLElement>()
   let browserWidth = $state(0)
   const disclosures = new SvelteMap<string, 'expanded' | 'colours'>()
-  let searchTimer: ReturnType<typeof setTimeout> | undefined
-  let admittedQuery = ''
   let admittedRenameKey: string | undefined
-  let admittedOperationId: string | undefined
-  let admittedMenuId: string | undefined
-  let menuInvoker: HTMLElement | null = null
-  let openSubmenuId = $state<string>()
-  let operationSelection = $state('')
-  const grid = $derived(allowGrid && model.displayMode === 'grid')
+  const grid = $derived(model.displayMode === 'grid')
+  const motion = new TreeMotion(() => model.entries, () => treeElement, () => grid)
+  /** Each row's ARIA place among the rows that share its parent. */
+  const setPositions = $derived.by(() => {
+    const siblings = new Map<string | null, string[]>()
+    for (const entry of model.entries) {
+      if (entry.type !== 'row') continue
+      const keys = siblings.get(entry.parentKey)
+      if (keys === undefined) siblings.set(entry.parentKey, [entry.key])
+      else keys.push(entry.key)
+    }
+    return new Map([...siblings.values()].flatMap((keys) => keys.map((key, index) => [key, { size: keys.length, position: index + 1 }] as const)))
+  })
+  /** Tree mode leads a row's actions with its fly-to; grid shows that on the heading and the artwork. */
+  const rowActions = (row: TreeRowModel): readonly TreeActionModel[] =>
+    grid || row.navigate === undefined ? (row.actions ?? []) : [row.navigate, ...(row.actions ?? [])]
   const progressEntry = $derived(model.entries.find((entry): entry is TreeRowModel => entry.type === 'row' && entry.key === progressKey && entry.progress !== undefined))
 
-  /**
-   * Grow/shrink for expand and collapse. `pendingToggle` snapshots the toggled key, its
-   * descendant keys, and the descendant rows themselves (covering collapse, whose rows
-   * leave the next model). The next `entries` change consumes it: rows that left stay
-   * rendered (inert) for one close duration while rows that arrived animate in; anything
-   * else snaps — never a search, a filter, a server refresh, a reorder, or the first
-   * render. Row animation is WAAPI rather than a Svelte transition because each-item
-   * outros do not survive this host's constant model stream inside the custom element.
-   */
-  type TreeToggle = { key: string; descendants: Set<string>; leaving: TreeEntryModel[] }
-  let pendingToggle: TreeToggle | null = null
-  let animatingToggle = $state<TreeToggle | null>(null)
-  let leavingKeys = $state<ReadonlySet<string>>(new Set())
-  let enteringKeys = $state<ReadonlySet<string>>(new Set())
-  let lastEntries: typeof model.entries | undefined
-  let toggleTimer: ReturnType<typeof setTimeout> | undefined
-  /** Pre-change row/card rects for the grid FLIP, captured while the old DOM is still laid out. */
-  let gridRects: Map<string, DOMRect> | null = null
-  $effect.pre(() => {
-    if (model.entries === lastEntries) return
-    const previous = lastEntries
-    lastEntries = model.entries
-    const toggle = pendingToggle
-    // Progress ticks rebuild entries every ~50ms; only a pending toggle earns the key-set work.
-    if (toggle === null) return
-    const previousKeys = new Set(previous?.map((entry) => entry.key) ?? [])
-    const nextKeys = new Set(model.entries.map((entry) => entry.key))
-    const changed = new Set([...previousKeys, ...nextKeys].filter((key) => previousKeys.has(key) !== nextKeys.has(key)))
-    const descendants = descendantKeys(model.entries, toggle.key)
-    // Content ticks (progress, refresh) keep the same keys — they must not consume the
-    // toggle. A change elsewhere in the tree is unrelated, so the pending snapshot dies.
-    const touched = [...changed].some((key) => toggle.descendants.has(key) || descendants.has(key))
-    if (!touched) {
-      if (changed.size > 0) pendingToggle = null
-      return
-    }
-    pendingToggle = null
-    animatingToggle = toggle
-    leavingKeys = new Set(toggle.leaving.filter((entry) => !nextKeys.has(entry.key)).map((entry) => entry.key))
-    enteringKeys = new Set([...descendants].filter((key) => !toggle.descendants.has(key)))
-    // Grid mode needs FLIP rects from before the DOM updates — the old layout is still in place.
-    gridRects = grid && treeElement !== undefined
-      ? new Map([...treeElement.querySelectorAll<HTMLElement>('[data-caelestis-tree-key]')].map((row) => [row.dataset.caelestisTreeKey ?? '', row.getBoundingClientRect()]))
-      : null
-    void tick().then(grid ? animateGrid : animateRows)
-    const duration = surfaceCloseDurationMs(treeElement ?? document.documentElement, '--caelestis-duration-fast')
-    // The hold covers the longest animation: in grid, the stagger-capped entering cascade.
-    const stagger = grid ? Math.min(enteringKeys.size * surfaceCloseDurationMs(treeElement ?? document.documentElement, '--caelestis-duration-stagger'), duration) : 0
-    clearTimeout(toggleTimer)
-    toggleTimer = setTimeout(() => {
-      animatingToggle = null
-      leavingKeys = new Set()
-      enteringKeys = new Set()
-    }, duration + stagger + SETTLE_MARGIN_MS)
-  })
-
-  /** The entries plus any rows still shrinking out from the consumed collapse. */
-  const visibleEntries = $derived.by(() => {
-    const toggle = animatingToggle
-    const kept = toggle?.leaving.filter((entry) => leavingKeys.has(entry.key)) ?? []
-    if (toggle === null || kept.length === 0) return model.entries
-    const index = model.entries.findIndex((entry) => entry.key === toggle.key)
-    const merged = [...model.entries]
-    merged.splice(index === -1 ? merged.length : index + 1, 0, ...kept)
-    return merged
-  })
-
   const toggleExpanded = (key: string): void => {
-    const descendants = descendantKeys(model.entries, key)
-    pendingToggle = {
-      key,
-      descendants,
-      leaving: model.entries.filter((entry) => entry.type === 'row' && descendants.has(entry.key)),
-    }
+    motion.toggle(key)
     emit({ type: 'toggle-expanded', key })
-  }
-
-  /** WAAPI grow/shrink for rows a user toggle added or removed; everything else snaps. */
-  const animateRows = (): void => {
-    if (grid || prefersReducedMotion() || treeElement === undefined) return
-    const duration = surfaceCloseDurationMs(treeElement, '--caelestis-duration-fast')
-    if (duration <= 0) return
-    const easing = getComputedStyle(treeElement).getPropertyValue('--caelestis-ease-smooth-out') || 'ease-out'
-    // `.tree` is a gapped flex column, so a zero-height row still holds its share of the gap —
-    // a negative block-start margin pulls that back or the list snaps by gap × rows.
-    const rowGap = getComputedStyle(treeElement).rowGap
-    for (const row of treeElement.querySelectorAll<HTMLElement>('.row.leaving, .row.entering')) {
-      // `.entering` collapses the row so it paints at zero — drop it before measuring; the
-      // animation's fill still covers the first frame.
-      const entering = row.classList.contains('entering')
-      if (entering) row.classList.remove('entering')
-      const style = getComputedStyle(row)
-      const hidden = {
-        height: '0px',
-        minBlockSize: '0px',
-        paddingTop: '0px',
-        paddingBottom: '0px',
-        marginBlockStart: `-${rowGap}`,
-        opacity: 0,
-        overflow: 'hidden',
-      }
-      const shown = {
-        height: `${row.offsetHeight}px`,
-        minBlockSize: style.minBlockSize,
-        paddingTop: style.paddingTop,
-        paddingBottom: style.paddingBottom,
-        opacity: 1,
-        overflow: 'hidden',
-      }
-      row.animate(entering ? [hidden, shown] : [shown, hidden], {
-        duration,
-        easing,
-        fill: 'both',
-      })
-    }
-  }
-
-  /**
-   * Grid-mode counterpart: leaving cards pop out of flow at their old rect and fade/scale/blur
-   * away; entering cards fade/scale/blur in on a stagger; everything else FLIPs so the grid
-   * reflows without snapping.
-   */
-  const animateGrid = (): void => {
-    if (prefersReducedMotion() || treeElement === undefined || gridRects === null) return
-    const previous = gridRects
-    gridRects = null
-    const style = getComputedStyle(treeElement)
-    const duration = surfaceCloseDurationMs(treeElement, '--caelestis-duration-fast')
-    if (duration <= 0) return
-    const stagger = surfaceCloseDurationMs(treeElement, '--caelestis-duration-stagger')
-    const scale = Number.parseFloat(style.getPropertyValue('--caelestis-scale-large')) || 1
-    const blur = Number.parseFloat(style.getPropertyValue('--caelestis-blur-small')) || 0
-    const easing = style.getPropertyValue('--caelestis-ease-smooth-out') || 'ease-out'
-    const treeBox = treeElement.getBoundingClientRect()
-    let enteringIndex = 0
-    for (const row of treeElement.querySelectorAll<HTMLElement>('[data-caelestis-tree-key]')) {
-      const key = row.dataset.caelestisTreeKey ?? ''
-      const box = row.getBoundingClientRect()
-      const before = previous.get(key)
-      if (leavingKeys.has(key)) {
-        // Out of flow at the old spot so the grid reflows underneath it at once.
-        if (before !== undefined) {
-          Object.assign(row.style, {
-            position: 'absolute',
-            left: `${before.left - treeBox.left}px`,
-            top: `${before.top - treeBox.top}px`,
-            inlineSize: `${before.width}px`,
-            blockSize: `${before.height}px`,
-            margin: '0',
-          })
-        }
-        row.animate(
-          [
-            { opacity: 1, scale: 1, filter: 'blur(0px)' },
-            { opacity: 0, scale, filter: `blur(${blur}px)` },
-          ],
-          { duration, easing, fill: 'both' },
-        )
-      } else if (enteringKeys.has(key)) {
-        const delay = Math.min(enteringIndex * stagger, duration)
-        enteringIndex += 1
-        row.animate(
-          [
-            { opacity: 0, scale, filter: `blur(${blur}px)` },
-            { opacity: 1, scale: 1, filter: 'blur(0px)' },
-          ],
-          { duration, delay, easing, fill: 'both' },
-        )
-      } else if (before !== undefined) {
-        const dx = before.left - box.left
-        const dy = before.top - box.top
-        if (dx !== 0 || dy !== 0) {
-          row.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], {
-            duration,
-            easing,
-          })
-        }
-      }
-    }
   }
 
   /** Height plus opacity, merged so `slide`'s height choreography keeps its shape. */
@@ -241,48 +70,18 @@
   const disclose = tokenized(slideFade, '--caelestis-duration-fast')
 
   /**
-   * Context menu and progress pane keep their last model while the exit transition runs, so the
-   * `{#if}` does not unmount the element mid-close. `data-state` on the element is what the CSS
-   * reads; `closeSurface` owns the timing and clears the held model when it finishes.
+   * The grid progress pane keeps its last row while the exit transition runs, so the `{#if}` does
+   * not unmount it mid-close. `closeSurface` owns the timing and clears the held row when it ends.
    */
-  let closingMenu = $state<TreeContextMenuModel>()
-  let lastContextMenu: TreeContextMenuModel | undefined
-  const shownMenu = $derived(model.contextMenu ?? closingMenu)
   let closingProgress = $state<TreeRowModel>()
   let lastProgressEntry: TreeRowModel | undefined
   const shownProgress = $derived(progressEntry ?? closingProgress)
-
-  /** Drive a mounted surface's open state, reversing from the current frame on a mid-close reopen. */
-  const driveSurface = (element: HTMLElement): void => {
-    if (element.dataset.state === 'closing') {
-      cancelSurfaceClose(element)
-      element.dataset.state = 'open'
-    } else {
-      openSurface(element)
-    }
-  }
-
-  $effect(() => {
-    const current = model.contextMenu
-    if (current !== undefined) {
-      lastContextMenu = current
-      closingMenu = current
-      if (contextMenuElement !== undefined) driveSurface(contextMenuElement)
-      return
-    }
-    // Consume the last model so the effect cannot start the same close twice.
-    if (lastContextMenu !== undefined && contextMenuElement?.isConnected === true) {
-      closingMenu = lastContextMenu
-      lastContextMenu = undefined
-      closeSurface(contextMenuElement, () => { closingMenu = undefined })
-    }
-  })
 
   $effect(() => {
     if (progressEntry !== undefined) {
       lastProgressEntry = progressEntry
       closingProgress = progressEntry
-      if (progressPane !== undefined) driveSurface(progressPane)
+      if (progressPane !== undefined) openSurface(progressPane)
       return
     }
     if (lastProgressEntry !== undefined && progressPane?.isConnected === true) {
@@ -292,8 +91,6 @@
     }
   })
   onDestroy(() => {
-    clearTimeout(toggleTimer)
-    if (contextMenuElement !== undefined) cancelSurfaceClose(contextMenuElement)
     if (progressPane !== undefined) cancelSurfaceClose(progressPane)
   })
   const minimumSplitWidth = 672
@@ -303,12 +100,13 @@
   const showProgress = async (entry: TreeRowModel): Promise<void> => {
     progressKey = entry.key
     await tick()
-    progressPane?.querySelector<HTMLButtonElement>('button')?.focus()
+    const pane = progressPane
+    if (pane !== undefined) openSurface(pane, () => pane.querySelector<HTMLButtonElement>('button')?.focus())
   }
   const closeProgress = (): void => {
     const entry = progressEntry
     progressKey = null
-    if (entry !== undefined) void focusRowAction(entry.key, `View progress for ${entry.name}`)
+    if (entry !== undefined) void focusRowAction(entry.key, 'view-progress')
   }
   const folderPaths = $derived.by(() => {
     const paths = new Map<string, string>()
@@ -320,54 +118,6 @@
     return paths
   })
 
-  const activeTreeElement = (): HTMLElement | null => {
-    const root = treeElement?.getRootNode()
-    if (!(root instanceof Document || root instanceof ShadowRoot)) return null
-    return root.activeElement instanceof HTMLElement ? root.activeElement : null
-  }
-
-  $effect(() => {
-    if (model.query !== admittedQuery) {
-      admittedQuery = model.query
-      query = model.query
-    }
-  })
-  $effect(() => {
-    if (model.operation?.id === admittedOperationId) return
-    admittedOperationId = model.operation?.id
-    operationSelection = model.operation?.options?.[0]?.value ?? ''
-  })
-  $effect(() => {
-    const next = model.contextMenu?.id
-    if (next === admittedMenuId) return
-    const previous = admittedMenuId
-    admittedMenuId = next
-    openSubmenuId = undefined
-    if (next !== undefined) {
-      menuInvoker = activeTreeElement()
-      void tick().then(() => {
-        // openSurface holds a fresh menu hidden for a couple of frames; focusing then is a
-        // no-op, so wait for the open state before taking keyboard focus.
-        let attempts = 0
-        const focusMenu = (): void => {
-          if (model.contextMenu?.id !== next || contextMenuElement?.isConnected !== true) return
-          if (contextMenuElement.dataset.state !== 'open' && attempts < MAX_STYLE_WAIT_FRAMES) {
-            attempts += 1
-            requestAnimationFrame(focusMenu)
-            return
-          }
-          // Focus already inside the menu (e.g. an open submenu) is left alone.
-          if (contextMenuElement.contains(activeTreeElement())) return
-          contextMenuElement.querySelector<HTMLButtonElement>('button')?.focus()
-        }
-        focusMenu()
-      })
-    } else if (previous !== undefined) {
-      const target = menuInvoker
-      menuInvoker = null
-      requestAnimationFrame(() => target?.focus())
-    }
-  })
   $effect(() => {
     if (model.renamingKey === admittedRenameKey) return
     admittedRenameKey = model.renamingKey
@@ -376,34 +126,22 @@
   })
 
   const emit = (intent: TemplateTreeIntent): void => onIntent?.(intent)
-  const wholePercent = (value: number, total: number): number => {
-    if (total <= 0) return 0
-    const rounded = Math.round(Math.min(1, Math.max(0, value / total)) * 100)
-    return value < total ? Math.min(99, rounded) : rounded
-  }
   const percent = (progress: Progress): number => wholePercent(progress.completed, progress.total)
   const scannedPercent = (progress: Progress): number => wholePercent(progress.known, progress.total)
   const branchIndent = 18
   const leafHeadingIndent = 20
 
-  const focusRowAction = async (key: string, label: string): Promise<void> => {
+  type RowAction = 'view-progress' | 'expand-progress' | 'collapse-progress' | 'colour-progress'
+  const focusRowAction = async (key: string, action: RowAction): Promise<void> => {
     await tick()
-    const row = Array.from(
-      treeElement?.querySelectorAll<HTMLElement>('[data-caelestis-tree-key]') ?? [],
-    )
-      .find((candidate) => candidate.dataset.caelestisTreeKey === key)
-    row?.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)?.focus()
+    treeElement?.querySelector<HTMLButtonElement>(`[data-caelestis-tree-key="${CSS.escape(key)}"] [data-action="${action}"]`)?.focus()
   }
 
-  const search = (event: Event): void => {
-    query = (event.currentTarget as HTMLInputElement).value
-    if (searchTimer !== undefined) clearTimeout(searchTimer)
-    searchTimer = setTimeout(() => emit({ type: 'search', query }), 100)
-  }
-
+  const runAction = (key: string, item: Pick<TreeActionModel, 'id' | 'returnToCanvas'>): void =>
+    emit({ type: 'action', key, actionId: item.id, returnToCanvas: item.returnToCanvas === true })
   const action = (row: TreeRowModel, item: TreeActionModel, event: MouseEvent): void => {
     event.stopPropagation()
-    emit({ type: 'action', key: row.key, actionId: item.id })
+    runAction(row.key, item)
   }
 
   const clickRow = (event: MouseEvent, row: TreeRowModel): void => {
@@ -522,7 +260,11 @@
     event.preventDefault()
     const box = event.currentTarget instanceof HTMLElement ? event.currentTarget.getBoundingClientRect() : null
     const ratio = box === null || box.height <= 0 ? 0.5 : (event.clientY - box.top) / box.height
-    const position = row.container && ratio >= 0.3 && ratio <= 0.7 ? 'inside' : ratio < 0.5 ? 'before' : 'after'
+    const dragged = model.entries.find((entry): entry is TreeRowModel => entry.type === 'row' && entry.key === draggingKey)
+    // Dropping inside a folder files the row there, which needs both rows to allow reparenting
+    // unless the folder already is the row's parent.
+    const accepts = row.container && (dragged?.parentKey === row.key || (row.canReparent === true && dragged?.canReparent === true))
+    const position = accepts && ratio >= 0.3 && ratio <= 0.7 ? 'inside' : ratio < 0.5 ? 'before' : 'after'
     dropTarget = { key: row.key, position }
   }
 
@@ -542,13 +284,6 @@
     emit({ type: 'drag-state', active: false })
   }
 
-  const dismissContextMenu = (event: PointerEvent): void => {
-    const menu = model.contextMenu
-    if (menu === undefined) return
-    if (event.composedPath().some((node) => node instanceof HTMLElement && node.dataset.caelestisContextMenu !== undefined)) return
-    emit({ type: 'dismiss-context-menu', menuId: menu.id })
-  }
-
   const dismissTransient = (event: KeyboardEvent): void => {
     if (event.key !== 'Escape') return
     if (model.contextMenu !== undefined) {
@@ -561,125 +296,6 @@
       event.preventDefault()
       closeProgress()
     }
-  }
-
-  /** The rows of one menu level, leaving an open submenu's rows to their own list. */
-  const menuRows = (menu: Element): HTMLButtonElement[] =>
-    Array.from(menu.querySelectorAll<HTMLButtonElement>('button')).filter((button) => button.closest('[role="menu"]') === menu)
-
-  const submenuTrigger = (id: string): HTMLButtonElement | null =>
-    contextMenuElement?.querySelector<HTMLButtonElement>(`[data-submenu="${id}"] > button`) ?? null
-
-  const openSubmenu = async (id: string, focusFirst: boolean): Promise<void> => {
-    openSubmenuId = id
-    if (!focusFirst) return
-    await tick()
-    contextMenuElement?.querySelector<HTMLButtonElement>(`[data-submenu="${id}"] [role="menu"] button`)?.focus()
-  }
-
-  const closeSubmenu = (restoreFocus: boolean): void => {
-    const id = openSubmenuId
-    openSubmenuId = undefined
-    if (restoreFocus && id !== undefined) submenuTrigger(id)?.focus()
-  }
-
-  /** Mouse hover opens a submenu and closes any sibling's; touch and pen wait for the tap. */
-  const hoverMenuRow = (event: PointerEvent, item: TreeContextMenuItemModel): void => {
-    if (event.pointerType !== 'mouse') return
-    if (item.children === undefined) openSubmenuId = undefined
-    else void openSubmenu(item.id, false)
-  }
-
-  const toggleSubmenu = (id: string): void => {
-    if (openSubmenuId === id) closeSubmenu(true)
-    else void openSubmenu(id, true)
-  }
-
-  const viewportMargin = 8
-
-  /** Place the menu at the pointer from its rendered size: it opens upward when the viewport ends first, and scrolls when taller than the viewport. */
-  const placeContextMenu = (node: HTMLElement, anchor: { x: number; y: number }): { update: (next: { x: number; y: number }) => void; destroy: () => void } => {
-    // The top layer preserves viewport coordinates through animated, clipping panel ancestors.
-    node.showPopover()
-    let current = anchor
-    const place = (): void => {
-      node.style.maxBlockSize = `${window.innerHeight - viewportMargin * 2}px`
-      const maxLeft = window.innerWidth - viewportMargin - node.offsetWidth
-      const maxTop = window.innerHeight - viewportMargin - node.offsetHeight
-      const top = current.y > maxTop ? current.y - node.offsetHeight : current.y
-      const left = Math.max(viewportMargin, Math.min(current.x, maxLeft))
-      node.style.left = `${left}px`
-      node.style.top = `${Math.max(viewportMargin, Math.min(top, maxTop))}px`
-      // Grow out of the pointer: the origin follows whichever corner the pointer ended up in.
-      node.style.transformOrigin = `${current.y > maxTop ? 'bottom' : 'top'} ${current.x > maxLeft ? 'right' : 'left'}`
-    }
-    window.addEventListener('resize', place)
-    place()
-    return {
-      update(next) {
-        current = next
-        place()
-      },
-      destroy() {
-        window.removeEventListener('resize', place)
-      },
-    }
-  }
-
-  /** Keep a submenu beside its trigger and inside the viewport, following the trigger as the parent menu scrolls; fixed placement escapes the menu's scroll clip. */
-  const placeSubmenu = (node: HTMLElement): { destroy: () => void } | undefined => {
-    const trigger = node.parentElement?.querySelector('button')
-    const parent = contextMenuElement
-    if (!trigger || !parent) return
-    node.showPopover()
-    const place = (): void => {
-      const anchor = trigger.getBoundingClientRect()
-      const width = node.offsetWidth
-      const height = node.offsetHeight
-      const padding = 4
-      const left = anchor.right + width > window.innerWidth - viewportMargin ? Math.max(viewportMargin, anchor.left - width) : anchor.right
-      const top = Math.max(viewportMargin, Math.min(anchor.top - padding, window.innerHeight - viewportMargin - height))
-      node.style.left = `${left}px`
-      node.style.top = `${top}px`
-    }
-    parent.addEventListener('scroll', place)
-    window.addEventListener('resize', place)
-    place()
-    return {
-      destroy() {
-        parent.removeEventListener('scroll', place)
-        window.removeEventListener('resize', place)
-      },
-    }
-  }
-
-  const navigateContextMenu = (event: KeyboardEvent): void => {
-    const target = event.target instanceof HTMLElement ? event.target : null
-    const menu = target?.closest('[role="menu"]')
-    if (target === null || !menu) return
-    const nested = menu !== contextMenuElement
-    if (openSubmenuId !== undefined && (event.key === 'ArrowLeft' || event.key === 'Escape')) {
-      event.preventDefault()
-      event.stopPropagation()
-      closeSubmenu(true)
-      return
-    }
-    const submenu = target.parentElement?.dataset.submenu
-    if (!nested && event.key === 'ArrowRight' && submenu !== undefined) {
-      event.preventDefault()
-      void openSubmenu(submenu, true)
-      return
-    }
-    const buttons = menuRows(menu)
-    const current = buttons.indexOf(target as HTMLButtonElement)
-    let index: number
-    if (event.key === 'ArrowDown') index = (current + 1) % buttons.length
-    else if (event.key === 'ArrowUp') index = (current - 1 + buttons.length) % buttons.length
-    else if (event.key === 'Home') index = 0
-    else if (event.key === 'End') index = buttons.length - 1
-    else return
-    event.preventDefault()
-    buttons[index]?.focus()
   }
 
   const commitRename = (row: TreeRowModel): void => {
@@ -698,105 +314,25 @@
 
 <MenuStyles />
 
-<svelte:window onpointerdown={dismissContextMenu} onkeydown={dismissTransient} />
+<svelte:window onkeydown={dismissTransient} />
 
-{#if toolbar}
-<div class="toolbar">
-  <label class="search caelestis-field">
-    <Icon name="search" />
-    <input type="search" placeholder="Search templates" aria-label="Search templates" value={query} oninput={search} />
-  </label>
-  {#if model.filters !== undefined}
-    <FilterMenu filters={model.filters} serverFiltersAvailable={model.serverFiltersAvailable ?? false} tagOptions={model.tagOptions} onFilter={(filters) => emit({ type: 'filter', filters })} />
-  {/if}
-  <SortMenu sort={model.sort} onSort={(sort) => emit({ type: 'sort', sort })} />
-  {#if allowGrid}
-  <div class="view-switcher" role="group" aria-label="Template display">
-    <button type="button" aria-label="Tree view" title="Tree view" aria-pressed={!grid} onclick={() => emit({ type: 'display-mode', mode: 'tree' })}>
-      <Icon name="treeView" />
-    </button>
-    <button type="button" aria-label="Preview grid view" title="Preview grid view" aria-pressed={grid} onclick={() => emit({ type: 'display-mode', mode: 'grid' })}>
-      <Icon name="gridView" />
-    </button>
-  </div>
-  {/if}
-</div>
-{/if}
+{#if toolbar}<TreeToolbar {model} {emit} />{/if}
 
-{#if model.operation !== undefined}
-  <section class="operation" aria-live="polite" aria-busy={model.operation.pending === true}>
-    <span>{model.operation.label}</span>
-    {#if model.operation.options !== undefined}
-      <select class="caelestis-select" aria-label={model.operation.label} value={operationSelection} disabled={model.operation.pending === true} onchange={(event) => operationSelection = event.currentTarget.value}>
-        {#each model.operation.options as option}<option value={option.value}>{option.label}</option>{/each}
-      </select>
-    {/if}
-    {#if model.operation.note !== undefined}<small>{model.operation.note}</small>{/if}
-    <div class="operation-actions">
-      {#if model.operation.cancellable !== false}
-        <button type="button" onclick={() => emit({ type: 'tree-operation-cancel', operationId: model.operation?.id ?? '' })}>Cancel</button>
-      {/if}
-      {#if model.operation.confirmLabel !== undefined}
-        <button class="primary" type="button" disabled={model.operation.pending === true || model.operation.options?.length === 0} onclick={() => emit({ type: 'tree-operation-confirm', operationId: model.operation?.id ?? '', value: operationSelection })}>{model.operation.confirmLabel}</button>
-      {/if}
-    </div>
-  </section>
-{/if}
+{#if model.operation !== undefined}<TreeOperation operation={model.operation} {emit} />{/if}
 
-{#if shownMenu !== undefined}
-  <div
-    bind:this={contextMenuElement}
-    popover="manual"
-    data-caelestis-context-menu
-    class="context-menu caelestis-menu"
-    role="menu"
-    tabindex="-1"
-    onkeydown={navigateContextMenu}
-    use:placeContextMenu={{ x: shownMenu.x, y: shownMenu.y }}
-  >
-    {#each shownMenu.items as item, index (item.id)}
-      {#if index > 0 && item.group !== shownMenu.items[index - 1]?.group}
-        <div class="caelestis-menu-separator" role="separator"></div>
-      {/if}
-      {#if item.children === undefined}
-        {@render menuRow(item, shownMenu.id, true)}
-      {:else}
-        <div class="submenu-host" data-submenu={item.id}>
-          <button class="caelestis-menu-item" type="button" role="menuitem" aria-haspopup="menu" aria-expanded={openSubmenuId === item.id} onclick={() => toggleSubmenu(item.id)} onpointerenter={(event) => hoverMenuRow(event, item)}>
-            <Icon name={item.icon} />
-            <span>{item.label}</span>
-            <Icon name="chevronRight" class="menu-trailing" />
-          </button>
-          {#if openSubmenuId === item.id}
-            <div class="submenu caelestis-menu" popover="manual" role="menu" aria-label={item.label} tabindex="-1" use:placeSubmenu>
-              {#each item.children as child (child.id)}
-                {@render menuRow(child, shownMenu.id, false)}
-              {/each}
-            </div>
-          {/if}
-        </div>
-      {/if}
-    {/each}
-  </div>
-{/if}
-
-{#snippet menuRow(item: TreeContextMenuItemModel, menuId: string, topLevel: boolean)}
-  <button class="caelestis-menu-item" class:danger={item.danger === true} type="button" role={item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'} aria-checked={item.checked} onclick={() => emit({ type: 'context-menu-action', menuId, actionId: item.id })} onpointerenter={topLevel ? (event) => hoverMenuRow(event, item) : undefined}>
-    <Icon name={item.icon} />
-    <span>{item.label}</span>
-    {#if item.checked === true}<Icon name="check" class="menu-trailing" />{/if}
-  </button>
-{/snippet}
+<TreeContextMenu menu={model.contextMenu} {emit} />
 
 <div class="browser" bind:clientWidth={browserWidth}>
-<div class="scroller" data-caelestis-scroller inert={progressEntry !== undefined && narrowDetails}>
+<div class="scroller" bind:this={scroller} inert={progressEntry !== undefined && narrowDetails}>
   <div bind:this={treeElement} class="tree" class:preview-grid={grid} role="tree" aria-label="Templates" tabindex="-1" ondrop={drop} ondragend={endDrag}>
-    {#each visibleEntries as entry (entry.key)}
+    {#each motion.visibleEntries as entry (entry.key)}
       {#if entry.type === 'row'}
         {@const requestedDisclosure = disclosures.get(entry.key)}
         {@const canShowExpandedProgress = entry.progress !== undefined && (!entry.container || entry.expanded)}
         {@const disclosure = grid || !canShowExpandedProgress || requestedDisclosure === undefined ? undefined : requestedDisclosure === 'colours' && (entry.colourProgress?.length ?? 0) === 0 ? 'expanded' : requestedDisclosure}
-        {@const tallHeading = entry.progress !== undefined || (entry.actions?.length ?? 0) > 0 || (entry.leadingActions?.length ?? 0) > 0}
+        {@const tallHeading = entry.progress !== undefined || (entry.actions?.length ?? 0) > 0 || entry.navigate !== undefined}
+        {@const place = setPositions.get(entry.key)}
+        {@const actions = rowActions(entry)}
         {@const connectorWidth = entry.depth === 0 ? 0 : (entry.branches?.length ?? 0) * branchIndent + (entry.container ? 0 : leafHeadingIndent)}
         {@const progressDetailOffset = entry.container ? leafHeadingIndent : 0}
         {@const alarmKind = entry.descendantAlarmKind ?? entry.lifecycle?.alarmKind ?? (entry.lifecycle?.griefed ? 'sustained-griefing' : undefined)}
@@ -820,9 +356,9 @@
           aria-current={model.focusedKey === entry.key ? 'true' : undefined}
           aria-level={entry.depth + 1}
           aria-expanded={entry.container ? entry.expanded : undefined}
-          aria-setsize={entry.setSize}
-          aria-posinset={entry.positionInSet}
-          tabindex={activeKey === null ? (entry.positionInSet === 1 && entry.depth === 0 ? 0 : -1) : activeKey === entry.key ? 0 : -1}
+          aria-setsize={place?.size}
+          aria-posinset={place?.position}
+          tabindex={activeKey === null ? (place?.position === 1 && entry.depth === 0 ? 0 : -1) : activeKey === entry.key ? 0 : -1}
           data-caelestis-tree-key={entry.key}
           draggable={entry.draggable === true}
           style:padding-inline-start={card || connectorWidth === 0 ? '0.5rem' : `calc(0.5rem + ${grid ? Math.min(entry.depth, 3) * branchIndent : connectorWidth}px)`}
@@ -836,14 +372,14 @@
           onpointercancel={releaseRow}
           ondragstart={(event) => startDrag(event, entry)}
           ondragover={(event) => dragOver(event, entry)}
-          class:leaving={leavingKeys.has(entry.key)}
-          class:entering={enteringKeys.has(entry.key)}
-          inert={leavingKeys.has(entry.key)}
+          class:leaving={motion.leaving.has(entry.key)}
+          class:entering={motion.entering.has(entry.key)}
+          inert={motion.leaving.has(entry.key)}
         >
           {#if card && entry.preview !== undefined}
-            {@const navigation = entry.leadingActions?.find((item) => item.icon === 'search')}
-            <button class="artwork" type="button" aria-label={`Go to ${entry.name}`} disabled={navigation === undefined} onclick={(event) => { if (navigation !== undefined) action(entry, navigation, event) }}>
-              <TemplatePreview preview={entry.preview} name={entry.name} />
+            {@const navigate = entry.navigate}
+            <button class="artwork" type="button" aria-label={`Go to ${entry.name}`} disabled={navigate === undefined} onclick={(event) => { if (navigate !== undefined) action(entry, navigate, event) }}>
+              <TemplatePreview preview={entry.preview} name={entry.name} {scroller} />
             </button>
             <div class="card-caption">
               <span title={`${entry.preview.ownership}${folderPath ? ` / ${folderPath}` : ''}`}>{entry.preview.ownership}</span>
@@ -864,10 +400,10 @@
           <div class="row-heading">
             {#if entry.container}<span class:open={entry.expanded} class="caret" aria-hidden="true"><Icon name="caret" size="0.75rem" /></span>{/if}
             <TemplateLifecycle finished={entry.lifecycle?.finished ?? false} frozen={entry.lifecycle?.frozen ?? false}>
-              {#if entry.claims !== undefined && (entry.claims.people.length > 0 || entry.claims.canAssign)}
-                <TemplateClaims name={entry.name} model={entry.claims} onChange={(release, person) => emit({ type: 'template-claim', key: entry.key, release, ...(person === undefined ? {} : { person }) })}>
+              {#if entry.favourites !== undefined && (entry.favourites.people.length > 0 || entry.favourites.canAssign)}
+                <Favourites name={entry.name} model={entry.favourites} onChange={(release, person) => emit({ type: 'favourite', key: entry.key, release, ...(person === undefined ? {} : { person }) })}>
                   <span class="kind"><Icon name={entry.icon} /></span>
-                </TemplateClaims>
+                </Favourites>
               {:else}
               <span class="kind"><Icon name={entry.icon} /></span>
               {/if}
@@ -875,12 +411,11 @@
             {#if alarmKind !== undefined}
               <TemplateState compact showLifecycle={false} {...(entry.descendantAlarmKind === undefined ? {} : { descendantAlarmKind: entry.descendantAlarmKind })} {...entry.lifecycle} />
             {/if}
-            {#if grid}
-              {#each entry.leadingActions ?? [] as item (item.id)}
-                <button class="icon-action" type="button" title={item.label} aria-label={item.label} onclick={(event) => action(entry, item, event)}>
-                  <Icon name={item.icon} />
-                </button>
-              {/each}
+            {#if grid && entry.navigate !== undefined}
+              {@const navigate = entry.navigate}
+              <button class="icon-action" type="button" title={navigate.label} aria-label={navigate.label} onclick={(event) => action(entry, navigate, event)}>
+                <Icon name={navigate.icon} />
+              </button>
             {/if}
             {#if model.renamingKey === entry.key}
               <input use:focusRename class="rename caelestis-field" data-caelestis-rename aria-label={`Rename ${entry.name}`} bind:value={renameDraft} onkeydown={(event) => { event.stopPropagation(); if (event.key === 'Enter') commitRename(entry); if (event.key === 'Escape') { event.preventDefault(); emit({ type: 'cancel-rename', key: entry.key }) } }} />
@@ -894,25 +429,25 @@
                   <ProgressMeter progress={entry.progress} size="sm" />
                 </span>
                 <span class="actions">
-                  {#each [...(grid ? [] : entry.leadingActions ?? []), ...(entry.actions ?? [])] as item (item.id)}
+                  {#each actions as item (item.id)}
                     <button class="icon-action" type="button" title={item.label} aria-label={item.label} onclick={(event) => action(entry, item, event)}>
                       <Icon name={item.icon} />
                     </button>
                   {/each}
-                  <button class="icon-action" type="button" title={grid ? `View progress for ${entry.name}` : 'Expand progress'} aria-label={grid ? `View progress for ${entry.name}` : 'Expand progress'} aria-expanded={grid ? progressKey === entry.key : undefined} onclick={(event) => { event.stopPropagation(); if (grid) { void showProgress(entry); return }; if (entry.container && !entry.expanded) toggleExpanded(entry.key); disclosures.set(entry.key, 'expanded'); void focusRowAction(entry.key, 'Collapse progress') }}>
+                  <button class="icon-action" type="button" data-action={grid ? 'view-progress' : 'expand-progress'} title={grid ? `View progress for ${entry.name}` : 'Expand progress'} aria-label={grid ? `View progress for ${entry.name}` : 'Expand progress'} aria-expanded={grid ? progressKey === entry.key : undefined} onclick={(event) => { event.stopPropagation(); if (grid) { void showProgress(entry); return }; if (entry.container && !entry.expanded) toggleExpanded(entry.key); disclosures.set(entry.key, 'expanded'); void focusRowAction(entry.key, 'collapse-progress') }}>
                     <Icon name="expandMore" />
                   </button>
                 </span>
               </span>
-            {:else if (entry.actions?.length ?? 0) > 0 || (!grid && (entry.leadingActions?.length ?? 0) > 0) || (entry.progress !== undefined && disclosure !== undefined) || card}
+            {:else if actions.length > 0 || (entry.progress !== undefined && disclosure !== undefined) || card}
               <span class="actions">
-                {#each [...(grid ? [] : entry.leadingActions ?? []), ...(entry.actions ?? [])] as item (item.id)}
+                {#each actions as item (item.id)}
                   <button class="icon-action" type="button" title={item.label} aria-label={item.label} onclick={(event) => action(entry, item, event)}>
                     <Icon name={item.icon} />
                   </button>
                 {/each}
                 {#if entry.progress !== undefined && disclosure !== undefined}
-                  <button class="icon-action" type="button" title="Collapse progress" aria-label="Collapse progress" onclick={(event) => { event.stopPropagation(); disclosures.delete(entry.key); void focusRowAction(entry.key, 'Expand progress') }}>
+                  <button class="icon-action" type="button" data-action="collapse-progress" title="Collapse progress" aria-label="Collapse progress" onclick={(event) => { event.stopPropagation(); disclosures.delete(entry.key); void focusRowAction(entry.key, 'expand-progress') }}>
                     <Icon name="expandLess" />
                   </button>
                 {/if}
@@ -929,7 +464,7 @@
             </label>
           </div>
           {#if card && entry.progress !== undefined}
-            <button type="button" class="card-progress" aria-label={`View progress for ${entry.name}`} title={`View progress for ${entry.name}`} aria-expanded={progressKey === entry.key} onclick={(event) => { event.stopPropagation(); void showProgress(entry) }}>
+            <button type="button" class="card-progress" data-action="view-progress" aria-label={`View progress for ${entry.name}`} title={`View progress for ${entry.name}`} aria-expanded={progressKey === entry.key} onclick={(event) => { event.stopPropagation(); void showProgress(entry) }}>
               <ProgressMeter progress={entry.progress} size="sm" /><Icon name="caret" size="0.875rem" />
             </button>
           {/if}
@@ -946,21 +481,13 @@
                   </div>
                 </div>
                 {#if entry.colourProgress !== undefined}
-                  <button class="icon-action progress-detail-action" type="button" title={disclosure === 'colours' ? 'Hide colour progress' : 'Show colour progress'} aria-label={disclosure === 'colours' ? 'Hide colour progress' : 'Show colour progress'} onclick={(event) => { event.stopPropagation(); const next = disclosure === 'colours' ? 'expanded' : 'colours'; disclosures.set(entry.key, next); void focusRowAction(entry.key, next === 'colours' ? 'Hide colour progress' : 'Show colour progress') }}>
+                  <button class="icon-action progress-detail-action" type="button" data-action="colour-progress" title={disclosure === 'colours' ? 'Hide colour progress' : 'Show colour progress'} aria-label={disclosure === 'colours' ? 'Hide colour progress' : 'Show colour progress'} onclick={(event) => { event.stopPropagation(); disclosures.set(entry.key, disclosure === 'colours' ? 'expanded' : 'colours'); void focusRowAction(entry.key, 'colour-progress') }}>
                     <Icon name="palette" />
                   </button>
                 {/if}
               </div>
               {#if disclosure === 'colours' && entry.colourProgress !== undefined}
-                <div class="colour-progress">
-                  {#each entry.colourProgress as colour (colour.index)}
-                    <div class="colour-progress-row" aria-label={`${colour.name}, ${percent(colour)}% complete`}>
-                      <span class="colour-swatch" style:background={colour.hex}></span>
-                      <span class="colour-name" title={colour.name}>{colour.name}</span>
-                      <ProgressMeter progress={colour} size="sm" completedColour={colour.hex} />
-                    </div>
-                  {/each}
-                </div>
+                <ColourProgress colours={entry.colourProgress} />
               {/if}
             </div>
           {/if}
@@ -968,18 +495,14 @@
       {:else if entry.type === 'notice'}
         <div class="notice" role="treeitem" aria-selected="false" aria-level={entry.depth + 1} aria-disabled="true" style:padding-inline-start={`${1.8 + entry.depth * 1.1}rem`}>
           <span>{entry.text}</span>
-          {#if entry.action !== undefined}<button type="button" onclick={() => emit({ type: 'action', key: entry.key, actionId: entry.action?.id ?? '' })}>{entry.action.label}</button>{/if}
+          {#if entry.action !== undefined}{@const notice = entry.action}<button type="button" onclick={() => runAction(entry.key, notice)}>{notice.label}</button>{/if}
         </div>
       {:else}
         <div class:compact={entry.variant === 'compact'} class:ghost={entry.variant === 'ghost'} class="standalone" role="treeitem" aria-selected="false" aria-level={entry.depth + 1}>
-          {#if entry.showIcon === true}
-            <Button label={entry.action.label} title={entry.title} kind={entry.variant === 'ghost' ? 'ghost' : 'default'} size={entry.variant === 'compact' ? 'compact' : 'small'} onclick={() => emit({ type: 'action', key: entry.key, actionId: entry.action.id })}>
-              <span class="standalone-icon"><Icon name={entry.action.icon} /></span>
-              <span>{entry.action.label}</span>
-            </Button>
-          {:else}
-            <Button label={entry.action.label} title={entry.title} kind={entry.variant === 'ghost' ? 'ghost' : 'default'} size={entry.variant === 'compact' ? 'compact' : 'small'} onclick={() => emit({ type: 'action', key: entry.key, actionId: entry.action.id })} />
-          {/if}
+          <Button label={entry.action.label} title={entry.title} kind={entry.variant === 'ghost' ? 'ghost' : 'default'} size={entry.variant === 'compact' ? 'compact' : 'small'} onclick={() => runAction(entry.key, entry.action)}>
+            {#if entry.action.icon !== undefined}<span class="standalone-icon"><Icon name={entry.action.icon} /></span>{/if}
+            <span>{entry.action.label}</span>
+          </Button>
         </div>
       {/if}
     {/each}
@@ -993,15 +516,6 @@
 </div>
 
 <style>
-  :global(*) { box-sizing: border-box; }
-  .toolbar { position: relative; z-index: 2; display: flex; flex: 0 0 auto; align-items: center; gap: 0.25rem; margin: 0.75rem var(--caelestis-content-inset, 1rem); }
-  .view-switcher { display: flex; flex: 0 0 auto; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); overflow: hidden; }
-  .view-switcher button { display: grid; place-items: center; inline-size: 2rem; block-size: 2rem; border: 0; background: var(--caelestis-surface); color: var(--caelestis-muted-text); cursor: pointer; }
-  .view-switcher button[aria-pressed='true'] { background: var(--caelestis-raised-surface); color: var(--caelestis-primary); box-shadow: inset 0 -2px var(--caelestis-primary); }
-  .view-switcher button:focus-visible { outline: 2px solid var(--caelestis-focus); outline-offset: -2px; }
-  .search { display: flex; flex: 1; align-items: center; gap: 0.5rem; min-inline-size: 0; block-size: 2rem; padding-inline: 0.75rem; border: var(--border, 1px) solid color-mix(in oklab, var(--caelestis-text) 20%, transparent); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-surface); box-shadow: 0 1px color-mix(in oklab, var(--caelestis-text) 10%, transparent) inset; }
-  .search :global(svg) { opacity: 0.55; }
-  .search input { flex: 1; min-inline-size: 0; border: 0; outline: 0; background: transparent; color: inherit; font: inherit; }
   .browser { position: relative; display: flex; flex: 1; min-block-size: 0; min-inline-size: 0; overflow: hidden; }
   .scroller { flex: 1; min-block-size: 0; min-inline-size: 0; overflow: auto; container-type: inline-size; }
   .progress-pane {
@@ -1021,7 +535,7 @@
   .progress-pane:global([data-state='open']) { transform: translateX(0); opacity: 1; }
   .progress-pane:global([data-state='closing']) { transform: translateX(var(--pane-shift)); opacity: 0; pointer-events: none; transition-duration: var(--pane-close-dur); }
   @media (prefers-reduced-motion: reduce) {
-    .context-menu, .progress-pane { transition: none !important; }
+    .progress-pane { transition: none !important; }
   }
   /* Entering rows start collapsed so the grow reads from the first painted frame. */
   @media (prefers-reduced-motion: no-preference) {
@@ -1090,49 +604,12 @@
     .progress-legend { grid-template-columns: 1fr; row-gap: 0.125rem; }
     .progress-legend .coverage { margin-inline-start: 0; }
   }
-  .colour-progress { display: flex; min-inline-size: 0; flex-direction: column; gap: 0.25rem; }
-  .colour-progress-row { display: flex; min-inline-size: 0; align-items: center; gap: 0.375rem; }
-  .colour-swatch { flex: 0 0 0.625rem; inline-size: 0.625rem; block-size: 0.625rem; border-radius: var(--caelestis-pill-radius, 999px); box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.12); }
-  .colour-name { flex: 0 0 5rem; overflow: hidden; font-size: 0.625rem; line-height: 1; opacity: 0.68; text-overflow: ellipsis; white-space: nowrap; }
-  .colour-progress-row :global(.meter-wrap) { flex: 1; }
   .notice { display: flex; align-items: center; gap: 0.5rem; min-block-size: 1.75rem; padding-inline-end: 0.75rem; color: var(--caelestis-muted-text); font-size: 0.72rem; }
   .standalone { display: flex; }
   .standalone.compact { justify-content: flex-start; padding: 0 0.75rem 0.5rem 2.25rem; }
   .standalone.ghost { justify-content: center; padding: 0.5rem 0.75rem 0; }
   .standalone-icon { display: inline-flex; flex: 0 0 auto; opacity: 0.6; }
   .notice button { border: 0; border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-raised-surface); color: inherit; cursor: pointer; }
-  .operation { display: flex; flex: 0 0 auto; flex-direction: column; gap: 0.5rem; margin: 0 0.5rem 0.5rem; padding: 0.625rem 0.75rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-raised-surface); font: 500 0.75rem/1.35 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); }
-  .operation select { inline-size: 100%; }
-  .operation small { color: var(--caelestis-muted-text); }
-  .operation-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
-  .operation button { min-block-size: 2rem; border: 0; border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: transparent; color: inherit; cursor: pointer; }
-  .operation button.primary { padding-inline: 0.75rem; background: var(--caelestis-primary); color: var(--caelestis-primary-text, white); }
-  .operation button:disabled { cursor: wait; opacity: 0.55; }
-  /* 12.5rem seats every current label on one line at 14px; wrapping stays as the fallback for long translations. */
-  .context-menu {
-    --dropdown-open-dur: var(--caelestis-duration-fast);
-    --dropdown-close-dur: var(--caelestis-duration-quick);
-    --dropdown-pre-scale: var(--caelestis-scale-medium);
-    --dropdown-closing-scale: var(--caelestis-scale-tiny);
-    --dropdown-ease: var(--caelestis-ease-smooth-out);
-    --caelestis-surface-close-duration: var(--dropdown-close-dur);
-    position: fixed; inset: auto; margin: 0; z-index: 60; display: flex; inline-size: 12.5rem; max-inline-size: calc(100vw - 1rem); overflow: auto; flex-direction: column;
-    transform-origin: top left;
-    transform: scale(var(--dropdown-pre-scale));
-    opacity: 0;
-    pointer-events: none;
-    transition:
-      transform var(--dropdown-open-dur) var(--dropdown-ease),
-      opacity   var(--dropdown-open-dur) var(--dropdown-ease);
-    will-change: transform, opacity;
-  }
-  .context-menu:global([data-state='open']) { transform: scale(1); opacity: 1; pointer-events: auto; }
-  .context-menu:global([data-state='closing']) { transform: scale(var(--dropdown-closing-scale)); opacity: 0; pointer-events: none; transition-duration: var(--dropdown-close-dur); }
-  .context-menu button { inline-size: 100%; }
-  .context-menu button.danger { color: var(--caelestis-danger); }
-  .context-menu :global(.menu-trailing) { margin-inline-start: auto; opacity: 0.7; }
-  .submenu-host { display: flex; flex: 0 0 auto; flex-direction: column; }
-  .submenu { position: fixed; inset: auto; margin: 0; z-index: 61; display: flex; min-inline-size: 8rem; max-inline-size: calc(100vw - 1rem); flex-direction: column; }
   @media (hover: hover) {
     .actions { opacity: 0; filter: blur(var(--icon-swap-blur)); pointer-events: none; }
     .row:hover .actions, .row:focus-within .actions { opacity: 1; filter: blur(0); pointer-events: auto; }

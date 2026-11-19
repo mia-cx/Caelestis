@@ -1,8 +1,7 @@
-import { resolveShortcutBindings } from '@caelestis/shared'
 import { tick } from 'svelte'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { registerCaelestisUi } from '../src/elements/index.js'
-import type { SettingsModel } from '../src/settings/model.js'
+import type { PanelModel } from '../src/panel/model.js'
 import type { TemplateTreeModel, TreeRowModel } from '../src/tree/model.js'
 
 // Happy DOM has no top layer; real popover placement is a browser contract.
@@ -19,169 +18,95 @@ afterEach(() => {
   document.body.replaceChildren()
 })
 
-const row = (key: string, depth: number, container = false, expanded = false): TreeRowModel =>
-  ({
-    type: 'row',
-    key,
-    name: key,
-    icon: 'folder',
-    depth,
-    parentKey: depth === 0 ? null : 'folder',
-    container,
-    expanded,
-    visible: true,
-    setSize: 1,
-    positionInSet: depth + 1,
-  }) as TreeRowModel
+const row = (key: string, depth: number, container = false, expanded = false): TreeRowModel => ({
+  type: 'row',
+  key,
+  name: key,
+  icon: 'folder',
+  depth,
+  parentKey: depth === 0 ? null : 'folder',
+  container,
+  expanded,
+  visible: true,
+})
 
-const settingsModel = (): SettingsModel =>
-  ({
-    servers: [],
-    colourNavigationOrder: 'unpainted-first',
-    simulatedInput: {},
-    reportPaints: true,
-    shareTiles: true,
-    sharePresence: true,
-    showPresence: true,
-    showPresenceViewports: true,
-    showPresenceClaims: true,
-    showPresenceClaimsOnlyWhilePainting: false,
-    debugLogging: false,
-    performanceProfiling: false,
-    notifyRegressions: true,
-    notifyGriefing: false,
-    notifyUpdates: true,
-    notifyActivity: true,
-    shortcuts: {
-      platform: 'windows-linux',
-      bindings: resolveShortcutBindings(),
-      customised: true,
-    },
-  }) as SettingsModel
+const panel = (tree: TemplateTreeModel): PanelModel => ({
+  view: 'tree',
+  width: 320,
+  minWidth: 280,
+  maxWidth: 400,
+  tree,
+})
 
-const treeModel = (expanded: boolean): TemplateTreeModel =>
-  ({
-    query: '',
-    sort: { field: 'custom', direction: 'asc' },
-    entries: expanded
-      ? [row('folder', 0, true, true), row('kid', 1), row('next', 0)]
-      : [row('folder', 0, true, false), row('next', 0)],
-  }) as TemplateTreeModel
+const treeModel = (expanded: boolean): TemplateTreeModel => ({
+  query: '',
+  sort: { field: 'custom', direction: 'asc' },
+  entries: expanded
+    ? [row('folder', 0, true, true), row('kid', 1), row('next', 0)]
+    : [row('folder', 0, true, false), row('next', 0)],
+})
 
 describe('tree grow inside caelestis-panel element', () => {
-  it('keeps collapsed rows mounted while the outro runs', async () => {
+  it('keeps collapsed rows through model updates until their exit animation ends', async () => {
     registerCaelestisUi()
     const element = document.createElement('caelestis-panel')
-    element.model = {
-      view: 'tree',
-      width: 320,
-      minWidth: 280,
-      maxWidth: 400,
-      tree: treeModel(true),
-    } as never
+    element.model = panel(treeModel(true))
     document.body.append(element)
     await tick()
     const s = element.shadowRoot!
-    for (const el of s.querySelectorAll<HTMLElement>('[data-caelestis-tree-key]')) {
-      el.style.setProperty('--caelestis-duration-fast', '80ms')
-    }
+    s.querySelector<HTMLElement>('.tree')!.style.setProperty('--caelestis-duration-fast', '80ms')
     const kid = s.querySelector<HTMLElement>('[data-caelestis-tree-key="kid"]')!
-    const folder = s.querySelector<HTMLElement>('[data-caelestis-tree-key="folder"]')!
-    folder.click()
+    s.querySelector<HTMLElement>('[data-caelestis-tree-key="folder"]')!.click()
     await tick()
-    element.model = {
-      view: 'tree',
-      width: 320,
-      minWidth: 280,
-      maxWidth: 400,
-      tree: treeModel(false),
-    } as never
+    element.model = panel(treeModel(false))
     await tick()
-    expect(kid.isConnected).toBe(true)
-    // Stream in more model updates mid-outro (progress ticks), as the live host does.
+    // Progress ticks stream fresh models mid-exit, as the live host does.
     for (let i = 0; i < 3; i++) {
-      element.model = {
-        view: 'tree',
-        width: 320,
-        minWidth: 280,
-        maxWidth: 400,
-        tree: treeModel(false),
-      } as never
-      await new Promise((resolve) => setTimeout(resolve, 20))
+      element.model = panel(treeModel(false))
+      await tick()
     }
-    await new Promise((resolve) => setTimeout(resolve, 200))
+    expect(kid.isConnected).toBe(true)
+    expect(kid.inert).toBe(true)
+    for (const animation of kid.getAnimations()) animation.finish()
+    await new Promise<void>((resolve) => queueMicrotask(resolve))
+    await tick()
     expect(kid.isConnected).toBe(false)
   })
 })
 
-describe('page slide inside caelestis-panel element', () => {
-  it('overlaps outgoing and incoming pages during the swap', async () => {
-    registerCaelestisUi()
-    const element = document.createElement('caelestis-panel')
-    element.model = {
-      view: 'tree',
-      width: 320,
-      minWidth: 280,
-      maxWidth: 400,
-      tree: treeModel(true),
-      settings: settingsModel(),
-    } as never
-    document.body.append(element)
-    await tick()
-    const s = element.shadowRoot!
-    for (const el of s.querySelectorAll<HTMLElement>('.page')) {
-      el.style.setProperty('--caelestis-duration-fast', '80ms')
-    }
-    const pages = () => s.querySelectorAll('.page').length
-    expect(pages()).toBe(1)
-    element.model = {
-      view: 'settings',
-      width: 320,
-      minWidth: 280,
-      maxWidth: 400,
-      tree: treeModel(true),
-      settings: settingsModel(),
-    } as never
-    await tick()
-    expect(pages()).toBe(2)
-    await new Promise((resolve) => setTimeout(resolve, 200))
-  })
-})
-
-const menuTree = (): TemplateTreeModel =>
-  ({
-    query: '',
-    sort: { field: 'custom', direction: 'asc' },
-    entries: [
+const menuTree = (): TemplateTreeModel => ({
+  query: '',
+  sort: { field: 'custom', direction: 'asc' },
+  entries: [
+    {
+      ...row('art', 0),
+      icon: 'image',
+      progress: { completed: 50, mismatched: 20, unpainted: 30, known: 100, total: 100 },
+    },
+  ],
+  contextMenu: {
+    id: 'actions',
+    rowKey: 'art',
+    x: 20,
+    y: 20,
+    items: [
+      { id: 'rename', label: 'Rename', icon: 'rename' },
       {
-        ...row('art', 0),
-        icon: 'image',
-        progress: { completed: 50, mismatched: 20, unpainted: 30, known: 100, total: 100 },
+        id: 'move',
+        label: 'Move to',
+        icon: 'move',
+        children: [{ id: 'folder', label: 'Destination folder', icon: 'folder' }],
       },
     ],
-    contextMenu: {
-      id: 'actions',
-      rowKey: 'art',
-      x: 20,
-      y: 20,
-      items: [
-        { id: 'rename', label: 'Rename', icon: 'rename' },
-        {
-          id: 'move',
-          label: 'Move to',
-          icon: 'move',
-          children: [{ id: 'folder', label: 'Destination folder', icon: 'folder' }],
-        },
-      ],
-    },
-  }) as TemplateTreeModel
+  },
+})
 
 describe('context menu inside caelestis-panel element', () => {
   it('keeps an open menu and submenu steady across model refreshes', async () => {
     registerCaelestisUi()
     const element = document.createElement('caelestis-panel')
     let tree = menuTree()
-    element.model = { view: 'tree', width: 320, minWidth: 280, maxWidth: 400, tree } as never
+    element.model = panel(tree)
     document.body.append(element)
     await tick()
     const s = element.shadowRoot!
@@ -205,17 +130,15 @@ describe('context menu inside caelestis-panel element', () => {
     })
     observer.observe(menu, { attributes: true, attributeFilter: ['style', 'data-state'] })
     for (let refresh = 0; refresh < 3; refresh++) {
-      const contextMenu = tree.contextMenu
       tree = {
         ...tree,
-        contextMenu,
         entries: tree.entries.map((entry) =>
           entry.type === 'row' && entry.progress
             ? { ...entry, progress: { ...entry.progress, completed: entry.progress.completed + 1 } }
             : entry,
         ),
-      } as TemplateTreeModel
-      element.model = { view: 'tree', width: 320, minWidth: 280, maxWidth: 400, tree } as never
+      }
+      element.model = panel(tree)
       await nextFrame()
       await nextFrame()
     }

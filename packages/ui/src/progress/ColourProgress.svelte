@@ -19,7 +19,7 @@
   )
 </script>
 
-<ul>
+<div class="colours"><ul>
   {#each rows as { colour, palette, completed, total } (colour.index)}
     {@const done = total === 0 ? 0 : completed / total}
     <li title={`${palette.name}: ${formatExactCount(completed)} of ${formatPixels(total)} complete`} aria-label={`${palette.name}: ${formatExactCount(completed)} of ${formatPixels(total)} complete`}>
@@ -31,9 +31,11 @@
       <span class="percent">{(done * 100).toFixed(1)}%</span>
     </li>
   {/each}
-</ul>
+</ul></div>
 
 <style>
+  /* The rows fit the space they are given: a phone, a sidebar, or a narrow pane. */
+  .colours { container-type: inline-size; min-inline-size: 0; }
   ul { display: flex; flex-direction: column; gap: 0.375rem; margin: 0; padding: 0; list-style: none; }
   li { display: grid; grid-template-columns: 1.5rem 1rem minmax(5rem, 9rem) minmax(4rem, 1fr) 8.5rem; align-items: center; gap: 0.5rem; color: var(--caelestis-text); font-family: inherit; font-size: inherit; line-height: 1.2; }
   .index, .count, .percent { color: var(--caelestis-muted-text); text-align: end; font-size: inherit; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -42,5 +44,5 @@
   .track { block-size: 0.375rem; overflow: hidden; border-radius: var(--caelestis-radius); background: var(--caelestis-raised-surface); }
   .track > span { display: block; block-size: 100%; border-radius: inherit; }
   .percent { display: none; }
-  @media (max-width: 40rem) { li { grid-template-columns: 1.5rem 1rem minmax(3rem, 1fr) 5.5rem; } .name, .count { display: none; } .percent { display: block; } }
+  @container (max-width: 30rem) { li { grid-template-columns: 1rem minmax(3rem, 5rem) minmax(3rem, 1fr) 3.5rem; } .index, .count { display: none; } .percent { display: block; } }
 </style>

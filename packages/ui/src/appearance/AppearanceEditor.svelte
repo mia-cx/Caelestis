@@ -195,7 +195,7 @@
     </div>
 {/snippet}
 
-<div class:compact class="editor" data-caelestis-scroller>
+<div class:compact class="editor">
   {@render section('pixels', compact ? 'Pixels' : 'Appearance', 'tune', pixels)}
   {#if model.showMarkers !== false}{@render section('markers', 'Markers', 'search', markers)}{/if}
   {@render section('colours', 'Colours', 'palette', colours)}

@@ -37,8 +37,6 @@ describe('template tree keyboard and rename intents', () => {
           container: true,
           expanded: false,
           visible: true,
-          setSize: 2,
-          positionInSet: 1,
         },
         {
           type: 'row',
@@ -50,12 +48,10 @@ describe('template tree keyboard and rename intents', () => {
           container: false,
           expanded: false,
           visible: true,
-          setSize: 1,
-          positionInSet: 2,
           draggable: true,
         },
       ],
-    } as TemplateTreeModel
+    } satisfies TemplateTreeModel
     const target = document.body.appendChild(document.createElement('div'))
     mounted.push(
       mount(TemplateTree, {
@@ -76,6 +72,48 @@ describe('template tree keyboard and rename intents', () => {
     ])
   })
 
+  it('offers a drop inside a folder only when both rows allow reparenting', async () => {
+    const row = (key: string, container: boolean, canReparent: boolean) => ({
+      type: 'row' as const,
+      key,
+      name: key,
+      icon: container ? ('folder' as const) : ('image' as const),
+      depth: 0,
+      parentKey: null,
+      container,
+      expanded: false,
+      visible: true,
+      draggable: true,
+      canReparent,
+    })
+    const dropOnFolder = async (canReparent: boolean): Promise<TemplateTreeIntent | undefined> => {
+      const intents: TemplateTreeIntent[] = []
+      const model = {
+        query: '',
+        sort: { field: 'custom', direction: 'asc' },
+        entries: [row('folder', true, true), row('art', false, canReparent)],
+      } satisfies TemplateTreeModel
+      const target = document.body.appendChild(document.createElement('div'))
+      mounted.push(
+        mount(TemplateTree, {
+          target,
+          props: { model, onIntent: (intent: TemplateTreeIntent) => intents.push(intent) },
+        }),
+      )
+      await tick()
+      const folder = target.querySelector('[data-caelestis-tree-key="folder"]') as HTMLElement
+      const art = target.querySelector('[data-caelestis-tree-key="art"]') as HTMLElement
+      art.dispatchEvent(new DragEvent('dragstart', { bubbles: true }))
+      // Happy DOM lays nothing out, so the pointer reads as the folder row's middle.
+      folder.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true }))
+      await tick()
+      folder.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true }))
+      return intents.find((intent) => intent.type === 'drop')
+    }
+    expect(await dropOnFolder(true)).toMatchObject({ targetKey: 'folder', position: 'inside' })
+    expect(await dropOnFolder(false)).toMatchObject({ targetKey: 'folder', position: 'after' })
+  })
+
   it('moves through context-menu actions by keyboard and emits the chosen action', async () => {
     const intents: TemplateTreeIntent[] = []
     const model = {
@@ -92,8 +130,6 @@ describe('template tree keyboard and rename intents', () => {
           container: false,
           expanded: false,
           visible: true,
-          setSize: 1,
-          positionInSet: 1,
         },
       ],
       contextMenu: {
@@ -124,7 +160,7 @@ describe('template tree keyboard and rename intents', () => {
     expect(document.activeElement).toBe(actions[1])
     actions[1]!.click()
     expect(intents).toEqual([
-      { type: 'context-menu-action', menuId: 'actions', actionId: 'remove' },
+      { type: 'context-menu-action', menuId: 'actions', actionId: 'remove', returnToCanvas: false },
     ])
   })
 })

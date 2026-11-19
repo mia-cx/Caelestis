@@ -1,19 +1,18 @@
 import {
   type AlarmKind,
+  type ColourProgress,
   type Progress,
   sameTemplateSurface,
   type TemplateSurface,
   templateFilterCount,
   WORLD_PIXELS,
   WORLD_TEMPLATE_SURFACE,
-  WPLACE_PALETTE,
 } from '@caelestis/shared'
 import type {
-  TemplateClaimsModel,
+  FavouritesModel,
   TemplateTreeIntent,
   TemplateTreeModel,
   TreeActionModel,
-  TreeColourProgressModel,
   TreeEntryModel,
   TreeRowModel,
 } from '@caelestis/ui/elements'
@@ -446,7 +445,7 @@ const buildTree = <Result>(
   surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
   includeCollapsed = false,
   templateKeys?: ReadonlySet<string>,
-  claims?: ReadonlyMap<string, TemplateClaimsModel>,
+  claims?: ReadonlyMap<string, FavouritesModel>,
 ): Result => {
   const claimFacts = (key: string) => {
     const claim = claims?.get(key)
@@ -1506,8 +1505,8 @@ const sameCounts = (a: Progress | undefined, b: Progress | undefined): boolean =
     a.total === b.total)
 
 const sameColourCounts = (
-  a: readonly TreeColourProgressModel[] | undefined,
-  b: readonly TreeColourProgressModel[] | undefined,
+  a: readonly ColourProgress[] | undefined,
+  b: readonly ColourProgress[] | undefined,
 ): boolean =>
   a === b ||
   (a !== undefined &&
@@ -1520,19 +1519,10 @@ const rowProgress = (
   options: TreeRowOptions,
 ): Pick<TreeRowModel, 'progress' | 'colourProgress'> => {
   const progress = options.progressReader?.() ?? options.progress
-  const colours = options.colourProgress?.()
+  const colourProgress = options.colourProgress?.()
   return {
     ...(progress === undefined ? {} : { progress }),
-    ...(colours === undefined
-      ? {}
-      : {
-          colourProgress: colours.flatMap((colour) => {
-            const palette = WPLACE_PALETTE[colour.index]
-            return palette === undefined
-              ? []
-              : [{ ...colour, name: palette.name, hex: palette.hex }]
-          }),
-        }),
+    ...(colourProgress === undefined ? {} : { colourProgress }),
   }
 }
 
@@ -1566,31 +1556,26 @@ export const templateTreeAdapter = (
   surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
   includeCollapsed = false,
   templateKeys?: ReadonlySet<string>,
-  claims?: ReadonlyMap<string, TemplateClaimsModel>,
+  claims?: ReadonlyMap<string, FavouritesModel>,
 ): TemplateTreeAdapter => {
   const entries: TreeEntryModel[] = []
   const rows = new Map<string, TreeRowOptions>()
   const actions = new Map<string, () => void>()
   let generatedKey = 0
-  const actionModels = (
-    key: string,
-    group: 'leading' | 'row',
-    source: readonly RowAction[],
-  ): readonly TreeActionModel[] =>
-    source.map((action, index) => {
-      const id = `${group}-${index}`
-      actions.set(`${key}:${id}`, action.run)
-      return {
-        id,
-        label: action.label,
-        icon: actionIcon(action.icon),
-        ...(action.returnToCanvas === undefined ? {} : { returnToCanvas: action.returnToCanvas }),
-      }
-    })
+  const actionModel = (key: string, id: string, action: RowAction): TreeActionModel => {
+    actions.set(`${key}:${id}`, action.run)
+    return {
+      id,
+      label: action.label,
+      icon: actionIcon(action.icon),
+      ...(action.returnToCanvas === undefined ? {} : { returnToCanvas: action.returnToCanvas }),
+    }
+  }
 
   const output: TreeOutput<void> = {
     row: (options) => {
       rows.set(options.key, options)
+      const navigate = options.leadingActions?.[0]
       entries.push({
         type: 'row',
         key: options.key,
@@ -1602,8 +1587,6 @@ export const templateTreeAdapter = (
         container: options.container,
         expanded: options.forceExpanded === true || isExpanded(options.key),
         visible: options.checked ?? true,
-        setSize: 0,
-        positionInSet: 0,
         ...(options.forceExpanded === true ? { forceExpanded: true } : {}),
         ...(options.muted === true ? { muted: true } : {}),
         ...(options.meta === undefined ? {} : { meta: options.meta }),
@@ -1611,13 +1594,16 @@ export const templateTreeAdapter = (
         descendantAlarmKind: options.descendantAlarmKind,
         ...(options.lifecycle === undefined ? {} : { lifecycle: options.lifecycle }),
         ...rowProgress(options),
-        ...(options.leadingActions === undefined
+        ...(navigate === undefined
           ? {}
-          : { leadingActions: actionModels(options.key, 'leading', options.leadingActions) }),
+          : { navigate: actionModel(options.key, 'navigate', navigate) }),
         ...(options.actions === undefined
           ? {}
-          : { actions: actionModels(options.key, 'row', options.actions) }),
-        ...(options.onRename === undefined ? {} : { renamable: true }),
+          : {
+              actions: options.actions.map((action, index) =>
+                actionModel(options.key, `row-${index}`, action),
+              ),
+            }),
         ...(options.onContextMenu === undefined ? {} : { contextMenu: true }),
         ...(canReorderRow(options) ? { draggable: true } : {}),
         ...(options.canReparent === true ? { canReparent: true } : {}),
@@ -1640,20 +1626,18 @@ export const templateTreeAdapter = (
       })
     },
     action: (key, depth, label, title, run) => {
-      const action = {
-        id: 'run',
-        label,
-        icon: key === 'add-server' ? 'extension' : 'uploadFile',
-        returnToCanvas: key === 'local-import',
-      } as const
       actions.set(`${key}:run`, run)
       entries.push({
         type: 'action',
         key,
         depth,
-        action,
+        action: {
+          id: 'run',
+          label,
+          ...(key === 'add-server' ? { icon: 'extension' } : {}),
+          returnToCanvas: key === 'local-import',
+        },
         variant: key === 'add-server' ? 'ghost' : 'compact',
-        ...(key === 'add-server' ? { showIcon: true } : {}),
         title,
       })
     },
@@ -1677,20 +1661,6 @@ export const templateTreeAdapter = (
         tagOptions.set(tag.id, { ...tag, owner: server.info?.name ?? server.url })
   }
 
-  const siblingRows = new Map<string, TreeRowModel[]>()
-  for (const entry of entries) {
-    if (entry.type !== 'row') continue
-    const key = entry.parentKey ?? '__root__'
-    const siblings = siblingRows.get(key) ?? []
-    siblings.push(entry)
-    siblingRows.set(key, siblings)
-  }
-  for (const siblings of siblingRows.values()) {
-    siblings.forEach((entry, index) => {
-      const at = entries.indexOf(entry)
-      entries[at] = { ...entry, setSize: siblings.length, positionInSet: index + 1 }
-    })
-  }
   const renderedRename = currentRenamingKey()
   if (!includeCollapsed && renderedRename !== null && !rows.has(renderedRename)) finishRenaming()
 

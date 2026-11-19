@@ -4,7 +4,8 @@
 
   type Preview = NonNullable<TreeRowModel['preview']>
 
-  let { preview, name }: { preview: Preview; name: string } = $props()
+  /** `scroller` is the scrolling ancestor whose viewport decides when the art draws. */
+  let { preview, name, scroller }: { preview: Preview; name: string; scroller: HTMLElement | undefined } = $props()
   let canvas = $state<HTMLCanvasElement>()
   let nearViewport = $state(false)
   /** Art fetched for a row that had none, keyed by the loader that fetched it. */
@@ -16,10 +17,10 @@
   const unavailable = $derived(art === undefined && (preview.loadArt === undefined || settled))
 
   $effect(() => {
-    if (canvas === undefined) return
+    if (canvas === undefined || scroller === undefined) return
     const observer = new IntersectionObserver(([entry]) => {
       nearViewport = entry?.isIntersecting === true
-    }, { root: canvas.closest('[data-caelestis-scroller]'), rootMargin: '128px' })
+    }, { root: scroller, rootMargin: '128px' })
     observer.observe(canvas)
     return () => observer.disconnect()
   })

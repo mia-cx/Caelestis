@@ -102,7 +102,7 @@ export interface TemplateStudioModel {
     | { readonly kind: 'create'; readonly destination: string }
     | { readonly kind: 'replace'; readonly template: string }
   readonly name: string
-  /** The decoded image. Null until one loads. */
+  /** The decoded image's name and size. Null until one loads. */
   readonly source: {
     readonly name: string
     readonly width: number

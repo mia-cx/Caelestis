@@ -81,14 +81,16 @@ export const shift = (node: Element, params?: ShiftParams): TransitionConfig => 
 
 const pendingCloses = new WeakMap<HTMLElement, number>()
 const pendingOpens = new WeakMap<HTMLElement, number>()
+const openedCallbacks = new WeakMap<HTMLElement, (() => void)[]>()
 /** Frames `openSurface` waits for a custom element's shadow styles before opening it anyway. */
-export const MAX_STYLE_WAIT_FRAMES = 40
+const MAX_STYLE_WAIT_FRAMES = 40
 
 const cancelSurfaceOpen = (element: HTMLElement): void => {
   const frame = pendingOpens.get(element)
   if (frame === undefined) return
   cancelAnimationFrame(frame)
   pendingOpens.delete(element)
+  openedCallbacks.delete(element)
   // The pending open may still be holding the element hidden and transition-less.
   element.style.visibility = ''
   element.style.transition = ''
@@ -104,33 +106,47 @@ export const cancelSurfaceClose = (element: HTMLElement): boolean => {
   return true
 }
 
+const markOpen = (element: HTMLElement): void => {
+  element.dataset.state = 'open'
+  const callbacks = openedCallbacks.get(element) ?? []
+  openedCallbacks.delete(element)
+  for (const callback of callbacks) callback()
+}
+
 /**
  * Mark a freshly mounted surface as open on the next frame so the entrance transition runs from
- * its resting (closed) style. Cancels an in-flight close first: reopening mid-close continues from
- * wherever the animation currently is. Calling it again on a surface that is already open or
- * already opening does nothing, so an unrelated model update cannot replay the entrance.
+ * its resting (closed) style. Reopening mid-close flips it open at once, so the closing animation
+ * reverses from wherever it is. Calling it again on a surface that is already open or already
+ * opening does nothing, so an unrelated model update cannot replay the entrance.
+ *
+ * `onOpen` runs once the surface is open and can take focus: at once when it already is, after
+ * the pending open otherwise. A close before then drops it.
  */
-export const openSurface = (element: HTMLElement): void => {
-  if (element.dataset.state === 'open' || pendingOpens.has(element)) return
-  const reuse = cancelSurfaceClose(element)
-  if (!reuse) {
-    // A custom element's shadow styles attach a task or more after connection, and the jump from
-    // unstyled to styled-hidden is itself a transition — flipping data-state before it settles
-    // lands mid-attach and the entrance never runs. Hold the element invisible with transitions
-    // off until the styles exist and a frame has rendered the hidden state, then unhide, restore
-    // transitions, and flip. A plain element is ready immediately.
-    element.style.visibility = 'hidden'
-    element.style.transition = 'none'
+export const openSurface = (element: HTMLElement, onOpen?: () => void): void => {
+  if (element.dataset.state === 'open') {
+    onOpen?.()
+    return
   }
+  if (onOpen !== undefined)
+    openedCallbacks.set(element, [...(openedCallbacks.get(element) ?? []), onOpen])
+  if (pendingOpens.has(element)) return
+  if (cancelSurfaceClose(element)) {
+    markOpen(element)
+    return
+  }
+  // A custom element's shadow styles attach a task or more after connection, and the jump from
+  // unstyled to styled-hidden is itself a transition — flipping data-state before it settles
+  // lands mid-attach and the entrance never runs. Hold the element invisible with transitions
+  // off until the styles exist and a frame has rendered the hidden state, then unhide, restore
+  // transitions, and flip. A plain element is ready after that one frame.
+  element.style.visibility = 'hidden'
+  element.style.transition = 'none'
   element.removeAttribute('data-state')
   let attempts = 0
   const open = (): void => {
     pendingOpens.delete(element)
     const styled = element.shadowRoot === null || element.shadowRoot.querySelector('style') !== null
-    // `reuse` renders already and reverses the closing animation where it is; a fresh element
-    // needs one rendered frame of the hidden style or the flip has no start state.
-    const ready = styled && (reuse || attempts > 0)
-    if (!ready && attempts < MAX_STYLE_WAIT_FRAMES) {
+    if ((!styled || attempts === 0) && attempts < MAX_STYLE_WAIT_FRAMES) {
       attempts += 1
       pendingOpens.set(element, requestAnimationFrame(open))
       return
@@ -138,7 +154,7 @@ export const openSurface = (element: HTMLElement): void => {
     element.style.visibility = ''
     element.style.transition = ''
     void getComputedStyle(element).opacity
-    element.dataset.state = 'open'
+    markOpen(element)
   }
   pendingOpens.set(element, requestAnimationFrame(open))
 }

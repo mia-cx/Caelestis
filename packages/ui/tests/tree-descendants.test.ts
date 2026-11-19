@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { descendantKeys } from '../src/tree/descendants.js'
+import { descendantKeys } from '../src/tree/tree-motion.svelte.js'
 
 const row = (key: string, depth: number) => ({ key, depth })
 

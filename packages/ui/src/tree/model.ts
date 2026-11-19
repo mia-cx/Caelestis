@@ -1,4 +1,4 @@
-import type { AlarmKind, Progress } from '@caelestis/shared'
+import type { AlarmKind, ColourProgress, Progress } from '@caelestis/shared'
 import type { IconName } from '../foundations/icons.svelte.js'
 
 export type TreeIcon = Extract<
@@ -30,12 +30,6 @@ export type TreeIcon = Extract<
   | 'tune'
 >
 
-export interface TreeColourProgressModel extends Progress {
-  readonly index: number
-  readonly name: string
-  readonly hex: string
-}
-
 export interface TreeActionModel {
   readonly id: string
   readonly label: string
@@ -52,7 +46,7 @@ export interface TreePreviewArt {
 }
 
 export interface TreeRowModel {
-  readonly claims?: TemplateClaimsModel
+  readonly favourites?: FavouritesModel
   readonly type: 'row'
   readonly key: string
   readonly name: string
@@ -86,19 +80,20 @@ export interface TreeRowModel {
     readonly pixelsLost?: number | undefined
   }
   readonly progress?: Progress
-  readonly colourProgress?: readonly TreeColourProgressModel[]
-  readonly leadingActions?: readonly TreeActionModel[]
+  /** Per palette colour; names and swatches come from the palette. */
+  readonly colourProgress?: readonly ColourProgress[]
+  /** Fly to the template: the artwork and a heading button in grid, the first row action in tree. */
+  readonly navigate?: TreeActionModel
   readonly actions?: readonly TreeActionModel[]
-  readonly renamable?: boolean
   readonly contextMenu?: boolean
   readonly draggable?: boolean
+  /** The row may move under another parent, and, on a folder, take rows dropped inside it. */
   readonly canReparent?: boolean
-  readonly setSize: number
-  readonly positionInSet: number
 }
 
-export interface TemplateClaimsModel {
-  /** False until an authoritative claim collection has arrived. */
+/** Who keeps a template among their favourites, and what the current painter may change. */
+export interface FavouritesModel {
+  /** False until an authoritative collection has arrived. */
   readonly known?: boolean
   readonly people: readonly import('@caelestis/shared').PainterIdentity[]
   readonly mine: boolean
@@ -119,9 +114,9 @@ export interface TreeStandaloneActionModel {
   readonly type: 'action'
   readonly key: string
   readonly depth: number
-  readonly action: TreeActionModel
+  /** A text button, led by the icon when one is set. */
+  readonly action: Omit<TreeActionModel, 'icon'> & { readonly icon?: TreeIcon }
   readonly variant: 'compact' | 'ghost'
-  readonly showIcon?: boolean
   readonly title: string
 }
 
@@ -132,7 +127,8 @@ export type TreeSortModel = import('@caelestis/shared').TemplateSortOrder
 export interface TemplateTreeModel {
   readonly query: string
   readonly sort: TreeSortModel
-  readonly displayMode?: 'tree' | 'grid'
+  /** The saved layout, with a tree/grid switcher in the toolbar; absent where only the tree is offered. */
+  readonly displayMode?: 'tree' | 'grid' | undefined
   readonly filters?: import('@caelestis/shared').TemplateFilters
   readonly serverFiltersAvailable?: boolean
   readonly tagOptions?: readonly {
@@ -188,7 +184,8 @@ export interface TreeOperationModel {
 
 export type TemplateTreeIntent =
   | {
-      readonly type: 'template-claim'
+      /** Add (`release: false`) or remove a favourite; `person` names someone other than the current painter. */
+      readonly type: 'favourite'
       readonly key: string
       readonly release: boolean
       readonly person?: import('@caelestis/shared').PainterIdentity
@@ -199,12 +196,23 @@ export type TemplateTreeIntent =
   | { readonly type: 'filter'; readonly filters: import('@caelestis/shared').TemplateFilters }
   | { readonly type: 'toggle-expanded'; readonly key: string }
   | { readonly type: 'toggle-visible'; readonly key: string; readonly visible: boolean }
-  | { readonly type: 'action'; readonly key: string; readonly actionId: string }
+  /** `returnToCanvas` echoes the action's own flag, so a popout host can dock before acting. */
+  | {
+      readonly type: 'action'
+      readonly key: string
+      readonly actionId: string
+      readonly returnToCanvas: boolean
+    }
   | { readonly type: 'context-menu'; readonly key: string; readonly x: number; readonly y: number }
   | { readonly type: 'rename'; readonly key: string; readonly name: string }
   | { readonly type: 'cancel-rename'; readonly key: string }
   | { readonly type: 'drag-state'; readonly active: boolean }
-  | { readonly type: 'context-menu-action'; readonly menuId: string; readonly actionId: string }
+  | {
+      readonly type: 'context-menu-action'
+      readonly menuId: string
+      readonly actionId: string
+      readonly returnToCanvas: boolean
+    }
   | { readonly type: 'dismiss-context-menu'; readonly menuId: string }
   | {
       readonly type: 'tree-operation-confirm'

@@ -8,7 +8,6 @@
   import TemplateTree from '../tree/TemplateTree.svelte'
   import PanelDrawers from './PanelDrawers.svelte'
   import SettingsPanel from '../settings/SettingsPanel.svelte'
-  import type { TemplateTreeIntent } from '../tree/model.js'
   import type { PanelIntent, PanelModel, PanelView } from './model.js'
 
   let { model, onIntent }: { model: PanelModel; onIntent?: (intent: PanelIntent) => void } = $props()
@@ -72,28 +71,31 @@
     })
   }
 
-  const treeIntent = (intent: TemplateTreeIntent, work = false): void => {
-    const tree = work ? model.work?.tree : model.tree
-    // Map navigation, file pickers, and placement return to the interactive canvas.
-    const entry = intent.type === 'action' ? tree?.entries.find((entry) => entry.key === intent.key) : undefined
-    const action = intent.type === 'context-menu-action'
-      ? tree?.contextMenu?.items.find((item) => item.id === intent.actionId)
-      : intent.type === 'action' && entry?.type === 'row'
-        ? [...(entry.leadingActions ?? []), ...(entry.actions ?? [])].find((action) => action.id === intent.actionId)
-        : entry?.type === 'action' ? entry.action
-        : undefined
-    if (poppedOut && action?.returnToCanvas === true) void dock()
-    emit({ type: work ? 'work-tree' : 'tree', intent })
+  /** Map navigation, file pickers, placement, claiming and flying act on the canvas. */
+  const returnsToCanvas = (intent: PanelIntent): boolean => {
+    switch (intent.type) {
+      case 'tree':
+      case 'work-tree':
+        return 'returnToCanvas' in intent.intent && intent.intent.returnToCanvas
+      case 'region-claim':
+      case 'presence-fly':
+      case 'claim-fly':
+        return true
+      default:
+        return false
+    }
   }
 
-  const drawerIntent = (intent: PanelIntent): void => {
-    if (intent.type === 'work-tree') return treeIntent(intent.intent, true)
-    // Claiming and flying act on the map, so the popout returns to the sidebar first.
-    if (poppedOut && (intent.type === 'region-claim' || intent.type === 'presence-fly' || intent.type === 'claim-fly')) void dock()
+  /** The popout docks before anything that acts on the canvas. */
+  const forward = (intent: PanelIntent): void => {
+    if (poppedOut && returnsToCanvas(intent)) void dock()
     emit(intent)
   }
 
   $effect(() => { width = model.width })
+
+  /** Grid browsing lives in the popout; the docked sidebar offers only the tree. */
+  const tree = $derived(model.tree === undefined || poppedOut ? model.tree : { ...model.tree, displayMode: undefined })
 
   const clamp = (value: number): number =>
     Math.min(model.maxWidth, Math.max(model.minWidth, Math.round(value)))
@@ -204,10 +206,10 @@
   <div class="body">
     {#each [model.view] as view (view)}
       <div class="page" in:page|global={{ distance: '--caelestis-distance-large', dx: pageDir, blur: '--caelestis-blur-small' }} out:page|global={{ distance: '--caelestis-distance-large', dx: -pageDir, blur: '--caelestis-blur-small' }}>
-        {#if view === 'tree' && model.tree !== undefined}
-          <TemplateTree model={model.tree} allowGrid={poppedOut} onIntent={treeIntent} />
+        {#if view === 'tree' && tree !== undefined}
+          <TemplateTree model={tree} onIntent={(intent) => forward({ type: 'tree', intent })} />
           {#if model.work !== undefined}
-            <PanelDrawers model={model.work} showOtherClaims={model.showOtherClaims ?? false} onIntent={drawerIntent} />
+            <PanelDrawers model={model.work} showOtherClaims={model.showOtherClaims ?? false} onIntent={forward} />
           {/if}
         {:else if view === 'appearance' && model.appearance !== undefined}
           <AppearanceEditor model={model.appearance} onIntent={(intent) => emit({ type: 'appearance', intent })} />
@@ -223,7 +225,7 @@
 <ModalStyles />
 
 {#if poppedOut}
-  <dialog bind:this={dialog} class="caelestis-modal" aria-label="Caelestis menu" oncancel={(event) => { event.preventDefault(); if (model.tree?.contextMenu === undefined) void dock() }} onclick={(event) => { if (event.target === dialog) void dock() }}>
+  <dialog bind:this={dialog} class="caelestis-modal" aria-label="Caelestis menu" oncancel={(event) => { event.preventDefault(); void dock() }} onclick={(event) => { if (event.target === dialog) void dock() }}>
     {@render contents()}
   </dialog>
 {:else}

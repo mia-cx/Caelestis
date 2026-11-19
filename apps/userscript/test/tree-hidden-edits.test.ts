@@ -60,6 +60,7 @@ const choose = (key: string, label: string): void => {
     type: 'context-menu-action',
     menuId: menu.id,
     actionId: item.id,
+    returnToCanvas: item.returnToCanvas === true,
   })
 }
 
@@ -128,6 +129,7 @@ describe('hidden templates and folders', () => {
       type: 'context-menu-action',
       menuId: menu.id,
       actionId: item.id,
+      returnToCanvas: item.returnToCanvas === true,
     })
 
     expect(toast).toHaveBeenCalledWith('“Pending” is hidden. Show it first.', 'warning')

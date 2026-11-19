@@ -51,7 +51,7 @@
         {#if count === 0}
           <p class="empty">No favourites yet. Right-click a template and choose Favourite to keep it here.</p>
         {:else}
-          <TemplateTree model={model.tree} toolbar={false} onIntent={(intent) => onIntent({ type: 'work-tree', intent })} />
+          <TemplateTree model={{ ...model.tree, displayMode: undefined }} toolbar={false} onIntent={(intent) => onIntent({ type: 'work-tree', intent })} />
         {/if}
       </div>
     </div>
