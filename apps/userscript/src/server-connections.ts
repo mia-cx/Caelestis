@@ -1,3 +1,4 @@
+import { canonicalServerUrl } from '@caelestis/shared'
 import { mapLimit } from './concurrency.js'
 import { log, warn } from './debug.js'
 import { notifyListeners } from './listeners.js'
@@ -9,7 +10,7 @@ import {
   type ServerManifest,
 } from './server-manifest.js'
 import { sendServerRequest } from './server-transport.js'
-import { canonicalServerUrl, endpointUrl, type ServerApiVersion } from './server-url.js'
+import { endpointUrl, type ServerApiVersion } from './server-url.js'
 import {
   forgetServer,
   getState,

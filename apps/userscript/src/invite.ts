@@ -1,6 +1,6 @@
+import { canonicalServerUrl } from '@caelestis/shared'
 import { decodeBase64Url, encodeBase64Url } from './base64url.js'
 import { type ConnectOutcome, connectServer } from './server-connections.js'
-import { canonicalServerUrl } from './server-url.js'
 
 export interface Invite {
   readonly serverUrl: string

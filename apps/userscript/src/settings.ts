@@ -1,4 +1,5 @@
 import {
+  canonicalServerUrl,
   defaultTemplateSort,
   EMPTY_TEMPLATE_FILTERS,
   isRecord,
@@ -9,8 +10,8 @@ import {
   PALETTE_SIZE,
   type PainterIdentity,
   parseTemplateFilters,
-  SIMULATED_INPUT_IDS,
   type ShortcutOverrides,
+  SIMULATED_INPUT_IDS,
   type SimulatedInput,
   type SimulatedInputSwitches,
   type TemplateFilters,
@@ -25,7 +26,6 @@ import { log, warn } from './debug.js'
 import { notifyListeners } from './listeners.js'
 import { DEFAULT_MARKER_BUDGET, normaliseMarkerBudget } from './marker-budget.js'
 import { parseServerInfo, type ServerInfo } from './server-manifest.js'
-import { canonicalServerUrl } from './server-url.js'
 import { onStoredValueChange, storedValue, storeValue } from './stored-values.js'
 import {
   APPEARANCE_GROUPS,

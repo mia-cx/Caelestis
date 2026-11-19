@@ -8,6 +8,7 @@ import {
   type LiveTileOfferBatch,
   type LiveTileOfferCacheResponse,
   type LiveTileUpload,
+  liveCredentialProtocol,
   MAX_LIVE_MESSAGE_BYTES,
   type PaintEvent,
   uuidV7,
@@ -15,7 +16,7 @@ import {
 import { userscriptVersion } from './client-metrics.js'
 import { SerialQueue } from './concurrency.js'
 import { type LiveCommandResult, type LiveSyncEvent, parseLiveEvent } from './live-events.js'
-import { liveClientId, liveCredentialProtocol } from './live-identity.js'
+import { liveClientId } from './live-identity.js'
 import {
   isProfileEnabled,
   measureProfile,

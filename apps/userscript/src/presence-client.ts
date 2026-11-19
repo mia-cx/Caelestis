@@ -1,5 +1,6 @@
 import {
   decodePresenceServerEvent,
+  liveCredentialProtocol,
   type PainterIdentity,
   PRESENCE_DRAFT_MIN_MS,
   PRESENCE_HEARTBEAT_MS,
@@ -30,7 +31,7 @@ import {
 import { userscriptVersion } from './client-metrics.js'
 import { log, warn } from './debug.js'
 import { notifyListeners } from './listeners.js'
-import { liveClientId, liveCredentialProtocol } from './live-identity.js'
+import { liveClientId } from './live-identity.js'
 import {
   isProfileEnabled,
   measureProfile,
