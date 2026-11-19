@@ -92,7 +92,7 @@ class NodeLiveSocket implements LiveSocket {
   }
   serializeAttachment(attachment: unknown): void {
     // Clone once here, then hand the same frozen object to every reader. Broadcasts read the
-    // attachment of every socket, and cloning on each read was a fifth of the event loop under
+    // attachment of every socket, and cloning on each read costs a fifth of the event loop under
     // 512 subscribers. Freezing keeps the Durable Object contract that a read cannot mutate
     // stored state.
     this.attachment = deepFreeze(structuredClone(attachment))
@@ -102,7 +102,7 @@ class NodeLiveSocket implements LiveSocket {
   }
 }
 
-/** Node transport preserves the shared coordinator's auth, capacity, and attachment contracts. */
+/** In-process sockets as a live coordinator's host, for both ws and Bun's native WebSocket. */
 export class NodeLiveHost implements LiveHost<NodeLiveSocket> {
   private readonly sockets = new Set<NodeLiveSocket>()
   private readonly pending = new Set<Promise<void>>()

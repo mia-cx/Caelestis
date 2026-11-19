@@ -1,4 +1,3 @@
-/** SQL statement operations used by the relational store. Batches commit atomically in order. */
 export interface SqlResult<T = Record<string, unknown>> {
   readonly results: T[]
   readonly meta: { readonly changes: number }
@@ -12,6 +11,7 @@ export interface SqlStatement {
   raw<T = unknown[]>(): Promise<T[]>
 }
 
+/** The SQL the relational stores run. Batches commit atomically, in order. */
 export interface SqlConnection {
   readonly dialect?: 'sqlite' | 'postgres' | 'mariadb'
   prepare(query: string): SqlStatement

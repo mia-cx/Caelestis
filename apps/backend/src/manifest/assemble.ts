@@ -95,18 +95,13 @@ export const assembleManifest = async (
     else chunks.push(chunk)
   }
 
-  // Templates and tiles are separate reads with no snapshot between them, so a publish landing in
-  // the gap can be seen by one and not the other. A template that arrives with no tiles is emitted
-  // as `chunks: []`, which the wire refuses outright — one admin publish concurrent with one member
-  // poll would produce a 200 nobody can decode. Dropping it is the recoverable direction: the next
-  // poll, microseconds later, carries it complete. The reverse ordering is already benign, since
-  // orphan tile rows simply find no template to attach to.
+  // Nodes, templates and tiles are separate reads with no snapshot between them, so a write landing
+  // in the gap can be seen by one and not another. A template with no tiles, or naming a node the
+  // manifest does not carry, would make a manifest the wire refuses to decode. Dropping it is the
+  // recoverable direction: the next poll carries it complete. Orphan tile rows simply find no
+  // template to attach to.
   const nodeIds = new Set(allNodes.map((node) => node.id))
   const templates = templateRecords
-    // Both directions of the same tear. The node read can also land before a group is created while
-    // the template read lands after one is placed in it, leaving a template naming a node the
-    // manifest does not carry — which the wire refuses just as firmly as `chunks: []`. Dropping is
-    // recoverable; the next poll has both.
     .filter(
       (template) =>
         (template.nodeId === null || nodeIds.has(template.nodeId)) &&
@@ -147,7 +142,7 @@ export const assembleManifest = async (
 
   // The wire bounds nodes, templates and total chunks, and no write path enforces those aggregates.
   // A season past one would assemble a manifest every client refuses to decode, so name the cause
-  // here instead. Refusing the publish that crosses the line would be better still.
+  // here instead.
   const refuse = (count: number, limit: number, what: string) => {
     if (count > limit) {
       throw new Error(

@@ -33,18 +33,11 @@ export const addCounters = (left: CounterValues, right: CounterValues): CounterV
  * The future bound matters because a future bucket cannot become flushable until wall time catches
  * up with it. Without that bound, pending rows could remain live and consume storage indefinitely.
  *
- * **Expiry alone decides how late is too late.** This used to take a `hasLocalTrace` callback, on
- * the rule that an old bucket could still be accepted while local state existed to absorb a
- * cumulative rewrite — but the callback was only ever consulted once the bucket had expired, and
- * both implementations opened by returning false on exactly that condition. The disjunct was
- * unconditionally false and the SQL behind it was dead. Rather than leave a contract documented but
- * unimplemented, the rule is now what the code does.
- *
- * What that gives up: if D1 already holds a bucket while the shard has no retained row for it, a
- * late rewrite promotes only the late portion, and appendBuckets replaces rather than adds. Within
- * the acceptance window a retained row exists whenever the shard flushed the bucket, so reaching
- * this needs the Durable Object's storage to have been lost — which is not a mode Durable Objects
- * have. Accepting up to RETENTION_SECONDS of client lag is worth more than guarding it.
+ * **Expiry alone decides how late is too late.** If D1 already holds a bucket while the shard has
+ * no retained row for it, a late rewrite promotes only the late portion, and `appendAndFold`
+ * replaces rather than adds. Within the acceptance window a retained row exists whenever the shard
+ * flushed the bucket, so reaching this needs the coordinator's storage to have been lost. Accepting
+ * up to RETENTION_SECONDS of client lag is worth more than guarding that.
  *
  * The exact expiry instant is exclusive.
  */

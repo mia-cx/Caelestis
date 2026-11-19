@@ -8,7 +8,6 @@ const value = (input: unknown): unknown => {
   return number
 }
 
-/** Native SQLite statements retain the shared adapter's migrations and transaction serialization. */
 export const bunSqliteDatabase = (filename: string): SqliteDatabase => {
   const database = new Database(filename, { create: true, strict: true, safeIntegers: true })
   const row = (input: Record<string, unknown>): Record<string, unknown> =>

@@ -1,6 +1,6 @@
 export type SqliteValue = null | number | bigint | string | Uint8Array
 
-/** Native SQLite bindings share one adapter for migrations and asynchronous transactions. */
+/** The synchronous SQLite binding a `SqliteConnection` drives: `node:sqlite` or `bun:sqlite`. */
 export interface SqliteDatabase {
   exec(query: string): void
   close(): void

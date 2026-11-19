@@ -57,11 +57,8 @@ export class RelationalAccessTokenStore extends RelationalStore implements Acces
   }
 
   async revokeAccessToken(tokenHash: string): Promise<void> {
-    // A delete, not a flag. Idempotent because deleting an absent row is a no-op, and nothing
-    // references this table — the reporter and author digests are shape-checked, not foreign keys —
-    // so the reports this credential wrote survive it. That is deliberate: reported state records
-    // what was on wplace, and revoking a credential ends its future access rather than editing the
-    // past.
+    // Nothing references this table — the reporter and author digests are shape-checked, not
+    // foreign keys — so the reports this credential wrote survive it (see `revokeAccessToken`).
     await this.database.delete(accessTokens).where(eq(accessTokens.tokenHash, tokenHash))
   }
 }

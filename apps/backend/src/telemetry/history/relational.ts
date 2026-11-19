@@ -425,8 +425,8 @@ export class RelationalHistoryStore extends RelationalStore implements HistorySt
     if (resolutions.length === 0) return []
 
     // Deduplicate before chunking. Each chunk returns its own rows and the merge does not join
-    // them, so an id repeated across two chunks came back twice and any consumer summing the result
-    // double-counted that template's history. It also keeps the query count honest.
+    // them, so an id repeated across two chunks would come back twice and double-count that
+    // template's history for any consumer summing the result.
     const templateIds = [...new Set(query.templateIds)]
     if (templateIds.length > MAX_IDS_PER_READ) throw tooManyIds(templateIds.length, 'readBuckets')
     // Concatenated rather than spread into `push`. A spread passes every row as a separate argument,
@@ -455,11 +455,6 @@ export class RelationalHistoryStore extends RelationalStore implements HistorySt
     // Each chunk is ordered, but the concatenation of ordered chunks is not: template ids are
     // distributed across chunks in input order, not sort order. The contract is a single ordered
     // result, so the merge has to re-sort.
-    //
-    // The bucketStart tiebreak is redundant today and kept for explicitness: chunking is by template
-    // id, so one template's buckets always land in a single chunk already ordered by SQL, and
-    // Array.prototype.sort is stable. Dropping it changes no outcome, so no test can pin it — said
-    // here rather than left looking load-bearing.
     return rows.map(fromRow).sort(compareBuckets)
   }
 

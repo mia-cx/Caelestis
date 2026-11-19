@@ -244,8 +244,9 @@ const beginRestoreHeld = async (host: ArchiveHost, lease: ArchiveLease, headerLi
 }
 
 /**
- * Establish, behind the closed gate, that the destination is empty, then publish `ready`. Every step only reads or probes, so any caller may repeat it;
- * the compare-and-set lets exactly one publish, and loses to a cancellation that came first.
+ * Establish, behind the closed gate, that the destination is empty, then publish `ready`. Every
+ * step only reads or probes, so any caller may repeat it; the compare-and-set lets exactly one
+ * publish, and loses to a cancellation that came first.
  */
 const prepare = async (
   host: ArchiveHost,
@@ -270,8 +271,9 @@ const prepare = async (
     if (error instanceof ArchiveError) await releaseServer(host, operation)
     throw error
   }
-  // A preparation begun before the upgrade carries an empty placeholder list. Nothing is imported
-  // yet, so there is nothing to clean, and keeping it would read as "the destination owns none".
+  // A preparation begun while archives still carried credentials holds an empty placeholder list.
+  // Nothing is imported yet, so there is nothing to clean, and keeping it would read as "the
+  // destination owns none".
   const { preservedTokens: _, ...state } = decodeState(operation)
   const ready = await transition(host, operation, { ...state, phase: 'ready' })
   if (ready !== null) return ready

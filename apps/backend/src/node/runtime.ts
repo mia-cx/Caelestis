@@ -299,7 +299,7 @@ export const openNodeRuntime = async (
       readToken,
       serverId,
       connection,
-      /** Pod-local capacity for `/metrics`; one process is one shard in the sharding roadmap. */
+      /** This process's capacity for `/metrics`. */
       capacity: {
         admissions: new AdmissionCounters(),
         eventLoopLag,

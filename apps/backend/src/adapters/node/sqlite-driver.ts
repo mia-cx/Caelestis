@@ -1,7 +1,6 @@
 import { DatabaseSync } from 'node:sqlite'
 import type { SqliteDatabase } from '../database-driver.js'
 
-/** Node's SQLite binding implements the shared synchronous database driver. */
 export const nodeSqliteDatabase = (filename: string): SqliteDatabase => {
   const database = new DatabaseSync(filename)
   return {

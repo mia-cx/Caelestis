@@ -281,17 +281,14 @@ export class TelemetryCoordinator {
     return exportCounterRows(this.database, table, after, limit)
   }
 
-  /** Open counter rows to `operationId`'s imports. */
   beginCounterImport(operationId: string): Promise<void> {
     return moveCounterOperation(this.database, operationId, COUNTER_OPERATION.importing)
   }
 
-  /** Stop `operationId`'s imports; its own discard may still clean the rows it wrote. */
   beginCounterDiscard(operationId: string): Promise<void> {
     return moveCounterOperation(this.database, operationId, COUNTER_OPERATION.cleaning)
   }
 
-  /** Neither imports nor cleanup may write for `operationId` again. */
   closeCounterOperation(operationId: string): Promise<void> {
     return moveCounterOperation(this.database, operationId, COUNTER_OPERATION.closed)
   }

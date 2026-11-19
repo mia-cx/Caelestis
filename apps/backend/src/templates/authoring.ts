@@ -82,8 +82,8 @@ export interface StoredTemplate {
  * The number comes from the Workers Free plan's 1,000 internal subrequests, which R2 and D1 binding
  * calls both count against. `hasAll` is one HEAD per distinct hash, because R2 has no bulk existence
  * operation, and a first upload has no hash already present — so the worst case is 400 HEADs, 400
- * PUTs and roughly twenty batch statements, a little over 800. At 512 the same upload asked for more
- * than a thousand and failed after writing part of its chunks, leaving those orphaned.
+ * PUTs and roughly twenty batch statements, a little over 800. At 512 the same upload would ask for
+ * more than a thousand and fail after writing part of its chunks, orphaning those.
  */
 const MAX_TEMPLATE_CHUNKS = 400
 

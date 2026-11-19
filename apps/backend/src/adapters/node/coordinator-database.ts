@@ -1,7 +1,7 @@
 import type { CoordinatorDatabase } from '../../coordination/database.js'
 import type { SqlConnection, TransactionalSqlConnection } from '../sql-connection.js'
 
-/** Coordinator operations share the configured application database. */
+/** Coordinator tables in the application database, for hosts without Durable Object storage. */
 export const coordinatorDatabase = (root: TransactionalSqlConnection): CoordinatorDatabase => {
   const scoped = (connection: SqlConnection, inTransaction = false): CoordinatorDatabase => ({
     dialect: connection.dialect ?? 'sqlite',

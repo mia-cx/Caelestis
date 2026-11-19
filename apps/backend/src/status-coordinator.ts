@@ -485,9 +485,8 @@ export class StatusCoordinator<Client> {
   }
 
   private async broadcastAlarmSnapshots(): Promise<void> {
-    // One read and one encoding per season and scope, not one per subscriber. With hundreds of
-    // sockets, one alarm change used to fire hundreds of identical queries at the pool at once
-    // and starved every live command behind them.
+    // One read and one encoding per season and scope, not one per subscriber: with hundreds of
+    // sockets, a query each would starve every live command queued behind them.
     const encoded = onePerKey<readonly string[] | null>()
     const snapshotFor = ({ season, scope }: LiveSubscriberAttachment) =>
       encoded(`${season}:${scope}`, async () =>

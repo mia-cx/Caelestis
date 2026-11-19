@@ -17,8 +17,6 @@ const isScope = (value: unknown): value is Scope =>
 /**
  * Token administration, admin-only throughout: a `report` holder that could mint itself `admin`
  * would make the scope ladder decorative.
- *
- * @see .scratch/v1/issues/03-auth-model.md
  */
 export const createTokenRoutes = (
   runtime: BackendRuntime,
