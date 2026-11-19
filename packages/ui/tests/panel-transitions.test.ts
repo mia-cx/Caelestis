@@ -153,7 +153,7 @@ describe('context menu inside caelestis-panel element', () => {
 })
 
 describe('rename from the context menu', () => {
-  it('runs the action from the row that opened the menu, then leaves focus in the rename field', async () => {
+  it('runs the action from the row that opened the menu, then leaves the name selected in the rename field', async () => {
     registerCaelestisUi()
     const element = document.createElement('caelestis-panel')
     const { contextMenu: _, ...withoutMenu } = menuTree()
@@ -183,6 +183,9 @@ describe('rename from the context menu', () => {
     await tick()
     await nextFrame()
     await nextFrame()
-    expect(s.activeElement).toBe(s.querySelector('input[aria-label="Rename art"]'))
+    const field = s.querySelector<HTMLInputElement>('input[aria-label="Rename art"]')!
+    expect(s.activeElement).toBe(field)
+    // The whole name is selected, so typing replaces it.
+    expect([field.selectionStart, field.selectionEnd]).toEqual([0, 'art'.length])
   })
 })

@@ -118,7 +118,7 @@
     return paths
   })
 
-  $effect(() => {
+  $effect.pre(() => {
     if (model.renamingKey === admittedRenameKey) return
     admittedRenameKey = model.renamingKey
     const row = model.entries.find((entry): entry is TreeRowModel => entry.type === 'row' && entry.key === model.renamingKey)
@@ -304,6 +304,8 @@
     else emit({ type: 'cancel-rename', key: row.key })
   }
 
+  // Svelte runs directives in attribute order, so `bind:value` must precede `use:focusRename` for
+  // the field to hold the name when it is selected; `$effect.pre` admits the name before it mounts.
   const focusRename = (node: HTMLInputElement): void => {
     node.focus()
     node.select()
@@ -414,7 +416,7 @@
               </button>
             {/if}
             {#if model.renamingKey === entry.key}
-              <input use:focusRename class="rename caelestis-field" aria-label={`Rename ${entry.name}`} bind:value={renameDraft} onkeydown={(event) => { event.stopPropagation(); if (event.key === 'Enter') commitRename(entry); if (event.key === 'Escape') { event.preventDefault(); emit({ type: 'cancel-rename', key: entry.key }) } }} />
+              <input class="rename caelestis-field" aria-label={`Rename ${entry.name}`} bind:value={renameDraft} use:focusRename onkeydown={(event) => { event.stopPropagation(); if (event.key === 'Enter') commitRename(entry); if (event.key === 'Escape') { event.preventDefault(); emit({ type: 'cancel-rename', key: entry.key }) } }} />
             {:else}
               <span class="name" title={entry.name}>{entry.name}</span>
             {/if}
