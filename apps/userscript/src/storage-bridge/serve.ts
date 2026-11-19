@@ -24,8 +24,8 @@ export interface StringStore {
  * handoff before any page listener sees it. Returns a function that stops waiting for the handoff.
  */
 export const serveStorageBridge = (build: Build, store: StringStore): (() => void) => {
-  // Storage failures end here: an unreadable store serves defaults, and a failed write makes the
-  // next sync answer `null`.
+  // Storage failures end here: an unreadable store serves defaults, a failed write makes the next
+  // sync answer `null`, and a failed watch answers nothing.
   const load = (): Promise<Record<string, string> | null> =>
     store.load().catch((error: unknown) => {
       console.warn('[caelestis] could not load stored values', error)
@@ -61,7 +61,12 @@ export const serveStorageBridge = (build: Build, store: StringStore): (() => voi
           return
         }
         if (message.type === 'watch') {
-          const value = store.watch?.(message.key) ?? null
+          let value: string | null = null
+          try {
+            value = store.watch?.(message.key) ?? null
+          } catch (error) {
+            console.warn(`[caelestis] could not watch ${message.key}`, error)
+          }
           if (value !== null) send({ type: 'watched', key: message.key, value })
           return
         }
