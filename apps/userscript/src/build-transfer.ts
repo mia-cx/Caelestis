@@ -47,50 +47,34 @@ const receive = async (values: Record<string, string>): Promise<void> => {
 
 const MEETING = '__caelestisMeeting'
 
-/** Whether the parser has started the page: every Wplace script lives in its head or body. */
-const pageStarted = (): boolean => document.head !== null || document.body !== null
-
 /**
- * This copy's end of the channel to the other build, or `null` when it is too late to meet.
+ * This copy's end of the channel to the other build, or `null` when something already took the
+ * offer.
  *
- * Both copies call this at document start. The first offers the other end on the page's `window`
- * through a property it locks: page code can neither replace nor remove it, and it hands the port
- * out once, only until the parser adds `<head>` or `<body>`. The parser does that before any page
- * script can run, so a copy that starts later meets nobody. Caelestis's own elements, such as its
- * font styles at the root, don't count.
- *
- * What this cannot rule out: a userscript manager that starts the userscript after Wplace's own
- * scripts, on a page without the extension, where a hostile Wplace removed `<head>` and `<body>`
- * and planted an offer first. The extension always starts before page scripts and locks the
- * property, so with it installed there is nothing to plant.
+ * The first copy to start offers the other end on the page's `window` through a property it locks:
+ * page code can neither replace nor remove it, and it hands the port out once. The offer stays open
+ * however late the other copy starts, because userscript managers such as Violentmonkey start a
+ * `document-start` script after Wplace's own scripts. Page code that reads the property first takes
+ * the port and can see or answer what the builds exchange; Caelestis accepts that.
  *
  * `page` is the page's `window`; tests pass their own.
  */
 export const meetOtherBuild = (
   page: object = pageWindow() as unknown as object,
 ): MessagePort | null => {
-  if (pageStarted()) return null
   if (MEETING in page) {
     const offered: unknown = Reflect.get(page, MEETING)
     return offered === undefined ? null : (offered as MessagePort)
   }
   const channel = new MessageChannel()
   let offer: MessagePort | undefined = channel.port2
-  const close = (): void => {
-    offer = undefined
-    observer.disconnect()
-  }
-  const observer = new MutationObserver(() => {
-    if (pageStarted()) close()
-  })
   Object.defineProperty(page, MEETING, {
     get: () => {
       const taken = offer
-      close()
+      offer = undefined
       return taken
     },
   })
-  observer.observe(document, { childList: true, subtree: true })
   return channel.port1
 }
 
