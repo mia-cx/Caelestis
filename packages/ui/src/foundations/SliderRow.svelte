@@ -13,7 +13,6 @@
     format: (value: number) => string
     compact?: boolean
     disabled?: boolean
-    control?: string
     depth?: number
     resettable?: boolean
     onInput?: (value: number) => void
@@ -31,7 +30,6 @@
     format,
     compact = false,
     disabled = false,
-    control,
     depth,
     resettable = true,
     onInput,
@@ -74,7 +72,6 @@
       {disabled}
       aria-label={label}
       aria-disabled={disabled}
-      data-caelestis-control={control}
       style:--fill={`${max === min ? 0 : ((local - min) / (max - min)) * 100}%`}
       bind:value={local}
       oninput={input}

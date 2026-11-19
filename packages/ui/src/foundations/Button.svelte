@@ -13,7 +13,6 @@
     disabled?: boolean
     ariaDisabled?: boolean
     iconOnly?: boolean
-    control?: string
     /** The rendered `<button>`, for callers that move focus to it. */
     element?: HTMLButtonElement | undefined
     onclick?: (event: MouseEvent) => void
@@ -31,7 +30,6 @@
     disabled = false,
     ariaDisabled = false,
     iconOnly = false,
-    control,
     element = $bindable(),
     onclick,
     children,
@@ -57,7 +55,6 @@
   aria-label={iconOnly ? label : undefined}
   aria-pressed={pressed}
   aria-haspopup={popup}
-  data-caelestis-control={control}
   onclick={(event) => { if (!disabled && !ariaDisabled) onclick?.(event) }}
 >
   {#if children !== undefined}{@render children()}{:else}{label}{/if}

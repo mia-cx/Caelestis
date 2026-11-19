@@ -4,11 +4,10 @@
     checked: boolean
     disabled?: boolean
     compact?: boolean
-    control?: string
     onChange?: (checked: boolean) => void
   }
 
-  let { label, checked, disabled = false, compact = false, control, onChange }: Props = $props()
+  let { label, checked, disabled = false, compact = false, onChange }: Props = $props()
   // The "off" keyframes must not play on mount — they only arm once the user has toggled.
   let initiated = $state(false)
 </script>
@@ -21,7 +20,6 @@
   class:is-init={initiated}
   {checked}
   {disabled}
-  data-caelestis-control={control}
   onchange={(event) => { initiated = true; onChange?.(event.currentTarget.checked) }}
 />
 

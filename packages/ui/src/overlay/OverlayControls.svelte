@@ -10,13 +10,18 @@
   let { model, onIntent }: { model: OverlayControlsModel; onIntent?: (intent: OverlayControlsIntent) => void } = $props()
   const emit = (intent: OverlayControlsIntent): void => onIntent?.(intent)
   let root: HTMLElement
-  const controlKey = (target: EventTarget | null): string | null =>
-    target instanceof HTMLElement ? (target.closest<HTMLElement>('[data-caelestis-control]')?.dataset.caelestisControl ?? null) : null
+  let closeButton: HTMLButtonElement | undefined = $state()
+  // A control's key is its position among the menu's focusables, so the host can hand it back to
+  // a rebuilt menu without knowing what the controls are.
+  const focusables = (): HTMLElement[] => [...root.querySelectorAll<HTMLElement>('button, input, select, textarea, [tabindex]:not([tabindex="-1"])')]
+  const controlKey = (target: EventTarget | null): string | null => {
+    const index = focusables().findIndex((control) => control === target)
+    return index === -1 ? null : String(index)
+  }
 
   onMount(() => {
     if (model.focus === undefined) return
-    const wanted = [...root.querySelectorAll<HTMLElement>('[data-caelestis-control]')]
-    ;(wanted.find((control) => control.dataset.caelestisControl === model.focus) ?? wanted.find((control) => control.dataset.caelestisControl === 'close'))?.focus()
+    ;(focusables().find((_, index) => String(index) === model.focus) ?? closeButton)?.focus()
   })
   const onAppearance = (intent: AppearanceEditorIntent): void => emit({ type: 'appearance', intent })
 
@@ -35,7 +40,7 @@
         {#if model.lifecycle !== undefined}<TemplateState compact {...model.lifecycle} />{/if}
       </span>
     </div>
-    <Button label="Close" kind="ghost" size="compact" iconOnly control="close" onclick={() => emit({ type: 'close' })}><Icon name="close" /></Button>
+    <Button label="Close" kind="ghost" size="compact" iconOnly bind:element={closeButton} onclick={() => emit({ type: 'close' })}><Icon name="close" /></Button>
   </header>
 
   {#each model.failures as failure (failure.id)}
@@ -45,7 +50,7 @@
   <AppearanceEditor model={model.appearance} onIntent={onAppearance} />
   {#if model.updateArtwork !== undefined}
     <div class="artwork-action">
-      <Button label="Use canvas artwork" kind="ghost" size="small" control="update-artwork" disabled={model.updateArtwork.disabled || model.updateArtwork.pending} onclick={() => emit({ type: 'update-artwork' })}>
+      <Button label="Use canvas artwork" kind="ghost" size="small" disabled={model.updateArtwork.disabled || model.updateArtwork.pending} onclick={() => emit({ type: 'update-artwork' })}>
         {model.updateArtwork.pending ? 'Updating…' : 'Use canvas artwork'}
       </Button>
     </div>

@@ -97,12 +97,12 @@
     </SettingRow>
     <SettingRow label="Contrast outline" hint={compact ? undefined : 'Visible behind the overlay until Wplace art covers it'} {compact}>
       {#snippet children()}
-        <Toggle label="Contrast outline" control="contrastOutline" checked={model.values.contrastOutline} {compact} onChange={(value) => emit({ type: 'set-boolean', key: 'contrastOutline', value })} />
+        <Toggle label="Contrast outline" checked={model.values.contrastOutline} {compact} onChange={(value) => emit({ type: 'set-boolean', key: 'contrastOutline', value })} />
       {/snippet}
     </SettingRow>
     <div class="sliders">
       {#each pixelSliders as slider (slider.key)}
-        <SliderRow {...slider} {compact} control={slider.key} format={format(slider)} onInput={(value) => sliderInput(slider.key, value)} onCommit={(value) => sliderCommit(slider.key, value)} onReset={(value) => sliderCommit(slider.key, value)} />
+        <SliderRow {...slider} {compact} format={format(slider)} onInput={(value) => sliderInput(slider.key, value)} onCommit={(value) => sliderCommit(slider.key, value)} onReset={(value) => sliderCommit(slider.key, value)} />
       {/each}
     </div>
 {/snippet}
@@ -187,7 +187,7 @@
     <div class="swatches">
       <div class="palette" role="group" aria-label="Visible colours">
         {#each model.palette as colour (colour.index)}
-          <button type="button" class="palette-swatch" data-on={colour.visible} data-caelestis-control={`swatch:${colour.index}`} style:background={colour.hex} aria-label={`${colour.name}, ${colour.kind}`} aria-pressed={colour.visible} aria-disabled={model.disabled} title={`${colour.name} · ${colour.kind}`} onclick={() => { if (!model.disabled) emit({ type: 'toggle-colour', index: colour.index, visible: !colour.visible }) }}>
+          <button type="button" class="palette-swatch" data-on={colour.visible} style:background={colour.hex} aria-label={`${colour.name}, ${colour.kind}`} aria-pressed={colour.visible} aria-disabled={model.disabled} title={`${colour.name} · ${colour.kind}`} onclick={() => { if (!model.disabled) emit({ type: 'toggle-colour', index: colour.index, visible: !colour.visible }) }}>
             <span class="swatch-badge" aria-hidden="true"><span><Icon name={colour.visible ? 'eye' : 'eyeOff'} size="78%" /></span></span>
           </button>
         {/each}
