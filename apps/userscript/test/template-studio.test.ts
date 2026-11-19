@@ -26,8 +26,8 @@ vi.mock('../src/wplace-account.js', async (original) => ({
 }))
 
 import { templateDraft } from '../src/templates/catalog.js'
-import type { ImportedTemplate } from '../src/templates/import.js'
 import { processRecipe } from '../src/templates/import.js'
+import type { ImportedTemplate } from '../src/templates/template-record.js'
 import { requestConfirmation } from '../src/ui/notification-host.js'
 import {
   closeTemplateStudio,

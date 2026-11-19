@@ -11,7 +11,7 @@ import {
 import { pageWindow } from '../page-world.js'
 import { loadAccount, ownedColours } from '../wplace-account.js'
 import { findWplaceModules, type WplaceModule } from '../wplace-modules.js'
-import type { ImportedTemplate } from './import.js'
+import type { ImportedTemplate } from './template-record.js'
 import type { resizeWplaceImage } from './wplace-resize.js'
 
 /** Wplace owns these fields. Caelestis folders, appearance, and history stay in its own database. */

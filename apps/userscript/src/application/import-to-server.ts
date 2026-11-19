@@ -3,7 +3,6 @@ import { uploadTemplate } from '../server-api.js'
 import { isCurrentServerConnection } from '../server-connections.js'
 import type { ServerConnection } from '../settings.js'
 import { isCurrentTemplate, templateById } from '../templates/catalog.js'
-import type { ImportedTemplate } from '../templates/import.js'
 import type { MoveReservation } from '../templates/move.js'
 import { movingId } from '../templates/move.js'
 import { templateAsPng } from '../templates/residency.js'
@@ -12,6 +11,7 @@ import {
   removeLocalTemplate,
   unstageLocalTemplate,
 } from '../templates/template-edits.js'
+import type { ImportedTemplate } from '../templates/template-record.js'
 import { authoringOf } from './template-authoring.js'
 import { refreshEditedSurface } from './tree-server.js'
 

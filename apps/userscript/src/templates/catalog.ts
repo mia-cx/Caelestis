@@ -24,11 +24,10 @@ import {
   serverTemplateTreeKey,
 } from '../tree-keys.js'
 import { type Appearance, type AppearanceGroup, GROUP_FIELDS } from './appearance.js'
-import type { ImportedTemplate } from './import.js'
 import { validatePlacement } from './placement.js'
 import { nodeChainVisible, serverNodeParents, serverNodesRevision } from './server-nodes.js'
 import { cutPixels, type SparsePixels } from './sparse-pixels.js'
-import type { NativeLink, TemplateRecord } from './template-record.js'
+import type { ImportedTemplate, NativeLink, TemplateRecord } from './template-record.js'
 import { WPLACE_OWNER_URL, type WplaceOwner } from './wplace-owned.js'
 
 /**

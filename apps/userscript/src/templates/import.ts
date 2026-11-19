@@ -26,7 +26,7 @@ import { loadAccount, ownedColours } from '../wplace-account.js'
 import type { TemplateAuthoring } from './authoring.js'
 import { type CaelestisBlock, parseCaelestisBlock } from './caelestis-file.js'
 import type { NativeTemplate } from './native-store.js'
-import { MAX_TEMPLATE_NAME_LENGTH, type TemplateRecord } from './template-record.js'
+import { type ImportedTemplate, MAX_TEMPLATE_NAME_LENGTH } from './template-record.js'
 import { resizeWplaceImage } from './wplace-resize.js'
 
 /**
@@ -43,12 +43,6 @@ import { resizeWplaceImage } from './wplace-resize.js'
  * Wplace files use native decoding and color processing after our exact nearest-neighbor resize.
  * Plain PNG and Marble images use the browser's PNG decoder via `createImageBitmap`.
  */
-
-/** A template as an import produces it: the record and its dense pixels. */
-export interface ImportedTemplate extends TemplateRecord {
-  /** One byte per pixel: wplace's palette index, `TRANSPARENT_INDEX` for absent. */
-  readonly indices: Uint8Array
-}
 
 export interface TemplateOrigin {
   readonly originX: number

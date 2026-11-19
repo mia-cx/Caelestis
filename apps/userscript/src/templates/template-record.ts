@@ -63,6 +63,12 @@ export interface NativeLink {
   readonly opacityOverride?: boolean
 }
 
+/** A template as an import produces it: the record and its dense pixels. */
+export interface ImportedTemplate extends TemplateRecord {
+  /** One byte per pixel: wplace's palette index, `TRANSPARENT_INDEX` for absent. */
+  readonly indices: Uint8Array
+}
+
 /** A Local template as this browser stores it. */
 export interface StoredTemplate extends TemplateRecord {
   /**

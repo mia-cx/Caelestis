@@ -12,7 +12,7 @@ import { errorText } from '../error-text.js'
 import { viewportCentre } from '../map-view.js'
 import type { ServerConnection } from '../settings.js'
 import { captureSelectedArtwork } from '../templates/current-artwork.js'
-import { type ImportedTemplate, importFile, newTemplateId } from '../templates/import.js'
+import { importFile, newTemplateId } from '../templates/import.js'
 import { type MoveReservation, reserveMove } from '../templates/move.js'
 import { centreOf, navigateTo } from '../templates/navigate.js'
 import {
@@ -20,6 +20,7 @@ import {
   removeLocalTemplate,
   setTemplateFolder,
 } from '../templates/template-edits.js'
+import type { ImportedTemplate } from '../templates/template-record.js'
 import { localFolderIdOf } from '../tree-keys.js'
 import { showToast } from './notification-host.js'
 import { openTemplateStudio } from './template-studio.js'

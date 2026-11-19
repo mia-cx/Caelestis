@@ -1,6 +1,6 @@
 import { MAX_TEMPLATE_TAGS, type TemplateTag, tagName, tagNameKey, uuidV7 } from '@caelestis/shared'
 import type { NativeMetadataStore, NativeTemplate } from './native-store.js'
-import type { LocalTag } from './tags.js'
+import type { LocalTag } from './tag-schema.js'
 
 const MAX_NATIVE_TAGS = 8
 const MAX_NATIVE_CATALOG = 64

@@ -29,7 +29,6 @@ import {
   writeInOrder,
   writeManyInOrder,
 } from './catalog.js'
-import type { ImportedTemplate } from './import.js'
 import { type SaveResult, saveTemplateFolders } from './persist.js'
 // Edits a person makes, mirrored to their Wplace templates when linked.
 import { deleteTemplate, saveTemplate } from './personal-store.js'
@@ -47,6 +46,7 @@ import {
 } from './residency.js'
 import { noteSnapshot, reconcileConflict, restoreRunning } from './restore.js'
 import { cutPixels, joinPixels, storedArea } from './sparse-pixels.js'
+import type { ImportedTemplate } from './template-record.js'
 import {
   MAX_TEMPLATE_ID_LENGTH,
   MAX_TEMPLATE_NAME_LENGTH,
