@@ -3,8 +3,7 @@ import { registerCaelestisUi } from '@caelestis/ui/elements'
 import { installAlarmNotifications } from './alarms.js'
 import { installAllianceServerSync } from './alliance-server-sync.js'
 import { activeAllianceSurface, installAllianceSurfaceObserver } from './alliance-surface.js'
-import { onClaimEditorChange, syncClaimEditorFrame } from './claim-editor.js'
-import { installClaimRouting } from './claim-routing.js'
+import { installClaims } from './claims.js'
 import { installDebugApi, loadDebugSetting, warn } from './debug.js'
 import { installAllianceOverlayLayer, repaintAllianceOverlayLayer } from './gl/artboard-layer.js'
 import { onMapThemeChange } from './gl/contrast-outline.js'
@@ -34,7 +33,6 @@ import { observePresenceFrame } from './presence-local.js'
 import { onSceneHoverChange } from './presence-scene.js'
 import { installProfile, recordProfileAction, registerProfileContextSource } from './profile.js'
 import { readProfileContext } from './profile-context.js'
-import { installQuickClaims, onQuickClaimPreviewChange } from './quick-claims.js'
 import { installServerSyncCoordinator } from './server-sync-coordinator.js'
 import { loadState, onStateChange } from './settings.js'
 import { installShiftPaint } from './shift-paint.js'
@@ -55,7 +53,6 @@ import {
 import { installChargeForecast } from './ui/charge-forecast.js'
 import { renderOverlayControls } from './ui/overlay-menu.js'
 import { installPanel, openInviteFromLocation, refreshTemplateTreeFocus } from './ui/panel.js'
-import { installClaimToolHost } from './ui/presence-actions.js'
 import { installUserscriptUpdateCheck } from './userscript-update.js'
 import { loadAccount } from './wplace-account.js'
 import { installWplaceCursors } from './wplace-cursors.js'
@@ -213,17 +210,12 @@ const refreshTreeFocus = (): void => {
 /** Where this tab is looking and drafting, for the other painters; and their tags for us. */
 const installPresenceFeatures = (): void => {
   installPresence()
-  installClaimRouting()
+  installClaims()
   // MapLibre coalesces message bursts into one frame, which also refreshes the screen controls.
   onPresenceChange(repaintPresence)
-  onClaimEditorChange(repaintPresence)
   onSceneHoverChange(repaintPresence)
-  onQuickClaimPreviewChange(repaintPresence)
-  installQuickClaims()
-  installClaimToolHost()
   // The socket is throttled inside, so feeding it every frame costs a rect comparison.
   onMapFrame(observePresenceFrame, 'Presence viewport')
-  onMapFrame(syncClaimEditorFrame, 'Claim editor overlay')
   onViewChange(syncStudioFrame, 'Template studio handles')
   onMapFrame((frame) => {
     if (activeAllianceSurface() === null) renderPresenceLabels(frame, screenProjection())

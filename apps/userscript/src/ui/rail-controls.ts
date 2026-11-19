@@ -1,11 +1,9 @@
 import type { CaelestisRailControl, RailControlIntent } from '@caelestis/ui/elements'
-import { activeAllianceSurface } from '../alliance-surface.js'
 import { isCaptureModeActive, isClaimModeActive, stopClaimMode } from '../claim-editor.js'
+import { claimAvailability, openClaimTool } from '../claims.js'
 import { redraw } from '../map-view.js'
-import { presenceView } from '../presence-client.js'
 import { getState, onStateChange, setState } from '../settings.js'
 import { shortcutHint } from '../shortcuts.js'
-import { openClaimTool } from './presence-actions.js'
 import { applyWplaceTheme } from './theme.js'
 
 export const MISMATCH_MODE_ID = 'caelestis-mismatch-mode'
@@ -57,9 +55,7 @@ export const syncClaimToolState = (): void => {
   if (button === null) return
   const active = isClaimModeActive()
   const capturing = isCaptureModeActive()
-  const view = presenceView()
-  // Alliance artboards have no presence room, so claims only exist on the world canvas.
-  const ready = view.connected && view.me !== null && activeAllianceSurface() === null
+  const ready = claimAvailability().ready
   button.model = {
     id: 'claim',
     label: capturing
@@ -91,12 +87,7 @@ export const claimToolButton = (): CaelestisRailControl => {
     const intent = (event as CustomEvent<RailControlIntent>).detail
     if (intent.id !== 'claim') return
     if (isClaimModeActive()) stopClaimMode()
-    else {
-      // The rail control only looks disabled; the guard is here.
-      const view = presenceView()
-      if (!(view.connected && view.me !== null && activeAllianceSurface() === null)) return
-      openClaimTool()
-    }
+    else openClaimTool()
     syncClaimToolState()
   })
   syncClaimToolState()

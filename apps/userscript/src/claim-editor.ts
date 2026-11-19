@@ -35,7 +35,6 @@ import {
 } from './claim-editor-state.js'
 import { CLAIM_OVERLAY_ID, handleOf, overlayMarks, renderOverlay } from './claim-overlay.js'
 import type { ClaimSaveResult } from './claim-routing.js'
-import { registerDebugEntry } from './console-api.js'
 import { warn } from './debug.js'
 import { getMap } from './map-handle.js'
 import { isMapPress, MAP_CANVAS_SELECTOR, mapPointAt, swallowNextClick } from './map-pointer.js'
@@ -653,11 +652,3 @@ export const stopClaimMode = (): void => {
 export const syncClaimEditorFrame = (): void => {
   if (editor !== null) syncOverlay()
 }
-
-/** Claim mode, openable here without a presence server for pointer testing. */
-registerDebugEntry('claimTool', {
-  active: () => isClaimModeActive(),
-  tool: () => claimEditorTool(),
-  start: (tool?: ClaimTool) => startClaimMode(tool),
-  stop: () => stopClaimMode(),
-})

@@ -68,6 +68,7 @@ import {
 import { onCanvasWrite } from '../canvas-write.js'
 import { isClaimModeActive, onClaimEditorChange } from '../claim-editor.js'
 import { claimRouter } from '../claim-routing.js'
+import { openClaimTool } from '../claims.js'
 import { expectedBackendVersion, userscriptVersion } from '../client-metrics.js'
 import { log } from '../debug.js'
 import { onArtboardPixelsChange, onHeadquartersTilesChange } from '../gl/artboard-pixels.js'
@@ -158,13 +159,7 @@ import {
   PanelSessions,
   type PanelView,
 } from './panel-scope.js'
-import {
-  clearClaim,
-  flyToClaim,
-  flyToPainter,
-  openClaimTool,
-  presenceSummaryModel,
-} from './presence-actions.js'
+import { clearClaim, flyToClaim, flyToPainter, presenceSummaryModel } from './presence-actions.js'
 import {
   claimToolButton,
   installRailStateSync,

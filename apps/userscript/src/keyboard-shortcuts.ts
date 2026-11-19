@@ -13,6 +13,7 @@ import {
 } from './alliance-surface.js'
 import { handleTemplateStudioIntent, isTemplateStudioOpen } from './application/template-studio.js'
 import { isClaimModeActive } from './claim-editor.js'
+import { openClaimTool } from './claims.js'
 import { getMap } from './map-handle.js'
 import { redraw } from './map-view.js'
 import { setOverlayPeekActive } from './overlay-peek.js'
@@ -38,7 +39,6 @@ import { isMoving } from './templates/move.js'
 import { focusedTemplate } from './templates/nearest.js'
 import { refreshOverlayMenu, toggleOverlayMenu } from './ui/overlay-menu.js'
 import { togglePanel } from './ui/panel.js'
-import { openClaimTool } from './ui/presence-actions.js'
 import { toggleShortcutHelp } from './ui/shortcut-help.js'
 import {
   cancelPaintDraft,
@@ -196,10 +196,9 @@ export const installKeyboardShortcuts = (
     },
     'toggle-theme': { run: () => toggleWplaceTheme(), withoutSurface: true },
     'claim-mode': {
-      // Claimed on every canvas so Wplace never sees the key; alliance artboards have no
-      // presence room yet, so only the world canvas opens the tool.
-      run: ({ allianceSurface }) => {
-        if (allianceSurface === null) openClaimTool('rectangle')
+      // Claimed on every canvas so Wplace never sees the key; the claim gate says where it opens.
+      run: () => {
+        openClaimTool('rectangle')
         return true
       },
     },
