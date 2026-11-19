@@ -56,7 +56,7 @@ export class Community {
       : (this.contributions?.filter((day) => day.wplaceUserId === this.painter) ?? null),
   )
 
-  constructor(scope: StatsScope, season: () => number) {
+  constructor(scope: StatsScope) {
     const app = useApp()
     let loadedScope: string | undefined
     $effect(() => {
@@ -85,13 +85,14 @@ export class Community {
       let pending = false
       $effect(() => {
         const now = scope.clock.now
-        if (pending) return
+        const season = app.manifest?.season
+        if (pending || season === undefined) return
         pending = true
         void Promise.all([
           getContributions(templateIds, now - CONTRIBUTION_SECONDS, now).then((response) => {
             if (!cancelled) this.contributions = response.days
           }),
-          getLeaderboard(season(), { templateIds, limit: LEADERBOARD_LIMIT }).then((response) => {
+          getLeaderboard(season, { templateIds, limit: LEADERBOARD_LIMIT }).then((response) => {
             if (!cancelled) this.leaderboard = response.entries
           }),
         ])

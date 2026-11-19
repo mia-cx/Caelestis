@@ -3,7 +3,6 @@
   import Select from '#lib/components/Select.svelte'
   import { STORAGE_KEYS } from '#lib/deployment.js'
   import { persisted } from '#lib/persisted.svelte.js'
-  import { useApp } from '#lib/state/app.svelte.js'
   import { ActivityReads } from './activity-reads.svelte.js'
   import { archiveContributionDays } from './archive-history.js'
   import { Community } from './community.svelte.js'
@@ -39,12 +38,11 @@
   /** The grid an empty history's axis uses; it draws no buckets. */
   const EMPTY_HISTORY_RESOLUTION = 900
 
-  const app = useApp()
   const scope = new StatsScope(() => templates)
   const reads = new ProgressReads(scope)
   const selection = new PaceSelection(() => activity.painters)
   const activity = new ActivityReads(scope, selection)
-  const community = new Community(scope, () => app.manifest?.season ?? 0)
+  const community = new Community(scope)
 
   const progressRevision = $derived(JSON.stringify(templates.map((template) => template.version)))
   const remainingPixels = $derived(progress.total - progress.completed)
