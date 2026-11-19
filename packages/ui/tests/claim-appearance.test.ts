@@ -9,6 +9,14 @@ import type {
   ClaimModeModel,
 } from '../src/types.js'
 
+const shown = {
+  selection: 'select',
+  pen: 'pen',
+  pencil: 'pencil',
+  shape: 'rectangle',
+  navigate: 'hand',
+} as const
+
 const mounted: object[] = []
 afterEach(async () => {
   await Promise.all(mounted.splice(0).map((component) => unmount(component)))
@@ -20,10 +28,7 @@ describe('claim and appearance intent boundaries', () => {
     const model = {
       purpose: 'claim',
       tool: 'rectangle',
-      tools: [
-        { tool: 'rectangle', group: 'shape', label: 'Rectangle', key: 'R', icon: 'toolRectangle' },
-        { tool: 'ellipse', group: 'shape', label: 'Ellipse', key: 'E', icon: 'toolEllipse' },
-      ],
+      shown,
       subtract: false,
       items: 0,
       pixels: 0,
@@ -32,24 +37,7 @@ describe('claim and appearance intent boundaries', () => {
       selectedCount: 0,
       dirty: false,
       pending: false,
-      options: { minCorners: 3, maxCorners: 12, maxWidth: 200 },
-      groups: [
-        {
-          id: 'shape',
-          label: 'Shapes',
-          shown: 'rectangle',
-          tools: [
-            {
-              tool: 'rectangle',
-              group: 'shape',
-              label: 'Rectangle',
-              key: 'R',
-              icon: 'toolRectangle',
-            },
-            { tool: 'ellipse', group: 'shape', label: 'Ellipse', key: 'E', icon: 'toolEllipse' },
-          ],
-        },
-      ],
+      options: {},
     } satisfies ClaimModeModel
     const target = document.body.appendChild(document.createElement('div'))
     mounted.push(
@@ -70,10 +58,7 @@ describe('claim and appearance intent boundaries', () => {
     const base = {
       purpose: 'capture',
       tool: 'rectangle',
-      tools: [
-        { tool: 'rectangle', group: 'shape', label: 'Rectangle', key: 'M', icon: 'toolRectangle' },
-      ],
-      groups: [],
+      shown,
       subtract: false,
       items: 0,
       pixels: 0,
@@ -82,7 +67,7 @@ describe('claim and appearance intent boundaries', () => {
       selectedCount: 0,
       dirty: false,
       pending: false,
-      options: { minCorners: 3, maxCorners: 12, maxWidth: 200 },
+      options: {},
     } satisfies ClaimModeModel
     const render = (model: ClaimModeModel) => {
       const target = document.body.appendChild(document.createElement('div'))

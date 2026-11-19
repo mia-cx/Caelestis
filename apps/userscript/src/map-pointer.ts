@@ -16,6 +16,9 @@ import { canvasPixelAt, isMapInteractionTarget } from './map-view.js'
  * took. Also where frame rects land on screen, for what is drawn over the map.
  */
 
+/** Wplace's MapLibre canvas. */
+export const MAP_CANVAS_SELECTOR = 'canvas.maplibregl-canvas'
+
 /** CSS pixels a press may travel and still count as a click rather than a drag. */
 export const CLICK_SLOP_PX = 4
 
@@ -35,10 +38,6 @@ export const mapPointAt = (clientX: number, clientY: number): Point | null => {
   if (onTiles === null || map === null) return onTiles
   return latLngToCanvasPixel(map.unproject([clientX, clientY]))
 }
-
-/** The whole world pixel a fractional canvas coordinate falls in, kept on the canvas. */
-export const worldPixel = (value: number): number =>
-  Math.min(WORLD_PIXELS - 1, Math.max(0, Math.floor(value)))
 
 /** A press outside dialogs and page controls, on the map itself. */
 export const isMapPress = (target: EventTarget | null): boolean =>

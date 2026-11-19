@@ -59,6 +59,13 @@ export type CaelestisTagManager = HTMLElement & { model: TagManagerModel }
 export const SERVER_DETAILS_TAG = 'caelestis-server-details'
 export type CaelestisServerDetails = HTMLElement & { model: ServerDetailsModel }
 export const CLAIM_MODE_TAG = 'caelestis-claim-mode'
+export {
+  CLAIM_MODE_INTENT,
+  CLAIM_TOOL_GROUPS,
+  claimToolEntry,
+  claimToolForKey,
+  clampClaimOption,
+} from '../claim/model.js'
 export const EXTENSION_SETTINGS_TAG = 'caelestis-extension-settings'
 export type CaelestisExtensionSettings = HTMLElement & { model: ExtensionSettingsModel }
 export type CaelestisClaimMode = HTMLElement & { model: ClaimModeModel }

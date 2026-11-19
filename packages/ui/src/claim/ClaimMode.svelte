@@ -3,7 +3,18 @@
   import Button from '../foundations/Button.svelte'
   import Icon from '../foundations/Icon.svelte'
   import Toggle from '../foundations/Toggle.svelte'
-  import type { ClaimModeIntent, ClaimModeModel, ClaimToolEntry, ClaimToolGroup, ClaimToolGroupId } from '../types.js'
+  import {
+    CLAIM_TOOL_GROUPS,
+    type ClaimModeIntent,
+    type ClaimModeModel,
+    type ClaimOption,
+    type ClaimToolEntry,
+    type ClaimToolGroup,
+    type ClaimToolGroupId,
+    claimModeHint,
+    claimOptionRange,
+    claimToolEntry,
+  } from './model.js'
 
   let { model, onIntent }: { model: ClaimModeModel; onIntent: (intent: ClaimModeIntent) => void } =
     $props()
@@ -11,48 +22,18 @@
   /** How long a press on a group button lasts before its flyout opens, like Illustrator. */
   const LONG_PRESS_MS = 400
 
-  const clamp = (value: number, min: number, max: number): number =>
-    Math.min(max, Math.max(min, Math.round(value)))
   const capture = $derived(model.purpose !== 'claim')
-  const hint = $derived.by(() => {
-    if (model.message) return model.message
-    if (model.purpose === 'capture' && model.items === 0) return 'Draw around the art to capture. Enter adds it as a template.'
-    if (model.purpose === 'update' && model.items === 0) return 'Draw around the parts to take from the canvas. Enter updates the template.'
-    switch (model.tool) {
-      case 'select':
-        return 'Shift-click adds to the selection. Drag empty canvas to select several.'
-      case 'lasso':
-        return 'Shift adds to the selection.'
-      case 'hand':
-        return 'Hold Space for the hand from any tool.'
-      case 'pen':
-        return 'Click the first anchor to close. Enter finishes an open path.'
-      case 'anchor':
-        return 'Drag out of a corner for handles. Click a smooth anchor for a corner.'
-      case 'pencil':
-        return 'Strokes join the selected drawing.'
-      case 'eraser':
-        return 'Cuts vector shapes into separate pieces.'
-      default:
-        return ''
-    }
-  })
-  const current = $derived(
-    model.tools.find((entry) => entry.tool === model.tool) ?? (model.tools[0] as ClaimToolEntry),
-  )
-  const hasSubtract = $derived(
-    !['select', 'direct', 'lasso', 'hand', 'add-anchor', 'delete-anchor', 'anchor', 'eraser'].includes(model.tool),
-  )
-  const hasCorners = $derived(model.tool === 'polygon' || model.tool === 'star')
-  const hasWidth = $derived(
-    model.tool === 'pen' || model.tool === 'pencil' || model.tool === 'brush' || model.tool === 'eraser',
-  )
+  const hint = $derived(model.message || claimModeHint(model.purpose, model.items, model.tool))
+  const current = $derived(claimToolEntry(model.tool))
+  const corners = $derived(current.options.find((option) => option === 'sides' || option === 'points'))
   const deleteLabel = $derived(
     model.selectedCount > 1 ? `Delete ${model.selectedCount} shapes` : 'Delete shape',
   )
+  const range = (option: ClaimOption) => claimOptionRange(option, model.tool)
+  const setOption = (option: ClaimOption, event: Event & { currentTarget: HTMLInputElement }) =>
+    onIntent({ type: 'set-option', option, value: Number(event.currentTarget.value) })
 
-  const entryFor = (group: ClaimToolGroup): ClaimToolEntry =>
-    group.tools.find((entry) => entry.tool === group.shown) ?? (group.tools[0] as ClaimToolEntry)
+  const shownIn = (group: ClaimToolGroup): ClaimToolEntry => claimToolEntry(model.shown[group.id])
   const title = (entry: ClaimToolEntry): string =>
     entry.key === '' ? entry.label : `${entry.label} (${entry.key})`
 
@@ -83,7 +64,7 @@
       return
     }
     open = null
-    onIntent({ type: 'set-tool', tool: group.shown })
+    onIntent({ type: 'set-tool', tool: model.shown[group.id] })
   }
   const openFlyout = (group: ClaimToolGroup, event: Event): void => {
     event.preventDefault()
@@ -114,8 +95,8 @@
 
 <div class="mode" aria-label={capture ? 'Capture mode' : 'Claim mode'}>
   <nav class="drawer caelestis-surface" aria-label={capture ? 'Selection tools' : 'Claim tools'}>
-    {#each model.groups as group (group.id)}
-      {@const entry = entryFor(group)}
+    {#each CLAIM_TOOL_GROUPS as group (group.id)}
+      {@const entry = shownIn(group)}
       <div class="slot">
         <button
           type="button"
@@ -167,34 +148,34 @@
       <div class="group tool-group" aria-label="Tool">
         <span class="tool-name"><Icon name={current.icon} size="1rem" />{current.label}</span>
         <div class="options">
-          {#if hasCorners}
+          {#if corners !== undefined}
             <label class="option">
-              <span>{model.tool === 'polygon' ? 'Corners' : 'Points'}</span>
+              <span>{corners === 'sides' ? 'Corners' : 'Points'}</span>
               <input
                 class="caelestis-field"
                 type="number"
-                min={model.options.minCorners}
-                max={model.options.maxCorners}
-                value={model.tool === 'polygon' ? model.options.sides : model.options.points}
+                min={range(corners).min}
+                max={range(corners).max}
+                value={model.options[corners]}
                 disabled={model.pending}
-                onchange={(event) => onIntent({ type: 'set-option', option: model.tool === 'polygon' ? 'sides' : 'points', value: clamp(Number(event.currentTarget.value), model.options.minCorners, model.options.maxCorners) })}
+                onchange={(event) => setOption(corners, event)}
               />
             </label>
           {/if}
-          {#if model.tool === 'star'}
+          {#if current.options.includes('inner')}
             <label class="option">
               <span>Inner %</span>
-              <input class="caelestis-field" type="number" min="5" max="95" value={model.options.inner} disabled={model.pending} onchange={(event) => onIntent({ type: 'set-option', option: 'inner', value: clamp(Number(event.currentTarget.value), 5, 95) })} />
+              <input class="caelestis-field" type="number" min={range('inner').min} max={range('inner').max} value={model.options.inner} disabled={model.pending} onchange={(event) => setOption('inner', event)} />
             </label>
           {/if}
-          {#if hasWidth}
+          {#if current.options.includes('width')}
             <label class="option">
               <span>Width</span>
-              <input class="caelestis-field" type="number" min={model.tool === 'pen' ? 0 : 1} max={model.options.maxWidth} value={model.options.width} disabled={model.pending} onchange={(event) => onIntent({ type: 'set-option', option: 'width', value: clamp(Number(event.currentTarget.value), model.tool === 'pen' ? 0 : 1, model.options.maxWidth) })} />
+              <input class="caelestis-field" type="number" min={range('width').min} max={range('width').max} value={model.options.width} disabled={model.pending} onchange={(event) => setOption('width', event)} />
             </label>
           {/if}
         </div>
-        {#if hasSubtract}
+        {#if current.subtracts}
           <label class="option">
             <Toggle label="Subtract" compact checked={model.subtract} disabled={model.pending} onChange={(subtract) => onIntent({ type: 'set-subtract', subtract })} />
             <span>Subtract</span>

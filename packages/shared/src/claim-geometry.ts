@@ -43,6 +43,10 @@ const lerp = (a: Point, b: Point, t: number): Point => ({
 const clampInt = (value: number, min: number, max: number): number =>
   Math.min(max, Math.max(min, Math.round(value)))
 
+/** The whole world pixel a fractional canvas coordinate falls in, kept on the canvas. */
+export const worldPixel = (value: number): number =>
+  Math.min(WORLD_PIXELS - 1, Math.max(0, Math.floor(value)))
+
 const degrees = (dx: number, dy: number): number =>
   ((Math.round((Math.atan2(dy, dx) * 180) / Math.PI) % 360) + 360) % 360
 

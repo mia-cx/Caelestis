@@ -90,13 +90,13 @@ it('owns touch drawing without swallowing the next toolbar action or Hand gestur
   }
 
   gesture()
-  expect(claimModeModel().pixels).toBeGreaterThan(0)
+  expect(claimModeModel()?.pixels).toBeGreaterThan(0)
   expect(mapTouch).not.toHaveBeenCalled()
 
   const hand = document.body.appendChild(document.createElement('button'))
   hand.addEventListener('click', () => handleClaimModeIntent({ type: 'set-tool', tool: 'hand' }))
   hand.click()
-  expect(claimModeModel().tool).toBe('hand')
+  expect(claimModeModel()?.tool).toBe('hand')
   gesture()
   expect(mapTouch).toHaveBeenCalledTimes(3)
 })
@@ -113,7 +113,7 @@ it('runs the update on Enter and leaves keys inside its confirmation dialog alon
   draw(10)
   window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', cancelable: true }))
   expect(actions).toEqual(['update'])
-  expect(claimModeModel().pending).toBe(true)
+  expect(claimModeModel()?.pending).toBe(true)
 
   const dialog = document.body.appendChild(document.createElement('dialog'))
   dialog.setAttribute('open', '')
@@ -138,9 +138,9 @@ it('aborts a closed capture and leaves a newer selection intact when its result 
     },
   })
   draw(10)
-  expect(claimModeModel().pixels).toBeGreaterThan(0)
+  expect(claimModeModel()?.pixels).toBeGreaterThan(0)
   handleClaimModeIntent({ type: 'capture', action: 'template' })
-  expect(claimModeModel().pending).toBe(true)
+  expect(claimModeModel()?.pending).toBe(true)
 
   stopClaimMode()
   expect(signal?.aborted).toBe(true)
@@ -163,7 +163,7 @@ it('keeps the selection a pending capture is using', () => {
   handleClaimModeIntent({ type: 'set-subtract', subtract: true })
   expect(claimModeModel()).toMatchObject({
     subtract: false,
-    pixels: selection.pixels,
+    pixels: selection?.pixels,
     pending: true,
   })
 })

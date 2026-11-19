@@ -1,208 +1,60 @@
+import type { RegionDocument, RegionShapePixels } from '@caelestis/shared'
 import {
-  anchorsOf,
-  boxShape,
-  claimDocumentPixels,
-  claimDocuments,
-  claimDocumentsLimitError,
-  claimSet,
-  cornerAnchor,
-  documentLimitError,
-  eraseFromRaster,
-  flattenPath,
-  inLasso,
-  inMarquee,
-  insertAnchor,
-  isSmooth,
-  MAX_PATH_NODES,
-  MAX_REGION_SHAPE_CORNERS,
-  MAX_STROKE_WIDTH,
-  MIN_REGION_SHAPE_CORNERS,
-  mergeRasters,
-  moveNode,
-  nearestOnPath,
-  orientToContinue,
-  type PathHit,
-  type PathNode,
-  type PathShape,
-  PixelSet,
-  type Point,
-  type PresenceRect,
-  type RegionDocument,
-  type RegionItem,
-  type RegionShape,
-  type RegionShapePixels,
-  rasterTouches,
-  regionDocumentBounds,
-  regionShapeBounds,
-  regionShapeCentre,
-  regionShapeContainsPixel,
-  regionShapeOutline,
-  removeAnchor,
-  rotateShape,
-  roundShape,
-  rubberBand,
-  scaleBoxCorners,
-  scaleShape,
-  selectionError,
-  smoothAnchor,
-  starInner,
-  toPath,
-  translateRegionShape,
-  WORLD_PIXELS,
-} from '@caelestis/shared'
-import {
+  type CaelestisClaimMode,
   type CaptureAction,
+  CLAIM_MODE_INTENT,
   CLAIM_MODE_TAG,
   type ClaimModeIntent,
   type ClaimModeModel,
   type ClaimTool,
-  type ClaimToolEntry,
-  type ClaimToolGroupId,
+  claimToolForKey,
 } from '@caelestis/ui/elements'
 import { cancelSurfaceClose, closeSurface, openSurface } from '@caelestis/ui/motion'
+import {
+  cancelDrag,
+  clearSelection,
+  commitPen,
+  defaultToolSettings,
+  deleteSelected,
+  derive,
+  dragTo,
+  dropPen,
+  type EditorPixels,
+  type EditorState,
+  editorModel,
+  endDrag,
+  hoverMap,
+  openEditor,
+  type PointerInput,
+  pressHandle,
+  pressMap,
+  selectedItem,
+  setOption,
+  setSubtract,
+  setTool,
+} from './claim-editor-state.js'
+import { CLAIM_OVERLAY_ID, handleOf, overlayMarks, renderOverlay } from './claim-overlay.js'
 import type { ClaimSaveResult } from './claim-routing.js'
-import { splitItem, strokeArea } from './claim-split.js'
 import { registerDebugEntry } from './console-api.js'
 import { warn } from './debug.js'
 import { getMap } from './map-handle.js'
-import { canvasPixelAt, isMapInteractionTarget, screenProjection } from './map-view.js'
+import { isMapPress, MAP_CANVAS_SELECTOR, mapPointAt, swallowNextClick } from './map-pointer.js'
+import { isMapInteractionTarget, screenProjection } from './map-view.js'
 import { applyWplaceTheme } from './ui/theme.js'
 import { dismissWplacePixelCard } from './wplace-pixel-card.js'
 
 /**
- * Claim mode: a small vector editor over the map.
- *
- * A claim is a document of shapes, each adding to or cutting from the claimed pixels, and every
- * shape stays editable. Desktop tools sit at the left and top; phones use one bottom toolbar.
- * Window listeners consume drawing gestures before they reach the map. Outside the editor,
- * gestures pass through untouched.
- *
- * Tools and keys follow Illustrator: selection (V: click, Shift-click to add, drag to move, drag
- * empty canvas for a marquee, handles to resize or rotate), direct selection (A: anchors and
- * bezier handles of a path), lasso (Q), pen (P: click for corners, drag for curves, click the
- * first anchor to close), pencil (N) and paintbrush (B), rectangle (M), ellipse (L), polygon and
- * star, and the hand (H, or hold Space) which is the one tool that lets a drag pan the map. The
- * wheel pans, Shift+wheel pans sideways, and Alt/Option or Ctrl/Cmd+wheel zooms. Everything the tools produce is whole pixels once rasterised, because the
- * shared rasteriser decides membership by pixel centre.
- *
- * Capture mode is the same editor with another purpose: it starts empty, and the shapes select
- * art to capture instead of a region to claim. The whole document is one selection mask. Update
- * mode is capture mode aimed at an existing template: the mask picks the parts to replace.
+ * Claim mode on the page: window listeners that take drawing gestures before they reach the map,
+ * the `<caelestis-claim-mode>` toolbar, the SVG overlay, and the session around a save or a
+ * capture. What a gesture does to the document is `claim-editor-state`'s; outside the editor,
+ * gestures pass through untouched. Desktop tools sit at the left and top; phones use one bottom
+ * toolbar. The wheel pans, Shift+wheel pans sideways, and Alt/Option or Ctrl/Cmd+wheel zooms.
  */
 
-const OVERLAY_ID = 'caelestis-claim-overlay'
 const MODE_ID = 'caelestis-claim-mode'
-const HANDLE_RADIUS_CSS = 5
-const HIT_RADIUS_CSS = 9
-const CLICK_SLOP_PX = 4
-const STROKE_STEP_PX = 2
-const DEFAULT_INNER = 50
-/** Just outside a bounding-box corner, this far in CSS pixels, the pointer rotates the shape. */
-const ROTATE_ZONE_CSS = 28
-/** How far the rotate handle floats above the bounding box, in CSS pixels. */
-const ROTATE_STEM_CSS = 26
-/** Illustrator's Shift while rotating: whole turns of this many degrees. */
-const ROTATE_SNAP_DEGREES = 15
-const ROTATE_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(
-  '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20"><path d="M10 3a7 7 0 1 1-6.3 4" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round"/><path d="M10 3a7 7 0 1 1-6.3 4" fill="none" stroke="#000" stroke-width="1.5" stroke-linecap="round"/><path d="M3 2v5.5h5.5" fill="none" stroke="#fff" stroke-width="3.5" stroke-linejoin="round"/><path d="M3 2v5.5h5.5" fill="none" stroke="#000" stroke-width="1.5" stroke-linejoin="round"/></svg>',
-)}") 10 10, alias`
-const SVG_NS = 'http://www.w3.org/2000/svg'
-
-/** Illustrator's keys where it has them: V, A, Q, P, N, B, M, L. */
-export const CLAIM_TOOLS: readonly ClaimToolEntry[] = [
-  { tool: 'select', group: 'selection', label: 'Selection', key: 'V', icon: 'toolSelect' },
-  { tool: 'direct', group: 'selection', label: 'Direct selection', key: 'A', icon: 'toolDirect' },
-  { tool: 'lasso', group: 'selection', label: 'Lasso', key: 'Q', icon: 'toolLasso' },
-  { tool: 'pen', group: 'pen', label: 'Pen', key: 'P', icon: 'toolPen' },
-  { tool: 'add-anchor', group: 'pen', label: 'Add anchor', key: '+', icon: 'toolAddAnchor' },
-  {
-    tool: 'delete-anchor',
-    group: 'pen',
-    label: 'Delete anchor',
-    key: '−',
-    icon: 'toolDeleteAnchor',
-  },
-  { tool: 'anchor', group: 'pen', label: 'Anchor point', key: 'Shift+C', icon: 'toolAnchor' },
-  { tool: 'pencil', group: 'pencil', label: 'Pencil', key: 'N', icon: 'toolPencil' },
-  { tool: 'brush', group: 'pencil', label: 'Paintbrush', key: 'B', icon: 'toolBrush' },
-  { tool: 'eraser', group: 'pencil', label: 'Eraser', key: 'E', icon: 'toolEraser' },
-  { tool: 'rectangle', group: 'shape', label: 'Rectangle', key: 'M', icon: 'toolRectangle' },
-  { tool: 'ellipse', group: 'shape', label: 'Ellipse', key: 'L', icon: 'toolEllipse' },
-  { tool: 'polygon', group: 'shape', label: 'Polygon', key: '', icon: 'toolPolygon' },
-  { tool: 'star', group: 'shape', label: 'Star', key: '', icon: 'toolStar' },
-  { tool: 'hand', group: 'navigate', label: 'Hand', key: 'H', icon: 'toolHand' },
-]
-
-const GROUPS: readonly { readonly id: ClaimToolGroupId; readonly label: string }[] = [
-  { id: 'selection', label: 'Selection tools' },
-  { id: 'pen', label: 'Pen tools' },
-  { id: 'pencil', label: 'Drawing tools' },
-  { id: 'shape', label: 'Shape tools' },
-  { id: 'navigate', label: 'Navigation tools' },
-]
-
-const TOOL_KEYS: Record<string, ClaimTool> = {
-  v: 'select',
-  a: 'direct',
-  q: 'lasso',
-  p: 'pen',
-  n: 'pencil',
-  b: 'brush',
-  e: 'eraser',
-  m: 'rectangle',
-  l: 'ellipse',
-  h: 'hand',
-}
-
-const groupOf = (of: ClaimTool): ClaimToolGroupId =>
-  CLAIM_TOOLS.find((entry) => entry.tool === of)?.group ?? 'selection'
-
-const defaultShown = (): Record<ClaimToolGroupId, ClaimTool> => ({
-  selection: 'select',
-  pen: 'pen',
-  pencil: 'pencil',
-  shape: 'rectangle',
-  navigate: 'hand',
-})
-
-type DragKind =
-  | 'draw'
-  | 'move'
-  | 'corner'
-  | 'outer'
-  | 'inner'
-  | 'node'
-  | 'stroke'
-  | 'pen'
-  | 'marquee'
-  | 'lasso'
-  | 'rotate'
-  | 'raster'
-  | 'erase'
-  | 'scale'
-  | 'handle-solo'
-  | 'anchor-pull'
-  | 'anchor-convert'
-
-interface Drag {
-  readonly kind: DragKind
-  readonly pointerId: number
-  readonly originX: number
-  readonly originY: number
-  readonly clientX: number
-  readonly clientY: number
-  /** The item as it was when the gesture began. */
-  readonly base: RegionItem | null
-  /** For move drags: every selected item as it was, so they travel together. */
-  readonly group: readonly RegionItem[]
-  /** For corner drags: which corner (0 tl, 1 tr, 2 br, 3 bl). For node drags: node index. */
-  readonly index: number
-  /** For node drags: which part of the node. */
-  readonly part: 'anchor' | 'in' | 'out'
-  /** Where the press landed, in canvas coordinates, for angles measured from the origin. */
-  readonly press: Point
-  moved: boolean
-}
+/** Wheel delta units for `deltaMode` line and page, in CSS pixels. */
+const WHEEL_LINE_PX = 16
+const WHEEL_PAGE_PX = 100
 
 export interface ClaimEditorHost {
   /** The template the claim overlaps, by name, or null. Information only; never a gate. */
@@ -241,106 +93,28 @@ export interface ClaimCaptureHost {
 }
 
 let host: ClaimEditorHost | null = null
+let installed = false
+/** The open session, or null outside claim and capture mode. */
+let editor: EditorState | null = null
 /** Set while the editor selects art to capture rather than regions to claim. */
 let captureHost: ClaimCaptureHost | null = null
 let captureController: AbortController | null = null
-let installed = false
-let active = false
-let tool: ClaimTool = 'select'
-let sides = 6
-let points = 5
-let inner = DEFAULT_INNER
-let width = 8
-/** The pencil's tip and the eraser's, in pixels; each tool keeps its own. */
-let pencilWidth = 1
-let eraserWidth = 8
-let subtract = false
-let items: RegionItem[] = []
-/** Selected item ids, in selection order. Handles appear only for a selection of one. */
-let selectedIds: readonly string[] = []
-/** The tool each drawer group shows: the one last used from it. */
-let shown: Record<ClaimToolGroupId, ClaimTool> = defaultShown()
-/** A marquee being dragged, in canvas pixels, and a lasso being drawn. */
-let marquee: { x0: number; y0: number; x1: number; y1: number } | null = null
-let lasso: Point[] | null = null
-/** What was selected before a Shift-marquee or Shift-lasso began, to add to. */
-let baseSelection: readonly string[] = []
-/** The tool to return to when the space bar, held for a temporary hand, is released. */
-let handHeldFrom: ClaimTool | null = null
-/** The saved claims loaded into the editor; Save writes the set back under these and new ids. */
-let editingIds: readonly string[] = []
-let drag: Drag | null = null
-/** The pen path under construction. */
-let pen: PathNode[] | null = null
-/** When the pen continues a saved path, the item it came from, restored on commit. */
-let penContinued: RegionItem | null = null
-/** Where that item sat: add and subtract apply in order, so it must return to the same slot. */
-let penContinuedIndex = 0
-
-const restoreContinued = (item: RegionItem): void => {
-  const at = Math.min(penContinuedIndex, items.length)
-  items = [...items.slice(0, at), item, ...items.slice(at)]
-}
-/** Where the pointer is over the map, in canvas coordinates, for the pen's rubber band. */
-let hover: Point | null = null
-/** The stroke under construction, as raw points. */
-let stroke: Point[] | null = null
-/** The shape under construction with a shape tool. */
-let drawing: RegionShape | null = null
-/** The pixels the pencil has laid down so far in this stroke. */
-let raster: PixelSet | null = null
-/** What the eraser has covered so far: the pixels, and the path for cutting vector shapes. */
-let erasing: { readonly set: PixelSet; line: Point[] } | null = null
-/** The last pixel a pencil or eraser stamped, so a fast move still leaves an unbroken line. */
-let lastStamp: Point | null = null
+const settings = defaultToolSettings()
+/** Counts sessions, so a request from an earlier one cannot act on a later one. */
+let session = 0
 /**
  * A press the editor consumed without starting a drag. Its release and the click that follows
  * are consumed too, or Wplace would still treat the click as a pixel selection.
  */
 let consumedPress: number | null = null
-let pending = false
-/** Counts claim-mode sessions, so a request from an earlier one cannot act on a later one. */
-let session = 0
-let message: string | undefined
-/** Whether the working document differs from what was loaded or saved. */
-let dirty = false
-let cursor = ''
+/** Wplace also listens to Touch Events, so consuming a pointer alone still lets the map pan. */
+let drawingTouch = false
+let appliedCursor = ''
 let overlay: SVGSVGElement | null = null
-let mode: (HTMLElement & { model: ClaimModeModel }) | null = null
+let mode: CaelestisClaimMode | null = null
 /** A mode element still running its exit transition — reclaimable if the editor restarts. */
-let closingMode: (HTMLElement & { model: ClaimModeModel }) | null = null
-let version = 0
-interface ClaimEditorPixels {
-  readonly rect: PresenceRect
-  readonly count: number
-  readonly parts: readonly RegionShapePixels[]
-}
-let pixelCache: {
-  version: number
-  document: RegionDocument
-  documents: readonly RegionDocument[]
-  pixels: ClaimEditorPixels | null
-  error: string | null
-} | null = null
-let itemSeq = 0
+let closingMode: CaelestisClaimMode | null = null
 const listeners: (() => void)[] = []
-
-const clampInt = (value: number, min: number, max: number): number =>
-  Math.min(max, Math.max(min, Math.round(value)))
-
-const pixel = (value: number): number => Math.min(WORLD_PIXELS - 1, Math.max(0, Math.floor(value)))
-
-const nextItemId = (): string => `i${Date.now().toString(36)}${(itemSeq++).toString(36)}`
-
-const bump = (): void => {
-  version++
-}
-
-/** Any change to the items themselves; previews and selection do not count. */
-const touch = (): void => {
-  dirty = true
-  bump()
-}
 
 const notify = (): void => {
   for (const listener of listeners) {
@@ -353,6 +127,7 @@ const notify = (): void => {
   host?.changed()
   syncMode()
   syncOverlay()
+  applyCursor()
 }
 
 export const onClaimEditorChange = (listener: () => void): void => {
@@ -360,1054 +135,142 @@ export const onClaimEditorChange = (listener: () => void): void => {
 }
 
 /** Whether the editor is open, for claims or for a capture. */
-export const isClaimModeActive = (): boolean => active
+export const isClaimModeActive = (): boolean => editor !== null
 
-export const isCaptureModeActive = (): boolean => active && captureHost !== null
+export const isCaptureModeActive = (): boolean => editor !== null && captureHost !== null
 
-export const claimEditorTool = (): ClaimTool => tool
+export const claimEditorTool = (): ClaimTool | null => editor?.tool ?? null
 
 /** The saved claims loaded into the editor, so their stored copies step aside in the layer. */
-export const claimEditorEditingIds = (): readonly string[] => (active ? editingIds : [])
+export const claimEditorEditingIds = (): readonly string[] => editor?.editingIds ?? []
 
-/** The shape being drawn right now, as a temporary item, so previews rasterise like the rest. */
-const previewItem = (): RegionItem | null => {
-  if (drawing !== null) return { id: 'preview', shape: drawing, op: subtract ? 'subtract' : 'add' }
-  if (raster !== null) {
-    const shape = raster.shape()
-    if (shape !== null) return { id: 'preview', shape, op: subtract ? 'subtract' : 'add' }
-  }
-  if (erasing !== null && erasing.line.length >= 1) {
-    // What the eraser will take is shown taken while it moves.
-    const line = erasing.line.length === 1 ? [...erasing.line, ...erasing.line] : erasing.line
-    return {
-      id: 'preview',
-      shape: { kind: 'path', closed: false, width: eraserWidth, nodes: line },
-      op: 'subtract',
-    }
-  }
-  if (stroke !== null && stroke.length >= 2)
-    return {
-      id: 'preview',
-      shape: { kind: 'path', closed: false, width: Math.max(1, width), nodes: stroke },
-      op: subtract ? 'subtract' : 'add',
-    }
-  if (pen !== null && pen.length >= 2)
-    return {
-      id: 'preview',
-      shape: { kind: 'path', closed: false, width: Math.max(1, width), nodes: pen },
-      op: subtract ? 'subtract' : 'add',
-    }
-  return null
-}
+/** The working document as pixels, mid-gesture included, for the presence layer. */
+export const claimEditorPixels = (): EditorPixels | null =>
+  editor === null ? null : derive(editor).pixels
 
-/**
- * Whether a document is past the shape limits: per claim in claim mode, where each touching group
- * saves as its own claim, and for the whole selection in capture mode, which rasterises as one.
- */
-const limitError = (document: RegionDocument): string | null =>
-  documentLimitError(document, captureHost === null ? 'claim' : 'selection')
+export const claimModeModel = (): ClaimModeModel | null =>
+  editor === null
+    ? null
+    : editorModel(
+        editor,
+        editor.items.length === 0 ? null : (host?.templateFor({ items: editor.items }) ?? null),
+      )
 
-const workingDocument = (): RegionDocument => {
-  const preview = previewItem()
-  return { items: preview === null ? items : [...items, preview] }
-}
-
-/**
- * The claim as pixels, including whatever is mid-gesture: one bounded raster per independent
- * group of touching shapes, so empty space between distant shapes is never rasterised. A capture
- * selection rasterises as one. Cached per change.
- */
-export const claimEditorPixels = (): ClaimEditorPixels | null => {
-  if (!active) return null
-  if (pixelCache?.version !== version) {
-    const document = workingDocument()
-    const { documents, error } =
-      captureHost === null
-        ? claimSet(document)
-        : { documents: [document], error: selectionError(document) }
-    const parts =
-      error === null || captureHost === null
-        ? documents.flatMap((part) => {
-            const pixels = claimDocumentPixels(part)
-            return pixels === null || pixels.count === 0 ? [] : [pixels]
-          })
-        : []
-    const rect = regionDocumentBounds(document)
-    pixelCache = {
-      version,
-      document,
-      documents,
-      error,
-      pixels:
-        rect === null
-          ? null
-          : { rect, parts, count: parts.reduce((count, part) => count + part.count, 0) },
-    }
-  }
-  return pixelCache.pixels
-}
-
-export const claimModeModel = (): ClaimModeModel => {
-  const pixels = claimEditorPixels()
-  const status = message ?? (!active || pixelCache === null ? null : pixelCache.error)
-  return {
-    purpose: captureHost?.purpose ?? 'claim',
-    tool,
-    tools: CLAIM_TOOLS,
-    groups: GROUPS.map((group) => ({
-      id: group.id,
-      label: group.label,
-      tools: CLAIM_TOOLS.filter((entry) => entry.group === group.id),
-      shown: shown[group.id],
-    })),
-    options: {
-      ...(tool === 'polygon' ? { sides } : {}),
-      ...(tool === 'star' ? { points, inner } : {}),
-      ...(tool === 'pen' || tool === 'pencil' || tool === 'brush' || tool === 'eraser'
-        ? { width: tool === 'pencil' ? pencilWidth : tool === 'eraser' ? eraserWidth : width }
-        : {}),
-      minCorners: MIN_REGION_SHAPE_CORNERS,
-      maxCorners: MAX_REGION_SHAPE_CORNERS,
-      maxWidth: MAX_STROKE_WIDTH,
-    },
-    subtract,
-    items: items.length,
-    selected: selectedIds.length > 0,
-    selectedCount: selectedIds.length,
-    dirty,
-    template: items.length === 0 ? null : (host?.templateFor({ items }) ?? null),
-    pixels: pixels?.count ?? 0,
-    pending,
-    ...(status === null || status === undefined ? {} : { message: status }),
-  }
-}
-
-const isSelected = (id: string): boolean => selectedIds.includes(id)
-
-/** The one selected item, when exactly one is: what handles and option edits apply to. */
-const selectedItem = (): RegionItem | null =>
-  selectedIds.length === 1 ? (items.find((item) => item.id === selectedIds[0]) ?? null) : null
-
-const selectedItems = (): RegionItem[] => items.filter((item) => isSelected(item.id))
-
-const select = (ids: readonly string[]): void => {
-  selectedIds = [...new Set(ids)]
-}
-
-const replaceItem = (id: string, shape: RegionShape): void => {
-  items = items.map((item) => (item.id === id ? { ...item, shape } : item))
-  touch()
-}
-
-const addItem = (shape: RegionShape): void => {
-  const item: RegionItem = { id: nextItemId(), shape, op: subtract ? 'subtract' : 'add' }
-  const error = limitError({ items: [...items, item] })
-  if (error !== null) {
-    message = error
-    return
-  }
-  items = [...items, item]
-  select([item.id])
-  touch()
-}
-
-/** Build the shape-tool shape from the press pixel and the pointer pixel. */
-const shapeFrom = (originX: number, originY: number, x: number, y: number): RegionShape | null => {
-  switch (tool) {
-    case 'rectangle':
-    case 'ellipse':
-      return boxShape(tool, { x: originX, y: originY }, { x, y })
-    case 'polygon':
-    case 'star':
-      return roundShape(tool, { x: originX, y: originY }, { x, y }, { sides, points, inner })
-    default:
-      return null
-  }
-}
-
-/** Topmost item whose pixels contain the canvas pixel. */
-const itemAt = (px: number, py: number): RegionItem | null => {
-  for (let index = items.length - 1; index >= 0; index--) {
-    const item = items[index] as RegionItem
-    if (regionShapeContainsPixel(item.shape, px, py)) return item
-  }
-  return null
-}
-
-/** The pen's first anchor in client pixels, for the click-to-close test. */
-const penStartClient = (): Point | null => {
-  const first = pen?.[0]
-  const projection = screenProjection()
-  return first === undefined || projection === null ? null : projection.pointFor(first.x, first.y)
-}
-
-const commitPen = (closed: boolean): void => {
-  if (pen === null) return
-  const nodes = pen
-  const continued = penContinued
-  pen = null
-  penContinued = null
-  if (nodes.length < (closed ? 3 : 2)) {
-    if (continued !== null) restoreContinued(continued)
-    bump()
-    notify()
-    return
-  }
-  if (continued !== null && continued.shape.kind === 'path') {
-    // The path picks up where it left off, under its own id, width, and place in the order.
-    const shape: RegionShape = { ...continued.shape, closed, nodes }
-    restoreContinued({ ...continued, shape })
-    select([continued.id])
-    touch()
-    notify()
-    return
-  }
-  const strokeWidth = closed ? width : Math.max(1, width)
-  addItem({ kind: 'path', closed, width: strokeWidth, nodes })
-  notify()
-}
-
-/** Canvas pixels per CSS pixel of hit radius, so hit tests scale with the zoom. */
-const hitRadiusCanvas = (): number => {
-  const projection = screenProjection()
-  const scale = projection?.pixelsPerCanvasPixel.x ?? 1
-  return HIT_RADIUS_CSS / Math.max(scale, 1e-6)
-}
-
-/** The topmost item whose path passes within reach of a canvas point, as a path. */
-const pathNear = (
-  point: Point,
-): { readonly item: RegionItem; readonly path: PathShape; readonly hit: PathHit } | null => {
-  const radius = hitRadiusCanvas()
-  for (let index = items.length - 1; index >= 0; index--) {
-    const item = items[index] as RegionItem
-    if (item.shape.kind === 'pixels') continue
-    const path = toPath(item.shape)
-    const hit = nearestOnPath(path.nodes, path.closed, point)
-    if (hit !== null && hit.distance <= radius) return { item, path, hit }
-  }
-  return null
-}
-
-/** Make an item a path in place (a no-op for one already), returning the path. */
-const ensurePath = (item: RegionItem): PathShape => {
-  if (item.shape.kind === 'path') return item.shape
-  const path = toPath(item.shape)
-  replaceItem(item.id, path)
-  return path
-}
-
-const addAnchorAt = (point: Point): boolean => {
-  const near = pathNear(point)
-  if (near === null) return false
-  if (near.path.nodes.length >= MAX_PATH_NODES) {
-    message = `A path holds at most ${MAX_PATH_NODES} anchors.`
-    return true
-  }
-  ensurePath(near.item)
-  replaceItem(near.item.id, {
-    ...near.path,
-    nodes: insertAnchor(near.path.nodes, near.hit.index, near.hit.t),
-  })
-  select([near.item.id])
-  return true
-}
-
-/** Remove one anchor of a path item; a path left too short goes altogether. */
-const deleteAnchorOf = (item: RegionItem, index: number): void => {
-  const path = ensurePath(item)
-  const nodes = removeAnchor(path.nodes, index)
-  if (nodes.length < (path.closed ? 3 : 2)) {
-    items = items.filter((held) => held.id !== item.id)
-    select([])
-    touch()
-    return
-  }
-  replaceItem(item.id, { ...path, nodes })
-}
-
-/** The pen picks up an open path at one of its ends. */
-const continuePathFrom = (item: RegionItem, index: number): boolean => {
-  if (item.shape.kind !== 'path' || item.shape.closed) return false
-  if (index !== 0 && index !== item.shape.nodes.length - 1) return false
-  pen = orientToContinue(item.shape.nodes, index)
-  penContinued = item
-  penContinuedIndex = items.indexOf(item)
-  items = items.filter((held) => held.id !== item.id)
-  select([])
-  bump()
-  return true
-}
-
-const finishStroke = (): void => {
-  if (stroke === null) return
-  const nodes = stroke
-  stroke = null
-  if (nodes.length >= 2)
-    addItem({
-      kind: 'path',
-      closed: false,
-      width: tool === 'pencil' ? 1 : Math.max(1, width),
-      nodes,
-    })
-  else bump()
-  notify()
-}
-
-/** A pencil stroke joins the one selected drawing when there is one; otherwise it is a new one. */
-const finishRaster = (): void => {
-  if (raster === null) return
-  const shape = raster.shape()
-  raster = null
-  lastStamp = null
-  if (shape === null) {
-    message = 'That drawing is too large for one raster; draw it in parts.'
-    bump()
-    notify()
-    return
-  }
-  const op = subtract ? 'subtract' : 'add'
-  const selected = selectedItem()
-  if (selected !== null && selected.shape.kind === 'pixels' && selected.op === op) {
-    const merged = mergeRasters(selected.shape, shape)
-    if (merged !== null) {
-      replaceItem(selected.id, merged)
-      notify()
-      return
-    }
-  }
-  addItem(shape)
-  notify()
-}
-
-/**
- * The eraser is done: pixels it covered leave every raster, and every vector shape it crossed
- * is cut into the pieces it leaves behind, each its own editable path.
- */
-const finishErase = (): void => {
-  if (erasing === null) return
-  const { set, line } = erasing
-  erasing = null
-  lastStamp = null
-  if (set.size === 0) {
-    bump()
-    notify()
-    return
-  }
-  let area: ReturnType<typeof strokeArea> | null = null
-  const next: RegionItem[] = []
-  let changed = false
-  let refused: string | null = null
-  for (const [index, item] of items.entries()) {
-    if (item.shape.kind === 'pixels') {
-      const left = eraseFromRaster(item.shape, set)
-      if (left === item.shape) next.push(item)
-      else {
-        changed = true
-        if (left !== null) next.push({ ...item, shape: left })
-      }
-      continue
-    }
-    if (!rasterTouches(item.shape, set)) {
-      next.push(item)
-      continue
-    }
-    area ??= strokeArea(line, eraserWidth)
-    const pieces = splitItem(item, area, nextItemId)
-    // What is kept so far, plus these pieces, plus every item still to come, must fit per claim.
-    const error = limitError({ items: [...next, ...pieces, ...items.slice(index + 1)] })
-    if (error !== null) {
-      refused = error
-      next.push(item)
-      continue
-    }
-    changed = true
-    next.push(...pieces)
-  }
-  if (refused !== null) message = refused
-  if (changed) {
-    items = next
-    select([])
-    touch()
-  } else bump()
-  notify()
-}
-
-/** A press outside the panel, dialogs, and our own chrome, on the map itself. */
-const isMapPress = (event: PointerEvent): boolean => {
-  const target = event.target
-  if (target === null || !(target instanceof Element)) return false
-  if (target.closest('dialog,[role="dialog"],button,input,select,textarea,a,[role="button"]'))
-    return false
-  return isMapInteractionTarget(target)
+const applyCursor = (): void => {
+  const value = editor?.cursor ?? ''
+  if (value === appliedCursor) return
+  appliedCursor = value
+  const canvas = document.querySelector<HTMLElement>(MAP_CANVAS_SELECTOR)
+  if (canvas !== null) canvas.style.cursor = value
 }
 
 const consume = (event: Event): void => {
   event.preventDefault()
   event.stopPropagation()
-  if (event.type === 'pointerdown') consumedPress = (event as PointerEvent).pointerId
+  if (event instanceof PointerEvent && event.type === 'pointerdown') consumedPress = event.pointerId
 }
 
-let drawingTouch = false
-
-/** Wplace also listens to Touch Events, so consuming a pointer alone still lets the map pan. */
 const onTouch = (event: TouchEvent): void => {
-  if (event.type === 'touchstart' && active && consumedPress !== null) drawingTouch = true
+  if (event.type === 'touchstart' && editor !== null && consumedPress !== null) drawingTouch = true
   if (!drawingTouch) return
   consume(event)
   if (event.touches.length === 0) drawingTouch = false
 }
 
-/** Eat the click that follows a consumed press, so Wplace never sees it as a pixel placement. */
-const swallowNextClick = (): void => {
-  const swallow = (event: Event): void => {
-    window.removeEventListener('click', swallow, true)
-    clearTimeout(timer)
-    // Touch may emit no follow-up click. Never eat the user's next toolbar action instead.
-    if (
-      isMapInteractionTarget(event.target) ||
-      (event.target instanceof Node && overlay?.contains(event.target))
-    )
-      consume(event)
-  }
-  const timer = setTimeout(() => window.removeEventListener('click', swallow, true), 400)
-  window.addEventListener('click', swallow, true)
-}
-
-const setCursor = (value: string): void => {
-  if (cursor === value) return
-  cursor = value
-  const canvas = document.querySelector<HTMLElement>('canvas.maplibregl-canvas')
-  if (canvas !== null) canvas.style.cursor = value
-}
-
-const toolCursor = (): string =>
-  tool === 'select' || tool === 'direct'
-    ? 'default'
-    : tool === 'hand'
-      ? 'grab'
-      : tool === 'pen'
-        ? 'copy'
-        : 'crosshair'
-
-const isSelectionTool = (of: ClaimTool): boolean => of === 'select' || of === 'direct'
-
-const startDrag = (
-  kind: DragKind,
-  event: PointerEvent,
-  origin: Point,
-  base: RegionItem | null,
-  index = 0,
-  part: Drag['part'] = 'anchor',
-): void => {
-  drag = {
-    kind,
-    pointerId: event.pointerId,
-    originX: origin.x,
-    originY: origin.y,
-    clientX: event.clientX,
-    clientY: event.clientY,
-    base,
-    group: kind === 'move' ? selectedItems() : [],
-    index,
-    part,
-    press: canvasPixelAt(event.clientX, event.clientY) ?? { x: origin.x, y: origin.y },
-    moved: false,
-  }
-}
-
-/** The bounding-box corners of a shape, projected to client pixels. */
-const cornersOnScreen = (
-  shape: RegionShape,
-): { readonly corners: readonly Point[]; readonly box: PresenceRect } | null => {
-  const projection = screenProjection()
-  if (projection === null) return null
-  const box = regionShapeBounds(shape)
-  const corners = [
-    { x: box.x, y: box.y },
-    { x: box.x + box.w, y: box.y },
-    { x: box.x + box.w, y: box.y + box.h },
-    { x: box.x, y: box.y + box.h },
-  ].map((corner) => projection.pointFor(corner.x, corner.y))
-  return { corners, box }
-}
-
-/**
- * Whether a client point sits in a rotate zone: just outside a bounding-box corner of the one
- * selected shape, past the corner's own handle, as Illustrator's cursor does near a corner.
- */
-const inRotateZone = (clientX: number, clientY: number): boolean => {
-  const item = selectedItem()
-  if (item === null || tool !== 'select') return false
-  const screen = cornersOnScreen(item.shape)
-  if (screen === null) return false
-  const [a, , c] = screen.corners
-  if (a === undefined || c === undefined) return false
-  const insideBox =
-    clientX >= Math.min(a.x, c.x) - HIT_RADIUS_CSS &&
-    clientX <= Math.max(a.x, c.x) + HIT_RADIUS_CSS &&
-    clientY >= Math.min(a.y, c.y) - HIT_RADIUS_CSS &&
-    clientY <= Math.max(a.y, c.y) + HIT_RADIUS_CSS
-  if (insideBox) return false
-  return screen.corners.some(
-    (corner) => Math.hypot(clientX - corner.x, clientY - corner.y) <= ROTATE_ZONE_CSS,
+/** The click after a gesture belongs to the editor when it lands on the map or the overlay. */
+const swallowClick = (): void =>
+  swallowNextClick(
+    (target) =>
+      isMapInteractionTarget(target) ||
+      (target instanceof Node && overlay?.contains(target) === true),
   )
-}
 
-const onHandlePress = (event: PointerEvent, target: Element): boolean => {
-  const handle = (target as HTMLElement).dataset.handle
-  const item = selectedItem()
-  if (handle === undefined || item === null) return false
-  consume(event)
-  try {
-    target.setPointerCapture(event.pointerId)
-  } catch {
-    // Window listeners still see the moves.
-  }
-  const [kind, indexText, part] = handle.split(':')
-  const index = Number(indexText ?? 0)
-  const shape = item.shape
-  if (kind === 'corner' && (shape.kind === 'rectangle' || shape.kind === 'ellipse')) {
-    // The opposite corner stays put.
-    const anchorX = index === 1 || index === 2 ? shape.x : shape.x + shape.w - 1
-    const anchorY = index === 2 || index === 3 ? shape.y : shape.y + shape.h - 1
-    startDrag('corner', event, { x: anchorX, y: anchorY }, item, index)
-  } else if (
-    (kind === 'outer' || kind === 'inner') &&
-    (shape.kind === 'polygon' || shape.kind === 'star')
-  ) {
-    startDrag(kind, event, { x: shape.cx, y: shape.cy }, item)
-  } else if (kind === 'node' && shape.kind === 'path' && tool === 'pen') {
-    // The pen on a selected path: continue from an end, otherwise delete the anchor.
-    if (!continuePathFrom(item, index)) deleteAnchorOf(item, index)
-  } else if (kind === 'node' && shape.kind === 'path' && tool === 'delete-anchor') {
-    if (part === 'anchor') deleteAnchorOf(item, index)
-  } else if (kind === 'node' && shape.kind === 'path' && tool === 'add-anchor') {
-    // Nothing to add on an anchor itself; segments are hit on the map.
-  } else if (kind === 'node' && shape.kind === 'path' && tool === 'anchor') {
-    if (part === 'anchor') startDrag('anchor-pull', event, { x: 0, y: 0 }, item, index, 'anchor')
-    else startDrag('handle-solo', event, { x: 0, y: 0 }, item, index, part as Drag['part'])
-  } else if (kind === 'node' && shape.kind === 'path') {
-    startDrag('node', event, { x: 0, y: 0 }, item, index, (part as Drag['part']) ?? 'anchor')
-  } else if (kind === 'anchor' && shape.kind !== 'path' && tool === 'delete-anchor') {
-    deleteAnchorOf(item, index)
-  } else if (kind === 'anchor' && shape.kind !== 'path' && tool === 'anchor') {
-    const converted: RegionItem = { ...item, shape: toPath(shape) }
-    replaceItem(item.id, converted.shape)
-    startDrag('anchor-pull', event, { x: 0, y: 0 }, converted, index, 'anchor')
-  } else if (kind === 'anchor' && shape.kind !== 'path') {
-    // Editing one anchor of a rectangle, ellipse, polygon, or star turns it into a path, but
-    // only once the anchor moves: a mere click must leave the claim as it was.
-    startDrag('anchor-convert', event, { x: 0, y: 0 }, item, index, 'anchor')
-  } else if (kind === 'rotate') {
-    startDrag('rotate', event, regionShapeCentre(shape), item)
-  } else if (kind === 'scale' && (shape.kind === 'path' || shape.kind === 'pixels')) {
-    // The opposite corner of the bounding box stays put.
-    const corners = scaleBoxCorners(shape)
-    const opposite = corners[(index + 2) % 4] as Point
-    startDrag('scale', event, opposite, item, index)
-  } else return false
-  message = undefined
+const pointerInput = (event: PointerEvent): PointerInput => ({
+  pointerId: event.pointerId,
+  client: { x: event.clientX, y: event.clientY },
+  point: mapPointAt(event.clientX, event.clientY),
+  shiftKey: event.shiftKey,
+})
+
+const changeTool = (s: EditorState, next: ClaimTool): void => {
+  // Hand-tool clicks reach Wplace and can open its pixel card; it is stale again from here.
+  if (s.tool === 'hand' && next !== 'hand') dismissWplacePixelCard()
+  setTool(s, next)
   notify()
-  return true
 }
 
 const onPointerDown = (event: PointerEvent): void => {
-  if (!active || host === null || pending || drag !== null || event.button !== 0) return
-  const target = event.target
-  if (target instanceof Element && (target as HTMLElement).dataset.handle !== undefined) {
-    onHandlePress(event, target)
-    return
-  }
-  if (!isMapPress(event)) return
-  const point = canvasPixelAt(event.clientX, event.clientY)
-  if (point === null) return
-  const px = pixel(point.x)
-  const py = pixel(point.y)
-  message = undefined
-  if (inRotateZone(event.clientX, event.clientY)) {
-    const item = selectedItem() as RegionItem
+  const s = editor
+  if (s === null || host === null || s.pending || s.drag !== null || event.button !== 0) return
+  const handle = handleOf(event.target)
+  if (handle !== undefined) {
+    if (selectedItem(s) === null || !(event.target instanceof Element)) return
     consume(event)
-    startDrag('rotate', event, regionShapeCentre(item.shape), item)
+    try {
+      event.target.setPointerCapture(event.pointerId)
+    } catch {
+      // The pointer is already released; window listeners still see the moves.
+    }
+    pressHandle(s, handle, pointerInput(event))
     notify()
     return
   }
-  switch (tool) {
-    case 'select':
-    case 'direct': {
-      const hit = itemAt(px, py)
-      if (hit === null) {
-        // Empty canvas: drag out a marquee. Shift adds to what is selected, as in Illustrator.
-        consume(event)
-        baseSelection = event.shiftKey ? selectedIds : []
-        select(baseSelection)
-        marquee = { x0: point.x, y0: point.y, x1: point.x, y1: point.y }
-        startDrag('marquee', event, { x: px, y: py }, null)
-        notify()
-        return
-      }
-      consume(event)
-      // Shift toggles membership; a press on an already selected shape keeps the whole selection
-      // so the drag moves all of it; anything else selects just this shape.
-      if (event.shiftKey)
-        select(
-          isSelected(hit.id) ? selectedIds.filter((id) => id !== hit.id) : [...selectedIds, hit.id],
-        )
-      else if (!isSelected(hit.id) || tool === 'direct') select([hit.id])
-      if (tool === 'select' && isSelected(hit.id)) startDrag('move', event, { x: px, y: py }, hit)
-      notify()
-      return
-    }
-    case 'lasso': {
-      // The lasso owns the press: the map does not pan under it.
-      consume(event)
-      baseSelection = event.shiftKey ? selectedIds : []
-      select(baseSelection)
-      lasso = [{ x: point.x, y: point.y }]
-      startDrag('lasso', event, { x: px, y: py }, null)
-      notify()
-      return
-    }
-    case 'hand':
-      // The one tool that leaves the press to the map, so dragging pans.
-      return
-    case 'add-anchor': {
-      consume(event)
-      if (!addAnchorAt(point)) select([])
-      notify()
-      return
-    }
-    case 'delete-anchor':
-    case 'anchor': {
-      // Anchors are SVG handles and arrive through onHandlePress; the map itself just selects.
-      consume(event)
-      const near = pathNear(point)
-      select(near === null ? [] : [near.item.id])
-      notify()
-      return
-    }
-    case 'pen': {
-      consume(event)
-      if (pen === null) {
-        // Not drawing: a click on a selected path's segment adds an anchor there instead.
-        const near = pathNear(point)
-        if (near !== null && isSelected(near.item.id)) {
-          addAnchorAt(point)
-          notify()
-          return
-        }
-      }
-      const start = penStartClient()
-      if (
-        pen !== null &&
-        pen.length >= 3 &&
-        start !== null &&
-        Math.hypot(event.clientX - start.x, event.clientY - start.y) <= HIT_RADIUS_CSS
-      ) {
-        commitPen(true)
-        return
-      }
-      if (pen === null) pen = []
-      if (pen.length >= MAX_PATH_NODES) {
-        message = `A path holds at most ${MAX_PATH_NODES} anchors.`
-        notify()
-        return
-      }
-      // Anchors sit wherever the pointer is; the grid only matters once the path is rasterised.
-      pen = [...pen, { x: point.x, y: point.y }]
-      startDrag('pen', event, { x: point.x, y: point.y }, null, pen.length - 1)
-      bump()
-      notify()
-      return
-    }
-    case 'pencil': {
-      consume(event)
-      raster = new PixelSet()
-      raster.stamp(px, py, pencilWidth)
-      lastStamp = { x: px, y: py }
-      startDrag('raster', event, { x: px, y: py }, null)
-      bump()
-      notify()
-      return
-    }
-    case 'eraser': {
-      consume(event)
-      const set = new PixelSet()
-      set.stamp(px, py, eraserWidth)
-      // The cut through vector shapes follows the same pixel centres the raster stamps.
-      erasing = { set, line: [{ x: px + 0.5, y: py + 0.5 }] }
-      lastStamp = { x: px, y: py }
-      startDrag('erase', event, { x: px, y: py }, null)
-      bump()
-      notify()
-      return
-    }
-    case 'brush':
-      consume(event)
-      select([])
-      stroke = [{ x: px + 0.5, y: py + 0.5 }]
-      startDrag('stroke', event, { x: px, y: py }, null)
-      bump()
-      notify()
-      return
-    default:
-      consume(event)
-      select([])
-      drawing = shapeFrom(px, py, px, py)
-      startDrag('draw', event, { x: px, y: py }, null)
-      bump()
-      notify()
-  }
+  if (!isMapPress(event.target)) return
+  if (!pressMap(s, pointerInput(event), screenProjection())) return
+  consume(event)
+  notify()
 }
 
 const onPointerMove = (event: PointerEvent): void => {
-  if (!active || host === null) return
-  if (drag === null) {
-    if (!isMapPress(event)) {
-      setCursor('')
-      return
-    }
-    if (tool === 'pen' && pen !== null) {
-      hover = canvasPixelAt(event.clientX, event.clientY)
-      syncOverlay()
-    }
-    if (isSelectionTool(tool)) {
-      const point = canvasPixelAt(event.clientX, event.clientY)
-      const px = point === null ? -1 : pixel(point.x)
-      const py = point === null ? -1 : pixel(point.y)
-      const overItem = point !== null && itemAt(px, py) !== null
-      setCursor(
-        inRotateZone(event.clientX, event.clientY) ? ROTATE_CURSOR : overItem ? 'move' : 'default',
-      )
-    } else setCursor(toolCursor())
+  const s = editor
+  if (s === null || host === null) return
+  if (s.drag === null) {
+    if (isMapPress(event.target)) {
+      hoverMap(s, pointerInput(event), screenProjection())
+      if (s.tool === 'pen' && s.pen !== null) syncOverlay()
+    } else s.cursor = ''
+    applyCursor()
     return
   }
-  if (event.pointerId !== drag.pointerId) return
+  if (event.pointerId !== s.drag.pointerId) return
   consume(event)
-  const point = canvasPixelAt(event.clientX, event.clientY)
-  if (point === null) return
-  const px = pixel(point.x)
-  const py = pixel(point.y)
-  const travelled =
-    Math.abs(event.clientX - drag.clientX) > CLICK_SLOP_PX ||
-    Math.abs(event.clientY - drag.clientY) > CLICK_SLOP_PX
-  if (travelled) drag.moved = true
-  const base = drag.base
-  switch (drag.kind) {
-    case 'draw':
-      drawing = shapeFrom(drag.originX, drag.originY, px, py)
-      bump()
-      break
-    case 'move': {
-      if (base === null || !drag.moved) return
-      // Every selected shape travels by the same whole-pixel offset.
-      const dx = px - drag.originX
-      const dy = py - drag.originY
-      const moved = new Map(drag.group.map((item) => [item.id, item] as const))
-      items = items.map((item) => {
-        const was = moved.get(item.id)
-        return was === undefined
-          ? item
-          : { ...item, shape: translateRegionShape(was.shape, dx, dy) }
-      })
-      touch()
-      setCursor('grabbing')
-      break
-    }
-    case 'marquee': {
-      if (marquee === null) return
-      marquee = { ...marquee, x1: point.x, y1: point.y }
-      const caught = items.filter((item) =>
-        inMarquee(item.shape, marquee as NonNullable<typeof marquee>),
-      )
-      select([...baseSelection, ...caught.map((item) => item.id)])
-      break
-    }
-    case 'lasso': {
-      if (lasso === null) return
-      const last = lasso[lasso.length - 1] as Point
-      if (Math.hypot(point.x - last.x, point.y - last.y) >= 1)
-        lasso = [...lasso, { x: point.x, y: point.y }]
-      const ring = lasso
-      const caught = items.filter((item) => inLasso(item.shape, ring))
-      select([...baseSelection, ...caught.map((item) => item.id)])
-      break
-    }
-    case 'corner': {
-      if (base === null || (base.shape.kind !== 'rectangle' && base.shape.kind !== 'ellipse'))
-        return
-      replaceItem(
-        base.id,
-        boxShape(base.shape.kind, { x: drag.originX, y: drag.originY }, { x: px, y: py }),
-      )
-      break
-    }
-    case 'outer': {
-      if (base === null || (base.shape.kind !== 'polygon' && base.shape.kind !== 'star')) return
-      replaceItem(
-        base.id,
-        roundShape(
-          base.shape.kind,
-          { x: drag.originX, y: drag.originY },
-          { x: px, y: py },
-          { sides, points, inner },
-          base.shape,
-        ),
-      )
-      break
-    }
-    case 'inner': {
-      if (base?.shape.kind !== 'star') return
-      const innerRadius = starInner(
-        base.shape.r,
-        Math.hypot(px - base.shape.cx, py - base.shape.cy),
-      )
-      inner = Math.round((innerRadius / base.shape.r) * 100)
-      replaceItem(base.id, { ...base.shape, inner: innerRadius })
-      break
-    }
-    case 'node': {
-      if (base?.shape.kind !== 'path') return
-      const current = selectedItem()
-      if (current?.shape.kind !== 'path') return
-      replaceItem(base.id, moveNode(current.shape, drag.index, drag.part, point, base.shape))
-      break
-    }
-    case 'scale': {
-      if (base === null || (base.shape.kind !== 'path' && base.shape.kind !== 'pixels')) return
-      const anchor = { x: drag.originX, y: drag.originY }
-      const from = scaleBoxCorners(base.shape)[drag.index] as Point
-      const spanX = from.x - anchor.x
-      const spanY = from.y - anchor.y
-      // A box cannot collapse to nothing: the dragged corner keeps at least half a pixel away.
-      const keep = (value: number, span: number): number =>
-        Math.abs(value) < 0.5 ? (span < 0 ? -0.5 : 0.5) : value
-      let sx = spanX === 0 ? 1 : keep(point.x - anchor.x, spanX) / spanX
-      let sy = spanY === 0 ? 1 : keep(point.y - anchor.y, spanY) / spanY
-      if (event.shiftKey) {
-        // Shift keeps the proportions, following whichever axis was pulled further.
-        const uniform = Math.max(Math.abs(sx), Math.abs(sy))
-        sx = Math.sign(sx) * uniform
-        sy = Math.sign(sy) * uniform
-      }
-      const scaled = scaleShape(base.shape, anchor, sx, sy)
-      if (scaled === null) {
-        message = 'That is too large for one drawing.'
-        break
-      }
-      replaceItem(base.id, scaled)
-      break
-    }
-    case 'rotate': {
-      if (base === null) return
-      const centre = { x: drag.originX, y: drag.originY }
-      let radians =
-        Math.atan2(point.y - centre.y, point.x - centre.x) -
-        Math.atan2(drag.press.y - centre.y, drag.press.x - centre.x)
-      if (event.shiftKey) {
-        const step = (ROTATE_SNAP_DEGREES * Math.PI) / 180
-        radians = Math.round(radians / step) * step
-      }
-      replaceItem(base.id, rotateShape(base.shape, centre, radians))
-      setCursor(ROTATE_CURSOR)
-      break
-    }
-    case 'raster': {
-      if (raster === null) return
-      raster.line(lastStamp ?? { x: px, y: py }, { x: px, y: py }, pencilWidth)
-      lastStamp = { x: px, y: py }
-      bump()
-      break
-    }
-    case 'erase': {
-      if (erasing === null) return
-      erasing.set.line(lastStamp ?? { x: px, y: py }, { x: px, y: py }, eraserWidth)
-      lastStamp = { x: px, y: py }
-      const last = erasing.line[erasing.line.length - 1] as Point
-      const centre = { x: px + 0.5, y: py + 0.5 }
-      if (Math.hypot(centre.x - last.x, centre.y - last.y) >= 1)
-        erasing.line = [...erasing.line, centre]
-      bump()
-      break
-    }
-    case 'anchor-convert': {
-      if (base === null || !drag.moved) return
-      const path = toPath(base.shape)
-      drag = { ...drag, kind: 'node', base: { ...base, shape: path } }
-      replaceItem(base.id, moveNode(path, drag.index, 'anchor', point, path))
-      break
-    }
-    case 'anchor-pull': {
-      if (base?.shape.kind !== 'path' || !drag.moved) return
-      // Dragging out of an anchor gives it a pair of handles pointing along the drag.
-      const current = selectedItem()
-      if (current?.shape.kind !== 'path') return
-      const index = drag.index
-      const node = current.shape.nodes[index] as PathNode
-      const nodes = current.shape.nodes.map((held, at) =>
-        at === index ? smoothAnchor(node, { x: point.x, y: point.y }) : held,
-      )
-      replaceItem(base.id, { ...current.shape, nodes })
-      break
-    }
-    case 'handle-solo': {
-      if (base?.shape.kind !== 'path') return
-      // One handle on its own: the other stays, which breaks the smooth pair into a cusp.
-      const current = selectedItem()
-      if (current?.shape.kind !== 'path') return
-      const index = drag.index
-      const part = drag.part
-      const nodes = current.shape.nodes.map((held, at) =>
-        at === index ? { ...held, [part]: { x: point.x, y: point.y } } : held,
-      )
-      replaceItem(base.id, { ...current.shape, nodes })
-      break
-    }
-    case 'stroke': {
-      if (stroke === null) return
-      const last = stroke[stroke.length - 1] as Point
-      const next = { x: px + 0.5, y: py + 0.5 }
-      if (Math.hypot(next.x - last.x, next.y - last.y) < STROKE_STEP_PX) return
-      if (stroke.length >= MAX_PATH_NODES) return
-      stroke = [...stroke, next]
-      bump()
-      break
-    }
-    case 'pen': {
-      if (pen === null || !drag.moved) return
-      // Dragging out of a fresh anchor pulls its out handle and mirrors the in handle.
-      const index = drag.index
-      const anchor = pen[index] as PathNode
-      const out = { x: point.x, y: point.y }
-      pen = pen.map((node, at) =>
-        at === index
-          ? {
-              x: anchor.x,
-              y: anchor.y,
-              out,
-              in: { x: 2 * anchor.x - out.x, y: 2 * anchor.y - out.y },
-            }
-          : node,
-      )
-      bump()
-      break
-    }
-  }
-  notify()
+  if (dragTo(s, pointerInput(event))) notify()
 }
 
 const onPointerEnd = (event: PointerEvent): void => {
-  if (drag === null) {
-    if (consumedPress === event.pointerId) {
-      // A click the editor answered (a selection, an anchor) never reaches Wplace.
-      consumedPress = null
-      consume(event)
-      swallowNextClick()
-    }
+  const s = editor
+  if (s === null) return
+  if (s.drag === null) {
+    if (consumedPress !== event.pointerId) return
+    // A click the editor answered (a selection, an anchor) never reaches Wplace.
+    consumedPress = null
+    consume(event)
+    swallowClick()
     return
   }
-  if (event.pointerId !== drag.pointerId) return
+  if (event.pointerId !== s.drag.pointerId) return
   consumedPress = null
   consume(event)
-  swallowNextClick()
-  const ended = drag
-  drag = null
-  switch (ended.kind) {
-    case 'draw':
-      if (drawing !== null) addItem(drawing)
-      drawing = null
-      break
-    case 'stroke':
-      finishStroke()
-      return
-    case 'anchor-pull': {
-      const base = ended.base
-      if (!ended.moved && base?.shape.kind === 'path') {
-        const current = selectedItem()
-        if (current?.shape.kind === 'path') {
-          const node = current.shape.nodes[ended.index] as PathNode
-          if (isSmooth(node))
-            replaceItem(base.id, {
-              ...current.shape,
-              nodes: current.shape.nodes.map((held, at) =>
-                at === ended.index ? cornerAnchor(held) : held,
-              ),
-            })
-        }
-      }
-      break
-    }
-    case 'raster':
-      finishRaster()
-      return
-    case 'erase':
-      finishErase()
-      return
-    case 'marquee':
-    case 'lasso':
-      // A click with no drag on empty canvas clears the selection, like Illustrator.
-      if (!ended.moved && !event.shiftKey) select([])
-      marquee = null
-      lasso = null
-      break
-    default:
-      break
-  }
-  bump()
-  setCursor(toolCursor())
+  swallowClick()
+  endDrag(s, event.shiftKey)
   notify()
 }
 
-/**
- * A cancelled pointer (the browser took it: a gesture, a lost capture) is not a release. What a
- * drag changed goes back, what it was drawing is dropped, and no click is expected after it.
- */
+/** A cancelled pointer is not a release: no click is expected after it. */
 const onPointerCancel = (event: PointerEvent): void => {
-  if (drag === null) {
+  const s = editor
+  if (s === null) return
+  if (s.drag === null) {
     if (consumedPress === event.pointerId) consumedPress = null
     return
   }
-  if (event.pointerId !== drag.pointerId) return
-  const ended = drag
-  drag = null
+  if (event.pointerId !== s.drag.pointerId) return
   consumedPress = null
-  switch (ended.kind) {
-    case 'move':
-      items = items.map((item) => ended.group.find((was) => was.id === item.id) ?? item)
-      break
-    case 'corner':
-    case 'outer':
-    case 'inner':
-    case 'node':
-    case 'rotate':
-    case 'scale':
-    case 'anchor-pull':
-    case 'handle-solo':
-    case 'anchor-convert':
-      if (ended.base !== null)
-        items = items.map((item) =>
-          item.id === ended.base?.id ? (ended.base as RegionItem) : item,
-        )
-      break
-    case 'pen':
-      if (pen !== null) pen = pen.filter((_, at) => at !== ended.index)
-      if (pen !== null && pen.length === 0) pen = null
-      break
-    default:
-      break
-  }
-  drawing = null
-  stroke = null
-  raster = null
-  erasing = null
-  lastStamp = null
-  marquee = null
-  lasso = null
-  bump()
-  setCursor(toolCursor())
+  cancelDrag(s)
   notify()
 }
 
+/** A focused text field, reached through open shadow roots, keeps its keys. */
 const isTyping = (target: EventTarget | null): boolean => {
   let node = target as (Element & { shadowRoot?: ShadowRoot | null }) | null
   while (node?.shadowRoot?.activeElement) node = node.shadowRoot.activeElement as typeof node
@@ -1420,8 +283,9 @@ const inDialog = (event: Event): boolean =>
   event.composedPath().some((node) => node instanceof HTMLDialogElement && node.open)
 
 const onKeydown = (event: KeyboardEvent): void => {
+  const s = editor
   if (
-    !active ||
+    s === null ||
     isTyping(event.target) ||
     inDialog(event) ||
     event.metaKey ||
@@ -1429,78 +293,59 @@ const onKeydown = (event: KeyboardEvent): void => {
     event.altKey
   )
     return
-  if (pending) {
+  if (s.pending) {
     // A save is in flight with a snapshot of the document; an edit now would be lost with it.
     consume(event)
     return
   }
-  const key = event.key.toLowerCase()
-  if (key === ' ') {
-    // Holding space is a temporary hand, as in Illustrator; the tool comes back on release.
-    consume(event)
-    if (handHeldFrom === null && tool !== 'hand' && drag === null) {
-      handHeldFrom = tool
-      setTool('hand')
+  switch (event.key.toLowerCase()) {
+    case ' ':
+      // Holding space is a temporary hand, as in Illustrator; the tool comes back on release.
+      consume(event)
+      if (s.handHeldFrom !== null || s.tool === 'hand' || s.drag !== null) return
+      s.handHeldFrom = s.tool
+      changeTool(s, 'hand')
+      return
+    case 'escape':
+      // An open tool flyout closes on Escape by itself; the editor stays out of it.
+      if (mode?.shadowRoot?.querySelector('[role="menu"]') != null) return
+      consume(event)
+      if (s.pen !== null) dropPen(s)
+      else if (s.selectedIds.length > 0) clearSelection(s)
+      else {
+        stopClaimMode()
+        return
+      }
       notify()
-    }
-    return
-  }
-  if (key === 'escape') {
-    // An open tool flyout closes on Escape by itself; the editor stays out of it.
-    if (mode?.shadowRoot?.querySelector('[role="menu"]') != null) return
-    consume(event)
-    if (pen !== null) {
-      // Dropping the pen gives a continued path back as it was.
-      pen = null
-      if (penContinued !== null) restoreContinued(penContinued)
-      penContinued = null
-      bump()
+      return
+    case 'enter':
+      consume(event)
+      if (s.pen === null) {
+        void confirm()
+        return
+      }
+      commitPen(s, false)
       notify()
-    } else if (selectedIds.length > 0) {
-      select([])
+      return
+    case 'delete':
+    case 'backspace':
+      consume(event)
+      deleteSelected(s)
       notify()
-    } else stopClaimMode()
-    return
+      return
   }
-  if (key === 'enter') {
-    consume(event)
-    if (pen !== null) commitPen(false)
-    else void confirm()
-    return
-  }
-  if (key === 'delete' || key === 'backspace') {
-    consume(event)
-    deleteSelected()
-    return
-  }
-  if (key === '+' || key === '=') {
-    consume(event)
-    setTool('add-anchor')
-    return
-  }
-  if (key === '-' || key === '_') {
-    consume(event)
-    setTool('delete-anchor')
-    return
-  }
-  if (key === 'c' && event.shiftKey) {
-    consume(event)
-    setTool('anchor')
-    return
-  }
-  const next = TOOL_KEYS[key]
-  if (next !== undefined) {
-    consume(event)
-    setTool(next)
-  }
+  const next = claimToolForKey(event.key, event.shiftKey)
+  if (next === null) return
+  consume(event)
+  changeTool(s, next)
 }
 
 const onKeyup = (event: KeyboardEvent): void => {
-  if (!active || event.key !== ' ' || handHeldFrom === null) return
-  const back = handHeldFrom
-  handHeldFrom = null
-  setTool(back)
-  notify()
+  const s = editor
+  if (s === null || event.key !== ' ' || s.handHeldFrom === null) return
+  const back = s.handHeldFrom
+  s.handHeldFrom = null
+  changeTool(s, back)
 }
 
 /**
@@ -1509,15 +354,19 @@ const onKeyup = (event: KeyboardEvent): void => {
  * never zooms under a stray scroll; modified ones pass through to the map's own zoom.
  */
 const onWheel = (event: WheelEvent): void => {
-  if (!active || event.altKey || event.ctrlKey || event.metaKey) return
-  const target = event.target
-  if (!(target instanceof Element) || !isMapInteractionTarget(target)) return
+  if (editor === null || event.altKey || event.ctrlKey || event.metaKey) return
+  if (!isMapInteractionTarget(event.target)) return
   const map = getMap() as {
     panBy?: (offset: [number, number], options?: unknown) => unknown
   } | null
   if (map?.panBy === undefined) return
   consume(event)
-  const scale = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 100 : 1
+  const scale =
+    event.deltaMode === WheelEvent.DOM_DELTA_LINE
+      ? WHEEL_LINE_PX
+      : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+        ? WHEEL_PAGE_PX
+        : 1
   let dx = event.deltaX * scale
   let dy = event.deltaY * scale
   if (event.shiftKey && dx === 0) {
@@ -1528,57 +377,38 @@ const onWheel = (event: WheelEvent): void => {
   map.panBy([dx, dy], { animate: false })
 }
 
-const deleteSelected = (): void => {
-  if (selectedIds.length === 0) return
-  items = items.filter((item) => !isSelected(item.id))
-  select([])
-  touch()
-  notify()
-}
-
-const setTool = (next: ClaimTool): void => {
-  if (pen !== null && next !== 'pen') commitPen(false)
-  // Hand-tool clicks reach Wplace and can open its pixel card; it is stale again from here.
-  if (tool === 'hand' && next !== 'hand') dismissWplacePixelCard()
-  tool = next
-  shown = { ...shown, [groupOf(next)]: next }
-  if (next !== 'hand') handHeldFrom = null
-  marquee = null
-  lasso = null
-  setCursor(toolCursor())
-  notify()
-}
-
 /** Hand the selection to the capture host. A failure keeps the selection so it can be retried. */
 const capture = async (action: CaptureAction): Promise<void> => {
-  if (!active || pending || captureHost === null) return
-  if (pen !== null) commitPen(false)
-  const selection = claimEditorPixels()?.parts[0]
-  if (pixelCache?.error != null || selection === undefined) {
-    message = pixelCache?.error ?? 'Draw around the art to capture first.'
+  const s = editor
+  const target = captureHost
+  if (s === null || s.pending || target === null) return
+  if (s.pen !== null) commitPen(s, false)
+  const { error, pixels } = derive(s)
+  const selection = pixels?.parts[0]
+  if (error !== null || selection === undefined) {
+    s.message = error ?? 'Draw around the art to capture first.'
     notify()
     return
   }
   const mine = session
-  const target = captureHost
   const controller = new AbortController()
   captureController = controller
-  pending = true
-  message = undefined
+  s.pending = true
+  s.message = undefined
   notify()
-  let error: string | null
+  let failure: string | null
   try {
-    error = await target.capture(selection, action, controller.signal)
-  } catch (failure) {
-    error = failure instanceof Error ? failure.message : String(failure)
+    failure = await target.capture(selection, action, controller.signal)
+  } catch (thrown) {
+    failure = thrown instanceof Error ? thrown.message : String(thrown)
   }
   if (captureController === controller) captureController = null
   if (session !== mine || controller.signal.aborted) return
-  pending = false
-  if (!active) return
-  if (error === null) stopClaimMode()
+  s.pending = false
+  if (editor !== s) return
+  if (failure === null) stopClaimMode()
   else {
-    message = error
+    s.message = failure
     notify()
   }
 }
@@ -1591,94 +421,62 @@ const capture = async (action: CaptureAction): Promise<void> => {
  */
 const confirm = async (): Promise<void> => {
   if (captureHost !== null) return capture(captureHost.purpose === 'update' ? 'update' : 'template')
-  if (!active || pending || host === null) return
-  if (pen !== null) commitPen(false)
-  if (!dirty) {
+  const s = editor
+  const target = host
+  if (s === null || s.pending || target === null) return
+  if (s.pen !== null) commitPen(s, false)
+  if (!s.dirty) {
     stopClaimMode()
     return
   }
-  claimEditorPixels()
-  if (pixelCache?.error != null) {
-    message = pixelCache.error
+  const { error, documents } = derive(s)
+  if (error !== null) {
+    s.message = error
     notify()
     return
   }
-  const documents = pixelCache?.documents ?? []
   const mine = session
-  const target = host
-  const ids = editingIds
-  pending = true
-  message = undefined
+  const ids = s.editingIds
+  s.pending = true
+  s.message = undefined
   notify()
   let result: ClaimSaveResult
   try {
     result = await target.save(ids, documents)
-  } catch (error) {
-    result = { ids, error: String(error) }
+  } catch (thrown) {
+    result = { ids, error: String(thrown) }
   }
   // Escape during the wait ends this session; whatever opened since is not this request's.
   if (session !== mine) return
-  pending = false
-  if (!isClaimModeActive()) return
-  editingIds = result.ids
+  s.pending = false
+  if (editor !== s) return
+  s.editingIds = result.ids
   if (result.error === null) stopClaimMode()
   else {
-    dirty = true
-    message = result.error
+    s.dirty = true
+    s.message = result.error
     notify()
   }
 }
 
 export const handleClaimModeIntent = (intent: ClaimModeIntent): void => {
-  if (!active) return
+  const s = editor
+  if (s === null) return
   switch (intent.type) {
     case 'set-tool':
-      setTool(intent.tool)
+      changeTool(s, intent.tool)
       return
-    case 'set-option': {
-      const value = intent.value
-      if (intent.option === 'sides')
-        sides = clampInt(value, MIN_REGION_SHAPE_CORNERS, MAX_REGION_SHAPE_CORNERS)
-      if (intent.option === 'points')
-        points = clampInt(value, MIN_REGION_SHAPE_CORNERS, MAX_REGION_SHAPE_CORNERS)
-      if (intent.option === 'inner') inner = clampInt(value, 5, 95)
-      if (intent.option === 'width') {
-        if (tool === 'pencil') pencilWidth = clampInt(value, 1, MAX_STROKE_WIDTH)
-        else if (tool === 'eraser') eraserWidth = clampInt(value, 1, MAX_STROKE_WIDTH)
-        else width = clampInt(value, 0, MAX_STROKE_WIDTH)
-      }
-      // The selected shape follows the option, so a count or width is also an edit.
-      const selected = selectedItem()
-      if (selected !== null) {
-        const shape = selected.shape
-        if (intent.option === 'sides' && shape.kind === 'polygon')
-          replaceItem(selected.id, { ...shape, sides })
-        if (intent.option === 'points' && shape.kind === 'star')
-          replaceItem(selected.id, { ...shape, points })
-        if (intent.option === 'inner' && shape.kind === 'star')
-          replaceItem(selected.id, {
-            ...shape,
-            inner: starInner(shape.r, (shape.r * inner) / 100),
-          })
-        if (intent.option === 'width' && shape.kind === 'path' && (shape.closed || width > 0))
-          replaceItem(selected.id, { ...shape, width })
-      }
+    case 'set-option':
+      setOption(s, intent.option, intent.value)
       break
-    }
-    case 'set-subtract': {
+    case 'set-subtract':
       // A pending capture or save is using the current selection; a failure retries with it.
-      if (pending) return
-      subtract = intent.subtract
-      if (selectedIds.length > 0) {
-        items = items.map((item) =>
-          isSelected(item.id) ? { ...item, op: subtract ? 'subtract' : 'add' } : item,
-        )
-        touch()
-      }
+      if (s.pending) return
+      setSubtract(s, intent.subtract)
       break
-    }
     case 'delete-item':
-      deleteSelected()
+      deleteSelected(s)
+      notify()
       return
     case 'confirm':
       void confirm()
@@ -1690,23 +488,23 @@ export const handleClaimModeIntent = (intent: ClaimModeIntent): void => {
       stopClaimMode()
       return
   }
-  message = undefined
+  s.message = undefined
   notify()
 }
 
 /* Chrome: the mode element and the SVG overlay. */
 
-const ensureMode = (): void => {
-  if (mode?.isConnected) return
+const ensureMode = (): CaelestisClaimMode => {
+  if (mode?.isConnected) return mode
   // A restart while the old element is still closing reclaims it — never two nodes with one id.
   if (closingMode?.isConnected && cancelSurfaceClose(closingMode)) {
     mode = closingMode
     closingMode = null
     openSurface(mode)
-    return
+    return mode
   }
   closingMode = null
-  const element = document.createElement(CLAIM_MODE_TAG) as HTMLElement & { model: ClaimModeModel }
+  const element = document.createElement(CLAIM_MODE_TAG)
   element.id = MODE_ID
   Object.assign(element.style, {
     position: 'fixed',
@@ -1716,42 +514,42 @@ const ensureMode = (): void => {
     pointerEvents: 'none',
   } satisfies Partial<CSSStyleDeclaration>)
   applyWplaceTheme(element)
-  element.addEventListener('caelestis-claim-mode-intent', (event) => {
+  element.addEventListener(CLAIM_MODE_INTENT, (event) => {
     handleClaimModeIntent((event as CustomEvent<ClaimModeIntent>).detail)
   })
-  element.model = claimModeModel()
   document.body.appendChild(element)
   openSurface(element)
   mode = element
+  return element
 }
 
 const syncMode = (): void => {
-  if (!active) {
-    if (mode !== null) {
-      const leaving = mode
-      mode = null
-      closingMode = leaving
-      closeSurface(leaving, () => {
-        if (closingMode === leaving) closingMode = null
-        leaving.remove()
-      })
-    }
+  const model = claimModeModel()
+  if (model !== null) {
+    ensureMode().model = model
     return
   }
-  ensureMode()
-  if (mode !== null) mode.model = claimModeModel()
+  if (mode === null) return
+  const leaving = mode
+  mode = null
+  closingMode = leaving
+  closeSurface(leaving, () => {
+    if (closingMode === leaving) closingMode = null
+    leaving.remove()
+  })
 }
 
 const ensureOverlay = (): SVGSVGElement => {
   if (overlay?.isConnected) return overlay
-  overlay = document.createElementNS(SVG_NS, 'svg')
-  overlay.id = OVERLAY_ID
+  overlay = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  overlay.id = CLAIM_OVERLAY_ID
   overlay.setAttribute('aria-hidden', 'true')
   Object.assign(overlay.style, {
     position: 'fixed',
     inset: '0',
     width: '100vw',
     height: '100vh',
+    // Under the presence labels (20) and the panel (30).
     zIndex: '18',
     pointerEvents: 'none',
     overflow: 'visible',
@@ -1760,259 +558,16 @@ const ensureOverlay = (): SVGSVGElement => {
   return overlay
 }
 
-const svg = (name: string, attributes: Record<string, string | number>): SVGElement => {
-  const element = document.createElementNS(SVG_NS, name)
-  for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, String(value))
-  return element
-}
-
-const pathData = (points: readonly Point[], closed: boolean): string =>
-  points.length === 0
-    ? ''
-    : `M${points.map((point) => `${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join('L')}${closed ? 'Z' : ''}`
-
-/** Redraw outlines and handles for the current document at the current projection. */
 const syncOverlay = (): void => {
-  if (!active) {
+  if (editor === null) {
     overlay?.remove()
     overlay = null
     return
   }
   const root = ensureOverlay()
   const projection = screenProjection()
-  root.replaceChildren()
-  if (projection === null) return
-  const project = (point: Point): Point => projection.pointFor(point.x, point.y)
-  const accent = 'rgb(30 144 255)'
-  const faint = 'rgb(255 255 255 / 0.55)'
-  const handle = (at: Point, name: string, fill: string, radius = HANDLE_RADIUS_CSS): void => {
-    const circle = svg('circle', {
-      cx: at.x,
-      cy: at.y,
-      r: radius,
-      fill,
-      stroke: '#fff',
-      'stroke-width': 1.5,
-      'data-handle': name,
-    })
-    ;(circle as SVGElement).style.pointerEvents = 'auto'
-    ;(circle as SVGElement).style.cursor = 'grab'
-    root.appendChild(circle)
-  }
-  const single = selectedIds.length === 1
-  for (const item of items) {
-    const selected = isSelected(item.id)
-    const outline = regionShapeOutline(item.shape).map(project)
-    const closed = item.shape.kind !== 'path' || item.shape.closed
-    root.appendChild(
-      svg('path', {
-        d: pathData(outline, closed),
-        fill: 'none',
-        stroke: selected ? accent : faint,
-        'stroke-width': selected ? 1.5 : 1,
-        'stroke-dasharray': item.op === 'subtract' ? '4 3' : '0',
-      }),
-    )
-    if (!selected || !single) continue
-    const shape = item.shape
-    if (tool === 'select') {
-      if (shape.kind === 'rectangle' || shape.kind === 'ellipse') {
-        const corners = [
-          { x: shape.x, y: shape.y },
-          { x: shape.x + shape.w, y: shape.y },
-          { x: shape.x + shape.w, y: shape.y + shape.h },
-          { x: shape.x, y: shape.y + shape.h },
-        ]
-        for (const [index, corner] of corners.entries())
-          handle(project(corner), `corner:${index}`, accent)
-      } else if (shape.kind === 'polygon' || shape.kind === 'star') {
-        const ring = regionShapeOutline(shape)
-        const outer = ring[0]
-        if (outer !== undefined) handle(project(outer), 'outer:0', accent)
-        if (shape.kind === 'star' && ring[1] !== undefined)
-          handle(project(ring[1]), 'inner:0', 'rgb(255 160 40)')
-      } else {
-        // A path or a drawing: Illustrator's bounding box, with a scale handle on each corner.
-        const corners = scaleBoxCorners(shape).map(project)
-        root.appendChild(
-          svg('path', {
-            d: pathData(corners, true),
-            fill: 'none',
-            stroke: accent,
-            'stroke-width': 1,
-            'stroke-dasharray': '3 3',
-            'data-gesture': 'bounds',
-          }),
-        )
-        for (const [index, corner] of corners.entries()) handle(corner, `scale:${index}`, accent)
-      }
-    }
-    if (tool === 'select') {
-      // A rotate handle floats above the box; the zones just outside its corners rotate too.
-      const box = regionShapeBounds(shape)
-      const top = project({ x: box.x + box.w / 2, y: box.y })
-      const grip = { x: top.x, y: top.y - ROTATE_STEM_CSS }
-      root.appendChild(
-        svg('line', {
-          x1: top.x,
-          y1: top.y,
-          x2: grip.x,
-          y2: grip.y,
-          stroke: accent,
-          'stroke-width': 1,
-        }),
-      )
-      handle(grip, 'rotate:0', 'rgb(120 200 90)')
-      const rotateGrip = root.lastElementChild as SVGElement | null
-      if (rotateGrip !== null) rotateGrip.style.cursor = ROTATE_CURSOR
-    }
-    const anchorTool =
-      tool === 'direct' ||
-      tool === 'anchor' ||
-      tool === 'add-anchor' ||
-      tool === 'delete-anchor' ||
-      (tool === 'pen' && pen === null)
-    if (anchorTool && shape.kind !== 'path') {
-      // Every shape has anchors under direct selection; dragging one makes it a path.
-      for (const [index, anchor] of anchorsOf(shape).entries())
-        handle(project(anchor), `anchor:${index}`, accent)
-    }
-    if (anchorTool && shape.kind === 'path') {
-      shape.nodes.forEach((node, index) => {
-        const anchor = project(node)
-        for (const part of ['in', 'out'] as const) {
-          const control = node[part]
-          if (control === undefined) continue
-          const at = project(control)
-          root.appendChild(
-            svg('line', {
-              x1: anchor.x,
-              y1: anchor.y,
-              x2: at.x,
-              y2: at.y,
-              stroke: accent,
-              'stroke-width': 1,
-            }),
-          )
-          handle(at, `node:${index}:${part}`, '#fff', HANDLE_RADIUS_CSS - 1)
-        }
-        handle(anchor, `node:${index}:anchor`, accent)
-      })
-    }
-  }
-  // Selection gestures show what they cover: a dashed box or loop, with the caught shapes lit.
-  if (marquee !== null) {
-    const a = project({ x: Math.min(marquee.x0, marquee.x1), y: Math.min(marquee.y0, marquee.y1) })
-    const b = project({ x: Math.max(marquee.x0, marquee.x1), y: Math.max(marquee.y0, marquee.y1) })
-    root.appendChild(
-      svg('rect', {
-        x: a.x,
-        y: a.y,
-        width: Math.max(0, b.x - a.x),
-        height: Math.max(0, b.y - a.y),
-        fill: 'rgb(30 144 255 / 0.12)',
-        stroke: accent,
-        'stroke-width': 1,
-        'stroke-dasharray': '4 3',
-        'data-gesture': 'marquee',
-      }),
-    )
-  }
-  if (lasso !== null && lasso.length > 1) {
-    root.appendChild(
-      svg('path', {
-        d: pathData(lasso.map(project), true),
-        fill: 'rgb(30 144 255 / 0.12)',
-        stroke: accent,
-        'stroke-width': 1,
-        'stroke-dasharray': '4 3',
-        'data-gesture': 'lasso',
-      }),
-    )
-  }
-  // What is mid-gesture gets an outline too, so a shape is visible while it is being dragged out.
-  if (drawing !== null) {
-    root.appendChild(
-      svg('path', {
-        d: pathData(regionShapeOutline(drawing).map(project), true),
-        fill: 'none',
-        stroke: accent,
-        'stroke-width': 1.5,
-        'stroke-dasharray': subtract ? '4 3' : '0',
-      }),
-    )
-  }
-  if (erasing !== null && erasing.line.length > 1) {
-    root.appendChild(
-      svg('path', {
-        d: pathData(erasing.line.map(project), false),
-        fill: 'none',
-        stroke: 'rgb(255 90 90)',
-        'stroke-width': 1.5,
-        'stroke-dasharray': '4 3',
-        'stroke-linecap': 'round',
-        'data-gesture': 'erase',
-      }),
-    )
-  }
-  if (stroke !== null && stroke.length > 1) {
-    root.appendChild(
-      svg('path', {
-        d: pathData(stroke.map(project), false),
-        fill: 'none',
-        stroke: accent,
-        'stroke-width': 1.5,
-        'stroke-linecap': 'round',
-      }),
-    )
-  }
-  if (pen !== null && pen.length > 0) {
-    // The path so far as the curve it is, with every anchor and handle, as any vector editor.
-    const curve = flattenPath(pen, false).map(project)
-    root.appendChild(
-      svg('path', { d: pathData(curve, false), fill: 'none', stroke: accent, 'stroke-width': 1.5 }),
-    )
-    const last = pen[pen.length - 1] as PathNode
-    if (hover !== null && drag === null) {
-      // The rubber band: where the next segment would go from the last anchor.
-      root.appendChild(
-        svg('path', {
-          d: pathData(rubberBand(last, hover).map(project), false),
-          fill: 'none',
-          stroke: accent,
-          'stroke-width': 1,
-          'stroke-dasharray': '3 3',
-          'data-gesture': 'rubber-band',
-        }),
-      )
-    }
-    const drawn = pen
-    drawn.forEach((node, index) => {
-      const anchor = project(node)
-      for (const part of ['in', 'out'] as const) {
-        const control = node[part]
-        if (control === undefined) continue
-        const at = project(control)
-        root.appendChild(
-          svg('line', { x1: anchor.x, y1: anchor.y, x2: at.x, y2: at.y, stroke: accent }),
-        )
-        root.appendChild(svg('circle', { cx: at.x, cy: at.y, r: 3, fill: '#fff', stroke: accent }))
-      }
-      const size = 7
-      root.appendChild(
-        svg('rect', {
-          x: anchor.x - size / 2,
-          y: anchor.y - size / 2,
-          width: size,
-          height: size,
-          fill: index === drawn.length - 1 ? accent : '#fff',
-          stroke: accent,
-          'stroke-width': 1.5,
-          'data-pen-anchor': index,
-        }),
-      )
-    })
-  }
+  if (projection === null) root.replaceChildren()
+  else renderOverlay(root, overlayMarks(editor, projection))
 }
 
 /* Lifecycle. */
@@ -2046,11 +601,25 @@ const setBlockingInput = (on: boolean): void => {
   window.removeEventListener('wheel', onWheel, BLOCKING)
 }
 
+const enter = (
+  initialTool: ClaimTool,
+  saved: ReturnType<ClaimEditorHost['myRegions']>,
+  capturing: ClaimCaptureHost | null,
+): void => {
+  editor = openEditor(capturing?.purpose ?? 'claim', initialTool, saved, settings)
+  setBlockingInput(true)
+  session++
+  captureHost = capturing
+  // Whatever pixel Wplace had selected is stale now that clicks belong to the editor.
+  dismissWplacePixelCard()
+  notify()
+}
+
 /** Enter claim mode with a tool in hand. Every one of your saved regions loads for editing. */
 export const startClaimMode = (initialTool?: ClaimTool): void => {
   if (host === null) return
-  if (active) {
-    if (initialTool !== undefined && captureHost === null) setTool(initialTool)
+  if (editor !== null) {
+    if (initialTool !== undefined && captureHost === null) changeTool(editor, initialTool)
     return
   }
   enter(initialTool ?? 'select', host.myRegions(), null)
@@ -2061,102 +630,28 @@ export const startClaimMode = (initialTool?: ClaimTool): void => {
  * already open, so unsaved claims or another capture are never thrown away.
  */
 export const startCaptureMode = (target: ClaimCaptureHost): boolean => {
-  if (host === null || active) return false
+  if (host === null || editor !== null) return false
   enter('rectangle', [], target)
   return true
 }
 
-const enter = (
-  initialTool: ClaimTool,
-  saved: ReturnType<ClaimEditorHost['myRegions']>,
-  capturing: ClaimCaptureHost | null,
-): void => {
-  active = true
-  setBlockingInput(true)
-  session++
-  captureHost = capturing
-  tool = initialTool
-  shown = { ...defaultShown(), [groupOf(tool)]: tool }
-  // Whatever pixel Wplace had selected is stale now that clicks belong to the editor.
-  dismissWplacePixelCard()
-  // Claims saved separately may reuse item ids; every item needs its own here, or a later
-  // edit could address the wrong one and the written documents would be refused.
-  const seen = new Set<string>()
-  items = saved
-    .flatMap((region) => region.document.items)
-    .map((item) => {
-      if (!seen.has(item.id)) {
-        seen.add(item.id)
-        return item
-      }
-      const fresh = { ...item, id: nextItemId() }
-      seen.add(fresh.id)
-      return fresh
-    })
-  editingIds = saved.map((region) => region.id)
-  select([])
-  marquee = null
-  lasso = null
-  raster = null
-  erasing = null
-  lastStamp = null
-  penContinued = null
-  hover = null
-  const grouped = claimDocuments({ items })
-  // Existing claims may now join or split without a gesture. Save must persist that grouping.
-  dirty =
-    grouped.length !== saved.length ||
-    saved.some((region) => claimDocuments(region.document).length > 1)
-  drag = null
-  pen = null
-  stroke = null
-  drawing = null
-  pending = false
-  message = claimDocumentsLimitError(grouped) ?? undefined
-  bump()
-  setCursor(toolCursor())
-  notify()
-}
-
 /** Leave claim or capture mode. Nothing unsaved survives this. */
 export const stopClaimMode = (): void => {
-  if (!active) return
-  active = false
+  if (editor === null) return
+  editor = null
   setBlockingInput(false)
   // Its touchend may now never arrive; the next session starts without a gesture in hand.
   drawingTouch = false
   captureController?.abort()
   captureController = null
   captureHost = null
-  items = []
-  select([])
-  marquee = null
-  lasso = null
-  raster = null
-  erasing = null
-  lastStamp = null
-  penContinued = null
-  hover = null
   consumedPress = null
-  handHeldFrom = null
-  editingIds = []
-  drag = null
-  pen = null
-  stroke = null
-  drawing = null
-  pending = false
-  message = undefined
-  bump()
-  setCursor('')
-  syncMode()
-  syncOverlay()
-  for (const listener of listeners) listener()
-  host?.changed()
+  notify()
 }
 
 /** Follow the map: outlines and handles move with the canvas. */
 export const syncClaimEditorFrame = (): void => {
-  if (active) syncOverlay()
+  if (editor !== null) syncOverlay()
 }
 
 /** Claim mode, openable here without a presence server for pointer testing. */
@@ -2166,11 +661,3 @@ registerDebugEntry('claimTool', {
   start: (tool?: ClaimTool) => startClaimMode(tool),
   stop: () => stopClaimMode(),
 })
-
-/** Exported for the layer: the bounding box of what is being edited, when anything is. */
-export const claimEditorBounds = () => {
-  const pixels = claimEditorPixels()
-  return pixels === null ? null : pixels.rect
-}
-
-export { regionShapeBounds }
