@@ -99,3 +99,16 @@ export type BackendHttpError =
   | GoneError
   | UnauthorizedError
   | ForbiddenError
+
+/** `cause` is an ordinary property, so a chain may point back at itself; a walk stops here. */
+const MAX_CAUSE_DEPTH = 8
+
+/** `error` and the errors in its cause chain, outermost first, up to the first non-`Error`. */
+export const causes = (error: unknown): Error[] => {
+  const chain: Error[] = []
+  for (let current = error; current instanceof Error && chain.length < MAX_CAUSE_DEPTH; ) {
+    chain.push(current)
+    current = current.cause
+  }
+  return chain
+}

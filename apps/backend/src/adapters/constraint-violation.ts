@@ -1,3 +1,5 @@
+import { causes } from '../runtime/errors.js'
+
 export type ConstraintKind = 'unique' | 'foreign-key' | 'check'
 
 /**
@@ -32,21 +34,16 @@ export const sqliteConstraintViolation = (error: unknown): ConstraintViolation |
   return new ConstraintViolation(kind, match[2] ?? match[3] ?? null, { cause: error })
 }
 
-/** `cause` is an ordinary property, so a chain may point back at itself. */
-const MAX_CAUSE_DEPTH = 5
-
 /**
  * The violation anywhere in `error`'s cause chain. Drizzle wraps every driver error, and D1 adds
  * its own wrapper on top; D1 is a platform binding rather than one of our connections, so its
  * SQLite text is translated here.
  */
 const constraintViolation = (error: unknown): ConstraintViolation | null => {
-  let current: unknown = error
-  for (let depth = 0; depth < MAX_CAUSE_DEPTH && current instanceof Error; depth += 1) {
-    if (current instanceof ConstraintViolation) return current
-    const fromSqlite = sqliteConstraintViolation(current)
+  for (const cause of causes(error)) {
+    if (cause instanceof ConstraintViolation) return cause
+    const fromSqlite = sqliteConstraintViolation(cause)
     if (fromSqlite !== null) return fromSqlite
-    current = current.cause
   }
   return null
 }

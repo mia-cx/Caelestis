@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { DatabaseError, Pool, type PoolClient, type PoolConfig, types } from 'pg'
 import { ingestTimings } from '../../metrics/ingest-timing.js'
+import { causes } from '../../runtime/errors.js'
 import { type SerialQueue, serialQueue } from '../../runtime/serial-queue.js'
 import { type ConstraintKind, ConstraintViolation } from '../constraint-violation.js'
 import { SET_PREVIOUS_CHANGES } from '../previous-changes.js'
@@ -54,18 +55,19 @@ const laneFor = (statements: readonly SqlStatement[]): string | undefined =>
     ? 'tiles'
     : undefined
 const RETRY_LOG_LIMIT = 20
-const retryable = (error: unknown): boolean => {
-  if (!(error instanceof Error)) return false
-  if ('code' in error && (error.code === '40001' || error.code === '40P01')) return true
-  return error.cause === undefined ? false : retryable(error.cause)
-}
+/** Serialization failure and deadlock: the transaction rolled back and can run again. */
+const RETRYABLE_CODES: readonly unknown[] = ['40001', '40P01']
+const retryable = (error: unknown): boolean =>
+  causes(error).some((cause) => 'code' in cause && RETRYABLE_CODES.includes(cause.code))
 /** The failing statement and the database's reason, for the first few retries in a log. */
-const describeAbort = (error: unknown): string => {
-  if (!(error instanceof Error)) return String(error)
-  const detail = error.cause instanceof Error ? describeAbort(error.cause) : ''
-  const reason = 'detail' in error && typeof error.detail === 'string' ? ` (${error.detail})` : ''
-  return `${error.message.replace(/\s+/g, ' ').slice(0, 300)}${reason}${detail ? `: ${detail}` : ''}`
-}
+const describeAbort = (error: unknown): string =>
+  causes(error)
+    .map((cause) => {
+      const reason =
+        'detail' in cause && typeof cause.detail === 'string' ? ` (${cause.detail})` : ''
+      return `${cause.message.replace(/\s+/g, ' ').slice(0, 300)}${reason}`
+    })
+    .join(': ')
 
 /** SQLSTATE class 23 codes for the constraints the stores distinguish. */
 const CONSTRAINT_CODES: Readonly<Record<string, ConstraintKind>> = {

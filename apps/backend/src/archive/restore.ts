@@ -2,6 +2,7 @@ import { sha256Hex } from '@caelestis/shared'
 import { validateObjectKey } from '@caelestis/storage'
 import type { SqlStatement } from '../adapters/sql-connection.js'
 import { COUNTER_ARCHIVE_TABLES, type CounterArchiveTable } from '../coordination/counter-tables.js'
+import { causes } from '../runtime/errors.js'
 import { ArchiveError, isArchiveError } from './errors.js'
 import {
   ARCHIVE_CHAIN_SEED,
@@ -81,12 +82,7 @@ interface RestoreState {
 }
 
 /** Adapters wrap driver errors; the innermost message names the violated constraint. */
-const databaseReason = (error: unknown): string =>
-  error instanceof Error && error.cause !== undefined
-    ? databaseReason(error.cause)
-    : error instanceof Error
-      ? error.message
-      : String(error)
+const databaseReason = (error: unknown): string => causes(error).at(-1)?.message ?? String(error)
 
 const decodeState = (operation: ArchiveOperationRow) =>
   JSON.parse(operation.stateJson) as RestoreState

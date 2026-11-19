@@ -6,6 +6,7 @@ import {
   SqlError,
   type UpsertResult,
 } from 'mariadb'
+import { causes } from '../../runtime/errors.js'
 import { serialQueue } from '../../runtime/serial-queue.js'
 import { type ConstraintKind, ConstraintViolation } from '../constraint-violation.js'
 import { SET_PREVIOUS_CHANGES } from '../previous-changes.js'
@@ -45,7 +46,9 @@ const mariaConstraintViolation = (error: unknown): ConstraintViolation | null =>
 }
 
 /** Lock wait timeout and deadlock: the batch did not commit and can run again. */
-const RETRYABLE_ERRNOS = [1205, 1213]
+const RETRYABLE_ERRNOS: readonly unknown[] = [1205, 1213]
+const retryable = (error: unknown): boolean =>
+  causes(error).some((cause) => 'errno' in cause && RETRYABLE_ERRNOS.includes(cause.errno))
 const BATCH_ATTEMPTS = 5
 
 /** One non-reconnecting session owns the runtime, serializes transactions, and holds GET_LOCK. */
@@ -136,15 +139,7 @@ export class MariaConnection implements TransactionalSqlConnection, StatementDri
       try {
         return await this.transaction((connection) => connection.batch<T>(statements))
       } catch (error) {
-        let cause = error
-        while (cause instanceof Error && cause.cause) cause = cause.cause
-        if (
-          attempt >= BATCH_ATTEMPTS ||
-          !(cause instanceof Error) ||
-          !('errno' in cause) ||
-          !RETRYABLE_ERRNOS.includes(Number(cause.errno))
-        )
-          throw error
+        if (attempt >= BATCH_ATTEMPTS || !retryable(error)) throw error
       }
     }
   }

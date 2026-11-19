@@ -12,7 +12,7 @@ import {
   finishExport,
   importFromFile,
 } from '../src/archive/cli.js'
-import { ArchiveOperationActiveError } from '../src/archive/errors.js'
+import { ArchiveOperationActiveError, isArchiveError } from '../src/archive/errors.js'
 import { ARCHIVE_GATE_CACHE_MILLISECONDS } from '../src/archive/fence.js'
 import { ARCHIVE_TABLES, chainLine, UNARCHIVED_TABLES } from '../src/archive/format.js'
 import { ARCHIVE_LEASE_BUSY } from '../src/archive/wire.js'
@@ -698,4 +698,16 @@ describe('archive client retries', () => {
     // Five lease-busy replies, then the five allowed gateway failures — never more.
     expect(sends).toBe(10)
   })
+})
+
+it('reads an archive error through a cause chain that points back at itself', () => {
+  const looped = new Error('wrapper')
+  looped.cause = new Error('driver', { cause: looped })
+  expect(isArchiveError(looped, 'ArchiveOperationActiveError')).toBe(false)
+  expect(
+    isArchiveError(
+      new Error('store', { cause: new ArchiveOperationActiveError() }),
+      'ArchiveOperationActiveError',
+    ),
+  ).toBe(true)
 })
