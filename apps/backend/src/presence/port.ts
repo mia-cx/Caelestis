@@ -6,8 +6,8 @@ import {
   type TemplateSurface,
   templateSurfaceKey,
 } from '@caelestis/shared'
+import { type IngestTimingSnapshot, IngestTimings } from '../metrics/ingest-timing.js'
 import { NotFoundError } from '../runtime/errors.js'
-import { type IngestTimingSnapshot, IngestTimings } from '../telemetry/ingest-timing.js'
 
 /** Authenticated metadata passed from the HTTP boundary to a presence transport. */
 export interface PresenceConnection {

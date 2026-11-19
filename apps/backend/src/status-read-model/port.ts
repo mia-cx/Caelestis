@@ -1,7 +1,7 @@
 import type { TemplateSurface, TileCoord } from '@caelestis/shared'
 import type { ManifestProjectionInput, ManifestProjectionRead } from '../manifest/read-model.js'
+import { type IngestTimingSnapshot, ingestTimings } from '../metrics/ingest-timing.js'
 import type { SqlStore } from '../ports/index.js'
-import { type IngestTimingSnapshot, ingestTimings } from '../telemetry/ingest-timing.js'
 import type {
   StatusProjectionChange,
   StatusProjectionMutation,

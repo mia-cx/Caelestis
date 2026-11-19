@@ -1,8 +1,8 @@
 import { type Millis, millis } from '@caelestis/shared'
+import { ingestTimings } from '../metrics/ingest-timing.js'
 import type { BlobStore } from '../ports/index.js'
+import { BoundedCache } from '../runtime/bounded-cache.js'
 import type { TileBlobObject, TileBlobReservation, TileBlobStore } from './blobs/store.js'
-import { BoundedCache } from './bounded-cache.js'
-import { ingestTimings } from './ingest-timing.js'
 
 interface TileBlobStores {
   readonly blobs: BlobStore

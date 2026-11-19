@@ -18,12 +18,12 @@ import {
   WRONG,
 } from '@caelestis/shared'
 import { Effect } from 'effect'
+import { ingestTimings } from '../metrics/ingest-timing.js'
 import type { BlobStore } from '../ports/index.js'
 import { BlobStoreService, SqlStoreService } from '../runtime/backend-runtime.js'
+import { BoundedCache, memoize } from '../runtime/bounded-cache.js'
 import { type StorageError, storage } from '../runtime/errors.js'
 import type { TileBlobStore } from './blobs/store.js'
-import { BoundedCache, memoize } from './bounded-cache.js'
-import { ingestTimings } from './ingest-timing.js'
 import { readTileBlob } from './tile-blobs.js'
 import type { TelemetryTarget, TileMeasurement, TileStore } from './tiles/store.js'
 

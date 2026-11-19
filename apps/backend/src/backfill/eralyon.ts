@@ -5,7 +5,7 @@ import {
   TRANSPARENT_INDEX,
 } from '@caelestis/shared'
 import { Decompress } from 'fzstd'
-import { BoundedCache } from '../telemetry/bounded-cache.js'
+import { BoundedCache } from '../runtime/bounded-cache.js'
 import { archiveWeek } from './port.js'
 
 const ORIGIN = 'https://wplace.eralyon.net'

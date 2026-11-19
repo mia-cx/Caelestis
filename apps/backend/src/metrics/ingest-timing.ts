@@ -1,13 +1,16 @@
 /** Live command stages, database statements, and the adapter lanes that serialize transactions. */
-export type IngestCommand =
-  | 'upload'
-  | 'offer'
-  | 'paint'
-  | 'sql'
-  | 'presence'
-  | 'claims'
-  | 'tileLane'
-  | 'coordinatorLane'
+const INGEST_COMMANDS = [
+  'upload',
+  'offer',
+  'paint',
+  'sql',
+  'presence',
+  'claims',
+  'tileLane',
+  'coordinatorLane',
+] as const
+
+export type IngestCommand = (typeof INGEST_COMMANDS)[number]
 
 export type IngestStage =
   | 'queue'
@@ -91,7 +94,7 @@ const summarize = (accumulator: StageAccumulator): StageSummary => {
  * can read the breakdown without a debugger attached.
  */
 export class IngestTimings {
-  private readonly stages = new Map<string, StageAccumulator>()
+  private readonly stages = new Map<IngestCommand, Map<IngestStage, StageAccumulator>>()
   private readonly counts = new Map<string, number>()
   private since: number
 
@@ -100,8 +103,12 @@ export class IngestTimings {
   }
 
   record(command: IngestCommand, stage: IngestStage, durationMs: number): void {
-    const key = `${command}.${stage}`
-    let accumulator = this.stages.get(key)
+    let stages = this.stages.get(command)
+    if (stages === undefined) {
+      stages = new Map()
+      this.stages.set(command, stages)
+    }
+    let accumulator = stages.get(stage)
     if (accumulator === undefined) {
       accumulator = {
         count: 0,
@@ -110,7 +117,7 @@ export class IngestTimings {
         recent: new Float64Array(SAMPLE_WINDOW),
         next: 0,
       }
-      this.stages.set(key, accumulator)
+      stages.set(stage, accumulator)
     }
     accumulator.count += 1
     accumulator.totalMs += durationMs
@@ -139,20 +146,17 @@ export class IngestTimings {
   }
 
   snapshot(): IngestTimingSnapshot {
-    const commands: Record<IngestCommand, Partial<Record<IngestStage, StageSummary>>> = {
-      upload: {},
-      offer: {},
-      paint: {},
-      sql: {},
-      presence: {},
-      claims: {},
-      tileLane: {},
-      coordinatorLane: {},
-    }
-    for (const [key, accumulator] of this.stages) {
-      const [command, stage] = key.split('.') as [IngestCommand, IngestStage]
-      commands[command][stage] = summarize(accumulator)
-    }
+    const commands = Object.fromEntries(
+      INGEST_COMMANDS.map((command) => [
+        command,
+        Object.fromEntries(
+          [...(this.stages.get(command) ?? [])].map(([stage, accumulator]) => [
+            stage,
+            summarize(accumulator),
+          ]),
+        ),
+      ]),
+    ) as IngestTimingSnapshot['commands']
     return { since: this.since, commands, counters: Object.fromEntries(this.counts) }
   }
 

@@ -2,8 +2,8 @@ import { DurableObject } from 'cloudflare:workers'
 import { cloudflareStores } from './adapters/cloudflare/bindings.js'
 import { receivePresence } from './adapters/cloudflare/live-connect.js'
 import { durableLiveHost } from './adapters/cloudflare/live-host.js'
+import { IngestTimings } from './metrics/ingest-timing.js'
 import { PresenceCoordinator } from './presence-coordinator.js'
-import { IngestTimings } from './telemetry/ingest-timing.js'
 
 /** One presence room. DO RPC exposes only prototype methods, so each one delegates. */
 export class PresenceObject extends DurableObject<Env> {

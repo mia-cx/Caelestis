@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { DatabaseError, Pool, type PoolClient, type PoolConfig, types } from 'pg'
-import { ingestTimings } from '../../telemetry/ingest-timing.js'
+import { ingestTimings } from '../../metrics/ingest-timing.js'
 import { type ConstraintKind, ConstraintViolation } from '../constraint-violation.js'
 import type {
   SqlConnection,

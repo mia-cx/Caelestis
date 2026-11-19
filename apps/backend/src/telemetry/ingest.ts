@@ -9,6 +9,7 @@ import {
   uuidV7,
 } from '@caelestis/shared'
 import { Effect, Result } from 'effect'
+import { type IngestCommand, type IngestStage, ingestTimings } from '../metrics/ingest-timing.js'
 import type { BlobStore } from '../ports/index.js'
 import {
   BlobStoreService,
@@ -37,7 +38,6 @@ import {
 } from './derived-artifact-writer.js'
 import type { HistoryStore } from './history/store.js'
 import { foldTileHistoryThrottled } from './history-fold-throttle.js'
-import { type IngestCommand, type IngestStage, ingestTimings } from './ingest-timing.js'
 import { reserveTileBlob, reserveTileBlobUpload, storeTileBlob } from './tile-blobs.js'
 import type { TemplateTileStatusRecord, TileObservation, TileStore } from './tiles/store.js'
 

@@ -1,5 +1,6 @@
 import type { TemplateSurface, TileCoord } from '@caelestis/shared'
 import type { ManifestProjectionInput, ManifestProjectionRead } from '../manifest/read-model.js'
+import type { IngestTimingSnapshot } from '../metrics/ingest-timing.js'
 import type { StatusCoordinator } from '../status-coordinator.js'
 import type {
   StatusProjectionChange,
@@ -14,7 +15,6 @@ import type {
   TileGenerationCacheRead,
   TileGenerationOffer,
 } from '../status-read-model/tile-generation-cache.js'
-import type { IngestTimingSnapshot } from '../telemetry/ingest-timing.js'
 
 /** A season coordinator's durable name. Node also keys its state by it. */
 export const statusShardName = (season: number): string => `season:${season}`

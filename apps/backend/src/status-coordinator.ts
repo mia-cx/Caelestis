@@ -51,6 +51,7 @@ import {
 } from './live/session.js'
 import { createChunkedManifestPersistence } from './manifest/persistence.js'
 import type { ManifestProjectionInput, ManifestProjectionRead } from './manifest/read-model.js'
+import { type IngestTimingSnapshot, ingestTimings } from './metrics/ingest-timing.js'
 import { type CacheOutcome, recordLiveTileOfferCacheMetric } from './metrics/request-metrics.js'
 import type { BlobStore, CounterStore, SqlStore } from './ports/index.js'
 import {
@@ -75,7 +76,6 @@ import type {
   TileGenerationOffer,
 } from './status-read-model/tile-generation-cache.js'
 import { MAX_CANVAS_TILE_BYTES, offerTiles, uploadTile } from './telemetry/ingest.js'
-import { type IngestTimingSnapshot, ingestTimings } from './telemetry/ingest-timing.js'
 import { recordPaint } from './telemetry/paint.js'
 import { readAlarms, readContributions, readLeaderboard } from './telemetry/queries.js'
 

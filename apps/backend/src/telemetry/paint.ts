@@ -7,6 +7,7 @@ import {
   TRANSPARENT_INDEX,
 } from '@caelestis/shared'
 import { Effect } from 'effect'
+import { ingestTimings } from '../metrics/ingest-timing.js'
 import type { BlobStore, CounterDelta, CounterStore } from '../ports/index.js'
 import {
   BlobStoreService,
@@ -19,7 +20,6 @@ import { bestEffort } from '../status-read-model/port.js'
 import type { TileBlobStore } from './blobs/store.js'
 import { readDecodedCanvas, readTargetChunk } from './classification.js'
 import type { ContributionDelta, HistoryStore } from './history/store.js'
-import { ingestTimings } from './ingest-timing.js'
 import { type PainterTelemetryBucket, painterBucketResolution } from './ladder.js'
 import type { TileStore } from './tiles/store.js'
 

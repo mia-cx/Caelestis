@@ -27,14 +27,14 @@ import { PresenceClientEvent } from '@caelestis/wire-schema'
 import { Schema } from 'effect'
 import type { AccessTokenStore } from './auth/store.js'
 import { createLiveSessionFence, type LiveHost, type LiveSocket } from './live/session.js'
-import { presenceRectWithinSurface } from './presence/geometry.js'
-import { PeerGrid } from './presence/peer-grid.js'
-import type { PresenceConnection } from './presence/port.js'
 import {
   type IngestTimingSnapshot,
   type IngestTimings,
   ingestTimings,
-} from './telemetry/ingest-timing.js'
+} from './metrics/ingest-timing.js'
+import { presenceRectWithinSurface } from './presence/geometry.js'
+import { PeerGrid } from './presence/peer-grid.js'
+import type { PresenceConnection } from './presence/port.js'
 import { ownedRegionIds, type RegionOwner, type RegionStore } from './work/region-store.js'
 
 interface Attachment extends PresenceConnection {
