@@ -4,10 +4,12 @@ import {
   PALETTE_SIZE,
   type PixelBounds,
   parseTemplateRecipe,
+  sameTemplateSurface,
   type TemplateRecipe,
   type TemplateSurface,
   TILE_SIZE,
   TRANSPARENT_INDEX,
+  templateSizeChange,
   templateSurface,
   templateSurfaceBounds,
   WORLD_PIXELS,
@@ -140,6 +142,26 @@ export class TemplateNotFoundError extends PortError {
 export class TemplateIdentityError extends PortError {
   override readonly name = 'TemplateIdentityError'
   readonly kind = 'conflict'
+}
+
+/**
+ * Refuse `next` as a new version of template `templateId` unless it keeps the template's surface
+ * and dimensions. `existing.bbox` is the current version's, or null before the template has one.
+ * The uploader checks before storing blobs, so a refusal leaves none behind; the store checks again
+ * inside the write against what a concurrent upload may have changed.
+ */
+export const assertSameTemplate = (
+  templateId: string,
+  existing: { readonly surface: TemplateSurface; readonly bbox: PixelBounds | null },
+  next: { readonly surface: TemplateSurface; readonly bbox: PixelBounds },
+): void => {
+  if (!sameTemplateSurface(existing.surface, next.surface))
+    throw new TemplateIdentityError(
+      `template ${templateId} belongs to ${existing.surface.kind}, not ${next.surface.kind}`,
+    )
+  if (existing.bbox === null) return
+  const resized = templateSizeChange(next.surface, existing.bbox, next.bbox)
+  if (resized !== null) throw new TemplateIdentityError(`template ${templateId} ${resized}`)
 }
 
 /**

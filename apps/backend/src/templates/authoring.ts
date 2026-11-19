@@ -13,22 +13,20 @@ import {
   quantiseToPalette,
   SliceError,
   type SurfaceChunkKey,
-  sameTemplateSurface,
   sha256Hex,
   sliceTemplateForSurface,
   type TemplateRecipe,
   type TemplateSurface,
   TRANSPARENT_INDEX,
-  templateSizeChange,
   tileKey,
   timelapseCaptureTileCount,
   uuidV7,
 } from '@caelestis/shared'
-import { InvalidNodeParentError, type NodeStore } from '../nodes/store.js'
+import { assertSameScope, InvalidNodeParentError, type NodeStore } from '../nodes/store.js'
 import type { BlobStore } from '../ports/index.js'
 import { PortError } from '../runtime/errors.js'
 import {
-  TemplateIdentityError,
+  assertSameTemplate,
   TemplateNotFoundError,
   type TemplateStore,
   type TemplateVersionRecord,
@@ -164,11 +162,7 @@ export const storeTemplate = async (
     const node = await sql.readNode(input.nodeId)
     // The folder is the template's parent: naming one that is missing is bad input.
     if (node === null) throw new InvalidNodeParentError(`node does not exist: ${input.nodeId}`)
-    if (node.season !== input.season || !sameTemplateSurface(node.surface, input.surface)) {
-      throw new InvalidNodeParentError(
-        `node does not exist in season ${input.season}: ${input.nodeId}`,
-      )
-    }
+    assertSameScope(node, input, 'destination node')
   }
 
   const { indices, report, sliced } = await refuseUnreadable(async () => {
@@ -212,6 +206,7 @@ export const storeTemplate = async (
     if (existing === null) {
       throw new TemplateNotFoundError(`template does not exist: ${input.templateId}`)
     }
+    let currentBbox: PixelBounds | null = null
     if (existing.currentVersionId !== null) {
       const current = await sql.readTemplateVersion(existing.currentVersionId)
       if (current === null) {
@@ -219,11 +214,13 @@ export const storeTemplate = async (
           `current version does not exist: ${existing.currentVersionId}`,
         )
       }
-      const resized = templateSizeChange(input.surface, current.bbox, sliced.bbox)
-      if (resized !== null) {
-        throw new TemplateIdentityError(`template ${input.templateId} ${resized}`)
-      }
+      currentBbox = current.bbox
     }
+    assertSameTemplate(
+      input.templateId,
+      { surface: existing.surface, bbox: currentBbox },
+      { surface: input.surface, bbox: sliced.bbox },
+    )
   }
 
   const encodedChunks = await Promise.all(

@@ -1,11 +1,8 @@
 import {
   type Millis,
   parseTemplateRecipe,
-  sameTemplateSurface,
   type TemplateRecipe,
   templateRecipeJson,
-  templateSizeChange,
-  templateSurface,
 } from '@caelestis/shared'
 import { and, asc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 import { violates } from '../adapters/constraint-violation.js'
@@ -18,14 +15,15 @@ import {
   VERSION_TILE_ROWS_PER_INSERT,
 } from '../db/d1-limits.js'
 import { contributions, templates, templateVersions, versionTiles } from '../db/schema.js'
+import { scopeWhere, surfaceOf } from '../db/scope.js'
 import { selectNode } from '../nodes/relational.js'
-import { InvalidNodeParentError, NodeNotFoundError } from '../nodes/store.js'
+import { assertSameScope, NodeNotFoundError } from '../nodes/store.js'
 import {
+  assertSameTemplate,
   assertValidTemplateVersion,
   type ManifestTemplateRecord,
   type ManifestTileRecord,
   type TemplateDeletePrecondition,
-  TemplateIdentityError,
   type TemplateManifestScope,
   TemplateNotFoundError,
   type TemplatePatch,
@@ -49,12 +47,7 @@ export class RelationalTemplateStore extends RelationalStore implements Template
       if (destination === null) {
         throw new NodeNotFoundError(`node does not exist: ${version.nodeId}`)
       }
-      if (destination.season !== version.season) {
-        throw new InvalidNodeParentError('destination node belongs to a different season')
-      }
-      if (!sameTemplateSurface(destination.surface, version.surface)) {
-        throw new InvalidNodeParentError('destination node belongs to a different surface')
-      }
+      assertSameScope(destination, version, 'destination node')
     }
     const template = this.database.insert(templates).values({
       id: version.templateId,
@@ -101,23 +94,18 @@ export class RelationalTemplateStore extends RelationalStore implements Template
       .where(eq(templates.id, version.templateId))
       .limit(1)
     if (existing !== undefined) {
-      const existingSurface = templateSurface(existing.surfaceKind, existing.allianceId)
-      if (existingSurface === null || !sameTemplateSurface(existingSurface, version.surface)) {
-        throw new TemplateIdentityError(
-          `template ${version.templateId} belongs to ${existing.surfaceKind}, not ${version.surface.kind}`,
-        )
-      }
       const { minX, minY, maxX, maxY } = existing
-      if (minX !== null && minY !== null && maxX !== null && maxY !== null) {
-        const resized = templateSizeChange(
-          version.surface,
-          { minX, minY, maxX, maxY },
-          version.bbox,
-        )
-        if (resized !== null) {
-          throw new TemplateIdentityError(`template ${version.templateId} ${resized}`)
-        }
-      }
+      assertSameTemplate(
+        version.templateId,
+        {
+          surface: surfaceOf(existing, `template ${version.templateId}`),
+          bbox:
+            minX === null || minY === null || maxX === null || maxY === null
+              ? null
+              : { minX, minY, maxX, maxY },
+        },
+        version,
+      )
     }
     try {
       await this.database.batch(this.#versionStatements(version))
@@ -223,8 +211,7 @@ export class RelationalTemplateStore extends RelationalStore implements Template
       .limit(1)
     const row = rows[0]
     if (row === undefined) return null
-    const surface = templateSurface(row.surfaceKind, row.allianceId)
-    if (surface === null) throw new Error(`template ${row.templateId} has an invalid surface`)
+    const surface = surfaceOf(row, `template ${row.templateId}`)
     const colourTotals = parseColourTotals(row.colourTotalsJson)
     const recipe = parseStoredRecipe(row.versionId, row.recipeJson)
 
@@ -273,11 +260,9 @@ export class RelationalTemplateStore extends RelationalStore implements Template
       .limit(1)
     const row = rows[0]
     if (row === undefined) return null
-    const surface = templateSurface(row.surfaceKind, row.allianceId)
-    if (surface === null) throw new Error(`template ${row.id} has an invalid surface`)
     return {
       id: row.id,
-      surface,
+      surface: surfaceOf(row, `template ${row.id}`),
       season: row.season,
       nodeId: row.nodeId,
       name: row.name,
@@ -313,13 +298,11 @@ export class RelationalTemplateStore extends RelationalStore implements Template
       if (patch.nodeId !== null) {
         const target = await selectNode(this.database, patch.nodeId)
         if (target === null) throw new NodeNotFoundError(`node does not exist: ${patch.nodeId}`)
-        if (target.season !== existing.season) {
-          throw new InvalidNodeParentError('destination node belongs to a different season')
-        }
-        const existingSurface = templateSurface(existing.surfaceKind, existing.allianceId)
-        if (existingSurface === null || !sameTemplateSurface(target.surface, existingSurface)) {
-          throw new InvalidNodeParentError('destination node belongs to a different surface')
-        }
+        assertSameScope(
+          target,
+          { season: existing.season, surface: surfaceOf(existing, `template ${templateId}`) },
+          'destination node',
+        )
       }
       // If another administrator moves or deletes the template after the season check, this write
       // loses instead of applying a stale decision and reporting success.
@@ -404,13 +387,7 @@ export class RelationalTemplateStore extends RelationalStore implements Template
     scope: TemplateManifestScope,
     includeUnpublished: boolean,
   ): Promise<readonly ManifestTemplateRecord[]> {
-    const scoped = and(
-      eq(templates.season, scope.season),
-      eq(templates.surfaceKind, scope.surface.kind),
-      scope.surface.kind === 'world'
-        ? isNull(templates.allianceId)
-        : eq(templates.allianceId, scope.surface.allianceId),
-    )
+    const scoped = scopeWhere(templates, scope.season, scope.surface)
     const rows = await this.database
       .select({
         id: templates.id,
@@ -452,13 +429,7 @@ export class RelationalTemplateStore extends RelationalStore implements Template
     scope: TemplateManifestScope,
     includeUnpublished: boolean,
   ): Promise<readonly ManifestTileRecord[]> {
-    const scoped = and(
-      eq(templates.season, scope.season),
-      eq(templates.surfaceKind, scope.surface.kind),
-      scope.surface.kind === 'world'
-        ? isNull(templates.allianceId)
-        : eq(templates.allianceId, scope.surface.allianceId),
-    )
+    const scoped = scopeWhere(templates, scope.season, scope.surface)
     return this.database
       .select({
         templateId: templates.id,
