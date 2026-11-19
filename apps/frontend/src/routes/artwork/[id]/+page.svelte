@@ -1,9 +1,8 @@
 <script lang="ts">
-  import { canvasPixelToLatLng, folderPath, WORLD_PIXELS } from '@caelestis/shared'
+  import { boundsRect, canvasPixelToLatLng, folderPath, WORLD_PIXELS } from '@caelestis/shared'
   import { Icon, TemplateState } from '@caelestis/ui'
   import { page } from '$app/state'
   import ScopePage from '#lib/components/ScopePage.svelte'
-  import { templateRect } from '#lib/render.js'
   import { useApp } from '#lib/state/app.svelte.js'
 
   const app = useApp()
@@ -24,7 +23,7 @@
       griefWatch: entry.alarm !== undefined,
     }
   })
-  const rect = $derived(entry === null ? null : templateRect(entry.template))
+  const rect = $derived(entry === null ? null : boundsRect(entry.template.bbox))
 
   // Deep link to the artwork on the live canvas, centred on the bbox.
   const wplaceUrl = $derived.by(() => {

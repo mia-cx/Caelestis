@@ -1,9 +1,9 @@
 <script lang="ts">
-  import type { TileKey } from '@caelestis/shared'
+  import type { CanvasRect, TileKey } from '@caelestis/shared'
   import { osmZoomFor } from '@caelestis/social'
   import { Icon } from '@caelestis/ui'
   import { untrack } from 'svelte'
-  import { type CanvasRect, FrameImages, type TimelapseLayout } from '#lib/render.js'
+  import { FrameImages, type TimelapseLayout } from '#lib/render.js'
 
   let {
     layout,

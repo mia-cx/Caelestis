@@ -66,13 +66,28 @@ export const WORLD_TILES = 2 ** CANVAS_ZOOM
 /** Number of pixels on each edge of the world canvas. */
 export const WORLD_PIXELS = WORLD_TILES * TILE_SIZE
 
-/** The world-pixel rectangle captured for each template timelapse. */
-export interface TimelapseCaptureRect {
+/** A rectangle in world pixels. */
+export interface CanvasRect {
   readonly x: number
   readonly y: number
   readonly width: number
   readonly height: number
 }
+
+/**
+ * Bounds as a drawable rectangle. `maxX <= minX` means the artwork wraps through longitude zero; the
+ * rectangle is unrolled past the seam so drawing stays a single translate, and tile lookups fold x
+ * back into the world.
+ */
+export const boundsRect = (bounds: BoundingBox): CanvasRect => ({
+  x: bounds.minX,
+  y: bounds.minY,
+  width:
+    bounds.maxX > bounds.minX
+      ? bounds.maxX - bounds.minX
+      : bounds.maxX + WORLD_PIXELS - bounds.minX,
+  height: bounds.maxY - bounds.minY,
+})
 
 export const TIMELAPSE_ASPECT_RATIO = 16 / 9
 
@@ -80,15 +95,12 @@ export const TIMELAPSE_ASPECT_RATIO = 16 / 9
 export const MAX_TIMELAPSE_CAPTURE_TILES = 1_000
 
 /** Centre the template in the smallest 16:9 rectangle that fully contains its painted bounds. */
-export const timelapseCaptureRect = (bounds: BoundingBox): TimelapseCaptureRect => {
-  const templateWidth =
-    bounds.maxX > bounds.minX ? bounds.maxX - bounds.minX : bounds.maxX + WORLD_PIXELS - bounds.minX
-  const templateHeight = bounds.maxY - bounds.minY
-  const width = Math.max(templateWidth, templateHeight * TIMELAPSE_ASPECT_RATIO)
-  const unclampedHeight = width / TIMELAPSE_ASPECT_RATIO
-  const height = Math.min(unclampedHeight, WORLD_PIXELS)
-  const x = bounds.minX + templateWidth / 2 - width / 2
-  const centredY = bounds.minY + templateHeight / 2 - height / 2
+export const timelapseCaptureRect = (bounds: BoundingBox): CanvasRect => {
+  const art = boundsRect(bounds)
+  const width = Math.max(art.width, art.height * TIMELAPSE_ASPECT_RATIO)
+  const height = Math.min(width / TIMELAPSE_ASPECT_RATIO, WORLD_PIXELS)
+  const x = art.x + art.width / 2 - width / 2
+  const centredY = art.y + art.height / 2 - height / 2
   const y = clamp(centredY, 0, WORLD_PIXELS - height)
   return { x, y, width, height }
 }

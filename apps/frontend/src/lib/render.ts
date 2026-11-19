@@ -1,4 +1,6 @@
 import {
+  boundsRect,
+  type CanvasRect,
   parseTileKey,
   type Template,
   TILE_SIZE,
@@ -9,29 +11,6 @@ import {
 } from '@caelestis/shared'
 import { osmSpan } from '@caelestis/social'
 import { chunkImageUrl, tileImageUrl } from '#lib/api/client.js'
-
-/**
- * A template's bounding box as a drawable rectangle.
- *
- * `minX > maxX` means the artwork wraps through longitude zero; the rectangle is unrolled past the
- * seam so drawing stays a single translate, and tile lookups fold x back into the world.
- */
-export interface CanvasRect {
-  readonly x: number
-  readonly y: number
-  readonly width: number
-  readonly height: number
-}
-
-export const templateRect = (template: Template): CanvasRect => {
-  const { minX, minY, maxX, maxY } = template.bbox
-  return {
-    x: minX,
-    y: minY,
-    width: maxX > minX ? maxX - minX : maxX + WORLD_PIXELS - minX,
-    height: maxY - minY,
-  }
-}
 
 interface TilePlacement {
   readonly key: TileKey
@@ -257,7 +236,7 @@ export const timelapseLayout = (templates: readonly Template[]): TimelapseLayout
     bounds: unionRect(placed.map(({ rect }) => rect)),
     art: unionRect(
       placed.map(({ template, rect }) => {
-        const art = templateRect(template)
+        const art = boundsRect(template.bbox)
         return { ...art, x: wrapInto(art.x, rect.x) }
       }),
     ),
