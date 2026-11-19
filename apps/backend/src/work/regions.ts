@@ -130,12 +130,15 @@ export const putRegion = (
     return region
   })
 
-/** Clear a painter's claim with any write credential; replica withdrawal still requires ownership. */
+/**
+ * Withdraw this server's replica of a claim, which only its owner may do, or with `withdraw`
+ * false clear the claim for good with any write credential.
+ */
 export const deleteRegion = (
   id: string,
   actor: PainterIdentity,
   caller: Caller,
-  withdraw = false,
+  withdraw: boolean,
 ) =>
   Effect.gen(function* () {
     if (caller.scope === 'read') return yield* Effect.fail(new ForbiddenError())

@@ -209,7 +209,7 @@ export class RelationalRegionStore extends RelationalStore implements RegionStor
     return result.meta.changes === 1
   }
 
-  async deleteRegion(id: string, writer: RegionWriter, withdraw = false): Promise<boolean> {
+  async deleteRegion(id: string, writer: RegionWriter, withdraw: boolean): Promise<boolean> {
     if (!withdraw) {
       const canClear = writer.admin ? undefined : eq(workRegions.claimantUserId, writer.actorId)
       // Retire the ID and remove the live row atomically. Old binaries cannot see the tombstone
