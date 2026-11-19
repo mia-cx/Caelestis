@@ -32,9 +32,7 @@
     <div class="title">
       <strong title={model.name}>{model.name}</strong>
       <span class="lifecycle">
-        {#if model.lifecycle !== undefined && (model.lifecycle.finished || model.lifecycle.frozen)}
-          <TemplateState compact {...model.lifecycle} />
-        {/if}
+        {#if model.lifecycle !== undefined}<TemplateState compact {...model.lifecycle} />{/if}
       </span>
     </div>
     <Button label="Close" kind="ghost" size="compact" iconOnly control="close" onclick={() => emit({ type: 'close' })}><Icon name="close" /></Button>

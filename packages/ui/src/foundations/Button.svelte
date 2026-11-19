@@ -4,6 +4,7 @@
   interface Props {
     type?: 'button' | 'submit'
     label: string
+    /** The tooltip; an icon-only button shows its label when this is absent. */
     title?: string
     kind?: 'default' | 'primary' | 'success' | 'warning' | 'danger' | 'danger-ghost' | 'ghost'
     size?: 'compact' | 'small' | 'normal'
@@ -50,7 +51,7 @@
   class:danger={kind === 'danger'}
   class:danger-ghost={kind === 'danger-ghost'}
   class:ghost={kind === 'ghost'}
-  {title}
+  title={title ?? (iconOnly ? label : undefined)}
   {disabled}
   aria-disabled={ariaDisabled}
   aria-label={iconOnly ? label : undefined}

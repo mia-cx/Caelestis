@@ -103,7 +103,7 @@
                   </span>
                   <span class="player-actions">
                     {#if player.canFly}
-                      <Button label={`Fly to ${player.name}`} title={`Fly to ${player.name}`} size="compact" kind="ghost" iconOnly onclick={() => onIntent({ type: 'presence-fly', key: player.key })}>
+                      <Button label={`Fly to ${player.name}`} size="compact" kind="ghost" iconOnly onclick={() => onIntent({ type: 'presence-fly', key: player.key })}>
                         <Icon name="flyTo" size="1rem" />
                       </Button>
                     {/if}
@@ -132,11 +132,11 @@
                       </span>
                       <span class="player-actions">
                         {#if claim.canClear}
-                          <Button label="Clear claim" title="Clear claim" size="compact" kind="ghost" iconOnly disabled={claim.clearing ?? false} onclick={() => onIntent({ type: 'claim-clear', key: claim.key })}>
+                          <Button label="Clear claim" size="compact" kind="ghost" iconOnly disabled={claim.clearing ?? false} onclick={() => onIntent({ type: 'claim-clear', key: claim.key })}>
                             <Icon name="trash" size="1rem" />
                           </Button>
                         {/if}
-                        <Button label={`Fly to ${claim.mine ? 'your' : `${claim.name}'s`} claim`} title={`Fly to ${claim.mine ? 'your' : `${claim.name}'s`} claim`} size="compact" kind="ghost" iconOnly onclick={() => onIntent({ type: 'claim-fly', key: claim.key })}>
+                        <Button label={`Fly to ${claim.mine ? 'your' : `${claim.name}'s`} claim`} size="compact" kind="ghost" iconOnly onclick={() => onIntent({ type: 'claim-fly', key: claim.key })}>
                           <Icon name="flyTo" size="1rem" />
                         </Button>
                       </span>

@@ -136,7 +136,10 @@
     resizing = true
     startX = event.clientX
     startWidth = width
-    try { (event.currentTarget as HTMLElement | null)?.setPointerCapture(event.pointerId) } catch { /* optional */ }
+    // Move and up are read from the window, so capture only carries the drag past the page's edge.
+    // A pointer that has already ended cannot be captured, which the browser reports as a DOMException.
+    if (!(event.currentTarget instanceof Element)) return
+    try { event.currentTarget.setPointerCapture(event.pointerId) } catch (error) { if (!(error instanceof DOMException)) throw error }
   }
 
   const pointermove = (event: PointerEvent): void => {
@@ -174,26 +177,26 @@
 
   <header>
     {#if model.view !== 'tree'}
-      <Button label="Back to templates" title="Back to templates" kind="ghost" size="compact" iconOnly onclick={() => emit({ type: 'navigate', view: 'tree' })}>
+      <Button label="Back to templates" kind="ghost" size="compact" iconOnly onclick={() => emit({ type: 'navigate', view: 'tree' })}>
         <Icon name="arrowBack" />
       </Button>
     {/if}
     <h2>{title}</h2>
-    <Button label="Reload tiles" title="Reload tiles" kind="ghost" size="compact" iconOnly onclick={() => emit({ type: 'reload-tiles' })}>
+    <Button label="Reload tiles" kind="ghost" size="compact" iconOnly onclick={() => emit({ type: 'reload-tiles' })}>
       <Icon name="reset" />
     </Button>
-    <Button bind:element={popoutButton} label={poppedOut ? 'Return to sidebar' : 'Pop out menu'} title={poppedOut ? 'Return to sidebar' : 'Pop out menu'} popup={poppedOut ? undefined : 'dialog'} kind="ghost" size="compact" iconOnly onclick={() => { if (poppedOut) void dock(); else poppedOut = true }}>
+    <Button bind:element={popoutButton} label={poppedOut ? 'Return to sidebar' : 'Pop out menu'} popup={poppedOut ? undefined : 'dialog'} kind="ghost" size="compact" iconOnly onclick={() => { if (poppedOut) void dock(); else poppedOut = true }}>
       <Icon name={poppedOut ? 'dock' : 'popout'} />
     </Button>
-    <Button label="Appearance" title="Appearance" kind="ghost" size="compact" iconOnly pressed={model.view === 'appearance'} onclick={() => navigate('appearance')}>
+    <Button label="Appearance" kind="ghost" size="compact" iconOnly pressed={model.view === 'appearance'} onclick={() => navigate('appearance')}>
       <Icon name="tune" />
     </Button>
     {#if model.showSettings !== false}
-      <Button label="Settings" title="Settings" kind="ghost" size="compact" iconOnly pressed={model.view === 'settings'} onclick={() => navigate('settings')}>
+      <Button label="Settings" kind="ghost" size="compact" iconOnly pressed={model.view === 'settings'} onclick={() => navigate('settings')}>
         <Icon name="settings" />
       </Button>
     {/if}
-    <Button label="Close" title="Close" kind="ghost" size="compact" iconOnly onclick={() => { if (poppedOut) void dock(); else emit({ type: 'close' }) }}>
+    <Button label="Close" kind="ghost" size="compact" iconOnly onclick={() => { if (poppedOut) void dock(); else emit({ type: 'close' }) }}>
       <Icon name="close" />
     </Button>
   </header>

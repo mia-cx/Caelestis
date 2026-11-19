@@ -77,6 +77,25 @@
     emit({ type: 'save', fields })
   }
 
+  const assets = $derived([
+    {
+      kind: 'logo',
+      legend: 'Logo image',
+      url: model.logoImageUrl,
+      alt: 'Current logo',
+      empty: 'No logo image. The header shows the logo text.',
+      hint: 'PNG, JPEG, WebP or GIF.',
+    },
+    {
+      kind: 'preview',
+      legend: 'Link preview image',
+      url: model.previewImageUrl,
+      alt: 'Current link preview',
+      empty: 'No preview image. Links use the Caelestis artwork.',
+      hint: 'Used by Discord and other link previews for the home page. 1200 × 630 works best.',
+    },
+  ] as const)
+
   const limitLabel = (kind: ServerAssetKind): string =>
     `${Math.round(SERVER_ASSET_MAX_BYTES[kind] / 1024)} KiB`
 
@@ -137,47 +156,28 @@
         <small>Header text when no logo image is set. Leave empty to use the name.</small>
       </label>
 
-      <fieldset>
-        <legend>Logo image</legend>
-        <div class="asset">
-          {#if model.logoImageUrl !== null}
-            <img src={model.logoImageUrl} alt="Current logo" class="logo" />
-          {:else}
-            <span class="empty">No logo image. The header shows the logo text.</span>
-          {/if}
-          <div class="row">
-            <label class="file">
-              <input type="file" accept={SERVER_ASSET_CONTENT_TYPES.join(',')} disabled={model.busy} onchange={(event) => void upload('logo', event.currentTarget)} />
-              <span>{model.logoImageUrl === null ? 'Upload logo' : 'Replace logo'}</span>
-            </label>
-            {#if model.logoImageUrl !== null}
-              <Button label="Remove logo" size="small" kind="danger-ghost" disabled={model.busy} onclick={() => emit({ type: 'clear-asset', kind: 'logo' })} />
+      {#each assets as asset (asset.kind)}
+        <fieldset>
+          <legend>{asset.legend}</legend>
+          <div class="asset">
+            {#if asset.url !== null}
+              <img src={asset.url} alt={asset.alt} class={asset.kind} />
+            {:else}
+              <span class="empty">{asset.empty}</span>
             {/if}
+            <div class="row">
+              <label class="file">
+                <input type="file" accept={SERVER_ASSET_CONTENT_TYPES.join(',')} disabled={model.busy} onchange={(event) => void upload(asset.kind, event.currentTarget)} />
+                <span>{asset.url === null ? `Upload ${asset.kind}` : `Replace ${asset.kind}`}</span>
+              </label>
+              {#if asset.url !== null}
+                <Button label={`Remove ${asset.kind}`} size="small" kind="danger-ghost" disabled={model.busy} onclick={() => emit({ type: 'clear-asset', kind: asset.kind })} />
+              {/if}
+            </div>
+            <small>{asset.hint} At most {limitLabel(asset.kind)}.</small>
           </div>
-          <small>PNG, JPEG, WebP or GIF, at most {limitLabel('logo')}.</small>
-        </div>
-      </fieldset>
-
-      <fieldset>
-        <legend>Link preview image</legend>
-        <div class="asset">
-          {#if model.previewImageUrl !== null}
-            <img src={model.previewImageUrl} alt="Current link preview" class="preview" />
-          {:else}
-            <span class="empty">No preview image. Links use the Caelestis artwork.</span>
-          {/if}
-          <div class="row">
-            <label class="file">
-              <input type="file" accept={SERVER_ASSET_CONTENT_TYPES.join(',')} disabled={model.busy} onchange={(event) => void upload('preview', event.currentTarget)} />
-              <span>{model.previewImageUrl === null ? 'Upload preview' : 'Replace preview'}</span>
-            </label>
-            {#if model.previewImageUrl !== null}
-              <Button label="Remove preview" size="small" kind="danger-ghost" disabled={model.busy} onclick={() => emit({ type: 'clear-asset', kind: 'preview' })} />
-            {/if}
-          </div>
-          <small>Used by Discord and other link previews for the home page. 1200 × 630 works best. At most {limitLabel('preview')}.</small>
-        </div>
-      </fieldset>
+        </fieldset>
+      {/each}
     </div>
     <footer>
       {#if model.busy}<p class="saving" role="status">Saving…</p>{/if}

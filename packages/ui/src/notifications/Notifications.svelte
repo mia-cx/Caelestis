@@ -82,7 +82,7 @@
       {#if behind > 0}
         <Button label="+{behind} more" kind="ghost" size="small" onclick={() => (expanded = true)} />
       {/if}
-      <Button label={dismissLabel} title={dismissLabel} kind="ghost" size="small" iconOnly onclick={() => onIntent?.({ type: 'dismiss-toast', id: toast.id })}>
+      <Button label={dismissLabel} kind="ghost" size="small" iconOnly onclick={() => onIntent?.({ type: 'dismiss-toast', id: toast.id })}>
         <Icon name="close" />
       </Button>
     </span>

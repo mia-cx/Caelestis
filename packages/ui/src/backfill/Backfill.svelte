@@ -4,18 +4,21 @@
   import Modal from '../foundations/Modal.svelte'
   import type { BackfillIntent, BackfillModel } from './model.js'
 
-  let { model, onIntent }: { model: BackfillModel; onIntent: (intent: BackfillIntent) => void } = $props()
+  let { model, onIntent }: { model: BackfillModel; onIntent?: (intent: BackfillIntent) => void } = $props()
+  /** A wait between archive snapshots long enough to tell the admin about. */
+  const ARCHIVE_GAP_SECONDS = 36 * 3_600
+  const emit = (intent: BackfillIntent): void => onIntent?.(intent)
   const running = $derived(model.job?.status === 'running')
   const selected = $derived(model.preview?.snapshots.filter((snapshot) => model.selectedSnapshot !== null && snapshot.id >= model.selectedSnapshot) ?? [])
-  const gaps = $derived(selected.filter((snapshot, index) => index > 0 && snapshot.at - (selected[index - 1]?.at ?? snapshot.at) > 36 * 3_600).length)
+  const gaps = $derived(selected.filter((snapshot, index) => index > 0 && snapshot.at - (selected[index - 1]?.at ?? snapshot.at) > ARCHIVE_GAP_SECONDS).length)
   const date = (at: number): string => new Date(at * 1_000).toISOString().slice(0, 16).replace('T', ' ') + ' UTC'
-  const cancel = (): void => onIntent({ type: running ? 'cancel' : 'close' })
+  const cancel = (): void => emit({ type: running ? 'cancel' : 'close' })
 </script>
 
-<Modal labelledby="backfill-title" width="32rem" lightDismiss={false} onClose={() => onIntent({ type: 'close' })}>
+<Modal labelledby="backfill-title" width="32rem" lightDismiss={false} onClose={() => emit({ type: 'close' })}>
   <header>
     <h2 id="backfill-title">{model.templates === null ? 'Backfill template tiles and progress data' : 'Backfill folder tiles and progress data'}</h2>
-    <Button label="Close backfill" kind="ghost" size="small" iconOnly onclick={() => onIntent({ type: 'close' })}><Icon name="close" /></Button>
+    <Button label="Close backfill" kind="ghost" size="small" iconOnly onclick={() => emit({ type: 'close' })}><Icon name="close" /></Button>
   </header>
   <div class="body">
     <div class="template">
@@ -26,7 +29,7 @@
     {#if model.preview}
       <label for="backfill-from">Backfill from</label>
       <select id="backfill-from" class="caelestis-field" value={model.selectedSnapshot ?? ''} disabled={model.busy || running || model.loading}
-        onchange={(event) => onIntent({ type: 'select', snapshotId: Number(event.currentTarget.value) })}>
+        onchange={(event) => emit({ type: 'select', snapshotId: Number(event.currentTarget.value) })}>
         {#each model.preview.snapshots as snapshot (snapshot.id)}<option value={snapshot.id}>{date(snapshot.at)}</option>{/each}
       </select>
       <div class="coverage">
@@ -52,10 +55,10 @@
     {#if model.error}<p class="error" role="alert">{model.error}</p>{/if}
   </div>
   <footer>
-    {#if model.error}<Button label="Reload" kind="ghost" disabled={model.loading || model.busy} onclick={() => onIntent({ type: 'reload' })} />{/if}
+    {#if model.error}<Button label="Reload" kind="ghost" disabled={model.loading || model.busy} onclick={() => emit({ type: 'reload' })} />{/if}
     <Button label={model.job && !running ? 'Close' : 'Cancel'} disabled={model.busy} onclick={cancel} />
     {#if !running}<Button label={model.job?.status === 'failed' || model.job?.status === 'cancelled' ? 'Retry backfill' : 'Backfill'} kind="primary"
-      disabled={model.busy || model.loading || selected.length === 0} onclick={() => onIntent({ type: 'start' })} />{/if}
+      disabled={model.busy || model.loading || selected.length === 0} onclick={() => emit({ type: 'start' })} />{/if}
   </footer>
 </Modal>
 
