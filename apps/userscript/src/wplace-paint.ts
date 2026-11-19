@@ -1,10 +1,9 @@
 import { TRANSPARENT_INDEX } from '@caelestis/shared'
-import { activeAllianceEditorStage } from './alliance-editor-dom.js'
+import { activeAllianceDialog } from './alliance-editor-dom.js'
 import { log } from './debug.js'
 import { frameQueue } from './frame-queue.js'
 import { simulatedInputAllowed } from './simulated-input.js'
 import {
-  OPEN_DIALOG,
   paintDrawer,
   paintDrawerCloseButton,
   paintDrawerCommitButton,
@@ -48,8 +47,7 @@ export const onPaintSwatchesChange = (listener: () => void): (() => void) => {
 }
 
 /** Where Wplace's paint controls live right now: the open alliance editor's dialog, else the page. */
-const activePaintRoot = (): ParentNode =>
-  activeAllianceEditorStage()?.closest(OPEN_DIALOG) ?? document
+const activePaintRoot = (): ParentNode => activeAllianceDialog() ?? document
 
 /** Wplace's paint swatches in the active root, read now rather than as of the last frame. */
 export const currentPaintSwatches = (): HTMLElement[] => paintPaletteSwatches(activePaintRoot())

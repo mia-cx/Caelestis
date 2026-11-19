@@ -9,6 +9,7 @@ import { log, logRender, warn } from '../debug.js'
 import { isMapPress, swallowNextClick } from '../map-pointer.js'
 import { canvasPixelAt, cssPixelsPerCanvasPixel, repaint, screenPointFor } from '../map-view.js'
 import { ALLIANCE_PANEL_ID, PANEL_ID } from '../ui/panel-scope.js'
+import { ANY_DIALOG, MAP_CANVAS } from '../wplace-dom.js'
 import {
   clearLocalPreview,
   isDeletingLocal,
@@ -282,7 +283,7 @@ const setCursor = (shape: string): void => {
   const surface = template?.surface ?? WORLD_TEMPLATE_SURFACE
   const host =
     surface.kind === 'world'
-      ? document.querySelector<HTMLElement>('canvas.maplibregl-canvas')
+      ? document.querySelector<HTMLElement>(MAP_CANVAS)
       : matchingAllianceSurface(surface)?.frame
   if (host !== null && host !== undefined) host.style.cursor = shape
 }
@@ -400,7 +401,7 @@ const isPageControl = (target: EventTarget | null): boolean => {
   if (isDirectControl(target) || target === null || typeof target !== 'object')
     return isDirectControl(target)
   const element = target as { closest?: (selector: string) => Element | null }
-  return (element.closest?.('dialog,[role="dialog"]') ?? null) !== null
+  return (element.closest?.(ANY_DIALOG) ?? null) !== null
 }
 
 const isPageControlEvent = (event: Event): boolean => {

@@ -26,7 +26,7 @@ import {
 } from '@caelestis/ui/elements'
 import { cancelSurfaceClose, closeSurface, openSurface } from '@caelestis/ui/motion'
 import type { Curve, Effect, PaletteFitEffect } from 'ditherette'
-import { activeAllianceEditorStage } from '../alliance-editor-dom.js'
+import { activeAllianceDialog } from '../alliance-editor-dom.js'
 import { allianceSurfaceCentre, onActiveAllianceSurfaceChange } from '../alliance-surface.js'
 import { warn } from '../debug.js'
 import { errorText } from '../error-text.js'
@@ -1283,7 +1283,7 @@ export const closeTemplateStudio = (): void => {
 const mount = (): void => {
   // Wplace's alliance editors are modal dialogs, which leave the rest of the page inert, so the
   // studio has to open inside one to be usable there.
-  const dialog = activeAllianceEditorStage()?.closest<HTMLDialogElement>('dialog[open]') ?? null
+  const dialog = activeAllianceDialog()
   const host = dialog ?? document.body
   // An alliance draft has nowhere to go once its editor closes, so the studio closes with it.
   if (dialog !== null)

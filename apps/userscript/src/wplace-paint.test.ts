@@ -5,7 +5,10 @@ import { paintPaletteIndexOf, paintPaletteSwatches } from './wplace-dom.js'
 import { useWplaceCatalog } from './wplace-messages.js'
 import { cancelPaintDraft, performPaintAction, undoPaintDraft } from './wplace-paint.js'
 
-vi.mock('./alliance-editor-dom.js', () => ({ activeAllianceEditorStage: () => null }))
+vi.mock('./alliance-editor-dom.js', () => ({
+  activeAllianceEditorStage: () => null,
+  activeAllianceDialog: () => null,
+}))
 
 // Entries from Wplace's French catalog, as its locale module serves them.
 const FRENCH = { undo: 'Annuler', redo: 'Rétablir', close: 'Fermer', paint: 'Peindre' }

@@ -28,6 +28,7 @@ vi.mock('./map-view.js', () => ({
 vi.mock('./map-handle.js', () => ({ getMap: () => null }))
 vi.mock('./alliance-editor-dom.js', () => ({
   activeAllianceEditorStage: () => page.alliance?.stage ?? null,
+  activeAllianceDialog: () => page.alliance?.stage?.closest('dialog[open]') ?? null,
 }))
 vi.mock('./alliance-surface.js', () => ({
   activeAllianceSurface: () => page.alliance,

@@ -33,6 +33,9 @@ export const MAP_SURFACE = '.maplibregl-canvas-container, canvas.maplibregl-canv
 /** An open Wplace modal: an alliance editor, or its settings. */
 export const OPEN_DIALOG = 'dialog[open]'
 
+/** Any dialog, native or ARIA, open or not. */
+export const ANY_DIALOG = 'dialog,[role="dialog"]'
+
 /** An alliance editor's stage: the viewport Wplace labels by which editor it is. */
 export const ALLIANCE_EDITOR_STAGE = `${OPEN_DIALOG} [role="application"]`
 

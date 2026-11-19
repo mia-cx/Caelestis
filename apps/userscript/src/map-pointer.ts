@@ -1,6 +1,7 @@
 import { latLngToCanvasPixel, type Point } from '@caelestis/shared'
 import { getMap } from './map-handle.js'
 import { canvasPixelAt, isMapInteractionTarget } from './map-view.js'
+import { ANY_DIALOG } from './wplace-dom.js'
 
 /**
  * Where the pointer is on the map: which canvas pixel is under it, whether a press belongs to the
@@ -14,7 +15,7 @@ export const CLICK_SLOP_PX = 4
 /** Touch may emit no click after a gesture; a swallow left waiting expires after this long. */
 const SWALLOW_CLICK_MS = 400
 
-const PAGE_CONTROLS = 'dialog,[role="dialog"],button,input,select,textarea,a,[role="button"]'
+const PAGE_CONTROLS = `${ANY_DIALOG},button,input,select,textarea,a,[role="button"]`
 
 /**
  * The canvas point under a client position, fractional inside its pixel, or null off the rendered

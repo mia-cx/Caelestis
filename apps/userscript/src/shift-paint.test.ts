@@ -21,6 +21,7 @@ const harness = vi.hoisted(() => ({
 vi.mock('./templates/move.js', () => ({ isMoving: () => harness.moving }))
 vi.mock('./alliance-editor-dom.js', () => ({
   activeAllianceEditorStage: () => harness.alliance?.stage ?? null,
+  activeAllianceDialog: () => harness.alliance?.stage?.closest('dialog[open]') ?? null,
 }))
 vi.mock('./alliance-surface.js', () => ({
   activeAllianceSurface: () => harness.alliance,

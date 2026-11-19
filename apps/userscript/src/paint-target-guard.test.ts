@@ -18,6 +18,7 @@ const harness = vi.hoisted(() => ({
 vi.mock('./wplace-paint.js', () => ({ isPaintOpen: () => harness.open }))
 vi.mock('./alliance-editor-dom.js', () => ({
   activeAllianceEditorStage: () => harness.alliance?.stage ?? null,
+  activeAllianceDialog: () => harness.alliance?.stage?.closest('dialog[open]') ?? null,
 }))
 vi.mock('./alliance-surface.js', () => ({
   activeAllianceSurface: () => harness.alliance,

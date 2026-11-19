@@ -1,7 +1,7 @@
 import { type AllianceTemplateSurfaceKind, templateSurfaceBounds } from '@caelestis/shared'
 import type { AllianceEditorView } from './alliance-context.js'
 import { pageWindow } from './page-world.js'
-import { ALLIANCE_EDITOR_STAGE, ARTBOARD_FRAME } from './wplace-dom.js'
+import { ALLIANCE_EDITOR_STAGE, ARTBOARD_FRAME, OPEN_DIALOG } from './wplace-dom.js'
 import { findWplaceLabelled } from './wplace-messages.js'
 
 /** An alliance editor's stage and the transformed frame its artboard is drawn into. */
@@ -57,3 +57,10 @@ export const locateAllianceEditors = (): {
 /** The open alliance editor stage, even while its exact asset surface is still being validated. */
 export const activeAllianceEditorStage = (): HTMLElement | null =>
   stage('alliance_hq_canvas') ?? stage('alliance_asset_canvas')
+
+/**
+ * The open alliance editor's dialog. Wplace's editors are modal and leave the rest of the page
+ * inert, so its controls live in here, and ours must mount in here to be usable.
+ */
+export const activeAllianceDialog = (): HTMLDialogElement | null =>
+  activeAllianceEditorStage()?.closest<HTMLDialogElement>(OPEN_DIALOG) ?? null

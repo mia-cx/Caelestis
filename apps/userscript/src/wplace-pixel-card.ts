@@ -6,7 +6,7 @@
  * The card is not a dialog. Its close control is a round `Close` button, which is what tells it
  * apart from the settings and other modals, whose close buttons live inside a `<dialog>`.
  */
-import { insidePaintDrawer } from './wplace-dom.js'
+import { ANY_DIALOG, insidePaintDrawer, isCaelestis } from './wplace-dom.js'
 import { wplaceLabel } from './wplace-messages.js'
 
 export const dismissWplacePixelCard = (root: ParentNode = document): boolean => {
@@ -16,8 +16,7 @@ export const dismissWplacePixelCard = (root: ParentNode = document): boolean => 
   )
   let closed = false
   for (const button of buttons) {
-    if (button.closest('dialog,[role="dialog"]') !== null) continue
-    if (button.closest('[id^="caelestis-"]') !== null) continue
+    if (button.closest(ANY_DIALOG) !== null || isCaelestis(button)) continue
     // The paint drawer's Close discards a draft.
     if (insidePaintDrawer(button)) continue
     button.click()

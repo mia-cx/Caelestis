@@ -36,6 +36,7 @@ import {
   isMoving,
   movingId,
 } from '../templates/move.js'
+import { OPEN_DIALOG } from '../wplace-dom.js'
 import { handleAppearanceIntent } from './appearance.js'
 import { CLEAR_OF_RAIL, EDGE, GAP, RAIL_BUTTON } from './metrics.js'
 import {
@@ -1121,7 +1122,7 @@ export const renderAllianceOverlayControls = (
     canvas,
     active.surface,
     projection,
-    active.stage.closest<HTMLElement>('dialog[open]') ?? active.stage,
+    active.stage.closest<HTMLElement>(OPEN_DIALOG) ?? active.stage,
     allianceControlViewport(active.stage),
   )
 }

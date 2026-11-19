@@ -1,6 +1,6 @@
 import type { TemplateSurface } from '@caelestis/shared'
 import type { StudioRect } from '@caelestis/ui/elements'
-import { activeAllianceEditorStage } from '../alliance-editor-dom.js'
+import { activeAllianceDialog, activeAllianceEditorStage } from '../alliance-editor-dom.js'
 import { placementScale, placementScreenPoint } from './move.js'
 
 /**
@@ -134,9 +134,7 @@ const hitSize = (): number =>
  * leave the rest of the page inert and cover it, so an alliance draft's handles go inside one.
  */
 const overlayHost = (surface: TemplateSurface): HTMLElement =>
-  (surface.kind === 'world'
-    ? null
-    : activeAllianceEditorStage()?.closest<HTMLElement>('dialog[open]')) ?? document.body
+  (surface.kind === 'world' ? null : activeAllianceDialog()) ?? document.body
 
 /**
  * Keep an alliance draft's handles inside the editor's stage, where Wplace clips the art itself.
