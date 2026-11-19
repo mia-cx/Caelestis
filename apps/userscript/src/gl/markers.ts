@@ -32,8 +32,12 @@ import { worldRenderScene } from './render-scene.js'
 let worldMarkerRenderer: MarkerRenderer | null = null
 
 const markerGpuMemoryBytes = (): number => worldMarkerRenderer?.memoryBytes() ?? 0
-registerProfileMemorySource('Marker density buffers', markerDensityMemoryBytes)
-registerProfileMemorySource('Marker GPU buffers', markerGpuMemoryBytes)
+/** Register the world markers' profile memory sources. */
+export const installMarkerDiagnostics = (): void => {
+  registerProfileMemorySource('Marker density buffers', markerDensityMemoryBytes)
+  registerProfileMemorySource('Marker GPU buffers', markerGpuMemoryBytes)
+}
+
 const initMarkers = (gl: WebGL2RenderingContext): void => {
   worldMarkerRenderer = new MarkerRenderer(gl)
 }

@@ -8,9 +8,9 @@ import { installDebugApi, loadDebugSetting, warn } from './debug.js'
 import { clearDraftPixels, reconcileDrafts, syncDraftCanvases } from './draft-pixels.js'
 import { installAllianceOverlayLayer } from './gl/artboard-layer.js'
 import { onMapThemeChange } from './gl/contrast-outline.js'
-import { outlineLayer, overlayLayer } from './gl/layer.js'
+import { installOverlayDiagnostics, outlineLayer, overlayLayer } from './gl/layer.js'
 import { installLayerStack } from './gl/layer-stack.js'
-import { markerLayer } from './gl/markers.js'
+import { installMarkerDiagnostics, markerLayer } from './gl/markers.js'
 import { pickCellLayer } from './gl/pick-cell-layer.js'
 import { presenceLayer } from './gl/presence-layer.js'
 import { installKeyboardShortcuts } from './keyboard-shortcuts.js'
@@ -208,6 +208,8 @@ const installPresenceFeatures = (): void => {
 
 /** Keep our GL layers, and the features bound to the map, on whichever map Wplace shows. */
 const attachOverlayLayer = (): void => {
+  installOverlayDiagnostics()
+  installMarkerDiagnostics()
   installLayerStack({
     outline: outlineLayer,
     overlay: overlayLayer,

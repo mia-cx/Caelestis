@@ -5,7 +5,6 @@ import {
   templateSurfaceKey,
 } from '@caelestis/shared'
 import { log, warn } from '../debug.js'
-import { registerProfileMemorySource } from '../profile.js'
 import {
   catalogEntries,
   deleteCatalogEntry,
@@ -324,8 +323,6 @@ export const noteTemplatesInView = (surface: TemplateSurface, ids: ReadonlySet<s
 
 /** Indexed template pixels currently owned by the catalog. */
 export const templateIndexMemoryBytes = (): number => retainedIndexPixels
-registerProfileMemorySource('Template pixels', templateIndexMemoryBytes)
-
 /**
  * A template as an indexed PNG, ready to upload.
  *

@@ -253,13 +253,16 @@ let lastOutlineQuadKey = ''
 export const overlayGpuMemoryBytes = (): number =>
   (overlay?.memoryBytes() ?? 0) + (gpu?.memoryBytes() ?? 0)
 
-registerProfileMemorySource('Overlay GPU buffers', overlayGpuMemoryBytes)
-/** Shift every template by fractional canvas pixels for alignment diagnostics. */
-registerDebugEntry('nudge', (x = 0, y = 0) => {
-  const applied = setNudge(x, y)
-  redraw()
-  return `[caelestis] overlay nudged by ${applied.x}, ${applied.y} canvas px — __caelestis.nudge() to clear`
-})
+/** Register the overlay's profile memory source and its `nudge` debug entry. */
+export const installOverlayDiagnostics = (): void => {
+  registerProfileMemorySource('Overlay GPU buffers', overlayGpuMemoryBytes)
+  /** Shift every template by fractional canvas pixels for alignment diagnostics. */
+  registerDebugEntry('nudge', (x = 0, y = 0) => {
+    const applied = setNudge(x, y)
+    redraw()
+    return `[caelestis] overlay nudged by ${applied.x}, ${applied.y} canvas px — __caelestis.nudge() to clear`
+  })
+}
 
 /**
  * Run one of our layers' draws without letting a throw escape into MapLibre's render loop. A throw

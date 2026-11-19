@@ -1,8 +1,10 @@
 import { currentSurface, onActiveAllianceSurfaceChange } from '../alliance-surface.js'
 import { warn } from '../debug.js'
+import { registerProfileMemorySource } from '../profile.js'
 import { installNativeAllianceTemplates } from './native-alliance.js'
 import { connectNativeTemplates } from './native-store.js'
 import { connectPersonalStore, synchronizePersonalTemplates } from './personal-store.js'
+import { templateIndexMemoryBytes } from './residency.js'
 import { refreshPersonalTemplates, restoreLocalTemplates } from './restore.js'
 
 let installed = false
@@ -11,6 +13,7 @@ let installed = false
 export const installPersonalTemplates = async (): Promise<void> => {
   if (installed) return
   installed = true
+  registerProfileMemorySource('Template pixels', templateIndexMemoryBytes)
   // Establish the durable-row admission barrier synchronously, before server sync can claim its budget.
   const restored = restoreLocalTemplates()
   try {
