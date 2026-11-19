@@ -1,9 +1,65 @@
-import { type ChannelName, CURVE_MODELS, type CurveModel } from './effects/catalog.js'
+import type { ColourChannel } from './ditherette.js'
 
 /**
  * Colour coordinates as Ditherette normalises its curve axes, for masks and scopes. Ported from
  * Ditherette web's scopes, so the studio reads colours the way Ditherette applies them.
  */
+
+export type ChannelName = ColourChannel['channel']
+/** Every colour model available to curves and scopes. */
+export type CurveModel = ColourChannel['model']
+
+type ChannelInfo = { readonly name: ChannelName; readonly label: string }
+type ModelChannels = readonly [ChannelInfo, ChannelInfo, ChannelInfo]
+const channel = (name: ChannelName, label: string): ChannelInfo => ({ name, label })
+const RGB: ModelChannels = [
+  channel('red', 'Red'),
+  channel('green', 'Green'),
+  channel('blue', 'Blue'),
+]
+const LAB: ModelChannels = [channel('lightness', 'Lightness'), channel('a', 'a'), channel('b', 'b')]
+const LCH: ModelChannels = [
+  channel('lightness', 'Lightness'),
+  channel('chroma', 'Chroma'),
+  channel('hue', 'Hue'),
+]
+
+/** Every colour model a curve can read or change, with its channels in canonical order. */
+export const CURVE_MODELS: readonly {
+  readonly id: CurveModel
+  readonly label: string
+  readonly channels: ModelChannels
+}[] = [
+  { id: 'srgb', label: 'RGB', channels: RGB },
+  { id: 'linear-rgb', label: 'Linear RGB', channels: RGB },
+  {
+    id: 'hsl',
+    label: 'HSL',
+    channels: [
+      channel('hue', 'Hue'),
+      channel('saturation', 'Saturation'),
+      channel('lightness', 'Lightness'),
+    ],
+  },
+  {
+    id: 'hsv',
+    label: 'HSV',
+    channels: [
+      channel('hue', 'Hue'),
+      channel('saturation', 'Saturation'),
+      channel('value', 'Value'),
+    ],
+  },
+  { id: 'oklab', label: 'OKLab', channels: LAB },
+  { id: 'oklch', label: 'OKLCH', channels: LCH },
+  { id: 'cielab', label: 'CIELAB', channels: LAB },
+  { id: 'cielch', label: 'CIELCh', channels: LCH },
+  {
+    id: 'ycbcr',
+    label: 'YCbCr',
+    channels: [channel('luma', 'Luma'), channel('cb', 'Cb'), channel('cr', 'Cr')],
+  },
+]
 
 /** Every model the scopes read: the curves models, plus CMY as inverted RGB. */
 export type ScopeModel = CurveModel | 'cmy'
