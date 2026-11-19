@@ -193,6 +193,7 @@ describe('Blue Marble import contract', () => {
     const restoredStoreResidency = await import('../src/templates/residency.js')
     const restoredStoreRestore = await import('../src/templates/restore.js')
     const restoredStoreEdits = await import('../src/templates/template-edits.js')
+    ;(await import('../src/templates/pixel-loaders.js')).installPixelLoaders()
     try {
       await restoredStoreRestore.restoreLocalTemplates()
       const restored = restoredStoreCatalog.templateById(admitted.id)

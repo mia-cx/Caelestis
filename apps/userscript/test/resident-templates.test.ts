@@ -64,6 +64,7 @@ describe('resident templates', () => {
       const catalog = await import('../src/templates/catalog.js')
       const residency = await import('../src/templates/residency.js')
       const edits = await import('../src/templates/template-edits.js')
+      ;(await import('../src/templates/pixel-loaders.js')).installPixelLoaders()
       const ids = [1, 2, 3, 4, 5].map((paint) => `resident-${paint}-${crypto.randomUUID()}`)
       try {
         for (const [at, id] of ids.entries()) {
@@ -91,6 +92,7 @@ describe('resident templates', () => {
       const residency = await import('../src/templates/residency.js')
       const copies = await import('../src/templates/template-copies.js')
       const edits = await import('../src/templates/template-edits.js')
+      ;(await import('../src/templates/pixel-loaders.js')).installPixelLoaders()
       const serverId = `srv:resident:${crypto.randomUUID()}`
       const ids = [2, 3, 4, 5].map((paint) => `resident-${paint}-${crypto.randomUUID()}`)
       try {
@@ -173,6 +175,7 @@ describe('resident templates', () => {
         const restoredCatalog = await import('../src/templates/catalog.js')
         const restoredResidency = await import('../src/templates/residency.js')
         const restoredRestore = await import('../src/templates/restore.js')
+        ;(await import('../src/templates/pixel-loaders.js')).installPixelLoaders()
         await restoredRestore.restoreLocalTemplates()
         const first = restoredCatalog.templateById(ids[0] as string)
         if (first === undefined) throw new Error('the template did not restore')
@@ -192,6 +195,7 @@ describe('server pixels and unpublishing', () => {
     const residency = await import('../src/templates/residency.js')
     const copies = await import('../src/templates/template-copies.js')
     const { cachedServerCopy } = await import('../src/templates/server-pixel-cache.js')
+    ;(await import('../src/templates/pixel-loaders.js')).installPixelLoaders()
     const id = `srv:draft:${crypto.randomUUID()}`
     let finish: ((indices: Uint8Array) => void) | undefined
     copies.setServerPixelSource(

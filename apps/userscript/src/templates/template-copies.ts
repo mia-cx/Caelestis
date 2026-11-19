@@ -18,7 +18,6 @@ import {
   MAX_RESIDENT_PIXELS,
   makeRoom,
   newArtwork,
-  registerPixelLoader,
   removeEntry,
 } from './residency.js'
 import { restoreRunning } from './restore.js'
@@ -55,7 +54,7 @@ export const setServerPixelSource = (source: ServerPixelSource): void => {
 }
 
 /** Reload a copy from its disk cache, or download a server's again. */
-const loadCopyPixels = async (copy: TemplateCopy): Promise<SparsePixels> => {
+export const loadCopyPixels = async (copy: TemplateCopy): Promise<SparsePixels> => {
   const cached = await readServerPixels(copy.id, copy.version, copy.width, copy.height)
   let pixels = cached
   if (pixels === null && copy.origin === 'server') {
@@ -81,7 +80,6 @@ const loadCopyPixels = async (copy: TemplateCopy): Promise<SparsePixels> => {
   }
   return pixels
 }
-registerPixelLoader('copy', loadCopyPixels)
 
 /**
  * Is there room for this copy, before anything is downloaded for it?

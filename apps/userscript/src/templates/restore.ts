@@ -1,5 +1,6 @@
 import { sameTemplateSurface } from '@caelestis/shared'
 import { log, warn } from '../debug.js'
+import { notifyListeners } from '../listeners.js'
 import { getState } from '../settings.js'
 import { APPEARANCE_GROUPS } from './appearance.js'
 import {
@@ -37,7 +38,6 @@ import {
   MAX_RESIDENT_PIXELS,
   makeRoom,
   newArtwork,
-  registerPixelLoader,
   removeEntry,
 } from './residency.js'
 import { type SparsePixels, storedArea } from './sparse-pixels.js'
@@ -74,15 +74,8 @@ export const onLocalReconciliation = (id: string, observer: () => void): (() => 
   }
 }
 
-const noteReconciliation = (id: string): void => {
-  for (const observer of reconciliationObservers.get(id) ?? []) {
-    try {
-      observer()
-    } catch (error) {
-      warn('local reconciliation observer failed', String(error))
-    }
-  }
-}
+const noteReconciliation = (id: string): void =>
+  notifyListeners(reconciliationObservers.get(id) ?? [], 'local reconciliation observer failed')
 
 /**
  * The Wplace snapshot token each personal artwork is a rendering of, so a reconciliation can tell
@@ -283,7 +276,7 @@ export const reconcileConflict = async (id: string, verifyPixels = false): Promi
 }
 
 /** Read a Local template's evicted pixels back from IndexedDB. */
-const loadLocalPixels = async (template: LocalTemplate): Promise<SparsePixels> => {
+export const loadLocalPixels = async (template: LocalTemplate): Promise<SparsePixels> => {
   const loaded = await loadTemplate(template.id, MAX_RESIDENT_PIXELS)
   if (loaded.status === 'unavailable') {
     throw new Error('Could not read this template from browser storage. Try again.')
@@ -297,7 +290,6 @@ const loadLocalPixels = async (template: LocalTemplate): Promise<SparsePixels> =
   await reconcileConflict(template.id, true)
   throw new Error('That template changed while it was loading. Try again.')
 }
-registerPixelLoader('local', loadLocalPixels)
 
 /** Retry restore once a blocked IndexedDB open settles. */
 const scheduleRestoreRecovery = (recovery: Promise<void> | null): void => {

@@ -173,8 +173,8 @@ interface PixelLoaders {
 const pixelLoaders: Partial<PixelLoaders> = {}
 
 /**
- * Say how to reload one kind of template. The module that admits a kind registers its loader as it
- * loads, so every entry's loader exists before the entry does.
+ * Say how to reload one kind of template. `installPixelLoaders` registers both before any entry is
+ * admitted, so every entry's loader exists before the entry does.
  */
 export const registerPixelLoader = <K extends keyof PixelLoaders>(
   kind: K,

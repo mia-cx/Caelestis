@@ -6,6 +6,7 @@ import { isTemplateVisible, localTemplates } from './catalog.js'
 import { installNativeAllianceTemplates } from './native-alliance.js'
 import { connectNativeTemplates } from './native-store.js'
 import { connectPersonalStore, synchronizePersonalTemplates } from './personal-store.js'
+import { installPixelLoaders } from './pixel-loaders.js'
 import { templateIndexMemoryBytes } from './residency.js'
 import { refreshPersonalTemplates, restoreLocalTemplates } from './restore.js'
 
@@ -16,6 +17,8 @@ export const installPersonalTemplates = async (): Promise<void> => {
   if (installed) return
   installed = true
   registerProfileMemorySource('Template pixels', templateIndexMemoryBytes)
+  // Restore below admits Local templates; later steps admit server and Wplace copies.
+  installPixelLoaders()
   /** Each template's own switch beside the renderer's effective visibility decision. */
   registerDebugEntry('templates', () =>
     localTemplates().map((template) => ({
