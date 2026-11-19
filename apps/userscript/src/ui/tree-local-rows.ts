@@ -103,7 +103,7 @@ export const renderLocalCategory = (ctx: TreeContext): boolean => {
         canReparent: true,
         onDropAt,
         onContextMenu: (event) => callbacks.onContextMenu(target, event),
-        onRename: (value) => void renameTarget(target, value, rerender, surface),
+        onRename: (value) => void renameTarget(target, value, rerender),
         actions: [tagAction(target, rerender), ...createActions(ctx, target)],
       },
     })
@@ -152,7 +152,7 @@ export const renderLocalCategory = (ctx: TreeContext): boolean => {
         canReparent: true,
         onDropAt,
         onContextMenu: (event: MouseEvent) => callbacks.onContextMenu(target, event),
-        onRename: (value: string) => void renameTarget(target, value, rerender, surface),
+        onRename: (value: string) => void renameTarget(target, value, rerender),
         leadingActions: [
           {
             icon: 'search',
@@ -187,6 +187,7 @@ export const renderLocalCategory = (ctx: TreeContext): boolean => {
     () =>
       callbacks.onImportTemplate({
         server: null,
+        surface,
         nodeId: null,
         key: LOCAL_ROOT_KEY,
         name: 'Local',

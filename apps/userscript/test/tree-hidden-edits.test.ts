@@ -124,6 +124,7 @@ describe('hidden templates and folders', () => {
     setScopeVisible(MANIFEST_ONLY_KEY, false)
     const target: TreeTarget = {
       server,
+      surface: WORLD_TEMPLATE_SURFACE,
       nodeId: null,
       key: 'manifest-only',
       name: 'Pending',

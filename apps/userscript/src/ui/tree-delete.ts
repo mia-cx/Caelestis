@@ -14,7 +14,6 @@ import { removeLocalTemplate, setTemplatesFolder } from '../templates/template-e
 import { localFolderIdOf, localTemplateIdOf } from '../tree-keys.js'
 import { requestConfirmation, showToast } from './notification-host.js'
 import type { TreeTarget } from './tree-context.js'
-import { surfaceOf } from './tree-target.js'
 
 /**
  * Delete sits in a context menu one slip away from Rename, and a folder is not recoverable from the
@@ -166,7 +165,7 @@ const deleteServerFolder = async (
   // a server that does not know it still answers.
   const result = await deleteNodeOnServer(target.server, nodeId, inside === null ? null : holding)
   if (!result.ok) showToast(result.message, 'error')
-  await refreshEditedSurface(target.server, surfaceOf(target), rerender)
+  await refreshEditedSurface(target.server, target.surface, rerender)
 }
 
 /** Delete whatever row `target` is, after asking. */
@@ -205,7 +204,7 @@ export const deleteTreeRow = async (
       updatedAt: target.templateUpdatedAt,
     })
     if (!result.ok) showToast(result.message, 'error')
-    await refreshEditedSurface(server, surfaceOf(target), rerender)
+    await refreshEditedSurface(server, target.surface, rerender)
     return
   }
   if (server === null || target.nodeId === null) {

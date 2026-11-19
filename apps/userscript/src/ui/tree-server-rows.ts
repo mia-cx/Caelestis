@@ -154,7 +154,7 @@ const serverSource = (
         onContextMenu: (event: MouseEvent) => callbacks.onContextMenu(target, event),
         ...(canRearrange
           ? {
-              onRename: (value: string) => void renameTarget(target, value, rerender, surface),
+              onRename: (value: string) => void renameTarget(target, value, rerender),
               actions: [tagAction(target, rerender), ...createActions(ctx, target)],
             }
           : {}),
@@ -262,7 +262,7 @@ const serverSource = (
         ...(canRearrange ? { onDropAt: intoServer } : {}),
         onContextMenu: (event: MouseEvent) => callbacks.onContextMenu(target, event),
         ...(canRearrange
-          ? { onRename: (value: string) => void renameTarget(target, value, rerender, surface) }
+          ? { onRename: (value: string) => void renameTarget(target, value, rerender) }
           : {}),
       },
     })

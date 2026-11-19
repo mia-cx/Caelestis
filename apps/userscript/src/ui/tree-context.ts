@@ -22,7 +22,7 @@ import type { DropAt, RowAction } from './tree-source.js'
 export interface TreeTarget {
   readonly server: ServerConnection | null
   /** Canvas whose manifest or local catalog produced this row. */
-  readonly surface?: TemplateSurface
+  readonly surface: TemplateSurface
   readonly nodeId: string | null
   readonly key: string
   readonly name: string

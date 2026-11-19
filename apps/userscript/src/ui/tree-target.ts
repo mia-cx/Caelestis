@@ -1,13 +1,9 @@
-import { type TemplateSurface, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { localFolderChainVisible } from '../local-folders.js'
 import { getState, isScopeVisible } from '../settings.js'
 import { isTemplateVisible, type PlacedTemplate } from '../templates/catalog.js'
 import { nodeChainVisible, serverNodeParents } from '../templates/server-nodes.js'
 import { LOCAL_ROOT_KEY, localFolderIdOf, serverScopeKey, serverTemplateKey } from '../tree-keys.js'
 import type { TreeTarget } from './tree-context.js'
-
-export const surfaceOf = (target: TreeTarget): TemplateSurface =>
-  target.surface ?? WORLD_TEMPLATE_SURFACE
 
 /**
  * Whether a row is drawn, and whether the row holding it is, read from its switches alone.
@@ -23,7 +19,7 @@ const rowVisibility = (target: TreeTarget): readonly [drawn: boolean, parentDraw
     return [localFolderChainVisible(folder.id), localFolderChainVisible(folder.parentId)]
   }
   const { url } = target.server
-  const surface = surfaceOf(target)
+  const { surface } = target
   const serverShown = isScopeVisible(serverScopeKey(url))
   if (target.templateId !== undefined) {
     const parentDrawn = serverShown && nodeChainVisible(url, target.nodeId, surface)

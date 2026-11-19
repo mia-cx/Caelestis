@@ -1,4 +1,4 @@
-import { type TemplateSurface, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
+import type { TemplateSurface } from '@caelestis/shared'
 import { busyRefusal } from '../application/template-busy.js'
 import {
   copyLocalTemplateToServer,
@@ -39,7 +39,7 @@ export const moveBranch = async (
   draggedKey: string,
   destination: Destination,
   rerender: () => void,
-  surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
+  surface: TemplateSurface,
 ): Promise<string | null> => {
   const fromServer = parseTreeKey(draggedKey)?.kind === 'server-node'
   const found = fromServer ? findServerNode(draggedKey, surface) : null
@@ -119,7 +119,7 @@ export const copyServerTemplateToLocal = async (
   templateKey: string,
   folderId: string | null,
   rerender: () => void,
-  surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
+  surface: TemplateSurface,
 ): Promise<string | null> => {
   const found = findServerTemplate(templateKey, surface)
   if (found === null) return null
@@ -169,7 +169,7 @@ export const dropOnServerNode = async (
   nodeId: string | null,
   draggedKey: string,
   rerender: () => void,
-  surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
+  surface: TemplateSurface,
 ): Promise<string | null> => {
   // A folder is a branch, not a row: its structure and everything hanging off it must exist at the
   // destination before anything is taken off the source. `transplant` owns that ordering; this only

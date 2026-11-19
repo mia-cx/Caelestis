@@ -5,7 +5,6 @@ import {
   type PainterIdentity,
   sameTemplateSurface,
   type TemplateSurface,
-  WORLD_TEMPLATE_SURFACE,
   type WorkCollection,
   workClaimants,
 } from '@caelestis/shared'
@@ -201,7 +200,7 @@ export const claimTemplate = async (
     showToast('Sign in to Wplace before claiming a template.', 'warning')
     return
   }
-  const surface = target.surface ?? WORLD_TEMPLATE_SURFACE
+  const surface = target.surface
   const server = target.server
   if (server === null) {
     const templateId = localTemplateIdOf(target.key)
@@ -333,7 +332,7 @@ export const hasOwnTemplateClaim = (target: TreeTarget): boolean => {
     )
   return (
     previews
-      .get(previewKey(target.server, target.surface ?? WORLD_TEMPLATE_SURFACE))
+      .get(previewKey(target.server, target.surface))
       ?.collection.items.some(
         (item) =>
           isTemplateClaim(item) &&
@@ -346,9 +345,7 @@ export const hasOwnTemplateClaim = (target: TreeTarget): boolean => {
 /** Hide claims on connections whose authoritative capability is read-only. */
 export const canClaimTemplate = (target: TreeTarget): boolean =>
   target.server === null ||
-  (previews.get(previewKey(target.server, target.surface ?? WORLD_TEMPLATE_SURFACE))?.collection
-    .canClaim ??
-    true)
+  (previews.get(previewKey(target.server, target.surface))?.collection.canClaim ?? true)
 
 /** Explicitly retry failed claim loads and the current Wplace identity without polling. */
 export const retryTemplateClaims = (surface: TemplateSurface, changed: () => void): void => {

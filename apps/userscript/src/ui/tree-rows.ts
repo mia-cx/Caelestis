@@ -1,13 +1,11 @@
-import type { AlarmKind, TemplateSurface } from '@caelestis/shared'
-import { refreshAllianceManifest } from '../alliance-server-sync.js'
-import { refreshServerSnapshot } from '../application/tree-server-state.js'
+import type { AlarmKind } from '@caelestis/shared'
+import { refreshEditedSurface } from '../application/tree-server.js'
 import { renameLocalFolder } from '../local-folders.js'
 import {
   patchTemplate,
   renameNode as renameNodeOnServer,
   renameServer as renameServerOnServer,
 } from '../server-api.js'
-import { serverByUrl } from '../server-connections.js'
 import { getState, isScopeVisible, type ServerConnection, setScopeVisible } from '../settings.js'
 import type { PlacedTemplate } from '../templates/catalog.js'
 import type { TemplateColourProgress, TemplateProgress } from '../templates/progress-types.js'
@@ -82,32 +80,11 @@ export const tagAction = (target: TreeTarget, rerender: () => void): RowAction =
   run: () => openTagManager(target, rerender),
 })
 
-const refreshCurrentSnapshot = async (
-  server: ServerConnection,
-  rerender: () => void,
-  surface: TemplateSurface,
-): Promise<void> => {
-  if (surface.kind !== 'world') {
-    await refreshAllianceManifest(server, surface)
-    rerender()
-    return
-  }
-  let current = serverByUrl(server.url)
-  if (current === undefined) return
-  let result = await refreshServerSnapshot(current, rerender, true)
-  while (result.status === 'superseded') {
-    current = serverByUrl(server.url)
-    if (current === undefined) return
-    result = await refreshServerSnapshot(current, rerender)
-  }
-}
-
 /** Rename whatever the row is: a Local template or folder, a server, folder or template. */
 export const renameTarget = async (
   target: TreeTarget,
   name: string,
   rerender: () => void,
-  surface: TemplateSurface,
 ): Promise<void> => {
   const key = parseTreeKey(target.key)
   if (key?.kind === 'local-template') {
@@ -127,7 +104,7 @@ export const renameTarget = async (
   if (target.server !== null && target.templateId !== undefined) {
     const result = await patchTemplate(target.server, target.templateId, { name })
     if (!result.ok) reportTreeError(result.message)
-    await refreshCurrentSnapshot(target.server, rerender, surface)
+    await refreshEditedSurface(target.server, target.surface, rerender)
     return
   }
   if (target.server !== null && target.nodeId === null) {
@@ -143,7 +120,7 @@ export const renameTarget = async (
   }
   const result = await renameNodeOnServer(target.server, target.nodeId, name)
   if (!result.ok) reportTreeError(result.message)
-  await refreshCurrentSnapshot(target.server, rerender, surface)
+  await refreshEditedSurface(target.server, target.surface, rerender)
 }
 
 /**
@@ -339,9 +316,7 @@ export const categoryRoot = (
       canCreate || server !== undefined
         ? (event) => ctx.callbacks.onContextMenu(target, event)
         : undefined,
-    onRename: canCreate
-      ? (value) => void renameTarget(target, value, ctx.rerender, ctx.surface)
-      : undefined,
+    onRename: canCreate ? (value) => void renameTarget(target, value, ctx.rerender) : undefined,
     actions: canCreate
       ? [
           // Beside rename, because rename is the one server-level edit that already exists and

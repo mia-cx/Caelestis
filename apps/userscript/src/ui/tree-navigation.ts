@@ -1,8 +1,4 @@
-import {
-  sameTemplateSurface,
-  type TemplateSurface,
-  WORLD_TEMPLATE_SURFACE,
-} from '@caelestis/shared'
+import { sameTemplateSurface, type TemplateSurface } from '@caelestis/shared'
 import { navigateAllianceArtboardTo } from '../alliance-navigation.js'
 import { activeAllianceSurface } from '../alliance-surface.js'
 import type { ServerTemplate } from '../server-manifest.js'
@@ -13,7 +9,7 @@ import { showToast } from './notification-host.js'
 /** Frame one manifest row even when its pixels have not reached the local catalog yet. */
 export const goToServerTemplate = (
   bbox: ServerTemplate['bbox'],
-  surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
+  surface: TemplateSurface,
 ): void => {
   if (surface.kind !== 'world') {
     const active = activeAllianceSurface()

@@ -34,19 +34,18 @@ import { templateAsPng } from '../templates/residency.js'
 import { showToast } from './notification-host.js'
 import { openTemplateStudio } from './template-studio.js'
 import type { TreeTarget } from './tree-context.js'
-import { surfaceOf } from './tree-target.js'
 
 /** The template state from the same admitted snapshot that drew this row. */
 export const templateStateOf = (target: TreeTarget): ServerTemplate | null =>
   target.server !== null && target.templateId !== undefined
-    ? serverTemplateAt(target.server.url, target.templateId, surfaceOf(target))
+    ? serverTemplateAt(target.server.url, target.templateId, target.surface)
     : null
 
 /** Every template anywhere below a server folder row, or null for any other row. */
 export const folderTemplatesFor = (target: TreeTarget): readonly ServerTemplate[] | null => {
   if (target.server === null || target.nodeId === null || target.templateId !== undefined)
     return null
-  const rows = manifestRows(target.server, surfaceOf(target))
+  const rows = manifestRows(target.server, target.surface)
   return rows === undefined
     ? null
     : templatesInFolderSubtree(rows.nodes, rows.templates, target.nodeId)
@@ -64,7 +63,7 @@ export const moveServerTemplate = async (
 ): Promise<void> => {
   const { server, templateId } = target
   if (server === null || templateId === undefined) return
-  const surface = surfaceOf(target)
+  const surface = target.surface
   const listed = await listServerNodes(server, undefined, surface)
   if (listed.status !== 'ok') {
     showToast(serverNodesFailure(listed), 'error')
@@ -125,7 +124,7 @@ export const replaceServerArtwork = async (
   // A new version has to be the same size as the one it replaces; the server refuses anything else
   // and there is nothing the user can do about it after the fact, so only templates of that size
   // are offered.
-  const surface = surfaceOf(target)
+  const surface = target.surface
   const current = serverTemplateAt(server.url, templateId, surface)
   const span = (min: number, max: number) => (max >= min ? max - min : WORLD_PIXELS - min + max)
   const wanted =
@@ -240,7 +239,7 @@ export const replaceFromImage = async (
 ): Promise<void> => {
   const { server, templateId } = target
   if (server === null || templateId === undefined) return
-  const surface = surfaceOf(target)
+  const surface = target.surface
   const current = serverTemplateAt(server.url, templateId, surface)
   const installed = templateById(installedId)
   if (current === null || installed === undefined) {
@@ -311,7 +310,7 @@ export const patchServerTemplate = async (
   if (server === null || templateId === undefined) return
   const result = await patchTemplate(server, templateId, patch)
   if (!result.ok) showToast(result.message, 'error')
-  await refreshEditedSurface(server, surfaceOf(target), rerender)
+  await refreshEditedSurface(server, target.surface, rerender)
 }
 
 /** Publish or unpublish every template hanging anywhere below one server folder. */
@@ -322,7 +321,7 @@ export const setServerFolderPublished = async (
 ): Promise<void> => {
   const { server, nodeId } = target
   if (server === null || nodeId === null || target.templateId !== undefined) return
-  const surface = surfaceOf(target)
+  const surface = target.surface
   // One recursive batch per server, so ancestor and descendant operations cannot overlap.
   const releasePublication = claimBusy(`folder-publication:${server.url}`)
   if (releasePublication === null) {

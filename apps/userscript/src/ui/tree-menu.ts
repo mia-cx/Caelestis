@@ -1,4 +1,3 @@
-import { type TemplateSurface, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { authoringOf } from '../application/template-authoring.js'
 import { templateBusy } from '../application/template-busy.js'
 import {
@@ -37,7 +36,7 @@ import {
   setServerFolderPublished,
   templateStateOf,
 } from './tree-server-template.js'
-import { hiddenNotice, surfaceOf } from './tree-target.js'
+import { hiddenNotice } from './tree-target.js'
 import { startRenaming } from './tree-view-state.js'
 import { canClaimTemplate, claimTemplate, hasOwnTemplateClaim } from './work.js'
 
@@ -47,7 +46,7 @@ const exportTemplate = async (target: TreeTarget, format: 'wplace' | 'png'): Pro
   const id =
     localId ??
     (target.server !== null && target.templateId !== undefined
-      ? serverTemplateKey(target.server.url, target.templateId, surfaceOf(target))
+      ? serverTemplateKey(target.server.url, target.templateId, target.surface)
       : null)
   const template = id === null ? undefined : templateById(id)
   if (template === undefined) {
@@ -92,12 +91,12 @@ export const openContextMenu = (
   target: TreeTarget,
   event: MouseEvent,
   rerender: () => void,
-  surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
 ): void => {
+  const { surface } = target
   const templateId = localTemplateIdOf(target.key)
   const artworkId =
     target.server !== null && target.templateId !== undefined
-      ? serverTemplateKey(target.server.url, target.templateId, surfaceOf(target))
+      ? serverTemplateKey(target.server.url, target.templateId, surface)
       : templateId
   /** Run an edit to the template's placement or art unless the map hides it. */
   const whenDrawn = (edit: (id: string) => void) => (): void => {
@@ -109,7 +108,7 @@ export const openContextMenu = (
   const updateArtwork = whenDrawn((id) => requestTemplateArtworkUpdate(id, rerender))
   // Area updates select with the capture editor, which only works over the world canvas.
   const updateArea: MenuEntry | null =
-    surfaceOf(target).kind === 'world'
+    surface.kind === 'world'
       ? {
           icon: 'fitScreen',
           label: 'Update an area',
@@ -188,7 +187,7 @@ export const openContextMenu = (
             run: () => void setServerFolderPublished(target, true, rerender),
           }
   const folderBackfill: MenuEntry | null =
-    folderTemplates !== null && surfaceOf(target).kind === 'world' && target.server?.season === 0
+    folderTemplates !== null && surface.kind === 'world' && target.server?.season === 0
       ? { icon: 'download', label: 'Backfill history', run: () => openBackfill(target) }
       : null
   const finished = lifecycle?.finished === true
@@ -256,7 +255,7 @@ export const openContextMenu = (
               },
               { icon: 'reset', label: 'Use canvas artwork', run: updateArtwork },
               updateArea,
-              surfaceOf(target).kind === 'world' && target.server.season === 0
+              surface.kind === 'world' && target.server.season === 0
                 ? {
                     icon: 'download',
                     label: 'Backfill history',
@@ -273,19 +272,19 @@ export const openContextMenu = (
               {
                 icon: 'createFolder',
                 label: 'New folder',
-                run: () => void createFolder(target, rerender, surface),
+                run: () => void createFolder(target, rerender),
               },
               {
                 icon: 'uploadFile',
                 label: 'Import template',
                 returnToCanvas: true,
-                run: () => void importTemplate(target, rerender, surface),
+                run: () => void importTemplate(target, rerender),
               },
               {
                 icon: 'image',
                 label: 'Create from image',
                 returnToCanvas: true,
-                run: () => createFromImage(target, rerender, surface),
+                run: () => createFromImage(target, rerender),
               },
               surface.kind === 'world'
                 ? {
@@ -351,7 +350,7 @@ export const openContextMenu = (
             icon: 'search',
             label: 'Go to',
             returnToCanvas: true,
-            run: () => goToServerTemplate(lifecycle.bbox, surfaceOf(target)),
+            run: () => goToServerTemplate(lifecycle.bbox, surface),
           },
       showOnlyEntry,
     ],

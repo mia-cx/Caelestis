@@ -61,13 +61,16 @@ export const installTreeView = (owner: TreeViewHost): void => {
   host = owner
 }
 
-/** Row actions, run against the panel's canvas at the time they run. */
+/**
+ * Row actions. A row's own actions run on the canvas that listed it; drops, which carry only keys,
+ * run against the panel's canvas at the time they land.
+ */
 const callbacks = ({ surface, rerender, addServer }: TreeViewHost): TreeCallbacks => ({
   onAddServer: addServer,
-  onCreateFolder: (target) => void createFolder(target, rerender, surface()),
-  onImportTemplate: (target) => void importTemplate(target, rerender, surface()),
+  onCreateFolder: (target) => void createFolder(target, rerender),
+  onImportTemplate: (target) => void importTemplate(target, rerender),
   onCaptureTemplate: (target) => captureTemplate(target, rerender),
-  onContextMenu: (target, event) => openContextMenu(target, event, rerender, surface()),
+  onContextMenu: (target, event) => openContextMenu(target, event, rerender),
   onCopyToServer: (id) => void copyToServer(id, rerender),
   onDropInServer: (server, nodeId, draggedKey) =>
     dropOnServerNode(server, nodeId, draggedKey, rerender, surface()),

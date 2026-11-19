@@ -1,4 +1,4 @@
-import { TILE_SIZE } from '@caelestis/shared'
+import { TILE_SIZE, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ClaimCaptureHost } from '../src/claim-editor.js'
 import { createLocalFolder } from '../src/local-folders.js'
@@ -30,7 +30,13 @@ import { importTemplatesToServer } from '../src/application/import-to-server.js'
 import { captureTemplate } from '../src/ui/tree-import.js'
 
 const selection = { rect: { x: 0, y: 0, w: 2, h: 1 }, mask: new Uint8Array([1, 1]), count: 2 }
-const local: TreeTarget = { key: 'local', name: 'Local', nodeId: null, server: null }
+const local: TreeTarget = {
+  key: 'local',
+  name: 'Local',
+  nodeId: null,
+  server: null,
+  surface: WORLD_TEMPLATE_SURFACE,
+}
 const server: ServerConnection = {
   url: 'https://example.test',
   isAdmin: true,
@@ -39,7 +45,13 @@ const server: ServerConnection = {
   info: null,
   season: 1,
 }
-const remote: TreeTarget = { key: 'server:test', name: 'Server', nodeId: null, server }
+const remote: TreeTarget = {
+  key: 'server:test',
+  name: 'Server',
+  nodeId: null,
+  server,
+  surface: WORLD_TEMPLATE_SURFACE,
+}
 
 const capture = (signal = new AbortController().signal, target = local) => {
   captureTemplate(target, () => {})

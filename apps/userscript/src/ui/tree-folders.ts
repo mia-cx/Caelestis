@@ -1,9 +1,4 @@
-import {
-  nodeSlug,
-  sameTemplateSurface,
-  type TemplateSurface,
-  WORLD_TEMPLATE_SURFACE,
-} from '@caelestis/shared'
+import { nodeSlug, sameTemplateSurface, type TemplateSurface } from '@caelestis/shared'
 import { refreshEditedSurface, serverNodesFailure } from '../application/tree-server.js'
 import { createLocalFolder } from '../local-folders.js'
 import { createNode, listServerNodes } from '../server-api.js'
@@ -66,12 +61,8 @@ const expandForNewChild = (key: string): void => {
   setState({ collapsed: collapsed.filter((one) => one !== key) })
 }
 
-export const createFolder = async (
-  target: TreeTarget,
-  rerender: () => void,
-  surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
-): Promise<void> => {
-  const { server, nodeId } = target
+export const createFolder = async (target: TreeTarget, rerender: () => void): Promise<void> => {
+  const { server, nodeId, surface } = target
   if (isLocalTarget(target)) {
     // Nested under whichever Local folder was clicked, or at the top when it was Local itself.
     const parentId = localFolderIdOf(target.key)

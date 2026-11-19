@@ -44,11 +44,8 @@ export const download = (file: Blob, filename: string): void => {
 const importCentre = (surface: TemplateSurface): { x: number; y: number } =>
   surface.kind === 'world' ? (viewportCentre() ?? { x: 0, y: 0 }) : allianceSurfaceCentre(surface)
 
-export const importTemplate = async (
-  target: TreeTarget,
-  rerender: () => void,
-  surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
-): Promise<void> => {
+export const importTemplate = async (target: TreeTarget, rerender: () => void): Promise<void> => {
+  const { surface } = target
   const notice = hiddenNotice(target)
   if (notice !== null) {
     showToast(notice, 'warning')
@@ -77,9 +74,9 @@ export const importTemplate = async (
 export const createFromImage = (
   target: TreeTarget,
   rerender: () => void,
-  surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
   image?: { readonly image: Blob; readonly name: string },
 ): void => {
+  const { surface } = target
   const notice = hiddenNotice(target)
   if (notice !== null) {
     showToast(notice, 'warning')
@@ -111,7 +108,7 @@ const importTemplateFile = async (
   centre: { readonly x: number; readonly y: number },
 ): Promise<boolean> => {
   if (!isTemplateFile(file)) {
-    createFromImage(target, rerender, surface, { image: file, name: file.name })
+    createFromImage(target, rerender, { image: file, name: file.name })
     return true
   }
   try {
