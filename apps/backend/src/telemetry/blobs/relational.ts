@@ -1,11 +1,8 @@
 import { type Millis, millis } from '@caelestis/shared'
 import { and, asc, eq, inArray, sql } from 'drizzle-orm'
-import {
-  parseColourStatuses,
-  parseColourTotals,
-  RelationalStore,
-} from '../../adapters/relational-store.js'
+import { RelationalStore } from '../../adapters/relational-store.js'
 import type { SqlStatement } from '../../adapters/sql-connection.js'
+import { parseColourStatuses, parseColourTotals } from '../../db/colour-status.js'
 import { tileBlobGcState, tileBlobObjects } from '../../db/schema.js'
 import type {
   TemplateTileStatusRecord,

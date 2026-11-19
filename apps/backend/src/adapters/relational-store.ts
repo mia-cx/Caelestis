@@ -15,34 +15,3 @@ export abstract class RelationalStore {
     this.syntax = sqlDialect(client.dialect)
   }
 }
-
-export const chunkRows = <T>(rows: readonly T[], size: number): T[][] => {
-  const out: T[][] = []
-  for (let offset = 0; offset < rows.length; offset += size) {
-    out.push(rows.slice(offset, offset + size))
-  }
-  return out
-}
-
-export interface ColourStatus {
-  readonly index: number
-  readonly correct: number
-  readonly wrong: number
-  readonly blank: number
-  readonly total: number
-}
-
-export const parseColourTotals = (
-  value: string | null,
-): readonly { readonly index: number; readonly total: number }[] | undefined => {
-  if (value === null) return undefined
-  const parsed: unknown = JSON.parse(value)
-  return Array.isArray(parsed)
-    ? (parsed as readonly { readonly index: number; readonly total: number }[])
-    : undefined
-}
-
-export const parseColourStatuses = (value: string): readonly ColourStatus[] => {
-  const parsed: unknown = JSON.parse(value)
-  return Array.isArray(parsed) ? (parsed as readonly ColourStatus[]) : []
-}

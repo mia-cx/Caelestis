@@ -6,10 +6,10 @@
  */
 
 /** Bound parameters one D1 statement accepts. */
-export const D1_MAX_BOUND_PARAMETERS = 100
+const D1_MAX_BOUND_PARAMETERS = 100
 
 /** Ids one `IN (...)` statement binds: the parameter budget less room for its other bindings. */
-export const IDS_PER_STATEMENT = 90
+export const IDS_PER_STATEMENT = D1_MAX_BOUND_PARAMETERS - 10
 
 /**
  * Id statements one read may issue. D1's free plan allows 50 queries per Worker invocation; 40
@@ -44,3 +44,12 @@ export const TILE_MEASUREMENT_ROWS_PER_INSERT = 10
 export const TILE_HISTORY_ROWS_PER_INSERT = 10
 /** `tile_history` keys: 3 parameters a key plus the tile's 3, 63 in all. */
 export const TILE_HISTORY_KEYS_PER_DELETE = 20
+
+/** `rows` in consecutive groups of `size`, one multi-row statement each. */
+export const chunkRows = <T>(rows: readonly T[], size: number): T[][] => {
+  const out: T[][] = []
+  for (let offset = 0; offset < rows.length; offset += size) {
+    out.push(rows.slice(offset, offset + size))
+  }
+  return out
+}

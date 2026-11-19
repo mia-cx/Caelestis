@@ -8,15 +8,15 @@ import {
   timelapseCaptureIncludesTile,
 } from '@caelestis/shared'
 import { and, asc, eq, gte, isNotNull, isNull, lt, sql } from 'drizzle-orm'
-import {
-  type ColourStatus,
-  chunkRows,
-  parseColourStatuses,
-  parseColourTotals,
-  RelationalStore,
-} from '../../adapters/relational-store.js'
+import { RelationalStore } from '../../adapters/relational-store.js'
 import type { SqlStatement } from '../../adapters/sql-connection.js'
 import {
+  type ColourStatus,
+  parseColourStatuses,
+  parseColourTotals,
+} from '../../db/colour-status.js'
+import {
+  chunkRows,
   TILE_HISTORY_KEYS_PER_DELETE,
   TILE_HISTORY_ROWS_PER_INSERT,
   TILE_MEASUREMENT_ROWS_PER_INSERT,

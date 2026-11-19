@@ -7,8 +7,10 @@ import {
 import { and, asc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 import { violates } from '../adapters/constraint-violation.js'
 import { changedRows } from '../adapters/relational-database.js'
-import { chunkRows, parseColourTotals, RelationalStore } from '../adapters/relational-store.js'
+import { RelationalStore } from '../adapters/relational-store.js'
+import { parseColourTotals } from '../db/colour-status.js'
 import {
+  chunkRows,
   IDS_PER_STATEMENT,
   MAX_IDS_PER_READ,
   tooManyIds,
