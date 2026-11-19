@@ -5,10 +5,10 @@ import {
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { activeAllianceSurface, allianceSurfaceBounds } from '../alliance-surface.js'
+import { ALLIANCE_PANEL_ID, PANEL_ID } from '../chrome-ids.js'
 import { log, logRender, warn } from '../debug.js'
 import { isMapPress, swallowNextClick } from '../map-pointer.js'
 import { canvasPixelAt, cssPixelsPerCanvasPixel, repaint, screenPointFor } from '../map-view.js'
-import { ALLIANCE_PANEL_ID, PANEL_ID } from '../ui/panel-scope.js'
 import { ANY_DIALOG, MAP_CANVAS } from '../wplace-dom.js'
 import {
   clearLocalPreview,

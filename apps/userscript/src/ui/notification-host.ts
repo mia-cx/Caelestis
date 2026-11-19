@@ -8,9 +8,9 @@ import type {
   ToastKind,
   ToastModel,
 } from '@caelestis/ui/elements'
+import { PANEL_ID } from '../chrome-ids.js'
 import { getState } from '../settings.js'
 import { CLEAR_OF_RAIL, EDGE, GAP } from './metrics.js'
-import { PANEL_ID } from './panel-scope.js'
 import { applyWplaceTheme } from './theme.js'
 
 const NOTIFICATIONS_ID = 'caelestis-notifications'

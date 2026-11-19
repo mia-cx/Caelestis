@@ -1,6 +1,7 @@
 import { type TemplateSurface, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import type { CaelestisRailControl, RailControlModel } from '@caelestis/ui/elements'
 import { type ActiveAllianceSurface, activeAllianceSurface } from '../alliance-surface.js'
+import { ALLIANCE_PANEL_ID, ALLIANCE_RAIL_ID, PANEL_ID } from '../chrome-ids.js'
 import {
   isCaptureModeActive,
   isClaimModeActive,
@@ -24,14 +25,7 @@ import { toggleSurfaceAppearance } from './appearance.js'
 import { positionChargeForecast } from './charge-forecast.js'
 import { EDGE, GAP, RAIL_BUTTON } from './metrics.js'
 import { refreshOverlayMenu } from './overlay-menu.js'
-import {
-  ALLIANCE_PANEL_ID,
-  ALLIANCE_RAIL_ID,
-  allianceRailInlineEnd,
-  allianceRailTop,
-  PANEL_ID,
-  type PanelScope,
-} from './panel-scope.js'
+import { allianceRailInlineEnd, allianceRailTop, type PanelScope } from './panel-scope.js'
 import { mountRailButton } from './rail-button.js'
 import {
   findWplaceRail,

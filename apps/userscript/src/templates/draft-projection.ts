@@ -4,10 +4,10 @@ import { serverConnectionIdentity } from '../server-connections.js'
 import { serverColourProgressFor } from '../server-status.js'
 import { getState, type ServerConnection } from '../settings.js'
 import { onTilePixelsEvicted } from '../tile-pixels.js'
-import { applyColourProgressDelta } from '../ui/progress.js'
 import { type PlacedTemplate, type ServerCopy, templateById } from './catalog.js'
 import { pixelAccounting } from './mismatch.js'
 import { focusedTemplate } from './nearest.js'
+import { applyColourProgressDelta } from './pixel-tally.js'
 import type {
   TemplateColourProgress,
   TemplateColourProgressDelta,

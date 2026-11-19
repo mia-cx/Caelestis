@@ -29,6 +29,7 @@ import { cancelTreeActionSetup } from '../application/tree-presentation.js'
 import { onServerSnapshot } from '../application/tree-server-state.js'
 import { onOtherBuildChange } from '../build-transfer.js'
 import { onCanvasWrite } from '../canvas-write.js'
+import { ALLIANCE_PANEL_ID, PANEL_ID } from '../chrome-ids.js'
 import { isClaimModeActive, onClaimEditorChange } from '../claim-editor.js'
 import { claimRouter } from '../claim-routing.js'
 import { openClaimTool } from '../claims.js'
@@ -77,9 +78,7 @@ import { CLEAR_OF_RAIL, EDGE, GAP } from './metrics.js'
 import { mountNotificationsIn, showToast, syncToastPlacement } from './notification-host.js'
 import { glideOverlayControls, invalidateOverlayControlsEdge } from './overlay-menu.js'
 import {
-  ALLIANCE_PANEL_ID,
   AllianceDrawerInset,
-  PANEL_ID,
   type PanelScope,
   PanelSessions,
   type PanelView,

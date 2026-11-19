@@ -8,7 +8,11 @@ import {
 } from '@caelestis/shared'
 import type { Appearance } from './appearance.js'
 import type { TemplateArtwork } from './catalog.js'
-import type { TemplateColourProgress, TemplateProgress } from './progress-types.js'
+import type {
+  TemplateColourProgress,
+  TemplateColourProgressDelta,
+  TemplateProgress,
+} from './progress-types.js'
 
 /**
  * The accounting rules every pixel source shares: how a placed pixel classifies against the wanted
@@ -196,5 +200,21 @@ export class Tally<E, P, T> {
 
   values(): IterableIterator<Part<T>> {
     return this.totals.values()
+  }
+}
+
+/** Apply one exact category transfer while preserving a complete colour-progress invariant. */
+export const applyColourProgressDelta = (
+  baseline: TemplateColourProgress,
+  delta: TemplateColourProgressDelta,
+): TemplateColourProgress => {
+  const completed = Math.max(0, Math.min(baseline.known, baseline.completed + delta.completed))
+  const remaining = baseline.known - completed
+  const mismatched = Math.max(0, Math.min(remaining, baseline.mismatched + delta.mismatched))
+  return {
+    ...baseline,
+    completed,
+    mismatched,
+    unpainted: remaining - mismatched,
   }
 }

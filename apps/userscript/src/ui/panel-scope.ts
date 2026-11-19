@@ -3,10 +3,6 @@ import { allianceFullscreenActionGroup, allianceFullscreenHeader } from '../wpla
 
 export type PanelScope = 'world' | 'alliance'
 
-/** Our chrome's element ids, which the panel, the rail and the map controls each look up. */
-export const PANEL_ID = 'caelestis-panel'
-export const ALLIANCE_PANEL_ID = 'caelestis-alliance-panel'
-export const ALLIANCE_RAIL_ID = 'caelestis-alliance-rail'
 export type PanelView = 'tree' | 'settings' | 'appearance'
 
 interface PanelSession {

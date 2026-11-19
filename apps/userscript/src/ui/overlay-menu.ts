@@ -18,6 +18,7 @@ import {
 import type { ActiveAllianceSurface } from '../alliance-surface.js'
 import { templateBusy } from '../application/template-busy.js'
 import { requestTemplateArtworkUpdate } from '../application/update-template-artwork.js'
+import { ALLIANCE_PANEL_ID, ALLIANCE_RAIL_ID, PANEL_ID } from '../chrome-ids.js'
 import type { ScreenProjection } from '../coordinates.js'
 import { log } from '../debug.js'
 import { redraw, repaint, screenProjection } from '../map-view.js'
@@ -58,7 +59,7 @@ import {
   withFrameTemplates,
   writtenIds,
 } from './overlay-writes.js'
-import { ALLIANCE_PANEL_ID, ALLIANCE_RAIL_ID, allianceRailTop, PANEL_ID } from './panel-scope.js'
+import { allianceRailTop } from './panel-scope.js'
 import { mountRailButton } from './rail-button.js'
 import { createRangeGestures } from './range-gestures.js'
 import { applyWplaceTheme } from './theme.js'
