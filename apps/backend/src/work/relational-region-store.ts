@@ -265,18 +265,15 @@ export class RelationalRegionStore extends RelationalStore implements RegionStor
         state: 'active',
       })
       .where(and(eq(workRegions.id, id), ownedBy(writer), ne(workRegions.state, 'deleted')))
-    if (this.client.dialect === 'mariadb') {
-      const [, read] = await this.database.batch([
-        update,
-        this.database
-          .select()
-          .from(workRegions)
-          .where(and(eq(workRegions.id, id), ownedBy(writer), eq(workRegions.state, 'active')))
-          .limit(1),
-      ])
-      return read[0] === undefined ? null : fromRow(read[0])
-    }
-    const [row] = await update.returning()
-    return row === undefined ? null : fromRow(row)
+    // Read back in the same batch rather than `UPDATE ... RETURNING`, which MariaDB lacks.
+    const [, read] = await this.database.batch([
+      update,
+      this.database
+        .select()
+        .from(workRegions)
+        .where(and(eq(workRegions.id, id), ownedBy(writer), eq(workRegions.state, 'active')))
+        .limit(1),
+    ])
+    return read[0] === undefined ? null : fromRow(read[0])
   }
 }
