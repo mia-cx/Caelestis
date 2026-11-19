@@ -18,8 +18,8 @@ import {
   isCurrentServerConnection,
   serverConnectionSignal,
 } from '../server-connections.js'
-import { requestServerTree } from '../server-transport.js'
-import { serverEndpoint } from '../server-url.js'
+import { serverEndpoint } from '../server-request.js'
+import { sendServerRequest } from '../server-transport.js'
 import { commitState, getState, type ServerConnection } from '../settings.js'
 import { isServerTemplate, localTemplates } from '../templates/local-store.js'
 import { serverTemplateTreeKey } from '../tree-keys.js'
@@ -38,11 +38,11 @@ const workClient = (
       const headers = new Headers(init?.headers)
       const token = activeServerToken(server)
       if (token !== null) headers.set('authorization', `Bearer ${token}`)
-      const { response, body } = await requestServerTree(serverEndpoint(server.url, path), {
-        ...init,
-        headers,
-        signal,
-      })
+      const { response, body } = await sendServerRequest(
+        serverEndpoint(server.url, path),
+        { ...init, headers, signal },
+        { limits: 'tree', read: 'json' },
+      )
       return Response.json(body, { status: response.status })
     },
     season,

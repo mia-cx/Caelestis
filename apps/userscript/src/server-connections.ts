@@ -6,17 +6,8 @@ import {
   type ServerInfo,
   type ServerManifest,
 } from './server-manifest.js'
-import {
-  requestServerManifest,
-  requestServerMetadata,
-  requestServerStatus,
-} from './server-transport.js'
-import {
-  canonicalServerUrl,
-  rememberServerApiVersion,
-  type ServerApiVersion,
-  serverEndpoint,
-} from './server-url.js'
+import { sendServerRequest, withManifestReadSlot } from './server-transport.js'
+import { canonicalServerUrl, endpointUrl, type ServerApiVersion } from './server-url.js'
 import {
   getState,
   MAX_CONNECTED_SERVERS,
@@ -237,20 +228,21 @@ export const noteAuthFailure = (server: ServerConnection, status: number): void 
 /** Establish admin scope without downloading the same tree a second time after the manifest. */
 const probeAdminScope = async (
   base: string,
+  apiVersion: ServerApiVersion,
   token: string | null,
   season: number,
-  signal?: AbortSignal,
+  signal: AbortSignal,
 ): Promise<boolean> => {
   try {
     // The status is the whole answer, so the body is thrown away unread. Parsing it measured the
     // full folder tree against the 64 KB cap meant for a one-line mutation reply, and any server
     // with a real tree therefore reported that our token could only read it.
-    return (
-      await requestServerStatus(serverEndpoint(base, `/admin/nodes?season=${season}`), {
-        headers: bearer(token),
-        ...(signal === undefined ? {} : { signal }),
-      })
-    ).ok
+    const { response } = await sendServerRequest(
+      endpointUrl(base, `/admin/nodes?season=${season}`, apiVersion),
+      { headers: bearer(token), signal },
+      { limits: 'tree', read: 'discard' },
+    )
+    return response.ok
   } catch {
     return false
   }
@@ -307,17 +299,19 @@ export const probeServer = async (
   activeServerProbes.set(base, probeController)
   let observedInfo: ServerInfo | null = null
   try {
+    const signal = probeController.signal
+    const readMetadata = (version: ServerApiVersion) =>
+      sendServerRequest(
+        endpointUrl(base, '/server', version),
+        { headers: bearer(token), signal },
+        { limits: 'metadata', read: 'json' },
+      )
     let apiVersion: ServerApiVersion = 'v1'
-    let metadata = await requestServerMetadata(serverEndpoint(base, '/server', apiVersion), {
-      headers: bearer(token),
-      signal: probeController.signal,
-    })
+    let metadata = await readMetadata(apiVersion)
+    // Servers that predate the `/v1` prefix answer only at the bare path.
     if (metadata.response.status === 404) {
       apiVersion = 'legacy'
-      metadata = await requestServerMetadata(serverEndpoint(base, '/server', apiVersion), {
-        headers: bearer(token),
-        signal: probeController.signal,
-      })
+      metadata = await readMetadata(apiVersion)
     }
     const { response, body } = metadata
     if (!response.ok) {
@@ -333,9 +327,9 @@ export const probeServer = async (
     }
     const info = parseServerInfo(body)
     if (info === null) throw new TypeError('server returned invalid metadata')
-    rememberServerApiVersion(base, apiVersion)
     observedInfo = info
     log('install', `probed ${base}`, { name: info.name, auth: info.auth })
+    const version = apiVersion === 'legacy' ? { apiVersion } : {}
 
     if (info.auth === 'access_token' && token === null) {
       return {
@@ -345,6 +339,7 @@ export const probeServer = async (
         status: 'needs-token',
         isAdmin: false,
         season: null,
+        ...version,
       }
     }
 
@@ -352,10 +347,18 @@ export const probeServer = async (
     // nothing about a code. Without this second call any non-empty string read as "connected" and
     // every later request failed with 401 — caught by typing a deliberately wrong code.
     const fetchManifest = (credential: string | null) =>
-      requestServerManifest(serverEndpoint(base, '/manifest'), {
-        headers: bearer(credential),
-        signal: probeController.signal,
-      })
+      withManifestReadSlot(
+        signal,
+        () => true,
+        async (sequence) => ({
+          ...(await sendServerRequest(
+            endpointUrl(base, '/manifest', apiVersion),
+            { headers: bearer(credential), signal },
+            { limits: 'tree', read: 'json' },
+          )),
+          sequence,
+        }),
+      )
     let effectiveToken = token
     let {
       response: authed,
@@ -384,6 +387,7 @@ export const probeServer = async (
         error: 'rejected',
         isAdmin: false,
         season: null,
+        ...version,
       }
     }
     if (!authed.ok) {
@@ -399,14 +403,9 @@ export const probeServer = async (
     }
     const manifest = parseServerManifest(manifestBody, info)
     if (manifest === null) throw new TypeError('server returned an invalid manifest')
-    const isAdmin = await probeAdminScope(
-      base,
-      effectiveToken,
-      manifest.season,
-      probeController.signal,
-    )
-    if (probeController.signal.aborted) throw probeController.signal.reason
-    const connected: ServerConnection = {
+    const isAdmin = await probeAdminScope(base, apiVersion, effectiveToken, manifest.season, signal)
+    if (signal.aborted) throw signal.reason
+    const connected: ConnectedServer = {
       url: base,
       info,
       token,
@@ -415,6 +414,7 @@ export const probeServer = async (
       isAdmin,
       season: manifest.season,
       lastVerified: { serverId: info.id, season: manifest.season },
+      ...version,
     }
     probedManifests.set(base, { server: connected, manifest, request: manifestRequest })
     return connected

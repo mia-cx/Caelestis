@@ -12,7 +12,7 @@ import {
   uploadServerAsset,
 } from '../server-api.js'
 import { isCurrentServerConnection } from '../server-connections.js'
-import { serverEndpoint } from '../server-url.js'
+import { serverEndpoint } from '../server-request.js'
 import { getState, type ServerConnection } from '../settings.js'
 import { closeDialogHost } from './dialog.js'
 import { applyWplaceTheme } from './theme.js'

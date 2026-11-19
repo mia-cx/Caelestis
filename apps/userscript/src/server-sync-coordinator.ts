@@ -34,7 +34,8 @@ import {
   isCurrentServerConnection,
   serverConnectionIdentity,
 } from './server-connections.js'
-import { canonicalServerUrl, serverEndpoint } from './server-url.js'
+import { serverEndpoint } from './server-request.js'
+import { canonicalServerUrl } from './server-url.js'
 import { onStateChange, type ServerConnection } from './settings.js'
 
 const INITIAL_POLL_MS = 60_000

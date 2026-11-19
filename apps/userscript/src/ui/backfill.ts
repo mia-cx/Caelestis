@@ -6,7 +6,7 @@ import {
   isCurrentServerConnection,
   serverConnectionSignal,
 } from '../server-connections.js'
-import { serverEndpoint } from '../server-url.js'
+import { serverEndpoint } from '../server-request.js'
 import { templateAsPng, templateById } from '../templates/local-store.js'
 import { serverTemplateKey } from '../tree-keys.js'
 import { closeDialogHost } from './dialog.js'

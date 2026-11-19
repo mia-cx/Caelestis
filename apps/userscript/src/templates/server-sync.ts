@@ -11,7 +11,6 @@ import {
   WORLD_PIXELS,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
-import { userscriptClientHeaders } from '../client-metrics.js'
 import { Semaphore } from '../concurrency.js'
 import { count, warn } from '../debug.js'
 import {
@@ -23,7 +22,6 @@ import {
 } from '../server-api.js'
 import type { ServerTemplate } from '../server-cache.js'
 import {
-  activeServerToken,
   type ConnectedServer,
   connectedServers,
   isConnected,
@@ -31,8 +29,8 @@ import {
 } from '../server-connections.js'
 import { invalidateServerMismatches } from '../server-mismatch.js'
 import { deleteCachedServerMismatches } from '../server-mismatch-cache.js'
+import { serverRequest } from '../server-request.js'
 import { applyServerSyncRevision, registerServerSyncResource } from '../server-sync-coordinator.js'
-import { serverEndpoint } from '../server-url.js'
 import { onStateChange, type ServerConnection } from '../settings.js'
 import { serverTemplateIdPrefix, serverTemplateKey } from '../tree-keys.js'
 import { ByteCache } from './byte-cache.js'
@@ -65,7 +63,6 @@ import { cachedServerCopy, retainServerPixels } from './server-pixel-cache.js'
 const CHUNK_CACHE_LIMIT = 512
 /** Encoded cache budget. The entry cap alone permits 512 adversarial 8 MiB responses. */
 const CHUNK_CACHE_BYTES = 64 * 1024 * 1024
-const CHUNK_FETCH_TIMEOUT_MS = 15_000
 const MAX_CHUNK_BYTES = 8 * 1024 * 1024
 /** Matches the server upload boundary; a wider manifest is not one this client can safely drain. */
 const MAX_TEMPLATE_CHUNKS = 400
@@ -97,43 +94,13 @@ export const fetchChunkWithinBudget = async (
   if (cached !== undefined) return cached.byteLength <= remainingBytes ? cached : null
   const readLimit = Math.min(MAX_CHUNK_BYTES, remainingBytes)
   try {
-    const response = await fetch(serverEndpoint(server.url, `/chunks/${hash}`), {
-      headers:
-        activeServerToken(server) === null
-          ? userscriptClientHeaders()
-          : {
-              ...userscriptClientHeaders(),
-              authorization: `Bearer ${activeServerToken(server)}`,
-            },
-      signal: AbortSignal.any([generationSignal, AbortSignal.timeout(CHUNK_FETCH_TIMEOUT_MS)]),
+    const { response, body: bytes } = await serverRequest(server, `/chunks/${hash}`, {
+      limits: 'background',
+      read: 'bytes',
+      maxBytes: readLimit,
+      signal: generationSignal,
     })
     if (!response.ok) return null
-    const declared = Number(response.headers.get('content-length'))
-    if (Number.isFinite(declared) && declared > readLimit) return null
-    if (response.body === null) return null
-    const reader = response.body.getReader()
-    const parts: Uint8Array[] = []
-    let length = 0
-    try {
-      while (true) {
-        const part = await reader.read()
-        if (part.done) break
-        length += part.value.byteLength
-        if (length > readLimit) {
-          await reader.cancel()
-          return null
-        }
-        parts.push(part.value)
-      }
-    } finally {
-      reader.releaseLock()
-    }
-    const bytes = new Uint8Array(length)
-    let offset = 0
-    for (const part of parts) {
-      bytes.set(part, offset)
-      offset += part.byteLength
-    }
     // A configured server is not trusted to tell the truth about a content address. Verify before
     // admitting bytes to the global cache, otherwise one server can seed another server's hash.
     // `readLimit` also means an over-budget template never admits the chunk that would evict useful

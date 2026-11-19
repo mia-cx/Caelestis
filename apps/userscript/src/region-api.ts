@@ -7,8 +7,7 @@ import {
 } from '@caelestis/shared'
 import { warn } from './debug.js'
 import { activeServerToken, isCurrentServerConnection } from './server-connections.js'
-import { requestServerMutation, requestServerTree } from './server-transport.js'
-import { serverEndpoint } from './server-url.js'
+import { serverRequest } from './server-request.js'
 import type { ServerConnection } from './settings.js'
 import { accountIdentity } from './wplace-account.js'
 
@@ -30,14 +29,13 @@ const failed = (message: string): RegionWriteResult => ({ kind: 'error', message
 
 type ClaimScope = Pick<RegionClaim, 'season' | 'surface'>
 
-const scopedEndpoint = (server: ServerConnection, path: string, scope?: ClaimScope): URL => {
-  const endpoint = new URL(serverEndpoint(server.url, path))
-  endpoint.searchParams.set('season', String(scope?.season ?? server.season))
-  endpoint.searchParams.set('surface', (scope?.surface ?? WORLD_TEMPLATE_SURFACE).kind)
-  if (scope !== undefined && scope.surface.allianceId !== null)
-    endpoint.searchParams.set('allianceId', String(scope.surface.allianceId))
-  return endpoint
-}
+const scopeQuery = (server: ServerConnection, scope?: ClaimScope): Record<string, string> => ({
+  season: String(scope?.season ?? server.season),
+  surface: (scope?.surface ?? WORLD_TEMPLATE_SURFACE).kind,
+  ...(scope !== undefined && scope.surface.allianceId !== null
+    ? { allianceId: String(scope.surface.allianceId) }
+    : {}),
+})
 
 const regionRequest = async (
   server: ServerConnection,
@@ -48,18 +46,16 @@ const regionRequest = async (
   signal?: AbortSignal,
 ): Promise<RegionWriteResult> => {
   if (server.season === null) return failed('Server season unknown.')
-  const token = activeServerToken(server)
-  if (token === null) return failed('Sign in to this server to claim regions.')
+  if (activeServerToken(server) === null) return failed('Sign in to this server to claim regions.')
   try {
-    const { response, body: answer } = await requestServerMutation(
-      scopedEndpoint(server, `/work/regions/${id}`, scope).toString(),
-      {
-        method,
-        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-        body: JSON.stringify(body),
-        ...(signal === undefined ? {} : { signal }),
-      },
-    )
+    const { response, body: answer } = await serverRequest(server, `/work/regions/${id}`, {
+      method,
+      query: scopeQuery(server, scope),
+      json: body,
+      limits: 'mutation',
+      read: 'json',
+      ...(signal === undefined ? {} : { signal }),
+    })
     if (response.ok || (method === 'DELETE' && response.status === 404)) return OK
     if (response.status === 410) return { kind: 'deleted' }
     return failed(
@@ -110,13 +106,15 @@ const fetchRegions = async (
   server: ServerConnection,
   signal: AbortSignal,
 ): Promise<RegionSnapshot | null> => {
-  const endpoint = scopedEndpoint(server, '/work/regions')
   const actor = accountIdentity()
-  if (actor !== null) endpoint.searchParams.set('painterId', String(actor.wplaceUserId))
-  const token = activeServerToken(server)
-  const { response, body } = await requestServerTree(endpoint.toString(), {
+  const { response, body } = await serverRequest(server, '/work/regions', {
+    query: {
+      ...scopeQuery(server),
+      ...(actor === null ? {} : { painterId: String(actor.wplaceUserId) }),
+    },
+    limits: 'tree',
+    read: 'json',
     signal,
-    headers: token === null ? {} : { authorization: `Bearer ${token}` },
   })
   if (!response.ok || typeof body !== 'object' || body === null || !('regions' in body)) return null
   const event = decodePresenceServerEvent({ ...body, type: 'regions' })

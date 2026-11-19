@@ -9,12 +9,9 @@ import {
   templateRecipeJson,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
-import { userscriptClientHeaders } from './client-metrics.js'
 import { warn } from './debug.js'
 import type { ServerTemplate } from './server-cache.js'
 import {
-  activeServerToken,
-  bearer,
   isCurrentServerConnection,
   noteAuthFailure,
   onServerRemoved,
@@ -33,15 +30,12 @@ import {
   type TreeNode,
 } from './server-manifest.js'
 import { coalesceServerRead } from './server-read-coalescer.js'
+import { type ServerRequestOptions, serverRequest } from './server-request.js'
 import {
-  requestServerManifest,
-  requestServerMetadata,
-  requestServerMutation,
-  requestServerTree,
-  requestServerUpload,
+  type ServerLimits,
   serverManifestSequence,
+  withManifestReadSlot,
 } from './server-transport.js'
-import { serverEndpoint } from './server-url.js'
 import { getState, type ServerConnection } from './settings.js'
 import type { TemplateAuthoring } from './templates/authoring.js'
 
@@ -67,12 +61,9 @@ const failureMessage = (response: Response, body: unknown, forbidden = FORBIDDEN
 
 const retryable = (status: number): boolean => status === 408 || status === 429 || status >= 500
 
-const adminHeaders = (server: ServerConnection): Record<string, string> => ({
-  'content-type': 'application/json',
-  ...bearer(activeServerToken(server)),
-})
-
-type Send = typeof requestServerMutation
+type AdminInit = Omit<ServerRequestOptions<'json'>, 'read' | 'limits'> & {
+  readonly limits?: ServerLimits
+}
 
 /**
  * One call to an admin route with this connection's credential. A refused credential is noted on
@@ -81,23 +72,12 @@ type Send = typeof requestServerMutation
 const adminRequest = async (
   server: ServerConnection,
   path: string,
-  init: {
-    readonly method?: string
-    readonly json?: unknown
-    readonly body?: BodyInit
-    readonly headers?: Record<string, string>
-    readonly send?: Send
-  } = {},
+  init: AdminInit = {},
 ): Promise<{ readonly response: Response; readonly body: unknown }> => {
-  const send = init.send ?? requestServerMutation
-  const { response, body } = await send(serverEndpoint(server.url, path), {
-    ...(init.method === undefined ? {} : { method: init.method }),
-    headers: init.headers ?? adminHeaders(server),
-    ...(init.json !== undefined
-      ? { body: JSON.stringify(init.json) }
-      : init.body === undefined
-        ? {}
-        : { body: init.body }),
+  const { response, body } = await serverRequest(server, path, {
+    ...init,
+    limits: init.limits ?? 'mutation',
+    read: 'json',
   })
   if (response.status === 401 || response.status === 403) noteAuthFailure(server, response.status)
   return { response, body }
@@ -153,22 +133,22 @@ const nodeListFrom = (body: unknown): readonly TreeNode[] | null => {
 }
 
 const fetchNodes = async (
-  base: string,
-  token: string | null,
+  server: ServerConnection,
   season: number,
   surface: TemplateSurface,
   signal?: AbortSignal,
 ): Promise<NodeListResult> => {
   try {
-    const query = new URLSearchParams({ season: String(season), surface: surface.kind })
-    if (surface.allianceId !== null) query.set('allianceId', String(surface.allianceId))
-    const { response, body } = await requestServerTree(
-      serverEndpoint(base, `/admin/nodes?${query}`),
-      {
-        headers: bearer(token),
-        ...(signal === undefined ? {} : { signal }),
+    const { response, body } = await serverRequest(server, '/admin/nodes', {
+      query: {
+        season,
+        surface: surface.kind,
+        ...(surface.allianceId === null ? {} : { allianceId: surface.allianceId }),
       },
-    )
+      limits: 'tree',
+      read: 'json',
+      ...(signal === undefined ? {} : { signal }),
+    })
     if (!response.ok)
       return {
         ok: false,
@@ -289,13 +269,7 @@ const endUpload = (serverUrl: string, token: object): void => {
 }
 
 /** Multipart uploads set their own content type, so only the credential travels as a header. */
-const uploadInit = (server: ServerConnection, body: FormData) =>
-  ({
-    method: 'POST',
-    headers: bearer(activeServerToken(server)),
-    body,
-    send: requestServerUpload,
-  }) as const
+const uploadInit = (body: FormData): AdminInit => ({ method: 'POST', body, limits: 'upload' })
 
 export const renameNode = (server: ServerConnection, nodeId: string, name: string): Promise<Done> =>
   adminWrite(server, `/admin/nodes/${nodeId}`, { method: 'PATCH', json: { name } })
@@ -363,11 +337,7 @@ export const uploadTemplate = async (
       form.set('surfaceKind', input.surface.kind)
       form.set('allianceId', String(input.surface.allianceId))
     }
-    const { response, body } = await adminRequest(
-      server,
-      '/admin/templates',
-      uploadInit(server, form),
-    )
+    const { response, body } = await adminRequest(server, '/admin/templates', uploadInit(form))
     if (response.ok) {
       const id = isRecord(body) ? body.templateId : undefined
       const version = isRecord(body) ? body.versionId : undefined
@@ -585,16 +555,18 @@ export const listServerContents = async (
           response,
           body,
           sequence: request,
-        } = await requestServerManifest(
-          serverEndpoint(server.url, `/manifest?season=${season}`),
-          {
-            headers: {
-              ...userscriptClientHeaders({ transport, reason }),
-              ...bearer(activeServerToken(server)),
-            },
-            signal: serverConnectionSignal(server),
-          },
+        } = await withManifestReadSlot(
+          serverConnectionSignal(server),
           () => isCurrentServerConnection(server),
+          async (sequence) => ({
+            ...(await serverRequest(server, '/manifest', {
+              query: { season },
+              limits: 'tree',
+              read: 'json',
+              metrics: { transport, reason },
+            })),
+            sequence,
+          }),
         )
         if (response.status === 401 || response.status === 403)
           noteAuthFailure(server, response.status)
@@ -691,13 +663,7 @@ export const listServerNodes = async (
 ): Promise<ServerNodesResult> => {
   if (server.season === null || !isCurrentServerConnection(server)) return { status: 'unreachable' }
   if (surface.kind !== 'world') {
-    const listed = await fetchNodes(
-      server.url,
-      activeServerToken(server),
-      server.season,
-      surface,
-      signal,
-    )
+    const listed = await fetchNodes(server, server.season, surface, signal)
     const current = getState().servers.find((candidate) => candidate.url === server.url)
     if (!listed.ok || current === undefined || !isCurrentServerConnection(server))
       return { status: 'unreachable' }
@@ -769,7 +735,7 @@ export const listServerTags = async (
           ? ''
           : `?templateId=${encodeURIComponent(templateId)}`
     const { response, body } = await adminRequest(server, `/admin/tags${query}`, {
-      send: requestServerTree,
+      limits: 'tree',
     })
     if (!response.ok) return { ok: false, message: failureMessage(response, body) }
     const tags = isRecord(body) ? parseTemplateTags(body.tags) : null
@@ -812,9 +778,9 @@ export const mutateServerTag = (
   })
 }
 
-/** Public metadata for this server's URL, or null when it could not be read. */
-const readServerInfo = async (serverUrl: string): Promise<ServerInfo | null> => {
-  const metadata = await requestServerMetadata(serverEndpoint(serverUrl, '/server'))
+/** Public metadata for this server, or null when it could not be read. */
+const readServerInfo = async (server: ServerConnection): Promise<ServerInfo | null> => {
+  const metadata = await serverRequest(server, '/server', { limits: 'metadata', read: 'json' })
   return metadata.response.ok ? parseServerInfo(metadata.body) : null
 }
 
@@ -848,7 +814,7 @@ export const renameServer = async (server: ServerConnection, name: string): Prom
     if (current !== undefined && current.info !== null && server.info !== null) {
       let refreshed: ServerInfo | null = null
       try {
-        refreshed = await readServerInfo(current.url)
+        refreshed = await readServerInfo(current)
       } catch {
         // The PATCH already committed. A failed cosmetic refresh must not turn success into failure.
       }
@@ -894,7 +860,7 @@ const adoptRefreshedServerInfo = async (server: ServerConnection): Promise<void>
   if (current === undefined || current.info === null || server.info === null) return
   let refreshed: ServerInfo | null = null
   try {
-    refreshed = await readServerInfo(current.url)
+    refreshed = await readServerInfo(current)
   } catch {
     return
   }
@@ -955,9 +921,9 @@ export const uploadServerAsset = async (
     }
   return presentationWrite(server, `/admin/server/assets/${kind}`, {
     method: 'PUT',
-    headers: { ...adminHeaders(server), 'content-type': contentType },
+    headers: { 'content-type': contentType },
     body: bytes.slice().buffer,
-    send: requestServerUpload,
+    limits: 'upload',
   })
 }
 
@@ -1005,7 +971,7 @@ export const uploadTemplateVersion = async (
     const { response, body } = await adminRequest(
       server,
       `/admin/templates/${templateId}/versions`,
-      uploadInit(server, form),
+      uploadInit(form),
     )
     if (response.ok) {
       const versionId = isRecord(body) ? body.versionId : undefined

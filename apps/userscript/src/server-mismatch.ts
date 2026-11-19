@@ -4,11 +4,9 @@ import {
   type MismatchMask,
   type TileCoord,
 } from '@caelestis/shared'
-import { userscriptClientHeaders } from './client-metrics.js'
 import { nextPixelObservation, recordPixelObservation } from './pixel-observation.js'
 import { registerProfileMemorySource } from './profile.js'
 import {
-  activeServerToken,
   type ConnectedServer,
   connectedServerAt,
   isCurrentServerConnection,
@@ -21,9 +19,8 @@ import {
   readCachedServerMismatch,
   writeCachedServerMismatch,
 } from './server-mismatch-cache.js'
-import { serverEndpoint } from './server-url.js'
+import { serverRequest } from './server-request.js'
 
-const REQUEST_TIMEOUT_MS = 15_000
 /**
  * The renderer asks for a visible tile's mask every frame, so a failed read waits this long before
  * the next frame may ask the server again.
@@ -123,7 +120,6 @@ const readMask = async (
   const miss = (): void => {
     misses.set(key, { server, key: mismatch, at: Date.now() })
   }
-  const token = activeServerToken(server)
   const invalidationKey = invalidationKeyFor(server.url, tile)
   const invalidation = tileInvalidations.get(invalidationKey) ?? 0
   const serverInvalidation = serverInvalidations.get(server.url) ?? 0
@@ -157,28 +153,26 @@ const readMask = async (
   }
 
   const requested = nextPixelObservation()
-  const response = await fetch(
-    serverEndpoint(
-      server.url,
-      `/telemetry/templates/${templateId}/versions/${version}/tiles/${tile.x}/${tile.y}/mismatches?season=${server.season}`,
-    ),
+  const answer = await serverRequest(
+    server,
+    `/telemetry/templates/${templateId}/versions/${version}/tiles/${tile.x}/${tile.y}/mismatches`,
     {
-      headers: {
-        ...userscriptClientHeaders(),
-        ...(token === null ? {} : { authorization: `Bearer ${token}` }),
-        ...(validator?.etag == null ? {} : { 'if-none-match': validator.etag }),
-      },
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      query: { season: server.season },
+      headers: validator?.etag == null ? {} : { 'if-none-match': validator.etag },
+      limits: 'background',
+      read: 'bytes',
+      maxBytes: MAX_MISMATCH_MASK_BYTES,
     },
   ).catch(() => null)
-  if (response === null) {
+  // Unreachable, timed out, or a body larger than any mask: nothing to draw from.
+  if (answer === null) {
     if (serverCurrent()) miss()
     return
   }
-  if (!serverCurrent()) {
-    await response.body?.cancel().catch(() => undefined)
-    return
-  }
+  // A missed revision or an unpublish can land while the body is being read. That answer belongs
+  // to the old world; drop it before it can repopulate memory or the disk.
+  if (!serverCurrent()) return
+  const { response, body: bytes } = answer
   if (response.status === 304 && validator !== undefined) {
     misses.delete(key)
     // Confirmed current as of this request, so draft pixels older than it no longer take precedence.
@@ -202,10 +196,7 @@ const readMask = async (
   }
   // Anything else that answers a request older than a paint on this tile says nothing current.
   // The stale mask stays drawn and the caller reads again.
-  if (response.status !== 200 && !tileCurrent()) {
-    await response.body?.cancel().catch(() => undefined)
-    return
-  }
+  if (response.status !== 200 && !tileCurrent()) return
   if (response.status === 204 || response.status === 404) {
     const changed = masks.delete(key)
     void deleteCachedServerMismatch(mismatch)
@@ -213,23 +204,7 @@ const readMask = async (
     if (changed) notify()
     return
   }
-  const declaredHeader = response.headers.get('content-length')
-  const declared = declaredHeader === null ? null : Number(declaredHeader)
-  if (
-    response.status !== 200 ||
-    (declared !== null &&
-      Number.isFinite(declared) &&
-      (declared < 1 || declared > MAX_MISMATCH_MASK_BYTES))
-  ) {
-    await response.body?.cancel().catch(() => undefined)
-    miss()
-    return
-  }
-  const bytes = new Uint8Array(await response.arrayBuffer())
-  // A missed revision or an unpublish can land while a large body is being consumed. That check
-  // belongs to the old world; reject the body before it can repopulate memory or the disk.
-  if (!serverCurrent()) return
-  if (bytes.length > MAX_MISMATCH_MASK_BYTES) {
+  if (response.status !== 200) {
     miss()
     return
   }

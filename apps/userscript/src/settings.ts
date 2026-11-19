@@ -73,6 +73,8 @@ export interface ServerConnection {
   } | null
   /** Runtime-only marker: this probe was deliberately replaced or cancelled, not unreachable. */
   readonly superseded?: true
+  /** Set when the probe found a server older than the `/v1` API prefix. */
+  readonly apiVersion?: 'legacy'
 }
 
 /** A browser-local folder; its metadata is small enough to live in userscript state. */

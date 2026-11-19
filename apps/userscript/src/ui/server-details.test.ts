@@ -11,7 +11,7 @@ const servers = vi.hoisted(() => ({ list: [] as ServerConnection[] }))
 vi.mock('@caelestis/ui/elements', () => ({ SERVER_DETAILS_TAG: 'caelestis-server-details' }))
 vi.mock('../settings.js', () => ({ getState: () => ({ servers: servers.list }) }))
 vi.mock('../server-connections.js', () => ({ isCurrentServerConnection: () => true }))
-vi.mock('../server-url.js', () => ({
+vi.mock('../server-request.js', () => ({
   serverEndpoint: (url: string, route: string) => `${url}/backend/v1${route}`,
 }))
 vi.mock('../server-api.js', () => ({

@@ -34,8 +34,8 @@ import {
   isCurrentServerConnection,
   serverConnectionIdentity,
 } from './server-connections.js'
+import { serverEndpoint } from './server-request.js'
 import { liveClientId, liveCredentialProtocol } from './server-sync-coordinator.js'
-import { serverEndpoint } from './server-url.js'
 import { getState, onStateChange, type ServerConnection } from './settings.js'
 import { accountIdentity, loadAccount } from './wplace-account.js'
 

@@ -7,7 +7,7 @@ import {
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { serverEndpoint } from '../src/server-url.js'
+import { endpointUrl as serverEndpoint } from '../src/server-url.js'
 import { adminToken, backendFetch, createTestBackend, readToken, reportToken } from './backend.js'
 import { importStateModules } from './state-modules.js'
 

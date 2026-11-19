@@ -17,25 +17,22 @@ import {
   tileKey,
   uuidV7,
 } from '@caelestis/shared'
-import { userscriptClientHeaders } from './client-metrics.js'
 import { count, warn } from './debug.js'
 import { type AcceptedPaint, onAcceptedPaint } from './paint-requests.js'
-import { readBoundedJsonResponse } from './response.js'
 import { onServerContents, type ServerContents } from './server-api.js'
 import type { ServerTemplate } from './server-cache.js'
 import {
-  activeServerToken,
   type ConnectedServer,
   connectedServerAt,
   connectedServers,
   isConnected,
   isCurrentServerConnection,
   serverConnectionIdentity,
-  serverConnectionSignal,
 } from './server-connections.js'
 import { MAX_MANIFEST_TEMPLATES } from './server-manifest.js'
 import { invalidateServerMismatches, invalidateServerMismatchTiles } from './server-mismatch.js'
 import { coalesceServerRead } from './server-read-coalescer.js'
+import { type ServerRequestOptions, serverRequest } from './server-request.js'
 import {
   applyServerSyncDelta,
   applyServerSyncRevision,
@@ -51,7 +48,7 @@ import {
   serverLiveSyncVersion,
   serverSyncRevision,
 } from './server-sync-coordinator.js'
-import { serverEndpoint } from './server-url.js'
+import { withRetries } from './server-transport.js'
 import { getState, onStateChange, type ServerConnection } from './settings.js'
 import { ClientStatusProjection } from './status-client-projection.js'
 import type { TemplateColourProgress, TemplateProgress } from './templates/progress-types.js'
@@ -62,9 +59,10 @@ import { accountIdentity, accountIdentityKnownUnavailable, loadAccount } from '.
 const OFFER_DELAY_MS = 250
 const OFFER_RETRY_MIN_MS = 60_000
 const OFFER_RETRY_MAX_MS = 60_000
-const REQUEST_TIMEOUT_MS = 15_000
 const TELEMETRY_MUTATION_JSON_BYTES = 64 * 1024
-const RETRIES = 3
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
 const MAX_RECENT_TILES = 32
 const MAX_RECENT_TILE_BYTES = 32 * 1_024 * 1_024
 const MAX_UNSETTLED_OFFERS_PER_SERVER = MAX_RECENT_TILES + MAX_TILE_OFFERS
@@ -301,14 +299,6 @@ const rememberDedupe = (dedupe: ServerDedupe, value: string): void => {
 const statusKey = (serverUrl: string, templateId: string): string =>
   `${serverUrl}\u0000${templateId}`
 
-const authHeaders = (server: ConnectedServer): Record<string, string> =>
-  activeServerToken(server) === null
-    ? userscriptClientHeaders()
-    : {
-        ...userscriptClientHeaders(),
-        authorization: `Bearer ${activeServerToken(server)}`,
-      }
-
 const coverageFor = (server: ConnectedServer): ReadonlySet<string> | null => {
   const known = coverage.get(server.url)
   return known !== undefined && isCurrentServerConnection(known.server) ? known.tiles : null
@@ -328,23 +318,21 @@ const wantsObservedTile = (tile: TileCoord): boolean => {
   return awaitingCoverage
 }
 
-const fetchWithRetry = async (url: string, init: RequestInit): Promise<Response | null> => {
-  for (let attempt = 0; attempt < RETRIES; attempt += 1) {
-    try {
-      const response = await fetch(url, {
-        ...init,
-        signal:
-          init.signal == null
-            ? AbortSignal.timeout(REQUEST_TIMEOUT_MS)
-            : AbortSignal.any([init.signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]),
-      })
-      if (response.ok || (response.status >= 400 && response.status < 500)) return response
-    } catch {
-      // A report is best-effort. The next attempt carries the same paint event id or tile hash.
-    }
-  }
-  return null
-}
+/**
+ * A best-effort report or read, retried on failure, and null when the server could not be reached.
+ * Writes are idempotent: a repeat carries the same paint event id or tile hash.
+ */
+const telemetryRequest = (
+  server: ConnectedServer,
+  route: string,
+  options: Omit<ServerRequestOptions<'json'>, 'limits' | 'read' | 'retry'>,
+) =>
+  serverRequest(server, route, {
+    ...options,
+    limits: 'background',
+    read: 'json',
+    retry: true,
+  }).catch(() => null)
 
 const coverageFrom = (contents: ServerContents): ReadonlySet<string> =>
   new Set(contents.templates.flatMap((template) => template.chunks.map((chunk) => chunk.tile)))
@@ -366,15 +354,12 @@ const uploadWanted = async (
     entries
       .filter((entry) => wanted.has(entry.tile))
       .map(async (entry) => {
-        const response = await fetchWithRetry(
-          serverEndpoint(
-            server.url,
-            `/telemetry/tiles/${entry.coord.x}/${entry.coord.y}/${entry.sha256}`,
-          ),
+        const answer = await telemetryRequest(
+          server,
+          `/telemetry/tiles/${entry.coord.x}/${entry.coord.y}/${entry.sha256}`,
           {
             method: 'PUT',
             headers: {
-              ...authHeaders(server),
               'content-type': 'image/png',
               'x-caelestis-season': String(server.season),
               'x-caelestis-observed-at': String(entry.ts),
@@ -385,18 +370,15 @@ const uploadWanted = async (
                 : { 'x-caelestis-tile-coverage-token': coverageToken }),
             },
             body: entry.bytes.slice().buffer,
+            maxBytes: TELEMETRY_MUTATION_JSON_BYTES,
           },
         )
+        const response = answer?.response ?? null
         if (response?.ok) {
           uploaded.add(entry.deliveryId)
           invalidateServerMismatchTiles(server.url, [entry.coord])
-          const body = (await readBoundedJsonResponse(
-            response,
-            TELEMETRY_MUTATION_JSON_BYTES,
-          ).catch(() => null)) as {
-            status?: unknown
-          } | null
-          const delta = statusDeltaFrom(body?.status)
+          const body = answer?.body
+          const delta = statusDeltaFrom(isRecord(body) ? body.status : undefined)
           if (delta === null) missingStatus = true
           else deltas.push(delta)
         } else if (response !== null)
@@ -486,18 +468,20 @@ const flushOffers = async (serverUrl: string): Promise<void> => {
     tileOfferMetric('requested', entries.length)
     let accepted = 0
     if (serverLiveSyncVersion(server) === 2) {
-      let offered: Awaited<ReturnType<typeof requestLiveTileOffer>> = null
-      for (let attempt = 0; attempt < RETRIES && offered === null; attempt++)
-        offered = await requestLiveTileOffer(server, {
-          ...identity,
-          season,
-          offers: entries.map(({ deliveryId, tile, sha256, ts }) => ({
-            deliveryId,
-            tile,
-            sha256,
-            ts,
-          })),
-        })
+      const offered = await withRetries(
+        () =>
+          requestLiveTileOffer(server, {
+            ...identity,
+            season,
+            offers: entries.map(({ deliveryId, tile, sha256, ts }) => ({
+              deliveryId,
+              tile,
+              sha256,
+              ts,
+            })),
+          }),
+        (result) => result === null,
+      )
       if (offered === null || offered.error !== undefined) {
         retryNeeded = offered === null || offered.error === 'unavailable'
         for (const entry of entries) {
@@ -558,23 +542,25 @@ const flushOffers = async (serverUrl: string): Promise<void> => {
           continue
         }
         const request = wanted.get(entry.deliveryId)
-        let uploaded: Awaited<ReturnType<typeof requestLiveTileUpload>> = null
-        for (let attempt = 0; attempt < RETRIES && uploaded === null; attempt++)
-          uploaded = await requestLiveTileUpload(
-            server,
-            {
-              ...identity,
-              deliveryId: entry.deliveryId,
-              season,
-              tile: entry.tile,
-              sha256: entry.sha256,
-              ts: entry.ts,
-              ...(request?.coverageToken === undefined
-                ? {}
-                : { coverageToken: request.coverageToken }),
-            },
-            entry.bytes,
-          )
+        const uploaded = await withRetries(
+          () =>
+            requestLiveTileUpload(
+              server,
+              {
+                ...identity,
+                deliveryId: entry.deliveryId,
+                season,
+                tile: entry.tile,
+                sha256: entry.sha256,
+                ts: entry.ts,
+                ...(request?.coverageToken === undefined
+                  ? {}
+                  : { coverageToken: request.coverageToken }),
+              },
+              entry.bytes,
+            ),
+          (result) => result === null,
+        )
         if (uploaded?.accepted === true && uploaded.error === undefined) {
           tileOfferAcknowledgements.acknowledged(server.url, owner, season, key)
           deleteUnsettledOffer(server.url, key)
@@ -636,10 +622,9 @@ const flushOffers = async (serverUrl: string): Promise<void> => {
       tileOfferMetric('accepted', accepted)
       return
     }
-    const response = await fetchWithRetry(serverEndpoint(server.url, '/telemetry/tiles/offers'), {
+    const answer = await telemetryRequest(server, '/telemetry/tiles/offers', {
       method: 'POST',
-      headers: { ...authHeaders(server), 'content-type': 'application/json' },
-      body: JSON.stringify({
+      json: {
         ...identity,
         season,
         offers: httpEntries.map(({ deliveryId, tile, sha256, ts }) => ({
@@ -648,9 +633,11 @@ const flushOffers = async (serverUrl: string): Promise<void> => {
           sha256,
           ts,
         })),
-      }),
+      },
+      maxBytes: TELEMETRY_MUTATION_JSON_BYTES,
     })
-    if (response === null || !response.ok) {
+    const response = answer?.response ?? null
+    if (answer === null || response === null || !response.ok) {
       retryNeeded = true
       for (const entry of httpEntries) {
         tileOfferAcknowledgements.retryable(server.url, owner, season, offerKey(entry))
@@ -665,10 +652,7 @@ const flushOffers = async (serverUrl: string): Promise<void> => {
         })
       return
     }
-    const body: unknown = await readBoundedJsonResponse(
-      response,
-      TELEMETRY_MUTATION_JSON_BYTES,
-    ).catch(() => null)
+    const body = answer.body
     if (
       typeof body !== 'object' ||
       body === null ||
@@ -879,9 +863,10 @@ const deliverPaint = async (
   event: PaintEvent,
 ): Promise<void> => {
   if (serverLiveSyncVersion(server) === 2) {
-    let result: Awaited<ReturnType<typeof requestLivePaint>> = null
-    for (let attempt = 0; attempt < RETRIES && result === null; attempt++)
-      result = await requestLivePaint(server, event)
+    const result = await withRetries(
+      () => requestLivePaint(server, event),
+      (delivered) => delivered === null,
+    )
     if (result !== null && result.error === undefined) {
       dedupe.active.delete(eventId)
       dedupe.pending.delete(eventId)
@@ -910,14 +895,14 @@ const deliverPaint = async (
     }
     return
   }
-  const response = await fetchWithRetry(serverEndpoint(server.url, '/telemetry/paints'), {
-    method: 'POST',
-    headers: {
-      ...authHeaders(server),
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify(event),
-  })
+  const response =
+    (
+      await telemetryRequest(server, '/telemetry/paints', {
+        method: 'POST',
+        json: event,
+        maxBytes: TELEMETRY_MUTATION_JSON_BYTES,
+      })
+    )?.response ?? null
   if (response?.ok) {
     dedupe.active.delete(eventId)
     dedupe.pending.delete(eventId)
@@ -1256,25 +1241,19 @@ const refreshStatus = async (
   reason: ReconciliationReason,
   transport: SyncTransport,
 ): Promise<ServerSyncResult> => {
-  if (server.season === null || !isCurrentServerConnection(server)) return { status: 'skipped' }
+  if (!isCurrentServerConnection(server)) return { status: 'skipped' }
   return coalesceServerRead(
     serverConnectionIdentity(server),
     `${server.season}\u0000world\u0000status`,
     async () => {
       const startedRevision = serverSyncRevision(server, 'world', 'telemetry-status')
-      const response = await fetchWithRetry(
-        serverEndpoint(server.url, `/telemetry/status?season=${server.season}`),
-        {
-          headers: {
-            ...authHeaders(server),
-            ...userscriptClientHeaders({ transport, reason }),
-          },
-          signal: serverConnectionSignal(server),
-        },
-      )
-      if (response === null || !response.ok || !isCurrentServerConnection(server))
+      const answer = await telemetryRequest(server, '/telemetry/status', {
+        query: { season: server.season },
+        metrics: { transport, reason },
+      })
+      if (answer === null || !answer.response.ok || !isCurrentServerConnection(server))
         return { status: 'failed' }
-      const body = (await response.json().catch(() => null)) as Partial<StatusResponse> | null
+      const body = isRecord(answer.body) ? (answer.body as Partial<StatusResponse>) : null
       if (
         body === null ||
         !Array.isArray(body.templates) ||
@@ -1313,7 +1292,7 @@ const refreshAlarms = async (
   reason: ReconciliationReason,
   transport: SyncTransport,
 ): Promise<ServerSyncResult> => {
-  if (server.season === null || !isCurrentServerConnection(server)) return { status: 'skipped' }
+  if (!isCurrentServerConnection(server)) return { status: 'skipped' }
   const snapshot = coverage.get(server.url)
   if (snapshot === undefined || !isCurrentServerConnection(snapshot.server))
     return { status: 'skipped' }
@@ -1321,24 +1300,20 @@ const refreshAlarms = async (
     serverConnectionIdentity(server),
     `${server.season}\u0000world\u0000alarms`,
     async () => {
-      const response = await fetchWithRetry(
-        serverEndpoint(server.url, `/telemetry/alarms?season=${server.season}`),
-        {
-          headers: {
-            ...authHeaders(server),
-            ...userscriptClientHeaders({ transport, reason }),
-          },
-          signal: serverConnectionSignal(server),
-        },
-      )
+      const answer = await telemetryRequest(server, '/telemetry/alarms', {
+        query: { season: server.season },
+        metrics: { transport, reason },
+      })
+      const response = answer?.response ?? null
       if (
+        answer === null ||
         response === null ||
         !response.ok ||
         !isCurrentServerConnection(server) ||
         coverage.get(server.url) !== snapshot
       )
         return { status: 'failed' }
-      const body = (await response.json().catch(() => null)) as Partial<AlarmsResponse> | null
+      const body = isRecord(answer.body) ? (answer.body as Partial<AlarmsResponse>) : null
       if (
         body === null ||
         !Array.isArray(body.alarms) ||

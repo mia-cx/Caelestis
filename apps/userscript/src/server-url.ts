@@ -1,8 +1,8 @@
 const DEFAULT_SERVER_BASE_PATH = '/backend'
 const API_VERSION_PATH = '/v1'
-export type ServerApiVersion = 'v1' | 'legacy'
 
-const serverApiVersions = new Map<string, ServerApiVersion>()
+/** `legacy` servers predate the `/v1` prefix; the backend still mounts both. */
+export type ServerApiVersion = 'v1' | 'legacy'
 
 export const canonicalServerUrl = (value: string): string => {
   const parsed = new URL(value.trim())
@@ -25,17 +25,13 @@ export const canonicalServerUrl = (value: string): string => {
  * operator is already a base path and replaces that default, which keeps self-hosted deployments
  * free to mount the same backend wherever their host layout requires.
  */
-export const rememberServerApiVersion = (serverUrl: string, version: ServerApiVersion): void => {
-  serverApiVersions.set(canonicalServerUrl(serverUrl), version)
-}
-
-export const serverEndpoint = (
+export const endpointUrl = (
   serverUrl: string,
   route: string,
-  version?: ServerApiVersion,
+  version: ServerApiVersion = 'v1',
 ): string => {
   const base = canonicalServerUrl(serverUrl)
   const path = route.startsWith('/') ? route : `/${route}`
-  const apiPath = (version ?? serverApiVersions.get(base) ?? 'v1') === 'v1' ? API_VERSION_PATH : ''
+  const apiPath = version === 'v1' ? API_VERSION_PATH : ''
   return `${base}${new URL(base).pathname === '/' ? DEFAULT_SERVER_BASE_PATH : ''}${apiPath}${path}`
 }

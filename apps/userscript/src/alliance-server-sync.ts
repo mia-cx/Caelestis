@@ -6,34 +6,30 @@ import {
   templateSurfaceKey,
 } from '@caelestis/shared'
 import { activeAllianceSurface, onActiveAllianceSurfaceChange } from './alliance-surface.js'
-import { userscriptClientHeaders } from './client-metrics.js'
 import { registerDebugEntry } from './console-api.js'
 import { count } from './debug.js'
 import {
-  activeServerToken,
   type ConnectedServer,
   connectedServerAt,
   connectedServers,
   isCurrentServerConnection,
   sameServerConnection,
   serverConnectionIdentity,
-  serverConnectionSignal,
 } from './server-connections.js'
 import type { ServerManifest } from './server-manifest.js'
 import { parseServerManifest } from './server-manifest.js'
 import { coalesceServerRead } from './server-read-coalescer.js'
+import { serverRequest } from './server-request.js'
 import {
   registerServerSyncResource,
   requestServerSync,
   type ServerSyncResult,
 } from './server-sync-coordinator.js'
-import { serverEndpoint } from './server-url.js'
 import { getState, onStateChange, type ServerConnection, type State } from './settings.js'
 import { forgetServerSurfaceTemplates } from './templates/local-store.js'
 import { forgetSurfaceNodes, rememberNodes } from './templates/server-nodes.js'
 import { syncServerTemplates } from './templates/server-sync.js'
 
-const MANIFEST_TIMEOUT_MS = 15_000
 const ALLIANCE_MANIFEST_RESOURCE = 'alliance-manifest'
 
 let installed = false
@@ -118,11 +114,6 @@ const readServer = async (
     count('alliance-sync:surface superseded')
     return { status: 'skipped' }
   }
-  const query = new URLSearchParams({
-    season: String(server.season),
-    surface: surface.kind,
-    allianceId: String(surface.allianceId),
-  })
   const key = manifestKey(server.url, surface)
   const requestSequence = (requestSequences.get(key) ?? 0) + 1
   requestSequences.set(key, requestSequence)
@@ -132,28 +123,27 @@ const readServer = async (
     isCurrentServerConnection(server)
   try {
     count('alliance-sync:manifest requested')
-    const token = activeServerToken(server)
-    const response = await coalesceServerRead(
+    const { response, body } = await coalesceServerRead(
       serverConnectionIdentity(server),
       `${server.season}\u0000${templateSurfaceKey(surface)}\u0000manifest`,
-      async () =>
-        await fetch(serverEndpoint(server.url, `/manifest?${query}`), {
-          headers: {
-            ...userscriptClientHeaders({ transport, reason }),
-            ...(token === null ? {} : { authorization: `Bearer ${token}` }),
+      () =>
+        serverRequest(server, '/manifest', {
+          query: {
+            season: server.season,
+            surface: surface.kind,
+            allianceId: String(surface.allianceId),
           },
-          signal: AbortSignal.any([
-            signal,
-            serverConnectionSignal(server),
-            AbortSignal.timeout(MANIFEST_TIMEOUT_MS),
-          ]),
+          limits: 'background',
+          read: 'json',
+          signal,
+          metrics: { transport, reason },
         }),
     )
     if (!response.ok || !requestCurrent()) {
       count('alliance-sync:manifest refused')
       return { status: 'failed' }
     }
-    const manifest = parseServerManifest(await response.json(), server.info, surface)
+    const manifest = parseServerManifest(body, server.info, surface)
     if (manifest === null || manifest.season !== server.season || !requestCurrent()) {
       count('alliance-sync:manifest invalid')
       return { status: 'failed' }
