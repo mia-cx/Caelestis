@@ -1,5 +1,6 @@
 import { TRANSPARENT_INDEX, WPLACE_PALETTE } from '@caelestis/shared'
 import type { Placement } from '../geometry.js'
+import { notifyListeners } from '../listeners.js'
 import type { NativePixelRegion } from '../native-pixels.js'
 import { pageWindow } from '../page-world.js'
 import { BACKEND_ORIGIN } from '../wplace-raster.js'
@@ -41,6 +42,10 @@ interface RetainedPixels {
 
 let retained: RetainedPixels | null = null
 const listeners = new Set<() => void>()
+let revision = 0
+
+/** Moves each time the complete HQ snapshot changes, so derived caches can tell they are stale. */
+export const headquartersPixelsRevision = (): number => revision
 
 const sameGeometry = (left: Placement, right: Placement): boolean =>
   left.originX === right.originX &&
@@ -216,7 +221,8 @@ export const refreshHeadquartersPixels = async (
         continue
       }
       apply(cache, snapshot)
-      for (const listener of listeners) listener()
+      revision++
+      notifyListeners(listeners, 'headquarters pixels listener failed')
       if (!cache.refreshQueued) return
     }
   })()

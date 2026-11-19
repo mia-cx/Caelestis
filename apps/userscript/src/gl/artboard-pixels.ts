@@ -11,6 +11,7 @@ import {
 import { paletteRgbIndex, rgbaPaletteIndex } from '../rgb-index.js'
 import {
   headquartersPixels,
+  headquartersPixelsRevision,
   onHeadquartersPixelsChange,
   refreshHeadquartersPixels,
 } from './headquarters-pixels.js'
@@ -199,13 +200,11 @@ export interface ArtboardPixels extends NativePixelSnapshot {
 export const NO_ARTBOARD_PIXELS: ArtboardPixels = { committed: [], draft: [], revision: -1 }
 
 // Retained canvas pixels change in place, so a read alone cannot tell whether they moved. Patches
-// and HQ snapshots advance the revision; so does a read whose source arrays differ from the last
-// read's, which covers canvases Wplace mounts, replaces or removes without a write.
+// advance this revision; so does a read whose source arrays differ from the last read's, which
+// covers canvases Wplace mounts, replaces or removes without a write. A read adds the HQ
+// snapshot's own revision.
 let pixelRevision = 0
 let lastSources: readonly NativePixelRegion[] = []
-onHeadquartersPixelsChange(() => {
-  pixelRevision++
-})
 
 const sourceOf = (region: NativePixelRegion): Uint8Array => region.present ?? region.pixels
 
@@ -538,10 +537,7 @@ const TILE_GRID_TOLERANCE = 0.25
 const headquartersTiles = new WeakMap<Element, Map<string, HeadquartersTile>>()
 const seenTileCanvases = new WeakSet<HTMLCanvasElement>()
 
-let committedGeneration = 0
-onHeadquartersPixelsChange(() => {
-  committedGeneration++
-})
+/** Each tile's drafts, against the HQ snapshot revision they were read over. */
 const tileDrafts = new WeakMap<
   HTMLCanvasElement,
   { readonly generation: number; readonly draft: NativePixelRegion | null }
@@ -696,7 +692,7 @@ const tileDraft = (
   committed: readonly NativePixelRegion[],
 ): NativePixelRegion | null => {
   const held = tileDrafts.get(tile.canvas)
-  if (held?.generation === committedGeneration) return held.draft
+  if (held?.generation === headquartersPixelsRevision()) return held.draft
   const size = tile.canvas.width
   const colours = palettePixels(tile.canvas, TRANSPARENT_INDEX)
   if (colours === null) return null
@@ -711,7 +707,7 @@ const tileDraft = (
     drafted = true
   }
   const draft = drafted ? { ...rect, pixels, emptyIndex: UNPAINTED } : null
-  tileDrafts.set(tile.canvas, { generation: committedGeneration, draft })
+  tileDrafts.set(tile.canvas, { generation: headquartersPixelsRevision(), draft })
   return draft
 }
 
@@ -870,5 +866,5 @@ export const readArtboardPixels = (
   const sources = [...visible, ...committed, ...draft]
   if (!sameSources(sources, lastSources)) pixelRevision++
   lastSources = sources
-  return { committed, draft, revision: pixelRevision }
+  return { committed, draft, revision: pixelRevision + headquartersPixelsRevision() }
 }
