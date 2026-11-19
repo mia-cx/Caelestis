@@ -137,12 +137,11 @@ export const createServerAdminRoutes = (runtime: BackendRuntime, currentSeason: 
       runtime,
       writeServerSettings(
         {
-          ...(name === undefined ? {} : { name: (name as string).trim() }),
-          ...(description === undefined
-            ? {}
-            : { description: description === null ? null : (description as string) }),
+          ...(name === undefined ? {} : { name: name.trim() }),
+          ...(description === undefined ? {} : { description }),
           ...(discordInviteUrl === undefined ? {} : { discordInviteUrl: invite }),
-          ...(homeCopy === undefined ? {} : { homeCopy: copy as string | null }),
+          // Anything but text or null was refused above.
+          ...(homeCopy === undefined ? {} : { homeCopy: typeof copy === 'string' ? copy : null }),
           ...(rawLogoText === undefined ? {} : { logoText: text }),
         },
         currentSeason,

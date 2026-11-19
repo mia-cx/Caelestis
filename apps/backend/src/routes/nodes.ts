@@ -1,4 +1,4 @@
-import { isUuidV7, MAX_DESCRIPTION_LENGTH, nodeSlug, parseWholeNumber } from '@caelestis/shared'
+import { isUuidV7, MAX_DESCRIPTION_LENGTH, nodeSlug } from '@caelestis/shared'
 import { Hono } from 'hono'
 import {
   countNodeSubtree,
@@ -12,22 +12,15 @@ import type { BackendRuntime } from '../runtime/backend-runtime.js'
 import { runBackendHttp } from '../runtime/hono.js'
 import {
   emptyPatch,
+  INVALID_ID,
   INVALID_NAME,
   invalidSurface,
   isName,
   jsonObject,
   parseSurface,
+  wholeNumber,
 } from './params.js'
 
-/** A non-negative integer, from a JSON number or query text. */
-const wholeNumber = (value: unknown): number | null =>
-  typeof value === 'number'
-    ? Number.isSafeInteger(value) && value >= 0
-      ? value
-      : null
-    : parseWholeNumber(value)
-
-const INVALID_ID = 'id must be a canonical lowercase UUIDv7'
 const INVALID_PARENT = 'parentId must be null or a canonical lowercase UUIDv7'
 const UNSLUGGABLE_NAME = 'name must contain a letter or number'
 

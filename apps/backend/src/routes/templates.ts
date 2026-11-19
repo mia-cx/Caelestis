@@ -22,9 +22,11 @@ import {
 } from '../templates/use-cases.js'
 import {
   emptyPatch,
+  INVALID_ID,
   INVALID_NAME,
   invalidSurface,
   isName,
+  isOptionalBoolean,
   jsonObject,
   parseSurface,
 } from './params.js'
@@ -60,8 +62,6 @@ const readTemplateUpload = async (c: Context) => {
   if ('error' in parts) return parts
   return { body, png: new Uint8Array(await png.arrayBuffer()), ...parts }
 }
-
-const INVALID_ID = 'id must be a canonical lowercase UUIDv7'
 
 export const createTemplateRoutes = (runtime: BackendRuntime) => {
   const routes = new Hono()
@@ -147,10 +147,10 @@ export const createTemplateRoutes = (runtime: BackendRuntime) => {
     if (nodeId !== undefined && nodeId !== null && !isUuidV7(nodeId)) {
       return c.json({ error: 'nodeId must be a canonical lowercase UUIDv7 or null' }, 400)
     }
-    for (const [field, value] of Object.entries({ published, timelapseFrozen, finished })) {
-      if (value !== undefined && typeof value !== 'boolean')
-        return c.json({ error: `${field} must be a boolean` }, 400)
-    }
+    const notBoolean = (field: string) => c.json({ error: `${field} must be a boolean` }, 400)
+    if (!isOptionalBoolean(published)) return notBoolean('published')
+    if (!isOptionalBoolean(timelapseFrozen)) return notBoolean('timelapseFrozen')
+    if (!isOptionalBoolean(finished)) return notBoolean('finished')
     const empty = emptyPatch({ name, nodeId, published, timelapseFrozen, finished })
     if (empty !== null) return c.json({ error: empty }, 400)
 
@@ -159,11 +159,11 @@ export const createTemplateRoutes = (runtime: BackendRuntime) => {
       runtime,
       patchTemplate({
         templateId,
-        ...(name === undefined ? {} : { name: name as string }),
-        ...(nodeId === undefined ? {} : { nodeId: nodeId as string | null }),
-        ...(published === undefined ? {} : { published: published as boolean }),
-        ...(timelapseFrozen === undefined ? {} : { timelapseFrozen: timelapseFrozen as boolean }),
-        ...(finished === undefined ? {} : { finished: finished as boolean }),
+        ...(name === undefined ? {} : { name }),
+        ...(nodeId === undefined ? {} : { nodeId }),
+        ...(published === undefined ? {} : { published }),
+        ...(timelapseFrozen === undefined ? {} : { timelapseFrozen }),
+        ...(finished === undefined ? {} : { finished }),
       }),
       (result) => c.json(result),
     )

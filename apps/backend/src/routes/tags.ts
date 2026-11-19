@@ -1,4 +1,4 @@
-import { isUuidV7, tagName, uuidV7 } from '@caelestis/shared'
+import { isUuidV7, MAX_TAG_NAME_LENGTH, tagName, uuidV7 } from '@caelestis/shared'
 import { type Context, Hono } from 'hono'
 import type { BackendRuntime } from '../runtime/backend-runtime.js'
 import { runBackendHttp } from '../runtime/hono.js'
@@ -6,7 +6,7 @@ import type { TagMutation } from '../tags/store.js'
 import { mutateTag, readTags } from '../tags/use-cases.js'
 import { jsonObject } from './params.js'
 
-const INVALID_NAME = 'Use 1–64 characters without control characters.'
+const INVALID_TAG_NAME = `Use 1–${MAX_TAG_NAME_LENGTH} characters without control characters.`
 
 const bodyName = async (c: Context) => tagName((await jsonObject(c))?.name)
 
@@ -26,7 +26,7 @@ export const createTagRoutes = (runtime: BackendRuntime, currentSeason: number) 
   })
   routes.post('/', async (c) => {
     const name = await bodyName(c)
-    if (name === null) return c.json({ error: INVALID_NAME }, 400)
+    if (name === null) return c.json({ error: INVALID_TAG_NAME }, 400)
     return runBackendHttp(c, runtime, mutate({ type: 'create', id: uuidV7(), name }), (result) =>
       c.json(result, 201),
     )
@@ -38,7 +38,7 @@ export const createTagRoutes = (runtime: BackendRuntime, currentSeason: number) 
   })
   routes.patch('/:id', async (c) => {
     const name = await bodyName(c)
-    if (name === null) return c.json({ error: INVALID_NAME }, 400)
+    if (name === null) return c.json({ error: INVALID_TAG_NAME }, 400)
     return runBackendHttp(
       c,
       runtime,
