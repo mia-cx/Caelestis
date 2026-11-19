@@ -1,15 +1,12 @@
-import {
-  sameTemplateSurface,
-  type TemplateSurface,
-  templateSurface,
-  WORLD_TEMPLATE_SURFACE,
-} from '@caelestis/shared'
-import { and, asc, eq, inArray, isNull, or, type SQL, sql } from 'drizzle-orm'
+import { type TemplateSurface, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
+import { and, asc, eq, inArray, or, type SQL, sql } from 'drizzle-orm'
 import { violates } from '../adapters/constraint-violation.js'
 import { changedRows, type relationalDatabase } from '../adapters/relational-database.js'
 import { RelationalStore } from '../adapters/relational-store.js'
 import { contributions, nodes, templates, templateVersions, versionTiles } from '../db/schema.js'
+import { scopeWhere, surfaceOf } from '../db/scope.js'
 import {
+  assertSameScope,
   InvalidNodeParentError,
   MAX_NODE_PATH_LENGTH,
   type NewNode,
@@ -34,16 +31,9 @@ import {
 const pathStartsWith = (prefix: SQL | string): SQL =>
   sql`lower(substr(${nodes.path}, 1, length(${prefix}))) = lower(${prefix})`
 
-const nodeSurfaceWhere = (surface: TemplateSurface): SQL =>
-  and(
-    eq(nodes.surfaceKind, surface.kind),
-    surface.allianceId === null
-      ? isNull(nodes.allianceId)
-      : eq(nodes.allianceId, surface.allianceId),
-  ) as SQL
-
-const nodeScopeWhere = (season: number, surface: TemplateSurface): SQL =>
-  and(eq(nodes.season, season), nodeSurfaceWhere(surface)) as SQL
+/** Every node beneath `node`, matched by path within its scope. */
+const descendantsOf = (node: NodeRecord, path: SQL | string): SQL =>
+  and(scopeWhere(nodes, node.season, node.surface), pathStartsWith(path)) as SQL
 
 /**
  * The path index per schema: SQLite and PostgreSQL split world and alliance paths, MariaDB keys
@@ -58,25 +48,33 @@ const NODE_PATH_UNIQUE = [
 const NODE_PATH_CHECK = ['nodes_path_check']
 
 /**
+ * A path write that lost to the path index or the length CHECK, as the store's typed error. The
+ * store's own guards are reads, so a concurrent write can still make the database the authority;
+ * losing to it answers what failing the guard would have.
+ */
+const pathViolation = (error: unknown, season: number, tooLong: string): unknown => {
+  if (violates(error, 'unique', NODE_PATH_UNIQUE))
+    return new NodePathConflictError(`node path is already taken in season ${season}`)
+  if (violates(error, 'check', NODE_PATH_CHECK)) return new NodePathTooLongError(tooLong)
+  return error
+}
+
+/**
  * Retries of a parent-only move that lost its guard to a concurrent rename. D1 has no interactive
  * transactions, so a move is an optimistic batch that re-reads the live row on conflict.
  */
 const MOVE_ATTEMPTS = 3
 
-const toNode = (row: typeof nodes.$inferSelect): NodeRecord => {
-  const surface = templateSurface(row.surfaceKind, row.allianceId)
-  if (surface === null) throw new Error(`node ${row.id} has an invalid surface`)
-  return {
-    id: row.id,
-    surface,
-    season: row.season,
-    parentId: row.parentId,
-    path: row.path,
-    name: row.name,
-    description: row.description,
-    createdAt: row.createdAtMs,
-  }
-}
+const toNode = (row: typeof nodes.$inferSelect): NodeRecord => ({
+  id: row.id,
+  surface: surfaceOf(row, `node ${row.id}`),
+  season: row.season,
+  parentId: row.parentId,
+  path: row.path,
+  name: row.name,
+  description: row.description,
+  createdAt: row.createdAtMs,
+})
 
 /** One node, for this store and for stores that validate a destination node. */
 export const selectNode = async (
@@ -118,25 +116,10 @@ export class RelationalNodeStore extends RelationalStore implements NodeStore {
         createdAtMs: node.createdAt,
       })
     } catch (error) {
-      // The named index, not the bare string: `nodes` has two unique constraints, and reporting a
-      // primary-key collision as a path conflict sends the caller after the wrong recovery, so an id
-      // collision stays untyped.
-      if (violates(error, 'unique', NODE_PATH_UNIQUE)) {
-        throw new NodePathConflictError(`node path is already taken in season ${node.season}`)
-      }
-      // The parent check above is a separate read, so a concurrent delete can remove the parent
-      // between the two and the foreign key rejects this insert. Same outcome as the check finding
-      // it missing, so it gets the same error rather than escaping as a 500.
-      if (violates(error, 'foreign-key')) {
+      // A concurrent delete of the parent is the parent check finding it missing.
+      if (violates(error, 'foreign-key'))
         throw new InvalidNodeParentError('parent node does not exist')
-      }
-      // The route bounds the path it derived, but the prefix written here comes from the parent row,
-      // which a rename may have lengthened since. The CHECK is the authority; losing to it answers
-      // the same 400 as failing the route's own check rather than a 500.
-      if (violates(error, 'check', NODE_PATH_CHECK)) {
-        throw new NodePathTooLongError(`node path is longer than ${MAX_NODE_PATH_LENGTH}`)
-      }
-      throw error
+      throw pathViolation(error, node.season, `node path is longer than ${MAX_NODE_PATH_LENGTH}`)
     }
     // Re-read rather than assemble: the path the database composed is the one that is true.
     const inserted = await this.readNode(node.id)
@@ -155,12 +138,7 @@ export class RelationalNodeStore extends RelationalStore implements NodeStore {
   ): Promise<NodeRecord> {
     const parent = await this.readNode(parentId)
     if (parent === null) throw new InvalidNodeParentError('parent node does not exist')
-    if (parent.season !== child.season) {
-      throw new InvalidNodeParentError('parent node belongs to a different season')
-    }
-    if (!sameTemplateSurface(parent.surface, child.surface)) {
-      throw new InvalidNodeParentError('parent node belongs to a different surface')
-    }
+    assertSameScope(parent, child, 'parent node')
     return parent
   }
 
@@ -171,7 +149,7 @@ export class RelationalNodeStore extends RelationalStore implements NodeStore {
     const rows = await this.database
       .select()
       .from(nodes)
-      .where(nodeScopeWhere(season, surface))
+      .where(scopeWhere(nodes, season, surface))
       .orderBy(asc(nodes.id))
     return rows.map(toNode)
   }
@@ -179,83 +157,72 @@ export class RelationalNodeStore extends RelationalStore implements NodeStore {
   async renameNode(nodeId: string, name: string, slug: string): Promise<NodeRecord | null> {
     const node = await this.readNode(nodeId)
     if (node === null) return null
+    // The destination is composed from the node's live parent: a concurrent move can change
+    // `parentId` after the read above, and the old id would pair the new parent with a path under
+    // the old one.
+    const liveParentId = sql`(select parent_id from nodes where id = ${nodeId})`
+    const parentPath = sql`coalesce((select path from nodes where id = ${liveParentId}), '')`
+    await this.#rewriteSubtree(node, {
+      verb: 'rename',
+      path: `${node.path.slice(0, node.path.lastIndexOf('/'))}/${slug}`,
+      destination: sql`${parentPath} || '/' || ${slug}`,
+      changes: { name },
+    })
+    return this.readNode(nodeId)
+  }
 
-    const oldPrefix = `${node.path}/`
-    const descendants = and(nodeScopeWhere(node.season, node.surface), pathStartsWith(oldPrefix))
-
+  /**
+   * Move `node` to `destination` and every descendant with it, in one batch: a half-applied rewrite
+   * leaves children whose path no longer starts with their parent's, which silently breaks every
+   * prefix rollup.
+   *
+   * `path` is the destination as the guard read sees it, to bound the result before writing. The
+   * batch itself reads the old path live, so two concurrent rewrites of one node agree on what
+   * they move. `guard` must hold for either statement to change anything.
+   */
+  async #rewriteSubtree(
+    node: NodeRecord,
+    rewrite: {
+      readonly verb: 'rename' | 'move'
+      readonly path: string
+      readonly destination: SQL
+      readonly changes: { readonly name?: string; readonly parentId?: string | null }
+      readonly guard?: SQL | undefined
+    },
+  ): Promise<void> {
+    const tooLong = `${rewrite.verb} would derive a path longer than ${MAX_NODE_PATH_LENGTH}`
     // Every descendant keeps its suffix, so its new length is its old one shifted by the change in
-    // the prefix — one aggregate, no rows, because a season-sized subtree read row by row is a
+    // the prefix: one aggregate, no rows, because a season-sized subtree read row by row is a
     // result set D1 refuses. `slug` keeps paths inside the BMP, so SQLite's character count and the
-    // UTF-16 count the wire uses are the same number.
-    //
-    // That equality is an assumption, and the route is what holds it up: every stored path is one
-    // `slug` derived. A path with an astral character would make this under-count, the CHECK agree
-    // with it, and the resulting manifest stop decoding — so if a second writer ever appears, or rows
-    // arrive from anywhere but this route, this aggregate has to go back to measuring the rows.
-    const path = `${node.path.slice(0, node.path.lastIndexOf('/'))}/${slug}`
-    const shift = path.length - node.path.length
+    // UTF-16 count the wire uses are the same number. That holds only while every stored path is
+    // one `slug` derived; rows from any other writer would need measuring row by row.
     const [deepest] = await this.database
       .select({ length: sql<number>`coalesce(max(length(${nodes.path})), 0)` })
       .from(nodes)
-      .where(descendants)
-    const longest = Math.max(path.length, (deepest?.length ?? 0) + shift)
-    if (longest > MAX_NODE_PATH_LENGTH) {
-      throw new NodePathTooLongError(
-        `rename would derive a path longer than ${MAX_NODE_PATH_LENGTH}`,
-      )
-    }
+      .where(descendantsOf(node, `${node.path}/`))
+    const shift = rewrite.path.length - node.path.length
+    if (Math.max(rewrite.path.length, (deepest?.length ?? 0) + shift) > MAX_NODE_PATH_LENGTH)
+      throw new NodePathTooLongError(tooLong)
 
-    // The old path is read inside the batch rather than carried in from the read above, so the two
-    // statements agree about what they are moving. Carried in, two concurrent renames of the same
-    // node would both see `/x`: the first moves the node to `/a` and its children with it, the
-    // second moves the node to `/b` and rewrites `/x/%`, which by then matches nothing — leaving the
-    // node at `/b` and its children at `/a/c`. An atomic batch is not enough when the value it is
-    // built from is stale.
-    //
-    // The destination is composed from the node's live parent for the same reason. A concurrent move
-    // can change `parentId` after the guard read; carrying the old id into this batch leaves the new
-    // parent pointer paired with a path under the old parent.
-    const liveParentId = sql`(select parent_id from nodes where id = ${nodeId})`
-    const parentPath = sql`coalesce((select path from nodes where id = ${liveParentId}), '')`
-    const destination = sql`${parentPath} || '/' || ${slug}`
-    const oldPath = sql`(select path from nodes where id = ${nodeId})`
-
-    // One batch: the node and every descendant move together or not at all. A half-applied rename
-    // leaves children whose path no longer starts with their parent's, which silently breaks every
-    // prefix rollup rather than failing loudly.
-    //
-    // Descendants first, while the node row still holds the old path they are matched against. The
-    // suffix starts at the old path's length rather than the old prefix's, so it keeps the
-    // separating slash; cutting past it would write `/renamedchild`. `length()` is SQLite's, which
-    // counts characters like `substr` does, where JavaScript's counts UTF-16 units and would slice
-    // every descendant short past an astral character.
-    const statements = [
-      this.database
-        .update(nodes)
-        .set({ path: sql`${destination} || substr(${nodes.path}, length(${oldPath}) + 1)` })
-        .where(
-          and(nodeScopeWhere(node.season, node.surface), pathStartsWith(sql`${oldPath} || '/'`)),
-        ),
-      this.database.update(nodes).set({ name, path: destination }).where(eq(nodes.id, nodeId)),
-    ] as const
+    const { destination, guard } = rewrite
+    const oldPath = sql`(select path from nodes where id = ${node.id})`
     try {
-      await this.database.batch([statements[0], statements[1]])
+      // Descendants first, while the node row still holds the old path they match. The suffix
+      // starts at the old path's length, so it keeps the separating slash. SQLite's `length()`
+      // counts characters like `substr` does, where JavaScript counts UTF-16 units.
+      await this.database.batch([
+        this.database
+          .update(nodes)
+          .set({ path: sql`${destination} || substr(${nodes.path}, length(${oldPath}) + 1)` })
+          .where(and(descendantsOf(node, sql`${oldPath} || '/'`), guard)),
+        this.database
+          .update(nodes)
+          .set({ ...rewrite.changes, path: destination })
+          .where(and(eq(nodes.id, node.id), guard)),
+      ])
     } catch (error) {
-      if (violates(error, 'unique', NODE_PATH_UNIQUE)) {
-        throw new NodePathConflictError(`node path is already taken in season ${node.season}`)
-      }
-      // The guard above reads a snapshot, so a child inserted between it and this batch can be
-      // lengthened past the bound by a rename that was measured without it. The CHECK is the
-      // authority; losing to it answers the same 400 as failing the guard rather than a 500.
-      if (violates(error, 'check', NODE_PATH_CHECK)) {
-        throw new NodePathTooLongError(
-          `rename would derive a path longer than ${MAX_NODE_PATH_LENGTH}`,
-        )
-      }
-      throw error
+      throw pathViolation(error, node.season, tooLong)
     }
-    // Re-read rather than assemble: the path the database composed is the one that is true.
-    return this.readNode(nodeId)
   }
 
   moveNode(nodeId: string, parentId: string | null, rename?: NodeRename): Promise<boolean> {
@@ -280,32 +247,16 @@ export class RelationalNodeStore extends RelationalStore implements NodeStore {
 
     // For a parent-only move, the path segment belongs to the live row.
     const segment = rename?.slug ?? node.path.slice(node.path.lastIndexOf('/') + 1)
-    const path = `${parent?.path ?? ''}/${segment}`
-    const oldPrefix = `${node.path}/`
-    const descendants = and(nodeScopeWhere(node.season, node.surface), pathStartsWith(oldPrefix))
-    const shift = path.length - node.path.length
-    const [deepest] = await this.database
-      .select({ length: sql<number>`coalesce(max(length(${nodes.path})), 0)` })
-      .from(nodes)
-      .where(descendants)
-    if (Math.max(path.length, (deepest?.length ?? 0) + shift) > MAX_NODE_PATH_LENGTH) {
-      throw new NodePathTooLongError(`move would derive a path longer than ${MAX_NODE_PATH_LENGTH}`)
-    }
-
-    const destination =
-      parentId === null
-        ? sql`'/' || ${segment}`
-        : sql`(select path from nodes where id = ${parentId}) || '/' || ${segment}`
     const oldPath = sql`(select path from nodes where id = ${nodeId})`
     // A rename between the guard read and this batch changes both name and path. Do not combine its
     // live name with our stale segment: let the batch make no change and retry from the new row.
-    const nodeIsStillCurrent = rename === undefined ? sql`${oldPath} = ${node.path}` : sql`1 = 1`
+    const nodeIsStillCurrent = rename === undefined ? sql`${oldPath} = ${node.path}` : undefined
     // Re-evaluate the parent against the node's live path inside each batch statement. Two opposite
     // moves may both pass the reads above, but only the first can still satisfy this predicate once
     // its write makes the other destination a descendant.
     const parentIsStillValid =
       parentId === null
-        ? sql`1 = 1`
+        ? undefined
         : sql`(
             select path from nodes where id = ${parentId} and season = ${node.season}
           ) is not null and lower(substr(
@@ -315,40 +266,16 @@ export class RelationalNodeStore extends RelationalStore implements NodeStore {
           )) <> lower(${oldPath} || '/') and lower(
             (select path from nodes where id = ${parentId} and season = ${node.season})
           ) <> lower(${oldPath})`
-    const statements = [
-      this.database
-        .update(nodes)
-        .set({ path: sql`${destination} || substr(${nodes.path}, length(${oldPath}) + 1)` })
-        .where(
-          and(
-            nodeScopeWhere(node.season, node.surface),
-            pathStartsWith(sql`${oldPath} || '/'`),
-            parentIsStillValid,
-            nodeIsStillCurrent,
-          ),
-        ),
-      this.database
-        .update(nodes)
-        .set({
-          parentId,
-          path: destination,
-          ...(rename === undefined ? {} : { name: rename.name }),
-        })
-        .where(and(eq(nodes.id, nodeId), parentIsStillValid, nodeIsStillCurrent)),
-    ] as const
-    try {
-      await this.database.batch([statements[0], statements[1]])
-    } catch (error) {
-      if (violates(error, 'unique', NODE_PATH_UNIQUE)) {
-        throw new NodePathConflictError(`node path is already taken in season ${node.season}`)
-      }
-      if (violates(error, 'check', NODE_PATH_CHECK)) {
-        throw new NodePathTooLongError(
-          `move would derive a path longer than ${MAX_NODE_PATH_LENGTH}`,
-        )
-      }
-      throw error
-    }
+    await this.#rewriteSubtree(node, {
+      verb: 'move',
+      path: `${parent?.path ?? ''}/${segment}`,
+      destination:
+        parentId === null
+          ? sql`'/' || ${segment}`
+          : sql`(select path from nodes where id = ${parentId}) || '/' || ${segment}`,
+      changes: rename === undefined ? { parentId } : { parentId, name: rename.name },
+      guard: and(parentIsStillValid, nodeIsStillCurrent),
+    })
     const moved = await this.readNode(nodeId)
     if (moved === null) return false
     if (moved.parentId !== parentId) {
@@ -388,10 +315,7 @@ export class RelationalNodeStore extends RelationalStore implements NodeStore {
   async countNodeSubtree(nodeId: string): Promise<{ nodes: number; templates: number }> {
     const node = await this.readNode(nodeId)
     if (node === null) throw new NodeNotFoundError(`node does not exist: ${nodeId}`)
-    const subtree = or(
-      eq(nodes.id, nodeId),
-      and(nodeScopeWhere(node.season, node.surface), pathStartsWith(`${node.path}/`)),
-    )
+    const subtree = or(eq(nodes.id, nodeId), descendantsOf(node, `${node.path}/`))
     const [nodeRows, templateRows] = await Promise.all([
       this.database.select({ count: sql<number>`count(*)` }).from(nodes).where(subtree),
       this.database
@@ -410,10 +334,7 @@ export class RelationalNodeStore extends RelationalStore implements NodeStore {
     // read above lets a concurrent rename/move make the batch select the root by id but miss its
     // descendants, and the final delete then loses to their foreign keys.
     const rootPath = sql`(select path from nodes where id = ${nodeId})`
-    const liveSubtree = or(
-      eq(nodes.id, nodeId),
-      and(nodeScopeWhere(node.season, node.surface), pathStartsWith(sql`${rootPath} || '/'`)),
-    )
+    const liveSubtree = or(eq(nodes.id, nodeId), descendantsOf(node, sql`${rootPath} || '/'`))
     const liveNodeCount = sql`(select count(*) from ${nodes} where ${liveSubtree})`
     const liveTemplateCount = sql`(
       select count(*) from ${templates}

@@ -1,4 +1,4 @@
-import type { Millis, TemplateSurface } from '@caelestis/shared'
+import { type Millis, sameTemplateSurface, type TemplateSurface } from '@caelestis/shared'
 import { PortError } from '../runtime/errors.js'
 
 export interface NodeRecord {
@@ -56,6 +56,27 @@ export class InvalidNodeParentError extends PortError {
 export class NodeNotFoundError extends PortError {
   override readonly name = 'NodeNotFoundError'
   readonly kind = 'not-found'
+}
+
+/** Where a node, template, region, or work item lives: one season of one drawing surface. */
+export interface Scope {
+  readonly season: number
+  readonly surface: TemplateSurface
+}
+
+export const sameScope = (left: Scope, right: Scope): boolean =>
+  left.season === right.season && sameTemplateSurface(left.surface, right.surface)
+
+/** Refuse `node` as the parent of `child` unless it lives in the child's own scope. */
+export const assertSameScope = (
+  node: Scope,
+  child: Scope,
+  role: 'parent node' | 'destination node',
+): void => {
+  if (node.season !== child.season)
+    throw new InvalidNodeParentError(`${role} belongs to a different season`)
+  if (!sameTemplateSurface(node.surface, child.surface))
+    throw new InvalidNodeParentError(`${role} belongs to a different surface`)
 }
 
 /** The subtree no longer matches the snapshot an administrator confirmed deleting. */
