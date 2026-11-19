@@ -1,7 +1,6 @@
 import { assignShortcutBinding } from '@caelestis/shared'
 import type { SettingsIntent, SettingsModel } from '@caelestis/ui/elements'
 import { prefetchAccessTokens } from '../application/token-inventory.js'
-import { cancelTreeActionSetup } from '../application/tree-presentation.js'
 import { importFromOtherBuild, otherBuild, sendToOtherBuild } from '../build-transfer.js'
 import { expectedBackendVersion, userscriptVersion } from '../client-metrics.js'
 import { log } from '../debug.js'
@@ -29,7 +28,6 @@ import {
 } from './access-tokens.js'
 import { requestConfirmation, showToast } from './notification-host.js'
 import { syncPanelButtons } from './rail.js'
-import { treeActionUsesServer } from './tree-copy.js'
 
 /**
  * The panel's settings view: its model, what its intents do, and the state only it keeps — which
@@ -296,12 +294,10 @@ const updateServerToken = async (url: string, token: string): Promise<void> => {
 
 /**
  * Disconnect: take the server out of the list, and everything it put on this machine with it.
- * The connection's own teardown (`removeServer`) clears every per-server cache; what is left here
- * is the tree action waiting on it as a destination.
+ * The connection's own teardown (`removeServer`) clears every per-server cache.
  */
 const disconnectServer = async (url: string): Promise<void> => {
   if (serverByUrl(url) === undefined) return
-  if (treeActionUsesServer(url)) cancelTreeActionSetup(new Error('copy destination disconnected'))
   await removeServer(url)
   redraw()
   refreshSettings()

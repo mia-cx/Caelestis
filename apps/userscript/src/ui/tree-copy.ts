@@ -3,6 +3,7 @@ import { serverDestinations } from '../application/server-destinations.js'
 import { busyRefusal } from '../application/template-busy.js'
 import { copyCurrentLocalTemplateToServer } from '../application/transfer.js'
 import {
+  cancelTreeActionSetup,
   closeOperation,
   isOperationOpen,
   MAX_DESTINATIONS,
@@ -11,7 +12,7 @@ import {
 } from '../application/tree-presentation.js'
 import { runWhileBusy } from '../concurrency.js'
 import { listServerNodes, type ServerNodesResult } from '../server-api.js'
-import { serverLabel } from '../server-connections.js'
+import { onServerRemoving, serverLabel } from '../server-connections.js'
 import { getState, type ServerConnection } from '../settings.js'
 import { templateById } from '../templates/catalog.js'
 import { showToast } from './notification-host.js'
@@ -21,9 +22,13 @@ let copySetupRunning = false
 let copySetupTargets: ReadonlySet<string> | null = null
 const COPY_SETUP_TIMEOUT_MS = 120_000
 
-/** Whether finding copy destinations is waiting on `serverUrl`. */
-export const treeActionUsesServer = (serverUrl: string): boolean =>
-  copySetupTargets?.has(serverUrl) === true
+/** Stop finding copy destinations when a server it is asking disconnects. */
+export const installTreeCopy = (): void => {
+  onServerRemoving((server) => {
+    if (copySetupTargets?.has(server.url) === true)
+      cancelTreeActionSetup(new Error('copy destination disconnected'))
+  })
+}
 
 /**
  * Copy a local template onto a server.

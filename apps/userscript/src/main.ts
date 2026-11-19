@@ -31,6 +31,7 @@ import { installChargeForecast } from './ui/charge-forecast.js'
 import { installOverlayControls, showAllianceOverlayControls } from './ui/overlay-menu.js'
 import { installPanel } from './ui/panel.js'
 import { openInviteFromLocation } from './ui/settings-controller.js'
+import { installTreeCopy } from './ui/tree-copy.js'
 import { installUserscriptUpdateCheck } from './userscript-update.js'
 import { loadAccount, observeAccountReads } from './wplace-account.js'
 import { installWplaceCursors } from './wplace-cursors.js'
@@ -128,6 +129,7 @@ export const installFeatures = (): void => {
   step('alliance overlay layer', () => installAllianceOverlayLayer(showAllianceOverlayControls))
   step('overlay controls', installOverlayControls)
   step('map view', installMapView)
+  step('tree copy', installTreeCopy)
   step('panel', () => afterDocumentLoads(installPanel))
   // Invite links ride in the fragment. Consume one only once the panel exists — its toast is how
   // the outcome is reported — and again whenever the fragment changes in an open tab.
