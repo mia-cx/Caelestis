@@ -71,7 +71,7 @@
 </Modal>
 
 <style>
-  .content { overflow: hidden; }
+  .content { overflow: hidden; line-height: 1.4; }
   header { display: flex; align-items: start; justify-content: space-between; gap: 0.75rem; padding: 1rem; border-block-end: 1px solid color-mix(in oklab, currentColor 12%, transparent); }
   header > div { min-inline-size: 0; }
   h2 { margin: 0; font-size: 1rem; font-weight: 600; overflow-wrap: anywhere; }

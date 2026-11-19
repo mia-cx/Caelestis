@@ -63,6 +63,7 @@
 </Modal>
 
 <style>
+  header, .body, footer { line-height: 1.45; }
   header, footer { display: flex; align-items: center; gap: 0.75rem; padding: 1rem; }
   header { align-items: start; border-block-end: 1px solid var(--caelestis-border); }
   h2 { margin: 0; flex: 1; font-size: 1.15rem; line-height: 1.3; }

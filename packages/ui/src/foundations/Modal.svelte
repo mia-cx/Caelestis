@@ -83,7 +83,9 @@
     background: var(--caelestis-surface);
     color: var(--caelestis-text);
     box-shadow: var(--caelestis-shadow);
-    font: 0.875rem/1.4 var(--caelestis-font);
+    /* Line height is the dialog's own: each sets it on its content. */
+    font-size: 0.875rem;
+    font-family: var(--caelestis-font);
   }
   @media (forced-colors: active) {
     dialog { border-color: CanvasText; }
