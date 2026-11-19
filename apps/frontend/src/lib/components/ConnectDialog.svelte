@@ -84,12 +84,12 @@ const connect = async (event: SubmitEvent): Promise<void> => {
         {#if app.authRequired}
           <p class="text-sm text-error">This server requires a token with read access.</p>
         {/if}
-        <div class="-mx-4 -mb-4 flex flex-col-reverse gap-2 rounded-b-xl border-t border-base-300 bg-base-200/50 p-4 sm:flex-row sm:justify-end">
+        <div class="-mx-4 -mb-4 flex flex-col-reverse gap-2 rounded-b-xl border-t border-current bg-base-200/50 p-4 sm:flex-row sm:justify-end">
           <button type="submit" class="btn btn-primary btn-sm">Connect</button>
         </div>
       </form>
       <!-- `absolute!` outranks the pixel `.btn` rule's `position: relative` in app.css. -->
-      <Dialog.Close class="btn btn-ghost btn-sm btn-square absolute! top-2 right-2">
+      <Dialog.Close class="btn btn-ghost btn-sm btn-square absolute! top-2 right-2 size-7">
         <Icon name="close" />
         <span class="sr-only">Close</span>
       </Dialog.Close>
