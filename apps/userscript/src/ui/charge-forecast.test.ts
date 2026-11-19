@@ -1,7 +1,12 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AcceptedPaint } from '../paint-requests.js'
-import { chargeForecast, observeCharges, resetCharges } from '../wplace-charges.js'
+import {
+  chargeForecast,
+  installChargeSpending,
+  observeCharges,
+  resetCharges,
+} from '../wplace-charges.js'
 import {
   installChargeForecast,
   positionChargeForecast,
@@ -59,6 +64,7 @@ describe('charge forecast chip', () => {
   it('spends accepted paints on the millisecond charge clock', () => {
     vi.useFakeTimers()
     vi.setSystemTime(0)
+    installChargeSpending()
     installChargeForecast()
     observeCharges({ count: 10, max: 60, cooldownMs: 30_000 }, 0)
 

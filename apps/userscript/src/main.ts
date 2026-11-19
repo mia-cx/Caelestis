@@ -36,6 +36,7 @@ import { openInviteFromLocation } from './ui/settings-controller.js'
 import { installTreeCopy } from './ui/tree-copy.js'
 import { installUserscriptUpdateCheck } from './userscript-update.js'
 import { loadAccount, observeAccountReads } from './wplace-account.js'
+import { installChargeSpending } from './wplace-charges.js'
 import { installWplaceCursors } from './wplace-cursors.js'
 import { installWplaceFont } from './wplace-font.js'
 import { installWplaceMessages } from './wplace-modules.js'
@@ -115,6 +116,7 @@ export const installFeatures = (): void => {
   step('server sync coordinator', installServerSyncCoordinator)
   step('alarm notifications', installAlarmNotifications)
   step('wplace account', () => void loadAccount())
+  step('charge spending', installChargeSpending)
   step('charge forecast', installChargeForecast)
   step('paint watcher', watchPaintSelection)
   step('draft pixels', installDraftPixels)

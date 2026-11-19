@@ -1,5 +1,6 @@
 import { isRecord } from '@caelestis/shared'
 import { notifyListeners } from './listeners.js'
+import { onAcceptedPaint } from './paint-requests.js'
 
 /**
  * The signed-in painter's pixel charges, and when they will be full.
@@ -82,6 +83,12 @@ export const spendCharges = (painted: number, at = Date.now()): void => {
     at: spentAt,
   }
   notify()
+}
+
+/** Spend charges on every paint Wplace accepts. */
+export const installChargeSpending = (): void => {
+  // Accepted paints stamp Unix seconds; the charge clock runs on `Date.now()` milliseconds.
+  onAcceptedPaint((paint) => spendCharges(paint.painted, paint.observedAt * 1_000))
 }
 
 /** Null until Wplace has reported charges. */
