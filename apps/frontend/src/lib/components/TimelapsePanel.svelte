@@ -193,10 +193,10 @@
     outline: 2px solid var(--color-primary);
     outline-offset: 2px;
   }
+  /* Chromium draws the thumb inside the track, so clipping the track would hide the thumb. */
   .slider::-webkit-slider-runnable-track {
     block-size: var(--track);
     background: linear-gradient(to right, var(--color-primary) var(--fill), var(--color-base-300) var(--fill));
-    clip-path: var(--pixel-corners-xs);
   }
   .slider::-moz-range-track {
     block-size: var(--track);
