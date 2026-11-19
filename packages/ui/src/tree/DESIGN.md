@@ -35,3 +35,13 @@ Visibility means effective visibility, including ancestor switches. Active means
 The matcher selects templates before rendering and retains only their folder paths. Filters force those paths open without changing saved collapse or custom-order preferences.
 
 Clicking the open menu's trigger closes it even when pointer focus returns to the trigger first. Alarm acknowledgement follows the displayed template rows, so search and filters cannot silently acknowledge excluded templates.
+
+# Alarm rows
+
+Griefed rows take a red tint and inset red border from the danger token. The focused-template rail and keyboard focus outline stay, and the border does not change row dimensions.
+
+Active episodes bubble through every parent folder and the server row, including collapsed and search-hidden descendants. Container warnings say “Contains griefed templates” and do not imply a finished lifecycle state.
+
+Admins can choose “Dismiss grief alert” from a template's context menu. This clears the episode for everyone and resets its correct-pixel baseline. Later observed losses can raise a new episode.
+
+Tree headings never wrap. Names truncate with a full-name tooltip; progress bars can shrink while preserving room for their controls. Only an explicit progress expansion adds detail below the heading. Extremely narrow nested rows remain horizontally scrollable.
