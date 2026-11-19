@@ -13,6 +13,9 @@ export const DEV_TUNNEL_HOST = 'caelestis-dev-frontend.mia.cx'
 export const READ_PROXY = '/api'
 export const LIVE_PATH = '/telemetry/live'
 
+/** The DaisyUI theme names. app.css declares them too, since CSS cannot import. */
+export const THEMES = { light: 'caelestis', dark: 'caelestis-dark' } as const
+
 /**
  * Every browser storage key. All share the `caelestis:` prefix, which is how a dashboard move
  * finds the entries to carry over.

@@ -16,7 +16,7 @@ import {
   usesServerReadProxy,
 } from '#lib/api/client.js'
 import ConnectDialog from '#lib/components/ConnectDialog.svelte'
-import { STORAGE_KEYS } from '#lib/deployment.js'
+import { STORAGE_KEYS, THEMES } from '#lib/deployment.js'
 import { pageTitle } from '#lib/server-info.js'
 import SocialMetadata from '#lib/components/SocialMetadata.svelte'
 import { provideApp } from '#lib/state/app.svelte.js'
@@ -67,8 +67,8 @@ const logoSrc = $derived(
 const toggleTheme = (): void => {
   const current =
     document.documentElement.dataset.theme ??
-    (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'caelestis-dark' : 'caelestis')
-  const next = current === 'caelestis-dark' ? 'caelestis' : 'caelestis-dark'
+    (window.matchMedia('(prefers-color-scheme: dark)').matches ? THEMES.dark : THEMES.light)
+  const next = current === THEMES.dark ? THEMES.light : THEMES.dark
   document.documentElement.dataset.theme = next
   localStorage.setItem(STORAGE_KEYS.theme, next)
 }
@@ -130,8 +130,8 @@ const toggleTheme = (): void => {
       </a>
 
       <button class="btn btn-sm btn-ghost btn-circle" onclick={toggleTheme} aria-label="toggle theme">
-        <Icon name="lightMode" class="size-4.5 hidden [[data-theme=caelestis-dark]_&]:block" />
-        <Icon name="darkMode" class="size-4.5 [[data-theme=caelestis-dark]_&]:hidden" />
+        <Icon name="lightMode" class="size-4.5 hidden theme-dark:block" />
+        <Icon name="darkMode" class="size-4.5 theme-dark:hidden" />
       </button>
     </div>
   </header>

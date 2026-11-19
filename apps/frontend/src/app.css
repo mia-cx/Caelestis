@@ -17,6 +17,9 @@
   themes: caelestis --default, caelestis-dark --prefersdark;
 }
 
+/* The theme names here match THEMES in deployment.ts. */
+@custom-variant theme-dark ([data-theme=caelestis-dark] &);
+
 @plugin 'daisyui/theme' {
   name: 'caelestis';
   default: true;

@@ -6,6 +6,7 @@ import {
   DEV_TUNNEL_HOST,
   FORMER_DASHBOARD_ORIGIN,
   STORAGE_KEYS,
+  THEMES,
 } from '#lib/deployment.js'
 import { leaveFormerHost, MOVE_PATH, receiveMove } from '#lib/server/dashboard-move.js'
 import { dev } from '$app/env'
@@ -36,6 +37,10 @@ export const handle: Handle = ({ event, resolve }) => {
     event.url.protocol = 'https:'
   }
   return resolve(event, {
-    transformPageChunk: ({ html }) => html.replace('%caelestis.theme-key%', STORAGE_KEYS.theme),
+    transformPageChunk: ({ html }) =>
+      html
+        .replace('%caelestis.theme-key%', STORAGE_KEYS.theme)
+        .replace('%caelestis.theme-light%', THEMES.light)
+        .replace('%caelestis.theme-dark%', THEMES.dark),
   })
 }
