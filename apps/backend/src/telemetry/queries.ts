@@ -279,10 +279,10 @@ export const readHistory = (input: {
         : yield* storage('readBuckets', () =>
             sql.readBuckets({
               templateIds: visibleIds,
-              resolution:
+              resolutions:
                 input.legacyResolution === undefined
                   ? LADDER_RESOLUTIONS.filter((tier) => tier <= resolution)
-                  : resolution,
+                  : [resolution],
               ...input.range,
             }),
           )
@@ -332,7 +332,7 @@ export const readPainterHistory = (input: {
             sql.readPainterBuckets({
               templateIds: visibleIds,
               wplaceUserIds: input.wplaceUserIds,
-              resolution: LADDER_RESOLUTIONS.filter((tier) => tier <= resolution),
+              resolutions: LADDER_RESOLUTIONS.filter((tier) => tier <= resolution),
               ...input.range,
             }),
           )
@@ -392,7 +392,7 @@ export const readPainterTotals = (input: {
         ? []
         : yield* storage('readPainterTotals', () =>
             sql.readPainterTotals(
-              { templateIds: visibleIds, resolution: LADDER_RESOLUTIONS, ...input.range },
+              { templateIds: visibleIds, resolutions: LADDER_RESOLUTIONS, ...input.range },
               input.limit,
             ),
           )

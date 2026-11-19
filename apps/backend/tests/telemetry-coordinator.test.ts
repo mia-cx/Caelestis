@@ -81,7 +81,7 @@ describe('durable telemetry coordinator', () => {
     expect(
       await sql.readBuckets({
         templateIds: ['template'],
-        resolution: 60,
+        resolutions: [60],
         fromSeconds: seconds(0),
         toSeconds: seconds(60),
       }),

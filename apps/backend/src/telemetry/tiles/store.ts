@@ -107,7 +107,6 @@ export interface TileHistoryQuery {
   readonly toSeconds: Seconds
 }
 
-/** The domain `readTileHistory` accepts. */
 export const assertValidTileHistoryQuery = (query: TileHistoryQuery): void => {
   if (!TILE_HISTORY_RESOLUTIONS.includes(query.resolution)) {
     throw new Error(`readTileHistory resolution ${query.resolution} is not a ladder tier`)
