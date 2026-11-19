@@ -9,7 +9,6 @@ import {
 } from '../state.js'
 import { templateAsPng, templateById } from '../templates/local-store.js'
 import { serverTemplateKey } from '../templates/server-sync.js'
-import { closeDialogHost } from './dialog.js'
 import { applyWplaceTheme } from './theme.js'
 import type { TreeTarget } from './tree.js'
 
@@ -54,6 +53,7 @@ export const openBackfill = (target: TreeTarget): void => {
   let imageUrl: string | null = null
   let preview: BackfillPreview | FolderBackfillPreview | null = null
   let model: BackfillModel = {
+    open: true,
     name: target.name,
     templates: templateId === undefined ? 0 : null,
     previewUrl: null,
@@ -141,12 +141,10 @@ export const openBackfill = (target: TreeTarget): void => {
   }
   const close = (): void => {
     if (closed) return
+    update({ open: false })
     closed = true
     clearTimeout(timer)
     controller.abort()
-    closeDialogHost(element)
-    if (imageUrl !== null) URL.revokeObjectURL(imageUrl)
-    if (restoreFocus?.isConnected) restoreFocus.focus()
     if (closeBackfill === close) closeBackfill = undefined
   }
   closeBackfill = close
@@ -182,8 +180,14 @@ export const openBackfill = (target: TreeTarget): void => {
   element.model = model
   applyWplaceTheme(element)
   element.addEventListener('caelestis-backfill-intent', (event) => {
-    if (closed) return
     const intent = event.detail
+    if (intent.type === 'closed') {
+      element.remove()
+      if (imageUrl !== null) URL.revokeObjectURL(imageUrl)
+      if (restoreFocus?.isConnected) restoreFocus.focus()
+      return
+    }
+    if (closed) return
     if (intent.type === 'close') close()
     else if (intent.type === 'select') update({ selectedSnapshot: intent.snapshotId })
     else if (intent.type === 'reload') {

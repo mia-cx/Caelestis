@@ -111,13 +111,13 @@ separate [Chromium boundary checks](browser-evidence.md); there are no CSS-class
 | `packages/ui/src/overlay/OverlayControls.svelte` | Integration | Mounted component emits public intents and exposes accessible controls for its model; pending/refusal and cleanup where applicable. |
 | `packages/ui/src/panel/Panel.svelte` | Integration | Mounted component emits public intents and exposes accessible controls for its model; pending/refusal and cleanup where applicable. |
 | `packages/ui/src/progress/ColourProgress.svelte` | Integration | Mounted component emits public intents and exposes accessible controls for its model; pending/refusal and cleanup where applicable. |
-| `packages/ui/src/progress/PaletteProgress.svelte` | Integration | Mounted component emits public intents and exposes accessible controls for its model; pending/refusal and cleanup where applicable. |
 | `packages/ui/src/progress/ProgressMeter.svelte` | Integration | Mounted component emits public intents and exposes accessible controls for its model; pending/refusal and cleanup where applicable. |
 | `packages/ui/src/rail/RailControl.svelte` | Integration | Mounted component emits public intents and exposes accessible controls for its model; pending/refusal and cleanup where applicable. |
 | `packages/ui/src/settings/SettingsPanel.svelte` | Integration | Mounted component emits public intents and exposes accessible controls for its model; pending/refusal and cleanup where applicable. |
 | `packages/ui/src/shortcut-help/ShortcutHelp.svelte` | Integration | Mounted component emits public intents and exposes accessible controls for its model; pending/refusal and cleanup where applicable. |
 | `packages/ui/src/shortcut-help/actions.ts` | Integration | Labels and control semantics exercised through composed UI interactions; icons/styles require no standalone assertions. |
 | `packages/ui/src/tags/TagManager.svelte` | Integration | Mounted component emits public intents and exposes accessible controls for its model; pending/refusal and cleanup where applicable. |
+| `packages/ui/src/template-state/TemplateAlarm.svelte` | Integration | Mounted component emits public intents and exposes accessible controls for its model; pending/refusal and cleanup where applicable. |
 | `packages/ui/src/template-state/TemplateLifecycle.svelte` | Integration | Mounted component emits public intents and exposes accessible controls for its model; pending/refusal and cleanup where applicable. |
 | `packages/ui/src/template-state/TemplateState.svelte` | Integration | Mounted component emits public intents and exposes accessible controls for its model; pending/refusal and cleanup where applicable. |
 | `packages/ui/src/theme.ts` | Integration | Theme application exposes the selected mode and updates host styling. |

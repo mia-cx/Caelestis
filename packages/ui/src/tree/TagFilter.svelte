@@ -92,7 +92,7 @@
 <style>
   .tag-filter { min-inline-size: 0; padding: 0.625rem 0.25rem 0.25rem; }
   .title { display: block; margin: 0 0.5rem 0.375rem; color: var(--caelestis-muted-text); font-size: 0.75rem; font-weight: 600; }
-  .box { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; min-block-size: 2.25rem; padding: 0.375rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-field-radius, 0.5rem); background: var(--caelestis-surface); }
+  .box { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; min-block-size: 2.25rem; padding: 0.375rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius); background: var(--caelestis-surface); }
   .box:focus-within { outline: 2px solid var(--caelestis-focus); outline-offset: 1px; }
   .chip { display: inline-flex; align-items: center; max-inline-size: 100%; padding-inline-start: 0.375rem; border-radius: 0.25rem; background: var(--caelestis-raised-surface); font-size: 0.75rem; }
   .chip > span { overflow-wrap: anywhere; min-inline-size: 0; }

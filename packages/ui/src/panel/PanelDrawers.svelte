@@ -5,15 +5,7 @@
   import SettingRow from '../foundations/SettingRow.svelte'
   import TemplateTree from '../tree/TemplateTree.svelte'
   import type { ClaimRowModel, PanelDrawersModel, PanelIntent } from './model.js'
-  let {
-    model,
-    showOtherClaims = false,
-    onIntent,
-  }: {
-    model: PanelDrawersModel
-    showOtherClaims?: boolean
-    onIntent: (intent: PanelIntent) => void
-  } = $props()
+  let { model, onIntent }: { model: PanelDrawersModel; onIntent: (intent: PanelIntent) => void } = $props()
   const count = $derived(model.tree.entries.length)
   const presence = $derived(model.presence)
   const claims = $derived(presence?.claims ?? [])
@@ -36,8 +28,8 @@
               <Toggle
                 label="Show everyone's favourites"
                 compact
-                checked={showOtherClaims}
-                onChange={(show) => onIntent({ type: 'work-visibility', showOtherClaims: show })}
+                checked={model.showOthers}
+                onChange={(show) => onIntent({ type: 'favourites-visibility', showOthers: show })}
               />
             </SettingRow>
           </div>
@@ -45,13 +37,13 @@
         {#if model.error}
           <div class="notice" role="status">
             <span>{model.error}</span>
-            <Button label="Retry" size="compact" onclick={() => onIntent({ type: 'work-retry' })} />
+            <Button label="Retry" size="compact" onclick={() => onIntent({ type: 'favourites-retry' })} />
           </div>
         {/if}
         {#if count === 0}
           <p class="empty">No favourites yet. Right-click a template and choose Favourite to keep it here.</p>
         {:else}
-          <TemplateTree model={{ ...model.tree, displayMode: undefined }} toolbar={false} onIntent={(intent) => onIntent({ type: 'work-tree', intent })} />
+          <TemplateTree model={{ ...model.tree, displayMode: undefined }} toolbar={false} onIntent={(intent) => onIntent({ type: 'favourites-tree', intent })} />
         {/if}
       </div>
     </div>
@@ -194,7 +186,7 @@
     border-radius: var(--caelestis-radius);
     padding: 10px 12px;
     font-weight: 600;
-    background: var(--caelestis-raised-surface, transparent);
+    background: var(--caelestis-raised-surface);
   }
   .count {
     color: var(--caelestis-muted-text);
@@ -306,7 +298,7 @@
     background: color-mix(in oklab, currentColor 10%, transparent);
   }
   button:focus-visible {
-    outline: 2px solid var(--caelestis-focus, currentColor);
+    outline: 2px solid var(--caelestis-focus);
     outline-offset: -2px;
   }
   .empty {
@@ -326,7 +318,7 @@
     margin: 0.25rem 0.5rem;
     padding: 0.375rem 0.375rem 0.375rem 0.625rem;
     border-radius: var(--caelestis-radius);
-    background: color-mix(in oklab, var(--caelestis-danger, oklch(0.59 0.2 27)) 10%, transparent);
+    background: color-mix(in oklab, var(--caelestis-danger) 10%, transparent);
     color: var(--caelestis-text);
     font-size: 12px;
     line-height: 1.35;

@@ -38,6 +38,6 @@
   small { color: var(--caelestis-muted-text); }
   .actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
   button { min-block-size: 2rem; border: 0; border-radius: var(--caelestis-radius); background: transparent; color: inherit; cursor: pointer; }
-  button.primary { padding-inline: 0.75rem; background: var(--caelestis-primary); color: var(--caelestis-primary-text, white); }
+  button.primary { padding-inline: 0.75rem; background: var(--caelestis-primary); color: var(--caelestis-primary-content); }
   button:disabled { cursor: wait; opacity: 0.55; }
 </style>

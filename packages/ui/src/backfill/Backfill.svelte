@@ -15,7 +15,7 @@
   const cancel = (): void => emit({ type: running ? 'cancel' : 'close' })
 </script>
 
-<Modal labelledby="backfill-title" width="32rem" lightDismiss={false} onClose={() => emit({ type: 'close' })}>
+<Modal open={model.open} labelledby="backfill-title" width="32rem" lightDismiss={false} onClose={() => emit({ type: 'close' })} onClosed={() => emit({ type: 'closed' })}>
   <header>
     <h2 id="backfill-title">{model.templates === null ? 'Backfill template tiles and progress data' : 'Backfill folder tiles and progress data'}</h2>
     <Button label="Close backfill" kind="ghost" size="small" iconOnly onclick={() => emit({ type: 'close' })}><Icon name="close" /></Button>
@@ -72,12 +72,12 @@
   .template strong { overflow-wrap: anywhere; }
   img { inline-size: 4rem; block-size: 4rem; object-fit: contain; image-rendering: pixelated; background: var(--caelestis-raised-surface); border-radius: var(--caelestis-radius); }
   label { display: block; font-weight: 600; margin-block-end: 0.375rem; }
-  select { box-sizing: border-box; inline-size: 100%; min-block-size: 2.5rem; padding: 0.5rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius); background: var(--caelestis-raised-surface, #eee); color: inherit; font: inherit; }
+  select { box-sizing: border-box; inline-size: 100%; min-block-size: 2.5rem; padding: 0.5rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius); background: var(--caelestis-raised-surface); color: inherit; font: inherit; }
   select:focus-visible { outline: 2px solid var(--caelestis-focus); outline-offset: 2px; }
   p { margin: 0.5rem 0; }
-  .coverage, .note { color: var(--caelestis-muted-text, #666); }
+  .coverage, .note { color: var(--caelestis-muted-text); }
   .note { margin-block-start: 1rem; }
   .job { margin-block-start: 1rem; padding-block-start: 0.5rem; border-block-start: 1px solid var(--caelestis-border); font-variant-numeric: tabular-nums; }
   progress { inline-size: 100%; accent-color: var(--caelestis-primary); }
-  .error { color: var(--caelestis-danger, #b22); overflow-wrap: anywhere; }
+  .error { color: var(--caelestis-danger); overflow-wrap: anywhere; }
 </style>

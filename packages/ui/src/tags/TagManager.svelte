@@ -29,7 +29,7 @@
   const focusInput = (input: HTMLInputElement): void => { input.focus(); input.select() }
 </script>
 
-<Modal labelledby="tag-title" describedby="tag-owner" onClose={() => emit({ type: 'close' })}>
+<Modal open={model.open} labelledby="tag-title" describedby="tag-owner" onClose={() => emit({ type: 'close' })} onClosed={() => emit({ type: 'closed' })}>
   <div class="content">
     <header>
       <div><h2 id="tag-title">{model.targetName === undefined ? 'Manage tags' : `Tags for ${model.targetName}`}</h2><p id="tag-owner">{model.owner}</p></div>
@@ -84,12 +84,12 @@
   label { display: flex; align-items: center; gap: 0.625rem; cursor: pointer; }
   label, .name { flex: 1; min-inline-size: 0; overflow-wrap: anywhere; }
   input { box-sizing: border-box; font: inherit; color: inherit; }
-  input:not([type='checkbox']) { flex: 1; min-inline-size: 0; inline-size: 100%; block-size: 2rem; border: 1px solid color-mix(in oklab, currentColor 25%, transparent); border-radius: 0.5rem; padding-inline: 0.625rem; background: var(--caelestis-raised-surface, #f4f4f4); }
-  input:focus-visible { outline: 2px solid var(--caelestis-primary, #467ee5); outline-offset: 2px; }
+  input:not([type='checkbox']) { flex: 1; min-inline-size: 0; inline-size: 100%; block-size: 2rem; border: 1px solid color-mix(in oklab, currentColor 25%, transparent); border-radius: 0.5rem; padding-inline: 0.625rem; background: var(--caelestis-raised-surface); }
+  input:focus-visible { outline: 2px solid var(--caelestis-primary); outline-offset: 2px; }
   input:disabled { opacity: 0.5; }
   .create { margin-block-start: 0.75rem; }
   .empty { opacity: 0.7; margin: 0.5rem 0 1rem; }
-  .error { color: var(--caelestis-danger, #bc3434); display: flex; align-items: start; gap: 0.5rem; overflow-wrap: anywhere; }
+  .error { color: var(--caelestis-danger); display: flex; align-items: start; gap: 0.5rem; overflow-wrap: anywhere; }
   .error span { flex: 1; }
   .delete p { margin: 0.5rem 0 0; overflow-wrap: anywhere; }
   .saving { margin: 0.5rem 0 0; opacity: 0.7; }

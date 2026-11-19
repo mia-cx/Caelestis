@@ -6,8 +6,8 @@
     padding-block: 0;
     padding-inline-start: 0.5rem;
     border: 1px solid var(--caelestis-border);
-    border-radius: var(--caelestis-radius, 0.5rem);
-    background-color: var(--caelestis-raised-surface, #eee);
+    border-radius: var(--caelestis-radius);
+    background-color: var(--caelestis-raised-surface);
     color: var(--caelestis-text);
     font: inherit;
     font-variant-numeric: tabular-nums;
@@ -61,21 +61,21 @@
     padding: 0 0.25rem;
     overflow: hidden;
     border: 1px solid var(--caelestis-border);
-    border-radius: min(var(--caelestis-radius, 0.4rem), 0.4rem);
-    background: var(--caelestis-raised-surface, #eee);
+    border-radius: min(var(--caelestis-radius), 0.4rem);
+    background: var(--caelestis-raised-surface);
     color: var(--caelestis-text);
-    font: 600 0.75rem/1 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
+    font: 600 0.75rem/1 var(--caelestis-font);
     text-overflow: ellipsis;
     white-space: nowrap;
     cursor: pointer;
   }
   :global(.studio :where(.choice:is([aria-pressed='true'], [aria-checked='true']))) {
-    border-color: var(--caelestis-primary, oklch(0.68 0.15 244));
-    background: var(--caelestis-primary, oklch(0.68 0.15 244));
-    color: var(--color-primary-content, white);
+    border-color: var(--caelestis-primary);
+    background: var(--caelestis-primary);
+    color: var(--caelestis-primary-content);
   }
   :global(.studio .choice:disabled) { opacity: 0.5; cursor: not-allowed; }
-  :global(.studio .choice:focus-visible) { outline: 2px solid var(--caelestis-focus, currentColor); outline-offset: 1px; }
+  :global(.studio .choice:focus-visible) { outline: 2px solid var(--caelestis-focus); outline-offset: 1px; }
   :global(.studio .number) { position: relative; display: flex; align-items: center; gap: 0.375rem; min-inline-size: 0; }
   :global(.studio .number input) { flex: 1; min-inline-size: 0; inline-size: 100%; padding-inline: 0.5rem; text-align: end; }
   /* A unit inside the field's end, such as px or ×. */

@@ -12,8 +12,7 @@ export interface PanelModel {
   readonly minWidth: number
   readonly maxWidth: number
   readonly tree?: TemplateTreeModel
-  readonly work?: PanelDrawersModel
-  readonly showOtherClaims?: boolean
+  readonly drawers?: PanelDrawersModel
   readonly appearance?: AppearanceEditorModel
   readonly settings?: SettingsModel
 }
@@ -24,6 +23,8 @@ export interface PanelDrawersModel {
   readonly tree: TemplateTreeModel
   readonly error: string
   readonly canShowOthers: boolean
+  /** Whether Favourites lists everyone's favourites, not just the painter's own. */
+  readonly showOthers: boolean
   readonly presence?: PresenceSummaryModel
 }
 
@@ -75,13 +76,13 @@ export interface PresenceSummaryModel {
 }
 
 export type PanelIntent =
-  | { readonly type: 'work-retry' }
-  | { readonly type: 'work-visibility'; readonly showOtherClaims: boolean }
+  | { readonly type: 'favourites-retry' }
+  | { readonly type: 'favourites-visibility'; readonly showOthers: boolean }
   | { readonly type: 'region-claim' }
   | { readonly type: 'presence-fly'; readonly key: string }
   | { readonly type: 'claim-fly'; readonly key: string }
   | { readonly type: 'claim-clear'; readonly key: string }
-  | { readonly type: 'work-tree'; readonly intent: TemplateTreeIntent }
+  | { readonly type: 'favourites-tree'; readonly intent: TemplateTreeIntent }
   | { readonly type: 'navigate'; readonly view: PanelView }
   | { readonly type: 'close' }
   | { readonly type: 'reload-tiles' }

@@ -165,9 +165,13 @@
   --caelestis-border: var(--color-base-300);
   --caelestis-focus: var(--color-primary);
   --caelestis-primary: var(--color-primary);
+  --caelestis-primary-content: var(--color-primary-content);
   --caelestis-warning: var(--color-warning);
+  --caelestis-warning-content: var(--color-warning-content);
   --caelestis-success: var(--color-success);
+  --caelestis-success-content: var(--color-success-content);
   --caelestis-danger: var(--color-error);
+  --caelestis-danger-content: var(--color-error-content);
 }
 
 @layer base {

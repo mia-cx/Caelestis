@@ -518,8 +518,8 @@
     position: fixed;
     inset: 0;
     pointer-events: none;
-    font: 0.875rem/1.4 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
-    color: var(--caelestis-text, #222);
+    font: 0.875rem/1.4 var(--caelestis-font);
+    color: var(--caelestis-text);
   }
   .bar {
     position: absolute;
@@ -535,9 +535,9 @@
     min-inline-size: 0;
     padding: 0.4rem 0.5rem;
     border: 1px solid var(--caelestis-border);
-    border-radius: var(--caelestis-box-radius, var(--caelestis-radius, 1rem));
-    background: var(--caelestis-surface, white);
-    box-shadow: var(--caelestis-popover-shadow, 0 10px 24px -6px rgb(0 0 0 / 0.28));
+    border-radius: var(--caelestis-radius);
+    background: var(--caelestis-surface);
+    box-shadow: var(--caelestis-popover-shadow);
     pointer-events: auto;
     translate: 0 calc(-100% - var(--studio-inset));
     opacity: 0;
@@ -557,7 +557,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .status.failed { color: var(--caelestis-danger, oklch(0.58 0.2 27)); white-space: normal; }
+  .status.failed { color: var(--caelestis-danger); white-space: normal; }
   .group, .tools { display: flex; flex: 0 0 auto; gap: 0.125rem; }
   .bar > :is(.group, .windows, .actions) { padding-inline-start: 0.5rem; border-inline-start: 1px solid var(--caelestis-border); }
   .popup-anchor { position: relative; }
@@ -570,9 +570,9 @@
     inline-size: var(--studio-window-width);
     padding: 0.75rem;
     border: 1px solid var(--caelestis-border);
-    border-radius: var(--caelestis-radius, 0.7rem);
-    background: var(--caelestis-surface, white);
-    box-shadow: var(--caelestis-popover-shadow, 0 10px 24px -6px rgb(0 0 0 / 0.28));
+    border-radius: var(--caelestis-radius);
+    background: var(--caelestis-surface);
+    box-shadow: var(--caelestis-popover-shadow);
   }
   .first-image {
     position: absolute;
@@ -585,8 +585,8 @@
     inline-size: var(--studio-window-width);
     padding: 1rem;
     border: 1px solid var(--caelestis-border);
-    border-radius: var(--caelestis-radius, 0.7rem);
-    box-shadow: var(--caelestis-popover-shadow, 0 10px 24px -6px rgb(0 0 0 / 0.28));
+    border-radius: var(--caelestis-radius);
+    box-shadow: var(--caelestis-popover-shadow);
     pointer-events: auto;
   }
   .lead { margin: 0; color: var(--caelestis-muted-text); }
@@ -614,12 +614,12 @@
     inline-size: var(--card-width);
     padding: 0.5rem;
     border: 1px solid var(--caelestis-border);
-    border-radius: var(--caelestis-radius, 0.7rem);
-    box-shadow: var(--caelestis-popover-shadow, 0 10px 24px -6px rgb(0 0 0 / 0.28));
+    border-radius: var(--caelestis-radius);
+    box-shadow: var(--caelestis-popover-shadow);
     pointer-events: auto;
   }
   .crop-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.375rem; }
-  .crop-fields label { display: grid; gap: 0.25rem; color: var(--caelestis-muted-text); font: 600 0.6875rem/1 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); }
+  .crop-fields label { display: grid; gap: 0.25rem; color: var(--caelestis-muted-text); font: 600 0.6875rem/1 var(--caelestis-font); }
   .crop-fields input { box-sizing: border-box; inline-size: 100%; min-block-size: 1.75rem; text-align: end; font-variant-numeric: tabular-nums; }
   .crop-actions { display: flex; justify-content: center; gap: 0.25rem; }
   /* All four on one line. */
@@ -629,8 +629,8 @@
     inset: 0;
     display: grid;
     place-items: center;
-    background: color-mix(in oklab, var(--caelestis-primary, oklch(0.68 0.15 244)) 14%, transparent);
-    outline: 3px dashed var(--caelestis-primary, oklch(0.68 0.15 244));
+    background: color-mix(in oklab, var(--caelestis-primary) 14%, transparent);
+    outline: 3px dashed var(--caelestis-primary);
     outline-offset: -12px;
     pointer-events: none;
   }
@@ -638,8 +638,8 @@
     margin: 0;
     padding: 0.75rem 1.25rem;
     border: 1px solid var(--caelestis-border);
-    border-radius: var(--caelestis-radius, 0.7rem);
-    background: var(--caelestis-surface, white);
+    border-radius: var(--caelestis-radius);
+    background: var(--caelestis-surface);
     font-weight: 600;
   }
   .windows { position: relative; flex: 0 0 auto; }
@@ -659,13 +659,13 @@
     overscroll-behavior: contain;
     scrollbar-width: thin;
     border: 1px solid var(--caelestis-border);
-    border-radius: var(--caelestis-radius, calc(0.7rem + 1px));
-    background: var(--caelestis-surface, oklch(0.97 0.01 264));
-    color: var(--caelestis-text, oklch(0.26 0.025 264));
-    box-shadow: var(--caelestis-popover-shadow, 0 10px 24px -6px rgb(0 0 0 / 0.28));
+    border-radius: var(--caelestis-radius);
+    background: var(--caelestis-surface);
+    color: var(--caelestis-text);
+    box-shadow: var(--caelestis-popover-shadow);
     pointer-events: auto;
   }
-  .frame.moving { position: fixed; z-index: 3; box-shadow: var(--caelestis-shadow, 0 24px 80px rgb(0 0 0 / 0.35)); }
+  .frame.moving { position: fixed; z-index: 3; box-shadow: var(--caelestis-shadow); }
   .frame > .split, .frame > .place { flex: 0 0 auto; }
   .split { display: flex; min-inline-size: 0; }
   .split[data-axis='column'] { flex-direction: column; }
@@ -688,9 +688,9 @@
     position: fixed;
     z-index: 4;
     box-sizing: border-box;
-    border: 2px solid var(--caelestis-primary, oklch(0.68 0.15 244));
-    border-radius: min(var(--caelestis-radius, 0.4rem), 0.4rem);
-    background: color-mix(in oklab, var(--caelestis-primary, oklch(0.68 0.15 244)) 18%, transparent);
+    border: 2px solid var(--caelestis-primary);
+    border-radius: min(var(--caelestis-radius), 0.4rem);
+    background: color-mix(in oklab, var(--caelestis-primary) 18%, transparent);
     pointer-events: none;
   }
   .ghost {
@@ -698,10 +698,10 @@
     z-index: 5;
     padding: 0.35rem 0.75rem;
     border: 1px solid var(--caelestis-border);
-    border-radius: min(var(--caelestis-radius, 0.4rem), 0.4rem);
-    background: var(--caelestis-surface, white);
-    box-shadow: var(--caelestis-shadow, 0 24px 80px rgb(0 0 0 / 0.35));
-    font: 600 0.8125rem/1.25 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
+    border-radius: min(var(--caelestis-radius), 0.4rem);
+    background: var(--caelestis-surface);
+    box-shadow: var(--caelestis-shadow);
+    font: 600 0.8125rem/1.25 var(--caelestis-font);
     pointer-events: none;
   }
   .narrow .bar { inset-inline: var(--map-barStart) var(--map-barEnd); inline-size: auto; max-inline-size: none; flex-wrap: wrap; row-gap: 0.375rem; }
@@ -727,9 +727,9 @@
     max-block-size: 50dvh;
     overflow: hidden;
     border: 1px solid var(--caelestis-border);
-    border-radius: var(--caelestis-radius, 0.7rem);
-    background: var(--caelestis-surface, white);
-    box-shadow: var(--caelestis-popover-shadow, 0 10px 24px -6px rgb(0 0 0 / 0.28));
+    border-radius: var(--caelestis-radius);
+    background: var(--caelestis-surface);
+    box-shadow: var(--caelestis-popover-shadow);
     pointer-events: auto;
   }
   /* The tabs scroll sideways; the fading end says there are more. */
@@ -742,10 +742,10 @@
     border-block-end: 2px solid transparent;
     background: none;
     color: var(--caelestis-muted-text);
-    font: 600 0.8125rem/1 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
+    font: 600 0.8125rem/1 var(--caelestis-font);
     cursor: pointer;
   }
-  .tabs button[aria-selected='true'] { border-block-end-color: var(--caelestis-primary, oklch(0.68 0.15 244)); color: var(--caelestis-text); }
+  .tabs button[aria-selected='true'] { border-block-end-color: var(--caelestis-primary); color: var(--caelestis-text); }
   .sheet-body {
     --caelestis-content-inset: 0.75rem;
     display: flex;

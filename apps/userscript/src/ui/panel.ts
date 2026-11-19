@@ -1183,7 +1183,7 @@ const panelModel = (width = panelWidthForViewport(getState().panelWidth)): Panel
 const claimTreeModels = (
   adapter: TemplateTreeAdapter,
   claims: ReturnType<typeof workSectionModel>,
-): Pick<PanelModel, 'tree' | 'work' | 'showOtherClaims'> => {
+): Pick<PanelModel, 'tree' | 'drawers'> => {
   const keys = [...claims.templates]
     .filter(
       ([, claim]) => claim.mine || (showOtherClaims && claim.canAssign && claim.people.length > 0),
@@ -1208,18 +1208,18 @@ const claimTreeModels = (
     claimedTreeKeys = keys
   }
   return {
-    showOtherClaims,
     tree: {
       ...withTemplateClaims(adapter.model, claims),
       ...focusedTreeModel(),
       ...treeActionPresentation(),
     },
-    work: {
+    drawers: {
       tree: {
         ...withTemplateClaims(claimedTreeAdapter.model, claims, showOtherClaims),
         ...focusedTreeModel(),
       },
       canShowOthers: claims.canShowOthers,
+      showOthers: showOtherClaims,
       error: claims.error,
       ...presenceField(),
     },
@@ -1227,7 +1227,7 @@ const claimTreeModels = (
 }
 
 /** The Painters drawer's model, which only the world canvas has. */
-const presenceField = (): Pick<NonNullable<PanelModel['work']>, 'presence'> => {
+const presenceField = (): Pick<NonNullable<PanelModel['drawers']>, 'presence'> => {
   if (panelSurface.kind !== 'world') return {}
   const presence = presenceSummaryModel()
   return presence === undefined ? {} : { presence }
@@ -1237,10 +1237,10 @@ const presenceField = (): Pick<NonNullable<PanelModel['work']>, 'presence'> => {
 const refreshPresenceDrawer = (): void => {
   if (!panelOpen() || currentView() !== 'tree') return
   const panel = document.getElementById(currentPanelId()) as PanelHost | null
-  const work = panel?.model.work
-  if (panel == null || work === undefined) return
-  const { presence: _previous, ...rest } = work
-  panel.model = { ...panel.model, work: { ...rest, ...presenceField() } }
+  const drawers = panel?.model.drawers
+  if (panel == null || drawers === undefined) return
+  const { presence: _previous, ...rest } = drawers
+  panel.model = { ...panel.model, drawers: { ...rest, ...presenceField() } }
 }
 
 /** Follow a pixel-progress change by updating row progress in both trees, keeping their rows. */
@@ -1281,10 +1281,10 @@ const buildSveltePanel = (): PanelHost => {
   panel.addEventListener('caelestis-panel-intent', (event) => {
     const intent = event.detail
     switch (intent.type) {
-      case 'work-retry':
+      case 'favourites-retry':
         retryTemplateClaims(panelSurface, rerenderTree)
         break
-      case 'work-tree':
+      case 'favourites-tree':
         if (intent.intent.type === 'favourite') {
           changeTemplateClaim(
             intent.intent.key,
@@ -1297,8 +1297,8 @@ const buildSveltePanel = (): PanelHost => {
           claimedTreeAdapter?.handle(intent.intent)
         }
         break
-      case 'work-visibility':
-        showOtherClaims = intent.showOtherClaims
+      case 'favourites-visibility':
+        showOtherClaims = intent.showOthers
         rerenderTree()
         break
       case 'region-claim':

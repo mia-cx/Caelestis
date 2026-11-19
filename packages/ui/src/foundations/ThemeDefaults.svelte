@@ -4,6 +4,12 @@
   specificity, so any host theme overrides them (the userscript paints radius and fonts per Wplace
   style, the frontend sets its own radius and colours). The motion scale is the transitions.dev
   one, prefixed so Tailwind's own --ease-* never shadows it.
+
+  Colours have no defaults: every host sets each colour token of `CaelestisThemeTokens`.
+
+  Optional hooks a host may set, each read with its own fallback by one component:
+  `--caelestis-track-pattern` (ProgressMeter's track background), `--caelestis-meter-size` and
+  `--caelestis-meter-small-size` (ProgressMeter's percentage text).
 -->
 <style>
   :global(:where(:root, :host)) {

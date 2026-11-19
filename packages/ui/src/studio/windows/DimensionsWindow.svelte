@@ -179,16 +179,16 @@
     block-size: 1.5rem;
     padding: 0;
     border: 1px solid color-mix(in oklab, var(--caelestis-text) 30%, transparent);
-    border-radius: calc(var(--caelestis-radius, 0.5rem) / 3);
-    background: var(--caelestis-raised-surface, #eee);
+    border-radius: calc(var(--caelestis-radius) / 3);
+    background: var(--caelestis-raised-surface);
     cursor: pointer;
   }
   .anchors button:disabled { cursor: default; }
-  .anchors button:focus-visible { outline: 2px solid var(--caelestis-focus, currentColor); outline-offset: 1px; }
+  .anchors button:focus-visible { outline: 2px solid var(--caelestis-focus); outline-offset: 1px; }
   .anchors span {
     inline-size: 0.5rem;
     block-size: 0.5rem;
     background: color-mix(in oklab, var(--caelestis-text) 35%, transparent);
   }
-  .anchors span.checked { background: var(--caelestis-primary, oklch(0.68 0.15 244)); }
+  .anchors span.checked { background: var(--caelestis-primary); }
 </style>

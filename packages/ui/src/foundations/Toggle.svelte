@@ -4,11 +4,10 @@
     checked: boolean
     disabled?: boolean
     compact?: boolean
-    control?: string
     onChange?: (checked: boolean) => void
   }
 
-  let { label, checked, disabled = false, compact = false, control, onChange }: Props = $props()
+  let { label, checked, disabled = false, compact = false, onChange }: Props = $props()
   // The "off" keyframes must not play on mount — they only arm once the user has toggled.
   let initiated = $state(false)
 </script>
@@ -21,7 +20,6 @@
   class:is-init={initiated}
   {checked}
   {disabled}
-  data-caelestis-control={control}
   onchange={(event) => { initiated = true; onChange?.(event.currentTarget.checked) }}
 />
 
@@ -29,10 +27,10 @@
   input {
     --toggle-size: 1.25rem;
     --toggle-padding: calc(var(--toggle-size) * 0.125);
-    --toggle-colour: color-mix(in oklab, var(--caelestis-text, var(--color-base-content, currentColor)) 50%, transparent);
+    --toggle-colour: color-mix(in oklab, var(--caelestis-text) 50%, transparent);
     /* The thumb's resting offset is the column it jumps to; --toggle-travel is that column's width. */
     --toggle-dur: var(--caelestis-duration-fast);
-    --toggle-travel: calc(var(--toggle-size) - (var(--border, 1px) + var(--toggle-padding)) * 2);
+    --toggle-travel: calc(var(--toggle-size) - (1px + var(--toggle-padding)) * 2);
     --toggle-ov1: 1px;
     --toggle-ov2: 0px;
     --toggle-ease: var(--caelestis-ease-bounce);
@@ -42,15 +40,15 @@
     flex-shrink: 0;
     grid-template-columns: 0fr 1fr 1fr;
     place-content: center;
-    inline-size: calc((var(--toggle-size) * 2) - (var(--border, 1px) + var(--toggle-padding)) * 2);
+    inline-size: calc((var(--toggle-size) * 2) - (1px + var(--toggle-padding)) * 2);
     block-size: var(--toggle-size);
     margin: 0;
     padding: var(--toggle-padding);
-    border: var(--border, 1px) solid currentColor;
+    border: 1px solid currentColor;
     border-radius: var(--caelestis-radius);
     background: transparent;
     color: var(--toggle-colour);
-    box-shadow: 0 1px color-mix(in oklab, currentColor calc(var(--depth, 1) * 10%), transparent) inset;
+    box-shadow: 0 1px color-mix(in oklab, currentColor 10%, transparent) inset;
     cursor: pointer;
     transition: color var(--caelestis-duration-fast);
   }
@@ -68,12 +66,12 @@
     translate: 0 0;
     will-change: translate;
     box-shadow:
-      0 -1px oklch(0% 0 0 / calc(var(--depth, 1) * 10%)) inset,
-      0 8px 0 -4px oklch(100% 0 0 / calc(var(--depth, 1) * 10%)) inset,
-      0 1px color-mix(in oklab, currentColor calc(var(--depth, 1) * 10%), transparent);
+      0 -1px oklch(0% 0 0 / 10%) inset,
+      0 8px 0 -4px oklch(100% 0 0 / 10%) inset,
+      0 1px color-mix(in oklab, currentColor 10%, transparent);
   }
 
-  input:checked { --toggle-colour: var(--caelestis-primary, var(--color-primary, oklch(0.58 0.17 252))); grid-template-columns: 1fr 1fr 0fr; background: var(--caelestis-surface, var(--color-base-100, white)); }
+  input:checked { --toggle-colour: var(--caelestis-primary); grid-template-columns: 1fr 1fr 0fr; background: var(--caelestis-surface); }
   input.compact { --toggle-size: 1rem; }
   input:disabled { cursor: not-allowed; opacity: 0.3; }
   input:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
@@ -121,7 +119,7 @@
   :host([data-caelestis-style='pixel']) input:checked {
     background: var(--caelestis-primary);
     box-shadow: inset 3px 3px 0 var(--caelestis-pixel-primary-shade);
-    color: var(--color-primary-content, white);
+    color: var(--caelestis-primary-content);
   }
   :host([data-caelestis-style='pixel']) input:focus-visible {
     outline: 2px solid var(--caelestis-primary);

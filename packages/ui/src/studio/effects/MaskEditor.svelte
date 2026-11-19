@@ -98,7 +98,7 @@
         <CurveGraph
           id="{id}-mask"
           points={one.points}
-          colour="var(--caelestis-primary, oklch(0.68 0.15 244))"
+          colour="var(--caelestis-primary)"
           neutral="full"
           periodic={one.x.channel === 'hue'}
           spectrum={one.x.channel === 'hue' ? hueAxis(one.x.model) : undefined}

@@ -198,7 +198,7 @@
     gap: 0.375rem;
     inline-size: var(--caelestis-toasts-inline-size, min(24rem, calc(100vw - 4.25rem)));
     max-block-size: calc(100dvh - 1rem);
-    color: var(--caelestis-text, oklch(0.26 0.025 264));
+    color: var(--caelestis-text);
     font: 500 0.8125rem/1.35 var(--caelestis-font);
     pointer-events: none;
   }
@@ -212,11 +212,11 @@
     justify-content: space-between;
     gap: 0.5rem;
     padding: 0.25rem 0.25rem 0.25rem 0.75rem;
-    border: 1px solid var(--caelestis-border, oklch(0.78 0.025 264 / 0.7));
+    border: 1px solid var(--caelestis-border);
     border-radius: var(--caelestis-radius);
-    background: var(--caelestis-surface, white);
-    box-shadow: var(--caelestis-popover-shadow, 0 1px 2px rgb(0 0 0 / 0.12), 0 10px 24px -6px rgb(0 0 0 / 0.28));
-    color: var(--caelestis-muted-text, color-mix(in oklab, currentColor 68%, transparent));
+    background: var(--caelestis-surface);
+    box-shadow: var(--caelestis-popover-shadow);
+    color: var(--caelestis-muted-text);
   }
 
   /* The pile leaves room above the top card for the cards peeking out behind it. */
@@ -226,10 +226,10 @@
     position: absolute;
     inset: 0;
     z-index: calc(0 - var(--depth));
-    border: 1px solid var(--caelestis-border, oklch(0.78 0.025 264 / 0.7));
+    border: 1px solid var(--caelestis-border);
     border-radius: var(--caelestis-radius);
-    background: var(--caelestis-surface, white);
-    box-shadow: var(--caelestis-popover-shadow, 0 1px 2px rgb(0 0 0 / 0.12), 0 10px 24px -6px rgb(0 0 0 / 0.28));
+    background: var(--caelestis-surface);
+    box-shadow: var(--caelestis-popover-shadow);
     translate: 0 calc(var(--depth) * -0.5rem);
     scale: calc(1 - var(--depth) * 0.04);
     opacity: calc(1 - var(--depth) * 0.2);
@@ -250,15 +250,15 @@
     min-block-size: 2.5rem;
     padding: 0.25rem 0.25rem 0.25rem 0.75rem;
     /* Mixed in oklab: wplace's white is oklch(100% 0 0), whose hue 0 would otherwise turn every tint pink. */
-    border: 1px solid color-mix(in oklab, var(--kind) 40%, var(--caelestis-border, oklch(0.78 0.025 264 / 0.7)));
+    border: 1px solid color-mix(in oklab, var(--kind) 40%, var(--caelestis-border));
     border-radius: var(--caelestis-radius);
-    background: color-mix(in oklab, var(--kind) 8%, var(--caelestis-surface, white));
-    box-shadow: var(--caelestis-popover-shadow, 0 1px 2px rgb(0 0 0 / 0.12), 0 10px 24px -6px rgb(0 0 0 / 0.28));
+    background: color-mix(in oklab, var(--kind) 8%, var(--caelestis-surface));
+    box-shadow: var(--caelestis-popover-shadow);
   }
 
-  .toast.info { --kind: var(--caelestis-primary, oklch(0.58 0.17 252)); }
-  .toast.warning { --kind: var(--caelestis-warning, oklch(0.62 0.14 75)); }
-  .toast.error { --kind: var(--caelestis-danger, oklch(0.59 0.2 27)); }
+  .toast.info { --kind: var(--caelestis-primary); }
+  .toast.warning { --kind: var(--caelestis-warning); }
+  .toast.error { --kind: var(--caelestis-danger); }
 
   .toast :global(.kind) { flex: 0 0 auto; inline-size: 1.125rem; block-size: 1.125rem; color: var(--kind); }
   /* The message keeps a readable measure; when the controls do not fit beside it they drop to a second line, right-aligned. */
@@ -271,9 +271,9 @@
     align-items: center;
     min-block-size: 2rem;
     padding-inline: 0.625rem;
-    border: 1px solid var(--caelestis-border, oklch(0.78 0.025 264 / 0.7));
+    border: 1px solid var(--caelestis-border);
     border-radius: var(--caelestis-radius);
-    background: var(--caelestis-raised-surface, color-mix(in oklab, var(--caelestis-surface, white) 92%, black));
+    background: var(--caelestis-raised-surface);
     color: inherit;
     font-weight: 600;
     text-decoration: none;
@@ -281,7 +281,7 @@
   }
 
   @media (hover: hover) {
-    .toast-action:hover { background: color-mix(in oklab, currentColor 10%, var(--caelestis-raised-surface, transparent)); }
+    .toast-action:hover { background: color-mix(in oklab, currentColor 10%, var(--caelestis-raised-surface)); }
   }
 
   .toast {
@@ -316,8 +316,8 @@
 
   header {
     padding: 1rem 1.25rem;
-    border-block-end: 1px solid var(--caelestis-border, oklch(0.78 0.025 264 / 0.7));
-    background: color-mix(in oklab, var(--caelestis-surface, white) 88%, transparent);
+    border-block-end: 1px solid var(--caelestis-border);
+    background: color-mix(in oklab, var(--caelestis-surface) 88%, transparent);
   }
 
   h2 { margin: 0; font-size: 1.25rem; line-height: 1.2; }
@@ -325,7 +325,7 @@
   .dialog-body { flex: 1 1 auto; min-block-size: 0; padding: 1rem 1.25rem 1.25rem; overflow: auto; }
   p { margin: 0; }
   .lead { font-size: 1.05rem; }
-  .note { margin-block-start: 0.25rem; color: var(--caelestis-muted-text, color-mix(in oklab, currentColor 68%, transparent)); white-space: pre-line; }
+  .note { margin-block-start: 0.25rem; color: var(--caelestis-muted-text); white-space: pre-line; }
   .dialog-actions { display: flex; justify-content: flex-end; gap: 0.75rem; margin-block-start: 1.5rem; }
   .secret-value { display: grid; gap: 0.375rem; margin-block-start: 1rem; }
   .secret-row { display: flex; gap: 0.5rem; }

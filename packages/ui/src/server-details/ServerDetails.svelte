@@ -117,7 +117,7 @@
   }
 </script>
 
-<Modal labelledby="server-details-title" describedby="server-details-owner" width="32rem" onClose={() => emit({ type: 'close' })}>
+<Modal open={model.open} labelledby="server-details-title" describedby="server-details-owner" width="32rem" onClose={() => emit({ type: 'close' })} onClosed={() => emit({ type: 'closed' })}>
   <form class="content" onsubmit={(event) => { event.preventDefault(); save() }}>
     <header>
       <div>
@@ -197,9 +197,9 @@
   label:not(.file) { display: flex; flex-direction: column; gap: 0.25rem; }
   label > span:first-child, legend { font-weight: 600; }
   small { opacity: 0.7; }
-  input:not([type='file']), textarea { box-sizing: border-box; inline-size: 100%; font: inherit; color: inherit; border: 1px solid color-mix(in oklab, currentColor 25%, transparent); border-radius: 0.5rem; padding: 0.375rem 0.625rem; background: var(--caelestis-raised-surface, #f4f4f4); }
+  input:not([type='file']), textarea { box-sizing: border-box; inline-size: 100%; font: inherit; color: inherit; border: 1px solid color-mix(in oklab, currentColor 25%, transparent); border-radius: 0.5rem; padding: 0.375rem 0.625rem; background: var(--caelestis-raised-surface); }
   textarea { resize: vertical; min-block-size: 3rem; }
-  input:focus-visible, textarea:focus-visible, .file:has(input:focus-visible) { outline: 2px solid var(--caelestis-primary, #467ee5); outline-offset: 2px; }
+  input:focus-visible, textarea:focus-visible, .file:has(input:focus-visible) { outline: 2px solid var(--caelestis-primary); outline-offset: 2px; }
   input:disabled, textarea:disabled { opacity: 0.5; }
   fieldset { margin: 0; padding: 0.625rem 0.75rem 0.75rem; border: 1px solid color-mix(in oklab, currentColor 15%, transparent); border-radius: 0.5rem; }
   .asset { display: flex; flex-direction: column; gap: 0.5rem; }
@@ -211,7 +211,7 @@
   .logo { block-size: 2.5rem; max-inline-size: 100%; object-fit: contain; object-position: left; }
   .preview { inline-size: 100%; max-block-size: 10rem; object-fit: contain; }
   .empty { opacity: 0.7; }
-  .error { margin: 0; color: var(--caelestis-danger, #bc3434); overflow-wrap: anywhere; }
+  .error { margin: 0; color: var(--caelestis-danger); overflow-wrap: anywhere; }
   .notice { margin: 0; opacity: 0.8; }
   footer { display: flex; align-items: center; justify-content: end; gap: 0.5rem; padding: 0.75rem 1rem; border-block-start: 1px solid color-mix(in oklab, currentColor 12%, transparent); }
   .saving { margin: 0 auto 0 0; opacity: 0.7; }

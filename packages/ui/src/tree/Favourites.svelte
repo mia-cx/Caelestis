@@ -236,11 +236,11 @@
     min-inline-size: 0;
     block-size: 1.75rem;
     padding: 0 0.5rem;
-    font: 400 0.75rem/1 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
+    font: 400 0.75rem/1 var(--caelestis-font);
     color: var(--caelestis-text);
     background: var(--caelestis-surface);
     border: 1px solid var(--caelestis-border);
-    border-radius: var(--caelestis-radius, calc(0.7rem + 1px));
+    border-radius: var(--caelestis-radius);
   }
   .form-actions {
     display: flex;

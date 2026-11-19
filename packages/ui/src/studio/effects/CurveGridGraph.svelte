@@ -187,15 +187,15 @@
     inline-size: 100%;
     aspect-ratio: 3 / 2;
     border: 1px solid var(--caelestis-border);
-    background: color-mix(in oklab, var(--caelestis-raised-surface, #eee) 50%, transparent);
+    background: color-mix(in oklab, var(--caelestis-raised-surface) 50%, transparent);
     touch-action: none;
     user-select: none;
   }
   .grid { stroke: color-mix(in oklab, currentColor 25%, transparent); }
-  .cell { fill: var(--caelestis-surface, white); stroke: currentColor; cursor: ns-resize; outline: none; }
+  .cell { fill: var(--caelestis-surface); stroke: currentColor; cursor: ns-resize; outline: none; }
   .cell.changed { fill: currentColor; }
-  .cell.active { fill: var(--caelestis-primary, oklch(0.68 0.15 244)); }
-  .cell:focus-visible { stroke: var(--caelestis-primary, oklch(0.68 0.15 244)); }
+  .cell.active { fill: var(--caelestis-primary); }
+  .cell:focus-visible { stroke: var(--caelestis-primary); }
   .spectrum { block-size: 0.5rem; margin-block-start: -0.5rem; border: 1px solid var(--caelestis-border); border-block-start: 0; }
   .point-fields { display: grid; grid-template-columns: 1fr 1fr 1fr auto; align-items: end; gap: 0.35rem; }
   .point-fields .number { flex-direction: column; align-items: stretch; gap: 0.15rem; }

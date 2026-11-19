@@ -13,7 +13,7 @@
 
   /** Each curve's colour, by position: its line and its chip swatch. */
   const TONES = [
-    'var(--caelestis-primary, oklch(0.68 0.15 244))',
+    'var(--caelestis-primary)',
     'oklch(0.69 0.15 237)',
     'oklch(0.67 0.26 322)',
     'oklch(0.7 0.15 163)',

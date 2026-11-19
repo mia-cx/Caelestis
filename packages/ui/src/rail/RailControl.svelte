@@ -27,7 +27,7 @@
 
 <style>
   button {
-    --button-base-colour: var(--caelestis-raised-surface, var(--color-base-200, oklch(0.32 0.025 264)));
+    --button-base-colour: var(--caelestis-raised-surface);
     --button-colour: var(--button-base-colour);
     position: relative;
     display: grid;
@@ -35,23 +35,23 @@
     inline-size: var(--caelestis-touch-target);
     block-size: var(--caelestis-touch-target);
     padding: 0;
-    border: var(--border, 1px) solid color-mix(in oklab, var(--button-colour), #000 calc(var(--depth, 1) * 5%));
+    border: 1px solid color-mix(in oklab, var(--button-colour), #000 5%);
     border-radius: var(--caelestis-pill-radius);
     outline-color: var(--button-colour);
     background: var(--button-colour);
-    color: var(--caelestis-text, oklch(0.91 0.015 264));
+    color: var(--caelestis-text);
     box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
     cursor: pointer;
     touch-action: manipulation;
     user-select: none;
   }
-  button.pressed { --button-base-colour: var(--caelestis-primary, oklch(0.68 0.15 244)); color: white; }
-  button.danger { color: var(--caelestis-danger, oklch(0.72 0.18 27)); }
+  button.pressed { --button-base-colour: var(--caelestis-primary); color: white; }
+  button.danger { color: var(--caelestis-danger); }
   button[aria-disabled='true'] { cursor: not-allowed; opacity: 0.5; }
   @media (hover: hover) { button:hover:not([aria-disabled='true']) { --button-colour: color-mix(in oklab, var(--button-base-colour), #000 7%); } }
   button:active:not([aria-disabled='true']) { translate: 0 0.5px; box-shadow: none; }
-  button:focus-visible { outline: 2px solid var(--button-colour, var(--caelestis-focus, currentColor)); outline-offset: 2px; }
-  .badge { position: absolute; inset-block-start: -0.35rem; inset-inline-end: -0.35rem; display: grid; place-items: center; min-inline-size: 1.2rem; block-size: 1.2rem; padding-inline: 0.25rem; border: 2px solid var(--button-colour); border-radius: var(--caelestis-pill-radius); background: var(--caelestis-danger, oklch(0.72 0.18 27)); color: white; font: 800 0.65rem/1 var(--caelestis-font); }
+  button:focus-visible { outline: 2px solid var(--button-colour, var(--caelestis-focus)); outline-offset: 2px; }
+  .badge { position: absolute; inset-block-start: -0.35rem; inset-inline-end: -0.35rem; display: grid; place-items: center; min-inline-size: 1.2rem; block-size: 1.2rem; padding-inline: 0.25rem; border: 2px solid var(--button-colour); border-radius: var(--caelestis-pill-radius); background: var(--caelestis-danger); color: white; font: 800 0.65rem/1 var(--caelestis-font); }
   @media (prefers-reduced-motion: no-preference) { button { transition: color 200ms, background-color 200ms, border-color 200ms, box-shadow 200ms, translate 200ms; } }
 
   /* Pixel chrome: square bevel flush with Wplace's own rail buttons. */
@@ -65,7 +65,7 @@
     --bevel-color: var(--caelestis-primary);
     --bevel-light: var(--caelestis-pixel-primary-light);
     --bevel-dark: var(--caelestis-pixel-primary-shade);
-    color: var(--color-primary-content, white);
+    color: var(--caelestis-primary-content);
     background: var(--bevel-stack);
   }
   :host([data-caelestis-style='pixel']) button.danger { color: var(--caelestis-danger); }
