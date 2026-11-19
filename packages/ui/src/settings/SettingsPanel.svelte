@@ -14,6 +14,7 @@
     type ShortcutCategory,
     type ShortcutId,
     shortcutLabel,
+    simulatedInputOn,
   } from '@caelestis/shared'
   import type { AccessTokenScope, GlobalSettingsIntent, SettingsIntent, SettingsModel, SettingsServerModel } from './model.js'
 
