@@ -1,19 +1,18 @@
 import {
   type AlarmKind,
+  type ColourProgress,
   type Progress,
   sameTemplateSurface,
   type TemplateSurface,
   templateFilterCount,
   WORLD_PIXELS,
   WORLD_TEMPLATE_SURFACE,
-  WPLACE_PALETTE,
 } from '@caelestis/shared'
 import type {
   FavouritesModel,
   TemplateTreeIntent,
   TemplateTreeModel,
   TreeActionModel,
-  TreeColourProgressModel,
   TreeEntryModel,
   TreeRowModel,
 } from '@caelestis/ui/elements'
@@ -1506,8 +1505,8 @@ const sameCounts = (a: Progress | undefined, b: Progress | undefined): boolean =
     a.total === b.total)
 
 const sameColourCounts = (
-  a: readonly TreeColourProgressModel[] | undefined,
-  b: readonly TreeColourProgressModel[] | undefined,
+  a: readonly ColourProgress[] | undefined,
+  b: readonly ColourProgress[] | undefined,
 ): boolean =>
   a === b ||
   (a !== undefined &&
@@ -1520,19 +1519,10 @@ const rowProgress = (
   options: TreeRowOptions,
 ): Pick<TreeRowModel, 'progress' | 'colourProgress'> => {
   const progress = options.progressReader?.() ?? options.progress
-  const colours = options.colourProgress?.()
+  const colourProgress = options.colourProgress?.()
   return {
     ...(progress === undefined ? {} : { progress }),
-    ...(colours === undefined
-      ? {}
-      : {
-          colourProgress: colours.flatMap((colour) => {
-            const palette = WPLACE_PALETTE[colour.index]
-            return palette === undefined
-              ? []
-              : [{ ...colour, name: palette.name, hex: palette.hex }]
-          }),
-        }),
+    ...(colourProgress === undefined ? {} : { colourProgress }),
   }
 }
 

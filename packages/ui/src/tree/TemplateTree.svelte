@@ -10,7 +10,8 @@
   import Icon from '../foundations/Icon.svelte'
   import TemplateState from '../template-state/TemplateState.svelte'
   import TemplateLifecycle from '../template-state/TemplateLifecycle.svelte'
-  import ProgressMeter from '../progress/ProgressMeter.svelte'
+  import ColourProgress from '../progress/ColourProgress.svelte'
+  import ProgressMeter, { wholePercent } from '../progress/ProgressMeter.svelte'
   import { onDestroy, tick } from 'svelte'
   import { SvelteMap } from 'svelte/reactivity'
   import { slide, type EasingFunction, type TransitionConfig } from 'svelte/transition'
@@ -382,11 +383,6 @@
   })
 
   const emit = (intent: TemplateTreeIntent): void => onIntent?.(intent)
-  const wholePercent = (value: number, total: number): number => {
-    if (total <= 0) return 0
-    const rounded = Math.round(Math.min(1, Math.max(0, value / total)) * 100)
-    return value < total ? Math.min(99, rounded) : rounded
-  }
   const percent = (progress: Progress): number => wholePercent(progress.completed, progress.total)
   const scannedPercent = (progress: Progress): number => wholePercent(progress.known, progress.total)
   const branchIndent = 18
@@ -963,15 +959,7 @@
                 {/if}
               </div>
               {#if disclosure === 'colours' && entry.colourProgress !== undefined}
-                <div class="colour-progress">
-                  {#each entry.colourProgress as colour (colour.index)}
-                    <div class="colour-progress-row" aria-label={`${colour.name}, ${percent(colour)}% complete`}>
-                      <span class="colour-swatch" style:background={colour.hex}></span>
-                      <span class="colour-name" title={colour.name}>{colour.name}</span>
-                      <ProgressMeter progress={colour} size="sm" completedColour={colour.hex} />
-                    </div>
-                  {/each}
-                </div>
+                <ColourProgress colours={entry.colourProgress} />
               {/if}
             </div>
           {/if}
@@ -1096,11 +1084,6 @@
     .progress-legend { grid-template-columns: 1fr; row-gap: 0.125rem; }
     .progress-legend .coverage { margin-inline-start: 0; }
   }
-  .colour-progress { display: flex; min-inline-size: 0; flex-direction: column; gap: 0.25rem; }
-  .colour-progress-row { display: flex; min-inline-size: 0; align-items: center; gap: 0.375rem; }
-  .colour-swatch { flex: 0 0 0.625rem; inline-size: 0.625rem; block-size: 0.625rem; border-radius: var(--caelestis-pill-radius, 999px); box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.12); }
-  .colour-name { flex: 0 0 5rem; overflow: hidden; font-size: 0.625rem; line-height: 1; opacity: 0.68; text-overflow: ellipsis; white-space: nowrap; }
-  .colour-progress-row :global(.meter-wrap) { flex: 1; }
   .notice { display: flex; align-items: center; gap: 0.5rem; min-block-size: 1.75rem; padding-inline-end: 0.75rem; color: var(--caelestis-muted-text); font-size: 0.72rem; }
   .standalone { display: flex; }
   .standalone.compact { justify-content: flex-start; padding: 0 0.75rem 0.5rem 2.25rem; }

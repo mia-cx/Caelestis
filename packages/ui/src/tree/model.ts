@@ -1,4 +1,4 @@
-import type { AlarmKind, Progress } from '@caelestis/shared'
+import type { AlarmKind, ColourProgress, Progress } from '@caelestis/shared'
 import type { IconName } from '../foundations/icons.svelte.js'
 
 export type TreeIcon = Extract<
@@ -29,12 +29,6 @@ export type TreeIcon = Extract<
   | 'taskAlt'
   | 'tune'
 >
-
-export interface TreeColourProgressModel extends Progress {
-  readonly index: number
-  readonly name: string
-  readonly hex: string
-}
 
 export interface TreeActionModel {
   readonly id: string
@@ -86,7 +80,8 @@ export interface TreeRowModel {
     readonly pixelsLost?: number | undefined
   }
   readonly progress?: Progress
-  readonly colourProgress?: readonly TreeColourProgressModel[]
+  /** Per palette colour; names and swatches come from the palette. */
+  readonly colourProgress?: readonly ColourProgress[]
   /** Fly to the template: the artwork and a heading button in grid, the first row action in tree. */
   readonly navigate?: TreeActionModel
   readonly actions?: readonly TreeActionModel[]
