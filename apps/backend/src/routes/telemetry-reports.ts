@@ -1,5 +1,6 @@
 import {
   isSha256Hex,
+  MAX_LIVE_PAINT_BYTES,
   MAX_NAME_LENGTH,
   millis,
   parseWholeNumber,
@@ -169,7 +170,9 @@ export const createTelemetryReportRoutes = (
 
   routes.post('/paints', report, async (c) => {
     const event = Option.getOrNull(
-      Schema.decodeUnknownOption(PaintEvent)(await c.req.json().catch(() => null)),
+      Schema.decodeUnknownOption(PaintEvent)(
+        parseJson(await readBoundedBody(c.req.raw, MAX_LIVE_PAINT_BYTES)),
+      ),
     )
     if (event === null) return c.json({ error: 'invalid paint event' }, 400)
     const caller = c.get('caller')

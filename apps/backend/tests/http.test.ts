@@ -60,6 +60,16 @@ describe('HTTP application contracts', () => {
       tiles: [{ x: 0, y: 0, pixels: { x: [0], y: [0], colors: [1] } }],
       painted: null,
     }
+    // A paint body is bounded like the live transport's, before it is parsed.
+    const { MAX_LIVE_PAINT_BYTES } = await import('@caelestis/shared')
+    const oversized = await app.fetch(
+      new Request('https://backend.test/telemetry/paints', {
+        method: 'POST',
+        headers: reportHeaders,
+        body: JSON.stringify(event).padEnd(MAX_LIVE_PAINT_BYTES + 1),
+      }),
+    )
+    expect(oversized.status).toBe(400)
     expect(
       await (
         await app.fetch(
