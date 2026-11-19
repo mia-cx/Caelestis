@@ -407,7 +407,12 @@ const uploadTilePromise = async (
 
 export type MirrorOutcome = 'stored' | 'unchanged'
 
-const mirrorTilePromise = async (
+/**
+ * Record one tile the server fetched, sized, and hashed itself. Bytes the latest observation
+ * already holds are reclassified only; new bytes are stored. Its projection and masks wait in
+ * `sinks`.
+ */
+export const mirrorTile = async (
   ports: IngestStores,
   metadata: TileMetadata,
   bytes: Uint8Array,
@@ -453,22 +458,6 @@ export const uploadTile = (
 ): Effect.Effect<StatusProjectionChange | null, IngestError, IngestServices> =>
   Effect.flatMap(ingestStores, (ports) =>
     fromPort('uploadTile', () => uploadTilePromise(ports, metadata, bytes)),
-  )
-
-/**
- * Record one tile the server fetched, sized, and hashed itself. Bytes the latest observation
- * already holds are reclassified only; new bytes are stored. Its projection and masks wait in
- * `sinks`.
- */
-export const mirrorTile = (
-  metadata: TileMetadata,
-  bytes: Uint8Array,
-  options: { readonly latestHash: string | null; readonly sinks: IngestSinks },
-): Effect.Effect<MirrorOutcome, IngestError, IngestServices> =>
-  Effect.flatMap(ingestStores, (ports) =>
-    fromPort('mirrorTile', () =>
-      mirrorTilePromise(ports, metadata, bytes, options.latestHash, options.sinks),
-    ),
   )
 
 /** One reporter's batch of tile hashes for one season, each keyed by its `x/y` tile key. */

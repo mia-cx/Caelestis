@@ -201,7 +201,7 @@ it('wakes alarm subscribers only when an observation changes an alarm', async ()
 })
 
 it('wakes alarm subscribers from a tile scan only when it changes an alarm', async () => {
-  const { app, sql, blobs, counters } = await createTestBackend()
+  const { app, sql, blobs } = await createTestBackend()
   const form = new FormData()
   form.set('png', new File([await encodeIndexedPng(3, 1, new Uint8Array([1, 1, 1]))], 'art.png'))
   form.set('name', 'Scanned')
@@ -228,7 +228,7 @@ it('wakes alarm subscribers from a tile scan only when it changes an alarm', asy
       preconnect: fetch.preconnect,
     })
     await fetchCanvasTiles(
-      { blobs, sql, counters, statusReadModel },
+      { blobs, sql, statusReadModel },
       { season: 3, now: seconds(now), fetchImpl },
     )
   }
@@ -302,7 +302,7 @@ it('wakes alarm subscribers for changes committed before a later alarm evaluatio
       preconnect: fetch.preconnect,
     })
     await fetchCanvasTiles(
-      { blobs, sql, counters, statusReadModel },
+      { blobs, sql, statusReadModel },
       { season: 3, now: seconds(now), fetchImpl },
     )
   }
@@ -319,7 +319,7 @@ it('wakes alarm subscribers for changes committed before a later alarm evaluatio
 })
 
 it('counts a tile whose refresh fails only as failed', async () => {
-  const { app, sql, blobs, counters } = await createTestBackend()
+  const { app, sql, blobs } = await createTestBackend()
   const form = new FormData()
   form.set('png', new File([await encodeIndexedPng(3, 1, new Uint8Array([1, 1, 1]))], 'art.png'))
   form.set('name', 'Refreshed')
@@ -337,7 +337,7 @@ it('counts a tile whose refresh fails only as failed', async () => {
   let now = Math.floor(Date.now() / 1000)
   const scan = () => {
     now += 60
-    return fetchCanvasTiles({ blobs, sql, counters }, { season: 3, now: seconds(now), fetchImpl })
+    return fetchCanvasTiles({ blobs, sql },{ season: 3, now: seconds(now), fetchImpl })
   }
   const first = await scan()
   expect(first.fetched).toBeGreaterThan(0)

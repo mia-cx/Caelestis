@@ -9,12 +9,7 @@ import {
   tileKey,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
-import type { BlobStore, CounterStore, SqlStore } from '../ports/index.js'
-import {
-  type BackendRuntime,
-  createBackendRuntime,
-  makeBackendContext,
-} from '../runtime/backend-runtime.js'
+import type { BlobStore, SqlStore } from '../ports/index.js'
 import { DirectStatusReadModel, type StatusReadModelPort } from '../status-read-model/port.js'
 import { completeAlarmStatus, evaluateAlarms } from './alarms/evaluate.js'
 import {
@@ -64,7 +59,6 @@ const MAX_ALARM_PROBES_PER_RUN = 25
 export interface FetcherStores {
   readonly blobs: BlobStore
   readonly sql: SqlStore
-  readonly counters: CounterStore
   readonly statusReadModel?: StatusReadModelPort
 }
 
@@ -100,8 +94,11 @@ const wplaceTileUrl = (season: number, tile: TileCoord): string =>
 
 /** One fetcher job: its stores, clock, and the sinks its tiles share until the job ends. */
 interface FetchRun {
-  readonly runtime: BackendRuntime
-  readonly statusReadModel: StatusReadModelPort
+  readonly stores: {
+    readonly blobs: BlobStore
+    readonly sql: SqlStore
+    readonly statusReadModel: StatusReadModelPort
+  }
   readonly sinks: IngestSinks
   /** The job's own writer, so the job can wait for its masks; it has no reply to keep fast. */
   readonly writer: DerivedArtifactWriter
@@ -117,10 +114,7 @@ const startRun = async (
   const statusReadModel = ports.statusReadModel ?? new DirectStatusReadModel(ports.sql)
   const writer = createDerivedArtifactWriter()
   return {
-    runtime: createBackendRuntime(
-      makeBackendContext(ports.blobs, ports.sql, ports.counters, statusReadModel),
-    ),
-    statusReadModel,
+    stores: { blobs: ports.blobs, sql: ports.sql, statusReadModel },
     sinks: createIngestSinks({ blobs: ports.blobs, statusReadModel }, writer),
     writer,
     fetchImpl: options.fetchImpl ?? fetch,
@@ -137,7 +131,6 @@ const finishRun = async (run: FetchRun): Promise<void> => {
   }
 }
 
-/** Fetch one tile from Wplace, or null when Wplace served nothing usable. */
 const downloadTile = async (
   run: FetchRun,
   season: number,
@@ -151,7 +144,6 @@ const downloadTile = async (
   return bytes.byteLength === 0 || bytes.byteLength > MAX_CANVAS_TILE_BYTES ? null : bytes
 }
 
-/** Record downloaded bytes; a failure to record them throws. */
 const mirror = async (
   run: FetchRun,
   season: number,
@@ -160,22 +152,22 @@ const mirror = async (
   latestHash: string | null,
   recordHistory?: boolean,
 ): Promise<MirrorOutcome> =>
-  run.runtime.run(
-    mirrorTile(
-      {
-        wplaceUserId: FETCHER_USER_ID,
-        displayName: FETCHER_DISPLAY_NAME,
-        tokenHash: run.tokenHash,
-        season,
-        tile,
-        hash: await sha256Hex(bytes),
-        observedAt: run.now,
-        includeUnpublished: true,
-        ...(recordHistory === undefined ? {} : { recordHistory }),
-      },
-      bytes,
-      { latestHash, sinks: run.sinks },
-    ),
+  mirrorTile(
+    run.stores,
+    {
+      wplaceUserId: FETCHER_USER_ID,
+      displayName: FETCHER_DISPLAY_NAME,
+      tokenHash: run.tokenHash,
+      season,
+      tile,
+      hash: await sha256Hex(bytes),
+      observedAt: run.now,
+      includeUnpublished: true,
+      ...(recordHistory === undefined ? {} : { recordHistory }),
+    },
+    bytes,
+    latestHash,
+    run.sinks,
   )
 
 export const fetchCanvasTiles = async (
@@ -287,39 +279,36 @@ export const fetchCanvasTiles = async (
   const scanCycleBatches = Math.max(1, Math.ceil(templateTiles.size / MAX_FETCH_TILES_PER_RUN))
   const freshnessCutoff =
     (now - scanCycleBatches * ALARM_SCAN_INTERVAL_SECONDS - ALARM_SCAN_JITTER_SECONDS) * 1_000
-  const followUpScheduled = await evaluateAlarms(
-    { sql: ports.sql, statusReadModel: run.statusReadModel },
-    async (evaluate) => {
-      let scheduled = false
-      for (const template of templates) {
-        const required = requiredTiles.get(template.id) ?? []
-        const fresh =
-          required.length > 0 &&
-          required.every(
-            ({ key, observedAt }) =>
-              observedAt !== null &&
-              observedAt >= freshnessCutoff &&
-              (!attemptedTemplateTiles.has(key) || serverRefreshedTemplateTiles.has(key)),
-          )
-        const status = fresh ? completeAlarmStatus(template, alarmSnapshot) : null
-        if (status === null) continue
-        const result = await evaluate(
-          season,
-          {
-            templateId: template.id,
-            versionId: template.versionId,
-            total: status.total,
-            correct: status.correct,
-            observedAt: millis(now * 1_000),
-            observationRevision: alarmSnapshot.revision,
-          },
-          { kind: 'scan' },
+  const followUpScheduled = await evaluateAlarms(run.stores, async (evaluate) => {
+    let scheduled = false
+    for (const template of templates) {
+      const required = requiredTiles.get(template.id) ?? []
+      const fresh =
+        required.length > 0 &&
+        required.every(
+          ({ key, observedAt }) =>
+            observedAt !== null &&
+            observedAt >= freshnessCutoff &&
+            (!attemptedTemplateTiles.has(key) || serverRefreshedTemplateTiles.has(key)),
         )
-        scheduled ||= result.scheduleFollowUp
-      }
-      return scheduled
-    },
-  )
+      const status = fresh ? completeAlarmStatus(template, alarmSnapshot) : null
+      if (status === null) continue
+      const result = await evaluate(
+        season,
+        {
+          templateId: template.id,
+          versionId: template.versionId,
+          total: status.total,
+          correct: status.correct,
+          observedAt: millis(now * 1_000),
+          observationRevision: alarmSnapshot.revision,
+        },
+        { kind: 'scan' },
+      )
+      scheduled ||= result.scheduleFollowUp
+    }
+    return scheduled
+  })
 
   return {
     fetched,
@@ -357,100 +346,97 @@ export const fetchAlarmFollowUps = async (
       (row) => row.versionId === probe.versionId,
     )
 
-  await evaluateAlarms(
-    { sql: ports.sql, statusReadModel: run.statusReadModel },
-    async (evaluate) => {
-      try {
-        for (const probe of selectedProbes) {
-          const template = (
-            await ports.sql.listManifestTemplates(
-              { season: probe.season, surface: WORLD_TEMPLATE_SURFACE },
-              true,
-            )
-          ).find(
-            (candidate) =>
-              candidate.id === probe.templateId && candidate.versionId === probe.versionId,
+  await evaluateAlarms(run.stores, async (evaluate) => {
+    try {
+      for (const probe of selectedProbes) {
+        const template = (
+          await ports.sql.listManifestTemplates(
+            { season: probe.season, surface: WORLD_TEMPLATE_SURFACE },
+            true,
           )
-          const tiles = await probeTiles(probe)
-          if (template === undefined || tiles.length === 0) {
-            await ports.sql.clearAlarmProbe(probe.templateId, probe.alarmId, probe.dueAt)
-            failed++
-            continue
-          }
-          const staleTiles = tiles
-            .filter((row) => row.observedAt === null || row.observedAt < probe.dueAt)
-            .map((row) => ({ ...row, tile: { x: row.tileX, y: row.tileY } }))
-            .sort(compareAlarmTileFreshness)
-          if (staleTiles.length > 0 && remaining === 0) {
-            pending++
-            continue
-          }
-          const batch = staleTiles.slice(0, remaining)
+        ).find(
+          (candidate) =>
+            candidate.id === probe.templateId && candidate.versionId === probe.versionId,
+        )
+        const tiles = await probeTiles(probe)
+        if (template === undefined || tiles.length === 0) {
+          await ports.sql.clearAlarmProbe(probe.templateId, probe.alarmId, probe.dueAt)
+          failed++
+          continue
+        }
+        const staleTiles = tiles
+          .filter((row) => row.observedAt === null || row.observedAt < probe.dueAt)
+          .map((row) => ({ ...row, tile: { x: row.tileX, y: row.tileY } }))
+          .sort(compareAlarmTileFreshness)
+        if (staleTiles.length > 0 && remaining === 0) {
+          pending++
+          continue
+        }
+        const batch = staleTiles.slice(0, remaining)
 
-          let complete = true
-          for (const { tile } of batch) {
-            remaining--
-            try {
-              const bytes = await downloadTile(run, probe.season, tile)
-              if (bytes === null) {
-                complete = false
-                break
-              }
-              const latest = await ports.sql.readLatestTile(probe.season, tile)
-              await mirror(run, probe.season, tile, bytes, latest?.hash ?? null)
-            } catch (error) {
-              console.error(
-                `alarm probe tile fetch failed for ${probe.season}:${tileKey(tile)}`,
-                error,
-              )
+        let complete = true
+        for (const { tile } of batch) {
+          remaining--
+          try {
+            const bytes = await downloadTile(run, probe.season, tile)
+            if (bytes === null) {
               complete = false
               break
             }
+            const latest = await ports.sql.readLatestTile(probe.season, tile)
+            await mirror(run, probe.season, tile, bytes, latest?.hash ?? null)
+          } catch (error) {
+            console.error(
+              `alarm probe tile fetch failed for ${probe.season}:${tileKey(tile)}`,
+              error,
+            )
+            complete = false
+            break
           }
-
-          if (!complete) {
-            await defer(probe)
-            pending++
-            continue
-          }
-          const refreshed = await probeTiles(probe)
-          const alarmSnapshot = await ports.sql.readAlarmStatusSnapshot(
-            probe.season,
-            probe.templateId,
-          )
-          const status = completeAlarmStatus(template, alarmSnapshot)
-          if (
-            status === null ||
-            !refreshed.every((row) => row.observedAt !== null && row.observedAt >= probe.dueAt)
-          ) {
-            if (batch.length === 0) await defer(probe)
-            pending++
-            continue
-          }
-          await evaluate(
-            probe.season,
-            {
-              templateId: probe.templateId,
-              versionId: probe.versionId,
-              total: status.total,
-              correct: status.correct,
-              observedAt: millis(now * 1_000),
-              observationRevision: alarmSnapshot.revision,
-            },
-            {
-              kind: 'follow-up',
-              alarmId: probe.alarmId,
-              pixelsLost: probe.pixelsLost,
-              dueAt: probe.dueAt,
-            },
-          )
-          evaluated++
         }
-      } finally {
-        await finishRun(run)
+
+        if (!complete) {
+          await defer(probe)
+          pending++
+          continue
+        }
+        const refreshed = await probeTiles(probe)
+        const alarmSnapshot = await ports.sql.readAlarmStatusSnapshot(
+          probe.season,
+          probe.templateId,
+        )
+        const status = completeAlarmStatus(template, alarmSnapshot)
+        if (
+          status === null ||
+          !refreshed.every((row) => row.observedAt !== null && row.observedAt >= probe.dueAt)
+        ) {
+          if (batch.length === 0) await defer(probe)
+          pending++
+          continue
+        }
+        await evaluate(
+          probe.season,
+          {
+            templateId: probe.templateId,
+            versionId: probe.versionId,
+            total: status.total,
+            correct: status.correct,
+            observedAt: millis(now * 1_000),
+            observationRevision: alarmSnapshot.revision,
+          },
+          {
+            kind: 'follow-up',
+            alarmId: probe.alarmId,
+            pixelsLost: probe.pixelsLost,
+            dueAt: probe.dueAt,
+          },
+        )
+        evaluated++
       }
-    },
-  )
+    } finally {
+      await finishRun(run)
+    }
+  })
 
   return { evaluated, failed, pending }
 }
