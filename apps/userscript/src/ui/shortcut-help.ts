@@ -7,6 +7,7 @@ import {
 import { getState } from '../settings.js'
 import { activeShortcutBindings, currentShortcutPlatform } from '../shortcuts.js'
 import { closeDialogHost } from './dialog.js'
+import { deepActiveElement } from './focus.js'
 import { applyWplaceTheme } from './theme.js'
 
 const restoreTargets = new WeakMap<CaelestisShortcutHelp, HTMLElement | null>()
@@ -39,10 +40,7 @@ export const toggleShortcutHelp = (
   }
   help.setAttribute('data-caelestis-shortcut-help', '')
   applyWplaceTheme(help)
-  restoreTargets.set(
-    help,
-    document.activeElement instanceof HTMLElement ? document.activeElement : null,
-  )
+  restoreTargets.set(help, deepActiveElement())
   help.addEventListener('caelestis-shortcut-help-intent', (event) => {
     const intent = (event as CustomEvent<ShortcutHelpIntent>).detail
     if (intent.type === 'close') dismiss(help)

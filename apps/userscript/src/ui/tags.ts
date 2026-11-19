@@ -12,6 +12,7 @@ import { onManifestChange } from '../server-manifests.js'
 import { mutateLocalTag, onLocalTags, readLocalTags } from '../templates/tags.js'
 import { localFolderIdOf, localTemplateIdOf } from '../tree-keys.js'
 import { closeDialogHost } from './dialog.js'
+import { deepActiveElement } from './focus.js'
 import { applyWplaceTheme } from './theme.js'
 import type { TreeTarget } from './tree-context.js'
 
@@ -24,7 +25,7 @@ export const openTagManager = (target: TreeTarget, rerender: () => void): void =
   const server = target.server
   const templateId =
     server === null ? (localTemplateIdOf(target.key) ?? undefined) : target.templateId
-  const restoreFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  const restoreFocus = deepActiveElement()
   const folderId =
     server === null
       ? (localFolderIdOf(target.key) ?? undefined)

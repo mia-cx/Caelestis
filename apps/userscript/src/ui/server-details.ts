@@ -16,6 +16,7 @@ import { isCurrentServerConnection, serverByUrl } from '../server-connections.js
 import { serverEndpoint } from '../server-request.js'
 import type { ServerConnection } from '../settings.js'
 import { closeDialogHost } from './dialog.js'
+import { deepActiveElement } from './focus.js'
 import { applyWplaceTheme } from './theme.js'
 
 let closeEditor: (() => void) | undefined
@@ -62,7 +63,7 @@ const patchBetween = (
 export const openServerDetails = (server: ServerConnection, rerender: () => void): void => {
   closeEditor?.()
   const editor = document.createElement(SERVER_DETAILS_TAG)
-  const restoreFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  const restoreFocus = deepActiveElement()
   const current = (): ServerConnection => serverByUrl(server.url) ?? server
   let model: ServerDetailsModel = {
     owner: `${server.info?.name ?? server.url} · Server`,
