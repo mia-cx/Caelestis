@@ -19,9 +19,11 @@ export const SERVER_LIMITS = {
   tree: { maxBytes: 64 * MIB, timeoutMs: 120_000 },
   /** Multipart and binary uploads, whose request rather than reply is large. */
   upload: { maxBytes: 64 * 1024, timeoutMs: 120_000 },
+  /** Reads and writes an open dialog waits on, such as authoring sources and backfill steps. */
+  interactive: { maxBytes: 64 * MIB, timeoutMs: 30_000 },
   /**
-   * Work nobody waits on: telemetry reports and snapshots, alliance manifests, mismatch masks and
-   * chunks. A short deadline keeps a stalled server from holding the next poll back.
+   * Work nobody waits on: telemetry reports and snapshots, mismatch masks and chunks. A short
+   * deadline keeps a stalled server from holding the next poll back.
    */
   background: { maxBytes: 64 * MIB, timeoutMs: 15_000 },
 } as const
@@ -32,7 +34,7 @@ export type ServerLimits = keyof typeof SERVER_LIMITS
 export type ServerRead = 'json' | 'bytes' | 'discard'
 
 export type ServerBody<Read extends ServerRead> = Read extends 'bytes'
-  ? Uint8Array
+  ? Uint8Array<ArrayBuffer>
   : Read extends 'discard'
     ? null
     : unknown
@@ -74,7 +76,10 @@ export const withRetries = async <Result>(
   }
 }
 
-const readBoundedBytes = async (response: Response, maxBytes: number): Promise<Uint8Array> => {
+const readBoundedBytes = async (
+  response: Response,
+  maxBytes: number,
+): Promise<Uint8Array<ArrayBuffer>> => {
   const declared = Number(response.headers.get('content-length'))
   if (Number.isFinite(declared) && declared > maxBytes) {
     await discardResponseBody(response)

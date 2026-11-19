@@ -5,14 +5,8 @@ import { getState, type ServerConnection } from '../settings.js'
 import { currentAuthoring, type TemplateAuthoring } from '../templates/authoring.js'
 import { isServerTemplate, type PlacedTemplate, templatePixels } from '../templates/local-store.js'
 
-const AUTHORING_FETCH_TIMEOUT_MS = 30_000
-
 const serverGet = <Read extends ServerRead>(server: ServerConnection, path: string, read: Read) =>
-  serverRequest(server, path, {
-    limits: 'tree',
-    read,
-    signal: AbortSignal.timeout(AUTHORING_FETCH_TIMEOUT_MS),
-  })
+  serverRequest(server, path, { limits: 'interactive', read })
 
 /**
  * The source and recipe behind a server version. Null for processed-only versions. The server is
@@ -41,8 +35,7 @@ export const readServerAuthoring = async (
     throw new Error('The server returned a source that does not match its recipe.')
   // A version's chunks are the artwork its recipe produced, so these indices are that artwork.
   return {
-    // The transport types its bytes as possibly shared memory; Blob only takes an ArrayBuffer.
-    source: new Blob([bytes.slice()], { type: 'image/png' }),
+    source: new Blob([bytes], { type: 'image/png' }),
     recipe,
     artwork: await sha256Hex(indices),
   }

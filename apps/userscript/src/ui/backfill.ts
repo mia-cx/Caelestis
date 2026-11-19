@@ -10,8 +10,6 @@ import type { TreeTarget } from './tree-context.js'
 
 let closeBackfill: (() => void) | undefined
 
-const BACKFILL_TIMEOUT_MS = 30_000
-
 /**
  * Open an admin form whose background import outlives this userscript tab, for one server
  * template or every template below a server folder.
@@ -71,9 +69,9 @@ export const openBackfill = (target: TreeTarget): void => {
       throw new Error('Server connection changed. Close and reopen backfill.')
     const { response, body: value } = await serverRequest(server, `${path}/${action}`, {
       ...(body === undefined ? {} : { method: 'POST', json: body }),
-      limits: 'tree',
+      limits: 'interactive',
       read: 'json',
-      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(BACKFILL_TIMEOUT_MS)]),
+      signal: controller.signal,
     })
     if (!response.ok)
       throw new Error(
