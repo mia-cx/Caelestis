@@ -7,7 +7,7 @@ import {
   forgetPreview,
   isIdTaken,
   isPendingImage,
-  isServerTemplate,
+  type LocalTemplate,
   notifyLocalChange,
   type PlacedTemplate,
   type TemplateArtwork,
@@ -42,9 +42,9 @@ import {
 } from './residency.js'
 import { type SparsePixels, storedArea } from './sparse-pixels.js'
 import {
+  type LocalRecord,
   parseStoredMetadata,
   parseStoredTemplate,
-  type StoredMetadata,
   storedRevision,
   storedTemplateOrNull,
 } from './template-record.js'
@@ -120,10 +120,10 @@ export const noteSnapshot = (
 
 /** A catalog entry for a stored record. The caller accounts for any pixels it installs. */
 const placedFromStored = (
-  stored: StoredMetadata,
+  stored: LocalRecord,
   tiles: ReadonlySet<string>,
   artwork: TemplateArtwork,
-): PlacedTemplate => {
+): LocalTemplate => {
   if (stored.native?.token !== undefined) artworkSnapshots.set(artwork, stored.native.token)
   return {
     ...stored,
@@ -151,7 +151,7 @@ const removeStaleLocalState = (existing: PlacedTemplate): void => {
  */
 const unchangedArtworkTiles = async (
   existing: PlacedTemplate,
-  winner: StoredMetadata,
+  winner: LocalRecord,
 ): Promise<ReadonlySet<string> | null> => {
   const before = artworkSnapshots.get(existing.artwork)
   const after = winner.native?.token
@@ -210,7 +210,7 @@ const reconcileConflictExclusive = async (id: string, verifyPixels: boolean): Pr
       warn('install', `could not remove invalid conflict winner for ${existing.name}`)
       return
     }
-    let winner: StoredMetadata & { readonly pixels: SparsePixels | null }
+    let winner: LocalRecord & { readonly pixels: SparsePixels | null }
     try {
       winner = verifyPixels
         ? parseStoredTemplate(loaded.template)
@@ -295,7 +295,7 @@ export const reconcileConflict = async (id: string, verifyPixels = false): Promi
 }
 
 /** Read a Local template's evicted pixels back from IndexedDB. */
-const loadLocalPixels = async (template: PlacedTemplate): Promise<SparsePixels> => {
+const loadLocalPixels = async (template: LocalTemplate): Promise<SparsePixels> => {
   const loaded = await loadTemplate(template.id, MAX_RESIDENT_PIXELS)
   if (loaded.status === 'unavailable') {
     throw new Error('Could not read this template from browser storage. Try again.')
@@ -361,7 +361,7 @@ const restoreRecord = async (
   seen.set(id, recordRevision)
   // Restore runs again after every native refresh; templates already here were restored before.
   const present = templateById(id)
-  if (present !== undefined && !isServerTemplate(present)) return 'skipped'
+  if (present?.origin === 'local') return 'skipped'
   const tileKeys = catalogTileKeys(record)
   let source: unknown = record
   let pixels: SparsePixels | null = null
@@ -378,7 +378,7 @@ const restoreRecord = async (
     source = metadata
     pixels = storedPixels
   }
-  let template: StoredMetadata
+  let template: LocalRecord
   try {
     // Earlier builds could persist 0x0, non-finite, out-of-world, or fully transparent records.
     // Validate each independently so one bad legacy entry cannot prevent every good restore.
@@ -502,7 +502,7 @@ export const refreshPersonalTemplates = async (): Promise<void> => {
     ]),
   )
   for (const template of [...catalogEntries()]) {
-    if (isServerTemplate(template) || isPendingImage(template)) continue
+    if (template.origin !== 'local' || isPendingImage(template)) continue
     if ((template.surface ?? WORLD_TEMPLATE_SURFACE).kind !== 'world') continue
     if (revisions.get(template.id) === template.revision) continue
     await writeInOrder(template.id, async () => await reconcileConflict(template.id))

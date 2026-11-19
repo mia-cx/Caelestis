@@ -7,6 +7,7 @@ import { cutPixels } from '../templates/sparse-pixels.js'
 import { RenderScene } from './render-scene.js'
 
 const shown: PlacedTemplate = {
+  origin: 'local',
   id: 'settled',
   name: 'Settled',
   source: 'image',

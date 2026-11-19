@@ -20,6 +20,7 @@ import {
   writeCachedServerMismatch,
 } from './server-mismatch-cache.js'
 import { serverRequest } from './server-request.js'
+import type { PlacedTemplate, ServerCopy } from './templates/catalog.js'
 
 /**
  * The renderer asks for a visible tile's mask every frame, so a failed read waits this long before
@@ -28,14 +29,6 @@ import { serverRequest } from './server-request.js'
 const RETRY_AFTER_MS = 5_000
 /** The mask's rectangle fields, counted alongside its packed bytes. */
 const HELD_MASK_OVERHEAD_BYTES = 12
-
-interface ServerTemplateRef {
-  readonly serverUrl?: string
-  readonly serverTemplateId?: string
-  readonly serverVersion?: string
-  /** A draft's masks stay in memory: the page can read Cache Storage. */
-  readonly serverUnpublished?: boolean
-}
 
 interface HeldMask {
   readonly server: ConnectedServer
@@ -258,23 +251,20 @@ export const endServerMismatchFrame = (): void => {
  * read; a stale mask is returned while its revalidation runs.
  */
 export const serverMismatchMaskFor = (
-  template: ServerTemplateRef,
+  template:
+    | Pick<ServerCopy, 'origin' | 'server' | 'serverTemplateId' | 'version' | 'unpublished'>
+    | Pick<Exclude<PlacedTemplate, ServerCopy>, 'origin'>,
   tile: TileCoord,
 ): MismatchMask | null => {
-  if (
-    template.serverUrl === undefined ||
-    template.serverTemplateId === undefined ||
-    template.serverVersion === undefined
-  )
-    return null
-  const server = connectedServerAt(template.serverUrl)
+  if (template.origin !== 'server') return null
+  const server = connectedServerAt(template.server.url)
   if (server === undefined) return null
   const mismatch: MismatchKey = {
     serverUrl: server.url,
     serverId: server.info.id,
     season: server.season,
     templateId: template.serverTemplateId,
-    version: template.serverVersion,
+    version: template.version,
     tile,
   }
   const key = mismatchKeyString(mismatch)
@@ -297,7 +287,8 @@ export const serverMismatchMaskFor = (
     return shown
   const tileInvalidation = tileInvalidations.get(invalidationKey) ?? 0
   const serverInvalidation = serverInvalidations.get(server.url) ?? 0
-  const request = readMask(server, mismatch, template.serverUnpublished !== true).finally(() => {
+  // A draft's masks stay in memory: the page can read Cache Storage.
+  const request = readMask(server, mismatch, !template.unpublished).finally(() => {
     if (pending.get(key)?.request !== request) return
     pending.delete(key)
     // Paints that landed during the request left its answer stale; one redraw reads it again.

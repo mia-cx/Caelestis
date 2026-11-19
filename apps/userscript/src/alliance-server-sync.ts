@@ -25,8 +25,8 @@ import {
   type ServerSyncResult,
 } from './server-sync-coordinator.js'
 import { getState, type ServerConnection } from './settings.js'
-import { forgetServerSurfaceTemplates } from './templates/server-copies.js'
 import { serverTemplatesSettled } from './templates/server-sync.js'
+import { forgetServerSurfaceTemplates } from './templates/template-copies.js'
 
 /**
  * Which alliance surface's manifests are read: only the one whose Wplace editor is active. Leaving

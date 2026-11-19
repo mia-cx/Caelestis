@@ -11,7 +11,7 @@ import { comparisonDraftPixels } from '../draft-pixels.js'
 import { UNPAINTED } from '../native-pixels.js'
 import { loadTilePixels, tilePixels } from '../tile-pixels.js'
 import { worldTemplates } from './capture-scope.js'
-import { isTemplateVisible, type PlacedTemplate, templateTileKeys } from './catalog.js'
+import { isTemplateVisible, type PlacedTemplate } from './catalog.js'
 import { classifyPixel } from './pixel-tally.js'
 import { horizontalSpans, wrappedDeltaX } from './placement.js'
 import type {
@@ -68,7 +68,7 @@ const navigationCandidates = (
     if (templateId !== undefined && template.id !== templateId) continue
     const templateTop = template.originY
     const templateBottom = template.originY + template.height
-    for (const key of templateTileKeys(template)) {
+    for (const key of template.tiles) {
       const tile = parseTileKey(key)
       if (tile === null) continue
       const tileLeft = tile.x * TILE_SIZE

@@ -3,7 +3,7 @@ import { serverRequest } from '../server-request.js'
 import type { ServerRead } from '../server-transport.js'
 import { getState, type ServerConnection } from '../settings.js'
 import { currentAuthoring, type TemplateAuthoring } from '../templates/authoring.js'
-import { isServerTemplate, type PlacedTemplate } from '../templates/catalog.js'
+import type { PlacedTemplate } from '../templates/catalog.js'
 import { templatePixels } from '../templates/residency.js'
 
 const serverGet = <Read extends ServerRead>(server: ServerConnection, path: string, read: Read) =>
@@ -47,13 +47,14 @@ export const readServerAuthoring = async (
  * record, or on the server version it was loaded from.
  */
 export const authoringOf = async (template: PlacedTemplate): Promise<TemplateAuthoring | null> => {
-  if (!isServerTemplate(template)) {
+  if (template.origin === 'wplace') return null
+  if (template.origin === 'local') {
     if (template.authoring === undefined) return null
     return await currentAuthoring({ ...template, indices: await templatePixels(template) })
   }
-  const server = getState().servers.find((candidate) => candidate.url === template.serverUrl)
-  if (server === undefined || template.serverVersion === undefined) return null
-  return await readServerAuthoring(server, template.serverVersion, await templatePixels(template))
+  const server = getState().servers.find((candidate) => candidate.url === template.server.url)
+  if (server === undefined) return null
+  return await readServerAuthoring(server, template.version, await templatePixels(template))
 }
 
 /**

@@ -11,13 +11,14 @@ import {
   deleteCatalogEntry,
   isCurrentTemplate,
   isPendingImage,
-  isServerTemplate,
   isTemplateVisible,
+  type LocalTemplate,
   localTemplates,
   notifyLocalChange,
   type PlacedTemplate,
   setCatalogEntry,
   type TemplateArtwork,
+  type TemplateCopy,
   templateById,
 } from './catalog.js'
 import { joinPixels, type SparsePixels, storedArea } from './sparse-pixels.js'
@@ -29,7 +30,7 @@ import type { TemplateRecord } from './template-record.js'
  * Every catalog entry holds its artwork's painted area against one budget. Over budget, hidden
  * templates are evicted first, then the least recently used; on-screen ones and unsaved placements
  * never are. Evicted artwork reloads on demand from whoever owns it: `restore.ts` for Local
- * templates, `server-copies.ts` for copies.
+ * templates, `template-copies.ts` for copies.
  */
 
 /** Pixels held in memory across every resident template, by painted chunk area. Disk holds the rest. */
@@ -161,20 +162,26 @@ export const makeRoom = (area: number, keep?: string): boolean => {
 }
 
 /**
- * Reads a template's evicted pixels back from where its owner keeps them.
+ * Read a template's evicted pixels back from where its owner keeps them, one loader per kind.
  *
- * Throws when they cannot be read, or when the entry changed while loading.
+ * Each throws when the pixels cannot be read, or when the entry changed while loading.
  */
-type PixelLoader = (template: PlacedTemplate) => Promise<SparsePixels>
+interface PixelLoaders {
+  readonly local: (template: LocalTemplate) => Promise<SparsePixels>
+  readonly copy: (template: TemplateCopy) => Promise<SparsePixels>
+}
 
-const pixelLoaders: { local?: PixelLoader; copy?: PixelLoader } = {}
+const pixelLoaders: Partial<PixelLoaders> = {}
 
 /**
  * Say how to reload one kind of template. The module that admits a kind registers its loader as it
  * loads, so every entry's loader exists before the entry does.
  */
-export const registerPixelLoader = (kind: 'local' | 'copy', loader: PixelLoader): void => {
-  pixelLoaders[kind] = loader
+export const registerPixelLoader = <K extends keyof PixelLoaders>(
+  kind: K,
+  loader: PixelLoaders[K],
+): void => {
+  Object.assign(pixelLoaders, { [kind]: loader })
 }
 
 const pixelLoads = new WeakMap<TemplateArtwork, Promise<SparsePixels>>()
@@ -188,9 +195,11 @@ const recentlyFailed = (artwork: TemplateArtwork): boolean =>
 
 /** Read evicted pixels back, keeping them if `evict` or free memory allows; hand them over either way. */
 const loadPixels = async (template: PlacedTemplate, evict: boolean): Promise<SparsePixels> => {
-  const loader = pixelLoaders[isServerTemplate(template) ? 'copy' : 'local']
-  if (loader === undefined) throw new Error('Could not load this template. Try again.')
-  const pixels = await loader(template)
+  const pixels =
+    template.origin === 'local'
+      ? await pixelLoaders.local?.(template)
+      : await pixelLoaders.copy?.(template)
+  if (pixels === undefined) throw new Error('Could not load this template. Try again.')
   const area = storedArea(pixels)
   if (evict ? makeRoom(area, template.id) : fitsResident(area)) {
     setPixels(template, pixels)

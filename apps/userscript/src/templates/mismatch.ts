@@ -51,7 +51,7 @@ import {
   onLocalChange,
   type PlacedTemplate,
   type TemplateArtwork,
-  templateTileKeys,
+  wrapsX,
 } from './catalog.js'
 import { claimedHiddenFor } from './colour-filter.js'
 import { nearestColourTarget } from './colour-navigation.js'
@@ -83,7 +83,6 @@ import {
   tileOf,
   tileSuffix,
 } from './template-tile.js'
-import { measuresLocally } from './wplace-owned.js'
 
 /*
  * Which pixels of a template the canvas disagrees with, per tile, and the progress counts that
@@ -98,6 +97,10 @@ import { measuresLocally } from './wplace-owned.js'
  * falls inside one tile — a million pixels at the very most — which is fine to do occasionally and
  * ruinous to do sixty times a second, hence the cache.
  */
+
+/** The server a copy came from, whose masks newer exact pixels can supersede. */
+const serverUrlOf = (template: PlacedTemplate): string | undefined =>
+  template.origin === 'server' ? template.server.url : undefined
 
 // A native observation replaces the mask held at that moment, not future server corrections.
 const observedMasks = new WeakSet<Uint8Array>()
@@ -633,7 +636,7 @@ const assertedHidden = (template: PlacedTemplate): readonly number[] =>
  * lists to hand back, not what goes in them, so neither is a reason to look at a tile again.
  */
 const progressSignature = (template: PlacedTemplate): string =>
-  `${template.originX},${template.originY},${template.wrapX === true ? 1 : 0}|${template.moved}`
+  `${template.originX},${template.originY},${wrapsX(template) ? 1 : 0}|${template.moved}`
 
 const signature = (template: PlacedTemplate): string =>
   `${progressSignature(template)}|${assertedHidden(template).join(',')}`
@@ -674,14 +677,15 @@ const fresh = (
  */
 const queueIncompleteLocalProgress = (template: PlacedTemplate): void => {
   // An evicted template keeps the progress it had; scanning resumes when its pixels return.
-  if (!measuresLocally(template) || template.opaque <= 0 || template.artwork.pixels === null) return
+  if (template.origin === 'server' || template.opaque <= 0 || template.artwork.pixels === null)
+    return
   const key = progressSignature(template)
   const total = progressTally.current(template.id, template.artwork, key)
   if (total !== undefined && total.asserted >= template.opaque) return
 
   let pending = false
   let captureChanged = false
-  for (const tileKey of templateTileKeys(template)) {
+  for (const tileKey of template.tiles) {
     const tile = parseTileKey(tileKey)
     if (tile === null) continue
     const cacheKey = templateTileKey(template.id, tile)
@@ -1012,9 +1016,10 @@ const mismatchAnswer = (
 
   const mask = serverMismatchMaskFor(template, tile)
   const superseded = entry?.superseded
-  if (entry !== undefined && superseded !== undefined && superseded !== template.serverUrl)
+  const serverUrl = serverUrlOf(template)
+  if (entry !== undefined && superseded !== undefined && superseded !== serverUrl)
     entry.superseded = undefined
-  const fromMask = mask !== null && superseded !== template.serverUrl ? mask : null
+  const fromMask = mask !== null && superseded !== serverUrl ? mask : null
   const bytes = fromMask?.packed ?? tilePixels(tile)
   if (bytes === null) {
     // Keep the completed projection while an invalidated server mask or native tile reloads.
@@ -1160,7 +1165,7 @@ const tileAccountingFor = (
 const currentMask = (template: PlacedTemplate, tile: TileCoord): MismatchMask | null => {
   const mask = serverMismatchMaskFor(template, tile)
   return mask !== null &&
-    entries.get(templateTileKey(template.id, tile))?.superseded !== template.serverUrl
+    entries.get(templateTileKey(template.id, tile))?.superseded !== serverUrlOf(template)
     ? mask
     : null
 }
@@ -1401,7 +1406,8 @@ onTilePixels((tile, triples, source) => {
       if (!cacheKey.endsWith(suffix)) continue
       const held = entry.answer ?? entry.inFlight
       if (held !== null) {
-        const serverUrl = templatesById.get(entry.templateId)?.serverUrl
+        const drawn = templatesById.get(entry.templateId)
+        const serverUrl = drawn === undefined ? undefined : serverUrlOf(drawn)
         if (source === 'server' && held.source !== pixels && serverUrl !== undefined) {
           entry.superseded = serverUrl
         }
@@ -1482,7 +1488,7 @@ const draftPixelDeltasFor = (template: PlacedTemplate): TemplateDraftPixelDelta[
   const deltas: TemplateDraftPixelDelta[] = []
   const pixels = template.artwork.pixels
   if (pixels === null) return deltas
-  for (const key of templateTileKeys(template)) {
+  for (const key of template.tiles) {
     const tile = parseTileKey(key)
     if (tile === null) continue
     const server = tilePixels(tile)

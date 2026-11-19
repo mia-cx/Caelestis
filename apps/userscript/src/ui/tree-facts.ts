@@ -7,7 +7,12 @@ import type { ServerTemplate } from '../server-manifest.js'
 import { serverColourProgressFor, serverProgressFor } from '../server-status.js'
 import { getState, type ServerConnection } from '../settings.js'
 import { artboardProgressCounts } from '../templates/artboard-accounting.js'
-import { isServerTemplate, localTemplates, type PlacedTemplate } from '../templates/catalog.js'
+import {
+  type LocalTemplate,
+  localTemplates,
+  type PlacedTemplate,
+  type ServerCopy,
+} from '../templates/catalog.js'
 import { pixelAccounting } from '../templates/mismatch.js'
 import type { TemplateColourProgress, TemplateProgress } from '../templates/progress-types.js'
 import {
@@ -38,21 +43,21 @@ export const treeFacts = (
   const servers = getState().servers
   const drawn = localTemplates().filter(
     (template) =>
-      template.staged === undefined &&
+      (template.origin !== 'local' || template.staged === undefined) &&
       sameTemplateSurface(template.surface ?? WORLD_TEMPLATE_SURFACE, surface) &&
       (templateKeys === undefined || templateKeys.has(templateTreeKeyFor(template, servers) ?? '')),
   )
-  const drawnByServer = new Map<string, Map<string, PlacedTemplate>>()
+  const drawnByServer = new Map<string, Map<string, ServerCopy>>()
   for (const template of drawn) {
-    if (template.serverUrl === undefined || template.serverTemplateId === undefined) continue
-    const templates = drawnByServer.get(template.serverUrl) ?? new Map<string, PlacedTemplate>()
+    if (template.origin !== 'server') continue
+    const templates = drawnByServer.get(template.server.url) ?? new Map<string, ServerCopy>()
     templates.set(template.serverTemplateId, template)
-    drawnByServer.set(template.serverUrl, templates)
+    drawnByServer.set(template.server.url, templates)
   }
   return {
     servers,
     drawn,
-    localOnly: drawn.filter((template) => !isServerTemplate(template)),
+    localOnly: drawn.filter((template): template is LocalTemplate => template.origin === 'local'),
     drawnServerTemplate: (server, id) => drawnByServer.get(server.url)?.get(id),
     progress: (template) =>
       neverCounted(template) ? emptyProgress(0) : pixelAccounting.read(template).progress,

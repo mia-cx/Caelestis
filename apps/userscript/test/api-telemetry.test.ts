@@ -349,9 +349,11 @@ describe('server mismatch masks', () => {
     const wildcard = await endpointRequest(adminToken)(path, { headers: { 'if-none-match': '*' } })
     expect(wildcard.status).toBe(304)
     const template = {
-      serverUrl: origin,
+      origin: 'server' as const,
+      server,
       serverTemplateId: uploaded.id,
-      serverVersion: published.version,
+      version: published.version,
+      unpublished: false,
     }
     return { fetch, template, mismatch: await import('../src/server-mismatch.js') }
   }

@@ -6,7 +6,7 @@ import { serverColourProgressFor } from '../server-status.js'
 import { getState, type ServerConnection } from '../settings.js'
 import { onTilePixelsEvicted } from '../tile-pixels.js'
 import { applyColourProgressDelta } from '../ui/progress.js'
-import { type PlacedTemplate, templateById } from './catalog.js'
+import { type PlacedTemplate, type ServerCopy, templateById } from './catalog.js'
 import { pixelAccounting } from './mismatch.js'
 import { focusedTemplate } from './nearest.js'
 import type {
@@ -14,7 +14,6 @@ import type {
   TemplateColourProgressDelta,
   TemplateDraftPixelDelta,
 } from './progress-types.js'
-import { measuresLocally } from './wplace-owned.js'
 
 /**
  * Per-colour progress for one template where Wplace's own paint controls are used.
@@ -38,7 +37,7 @@ interface DraftProjectionIdentity {
   readonly connection: object
   readonly season: number | null
   readonly serverTemplateId: string
-  readonly serverVersion: string | undefined
+  readonly serverVersion: string
 }
 
 interface SubmittedDraft {
@@ -64,13 +63,13 @@ const forgetRebasedTile = (tile: { readonly x: number; readonly y: number }): bo
 }
 
 const projectionIdentity = (
-  template: PlacedTemplate,
+  template: ServerCopy,
   server: ServerConnection,
 ): DraftProjectionIdentity => ({
   connection: serverConnectionIdentity(server),
   season: server.season,
-  serverTemplateId: template.serverTemplateId ?? '',
-  serverVersion: template.serverVersion,
+  serverTemplateId: template.serverTemplateId,
+  serverVersion: template.version,
 })
 
 const sameProjectionIdentity = (
@@ -257,14 +256,9 @@ export const projectedColourProgress = (
 ): readonly TemplateColourProgress[] => {
   if (template === null) return []
   const accounting = pixelAccounting.read(template)
-  if (
-    measuresLocally(template) ||
-    (template.surface ?? WORLD_TEMPLATE_SURFACE).kind !== 'world' ||
-    template.serverUrl === undefined ||
-    template.serverTemplateId === undefined
-  )
+  if (template.origin !== 'server' || (template.surface ?? WORLD_TEMPLATE_SURFACE).kind !== 'world')
     return accounting.colours
-  const server = servers.get(template.serverUrl)
+  const server = servers.get(template.server.url)
   if (server === undefined) return []
   // The drawn template already proves the manifest identity and exact pixel total. Depending on the
   // panel's admitted manifest here made palette counters disappear whenever Paint opened before the
@@ -301,15 +295,15 @@ const retainAcceptedPixels = (
 const retainAcceptedDraft = (submission?: PaintSubmission): void => {
   const submitted = submission === undefined ? undefined : submittedDrafts.get(submission.identity)
   const template = submitted === undefined ? focusedTemplate() : templateById(submitted.templateId)
-  if (template === null || template === undefined || template.serverUrl === undefined) return
+  if (template?.origin !== 'server') return
   const servers = connectedServers()
-  const server = servers.get(template.serverUrl)
+  const server = servers.get(template.server.url)
   if (server === undefined) return
   const identity = projectionIdentity(template, server)
   if (submitted !== undefined && !sameProjectionIdentity(submitted.identity, identity)) return
   const pixels = submitted?.pixels ?? pixelAccounting.read(template).draftPixelDeltas
   const progress = serverColourProgressFor(server, {
-    id: template.serverTemplateId ?? '',
+    id: template.serverTemplateId,
     totalPixels: template.opaque,
   })
   if (progress === null) return
@@ -322,9 +316,9 @@ const retainAcceptedDraft = (submission?: PaintSubmission): void => {
 
 const snapshotSubmittedDraft = (submission: PaintSubmission): void => {
   const template = focusedTemplate()
-  if (template === null || template.serverUrl === undefined) return
+  if (template?.origin !== 'server') return
   const servers = connectedServers()
-  const server = servers.get(template.serverUrl)
+  const server = servers.get(template.server.url)
   if (server === undefined) return
   const pixels = pixelAccounting.read(template).draftPixelDeltas
   if (pixels.length === 0) return

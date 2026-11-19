@@ -1,6 +1,26 @@
 import { TRANSPARENT_INDEX } from '@caelestis/shared'
 import { describe, expect, it, vi } from 'vitest'
+import type { ServerConnection } from '../src/settings.js'
 import { PIXEL_CHUNK_SIZE } from '../src/templates/sparse-pixels.js'
+
+/** A server copy's fields, from a server this test never connects. */
+const copyOf = (url: string) => ({
+  origin: 'server' as const,
+  server: {
+    url,
+    isAdmin: false,
+    token: null,
+    status: 'connected',
+    info: null,
+    season: 1,
+  } satisfies ServerConnection,
+  serverTemplateId: 'art',
+  nodeId: null,
+  version: 'v1',
+  unpublished: false,
+  wrapX: false,
+  tileKeys: ['0/0'],
+})
 
 /** 4096 × 4096: four of these fill the 64M-pixel memory budget, so a fifth must evict. */
 const EDGE = 4096
@@ -68,18 +88,14 @@ describe('resident templates', () => {
       vi.resetModules()
       const catalog = await import('../src/templates/catalog.js')
       const residency = await import('../src/templates/residency.js')
-      const serverCopies = await import('../src/templates/server-copies.js')
+      const copies = await import('../src/templates/template-copies.js')
       const edits = await import('../src/templates/template-edits.js')
       const serverId = `srv:resident:${crypto.randomUUID()}`
       const ids = [2, 3, 4, 5].map((paint) => `resident-${paint}-${crypto.randomUUID()}`)
       try {
-        await serverCopies.putServerTemplate({
+        await copies.putTemplateCopy({
           ...large(serverId, 1),
-          serverUrl: 'https://resident.example',
-          serverTemplateId: 'art',
-          serverNodeId: null,
-          serverVersion: 'v1',
-          serverTileKeys: ['0/0'],
+          ...copyOf('https://resident.example'),
         })
         for (const [at, id] of ids.entries()) {
           await edits.addLocalTemplate(large(id, at + 2), undefined, true)
@@ -90,7 +106,7 @@ describe('resident templates', () => {
         // The test network refuses every request, so these pixels can only come from disk.
         expect((await residency.templatePixels(server))[0]).toBe(1)
       } finally {
-        await serverCopies.forgetServerTemplate(serverId)
+        await copies.forgetTemplateCopy(serverId)
         for (const id of ids) await edits.removeLocalTemplate(id)
       }
     },
@@ -173,11 +189,11 @@ describe('server pixels and unpublishing', () => {
     vi.resetModules()
     const catalog = await import('../src/templates/catalog.js')
     const residency = await import('../src/templates/residency.js')
-    const serverCopies = await import('../src/templates/server-copies.js')
+    const copies = await import('../src/templates/template-copies.js')
     const { cachedServerCopy } = await import('../src/templates/server-pixel-cache.js')
     const id = `srv:draft:${crypto.randomUUID()}`
     let finish: ((indices: Uint8Array) => void) | undefined
-    serverCopies.setServerPixelSource(
+    copies.setServerPixelSource(
       () =>
         new Promise((resolve) => {
           finish = resolve
@@ -185,30 +201,28 @@ describe('server pixels and unpublishing', () => {
     )
     try {
       // Public, with no disk copy yet, so the next read downloads.
-      await serverCopies.putServerTemplate({
+      await copies.putTemplateCopy({
         ...large(id, 1),
         width: 1,
         height: 1,
         indices: null,
-        serverUrl: 'https://draft.example',
-        serverTemplateId: 'art',
-        serverNodeId: null,
-        serverVersion: 'v1',
-        serverTileKeys: ['0/0'],
+        ...copyOf('https://draft.example'),
       })
       const template = catalog.templateById(id)
-      if (template === undefined) throw new Error('the server template was not installed')
+      if (template?.origin !== 'server') throw new Error('the server template was not installed')
       const loading = residency.templatePixels(template)
       await vi.waitFor(() => expect(finish).not.toBe(undefined))
 
-      expect(await serverCopies.updateServerTemplateMetadata(id, id, null, true)).toBe(true)
+      expect(await copies.updateServerTemplateMetadata(id, id, null, true, template.server)).toBe(
+        true,
+      )
       finish?.(new Uint8Array([1]))
       await loading
       // The save was queued behind the unpublish; give it the chance to run.
-      await serverCopies.updateServerTemplateMetadata(id, id, null, true)
+      await copies.updateServerTemplateMetadata(id, id, null, true, template.server)
       expect(await cachedServerCopy(id, 'v1')).toBeNull()
     } finally {
-      await serverCopies.forgetServerTemplate(id)
+      await copies.forgetTemplateCopy(id)
     }
   })
 })

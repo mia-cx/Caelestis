@@ -101,11 +101,11 @@ describe('capture template import', () => {
     // The test server is not a current connection, so Apply's upload is refused.
     await expect(capture(undefined, remote)).resolves.toBeNull()
     const id = movingId() ?? ''
-    expect(catalog.templateById(id)?.staged).toBe(true)
+    expect(catalog.templateById(id)).toMatchObject({ staged: true })
 
     await commit()
 
-    await vi.waitFor(() => expect(catalog.templateById(id)?.staged).toBeUndefined())
+    await vi.waitFor(() => expect(catalog.templateById(id)).not.toHaveProperty('staged'))
     expect(catalog.templateById(id)).toMatchObject({ everPlaced: true })
   })
 
@@ -195,7 +195,7 @@ describe('server file import', () => {
 
     await expect(importBoth()).resolves.toMatchObject({ started: false })
     expect(catalog.templateById('second')).toBeDefined()
-    expect(catalog.templateById('second')?.staged).toBeUndefined()
+    expect(catalog.templateById('second')).not.toHaveProperty('staged')
   })
 
   it('keeps the templates in Local when preparing an upload throws', async () => {
@@ -204,7 +204,7 @@ describe('server file import', () => {
     const result = await importBoth()
     if (!result.started) throw new Error('The import did not start')
     await expect(result.upload).rejects.toThrow('pixels unavailable')
-    expect(catalog.localTemplates().filter((template) => template.staged)).toEqual([])
+    expect(catalog.localTemplates().filter((template) => 'staged' in template)).toEqual([])
     expect(catalog.localTemplates()).toHaveLength(2)
   })
 })

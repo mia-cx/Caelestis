@@ -123,7 +123,7 @@ export const renderLocalCategory = (ctx: TreeContext): boolean => {
         : {}),
     }
     entries.push({
-      parentId: ctx.templateKeys === undefined ? (template.folderId ?? null) : null,
+      parentId: ctx.templateKeys === undefined ? template.folderId : null,
       item: {
         key,
         name: template.name,

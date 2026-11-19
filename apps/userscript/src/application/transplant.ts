@@ -106,7 +106,7 @@ const drawnFor = (
   surface: TemplateSurface,
 ): PlacedTemplate | undefined => {
   const drawn = templateById(serverTemplateKey(serverUrl, template.id, surface))
-  return drawn?.serverVersion === template.version ? drawn : undefined
+  return drawn?.origin === 'server' && drawn.version === template.version ? drawn : undefined
 }
 
 const serverBranch = async (
@@ -208,7 +208,7 @@ const localBranch = (rootId: string): Branch | null => {
       name: folder.name,
     }))
   const templates = localTemplates().flatMap((template) =>
-    template.folderId !== null && within.has(template.folderId)
+    template.origin === 'local' && template.folderId !== null && within.has(template.folderId)
       ? [{ folderId: template.folderId, template, sourceId: template.id, revision: null }]
       : [],
   )
@@ -299,7 +299,8 @@ const transferBranch = async (
     return (
       current !== undefined &&
       current.nodeId === carried.folderId &&
-      current.version === carried.template.serverVersion &&
+      carried.template.origin === 'server' &&
+      current.version === carried.template.version &&
       (revision === null ||
         (current.name === revision.name &&
           current.published === revision.published &&
@@ -341,6 +342,7 @@ const transferBranch = async (
       branch.templates.every(sourceTemplateIsCurrent) &&
       !localTemplates().some(
         (template) =>
+          template.origin === 'local' &&
           template.folderId !== null &&
           sourceFolderIds.has(template.folderId) &&
           !sourceTemplateIds.has(template.id),
@@ -550,7 +552,10 @@ const transferBranch = async (
         if (!sourceFoldersAreCurrent()) throw refuse(foldersChanged)
         if (
           localTemplates().some(
-            (template) => template.folderId !== null && sourceFolderIds.has(template.folderId),
+            (template) =>
+              template.origin === 'local' &&
+              template.folderId !== null &&
+              sourceFolderIds.has(template.folderId),
           )
         ) {
           throw refuse(

@@ -4,13 +4,9 @@ import { serverTemplateKey } from '../tree-keys.js'
 import { findWplaceModules } from '../wplace-modules.js'
 import { paletteIndices } from './native-store.js'
 import type { TemplateProgress } from './progress-types.js'
-import {
-  forgetServerTemplate,
-  hasRoomForServerTemplate,
-  putServerTemplate,
-} from './server-copies.js'
 import { rememberWplaceOwnedNodes } from './server-nodes.js'
-import { OFFICIAL_OVERLAY_OWNER } from './wplace-owned.js'
+import { forgetTemplateCopy, hasRoomForCopy, putTemplateCopy } from './template-copies.js'
+import { WPLACE_OWNER_URL } from './wplace-owned.js'
 
 /**
  * Wplace's official event overlays, listed and drawn by Caelestis.
@@ -73,7 +69,7 @@ const record = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null
 
 const templateIdOf = (index: number): string =>
-  serverTemplateKey(OFFICIAL_OVERLAY_OWNER, `seven-seals-template-${index}`)
+  serverTemplateKey(WPLACE_OWNER_URL.event, `seven-seals-template-${index}`)
 
 let event: OfficialEvent | null = null
 let progressStore: ProgressStore | null = null
@@ -176,7 +172,7 @@ export const installOfficialEvents = async (): Promise<void> => {
           typeof value.copyState === 'function' &&
           typeof value.refresh === 'function',
       ) as ProgressStore | undefined) ?? null
-    rememberWplaceOwnedNodes(OFFICIAL_OVERLAY_OWNER, [
+    rememberWplaceOwnedNodes(WPLACE_OWNER_URL.event, [
       { id: event.id, parentId: null },
       ...event.groups.map((group) => ({ id: group.id, parentId: event?.id ?? null })),
     ])
@@ -259,7 +255,7 @@ const mirror = async (map: OverlayMap, layerId: string, index: number): Promise<
   const version = `${originX},${originY},${pixels.width}x${pixels.height},${fragment?.group.id}`
   const id = templateIdOf(index)
   if (mirrored.get(layerId) === version) return
-  if (!hasRoomForServerTemplate(id, pixels.width * pixels.height)) {
+  if (!hasRoomForCopy(id, pixels.width * pixels.height)) {
     warn('install', 'official overlay over the template memory budget', layerId)
     return
   }
@@ -268,7 +264,7 @@ const mirror = async (map: OverlayMap, layerId: string, index: number): Promise<
     art = paletteIndices(pixels)
     decoded.set(pixels, art)
   }
-  const stored = await putServerTemplate(
+  const stored = await putTemplateCopy(
     {
       id,
       name: fragment?.name ?? `Official overlay ${index}`,
@@ -279,10 +275,10 @@ const mirror = async (map: OverlayMap, layerId: string, index: number): Promise<
       height: pixels.height,
       ...art,
       moved: 0,
-      serverUrl: OFFICIAL_OVERLAY_OWNER,
-      serverTemplateId: layerId,
-      serverNodeId: fragment?.group.id ?? null,
-      serverVersion: version,
+      origin: 'wplace',
+      owner: 'event',
+      nodeId: fragment?.group.id ?? null,
+      version,
     },
     () => map.getLayer(layerId) !== undefined,
   )
@@ -324,7 +320,7 @@ const sync = (map: OverlayMap): void => {
     if (present.has(layerId) || match === null) continue
     // Forget in queue order: a mirror queued before the removal may still re-mark it as mirrored.
     queue(async () => {
-      if (mirrored.delete(layerId)) await forgetServerTemplate(templateIdOf(Number(match[1])))
+      if (mirrored.delete(layerId)) await forgetTemplateCopy(templateIdOf(Number(match[1])))
     })
   }
 }

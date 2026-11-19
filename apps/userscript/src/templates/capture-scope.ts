@@ -13,11 +13,11 @@ import {
   isTemplateDraft,
   isTemplateVisible,
   type PlacedTemplate,
+  wrapsX,
 } from './catalog.js'
 import { horizontalSpans } from './placement.js'
 import { serverNodesRevision } from './server-nodes.js'
 import { type TemplateTileKey, templatePrefix, templateTileKey, tileOf } from './template-tile.js'
-import { measuresLocally } from './wplace-owned.js'
 
 /**
  * Which Wplace tiles the browser must read pixels for: the tiles each visible locally measured
@@ -70,7 +70,7 @@ export const wantsTilePixels = (tile: TileCoord): boolean => {
   // budget most. Local and Wplace-owned templates have neither server source, so they keep
   // exact-pixel capture for both mismatch markers and progress (including when their marker
   // switches are off).
-  const templates = worldTemplates().filter(measuresLocally)
+  const templates = worldTemplates().filter((template) => template.origin !== 'server')
   const left = tile.x * TILE_SIZE
   const top = tile.y * TILE_SIZE
   return templates.some((template) => {
@@ -123,7 +123,7 @@ const inCaptureScope = (template: PlacedTemplate): boolean => {
   const known = scopeEpoch.answers.get(template)
   if (known !== undefined) return known
   const answer =
-    isWorldTemplate(template) && measuresLocally(template) && isTemplateVisible(template)
+    isWorldTemplate(template) && template.origin !== 'server' && isTemplateVisible(template)
   scopeEpoch.answers.set(template, answer)
   return answer
 }
@@ -134,7 +134,7 @@ const samePlacement = (a: PlacedTemplate, b: PlacedTemplate): boolean =>
   a.originY === b.originY &&
   a.width === b.width &&
   a.height === b.height &&
-  a.wrapX === b.wrapX
+  wrapsX(a) === wrapsX(b)
 
 /** What `scopeTiles` was built from: the in-scope templates in order, and the pending keys. */
 let scopeTemplates: readonly PlacedTemplate[] = []

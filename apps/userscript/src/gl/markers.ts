@@ -16,7 +16,6 @@ import { displayTemplates, isTemplateVisible, type PlacedTemplate } from '../tem
 import type { MarkList } from '../templates/mark-list.js'
 import { pixelAccounting } from '../templates/mismatch.js'
 import { horizontalSpans } from '../templates/placement.js'
-import { measuresLocally } from '../templates/wplace-owned.js'
 import { currentQuads, isDrawingTiles } from '../tile-frame.js'
 import { holdTilePixels } from '../tile-pixels.js'
 import { selectedColour } from '../wplace-paint.js'
@@ -152,7 +151,7 @@ const drawVisible = (
     const { template, appearance } = rendered
     const hasSelectedFade = selectedFades.some(({ fade }) => fade > 0)
     if (
-      measuresLocally(template) &&
+      template.origin !== 'server' &&
       isTemplateVisible(template) &&
       mismatchFade === 0 &&
       !hasSelectedFade

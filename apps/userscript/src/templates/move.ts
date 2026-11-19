@@ -12,7 +12,6 @@ import { ALLIANCE_PANEL_ID, PANEL_ID } from '../ui/panel-scope.js'
 import {
   clearLocalPreview,
   isDeletingLocal,
-  isServerTemplate,
   moveTemplateDraft,
   type PlacedTemplate,
   previewLocalTemplate,
@@ -563,7 +562,7 @@ const begin = (
   const template = templateById(id)
   if (
     template === undefined ||
-    (isServerTemplate(template) ? persistRemote === undefined : persistRemote !== undefined)
+    (template.origin === 'local' ? persistRemote !== undefined : persistRemote === undefined)
   )
     return false
   placements += 1

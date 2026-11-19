@@ -16,14 +16,14 @@ export interface Placement {
   readonly width: number
   readonly height: number
   readonly surface?: TemplateSurface
+  /** The source continues at x=0 past the world's east edge. Only server copies set it. */
   readonly wrapX?: boolean
-  readonly serverUrl?: string
 }
 
 /**
  * Throw a RangeError unless the template fits its surface at this origin.
  *
- * Only server templates may wrap past the world's east edge: their source continues at x=0.
+ * Only a placement that wraps (a server copy) may run past the world's east edge.
  */
 export const validatePlacement = (
   template: Placement & { readonly indices?: Uint8Array },
@@ -60,7 +60,6 @@ export const validatePlacement = (
   if (originX + template.width > WORLD_PIXELS) {
     if (
       template.wrapX !== true ||
-      typeof template.serverUrl !== 'string' ||
       template.width >= WORLD_PIXELS ||
       originX + template.width > WORLD_PIXELS * 2
     ) {

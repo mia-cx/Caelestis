@@ -126,7 +126,7 @@ export const copyServerTemplateToLocal = async (
   const source = serverByUrl(found.serverUrl)
   if (source === undefined) return null
   const drawn = templateById(serverTemplateKey(found.serverUrl, found.template.id, surface))
-  if (drawn === undefined || drawn.serverVersion !== found.template.version) {
+  if (drawn?.origin !== 'server' || drawn.version !== found.template.version) {
     showToast('That template has not finished loading yet — try again in a moment.', 'warning')
     return null
   }

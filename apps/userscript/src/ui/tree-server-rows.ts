@@ -199,7 +199,7 @@ const serverSource = (
               ? template.bbox.maxX - template.bbox.minX
               : WORLD_PIXELS - template.bbox.minX + template.bbox.maxX,
           height: template.bbox.maxY - template.bbox.minY,
-          ...(drawn?.serverVersion === template.version ? previewArt(drawn) : {}),
+          ...(drawn?.version === template.version ? previewArt(drawn) : {}),
           ownership: `Server · ${server.info?.name ?? server.url}`,
         },
         createdAt: template.updatedAt,

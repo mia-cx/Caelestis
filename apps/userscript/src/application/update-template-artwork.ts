@@ -11,12 +11,7 @@ import {
 import { admittedManifest, readManifest } from '../server-manifests.js'
 import { invalidateServerReads } from '../server-read-coalescer.js'
 import { getState } from '../settings.js'
-import {
-  isCurrentTemplate,
-  isServerTemplate,
-  type PlacedTemplate,
-  templateById,
-} from '../templates/catalog.js'
+import { isCurrentTemplate, type PlacedTemplate, templateById } from '../templates/catalog.js'
 import { captureCurrentArtwork, captureTemplateArea } from '../templates/current-artwork.js'
 import { templatePixels } from '../templates/residency.js'
 import { replaceLocalArtwork } from '../templates/template-edits.js'
@@ -40,16 +35,18 @@ const updateArtwork = async (
     if (template === undefined)
       throw new Error('This template has not finished loading. Try again in a moment.')
     const surface = template.surface ?? WORLD_TEMPLATE_SURFACE
-    const server = isServerTemplate(template)
-      ? getState().servers.find((candidate) => candidate.url === template.serverUrl)
-      : undefined
+    const server =
+      template.origin === 'server'
+        ? getState().servers.find((candidate) => candidate.url === template.server.url)
+        : undefined
     const checkCurrent = (): void => {
       if (!isCurrentTemplate(template) || templateBusy(id, 'deleting'))
         throw new Error('That template changed during the update. Try again.')
       if (templateBusy(id, 'placing') || (template.source === 'image' && !template.everPlaced))
         throw new Error('Finish placing this template before updating it.')
-      if (!isServerTemplate(template)) return
+      if (template.origin === 'local') return
       if (
+        template.origin !== 'server' ||
         server === undefined ||
         !hasServerAdminToken(server) ||
         !isCurrentServerConnection(server)
@@ -58,7 +55,7 @@ const updateArtwork = async (
       const current = admittedManifest(server, surface)?.templates.find(
         (candidate) => candidate.id === template.serverTemplateId,
       )
-      if (current === undefined || current.version !== template.serverVersion)
+      if (current === undefined || current.version !== template.version)
         throw new Error(
           'The current template version has not finished loading. Try again in a moment.',
         )
@@ -76,9 +73,8 @@ const updateArtwork = async (
       { type: 'image/png' },
     )
     checkCurrent()
-    const templateId = template.serverTemplateId
-    if (templateId === undefined) throw new Error('The server template is no longer available.')
-    const result = await uploadTemplateVersion(server, templateId, {
+    if (template.origin !== 'server') throw new Error('The server template is no longer available.')
+    const result = await uploadTemplateVersion(server, template.serverTemplateId, {
       originX: template.originX,
       originY: template.originY,
       name: template.name,
@@ -110,7 +106,7 @@ export const requestTemplateArtworkUpdate = (id: string, rerender: () => void): 
       title: `Use canvas artwork for “${template.name}”?`,
       body:
         'Merge committed canvas artwork with the current template. Current mismatches will be treated as correct in the new canonical version. ' +
-        (isServerTemplate(template)
+        (template.origin !== 'local'
           ? 'This changes the target for everyone using this server template. '
           : '') +
         'You cannot currently revert to a previous version.',
@@ -169,7 +165,7 @@ export const requestTemplateAreaUpdate = (id: string, rerender: () => void): voi
           title: `Update ${pixels} of “${template.name}”?`,
           body:
             'Committed canvas artwork replaces the template inside your selection. ' +
-            (isServerTemplate(template)
+            (template.origin !== 'local'
               ? 'This changes the target for everyone using this server template. '
               : '') +
             'You cannot currently revert to a previous version.',

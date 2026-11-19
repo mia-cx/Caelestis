@@ -11,7 +11,7 @@ import {
 import type { TemplateProgress } from '../templates/progress-types.js'
 import { nodeChainVisible } from '../templates/server-nodes.js'
 import { setLocalVisible } from '../templates/template-edits.js'
-import { NATIVE_ALLIANCE_OWNER, OFFICIAL_OVERLAY_OWNER } from '../templates/wplace-owned.js'
+import { WPLACE_OWNER_URL } from '../templates/wplace-owned.js'
 import { eventTemplateKey, nativeTemplateKey, nodeScopeKey, serverScopeKey } from '../tree-keys.js'
 import type { TreeContext } from './tree-context.js'
 import { isTreeExpanded, previewArt, renderLevel, reportTreeError } from './tree-rows.js'
@@ -74,7 +74,7 @@ export const renderEventRows = (ctx: TreeContext): boolean => {
   const { facts } = ctx
   // Event groups and fragments share the `event:` row namespace.
   const folder = (id: string, name: string, parentId: string | null) => {
-    const scope = nodeScopeKey(OFFICIAL_OVERLAY_OWNER, id)
+    const scope = nodeScopeKey(WPLACE_OWNER_URL.event, id)
     return {
       parentId,
       item: {
@@ -84,7 +84,7 @@ export const renderEventRows = (ctx: TreeContext): boolean => {
         childrenOf: id,
         filterFacts: {
           source: 'server',
-          visible: nodeChainVisible(OFFICIAL_OVERLAY_OWNER, id),
+          visible: nodeChainVisible(WPLACE_OWNER_URL.event, id),
           tags: [],
         },
         visible: isScopeVisible(scope),
@@ -129,8 +129,8 @@ export const renderEventRows = (ctx: TreeContext): boolean => {
             source: 'server',
             visible:
               visible &&
-              isScopeVisible(serverScopeKey(OFFICIAL_OVERLAY_OWNER)) &&
-              nodeChainVisible(OFFICIAL_OVERLAY_OWNER, fragment.group.id),
+              isScopeVisible(serverScopeKey(WPLACE_OWNER_URL.event)) &&
+              nodeChainVisible(WPLACE_OWNER_URL.event, fragment.group.id),
             tags: [],
           },
           ...(progress === undefined
@@ -164,7 +164,7 @@ export const renderEventRows = (ctx: TreeContext): boolean => {
     ctx,
     OFFICIAL_EVENTS_TREE_KEY,
     'Events',
-    serverScopeKey(OFFICIAL_OVERLAY_OWNER),
+    serverScopeKey(WPLACE_OWNER_URL.event),
     source,
   )
 }
@@ -172,7 +172,9 @@ export const renderEventRows = (ctx: TreeContext): boolean => {
 /** The alliance's own Wplace templates on this canvas, listed read-only under Wplace. */
 export const renderNativeRows = (ctx: TreeContext): boolean => {
   const { facts } = ctx
-  const native = facts.drawn.filter((template) => template.serverUrl === NATIVE_ALLIANCE_OWNER)
+  const native = facts.drawn.filter(
+    (template) => template.origin === 'wplace' && template.owner === 'alliance',
+  )
   if (native.length === 0) return false
   const source = groupedTreeSource(
     native.map((template) => ({
@@ -213,7 +215,7 @@ export const renderNativeRows = (ctx: TreeContext): boolean => {
     ctx,
     NATIVE_ALLIANCE_TREE_KEY,
     'Wplace',
-    serverScopeKey(NATIVE_ALLIANCE_OWNER),
+    serverScopeKey(WPLACE_OWNER_URL.alliance),
     source,
   )
 }

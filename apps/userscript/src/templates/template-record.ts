@@ -99,6 +99,15 @@ export interface StoredTemplate extends TemplateRecord {
 
 export type StoredMetadata = Omit<StoredTemplate, 'pixels'>
 
+/** A stored record as the catalog reads it: always a Local template. */
+export type LocalRecord = StoredMetadata & { readonly origin: 'local' }
+
+/** The stored shape of a Local template: everything but the origin the parser marked it with. */
+export const storedShape = <T extends { readonly origin: 'local' }>({
+  origin: _origin,
+  ...stored
+}: T): Omit<T, 'origin'> => stored
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
@@ -236,7 +245,7 @@ const parseOwns = (owns: unknown, appearance: unknown): readonly AppearanceGroup
 }
 
 /** Parse a stored record's metadata, throwing a RangeError when it is invalid. */
-export const parseStoredMetadata = (value: unknown): StoredMetadata => {
+export const parseStoredMetadata = (value: unknown): LocalRecord => {
   if (!isRecord(value)) throw new RangeError('template record is not an object')
   const core = parseStoredCore(value)
   const { folderId, updatedAt, appearance, authoring: rawAuthoring } = value
@@ -249,6 +258,7 @@ export const parseStoredMetadata = (value: unknown): StoredMetadata => {
   if (rawAuthoring !== undefined && authoring === null)
     warn('install', `dropping unreadable source and recipe of ${core.name}`)
   return {
+    origin: 'local',
     ...(native === undefined ? {} : { native }),
     ...core,
     folderId: typeof folderId === 'string' ? folderId : null,
@@ -262,7 +272,7 @@ export const parseStoredMetadata = (value: unknown): StoredMetadata => {
 }
 
 /** Parse a hydrated record, whose pixels must fill its box, throwing a RangeError when invalid. */
-export const parseStoredTemplate = (value: unknown): StoredTemplate => {
+export const parseStoredTemplate = (value: unknown): LocalRecord & StoredTemplate => {
   const metadata = parseStoredMetadata(value)
   // Hydration built these from the stored bytes; only their size can disagree with the record.
   const pixels = isRecord(value) ? (value.pixels as SparsePixels | undefined) : undefined
@@ -273,7 +283,7 @@ export const parseStoredTemplate = (value: unknown): StoredTemplate => {
 }
 
 /** A hydrated record, or null when it is invalid. */
-export const storedTemplateOrNull = (value: unknown): StoredTemplate | null => {
+export const storedTemplateOrNull = (value: unknown): (LocalRecord & StoredTemplate) | null => {
   try {
     return parseStoredTemplate(value)
   } catch {

@@ -17,7 +17,7 @@ import {
   removeTreeStateKeys,
   type ServerConnection,
 } from '../settings.js'
-import { isServerTemplate, ownsGroup, type PlacedTemplate } from '../templates/catalog.js'
+import { ownsGroup, type PlacedTemplate, type ServerCopy } from '../templates/catalog.js'
 import { hiddenColoursFor } from '../templates/colour-filter.js'
 import {
   abort as abortMove,
@@ -29,7 +29,7 @@ import {
   placementSeq,
 } from '../templates/move.js'
 import { templateAsPng } from '../templates/residency.js'
-import { forgetServerTemplate } from '../templates/server-copies.js'
+import { forgetTemplateCopy } from '../templates/template-copies.js'
 import { removeLocalTemplate, setLocalVisible } from '../templates/template-edits.js'
 import { localTemplateKey } from '../tree-keys.js'
 import { appearanceEditorModel } from './appearance.js'
@@ -82,16 +82,17 @@ interface ServerActionTarget {
 }
 
 /** The manifest row behind one server overlay, on the surface it is drawn on. */
-const remoteRowFor = (template: PlacedTemplate, server: ServerConnection) =>
+const remoteRowFor = (template: ServerCopy, server: ServerConnection) =>
   admittedManifest(server, template.surface)?.templates.find(
     (candidate) => candidate.id === template.serverTemplateId,
   )
 
 /** The current admin-owned manifest row behind one rendered server overlay. */
 const serverActionTargetFor = (template: PlacedTemplate): ServerActionTarget | null => {
-  if (!isServerTemplate(template) || template.serverTemplateId === undefined) return null
+  if (template.origin !== 'server') return null
+  const { url } = template.server
   const server = getState().servers.find(
-    (candidate) => candidate.url === template.serverUrl && hasServerAdminToken(candidate),
+    (candidate) => candidate.url === url && hasServerAdminToken(candidate),
   )
   const remote = server === undefined ? undefined : remoteRowFor(template, server)
   return server === undefined || remote === undefined
@@ -115,8 +116,8 @@ const serverLifecycleTargetFor = (template: PlacedTemplate): ServerActionTarget 
 const serverLifecycleFor = (
   template: PlacedTemplate,
 ): { readonly finished: boolean; readonly frozen: boolean } | null => {
-  if (!isServerTemplate(template) || template.serverTemplateId === undefined) return null
-  const server = template.serverUrl === undefined ? undefined : serverByUrl(template.serverUrl)
+  if (template.origin !== 'server') return null
+  const server = serverByUrl(template.server.url)
   const remote = server === undefined ? undefined : remoteRowFor(template, server)
   return remote === undefined
     ? null
@@ -234,7 +235,9 @@ const moveServerDraft = async (id: string, originX: number, originY: number): Pr
     png === null ||
     current === undefined ||
     currentTarget === null ||
-    current.serverVersion !== before.serverVersion
+    current.origin !== 'server' ||
+    before.origin !== 'server' ||
+    current.version !== before.version
   )
     return refused('This template changed while it was being prepared. Try again.')
   if (currentTarget.published) return refused('Unpublish this template before moving it.')
@@ -275,7 +278,7 @@ const startPlacement = (id: string, host: MenuHost): void => {
   host.close()
   const moving = templateFor(id)
   const started =
-    moving !== undefined && isServerTemplate(moving)
+    moving !== undefined && moving.origin !== 'local'
       ? beginServerMove(
           id,
           () => abortAttempts.delete(id),
@@ -291,7 +294,7 @@ const ANOTHER_PLACEMENT = 'Finish the placement already in progress first.'
 const activateMove = (id: string, host: MenuHost): void => {
   if (isDeleting(id)) return
   const current = templateFor(id)
-  if (current !== undefined && isServerTemplate(current)) {
+  if (current !== undefined && current.origin !== 'local') {
     const refusal = serverRefusal(serverActionTargetFor(current), 'moving it')
     if (refusal !== null) {
       refuse(
@@ -464,7 +467,7 @@ const refusedWhilePlacing = (id: string, host: MenuHost): boolean => {
 
 /** Refuse a delete of a server template this connection may not, or must not yet, remove. */
 const refusedOnServer = (template: PlacedTemplate, host: MenuHost): boolean => {
-  if (!isServerTemplate(template)) return false
+  if (template.origin === 'local') return false
   const refusal = serverRefusal(serverActionTargetFor(template), 'deleting it here')
   if (refusal === null) return false
   refuse(template.id, 'delete', () => refusal, host)
@@ -479,11 +482,12 @@ const requestDelete = (id: string, host: MenuHost): void => {
   if (confirming.has(id)) return
   confirming.add(id)
   void requestConfirmation({
-    title: isServerTemplate(current) ? 'Delete published template?' : 'Delete template?',
+    title: current.origin !== 'local' ? 'Delete published template?' : 'Delete template?',
     body: `${current.name} will be permanently removed.`,
-    note: isServerTemplate(current)
-      ? 'Everyone connected to this server will stop seeing it.'
-      : 'It is stored in this browser only.',
+    note:
+      current.origin !== 'local'
+        ? 'Everyone connected to this server will stop seeing it.'
+        : 'It is stored in this browser only.',
     confirmLabel: 'Delete',
   }).then((confirmed) => {
     confirming.delete(id)
@@ -512,7 +516,7 @@ const confirmDelete = (id: string, host: MenuHost): void => {
             serverRemovalFailure = result.message
             return false
           }
-          await forgetServerTemplate(id)
+          await forgetTemplateCopy(id)
           void refreshServerTemplateSurface(serverTarget.server, current)
           return true
         })
@@ -606,7 +610,7 @@ export const overlayActions = (template: PlacedTemplate, host: MenuHost): Overla
     control: 'hide',
     activate: () => activateVisible(id, host),
   })
-  if (isServerTemplate(template) && serverTarget === null) return actions
+  if (template.origin !== 'local' && serverTarget === null) return actions
   actions.push(
     {
       model: {
@@ -644,7 +648,7 @@ export const overlayModel = (template: PlacedTemplate): OverlayControlsModel => 
   const lifecycle = serverLifecycleFor(template)
   return {
     name: template.name,
-    ...(!isServerTemplate(template) || serverActionTargetFor(template) !== null
+    ...(template.origin === 'local' || serverActionTargetFor(template) !== null
       ? {
           updateArtwork: {
             pending: templateBusy(id, 'updating'),

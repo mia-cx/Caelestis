@@ -29,13 +29,14 @@ import { validatePlacement } from './placement.js'
 import { nodeChainVisible, serverNodeParents, serverNodesRevision } from './server-nodes.js'
 import { cutPixels, type SparsePixels } from './sparse-pixels.js'
 import type { NativeLink, TemplateRecord } from './template-record.js'
+import { WPLACE_OWNER_URL, type WplaceOwner } from './wplace-owned.js'
 
 /**
  * The template catalog: every template this tab draws, in the order the panel shows them, with
  * change notification, previews and the editor's draft.
  *
  * It is the leaf of the template store. Residency (`residency.ts`) decides which artwork stays in
- * memory, `restore.ts` and `server-copies.ts` fill the catalog, and `template-edits.ts` changes it.
+ * memory, `restore.ts` and `template-copies.ts` fill the catalog, and `template-edits.ts` changes it.
  */
 
 /**
@@ -50,18 +51,12 @@ export interface TemplateArtwork {
   readonly pixels: SparsePixels | null
 }
 
-export interface PlacedTemplate extends TemplateRecord {
+/** What every catalog entry has, wherever it came from. */
+interface PlacedBase extends TemplateRecord {
   readonly artwork: TemplateArtwork
-  readonly native?: NativeLink
-  /** Wplace's alliance opacity, used until this browser takes ownership of the pixels appearance. */
-  readonly sourceOpacity?: number
-  /** Last local content or placement edit; absent on legacy records and server render copies. */
-  readonly updatedAt?: number
   /** Drawing surface this placement belongs to. Legacy browser-owned templates are world-scoped. */
   readonly surface?: TemplateSurface
-  /** Runtime owner for server rows; absent on Local and legacy restored records. */
-  readonly serverConnection?: ServerConnection
-  /** Painted world-tile keys (`x/y`) used to bound mismatch and navigation work. */
+  /** Painted world-tile keys (`x/y`) that bound mismatch and navigation work. */
   readonly tiles: ReadonlySet<string>
   readonly visible: boolean
   /**
@@ -71,12 +66,6 @@ export interface PlacedTemplate extends TemplateRecord {
    * remove it rather than leave it stranded at a position nobody chose.
    */
   readonly everPlaced: boolean
-  /**
-   * Held in Local only until it uploads to a server. A staged template is in no group: the sidebar
-   * does not list it and no switch hides it, since its outline and Apply or Cancel are the only way
-   * out of its placement.
-   */
-  readonly staged?: true
   /**
    * Values this template has set for itself, for whichever groups it owns.
    *
@@ -96,43 +85,75 @@ export interface PlacedTemplate extends TemplateRecord {
    * defaults in every respect, which is where every template starts.
    */
   readonly owns: readonly AppearanceGroup[]
+}
+
+/** A template that lives in this browser, saved in IndexedDB and edited here. */
+export interface LocalTemplate extends PlacedBase {
+  readonly origin: 'local'
+  readonly native?: NativeLink
+  /** Last content or placement edit; absent on legacy records. */
+  readonly updatedAt?: number
+  /**
+   * Held in Local only until it uploads to a server. A staged template is in no group: the sidebar
+   * does not list it and no switch hides it, since its outline and Apply or Cancel are the only way
+   * out of its placement.
+   */
+  readonly staged?: true
   /** Which Local folder this sits in, or null for the top level of Local. */
   readonly folderId: string | null
-  /**
-   * The server publishing this template, or absent for one that only exists in this browser.
-   *
-   * Server templates live in this same store deliberately. Everything downstream — the renderer, the
-   * mismatch scan, the colour picker, the per-overlay menu — takes a `PlacedTemplate` and does not
-   * care where it came from, and keeping a second parallel store would have meant teaching all of
-   * them the difference for no gain. What *is* different is ownership: these are not persisted here,
-   * because the server is where they live and a stale copy in IndexedDB would outlive a delete.
-   */
-  readonly serverUrl?: string
-  /** Its id on that server, which is what the admin routes address. */
-  readonly serverTemplateId?: string
-  /** The folder it hangs off on that server, or null when it sits at the server root. */
-  readonly serverNodeId?: string | null
-  /** The version these pixels came from, so a sync knows whether to re-download them. */
-  readonly serverVersion?: string
-  /**
-   * An unpublished copy, which only an admin token can read. Wplace's own scripts can read this
-   * page's IndexedDB and Cache Storage, so nothing of it is written there.
-   */
-  readonly serverUnpublished?: boolean
-  /** The source continues at x=0 after reaching the world's east edge. Server templates only. */
-  readonly wrapX?: boolean
-  /** Painted world tiles advertised by the server manifest. Server templates only. */
-  readonly serverTileKeys?: readonly string[]
 }
+
+/**
+ * A copy of a template a Caelestis server publishes. The server owns and measures it; this browser
+ * keeps only its own switches for it.
+ */
+export interface ServerCopy extends PlacedBase {
+  readonly origin: 'server'
+  /** The connection that drew it; a copy from an ended connection does not draw. */
+  readonly server: ServerConnection
+  /** Its id on that server, which is what the admin routes address. */
+  readonly serverTemplateId: string
+  /** The server folder it hangs off, or null at the server root. */
+  readonly nodeId: string | null
+  /** The version these pixels came from, so a sync knows whether to re-download them. */
+  readonly version: string
+  /**
+   * Only an admin token can read it. Wplace's own scripts can read this page's IndexedDB and Cache
+   * Storage, so nothing of it is written there.
+   */
+  readonly unpublished: boolean
+  /** The source continues at x=0 after reaching the world's east edge. */
+  readonly wrapX: boolean
+}
+
+/**
+ * A read-only mirror of a template Wplace serves itself. No Caelestis server measures it, so its
+ * progress and markers come from tile pixels, like a Local template's.
+ */
+export interface WplaceCopy extends PlacedBase {
+  readonly origin: 'wplace'
+  readonly owner: WplaceOwner
+  /** The event group it belongs to, or null. */
+  readonly nodeId: string | null
+  /** Identifies the mirrored pixels, so a refresh knows whether to rebuild them. */
+  readonly version: string
+  /** Wplace's alliance opacity, used until this browser takes ownership of the pixels appearance. */
+  readonly sourceOpacity?: number
+}
+
+/**
+ * One catalog entry. Everything downstream — the renderer, the mismatch scan, the colour picker,
+ * the overlay menu — takes any of them; `origin` says who owns it.
+ */
+export type PlacedTemplate = LocalTemplate | ServerCopy | WplaceCopy
+
+/** Copies someone else owns, which this browser never saves. */
+export type TemplateCopy = ServerCopy | WplaceCopy
 
 /** A placement with its pixels in hand, for work that reads them. */
 export type PlacedPixels = Pick<PlacedTemplate, 'originX' | 'originY' | 'width' | 'height'> & {
   readonly pixels: SparsePixels
 }
-
-/** Whether this template is a copy of something a server publishes. */
-export const isServerTemplate = (template: PlacedTemplate): boolean =>
-  template.serverUrl !== undefined
 
 const templates = new Map<string, PlacedTemplate>()
 const previewOrigins = new Map<string, { x: number; y: number }>()
@@ -209,19 +230,19 @@ const customOrdered = <T extends { readonly key: string }>(
 }
 
 /** Flatten one tree in the same custom sibling order the panel shows. */
-const flattenTree = (
-  rows: readonly PlacedTemplate[],
+const flattenTree = <T extends PlacedTemplate>(
+  rows: readonly T[],
   folders: readonly (readonly [id: string, parentId: string | null])[],
   folderKey: (id: string) => string,
-  templateKey: (template: PlacedTemplate) => string,
-  templateParent: (template: PlacedTemplate) => string | null,
+  templateKey: (template: T) => string,
+  templateParent: (template: T) => string | null,
   rank: ReadonlyMap<string, number>,
 ): readonly PlacedTemplate[] => {
   const result: PlacedTemplate[] = []
   const seenFolders = new Set<string>()
   const seenTemplates = new Set<string>()
   const foldersByParent = new Map<string | null, string[]>()
-  const templatesByParent = new Map<string | null, PlacedTemplate[]>()
+  const templatesByParent = new Map<string | null, T[]>()
   for (const [id, parentId] of folders) {
     const siblings = foldersByParent.get(parentId) ?? []
     siblings.push(id)
@@ -277,7 +298,7 @@ const displayOrder = (): readonly PlacedTemplate[] => {
     {
       key: LOCAL_ROOT_KEY,
       rows: flattenTree(
-        ordered.filter((template) => !isServerTemplate(template)),
+        ordered.filter((template) => template.origin === 'local'),
         state.localFolders.map((folder) => [folder.id, folder.parentId] as const),
         localFolderKey,
         (template) => localTemplateKey(template.id),
@@ -288,11 +309,14 @@ const displayOrder = (): readonly PlacedTemplate[] => {
     ...state.servers.map((server) => ({
       key: serverScopeKey(server.url),
       rows: flattenTree(
-        ordered.filter((template) => template.serverUrl === server.url),
+        ordered.filter(
+          (template): template is ServerCopy =>
+            template.origin === 'server' && template.server.url === server.url,
+        ),
         serverNodeParents(server.url),
         (id) => nodeTreeKey(server, id),
-        (template) => serverTemplateTreeKey(server, template.serverTemplateId ?? ''),
-        (template) => template.serverNodeId ?? null,
+        (template) => serverTemplateTreeKey(server, template.serverTemplateId),
+        (template) => template.nodeId,
         rank,
       ),
     })),
@@ -339,12 +363,12 @@ export const isCurrentTemplate = (template: PlacedTemplate): boolean =>
 /** Ordered template ids directly inside one Local folder. */
 export const templateIdsInLocalFolder = (folderId: string): readonly string[] =>
   orderedTemplates()
-    .filter((template) => !isServerTemplate(template) && template.folderId === folderId)
+    .filter((template) => template.origin === 'local' && template.folderId === folderId)
     .map((template) => template.id)
 
-/** World tiles worth scanning for navigation and mismatch work. */
-export const templateTileKeys = (template: PlacedTemplate): Iterable<string> =>
-  template.serverTileKeys ?? template.tiles.keys()
+/** Whether a template's source continues at x=0 past the world's east edge. Only server copies do. */
+export const wrapsX = (template: PlacedTemplate): boolean =>
+  template.origin === 'server' && template.wrapX
 
 // A plain image has no meaningful position until its first placement is applied. Keep it local
 // until then so a second tab restoring IndexedDB cannot mistake an active placement for crash
@@ -461,6 +485,7 @@ export const setTemplateDraft = (
   const { indices, ...metadata } = next
   draft = {
     ...metadata,
+    origin: 'local',
     // Outside the catalog, so outside the resident budget.
     artwork: { pixels: cutPixels(next.width, next.height, indices) },
     surface,
@@ -543,26 +568,27 @@ export const forgetPreview = (id: string): void => {
  * makes turning the group back on restore the arrangement instead of flattening it.
  */
 export const isTemplateVisible = (template: PlacedTemplate): boolean => {
-  if (template.staged === true) return true
+  if (template.origin === 'local' && template.staged === true) return true
   if (!template.visible) return false
   // The editor's draft belongs to no folder, and it is the thing being looked at.
   if (isTemplateDraft(template)) return true
-  // A server's template answers to that server's switch and folders, not to Local's.
-  if (template.serverUrl !== undefined) {
-    if (
-      template.serverConnection !== undefined &&
-      !isCurrentServerConnection(template.serverConnection)
-    )
-      return false
-    if (!isScopeVisible(serverScopeKey(template.serverUrl))) return false
-    return nodeChainVisible(
-      template.serverUrl,
-      template.serverNodeId ?? null,
-      template.surface ?? WORLD_TEMPLATE_SURFACE,
-    )
+  switch (template.origin) {
+    case 'local':
+      return localFolderChainVisible(template.folderId)
+    case 'server':
+      return (
+        isCurrentServerConnection(template.server) &&
+        copyChainVisible(template.server.url, template)
+      )
+    case 'wplace':
+      return copyChainVisible(WPLACE_OWNER_URL[template.owner], template)
   }
-  return localFolderChainVisible(template.folderId)
 }
+
+/** A copy answers to its owner's switch and the owner's folders above it, not to Local's. */
+const copyChainVisible = (ownerUrl: string, template: TemplateCopy): boolean =>
+  isScopeVisible(serverScopeKey(ownerUrl)) &&
+  nodeChainVisible(ownerUrl, template.nodeId, template.surface ?? WORLD_TEMPLATE_SURFACE)
 
 /** Each template's own switch beside the renderer's effective visibility decision. */
 registerDebugEntry('templates', () =>
@@ -571,9 +597,10 @@ registerDebugEntry('templates', () =>
     name: template.name,
     visible: template.visible,
     drawing: isTemplateVisible(template),
-    folderId: template.folderId,
-    server: template.serverUrl ?? null,
-    serverTemplateId: template.serverTemplateId ?? null,
+    origin: template.origin,
+    folderId: template.origin === 'local' ? template.folderId : null,
+    server: template.origin === 'server' ? template.server.url : null,
+    serverTemplateId: template.origin === 'server' ? template.serverTemplateId : null,
     opaque: template.opaque,
   })),
 )
@@ -588,12 +615,11 @@ registerDebugEntry('templates', () =>
 export const appearanceOf = (template: PlacedTemplate): Appearance => {
   const global = getSurfaceAppearance(template.surface ?? WORLD_TEMPLATE_SURFACE)
   const own = template.appearance
+  const native = template.origin === 'local' ? template.native : undefined
   const nativeOpacity =
-    template.native?.status === 'linked' && template.native.opacityOverride === true
-      ? template.native.opacity
-      : undefined
-  const inherited =
-    template.sourceOpacity === undefined ? global : { ...global, opacity: template.sourceOpacity }
+    native?.status === 'linked' && native.opacityOverride === true ? native.opacity : undefined
+  const sourceOpacity = template.origin === 'wplace' ? template.sourceOpacity : undefined
+  const inherited = sourceOpacity === undefined ? global : { ...global, opacity: sourceOpacity }
   if (own === null || template.owns.length === 0)
     return nativeOpacity === undefined ? inherited : { ...inherited, opacity: nativeOpacity }
 

@@ -14,7 +14,7 @@ import { isCurrentServerConnection, serverConnectionSignal } from '../server-con
 import { admittedManifest, manifestRows } from '../server-manifests.js'
 import { serverRequest } from '../server-request.js'
 import { commitState, getState, type ServerConnection } from '../settings.js'
-import { isServerTemplate, localTemplates } from '../templates/catalog.js'
+import { localTemplates } from '../templates/catalog.js'
 import { localTemplateIdOf, localTemplateKey, serverTemplateTreeKey } from '../tree-keys.js'
 import { accountIdentity, loadAccount } from '../wplace-account.js'
 import { showToast } from './notification-host.js'
@@ -134,7 +134,7 @@ export const workSectionModel = (surface: TemplateSurface, changed: () => void) 
   }
   for (const template of localTemplates()) {
     if (
-      isServerTemplate(template) ||
+      template.origin !== 'local' ||
       !sameTemplateSurface(template.surface ?? WORLD_TEMPLATE_SURFACE, surface)
     )
       continue
@@ -211,7 +211,7 @@ export const claimTemplate = async (
     if (templateId === null || person !== undefined) return
     const known = new Set(
       localTemplates()
-        .filter((template) => !isServerTemplate(template))
+        .filter((template) => template.origin === 'local')
         .map((template) => template.id),
     )
     if (!known.has(templateId)) return

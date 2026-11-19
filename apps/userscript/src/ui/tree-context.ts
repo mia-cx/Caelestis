@@ -7,9 +7,8 @@ import type {
   TreeRowModel,
 } from '@caelestis/ui/elements'
 import type { ServerConnection } from '../settings.js'
-import type { PlacedTemplate } from '../templates/catalog.js'
+import type { LocalTemplate, PlacedTemplate, ServerCopy } from '../templates/catalog.js'
 import type { TemplateColourProgress, TemplateProgress } from '../templates/progress-types.js'
-import { NATIVE_ALLIANCE_OWNER, OFFICIAL_OVERLAY_OWNER } from '../templates/wplace-owned.js'
 import {
   eventTemplateKey,
   localTemplateKey,
@@ -150,8 +149,8 @@ export interface TreeFacts {
   /** Templates drawn on this build's surface and listed in it. */
   readonly drawn: readonly PlacedTemplate[]
   /** Drawn templates no server publishes. */
-  readonly localOnly: readonly PlacedTemplate[]
-  readonly drawnServerTemplate: (server: ServerConnection, id: string) => PlacedTemplate | undefined
+  readonly localOnly: readonly LocalTemplate[]
+  readonly drawnServerTemplate: (server: ServerConnection, id: string) => ServerCopy | undefined
   readonly progress: (template: PlacedTemplate) => TemplateProgress
   readonly colourProgress: (template: PlacedTemplate) => readonly TemplateColourProgress[]
 }
@@ -180,14 +179,23 @@ export interface TreeContext {
 
 /** Resolve a drawn template to the stable key used by its main-menu row. */
 export const templateTreeKeyFor = (
-  template: Pick<PlacedTemplate, 'id' | 'serverUrl' | 'serverTemplateId'> | null,
+  template: PlacedTemplate | null,
   servers: readonly ServerConnection[],
 ): string | undefined => {
   if (template === null) return undefined
-  if (template.serverUrl === OFFICIAL_OVERLAY_OWNER) return eventTemplateKey(template.id)
-  if (template.serverUrl === NATIVE_ALLIANCE_OWNER) return nativeTemplateKey(template.id)
-  if (template.serverUrl === undefined) return localTemplateKey(template.id)
-  if (template.serverTemplateId === undefined) return undefined
-  const server = servers.find((candidate) => candidate.url === template.serverUrl)
-  return server === undefined ? undefined : serverTemplateTreeKey(server, template.serverTemplateId)
+  switch (template.origin) {
+    case 'local':
+      return localTemplateKey(template.id)
+    case 'wplace':
+      return template.owner === 'event'
+        ? eventTemplateKey(template.id)
+        : nativeTemplateKey(template.id)
+    case 'server': {
+      const { url } = template.server
+      const server = servers.find((candidate) => candidate.url === url)
+      return server === undefined
+        ? undefined
+        : serverTemplateTreeKey(server, template.serverTemplateId)
+    }
+  }
 }

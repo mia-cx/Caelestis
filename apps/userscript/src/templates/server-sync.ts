@@ -36,16 +36,16 @@ import { applyServerSyncRevision, registerServerSyncResource } from '../server-s
 import { onStateChange, type ServerConnection } from '../settings.js'
 import { serverTemplateIdPrefix, serverTemplateKey } from '../tree-keys.js'
 import { ByteCache } from './byte-cache.js'
-import { localTemplates, type PlacedTemplate } from './catalog.js'
+import { localTemplates, type ServerCopy } from './catalog.js'
+import { cachedServerCopy, retainServerPixels } from './server-pixel-cache.js'
 import {
-  forgetServerTemplate,
-  forgetServerTemplates,
-  hasRoomForServerTemplate,
-  putServerTemplate,
+  forgetTemplateCopies,
+  forgetTemplateCopy,
+  hasRoomForCopy,
+  putTemplateCopy,
   setServerPixelSource,
   updateServerTemplateMetadata,
-} from './server-copies.js'
-import { cachedServerCopy, retainServerPixels } from './server-pixel-cache.js'
+} from './template-copies.js'
 
 /**
  * Bringing a server's published templates onto the canvas.
@@ -290,10 +290,9 @@ const latest = new PerServerMap<{
  *
  * Only the version the newest manifest asked for, through the connection it came from.
  */
-const downloadAgain = async (template: PlacedTemplate): Promise<Uint8Array | null> => {
-  const entry =
-    template.serverUrl === undefined ? undefined : latest.get(template.serverUrl, template.id)
-  if (entry === undefined || entry.template.version !== template.serverVersion) return null
+const downloadAgain = async (copy: ServerCopy): Promise<Uint8Array | null> => {
+  const entry = latest.get(copy.server.url, copy.id)
+  if (entry === undefined || entry.template.version !== copy.version) return null
   const { server } = entry
   const signal = AbortSignal.any([
     serverConnectionSignal(server),
@@ -328,13 +327,13 @@ const serverTemplateRow = (
   // The server quantised on ingest, so nothing moved on the way here and every pixel it carries is
   // one it asserts.
   moved: 0,
-  serverUrl: server.url,
+  origin: 'server' as const,
+  server,
   serverTemplateId: template.id,
-  serverNodeId: template.nodeId,
-  serverVersion: template.version,
-  serverUnpublished: !template.published,
-  serverConnection: server,
-  serverTileKeys: template.chunks.map((chunk) => chunk.tile),
+  nodeId: template.nodeId,
+  version: template.version,
+  unpublished: !template.published,
+  tileKeys: template.chunks.map((chunk) => chunk.tile),
   wrapX: surface.kind === 'world' && template.bbox.minX > template.bbox.maxX,
 })
 
@@ -367,13 +366,17 @@ const syncServerTemplatesOnce = async (
   )
   // Snapshot once. Re-reading and linearly searching the store for every manifest entry made a
   // large server sync quadratic in the number of templates.
-  const heldById = new Map(localTemplates().map((template) => [template.id, template]))
+  const heldById = new Map(
+    localTemplates()
+      .filter((template): template is ServerCopy => template.origin === 'server')
+      .map((template) => [template.id, template]),
+  )
 
   for (const held of heldById.values()) {
     if (!current()) return
-    if (held.serverUrl !== server.url) continue
+    if (held.server.url !== server.url) continue
     if (!sameTemplateSurface(held.surface ?? WORLD_TEMPLATE_SURFACE, surface)) continue
-    if (!wanted.has(held.id)) await forgetServerTemplate(held.id)
+    if (!wanted.has(held.id)) await forgetTemplateCopy(held.id)
   }
   if (!current()) return
   for (const [key, entry] of latest.entries(server.url)) {
@@ -393,8 +396,8 @@ const syncServerTemplatesOnce = async (
     // The version is the whole point of the sync being cheap: same version, same pixels, nothing to
     // rebuild. Names and folder membership still arrive through the manifest because neither
     // changes the pixel version.
-    if (held !== undefined && held.serverVersion === template.version) {
-      const unpublishing = !template.published && held.serverUnpublished !== true
+    if (held !== undefined && held.version === template.version) {
+      const unpublishing = !template.published && !held.unpublished
       await updateServerTemplateMetadata(
         key,
         template.name,
@@ -418,14 +421,14 @@ const syncServerTemplatesOnce = async (
       : template.bbox.maxX - template.bbox.minX
     const height = template.bbox.maxY - template.bbox.minY
     const pixels = width * height
-    if (!Number.isSafeInteger(pixels) || pixels <= 0 || !hasRoomForServerTemplate(key, pixels)) {
+    if (!Number.isSafeInteger(pixels) || pixels <= 0 || !hasRoomForCopy(key, pixels)) {
       continue
     }
     inFlight.set(server.url, key, lifetime)
     const latestVersion = (): string | undefined => latest.get(server.url, key)?.template.version
     const stillWanted = (): boolean => current() && latestVersion() === template.version
     // A draft keeps no saved masks, including ones a public copy saved in an earlier session.
-    const wasPublic = !template.published && held?.serverUnpublished !== true
+    const wasPublic = !template.published && held?.unpublished !== true
     try {
       // Cached at this version: install without downloading, and read the pixels when needed.
       const cached = await cachedServerCopy(key, template.version)
@@ -433,7 +436,7 @@ const syncServerTemplatesOnce = async (
       if (cached !== null) {
         const row = serverTemplateRow(server, template, key, surface, width, height)
         const copy = { ...row, indices: null, opaque: cached.opaque, cachedArea: cached.area }
-        if (!(await putServerTemplate(copy, stillWanted))) return
+        if (!(await putTemplateCopy(copy, stillWanted))) return
         count('server:template restored from disk')
         continue
       }
@@ -451,10 +454,10 @@ const syncServerTemplatesOnce = async (
           // version — or no longer asks for this template at all. Installing now would draw artwork
           // that has already been replaced, or bring a deleted overlay back.
           if (latestVersion() !== template.version) return 'continue'
-          if (!hasRoomForServerTemplate(key, built.indices.length)) return 'continue'
+          if (!hasRoomForCopy(key, built.indices.length)) return 'continue'
           // Hold the shared assembly slot through persistence so its decoded buffer cannot pile up
           // behind other completed assemblies while the store is busy.
-          const installed = await putServerTemplate(
+          const installed = await putTemplateCopy(
             {
               ...serverTemplateRow(server, template, key, surface, built.width, built.height),
               indices: built.indices,
@@ -579,7 +582,7 @@ onServerRemoved(async (serverUrl) => {
       chunkCache.delete(chunk.hash)
       decodedChunks.delete(chunk.hash)
     }
-  await forgetServerTemplates(serverUrl)
+  await forgetTemplateCopies((copy) => copy.origin === 'server' && copy.server.url === serverUrl)
 })
 
 /**

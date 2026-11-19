@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { RenderScene } from '../src/gl/render-scene.js'
 import { installMapCapture, releaseMapCapture } from '../src/map-handle.js'
 import { DEFAULT_APPEARANCE } from '../src/templates/appearance.js'
-import type { PlacedTemplate } from '../src/templates/catalog.js'
+import type { LocalTemplate } from '../src/templates/catalog.js'
 import { compositeCommittedArtwork } from '../src/templates/current-artwork.js'
 import { draftedPixelsIn } from '../src/templates/drafted.js'
 import { markLocalX, markLocalY, markWanted } from '../src/templates/mismatch-marks.js'
@@ -48,7 +48,8 @@ const tileJob = (overrides: Partial<PixelScanJob> = {}): PixelScanJob => ({
   ...overrides,
 })
 
-const template = (overrides: Partial<PlacedTemplate> = {}): PlacedTemplate => ({
+const template = (overrides: Partial<LocalTemplate> = {}): LocalTemplate => ({
+  origin: 'local',
   id: 'pixel-contract',
   name: 'Pixel contract',
   source: 'image',

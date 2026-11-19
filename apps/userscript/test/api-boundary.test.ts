@@ -661,7 +661,8 @@ describe('admin drafts and page-readable storage', () => {
     await vi.waitFor(() => expect(catalog.templateById(key)).toBeDefined())
     await vi.waitFor(async () => expect((await cached())?.fetchedAt).toBeDefined())
     expect(await cached()).toMatchObject({ nodes: [], templates: [] })
-    const version = catalog.templateById(key)?.serverVersion ?? ''
+    const drawn = catalog.templateById(key)
+    const version = drawn?.origin === 'server' ? drawn.version : ''
     expect(await cachedServerCopy(key, version)).toBeNull()
 
     expect(await state.patchTemplate(server, uploaded.id, { published: true })).toEqual({
@@ -802,7 +803,7 @@ describe('server data reuse', () => {
     if (!replaced.ok) throw new Error(replaced.message)
     await state.readManifest(server)
     await vi.waitFor(() =>
-      expect(catalog.templateById(key)?.serverVersion).toBe(replaced.versionId),
+      expect(catalog.templateById(key)).toMatchObject({ version: replaced.versionId }),
     )
     expect(await pixels()).toEqual([1, 2, 5, 6])
     expect(decode).toHaveBeenCalledTimes(1)

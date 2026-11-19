@@ -18,13 +18,14 @@ import {
   isDeletingLocal,
   isIdTaken,
   isPendingImage,
-  isServerTemplate,
+  type LocalTemplate,
   markDeleting,
   notifyLocalChange,
   type PlacedTemplate,
   previewOriginFor,
   reserveId,
   templateById,
+  wrapsX,
   writeInOrder,
   writeManyInOrder,
 } from './catalog.js'
@@ -49,6 +50,7 @@ import { cutPixels, joinPixels, storedArea } from './sparse-pixels.js'
 import {
   MAX_TEMPLATE_ID_LENGTH,
   MAX_TEMPLATE_NAME_LENGTH,
+  storedShape,
   type TemplateRecord,
 } from './template-record.js'
 
@@ -65,13 +67,13 @@ const savePlaced = async (
   placed: PlacedTemplate,
   expectedRevision: number | null = placed.revision,
 ): Promise<SaveResult> => {
-  if (isServerTemplate(placed)) {
+  if (placed.origin !== 'local') {
     return setServerTemplatePreference(placed.id, placed.appearance, placed.owns)
       ? { status: 'saved', revision: placed.revision }
       : { status: 'limit' }
   }
   // A metadata change on a stored record keeps its pixels, so it never needs them in memory.
-  const { tiles, artwork, ...rest } = placed
+  const { tiles, artwork, ...rest } = storedShape(placed)
   return noteSnapshot(
     artwork,
     await saveTemplate(
@@ -87,13 +89,16 @@ const savePlaced = async (
 }
 
 /** Save a new entry. A new record has nothing stored yet, so its pixels must be in memory. */
-const persist = async (placed: PlacedTemplate): Promise<SaveResult> => {
-  if (isServerTemplate(placed)) return await savePlaced(placed)
+const persist = async (placed: LocalTemplate): Promise<SaveResult> => {
   if (placed.artwork.pixels === null) {
     throw new RangeError('a new template has no pixels in memory')
   }
   return await writeInOrder(placed.id, () => savePlaced(placed, null))
 }
+
+/** Stamp a Local template's last edit; copies record none. */
+const touched = <T extends PlacedTemplate>(template: T): T =>
+  template.origin === 'local' ? { ...template, updatedAt: Date.now() } : template
 
 const committedRevision = (result: SaveResult): number | null =>
   result.status === 'saved' ? result.revision : null
@@ -136,8 +141,9 @@ export const addLocalTemplate = async (
   const releasePixels = holdPendingPixels(area)
   try {
     const tiles = await paintedTileKeys(scoped, pixels)
-    const placed: PlacedTemplate = {
+    const placed: LocalTemplate = {
       ...metadata,
+      origin: 'local',
       artwork: newArtwork(pixels),
       updatedAt: Date.now(),
       surface,
@@ -172,7 +178,7 @@ export const addLocalTemplate = async (
 
 /** Durable Local placement does not carry the server-only antimeridian representation. */
 export const canCopyAsLocalTemplate = (template: PlacedTemplate): boolean =>
-  template.wrapX !== true || template.originX + template.width <= WORLD_PIXELS
+  !wrapsX(template) || template.originX + template.width <= WORLD_PIXELS
 
 /**
  * Make a durable local copy without carrying any server-owned identity fields across the boundary.
@@ -208,7 +214,7 @@ export const copyAsLocalTemplate = async (
     opaque: template.opaque,
     ...(authoring === null ? {} : { authoring }),
   }
-  if (isServerTemplate(template)) {
+  if (template.origin !== 'local') {
     const surface = template.surface ?? WORLD_TEMPLATE_SURFACE
     validatePlacement({ ...imported, surface })
     if (
@@ -230,8 +236,9 @@ export const copyAsLocalTemplate = async (
     const releaseId = reserveId(id)
     try {
       const tiles = await paintedTileKeys({ ...imported, surface }, pixels)
-      const placed: PlacedTemplate = {
+      const placed: LocalTemplate = {
         ...imported,
+        origin: 'local',
         artwork: newArtwork(pixels),
         updatedAt: Date.now(),
         surface,
@@ -347,8 +354,7 @@ const drainMoves = async (id: string, queue: MoveQueue): Promise<void> => {
             )
           }
           return {
-            ...latest,
-            updatedAt: Date.now(),
+            ...touched(latest),
             originX: target.originX,
             originY: target.originY,
             everPlaced: latest.everPlaced || target.everPlaced,
@@ -439,17 +445,13 @@ const commitEdit = (
   })
 
 export const markPlaced = async (id: string): Promise<boolean> =>
-  await commitEdit(id, 'placement', (existing) => ({
-    ...existing,
-    everPlaced: true,
-    updatedAt: Date.now(),
-  }))
+  await commitEdit(id, 'placement', (existing) => ({ ...touched(existing), everPlaced: true }))
 
 /** Keep a staged template that did not upload as an ordinary Local one. */
 export const unstageLocalTemplate = async (id: string): Promise<void> =>
   await writeInOrder(id, async () => {
     const existing = templateById(id)
-    if (existing?.staged === undefined) return
+    if (existing?.origin !== 'local' || existing.staged === undefined) return
     const { staged: _staged, ...kept } = existing
     installEntry(kept)
     notifyLocalChange()
@@ -479,6 +481,7 @@ export const setTemplateFolder = async (id: string, folderId: string | null): Pr
   if (folderId !== null && releaseFolder === null) return false
   try {
     return await commitEdit(id, 'folder change', (existing) => {
+      if (existing.origin !== 'local') return null
       if (folderId !== null) {
         const folder = getState().localFolders.find((candidate) => candidate.id === folderId)
         if (
@@ -510,10 +513,10 @@ export const setTemplatesFolder = async (
   if (folderId !== null && releaseFolder === null) return false
   try {
     return await writeManyInOrder(unique, async () => {
-      const present: PlacedTemplate[] = []
+      const present: LocalTemplate[] = []
       for (const id of unique) {
         const template = templateById(id)
-        if (template === undefined || isDeletingLocal(id)) return false
+        if (template?.origin !== 'local' || isDeletingLocal(id)) return false
         present.push(template)
       }
       if (folderId !== null) {
@@ -572,7 +575,7 @@ export const replaceLocalArtwork = async (
   indices: Uint8Array,
 ): Promise<void> => {
   await writeInOrder(expected.id, async () => {
-    const checkCurrent = (): void => {
+    const checkCurrent = (): LocalTemplate => {
       if (
         !isCurrentTemplate(expected) ||
         isDeletingLocal(expected.id) ||
@@ -580,13 +583,14 @@ export const replaceLocalArtwork = async (
       ) {
         throw new Error('That template changed during the update. Try again.')
       }
-      if (isServerTemplate(expected) || isPendingImage(expected)) {
+      if (expected.origin !== 'local' || isPendingImage(expected)) {
         throw new Error('Finish placing this local template before updating it.')
       }
+      return expected
     }
-    checkCurrent()
+    const local = checkCurrent()
     // Canvas artwork does not come from the recipe, so this version is processed-only.
-    const { authoring: _authoring, artwork: _artwork, tiles: _tiles, ...processedOnly } = expected
+    const { authoring: _authoring, artwork: _artwork, tiles: _tiles, ...processedOnly } = local
     const next = {
       ...processedOnly,
       opaque: indices.reduce((count, index) => count + Number(index !== TRANSPARENT_INDEX), 0),
@@ -597,7 +601,7 @@ export const replaceLocalArtwork = async (
     const tiles = await paintedTileKeys(next, pixels)
     checkCurrent()
     const result = await saveTemplate(
-      { ...next, pixels, tileKeys: [...tiles] },
+      { ...storedShape(next), pixels, tileKeys: [...tiles] },
       expected.revision,
       true,
     )
@@ -628,7 +632,7 @@ export const renameLocalTemplate = async (id: string, name: string): Promise<boo
   const trimmed = name.trim()
   if (trimmed === '' || trimmed.length > MAX_TEMPLATE_NAME_LENGTH) return false
   return await commitEdit(id, 'rename', (existing) =>
-    trimmed === existing.name ? 'unchanged' : { ...existing, name: trimmed, updatedAt: Date.now() },
+    trimmed === existing.name ? 'unchanged' : { ...touched(existing), name: trimmed },
   )
 }
 
@@ -637,7 +641,7 @@ const deletionLeases = new Map<string, number>()
 /** Keep a browser-owned template from being deleted while another copy is still being committed. */
 export const leaseLocalTemplate = (id: string): (() => void) | null => {
   const template = templateById(id)
-  if (template === undefined || isServerTemplate(template) || isDeletingLocal(id)) return null
+  if (template?.origin !== 'local' || isDeletingLocal(id)) return null
   deletionLeases.set(id, (deletionLeases.get(id) ?? 0) + 1)
   let active = true
   return () => {
@@ -662,9 +666,9 @@ export const removeLocalTemplate = async (id: string): Promise<boolean> => {
   const existing = templateById(id)
   // Already gone — by this id's own earlier deletion, most likely — which is the outcome asked for.
   if (existing === undefined) return true
-  // Server rows are owned by their remote source. `forgetServerTemplate` is the sync lifecycle;
+  // Server rows are owned by their remote source. `forgetTemplateCopy` is the sync lifecycle;
   // Local deletion must never make one disappear temporarily and then reappear on the next poll.
-  if (isServerTemplate(existing)) return false
+  if (existing.origin !== 'local') return false
   if (isDeletingLocal(id)) return false
   if (isLeasedLocal(id)) return false
   // Terminal immediately: in-flight scans and newly requested mutations must not queue a save
@@ -718,7 +722,7 @@ export const setLocalVisible = async (id: string, visible: boolean): Promise<boo
     'visibility',
     (existing) => (existing.visible === visible ? 'unchanged' : { ...existing, visible }),
     // A server row's visibility is a scope switch, not part of its stored preference.
-    (next) => !isServerTemplate(next) || setScopeVisible(id, visible),
+    (next) => next.origin === 'local' || setScopeVisible(id, visible),
   )
 
 const mutateAppearance = async (

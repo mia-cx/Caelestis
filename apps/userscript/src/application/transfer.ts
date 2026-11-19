@@ -308,7 +308,7 @@ const sameRevision = (first: ServerTemplate, latest: ServerTemplate | null): boo
  */
 const sourceRow = (server: ServerConnection, drawn: PlacedTemplate, id: string) => {
   const row = serverTemplateAt(server.url, id, drawn.surface ?? WORLD_TEMPLATE_SURFACE)
-  return row === null || drawn.serverVersion !== row.version ? null : row
+  return row !== null && drawn.origin === 'server' && drawn.version === row.version ? row : null
 }
 
 /** Copy one server template into Local, verify its source revision, then remove the source. */

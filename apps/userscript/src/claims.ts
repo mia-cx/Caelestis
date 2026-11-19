@@ -28,7 +28,7 @@ import { onMapFrame, requestMapFrame } from './map-view.js'
 import { presenceServers, presenceView } from './presence-client.js'
 import { installQuickClaims, onQuickClaimPreviewChange } from './quick-claims.js'
 import { activeServerToken } from './server-connections.js'
-import { isServerTemplate, localTemplates, type PlacedTemplate } from './templates/catalog.js'
+import { localTemplates, type PlacedTemplate } from './templates/catalog.js'
 import { showToast } from './ui/notification-host.js'
 
 /**
@@ -100,8 +100,7 @@ const templateNear = (rect: PresenceRect | null): PlacedTemplate | null => {
   let bestDistance = Number.POSITIVE_INFINITY
   for (const template of localTemplates()) {
     if (
-      !isServerTemplate(template) ||
-      template.serverConnection === undefined ||
+      template.origin !== 'server' ||
       !sameTemplateSurface(template.surface ?? WORLD_TEMPLATE_SURFACE, WORLD_TEMPLATE_SURFACE)
     )
       continue
