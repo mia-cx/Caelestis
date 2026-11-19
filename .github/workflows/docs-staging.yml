@@ -11,8 +11,9 @@ on:
 permissions:
   contents: read
 
+# Keyed by branch, so a skipped manual run on another branch never cancels a main deploy.
 concurrency:
-  group: docs-staging
+  group: docs-staging-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
