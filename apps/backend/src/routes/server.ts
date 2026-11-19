@@ -1,7 +1,6 @@
 import {
   logoText,
   MAX_DESCRIPTION_LENGTH,
-  MAX_NAME_LENGTH,
   normaliseHomeCopy,
   parseDiscordInviteUrl,
   parseHomeCopy,
@@ -22,6 +21,7 @@ import {
   writeServerSettings,
 } from '../server/use-cases.js'
 import { readBoundedBody } from './body.js'
+import { emptyPatch, INVALID_NAME, isName, jsonObject } from './params.js'
 
 /** The `:kind` of a request `assetRoutes` already admitted, which is one of the two. */
 const assetKind = (kind: string | undefined): ServerAssetKind =>
@@ -84,27 +84,13 @@ export const createServerAdminRoutes = (runtime: BackendRuntime, currentSeason: 
   const routes = new Hono()
 
   routes.patch('/', async (c) => {
-    const body: unknown = await c.req.json().catch(() => null)
-    if (typeof body !== 'object' || body === null) return c.json({ error: 'invalid body' }, 400)
-    const {
-      name,
-      description,
-      discordInviteUrl,
-      homeCopy,
-      logoText: rawLogoText,
-    } = body as {
-      name?: unknown
-      description?: unknown
-      discordInviteUrl?: unknown
-      homeCopy?: unknown
-      logoText?: unknown
-    }
+    const body = await jsonObject(c)
+    if (body === null) return c.json({ error: 'invalid body' }, 400)
+    const { name, description, discordInviteUrl, homeCopy, logoText: rawLogoText } = body
 
-    if (
-      name !== undefined &&
-      (typeof name !== 'string' || name.trim().length === 0 || name.length > MAX_NAME_LENGTH)
-    ) {
-      return c.json({ error: 'name must be 1..256 characters' }, 400)
+    // A server name must also show something: whitespace alone is refused.
+    if (name !== undefined && (!isName(name) || name.trim().length === 0)) {
+      return c.json({ error: INVALID_NAME }, 400)
     }
     // Null clears it, which is not the same as leaving it alone: one goes back to whatever the
     // deployment configured, the other keeps whatever an admin set earlier.
@@ -130,19 +116,14 @@ export const createServerAdminRoutes = (runtime: BackendRuntime, currentSeason: 
     if (rawLogoText !== undefined && rawLogoText !== null && text === null) {
       return c.json({ error: 'logoText must be 1..64 characters, or null' }, 400)
     }
-    if (
-      [name, description, discordInviteUrl, homeCopy, rawLogoText].every(
-        (value) => value === undefined,
-      )
-    ) {
-      return c.json(
-        {
-          error:
-            'patch must set at least one of name, description, discordInviteUrl, homeCopy, logoText',
-        },
-        400,
-      )
-    }
+    const empty = emptyPatch({
+      name,
+      description,
+      discordInviteUrl,
+      homeCopy,
+      logoText: rawLogoText,
+    })
+    if (empty !== null) return c.json({ error: empty }, 400)
 
     return runBackendHttp(
       c,

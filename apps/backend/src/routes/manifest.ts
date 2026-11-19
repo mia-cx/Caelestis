@@ -5,7 +5,7 @@ import { readManifestProjection } from '../manifest/use-cases.js'
 import { recordCacheOutcome } from '../metrics/request-metrics.js'
 import type { BackendRuntime } from '../runtime/backend-runtime.js'
 import { runBackendHttp } from '../runtime/hono.js'
-import { parseSurface } from './params.js'
+import { invalidSurface, parseSurface } from './params.js'
 
 export const createManifestRoutes = (
   runtime: BackendRuntime,
@@ -20,12 +20,7 @@ export const createManifestRoutes = (
         : parseWholeNumber(c.req.query('season'))
     if (season === null) return c.json({ error: 'season must be a non-negative integer' }, 400)
     const surface = parseSurface(c.req.query('surface'), c.req.query('allianceId'))
-    if (surface === null) {
-      return c.json(
-        { error: 'surface must be world or an alliance surface with a positive allianceId' },
-        400,
-      )
-    }
+    if (surface === null) return c.json({ error: invalidSurface('surface') }, 400)
 
     return runBackendHttp(
       c,

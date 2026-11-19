@@ -7,6 +7,7 @@ import {
 } from '../auth/use-cases.js'
 import type { BackendRuntime } from '../runtime/backend-runtime.js'
 import { runBackendHttp } from '../runtime/hono.js'
+import { jsonObject } from './params.js'
 
 const MAX_LABEL_LENGTH = 128
 /** The path segment a client names the bootstrap entry by; it has no stored digest. */
@@ -26,10 +27,9 @@ export const createTokenRoutes = (
   const routes = new Hono()
 
   routes.post('/', async (c) => {
-    const body: unknown = await c.req.json().catch(() => null)
-    if (typeof body !== 'object' || body === null) return c.json({ error: 'invalid body' }, 400)
-
-    const { label, scope } = body as { label?: unknown; scope?: unknown }
+    const body = await jsonObject(c)
+    if (body === null) return c.json({ error: 'invalid body' }, 400)
+    const { label, scope } = body
     if (typeof label !== 'string' || label.length === 0 || label.length > MAX_LABEL_LENGTH) {
       return c.json({ error: 'label must be 1..128 characters' }, 400)
     }

@@ -1,4 +1,4 @@
-import { millis, nodeSlug, type TemplateSurface, uuidV7 } from '@caelestis/shared'
+import { millis, type TemplateSurface, uuidV7 } from '@caelestis/shared'
 import { Effect } from 'effect'
 import { SqlStoreService, StatusReadModelService } from '../runtime/backend-runtime.js'
 import {
@@ -11,7 +11,7 @@ import {
   type ValidationError,
 } from '../runtime/errors.js'
 import { bestEffort } from '../status-read-model/port.js'
-import type { NewNode, NodeDeletion, NodeRecord } from './store.js'
+import type { NewNode, NodeDeletion, NodeRecord, NodeRename } from './store.js'
 
 type NodeError = ValidationError | NotFoundError | ConflictError | GoneError | StorageError
 
@@ -22,11 +22,13 @@ export const publicNode = ({
   ...node
 }: NodeRecord) => (description === null ? node : { ...node, description })
 
+/** Create a node; `slug` is the path segment the caller derived from `name` with `nodeSlug`. */
 export const createNode = (input: {
   readonly season: number
   readonly surface: TemplateSurface
   readonly parentId: string | null
   readonly name: string
+  readonly slug: string
   readonly description?: string
 }): Effect.Effect<
   ReturnType<typeof publicNode>,
@@ -41,7 +43,7 @@ export const createNode = (input: {
       surface: input.surface,
       season: input.season,
       parentId: input.parentId,
-      slug: nodeSlug(input.name),
+      slug: input.slug,
       name: input.name,
       description: input.description ?? null,
       createdAt: millis(Date.now()),
@@ -69,7 +71,7 @@ export const listNodes = (
 
 export const patchNode = (input: {
   readonly nodeId: string
-  readonly name?: string
+  readonly rename?: NodeRename
   readonly parentId?: string | null
 }): Effect.Effect<
   ReturnType<typeof publicNode>,
@@ -79,9 +81,7 @@ export const patchNode = (input: {
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
     const statusReadModel = yield* StatusReadModelService
-    const rename =
-      input.name === undefined ? undefined : { name: input.name, slug: nodeSlug(input.name) }
-    const { parentId } = input
+    const { rename, parentId } = input
     const changed = yield* fromPort('patchNode', async () => {
       if (parentId !== undefined) return sql.moveNode(input.nodeId, parentId, rename)
       if (rename !== undefined) {

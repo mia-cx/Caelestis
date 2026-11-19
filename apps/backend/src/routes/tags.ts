@@ -1,16 +1,14 @@
 import { isUuidV7, tagName, uuidV7 } from '@caelestis/shared'
-import { Hono } from 'hono'
+import { type Context, Hono } from 'hono'
 import type { BackendRuntime } from '../runtime/backend-runtime.js'
 import { runBackendHttp } from '../runtime/hono.js'
 import type { TagMutation } from '../tags/store.js'
 import { mutateTag, readTags } from '../tags/use-cases.js'
+import { jsonObject } from './params.js'
 
 const INVALID_NAME = 'Use 1–64 characters without control characters.'
 
-const bodyName = async (request: { json(): Promise<unknown> }) => {
-  const body: unknown = await request.json().catch(() => null)
-  return tagName(typeof body === 'object' && body !== null && 'name' in body ? body.name : null)
-}
+const bodyName = async (c: Context) => tagName((await jsonObject(c))?.name)
 
 /** Tags share the admin boundary of server template metadata. */
 export const createTagRoutes = (runtime: BackendRuntime, currentSeason: number) => {
@@ -27,7 +25,7 @@ export const createTagRoutes = (runtime: BackendRuntime, currentSeason: number) 
     return runBackendHttp(c, runtime, readTags(templateId, folderId), (result) => c.json(result))
   })
   routes.post('/', async (c) => {
-    const name = await bodyName(c.req)
+    const name = await bodyName(c)
     if (name === null) return c.json({ error: INVALID_NAME }, 400)
     return runBackendHttp(c, runtime, mutate({ type: 'create', id: uuidV7(), name }), (result) =>
       c.json(result, 201),
@@ -39,7 +37,7 @@ export const createTagRoutes = (runtime: BackendRuntime, currentSeason: number) 
     await next()
   })
   routes.patch('/:id', async (c) => {
-    const name = await bodyName(c.req)
+    const name = await bodyName(c)
     if (name === null) return c.json({ error: INVALID_NAME }, 400)
     return runBackendHttp(
       c,

@@ -1,7 +1,6 @@
 import {
   isSha256Hex,
   isUuidV7,
-  MAX_NAME_LENGTH,
   MAX_TEMPLATE_SOURCE_BYTES,
   millis,
   parseTemplateRecipe,
@@ -21,9 +20,14 @@ import {
   readTemplateRecipe,
   replaceTemplateVersion,
 } from '../templates/use-cases.js'
-import { parseSurface } from './params.js'
-
-const isValidName = (name: string): boolean => name.length > 0 && name.length <= MAX_NAME_LENGTH
+import {
+  emptyPatch,
+  INVALID_NAME,
+  invalidSurface,
+  isName,
+  jsonObject,
+  parseSurface,
+} from './params.js'
 
 /** Optional authoring parts. A source without its recipe, or the reverse, is refused. */
 const authoringParts = async (
@@ -81,16 +85,9 @@ export const createTemplateRoutes = (runtime: BackendRuntime) => {
     if (nodeId !== null && !isUuidV7(nodeId)) {
       return c.json({ error: 'nodeId must be a canonical lowercase UUIDv7 or omitted' }, 400)
     }
-    if (typeof body.name !== 'string' || !isValidName(body.name)) {
-      return c.json({ error: 'name must be 1..256 characters' }, 400)
-    }
+    if (!isName(body.name)) return c.json({ error: INVALID_NAME }, 400)
     const surface = parseSurface(body.surfaceKind, body.allianceId)
-    if (surface === null) {
-      return c.json(
-        { error: 'surfaceKind must be world or an alliance surface with a positive allianceId' },
-        400,
-      )
-    }
+    if (surface === null) return c.json({ error: invalidSurface('surfaceKind') }, 400)
     return runBackendHttp(
       c,
       runtime,
@@ -138,28 +135,15 @@ export const createTemplateRoutes = (runtime: BackendRuntime) => {
     )
   })
 
-  /**
-   * Rename, move, publish or unpublish — anything that leaves the pixels alone.
-   *
-   * A patch of nothing is rejected rather than treated as a no-op: it is always a mistake on the
-   * caller's side, and answering 200 would report success for a request that changed nothing.
-   */
+  /** Rename, move, publish or unpublish — anything that leaves the pixels alone. */
   routes.patch('/:id', async (c) => {
     const templateId = c.req.param('id')
     if (!isUuidV7(templateId)) return c.json({ error: INVALID_ID }, 400)
-    const body: unknown = await c.req.json().catch(() => null)
-    if (typeof body !== 'object' || body === null) return c.json({ error: 'invalid body' }, 400)
-    const { name, nodeId, published, timelapseFrozen, finished } = body as {
-      name?: unknown
-      nodeId?: unknown
-      published?: unknown
-      timelapseFrozen?: unknown
-      finished?: unknown
-    }
+    const body = await jsonObject(c)
+    if (body === null) return c.json({ error: 'invalid body' }, 400)
+    const { name, nodeId, published, timelapseFrozen, finished } = body
 
-    if (name !== undefined && (typeof name !== 'string' || !isValidName(name))) {
-      return c.json({ error: 'name must be 1..256 characters' }, 400)
-    }
+    if (name !== undefined && !isName(name)) return c.json({ error: INVALID_NAME }, 400)
     if (nodeId !== undefined && nodeId !== null && !isUuidV7(nodeId)) {
       return c.json({ error: 'nodeId must be a canonical lowercase UUIDv7 or null' }, 400)
     }
@@ -167,17 +151,8 @@ export const createTemplateRoutes = (runtime: BackendRuntime) => {
       if (value !== undefined && typeof value !== 'boolean')
         return c.json({ error: `${field} must be a boolean` }, 400)
     }
-    if (
-      [name, nodeId, published, timelapseFrozen, finished].every((value) => value === undefined)
-    ) {
-      return c.json(
-        {
-          error:
-            'patch must set at least one of name, nodeId, published, timelapseFrozen, finished',
-        },
-        400,
-      )
-    }
+    const empty = emptyPatch({ name, nodeId, published, timelapseFrozen, finished })
+    if (empty !== null) return c.json({ error: empty }, 400)
 
     return runBackendHttp(
       c,
