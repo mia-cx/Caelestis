@@ -6,6 +6,7 @@ import {
   forwardPaintKey,
   forwardPaintMove,
   heldKeys,
+  installHeldKeyTracker,
   isForwardedEvent,
   moveSamples,
   simulatedInputAllowed,
@@ -276,6 +277,7 @@ const simulateInput = (keys: Keys): Mode => {
 
 /** Paint only unfinished template cells needing the selected colour while Shift is held. */
 export const installShiftPaint = (): void => {
+  installHeldKeyTracker()
   const filter = filterInput(heldKeys())
   const simulate = simulateInput(heldKeys())
   let current = filter

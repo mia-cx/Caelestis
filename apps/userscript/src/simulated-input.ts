@@ -1,4 +1,9 @@
-import { type SimulatedInput, simulatedInputOn, WORLD_PIXELS } from '@caelestis/shared'
+import {
+  SIMULATED_INPUT,
+  type SimulatedInput,
+  simulatedInputOn,
+  WORLD_PIXELS,
+} from '@caelestis/shared'
 import { activeAllianceEditorStage } from './alliance-editor-dom.js'
 import { getState } from './settings.js'
 import { typingInTextField, worldPaintMounted } from './wplace-dom.js'
@@ -10,12 +15,6 @@ import { typingInTextField, worldPaintMounted } from './wplace-dom.js'
  * Wplace flags untrusted input reaching its world paint handlers, so each feature has a Dangerous
  * settings switch (`SIMULATED_INPUT` in the shared package).
  */
-
-/**
- * Features that dispatch to `document`, where the world paint panel's listeners also hear them
- * while that panel is mounted, even under an alliance editor.
- */
-const DISPATCHES_TO_DOCUMENT: ReadonlySet<SimulatedInput> = new Set(['shift-paint'])
 
 /**
  * Whether Caelestis is acting on an alliance canvas. The one place that decides it: an open
@@ -32,7 +31,7 @@ const onAllianceCanvas = (): boolean => activeAllianceEditorStage() !== null
  */
 export const simulatedInputAllowed = (id: SimulatedInput): boolean =>
   simulatedInputOn(getState().simulatedInput, id) ||
-  (onAllianceCanvas() && !(DISPATCHES_TO_DOCUMENT.has(id) && worldPaintMounted()))
+  (onAllianceCanvas() && !(SIMULATED_INPUT[id].dispatchesToDocument && worldPaintMounted()))
 
 const forwarded = new WeakSet<Event>()
 
@@ -114,11 +113,15 @@ const releaseHeldKeys = (): void => {
   held.shift = false
 }
 
+let stopTracking: (() => void) | null = null
+
 /**
- * Track the painter's keys. Install before any listener that reads `heldKeys`, so that listener
- * sees the key it is handling. Returns its teardown.
+ * Track the painter's keys, once. Every reader of `heldKeys` calls this before adding its own
+ * listeners: window capture listeners run in registration order, so the tracker then sees each key
+ * before the reader handles it. Returns the teardown.
  */
 export const installHeldKeyTracker = (): (() => void) => {
+  if (stopTracking !== null) return stopTracking
   const update = (event: KeyboardEvent): void => {
     if (isForwardedEvent(event)) return
     held.shift = event.shiftKey
@@ -131,11 +134,13 @@ export const installHeldKeyTracker = (): (() => void) => {
   window.addEventListener('keyup', update, true)
   window.addEventListener('blur', releaseHeldKeys)
   document.addEventListener('visibilitychange', visibility)
-  return () => {
+  stopTracking = () => {
     window.removeEventListener('keydown', update, true)
     window.removeEventListener('keyup', update, true)
     window.removeEventListener('blur', releaseHeldKeys)
     document.removeEventListener('visibilitychange', visibility)
     releaseHeldKeys()
+    stopTracking = null
   }
+  return stopTracking
 }

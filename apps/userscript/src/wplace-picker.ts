@@ -5,6 +5,7 @@ import { overlayIndexAt, pickedIndexAt, pickerPointAt } from './paint-cell.js'
 import {
   forwardPaintMove,
   heldKeys,
+  installHeldKeyTracker,
   isForwardedEvent,
   moveSamples,
   simulatedInputAllowed,
@@ -81,6 +82,7 @@ const exitNativePicker = (): void => {
  * reads its switches when it starts, so a gesture already under way finishes as it began.
  */
 export const installColourPicker = (): void => {
+  installHeldKeyTracker()
   type MiddlePick = {
     readonly pointerId: number
     readonly target: Element

@@ -4,6 +4,7 @@ import type { MapLike } from './map-handle.js'
 import {
   forwardPaintMove,
   heldKeys,
+  installHeldKeyTracker,
   isForwardedEvent,
   simulatedInputAllowed,
 } from './simulated-input.js'
@@ -85,6 +86,7 @@ export const syncPaintTargetMap = (map: MapLike | null): void => {
  * filters the painter's own input and dispatches none. Returns its teardown.
  */
 export const installPaintTargetGuard = (): (() => void) => {
+  installHeldKeyTracker()
   const keydown = (event: KeyboardEvent): void => {
     if (event.code !== 'Space' || !isPaintOpen()) return
     if (typingInTextField(event)) return

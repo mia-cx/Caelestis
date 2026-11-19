@@ -34,7 +34,6 @@ import { readProfileContext } from './profile-context.js'
 import { installServerSyncCoordinator } from './server-sync-coordinator.js'
 import { loadState, onStateChange } from './settings.js'
 import { installShiftPaint } from './shift-paint.js'
-import { installHeldKeyTracker } from './simulated-input.js'
 import { installTelemetry } from './telemetry.js'
 import { onLocalChange, onLocalPreviewChange } from './templates/catalog.js'
 import { pixelAccounting } from './templates/mismatch.js'
@@ -132,7 +131,6 @@ export const installFeatures = (): void => {
   step('paint palette progress', installPaintPaletteProgress)
   onMapFrame(refreshPaintPaletteFocus, 'Paint palette focus')
   // Middle-click picking, answered from the template when the template is what you can see.
-  step('held keys', installHeldKeyTracker)
   step('paint target guard', installPaintTargetGuard)
   step('colour picker', installColourPicker)
   step('shift paint', installShiftPaint)
