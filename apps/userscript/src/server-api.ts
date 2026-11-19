@@ -419,7 +419,14 @@ const serverContentsListeners = new Set<
 
 // Request ids are process-wide and monotonic, so an old response can never tie a request made
 // after this URL reconnects. Only the answer belonging to the ended connection is forgotten.
-onServerRemoved((url) => latestManifestResponse.delete(url))
+onServerRemoved((url) => {
+  latestManifestResponse.delete(url)
+  admittedServerContents.delete(url)
+  // An upload left ambiguous or running belongs to the ended connection; the next connection to
+  // this URL refreshes its own manifest before anything could be uploaded twice.
+  pendingUploadAmbiguities.delete(url)
+  activeUploads.delete(url)
+})
 
 /** Observe each newest successful manifest, no matter which UI or poll requested it. */
 export const onServerContents = (
@@ -467,10 +474,6 @@ export const admittedServerContentsFor = (server: ServerConnection): ServerConte
     isCurrentServerConnection(admitted.server)
     ? admitted.contents
     : null
-}
-
-export const forgetAdmittedServerContents = (serverUrl: string): void => {
-  admittedServerContents.delete(serverUrl)
 }
 
 const awaitReadOrAbort = <T>(read: Promise<T>, signal: AbortSignal): Promise<T | null> =>

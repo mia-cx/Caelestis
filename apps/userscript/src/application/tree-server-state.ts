@@ -9,8 +9,8 @@ import {
   onServerContents,
   type ServerContents,
 } from '../server-api.js'
-import { cacheServer, loadServerCache, type ServerTemplate } from '../server-cache.js'
-import { isCurrentServerConnection } from '../server-connections.js'
+import { cacheServer, forgetServer, loadServerCache, type ServerTemplate } from '../server-cache.js'
+import { isCurrentServerConnection, onServerRemoved } from '../server-connections.js'
 import {
   MAX_MANIFEST_CHUNKS,
   MAX_MANIFEST_TEMPLATES,
@@ -19,7 +19,11 @@ import {
 } from '../server-manifest.js'
 import { getState, type ServerConnection } from '../settings.js'
 import { rememberNodes } from '../templates/server-nodes.js'
-import { rejectServerContentsForSync, syncServerTemplates } from '../templates/server-sync.js'
+import {
+  forgetChunks,
+  rejectServerContentsForSync,
+  syncServerTemplates,
+} from '../templates/server-sync.js'
 import {
   nodeTreeKey,
   parseTreeKey,
@@ -520,7 +524,7 @@ export const primeFromCache = async (rerender: () => void): Promise<void> => {
  * The hashes come back because the chunk cache is content-addressed and cannot tell whose bytes are
  * whose — this map is the last thing that knows, so it answers on the way out.
  */
-export const forgetServerRows = (serverUrl: string): readonly string[] => {
+const forgetServerRows = (serverUrl: string): readonly string[] => {
   const hashes = (templatesByServer.get(serverUrl) ?? []).flatMap((template) =>
     template.chunks.map((chunk) => chunk.hash),
   )
@@ -603,3 +607,10 @@ export const acceptServerSnapshot = (
 // Every successful manifest crosses the same authority, irrespective of which poll or UI action
 // requested it. The listener runs before listServerContents resolves to its caller.
 onServerContents(acceptServerSnapshot)
+
+// The chunk cache is content-addressed and cannot tell whose bytes are whose; these rows are the
+// last thing that knows, so they hand the hashes over on the way out.
+onServerRemoved(async (serverUrl) => {
+  forgetChunks(forgetServerRows(serverUrl))
+  await forgetServer(serverUrl)
+})

@@ -15,6 +15,7 @@ import {
   type State,
   setState,
 } from './settings.js'
+import { serverRowPrefix, serverScopeKey, serverTemplateIdPrefix } from './tree-keys.js'
 
 /**
  * The lifetime of each configured server connection: probing, refreshing, replacing and removing
@@ -140,12 +141,30 @@ export const takeProbedManifest = (serverUrl: string) => {
   return probed
 }
 
-const removedListeners = new Set<(url: string) => void>()
+type RemovedListener = (url: string) => void | Promise<void>
+const removedListeners = new Set<RemovedListener>()
 
-/** Run `listener` with the URL of each server the user disconnects, after its row is gone. */
-export const onServerRemoved = (listener: (url: string) => void): (() => void) => {
+/**
+ * Run `listener` with the URL of each server the user disconnects, after its row is gone. Every
+ * module that keeps state per server subscribes here, so nothing a connection left behind leaks
+ * into the next connection to the same URL.
+ */
+export const onServerRemoved = (listener: RemovedListener): (() => void) => {
   removedListeners.add(listener)
   return () => removedListeners.delete(listener)
+}
+
+/** A stored switch or preference key that belongs to the server at `url` and nothing else. */
+const ownedByServer = (key: string, url: string): boolean => {
+  const singleSegmentAfter = (prefix: string): boolean =>
+    key.startsWith(prefix) && key.length > prefix.length && !key.slice(prefix.length).includes(':')
+  return (
+    key === serverScopeKey(url) ||
+    singleSegmentAfter(serverRowPrefix('node', url)) ||
+    singleSegmentAfter(serverTemplateIdPrefix(url)) ||
+    // Template switches written before server template ids were `srv:` keys.
+    singleSegmentAfter(serverRowPrefix('st', url))
+  )
 }
 
 /**
@@ -187,26 +206,32 @@ export const upsertServer = (server: ServerConnection): boolean => {
   return true
 }
 
-export const removeServer = (url: string): void => {
-  const key = `server:${url}`
-  const templatePrefix = `srv:${encodeURIComponent(url)}:`
+/**
+ * Disconnect the server at `url`: end its connection lifetime, which aborts its requests, drop its
+ * row and the switches and preferences that can only refer to it, then let every per-server cache
+ * forget it. Settles once they all have.
+ */
+export const removeServer = async (url: string): Promise<void> => {
+  cancelServerProbe(url)
   probedManifests.delete(url)
   const current = getState().servers.find((server) => server.url === url)
   if (current !== undefined) retireServerConnection(current)
+  const state = getState()
+  const templatePrefix = serverTemplateIdPrefix(url)
   setState({
-    servers: getState().servers.filter((s) => s.url !== url),
-    customOrder: getState().customOrder.filter((candidate) => candidate !== key),
-    serverTemplatePreferences: getState().serverTemplatePreferences.filter(
+    servers: state.servers.filter((s) => s.url !== url),
+    customOrder: state.customOrder.filter((candidate) => candidate !== serverScopeKey(url)),
+    serverTemplatePreferences: state.serverTemplatePreferences.filter(
       (preference) => !preference.id.startsWith(templatePrefix),
     ),
+    hiddenScopes: state.hiddenScopes.filter((key) => !ownedByServer(key, url)),
   })
-  for (const listener of removedListeners) {
-    try {
-      listener(url)
-    } catch (error) {
-      warn('install', 'server removal observer failed', String(error))
-    }
-  }
+  const settled = await Promise.allSettled(
+    [...removedListeners].map(async (listener) => listener(url)),
+  )
+  for (const outcome of settled)
+    if (outcome.status === 'rejected')
+      warn('install', 'server removal observer failed', String(outcome.reason))
 }
 
 /**

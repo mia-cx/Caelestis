@@ -33,7 +33,6 @@ import {
 import {
   accessTokensModel,
   createServerAccessToken,
-  forgetCachedTokens,
   loadMoreAccessTokens,
   prefetchAccessTokens,
   refreshAccessTokens,
@@ -54,11 +53,7 @@ import {
   handleTreeActionPresentationIntent,
   treeActionPresentation,
 } from '../application/tree-presentation.js'
-import {
-  forgetServerRows,
-  onServerSnapshot,
-  primeFromCache,
-} from '../application/tree-server-state.js'
+import { onServerSnapshot, primeFromCache } from '../application/tree-server-state.js'
 import {
   importFromOtherBuild,
   onOtherBuildChange,
@@ -86,10 +81,8 @@ import {
   recordProfileCounter,
   resetProfile,
 } from '../profile.js'
-import { admittedServerContentsFor, forgetAdmittedServerContents } from '../server-api.js'
-import { forgetServer } from '../server-cache.js'
+import { admittedServerContentsFor } from '../server-api.js'
 import {
-  cancelServerProbe,
   installServerConnectionRetry,
   isCurrentServerConnection,
   probeServer,
@@ -99,7 +92,6 @@ import {
 } from '../server-connections.js'
 import { canonicalServerUrl } from '../server-url.js'
 import {
-  forgetScopes,
   getState,
   getSurfaceAppearance,
   MAX_CONNECTED_SERVERS,
@@ -122,15 +114,13 @@ import {
   pixelStylePresetOf,
 } from '../templates/appearance.js'
 import { hiddenColoursFor } from '../templates/colour-filter.js'
-import { forgetServerTemplates, onLocalChange } from '../templates/local-store.js'
+import { onLocalChange } from '../templates/local-store.js'
 import { pixelAccounting } from '../templates/mismatch.js'
 import { focusedTemplate } from '../templates/nearest.js'
 import { onOfficialOverlaysChange } from '../templates/official-overlays.js'
-import { forgetNodes, nodeScopeKey } from '../templates/server-nodes.js'
-import { endServerGeneration, forgetChunks } from '../templates/server-sync.js'
 import { ensureLocalTags } from '../templates/tags.js'
 import { reloadTiles } from '../tile-pixels.js'
-import { serverTemplateKey, serverTemplateTreeKey } from '../tree-keys.js'
+import { serverTemplateTreeKey } from '../tree-keys.js'
 import { backendVersionOutdated } from '../userscript-update.js'
 import { ownedColours, refreshAccount } from '../wplace-account.js'
 import { isPaintOpen, onPaintSelectionChange, selectedColour } from '../wplace-paint.js'
@@ -531,23 +521,10 @@ const expandedServers = new Set<string>()
 const autoExpanded = new Set<string>()
 const disconnectingServerUrls = new Set<string>()
 
-const hasSingleKeySegmentAfter = (key: string, prefix: string): boolean => {
-  if (!key.startsWith(prefix)) return false
-  const suffix = key.slice(prefix.length)
-  return suffix !== '' && !suffix.includes(':')
-}
-
 /**
  * Disconnect: take the server out of the list, and everything it put on this machine with it.
- *
- * Removing it from the list used to be all that happened, and the ordinary sync is what removes a
- * server's templates — so a disconnected server was never synced again and its templates stayed on
- * the canvas forever, belonging to a server no longer in the list, with no row anywhere to switch
- * them off from. The only way back was a reload.
- *
- * Everything it left, in the order that keeps the map honest: the drawn templates first, then the
- * things that describe them, then the bytes they were built from, then the preferences that can no
- * longer refer to anything.
+ * The connection's own teardown (`removeServer`) clears every per-server cache; what is left here
+ * belongs to the panel and the actions it started.
  */
 const disconnectServer = async (server: ServerConnection): Promise<void> => {
   if (disconnectingServerUrls.has(server.url)) return
@@ -558,33 +535,9 @@ const disconnectServer = async (server: ServerConnection): Promise<void> => {
       cancelTreeActionSetup(new Error('copy destination disconnected'))
     }
     cancelDestinationAdmissions(server.url)
-    cancelServerProbe(server.url)
-    // Anything already downloading for this server lands stale rather than drawing an overlay with no
-    // server row left to control it.
-    endServerGeneration(server.url)
-    forgetAdmittedServerContents(server.url)
-    // Stop polls and stale refresh callbacks from beginning a replacement generation while cleanup
-    // waits for per-template writes.
-    removeServer(server.url)
-    await forgetServerTemplates(server.url)
-    const hashes = forgetServerRows(server.url)
-    const nodes = forgetNodes(server.url)
-    forgetChunks(hashes)
-    forgetCachedTokens(server.url)
-    const serverTemplatePrefix = serverTemplateKey(server.url, '')
-    const legacyTreeTemplatePrefix = `st:${encodeURIComponent(server.url)}:`
-    forgetScopes([
-      `server:${server.url}`,
-      ...nodes.map((id) => nodeScopeKey(server.url, id)),
-      ...getState().hiddenScopes.filter(
-        (key) =>
-          hasSingleKeySegmentAfter(key, serverTemplatePrefix) ||
-          hasSingleKeySegmentAfter(key, legacyTreeTemplatePrefix),
-      ),
-    ])
+    await removeServer(server.url)
     expandedServers.delete(server.url)
     autoExpanded.delete(server.url)
-    await forgetServer(server.url)
     redraw()
     showView('settings')
   } finally {

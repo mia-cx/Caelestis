@@ -1,4 +1,5 @@
 import { type TemplateSurface, templateSurfaceKey, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
+import { onServerRemoved } from '../server-connections.js'
 import { isScopeVisible } from '../settings.js'
 
 /**
@@ -77,30 +78,12 @@ export const nodeChainVisible = (
 }
 
 /** Drop one exact surface's parent map when its owning connection lifetime ends. */
-export const forgetSurfaceNodes = (
-  serverUrl: string,
-  surface: TemplateSurface,
-): readonly string[] => {
-  const key = parentMapKey(serverUrl, surface)
-  const byId = parents.get(key)
-  parents.delete(key)
+export const forgetSurfaceNodes = (serverUrl: string, surface: TemplateSurface): void => {
+  parents.delete(parentMapKey(serverUrl, surface))
   revision++
-  return byId === undefined ? [] : [...byId.keys()]
 }
 
-/**
- * Drop one server's folders, and report which they were.
- *
- * The ids come back because their visibility switches are stored by node id, and once this map is
- * gone there is nothing left that could work out which stored keys belonged to this server.
- */
-export const forgetNodes = (serverUrl: string): readonly string[] => {
-  const ids = new Set<string>()
-  for (const [key, byId] of parents) {
-    if (!key.startsWith(`${serverUrl}\n`)) continue
-    parents.delete(key)
-    for (const id of byId.keys()) ids.add(id)
-  }
+onServerRemoved((serverUrl) => {
+  for (const key of [...parents.keys()]) if (key.startsWith(`${serverUrl}\n`)) parents.delete(key)
   revision++
-  return [...ids]
-}
+})

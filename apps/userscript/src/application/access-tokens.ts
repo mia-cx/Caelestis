@@ -7,7 +7,11 @@ import {
   listAccessTokens,
   revokeAccessToken,
 } from '../server-api.js'
-import { isCurrentServerConnection, sameServerConnection } from '../server-connections.js'
+import {
+  isCurrentServerConnection,
+  onServerRemoved,
+  sameServerConnection,
+} from '../server-connections.js'
 import type { ServerConnection } from '../settings.js'
 import { confirmDestructive } from '../ui/confirm.js'
 import { showOneTimeSecret } from '../ui/notification-host.js'
@@ -160,17 +164,13 @@ const fetchTokens = (
   return run
 }
 
-/**
- * Drop what a server said about its tokens, for a server that is no longer connected.
- *
- * The in-flight request is dropped with the cache. A server row prefetches its tokens on hover, so
- * a request is usually already running when the user disconnects, and clearing only the cache let
- * that reply write the labels straight back in afterwards — past the point where we still have any
- * right to hold them.
- */
-export const forgetCachedTokens = (serverUrl: string): void => {
+// A disconnected server's token labels go, and the in-flight request with them. A server row
+// prefetches its tokens on hover, so a request is usually already running when the user
+// disconnects, and clearing only the cache let that reply write the labels straight back in
+// afterwards — past the point where we still have any right to hold them.
+onServerRemoved((serverUrl) => {
   connections.delete(serverUrl)
-}
+})
 
 /**
  * Ask before anyone opens the row, so the list is already there when they do.

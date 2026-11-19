@@ -26,6 +26,7 @@ import {
   connectedServers,
   isConnected,
   isCurrentServerConnection,
+  onServerRemoved,
 } from '../server-connections.js'
 import { invalidateServerMismatches } from '../server-mismatch.js'
 import { deleteCachedServerMismatches } from '../server-mismatch-cache.js'
@@ -36,6 +37,7 @@ import { serverTemplateIdPrefix, serverTemplateKey } from '../tree-keys.js'
 import { ByteCache } from './byte-cache.js'
 import {
   forgetServerTemplate,
+  forgetServerTemplates,
   hasRoomForServerTemplate,
   localTemplates,
   type PlacedTemplate,
@@ -328,7 +330,7 @@ const generationSignal = (serverUrl: string, generation: number): AbortSignal =>
 }
 
 /** Called when a server's templates are taken away, so anything already downloading for it lands stale. */
-export const endServerGeneration = (serverUrl: string): void => {
+const endServerGeneration = (serverUrl: string): void => {
   generationControllers.get(serverUrl)?.controller.abort()
   generationControllers.delete(serverUrl)
   generations.set(serverUrl, generationOf(serverUrl) + 1)
@@ -582,6 +584,13 @@ interface PendingServerSync {
 /** The newest request per server. Slow downloads must never make minute polls pile up behind them. */
 const pendingServerSyncs = new Map<string, PendingServerSync>()
 const serverSyncRuns = new Map<string, Promise<void>>()
+
+// A disconnected server's downloads land stale rather than drawing an overlay with no server row
+// left to control it, and the overlays it already drew go with it.
+onServerRemoved(async (serverUrl) => {
+  endServerGeneration(serverUrl)
+  await forgetServerTemplates(serverUrl)
+})
 
 const serverSyncKey = (serverUrl: string, surface: TemplateSurface): string =>
   `${serverUrl}\n${templateSurfaceKey(surface)}`

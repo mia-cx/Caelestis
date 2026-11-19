@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import { forgetServerRows, primeFromCache, rowsFor } from '../src/application/tree-server-state.js'
-import { cacheServer, forgetServer } from '../src/server-cache.js'
+import { primeFromCache, rowsFor } from '../src/application/tree-server-state.js'
+import { cacheServer } from '../src/server-cache.js'
+import { removeServer } from '../src/server-connections.js'
 import { type ServerConnection, setState } from '../src/settings.js'
 
 const URL = 'https://prime.example'
@@ -19,8 +20,7 @@ const cache = (season: number) =>
   cacheServer({ url: URL, serverId: 'prime', season, nodes: [], templates: [], fetchedAt: 0 })
 
 afterEach(async () => {
-  forgetServerRows(URL)
-  await forgetServer(URL)
+  await removeServer(URL)
   setState({ servers: [] })
 })
 
