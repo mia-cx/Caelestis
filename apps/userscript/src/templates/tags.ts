@@ -11,7 +11,7 @@ import { getState, MAX_LOCAL_FOLDERS } from '../settings.js'
 import { LOCAL_TAGS_STORE, LOCAL_TEMPLATES_STORE, openCaelestisDb } from './caelestis-db.js'
 import type { NativeTemplates } from './native-store.js'
 import { reconcileNativeTags } from './native-tags.js'
-import type { StoredTemplate } from './persist.js'
+import type { StoredTemplate } from './template-record.js'
 
 export interface LocalTag extends TemplateTag {
   readonly templateIds: readonly string[]

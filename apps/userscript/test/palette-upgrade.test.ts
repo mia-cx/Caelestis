@@ -1,8 +1,9 @@
 import { IDBFactory } from 'fake-indexeddb'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { openCaelestisDb } from '../src/templates/caelestis-db.js'
-import { loadTemplate, type StoredTemplate } from '../src/templates/persist.js'
+import { loadTemplate } from '../src/templates/persist.js'
 import { joinPixels } from '../src/templates/sparse-pixels.js'
+import type { StoredTemplate } from '../src/templates/template-record.js'
 
 beforeEach(() => vi.stubGlobal('indexedDB', new IDBFactory()))
 

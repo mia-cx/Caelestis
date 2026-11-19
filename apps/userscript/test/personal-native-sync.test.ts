@@ -7,7 +7,6 @@ import {
   type NativeTemplate,
   NativeTemplates,
 } from '../src/templates/native-store.js'
-import type { StoredTemplate } from '../src/templates/persist.js'
 import * as disk from '../src/templates/persist.js'
 import {
   connectPersonalStore,
@@ -16,6 +15,7 @@ import {
   synchronizePersonalTemplates,
 } from '../src/templates/personal-store.js'
 import { cutPixels, joinPixels } from '../src/templates/sparse-pixels.js'
+import type { StoredTemplate } from '../src/templates/template-record.js'
 
 /** Lets a test land a Wplace edit while tags reconcile, the one await inside a projection. */
 const duringTagSync = vi.hoisted(() => ({ edit: null as (() => Promise<void>) | null }))

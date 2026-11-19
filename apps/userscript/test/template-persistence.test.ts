@@ -1,12 +1,8 @@
 import { TRANSPARENT_INDEX } from '@caelestis/shared'
 import { describe, expect, it, vi } from 'vitest'
-import {
-  deleteTemplate,
-  loadTemplate,
-  type StoredTemplate,
-  saveTemplate,
-} from '../src/templates/persist.js'
+import { deleteTemplate, loadTemplate, saveTemplate } from '../src/templates/persist.js'
 import { cutPixels, joinPixels, PIXEL_CHUNK_SIZE } from '../src/templates/sparse-pixels.js'
+import type { StoredTemplate } from '../src/templates/template-record.js'
 import { putRaw, rawRecord } from './template-records.js'
 
 const template = (id: string, name = 'Grid') => ({

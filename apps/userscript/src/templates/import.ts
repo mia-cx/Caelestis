@@ -23,6 +23,7 @@ import { loadAccount, ownedColours } from '../wplace-account.js'
 import type { TemplateAuthoring } from './authoring.js'
 import { type CaelestisBlock, parseCaelestisBlock } from './caelestis-file.js'
 import type { NativeTemplate } from './native-store.js'
+import { MAX_TEMPLATE_NAME_LENGTH, type TemplateRecord } from './template-record.js'
 import { resizeWplaceImage } from './wplace-resize.js'
 
 /**
@@ -40,26 +41,10 @@ import { resizeWplaceImage } from './wplace-resize.js'
  * Plain PNG and Marble images use the browser's PNG decoder via `createImageBitmap`.
  */
 
-export type TemplateSource = 'wplace' | 'marble' | 'image'
-
-export interface ImportedTemplate {
-  readonly id: string
-  readonly name: string
-  readonly source: TemplateSource
-  /** Source z-order, lowest first. Optional only for records written by older builds. */
-  readonly sortOrder?: number
-  /** Top-left corner in global canvas pixels. */
-  readonly originX: number
-  readonly originY: number
-  readonly width: number
-  readonly height: number
+/** A template as an import produces it: the record and its dense pixels. */
+export interface ImportedTemplate extends TemplateRecord {
   /** One byte per pixel: wplace's palette index, `TRANSPARENT_INDEX` for absent. */
   readonly indices: Uint8Array
-  /** How far the quantiser had to move things, for reporting to whoever imported it. */
-  readonly moved: number
-  readonly opaque: number
-  /** Source and recipe behind `indices`. Absent on Marble, server, and older templates. */
-  readonly authoring?: TemplateAuthoring
 }
 
 export interface TemplateOrigin {
@@ -69,9 +54,6 @@ export interface TemplateOrigin {
 
 /** Every palette index, for recipes that do not restrict colours. */
 const ALL_COLOURS: readonly number[] = PALETTE_RGB.map((_, index) => index)
-
-export const MAX_TEMPLATE_ID_LENGTH = 128
-export const MAX_TEMPLATE_NAME_LENGTH = 256
 
 // Large enough for the observed 11 MB / 1612x2584 `.wplace` fixture, while keeping a malformed or
 // hostile local file from turning one click into an unbounded browser allocation.

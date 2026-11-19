@@ -13,8 +13,9 @@ vi.mock('@caelestis/shared', async (original) => {
 })
 
 import { importFile } from '../src/templates/import.js'
-import { loadTemplate, type StoredTemplate, saveTemplate } from '../src/templates/persist.js'
+import { loadTemplate, saveTemplate } from '../src/templates/persist.js'
 import { cutPixels, joinPixels } from '../src/templates/sparse-pixels.js'
+import type { StoredTemplate } from '../src/templates/template-record.js'
 import { installBitmapDecoder } from './image-decoder.js'
 import { putRaw, rawRecord } from './template-records.js'
 

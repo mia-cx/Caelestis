@@ -1,4 +1,71 @@
-import { WORLD_PIXELS } from '@caelestis/shared'
+import {
+  type TemplateSurface,
+  templateSurfaceBounds,
+  WORLD_PIXELS,
+  WORLD_TEMPLATE_SURFACE,
+} from '@caelestis/shared'
+
+/** Where a template sits, without its pixels. */
+export interface Placement {
+  readonly originX: number
+  readonly originY: number
+  readonly width: number
+  readonly height: number
+  readonly surface?: TemplateSurface
+  readonly wrapX?: boolean
+  readonly serverUrl?: string
+}
+
+/**
+ * Throw a RangeError unless the template fits its surface at this origin.
+ *
+ * Only server templates may wrap past the world's east edge: their source continues at x=0.
+ */
+export const validatePlacement = (
+  template: Placement & { readonly indices?: Uint8Array },
+  originX = template.originX,
+  originY = template.originY,
+): void => {
+  if (!Number.isSafeInteger(originX) || !Number.isSafeInteger(originY)) {
+    throw new RangeError('template origin must be whole canvas pixels')
+  }
+  if (
+    !Number.isSafeInteger(template.width) ||
+    !Number.isSafeInteger(template.height) ||
+    template.width <= 0 ||
+    template.height <= 0 ||
+    (template.indices !== undefined && template.indices.length !== template.width * template.height)
+  ) {
+    throw new RangeError('template dimensions do not match its pixels')
+  }
+  const surface = template.surface ?? WORLD_TEMPLATE_SURFACE
+  if (surface.kind !== 'world') {
+    const bounds = templateSurfaceBounds(surface)
+    if (
+      bounds === null ||
+      originX < bounds.minX ||
+      originY < bounds.minY ||
+      originX + template.width > bounds.maxX ||
+      originY + template.height > bounds.maxY
+    ) {
+      throw new RangeError(`template is outside the ${surface.kind} canvas`)
+    }
+    return
+  }
+  if (originX < 0 || originY < 0) throw new RangeError('template origin is outside the canvas')
+  if (originX + template.width > WORLD_PIXELS) {
+    if (
+      template.wrapX !== true ||
+      typeof template.serverUrl !== 'string' ||
+      template.width >= WORLD_PIXELS ||
+      originX + template.width > WORLD_PIXELS * 2
+    ) {
+      throw new RangeError('template runs past the east edge')
+    }
+  }
+  if (originY + template.height > WORLD_PIXELS)
+    throw new RangeError('template runs past the south edge')
+}
 
 export interface HorizontalPlacement {
   readonly originX: number

@@ -1,4 +1,4 @@
-import { PALETTE_SIZE, TRANSPARENT_INDEX } from '@caelestis/shared'
+import { PALETTE_SIZE, TRANSPARENT_INDEX, WPLACE_PALETTE } from '@caelestis/shared'
 
 /**
  * How one overlay is drawn.
@@ -162,6 +162,28 @@ export const GROUP_FIELDS: Record<AppearanceGroup, readonly (keyof Appearance)[]
  */
 export const UNPAINTED_LIMIT_MAX = 0.2
 
+type NumericField = {
+  [Key in keyof Appearance]: Appearance[Key] extends number ? Key : never
+}[keyof Appearance]
+
+/** The valid range of every numeric field. Stored values are clamped into it; edits must fall in it. */
+export const APPEARANCE_RANGES: Record<
+  NumericField,
+  { readonly min: number; readonly max: number }
+> = {
+  size: { min: 0.05, max: 2 },
+  radius: { min: 0, max: 1 },
+  translateX: { min: -1, max: 1 },
+  translateY: { min: -1, max: 1 },
+  rotation: { min: 0, max: 360 },
+  opacity: { min: 0.05, max: 1 },
+  contrastOutlineSize: { min: 0.25, max: 2 },
+  unpaintedLimit: { min: 0, max: UNPAINTED_LIMIT_MAX },
+  markerSize: { min: 3, max: 33 },
+  selectedMarkerSize: { min: 3, max: 33 },
+  otherOpacity: { min: 0, max: 1 },
+}
+
 export const DEFAULT_APPEARANCE: Appearance = {
   size: 0.6,
   radius: 0,
@@ -280,14 +302,14 @@ export const normaliseAppearance = (raw: unknown): Appearance | null => {
   // would draw every upgraded overlay at a third of its size, so a legacy record keeps its position
   // and opacity and takes the current defaults for the stamp the old model never used.
   const legacy = 'shape' in source
-  const number = (key: string, fallback: number, min: number, max: number): number => {
+  const clamped = (key: string, fallback: number, min: number, max: number): number => {
     const value = source[key]
     if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
     return Math.min(max, Math.max(min, value))
   }
-  const stamped = (key: string, fallback: number, min: number, max: number): number =>
-    legacy ? fallback : number(key, fallback, min, max)
-  const legacySize = number('size', 1 / 3, 0.05, 1)
+  const number = (key: NumericField): number =>
+    clamped(key, DEFAULT_APPEARANCE[key], APPEARANCE_RANGES[key].min, APPEARANCE_RANGES[key].max)
+  const legacySize = clamped('size', 1 / 3, 0.05, 1)
   const legacyAnchor =
     typeof source.anchor === 'string' &&
     ['tl', 't', 'tr', 'l', 'c', 'r', 'bl', 'b', 'br'].includes(source.anchor)
@@ -344,27 +366,16 @@ export const normaliseAppearance = (raw: unknown): Appearance | null => {
       ].slice(0, PALETTE_SIZE)
     : []
   return {
-    size: legacy ? legacyPixels.size : stamped('size', DEFAULT_APPEARANCE.size, 0.05, 2),
-    radius: legacy ? legacyPixels.radius : stamped('radius', DEFAULT_APPEARANCE.radius, 0, 1),
-    translateX: legacy
-      ? legacyPixels.translateX
-      : number('translateX', DEFAULT_APPEARANCE.translateX, -1, 1),
-    translateY: legacy
-      ? legacyPixels.translateY
-      : number('translateY', DEFAULT_APPEARANCE.translateY, -1, 1),
-    rotation: legacy
-      ? legacyPixels.rotation
-      : number('rotation', DEFAULT_APPEARANCE.rotation, 0, 360),
-    opacity: number('opacity', DEFAULT_APPEARANCE.opacity, 0.05, 1),
+    size: legacy ? legacyPixels.size : number('size'),
+    radius: legacy ? legacyPixels.radius : number('radius'),
+    translateX: legacy ? legacyPixels.translateX : number('translateX'),
+    translateY: legacy ? legacyPixels.translateY : number('translateY'),
+    rotation: legacy ? legacyPixels.rotation : number('rotation'),
+    opacity: number('opacity'),
     // The treatment shipped enabled before it became configurable, so missing persisted fields
     // preserve that appearance instead of silently opting upgraded users out.
     contrastOutline: source.contrastOutline !== false,
-    contrastOutlineSize: number(
-      'contrastOutlineSize',
-      DEFAULT_APPEARANCE.contrastOutlineSize,
-      0.25,
-      2,
-    ),
+    contrastOutlineSize: number('contrastOutlineSize'),
     hiddenColours: hidden,
     // `onlySelectedColour` used to live here too. A stored one is simply dropped: the mode is one
     // switch for the whole view now, so there is nothing per-overlay left for it to mean.
@@ -372,21 +383,47 @@ export const normaliseAppearance = (raw: unknown): Appearance | null => {
     markUnpainted: source.markUnpainted === true,
     // Absent on anything stored before the switch existed, where the behaviour was always on.
     dimOthers: source.dimOthers !== false,
-    unpaintedLimit: number(
-      'unpaintedLimit',
-      DEFAULT_APPEARANCE.unpaintedLimit,
-      0,
-      UNPAINTED_LIMIT_MAX,
-    ),
+    unpaintedLimit: number('unpaintedLimit'),
     markerColour: colour(source.markerColour) ?? DEFAULT_APPEARANCE.markerColour,
-    markerSize: number('markerSize', DEFAULT_APPEARANCE.markerSize, 3, 33),
+    markerSize: number('markerSize'),
     markSelectedColour: source.markSelectedColour === true,
     selectedMarkerColour:
       colour(source.selectedMarkerColour) ?? DEFAULT_APPEARANCE.selectedMarkerColour,
-    selectedMarkerSize: number('selectedMarkerSize', DEFAULT_APPEARANCE.selectedMarkerSize, 3, 33),
-    otherOpacity: number('otherOpacity', DEFAULT_APPEARANCE.otherOpacity, 0, 1),
+    selectedMarkerSize: number('selectedMarkerSize'),
+    otherOpacity: number('otherOpacity'),
     otherColour: colour(source.otherColour),
   }
+}
+
+const PIXEL_RANGE_FIELDS = [
+  'size',
+  'radius',
+  'translateX',
+  'translateY',
+  'rotation',
+  'opacity',
+  'contrastOutlineSize',
+] as const
+
+/** Whether an edited appearance's pixels and colours fields are all in range, so it may be saved. */
+export const isValidAppearance = (value: unknown): value is Appearance => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const fields = value as Record<string, unknown>
+  const { contrastOutline, hiddenColours } = fields
+  return (
+    PIXEL_RANGE_FIELDS.every((key) => {
+      const field = fields[key]
+      const { min, max } = APPEARANCE_RANGES[key]
+      return typeof field === 'number' && Number.isFinite(field) && field >= min && field <= max
+    }) &&
+    typeof contrastOutline === 'boolean' &&
+    Array.isArray(hiddenColours) &&
+    hiddenColours.length <= WPLACE_PALETTE.length &&
+    hiddenColours.every(
+      (index) => Number.isSafeInteger(index) && index >= 0 && index < WPLACE_PALETTE.length,
+    ) &&
+    new Set(hiddenColours).size === hiddenColours.length
+  )
 }
 
 /** Appearance groups an old stored overlay had changed away from its old defaults. */

@@ -5,8 +5,6 @@ import {
   type TemplateSurface,
   TILE_SIZE,
   TRANSPARENT_INDEX,
-  templateSurface,
-  templateSurfaceBounds,
   templateSurfaceKey,
   WORLD_PIXELS,
   WORLD_TEMPLATE_SURFACE,
@@ -40,35 +38,45 @@ import {
   type Appearance,
   type AppearanceGroup,
   GROUP_FIELDS,
-  legacyAppearanceGroups,
-  normaliseAppearance,
+  isValidAppearance,
 } from './appearance.js'
-import { storedAuthoring, type TemplateAuthoring } from './authoring.js'
-import {
-  type ImportedTemplate,
-  MAX_TEMPLATE_ID_LENGTH,
-  MAX_TEMPLATE_NAME_LENGTH,
-} from './import.js'
+import type { TemplateAuthoring } from './authoring.js'
+import type { ImportedTemplate } from './import.js'
 import { sameRender } from './native-store.js'
 import {
   catalogStoredArea,
   catalogTileKeys,
-  deleteTemplate,
-  discardTemplate,
+  // Raw record removal, for records found invalid: no Wplace mirror is told.
+  deleteTemplate as discardStoredRecord,
   hydrateStoredTemplate,
-  loadTemplate,
   loadTemplateCatalog,
-  loadTemplateMetadata,
   type SaveResult,
   type StoredRecord,
-  type StoredTemplate,
-  saveTemplate,
   saveTemplateFolders,
   saveTemplateTileKeys,
+} from './persist.js'
+// Edits a person makes, mirrored to their Wplace templates when linked.
+import {
+  deleteTemplate,
+  loadTemplate,
+  loadTemplateMetadata,
+  saveTemplate,
 } from './personal-store.js'
+import { type Placement, validatePlacement } from './placement.js'
 import { nodeChainVisible, serverNodeParents, serverNodesRevision } from './server-nodes.js'
 import { forgetServerPixels, readServerPixels, saveServerPixels } from './server-pixel-cache.js'
 import { cutPixels, joinPixels, type SparsePixels, storedArea } from './sparse-pixels.js'
+import {
+  MAX_TEMPLATE_ID_LENGTH,
+  MAX_TEMPLATE_NAME_LENGTH,
+  type NativeLink,
+  parseStoredMetadata,
+  parseStoredTemplate,
+  type StoredMetadata,
+  storedRevision,
+  storedTemplateOrNull,
+  type TemplateRecord,
+} from './template-record.js'
 
 /**
  * Indexed template pixels shared by rendering, mismatch scans, colour picking and local editing.
@@ -91,9 +99,9 @@ export interface TemplateArtwork {
   readonly pixels: SparsePixels | null
 }
 
-export interface PlacedTemplate extends Omit<ImportedTemplate, 'indices'> {
+export interface PlacedTemplate extends TemplateRecord {
   readonly artwork: TemplateArtwork
-  readonly native?: NonNullable<StoredTemplate['native']>
+  readonly native?: NativeLink
   /** Wplace's alliance opacity, used until this browser takes ownership of the pixels appearance. */
   readonly sourceOpacity?: number
   /** Last local content or placement edit; absent on legacy records and server render copies. */
@@ -504,7 +512,7 @@ const loadPixels = async (template: PlacedTemplate, evict: boolean): Promise<Spa
     throw new Error('Could not read this template from browser storage. Try again.')
   }
   const current = templates.get(template.id)
-  const stored = loaded.status === 'loaded' ? storedOrNull(loaded.template) : null
+  const stored = loaded.status === 'loaded' ? storedTemplateOrNull(loaded.template) : null
   if (stored !== null && current?.artwork === template.artwork) {
     if (stored.revision === current.revision) {
       installLoaded(current, stored.pixels, evict)
@@ -926,15 +934,8 @@ const yieldToBrowser = async (): Promise<void> => {
   await new Promise<void>((resolve) => setTimeout(resolve, 0))
 }
 
-/** Where a template sits, without its pixels. */
-type Placement = Pick<ImportedTemplate, 'originX' | 'originY' | 'width' | 'height'> & {
-  readonly surface?: TemplateSurface
-  readonly wrapX?: boolean
-  readonly serverUrl?: string
-}
-
 /** A template's bounding box, which dense pixels fill. */
-const areaOf = (template: Pick<ImportedTemplate, 'width' | 'height'>): number =>
+const areaOf = (template: Pick<TemplateRecord, 'width' | 'height'>): number =>
   template.width * template.height
 
 /**
@@ -960,261 +961,9 @@ const newArtwork = (pixels: SparsePixels | null, area?: number): TemplateArtwork
   return artwork
 }
 
-const validatePlacement = (
-  template: Placement & { readonly indices?: Uint8Array },
-  originX = template.originX,
-  originY = template.originY,
-): void => {
-  if (!Number.isSafeInteger(originX) || !Number.isSafeInteger(originY)) {
-    throw new RangeError('template origin must be whole canvas pixels')
-  }
-  if (
-    !Number.isSafeInteger(template.width) ||
-    !Number.isSafeInteger(template.height) ||
-    template.width <= 0 ||
-    template.height <= 0 ||
-    (template.indices !== undefined && template.indices.length !== areaOf(template))
-  ) {
-    throw new RangeError('template dimensions do not match its pixels')
-  }
-  const surface = template.surface ?? WORLD_TEMPLATE_SURFACE
-  if (surface.kind !== 'world') {
-    const bounds = templateSurfaceBounds(surface)
-    if (
-      bounds === null ||
-      originX < bounds.minX ||
-      originY < bounds.minY ||
-      originX + template.width > bounds.maxX ||
-      originY + template.height > bounds.maxY
-    ) {
-      throw new RangeError(`template is outside the ${surface.kind} canvas`)
-    }
-    return
-  }
-  if (originX < 0 || originY < 0) throw new RangeError('template origin is outside the canvas')
-  if (originX + template.width > WORLD_PIXELS) {
-    if (
-      template.wrapX !== true ||
-      typeof template.serverUrl !== 'string' ||
-      template.width >= WORLD_PIXELS ||
-      originX + template.width > WORLD_PIXELS * 2
-    ) {
-      throw new RangeError('template runs past the east edge')
-    }
-  }
-  if (originY + template.height > WORLD_PIXELS)
-    throw new RangeError('template runs past the south edge')
-}
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value)
-
-const isAppearance = (value: unknown): value is Appearance => {
-  if (!isRecord(value)) return false
-  const {
-    size,
-    radius,
-    translateX,
-    translateY,
-    rotation,
-    opacity,
-    contrastOutline,
-    contrastOutlineSize,
-    hiddenColours,
-  } = value
-  return (
-    typeof size === 'number' &&
-    Number.isFinite(size) &&
-    size >= 0.05 &&
-    size <= 2 &&
-    typeof radius === 'number' &&
-    Number.isFinite(radius) &&
-    radius >= 0 &&
-    radius <= 1 &&
-    typeof translateX === 'number' &&
-    Number.isFinite(translateX) &&
-    translateX >= -1 &&
-    translateX <= 1 &&
-    typeof translateY === 'number' &&
-    Number.isFinite(translateY) &&
-    translateY >= -1 &&
-    translateY <= 1 &&
-    typeof rotation === 'number' &&
-    Number.isFinite(rotation) &&
-    rotation >= 0 &&
-    rotation <= 360 &&
-    typeof opacity === 'number' &&
-    Number.isFinite(opacity) &&
-    opacity >= 0.05 &&
-    opacity <= 1 &&
-    typeof contrastOutline === 'boolean' &&
-    typeof contrastOutlineSize === 'number' &&
-    Number.isFinite(contrastOutlineSize) &&
-    contrastOutlineSize >= 0.25 &&
-    contrastOutlineSize <= 2 &&
-    Array.isArray(hiddenColours) &&
-    hiddenColours.length <= WPLACE_PALETTE.length &&
-    hiddenColours.every(
-      (index) => Number.isSafeInteger(index) && index >= 0 && index < WPLACE_PALETTE.length,
-    ) &&
-    new Set(hiddenColours).size === hiddenColours.length
-  )
-}
-
-type StoredMetadata = Omit<StoredTemplate, 'pixels'>
-
-/** Validate a stored record's metadata; its pixels stay wherever they are. */
-const normaliseStoredMetadata = (value: unknown): StoredMetadata => {
-  if (!isRecord(value)) throw new RangeError('template record is not an object')
-  const {
-    id,
-    name,
-    source,
-    sortOrder,
-    originX,
-    originY,
-    width,
-    height,
-    moved,
-    opaque,
-    visible,
-    everPlaced,
-    surface: storedSurface,
-    appearance,
-    owns,
-    revision,
-    folderId,
-    updatedAt,
-    native,
-    authoring: rawAuthoring,
-  } = value
-  if (typeof id !== 'string' || id.length === 0 || id.length > MAX_TEMPLATE_ID_LENGTH) {
-    throw new RangeError('template id is invalid')
-  }
-  if (typeof name !== 'string' || name.length > MAX_TEMPLATE_NAME_LENGTH) {
-    throw new RangeError('template name is invalid')
-  }
-  if (typeof source !== 'string' || !['wplace', 'marble', 'image'].includes(source)) {
-    throw new RangeError('template source is invalid')
-  }
-  if (sortOrder !== undefined && !Number.isSafeInteger(sortOrder)) {
-    throw new RangeError('template sort order is invalid')
-  }
-  if (
-    !Number.isSafeInteger(moved) ||
-    !Number.isSafeInteger(opaque) ||
-    (moved as number) < 0 ||
-    ((opaque as number) <= 0 && !((opaque as number) === 0 && native !== undefined)) ||
-    (moved as number) > (opaque as number) ||
-    (opaque as number) > Number(width) * Number(height)
-  ) {
-    throw new RangeError('template pixel counts are invalid')
-  }
-  if (typeof visible !== 'boolean' || typeof everPlaced !== 'boolean') {
-    throw new RangeError('template state is invalid')
-  }
-  const surface =
-    storedSurface === undefined
-      ? WORLD_TEMPLATE_SURFACE
-      : isRecord(storedSurface)
-        ? templateSurface(storedSurface.kind, storedSurface.allianceId)
-        : null
-  if (surface === null) throw new RangeError('template surface is invalid')
-  if (
-    revision !== undefined &&
-    (!Number.isSafeInteger(revision) ||
-      (revision as number) < 0 ||
-      (revision as number) >= Number.MAX_SAFE_INTEGER)
-  ) {
-    throw new RangeError('template revision is invalid')
-  }
-  if (folderId !== undefined && folderId !== null && typeof folderId !== 'string') {
-    throw new RangeError('template folder is invalid')
-  }
-  if (
-    native !== undefined &&
-    (!isRecord(native) ||
-      typeof native.id !== 'string' ||
-      native.id.length === 0 ||
-      !['pending', 'linked'].includes(String(native.status)) ||
-      (native.status === 'linked' && typeof native.token !== 'string') ||
-      (native.opacity !== undefined &&
-        (typeof native.opacity !== 'number' ||
-          !Number.isFinite(native.opacity) ||
-          native.opacity < 0 ||
-          native.opacity > 1)))
-  )
-    throw new RangeError('native template link is invalid')
-  if (
-    owns !== undefined &&
-    (!Array.isArray(owns) ||
-      owns.some((group) => !APPEARANCE_GROUPS.includes(group as AppearanceGroup)) ||
-      new Set(owns).size !== owns.length)
-  ) {
-    throw new RangeError('template appearance ownership is invalid')
-  }
-  const authoring = storedAuthoring(rawAuthoring, { width, height })
-  // The artwork is still good; only the inputs behind it are unusable.
-  if (rawAuthoring !== undefined && authoring === null)
-    warn('install', `dropping unreadable source and recipe of ${name}`)
-  const normalised: StoredMetadata = {
-    ...(native === undefined ? {} : { native: native as NonNullable<StoredTemplate['native']> }),
-    id,
-    name,
-    source: source as StoredTemplate['source'],
-    originX: originX as number,
-    originY: originY as number,
-    width: width as number,
-    height: height as number,
-    moved: moved as number,
-    opaque: opaque as number,
-    visible,
-    everPlaced,
-    surface,
-    revision: revision === undefined ? 0 : (revision as number),
-    folderId: typeof folderId === 'string' ? folderId : null,
-    ...(typeof updatedAt === 'number' && Number.isFinite(updatedAt) && updatedAt >= 0
-      ? { updatedAt }
-      : {}),
-    appearance: normaliseAppearance(appearance),
-    // "It has an appearance, so it chose one" holds for a record written by this model. A record
-    // from before it carries `shape`, and every template got one whether or not anyone touched it,
-    // so reading that as a deliberate choice would detach it from the global sliders for good.
-    owns:
-      owns === undefined
-        ? appearance == null
-          ? []
-          : legacyAppearanceGroups(appearance)
-        : (owns as AppearanceGroup[]),
-    ...(sortOrder === undefined ? {} : { sortOrder: sortOrder as number }),
-    ...(authoring === null ? {} : { authoring }),
-  }
-  validatePlacement(normalised)
-  return normalised
-}
-
-const normaliseStoredTemplate = (value: unknown): StoredTemplate => {
-  const metadata = normaliseStoredMetadata(value)
-  // Hydration built these from the stored bytes; only their size can disagree with the record.
-  const pixels = isRecord(value) ? (value.pixels as SparsePixels | undefined) : undefined
-  if (pixels?.width !== metadata.width || pixels.height !== metadata.height) {
-    throw new RangeError('template pixels are invalid')
-  }
-  return { ...metadata, pixels }
-}
-
-/** A loaded record, or null when it is invalid; reconciliation then discards it with a warning. */
-const storedOrNull = (value: unknown): StoredTemplate | null => {
-  try {
-    return normaliseStoredTemplate(value)
-  } catch {
-    return null
-  }
-}
-
 /** Validate indexed pixels and retain only the painted world-tile keys downstream work needs. */
 const paintedTileKeys = async (
-  template: Placement & Pick<ImportedTemplate, 'opaque'>,
+  template: Placement & Pick<TemplateRecord, 'opaque'>,
   pixels: SparsePixels,
 ): Promise<ReadonlySet<string>> => {
   validatePlacement(template)
@@ -1462,7 +1211,7 @@ const reconcileConflictExclusive = async (id: string, verifyPixels: boolean): Pr
       return
     }
     if (loaded.status === 'invalid') {
-      const deleted = await discardTemplate(id, loaded.revision)
+      const deleted = await discardStoredRecord(id, loaded.revision)
       if (deleted.status === 'saved') {
         removeStaleLocalState(existing)
         return
@@ -1474,16 +1223,13 @@ const reconcileConflictExclusive = async (id: string, verifyPixels: boolean): Pr
     let winner: StoredMetadata & { readonly pixels: SparsePixels | null }
     try {
       winner = verifyPixels
-        ? normaliseStoredTemplate(loaded.template)
-        : { ...normaliseStoredMetadata(loaded.template), pixels: null }
+        ? parseStoredTemplate(loaded.template)
+        : { ...parseStoredMetadata(loaded.template), pixels: null }
       if (winner.id !== id || (winner.source === 'image' && !winner.everPlaced)) {
         throw new RangeError('winning template state is invalid')
       }
     } catch (error) {
-      const raw = isRecord(loaded.template) ? loaded.template : {}
-      const revision =
-        Number.isSafeInteger(raw.revision) && Number(raw.revision) >= 0 ? Number(raw.revision) : 0
-      const deleted = await discardTemplate(id, revision)
+      const deleted = await discardStoredRecord(id, storedRevision(loaded.template))
       if (deleted.status === 'saved') {
         removeStaleLocalState(existing)
         return
@@ -1517,7 +1263,7 @@ const reconcileConflictExclusive = async (id: string, verifyPixels: boolean): Pr
     try {
       tiles = await paintedTileKeys(metadata, pixels)
     } catch (error) {
-      const deleted = await discardTemplate(id, winner.revision)
+      const deleted = await discardStoredRecord(id, winner.revision)
       if (deleted.status === 'saved') {
         removeStaleLocalState(existing)
         return
@@ -1587,7 +1333,7 @@ export const hasRoomForServerTemplate = (id: string, nextPixels: number): boolea
  * copy will cost once loaded.
  */
 export const putServerTemplate = async (
-  template: Omit<ImportedTemplate, 'indices'> & {
+  template: TemplateRecord & {
     indices: Uint8Array | null
     cachedArea?: number
     surface?: TemplateSurface
@@ -1837,7 +1583,7 @@ export const copyAsLocalTemplate = async (
   const restoring = restoreInFlight
   if (restoring !== null) await restoring
   const pixels = await templateChunks(template)
-  const imported: Omit<ImportedTemplate, 'indices'> = {
+  const imported: TemplateRecord = {
     id,
     name: template.name,
     source: 'image',
@@ -1947,7 +1693,7 @@ const discardRecord = async (
   error?: unknown,
 ): Promise<RestoreOutcome> => {
   warn('install', `discarded invalid local template ${String(key)}`, String(error ?? 'invalid'))
-  const deleted = await discardTemplate(key, revision)
+  const deleted = await discardStoredRecord(key, revision)
   if (deleted.status !== 'conflict' || typeof key !== 'string') return 'skipped'
   seen.delete(key)
   return 'retry'
@@ -1979,7 +1725,7 @@ const restoreRecord = async (
       warn('install', `could not read local template ${id}`)
       return 'skipped'
     }
-    const stored = loaded.status === 'loaded' ? storedOrNull(loaded.template) : null
+    const stored = loaded.status === 'loaded' ? storedTemplateOrNull(loaded.template) : null
     if (stored === null) return await discardRecord(id, recordRevision, seen)
     const { pixels: storedPixels, ...metadata } = stored
     source = metadata
@@ -1989,7 +1735,7 @@ const restoreRecord = async (
   try {
     // Earlier builds could persist 0x0, non-finite, out-of-world, or fully transparent records.
     // Validate each independently so one bad legacy entry cannot prevent every good restore.
-    template = normaliseStoredMetadata(source)
+    template = parseStoredMetadata(source)
   } catch (error) {
     return await discardRecord(id, recordRevision, seen, error)
   }
@@ -2603,7 +2349,7 @@ const mutateAppearance = async (
     const existing = templates.get(id)
     if (existing === undefined || deleting.has(id)) return false
     const ownedAppearance = mutate(appearanceOf(existing))
-    if (ownedAppearance !== null && !isAppearance(ownedAppearance)) return false
+    if (ownedAppearance !== null && !isValidAppearance(ownedAppearance)) return false
     const next = { ...existing, appearance: ownedAppearance }
     let revision = existing.revision
     if (!isPendingImage(existing)) {

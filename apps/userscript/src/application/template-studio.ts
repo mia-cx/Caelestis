@@ -36,11 +36,7 @@ import { getMap } from '../map-handle.js'
 import { viewportCentre } from '../map-view.js'
 import { getState, setState } from '../settings.js'
 import type { DitheretteEngine } from '../templates/ditherette.js'
-import {
-  decodeToRgba,
-  type ImportedTemplate,
-  MAX_TEMPLATE_NAME_LENGTH,
-} from '../templates/import.js'
+import { decodeToRgba, type ImportedTemplate } from '../templates/import.js'
 import { setTemplateDraft } from '../templates/local-store.js'
 import {
   beginDraftPlacement,
@@ -61,6 +57,7 @@ import {
   type StudioSettings,
   studioRecipe,
 } from '../templates/studio-recipe.js'
+import { MAX_TEMPLATE_NAME_LENGTH } from '../templates/template-record.js'
 import { presetColours } from '../ui/colours.js'
 import { confirmDestructive } from '../ui/confirm.js'
 import { isPanelOpen, togglePanel } from '../ui/panel.js'

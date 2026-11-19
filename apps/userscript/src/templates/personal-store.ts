@@ -17,23 +17,6 @@ import * as disk from './persist.js'
 import { cutPixels, joinPixels, type SparsePixels, samePixels } from './sparse-pixels.js'
 import { connectLocalTagSync, synchronizeLocalTemplateTags } from './tags.js'
 
-export type {
-  SaveResult,
-  StoredRecord,
-  StoredTemplate,
-  TemplateCatalog,
-  TemplateLoadFailure,
-} from './persist.js'
-export {
-  catalogStoredArea,
-  catalogTileKeys,
-  deleteTemplate as discardTemplate,
-  hydrateStoredTemplate,
-  loadTemplateCatalog,
-  saveTemplateFolders,
-  saveTemplateTileKeys,
-} from './persist.js'
-
 let native: NativeTemplates | null = null
 let onMutation: (() => void) | undefined
 let tail: Promise<unknown> = Promise.resolve()
