@@ -124,8 +124,8 @@ export const replaceServerArtwork = async (
   const { server, templateId } = target
   if (server === null || templateId === undefined) return
   // A new version has to be the same size as the one it replaces; the server refuses anything else
-  // and there is nothing the user can do about it after the fact. Offering every Local template
-  // meant most choices were an unavoidable 409 presented as a valid option.
+  // and there is nothing the user can do about it after the fact, so only templates of that size
+  // are offered.
   const surface = surfaceOf(target)
   const current = serverTemplateAt(server.url, templateId, surface)
   const span = (min: number, max: number) => (max >= min ? max - min : WORLD_PIXELS - min + max)

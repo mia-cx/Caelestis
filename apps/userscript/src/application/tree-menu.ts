@@ -314,8 +314,8 @@ export const openContextMenu = (
                 returnToCanvas: true,
                 run: whenDrawn((id) => {
                   // `beginMove` refuses while another placement is running, while the template is
-                  // mid-delete, and when it has gone. Dropping that answer made the menu entry do
-                  // nothing at all, with no placement and no explanation.
+                  // mid-delete, and when it has gone. Without this the menu entry would do nothing
+                  // at all, with no placement and no explanation.
                   if (!beginMove(id, rerender))
                     showToast(
                       'Finish the placement already in progress, then move this one.',

@@ -162,8 +162,8 @@ const deleteServerFolder = async (
   })
   if (!confirmed) return
 
-  // Cascade only where there is something to cascade. An empty folder deletes as it always did, so
-  // a server that does not know the flag still answers.
+  // Cascade only where there is something to cascade. An empty folder deletes without the flag, so
+  // a server that does not know it still answers.
   const result = await deleteNodeOnServer(target.server, nodeId, inside === null ? null : holding)
   if (!result.ok) showToast(result.message, 'error')
   await refreshEditedSurface(target.server, surfaceOf(target), rerender)

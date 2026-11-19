@@ -1023,7 +1023,6 @@ const travel = (direction: 'undo' | 'redo'): void => {
     reprocess()
 }
 
-/** Apply one intent from the element. */
 export const handleTemplateStudioIntent = (intent: TemplateStudioIntent): void => {
   // Heard even while closed: a studio reopened mid-close keeps its element, and its windows.
   if (intent.type === 'scopes-shown') {

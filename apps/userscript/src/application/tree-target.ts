@@ -42,8 +42,8 @@ const rowVisibility = (target: TreeTarget): readonly [drawn: boolean, parentDraw
  * The warning for a row the map does not draw, or null when it does.
  *
  * Moving, re-capturing, or adding templates under a hidden row changes art nobody can see: a
- * placement with no outline and no Apply or Cancel looked like Move did nothing, then blocked every
- * other Move. These refuse instead, and say which switch to turn on.
+ * placement with no outline and no Apply or Cancel would look like Move did nothing, then block
+ * every other Move. These refuse instead, and say which switch to turn on.
  */
 export const hiddenNotice = (target: TreeTarget, template?: PlacedTemplate): string | null => {
   const [drawn, parentDrawn] =

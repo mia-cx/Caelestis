@@ -37,8 +37,7 @@ const freeFolderName = (
 /**
  * The lowercased names a new Local folder must not repeat: its siblings on the same surface.
  *
- * Only siblings, to match the server: Local allows the same name under different parents, so a
- * "New folder" at the top used to push a fresh child of an unrelated folder to "New folder 2".
+ * Only siblings, to match the server: Local allows the same name under different parents.
  */
 const takenLocalFolderNames = (
   folders: readonly LocalFolder[],
@@ -59,11 +58,9 @@ const isLocalTarget = (target: TreeTarget): boolean =>
   target.server === null && (target.key === LOCAL_ROOT_KEY || localFolderIdOf(target.key) !== null)
 
 /**
- * Make sure the row about to be created will be on screen.
- *
- * Creating inside a collapsed folder put the new child straight into rename mode, the tree never
- * rendered it, and the rename state was cleared by the next draw. The user saw nothing happen and
- * found a default-named folder later.
+ * Make sure the row about to be created will be on screen. Inside a collapsed folder the new child
+ * would enter rename mode without ever rendering, the next draw would clear the rename state, and
+ * the user would see nothing happen and find a default-named folder later.
  */
 const expandForNewChild = (key: string): void => {
   const collapsed = getState().collapsed
@@ -108,9 +105,9 @@ export const createFolder = async (
   // Asking took a round trip, and the panel was usable throughout it. Writing to a server the user
   // has since disconnected creates a folder in a place they can no longer see.
   if (!isCurrentServerConnection(server)) return
-  // Compared as the server will store them, and only against siblings. Matching display names
-  // treated `New-folder` and `New folder` as different while the backend slugs both to
-  // `new-folder`, so the chosen name came back as a path conflict instead of becoming "New folder 2".
+  // Compared as the server will store them, and only against siblings. The backend slugs
+  // `New-folder` and `New folder` both to `new-folder`, so comparing display names would pick a
+  // name that comes back as a path conflict instead of becoming "New folder 2".
   const siblings = listed.nodes.filter((node) => node.parentId === nodeId)
   const name = freeFolderName(new Set(siblings.map((node) => nodeSlug(node.name))), nodeSlug)
   expandForNewChild(target.key)

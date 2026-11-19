@@ -224,8 +224,8 @@ export const isServerRefreshing = (server: ServerConnection): boolean => refresh
  *
  * One at a time per server. The render pass calls this for any connected server it has nothing for,
  * and a render pass is cheap to provoke — so a server that is slow, unreachable, or refusing the
- * token got a fresh manifest request on *every* re-render, because a failure leaves the rows empty
- * and the next pass sees the same gap. Sharing the in-flight promise makes that one request.
+ * token would get a fresh manifest request on *every* re-render, because a failure leaves the rows
+ * empty and the next pass sees the same gap. Sharing the in-flight promise makes that one request.
  */
 export const refreshServerSnapshot = async (
   server: ServerConnection,

@@ -150,7 +150,7 @@ export const fetchTokens = (
 
 // A disconnected server's token labels go, and the in-flight request with them. A server row
 // prefetches its tokens on hover, so a request is usually already running when the user
-// disconnects, and clearing only the cache let that reply write the labels straight back in
+// disconnects, and clearing only the cache would let that reply write the labels straight back in
 // afterwards — past the point where we still have any right to hold them.
 onServerRemoved((serverUrl) => {
   inventories.delete(serverUrl)

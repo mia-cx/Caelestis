@@ -186,10 +186,9 @@ const importTemplateData = async (
   // Straight into whichever Local folder was clicked. Importing from a folder's own button
   // and then finding the result at the top level would make the button a lie.
   const folderId = localFolderIdOf(target.key)
-  // Each record stands or falls on its own. Rolling the whole file back on one failure meant
-  // importing two templates with one slot left admitted the first, hit the cap on the second,
-  // and then deleted the first as well — a success thrown away to tidy up after a failure
-  // that had nothing to do with it.
+  // Each record stands or falls on its own. Rolling the whole file back on one failure would,
+  // importing two templates with one slot left, admit the first, hit the cap on the second, and
+  // then delete the first as well — a success thrown away to tidy up after an unrelated failure.
   const admitted: string[] = []
   const failed: string[] = []
   try {

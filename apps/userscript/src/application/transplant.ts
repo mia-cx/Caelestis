@@ -374,7 +374,7 @@ const transferBranch = async (
 
       // Local folders are built in memory and written once. `setState` serialises the whole state,
       // so one write per folder costs the square of the branch: a server branch of any real size
-      // locked the tab up before any of it appeared.
+      // would lock the tab up before any of it appeared.
       const madeLocally: LocalFolder[] = []
 
       // A Local destination is built synchronously below. Nothing can change the server source
