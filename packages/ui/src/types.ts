@@ -359,6 +359,13 @@ export interface GlobalSettingsModel {
   readonly notifyUpdates?: boolean | undefined
   readonly notifyActivity: boolean
   readonly wplacePatches?: readonly SettingsWplacePatchModel[]
+  /** Features allowed to simulate input on Wplace's controls. */
+  readonly simulatedInput: import('@caelestis/shared').SimulatedInputSwitches
+  /** The keys in force, which the Dangerous settings hints name. */
+  readonly shortcuts: {
+    readonly platform: ShortcutHelpPlatform
+    readonly bindings: import('@caelestis/shared').ShortcutBindings
+  }
   /** Caelestis's switches in Wplace's own Accessibility settings; the popup shows them too. */
   readonly accessibility?: {
     readonly falseType: boolean
@@ -374,6 +381,11 @@ export type GlobalSettingsIntent =
   | {
       readonly type: 'set-accessibility'
       readonly key: AccessibilitySettingKey
+      readonly value: boolean
+    }
+  | {
+      readonly type: 'set-simulated-input'
+      readonly id: import('@caelestis/shared').SimulatedInput
       readonly value: boolean
     }
 
@@ -393,8 +405,6 @@ export interface SettingsModel extends GlobalSettingsModel {
   readonly addServerPending?: boolean
   readonly addServerMessage?: string
   readonly colourNavigationOrder: 'unpainted-first' | 'mismatched-first'
-  /** Features allowed to simulate input on Wplace's controls. */
-  readonly simulatedInput: import('@caelestis/shared').SimulatedInputSwitches
   readonly shortcuts: ShortcutSettingsModel
   readonly profile?: {
     readonly note: string
