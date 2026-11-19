@@ -3,6 +3,9 @@ import { TILE_SIZE } from './tiles.js'
 const MAGIC = new Uint8Array([0x43, 0x4d, 0x4d, 0x31])
 const HEADER_BYTES = 12
 const PIXELS_PER_BYTE = 4
+/** The encoding of a mask covering a whole tile, the largest a server may answer with. */
+export const MAX_MISMATCH_MASK_BYTES =
+  HEADER_BYTES + Math.ceil((TILE_SIZE * TILE_SIZE) / PIXELS_PER_BYTE)
 
 export const MATCH = 0
 export const WRONG = 1

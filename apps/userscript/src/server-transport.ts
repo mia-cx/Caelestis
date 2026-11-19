@@ -1,4 +1,5 @@
 import { userscriptClientHeaders } from './client-metrics.js'
+import { Semaphore } from './concurrency.js'
 import { discardResponseBody, readBoundedJsonResponse } from './response.js'
 
 const REMOTE_TIMEOUT_MS = 10_000
@@ -6,45 +7,9 @@ const LARGE_TRANSFER_TIMEOUT_MS = 120_000
 const SERVER_JSON_BYTES = 16 * 1024
 const TREE_JSON_BYTES = 64 * 1024 * 1024
 const MUTATION_JSON_BYTES = 64 * 1024
-const MANIFEST_READ_CONCURRENCY = 4
 
-interface ManifestReadWaiter {
-  readonly grant: () => void
-  readonly cancel: () => void
-}
-
-let activeManifestReads = 0
 let manifestSequence = 0
-const manifestReadWaiters: ManifestReadWaiter[] = []
-
-const acquireManifestRead = (signal?: AbortSignal): true | Promise<boolean> => {
-  if (signal?.aborted) return Promise.resolve(false)
-  if (activeManifestReads < MANIFEST_READ_CONCURRENCY) {
-    activeManifestReads++
-    return true
-  }
-  return new Promise<boolean>((resolve) => {
-    const waiter: ManifestReadWaiter = {
-      grant: () => {
-        signal?.removeEventListener('abort', waiter.cancel)
-        resolve(true)
-      },
-      cancel: () => {
-        const index = manifestReadWaiters.indexOf(waiter)
-        if (index !== -1) manifestReadWaiters.splice(index, 1)
-        resolve(false)
-      },
-    }
-    signal?.addEventListener('abort', waiter.cancel, { once: true })
-    manifestReadWaiters.push(waiter)
-  })
-}
-
-const releaseManifestRead = (): void => {
-  const next = manifestReadWaiters.shift()
-  if (next === undefined) activeManifestReads--
-  else next.grant()
-}
+const manifestReads = new Semaphore(4)
 
 const request = async <Result>(
   input: string,
@@ -108,18 +73,15 @@ export const requestServerManifest = async (
   init: RequestInit = {},
   canStart?: () => boolean,
 ): Promise<{ response: Response; body: unknown; sequence: number }> => {
-  const signal = init.signal ?? undefined
-  const admission = acquireManifestRead(signal)
-  if (admission !== true && !(await admission)) throw new Error('manifest read cancelled')
-  try {
+  const read = await manifestReads.run(init.signal ?? undefined, async () => {
     // Admission may wait behind four slow servers. The caller's connection and credentials can be
     // replaced during that wait, so validate their lifetime again before sending captured headers.
     if (canStart?.() === false) throw new Error('manifest read superseded before it started')
     const sequence = ++manifestSequence
     return { ...(await requestServerTree(input, init)), sequence }
-  } finally {
-    releaseManifestRead()
-  }
+  })
+  if (read === undefined) throw new Error('manifest read cancelled')
+  return read
 }
 
 export const serverManifestSequence = (): number => manifestSequence

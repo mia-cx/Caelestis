@@ -12,6 +12,7 @@ import {
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { userscriptClientHeaders } from '../client-metrics.js'
+import { Semaphore } from '../concurrency.js'
 import { count, warn } from '../debug.js'
 import {
   adoptProbedServerContents,
@@ -65,59 +66,8 @@ const MAX_TEMPLATE_CHUNKS = 400
 /** Encoded work per template. Decoded pixels have their own 64M-pixel bound below. */
 const MAX_TEMPLATE_TRANSFER_BYTES = 64 * 1024 * 1024
 const MAX_TEMPLATE_ASSEMBLY_MS = 120_000
-const ASSEMBLY_CONCURRENCY = 4
-let activeAssemblies = 0
-interface AssemblyWaiter {
-  readonly grant: () => void
-  readonly cancel: () => void
-}
-const assemblyWaiters: AssemblyWaiter[] = []
-
-const acquireAssemblySlot = (signal: AbortSignal): true | Promise<boolean> => {
-  if (signal.aborted) return Promise.resolve(false)
-  if (activeAssemblies < ASSEMBLY_CONCURRENCY) {
-    activeAssemblies++
-    return true
-  }
-  return new Promise<boolean>((resolve) => {
-    const waiter: AssemblyWaiter = {
-      grant: () => {
-        signal.removeEventListener('abort', waiter.cancel)
-        resolve(true)
-      },
-      cancel: () => {
-        const index = assemblyWaiters.indexOf(waiter)
-        if (index !== -1) assemblyWaiters.splice(index, 1)
-        resolve(false)
-      },
-    }
-    signal.addEventListener('abort', waiter.cancel, { once: true })
-    assemblyWaiters.push(waiter)
-  })
-}
-
-const releaseAssemblySlot = (): void => {
-  const next = assemblyWaiters.shift()
-  if (next === undefined) activeAssemblies--
-  else next.grant()
-}
-
-const withAssemblySlot = async <T>(
-  signal: AbortSignal,
-  work: () => Promise<T>,
-): Promise<T | undefined> => {
-  const admission = acquireAssemblySlot(signal)
-  if (admission !== true && !(await admission)) return undefined
-  try {
-    return await work()
-  } finally {
-    releaseAssemblySlot()
-  }
-}
-
-/** @internal Arithmetic seam for proving that cached and downloaded chunks share one work budget. */
-export const templateTransferWithinBudget = (used: number, next: number): boolean =>
-  used >= 0 && next >= 0 && used + next <= MAX_TEMPLATE_TRANSFER_BYTES
+/** At most this many templates own network, decode, and bitmap memory at once. */
+const assemblySlots = new Semaphore(4)
 
 /** Chunk bytes by hash. Immutable by definition, so nothing here ever needs invalidating. */
 const chunkCache = new ByteCache<string>(CHUNK_CACHE_LIMIT, CHUNK_CACHE_BYTES)
@@ -303,7 +253,6 @@ const assemble = async (
       MAX_TEMPLATE_TRANSFER_BYTES - encodedBytes,
     )
     if (bytes === null) return null
-    if (!templateTransferWithinBudget(encodedBytes, bytes.byteLength)) return null
     encodedBytes += bytes.byteLength
     if (!declaresSize(bytes, chunkWidth, chunkHeight)) return null
     let decoded = decodedChunks.get(chunk.hash) ?? null
@@ -472,7 +421,7 @@ const downloadAgain = async (template: PlacedTemplate): Promise<Uint8Array | nul
     generationSignal(server.url, generationOf(server.url)),
     AbortSignal.timeout(MAX_TEMPLATE_ASSEMBLY_MS),
   ])
-  const built = await withAssemblySlot(
+  const built = await assemblySlots.run(
     signal,
     async () => await assemble(server, entry.template, signal),
   )
@@ -604,7 +553,7 @@ const syncServerTemplatesOnce = async (
         continue
       }
       const attemptSignal = AbortSignal.any([signal, AbortSignal.timeout(MAX_TEMPLATE_ASSEMBLY_MS)])
-      const outcome = await withAssemblySlot(
+      const outcome = await assemblySlots.run(
         attemptSignal,
         async (): Promise<'continue' | 'stop'> => {
           const built = await assemble(server, template, attemptSignal)

@@ -1,3 +1,4 @@
+import { mapLimit } from './concurrency.js'
 import { log, warn } from './debug.js'
 import {
   parseServerInfo,
@@ -414,32 +415,22 @@ const refreshServers = async (
   snapshot: readonly ConnectedServer[],
   onRefreshed?: (changed: boolean) => void,
 ): Promise<void> => {
-  let cursor = 0
-  const worker = async (): Promise<void> => {
-    while (cursor < snapshot.length) {
-      const server = snapshot[cursor++]
-      if (server === undefined) return
-      if (!isCurrentServerConnection(server)) continue
-      const refreshed = await probeServer(server.url, server.token, {
-        supersedeActive: false,
-      })
-      if (refreshed.superseded === true) continue
-      const current = getState().servers.find((candidate) => candidate.url === server.url)
-      if (current === undefined || !isCurrentServerConnection(server)) continue
-      // A cosmetic replacement can land while the probe is in flight. Preserve that newer local
-      // metadata while still applying the probe's current connectivity, season, and scope result.
-      const before = getState().servers
-      upsertServer(current === server ? refreshed : { ...refreshed, info: current.info })
-      try {
-        onRefreshed?.(getState().servers !== before)
-      } catch (error) {
-        warn('install', 'server refresh observer failed', String(error))
-      }
+  await mapLimit(snapshot, SERVER_REFRESH_CONCURRENCY, async (server) => {
+    if (!isCurrentServerConnection(server)) return
+    const refreshed = await probeServer(server.url, server.token, { supersedeActive: false })
+    if (refreshed.superseded === true) return
+    const current = getState().servers.find((candidate) => candidate.url === server.url)
+    if (current === undefined || !isCurrentServerConnection(server)) return
+    // A cosmetic replacement can land while the probe is in flight. Preserve that newer local
+    // metadata while still applying the probe's current connectivity, season, and scope result.
+    const before = getState().servers
+    upsertServer(current === server ? refreshed : { ...refreshed, info: current.info })
+    try {
+      onRefreshed?.(getState().servers !== before)
+    } catch (error) {
+      warn('install', 'server refresh observer failed', String(error))
     }
-  }
-  await Promise.all(
-    Array.from({ length: Math.min(SERVER_REFRESH_CONCURRENCY, snapshot.length) }, worker),
-  )
+  })
 }
 
 /** Revalidate persisted identity, auth and scope without allowing stale requests to resurrect rows. */

@@ -6,6 +6,7 @@ import {
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { refreshAllianceManifest } from '../alliance-server-sync.js'
+import { runWhileBusy } from '../concurrency.js'
 import { listServerNodes, patchTemplate, uploadTemplateVersion } from '../server-api.js'
 import type { ServerTemplate } from '../server-cache.js'
 import { isCurrentServerConnection, serverByUrl, serverLabel } from '../server-connections.js'
@@ -18,7 +19,6 @@ import {
 import { toast } from '../ui/toast.js'
 import type { TreeTarget } from '../ui/tree.js'
 import { claimFolderPublication, setFolderTemplatesPublished } from './folder-publication.js'
-import { runWhileBusy } from './operation-lock.js'
 import { plural } from './plural.js'
 import { serverDestinations } from './server-destinations.js'
 import { transferAuthoring } from './template-authoring.js'

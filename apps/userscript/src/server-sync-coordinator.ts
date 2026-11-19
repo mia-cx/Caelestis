@@ -21,6 +21,7 @@ import {
   uuidV7,
 } from '@caelestis/shared'
 import { userscriptVersion } from './client-metrics.js'
+import { mapLimit, SerialQueue } from './concurrency.js'
 import {
   isProfileEnabled,
   measureProfile,
@@ -155,7 +156,7 @@ type LiveCommandResponse = Extract<
   }
 >
 
-const paintDeliveries = new WeakMap<object, Promise<void>>()
+const paintDeliveries = new SerialQueue<object>()
 
 const resources = new Map<string, ServerSyncResource>()
 const schedules = new Map<string, Schedule>()
@@ -365,9 +366,7 @@ const sweep = async (
     }
   }
   for (const key of schedules.keys()) if (!liveKeys.has(key)) schedules.delete(key)
-  for (let offset = 0; offset < work.length; offset += REFRESH_CONCURRENCY) {
-    await Promise.all(work.slice(offset, offset + REFRESH_CONCURRENCY).map(async (run) => run()))
-  }
+  await mapLimit(work, REFRESH_CONCURRENCY, (run) => run())
 }
 
 function runRequestedSweep(): void {
@@ -1263,24 +1262,8 @@ const sendLivePaint = async (
 export const requestLivePaint = (
   server: ConnectedServer,
   event: PaintEvent,
-): ReturnType<typeof sendLivePaint> => {
-  const owner = serverConnectionIdentity(server)
-  const previous = paintDeliveries.get(owner)
-  const pending =
-    previous === undefined
-      ? sendLivePaint(server, event)
-      : previous.then(() => sendLivePaint(server, event))
-  // Callers still receive errors. The queue remains usable after a failed delivery.
-  const settled = pending.then(
-    () => undefined,
-    () => undefined,
-  )
-  paintDeliveries.set(owner, settled)
-  void settled.then(() => {
-    if (paintDeliveries.get(owner) === settled) paintDeliveries.delete(owner)
-  })
-  return pending
-}
+): ReturnType<typeof sendLivePaint> =>
+  paintDeliveries.run(serverConnectionIdentity(server), () => sendLivePaint(server, event))
 
 export const requestLiveTileOffer = async (
   server: ConnectedServer,
