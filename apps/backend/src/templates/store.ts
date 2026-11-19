@@ -18,12 +18,10 @@ import {
 import type { DrawingScope } from '../db/scope.js'
 import { PortError } from '../runtime/errors.js'
 
+/** One immutable set of a template's pixels, sliced for `surface`. */
 export interface TemplateVersionRecord {
   readonly templateId: string
   readonly surface: TemplateSurface
-  readonly season: number
-  readonly nodeId: string | null
-  readonly name: string
   readonly versionId: string
   /**
    * Who uploaded this — the digest of the access token used, and the wplace `/me` id of the account
@@ -49,6 +47,13 @@ export interface TemplateVersionRecord {
    * namespace under `recipe.source.sha256`. Absent on processed-only uploads.
    */
   readonly recipe?: TemplateRecipe
+}
+
+/** A template to create, with its first version. */
+export interface NewTemplateRecord extends TemplateVersionRecord {
+  readonly season: number
+  readonly nodeId: string | null
+  readonly name: string
 }
 
 /** A template's own row: what it is called and where it sits, with no pixels attached. */
@@ -167,9 +172,6 @@ export const assertValidTemplateVersion = (version: TemplateVersionRecord): void
   const fail = (reason: string): never => {
     throw new Error(`template version ${version.versionId} rejected: ${reason}`)
   }
-  if (!Number.isSafeInteger(version.season) || version.season < 0) {
-    fail(`season ${version.season} is not a non-negative integer`)
-  }
   if (templateSurface(version.surface.kind, version.surface.allianceId) === null) {
     fail(`surface ${version.surface.kind}/${version.surface.allianceId} is invalid`)
   }
@@ -261,19 +263,20 @@ export const assertValidTemplateVersion = (version: TemplateVersionRecord): void
 export interface TemplateStore {
   /**
    * Create a template with its first version, tile index, and current-version pointer, atomically.
-   * Throws `NodeNotFoundError` or `InvalidNodeParentError` when `version.nodeId` names a node that
+   * Throws `NodeNotFoundError` or `InvalidNodeParentError` when `template.nodeId` names a node that
    * is missing or on another season or surface.
    */
-  createTemplate(version: TemplateVersionRecord): Promise<void>
+  createTemplate(template: NewTemplateRecord): Promise<void>
 
   /**
-   * Make `version` the current version of its existing template, atomically. Throws
-   * `TemplateNotFoundError` when the template is gone and `TemplateIdentityError` when the version
-   * is on another surface or of other dimensions than the one it replaces.
+   * Make `version` the current version of its existing template, atomically. The template keeps
+   * its name, folder, season and publication. Throws `TemplateNotFoundError` when the template is
+   * gone and `TemplateIdentityError` when the version is on another surface or of other dimensions
+   * than the one it replaces.
    */
   addTemplateVersion(version: TemplateVersionRecord): Promise<void>
 
-  /** A version with its template metadata and complete tile index, or null if absent. */
+  /** A version with its complete tile index, or null if absent. */
   readTemplateVersion(versionId: string): Promise<TemplateVersionRecord | null>
 
   /**

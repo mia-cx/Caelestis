@@ -22,7 +22,11 @@ import {
 } from '../runtime/errors.js'
 import { bestEffort } from '../status-read-model/port.js'
 import { readTileBlob } from '../telemetry/tile-blobs.js'
-import { storeTemplate, type TemplateAuthoringInput } from './authoring.js'
+import {
+  createStoredTemplate,
+  replaceStoredTemplate,
+  type TemplateAuthoringInput,
+} from './authoring.js'
 import type { TemplatePatch } from './store.js'
 
 const notFound = () => Effect.fail(new NotFoundError({ message: 'not found' }))
@@ -135,8 +139,8 @@ export const createTemplate = (input: CreateTemplateInput) =>
     const sql = yield* SqlStoreService
     const season = yield* templateSeason(input.season, input.nodeId)
     const { originX, originY } = yield* parseOrigin(input.surface, input.originX, input.originY)
-    const stored = yield* fromPort('storeTemplate', () =>
-      storeTemplate(blobs, sql, {
+    const stored = yield* fromPort('createTemplate', () =>
+      createStoredTemplate(blobs, sql, {
         surface: input.surface,
         season,
         nodeId: input.nodeId,
@@ -195,12 +199,8 @@ export const replaceTemplateVersion = (input: {
     const existing = yield* readExisting(input.templateId)
     const { originX, originY } = yield* parseOrigin(existing.surface, input.originX, input.originY)
     const stored = yield* fromPort('replaceTemplateVersion', () =>
-      storeTemplate(blobs, sql, {
-        templateId: input.templateId,
+      replaceStoredTemplate(blobs, sql, input.templateId, {
         surface: existing.surface,
-        season: existing.season,
-        nodeId: existing.nodeId,
-        name: existing.name,
         createdWithToken: input.createdWithToken,
         createdByUserId: null,
         originX,

@@ -25,6 +25,7 @@ import {
   assertValidTemplateVersion,
   type ManifestTemplateRecord,
   type ManifestTileRecord,
+  type NewTemplateRecord,
   type TemplateDeletePrecondition,
   TemplateNotFoundError,
   type TemplatePatch,
@@ -46,34 +47,38 @@ const parseStoredRecipe = (versionId: string, value: string | null): TemplateRec
  * would have thrown, so the race answers what the check would rather than a 500.
  */
 export class RelationalTemplateStore extends RelationalStore implements TemplateStore {
-  async createTemplate(version: TemplateVersionRecord): Promise<void> {
-    assertValidTemplateVersion(version)
-    if (version.nodeId !== null) {
-      const destination = await selectNode(this.database, version.nodeId)
+  async createTemplate(template: NewTemplateRecord): Promise<void> {
+    if (!Number.isSafeInteger(template.season) || template.season < 0)
+      throw new Error(
+        `template version ${template.versionId} rejected: season ${template.season} is not a non-negative integer`,
+      )
+    assertValidTemplateVersion(template)
+    if (template.nodeId !== null) {
+      const destination = await selectNode(this.database, template.nodeId)
       if (destination === null) {
-        throw new NodeNotFoundError(`node does not exist: ${version.nodeId}`)
+        throw new NodeNotFoundError(`node does not exist: ${template.nodeId}`)
       }
-      assertSameScope(destination, version, 'destination node')
+      assertSameScope(destination, template, 'destination node')
     }
-    const template = this.database.insert(templates).values({
-      id: version.templateId,
-      season: version.season,
-      surfaceKind: version.surface.kind,
-      allianceId: version.surface.allianceId,
-      nodeId: version.nodeId,
-      name: version.name,
+    const row = this.database.insert(templates).values({
+      id: template.templateId,
+      season: template.season,
+      surfaceKind: template.surface.kind,
+      allianceId: template.surface.allianceId,
+      nodeId: template.nodeId,
+      name: template.name,
       currentVersionId: null,
       publishedAt: null,
-      createdWithToken: version.createdWithToken,
-      createdByUserId: version.createdByUserId,
-      createdAtMs: version.createdAt,
-      updatedAtMs: version.createdAt,
+      createdWithToken: template.createdWithToken,
+      createdByUserId: template.createdByUserId,
+      createdAtMs: template.createdAt,
+      updatedAtMs: template.createdAt,
     })
     try {
-      await this.database.batch([template, ...this.#versionStatements(version)])
+      await this.database.batch([row, ...this.#versionStatements(template)])
     } catch (error) {
       if (violates(error, 'foreign-key')) {
-        throw new NodeNotFoundError(`node does not exist: ${version.nodeId}`)
+        throw new NodeNotFoundError(`node does not exist: ${template.nodeId}`)
       }
       throw error
     }
@@ -81,8 +86,7 @@ export class RelationalTemplateStore extends RelationalStore implements Template
 
   async addTemplateVersion(version: TemplateVersionRecord): Promise<void> {
     assertValidTemplateVersion(version)
-    // A version replaces content in place, so it has to keep the same surface and dimensions. Name
-    // and parent are live template metadata and may legitimately change while pixels are encoded.
+    // A version replaces content in place, so it has to keep the same surface and dimensions.
     const [existing] = await this.database
       .select({
         surfaceKind: templates.surfaceKind,
@@ -189,9 +193,6 @@ export class RelationalTemplateStore extends RelationalStore implements Template
         templateId: templates.id,
         surfaceKind: templates.surfaceKind,
         allianceId: templates.allianceId,
-        season: templates.season,
-        nodeId: templates.nodeId,
-        name: templates.name,
         versionId: templateVersions.id,
         createdWithToken: templateVersions.createdWithToken,
         createdByUserId: templateVersions.createdByUserId,
@@ -223,9 +224,6 @@ export class RelationalTemplateStore extends RelationalStore implements Template
     return {
       templateId: row.templateId,
       surface,
-      season: row.season,
-      nodeId: row.nodeId,
-      name: row.name,
       versionId: row.versionId,
       createdByUserId: row.createdByUserId,
       createdWithToken: row.createdWithToken,

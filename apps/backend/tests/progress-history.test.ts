@@ -10,7 +10,7 @@ import {
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { seedTileObservation } from '../src/node/memory-stores.js'
 import type { SqlStore } from '../src/ports/sql-store.js'
-import type { TemplateVersionRecord } from '../src/templates/store.js'
+import type { NewTemplateRecord } from '../src/templates/store.js'
 import { authorized, createTestBackend } from './support/backend.js'
 
 const templateId = '01890f3e-7b2c-7abc-8def-012345678901'
@@ -27,7 +27,7 @@ const version = (
   at: number,
   total: number,
   tiles: readonly number[],
-): TemplateVersionRecord => ({
+): NewTemplateRecord => ({
   templateId,
   versionId: id,
   surface: WORLD_TEMPLATE_SURFACE,
