@@ -652,6 +652,44 @@ export const isHeadquartersTileLayer = (canvas: object): boolean =>
   (canvas as Element).classList?.contains('hq-tile-layer') === true &&
   (canvas as Element).tagName === 'CANVAS'
 
+interface ArtboardCanvasOwner {
+  readonly stage: HTMLElement
+  readonly frame: HTMLElement
+}
+
+/** Whether one native write changes committed art or explicit transparent-draft presence. */
+export const canvasWriteTouchesArtboard = (
+  active: ArtboardCanvasOwner,
+  canvas: object,
+): boolean => {
+  // Its repaints move the view; new tile pixels arrive through `onHeadquartersTilesChange`.
+  if (isHeadquartersTileLayer(canvas)) return false
+  try {
+    const node = canvas as Node
+    if (active.frame.contains(node)) return true
+    const element = canvas as Element
+    return (
+      active.stage.contains(node) &&
+      element.classList?.contains('paint-crosshair-tile') === true &&
+      element.parentElement?.classList.contains('paint-crosshair-layer') === true
+    )
+  } catch {
+    // Foreign-realm and offscreen canvases do not belong to this artboard.
+    return false
+  }
+}
+
+/** Whether any coalesced native write belongs to the active artboard. */
+export const canvasWritesTouchArtboard = (
+  active: ArtboardCanvasOwner,
+  writes: ReadonlySet<object>,
+): boolean => {
+  for (const canvas of writes) {
+    if (canvasWriteTouchesArtboard(active, canvas)) return true
+  }
+  return false
+}
+
 /** One tile's candidate drafts: its pixels that differ from committed art. Null when it has none. */
 const tileDraft = (
   tile: HeadquartersTile,

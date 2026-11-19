@@ -34,7 +34,11 @@ import { claimRouter } from '../claim-routing.js'
 import { openClaimTool } from '../claims.js'
 import { log } from '../debug.js'
 import { frameQueue } from '../frame-queue.js'
-import { onArtboardPixelsChange, onHeadquartersTilesChange } from '../gl/artboard-pixels.js'
+import {
+  canvasWritesTouchArtboard,
+  onArtboardPixelsChange,
+  onHeadquartersTilesChange,
+} from '../gl/artboard-pixels.js'
 import { onViewChange, redraw, viewportCentre } from '../map-view.js'
 import { onPresenceChange } from '../presence-client.js'
 import { measureProfile, recordProfileCounter } from '../profile.js'
@@ -72,7 +76,6 @@ import { positionChargeForecast } from './charge-forecast.js'
 import { CLEAR_OF_RAIL, EDGE, GAP } from './metrics.js'
 import { mountNotificationsIn, showToast, syncToastPlacement } from './notification-host.js'
 import { glideOverlayControls, invalidateOverlayControlsEdge } from './overlay-menu.js'
-import { canvasWritesTouchArtboard } from './panel-progress.js'
 import {
   ALLIANCE_PANEL_ID,
   AllianceDrawerInset,

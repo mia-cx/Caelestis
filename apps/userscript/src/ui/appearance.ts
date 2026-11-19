@@ -24,9 +24,13 @@ import {
   pixelStylePresetOf,
 } from '../templates/appearance.js'
 import { hiddenColoursFor } from '../templates/colour-filter.js'
+import {
+  activeColourPreset,
+  type ColourPresetId,
+  hiddenForPreset,
+} from '../templates/colour-presets.js'
 import { ownedColours } from '../wplace-account.js'
 import { isPaintOpen, selectedColour } from '../wplace-paint.js'
-import { activeColourPreset, type ColourPresetId, hiddenForPreset } from './colours.js'
 import type { AppearanceUpdater } from './overlay-appearance-state.js'
 
 /**

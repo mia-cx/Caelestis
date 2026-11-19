@@ -34,6 +34,7 @@ import { getMap } from '../map-handle.js'
 import { viewportCentre } from '../map-view.js'
 import { getState, setState } from '../settings.js'
 import { setTemplateDraft } from '../templates/catalog.js'
+import { presetColours } from '../templates/colour-presets.js'
 import type { DitheretteEngine } from '../templates/ditherette.js'
 import { decodeToRgba, type ImportedTemplate, newTemplateId } from '../templates/import.js'
 import {
@@ -56,7 +57,6 @@ import {
   studioRecipe,
 } from '../templates/studio-recipe.js'
 import { MAX_TEMPLATE_NAME_LENGTH } from '../templates/template-record.js'
-import { presetColours } from '../ui/colours.js'
 import { requestConfirmation } from '../ui/notification-host.js'
 import { applyWplaceTheme } from '../ui/theme.js'
 import { loadAccount, ownedColours } from '../wplace-account.js'

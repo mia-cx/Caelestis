@@ -5,7 +5,11 @@ import { onCanvasWrite } from './canvas-write.js'
 import { registerDebugEntry } from './console-api.js'
 import { count } from './debug.js'
 import { frameQueue } from './frame-queue.js'
-import { onArtboardPixelsChange, onHeadquartersTilesChange } from './gl/artboard-pixels.js'
+import {
+  canvasWriteTouchesArtboard,
+  onArtboardPixelsChange,
+  onHeadquartersTilesChange,
+} from './gl/artboard-pixels.js'
 import {
   colourKindOrder,
   navigateFocusedColour,
@@ -18,7 +22,6 @@ import { onLocalChange } from './templates/catalog.js'
 import { installDraftProjection } from './templates/draft-projection.js'
 import { pixelAccounting } from './templates/mismatch.js'
 import { focusedTemplate } from './templates/nearest.js'
-import { canvasWriteTouchesArtboard } from './ui/panel-progress.js'
 import { applyWplaceTheme } from './ui/theme.js'
 import { paintPaletteIndexOf } from './wplace-dom.js'
 import { currentPaintSwatches, isPaintOpen, onPaintSwatchesChange } from './wplace-paint.js'

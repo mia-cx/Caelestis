@@ -1,6 +1,8 @@
 import { PALETTE_SIZE, TRANSPARENT_INDEX, WPLACE_PALETTE } from '@caelestis/shared'
 import { ownedColours } from '../wplace-account.js'
 
+/** Named colour sets a canvas or template can show at once: all, free, premium, or owned. */
+
 export type ColourPresetId = 'all' | 'free' | 'premium' | 'owned'
 
 const PRESETS: readonly ColourPresetId[] = ['all', 'free', 'premium', 'owned']
