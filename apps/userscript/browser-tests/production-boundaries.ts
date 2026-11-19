@@ -32,6 +32,8 @@ const scan = (server: Uint8Array, templateKey = 'browser-template|0/0|0,0') =>
       // A window key: the template id, then the tile and the template's origin.
       templateKey,
       kind: 'pixels',
+      // scanInWorker attaches the template's pixels itself, from the reader below.
+      indices: null,
       width: 2,
       height: 2,
       originX: 0,
@@ -179,7 +181,7 @@ export const runProductionBrowserBoundaries = async () => {
       ['--font-mono', mono],
       ['--font-pixel', pixel],
       ['--font-pixel-display', pixelDisplay],
-    ]) {
+    ] as const) {
       const actual = fontVar(element, name)
       if (actual !== expected)
         throw new Error(`font override ${condition}: ${name} is ${JSON.stringify(actual)}`)
@@ -192,7 +194,7 @@ export const runProductionBrowserBoundaries = async () => {
   }
   const WPLACE = [GEIST_SANS, SYSTEM_MONO, PIXEL, PIXEL_DISPLAY] as const
   const expectSmoothing = (condition: string) => {
-    const actual = getComputedStyle(root).webkitFontSmoothing
+    const actual = getComputedStyle(root).getPropertyValue('-webkit-font-smoothing')
     if (actual !== 'auto')
       throw new Error(`font override ${condition}: -webkit-font-smoothing is ${actual}`)
   }
