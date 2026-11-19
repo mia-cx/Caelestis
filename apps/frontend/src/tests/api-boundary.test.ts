@@ -356,7 +356,11 @@ describe('frontend API client against the built backend', () => {
     const backend = await createTestBackend({ backfillClients: backfill.client })
     const importer = await seedArchive(backend)
     backfill.importers.set(archiveTemplateId, importer)
-    const job = await importer.start(archiveTemplateId, archiveVersionId, archiveSnapshot.id)
+    const job = await importer.start(
+      { kind: 'template', id: archiveTemplateId },
+      [archiveVersionId],
+      archiveSnapshot.id,
+    )
     for (let step = 0; step < job.total; step += 1) await importer.step()
     const hash = 'd'.repeat(64)
     await seedTileObservation(backend.sql, {
@@ -479,7 +483,11 @@ describe('frontend API client against the built backend', () => {
     const { backend, template } = await createPublishedTemplate(backfill.client)
     const importer = await seedArchive(backend)
     backfill.importers.set(archiveTemplateId, importer)
-    const job = await importer.start(archiveTemplateId, archiveVersionId, archiveSnapshot.id)
+    const job = await importer.start(
+      { kind: 'template', id: archiveTemplateId },
+      [archiveVersionId],
+      archiveSnapshot.id,
+    )
     for (let step = 0; step < job.total; step += 1) await importer.step()
     const denied = await backend.app.fetch(
       new Request('https://backend.test/admin/server', {

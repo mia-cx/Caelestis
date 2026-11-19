@@ -1,7 +1,12 @@
 import { isSha256Hex, isUuidV7, parseTileKey } from '@caelestis/shared'
 import { Effect, Context as Services } from 'effect'
 import { type Context, Hono } from 'hono'
-import { type BackfillReply, folderBackfillName } from '../backfill/port.js'
+import {
+  type BackfillClients,
+  type BackfillReply,
+  type BackfillSubject,
+  folderBackfillName,
+} from '../backfill/port.js'
 import { mergeD1Usage } from '../metrics/request-metrics.js'
 import {
   type BackendRuntime,
@@ -10,88 +15,77 @@ import {
 } from '../runtime/backend-runtime.js'
 import { runBackendHttp } from '../runtime/hono.js'
 import { readVisibleVersion } from '../templates/use-cases.js'
+import { jsonObject } from './params.js'
 
 const respond = <T>(c: Context, result: BackfillReply<T>): Response => {
   mergeD1Usage(result.usage)
   return result.ok ? Response.json(result.value) : c.json({ error: result.error }, result.status)
 }
 
-/** A start request's JSON body once it names a whole, non-negative `snapshotId`, or null. */
-const startBody = async (c: Context): Promise<{ readonly snapshotId: number } | null> => {
-  const body: unknown = await c.req.json().catch(() => null)
-  return body !== null &&
-    typeof body === 'object' &&
-    'snapshotId' in body &&
-    typeof body.snapshotId === 'number' &&
-    Number.isSafeInteger(body.snapshotId) &&
-    body.snapshotId >= 0
-    ? { ...body, snapshotId: body.snapshotId }
-    : null
+/** How one kind of subject reads its routes: the object it names, and the artwork its start shows. */
+interface SubjectRoutes {
+  readonly kind: BackfillSubject['kind']
+  readonly invalidId: string
+  readonly invalidStart: string
+  readonly objectName: (id: string) => string
+  /** The artwork versions a start body names, or null when it names none validly. */
+  readonly versionIds: (body: Partial<Record<string, unknown>>) => readonly string[] | null
+}
+
+const SUBJECTS = {
+  folder: {
+    kind: 'folder',
+    invalidId: 'Invalid folder ID.',
+    invalidStart: 'Choose an available snapshot for the folder.',
+    objectName: folderBackfillName,
+    versionIds: ({ versionIds }) =>
+      Array.isArray(versionIds) && versionIds.every(isUuidV7) ? versionIds : null,
+  },
+  template: {
+    kind: 'template',
+    invalidId: 'Invalid template ID.',
+    invalidStart: 'Choose a template version and available snapshot.',
+    objectName: (id) => id,
+    versionIds: ({ versionId }) =>
+      typeof versionId === 'string' && isUuidV7(versionId) ? [versionId] : null,
+  },
+} as const satisfies Record<string, SubjectRoutes>
+
+const isSnapshotId = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+
+/** Preview, start, status and cancel for one kind of subject, each under `/:id`. */
+const subjectRoutes = (clientFor: BackfillClients, subject: SubjectRoutes) => {
+  const routes = new Hono()
+  routes.use('/:id/*', async (c, next) => {
+    if (!isUuidV7(c.req.param('id'))) return c.json({ error: subject.invalidId }, 400)
+    await next()
+  })
+  const named = (c: Context): BackfillSubject => ({
+    kind: subject.kind,
+    id: c.req.param('id') ?? '',
+  })
+  const client = (c: Context) => clientFor(subject.objectName(c.req.param('id') ?? ''))
+  routes.get('/:id/preview', async (c) => respond(c, await client(c).preview(named(c))))
+  routes.get('/:id/job', async (c) => respond(c, await client(c).job()))
+  routes.post('/:id/start', async (c) => {
+    const body = await jsonObject(c)
+    const versionIds = body === null ? null : subject.versionIds(body)
+    if (body === null || !isSnapshotId(body.snapshotId) || versionIds === null)
+      return c.json({ error: subject.invalidStart }, 400)
+    return respond(c, await client(c).start(named(c), versionIds, body.snapshotId))
+  })
+  routes.post('/:id/cancel', async (c) => respond(c, await client(c).cancel()))
+  return routes
 }
 
 /** Admin-only preview/start/status/cancel for one server template, or every one below a folder. */
 export const createBackfillAdminRoutes = (runtime: BackendRuntime) => {
-  const routes = new Hono()
   const clientFor = Services.get(runtime.context, BackfillService)
-  // Registered before the template routes, whose `:templateId` would otherwise claim `folders`.
-  routes.use('/folders/:nodeId/*', async (c, next) => {
-    if (!isUuidV7(c.req.param('nodeId'))) return c.json({ error: 'Invalid folder ID.' }, 400)
-    await next()
-  })
-  const folderClient = (c: Context) => clientFor(folderBackfillName(c.req.param('nodeId') ?? ''))
-  routes.get('/folders/:nodeId/preview', async (c) =>
-    respond(c, await folderClient(c).previewFolder(c.req.param('nodeId'))),
-  )
-  routes.get('/folders/:nodeId/job', async (c) => respond(c, await folderClient(c).folderJob()))
-  routes.post('/folders/:nodeId/start', async (c) => {
-    const body = await startBody(c)
-    if (
-      body === null ||
-      !('versionIds' in body) ||
-      !Array.isArray(body.versionIds) ||
-      !body.versionIds.every(isUuidV7)
-    )
-      return c.json({ error: 'Choose an available snapshot for the folder.' }, 400)
-    return respond(
-      c,
-      await folderClient(c).startFolder(c.req.param('nodeId'), body.versionIds, body.snapshotId),
-    )
-  })
-  routes.post('/folders/:nodeId/cancel', async (c) =>
-    respond(c, await folderClient(c).cancelFolder()),
-  )
-  routes.use('/:templateId/*', async (c, next) => {
-    if (!isUuidV7(c.req.param('templateId'))) return c.json({ error: 'Invalid template ID.' }, 400)
-    await next()
-  })
-  routes.get('/:templateId/preview', async (c) =>
-    respond(c, await clientFor(c.req.param('templateId')).preview(c.req.param('templateId'))),
-  )
-  routes.get('/:templateId/job', async (c) =>
-    respond(c, await clientFor(c.req.param('templateId')).job()),
-  )
-  routes.post('/:templateId/start', async (c) => {
-    const body = await startBody(c)
-    if (
-      body === null ||
-      !('versionId' in body) ||
-      typeof body.versionId !== 'string' ||
-      !isUuidV7(body.versionId)
-    )
-      return c.json({ error: 'Choose a template version and available snapshot.' }, 400)
-    return respond(
-      c,
-      await clientFor(c.req.param('templateId')).start(
-        c.req.param('templateId'),
-        body.versionId,
-        body.snapshotId,
-      ),
-    )
-  })
-  routes.post('/:templateId/cancel', async (c) =>
-    respond(c, await clientFor(c.req.param('templateId')).cancel()),
-  )
-  return routes
+  // Folders mount first, so the template routes' `:id` never claims `folders`.
+  return new Hono()
+    .route('/folders', subjectRoutes(clientFor, SUBJECTS.folder))
+    .route('/', subjectRoutes(clientFor, SUBJECTS.template))
 }
 
 /**

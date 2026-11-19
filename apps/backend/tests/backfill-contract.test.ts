@@ -19,6 +19,7 @@ import { archiveWeek } from './support/eralyon.js'
 
 const templateId = '01890f3e-7b2c-7abc-8def-012345678901'
 const versionId = '01890f3e-7b2c-7abc-8def-012345678902'
+const template = { kind: 'template', id: templateId } as const
 const chunkHash = 'a'.repeat(64)
 const snapshot = { id: 1, at: 100 } satisfies ArchiveSnapshot
 
@@ -112,7 +113,7 @@ describe('template backfill contract', () => {
       },
     })
 
-    await importer.start(templateId, versionId, snapshot.id)
+    await importer.start(template, [versionId], snapshot.id)
     await importer.cancel()
     await importer.step()
 
@@ -130,7 +131,7 @@ describe('template backfill contract', () => {
       },
     }
     const { importer, storage, sql, blobs } = await createImporter(archive)
-    const job = await importer.start(templateId, versionId, snapshot.id)
+    const job = await importer.start(template, [versionId], snapshot.id)
     await importer.step()
     expect(await importer.job()).toMatchObject({ status: 'running', completed: 1 })
 
@@ -246,7 +247,7 @@ describe('template backfill contract', () => {
       { snapshots: async () => snapshots, tile: (id, tile) => archive.tile(id, tile) },
       () => 200_000_000,
     )
-    const job = await importer.start(templateId, versionId, 170)
+    const job = await importer.start(template, [versionId], 170)
     expect(job.total / snapshots.length).toBeGreaterThan(50)
     for (let step = 0; step < job.total; step++) await importer.step()
     expect(await importer.job()).toMatchObject({ status: 'completed', imported: job.total })
@@ -260,7 +261,7 @@ describe('template backfill contract', () => {
       tile: async (id) => new Uint8Array(1_000_000).fill(id),
     }
     const { importer } = await createImporter(archive)
-    const job = await importer.start(templateId, versionId, snapshot.id)
+    const job = await importer.start(template, [versionId], snapshot.id)
     // Both snapshots share a week, so the last step is the last tile's second snapshot.
     for (let step = 1; step < job.total; step++) await importer.step()
     await importer.cancel()
@@ -275,7 +276,7 @@ describe('template backfill contract', () => {
       tile: async (id) => new Uint8Array(1_000_000).fill(id),
     }
     const { importer, sql } = await createImporter(archive)
-    const job = await importer.start(templateId, versionId, snapshot.id)
+    const job = await importer.start(template, [versionId], snapshot.id)
     await importer.step()
     // A reporter's delayed upload lands between the two snapshots.
     await seedTileObservation(sql, {
@@ -303,7 +304,7 @@ describe('template backfill contract', () => {
       tile: async (id) => new Uint8Array(1_000_000).fill(id),
     }
     const { importer, storage, sql, blobs } = await createImporter(archive)
-    const job = await importer.start(templateId, versionId, snapshot.id)
+    const job = await importer.start(template, [versionId], snapshot.id)
     const plan = await storage.get<{ snapshots: unknown; tiles: unknown }>('plan')
     const progress = await storage.get<Record<string, unknown>>('job')
     await storage.delete(['plan'])
@@ -321,7 +322,7 @@ describe('template backfill contract', () => {
       tile: async (_snapshotId: number, _tile: TileCoord) => null,
     })
 
-    const job = await importer.start(templateId, versionId, snapshot.id)
+    const job = await importer.start(template, [versionId], snapshot.id)
     for (let step = 0; step < job.total; step += 1) await importer.step()
 
     expect(await importer.job()).toMatchObject({
@@ -405,25 +406,27 @@ describe('folder backfill contract', () => {
         () => 200_000,
         (id) => ({
           get: (key) => object(id).readState(key),
-          put: (entries) => object(id).importState(entries),
+          put: (entries) => object(id).writeState(entries),
         }),
       )
       objects.set(name, created)
       return created
     }
     const folder = object(`folder:${nodeId}`)
+    const subject = { kind: 'folder', id: nodeId } as const
 
-    const preview = await folder.previewFolder(nodeId)
+    const preview = await folder.preview(subject)
+    if (!('bases' in preview)) throw new Error('A folder preview lists its templates.')
     expect(preview.bases.map((basis) => basis.name).sort()).toEqual(['Mural 1', 'Mural 2'])
-    const job = await folder.startFolder(
-      nodeId,
+    const job = await folder.start(
+      subject,
       preview.bases.map((basis) => basis.versionId),
       snapshot.id,
     )
-    for (let step = 0; step < job.total && (await folder.folderJob())?.status === 'running'; step++)
+    for (let step = 0; step < job.total && (await folder.job())?.status === 'running'; step++)
       await folder.step()
 
-    const done = await folder.folderJob()
+    const done = await folder.job()
     expect(done).toMatchObject({ status: 'completed', failed: 0, to: 150 })
     expect((done?.imported ?? 0) + (done?.skipped ?? 0)).toBe(done?.total)
     expect(new Set(reads).size).toBe(reads.length)

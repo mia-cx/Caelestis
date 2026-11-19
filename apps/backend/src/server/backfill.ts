@@ -13,13 +13,12 @@ import type { SerialQueue } from '../runtime/serial-queue.js'
 /** One import object as both hosts expose it: commands, archive state, and its wakeup. */
 export interface BackfillHandle extends BackfillClient, BackfillArchive {
   readState(key: string): Promise<unknown>
+  writeState(page: BackfillStatePage): Promise<void>
   step(): Promise<void>
 }
 
 /** Where a folder import reaches each template's own import. */
-export type BackfillHandles = (
-  name: string,
-) => Pick<BackfillHandle, 'readState'> & { importState(page: BackfillStatePage): Promise<void> }
+export type BackfillHandles = (name: string) => Pick<BackfillHandle, 'readState' | 'writeState'>
 
 /**
  * One import over its durable storage. `exclusive` serialises every command that writes the
@@ -44,13 +43,14 @@ export const openBackfill = (
       return {
         // The import's state is JSON its own writer put there under the same key.
         get: async <T>(key: string) => (await template.readState(key)) as T | undefined,
-        put: (entries) => template.importState(entries),
+        put: (entries) => template.writeState(entries),
       }
     },
   )
   return {
     ...localBackfillClient(importer, exclusive),
     readState: (key) => exclusive(() => importer.readState(key)),
+    writeState: (page) => exclusive(() => importer.writeState(page)),
     exportState: (startAfter, limit) => exclusive(() => importer.exportState(startAfter, limit)),
     importState: (page) => exclusive(() => importer.importState(page)),
     discardState: (limit) => exclusive(() => importer.discardState(limit)),
