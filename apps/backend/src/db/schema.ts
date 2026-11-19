@@ -4,7 +4,7 @@ import type {
   ServerAssetContentType,
   TemplateSurfaceKind,
 } from '@caelestis/shared'
-import { WORLD_PIXELS, WORLD_TILES } from '@caelestis/shared'
+import { TEMPLATE_SURFACE_KINDS, WORLD_PIXELS } from '@caelestis/shared'
 import { sql } from 'drizzle-orm'
 import {
   type AnySQLiteColumn,
@@ -19,7 +19,9 @@ import {
   unique,
   uniqueIndex,
 } from 'drizzle-orm/sqlite-core'
+import { MAX_NODE_PATH_LENGTH } from '../nodes/store.js'
 import { LADDER_RESOLUTIONS, TILE_HISTORY_RESOLUTIONS } from '../telemetry/ladder.js'
+import { sha256Hex, surfaceCheck, tileCoordinate } from './checks.js'
 
 /** A literal `(a, b, c)` list for a CHECK, so the constraint text names the ladder's own tiers. */
 const inList = (values: readonly number[]) => sql.raw(`(${values.join(', ')})`)
@@ -194,12 +196,7 @@ export const nodes = sqliteTable(
   {
     id: text('id').primaryKey(),
     season: integer('season').notNull(),
-    surfaceKind: text('surface_kind', {
-      enum: ['world', 'alliance-headquarters', 'alliance-picture', 'alliance-banner'],
-    })
-      .$type<TemplateSurfaceKind>()
-      .notNull()
-      .default('world'),
+    surfaceKind: text('surface_kind', { enum: TEMPLATE_SURFACE_KINDS }).notNull().default('world'),
     allianceId: integer('alliance_id'),
     parentId: text('parent_id').references((): AnySQLiteColumn => nodes.id),
     path: text('path').notNull(),
@@ -226,12 +223,7 @@ export const nodes = sqliteTable(
     uniqueIndex('nodes_alliance_surface_path_idx')
       .on(table.season, table.surfaceKind, table.allianceId, sql`lower(${table.path})`)
       .where(sql`${table.surfaceKind} <> 'world'`),
-    check(
-      'nodes_surface_check',
-      sql`(${table.surfaceKind} = 'world' AND ${table.allianceId} IS NULL)
-        OR (${table.surfaceKind} IN ('alliance-headquarters', 'alliance-picture', 'alliance-banner')
-          AND typeof(${table.allianceId}) = 'integer' AND ${table.allianceId} > 0)`,
-    ),
+    check('nodes_surface_check', surfaceCheck(table.surfaceKind, table.allianceId)),
     // The wire's NodePath states this shape but validates only the manifest *response*, so this
     // CHECK is what holds every write to it.
     //
@@ -247,7 +239,7 @@ export const nodes = sqliteTable(
       'nodes_path_check',
       sql`${table.path} GLOB '/*' AND ${table.path} NOT GLOB '*[%_]*'
         AND ${table.path} NOT GLOB '*/' AND ${table.path} NOT GLOB '*//*'
-        AND length(${table.path}) BETWEEN 2 AND 256`,
+        AND length(${table.path}) BETWEEN 2 AND ${sql.raw(String(MAX_NODE_PATH_LENGTH))}`,
     ),
     // The wire derives acyclicity from the path rule, which is likewise response-only. A self-parent
     // satisfies the foreign key, hangs any recursive ancestor walk, and makes the manifest
@@ -289,12 +281,11 @@ export const templateVersions = sqliteTable(
   },
   (table) => [
     unique('template_versions_id_template_idx').on(table.id, table.templateId),
-    // Same shape rule the reporter columns carry, for the same reason: an author record outlives
-    // the credential it names, so the digest is constrained and its existence is not.
+    // An author record outlives the credential it names, so the digest is constrained and its
+    // existence is not.
     check(
       'template_versions_created_with_token_check',
-      sql`typeof(${table.createdWithToken}) = 'text' AND length(${table.createdWithToken}) = 64
-        AND ${table.createdWithToken} NOT GLOB '*[^0-9a-f]*'
+      sql`${sha256Hex(table.createdWithToken)}
         AND (${table.createdByUserId} IS NULL
           OR (typeof(${table.createdByUserId}) = 'integer' AND ${table.createdByUserId} >= 0))`,
     ),
@@ -332,12 +323,7 @@ export const templates = sqliteTable(
   {
     id: text('id').primaryKey(),
     season: integer('season').notNull(),
-    surfaceKind: text('surface_kind', {
-      enum: ['world', 'alliance-headquarters', 'alliance-picture', 'alliance-banner'],
-    })
-      .$type<TemplateSurfaceKind>()
-      .notNull()
-      .default('world'),
+    surfaceKind: text('surface_kind', { enum: TEMPLATE_SURFACE_KINDS }).notNull().default('world'),
     allianceId: integer('alliance_id'),
     nodeId: text('node_id').references(() => nodes.id),
     name: text('name').notNull(),
@@ -383,19 +369,13 @@ export const templates = sqliteTable(
   // Expressed as a composite key against (id, template_id), which is why template_versions carries
   // a unique index on that pair: SQLite requires a foreign key's parent columns to be unique.
   (table) => [
-    check(
-      'templates_surface_check',
-      sql`(${table.surfaceKind} = 'world' AND ${table.allianceId} IS NULL)
-        OR (${table.surfaceKind} IN ('alliance-headquarters', 'alliance-picture', 'alliance-banner')
-          AND typeof(${table.allianceId}) = 'integer' AND ${table.allianceId} > 0)`,
-    ),
+    check('templates_surface_check', surfaceCheck(table.surfaceKind, table.allianceId)),
     index('templates_surface_idx').on(table.season, table.surfaceKind, table.allianceId),
-    // Same shape rule the reporter columns carry, for the same reason: an author record outlives
-    // the credential it names, so the digest is constrained and its existence is not.
+    // An author record outlives the credential it names, so the digest is constrained and its
+    // existence is not.
     check(
       'templates_created_with_token_check',
-      sql`typeof(${table.createdWithToken}) = 'text' AND length(${table.createdWithToken}) = 64
-        AND ${table.createdWithToken} NOT GLOB '*[^0-9a-f]*'
+      sql`${sha256Hex(table.createdWithToken)}
         AND (${table.createdByUserId} IS NULL
           OR (typeof(${table.createdByUserId}) = 'integer' AND ${table.createdByUserId} >= 0))`,
     ),
@@ -418,18 +398,12 @@ export const versionTiles = sqliteTable(
     hash: text('hash').notNull(),
   },
   (table) => [
-    check(
-      'version_tiles_hash_check',
-      sql`typeof(${table.hash}) = 'text' AND length(${table.hash}) = 64
-        AND ${table.hash} NOT GLOB '*[^0-9a-f]*'`,
-    ),
+    check('version_tiles_hash_check', sha256Hex(table.hash)),
     check(
       'version_tiles_coordinate_check',
       // Alliance HQ uses the same 1,000px chunk grid centred on zero, so its western/northern half
       // is chunk -1. The store still validates exact per-surface ranges before this outer envelope.
-      sql`typeof(${table.tileX}) = 'integer' AND typeof(${table.tileY}) = 'integer'
-        AND ${table.tileX} BETWEEN -1 AND ${sql.raw(String(WORLD_TILES - 1))}
-        AND ${table.tileY} BETWEEN -1 AND ${sql.raw(String(WORLD_TILES - 1))}`,
+      tileCoordinate(table.tileX, table.tileY, -1),
     ),
     primaryKey({ columns: [table.versionId, table.tileX, table.tileY] }),
     index('version_tiles_tile_idx').on(table.tileX, table.tileY),
@@ -605,11 +579,7 @@ export const contributions = sqliteTable(
     }),
     // Dashboards and leaderboards read by template and day range; the key leads with the painter.
     index('contributions_template_day_idx').on(table.templateId, table.dayS),
-    check(
-      'contributions_reported_with_token_check',
-      sql`typeof(${table.reportedWithToken}) = 'text' AND length(${table.reportedWithToken}) = 64
-        AND ${table.reportedWithToken} NOT GLOB '*[^0-9a-f]*'`,
-    ),
+    check('contributions_reported_with_token_check', sha256Hex(table.reportedWithToken)),
     check(
       'contributions_counter_check',
       // day_s is a day bucket, so it is a UTC midnight — the floor of a report time to 86400.
@@ -678,18 +648,6 @@ export const tileHistory = sqliteTable(
     resolutionS: integer('resolution_s').$type<Seconds>().notNull(),
     bucketStartS: integer('bucket_start_s').$type<Seconds>().notNull(),
     sha256: text('sha256').notNull(),
-    // One row per reporter per observation, so quorum is COUNT(*) over distinct reporters: a client
-    // replaying its own hash cannot forge multi-client agreement, and competing hashes for one
-    // bucket each get their own rows.
-    //
-    // Repetition is all it is safe from. The key component that separates reporters is
-    // `reported_by_user_id`, and what keeps two rows from being one hostile client is the route
-    // verifying that account — see the note on that column. Nothing in this table can check it.
-    //
-    // `sha256` is also in the key, so a client can still mint one row per distinct image for one
-    // tile and bucket. The server verifies every hash against the bytes it stores, so each such row
-    // costs a real upload. A writer that ever takes this value from a request body unchecked
-    // reopens it.
     /**
      * Deliberately not a foreign key to `access_tokens`.
      *
@@ -728,6 +686,18 @@ export const tileHistory = sqliteTable(
     reportedByUserId: integer('reported_by_user_id').notNull(),
   },
   (table) => [
+    // One row per reporter per observation, so quorum is COUNT(*) over distinct reporters: a client
+    // replaying its own hash cannot forge multi-client agreement, and competing hashes for one
+    // bucket each get their own rows.
+    //
+    // Repetition is all it is safe from. The key component that separates reporters is
+    // `reported_by_user_id`, and what keeps two rows from being one hostile client is the route
+    // verifying that account — see the note on that column. Nothing in this table can check it.
+    //
+    // `sha256` is also in the key, so a client can still mint one row per distinct image for one
+    // tile and bucket. The server verifies every hash against the bytes it stores, so each such row
+    // costs a real upload. A writer that ever takes this value from a request body unchecked
+    // reopens it.
     primaryKey({
       columns: [
         table.season,
@@ -751,16 +721,8 @@ export const tileHistory = sqliteTable(
     // The content digest gets the rule its credential sibling has. A BLOB stored here is invisible
     // to text lookups and cannot satisfy the wire's Chunk.hash or an R2 object key, and two
     // spellings of one hash split the quorum they should agree on.
-    check(
-      'tile_history_sha256_check',
-      sql`typeof(${table.sha256}) = 'text' AND length(${table.sha256}) = 64
-        AND ${table.sha256} NOT GLOB '*[^0-9a-f]*'`,
-    ),
-    check(
-      'tile_history_reported_with_token_check',
-      sql`typeof(${table.reportedWithToken}) = 'text' AND length(${table.reportedWithToken}) = 64
-        AND ${table.reportedWithToken} NOT GLOB '*[^0-9a-f]*'`,
-    ),
+    check('tile_history_sha256_check', sha256Hex(table.sha256)),
+    check('tile_history_reported_with_token_check', sha256Hex(table.reportedWithToken)),
     check(
       'tile_history_reported_by_user_id_check',
       sql`typeof(${table.reportedByUserId}) = 'integer' AND ${table.reportedByUserId} >= 0`,
@@ -777,12 +739,7 @@ export const tileHistory = sqliteTable(
       sql`typeof(${table.bucketStartS}) = 'integer' AND ${table.bucketStartS} >= 0
         AND (${table.resolutionS} = 0 OR ${table.bucketStartS} % ${table.resolutionS} = 0)`,
     ),
-    check(
-      'tile_history_coordinate_check',
-      sql`typeof(${table.tileX}) = 'integer' AND typeof(${table.tileY}) = 'integer'
-        AND ${table.tileX} BETWEEN 0 AND ${sql.raw(String(WORLD_TILES - 1))}
-        AND ${table.tileY} BETWEEN 0 AND ${sql.raw(String(WORLD_TILES - 1))}`,
-    ),
+    check('tile_history_coordinate_check', tileCoordinate(table.tileX, table.tileY)),
   ],
 )
 
@@ -807,17 +764,8 @@ export const canvasTiles = sqliteTable(
       'canvas_tiles_season_check',
       sql`typeof(${table.season}) = 'integer' AND ${table.season} >= 0`,
     ),
-    check(
-      'canvas_tiles_coordinate_check',
-      sql`typeof(${table.tileX}) = 'integer' AND typeof(${table.tileY}) = 'integer'
-        AND ${table.tileX} BETWEEN 0 AND ${sql.raw(String(WORLD_TILES - 1))}
-        AND ${table.tileY} BETWEEN 0 AND ${sql.raw(String(WORLD_TILES - 1))}`,
-    ),
-    check(
-      'canvas_tiles_sha256_check',
-      sql`typeof(${table.sha256}) = 'text' AND length(${table.sha256}) = 64
-        AND ${table.sha256} NOT GLOB '*[^0-9a-f]*'`,
-    ),
+    check('canvas_tiles_coordinate_check', tileCoordinate(table.tileX, table.tileY)),
+    check('canvas_tiles_sha256_check', sha256Hex(table.sha256)),
   ],
 )
 
@@ -843,11 +791,7 @@ export const tileBlobObjects = sqliteTable(
   },
   (table) => [
     index('tile_blob_objects_hash_state_idx').on(table.sha256, table.state),
-    check(
-      'tile_blob_objects_sha256_check',
-      sql`typeof(${table.sha256}) = 'text' AND length(${table.sha256}) = 64
-        AND ${table.sha256} NOT GLOB '*[^0-9a-f]*'`,
-    ),
+    check('tile_blob_objects_sha256_check', sha256Hex(table.sha256)),
     check(
       'tile_blob_objects_key_check',
       sql`${table.blobKey} = ${table.sha256} OR substr(${table.blobKey}, 1, length(${table.sha256}) + 1) = ${table.sha256} || '/'`,
@@ -879,11 +823,7 @@ export const tileBlobReservations = sqliteTable(
     // Expiry sweeps run inside every reservation and commit; without a leading expiry index the
     // sweep scans the table and, under SERIALIZABLE, conflicts with every concurrent insert.
     index('tile_blob_reservations_expiry_idx').on(table.expiresAtMs),
-    check(
-      'tile_blob_reservations_sha256_check',
-      sql`typeof(${table.sha256}) = 'text' AND length(${table.sha256}) = 64
-        AND ${table.sha256} NOT GLOB '*[^0-9a-f]*'`,
-    ),
+    check('tile_blob_reservations_sha256_check', sha256Hex(table.sha256)),
   ],
 )
 
@@ -951,12 +891,7 @@ export const templateTileStatuses = sqliteTable(
   (table) => [
     primaryKey({ columns: [table.templateId, table.versionId, table.tileX, table.tileY] }),
     index('template_tile_statuses_version_idx').on(table.versionId),
-    check(
-      'template_tile_statuses_coordinate_check',
-      sql`typeof(${table.tileX}) = 'integer' AND typeof(${table.tileY}) = 'integer'
-        AND ${table.tileX} BETWEEN 0 AND ${sql.raw(String(WORLD_TILES - 1))}
-        AND ${table.tileY} BETWEEN 0 AND ${sql.raw(String(WORLD_TILES - 1))}`,
-    ),
+    check('template_tile_statuses_coordinate_check', tileCoordinate(table.tileX, table.tileY)),
     check(
       'template_tile_statuses_counter_check',
       sql`typeof(${table.correct}) = 'integer' AND typeof(${table.wrong}) = 'integer'
@@ -989,9 +924,7 @@ export const templateAlarmTileStatuses = sqliteTable(
     index('template_alarm_tile_statuses_version_idx').on(table.versionId),
     check(
       'template_alarm_tile_statuses_coordinate_check',
-      sql`typeof(${table.tileX}) = 'integer' AND typeof(${table.tileY}) = 'integer'
-        AND ${table.tileX} BETWEEN 0 AND ${sql.raw(String(WORLD_TILES - 1))}
-        AND ${table.tileY} BETWEEN 0 AND ${sql.raw(String(WORLD_TILES - 1))}`,
+      tileCoordinate(table.tileX, table.tileY),
     ),
     check(
       'template_alarm_tile_statuses_counter_check',
