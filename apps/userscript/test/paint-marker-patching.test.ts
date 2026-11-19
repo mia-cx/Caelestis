@@ -2,7 +2,7 @@ import { WPLACE_PALETTE } from '@caelestis/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { MarkList } from '../src/templates/mark-list.js'
 
-vi.mock('../src/main.js', () => ({ repaint: () => {}, viewportCentre: () => null }))
+vi.mock('../src/map-view.js', () => ({ repaint: () => {}, viewportCentre: () => null }))
 
 /**
  * A painted pixel patches cached marker lists in place instead of rescanning the tile. Patching is

@@ -1,3 +1,4 @@
+import { registerDebugEntry } from './console-api.js'
 import { count, log } from './debug.js'
 import { onStoredValueChange, storedValue, storeValue } from './stored-values.js'
 import { patchTileRefresh } from './wplace-tile-refresh.js'
@@ -131,6 +132,13 @@ export const wplacePatchSettings = (): {
     ...WPLACE_PATCHES[id],
     enabled: isWplacePatchEnabled(id),
   }))
+
+/** Caelestis's performance patches for Wplace's own client, each with its own switch. */
+registerDebugEntry('wplacePatches', {
+  list: () => wplacePatchSettings(),
+  enable: (patch: WplacePatch) => setWplacePatchEnabled(patch, true),
+  disable: (patch: WplacePatch) => setWplacePatchEnabled(patch, false),
+})
 
 /** Test seam. */
 export const resetWplacePatches = (): void => {

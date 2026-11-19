@@ -1,4 +1,4 @@
-import { pageWindow } from './page-world.js'
+import { exposeDebugApi, registerDebugEntry } from './console-api.js'
 import { recordProfileCounter } from './profile.js'
 import { deleteStoredValue, onStoredValueChange, storedValue, storeValue } from './stored-values.js'
 /**
@@ -155,7 +155,7 @@ export const count = (key: string, by = 1): void => {
 }
 
 /** The stable part of a message: everything up to the first digit-bearing word. */
-export const counterKey = (category: Category, message: string): string =>
+const counterKey = (category: Category, message: string): string =>
   `${category}:${message.replace(/\s*\S*\d\S*/g, '').trim()}`
 
 export const log = (category: Category, message: string, data?: unknown): void => {
@@ -221,49 +221,31 @@ export const setEnabled = (on: boolean): void => {
   }
 }
 
-export interface DebugApi {
-  debug(on: boolean): string
-  dump(): void
-  counters(): Record<string, number>
-  events(category?: Category): Entry[]
-  clear(): void
-}
-
-export const installDebugApi = (extra: Record<string, unknown> = {}): void => {
+export const installDebugApi = (): void => {
   enabled = storedDebugLogging()
-  const api: DebugApi & Record<string, unknown> = {
-    debug(on: boolean) {
-      setEnabled(on)
-      return `[caelestis] debug ${on ? 'on' : 'off'} — reload to capture startup, __caelestis.dump() to print`
-    },
-    dump() {
-      const sorted = [...counters.entries()].sort((a, b) => b[1] - a[1])
-      console.group('[caelestis] debug dump')
-      console.info('enabled:', enabled, '| uptime:', `${Date.now() - started}ms`)
-      console.table(Object.fromEntries(sorted))
-      console.info(`last ${ring.length} events:`)
-      for (const entry of ring) {
-        console.info(`  +${entry.at}ms [${entry.category}] ${entry.message}`, entry.data ?? '')
-      }
-      console.groupEnd()
-    },
-    counters: () => Object.fromEntries(counters),
-    events: (category?: Category) =>
-      category === undefined ? [...ring] : ring.filter((entry) => entry.category === category),
-    clear() {
-      ring = []
-      counters.clear()
-      lastNoisy.clear()
-    },
-    ...extra,
-  }
-  try {
-    Object.defineProperty(pageWindow(), '__caelestis', {
-      value: api,
-      writable: true,
-      configurable: true,
-    })
-  } catch {
-    // Debug access is optional; a locked page global must not abort the userscript at document-start.
-  }
+  registerDebugEntry('debug', (on: boolean) => {
+    setEnabled(on)
+    return `[caelestis] debug ${on ? 'on' : 'off'} — reload to capture startup, __caelestis.dump() to print`
+  })
+  registerDebugEntry('dump', () => {
+    const sorted = [...counters.entries()].sort((a, b) => b[1] - a[1])
+    console.group('[caelestis] debug dump')
+    console.info('enabled:', enabled, '| uptime:', `${Date.now() - started}ms`)
+    console.table(Object.fromEntries(sorted))
+    console.info(`last ${ring.length} events:`)
+    for (const entry of ring) {
+      console.info(`  +${entry.at}ms [${entry.category}] ${entry.message}`, entry.data ?? '')
+    }
+    console.groupEnd()
+  })
+  registerDebugEntry('counters', () => Object.fromEntries(counters))
+  registerDebugEntry('events', (category?: Category) =>
+    category === undefined ? [...ring] : ring.filter((entry) => entry.category === category),
+  )
+  registerDebugEntry('clear', () => {
+    ring = []
+    counters.clear()
+    lastNoisy.clear()
+  })
+  exposeDebugApi()
 }

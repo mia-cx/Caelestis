@@ -1,7 +1,7 @@
 import type { CaelestisRailControl, RailControlIntent } from '@caelestis/ui/elements'
 import { activeAllianceSurface } from '../alliance-surface.js'
 import { isCaptureModeActive, isClaimModeActive, stopClaimMode } from '../claim-editor.js'
-import { redraw } from '../main.js'
+import { redraw } from '../map-view.js'
 import { presenceView } from '../presence-client.js'
 import { shortcutHint } from '../shortcut-bindings.js'
 import { getState, onStateChange, setState } from '../state.js'

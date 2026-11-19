@@ -21,7 +21,7 @@ const page = vi.hoisted(() => ({
 
 // Wplace owns projection and native tile reads. Keep our template lookup and swatch selection real.
 // Each 20 screen pixels to the right is the next canvas column.
-vi.mock('./main.js', () => ({
+vi.mock('./map-view.js', () => ({
   canvasPixelAt: (clientX: number) => ({ x: 100 + Math.floor(clientX / 20), y: 200 }),
 }))
 vi.mock('./map-handle.js', () => ({ getMap: () => null }))

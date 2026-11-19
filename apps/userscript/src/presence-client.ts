@@ -23,6 +23,7 @@ import {
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { userscriptVersion } from './client-metrics.js'
+import type { TileFrame } from './coordinates.js'
 import { log, warn } from './debug.js'
 import { draftIn, viewportRectIn } from './presence-geometry.js'
 import {
@@ -44,7 +45,7 @@ import {
   onStateChange,
   serverConnectionIdentity,
 } from './state.js'
-import { draftedPixelOffsets, draftedTiles, type TileFrame } from './tile-transform.js'
+import { draftedPixelOffsets, draftedTiles } from './tile-transform.js'
 import { accountIdentity, loadAccount } from './wplace-account.js'
 
 /**

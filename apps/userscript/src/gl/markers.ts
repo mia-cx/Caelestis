@@ -1,8 +1,15 @@
 import { sameTemplateSurface, TILE_SIZE, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
+import type { TileQuad } from '../coordinates.js'
 import { count, warn } from '../debug.js'
 import { getMap } from '../map-handle.js'
 import { overlayPeekFade } from '../overlay-peek.js'
-import { isProfileEnabled, measureProfile, profileGpu, recordProfileWorkload } from '../profile.js'
+import {
+  isProfileEnabled,
+  measureProfile,
+  profileGpu,
+  recordProfileWorkload,
+  registerProfileMemorySource,
+} from '../profile.js'
 import { getState } from '../state.js'
 import { toRgbUnit } from '../templates/appearance.js'
 import {
@@ -20,7 +27,6 @@ import {
   isDrawingTiles,
   registerDraftCanvas,
   retainDraftCanvases,
-  type TileQuad,
 } from '../tile-transform.js'
 import { isPaintOpen, selectedColour } from '../wplace-paint.js'
 import { prefersReducedMotion } from './appearance-transition.js'
@@ -35,11 +41,12 @@ import { MarkerRenderer, type MarkerStyle } from './marker-renderer.js'
 import { worldRenderScene } from './render-scene.js'
 
 export { deviceScale, MarkerRenderer, type MarkerStyle } from './marker-renderer.js'
-export { markerDensityMemoryBytes }
 
 let worldMarkerRenderer: MarkerRenderer | null = null
 
 export const markerGpuMemoryBytes = (): number => worldMarkerRenderer?.memoryBytes() ?? 0
+registerProfileMemorySource('Marker density buffers', markerDensityMemoryBytes)
+registerProfileMemorySource('Marker GPU buffers', markerGpuMemoryBytes)
 export const initMarkers = (gl: WebGL2RenderingContext): void => {
   worldMarkerRenderer = new MarkerRenderer(gl)
 }

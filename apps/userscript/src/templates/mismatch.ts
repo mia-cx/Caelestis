@@ -16,7 +16,7 @@ import {
 } from '@caelestis/shared'
 import { count } from '../debug.js'
 import { pixelObservationOf } from '../pixel-observation.js'
-import { measureProfile } from '../profile.js'
+import { measureProfile, registerProfileMemorySource } from '../profile.js'
 import {
   beginServerMismatchFrame,
   serverMismatchMaskFor as currentServerMismatchMaskFor,
@@ -2314,3 +2314,4 @@ export const pixelAccounting = Object.freeze({
   memoryBytes: mismatchMemoryBytes,
   revision: mismatchRevision,
 })
+registerProfileMemorySource('Mismatch cache', mismatchMemoryBytes)

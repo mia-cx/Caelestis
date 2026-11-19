@@ -32,8 +32,8 @@ import {
   onActiveAllianceSurfaceChange,
 } from '../alliance-surface.js'
 import { warn } from '../debug.js'
-import { viewportCentre } from '../main.js'
 import { getMap } from '../map-handle.js'
+import { viewportCentre } from '../map-view.js'
 import { getState, setState } from '../state.js'
 import type { DitheretteEngine } from '../templates/ditherette.js'
 import {

@@ -14,7 +14,7 @@ import {
   isMapInteractionTarget,
   repaint,
   screenPointFor,
-} from '../main.js'
+} from '../map-view.js'
 import {
   clearLocalPreview,
   isDeletingLocal,

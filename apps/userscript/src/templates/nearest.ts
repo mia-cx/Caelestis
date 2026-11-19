@@ -5,7 +5,7 @@ import {
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { activeAllianceSurface } from '../alliance-surface.js'
-import { viewportCentre } from '../main.js'
+import { viewportCentre } from '../map-view.js'
 import { claimedHiddenFor } from './colour-filter.js'
 import {
   appearanceOf,

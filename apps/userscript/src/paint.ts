@@ -1,4 +1,4 @@
-import type { TileFrame } from './tile-transform.js'
+import type { TileFrame } from './coordinates.js'
 
 export type FramePainter = (context: CanvasRenderingContext2D, frame: TileFrame) => void
 export type PainterErrorHandler = (error: unknown) => void

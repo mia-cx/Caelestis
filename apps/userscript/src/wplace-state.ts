@@ -1,3 +1,4 @@
+import { registerDebugEntry } from './console-api.js'
 import { log } from './debug.js'
 import { pageWindow } from './page-world.js'
 
@@ -62,6 +63,8 @@ export const installWplaceStateCapture = (
   realm: Window & typeof globalThis = pageWindow(),
 ): void => {
   if (captured !== null || installedRealm !== null) return
+  /** Wplace's captured global state object, whose setters drive theme and dialogs. */
+  registerDebugEntry('wplaceState', () => getWplaceState())
   const prototype = realm.WeakMap.prototype
   const native = prototype.set
   const wrapped = function (this: WeakMap<object, unknown>, key: object, value: unknown) {

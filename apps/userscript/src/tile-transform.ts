@@ -7,11 +7,13 @@ import {
   WPLACE_PALETTE,
 } from '@caelestis/shared'
 import { announceCanvasWrite, type CanvasDraw, type CanvasWriteRect } from './canvas-write.js'
+import { registerDebugEntry } from './console-api.js'
+import type { TileFrame, TileQuad } from './coordinates.js'
 import { count, isEnabled, log, warn } from './debug.js'
 import { getMap } from './map-handle.js'
 import { isPageInstance, pageWindow } from './page-world.js'
 import { nextPixelObservation, recordPixelObservation } from './pixel-observation.js'
-import { measureProfile } from './profile.js'
+import { measureProfile, registerProfileMemorySource } from './profile.js'
 import { buildExactRgbIndex, canvasRgbIndex } from './rgb-index.js'
 import { draftedPixelsIn } from './templates/drafted.js'
 import { tilePixelCacheLimit } from './tile-pixel-cache.js'
@@ -101,26 +103,6 @@ const MAX_TILE_SCREEN_WIDTH = 1e9
  * a visible absence rather than a silent misplacement.
  */
 const ROTATION_TOLERANCE = 1e-6
-
-export interface TileQuad {
-  readonly tile: TileCoord
-  /** Screen position of the tile's top-left corner, in canvas device pixels. */
-  readonly x: number
-  readonly y: number
-  /** Screen size of the whole tile, in canvas device pixels. */
-  readonly width: number
-  readonly height: number
-}
-
-export interface TileFrame {
-  readonly canvas: HTMLCanvasElement
-  /**
-   * Every wplace tile drawn this frame. Empty when the map is showing none — zoomed out past the
-   * point where wplace serves them, for instance — which is the signal to clear the overlay rather
-   * than leave the last frame's squares stranded on screen.
-   */
-  readonly quads: readonly TileQuad[]
-}
 
 type FrameListener = (frame: TileFrame) => void
 
@@ -2654,6 +2636,9 @@ export const install = (
   mapHandle: () => ReturnType<typeof getMap> = getMap,
 ): void => {
   captureRealm = realm
+  registerProfileMemorySource('Captured tile pixels', capturedPixelMemoryBytes)
+  /** The panel's Reload tiles: visible tiles through the map, kept tiles off screen re-read. */
+  registerDebugEntry('reloadTiles', () => reloadTiles())
   if (tileUrlShape === null) {
     // Wplace may have displayed its tiles before our fetch hook installed after refresh.
     // Recover the observed URL from resource timing instead of requiring another map fetch.

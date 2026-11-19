@@ -7,7 +7,7 @@ import {
   type TileCoord,
   WORLD_PIXELS,
 } from '@caelestis/shared'
-import type { TileFrame } from './tile-transform.js'
+import type { TileFrame } from './coordinates.js'
 
 /** Drafts past this many pixels publish their rect and count only; scanning stops here. */
 export const MAX_PUBLISHED_DRAFT_PIXELS = 4_096

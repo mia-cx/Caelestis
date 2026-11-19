@@ -6,7 +6,7 @@ import {
 } from '@caelestis/shared'
 import { claimDocumentPixels } from './claim-document.js'
 import { claimEditorEditingIds } from './claim-editor.js'
-import type { ScreenProjection } from './coordinates.js'
+import type { ScreenProjection, TileFrame } from './coordinates.js'
 import { displayedPresenceRect } from './gl/presence-layer.js'
 import { claimsVisible, displayClaims } from './presence-claims.js'
 import { presenceView } from './presence-client.js'
@@ -21,7 +21,7 @@ import {
 } from './profile.js'
 import { QUICK_CLAIM_PREVIEW_KEY, quickClaimItems } from './quick-claims.js'
 import { getState } from './state.js'
-import { isDrawingTiles, type TileFrame } from './tile-transform.js'
+import { isDrawingTiles } from './tile-transform.js'
 import { isPaintOpen } from './wplace-paint.js'
 
 /**

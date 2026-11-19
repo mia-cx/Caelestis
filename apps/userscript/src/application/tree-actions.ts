@@ -22,7 +22,7 @@ import { activeAllianceSurface, allianceSurfaceCentre } from '../alliance-surfac
 import { startCaptureMode } from '../claim-editor.js'
 import { warn } from '../debug.js'
 import { createLocalFolder, localFolderChainVisible, removeLocalFolder } from '../local-folders.js'
-import { viewportCentre } from '../main.js'
+import { viewportCentre } from '../map-view.js'
 import type { ServerTemplate } from '../server-cache.js'
 import { requestServerSync } from '../server-sync-coordinator.js'
 import {

@@ -30,7 +30,7 @@ import {
 } from '../application/update-template-artwork.js'
 import type { ScreenProjection } from '../coordinates.js'
 import { log, warn } from '../debug.js'
-import { screenProjection } from '../main.js'
+import { screenProjection } from '../map-view.js'
 import { shortcutHint } from '../shortcut-bindings.js'
 import {
   activeServerToken,

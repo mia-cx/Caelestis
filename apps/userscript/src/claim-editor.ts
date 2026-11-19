@@ -57,10 +57,10 @@ import {
 import { eraseFromRaster, mergeRasters, PixelSet, rasterTouches } from './claim-raster.js'
 import type { ClaimSaveResult } from './claim-routing.js'
 import { splitItem, strokeArea } from './claim-split.js'
+import { registerDebugEntry } from './console-api.js'
 import { warn } from './debug.js'
-import { canvasPixelAt, isMapInteractionTarget, screenProjection } from './main.js'
 import { getMap } from './map-handle.js'
-import type { TileFrame } from './tile-transform.js'
+import { canvasPixelAt, isMapInteractionTarget, screenProjection } from './map-view.js'
 import { applyWplaceTheme } from './ui/theme.js'
 import { dismissWplacePixelCard } from './wplace-pixel-card.js'
 
@@ -2485,9 +2485,17 @@ export const stopClaimMode = (): void => {
 }
 
 /** Follow the map: outlines and handles move with the canvas. */
-export const syncClaimEditorFrame = (_frame: TileFrame): void => {
+export const syncClaimEditorFrame = (): void => {
   if (active) syncOverlay()
 }
+
+/** Claim mode, openable here without a presence server for pointer testing. */
+registerDebugEntry('claimTool', {
+  active: () => isClaimModeActive(),
+  tool: () => claimEditorTool(),
+  start: (tool?: ClaimTool) => startClaimMode(tool),
+  stop: () => stopClaimMode(),
+})
 
 /** Exported for the layer: the bounding box of what is being edited, when anything is. */
 export const claimEditorBounds = () => {

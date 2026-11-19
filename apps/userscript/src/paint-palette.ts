@@ -11,6 +11,7 @@ import { allianceBounds, alliancePointAt } from './alliance-coordinates.js'
 import { navigateAllianceArtboardTo } from './alliance-navigation.js'
 import { activeAllianceSurface } from './alliance-surface.js'
 import { onCanvasWrite } from './canvas-write.js'
+import { registerDebugEntry } from './console-api.js'
 import { count, warn } from './debug.js'
 import { artboardColourProgress, artboardColourTargets } from './gl/artboard-markers.js'
 import {
@@ -666,6 +667,8 @@ const observe = (): void => {
 export const installPaintPaletteProgress = (): void => {
   if (installed) return
   installed = true
+  /** The exact focused-template counts currently decorating Wplace's native paint palette. */
+  registerDebugEntry('paletteProgress', () => paintPaletteProgress())
   onServerStatusChange(queueRender)
   pixelAccounting.onChange(queueRender)
   pixelAccounting.onDraftChange(queueRender)

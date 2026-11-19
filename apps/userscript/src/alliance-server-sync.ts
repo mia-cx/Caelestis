@@ -7,6 +7,7 @@ import {
 } from '@caelestis/shared'
 import { activeAllianceSurface, onActiveAllianceSurfaceChange } from './alliance-surface.js'
 import { userscriptClientHeaders } from './client-metrics.js'
+import { registerDebugEntry } from './console-api.js'
 import { count } from './debug.js'
 import type { ServerManifest } from './server-manifest.js'
 import { parseServerManifest } from './server-manifest.js'
@@ -251,6 +252,17 @@ export const installAllianceServerSync = (): void => {
   if (installed) return
   installed = true
   lastConnectedServers = connectedServers(getState())
+  /** The active Wplace artboard and exact backend manifest scope selected for it. */
+  registerDebugEntry('allianceSurface', () => ({
+    active: activeAllianceSurface()?.surface ?? null,
+    manifest: selectedAllianceManifestScope(),
+    servers: getState().servers.map((server) => ({
+      url: server.url,
+      status: server.status,
+      identified: server.info !== null,
+      season: server.season,
+    })),
+  }))
   onActiveAllianceSurfaceChange(selectActiveSurface)
   onStateChange(stateChanged)
   registerServerSyncResource({

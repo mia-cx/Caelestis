@@ -9,7 +9,7 @@ import {
   stopClaimMode,
 } from '../src/claim-editor.js'
 
-vi.mock('../src/main.js', () => ({
+vi.mock('../src/map-view.js', () => ({
   canvasPixelAt: (x: number, y: number) => ({ x, y }),
   isMapInteractionTarget: (target: EventTarget | null) => target instanceof HTMLCanvasElement,
   screenProjection: () => null,

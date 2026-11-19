@@ -1,6 +1,9 @@
 import { TILE_SIZE, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
+import { registerDebugEntry } from '../console-api.js'
+import type { TileQuad } from '../coordinates.js'
 import { log, warn } from '../debug.js'
 import { getMap } from '../map-handle.js'
+import { redraw } from '../map-view.js'
 import { overlayPeekFade } from '../overlay-peek.js'
 import {
   clearGpuProfile,
@@ -8,6 +11,7 @@ import {
   measureProfile,
   profileGpu,
   recordProfileWorkload,
+  registerProfileMemorySource,
 } from '../profile.js'
 import { isPlain } from '../templates/appearance.js'
 import {
@@ -16,7 +20,7 @@ import {
   type PlacedTemplate,
 } from '../templates/local-store.js'
 import { type HorizontalSpan, horizontalSpans } from '../templates/placement.js'
-import { currentQuads, isDrawingTiles, type TileQuad, underlayQuads } from '../tile-transform.js'
+import { currentQuads, isDrawingTiles, underlayQuads } from '../tile-transform.js'
 import { prefersReducedMotion } from './appearance-transition.js'
 import { isDarkMapTheme } from './contrast-outline.js'
 import { markerLayer } from './markers.js'
@@ -114,6 +118,14 @@ export const overlayGpuMemoryBytes = (): number => {
 
 /** Upload chunks are ephemeral; no full-template CPU staging copy is retained. */
 export const overlayStagingMemoryBytes = (): number => 0
+registerProfileMemorySource('Overlay GPU buffers', overlayGpuMemoryBytes)
+registerProfileMemorySource('Overlay index staging', overlayStagingMemoryBytes)
+/** Shift every template by fractional canvas pixels for alignment diagnostics. */
+registerDebugEntry('nudge', (x = 0, y = 0) => {
+  const applied = setNudge(x, y)
+  redraw()
+  return `[caelestis] overlay nudged by ${applied.x}, ${applied.y} canvas px — __caelestis.nudge() to clear`
+})
 
 const uniform = (gl: WebGL2RenderingContext, name: string): WebGLUniformLocation | null => {
   if (!uniforms.has(name)) {

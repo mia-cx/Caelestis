@@ -1,6 +1,7 @@
 import { decodeMismatchMask, type MismatchMask, TILE_SIZE, type TileCoord } from '@caelestis/shared'
 import { userscriptClientHeaders } from './client-metrics.js'
 import { nextPixelObservation, recordPixelObservation } from './pixel-observation.js'
+import { registerProfileMemorySource } from './profile.js'
 import {
   deleteCachedServerMismatch,
   deleteCachedServerMismatches,
@@ -73,6 +74,7 @@ export const serverMismatchMemoryBytes = (): number => {
   for (const held of masks.values()) bytes += heldBytes(held)
   return bytes
 }
+registerProfileMemorySource('Server mismatch masks', serverMismatchMemoryBytes)
 
 const keyFor = (
   server: ConnectedServer,

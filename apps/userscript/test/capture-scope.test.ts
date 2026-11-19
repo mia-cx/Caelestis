@@ -2,7 +2,7 @@ import { expect, it, vi } from 'vitest'
 import * as store from '../src/templates/local-store.js'
 import { captureScopeTiles } from '../src/templates/mismatch.js'
 
-vi.mock('../src/main.js', () => ({ repaint: () => {}, viewportCentre: () => null }))
+vi.mock('../src/map-view.js', () => ({ repaint: () => {}, viewportCentre: () => null }))
 
 it('grows the capture scope only when a dragged template reaches a new tile', async () => {
   const id = `capture-scope-${crypto.randomUUID()}`

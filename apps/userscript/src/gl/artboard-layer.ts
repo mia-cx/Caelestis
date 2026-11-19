@@ -8,7 +8,13 @@ import {
 import { type CanvasDraw, type CanvasWriteRect, onCanvasWrite } from '../canvas-write.js'
 import { warn } from '../debug.js'
 import { onOverlayPeekChange, overlayPeekFade } from '../overlay-peek.js'
-import { isProfileEnabled, measureProfile, profileGpu, recordProfileWorkload } from '../profile.js'
+import {
+  isProfileEnabled,
+  measureProfile,
+  profileGpu,
+  recordProfileWorkload,
+  registerProfileMemorySource,
+} from '../profile.js'
 import { getState, onlySelectedColourFor, onStateChange } from '../state.js'
 import { isPlain, toRgbUnit } from '../templates/appearance.js'
 import {
@@ -1098,6 +1104,7 @@ export const repaintAllianceOverlayLayer = (): void => renderer?.requestRender()
 /** Attach viewport-resolution WebGL passes inside whichever Wplace alliance artboard is open. */
 export const installAllianceOverlayLayer = (onViewportChange: () => void = () => {}): void => {
   viewportChangeListener = onViewportChange
+  registerProfileMemorySource('Alliance overlay GPU buffers', allianceOverlayGpuMemoryBytes)
   onActiveAllianceSurfaceChange(reconcileRenderer)
   onHeadquartersRevisionChange((allianceId) => {
     queueMicrotask(() => {

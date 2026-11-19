@@ -17,7 +17,7 @@ vi.mock('../src/claim-editor.js', () => ({
     return true
   },
 }))
-vi.mock('../src/main.js', () => ({ repaint: () => {} }))
+vi.mock('../src/map-view.js', () => ({ repaint: () => {} }))
 vi.mock('../src/tile-transform.js', async (original) => ({
   ...(await original<typeof import('../src/tile-transform.js')>()),
   loadCommittedTilePixels: vi.fn(),

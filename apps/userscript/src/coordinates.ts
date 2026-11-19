@@ -1,5 +1,25 @@
-import { TILE_SIZE, WORLD_PIXELS } from '@caelestis/shared'
-import type { TileFrame } from './tile-transform.js'
+import { TILE_SIZE, type TileCoord, WORLD_PIXELS } from '@caelestis/shared'
+
+/** Where Wplace drew one tile this frame, as an axis-aligned rectangle. */
+export interface TileQuad {
+  readonly tile: TileCoord
+  /** Screen position of the tile's top-left corner, in canvas device pixels. */
+  readonly x: number
+  readonly y: number
+  /** Screen size of the whole tile, in canvas device pixels. */
+  readonly width: number
+  readonly height: number
+}
+
+export interface TileFrame {
+  readonly canvas: HTMLCanvasElement
+  /**
+   * Every wplace tile drawn this frame. Empty when the map is showing none — zoomed out past the
+   * point where wplace serves them, for instance — which is the signal to clear the overlay rather
+   * than leave the last frame's squares stranded on screen.
+   */
+  readonly quads: readonly TileQuad[]
+}
 
 const wrapWorldX = (x: number): number => ((x % WORLD_PIXELS) + WORLD_PIXELS) % WORLD_PIXELS
 

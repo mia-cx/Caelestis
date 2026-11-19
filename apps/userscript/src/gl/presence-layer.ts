@@ -8,6 +8,7 @@ import {
   TILE_SIZE,
 } from '@caelestis/shared'
 import { claimEditorEditingIds, claimEditorPixels } from '../claim-editor.js'
+import type { TileQuad } from '../coordinates.js'
 import { log, warn } from '../debug.js'
 import { getMap } from '../map-handle.js'
 import { claimsVisible, displayClaims } from '../presence-claims.js'
@@ -24,7 +25,7 @@ import {
 } from '../profile.js'
 import { QUICK_CLAIM_PREVIEW_KEY, quickClaimItems } from '../quick-claims.js'
 import { getState } from '../state.js'
-import { currentQuads, isDrawingTiles, type TileQuad } from '../tile-transform.js'
+import { currentQuads, isDrawingTiles } from '../tile-transform.js'
 import { isPaintOpen } from '../wplace-paint.js'
 import { ramps } from './fade.js'
 import { linkTemplateProgram, writeClipCorner } from './renderer-core.js'

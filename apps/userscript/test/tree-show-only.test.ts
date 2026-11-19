@@ -6,7 +6,7 @@ import { toast } from '../src/ui/toast.js'
 import { type TreeCallbacks, type TreeTarget, templateTreeAdapter } from '../src/ui/tree.js'
 
 vi.mock('../src/claim-editor.js', () => ({ startCaptureMode: () => false }))
-vi.mock('../src/main.js', () => ({ repaint: () => {}, viewportCentre: () => null }))
+vi.mock('../src/map-view.js', () => ({ repaint: () => {}, viewportCentre: () => null }))
 vi.mock('../src/ui/toast.js', () => ({ toast: vi.fn() }))
 
 import {

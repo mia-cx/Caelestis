@@ -1,5 +1,8 @@
-import type { ProfileContext } from './profile-context.js'
+import { registerDebugEntry } from './console-api.js'
 import { deleteStoredValue, onStoredValueChange, storedValue, storeValue } from './stored-values.js'
+
+/** Report metadata the app supplies through `registerProfileContextSource`; stored and printed as is. */
+export type ProfileContext = Readonly<Record<string, unknown>>
 
 export type ProfileKind = 'main' | 'worker' | 'gpu' | 'detail'
 
@@ -357,6 +360,19 @@ export const installProfile = (): void => {
   onStoredValueChange((key) => {
     if (key === PROFILE_KEY) applyProfiling(storedProfiling())
   })
+  /** A live performance snapshot. Enable profiling in Settings first. */
+  registerDebugEntry('profile', () => profileSnapshot())
+  /** Clear the current sample window without disabling profiling. */
+  registerDebugEntry('profileReset', () => {
+    resetProfile()
+    return profileSnapshot()
+  })
+  /** Copyable JSON for comparing a Caelestis run with a clean Wplace run. */
+  registerDebugEntry('profileReport', () => profileReport())
+  /** Name the scenario and supply actual browser zoom after resetting a profile. */
+  registerDebugEntry('profileConfigure', configureProfileRun)
+  /** Add a timestamped scenario marker to the current profile. */
+  registerDebugEntry('profileMark', recordProfileAction)
 }
 
 /** Start a fresh measurement window, including context, annotations, actions, and samples. */

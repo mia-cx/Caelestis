@@ -12,9 +12,11 @@ import {
   WORLD_TEMPLATE_SURFACE,
   WPLACE_PALETTE,
 } from '@caelestis/shared'
+import { registerDebugEntry } from '../console-api.js'
 import { log, warn } from '../debug.js'
 import { leaseLocalFolder, localFolderChainVisible } from '../local-folders.js'
 import { pageWindow } from '../page-world.js'
+import { registerProfileMemorySource } from '../profile.js'
 import {
   type ConnectedServer,
   getState,
@@ -653,6 +655,7 @@ export const noteTemplatesInView = (surface: TemplateSurface, ids: ReadonlySet<s
 
 /** Indexed template pixels currently owned by the catalog. */
 export const templateIndexMemoryBytes = (): number => retainedIndexPixels
+registerProfileMemorySource('Template pixels', templateIndexMemoryBytes)
 
 /** Whether this exact snapshot is still the installed version of its template. */
 export const isCurrentTemplate = (template: PlacedTemplate): boolean =>
@@ -884,6 +887,20 @@ export const isTemplateVisible = (template: PlacedTemplate): boolean => {
   }
   return localFolderChainVisible(template.folderId)
 }
+
+/** Each template's own switch beside the renderer's effective visibility decision. */
+registerDebugEntry('templates', () =>
+  localTemplates().map((template) => ({
+    id: template.id,
+    name: template.name,
+    visible: template.visible,
+    drawing: isTemplateVisible(template),
+    folderId: template.folderId,
+    server: template.serverUrl ?? null,
+    serverTemplateId: template.serverTemplateId ?? null,
+    opaque: template.opaque,
+  })),
+)
 
 /**
  * How this template is actually drawn: its own appearance, or the global default it inherits.
