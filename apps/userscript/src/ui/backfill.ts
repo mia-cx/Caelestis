@@ -1,12 +1,7 @@
 import type { BackfillPreview, BackfillProgress, FolderBackfillPreview } from '@caelestis/shared'
 import { BACKFILL_TAG, type BackfillIntent, type BackfillModel } from '@caelestis/ui/elements'
-import {
-  activeServerToken,
-  hasServerAdminToken,
-  isCurrentServerConnection,
-  serverConnectionSignal,
-} from '../server-connections.js'
-import { serverEndpoint } from '../server-request.js'
+import { hasServerAdminToken, isCurrentServerConnection } from '../server-connections.js'
+import { serverRequest } from '../server-request.js'
 import { templateAsPng, templateById } from '../templates/local-store.js'
 import { serverTemplateKey } from '../tree-keys.js'
 import { closeDialogHost } from './dialog.js'
@@ -14,6 +9,8 @@ import { applyWplaceTheme } from './theme.js'
 import type { TreeTarget } from './tree-context.js'
 
 let closeBackfill: (() => void) | undefined
+
+const BACKFILL_TIMEOUT_MS = 30_000
 
 /**
  * Open an admin form whose background import outlives this userscript tab, for one server
@@ -72,21 +69,12 @@ export const openBackfill = (target: TreeTarget): void => {
   const request = async <T>(action: string, body?: object): Promise<T> => {
     if (!isCurrentServerConnection(server) || !hasServerAdminToken(server))
       throw new Error('Server connection changed. Close and reopen backfill.')
-    const token = activeServerToken(server)
-    const response = await fetch(serverEndpoint(server.url, `${path}/${action}`), {
-      method: body === undefined ? 'GET' : 'POST',
-      headers: {
-        authorization: `Bearer ${token}`,
-        ...(body === undefined ? {} : { 'content-type': 'application/json' }),
-      },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      signal: AbortSignal.any([
-        controller.signal,
-        serverConnectionSignal(server),
-        AbortSignal.timeout(30_000),
-      ]),
+    const { response, body: value } = await serverRequest(server, `${path}/${action}`, {
+      ...(body === undefined ? {} : { method: 'POST', json: body }),
+      limits: 'tree',
+      read: 'json',
+      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(BACKFILL_TIMEOUT_MS)]),
     })
-    const value: unknown = await response.json()
     if (!response.ok)
       throw new Error(
         value !== null &&

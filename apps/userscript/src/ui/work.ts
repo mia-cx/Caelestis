@@ -13,13 +13,8 @@ import type { TemplateClaimsModel, TemplateTreeModel } from '@caelestis/ui/eleme
 import { allianceManifestFor } from '../alliance-server-sync.js'
 import { rowsForSurface } from '../application/tree-server-state.js'
 import { admittedServerContentsFor } from '../server-api.js'
-import {
-  activeServerToken,
-  isCurrentServerConnection,
-  serverConnectionSignal,
-} from '../server-connections.js'
-import { serverEndpoint } from '../server-request.js'
-import { sendServerRequest } from '../server-transport.js'
+import { isCurrentServerConnection, serverConnectionSignal } from '../server-connections.js'
+import { serverRequest } from '../server-request.js'
 import { commitState, getState, type ServerConnection } from '../settings.js'
 import { isServerTemplate, localTemplates } from '../templates/local-store.js'
 import { localTemplateIdOf, localTemplateKey, serverTemplateTreeKey } from '../tree-keys.js'
@@ -27,22 +22,16 @@ import { accountIdentity, loadAccount } from '../wplace-account.js'
 import { showToast } from './notification-host.js'
 import type { TreeTarget } from './tree-context.js'
 
-const workClient = (
-  server: ServerConnection,
-  season: number,
-  surface: TemplateSurface,
-  signal: AbortSignal,
-) =>
+const workClient = (server: ServerConnection, season: number, surface: TemplateSurface) =>
   createWorkClient(
     async (path, init) => {
-      const headers = new Headers(init?.headers)
-      const token = activeServerToken(server)
-      if (token !== null) headers.set('authorization', `Bearer ${token}`)
-      const { response, body } = await sendServerRequest(
-        serverEndpoint(server.url, path),
-        { ...init, headers, signal },
-        { limits: 'tree', read: 'json' },
-      )
+      const { response, body } = await serverRequest(server, path, {
+        ...(init?.method === undefined ? {} : { method: init.method }),
+        headers: Object.fromEntries(new Headers(init?.headers)),
+        ...(init?.body == null ? {} : { body: init.body }),
+        limits: 'tree',
+        read: 'json',
+      })
       return Response.json(body, { status: response.status })
     },
     season,
@@ -114,7 +103,7 @@ export const workSectionModel = (surface: TemplateSurface, changed: () => void) 
       preview.loaded = false
       const held = preview
       const request = ++held.request
-      void workClient(server, server.season, surface, signal)
+      void workClient(server, server.season, surface)
         .list()
         .then(
           (collection) => {
@@ -254,7 +243,7 @@ export const claimTemplate = async (
   )
     return
   const signal = serverConnectionSignal(server)
-  const client = workClient(server, server.season, surface, signal)
+  const client = workClient(server, server.season, surface)
   try {
     // A simultaneous claim changes the revision, not the ability to join the template.
     for (let attempt = 0; attempt < 3; attempt++) {
