@@ -1,7 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { readdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 /**
@@ -72,9 +70,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   }
   const issues = pendingIssues(repository)
   const body = JSON.parse(gh('pr', 'view', pr, '--repo', repository, '--json', 'body')).body
-  const file = join(tmpdir(), `release-pr-${pr}.md`)
-  writeFileSync(file, releaseBody(body, issues))
-  gh('pr', 'edit', pr, '--repo', repository, '--body-file', file)
+  execFileSync('gh', ['pr', 'edit', pr, '--repo', repository, '--body-file', '-'], {
+    input: releaseBody(body, issues),
+  })
   console.log(
     issues.length ? `Release PR #${pr} closes #${issues.join(', #')}` : 'No pending issues ship.',
   )
