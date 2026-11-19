@@ -6,19 +6,8 @@
  * The card is not a dialog. Its close control is a round `Close` button, which is what tells it
  * apart from the settings and other modals, whose close buttons live inside a `<dialog>`.
  */
-import { findWplaceLabelled, wplaceLabel } from './wplace-messages.js'
-
-const insidePaintDrawer = (button: Element): boolean => {
-  for (let node = button.parentElement; node !== null; node = node.parentElement) {
-    if (node === document.body) return false
-    if (
-      findWplaceLabelled(node, 'button', 'undo') !== null &&
-      findWplaceLabelled(node, 'button', 'redo') !== null
-    )
-      return true
-  }
-  return false
-}
+import { insidePaintDrawer } from './wplace-dom.js'
+import { wplaceLabel } from './wplace-messages.js'
 
 export const dismissWplacePixelCard = (root: ParentNode = document): boolean => {
   const close = wplaceLabel('close')
@@ -29,7 +18,7 @@ export const dismissWplacePixelCard = (root: ParentNode = document): boolean => 
   for (const button of buttons) {
     if (button.closest('dialog,[role="dialog"]') !== null) continue
     if (button.closest('[id^="caelestis-"]') !== null) continue
-    // The paint drawer's Close discards a draft. It is the panel with Undo and Redo beside it.
+    // The paint drawer's Close discards a draft.
     if (insidePaintDrawer(button)) continue
     button.click()
     closed = true

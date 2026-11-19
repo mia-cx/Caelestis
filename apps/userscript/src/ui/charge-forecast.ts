@@ -5,7 +5,7 @@ import {
   onChargesChange,
   spendCharges,
 } from '../wplace-charges.js'
-import { paintDockButton } from '../wplace-paint.js'
+import { paintDockButton } from '../wplace-dom.js'
 import { GAP } from './metrics.js'
 import { applyWplaceTheme } from './theme.js'
 

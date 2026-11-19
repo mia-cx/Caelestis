@@ -1,13 +1,9 @@
 import { WPLACE_PALETTE } from '@caelestis/shared'
 import { afterEach, expect, it, vi } from 'vitest'
+import { setState } from './settings.js'
+import { paintPaletteIndexOf, paintPaletteSwatches } from './wplace-dom.js'
 import { useWplaceCatalog } from './wplace-messages.js'
-import {
-  cancelPaintDraft,
-  paintPaletteIndexOf,
-  paintPaletteSwatches,
-  performPaintAction,
-  undoPaintDraft,
-} from './wplace-paint.js'
+import { cancelPaintDraft, performPaintAction, undoPaintDraft } from './wplace-paint.js'
 
 vi.mock('./alliance-surface.js', () => ({ activeAllianceEditorStage: () => null }))
 
@@ -16,6 +12,7 @@ const FRENCH = { undo: 'Annuler', redo: 'Rétablir', close: 'Fermer', paint: 'Pe
 
 afterEach(() => {
   useWplaceCatalog(null)
+  setState({ simulatedInput: {} })
   document.body.replaceChildren()
 })
 
@@ -30,6 +27,7 @@ const clicks = (): string[] => {
 
 it('drives a French paint drawer through its translated controls', () => {
   useWplaceCatalog(() => FRENCH)
+  setState({ simulatedInput: { 'paint-commit': true } })
   document.body.innerHTML = `
     <section>
       <header>
@@ -43,7 +41,7 @@ it('drives a French paint drawer through its translated controls', () => {
   const clicked = clicks()
 
   expect(undoPaintDraft()).toBe(true)
-  expect(performPaintAction(document, true)).toBe(true)
+  expect(performPaintAction()).toBe(true)
   expect(cancelPaintDraft()).toBe(true)
   expect(clicked).toEqual(['Annuler', 'Peindre (0:25)', 'Fermer'])
 })

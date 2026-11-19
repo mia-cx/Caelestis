@@ -17,7 +17,10 @@ const harness = vi.hoisted(() => ({
   alliance: null as ActiveAllianceSurface | null,
 }))
 vi.mock('./wplace-paint.js', () => ({ isPaintOpen: () => harness.open }))
-vi.mock('./alliance-surface.js', () => ({ activeAllianceSurface: () => harness.alliance }))
+vi.mock('./alliance-surface.js', () => ({
+  activeAllianceSurface: () => harness.alliance,
+  activeAllianceEditorStage: () => harness.alliance?.stage ?? null,
+}))
 vi.mock('./settings.js', () => ({
   getState: () => ({ simulatedInput: harness.refresh ? { 'cursor-refresh': true } : {} }),
 }))

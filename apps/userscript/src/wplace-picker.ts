@@ -27,7 +27,8 @@ import { sourceXAt } from './templates/placement.js'
 import { pixelAt } from './templates/sparse-pixels.js'
 import { ensureTilePixels } from './tile-transform.js'
 import { worldNativePixels } from './world-native-pixels.js'
-import { findWplaceLabelled, wplaceLabel } from './wplace-messages.js'
+import { activeNativeTool, MAP_SURFACE, OPEN_DIALOG } from './wplace-dom.js'
+import { findWplaceLabelled } from './wplace-messages.js'
 import { isPaintOpen, selectPaintColour } from './wplace-paint.js'
 
 /**
@@ -72,14 +73,6 @@ import { isPaintOpen, selectPaintColour } from './wplace-paint.js'
  * template.
  */
 
-/**
- * What counts as "on the map".
- *
- * The container as well as the canvas: MapLibre puts markers and their own overlays inside it, and a
- * middle click that lands on one of those is still a click on the map. Our own panel and menus are
- * outside it, which is the distinction being drawn.
- */
-const MAP_SURFACE = '.maplibregl-canvas-container, canvas.maplibregl-canvas'
 const MIDDLE_BUTTON_MASK = 4
 
 /** The palette index our overlay claims at a logical canvas pixel, or null if it claims none. */
@@ -175,43 +168,14 @@ const pickedIndexAt = ({ surface, x, y, alliance }: PickerPoint): number | null 
 export const paintIndexAt = ({ x, y, alliance }: PickerPoint): number | null =>
   alliance === null ? placedIndexAt(x, y, true) : allianceIndexAt(alliance, x, y, true)
 
-/**
- * Wplace exposes no picker state, but its rendered control does: the active tool is `btn-primary`.
- * Prefer the visible tooltip label; both native icon themes identify the tool when Wplace
- * translates that label. Legacy UI uses the pixel icon instead of the material-symbol icon.
- */
-const PICKER_ICON_PREFIXES = ['M120-120v-190', 'M3 21h2v2H1v-4h2v2Z']
-
-const nativePickerButton = (): HTMLButtonElement | null => {
-  const labelled = findWplaceLabelled(document, 'button', 'color_picker')
-  if (labelled !== null) return labelled
-  const picker = wplaceLabel('color_picker')
-  for (const tooltip of document.querySelectorAll('.tooltip')) {
-    const label = tooltip.querySelector('.tooltip-content')?.textContent ?? ''
-    if (!label.includes(picker)) continue
-    const button = tooltip.querySelector('button')
-    if (button instanceof HTMLButtonElement) return button
-  }
-  for (const path of document.querySelectorAll('button path')) {
-    const outline = path.getAttribute('d')
-    if (!PICKER_ICON_PREFIXES.some((prefix) => outline?.startsWith(prefix))) continue
-    const button = path.closest('button')
-    if (button instanceof HTMLButtonElement) return button
-  }
-  return null
-}
-
-const nativePickerIsActive = (): boolean =>
-  nativePickerButton()?.classList.contains('btn-primary') ?? false
-
 const exitNativePicker = (): void => {
   // World painting exits the picker when its swatch changes. Alliance painting does not, and its
   // picker button is not a toggle. Toggling the native eraser on and back off is the public route
   // to the neutral brush tool, so use it only if Wplace still has the picker active after rendering.
   requestAnimationFrame(() => {
-    const button = nativePickerButton()
-    if (!button?.classList.contains('btn-primary')) return
-    const root = button.closest('dialog[open]') ?? document
+    const button = activeNativeTool('color_picker')
+    if (button === null) return
+    const root = button.closest(OPEN_DIALOG) ?? document
     const eraser = findWplaceLabelled(root, 'button', 'eraser')
     if (eraser === null) return
     eraser.click()
@@ -296,12 +260,12 @@ export const installColourPicker = (): void => {
     (event) => {
       // A new pointer sequence supersedes any pick that never produced its click.
       pendingLeftPick = null
-      if (event.button !== 0 || !isPaintOpen() || !nativePickerIsActive()) return
+      if (event.button !== 0 || !isPaintOpen() || activeNativeTool('color_picker') === null) return
       const target = event.target
       if (!(target instanceof Element)) return
       const point = pickerPointAt(target, event.clientX, event.clientY)
       if (point === null) return
-      if (!simulatedInputAllowed('picker-reads-templates', point.alliance !== null)) {
+      if (!simulatedInputAllowed('picker-reads-templates')) {
         // Only the world map gets here. Wplace's picker answers this click itself from the rendered
         // map, and showing it the template cell solid lets it pick the template colour unflagged.
         const index = overlayIndexAt(point.surface, point.x, point.y)
@@ -402,7 +366,7 @@ export const installColourPicker = (): void => {
 
       const index = overlayIndexAt(point.surface, point.x, point.y)
       if (index === null) return
-      if (!simulatedInputAllowed('middle-click-pick', point.alliance !== null)) {
+      if (!simulatedInputAllowed('middle-click-pick')) {
         // Only the world map gets here. Wplace's own middle-click pick reads the rendered map, and
         // showing it the template cell solid lets it pick the template colour unflagged.
         showPickCell(point.x, point.y, index)
@@ -417,7 +381,7 @@ export const installColourPicker = (): void => {
       // A drag pick forwards its own moves, so it cancels the press. A single pick leaves it
       // uncancelled, so the real `mousemove`s Wplace paints from keep coming, and the `mousedown`
       // listener below cancels the press there instead.
-      const drags = simulatedInputAllowed('drag-pick', point.alliance !== null)
+      const drags = simulatedInputAllowed('drag-pick')
       if (drags) event.preventDefault()
       event.stopImmediatePropagation()
       middlePick = {

@@ -51,11 +51,10 @@ import {
 import { canvasWriteTouchesArtboard } from './ui/panel-progress.js'
 import { applyColourProgressDelta } from './ui/progress.js'
 import { applyWplaceTheme } from './ui/theme.js'
+import { paintPaletteIndexOf, paintPaletteSwatches } from './wplace-dom.js'
 import {
   isPaintOpen,
-  onPaintSelectionChange,
-  paintPaletteIndexOf,
-  paintPaletteSwatches,
+  onPaintSwatchesChange,
   selectedColour,
   selectPaintColour,
 } from './wplace-paint.js'
@@ -603,14 +602,13 @@ const render = (): void => {
 }
 
 let queued = false
-let paletteMounted = false
 let focusedTemplateId: string | null = null
 
 const queueRender = (): void => {
-  if (!paletteMounted || queued) return
+  if (!isPaintOpen() || queued) return
   queued = true
   // A hidden debug tab suspends animation frames entirely, but Wplace can still mount the drawer
-  // through automation or restored state. A zero-delay task keeps mutations batched without making
+  // through automation or restored state. A zero-delay task keeps updates batched without making
   // palette decoration depend on the map actively painting frames.
   setTimeout(() => {
     queued = false
@@ -618,32 +616,9 @@ const queueRender = (): void => {
   }, 0)
 }
 
-const containsPaletteSwatch = (node: Node): boolean =>
-  node instanceof Element &&
-  (paintPaletteIndexOf(node) !== null || paintPaletteSwatches(node).length > 0)
-
-const touchesPalette = (records: readonly MutationRecord[]): boolean => {
-  for (const record of records) {
-    if (
-      record.target instanceof Element &&
-      (paintPaletteIndexOf(record.target) !== null ||
-        paintPaletteSwatches(record.target).length > 0)
-    )
-      return true
-    for (const node of record.addedNodes) if (containsPaletteSwatch(node)) return true
-    for (const node of record.removedNodes) if (containsPaletteSwatch(node)) return true
-  }
-  return false
-}
-
-const discoverPalette = (): void => {
-  paletteMounted = paintPaletteSwatches().length > 0
-  queueRender()
-}
-
 /** Refresh the counters only when panning or zooming changes which template owns them. */
 export const refreshPaintPaletteFocus = (): void => {
-  if (!paletteMounted) return
+  if (!isPaintOpen()) return
   const next = focusedTemplate()?.id ?? null
   if (next === focusedTemplateId) return
   focusedTemplateId = next
@@ -651,17 +626,6 @@ export const refreshPaintPaletteFocus = (): void => {
 }
 
 let installed = false
-
-const observe = (): void => {
-  paletteMounted = paintPaletteSwatches().length > 0
-  if (paletteMounted) render()
-  new MutationObserver((records) => {
-    if (touchesPalette(records)) discoverPalette()
-  }).observe(document.documentElement, {
-    subtree: true,
-    childList: true,
-  })
-}
 
 /** Keep Wplace's transient swatches decorated across its Svelte drawer remounts. */
 export const installPaintPaletteProgress = (): void => {
@@ -697,17 +661,8 @@ export const installPaintPaletteProgress = (): void => {
     const active = activeAllianceSurface()
     if (active !== null && canvasWriteTouchesArtboard(active, canvas)) queueRender()
   })
-  // This watcher already crosses the userscript/page realm reliably and fires when Wplace mounts
-  // or replaces its drawer. Keep the local observer as a second line for same-selection remounts.
-  onPaintSelectionChange(() => {
-    // Picking a colour changes marker styling, not the draft totals. The observer handles swatch
-    // replacement while the drawer stays open; only a mount change needs discovery here.
-    const mounted = paintPaletteSwatches().length > 0
-    if (mounted !== paletteMounted) discoverPalette()
-  })
-  if (document.documentElement === null) {
-    document.addEventListener('DOMContentLoaded', observe, { once: true })
-  } else {
-    observe()
-  }
+  // Picking a colour changes marker styling, not the draft totals, so only new swatch elements
+  // need decorating: a mount, or Svelte replacing them while the drawer stays open.
+  onPaintSwatchesChange(queueRender)
+  queueRender()
 }

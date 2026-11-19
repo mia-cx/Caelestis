@@ -1,17 +1,27 @@
-import type { SimulatedInput } from '@caelestis/shared'
+import { type SimulatedInput, simulatedInputOn } from '@caelestis/shared'
+import { activeAllianceEditorStage } from './alliance-surface.js'
 import { getState } from './settings.js'
+import { worldPaintMounted } from './wplace-dom.js'
+
+/**
+ * Features that dispatch to `document`, where the world paint panel's listeners also hear them
+ * while that panel is mounted, even under an alliance editor.
+ */
+const DISPATCHES_TO_DOCUMENT: ReadonlySet<SimulatedInput> = new Set(['shift-paint'])
+
+/**
+ * Whether Caelestis is acting on an alliance canvas. The one place that decides it: an open
+ * alliance editor counts even before its surface resolves, since its controls are already there.
+ */
+const onAllianceCanvas = (): boolean => activeAllianceEditorStage() !== null
 
 /**
  * Whether a simulated-input feature may run.
  *
  * Wplace flags simulated input only in its world paint panel. Its alliance canvases (HQ, avatar,
- * banner) check no input at all, so a feature acting only on one of them always runs, and its
- * Dangerous settings switch governs the world map alone. `onAlliance` must mean that every event
- * the feature dispatches stays inside the alliance canvas: anything sent to `document` or `window`
- * still reaches the world panel's listeners while that panel is mounted.
+ * banner) check no input at all, so there a feature always runs, unless what it dispatches still
+ * reaches the world panel's listeners. Elsewhere its Dangerous settings switch decides.
  */
-export const simulatedInputAllowed = (id: SimulatedInput, onAlliance: boolean): boolean =>
-  onAlliance || getState().simulatedInput[id] === true
-
-/** Whether Wplace's world paint panel, and with it the listeners that flag input, is mounted. */
-export const worldPaintMounted = (): boolean => document.querySelector('[id^="color-"]') !== null
+export const simulatedInputAllowed = (id: SimulatedInput): boolean =>
+  simulatedInputOn(getState().simulatedInput, id) ||
+  (onAllianceCanvas() && !(DISPATCHES_TO_DOCUMENT.has(id) && worldPaintMounted()))

@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { TRANSPARENT_INDEX, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
+import { PALETTE_RGB, TRANSPARENT_INDEX, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ActiveAllianceSurface } from './alliance-surface.js'
 import { installShiftPaint } from './shift-paint.js'
@@ -18,22 +18,15 @@ const harness = vi.hoisted(() => ({
   alliance: null as ActiveAllianceSurface | null,
 }))
 vi.mock('./templates/move.js', () => ({ isMoving: () => harness.moving }))
-vi.mock('./alliance-surface.js', () => ({ activeAllianceSurface: () => harness.alliance }))
+vi.mock('./alliance-surface.js', () => ({
+  activeAllianceSurface: () => harness.alliance,
+  activeAllianceEditorStage: () => harness.alliance?.stage ?? null,
+}))
 vi.mock('./settings.js', () => ({
   getState: () => ({ simulatedInput: harness.simulate ? { 'shift-paint': true } : {} }),
 }))
 vi.mock('./map-handle.js', () => ({ getMap: () => ({ getCanvas: () => harness.canvas }) }))
-vi.mock('./wplace-paint.js', () => ({
-  isPaintOpen: () => harness.open,
-  // World swatches carry `color-N`; an alliance swatch here carries its index as `data-index`.
-  paintPaletteSwatches: () => [
-    ...document.querySelectorAll('button[id^="color-"], button[data-index]'),
-  ],
-  paintPaletteIndexOf: (button: Element) =>
-    button.hasAttribute('data-index')
-      ? Number(button.getAttribute('data-index'))
-      : Number(button.id.slice('color-'.length)) - 1,
-}))
+vi.mock('./wplace-paint.js', () => ({ isPaintOpen: () => harness.open }))
 vi.mock('./wplace-picker.js', () => ({
   pickerPointAt: (target: Element, x: number, y: number) =>
     target.tagName === 'CANVAS'
@@ -359,7 +352,7 @@ it('simulates on an HQ artboard with its switch off while no world paint panel i
   document.querySelector('button[id^="color-"]')?.remove()
   document.body.insertAdjacentHTML(
     'beforeend',
-    '<button data-index="12" class="ring-primary"></button>',
+    `<button class="game-color-swatch" aria-pressed="true" style="background: rgb(${PALETTE_RGB[12]?.join(' ')})"></button>`,
   )
   move(0)
   key('keydown', 'Space', { shiftKey: true })

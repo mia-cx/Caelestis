@@ -1,6 +1,7 @@
 import { activeAllianceSurface } from './alliance-surface.js'
 import type { MapLike } from './map-handle.js'
 import { simulatedInputAllowed } from './simulated-input.js'
+import { typingInTextField } from './wplace-dom.js'
 import { isPaintOpen } from './wplace-paint.js'
 
 const forwardedMoves = new WeakSet<Event>()
@@ -49,10 +50,6 @@ export const forwardPaintMove = (
   target.dispatchEvent(event)
 }
 
-/** Text fields, where Space types instead of painting. Wplace's paint hold skips the same ones. */
-const TEXT_FIELD =
-  'input:not([type="checkbox"], [type="radio"], [type="button"], [type="submit"], [type="reset"]), textarea, select, [contenteditable]:not([contenteditable="false"])'
-
 /** The camera moved since Wplace last received a mouse move, so its paint target is stale. */
 let stale = false
 /** Wplace received a Space press and no release since, so it paints along every move. */
@@ -97,8 +94,7 @@ const worldCameraMoved = ({ originalEvent }: { readonly originalEvent?: Event })
  * the camera move nothing is forwarded, so a held gesture never paints where the camera landed.
  */
 export const refreshPaintTarget = (root: Element, type: 'mousemove' | 'pointermove'): void => {
-  if (!simulatedInputAllowed('cursor-refresh', activeAllianceSurface() !== null) || spaceHeld)
-    return
+  if (!simulatedInputAllowed('cursor-refresh') || spaceHeld) return
   if (mouse === null || !isPaintOpen() || !root.isConnected) return
   const target = document.elementFromPoint(mouse.clientX, mouse.clientY)
   if (target === null || !root.contains(target)) return
@@ -133,10 +129,7 @@ export const installPaintTargetGuard = (): (() => void) => {
   const keydown = (event: KeyboardEvent): void => {
     if (event.code === 'Space' && !isForwardedPaintKey(event)) spaceHeld = true
     if (event.code !== 'Space' || !isPaintOpen()) return
-    const typing = event
-      .composedPath()
-      .some((target) => target instanceof Element && target.matches(TEXT_FIELD))
-    if (typing) return
+    if (typingInTextField(event)) return
     if (!stale) {
       holding = true
       return

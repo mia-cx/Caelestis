@@ -1,5 +1,6 @@
 import { log, warn } from './debug.js'
 import { getMap } from './map-handle.js'
+import { OPEN_DIALOG } from './wplace-dom.js'
 import { getWplaceState } from './wplace-state.js'
 
 /**
@@ -101,7 +102,7 @@ const isEnabled = (element: HTMLElement): boolean =>
   !(element as HTMLButtonElement).disabled && element.getAttribute('aria-disabled') !== 'true'
 
 const openDialogs = (): HTMLDialogElement[] => [
-  ...document.querySelectorAll<HTMLDialogElement>('dialog[open]'),
+  ...document.querySelectorAll<HTMLDialogElement>(OPEN_DIALOG),
 ]
 
 const settingsOpener = (): HTMLElement | null => {

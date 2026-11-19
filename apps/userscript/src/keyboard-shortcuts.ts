@@ -114,9 +114,6 @@ const toggleRings = (allianceSurface: AllianceSurface | null): void => {
 interface ShortcutContext {
   readonly shortcut: ShortcutId
   readonly allianceSurface: AllianceSurface | null
-  readonly inAllianceEditor: boolean
-  /** Wplace's controls for this keystroke: the open alliance editor's dialog, else the page. */
-  readonly nativeRoot: ParentNode
 }
 
 interface ShortcutHandler {
@@ -164,25 +161,17 @@ export const installKeyboardShortcuts = (
     })
     return true
   }
-  const cycle =
-    (direction: -1 | 1) =>
-    ({ inAllianceEditor }: ShortcutContext): boolean => {
-      // Cycling clicks a swatch. On the world map Wplace flags that simulated click, so it waits
-      // for its switch there; in an alliance editor the click stays inside its dialog.
-      if (simulatedInputAllowed('cycle-colour', inAllianceEditor)) cycleFocusedColour(direction)
-      return true
-    }
+  const cycle = (direction: -1 | 1) => (): boolean => {
+    // Cycling clicks a swatch, which Wplace flags on the world map.
+    if (simulatedInputAllowed('cycle-colour')) cycleFocusedColour(direction)
+    return true
+  }
 
   const handlers: Readonly<Record<ShortcutId, ShortcutHandler>> = {
     'cycle-colour-previous': { run: cycle(-1) },
     'cycle-colour-next': { run: cycle(1) },
-    'paint-action': {
-      run: ({ nativeRoot, inAllianceEditor }) =>
-        // Submitting clicks the drawer's Paint button, which Wplace flags on the world map.
-        performPaintAction(nativeRoot, simulatedInputAllowed('paint-commit', inAllianceEditor)),
-      withoutSurface: true,
-    },
-    'cancel-paint': { run: ({ nativeRoot }) => cancelPaintDraft(nativeRoot), withoutSurface: true },
+    'paint-action': { run: performPaintAction, withoutSurface: true },
+    'cancel-paint': { run: cancelPaintDraft, withoutSurface: true },
     'fly-to-colour': {
       run: () => {
         void navigateFocusedSelectedColour()
@@ -197,8 +186,8 @@ export const installKeyboardShortcuts = (
         return true
       },
     },
-    'undo-paint': { run: ({ nativeRoot }) => undoPaintDraft(nativeRoot), withoutSurface: true },
-    'redo-paint': { run: ({ nativeRoot }) => redoPaintDraft(nativeRoot), withoutSurface: true },
+    'undo-paint': { run: undoPaintDraft, withoutSurface: true },
+    'redo-paint': { run: redoPaintDraft, withoutSurface: true },
     'toggle-panel': {
       run: () => {
         togglePanel()
@@ -292,8 +281,7 @@ export const installKeyboardShortcuts = (
     const shortcut = shortcutFor(event, platform)
     if (shortcut === null) return
     const alliance = activeAllianceSurface()
-    const allianceEditorStage = activeAllianceEditorStage()
-    const inAllianceEditor = allianceEditorStage !== null
+    const inAllianceEditor = activeAllianceEditorStage() !== null
 
     // The template studio's edits take undo and redo while it is open.
     if (isTemplateStudioOpen() && (shortcut === 'undo-paint' || shortcut === 'redo-paint')) {
@@ -307,12 +295,7 @@ export const installKeyboardShortcuts = (
     const handler = handlers[shortcut]
     const acted =
       (!inAllianceEditor || alliance !== null || handler.withoutSurface === true) &&
-      handler.run({
-        shortcut,
-        allianceSurface: alliance?.surface ?? null,
-        inAllianceEditor,
-        nativeRoot: allianceEditorStage?.closest('dialog[open]') ?? document,
-      })
+      handler.run({ shortcut, allianceSurface: alliance?.surface ?? null })
     if (acted || inAllianceEditor) claimShortcut(event, inAllianceEditor)
   }
 
