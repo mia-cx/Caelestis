@@ -7,7 +7,6 @@ import {
   type TileCoord,
   type TileKey,
   tileKey,
-  uuidV7,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import type { BlobStore, CounterStore, SqlStore } from '../ports/index.js'
@@ -16,16 +15,13 @@ import {
   createBackendRuntime,
   makeBackendContext,
 } from '../runtime/backend-runtime.js'
-import {
-  bestEffort,
-  DirectStatusReadModel,
-  type StatusReadModelPort,
-} from '../status-read-model/port.js'
+import { DirectStatusReadModel, type StatusReadModelPort } from '../status-read-model/port.js'
+import { completeAlarmStatus, evaluateAlarms } from './alarms/evaluate.js'
 import {
   ALARM_FOLLOW_UP_RETRY_MILLISECONDS,
   ALARM_SCAN_INTERVAL_SECONDS,
   ALARM_SCAN_JITTER_SECONDS,
-} from './alarm-policy.js'
+} from './alarms/policy.js'
 import type { AlarmProbe } from './alarms/store.js'
 import {
   createDerivedArtifactWriter,
@@ -141,26 +137,30 @@ const finishRun = async (run: FetchRun): Promise<void> => {
   }
 }
 
-/**
- * Fetch one tile from Wplace and mirror it. `unavailable` means Wplace served nothing usable; a
- * failure to record what it served throws.
- */
-const fetchTile = async (
+/** Fetch one tile from Wplace, or null when Wplace served nothing usable. */
+const downloadTile = async (
   run: FetchRun,
   season: number,
   tile: TileCoord,
-  options: {
-    readonly latestHash: () => Promise<string | null>
-    readonly recordHistory?: boolean
-  },
-): Promise<MirrorOutcome | 'unavailable'> => {
+): Promise<Uint8Array | null> => {
   const response = await run.fetchImpl(wplaceTileUrl(season, tile), {
     headers: { 'user-agent': WPLACE_TILE_USER_AGENT },
   })
-  if (!response.ok) return 'unavailable'
+  if (!response.ok) return null
   const bytes = new Uint8Array(await response.arrayBuffer())
-  if (bytes.byteLength === 0 || bytes.byteLength > MAX_CANVAS_TILE_BYTES) return 'unavailable'
-  return run.runtime.run(
+  return bytes.byteLength === 0 || bytes.byteLength > MAX_CANVAS_TILE_BYTES ? null : bytes
+}
+
+/** Record downloaded bytes; a failure to record them throws. */
+const mirror = async (
+  run: FetchRun,
+  season: number,
+  tile: TileCoord,
+  bytes: Uint8Array,
+  latestHash: string | null,
+  recordHistory?: boolean,
+): Promise<MirrorOutcome> =>
+  run.runtime.run(
     mirrorTile(
       {
         wplaceUserId: FETCHER_USER_ID,
@@ -171,16 +171,12 @@ const fetchTile = async (
         hash: await sha256Hex(bytes),
         observedAt: run.now,
         includeUnpublished: true,
+        ...(recordHistory === undefined ? {} : { recordHistory }),
       },
       bytes,
-      {
-        latestHash: await options.latestHash(),
-        ...(options.recordHistory === undefined ? {} : { recordHistory: options.recordHistory }),
-        sinks: run.sinks,
-      },
+      { latestHash, sinks: run.sinks },
     ),
   )
-}
 
 export const fetchCanvasTiles = async (
   ports: FetcherStores,
@@ -188,12 +184,10 @@ export const fetchCanvasTiles = async (
     readonly season: number
     readonly now?: Seconds
     readonly fetchImpl?: typeof fetch
-    readonly alarmIdFactory?: () => string
   },
 ): Promise<FetchReport> => {
   const run = await startRun(ports, options)
   const { now } = run
-  const alarmIdFactory = options.alarmIdFactory ?? uuidV7
   const { season } = options
 
   // Plan the whole run before making an upstream request. Unpublished templates are included too:
@@ -242,10 +236,7 @@ export const fetchCanvasTiles = async (
   })
   work.sort(
     (left, right) =>
-      Number(right.template) - Number(left.template) ||
-      (left.observedAt ?? -1) - (right.observedAt ?? -1) ||
-      left.tile.y - right.tile.y ||
-      left.tile.x - right.tile.x,
+      Number(right.template) - Number(left.template) || compareAlarmTileFreshness(left, right),
   )
 
   let fetched = 0
@@ -259,14 +250,12 @@ export const fetchCanvasTiles = async (
   try {
     for (const { tile, template, recordHistory, latest } of budgeted) {
       try {
-        const outcome = await fetchTile(run, season, tile, {
-          latestHash: async () => latest?.hash ?? null,
-          recordHistory,
-        })
-        if (outcome === 'unavailable') {
+        const bytes = await downloadTile(run, season, tile)
+        if (bytes === null) {
           failed++
           continue
         }
+        const outcome = await mirror(run, season, tile, bytes, latest?.hash ?? null, recordHistory)
         if (outcome === 'unchanged') unchanged++
         else fetched++
         if (template) serverRefreshedTemplateTiles.add(tileKey(tile))
@@ -295,50 +284,42 @@ export const fetchCanvasTiles = async (
     else held.push(requirement)
   }
   const alarmSnapshot = await ports.sql.readAlarmStatusSnapshot(season)
-  const statusesById = new Map(alarmSnapshot.templates.map((status) => [status.templateId, status]))
   const scanCycleBatches = Math.max(1, Math.ceil(templateTiles.size / MAX_FETCH_TILES_PER_RUN))
   const freshnessCutoff =
     (now - scanCycleBatches * ALARM_SCAN_INTERVAL_SECONDS - ALARM_SCAN_JITTER_SECONDS) * 1_000
-  let followUpScheduled = false
-  let alarmChanged = false
-  try {
-    for (const template of templates) {
-      const required = requiredTiles.get(template.id) ?? []
-      const status = statusesById.get(template.id)
-      if (
-        required.length === 0 ||
-        !required.every(
-          ({ key, observedAt }) =>
-            observedAt !== null &&
-            observedAt >= freshnessCutoff &&
-            (!attemptedTemplateTiles.has(key) || serverRefreshedTemplateTiles.has(key)),
-        ) ||
-        status === undefined ||
-        status.total !== template.totalPixels ||
-        status.correct + status.wrong + status.blank !== status.total
-      ) {
-        continue
+  const followUpScheduled = await evaluateAlarms(
+    { sql: ports.sql, statusReadModel: run.statusReadModel },
+    async (evaluate) => {
+      let scheduled = false
+      for (const template of templates) {
+        const required = requiredTiles.get(template.id) ?? []
+        const fresh =
+          required.length > 0 &&
+          required.every(
+            ({ key, observedAt }) =>
+              observedAt !== null &&
+              observedAt >= freshnessCutoff &&
+              (!attemptedTemplateTiles.has(key) || serverRefreshedTemplateTiles.has(key)),
+          )
+        const status = fresh ? completeAlarmStatus(template, alarmSnapshot) : null
+        if (status === null) continue
+        const result = await evaluate(
+          season,
+          {
+            templateId: template.id,
+            versionId: template.versionId,
+            total: status.total,
+            correct: status.correct,
+            observedAt: millis(now * 1_000),
+            observationRevision: alarmSnapshot.revision,
+          },
+          { kind: 'scan' },
+        )
+        scheduled ||= result.scheduleFollowUp
       }
-      const result = await ports.sql.evaluateTemplateAlarm(
-        {
-          templateId: template.id,
-          versionId: template.versionId,
-          total: status.total,
-          correct: status.correct,
-          observedAt: millis(now * 1_000),
-          observationRevision: alarmSnapshot.revision,
-        },
-        { kind: 'scan' },
-        alarmIdFactory(),
-      )
-      alarmChanged ||= result.alarmChanged
-      followUpScheduled ||= result.scheduleFollowUp
-    }
-  } finally {
-    // A scan that moves no alarm owes subscribers nothing; a changed alarm covers its follow-up.
-    // Each evaluation commits on its own, so a later failure still owes the earlier changes.
-    if (alarmChanged) await bestEffort(() => run.statusReadModel.notifyAlarmChange(season))
-  }
+      return scheduled
+    },
+  )
 
   return {
     fetched,
@@ -362,126 +343,114 @@ export const fetchAlarmFollowUps = async (
   const { now } = run
   let evaluated = 0
   let failed = 0
-  const changedSeasons = new Set<number>()
   const selectedProbes = probes.slice(0, MAX_ALARM_PROBES_PER_RUN)
   let pending = probes.length - selectedProbes.length
   let remaining = MAX_FETCH_TILES_PER_RUN
-
-  try {
-    for (const probe of selectedProbes) {
-      const template = (
-        await ports.sql.listManifestTemplates(
-          { season: probe.season, surface: WORLD_TEMPLATE_SURFACE },
-          true,
-        )
-      ).find(
-        (candidate) => candidate.id === probe.templateId && candidate.versionId === probe.versionId,
-      )
-      let tiles = (await ports.sql.listAlarmTiles(probe.season)).filter(
-        (row) => row.templateId === probe.templateId && row.versionId === probe.versionId,
-      )
-      if (template === undefined || tiles.length === 0) {
-        await ports.sql.clearAlarmProbe(probe.templateId, probe.alarmId, probe.dueAt)
-        failed++
-        continue
-      }
-      const staleTiles = tiles
-        .filter((row) => row.observedAt === null || row.observedAt < probe.dueAt)
-        .map((row) => ({
-          ...row,
-          tile: { x: row.tileX, y: row.tileY },
-        }))
-        .sort(compareAlarmTileFreshness)
-      if (staleTiles.length > 0 && remaining === 0) {
-        pending++
-        continue
-      }
-      const batch = staleTiles.slice(0, remaining)
-
-      let complete = true
-      for (const { tile } of batch) {
-        remaining--
-        try {
-          const outcome = await fetchTile(run, probe.season, tile, {
-            latestHash: async () =>
-              (await ports.sql.readLatestTile(probe.season, tile))?.hash ?? null,
-          })
-          if (outcome === 'unavailable') {
-            complete = false
-            break
-          }
-        } catch (error) {
-          console.error(`alarm probe tile fetch failed for ${probe.season}:${tileKey(tile)}`, error)
-          complete = false
-          break
-        }
-      }
-
-      if (!complete) {
-        await ports.sql.deferAlarmProbe(
-          probe.templateId,
-          probe.alarmId,
-          probe.dueAt,
-          millis(now * 1_000 + ALARM_FOLLOW_UP_RETRY_MILLISECONDS),
-        )
-        failed++
-        pending++
-        continue
-      }
-      tiles = (await ports.sql.listAlarmTiles(probe.season)).filter(
-        (row) => row.templateId === probe.templateId && row.versionId === probe.versionId,
-      )
-      const alarmSnapshot = await ports.sql.readAlarmStatusSnapshot(probe.season)
-      const status = alarmSnapshot.templates.find(
-        (candidate) => candidate.templateId === probe.templateId,
-      )
-      if (
-        status === undefined ||
-        status.total !== template.totalPixels ||
-        status.correct + status.wrong + status.blank !== status.total ||
-        !tiles.every((row) => row.observedAt !== null && row.observedAt >= probe.dueAt)
-      ) {
-        if (batch.length === 0) {
-          await ports.sql.deferAlarmProbe(
-            probe.templateId,
-            probe.alarmId,
-            probe.dueAt,
-            millis(now * 1_000 + ALARM_FOLLOW_UP_RETRY_MILLISECONDS),
-          )
-          failed++
-        }
-        pending++
-        continue
-      }
-      const result = await ports.sql.evaluateTemplateAlarm(
-        {
-          templateId: probe.templateId,
-          versionId: probe.versionId,
-          total: status.total,
-          correct: status.correct,
-          observedAt: millis(now * 1_000),
-          observationRevision: alarmSnapshot.revision,
-        },
-        {
-          kind: 'follow-up',
-          alarmId: probe.alarmId,
-          pixelsLost: probe.pixelsLost,
-          dueAt: probe.dueAt,
-        },
-        'unused',
-      )
-      evaluated++
-      if (result.alarmChanged) changedSeasons.add(probe.season)
-    }
-  } finally {
-    try {
-      await finishRun(run)
-    } finally {
-      // Each evaluation commits on its own, so a later failure still owes the earlier changes.
-      for (const season of changedSeasons)
-        await bestEffort(() => run.statusReadModel.notifyAlarmChange(season))
-    }
+  const retryAt = millis(now * 1_000 + ALARM_FOLLOW_UP_RETRY_MILLISECONDS)
+  /** Move a probe that could not finish behind other due work. */
+  const defer = async (probe: AlarmProbe) => {
+    await ports.sql.deferAlarmProbe(probe.templateId, probe.alarmId, probe.dueAt, retryAt)
+    failed++
   }
+  const probeTiles = async (probe: AlarmProbe) =>
+    (await ports.sql.listAlarmTiles(probe.season, probe.templateId)).filter(
+      (row) => row.versionId === probe.versionId,
+    )
+
+  await evaluateAlarms(
+    { sql: ports.sql, statusReadModel: run.statusReadModel },
+    async (evaluate) => {
+      try {
+        for (const probe of selectedProbes) {
+          const template = (
+            await ports.sql.listManifestTemplates(
+              { season: probe.season, surface: WORLD_TEMPLATE_SURFACE },
+              true,
+            )
+          ).find(
+            (candidate) =>
+              candidate.id === probe.templateId && candidate.versionId === probe.versionId,
+          )
+          const tiles = await probeTiles(probe)
+          if (template === undefined || tiles.length === 0) {
+            await ports.sql.clearAlarmProbe(probe.templateId, probe.alarmId, probe.dueAt)
+            failed++
+            continue
+          }
+          const staleTiles = tiles
+            .filter((row) => row.observedAt === null || row.observedAt < probe.dueAt)
+            .map((row) => ({ ...row, tile: { x: row.tileX, y: row.tileY } }))
+            .sort(compareAlarmTileFreshness)
+          if (staleTiles.length > 0 && remaining === 0) {
+            pending++
+            continue
+          }
+          const batch = staleTiles.slice(0, remaining)
+
+          let complete = true
+          for (const { tile } of batch) {
+            remaining--
+            try {
+              const bytes = await downloadTile(run, probe.season, tile)
+              if (bytes === null) {
+                complete = false
+                break
+              }
+              const latest = await ports.sql.readLatestTile(probe.season, tile)
+              await mirror(run, probe.season, tile, bytes, latest?.hash ?? null)
+            } catch (error) {
+              console.error(
+                `alarm probe tile fetch failed for ${probe.season}:${tileKey(tile)}`,
+                error,
+              )
+              complete = false
+              break
+            }
+          }
+
+          if (!complete) {
+            await defer(probe)
+            pending++
+            continue
+          }
+          const refreshed = await probeTiles(probe)
+          const alarmSnapshot = await ports.sql.readAlarmStatusSnapshot(
+            probe.season,
+            probe.templateId,
+          )
+          const status = completeAlarmStatus(template, alarmSnapshot)
+          if (
+            status === null ||
+            !refreshed.every((row) => row.observedAt !== null && row.observedAt >= probe.dueAt)
+          ) {
+            if (batch.length === 0) await defer(probe)
+            pending++
+            continue
+          }
+          await evaluate(
+            probe.season,
+            {
+              templateId: probe.templateId,
+              versionId: probe.versionId,
+              total: status.total,
+              correct: status.correct,
+              observedAt: millis(now * 1_000),
+              observationRevision: alarmSnapshot.revision,
+            },
+            {
+              kind: 'follow-up',
+              alarmId: probe.alarmId,
+              pixelsLost: probe.pixelsLost,
+              dueAt: probe.dueAt,
+            },
+          )
+          evaluated++
+        }
+      } finally {
+        await finishRun(run)
+      }
+    },
+  )
 
   return { evaluated, failed, pending }
 }

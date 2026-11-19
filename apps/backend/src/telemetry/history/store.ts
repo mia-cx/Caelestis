@@ -1,12 +1,12 @@
 import type { ContributionDay, LeaderboardEntry, Millis, Seconds } from '@caelestis/shared'
 import { MAX_IDS_PER_READ, tooManyIds } from '../../db/d1-limits.js'
 import type { CounterDelta } from '../../ports/counter-store.js'
-import type { PainterTelemetryBucket, TelemetryBucket } from '../ladder.js'
+import type { PainterTelemetryBucket, TelemetryBucket } from './ladder.js'
 
 export interface BucketQuery {
   readonly templateIds: readonly string[]
-  /** One exact tier for legacy callers, or several retained tiers for a lossless server-side read. */
-  readonly resolution: number | readonly number[]
+  /** The ladder tiers to read; several retained tiers make a lossless server-side read. */
+  readonly resolutions: readonly number[]
   readonly fromSeconds: Seconds
   readonly toSeconds: Seconds
 }
@@ -54,7 +54,6 @@ export interface ContributionQuery {
   readonly includeUnpublished: boolean
 }
 
-/** The domain `readContributions` accepts: something to scope by, within the id budget. */
 export const assertValidContributionQuery = (query: ContributionQuery): void => {
   if (query.season === undefined && query.templateIds === undefined) {
     throw new Error('readContributions requires a season or template ids')

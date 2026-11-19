@@ -3,8 +3,8 @@ import { expect, it } from 'vitest'
 import { MemoryBlobStore } from '../src/adapters/memory/memory-blob-store.js'
 import type { BlobStore } from '../src/ports/index.js'
 import { createBackendRuntime, makeBackendContext } from '../src/runtime/backend-runtime.js'
-import { readMismatchMask } from '../src/telemetry/classification.js'
 import { uploadTile } from '../src/telemetry/ingest.js'
+import { readMismatchMask } from '../src/telemetry/queries.js'
 import { authorized, createTestBackend } from './support/backend.js'
 
 it('recovers a failed object upload, preserving each reporter observation without duplicating stored bytes', async () => {

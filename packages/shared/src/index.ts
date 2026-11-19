@@ -14,6 +14,7 @@ export {
   PALETTE_SIZE,
   type PaletteColour,
   type PaletteKind,
+  paletteIndexFromWplace,
   TRANSPARENT_INDEX,
   WPLACE_PALETTE,
 } from './palette.js'

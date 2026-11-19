@@ -23,7 +23,6 @@ import {
 } from '../../db/d1-limits.js'
 import {
   canvasTiles,
-  templateAlarmTileStatuses,
   templates,
   templateTileMeasurements,
   templateTileStatuses,
@@ -31,13 +30,14 @@ import {
   tileHistory,
   versionTiles,
 } from '../../db/schema.js'
+import { DECAY_FOLD_GROUP_LIMIT, foldCutoff } from '../decay.js'
+import { commitTileObservation } from './commit.js'
 import {
-  DECAY_FOLD_GROUP_LIMIT,
   foldTileFrames,
   foldTileReporterRows,
   TILE_HISTORY_DECAY_EDGES,
   type TileHistoryReporterRow,
-} from '../ladder.js'
+} from './ladder.js'
 import {
   assertValidTileHistoryQuery,
   type LatestTileObservation,
@@ -45,10 +45,18 @@ import {
   type TelemetryTarget,
   type TileHistoryQuery,
   type TileMeasurement,
+  type TileObservationCommit,
+  type TileObservationCommitRequest,
   type TileStore,
 } from './store.js'
 
 export class RelationalTileStore extends RelationalStore implements TileStore {
+  commitTileObservation(
+    commit: TileObservationCommitRequest,
+  ): Promise<TileObservationCommit | null> {
+    return commitTileObservation(this.client, this.syntax, commit)
+  }
+
   async listTelemetryTargets(
     season: number,
     tile: { readonly x: number; readonly y: number },
@@ -341,7 +349,7 @@ export class RelationalTileStore extends RelationalStore implements TileStore {
         WHERE history.season = ? AND history.tile_x = ? AND history.tile_y = ?
           AND history.resolution_s = ${edge.source}
         ORDER BY history.bucket_start_s, history.sha256, history.reported_by_user_id`
-      const cutoff = now - edge.retainSeconds
+      const cutoff = foldCutoff(edge, now)
       const selected = await this.client
         .prepare(query)
         .bind(
@@ -432,28 +440,25 @@ export class RelationalTileStore extends RelationalStore implements TileStore {
   async readTemplateStatuses(
     season: number,
     includeUnpublished: boolean,
-    options: { readonly serverOwnedOnly?: boolean } = {},
   ): Promise<readonly TemplateStatus[]> {
-    const statusTable =
-      options.serverOwnedOnly === true ? templateAlarmTileStatuses : templateTileStatuses
     const rows = await this.database
       .select({
         templateId: templates.id,
-        correct: sql<number>`sum(${statusTable.correct})`,
-        wrong: sql<number>`sum(${statusTable.wrong})`,
-        blank: sql<number>`sum(${statusTable.blank})`,
+        correct: sql<number>`sum(${templateTileStatuses.correct})`,
+        wrong: sql<number>`sum(${templateTileStatuses.wrong})`,
+        blank: sql<number>`sum(${templateTileStatuses.blank})`,
         total: templateVersions.totalPixels,
         colourTotalsJson: templateVersions.colourTotalsJson,
-        colourRowsJson: this.syntax.jsonAggregate(statusTable.coloursJson),
-        observedAt: sql<number>`max(${statusTable.observedAtMs})`,
+        colourRowsJson: this.syntax.jsonAggregate(templateTileStatuses.coloursJson),
+        observedAt: sql<number>`max(${templateTileStatuses.observedAtMs})`,
       })
       .from(templates)
       .innerJoin(templateVersions, eq(templateVersions.id, templates.currentVersionId))
       .innerJoin(
-        statusTable,
+        templateTileStatuses,
         and(
-          eq(statusTable.templateId, templates.id),
-          eq(statusTable.versionId, templateVersions.id),
+          eq(templateTileStatuses.templateId, templates.id),
+          eq(templateTileStatuses.versionId, templateVersions.id),
         ),
       )
       .where(

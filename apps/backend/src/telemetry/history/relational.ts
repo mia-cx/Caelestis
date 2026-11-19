@@ -5,7 +5,7 @@ import {
   type Seconds,
   seconds,
 } from '@caelestis/shared'
-import { and, asc, desc, eq, gte, inArray, isNotNull, lt, lte, type SQL, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, isNotNull, lt, type SQL, sql } from 'drizzle-orm'
 import { RelationalStore } from '../../adapters/relational-store.js'
 import type { SqlStatement } from '../../adapters/sql-connection.js'
 import { IDS_PER_STATEMENT, MAX_IDS_PER_READ, tooManyIds } from '../../db/d1-limits.js'
@@ -18,16 +18,16 @@ import {
   telemetryBuckets,
   templates,
 } from '../../db/schema.js'
+import { DECAY_FOLD_GROUP_LIMIT, foldCutoff } from '../decay.js'
 import {
   assertValidBuckets,
   assertValidPainterBuckets,
   compareBuckets,
   comparePainterBuckets,
-  DECAY_FOLD_GROUP_LIMIT,
   type PainterTelemetryBucket,
   TELEMETRY_DECAY_EDGES,
   type TelemetryBucket,
-} from '../ladder.js'
+} from './ladder.js'
 import {
   assertValidContributionQuery,
   type BucketQuery,
@@ -69,6 +69,49 @@ const PAINTER_BUCKETS: BucketFold = {
   keys: ['wplace_user_id'],
   additive: true,
 }
+
+/**
+ * `ids` without repeats, within the read cap. Deduplicate before chunking: each chunk returns its
+ * own rows and the merge does not join them, so an id repeated across two chunks would come back
+ * twice and double-count it for any consumer summing the result.
+ */
+const distinctIds = <Id>(ids: readonly Id[], operation: string): Id[] => {
+  const distinct = [...new Set(ids)]
+  if (distinct.length > MAX_IDS_PER_READ) throw tooManyIds(distinct.length, operation)
+  return distinct
+}
+
+/**
+ * Run `read` over `ids` in bound-parameter-sized chunks and concatenate the rows. Concatenated
+ * rather than spread into `push`: a spread passes every row as a separate argument, so a chunk
+ * returning more rows than V8's argument limit — around 125,000, which 90 templates at minute
+ * resolution reach in under a day — throws RangeError instead of answering. The id count is
+ * bounded; the row count is bounded only by the window the caller asks for.
+ */
+const readIdChunks = async <Id, Row>(
+  ids: readonly Id[],
+  read: (chunk: readonly Id[]) => Promise<readonly Row[]>,
+): Promise<Row[]> => {
+  let rows: Row[] = []
+  for (let offset = 0; offset < ids.length; offset += IDS_PER_STATEMENT) {
+    rows = rows.concat(await read(ids.slice(offset, offset + IDS_PER_STATEMENT)))
+  }
+  return rows
+}
+
+/**
+ * A painter's name and last sighting: the newer `seen_at_ms` wins. Binds id, name and time;
+ * `guard` gates the write inside a batch.
+ */
+const upsertPainter = (
+  guard: string,
+) => `INSERT INTO painters (wplace_user_id, display_name, seen_at_ms)
+  SELECT ?, ?, ?
+  WHERE ${guard}
+  ON CONFLICT(wplace_user_id) DO UPDATE SET
+    display_name = excluded.display_name,
+    seen_at_ms = excluded.seen_at_ms
+  WHERE painters.seen_at_ms <= excluded.seen_at_ms`
 
 export class RelationalHistoryStore extends RelationalStore implements HistoryStore {
   async applyPaintEvent(
@@ -146,15 +189,7 @@ export class RelationalHistoryStore extends RelationalStore implements HistorySt
     }
     statements.push(
       this.client
-        .prepare(
-          `INSERT INTO painters (wplace_user_id, display_name, seen_at_ms)
-           SELECT ?, ?, ?
-           WHERE ${this.syntax.previousChanged}
-           ON CONFLICT(wplace_user_id) DO UPDATE SET
-             display_name = excluded.display_name,
-             seen_at_ms = excluded.seen_at_ms
-           WHERE painters.seen_at_ms <= excluded.seen_at_ms`,
-        )
+        .prepare(upsertPainter(this.syntax.previousChanged))
         .bind(wplaceUserId, displayName, seenAt),
     )
     const results = await this.client.batch(statements)
@@ -175,14 +210,7 @@ export class RelationalHistoryStore extends RelationalStore implements HistorySt
   }
 
   async rememberPainter(wplaceUserId: number, displayName: string, seenAt: Millis): Promise<void> {
-    await this.database
-      .insert(painters)
-      .values({ wplaceUserId, displayName, seenAtMs: seenAt })
-      .onConflictDoUpdate({
-        target: [painters.wplaceUserId].map((column) => sql`${sql.identifier(column.name)}`),
-        set: { displayName, seenAtMs: seenAt },
-        setWhere: lte(painters.seenAtMs, seenAt),
-      })
+    await this.client.prepare(upsertPainter('1 = 1')).bind(wplaceUserId, displayName, seenAt).run()
   }
 
   async appendAndFold(buckets: readonly TelemetryBucket[], now: Seconds): Promise<void> {
@@ -284,7 +312,7 @@ export class RelationalHistoryStore extends RelationalStore implements HistorySt
             WHERE chosen.template_id = source.template_id
               AND chosen.target_start = CAST(source.bucket_start_s / ${edge.target} AS BIGINT) * ${edge.target}
           )`
-      const cutoff = now - edge.retainSeconds
+      const cutoff = foldCutoff(edge, now)
       const bindings = [...templateIds, cutoff, DECAY_FOLD_GROUP_LIMIT]
       await this.client.batch([
         this.client.prepare(insert).bind(...bindings),
@@ -301,32 +329,23 @@ export class RelationalHistoryStore extends RelationalStore implements HistorySt
       )
     }
     if (query.templateIds.length === 0 || wplaceUserIds.length === 0) return []
-    const resolutions = [
-      ...new Set(typeof query.resolution === 'number' ? [query.resolution] : query.resolution),
-    ]
+    const resolutions = [...new Set(query.resolutions)]
     if (resolutions.length === 0) return []
-    const templateIds = [...new Set(query.templateIds)]
-    if (templateIds.length > MAX_IDS_PER_READ)
-      throw tooManyIds(templateIds.length, 'readPainterBuckets')
-    // Chunked and concatenated for the same reasons as `readBuckets`.
-    let rows: (typeof painterTelemetryBuckets.$inferSelect)[] = []
-    for (let offset = 0; offset < templateIds.length; offset += IDS_PER_STATEMENT) {
-      const chunk = templateIds.slice(offset, offset + IDS_PER_STATEMENT)
-      rows = rows.concat(
-        await this.database
-          .select()
-          .from(painterTelemetryBuckets)
-          .where(
-            and(
-              inArray(painterTelemetryBuckets.resolution, resolutions),
-              gte(painterTelemetryBuckets.bucketStartS, query.fromSeconds),
-              lt(painterTelemetryBuckets.bucketStartS, query.toSeconds),
-              inArray(painterTelemetryBuckets.templateId, chunk),
-              inArray(painterTelemetryBuckets.wplaceUserId, wplaceUserIds),
-            ),
+    const templateIds = distinctIds(query.templateIds, 'readPainterBuckets')
+    const rows = await readIdChunks(templateIds, (chunk) =>
+      this.database
+        .select()
+        .from(painterTelemetryBuckets)
+        .where(
+          and(
+            inArray(painterTelemetryBuckets.resolution, resolutions),
+            gte(painterTelemetryBuckets.bucketStartS, query.fromSeconds),
+            lt(painterTelemetryBuckets.bucketStartS, query.toSeconds),
+            inArray(painterTelemetryBuckets.templateId, chunk),
+            inArray(painterTelemetryBuckets.wplaceUserId, wplaceUserIds),
           ),
-      )
-    }
+        ),
+    )
     return rows
       .map(
         (row): PainterTelemetryBucket => ({
@@ -343,39 +362,24 @@ export class RelationalHistoryStore extends RelationalStore implements HistorySt
   }
 
   async readPainterNames(wplaceUserIds: readonly number[]): Promise<ReadonlyMap<number, string>> {
-    const ids = [...new Set(wplaceUserIds)]
-    if (ids.length > MAX_IDS_PER_READ) {
-      throw tooManyIds(ids.length, 'readPainterNames')
-    }
-    const names = new Map<number, string>()
-    // Chunked like `readBuckets` for the same bound-parameter budget.
-    for (let offset = 0; offset < ids.length; offset += IDS_PER_STATEMENT) {
-      const chunk = ids.slice(offset, offset + IDS_PER_STATEMENT)
-      const rows = await this.database
+    const rows = await readIdChunks(distinctIds(wplaceUserIds, 'readPainterNames'), (chunk) =>
+      this.database
         .select({ wplaceUserId: painters.wplaceUserId, displayName: painters.displayName })
         .from(painters)
-        .where(inArray(painters.wplaceUserId, chunk))
-      for (const row of rows) names.set(row.wplaceUserId, row.displayName)
-    }
-    return names
+        .where(inArray(painters.wplaceUserId, chunk)),
+    )
+    return new Map(rows.map((row) => [row.wplaceUserId, row.displayName]))
   }
 
   async readPainterTotals(query: BucketQuery, limit: number): Promise<readonly PainterTotalRow[]> {
     if (query.templateIds.length === 0) return []
-    const resolutions = [
-      ...new Set(typeof query.resolution === 'number' ? [query.resolution] : query.resolution),
-    ]
+    const resolutions = [...new Set(query.resolutions)]
     if (resolutions.length === 0) return []
-    const templateIds = [...new Set(query.templateIds)]
-    if (templateIds.length > MAX_IDS_PER_READ) {
-      throw tooManyIds(templateIds.length, 'readPainterTotals')
-    }
+    const templateIds = distinctIds(query.templateIds, 'readPainterTotals')
     // Summed in SQL per chunk and merged here, so a scope's lifetime never leaves the database as
     // rows; the caller gets at most `limit` painters however long the range.
-    const totals = new Map<number, { placed: number; correct: number; repairs: number }>()
-    for (let offset = 0; offset < templateIds.length; offset += IDS_PER_STATEMENT) {
-      const chunk = templateIds.slice(offset, offset + IDS_PER_STATEMENT)
-      const rows = await this.database
+    const rows = await readIdChunks(templateIds, (chunk) =>
+      this.database
         .select({
           wplaceUserId: painterTelemetryBuckets.wplaceUserId,
           placed: sql<number>`sum(${painterTelemetryBuckets.placed})`,
@@ -391,14 +395,15 @@ export class RelationalHistoryStore extends RelationalStore implements HistorySt
             inArray(painterTelemetryBuckets.templateId, chunk),
           ),
         )
-        .groupBy(painterTelemetryBuckets.wplaceUserId)
-      for (const row of rows) {
-        const held = totals.get(row.wplaceUserId) ?? { placed: 0, correct: 0, repairs: 0 }
-        held.placed += Number(row.placed)
-        held.correct += Number(row.correct)
-        held.repairs += Number(row.repairs)
-        totals.set(row.wplaceUserId, held)
-      }
+        .groupBy(painterTelemetryBuckets.wplaceUserId),
+    )
+    const totals = new Map<number, { placed: number; correct: number; repairs: number }>()
+    for (const row of rows) {
+      const held = totals.get(row.wplaceUserId) ?? { placed: 0, correct: 0, repairs: 0 }
+      held.placed += Number(row.placed)
+      held.correct += Number(row.correct)
+      held.repairs += Number(row.repairs)
+      totals.set(row.wplaceUserId, held)
     }
     return [...totals]
       .map(([wplaceUserId, held]) => ({ wplaceUserId, ...held }))
@@ -419,38 +424,23 @@ export class RelationalHistoryStore extends RelationalStore implements HistorySt
 
   async readBuckets(query: BucketQuery): Promise<readonly TelemetryBucket[]> {
     if (query.templateIds.length === 0) return []
-    const resolutions = [
-      ...new Set(typeof query.resolution === 'number' ? [query.resolution] : query.resolution),
-    ]
+    const resolutions = [...new Set(query.resolutions)]
     if (resolutions.length === 0) return []
-
-    // Deduplicate before chunking. Each chunk returns its own rows and the merge does not join
-    // them, so an id repeated across two chunks would come back twice and double-count that
-    // template's history for any consumer summing the result.
-    const templateIds = [...new Set(query.templateIds)]
-    if (templateIds.length > MAX_IDS_PER_READ) throw tooManyIds(templateIds.length, 'readBuckets')
-    // Concatenated rather than spread into `push`. A spread passes every row as a separate argument,
-    // so a chunk returning more rows than V8's argument limit — around 125,000, which 90 templates
-    // at minute resolution reach in under a day — throws RangeError instead of answering. The id
-    // count is bounded; the row count is bounded only by the window the caller asks for.
-    let rows: (typeof telemetryBuckets.$inferSelect)[] = []
-    for (let offset = 0; offset < templateIds.length; offset += IDS_PER_STATEMENT) {
-      const chunk = templateIds.slice(offset, offset + IDS_PER_STATEMENT)
-      rows = rows.concat(
-        await this.database
-          .select()
-          .from(telemetryBuckets)
-          .where(
-            and(
-              inArray(telemetryBuckets.resolution, resolutions),
-              gte(telemetryBuckets.bucketStartS, query.fromSeconds),
-              lt(telemetryBuckets.bucketStartS, query.toSeconds),
-              inArray(telemetryBuckets.templateId, chunk),
-            ),
-          )
-          .orderBy(asc(telemetryBuckets.templateId), asc(telemetryBuckets.bucketStartS)),
-      )
-    }
+    const templateIds = distinctIds(query.templateIds, 'readBuckets')
+    const rows = await readIdChunks(templateIds, (chunk) =>
+      this.database
+        .select()
+        .from(telemetryBuckets)
+        .where(
+          and(
+            inArray(telemetryBuckets.resolution, resolutions),
+            gte(telemetryBuckets.bucketStartS, query.fromSeconds),
+            lt(telemetryBuckets.bucketStartS, query.toSeconds),
+            inArray(telemetryBuckets.templateId, chunk),
+          ),
+        )
+        .orderBy(asc(telemetryBuckets.templateId), asc(telemetryBuckets.bucketStartS)),
+    )
 
     // Each chunk is ordered, but the concatenation of ordered chunks is not: template ids are
     // distributed across chunks in input order, not sort order. The contract is a single ordered
@@ -511,15 +501,10 @@ export class RelationalHistoryStore extends RelationalStore implements HistorySt
 
     // Chunked like `readBuckets`, and safe for the same structural reason: the group key contains
     // the template id, so every group lands wholly inside one chunk and concatenation loses nothing.
-    let rows: Awaited<ReturnType<typeof readChunk>> = []
-    if (query.templateIds === undefined) {
-      rows = await readChunk(null)
-    } else {
-      const templateIds = [...new Set(query.templateIds)]
-      for (let offset = 0; offset < templateIds.length; offset += IDS_PER_STATEMENT) {
-        rows = rows.concat(await readChunk(templateIds.slice(offset, offset + IDS_PER_STATEMENT)))
-      }
-    }
+    const rows =
+      query.templateIds === undefined
+        ? await readChunk(null)
+        : await readIdChunks([...new Set(query.templateIds)], readChunk)
     return rows
       .map((row) => ({
         templateId: row.templateId,

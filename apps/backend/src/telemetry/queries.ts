@@ -22,35 +22,43 @@ import {
 import { Effect } from 'effect'
 import { readManifestProjection } from '../manifest/use-cases.js'
 import { recordCacheOutcome } from '../metrics/request-metrics.js'
-import { SqlStoreService, StatusReadModelService } from '../runtime/backend-runtime.js'
+import type { BlobStore } from '../ports/index.js'
+import {
+  BlobStoreService,
+  SqlStoreService,
+  StatusReadModelService,
+} from '../runtime/backend-runtime.js'
 import { type StorageError, storage } from '../runtime/errors.js'
 import type { TemplateStore } from '../templates/store.js'
+import type { TileBlobStore } from './blobs/store.js'
+import { classificationKey, classifyTarget, readDecodedCanvas } from './classification.js'
+import { type DecayEdge, foldCutoff, targetWindowStart } from './decay.js'
 import {
-  type DecayEdge,
-  LADDER_RESOLUTIONS,
-  TELEMETRY_DECAY_EDGES,
-  TILE_HISTORY_DECAY_EDGES,
-  TILE_HISTORY_RESOLUTIONS,
-} from './ladder.js'
+  logArtifactFailure,
+  putMismatchArtifact,
+  readMismatchArtifact,
+} from './derived-artifacts.js'
+import { LADDER_RESOLUTIONS, TELEMETRY_DECAY_EDGES } from './history/ladder.js'
+import { TILE_HISTORY_DECAY_EDGES, TILE_HISTORY_RESOLUTIONS } from './tiles/ladder.js'
+import type { TileStore } from './tiles/store.js'
 
 interface HistoryTier {
   readonly resolution: number
-  /** How long this tier is retained. Omitted for the final, permanent tier. */
-  readonly retainedFor?: number
+  /** The edge that folds this tier into the next. Omitted for the final, permanent tier. */
+  readonly edge?: DecayEdge
   /** Raw tile observations are irregular; one minute is a conservative density estimate. */
   readonly estimatedStep?: number
 }
 
-/** Each tier is kept for as long as its decay edge waits before folding it into the next. */
 const historyTiers = (
   resolutions: readonly number[],
   edges: readonly DecayEdge[],
 ): readonly HistoryTier[] =>
   resolutions.map((resolution) => {
-    const retainedFor = edges.find((edge) => edge.source === resolution)?.retainSeconds
+    const edge = edges.find((candidate) => candidate.source === resolution)
     return {
       resolution,
-      ...(retainedFor === undefined ? {} : { retainedFor }),
+      ...(edge === undefined ? {} : { edge }),
       ...(resolution === 0 ? { estimatedStep: 60 } : {}),
     }
   })
@@ -74,7 +82,7 @@ const selectHistoryResolution = (
   const permanent = tiers.at(-1)
   if (permanent === undefined) throw new Error('history tier ladder must not be empty')
   const eligible = tiers.filter(
-    (tier) => tier.retainedFor === undefined || range.fromSeconds >= now - tier.retainedFor,
+    (tier) => tier.edge === undefined || range.fromSeconds >= foldCutoff(tier.edge, now),
   )
   const covering = eligible.length === 0 ? [permanent] : eligible
   const width = range.toSeconds - range.fromSeconds
@@ -91,7 +99,6 @@ const nowSeconds = (): Seconds => seconds(Math.floor(Date.now() / 1_000))
 export const selectTileHistoryResolution = (range: HistoryRange): number =>
   selectHistoryResolution(TILE_HISTORY_TIERS, range, nowSeconds())
 
-/** The telemetry tier for a range, never coarser than `maxResolution`. */
 const selectTelemetryResolution = (
   range: HistoryRange,
   maxResolution: number | undefined,
@@ -106,15 +113,12 @@ const selectTelemetryResolution = (
   )
 
 const telemetryCoverageStart = (resolution: number, range: HistoryRange, now: Seconds): Seconds => {
-  const index = TELEMETRY_HISTORY_TIERS.findIndex((tier) => tier.resolution === resolution)
-  const tier = TELEMETRY_HISTORY_TIERS[index]
-  const nextTier = TELEMETRY_HISTORY_TIERS[index + 1]
-  if (tier?.retainedFor === undefined || nextTier === undefined) return range.fromSeconds
+  const edge = TELEMETRY_HISTORY_TIERS.find((tier) => tier.resolution === resolution)?.edge
+  if (edge === undefined) return range.fromSeconds
 
   // Folding waits until a complete target bucket crosses the retention cutoff. The target bucket
   // containing that cutoff is therefore the first interval with guaranteed source-tier coverage.
-  const cutoff = now - tier.retainedFor
-  const retainedStart = Math.floor(cutoff / nextTier.resolution) * nextTier.resolution
+  const retainedStart = targetWindowStart(foldCutoff(edge, now), edge)
   const requestedStart = Math.max(range.fromSeconds, retainedStart)
   return seconds(Math.ceil(requestedStart / resolution) * resolution)
 }
@@ -228,10 +232,10 @@ export const readAlarms = (
     return { version, alarms }
   })
 
-/** A status response and, for the cached current season, an entity tag naming its content. */
+/** A status response and, for the cached current season, the entity tag value naming its content. */
 export interface StatusRead {
   readonly response: StatusResponse
-  readonly etag: string | null
+  readonly version: string | null
 }
 
 export const readStatus = (
@@ -245,7 +249,7 @@ export const readStatus = (
       const templates = yield* storage('readTemplateStatuses', () =>
         sql.readTemplateStatuses(season, includeUnpublished),
       )
-      return { response: { templates }, etag: null }
+      return { response: { templates }, version: null }
     }
     const scope = includeUnpublished ? 'admin' : 'public'
     const readModel = yield* StatusReadModelService
@@ -253,7 +257,7 @@ export const readStatus = (
       readModel.reconcileSnapshot(season, scope),
     )
     recordCacheOutcome(read.cacheOutcome)
-    return { response: read.snapshot, etag: `"status.${season}.${scope}.${read.validator}"` }
+    return { response: read.snapshot, version: `status.${season}.${scope}.${read.validator}` }
   })
 
 export const readHistory = (input: {
@@ -275,10 +279,10 @@ export const readHistory = (input: {
         : yield* storage('readBuckets', () =>
             sql.readBuckets({
               templateIds: visibleIds,
-              resolution:
+              resolutions:
                 input.legacyResolution === undefined
                   ? LADDER_RESOLUTIONS.filter((tier) => tier <= resolution)
-                  : resolution,
+                  : [resolution],
               ...input.range,
             }),
           )
@@ -328,7 +332,7 @@ export const readPainterHistory = (input: {
             sql.readPainterBuckets({
               templateIds: visibleIds,
               wplaceUserIds: input.wplaceUserIds,
-              resolution: LADDER_RESOLUTIONS.filter((tier) => tier <= resolution),
+              resolutions: LADDER_RESOLUTIONS.filter((tier) => tier <= resolution),
               ...input.range,
             }),
           )
@@ -388,7 +392,7 @@ export const readPainterTotals = (input: {
         ? []
         : yield* storage('readPainterTotals', () =>
             sql.readPainterTotals(
-              { templateIds: visibleIds, resolution: LADDER_RESOLUTIONS, ...input.range },
+              { templateIds: visibleIds, resolutions: LADDER_RESOLUTIONS, ...input.range },
               input.limit,
             ),
           )
@@ -564,7 +568,7 @@ const currentSeasonTileVisible = (
     return candidates.some(({ templateId, versionId }) => current.has(`${templateId}:${versionId}`))
   })
 
-/** Return all retained detail by default; an explicit resolution reads only that legacy tier. */
+/** An explicit resolution reads only that legacy tier. */
 export const readTileHistory = (input: {
   readonly season: number
   readonly tile: TileCoord
@@ -604,4 +608,54 @@ export const readTileHistory = (input: {
       ...(resolution === undefined ? {} : { resolution }),
       frames: resolution === undefined ? mergeTileHistory(tiers) : (tiers[0]?.frames ?? []),
     }
+  })
+
+export type MismatchMaskRead =
+  | { readonly kind: 'found'; readonly bytes: Uint8Array; readonly hash: string }
+  | { readonly kind: 'not-found' }
+  | { readonly kind: 'unobserved' }
+
+export interface MismatchMaskQuery {
+  readonly season: number
+  readonly templateId: string
+  readonly versionId: string
+  readonly tile: TileCoord
+  readonly includeUnpublished: boolean
+}
+
+const readMismatchMaskPromise = async (
+  ports: { readonly blobs: BlobStore; readonly sql: TileStore & TileBlobStore },
+  query: MismatchMaskQuery,
+): Promise<MismatchMaskRead> => {
+  const targets = await ports.sql.listTelemetryTargets(
+    query.season,
+    query.tile,
+    query.includeUnpublished,
+  )
+  const target = targets.find(
+    (candidate) =>
+      candidate.templateId === query.templateId && candidate.versionId === query.versionId,
+  )
+  if (target === undefined) return { kind: 'not-found' }
+  const latest = await ports.sql.readLatestTile(query.season, query.tile)
+  if (latest === null) return { kind: 'unobserved' }
+  const key = classificationKey(target, latest.hash)
+  const artifact = await readMismatchArtifact(ports.blobs, key)
+  if (artifact !== null) return { kind: 'found', bytes: artifact, hash: await sha256Hex(artifact) }
+  const canvas = await readDecodedCanvas(ports, latest.hash)
+  if (canvas === null) return { kind: 'unobserved' }
+  const classified = await classifyTarget(ports, target, canvas, latest.hash)
+  if (classified === null) return { kind: 'unobserved' }
+  await putMismatchArtifact(ports.blobs, key, classified.mask).catch(logArtifactFailure)
+  return { kind: 'found', bytes: classified.mask, hash: await sha256Hex(classified.mask) }
+}
+
+/** The server-owned classification mask of the latest accepted canvas observation. */
+export const readMismatchMask = (
+  query: MismatchMaskQuery,
+): Effect.Effect<MismatchMaskRead, StorageError, BlobStoreService | SqlStoreService> =>
+  Effect.gen(function* () {
+    const blobs = yield* BlobStoreService
+    const sql = yield* SqlStoreService
+    return yield* storage('readMismatchMask', () => readMismatchMaskPromise({ blobs, sql }, query))
   })

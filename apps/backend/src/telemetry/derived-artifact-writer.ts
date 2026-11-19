@@ -3,7 +3,8 @@ import {
   type ClassificationKey,
   logArtifactFailure,
   mismatchArtifactKey,
-} from './classification.js'
+  putMismatchArtifact,
+} from './derived-artifacts.js'
 
 export interface DerivedArtifactWrite {
   readonly identity: ClassificationKey
@@ -84,8 +85,7 @@ export const createDerivedArtifactWriter = (
       if (next === undefined) break
       queuedBytes -= next.bytes.byteLength
       inFlight += 1
-      next.blobs
-        .put('derived', next.key, next.bytes)
+      putMismatchArtifact(next.blobs, next.identity, next.bytes)
         .then(
           () => {
             written += 1

@@ -1,27 +1,40 @@
-import { isUuidV7, parseWholeNumber, type Seconds, seconds, WORLD_TILES } from '@caelestis/shared'
+import {
+  isUuidV7,
+  parseWholeNumber,
+  type Seconds,
+  type ServerInfo,
+  seconds,
+  WORLD_TILES,
+} from '@caelestis/shared'
 import { MAX_EPOCH_SECONDS, MAX_PAINTER_TOTALS } from '@caelestis/wire-schema'
-import { Context as Services } from 'effect'
 import { type Context, Hono } from 'hono'
 import { type AuthOptions, requireScopeEffect } from '../auth/middleware.js'
 import { MAX_IDS_PER_READ } from '../db/d1-limits.js'
-import { type BackendRuntime, SqlStoreService } from '../runtime/backend-runtime.js'
+import { matchesIfNoneMatch, parseIfNoneMatch } from '../manifest/read-model.js'
+import type { BackendRuntime } from '../runtime/backend-runtime.js'
 import { runBackendHttp } from '../runtime/hono.js'
-import { readMismatchMask } from '../telemetry/classification.js'
+import { LADDER_RESOLUTIONS } from '../telemetry/history/ladder.js'
 import { MAX_PAINTER_HISTORY_IDS } from '../telemetry/history/store.js'
-import { LADDER_RESOLUTIONS, TILE_HISTORY_RESOLUTIONS } from '../telemetry/ladder.js'
-import { readProgressHistory, readTemplateProgressHistory } from '../telemetry/progress-history.js'
+import { readVisibleProgressHistory } from '../telemetry/progress-history.js'
 import {
   readAlarms,
   readCanvas,
   readContributions,
   readHistory,
   readLeaderboard,
+  readMismatchMask,
   readPainterHistory,
   readPainterTotals,
   readStatus,
   readTileHistory,
 } from '../telemetry/queries.js'
-import type { TelemetryRouteOptions } from './telemetry.js'
+import { TILE_HISTORY_RESOLUTIONS } from '../telemetry/tiles/ladder.js'
+
+export interface TelemetryRouteOptions {
+  readonly currentSeason: number
+  /** Names the current season's cached manifest, which tile-history visibility reuses. */
+  readonly server?: ServerInfo
+}
 
 /** Larger leaderboards stop being leaderboards; page by narrowing the window instead. */
 const MAX_LEADERBOARD_LIMIT = 200
@@ -66,7 +79,6 @@ const parseRange = (
   return { fromSeconds: seconds(from), toSeconds: seconds(to) }
 }
 
-/** An optional whole-number query parameter: absent, the number, or null when malformed. */
 const optionalWholeNumber = (value: string | undefined): number | undefined | null =>
   value === undefined ? undefined : parseWholeNumber(value)
 
@@ -80,17 +92,11 @@ const parseMaxResolution = (c: Context): number | undefined | null => {
     : maxResolution
 }
 
-/** Weak comparison over a comma-separated `If-None-Match` list (RFC 9110). */
-const etagMatches = (c: Context, etag: string): boolean => {
-  const candidates = (c.req.header('if-none-match') ?? '')
-    .split(',')
-    .map((candidate) => candidate.trim().replace(/^W\//, ''))
-  return candidates.includes(etag) || candidates.includes('*')
-}
+const etagMatches = (c: Context, version: string): boolean =>
+  matchesIfNoneMatch(parseIfNoneMatch(c.req.header('if-none-match')), version)
 
 const includeUnpublished = (c: Context): boolean => c.get('caller').scope === 'admin'
 
-/** Status, history, and progress reads over accepted telemetry. */
 export const createTelemetryReadRoutes = (
   runtime: BackendRuntime,
   auth: AuthOptions,
@@ -111,10 +117,10 @@ export const createTelemetryReadRoutes = (
       c,
       runtime,
       readStatus(season, includeUnpublished(c), season === options.currentSeason),
-      ({ response, etag }) => {
-        if (etag === null) return c.json(response)
-        const headers = { ETag: etag, Vary: 'Authorization' }
-        return etagMatches(c, etag) ? c.body(null, 304, headers) : c.json(response, 200, headers)
+      ({ response, version }) => {
+        if (version === null) return c.json(response)
+        const headers = { ETag: `"${version}"`, Vary: 'Authorization' }
+        return etagMatches(c, version) ? c.body(null, 304, headers) : c.json(response, 200, headers)
       },
     )
   })
@@ -163,7 +169,7 @@ export const createTelemetryReadRoutes = (
           // A content hash, so a client revalidating the mask it holds downloads nothing when every
           // paint since landed elsewhere. Weak and strong tags over the same bytes mean the same.
           const headers = { etag: `"${result.hash}"`, 'cache-control': 'no-store' }
-          if (etagMatches(c, headers.etag)) return c.body(null, 304, headers)
+          if (etagMatches(c, result.hash)) return c.body(null, 304, headers)
           return c.body(new Uint8Array(result.bytes), 200, {
             ...headers,
             'content-type': 'application/vnd.caelestis.mismatch-mask',
@@ -179,18 +185,11 @@ export const createTelemetryReadRoutes = (
     const range = parseRange(c)
     if (!isUuidV7(id) || (versionId !== undefined && !isUuidV7(versionId)) || range === null)
       return c.json({ error: 'Choose a template, optional version, and valid time range.' }, 400)
-    const sql = Services.get(runtime.context, SqlStoreService)
-    const template = await sql.readTemplate(id)
-    if (template === null || (!includeUnpublished(c) && !template.published))
-      return c.json({ error: 'Template not found.' }, 404)
-    if (versionId === undefined)
-      return runBackendHttp(c, runtime, readTemplateProgressHistory(id, range), (response) =>
-        c.json(response),
-      )
-    const version = await sql.readTemplateVersion(versionId)
-    if (version?.templateId !== id) return c.json({ error: 'Template version not found.' }, 404)
-    return runBackendHttp(c, runtime, readProgressHistory(version, range), (response) =>
-      c.json(response),
+    return runBackendHttp(
+      c,
+      runtime,
+      readVisibleProgressHistory(id, versionId, range, includeUnpublished(c)),
+      (response) => c.json(response),
     )
   })
 

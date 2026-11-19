@@ -3,9 +3,9 @@ import { durableStatusShards } from './adapters/cloudflare/do-status-read-model.
 import { forwardingObject } from './adapters/cloudflare/forwarding-object.js'
 import { receivePresence } from './adapters/cloudflare/live-connect.js'
 import { durableLiveHost } from './adapters/cloudflare/live-host.js'
+import { IngestTimings } from './metrics/ingest-timing.js'
 import { PresenceCoordinator } from './presence/coordinator.js'
 import { parsePresenceRoomName } from './presence/port.js'
-import { IngestTimings } from './telemetry/ingest-timing.js'
 
 type Coordinator = PresenceCoordinator<WebSocket>
 

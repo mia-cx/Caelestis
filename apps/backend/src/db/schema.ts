@@ -20,7 +20,8 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/sqlite-core'
 import { MAX_NODE_PATH_LENGTH } from '../nodes/store.js'
-import { LADDER_RESOLUTIONS, TILE_HISTORY_RESOLUTIONS } from '../telemetry/ladder.js'
+import { LADDER_RESOLUTIONS } from '../telemetry/history/ladder.js'
+import { TILE_HISTORY_RESOLUTIONS } from '../telemetry/tiles/ladder.js'
 import { sha256Hex, surfaceCheck, tileCoordinate } from './checks.js'
 
 /** A literal `(a, b, c)` list for a CHECK, so the constraint text names the ladder's own tiers. */

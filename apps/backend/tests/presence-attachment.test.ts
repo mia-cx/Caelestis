@@ -3,10 +3,10 @@ import { MAX_QUICK_CLAIMS, WORLD_PIXELS, WORLD_TEMPLATE_SURFACE } from '@caelest
 import { expect, it } from 'vitest'
 import { coordinatorDatabase } from '../src/adapters/node/coordinator-database.js'
 import { SqlCoordinatorStorage } from '../src/adapters/node/coordinator-storage.js'
+import { IngestTimings } from '../src/metrics/ingest-timing.js'
 import { liveRequestContext, NodeLiveHost } from '../src/node/live.js'
 import { openMemoryDatabase } from '../src/node/memory-stores.js'
 import { PresenceCoordinator } from '../src/presence/coordinator.js'
-import { IngestTimings } from '../src/telemetry/ingest-timing.js'
 
 it('keeps a fully populated maximum-claim attachment below 2,048 bytes', async () => {
   const store = openMemoryDatabase()

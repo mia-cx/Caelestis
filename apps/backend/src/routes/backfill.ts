@@ -16,6 +16,19 @@ const respond = <T>(c: Context, result: BackfillReply<T>): Response => {
   return result.ok ? Response.json(result.value) : c.json({ error: result.error }, result.status)
 }
 
+/** A start request's JSON body once it names a whole, non-negative `snapshotId`, or null. */
+const startBody = async (c: Context): Promise<{ readonly snapshotId: number } | null> => {
+  const body: unknown = await c.req.json().catch(() => null)
+  return body !== null &&
+    typeof body === 'object' &&
+    'snapshotId' in body &&
+    typeof body.snapshotId === 'number' &&
+    Number.isSafeInteger(body.snapshotId) &&
+    body.snapshotId >= 0
+    ? { ...body, snapshotId: body.snapshotId }
+    : null
+}
+
 /** Admin-only preview/start/status/cancel for one server template, or every one below a folder. */
 export const createBackfillAdminRoutes = (runtime: BackendRuntime) => {
   const routes = new Hono()
@@ -31,17 +44,12 @@ export const createBackfillAdminRoutes = (runtime: BackendRuntime) => {
   )
   routes.get('/folders/:nodeId/job', async (c) => respond(c, await folderClient(c).folderJob()))
   routes.post('/folders/:nodeId/start', async (c) => {
-    const body: unknown = await c.req.json().catch(() => null)
+    const body = await startBody(c)
     if (
       body === null ||
-      typeof body !== 'object' ||
       !('versionIds' in body) ||
-      !('snapshotId' in body) ||
       !Array.isArray(body.versionIds) ||
-      !body.versionIds.every(isUuidV7) ||
-      typeof body.snapshotId !== 'number' ||
-      !Number.isSafeInteger(body.snapshotId) ||
-      body.snapshotId < 0
+      !body.versionIds.every(isUuidV7)
     )
       return c.json({ error: 'Choose an available snapshot for the folder.' }, 400)
     return respond(
@@ -63,17 +71,12 @@ export const createBackfillAdminRoutes = (runtime: BackendRuntime) => {
     respond(c, await clientFor(c.req.param('templateId')).job()),
   )
   routes.post('/:templateId/start', async (c) => {
-    const body: unknown = await c.req.json().catch(() => null)
+    const body = await startBody(c)
     if (
       body === null ||
-      typeof body !== 'object' ||
       !('versionId' in body) ||
-      !('snapshotId' in body) ||
       typeof body.versionId !== 'string' ||
-      !isUuidV7(body.versionId) ||
-      typeof body.snapshotId !== 'number' ||
-      !Number.isSafeInteger(body.snapshotId) ||
-      body.snapshotId < 0
+      !isUuidV7(body.versionId)
     )
       return c.json({ error: 'Choose a template version and available snapshot.' }, 400)
     return respond(

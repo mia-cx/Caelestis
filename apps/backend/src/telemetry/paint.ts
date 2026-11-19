@@ -1,12 +1,14 @@
 import {
   millis,
   type PaintEvent,
+  paletteIndexFromWplace,
   type Seconds,
   seconds,
   TILE_SIZE,
   TRANSPARENT_INDEX,
 } from '@caelestis/shared'
 import { Effect } from 'effect'
+import { ingestTimings } from '../metrics/ingest-timing.js'
 import type { BlobStore, CounterDelta, CounterStore } from '../ports/index.js'
 import {
   BlobStoreService,
@@ -18,15 +20,11 @@ import { type StorageError, storage } from '../runtime/errors.js'
 import { bestEffort } from '../status-read-model/port.js'
 import type { TileBlobStore } from './blobs/store.js'
 import { readDecodedCanvas, readTargetChunk } from './classification.js'
+import { type PainterTelemetryBucket, painterBucketResolution } from './history/ladder.js'
 import type { ContributionDelta, HistoryStore } from './history/store.js'
-import { ingestTimings } from './ingest-timing.js'
-import { type PainterTelemetryBucket, painterBucketResolution } from './ladder.js'
 import type { TileStore } from './tiles/store.js'
 
 const SECONDS_PER_DAY = 86_400
-
-const ourPaletteIndex = (wplaceIndex: number): number =>
-  wplaceIndex === 0 ? TRANSPARENT_INDEX : wplaceIndex - 1
 
 const dayOf = (timestamp: Seconds): Seconds =>
   seconds(Math.floor(timestamp / SECONDS_PER_DAY) * SECONDS_PER_DAY)
@@ -86,7 +84,7 @@ const recordPaintPromise = async (
           continue
         const wanted = indices[(y - rect.top) * rect.width + (x - rect.left)] ?? TRANSPARENT_INDEX
         if (wanted === TRANSPARENT_INDEX) continue
-        const painted = ourPaletteIndex(paintedTile.pixels.colors[index] ?? 0)
+        const painted = paletteIndexFromWplace(paintedTile.pixels.colors[index] ?? 0)
         total.placed++
         if (painted !== wanted) continue
         total.correct++

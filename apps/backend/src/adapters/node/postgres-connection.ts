@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { DatabaseError, Pool, type PoolClient, type PoolConfig, types } from 'pg'
+import { ingestTimings } from '../../metrics/ingest-timing.js'
 import { type SerialQueue, serialQueue } from '../../runtime/serial-queue.js'
-import { ingestTimings } from '../../telemetry/ingest-timing.js'
 import { type ConstraintKind, ConstraintViolation } from '../constraint-violation.js'
 import { SET_PREVIOUS_CHANGES } from '../previous-changes.js'
 import type {

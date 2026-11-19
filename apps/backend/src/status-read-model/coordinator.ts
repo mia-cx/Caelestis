@@ -56,6 +56,7 @@ import {
   seesUnpublished,
   type VisibilityScope,
 } from '../manifest/read-model.js'
+import { type IngestTimingSnapshot, ingestTimings } from '../metrics/ingest-timing.js'
 import { type CacheOutcome, recordLiveTileOfferCacheMetric } from '../metrics/request-metrics.js'
 import type { BlobStore, CounterStore, SqlStore } from '../ports/index.js'
 import {
@@ -65,7 +66,6 @@ import {
 } from '../runtime/backend-runtime.js'
 import { ValidationError } from '../runtime/errors.js'
 import { MAX_CANVAS_TILE_BYTES, offerTiles, uploadTile } from '../telemetry/ingest.js'
-import { type IngestTimingSnapshot, ingestTimings } from '../telemetry/ingest-timing.js'
 import { recordPaint } from '../telemetry/paint.js'
 import { readAlarms, readContributions, readLeaderboard } from '../telemetry/queries.js'
 import type {

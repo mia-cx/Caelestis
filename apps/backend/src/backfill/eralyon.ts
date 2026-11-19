@@ -1,11 +1,11 @@
 import {
   type ArchiveSnapshot,
+  paletteIndexFromWplace,
   TILE_SIZE,
   type TileCoord,
-  TRANSPARENT_INDEX,
 } from '@caelestis/shared'
 import { Decompress } from 'fzstd'
-import { BoundedCache } from '../telemetry/bounded-cache.js'
+import { BoundedCache } from '../runtime/bounded-cache.js'
 import { archiveWeek } from './port.js'
 
 const ORIGIN = 'https://wplace.eralyon.net'
@@ -140,7 +140,7 @@ const applyBlock = (result: Uint8Array | null, compressed: Uint8Array): Uint8Arr
     if (colour === DIFF_UNCHANGED && !base) continue
     if (colour > 63)
       throw new Error('Archive contains unknown colours or an incomplete base image.')
-    next[i] = colour === 0 ? TRANSPARENT_INDEX : colour - 1
+    next[i] = paletteIndexFromWplace(colour)
   }
   return next
 }

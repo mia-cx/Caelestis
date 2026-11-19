@@ -48,6 +48,14 @@ export const ALARM_FOLLOW_UP_DELAY_MILLISECONDS = 10 * 60 * 1_000
 /** A probe that could not finish tries again this much later. */
 export const ALARM_FOLLOW_UP_RETRY_MILLISECONDS = 60_000
 
+/** A follow-up applies only to the current episode of the same version. */
+export const followUpApplies = (
+  previous: TemplateAlarmState | null,
+  snapshot: TemplateAlarmSnapshot,
+  alarmId: string,
+): boolean =>
+  previous !== null && previous.versionId === snapshot.versionId && previous.alarm?.id === alarmId
+
 /**
  * Evaluate a server-classified template snapshot. Any loss of correct pixels opens a regression.
  *
@@ -61,21 +69,16 @@ export const evaluateAlarmSnapshot = (
   phase: AlarmEvaluationPhase,
   createId: () => string,
 ): AlarmPolicyResult => {
-  if (phase.kind === 'follow-up') {
-    if (previous === null) {
-      return {
-        state: {
-          templateId: snapshot.templateId,
-          versionId: snapshot.versionId,
-          total: snapshot.total,
-          peakCorrect: snapshot.correct,
-          alarm: null,
-        },
-        scheduleFollowUp: false,
-      }
-    }
-    if (previous.versionId !== snapshot.versionId || previous.alarm?.id !== phase.alarmId) {
-      return { state: previous, scheduleFollowUp: false }
+  if (phase.kind === 'follow-up' && !followUpApplies(previous, snapshot, phase.alarmId)) {
+    return {
+      state: previous ?? {
+        templateId: snapshot.templateId,
+        versionId: snapshot.versionId,
+        total: snapshot.total,
+        peakCorrect: snapshot.correct,
+        alarm: null,
+      },
+      scheduleFollowUp: false,
     }
   }
 
@@ -121,10 +124,9 @@ export const evaluateAlarmSnapshot = (
     }
   }
 
-  const belongsToCurrentEpisode = phase.kind === 'follow-up' && phase.alarmId === current.id
   const kind =
     current.kind === 'sustained-griefing' ||
-    (belongsToCurrentEpisode && pixelsLost > phase.pixelsLost)
+    (phase.kind === 'follow-up' && pixelsLost > phase.pixelsLost)
       ? 'sustained-griefing'
       : current.kind
   return {

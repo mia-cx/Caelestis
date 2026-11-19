@@ -3,9 +3,9 @@ import { expect, it } from 'vitest'
 import { coordinatorDatabase } from '../src/adapters/node/coordinator-database.js'
 import { SqlCoordinatorStorage } from '../src/adapters/node/coordinator-storage.js'
 import type { LiveSocket } from '../src/live/session.js'
+import { IngestTimings } from '../src/metrics/ingest-timing.js'
 import { openMemoryDatabase } from '../src/node/memory-stores.js'
 import { PresenceCoordinator, type PresenceHost } from '../src/presence/coordinator.js'
-import { IngestTimings } from '../src/telemetry/ingest-timing.js'
 
 class Socket implements LiveSocket {
   readyState = 1

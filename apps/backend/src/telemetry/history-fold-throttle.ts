@@ -1,5 +1,5 @@
 import type { Seconds, TileCoord } from '@caelestis/shared'
-import { BoundedCache } from './bounded-cache.js'
+import { BoundedCache } from '../runtime/bounded-cache.js'
 import type { TileStore } from './tiles/store.js'
 
 /** Folds only move rows older than a day, so a fold every half minute per tile loses nothing. */

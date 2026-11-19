@@ -8,7 +8,7 @@ import {
   WORLD_TILES,
 } from '@caelestis/shared'
 import type { ManifestTileRecord } from '../../templates/store.js'
-import { TILE_HISTORY_RESOLUTIONS } from '../ladder.js'
+import { TILE_HISTORY_RESOLUTIONS } from './ladder.js'
 
 /** One current template chunk affected by a canvas tile observation or paint event. */
 export interface TelemetryTarget extends ManifestTileRecord {
@@ -76,6 +76,20 @@ export interface TemplateTileStatusChange {
   readonly previousTemplateObservedAt: Millis
 }
 
+/** One observation to record against the blob reservation that holds its bytes. */
+export interface TileObservationCommitRequest {
+  readonly reservationId: string
+  readonly now: Millis
+  readonly observation: TileObservation
+  readonly statuses: readonly TemplateTileStatusRecord[]
+  /** Whether the observation enters raw tile history. */
+  readonly recordHistory: boolean
+  /** A server fetch outranks a reporter's row even when a client clock put it in the future. */
+  readonly authoritative: boolean
+  /** Whether the committing reporter may still target an unpublished current version. */
+  readonly includeUnpublished: boolean
+}
+
 export interface TileObservationCommit {
   /** Revision advanced in the same transaction as the accepted tile-status rows. */
   readonly revision: number | null
@@ -93,7 +107,6 @@ export interface TileHistoryQuery {
   readonly toSeconds: Seconds
 }
 
-/** The domain `readTileHistory` accepts. */
 export const assertValidTileHistoryQuery = (query: TileHistoryQuery): void => {
   if (!TILE_HISTORY_RESOLUTIONS.includes(query.resolution)) {
     throw new Error(`readTileHistory resolution ${query.resolution} is not a ladder tier`)
@@ -112,6 +125,14 @@ export interface TileStore {
   ): Promise<readonly TelemetryTarget[]>
 
   readLatestTile(season: number, tile: TileCoord): Promise<LatestTileObservation | null>
+
+  /**
+   * Record an observation in one atomic batch: verify its blob reservation and activate the object,
+   * then write raw history, the current canvas generation, template statuses, measurements, alarm
+   * evidence for authoritative fetches, and the projection revision. Null means the reservation
+   * expired or a deletion fence won first; nothing was recorded.
+   */
+  commitTileObservation(commit: TileObservationCommitRequest): Promise<TileObservationCommit | null>
 
   /**
    * The latest accepted observation of every observed tile in a season, ordered by x then y.
@@ -133,7 +154,6 @@ export interface TileStore {
   readTemplateStatuses(
     season: number,
     includeUnpublished: boolean,
-    options?: { readonly serverOwnedOnly?: boolean },
   ): Promise<readonly TemplateStatus[]>
 
   /** Read the revision that must fence an authoritative projection rebuild. */

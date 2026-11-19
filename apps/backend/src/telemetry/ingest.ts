@@ -6,16 +6,16 @@ import {
   sha256Hex,
   type TileCoord,
   tileKey,
-  uuidV7,
 } from '@caelestis/shared'
 import { Effect, Result } from 'effect'
+import { type IngestCommand, type IngestStage, ingestTimings } from '../metrics/ingest-timing.js'
 import type { BlobStore } from '../ports/index.js'
 import {
   BlobStoreService,
   SqlStoreService,
   StatusReadModelService,
 } from '../runtime/backend-runtime.js'
-import { StorageError, storage, ValidationError } from '../runtime/errors.js'
+import { fromPort, ValidationError } from '../runtime/errors.js'
 import type {
   StatusProjectionChange,
   StatusProjectionMutation,
@@ -26,9 +26,15 @@ import {
   type StatusReadModelPort,
 } from '../status-read-model/port.js'
 import type { TileGenerationCacheRead } from '../status-read-model/tile-generation-cache.js'
+import { evaluateAlarms } from './alarms/evaluate.js'
 import type { AlarmStore } from './alarms/store.js'
 import type { TileBlobStore } from './blobs/store.js'
-import { classificationKey, classifyTarget, decodeCanvasBytes } from './classification.js'
+import {
+  classificationKey,
+  classifyTarget,
+  decodeCanvasBytes,
+  InvalidTileError,
+} from './classification.js'
 import {
   createDerivedArtifactWriteBatch,
   type DerivedArtifactWriteBatch,
@@ -37,7 +43,6 @@ import {
 } from './derived-artifact-writer.js'
 import type { HistoryStore } from './history/store.js'
 import { foldTileHistoryThrottled } from './history-fold-throttle.js'
-import { type IngestCommand, type IngestStage, ingestTimings } from './ingest-timing.js'
 import { reserveTileBlob, reserveTileBlobUpload, storeTileBlob } from './tile-blobs.js'
 import type { TemplateTileStatusRecord, TileObservation, TileStore } from './tiles/store.js'
 
@@ -65,6 +70,11 @@ export interface TileMetadata extends Reporter {
   readonly hash: string
   readonly observedAt: Seconds
   readonly includeUnpublished: boolean
+  /**
+   * Whether the observation enters tile history. By default it does when no template covers the
+   * tile or an unfinished one does; the mirror decides for its planned timelapse tiles itself.
+   */
+  readonly recordHistory?: boolean
 }
 
 /**
@@ -159,13 +169,8 @@ export const flushIngestSinks = async (
   }
 }
 
-/** Reporters' tiles are client claims. The fetcher's mirror is authoritative. */
-type ObservationSource =
-  | {
-      readonly kind: 'reporter'
-      readonly command: Extract<IngestCommand, 'upload' | 'offer'>
-    }
-  | { readonly kind: 'mirror'; readonly recordHistory?: boolean }
+/** Reporters' uploads and offers are client claims. The fetcher's mirror is authoritative. */
+type ObservationSource = Extract<IngestCommand, 'upload' | 'offer' | 'mirror'>
 
 const statusValue = (status: TemplateTileStatusRecord) => ({
   correct: status.correct,
@@ -191,10 +196,9 @@ const recordObservation = async (
   source: ObservationSource,
   sinks: IngestSinks,
 ): Promise<void> => {
-  const command = source.kind === 'reporter' ? source.command : 'upload'
-  const authoritative = source.kind === 'mirror'
+  const authoritative = source === 'mirror'
   const timed = <Value>(stage: IngestStage, run: () => Promise<Value>) =>
-    ingestTimings.timed(command, stage, run)
+    ingestTimings.timed(source, stage, run)
   const canvas = await timed('decode', () => decodeCanvasBytes(metadata.hash, bytes))
   const prepared = await timed('prepare', () =>
     ports.statusReadModel.prepareTileGenerationCommit(metadata.season, metadata.tile),
@@ -246,18 +250,18 @@ const recordObservation = async (
         ports.sql.rememberPainter(metadata.wplaceUserId, metadata.displayName, observedAtMs),
       )
       const recordHistory =
-        (source.kind === 'mirror' ? source.recordHistory : undefined) ??
+        metadata.recordHistory ??
         (targets.length === 0 || targets.some((target) => !target.finished))
       const committed = await timed('commit', () =>
-        ports.sql.commitTileBlobReservation(
+        ports.sql.commitTileObservation({
           reservationId,
-          millis(Date.now()),
+          now: millis(Date.now()),
           observation,
           statuses,
           recordHistory,
           authoritative,
-          metadata.includeUnpublished,
-        ),
+          includeUnpublished: metadata.includeUnpublished,
+        }),
       )
       if (!committed) {
         throw new Error(`tile blob reservation expired before ${metadata.hash} could be recorded`)
@@ -315,11 +319,11 @@ const recordObservation = async (
   const revision = committed.revision
   await timed('alarms', async () => {
     if (authoritative || revision === null || alarmChanges.length === 0) return
-    let alarmChanged = false
-    try {
+    await evaluateAlarms(ports, async (evaluate) => {
       for (const change of alarmChanges) {
         const { previous, current, previousTemplateCorrect, previousTemplateObservedAt } = change
-        const evaluation = await ports.sql.evaluateTemplateAlarm(
+        await evaluate(
+          metadata.season,
           {
             templateId: current.templateId,
             versionId: current.versionId,
@@ -329,17 +333,9 @@ const recordObservation = async (
             observationRevision: revision,
           },
           { kind: 'observation', previousCorrect: previousTemplateCorrect },
-          uuidV7(),
         )
-        alarmChanged ||= evaluation.alarmChanged
       }
-    } finally {
-      // Progress that moves no alarm, such as painting toward a new high-water mark, owes
-      // subscribers nothing. A changed alarm also covers every follow-up probe it scheduled.
-      // Each evaluation commits on its own, so a later failure still owes the earlier changes.
-      if (alarmChanged)
-        await bestEffort(() => ports.statusReadModel.notifyAlarmChange(metadata.season))
-    }
+    })
   })
   for (const { target, classification } of classified) {
     sinks.artifacts.add(classificationKey(target, metadata.hash), classification.mask)
@@ -358,10 +354,10 @@ const recordObservation = async (
 /** Refuse bytes that are empty, oversized, or not the content their hash names. */
 const checkTileBytes = async (bytes: Uint8Array, hash: string): Promise<void> => {
   if (bytes.byteLength === 0 || bytes.byteLength > MAX_CANVAS_TILE_BYTES) {
-    throw new RangeError(`tile must be 1..${MAX_CANVAS_TILE_BYTES} bytes`)
+    throw new InvalidTileError(`tile must be 1..${MAX_CANVAS_TILE_BYTES} bytes`)
   }
   const actual = await ingestTimings.timed('upload', 'hash', () => sha256Hex(bytes))
-  if (actual !== hash) throw new RangeError('tile bytes do not match their sha256')
+  if (actual !== hash) throw new InvalidTileError('tile bytes do not match their sha256')
 }
 
 /** Store new bytes once, then record them; a failure releases the reservation for GC. */
@@ -372,14 +368,14 @@ const storeAndRecord = async (
   source: ObservationSource,
   sinks: IngestSinks,
 ): Promise<void> => {
-  const reservation = await ingestTimings.timed('upload', 'reserve', () =>
+  const reservation = await ingestTimings.timed(source, 'reserve', () =>
     reserveTileBlobUpload(ports, metadata.hash),
   )
   try {
     // Many reporters upload one fresh hash inside the same commit window. The generation's object
     // holds the bytes once; the reservation keeps GC away, so only the observation still needs
     // recording for each of them.
-    await ingestTimings.timed('upload', 'blobPut', () => storeTileBlob(ports, reservation, bytes))
+    await ingestTimings.timed(source, 'blobPut', () => storeTileBlob(ports, reservation, bytes))
     await recordObservation(ports, metadata, bytes, reservation.id, source, sinks)
   } catch (error) {
     await ports.sql.releaseTileBlobReservation(reservation.id)
@@ -397,11 +393,11 @@ const uploadTilePromise = async (
   const targets = await ingestTimings.timed('upload', 'targets', () =>
     ports.sql.listTelemetryTargets(metadata.season, metadata.tile, metadata.includeUnpublished),
   )
-  if (targets.length === 0) throw new RangeError('tile is not covered by a visible template')
+  if (targets.length === 0) throw new InvalidTileError('tile is not covered by a visible template')
   const sinks = createIngestSinks(ports)
   let changes: ReadonlyMap<number, StatusProjectionChange> = new Map()
   try {
-    await storeAndRecord(ports, metadata, bytes, { kind: 'reporter', command: 'upload' }, sinks)
+    await storeAndRecord(ports, metadata, bytes, 'upload', sinks)
   } finally {
     // A commit followed by a failure still owes its projection.
     changes = await flushIngestSinks(sinks)
@@ -415,21 +411,11 @@ const mirrorTilePromise = async (
   ports: IngestStores,
   metadata: TileMetadata,
   bytes: Uint8Array,
-  options: { readonly latestHash: string | null; readonly recordHistory?: boolean },
+  latestHash: string | null,
   sinks: IngestSinks,
 ): Promise<MirrorOutcome> => {
-  await checkTileBytes(bytes, metadata.hash)
-  if (options.latestHash !== metadata.hash) {
-    await storeAndRecord(
-      ports,
-      metadata,
-      bytes,
-      {
-        kind: 'mirror',
-        ...(options.recordHistory === undefined ? {} : { recordHistory: options.recordHistory }),
-      },
-      sinks,
-    )
+  if (latestHash !== metadata.hash) {
+    await storeAndRecord(ports, metadata, bytes, 'mirror', sinks)
     return 'stored'
   }
   // The latest observation already holds these bytes: reclassify them against current artwork
@@ -438,24 +424,14 @@ const mirrorTilePromise = async (
   if (held === null) throw new Error(`authoritative tile blob ${metadata.hash} is unavailable`)
   await recordObservation(
     ports,
-    metadata,
+    { ...metadata, recordHistory: false },
     bytes,
     held.reservation.id,
-    { kind: 'mirror', recordHistory: false },
+    'mirror',
     sinks,
   )
   return 'unchanged'
 }
-
-/** Run an ingest step, reading a `RangeError` as the caller's mistake and anything else as storage. */
-const ingest = <A>(operation: string, run: () => Promise<A>) =>
-  Effect.tryPromise({
-    try: run,
-    catch: (cause) =>
-      cause instanceof RangeError
-        ? new ValidationError({ message: cause.message })
-        : new StorageError({ operation, cause }),
-  })
 
 const ingestStores = Effect.gen(function* () {
   return {
@@ -467,30 +443,32 @@ const ingestStores = Effect.gen(function* () {
 
 type IngestServices = BlobStoreService | SqlStoreService | StatusReadModelService
 
+/** A refused tile answers as the caller's mistake; anything else is a storage failure. */
+type IngestError = Effect.Error<ReturnType<typeof fromPort>>
+
 /** Validate and persist one reporter's uploaded tile, returning its projection change. */
 export const uploadTile = (
   metadata: TileMetadata,
   bytes: Uint8Array,
-): Effect.Effect<StatusProjectionChange | null, StorageError | ValidationError, IngestServices> =>
+): Effect.Effect<StatusProjectionChange | null, IngestError, IngestServices> =>
   Effect.flatMap(ingestStores, (ports) =>
-    ingest('uploadTile', () => uploadTilePromise(ports, metadata, bytes)),
+    fromPort('uploadTile', () => uploadTilePromise(ports, metadata, bytes)),
   )
 
 /**
- * Record one tile the server fetched itself. Bytes the latest observation already holds are
- * reclassified only; new bytes are stored. Its projection and masks wait in `sinks`.
+ * Record one tile the server fetched, sized, and hashed itself. Bytes the latest observation
+ * already holds are reclassified only; new bytes are stored. Its projection and masks wait in
+ * `sinks`.
  */
 export const mirrorTile = (
   metadata: TileMetadata,
   bytes: Uint8Array,
-  options: {
-    readonly latestHash: string | null
-    readonly recordHistory?: boolean
-    readonly sinks: IngestSinks
-  },
-): Effect.Effect<MirrorOutcome, StorageError | ValidationError, IngestServices> =>
+  options: { readonly latestHash: string | null; readonly sinks: IngestSinks },
+): Effect.Effect<MirrorOutcome, IngestError, IngestServices> =>
   Effect.flatMap(ingestStores, (ports) =>
-    ingest('mirrorTile', () => mirrorTilePromise(ports, metadata, bytes, options, options.sinks)),
+    fromPort('mirrorTile', () =>
+      mirrorTilePromise(ports, metadata, bytes, options.latestHash, options.sinks),
+    ),
   )
 
 /** One reporter's batch of tile hashes for one season, each keyed by its `x/y` tile key. */
@@ -541,21 +519,14 @@ const offerTilePromise = async (
     reserveTileBlob(ports, metadata.hash),
   )
   if (held === null) return 'wanted'
-  await recordObservation(
-    ports,
-    metadata,
-    held.bytes,
-    held.reservation.id,
-    { kind: 'reporter', command: 'offer' },
-    sinks,
-  )
+  await recordObservation(ports, metadata, held.bytes, held.reservation.id, 'offer', sinks)
   return 'recorded'
 }
 
 /** Decide which offered tiles the server needs, recording tiles whose bytes it already holds. */
 export const offerTiles = (
   batch: TileOffers,
-): Effect.Effect<TileOfferResult, StorageError | ValidationError, IngestServices> =>
+): Effect.Effect<TileOfferResult, IngestError, IngestServices> =>
   Effect.gen(function* () {
     const ports = yield* ingestStores
     if (new Set(batch.offers.map((offer) => offer.tile)).size !== batch.offers.length) {
@@ -604,14 +575,14 @@ export const offerTiles = (
     // multi-tile offer would outlast the client's deadline. Once one fails, queued tiles do not
     // start, but tiles in flight finish, so the flush below sees every commit and none misses
     // projection repair or artifacts.
-    let firstFailure: StorageError | undefined
+    let firstFailure: IngestError | undefined
     const settled = yield* Effect.forEach(
       offers,
-      ({ key, metadata }): Effect.Effect<Result.Result<OfferOutcome, StorageError>> => {
+      ({ key, metadata }): Effect.Effect<Result.Result<OfferOutcome, IngestError>> => {
         if (firstFailure !== undefined) return Effect.succeed(Result.fail(firstFailure))
         if (cached.has(key)) return Effect.succeed(Result.succeed('cached'))
         return Effect.map(
-          Effect.result(storage('offerTile', () => offerTilePromise(ports, metadata, sinks))),
+          Effect.result(fromPort('offerTile', () => offerTilePromise(ports, metadata, sinks))),
           (result) => {
             if (Result.isFailure(result)) firstFailure ??= result.failure
             return result

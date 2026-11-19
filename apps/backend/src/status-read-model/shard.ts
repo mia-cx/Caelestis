@@ -4,7 +4,7 @@ import type {
   ManifestProjectionRead,
   VisibilityScope,
 } from '../manifest/read-model.js'
-import type { IngestTimingSnapshot } from '../telemetry/ingest-timing.js'
+import type { IngestTimingSnapshot } from '../metrics/ingest-timing.js'
 import type { StatusCoordinator } from './coordinator.js'
 import type {
   StatusProjectionChange,

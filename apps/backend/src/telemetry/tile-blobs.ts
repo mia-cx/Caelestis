@@ -1,8 +1,8 @@
 import { type Millis, millis } from '@caelestis/shared'
+import { ingestTimings } from '../metrics/ingest-timing.js'
 import type { BlobStore } from '../ports/index.js'
+import { BoundedCache } from '../runtime/bounded-cache.js'
 import type { TileBlobObject, TileBlobReservation, TileBlobStore } from './blobs/store.js'
-import { BoundedCache } from './bounded-cache.js'
-import { ingestTimings } from './ingest-timing.js'
 
 interface TileBlobStores {
   readonly blobs: BlobStore
@@ -58,7 +58,6 @@ const reclaimTileBlob = async (
   return 'reclaimed'
 }
 
-/** Read the currently registered generation, with the pre-GC hash key as the migration fallback. */
 export const readTileBlob = async (
   ports: TileBlobStores,
   hash: string,
@@ -97,7 +96,6 @@ export const reserveTileBlob = async (
   return reservation === null ? null : { reservation, bytes }
 }
 
-/** Finish durable deletion work for one hash before restoring it under a new key. */
 const recoverDeletingHash = async (
   ports: TileBlobStores,
   hash: string,
@@ -112,7 +110,6 @@ const recoverDeletingHash = async (
   return true
 }
 
-/** Reserve an unfenced generation, recovering any interrupted older deletion once if needed. */
 export const reserveTileBlobUpload = async (
   ports: TileBlobStores,
   hash: string,
