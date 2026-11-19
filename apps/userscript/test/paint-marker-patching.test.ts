@@ -158,8 +158,11 @@ const setup = async () => {
   }
   const catalog = await import('../src/templates/catalog.js')
   const edits = await import('../src/templates/template-edits.js')
-  const { pixelAccounting } = await import('../src/templates/mismatch.js')
+  const { installMismatchAccounting, pixelAccounting } = await import(
+    '../src/templates/mismatch.js'
+  )
   const { MarkerRenderer } = await import('../src/gl/marker-renderer.js')
+  installMismatchAccounting()
 
   const served = new Uint8Array(SIZE * SIDE).fill(UNPAINTED)
   for (let y = 0; y < SIDE; y++)

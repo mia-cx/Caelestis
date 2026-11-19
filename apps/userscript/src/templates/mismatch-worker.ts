@@ -1,5 +1,5 @@
 import { count, warn } from '../debug.js'
-import { recordProfileDuration, registerProfileMemorySource } from '../profile.js'
+import { recordProfileDuration } from '../profile.js'
 import { type ScanJob, type ScanOutcome, scanTile } from './mismatch-scan.js'
 
 /**
@@ -299,4 +299,3 @@ export const mismatchWorkerMemoryBytes = (): number => {
   }
   return bytes
 }
-registerProfileMemorySource('Mismatch worker copy', mismatchWorkerMemoryBytes)

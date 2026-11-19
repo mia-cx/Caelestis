@@ -3,6 +3,7 @@ import { registerCaelestisUi } from '@caelestis/ui/elements'
 import { installAlarmNotifications } from './alarms.js'
 import { installAllianceServerSync } from './alliance-server-sync.js'
 import { installAllianceSurfaceObserver } from './alliance-surface.js'
+import { installTransfers } from './application/transfer.js'
 import { installClaims } from './claims.js'
 import { installDebugApi, loadDebugSetting, warn } from './debug.js'
 import { installDraftPixels } from './draft-pixels.js'
@@ -22,6 +23,7 @@ import { installServerSyncCoordinator } from './server-sync-coordinator.js'
 import { loadState } from './settings.js'
 import { installShiftPaint } from './shift-paint.js'
 import { installTelemetry } from './telemetry.js'
+import { installMismatchAccounting } from './templates/mismatch.js'
 import { installOfficialEvents } from './templates/official-overlays.js'
 import { installPersonalTemplates } from './templates/personal-sync.js'
 import { installServerSync } from './templates/server-sync.js'
@@ -99,6 +101,8 @@ export const installFeatures = (): void => {
   step('Wplace settings', installWplaceSettings)
   step('settings', () => void loadState())
   step('server connections', installServerConnections)
+  step('server transfers', installTransfers)
+  step('mismatch accounting', installMismatchAccounting)
   // Templates outlive a page load, which is what makes navigating to one survivable at all.
   step('local templates', () => void installPersonalTemplates())
   // Wplace's own event overlays, such as the Seven Seals, listed read-only under Events.

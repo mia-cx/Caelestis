@@ -153,8 +153,12 @@ const cancelDestinationAdmissions = (server: ServerConnection): void => {
   for (const controller of controllers) controller.abort(new Error('destination disconnected'))
   destinationAdmissionControllers.delete(server.url)
 }
-onServerConnected(cancelDestinationAdmissions)
-onServerRemoving(cancelDestinationAdmissions)
+
+/** Void running admission checks when their destination reconnects or goes. */
+export const installTransfers = (): void => {
+  onServerConnected(cancelDestinationAdmissions)
+  onServerRemoving(cancelDestinationAdmissions)
+}
 
 /** The destination's folders, and its template rows by id, as freshly admitted. */
 const admittedRows = async (

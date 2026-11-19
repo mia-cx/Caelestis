@@ -18,8 +18,9 @@ import {
   draftedPixelOffsets,
   draftPixels,
 } from '../draft-pixels.js'
+import { notifyListeners } from '../listeners.js'
 import { UNPAINTED } from '../native-pixels.js'
-import { onTilePixels } from '../pixel-changes.js'
+import { onTilePixels, type PixelChangeSource } from '../pixel-changes.js'
 import { pixelObservationOf } from '../pixel-observation.js'
 import { measureProfile, registerProfileMemorySource } from '../profile.js'
 import {
@@ -27,6 +28,7 @@ import {
   serverMismatchMaskFor as currentServerMismatchMaskFor,
   endServerMismatchFrame,
   onServerMismatchesChanged,
+  serverMismatchMemoryBytes,
 } from '../server-mismatch.js'
 import {
   ensureTilePixels,
@@ -56,7 +58,13 @@ import { nearestColourTarget } from './colour-navigation.js'
 import { MarkList, markSeed } from './mark-list.js'
 import { markWanted, packMismatchMark } from './mismatch-marks.js'
 import { type ScanJob, type ScanOutcome, scanTile } from './mismatch-scan.js'
-import { forgetInWorker, hasWorker, releaseInWorker, scanInWorker } from './mismatch-worker.js'
+import {
+  forgetInWorker,
+  hasWorker,
+  mismatchWorkerMemoryBytes,
+  releaseInWorker,
+  scanInWorker,
+} from './mismatch-worker.js'
 import {
   classifyPixel,
   colourProgressFrom,
@@ -434,17 +442,6 @@ const mismatchRevision = (): number => changed
 const changeListeners: Array<() => void> = []
 const draftChangeListeners: Array<() => void> = []
 
-/** Call every listener; one that throws must not stop the rest. */
-const emit = (listeners: readonly (() => void)[], failure: string): void => {
-  for (const listener of listeners) {
-    try {
-      listener()
-    } catch {
-      count(failure)
-    }
-  }
-}
-
 /**
  * One notification per task, however many answers changed in it.
  *
@@ -460,7 +457,7 @@ const notifyChanged = (): void => {
   notifyScheduled = true
   queueMicrotask(() => {
     notifyScheduled = false
-    emit(changeListeners, 'mismatch:listener-failed')
+    notifyListeners(changeListeners, 'mismatch listener failed')
   })
 }
 
@@ -1378,7 +1375,11 @@ const draftSourceBasis = (source: Uint8Array, tile: string): string => {
   return `${sourceId}:${serverTileRevisions.get(tile) ?? 0}`
 }
 
-onTilePixels((tile, triples, source) => {
+const applyPixelBatch = (
+  tile: TileCoord,
+  triples: readonly number[],
+  source: PixelChangeSource,
+): void => {
   const suffix = tileSuffix(tile)
   if (source === 'observed') {
     const pixels = tilePixels(tile)
@@ -1421,32 +1422,32 @@ onTilePixels((tile, triples, source) => {
     patchTile(tile, triples)
   }
   if (hasStaleTile(tile)) scheduleIdleScan()
-  if (source === 'draft') emit(draftChangeListeners, 'mismatch:draft-listener-failed')
+  if (source === 'draft') notifyListeners(draftChangeListeners, 'mismatch draft listener failed')
   if (changed === before) return
   notifyChanged()
-})
+}
 
-onTilePixelsAvailable((tile) => {
+const scanIfStale = (tile: TileCoord): void => {
   if (hasStaleTile(tile)) scheduleIdleScan()
-})
+}
 
-onServerMismatchesChanged(() => {
+const serverMismatchesChanged = (): void => {
   changed++
   notifyChanged()
-})
+}
 
 /** Subscribe specifically to native draft placement, repaint, undo, and clear operations. */
 const onDraftsChanged = (listener: () => void): void => {
   draftChangeListeners.push(listener)
 }
 
-onTilePixelsEvicted((tile) => {
+const forgetEvictedTile = (tile: TileCoord): void => {
   const suffix = tileSuffix(tile)
   for (const [cacheKey, entry] of entries) {
     if (cacheKey.endsWith(suffix)) entry.superseded = undefined
   }
   serverTileRevisions.delete(`${tile.x}/${tile.y}`)
-})
+}
 
 /** Forget everything for a template that has gone, so its tiles are not held alive by the cache. */
 const forgetTemplate = (id: string): void => {
@@ -1463,7 +1464,7 @@ const forgetTemplate = (id: string): void => {
 }
 
 let knownTemplateIds = new Set<string>()
-onLocalChange(() => {
+const followCatalog = (): void => {
   const templates = worldTemplates()
   const current = new Set(templates.map((template) => template.id))
   for (const id of knownTemplateIds) {
@@ -1474,7 +1475,7 @@ onLocalChange(() => {
   for (const template of templates) {
     if (template.artwork.pixels === null) releaseInWorker(template.id)
   }
-})
+}
 
 const categoryOf = (classification: MismatchClass) =>
   classification === MATCH ? 'completed' : classification === BLANK ? 'unpainted' : 'mismatched'
@@ -1567,4 +1568,22 @@ export const pixelAccounting = Object.freeze({
   memoryBytes: mismatchMemoryBytes,
   revision: mismatchRevision,
 })
-registerProfileMemorySource('Mismatch cache', mismatchMemoryBytes)
+
+let installed = false
+
+/**
+ * Keep accounting in step with captured pixels, server masks and the template catalog. Install it
+ * before anything that reads progress subscribes to the same changes, so accounting hears them first.
+ */
+export const installMismatchAccounting = (): void => {
+  if (installed) return
+  installed = true
+  registerProfileMemorySource('Mismatch cache', mismatchMemoryBytes)
+  registerProfileMemorySource('Mismatch worker copy', mismatchWorkerMemoryBytes)
+  registerProfileMemorySource('Server mismatch masks', serverMismatchMemoryBytes)
+  onTilePixels(applyPixelBatch)
+  onTilePixelsAvailable(scanIfStale)
+  onServerMismatchesChanged(serverMismatchesChanged)
+  onTilePixelsEvicted(forgetEvictedTile)
+  onLocalChange(followCatalog)
+}

@@ -24,7 +24,7 @@ import {
   onActiveAllianceSurfaceChange,
 } from '../alliance-surface.js'
 import { cancelTreeActionSetup } from '../application/tree-presentation.js'
-import { onServerSnapshot } from '../application/tree-server-state.js'
+import { onServerSnapshot, type ServerSnapshotResult } from '../application/tree-server-state.js'
 import { onOtherBuildChange } from '../build-transfer.js'
 import { onCanvasWrite } from '../canvas-write.js'
 import { ALLIANCE_PANEL_ID, PANEL_ID } from '../chrome-ids.js'
@@ -264,14 +264,14 @@ const queueManifestTreeRefresh = (): void => {
 /** The work revision last admitted per server URL, so a claims-only change still redraws. */
 const admittedWorkRevisions = new Map<string, number | undefined>()
 
-onServerSnapshot((server, result) => {
+const followServerSnapshot = (server: ServerConnection, result: ServerSnapshotResult): void => {
   if (result.status !== 'admitted') return
   // Claiming a template bumps only the manifest's work revision; its rows compare unchanged.
   const revision = admittedManifest(server)?.workRevision
   const claimsChanged = admittedWorkRevisions.get(server.url) !== revision
   admittedWorkRevisions.set(server.url, revision)
   if (result.changed || claimsChanged) queueManifestTreeRefresh()
-})
+}
 
 /** Follow a presence message by replacing only the Painters drawer; the trees do not read it. */
 const refreshPresenceDrawer = (): void => {
@@ -626,6 +626,7 @@ export const installPanel = (): void => {
     if (expansionOnly) redrawView()
     else refreshView()
   })
+  onServerSnapshot(followServerSnapshot)
   onAllianceManifestChange(refreshView)
   onSettingsViewChange(refreshSettings)
   // A patch switched from the console must not leave an open settings view showing the old state.

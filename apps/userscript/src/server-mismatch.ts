@@ -5,7 +5,6 @@ import {
   type TileCoord,
 } from '@caelestis/shared'
 import { nextPixelObservation, recordPixelObservation } from './pixel-observation.js'
-import { registerProfileMemorySource } from './profile.js'
 import {
   type ConnectedServer,
   connectedServerAt,
@@ -81,12 +80,12 @@ const heldBytes = (held: HeldMask): number =>
     ? 0
     : held.unsaved.byteLength)
 
-const serverMismatchMemoryBytes = (): number => {
+/** What the held server mismatch masks take in memory, for the profile. */
+export const serverMismatchMemoryBytes = (): number => {
   let bytes = 0
   for (const held of masks.values()) bytes += heldBytes(held)
   return bytes
 }
-registerProfileMemorySource('Server mismatch masks', serverMismatchMemoryBytes)
 
 const invalidationPrefix = (serverUrl: string): string => `${serverUrl}\u0000`
 const invalidationKeyFor = (serverUrl: string, tile: TileCoord): string =>

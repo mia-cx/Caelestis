@@ -86,8 +86,9 @@ const queuedWrites = new WeakMap<object, number[]>()
 
 /** Drafts plus accepted paint, cached per tile until its pixels change. */
 const comparisonDrafts = new Map<string, Uint8Array>()
-invalidateOnTilePixels((tile) => comparisonDrafts.delete(tileKey(tile)))
-onTilePixelsEvicted((tile) => comparisonDrafts.delete(tileKey(tile)))
+const forgetComparisonDraft = (tile: TileCoord): void => {
+  comparisonDrafts.delete(tileKey(tile))
+}
 
 /** What the dense draft arrays hold in memory. */
 export const draftPixelMemoryBytes = (): number => {
@@ -649,6 +650,8 @@ export const refreshDraftCanvas = (
  * hook cannot see, and drop every draft when the paint drawer closes.
  */
 export const installDraftPixels = (): void => {
+  invalidateOnTilePixels(forgetComparisonDraft)
+  onTilePixelsEvicted(forgetComparisonDraft)
   // The selected-colour marker lives in MapLibre's custom layer. Returning from Eraser to Pencil
   // changes the selected swatch without moving the map, so repainting only the retained
   // screen-space frame leaves that marker stale until some unrelated map animation happens.
