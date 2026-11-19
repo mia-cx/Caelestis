@@ -8,6 +8,7 @@ import { refreshServerSnapshot } from '../application/tree-server-state.js'
 import { listServerTags, mutateServerTag, onServerContents } from '../server-api.js'
 import { isCurrentServerConnection } from '../server-connections.js'
 import { mutateLocalTag, onLocalTags, readLocalTags } from '../templates/tags.js'
+import { localFolderIdOf, localTemplateIdOf } from '../tree-keys.js'
 import { closeDialogHost } from './dialog.js'
 import { applyWplaceTheme } from './theme.js'
 import type { TreeTarget } from './tree-context.js'
@@ -20,15 +21,11 @@ export const openTagManager = (target: TreeTarget, rerender: () => void): void =
   const manager = document.createElement(TAG_MANAGER_TAG)
   const server = target.server
   const templateId =
-    server === null && target.key.startsWith('local:')
-      ? target.key.slice('local:'.length)
-      : target.templateId
+    server === null ? (localTemplateIdOf(target.key) ?? undefined) : target.templateId
   const restoreFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
   const folderId =
     server === null
-      ? target.key.startsWith('lf:')
-        ? target.key.slice(3)
-        : undefined
+      ? (localFolderIdOf(target.key) ?? undefined)
       : target.templateId === undefined
         ? (target.nodeId ?? undefined)
         : undefined

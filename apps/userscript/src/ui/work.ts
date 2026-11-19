@@ -22,7 +22,7 @@ import { serverEndpoint } from '../server-request.js'
 import { sendServerRequest } from '../server-transport.js'
 import { commitState, getState, type ServerConnection } from '../settings.js'
 import { isServerTemplate, localTemplates } from '../templates/local-store.js'
-import { serverTemplateTreeKey } from '../tree-keys.js'
+import { localTemplateIdOf, localTemplateKey, serverTemplateTreeKey } from '../tree-keys.js'
 import { accountIdentity, loadAccount } from '../wplace-account.js'
 import { showToast } from './notification-host.js'
 import type { TreeTarget } from './tree-context.js'
@@ -157,7 +157,7 @@ export const workSectionModel = (surface: TemplateSurface, changed: () => void) 
     const people = getState()
       .localClaims.filter((claim) => claim.templateId === template.id)
       .map((claim) => claim.claimant)
-    templates.set(`local:${template.id}`, {
+    templates.set(localTemplateKey(template.id), {
       people,
       mine: people.some((person) => person.wplaceUserId === painterId),
       canAssign: false,
@@ -223,8 +223,8 @@ export const claimTemplate = async (
   const surface = target.surface ?? WORLD_TEMPLATE_SURFACE
   const server = target.server
   if (server === null) {
-    if (!target.key.startsWith('local:') || person !== undefined) return
-    const templateId = target.key.slice('local:'.length)
+    const templateId = localTemplateIdOf(target.key)
+    if (templateId === null || person !== undefined) return
     const known = new Set(
       localTemplates()
         .filter((template) => !isServerTemplate(template))
@@ -310,7 +310,7 @@ export const changeTemplateClaim = (
   release: boolean,
   person?: PainterIdentity,
 ): void => {
-  if (key.startsWith('local:')) {
+  if (localTemplateIdOf(key) !== null) {
     void claimTemplate(
       { key, surface, server: null, nodeId: null, name: '' },
       changed,
@@ -347,7 +347,8 @@ export const hasOwnTemplateClaim = (target: TreeTarget): boolean => {
   if (target.server === null)
     return getState().localClaims.some(
       (claim) =>
-        `local:${claim.templateId}` === target.key && claim.claimant.wplaceUserId === painterId,
+        localTemplateKey(claim.templateId) === target.key &&
+        claim.claimant.wplaceUserId === painterId,
     )
   return (
     previews

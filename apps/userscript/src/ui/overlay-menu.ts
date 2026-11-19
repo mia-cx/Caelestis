@@ -79,6 +79,7 @@ import {
   movingId,
   placementSeq,
 } from '../templates/move.js'
+import { localTemplateKey } from '../tree-keys.js'
 import {
   type AppearanceStore,
   appearanceEditorModel,
@@ -139,7 +140,7 @@ const NATURAL_WIDTH = 'min(19.5rem, calc(100vw - 1rem))'
 /**
  * Our controls' identity attribute.
  *
- * Deliberately not `data-caelestis-key`, which `tree.ts` uses for `local:<id>`/`server:<url>` row keys.
+ * Deliberately not `data-caelestis-key`, which the tree uses for its row keys.
  * Nothing collides while every lookup is scoped to the menu, but one unscoped query would be enough
  * to focus a panel row instead of a control.
  */
@@ -1317,7 +1318,7 @@ const confirmDelete = (id: string, rerender: () => void): void => {
         rerender()
         return
       }
-      if (serverTarget === null) removeTreeStateKeys(new Set([`local:${id}`]))
+      if (serverTarget === null) removeTreeStateKeys(new Set([localTemplateKey(id)]))
       if (openFor === id) closeOverlayMenu()
       rerender()
     },
