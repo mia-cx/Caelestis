@@ -286,7 +286,7 @@ const currentPanelId = (): string =>
  * in whatever their theme calls primary, now and after any theme change.
  */
 const panelRailModel = (scope: PanelScope): RailControlModel => ({
-  id: scope === 'alliance' ? 'alliance-panel' : 'panel',
+  icon: 'extension',
   label: buttonTooltip(),
   pressed: panelSessions.isOpen(scope),
   expanded: panelSessions.isOpen(scope),
@@ -308,7 +308,7 @@ const syncAllianceModeState = (active = activeAllianceSurface()): void => {
   if (mismatch === null || active === null) return
   const on = getSurfaceAppearance(active.surface).markMismatch
   mismatch.model = {
-    id: 'mismatch',
+    icon: 'bug',
     label: `${on ? 'Hide' : 'Show'} mismatch markers on this canvas${shortcutHint('toggle-markers')}`,
     pressed: on,
   }
@@ -321,7 +321,7 @@ const railButton = (): RailControl => {
   button.id = BUTTON_ID
   button.model = panelRailModel('world')
   applyWplaceTheme(button)
-  bindRailActivation(button, 'panel', () => togglePanelFor('world'))
+  bindRailActivation(button, () => togglePanelFor('world'))
   return button
 }
 
@@ -334,7 +334,6 @@ const allianceRailButton = (active: ActiveAllianceSurface): RailControl => {
   applyWplaceTheme(button)
   bindRailActivation(
     button,
-    'alliance-panel',
     () => {
       selectAlliancePanelSurface(active)
       togglePanelFor('alliance')
@@ -351,9 +350,7 @@ const allianceColourModeButton = (active: ActiveAllianceSurface): RailControl =>
   button.id = ALLIANCE_COLOUR_MODE_ID
   button.model = colourRailModel(active.surface)
   applyWplaceTheme(button)
-  button.addEventListener('caelestis-rail-control-intent', (event) => {
-    const intent = event.detail
-    if (intent.id !== 'colour') return
+  button.addEventListener('click', () => {
     setOnlySelectedColourFor(active.surface, !onlySelectedColourFor(active.surface))
   })
   return button
@@ -365,9 +362,7 @@ const allianceMismatchModeButton = (active: ActiveAllianceSurface): RailControl 
   const button = document.createElement('caelestis-rail-control')
   button.id = ALLIANCE_MISMATCH_MODE_ID
   applyWplaceTheme(button)
-  button.addEventListener('caelestis-rail-control-intent', (event) => {
-    const intent = event.detail
-    if (intent.id !== 'mismatch') return
+  button.addEventListener('click', () => {
     const appearance = getSurfaceAppearance(active.surface)
     setSurfaceAppearance(active.surface, {
       ...appearance,
@@ -1683,7 +1678,7 @@ const trayOpen = (): boolean => tray !== null && !tray.hidden
 const syncMoreState = (): void => {
   if (moreControl === null) return
   moreControl.model = {
-    id: 'more',
+    icon: 'kebab',
     label: 'More Caelestis controls',
     popup: 'menu',
     controls: TRAY_ID,
@@ -1722,10 +1717,7 @@ const moreButton = (): RailControl => {
   moreControl = document.createElement('caelestis-rail-control')
   moreControl.id = MORE_ID
   applyWplaceTheme(moreControl)
-  moreControl.addEventListener('caelestis-rail-control-intent', (event) => {
-    if (event.detail.id !== 'more') return
-    setTrayOpen(!trayOpen())
-  })
+  moreControl.addEventListener('click', () => setTrayOpen(!trayOpen()))
   syncMoreState()
   return moreControl
 }
@@ -1744,7 +1736,9 @@ const trayContainer = (): HTMLElement => {
   tray.setAttribute('aria-label', 'More Caelestis controls')
   Object.assign(tray.style, { position: 'fixed', zIndex: '30' })
   tray.hidden = true
-  tray.addEventListener('caelestis-rail-control-intent', () => setTrayOpen(false))
+  tray.addEventListener('click', (event) => {
+    if (event.target !== tray) setTrayOpen(false)
+  })
   document.body.appendChild(tray)
   return tray
 }
@@ -1823,7 +1817,7 @@ const colourRailModel = (surface: TemplateSurface = WORLD_TEMPLATE_SURFACE): Rai
   const on = onlySelectedColourFor(surface)
   const label = on ? 'Showing only the selected colour' : 'Show only the selected colour'
   return {
-    id: 'colour',
+    icon: 'palette',
     label: `${isPaintOpen() ? label : `${label} — open wplace's paint drawer to pick one`}${shortcutHint('toggle-colour')}`,
     pressed: on,
   }
@@ -1836,9 +1830,7 @@ const colourModeButton = (): RailControl => {
   button.id = COLOUR_MODE_ID
   button.model = colourRailModel()
   applyWplaceTheme(button)
-  button.addEventListener('caelestis-rail-control-intent', (event) => {
-    const intent = event.detail
-    if (intent.id !== 'colour') return
+  button.addEventListener('click', () => {
     setOnlySelectedColourFor(WORLD_TEMPLATE_SURFACE, !onlySelectedColourFor(WORLD_TEMPLATE_SURFACE))
     syncColourModeState()
   })

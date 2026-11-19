@@ -30,7 +30,7 @@ export const syncPresenceModeState = (): void => {
   if (button === null) return
   const on = getState().showPresence
   button.model = {
-    id: 'presence',
+    icon: 'painters',
     label: `${on ? 'Hide' : 'Show'} other painters and claims${shortcutHint('toggle-presence')}`,
     pressed: on,
   }
@@ -43,9 +43,7 @@ export const presenceModeButton = (): RailControl => {
   const button = document.createElement('caelestis-rail-control')
   button.id = PRESENCE_MODE_ID
   applyWplaceTheme(button)
-  button.addEventListener('caelestis-rail-control-intent', (event) => {
-    const intent = event.detail
-    if (intent.id !== 'presence') return
+  button.addEventListener('click', () => {
     setState({ showPresence: !getState().showPresence })
     syncPresenceModeState()
     redraw()
@@ -63,7 +61,7 @@ export const syncClaimToolState = (): void => {
   // Alliance artboards have no presence room, so claims only exist on the world canvas.
   const ready = view.connected && view.me !== null && activeAllianceSurface() === null
   button.model = {
-    id: 'claim',
+    icon: 'shapes',
     label: capturing
       ? 'Leave capture mode (Esc)'
       : active
@@ -89,9 +87,7 @@ export const claimToolButton = (): RailControl => {
   const button = document.createElement('caelestis-rail-control')
   button.id = CLAIM_TOOL_ID
   applyWplaceTheme(button)
-  button.addEventListener('caelestis-rail-control-intent', (event) => {
-    const intent = event.detail
-    if (intent.id !== 'claim') return
+  button.addEventListener('click', () => {
     if (isClaimModeActive()) stopClaimMode()
     else {
       // The rail control only looks disabled; the guard is here.
@@ -110,7 +106,7 @@ export const syncMismatchModeState = (): void => {
   if (button === null) return
   const on = getState().appearance.markMismatch
   const label = on ? 'Hide global mismatch markers' : 'Show global mismatch markers'
-  button.model = { id: 'mismatch', label: `${label}${shortcutHint('toggle-markers')}`, pressed: on }
+  button.model = { icon: 'bug', label: `${label}${shortcutHint('toggle-markers')}`, pressed: on }
 }
 
 /** The always-reachable switch for the global marker default. */
@@ -120,9 +116,7 @@ export const mismatchModeButton = (): RailControl => {
   const button = document.createElement('caelestis-rail-control')
   button.id = MISMATCH_MODE_ID
   applyWplaceTheme(button)
-  button.addEventListener('caelestis-rail-control-intent', (event) => {
-    const intent = event.detail
-    if (intent.id !== 'mismatch') return
+  button.addEventListener('click', () => {
     const appearance = getState().appearance
     setState({ appearance: { ...appearance, markMismatch: !appearance.markMismatch } })
     syncMismatchModeState()

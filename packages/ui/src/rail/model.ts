@@ -1,23 +1,8 @@
-export type RailControlId =
-  | 'panel'
-  | 'more'
-  | 'alliance-panel'
-  | 'colour'
-  | 'mismatch'
-  | 'claim'
-  | 'presence'
-  | 'overlay-menu'
-  | 'overlay-finished'
-  | 'overlay-frozen'
-  | 'overlay-visible'
-  | 'overlay-move'
-  | 'overlay-delete'
-  | 'placement-apply'
-  | 'placement-cancel'
+import type { IconName } from '../foundations/icons.svelte.js'
 
+/** A round rail button; hosts listen for its native `click`. */
 export interface RailControlModel {
-  readonly id: RailControlId
-  readonly control?: string
+  readonly icon: IconName
   readonly label: string
   readonly title?: string
   readonly busy?: boolean
@@ -29,5 +14,3 @@ export interface RailControlModel {
   readonly disabled?: boolean
   readonly danger?: boolean
 }
-
-export type RailControlIntent = { readonly type: 'activate'; readonly id: RailControlId }

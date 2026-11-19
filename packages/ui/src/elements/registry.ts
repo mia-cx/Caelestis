@@ -4,7 +4,7 @@ import type { NotificationsIntent, NotificationsModel } from '../notifications/m
 import type { OverlayControlsIntent, OverlayControlsModel } from '../overlay/model.js'
 import type { PanelIntent, PanelModel } from '../panel/model.js'
 import type { PaletteProgressModel } from '../progress/model.js'
-import type { RailControlIntent, RailControlModel } from '../rail/model.js'
+import type { RailControlModel } from '../rail/model.js'
 import type { ServerDetailsIntent, ServerDetailsModel } from '../server-details/model.js'
 import type { ExtensionSettingsModel, GlobalSettingsIntent } from '../settings/model.js'
 import type { ShortcutHelpIntent, ShortcutHelpModel } from '../shortcut-help/model.js'
@@ -14,7 +14,7 @@ import type { TagManagerIntent, TagManagerModel } from '../tags/model.js'
 
 /**
  * Every custom element, by tag: the properties a host sets and the intent its `${tag}-intent`
- * event carries.
+ * event carries (`never` for elements without one).
  */
 export interface CaelestisElementTable {
   'caelestis-backfill': { props: { model: BackfillModel }; intent: BackfillIntent }
@@ -30,7 +30,7 @@ export interface CaelestisElementTable {
   }
   'caelestis-palette-progress': { props: { model: PaletteProgressModel }; intent: never }
   'caelestis-panel': { props: { model: PanelModel }; intent: PanelIntent }
-  'caelestis-rail-control': { props: { model: RailControlModel }; intent: RailControlIntent }
+  'caelestis-rail-control': { props: { model: RailControlModel }; intent: never }
   'caelestis-server-details': { props: { model: ServerDetailsModel }; intent: ServerDetailsIntent }
   'caelestis-shortcut-help': { props: { model: ShortcutHelpModel }; intent: ShortcutHelpIntent }
   'caelestis-tag-manager': { props: { model: TagManagerModel }; intent: TagManagerIntent }

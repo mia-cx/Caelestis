@@ -1,27 +1,8 @@
 <script lang="ts">
   import Icon from '../foundations/Icon.svelte'
-  import type { IconName } from '../foundations/icons.svelte.js'
-  import type { RailControlIntent, RailControlModel } from './model.js'
+  import type { RailControlModel } from './model.js'
 
-  let { model, onIntent }: { model: RailControlModel; onIntent?: (intent: RailControlIntent) => void } = $props()
-
-  const icons: Record<RailControlModel['id'], IconName> = {
-    panel: 'extension',
-    more: 'kebab',
-    'alliance-panel': 'extension',
-    colour: 'palette',
-    mismatch: 'bug',
-    claim: 'shapes',
-    presence: 'painters',
-    'overlay-menu': 'kebab',
-    'overlay-finished': 'check',
-    'overlay-frozen': 'snowflake',
-    'overlay-visible': 'image',
-    'overlay-move': 'move',
-    'overlay-delete': 'trash',
-    'placement-apply': 'check',
-    'placement-cancel': 'close',
-  }
+  let { model }: { model: RailControlModel } = $props()
 </script>
 
 <button
@@ -37,10 +18,8 @@
   aria-controls={model.controls}
   aria-haspopup={model.popup}
   aria-disabled={model.disabled}
-  data-caelestis-control={model.control}
-  onclick={() => onIntent?.({ type: 'activate', id: model.id })}
 >
-  <Icon name={icons[model.id]} size="1.25rem" />
+  <Icon name={model.icon} size="1.25rem" />
   {#if model.badge !== undefined && model.badge > 0}
     <span class="badge" aria-label={`${model.badge} new alarms`}>{model.badge}</span>
   {/if}

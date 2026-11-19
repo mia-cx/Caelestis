@@ -437,12 +437,7 @@ const overlayRailControl = (
     zIndex: BUTTON_Z,
   })
   applyWplaceTheme(element)
-  element.addEventListener('caelestis-rail-control-intent', (event) => {
-    if (event.detail.id === model.id) activate()
-  })
-  element.addEventListener('click', (event) => {
-    if (event.composedPath()[0] === element) activate()
-  })
+  element.addEventListener('click', activate)
   return element
 }
 
@@ -1471,8 +1466,7 @@ const buildSvelteMenu = (
       : [
           {
             model: {
-              id: 'overlay-finished' as const,
-              control: 'finished',
+              icon: 'check' as const,
               label:
                 pending === 'finished'
                   ? 'Saving completion…'
@@ -1488,8 +1482,7 @@ const buildSvelteMenu = (
           },
           {
             model: {
-              id: 'overlay-frozen' as const,
-              control: 'frozen',
+              icon: 'snowflake' as const,
               label:
                 pending === 'frozen'
                   ? 'Saving timelapse state…'
@@ -1510,8 +1503,7 @@ const buildSvelteMenu = (
         ]),
     {
       model: {
-        id: 'overlay-visible',
-        control: 'hide',
+        icon: 'image' as const,
         label: visible ? 'Hide this overlay' : 'Show this overlay',
         ...(visible ? {} : { pressed: true }),
         disabled: isDoomed(id),
@@ -1524,8 +1516,7 @@ const buildSvelteMenu = (
       : [
           {
             model: {
-              id: 'overlay-move' as const,
-              control: 'move',
+              icon: 'move' as const,
               label: serverProtected ? 'Unpublish before moving this overlay' : 'Move this overlay',
               pressed: false,
               disabled: isDoomed(id) || serverProtected,
@@ -1535,8 +1526,7 @@ const buildSvelteMenu = (
           },
           {
             model: {
-              id: 'overlay-delete' as const,
-              control: 'delete',
+              icon: 'trash' as const,
               label: serverProtected
                 ? 'Unpublish before deleting this template'
                 : 'Delete this template',
@@ -1552,7 +1542,7 @@ const buildSvelteMenu = (
   ]
   const actions = actionSpecs.map(({ model, control, activate }) => {
     const action = overlayRailControl(model, control, activate)
-    action.setAttribute('data-caelestis-rail-action', '')
+    action.dataset.enter = 'drop'
     return action
   })
   const menu = document.createElement('caelestis-overlay-controls')
@@ -1705,7 +1695,7 @@ const placementRailFor = (id: string, host: HTMLElement): PlacementRail => {
   removePlacementRail(id)
 
   const apply = overlayRailControl(
-    { id: 'placement-apply', label: 'Apply template position', pressed: true },
+    { icon: 'check', label: 'Apply template position', pressed: true },
     'apply-move',
     () => {
       if (movingId() !== id || isFinishing()) return
@@ -1713,10 +1703,10 @@ const placementRailFor = (id: string, host: HTMLElement): PlacementRail => {
       lastRerender?.()
     },
   )
-  apply.setAttribute('data-caelestis-placement-action', '')
+  apply.dataset.enter = 'pop'
 
   const cancel = overlayRailControl(
-    { id: 'placement-cancel', label: 'Cancel template move', pressed: false },
+    { icon: 'close', label: 'Cancel template move', pressed: false },
     'cancel-move',
     () => {
       if (movingId() !== id || isFinishing()) return
@@ -1724,7 +1714,7 @@ const placementRailFor = (id: string, host: HTMLElement): PlacementRail => {
       lastRerender?.()
     },
   )
-  cancel.setAttribute('data-caelestis-placement-action', '')
+  cancel.dataset.enter = 'pop'
   const rail = { apply, cancel }
   placementRails.set(id, rail)
   host.append(apply, cancel)
@@ -2124,13 +2114,13 @@ const renderControls = (
       )
       const finishing = isFinishing()
       rail.apply.model = {
-        id: 'placement-apply',
+        icon: 'check',
         label: 'Apply template position',
         pressed: true,
         disabled: finishing,
       }
       rail.cancel.model = {
-        id: 'placement-cancel',
+        icon: 'close',
         label: 'Cancel template move',
         pressed: false,
         disabled: finishing,
@@ -2189,7 +2179,7 @@ const renderControls = (
     if (button === undefined) {
       button = overlayRailControl(
         {
-          id: 'overlay-menu',
+          icon: 'kebab',
           label: `${template.name} display options`,
           pressed: openFor === template.id,
           expanded: openFor === template.id,
@@ -2225,7 +2215,7 @@ const renderControls = (
     button.title = title
     button.setAttribute('aria-label', label)
     button.model = {
-      id: 'overlay-menu',
+      icon: 'kebab',
       label,
       pressed: openFor === template.id,
       expanded: openFor === template.id,
@@ -2318,7 +2308,7 @@ const renderControls = (
       if (opening) {
         openSurface(menuNode)
         for (const [index, action] of railActions.entries()) {
-          action.style.setProperty('--rail-action-index', String(index))
+          action.style.setProperty('--stagger-index', String(index))
           openSurface(action)
         }
       }

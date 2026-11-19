@@ -107,22 +107,16 @@ export const allianceRailInlineEnd = (
   return Math.max(0, parent.clientWidth - stage.offsetLeft - stage.offsetWidth + gap)
 }
 
-/** Accept both activation paths, optionally shielding a nested control from artboard pointer capture. */
+/** Activate on click, optionally shielding a nested control from artboard pointer capture. */
 export const bindRailActivation = (
   element: HTMLElement,
-  id: string,
   activate: () => void,
   options: { readonly isolatePointerDown?: boolean } = {},
 ): void => {
   if (options.isolatePointerDown) {
     element.addEventListener('pointerdown', (event) => event.stopPropagation())
   }
-  element.addEventListener('caelestis-rail-control-intent', (event) => {
-    if (event.detail.id === id) activate()
-  })
-  element.addEventListener('click', (event) => {
-    if (event.composedPath()[0] === element) activate()
-  })
+  element.addEventListener('click', activate)
 }
 
 /** Own and restore the Wplace geometry changed while the alliance drawer is open. */

@@ -26,7 +26,7 @@ describe('custom element host boundary', () => {
   it('re-renders mounted icons when the active icon set changes', async () => {
     registerCaelestisUi()
     const element = document.createElement('caelestis-rail-control')
-    element.model = { id: 'panel', label: 'Panel' }
+    element.model = { icon: 'extension', label: 'Panel' }
     document.body.append(element)
     await tick()
     const svg = element.shadowRoot?.querySelector('svg')
