@@ -629,8 +629,13 @@ export const installPanel = (): void => {
     },
   })
   onClaimEditorChange(closePanelForMobileDrawing)
-  // The claims drawer follows the editor.
-  onClaimEditorChange(rerenderTree)
+  // The Painters drawer's claim button follows the editor opening and closing, not every drag step.
+  let claimModeWasActive = isClaimModeActive()
+  onClaimEditorChange(() => {
+    if (isClaimModeActive() === claimModeWasActive) return
+    claimModeWasActive = !claimModeWasActive
+    refreshPresenceDrawer()
+  })
   // Headcounts and region claims arrive over the socket; the Painters drawer has to follow them.
   onPresenceChange(() =>
     measureProfile('Presence drawer', () => {
