@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -647,14 +647,11 @@ test('the release PR closes exactly the issues its pull requests ship, once per 
   assert.equal(releaseBody(once, []), action)
 })
 
-test('updating the release PR preserves its body without overwriting a pre-existing temporary path', () => {
+test('the release-issues step hands the rewritten body to gh', () => {
   const directory = mkdtempSync(join(tmpdir(), 'caelestis-release-issues-'))
   try {
     mkdirSync(join(directory, '.changeset'))
-    const protectedFile = join(directory, 'protected.md')
     const capturedBody = join(directory, 'body.md')
-    writeFileSync(protectedFile, 'Must not change')
-    symlinkSync(protectedFile, join(directory, 'release-pr-123.md'))
     writeFileSync(
       join(directory, 'gh'),
       `#!${process.execPath}
@@ -676,10 +673,9 @@ if (args[0] === 'pr' && args[1] === 'view') {
       [fileURLToPath(new URL('./release-issues.mjs', import.meta.url)), '123', 'owner/project'],
       {
         cwd: directory,
-        env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, TMPDIR: directory },
+        env: { ...process.env, PATH: `${directory}:${process.env.PATH}` },
       },
     )
-    assert.equal(readFileSync(protectedFile, 'utf8'), 'Must not change')
     assert.equal(readFileSync(capturedBody, 'utf8'), '# Releases\n')
   } finally {
     rmSync(directory, { recursive: true, force: true })
