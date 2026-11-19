@@ -1051,12 +1051,6 @@ export interface SqlStore extends TagStore {
    */
   readTemplate(templateId: string): Promise<TemplateRecord | null>
 
-  setTemplatePublishedAt(
-    templateId: string,
-    publishedAt: Millis | null,
-    updatedAt: Millis,
-  ): Promise<boolean>
-
   /**
    * Rename a template, move it to another node, or both. Returns false when the id does not exist,
    * or when a guarded move loses a race with another move or delete. A caller that distinguishes
@@ -1102,14 +1096,6 @@ export interface SqlStore extends TagStore {
 
   readLatestTile(season: number, tile: TileCoord): Promise<LatestTileObservation | null>
 
-  recordTileObservation(
-    observation: TileObservation,
-    statuses: readonly TemplateTileStatusRecord[],
-    recordHistory?: boolean,
-    /** Server fetches are authoritative even when a client clock put the current row in the future. */
-    forceCurrent?: boolean,
-  ): Promise<void>
-
   /** The preferred readable physical object for a hash, if one is registered and unfenced. */
   readTileBlob(hash: string): Promise<TileBlobObject | null>
 
@@ -1143,6 +1129,7 @@ export interface SqlStore extends TagStore {
     observation: TileObservation,
     statuses: readonly TemplateTileStatusRecord[],
     recordHistory?: boolean,
+    /** Server fetches are authoritative even when a client clock put the current row in the future. */
     forceCurrent?: boolean,
     /** Whether the committing reporter may still target an unpublished current version. */
     includeUnpublished?: boolean,
@@ -1233,8 +1220,6 @@ export interface SqlStore extends TagStore {
   ): Promise<PaintEventApplication>
 
   rememberPainter(wplaceUserId: number, displayName: string, seenAt: Millis): Promise<void>
-
-  addContributions(deltas: readonly ContributionDelta[]): Promise<void>
 
   /**
    * Store a freshly minted token.
@@ -1379,13 +1364,6 @@ export interface SqlStore extends TagStore {
 
   /** Earliest native observation bucket across this version's tiles and all retained tiers. */
   readFirstTemplateObservation(versionId: string): Promise<Seconds | null>
-
-  /** Read classifications of these exact historical hashes against one artwork version. */
-  readTileMeasurements(
-    versionId: string,
-    tile: TileCoord,
-    hashes: readonly string[],
-  ): Promise<readonly TileMeasurement[]>
 
   /** Read winning frames, optionally excluding observations outside the artwork's active lifetime. */
   readTemplateProgressFrames(
