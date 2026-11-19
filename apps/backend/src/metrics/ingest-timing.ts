@@ -2,6 +2,7 @@
 const INGEST_COMMANDS = [
   'upload',
   'offer',
+  'mirror',
   'paint',
   'sql',
   'presence',

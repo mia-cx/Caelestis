@@ -141,26 +141,30 @@ const finishRun = async (run: FetchRun): Promise<void> => {
   }
 }
 
-/**
- * Fetch one tile from Wplace and mirror it. `unavailable` means Wplace served nothing usable; a
- * failure to record what it served throws.
- */
-const fetchTile = async (
+/** Fetch one tile from Wplace, or null when Wplace served nothing usable. */
+const downloadTile = async (
   run: FetchRun,
   season: number,
   tile: TileCoord,
-  options: {
-    readonly latestHash: () => Promise<string | null>
-    readonly recordHistory?: boolean
-  },
-): Promise<MirrorOutcome | 'unavailable'> => {
+): Promise<Uint8Array | null> => {
   const response = await run.fetchImpl(wplaceTileUrl(season, tile), {
     headers: { 'user-agent': WPLACE_TILE_USER_AGENT },
   })
-  if (!response.ok) return 'unavailable'
+  if (!response.ok) return null
   const bytes = new Uint8Array(await response.arrayBuffer())
-  if (bytes.byteLength === 0 || bytes.byteLength > MAX_CANVAS_TILE_BYTES) return 'unavailable'
-  return run.runtime.run(
+  return bytes.byteLength === 0 || bytes.byteLength > MAX_CANVAS_TILE_BYTES ? null : bytes
+}
+
+/** Record downloaded bytes; a failure to record them throws. */
+const mirror = async (
+  run: FetchRun,
+  season: number,
+  tile: TileCoord,
+  bytes: Uint8Array,
+  latestHash: string | null,
+  recordHistory?: boolean,
+): Promise<MirrorOutcome> =>
+  run.runtime.run(
     mirrorTile(
       {
         wplaceUserId: FETCHER_USER_ID,
@@ -171,16 +175,12 @@ const fetchTile = async (
         hash: await sha256Hex(bytes),
         observedAt: run.now,
         includeUnpublished: true,
+        ...(recordHistory === undefined ? {} : { recordHistory }),
       },
       bytes,
-      {
-        latestHash: await options.latestHash(),
-        ...(options.recordHistory === undefined ? {} : { recordHistory: options.recordHistory }),
-        sinks: run.sinks,
-      },
+      { latestHash, sinks: run.sinks },
     ),
   )
-}
 
 export const fetchCanvasTiles = async (
   ports: FetcherStores,
@@ -259,14 +259,12 @@ export const fetchCanvasTiles = async (
   try {
     for (const { tile, template, recordHistory, latest } of budgeted) {
       try {
-        const outcome = await fetchTile(run, season, tile, {
-          latestHash: async () => latest?.hash ?? null,
-          recordHistory,
-        })
-        if (outcome === 'unavailable') {
+        const bytes = await downloadTile(run, season, tile)
+        if (bytes === null) {
           failed++
           continue
         }
+        const outcome = await mirror(run, season, tile, bytes, latest?.hash ?? null, recordHistory)
         if (outcome === 'unchanged') unchanged++
         else fetched++
         if (template) serverRefreshedTemplateTiles.add(tileKey(tile))
@@ -402,14 +400,13 @@ export const fetchAlarmFollowUps = async (
       for (const { tile } of batch) {
         remaining--
         try {
-          const outcome = await fetchTile(run, probe.season, tile, {
-            latestHash: async () =>
-              (await ports.sql.readLatestTile(probe.season, tile))?.hash ?? null,
-          })
-          if (outcome === 'unavailable') {
+          const bytes = await downloadTile(run, probe.season, tile)
+          if (bytes === null) {
             complete = false
             break
           }
+          const latest = await ports.sql.readLatestTile(probe.season, tile)
+          await mirror(run, probe.season, tile, bytes, latest?.hash ?? null)
         } catch (error) {
           console.error(`alarm probe tile fetch failed for ${probe.season}:${tileKey(tile)}`, error)
           complete = false

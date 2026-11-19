@@ -22,7 +22,7 @@ import { ingestTimings } from '../metrics/ingest-timing.js'
 import type { BlobStore } from '../ports/index.js'
 import { BlobStoreService, SqlStoreService } from '../runtime/backend-runtime.js'
 import { BoundedCache, memoize } from '../runtime/bounded-cache.js'
-import { type StorageError, storage } from '../runtime/errors.js'
+import { PortError, type StorageError, storage } from '../runtime/errors.js'
 import type { TileBlobStore } from './blobs/store.js'
 import { readTileBlob } from './tile-blobs.js'
 import type { TelemetryTarget, TileMeasurement, TileStore } from './tiles/store.js'
@@ -174,11 +174,19 @@ const sharedClassifications = new BoundedCache<Promise<Classification | null>>({
 const COLOUR_ENTRY_BYTES = 40
 const STATUS_BYTES = 64
 
+/** Reporter tile bytes the server refuses: answered as the reporter's mistake, not a 500. */
+export class InvalidTileError extends PortError {
+  override readonly name = 'InvalidTileError'
+  readonly kind = 'invalid'
+}
+
 const decodeCanvas = async (bytes: Uint8Array): Promise<IndexedImage> => {
   // Reporters upload these. Check the header before decoding allocates the size it declares.
   const { width, height } = pngSize(bytes)
   if (width !== TILE_SIZE || height !== TILE_SIZE) {
-    throw new RangeError(`canvas tile is ${width}x${height}, expected ${TILE_SIZE}x${TILE_SIZE}`)
+    throw new InvalidTileError(
+      `canvas tile is ${width}x${height}, expected ${TILE_SIZE}x${TILE_SIZE}`,
+    )
   }
   const { indices } = quantiseToPalette((await decodePng(bytes)).pixels, PALETTE_RGB)
   return { width, height, indices }
@@ -186,7 +194,7 @@ const decodeCanvas = async (bytes: Uint8Array): Promise<IndexedImage> => {
 
 const imageBytes = (image: IndexedImage | null): number => image?.indices.byteLength ?? 0
 
-/** Decode uploaded canvas bytes to palette indices. A malformed tile rejects with a `RangeError`. */
+/** Decode uploaded canvas bytes to palette indices. A wrong-sized tile rejects as invalid. */
 export const decodeCanvasBytes = async (hash: string, bytes: Uint8Array): Promise<Uint8Array> => {
   const image = await memoize(
     decodedImages,
