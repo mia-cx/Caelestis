@@ -342,7 +342,7 @@ const assemble = (
 }
 
 const socketUrl = (server: ConnectedServer, authenticated: boolean): URL => {
-  const endpoint = new URL(serverEndpoint(server.url, '/telemetry/live'))
+  const endpoint = new URL(serverEndpoint(server, '/telemetry/live'))
   endpoint.protocol = endpoint.protocol === 'https:' ? 'wss:' : 'ws:'
   endpoint.searchParams.set('season', String(server.season))
   endpoint.searchParams.set('scope', server.isAdmin ? 'admin' : 'public')

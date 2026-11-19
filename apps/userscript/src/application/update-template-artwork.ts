@@ -4,11 +4,11 @@ import { uploadTemplateVersion } from '../server-api.js'
 import {
   hasServerAdminToken,
   isCurrentServerConnection,
+  serverByUrl,
   serverConnectionIdentity,
 } from '../server-connections.js'
 import { admittedManifest, readManifest } from '../server-manifests.js'
 import { invalidateServerReads } from '../server-read-coalescer.js'
-import { getState } from '../settings.js'
 import { isCurrentTemplate, type PlacedTemplate, templateById } from '../templates/catalog.js'
 import { replaceLocalArtwork } from '../templates/template-edits.js'
 import { holdUpdating, templateBusy } from './template-busy.js'
@@ -28,10 +28,7 @@ export const updateArtwork = async (
     if (template === undefined)
       throw new Error('This template has not finished loading. Try again in a moment.')
     const surface = template.surface
-    const server =
-      template.origin === 'server'
-        ? getState().servers.find((candidate) => candidate.url === template.server.url)
-        : undefined
+    const server = template.origin === 'server' ? serverByUrl(template.server.url) : undefined
     const checkCurrent = (): void => {
       if (!isCurrentTemplate(template) || templateBusy(id, 'deleting'))
         throw new Error('That template changed during the update. Try again.')

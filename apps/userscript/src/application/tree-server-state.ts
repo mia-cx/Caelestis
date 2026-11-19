@@ -1,6 +1,6 @@
 import { type TemplateSurface, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { PerServerMap } from '../per-server-map.js'
-import { isCurrentServerConnection, onServerRemoved } from '../server-connections.js'
+import { isCurrentServerConnection, onServerRemoved, serverByUrl } from '../server-connections.js'
 import type { ServerTemplate, TreeNode } from '../server-manifest.js'
 import {
   amendManifestRows,
@@ -133,7 +133,7 @@ export const serverTemplateAt = (
   id: string,
   surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
 ): ServerTemplate | null => {
-  const server = getState().servers.find((candidate) => candidate.url === serverUrl)
+  const server = serverByUrl(serverUrl)
   return server === undefined
     ? null
     : (manifestRows(server, surface)?.templates.find((template) => template.id === id) ?? null)
@@ -146,7 +146,7 @@ export const templatesForServer = (
   serverUrl: string,
   surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
 ): readonly ServerTemplate[] => {
-  const server = getState().servers.find((candidate) => candidate.url === serverUrl)
+  const server = serverByUrl(serverUrl)
   return server === undefined
     ? NO_SERVER_TEMPLATES
     : (manifestRows(server, surface)?.templates ?? NO_SERVER_TEMPLATES)

@@ -12,9 +12,9 @@ import {
   updateServerDetails,
   uploadServerAsset,
 } from '../server-api.js'
-import { isCurrentServerConnection } from '../server-connections.js'
+import { isCurrentServerConnection, serverByUrl } from '../server-connections.js'
 import { serverEndpoint } from '../server-request.js'
-import { getState, type ServerConnection } from '../settings.js'
+import type { ServerConnection } from '../settings.js'
 import { closeDialogHost } from './dialog.js'
 import { applyWplaceTheme } from './theme.js'
 
@@ -24,7 +24,7 @@ const assetUrl = (
   server: ServerConnection,
   kind: ServerAssetKind,
   asset: ServerAsset | undefined,
-) => (asset === undefined ? null : serverEndpoint(server.url, serverAssetPath(kind, asset)))
+) => (asset === undefined ? null : serverEndpoint(server, serverAssetPath(kind, asset)))
 
 /** What the dialog shows: the server's current public presentation, as this browser last read it. */
 const fieldsFor = (server: ServerConnection): ServerDetailsFields => ({
@@ -63,8 +63,7 @@ export const openServerDetails = (server: ServerConnection, rerender: () => void
   closeEditor?.()
   const editor = document.createElement(SERVER_DETAILS_TAG)
   const restoreFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
-  const current = (): ServerConnection =>
-    getState().servers.find((candidate) => candidate.url === server.url) ?? server
+  const current = (): ServerConnection => serverByUrl(server.url) ?? server
   let model: ServerDetailsModel = {
     owner: `${server.info?.name ?? server.url} · Server`,
     ...fieldsFor(server),

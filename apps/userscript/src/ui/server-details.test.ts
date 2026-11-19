@@ -9,10 +9,13 @@ const asset = { etag: 'a'.repeat(64), contentType: 'image/png' as const }
 const servers = vi.hoisted(() => ({ list: [] as ServerConnection[] }))
 
 vi.mock('@caelestis/ui/elements', () => ({ SERVER_DETAILS_TAG: 'caelestis-server-details' }))
-vi.mock('../settings.js', () => ({ getState: () => ({ servers: servers.list }) }))
-vi.mock('../server-connections.js', () => ({ isCurrentServerConnection: () => true }))
+vi.mock('../server-connections.js', () => ({
+  isCurrentServerConnection: () => true,
+  serverByUrl: (url: string) => servers.list.find((candidate) => candidate.url === url),
+}))
 vi.mock('../server-request.js', () => ({
-  serverEndpoint: (url: string, route: string) => `${url}/backend/v1${route}`,
+  serverEndpoint: (server: { readonly url: string }, route: string) =>
+    `${server.url}/backend/v1${route}`,
 }))
 vi.mock('../server-api.js', () => ({
   updateServerDetails: vi.fn(async () => ({ ok: true })),

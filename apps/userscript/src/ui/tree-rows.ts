@@ -7,6 +7,7 @@ import {
   renameNode as renameNodeOnServer,
   renameServer as renameServerOnServer,
 } from '../server-api.js'
+import { serverByUrl } from '../server-connections.js'
 import { getState, isScopeVisible, type ServerConnection, setScopeVisible } from '../settings.js'
 import type { PlacedTemplate } from '../templates/catalog.js'
 import type { TemplateColourProgress, TemplateProgress } from '../templates/progress-types.js'
@@ -91,11 +92,11 @@ const refreshCurrentSnapshot = async (
     rerender()
     return
   }
-  let current = getState().servers.find((candidate) => candidate.url === server.url)
+  let current = serverByUrl(server.url)
   if (current === undefined) return
   let result = await refreshServerSnapshot(current, rerender, true)
   while (result.status === 'superseded') {
-    current = getState().servers.find((candidate) => candidate.url === server.url)
+    current = serverByUrl(server.url)
     if (current === undefined) return
     result = await refreshServerSnapshot(current, rerender)
   }

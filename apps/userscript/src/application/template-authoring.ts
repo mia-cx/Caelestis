@@ -1,8 +1,9 @@
 import { MAX_TEMPLATE_SOURCE_BYTES, parseTemplateRecipe, sha256Hex } from '@caelestis/shared'
 import { errorText } from '../error-text.js'
+import { serverByUrl } from '../server-connections.js'
 import { serverRequest } from '../server-request.js'
 import type { ServerRead } from '../server-transport.js'
-import { getState, type ServerConnection } from '../settings.js'
+import type { ServerConnection } from '../settings.js'
 import { currentAuthoring, type TemplateAuthoring } from '../templates/authoring.js'
 import type { PlacedTemplate } from '../templates/catalog.js'
 import { templatePixels } from '../templates/residency.js'
@@ -53,7 +54,7 @@ export const authoringOf = async (template: PlacedTemplate): Promise<TemplateAut
     if (template.authoring === undefined) return null
     return await currentAuthoring({ ...template, indices: await templatePixels(template) })
   }
-  const server = getState().servers.find((candidate) => candidate.url === template.server.url)
+  const server = serverByUrl(template.server.url)
   if (server === undefined) return null
   return await readServerAuthoring(server, template.version, await templatePixels(template))
 }

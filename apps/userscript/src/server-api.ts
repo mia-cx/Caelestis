@@ -12,6 +12,7 @@ import {
   isCurrentServerConnection,
   noteAuthFailure,
   onServerRemoved,
+  serverByUrl,
   upsertServer,
 } from './server-connections.js'
 import {
@@ -24,7 +25,7 @@ import {
 import { admittedManifest, onManifestChange, readManifest } from './server-manifests.js'
 import { type ServerRequestOptions, serverRequest } from './server-request.js'
 import { type ServerLimits, serverManifestSequence } from './server-transport.js'
-import { getState, type ServerConnection } from './settings.js'
+import type { ServerConnection } from './settings.js'
 import type { TemplateAuthoring } from './templates/authoring.js'
 
 /** The template server's admin HTTP API; manifests are read through `server-manifests.ts`. */
@@ -404,13 +405,11 @@ export const listServerNodes = async (
   if (server.season === null || !isCurrentServerConnection(server)) return { status: 'unreachable' }
   if (surface.kind !== 'world') {
     const listed = await fetchNodes(server, server.season, surface, signal)
-    const current = getState().servers.find((candidate) => candidate.url === server.url)
-    if (!listed.ok || current === undefined || !isCurrentServerConnection(server))
-      return { status: 'unreachable' }
+    if (!listed.ok || !isCurrentServerConnection(server)) return { status: 'unreachable' }
     return { status: 'ok', nodes: listed.nodes }
   }
   const contents = await readManifest(server, signal === undefined ? {} : { signal })
-  const current = getState().servers.find((candidate) => candidate.url === server.url)
+  const current = serverByUrl(server.url)
   if (contents === null || current === undefined || !isCurrentServerConnection(server))
     return { status: 'unreachable' }
   const admitted = admittedManifest(current)
@@ -545,46 +544,12 @@ export const renameServer = async (server: ServerConnection, name: string): Prom
   }
   activeServerRenames.add(server.url)
   try {
-    const { response, body } = await adminRequest(server, '/admin/server', {
+    const written = await adminWrite(server, '/admin/server', {
       method: 'PATCH',
       json: { name: trimmed },
     })
-    if (!response.ok) return { ok: false, message: failureMessage(response, body) }
-    const current = getState().servers.find((candidate) => candidate.url === server.url)
-    if (current !== undefined && current.info !== null && server.info !== null) {
-      let refreshed: ServerInfo | null = null
-      try {
-        refreshed = await readServerInfo(current)
-      } catch {
-        // The PATCH already committed. A failed cosmetic refresh must not turn success into failure.
-      }
-      const latest = getState().servers.find((candidate) => candidate.url === server.url)
-      if (
-        latest !== undefined &&
-        latest.info !== null &&
-        isCurrentServerConnection(current) &&
-        latest.info === current.info &&
-        refreshed !== null &&
-        refreshed.id === server.info.id &&
-        latest.info.id === refreshed.id
-      ) {
-        upsertServer({ ...latest, info: refreshed })
-      } else if (
-        latest !== undefined &&
-        latest.info !== null &&
-        isCurrentServerConnection(server) &&
-        latest.info === current.info &&
-        refreshed === null &&
-        latest.info.id === server.info.id
-      ) {
-        // Preserve the immediate feedback when the metadata read alone failed. This fallback is
-        // safe only in the connection lifetime that submitted the write.
-        upsertServer({ ...latest, info: { ...latest.info, name: trimmed } })
-      }
-    }
-    return { ok: true }
-  } catch (error) {
-    return { ok: false, message: String(error) }
+    if (written.ok) await adoptRefreshedServerInfo(server, trimmed)
+    return written
   } finally {
     activeServerRenames.delete(server.url)
   }
@@ -593,27 +558,32 @@ export const renameServer = async (server: ServerConnection, name: string): Prom
 /**
  * Re-read public server metadata after an admin write committed, and adopt it only while the
  * connection that wrote is still the current one for its URL and still describes the same server.
- * A failed re-read is not a failed write, so it is swallowed.
+ * A failed re-read is not a failed write. When only the re-read failed, `optimisticName` still
+ * shows the submitted name, but only in the connection lifetime that wrote it.
  */
-const adoptRefreshedServerInfo = async (server: ServerConnection): Promise<void> => {
-  const current = getState().servers.find((candidate) => candidate.url === server.url)
+const adoptRefreshedServerInfo = async (
+  server: ServerConnection,
+  optimisticName?: string,
+): Promise<void> => {
+  const current = serverByUrl(server.url)
   if (current === undefined || current.info === null || server.info === null) return
   let refreshed: ServerInfo | null = null
   try {
     refreshed = await readServerInfo(current)
   } catch {
-    return
+    // The write already committed.
   }
-  const latest = getState().servers.find((candidate) => candidate.url === server.url)
-  if (
-    latest !== undefined &&
-    latest.info !== null &&
-    isCurrentServerConnection(current) &&
-    latest.info === current.info &&
-    refreshed !== null &&
-    refreshed.id === server.info.id
+  const latest = serverByUrl(server.url)
+  if (latest === undefined || latest.info === null || latest.info !== current.info) return
+  if (refreshed !== null) {
+    if (isCurrentServerConnection(current) && refreshed.id === server.info.id)
+      upsertServer({ ...latest, info: refreshed })
+  } else if (
+    optimisticName !== undefined &&
+    isCurrentServerConnection(server) &&
+    latest.info.id === server.info.id
   ) {
-    upsertServer({ ...latest, info: refreshed })
+    upsertServer({ ...latest, info: { ...latest.info, name: optimisticName } })
   }
 }
 

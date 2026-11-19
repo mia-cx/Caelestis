@@ -8,7 +8,7 @@ import {
   sendServerRequest,
 } from './server-transport.js'
 import { endpointUrl } from './server-url.js'
-import { getState, type ServerConnection } from './settings.js'
+import type { ServerConnection } from './settings.js'
 
 export interface ServerRequestOptions<Read extends ServerRead> {
   readonly method?: string
@@ -28,16 +28,9 @@ export interface ServerRequestOptions<Read extends ServerRead> {
   readonly metrics?: { readonly transport: SyncTransport; readonly reason: ReconciliationReason }
 }
 
-/**
- * The URL of `route` on the server configured at `serverUrl`, through the API version its probe
- * found. A URL with no configured row resolves through the current `/v1` API.
- */
-export const serverEndpoint = (serverUrl: string, route: string): string =>
-  endpointUrl(
-    serverUrl,
-    route,
-    getState().servers.find((server) => server.url === serverUrl)?.apiVersion ?? 'v1',
-  )
+/** The URL of `route` on `server`, through the API version its probe found. */
+export const serverEndpoint = (server: ServerConnection, route: string): string =>
+  endpointUrl(server.url, route, server.apiVersion)
 
 /**
  * One request to a connected server: its address and API version, its credential, client metrics,
@@ -65,7 +58,7 @@ export const serverRequest = <Read extends ServerRead>(
   }
   const lifetime = serverConnectionSignal(server)
   return sendServerRequest(
-    endpointUrl(server.url, query === '' ? route : `${route}?${query}`, server.apiVersion),
+    serverEndpoint(server, query === '' ? route : `${route}?${query}`),
     {
       ...(options.method === undefined ? {} : { method: options.method }),
       headers,

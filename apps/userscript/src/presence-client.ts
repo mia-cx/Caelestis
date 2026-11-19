@@ -396,7 +396,7 @@ const open = (connection: Connection): void => {
     identity === null
   )
     return
-  const endpoint = new URL(serverEndpoint(server.url, '/telemetry/presence'))
+  const endpoint = new URL(serverEndpoint(server, '/telemetry/presence'))
   endpoint.protocol = endpoint.protocol === 'https:' ? 'wss:' : 'ws:'
   endpoint.searchParams.set('season', String(server.season))
   endpoint.searchParams.set('surface', WORLD_TEMPLATE_SURFACE.kind)
