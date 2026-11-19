@@ -63,3 +63,14 @@ describe('docs worker', () => {
     expect(await response.text()).toBe('<h1>Recent changes</h1>')
   })
 })
+
+test('staging asks search engines to skip every page, production does not', async () => {
+  const page = (staging: boolean) =>
+    worker.fetch(
+      new Request('https://docs.caelest.is/start-here/getting-started/'),
+      staging ? { ...env, NOINDEX: 'true' } : env,
+    )
+
+  expect((await page(true)).headers.get('x-robots-tag')).toBe('noindex')
+  expect((await page(false)).headers.get('x-robots-tag')).toBeNull()
+})
