@@ -227,8 +227,8 @@ export const saveTemplate = async (
           sameKeys(currentChunks, packed.chunks))
       if (reusable) {
         // Metadata-only mutations keep the already-cloned durable value. Re-wrapping a multi-MB
-        // ArrayBuffer in a Blob copies it and makes every move/toggle/appearance change rewrite all
-        // pixels even though this PR has no pixel-editing mutation.
+        // ArrayBuffer in a Blob copies it and would make every move, toggle or appearance change
+        // rewrite all pixels.
         const record: Record<string, unknown> = {
           ...savedMetadata,
           revision,

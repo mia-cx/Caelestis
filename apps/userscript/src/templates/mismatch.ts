@@ -89,9 +89,9 @@ import {
  * follow from it. {@link pixelAccounting} is the whole public interface.
  *
  * Found here rather than in a shader. A template has a handful of wrong pixels and the screen has
- * millions of fragments; asking the question per fragment made the cost scale with the wrong thing,
- * badly enough to take the GPU down. Asking it per pixel, once, and handing the answers to the
- * renderer as a list makes it scale with the number of answers.
+ * millions of fragments; asking the question per fragment would make the cost scale with the wrong
+ * thing, badly enough to take the GPU down. Asking it per pixel, once, and handing the answers to
+ * the renderer as a list makes it scale with the number of answers.
  *
  * Once per tile per filter change, not per frame. The comparison walks the part of the template that
  * falls inside one tile — a million pixels at the very most — which is fine to do occasionally and

@@ -277,8 +277,8 @@ const inFlight = new PerServerMap<object>()
  *
  * A download that is already running is skipped rather than restarted, which is right — but the
  * manifest that arrives while it runs may have replaced or deleted that template, and installing
- * the finished download then put back artwork nobody publishes any more. This is what the far side
- * of the download checks itself against, and what an evicted copy downloads again from.
+ * the finished download would then put back artwork nobody publishes any more. This is what the far
+ * side of the download checks itself against, and what an evicted copy downloads again from.
  */
 const latest = new PerServerMap<{
   readonly server: ConnectedServer
@@ -364,8 +364,8 @@ const syncServerTemplatesOnce = async (
       )
       .map((template) => [serverTemplateKey(server.url, template.id, surface), template]),
   )
-  // Snapshot once. Re-reading and linearly searching the store for every manifest entry made a
-  // large server sync quadratic in the number of templates.
+  // Snapshot once. Re-reading and linearly searching the store for every manifest entry would make
+  // a large server sync quadratic in the number of templates.
   const heldById = new Map(
     localTemplates()
       .filter((template): template is ServerCopy => template.origin === 'server')

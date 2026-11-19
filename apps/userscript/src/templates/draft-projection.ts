@@ -261,8 +261,8 @@ export const projectedColourProgress = (
   const server = servers.get(template.server.url)
   if (server === undefined) return []
   // The drawn template already proves the manifest identity and exact pixel total. Depending on the
-  // panel's admitted manifest here made palette counters disappear whenever Paint opened before the
-  // main menu had rendered its tree.
+  // panel's admitted manifest here would make palette counters disappear whenever Paint opened
+  // before the main menu had rendered its tree.
   const progress = serverColourProgressFor(server, {
     id: template.serverTemplateId,
     totalPixels: template.opaque,

@@ -5,8 +5,7 @@ import { PALETTE_SIZE, TRANSPARENT_INDEX, WPLACE_PALETTE } from '@caelestis/shar
  *
  * Every pixel is a square, and the controls deform it. There is no shape *mode*, because a mode list
  * is just a handful of frozen points in this space with worse names — "Dot" is a full-radius stamp
- * at a small size, "Corner" is a rotated stamp translated into a corner and clipped, and "Full" and
- * "Square" were the same shape at two sizes, split only because one had a cheaper render path.
+ * at a small size, and "Corner" is a rotated stamp translated into a corner and clipped.
  *
  * Each stamp is clipped to its own cell, so translating or rotating past the edge cuts the stamp off
  * rather than bleeding into the neighbouring pixel. That clipping is what makes partial corners and
@@ -16,10 +15,8 @@ import { PALETTE_SIZE, TRANSPARENT_INDEX, WPLACE_PALETTE } from '@caelestis/shar
  * measured along the stamp's own axes, so rotating a translated stamp swings it around rather than
  * sliding it sideways.
  *
- * None of this costs per-pixel work. The stamp is rasterised once into a small mask and tiled over
- * the template at draw time, so the shape is independent of the pixel grid it sits on — which is
- * what an earlier version got wrong by expanding every source pixel into a 3x3 block and drawing
- * inside it.
+ * None of this costs per-pixel CPU work. The fragment shader evaluates the stamp in cell space at
+ * draw time, so the shape is independent of the pixel grid it sits on.
  */
 
 export interface Appearance {
@@ -92,9 +89,8 @@ export interface Appearance {
   /**
    * Whether markers you cannot act on right now are drawn differently from the ones you can.
    *
-   * A switch of its own rather than a value that happens to mean "off". It was reachable before only
-   * by pushing the fade to 1 and pressing "Same" — two controls, neither of which announces that
-   * together they are one behaviour, and no way to switch it off and keep the settings you had.
+   * A switch of its own rather than a value that happens to mean "off", so it can be switched off
+   * while keeping the fade and colour it uses.
    */
   readonly dimOthers: boolean
   /**
@@ -117,10 +113,9 @@ export interface Appearance {
 /**
  * The three things a template can have opinions about, separately.
  *
- * One switch used to govern all of them, so wanting a template's own marker colour meant taking
- * ownership of its shape and its colour filter as well — and then the global sliders stopped
- * reaching it forever. Splitting them is what lets an overlay follow the defaults for everything it
- * has no opinion about.
+ * With one switch for all of them, wanting a template's own marker colour would mean taking
+ * ownership of its shape and its colour filter as well, out of reach of the global sliders.
+ * Splitting them lets an overlay follow the defaults for everything it has no opinion about.
  */
 export type AppearanceGroup = 'pixels' | 'colours' | 'markers'
 
@@ -377,8 +372,8 @@ export const normaliseAppearance = (raw: unknown): Appearance | null => {
     contrastOutline: source.contrastOutline !== false,
     contrastOutlineSize: number('contrastOutlineSize'),
     hiddenColours: hidden,
-    // `onlySelectedColour` used to live here too. A stored one is simply dropped: the mode is one
-    // switch for the whole view now, so there is nothing per-overlay left for it to mean.
+    // A stored `onlySelectedColour` is dropped: the mode is one switch for the whole view, so there
+    // is nothing per-overlay for it to mean.
     markMismatch: source.markMismatch === true,
     markUnpainted: source.markUnpainted === true,
     // Absent on anything stored before the switch existed, where the behaviour was always on.
@@ -458,8 +453,8 @@ export const toRgbUnit = (hex: string): [number, number, number] => [
 /**
  * Whether this appearance is just the source pixels, untouched.
  *
- * Opacity is excluded on purpose: it is applied at draw time with `globalAlpha`, so it never costs a
- * re-stamp and never forces the expensive path.
+ * Opacity is excluded on purpose: it is its own uniform at draw time, so it never forces the
+ * stamp's distance field.
  */
 export const isPlain = (appearance: Appearance): boolean =>
   appearance.size >= 1 &&

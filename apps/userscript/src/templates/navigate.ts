@@ -6,9 +6,8 @@ import { horizontalCentre } from './placement.js'
 /**
  * Go to a place on the map, in-game.
  *
- * We hold a live MapLibre `Map` — see `map-handle.ts` for how, and for the four routes that failed
- * first — so this is `flyTo`, not a page load. Everything in memory survives, which matters most
- * immediately after an import.
+ * We hold a live MapLibre `Map` — see `map-handle.ts` for how — so this is `flyTo`, not a page
+ * load. Everything in memory survives, which matters most immediately after an import.
  *
  * `cameraForBounds` gives fit-to-extent for free, so a template is framed rather than merely
  * centred. The URL remains as a fallback for the case where the capture did not fire.

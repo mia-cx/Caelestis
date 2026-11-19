@@ -126,7 +126,7 @@ export const decodeToRgba = async (
   })
   try {
     // Read the dimensions *before* closing: an ImageBitmap reports 0x0 once closed, so reading them
-    // afterwards silently produced zero-sized templates whose origin was nonetheless correct.
+    // afterwards would silently produce zero-sized templates.
     const width = bitmap.width
     const height = bitmap.height
     if (
@@ -175,7 +175,7 @@ const percentDecode = (text: string): Uint8Array<ArrayBuffer> => {
 /**
  * Decode a data URL in place, as the Fetch standard's data URL processor does. Not through `fetch`:
  * another script's fetch wrapper may never answer it, as Blue Marble does for every image that is
- * not a tile, which left imports stuck.
+ * not a tile, which would leave imports stuck.
  */
 const blobFromDataUrl = async (dataUrl: string): Promise<Blob> => {
   const comma = dataUrl.indexOf(',')
