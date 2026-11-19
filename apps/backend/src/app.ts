@@ -22,7 +22,6 @@ import {
   type BackendContext,
   createBackendRuntime,
   SqlStoreService,
-  StatusReadModelService,
 } from './runtime/backend-runtime.js'
 import { errorResponse } from './runtime/hono.js'
 
@@ -36,7 +35,7 @@ export interface AppOptions {
    */
   readonly bootstrapAdminToken?: string | undefined
   /** Relational runtimes can export and restore complete server archives. */
-  readonly archive?: ArchiveHost
+  readonly archive?: ArchiveHost | undefined
 }
 
 /** The Hono app over the context's ports. It holds no runtime binding; `composeBackend` adds them. */
@@ -49,8 +48,7 @@ export const createApp = (context: BackendContext, options: AppOptions) => {
     // What `/server` advertises is what the server enforces.
     openAccess: server.auth === 'none',
   }
-  const bootstrapConfigured =
-    options.bootstrapAdminToken !== undefined && options.bootstrapAdminToken.length > 0
+  const bootstrapConfigured = options.bootstrapAdminToken !== undefined
 
   // The userscript runs on wplace.live and calls this server cross-origin. `ETag` is not a
   // CORS-safelisted response header, so it must be exposed or the userscript reads `null` and can
@@ -64,56 +62,47 @@ export const createApp = (context: BackendContext, options: AppOptions) => {
 
   const admin = requireScopeEffect(runtime, auth, 'admin')
   const read = requireScopeEffect(runtime, auth, 'read')
-  // Restored manifests replace whatever was cached while the server was empty; live clients
-  // reconnect into the restored revisions, which continue from the source's.
-  const host = options.archive
-  const archiveHost: ArchiveHost | undefined =
-    host === undefined
-      ? undefined
-      : {
-          ...host,
-          activated: async () => {
-            await host.activated()
-            await Services.get(context, StatusReadModelService).notifyManifestChange(currentSeason)
-          },
-        }
 
   // Answers while an archive operation holds the server: identity, and the archive itself.
   const open = new Hono()
   open.route('/server', createServerRoutes(runtime, server))
   open.use('/admin/archive/*', admin)
-  open.route('/admin/archive', createArchiveAdminRoutes(archiveHost))
+  open.route('/admin/archive', createArchiveAdminRoutes(options.archive))
 
-  // Everything else waits out an archive operation. Scope is declared per mount; a route that
-  // needs more than its mount, such as a `report` write under `read`, says so itself.
+  // Everything else waits out an archive operation. Each mount declares its scope; a route that
+  // needs more than its mount, such as a `report` write under `read`, says so itself. `open`
+  // mounts authenticate per route or not at all.
   const gated = new Hono()
   gated.use('/*', archiveHold(Services.get(context, SqlStoreService)))
   gated.use('/admin/*', admin)
-  for (const mount of [
-    '/manifest',
-    '/work',
-    '/archive',
-    '/chunks',
-    '/sources',
-    '/recipes',
-    '/tiles',
-  ])
-    gated.use(`${mount}/*`, read)
-  gated.route('/server/assets', createServerAssetRoutes(runtime))
-  gated.route('/admin/server', createServerAdminRoutes(runtime, currentSeason))
-  gated.route('/admin/tokens', createTokenRoutes(runtime, { currentSeason, bootstrapConfigured }))
-  gated.route('/admin/backfill', createBackfillAdminRoutes(runtime))
-  gated.route('/admin/nodes', createNodeRoutes(runtime))
-  gated.route('/admin/templates', createTemplateRoutes(runtime))
-  gated.route('/admin/tags', createTagRoutes(runtime, currentSeason))
-  gated.route('/manifest', createManifestRoutes(runtime, { server, currentSeason }))
-  gated.route('/archive', createCanvasHistoryRoutes(runtime))
-  gated.route('/work', createWorkRoutes(runtime))
-  gated.route('/chunks', createBlobRoutes(runtime, 'chunks'))
-  gated.route('/sources', createBlobRoutes(runtime, 'sources'))
-  gated.route('/tiles', createBlobRoutes(runtime, 'tiles'))
-  gated.route('/recipes', createRecipeRoutes(runtime))
-  gated.route('/telemetry', createTelemetryRoutes(runtime, auth, { currentSeason, server }))
+  const mounts: readonly (readonly [
+    path: string,
+    routes: Hono,
+    scope: 'admin' | 'read' | 'open',
+  ])[] = [
+    ['/server/assets', createServerAssetRoutes(runtime), 'open'],
+    ['/admin/server', createServerAdminRoutes(runtime, currentSeason), 'admin'],
+    ['/admin/tokens', createTokenRoutes(runtime, { currentSeason, bootstrapConfigured }), 'admin'],
+    ['/admin/backfill', createBackfillAdminRoutes(runtime), 'admin'],
+    ['/admin/nodes', createNodeRoutes(runtime), 'admin'],
+    ['/admin/templates', createTemplateRoutes(runtime), 'admin'],
+    ['/admin/tags', createTagRoutes(runtime, currentSeason), 'admin'],
+    ['/manifest', createManifestRoutes(runtime, { server, currentSeason }), 'read'],
+    ['/archive', createCanvasHistoryRoutes(runtime), 'read'],
+    ['/work', createWorkRoutes(runtime), 'read'],
+    ['/chunks', createBlobRoutes(runtime, 'chunks'), 'read'],
+    ['/sources', createBlobRoutes(runtime, 'sources'), 'read'],
+    ['/tiles', createBlobRoutes(runtime, 'tiles'), 'read'],
+    ['/recipes', createRecipeRoutes(runtime), 'read'],
+    ['/telemetry', createTelemetryRoutes(runtime, auth, { currentSeason, server }), 'open'],
+  ]
+  for (const [path, routes, scope] of mounts) {
+    // `/admin/*` above guards every admin mount, so its place in the path is its scope.
+    if ((scope === 'admin') !== path.startsWith('/admin/'))
+      throw new Error(`${path}: admin routes mount under /admin, and only they do`)
+    if (scope === 'read') gated.use(`${path}/*`, read)
+    gated.route(path, routes)
+  }
 
   // Both mounts share these exact route objects, so compatibility aliases cannot gain handlers or
   // contracts that differ from the versioned API. `open` mounts first: Hono runs handlers in
