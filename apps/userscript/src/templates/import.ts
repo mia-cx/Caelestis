@@ -72,7 +72,8 @@ const DENSE_CACHE_THRESHOLD = 65_536
 const RGB_SPACE = 1 << 24
 let importRunning = false
 
-const newId = (): string => `local-${uuidV7()}`
+/** A fresh id for a Local template, wherever it came from. */
+export const newTemplateId = (): string => `local-${uuidV7()}`
 
 const checkedName = (value: unknown, fallback: string): string => {
   const name = typeof value === 'string' ? value : fallback
@@ -319,7 +320,7 @@ const nativeRecipe = (recipe: ImportTemplateRecipe, origin: TemplateOrigin): Nat
   })
   const everyColour = recipe.palette.length === ALL_COLOURS.length
   return {
-    id: newId(),
+    id: newTemplateId(),
     name: '',
     bounds: {
       north: northWest.lat,
@@ -451,7 +452,7 @@ const importCaelestis = async (
   }
   return [
     {
-      id: newId(),
+      id: newTemplateId(),
       name,
       source: 'wplace',
       sortOrder:
@@ -573,7 +574,7 @@ const importWplace = async (file: Record<string, unknown>): Promise<ImportedTemp
   const { indices, opaque } = await processRecipe(blob, recipe, placement)
   return [
     {
-      id: newId(),
+      id: newTemplateId(),
       name,
       source: 'wplace',
       sortOrder:
@@ -843,7 +844,7 @@ const importMarble = async (file: MarbleFile): Promise<ImportedTemplate[]> => {
     }
 
     out.push({
-      id: newId(),
+      id: newTemplateId(),
       name,
       source: 'marble',
       sortOrder: marbleSortOrder(key, out.length),
@@ -887,7 +888,7 @@ const importImage = async (
   const originY = Math.min(Math.max(0, Math.round(centre.y - height / 2)), WORLD_PIXELS - height)
   return [
     {
-      id: newId(),
+      id: newTemplateId(),
       name,
       source: 'image',
       sortOrder: 0,

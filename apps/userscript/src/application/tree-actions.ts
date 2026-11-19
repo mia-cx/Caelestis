@@ -6,7 +6,6 @@ import {
   TILE_SIZE,
   TRANSPARENT_INDEX,
   templatesInFolderSubtree,
-  uuidV7,
   WORLD_PIXELS,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
@@ -49,7 +48,7 @@ import {
 } from '../settings.js'
 import { serverAlarmFor } from '../telemetry.js'
 import { captureSelectedArtwork } from '../templates/current-artwork.js'
-import { type ImportedTemplate, importFile } from '../templates/import.js'
+import { type ImportedTemplate, importFile, newTemplateId } from '../templates/import.js'
 import {
   addLocalTemplate,
   localTemplates as allLocal,
@@ -1760,7 +1759,7 @@ export const captureTemplate = (target: TreeTarget, rerender: () => void): void 
           return null
         }
         const template: ImportedTemplate = {
-          id: `local-${uuidV7()}`,
+          id: newTemplateId(),
           name,
           source: 'image',
           originX: x,

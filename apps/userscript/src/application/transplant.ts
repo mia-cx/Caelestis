@@ -18,6 +18,7 @@ import {
 import { isCurrentServerConnection } from '../server-connections.js'
 import type { TreeNode } from '../server-manifest.js'
 import { type ConnectedServer, getState, type LocalFolder, MAX_LOCAL_FOLDERS } from '../settings.js'
+import { newTemplateId } from '../templates/import.js'
 import {
   canCopyAsLocalTemplate,
   copyAsLocalTemplate,
@@ -203,9 +204,6 @@ interface LocatedPublishedTemplate extends PublishedTemplate {
   readonly updatedAt: number
 }
 
-const localId = (): string =>
-  `local-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`
-
 /**
  * The drawn copy of a server template, which is where its pixels are.
  *
@@ -349,7 +347,7 @@ export const moveServerTemplateToLocal = async (
   if ('message' in carried) return { ok: false, tone: 'error', message: carried.message }
   let copied: PlacedTemplate
   try {
-    copied = await copyAsLocalTemplate(drawn, localId(), carried.authoring)
+    copied = await copyAsLocalTemplate(drawn, newTemplateId(), carried.authoring)
   } catch (error) {
     return {
       ok: false,
@@ -1020,7 +1018,7 @@ const transplantWhileDestinationHeld = async (
       if ('message' in authoring) return { ok: false, nodes, templates, message: authoring.message }
       let copied: PlacedTemplate
       try {
-        copied = await copyAsLocalTemplate(carried.template, localId(), authoring.authoring)
+        copied = await copyAsLocalTemplate(carried.template, newTemplateId(), authoring.authoring)
       } catch (error) {
         return {
           ok: false,

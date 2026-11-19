@@ -36,7 +36,7 @@ import { getMap } from '../map-handle.js'
 import { viewportCentre } from '../map-view.js'
 import { getState, setState } from '../settings.js'
 import type { DitheretteEngine } from '../templates/ditherette.js'
-import { decodeToRgba, type ImportedTemplate } from '../templates/import.js'
+import { decodeToRgba, type ImportedTemplate, newTemplateId } from '../templates/import.js'
 import { setTemplateDraft } from '../templates/local-store.js'
 import {
   beginDraftPlacement,
@@ -1197,7 +1197,7 @@ const save = async (): Promise<void> => {
   render()
   try {
     const template: ImportedTemplate = {
-      id: `local-${uuidV7()}`,
+      id: newTemplateId(),
       name: name.trim(),
       source: 'image',
       sortOrder: 0,
