@@ -1,4 +1,4 @@
-import { cloudflareStores } from './adapters/cloudflare/bindings.js'
+import { cloudflareBindings } from './adapters/cloudflare/bindings.js'
 import { durableCoordinatorDatabase } from './adapters/cloudflare/coordinator-database.js'
 import { forwardingObject } from './adapters/cloudflare/forwarding-object.js'
 import { TELEMETRY_SHARD_METHODS, TelemetryCoordinator } from './coordination/telemetry.js'
@@ -12,7 +12,7 @@ export class TelemetryShard extends forwardingObject<TelemetryCoordinator>()(
     this.target = new TelemetryCoordinator(
       durableCoordinatorDatabase(ctx.storage),
       ctx.storage,
-      cloudflareStores(env).sql,
+      cloudflareBindings(env).stores.sql,
     )
     void ctx.blockConcurrencyWhile(() => this.target.initialize())
   }

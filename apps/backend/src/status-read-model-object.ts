@@ -1,7 +1,7 @@
 import {
   alarmWatcher,
+  cloudflareBindings,
   cloudflareConfig,
-  cloudflareStores,
   durablePresenceRooms,
 } from './adapters/cloudflare/bindings.js'
 import { forwardingObject } from './adapters/cloudflare/forwarding-object.js'
@@ -28,7 +28,10 @@ export class StatusReadModelObject extends forwardingObject<Coordinator>()(
     const season = parseStatusShardName(ctx.id.name ?? '')
     if (season === null) throw new Error(`Status shard name ${ctx.id.name} names no season`)
     const config = cloudflareConfig(env)
-    const { sql, blobs, counters } = cloudflareStores(env)
+    const {
+      stores: { sql, blobs },
+      counters,
+    } = cloudflareBindings(env)
     const rooms = durablePresenceRooms(env)
     this.target = new StatusCoordinator(
       durableLiveHost(ctx, 'status'),

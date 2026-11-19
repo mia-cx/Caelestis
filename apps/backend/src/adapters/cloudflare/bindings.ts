@@ -28,19 +28,27 @@ export const cloudflareConfig = (env: Env) => {
 /** The one alarm watcher, which holds the wakeup for durable probes. */
 export const alarmWatcher = (env: Env) => env.ALARM_WATCHER.getByName('global')
 
-/** The database, object storage, and the stores over them, as every Worker and object reaches them. */
-export const cloudflareStorage = (env: Env) => {
+/**
+ * The database, object storage, the stores over them, and the coordinators behind their Durable
+ * Objects, as the Worker and every object reach them.
+ */
+export const cloudflareBindings = (env: Env) => {
   const connection = d1Connection(instrumentD1(env.DB))
   const objects = new R2ObjectStorage(env.BLOBS)
-  return { connection, objects, stores: portableStores(connection, objects) }
+  return {
+    connection,
+    objects,
+    stores: portableStores(connection, objects),
+    counters: durableCounters(env.TELEMETRY),
+    statusShard: durableStatusShards(env.STATUS_READ_MODEL),
+  }
 }
 
 /** The stores a Durable Object writes through. Status reads go to each season's object. */
-export const cloudflareStores = (env: Env) => ({
-  ...cloudflareStorage(env).stores,
-  counters: durableCounters(env.TELEMETRY),
-  statusReadModel: new CoordinatedStatusReadModel(durableStatusShards(env.STATUS_READ_MODEL)),
-})
+export const cloudflareStores = (env: Env) => {
+  const { stores, counters, statusShard } = cloudflareBindings(env)
+  return { ...stores, counters, statusReadModel: new CoordinatedStatusReadModel(statusShard) }
+}
 
 /** Each presence room's Durable Object, addressed by season and surface. */
 export const durablePresenceRooms =
