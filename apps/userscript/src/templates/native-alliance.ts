@@ -1,5 +1,4 @@
 import { MAX_TEMPLATE_PIXELS, type PixelBounds, sameTemplateSurface } from '@caelestis/shared'
-import { allianceBounds } from '../alliance-coordinates.js'
 import {
   type ActiveAllianceSurface,
   activeAllianceSurface,
@@ -183,7 +182,7 @@ export const installNativeAllianceTemplates = (native: NativeTemplates): (() => 
     sequence: number,
   ): Promise<void> => {
     if (!current(active, epoch) || sequence !== requestSequence) return
-    const placements = nativeAlliancePlacements(body, target, allianceBounds(active))
+    const placements = nativeAlliancePlacements(body, target, active.bounds)
     const admitted = new Set<string>()
     const signal = controller.signal
     for (const placement of placements) {

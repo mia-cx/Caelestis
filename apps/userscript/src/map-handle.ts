@@ -1,27 +1,21 @@
-import { log } from './debug.js'
+import { log, warn } from './debug.js'
+import { notifyEach } from './page-hooks.js'
 import { pageWindow } from './page-world.js'
 
 /**
- * A live reference to wplace's MapLibre `Map`.
+ * A live reference to Wplace's MapLibre `Map`.
  *
- * Getting one took several dead ends, all recorded in `10-recon-map-stack`: it is on no global, on
- * no DOM node, in no module export, and `Function.prototype.bind` never sees it because the build
- * uses arrow functions. Synthesised input does not move the camera either — MapLibre ignores
- * untrusted events — and `pushState` does nothing, because wplace syncs the map to the URL and never
- * the reverse.
- *
- * What does work: **the Map assigns distinctive private fields to itself while it is being built.**
- * A setter on `Object.prototype` for one of those names sees the assignment, and `this` at that
- * moment *is* the Map. The trap is removed as soon as it succeeds (or after a bounded startup
- * window); the layer attachment loop rearms it only after the captured map's canvas is detached.
+ * It is on no global, on no DOM node and in no module export (`10-recon-map-stack` records the
+ * search). What does work: **the Map assigns distinctive private fields to itself while it is being
+ * built.** A setter on `Object.prototype` for one of those names sees the assignment, and `this` at
+ * that moment *is* the Map. The trap comes off as soon as it succeeds, and goes back on only once
+ * the captured map's canvas leaves the document.
  *
  * This is a deliberate piece of nastiness, so it is fenced in:
  *
  * - It only claims an object that actually looks like a Map, so an unrelated assignment is ignored.
- * - It re-defines the property on the target afterwards, so the object ends up exactly as it would
- *   have been and nothing downstream can tell.
- * - It is removed explicitly during teardown; while installed, every intercepted assignment is
- *   immediately materialised as the same ordinary own property the engine would have created.
+ * - Every intercepted assignment is immediately materialised as the same ordinary own property the
+ *   engine would have created, so nothing downstream can tell.
  * - Everything that depends on it degrades: without a Map we fall back to the URL, which reloads.
  *
  * It must run before MapLibre constructs, so it belongs at `document-start`, ahead of everything.
@@ -30,9 +24,24 @@ import { pageWindow } from './page-world.js'
 /** Assigned by MapLibre's `Map` during `_setupContainer`. Measured: `_canvasContainer` fires. */
 const WITNESS_PROPERTIES = ['_canvasContainer', '_controlContainer', '_canvas'] as const
 
-let captured: MapLike | null = null
+/** A MapLibre custom layer, as `addLayer` takes it. */
+export interface CustomLayer {
+  readonly id: string
+  readonly type: 'custom'
+}
 
-/** Only what we use. MapLibre's surface is far larger, and we deliberately touch little of it. */
+type MapEvent = 'move' | 'moveend' | 'style.load' | 'sourcedata'
+
+/** What a map event carries that we read: the input behind a move, the source of a `sourcedata`. */
+interface MapEventData {
+  readonly originalEvent?: Event
+  readonly sourceId?: string
+}
+
+/**
+ * The part of MapLibre's `Map` we use. `style` and `painter` are MapLibre-private: read them
+ * defensively, since a MapLibre update can change their shape without notice.
+ */
 export interface MapLike {
   flyTo(options: Record<string, unknown>): unknown
   easeTo(options: Record<string, unknown>): unknown
@@ -41,19 +50,47 @@ export interface MapLike {
   getCenter(): { lng: number; lat: number }
   getCanvas(): HTMLCanvasElement
   unproject(point: [number, number]): { lng: number; lat: number }
-  on(
-    type: 'move' | 'moveend',
-    listener: (event: { readonly originalEvent?: Event }) => void,
-  ): unknown
-  off(
-    type: 'move' | 'moveend',
-    listener: (event: { readonly originalEvent?: Event }) => void,
-  ): unknown
+  project(lngLat: [number, number]): { x: number; y: number }
+  on(type: MapEvent, listener: (event: MapEventData) => void): unknown
+  off(type: MapEvent, listener: (event: MapEventData) => void): unknown
+  /** MapLibre-private: re-request some or all tiles of a source. */
+  refreshTiles?(id: string, tiles?: readonly { x: number; y: number; z: number }[]): unknown
   cameraForBounds?(
     bounds: [[number, number], [number, number]],
     options?: Record<string, unknown>,
   ): { center: { lng: number; lat: number } | [number, number]; zoom: number } | undefined
+  triggerRepaint(): void
+  isMoving(): boolean
+  addLayer(layer: CustomLayer, before?: string): unknown
+  getLayer(id: string): unknown
+  moveLayer(id: string, before?: string): unknown
+  getSource(id: string): unknown
+  readonly style?: {
+    /** MapLibre's draw order, custom layers included; `getStyle` leaves those out. */
+    readonly _order?: readonly string[]
+    /** Whether the style can take layers. */
+    readonly _loaded?: boolean
+    /** Per source; MapLibre has used both a `Map` and a plain record here. */
+    readonly tileManagers?: Record<string, unknown>
+  }
+  readonly painter?: {
+    /** Index into `style._order` of the layer being drawn. */
+    readonly currentLayer?: number
+    readonly options?: { readonly moving?: boolean }
+    readonly transform?: {
+      calculatePosMatrix?(
+        coordinate: unknown,
+        aligned?: boolean,
+        asFloat32?: boolean,
+      ): ArrayLike<number>
+    }
+  }
 }
+
+let captured: MapLike | null = null
+/** The captured map, once its style has taken layers at least once. */
+let attached: MapLike | null = null
+const attachListeners = new Set<(map: MapLike) => void>()
 
 const looksLikeMap = (value: unknown): value is MapLike =>
   typeof value === 'object' &&
@@ -65,8 +102,7 @@ const looksLikeMap = (value: unknown): value is MapLike =>
  * The page's `Object.prototype`, which in a separate-realm sandbox is not this one.
  *
  * MapLibre's objects inherit from the page's. Trapping the local prototype means the assignment this
- * is waiting for never reaches a setter, `getMap()` stays null for the session, and everything built
- * on the handle — the WebGL context ownership check, any later camera move — is silently inert.
+ * is waiting for never reaches a setter, and `getMap()` stays null for the session.
  */
 const pageProto = (realm: Window & typeof globalThis = pageWindow()): object =>
   (realm as unknown as { Object: ObjectConstructor }).Object.prototype
@@ -76,16 +112,8 @@ const ours = new Map<string, PropertyDescriptor>()
 let installedPrototype: object | null = null
 
 /**
- * The traps come off when the map is caught, and not on a clock.
- *
- * There was a thirty-second release timer here that bounded nothing: `main.ts` re-attaches every
- * second, so the traps went back on thirty seconds after each expiry for as long as the page was
- * open. Making that bound real is worse than dropping it — this setter is the only way the map is
- * ever found, so a MapLibre that constructs late would be missed for the rest of the session and
- * every overlay with it.
- *
- * Holding them costs close to nothing. They are three MapLibre-private names, and the setter's
- * whole job is to complete the assignment exactly as an ordinary property write would.
+ * The traps come off when the map is caught, and not on a clock: this setter is the only way the
+ * map is ever found, so a MapLibre that constructs late would otherwise be missed for the session.
  */
 const removeTraps = (): void => {
   const prototype = installedPrototype
@@ -99,6 +127,37 @@ const removeTraps = (): void => {
   installed.clear()
   ours.clear()
   installedPrototype = null
+}
+
+/** Release the map once its canvas leaves the document, and wait for its replacement. */
+const watchDetach = (map: MapLike): void => {
+  const canvas = map.getCanvas()
+  const document = canvas.ownerDocument
+  const observer = new (document.defaultView?.MutationObserver ?? MutationObserver)(() => {
+    if (canvas.isConnected) return
+    observer.disconnect()
+    if (captured !== map) return
+    releaseMapCapture()
+    installMapCapture()
+  })
+  observer.observe(document, { childList: true, subtree: true })
+}
+
+/**
+ * Announce the map whenever its style can take layers: once it first loads, and again after each
+ * style swap, which drops custom layers.
+ */
+const announceWhenReady = (map: MapLike): void => {
+  const announce = (): void => {
+    if (captured !== map) return
+    if (attached !== map) {
+      attached = map
+      watchDetach(map)
+    }
+    notifyEach(attachListeners, (listener) => listener(map), 'map:attach listener failed')
+  }
+  map.on('style.load', announce)
+  if (map.style?._loaded === true) announce()
 }
 
 export const installMapCapture = (realm: Window & typeof globalThis = pageWindow()): void => {
@@ -123,10 +182,9 @@ export const installMapCapture = (realm: Window & typeof globalThis = pageWindow
         set(this: object, value: unknown) {
           // Materialise the inherited assignment as the ordinary own property it was trying to
           // create. Reflect reports a non-extensible receiver without throwing through page code.
-          // Everything this setter does beyond completing the assignment is wrapped, because it runs
-          // inside someone else's assignment statement. A throwing `flyTo` getter, a proxy trap, a
-          // hostile receiver — any of them would otherwise throw after a successful assignment and
-          // abort whatever was initialising, which for MapLibre is the map itself.
+          // Everything beyond completing the assignment is wrapped, because it runs inside someone
+          // else's assignment statement: a throw here would abort whatever was initialising, which
+          // for MapLibre is the map itself.
           try {
             if (
               !Reflect.defineProperty(this, property, {
@@ -141,6 +199,14 @@ export const installMapCapture = (realm: Window & typeof globalThis = pageWindow
               captured = this
               log('install', `captured the map via ${property}`)
               removeTraps()
+              // The Map is mid-construction; listen once its constructor has returned.
+              queueMicrotask(() => {
+                try {
+                  announceWhenReady(this)
+                } catch (error) {
+                  warn('install', 'could not watch the map for its style', String(error))
+                }
+              })
             }
           } catch {
             // Detection is best-effort; a failure here must not become the page's problem.
@@ -162,17 +228,26 @@ export const getMap = (): MapLike | null => captured
 export const releaseMapCapture = (): void => {
   removeTraps()
   captured = null
+  attached = null
 }
 
-/** The slice of MapLibre's `Map` the Wplace performance patches use. */
-export interface PatchableMap {
+/**
+ * Run `listener` with the map each time its style can take layers: when a map is captured and
+ * loaded, after a style swap, and for a replacement map. A map already attached is passed at once.
+ */
+export const onMapAttached = (listener: (map: MapLike) => void): (() => void) => {
+  attachListeners.add(listener)
+  if (attached !== null) listener(attached)
+  return () => attachListeners.delete(listener)
+}
+
+/**
+ * The slice of the map the Wplace performance patches use. Every member is optional, so a patch
+ * still applies, partly, to a MapLibre that lacks one, and a test can stand in for the map with less.
+ */
+export type PatchableMap = Partial<
+  Pick<MapLike, 'getSource' | 'refreshTiles' | 'moveLayer' | 'on' | 'style'>
+> & {
+  /** Only whether the canvas is still in the document. */
   getCanvas?(): { readonly isConnected: boolean }
-  getSource?(id: string): unknown
-  refreshTiles?(id: string, tiles?: readonly { x: number; y: number; z: number }[]): unknown
-  moveLayer?(id: string, before?: string): unknown
-  on?(type: string, listener: (event: { sourceId?: string }) => void): unknown
-  style?: {
-    _order?: readonly string[]
-    tileManagers?: Record<string, unknown>
-  }
 }

@@ -1,5 +1,6 @@
 import { encodeIndexedPng } from '@caelestis/shared'
 import './open-menu.js'
+import { clearDraftPixels, draftPixels, registerDraftCanvas } from '../src/draft-pixels.js'
 import {
   forgetInWorker,
   mismatchWorkerMemoryBytes,
@@ -7,14 +8,11 @@ import {
 } from '../src/templates/mismatch-worker.js'
 import {
   captureTilePixels,
-  clearDraftPixels,
-  draftPixels,
-  install,
   loadTilePixels,
-  registerDraftCanvas,
   settledTileCaptures,
   tilePixels,
-} from '../src/tile-transform.js'
+} from '../src/tile-pixels.js'
+import { install } from '../src/tile-transform.js'
 import { installWplaceCursors } from '../src/wplace-cursors.js'
 import { installWplaceFont } from '../src/wplace-font.js'
 import { runMarkerPatchingContracts } from './marker-patching.js'

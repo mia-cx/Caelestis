@@ -22,6 +22,7 @@ vi.mock('./templates/move.js', () => ({ isMoving: () => harness.moving }))
 vi.mock('./alliance-surface.js', () => ({
   activeAllianceSurface: () => harness.alliance,
   activeAllianceEditorStage: () => harness.alliance?.stage ?? null,
+  currentSurface: () => ({ kind: harness.alliance === null ? 'world' : 'alliance-headquarters' }),
 }))
 vi.mock('./settings.js', () => ({
   getState: () => ({ simulatedInput: harness.simulate ? { 'shift-paint': true } : {} }),

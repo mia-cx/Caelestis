@@ -17,7 +17,6 @@ import type {
   TreeProgressModel,
   TreeRowModel,
 } from '@caelestis/ui/elements'
-import { allianceBounds } from '../alliance-coordinates.js'
 import { refreshAllianceManifest } from '../alliance-server-sync.js'
 import { activeAllianceSurface } from '../alliance-surface.js'
 import { goToLocalTemplate, goToServerTemplate } from '../application/tree-navigation.js'
@@ -503,7 +502,7 @@ const buildTree = <Result>(
   >()
   if (surface.kind !== 'world' && drawnTemplates.length > 0) {
     const active = activeAllianceSurface()
-    const bounds = active === null ? null : allianceBounds(active)
+    const bounds = active?.bounds ?? null
     const regions =
       active !== null && bounds !== null && sameTemplateSurface(active.surface, surface)
         ? readArtboardPixels(active, {

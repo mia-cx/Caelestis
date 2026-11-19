@@ -4,19 +4,21 @@ import {
   sameTemplateSurface,
   type TemplateSurface,
   templateSurfaceBounds,
+  WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
+import { observePageRequests, type RequestObservation, type RequestRoute } from './page-requests.js'
 import { pageWindow } from './page-world.js'
 import { frameQueue } from './ui/frame-queue.js'
 import { isWplaceMutation } from './ui/wplace-rail.js'
+import { OPEN_DIALOG } from './wplace-dom.js'
 import { findWplaceLabelled } from './wplace-messages.js'
-import { captureFetchUrlGetters, urlForFetchInput } from './wplace-raster.js'
+import { BACKEND_ORIGIN } from './wplace-raster.js'
 
-const EDITOR_STAGE = 'dialog[open] [role="application"]'
+const EDITOR_STAGE = `${OPEN_DIALOG} [role="application"]`
 /** The open alliance editor whose stage carries Wplace's `label`, in the reader's language. */
 const stage = (label: 'alliance_hq_canvas' | 'alliance_asset_canvas'): HTMLElement | null =>
   findWplaceLabelled<HTMLElement>(pageWindow().document, EDITOR_STAGE, label)
 const ARTBOARD_FRAME = '.artboard-frame'
-const BACKEND_ORIGIN = 'https://backend.wplace.live'
 const DRAFT_CANVAS = /^\/alliance\/assets\/drafts\/(\d+)\/canvas$/
 const PUBLIC_HEADQUARTERS = /^\/alliances\/(\d+)\/headquarters(?:\/|$)/
 
@@ -26,7 +28,10 @@ export interface ActiveAllianceSurface {
   readonly frame: HTMLElement
   /** Present when the request observer saw Wplace's disposable picture/banner draft id. */
   readonly draftId: number | null
-  /** Signed, half-open HQ bounds when Wplace has supplied them. */
+  /**
+   * The artboard's signed, half-open bounds: an HQ's as Wplace supplied them, null until it has;
+   * a picture's or banner's fixed size.
+   */
   readonly bounds: PixelBounds | null
 }
 
@@ -36,7 +41,7 @@ type HeadquartersRevisionListener = (allianceId: number) => void
 let active: ActiveAllianceSurface | null = null
 let installed = false
 let observer: MutationObserver | null = null
-let restoreFetch: (() => void) | null = null
+let stopRequests: (() => void) | null = null
 let reconcileQueued = false
 let memberAllianceId: number | null = null
 let headquarters: {
@@ -77,8 +82,11 @@ const nonNegativeInteger = (value: unknown): number | null => {
   return parsed !== null && parsed >= 0 ? parsed : null
 }
 
+/** Every HQ lies within the largest one Wplace allows. */
+const HQ_LIMITS = templateSurfaceBounds({ kind: 'alliance-headquarters', allianceId: 0 })
+
 const parseHqBounds = (value: unknown): PixelBounds | null => {
-  if (!isRecord(value)) return null
+  if (!isRecord(value) || HQ_LIMITS === null) return null
   const minX = integer(value.minX)
   const minY = integer(value.minY)
   const inclusiveMaxX = integer(value.maxX)
@@ -88,10 +96,10 @@ const parseHqBounds = (value: unknown): PixelBounds | null => {
     minY === null ||
     inclusiveMaxX === null ||
     inclusiveMaxY === null ||
-    minX < -1_000 ||
-    minY < -1_000 ||
-    inclusiveMaxX >= 1_000 ||
-    inclusiveMaxY >= 1_000 ||
+    minX < HQ_LIMITS.minX ||
+    minY < HQ_LIMITS.minY ||
+    inclusiveMaxX >= HQ_LIMITS.maxX ||
+    inclusiveMaxY >= HQ_LIMITS.maxY ||
     minX > inclusiveMaxX ||
     minY > inclusiveMaxY
   ) {
@@ -120,12 +128,18 @@ const sameActive = (left: ActiveAllianceSurface | null, right: ActiveAllianceSur
     left.draftId === right.draftId &&
     sameBounds(left.bounds, right.bounds))
 
+const ASSET_KINDS = ['alliance-picture', 'alliance-banner'] as const
+
+/** The asset whose fixed size Wplace's native artboard canvas has, if any. */
 const assetKindFromCanvas = (frame: HTMLElement): AllianceTemplateSurfaceKind | null => {
   for (const child of frame.children) {
     if (child.tagName !== 'CANVAS') continue
     const canvas = child as HTMLCanvasElement
-    if (canvas.width === 64 && canvas.height === 64) return 'alliance-picture'
-    if (canvas.width === 384 && canvas.height === 128) return 'alliance-banner'
+    const kind = ASSET_KINDS.find((candidate) => {
+      const bounds = templateSurfaceBounds({ kind: candidate, allianceId: 0 })
+      return bounds?.maxX === canvas.width && bounds.maxY === canvas.height
+    })
+    if (kind !== undefined) return kind
   }
   return null
 }
@@ -183,12 +197,13 @@ const reconcile = (): void => {
         publish(null)
         return
       }
+      const surface = { kind, allianceId: memberAllianceId }
       publish({
-        surface: { kind, allianceId: memberAllianceId },
+        surface,
         stage: assetStage,
         frame,
         draftId: draft?.kind === kind ? draft.id : null,
-        bounds: null,
+        bounds: templateSurfaceBounds(surface),
       })
       return
     }
@@ -339,125 +354,52 @@ const selectDraftRequest = (id: number): { readonly sequence: number; readonly e
   return { sequence, epoch: allianceEpoch }
 }
 
-const installFetchObserver = (realm: Window & typeof globalThis): (() => void) | null => {
-  const previous = realm.fetch
-  const urlGetters = captureFetchUrlGetters(realm)
-  const wrapped = function (this: unknown, ...args: Parameters<typeof fetch>) {
-    let observation:
-      | { readonly kind: 'alliance'; readonly sequence: number }
-      | { readonly kind: 'hq'; readonly sequence: number }
-      | { readonly kind: 'public-hq'; readonly sequence: number; readonly allianceId: number }
-      | {
-          readonly kind: 'draft'
-          readonly sequence: number
-          readonly draftId: number
-          readonly allianceEpoch: number
-        }
-      | null = null
-    let draftValidation: {
-      readonly pending: Promise<Response>
-      readonly sequence: number
-      readonly draftId: number
-      readonly allianceEpoch: number
-    } | null = null
-    try {
-      const raw = urlForFetchInput(args[0], realm, urlGetters)
-      if (raw !== null) {
-        const url = new URL(raw, realm.location?.href)
-        if (url.origin === BACKEND_ORIGIN) {
-          const publicHq = PUBLIC_HEADQUARTERS.exec(url.pathname)
-          const publicAllianceId = publicHq === null ? null : positiveInteger(Number(publicHq[1]))
-          const publicSequence = publicAllianceId === null ? null : ++headquartersSequence
-          if (publicAllianceId !== null && publicSequence !== null) {
-            selectHeadquartersRequest(publicAllianceId, publicSequence)
-          }
-          if (
-            publicAllianceId !== null &&
-            publicSequence !== null &&
-            (url.pathname === `/alliances/${publicAllianceId}/headquarters` ||
-              url.pathname === `/alliances/${publicAllianceId}/headquarters/manifest`)
-          ) {
-            observation = {
-              kind: 'public-hq',
-              sequence: publicSequence,
-              allianceId: publicAllianceId,
-            }
-          } else if (url.pathname === '/alliance') {
-            observation = { kind: 'alliance', sequence: ++memberSequence }
-          } else if (url.pathname === '/alliance/headquarters') {
-            const sequence = ++headquartersSequence
-            selectHeadquartersRequest(memberAllianceId, sequence)
-            observation = { kind: 'hq', sequence }
-          } else {
-            const match = DRAFT_CANVAS.exec(url.pathname)
-            const id = match === null ? null : positiveInteger(Number(match[1]))
-            if (id !== null && url.searchParams.get('metadataOnly') === 'true') {
-              const selected = selectDraftRequest(id)
-              observation = {
-                kind: 'draft',
-                sequence: selected.sequence,
-                draftId: id,
-                allianceEpoch: selected.epoch,
-              }
-            } else if (id !== null) {
-              const selected = selectDraftRequest(id)
-              const metadataUrl = new URL(url)
-              metadataUrl.searchParams.set('metadataOnly', 'true')
-              draftValidation = {
-                pending: previous.call(realm, metadataUrl.href, { credentials: 'include' }),
-                sequence: selected.sequence,
-                draftId: id,
-                allianceEpoch: selected.epoch,
-              }
-            }
-          }
-        }
-      }
-    } catch {
-      // Unusual fetch inputs remain fully transparent; they simply carry no observable context.
-    }
+/** Watch the response, passing it on unchanged. */
+const watch = (observe: (response: Response) => void): RequestObservation => ({
+  response: (response) => {
+    observe(response)
+    return response
+  },
+})
 
-    const pending = previous.apply(this as never, args)
-    if (draftValidation !== null) {
-      void draftValidation.pending.then(
-        (response) =>
-          observeDraft(
-            response,
-            draftValidation.sequence,
-            draftValidation.draftId,
-            draftValidation.allianceEpoch,
-          ),
-        () => {
-          // Keep the reused canvas unscoped until Wplace proves the new asset kind.
-        },
-      )
-    }
-    if (observation === null) return pending
-    return pending.then((response) => {
-      if (observation.kind === 'draft') {
-        observeDraft(response, observation.sequence, observation.draftId, observation.allianceEpoch)
-      } else if (observation.kind === 'alliance') {
-        observeMemberAlliance(response, observation.sequence)
-      } else {
-        observeHeadquarters(
-          response,
-          observation.sequence,
-          observation.kind === 'public-hq' ? observation.allianceId : undefined,
-        )
-      }
-      return response
-    })
-  } as typeof fetch
-
-  try {
-    realm.fetch = wrapped
-  } catch {
-    return null
+const allianceRoute: RequestRoute = ({ url, realm, fetch }) => {
+  if (url.origin !== BACKEND_ORIGIN) return undefined
+  const publicHq = PUBLIC_HEADQUARTERS.exec(url.pathname)
+  const publicAllianceId = publicHq === null ? null : positiveInteger(Number(publicHq[1]))
+  if (publicAllianceId !== null) {
+    const sequence = ++headquartersSequence
+    selectHeadquartersRequest(publicAllianceId, sequence)
+    if (
+      url.pathname === `/alliances/${publicAllianceId}/headquarters` ||
+      url.pathname === `/alliances/${publicAllianceId}/headquarters/manifest`
+    )
+      return watch((response) => observeHeadquarters(response, sequence, publicAllianceId))
   }
-  if (realm.fetch !== wrapped) return null
-  return () => {
-    if (realm.fetch === wrapped) realm.fetch = previous
+  if (url.pathname === '/alliance') {
+    const sequence = ++memberSequence
+    return watch((response) => observeMemberAlliance(response, sequence))
   }
+  if (url.pathname === '/alliance/headquarters') {
+    const sequence = ++headquartersSequence
+    selectHeadquartersRequest(memberAllianceId, sequence)
+    return watch((response) => observeHeadquarters(response, sequence))
+  }
+  const match = DRAFT_CANVAS.exec(url.pathname)
+  const id = match === null ? null : positiveInteger(Number(match[1]))
+  if (id === null) return undefined
+  const { sequence, epoch } = selectDraftRequest(id)
+  if (url.searchParams.get('metadataOnly') === 'true')
+    return watch((response) => observeDraft(response, sequence, id, epoch))
+  // The canvas itself says nothing of its kind; its metadata does, so read that alongside.
+  const metadataUrl = new URL(url)
+  metadataUrl.searchParams.set('metadataOnly', 'true')
+  void fetch.call(realm, metadataUrl.href, { credentials: 'include' }).then(
+    (response) => observeDraft(response, sequence, id, epoch),
+    () => {
+      // Keep the reused canvas unscoped until Wplace proves the new asset kind.
+    },
+  )
+  return undefined
 }
 
 /** Install the request and DOM observers at document-start. Idempotent. */
@@ -465,7 +407,7 @@ export const installAllianceSurfaceObserver = (): void => {
   if (installed) return
   installed = true
   const realm = pageWindow()
-  restoreFetch = installFetchObserver(realm)
+  stopRequests = observePageRequests(allianceRoute)
   // Wplace's DOM churns while the map moves; one reconcile per frame is enough, and our own nodes
   // never open or close an alliance editor.
   const queueFrameReconcile = frameQueue(reconcile, (callback) =>
@@ -486,7 +428,11 @@ export const installAllianceSurfaceObserver = (): void => {
   queueReconcile()
 }
 
+/** The open alliance editor's artboard, with the DOM it is drawn into; null on the world map. */
 export const activeAllianceSurface = (): ActiveAllianceSurface | null => active
+
+/** The surface the painter is looking at: the open alliance artboard, or else the world map. */
+export const currentSurface = (): TemplateSurface => active?.surface ?? WORLD_TEMPLATE_SURFACE
 
 /**
  * The middle of an alliance surface, where a new template lands: of the open editor's bounds when
@@ -521,9 +467,9 @@ export const onHeadquartersRevisionChange = (
 /** Test-only lifecycle reset; harmless when called during teardown in a page. */
 export const resetAllianceSurfaceObserver = (): void => {
   observer?.disconnect()
-  restoreFetch?.()
+  stopRequests?.()
   observer = null
-  restoreFetch = null
+  stopRequests = null
   installed = false
   reconcileQueued = false
   memberAllianceId = null

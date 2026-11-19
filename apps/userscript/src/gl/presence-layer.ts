@@ -26,8 +26,9 @@ import {
   recordProfileWorkload,
   registerProfileMemorySource,
 } from '../profile.js'
-import { currentQuads, isDrawingTiles } from '../tile-transform.js'
+import { currentQuads, isDrawingTiles } from '../tile-frame.js'
 import { ramps } from './fade.js'
+import { LAYER_IDS } from './layer-stack.js'
 import { linkTemplateProgram, writeClipCorner } from './renderer-core.js'
 
 /**
@@ -51,10 +52,6 @@ import { linkTemplateProgram, writeClipCorner } from './renderer-core.js'
  * blink out.
  */
 
-export const PRESENCE_LAYER_ID = 'caelestis-presence'
-const PIXEL_ART_LAYER = 'pixel-art-layer'
-const MARKER_LAYER_ID = 'caelestis-markers'
-const CROSSHAIR_LAYER = 'pixel-hover'
 /** Mask texel level for an inside pixel; outside stays zero. */
 const MASK_INSIDE = 255
 
@@ -278,7 +275,7 @@ const tileRect = (tile: TileQuad): PresenceRect => ({
 })
 
 class PresenceLayer {
-  readonly id = PRESENCE_LAYER_ID
+  readonly id = LAYER_IDS.presence
   readonly type = 'custom' as const
   readonly renderingMode = '2d' as const
   private owner: WebGL2RenderingContext | null = null
@@ -610,47 +607,4 @@ export const presenceLayer = new PresenceLayer()
 export const repaintPresence = (): void => {
   const map = getMap() as { triggerRepaint?: () => void } | null
   map?.triggerRepaint?.()
-}
-
-interface LayerMap {
-  addLayer?: (layer: unknown, before?: string) => void
-  getLayer?: (id: string) => unknown
-  moveLayer?: (id: string, before?: string) => void
-  style?: { _order?: string[] }
-}
-
-/**
- * Put the layer just under Wplace's crosshair and keep it there across style changes.
- *
- * It needs the crosshair to sit below, and it must stay above the pixel art and our markers; a
- * basemap swap can leave it present but in the wrong place, which is what the order check catches.
- * Without the anchor there is nothing to be relative to yet, so this waits for the next pass.
- */
-export const installPresenceLayer = (): boolean => {
-  const map = getMap() as LayerMap | null
-  if (map?.addLayer === undefined) return false
-  if (map.getLayer?.(CROSSHAIR_LAYER) === undefined) return false
-  try {
-    if (map.getLayer?.(PRESENCE_LAYER_ID) === undefined) {
-      map.addLayer(presenceLayer, CROSSHAIR_LAYER)
-      log('install', `${PRESENCE_LAYER_ID} inserted before ${CROSSHAIR_LAYER}`)
-      return true
-    }
-    const order = map.style?._order
-    if (order === undefined || map.moveLayer === undefined) return true
-    const at = order.indexOf(PRESENCE_LAYER_ID)
-    const anchorAt = order.indexOf(CROSSHAIR_LAYER)
-    const belowSomethingItShouldFollow = [MARKER_LAYER_ID, PIXEL_ART_LAYER].some((id) => {
-      const index = order.indexOf(id)
-      return index >= 0 && index > at
-    })
-    if (at >= 0 && ((anchorAt >= 0 && at > anchorAt) || belowSomethingItShouldFollow)) {
-      map.moveLayer(PRESENCE_LAYER_ID, CROSSHAIR_LAYER)
-      log('install', `restored ${PRESENCE_LAYER_ID} order after a style change`)
-    }
-    return true
-  } catch (error) {
-    warn('install', `could not add ${PRESENCE_LAYER_ID}`, String(error))
-    return false
-  }
 }

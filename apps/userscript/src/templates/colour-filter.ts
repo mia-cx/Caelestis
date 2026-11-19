@@ -1,6 +1,6 @@
 import { type TemplateSurface, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { getState, onlySelectedColourFor } from '../settings.js'
-import { isPaintOpen, selectedColour } from '../wplace-paint.js'
+import { selectedColour } from '../wplace-paint.js'
 import { type Appearance, drawableIndices } from './appearance.js'
 
 /**
@@ -33,8 +33,7 @@ const allBut = (keep: number): readonly number[] =>
  * came out as hiding nothing, which switched the user's own hidden colours back on.
  */
 const followedColour = (surface: TemplateSurface): number | null => {
-  if (!onlySelectedColourFor(surface) || !isPaintOpen()) return null
-  return selectedColour()
+  return onlySelectedColourFor(surface) ? selectedColour() : null
 }
 
 /**

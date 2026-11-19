@@ -1,5 +1,5 @@
 import { WORLD_PIXELS } from '@caelestis/shared'
-import { activeAllianceSurface } from './alliance-surface.js'
+import { activeAllianceSurface, currentSurface } from './alliance-surface.js'
 import { getMap } from './map-handle.js'
 import {
   forwardPaintKey,
@@ -154,7 +154,7 @@ const filterInput = (keys: Keys): Mode => {
         claim(event)
         return
       }
-      if (event.repeat && activeAllianceSurface() !== null) return
+      if (event.repeat && currentSurface().kind !== 'world') return
       holding = true
       stroke = new Set(hover === null ? [] : [strokeKey(hover, selectedNow())])
       from = hover

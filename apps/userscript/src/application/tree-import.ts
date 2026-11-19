@@ -5,7 +5,7 @@ import {
   TRANSPARENT_INDEX,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
-import { activeAllianceSurface, allianceSurfaceCentre } from '../alliance-surface.js'
+import { allianceSurfaceCentre, currentSurface } from '../alliance-surface.js'
 import { startCaptureMode } from '../claim-editor.js'
 import { viewportCentre } from '../map-view.js'
 import { captureSelectedArtwork } from '../templates/current-artwork.js'
@@ -231,7 +231,7 @@ export const captureTemplate = (target: TreeTarget, rerender: () => void): void 
     toast(notice, 'warning')
     return
   }
-  if (activeAllianceSurface() !== null) {
+  if (currentSurface().kind !== 'world') {
     toast('Capture works on the world canvas. Leave the alliance canvas first.', 'warning')
     return
   }

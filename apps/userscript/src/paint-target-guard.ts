@@ -1,4 +1,4 @@
-import { activeAllianceSurface } from './alliance-surface.js'
+import { activeAllianceSurface, currentSurface } from './alliance-surface.js'
 import type { MapLike } from './map-handle.js'
 import {
   forwardPaintMove,
@@ -60,7 +60,7 @@ export const refreshPaintTarget = (root: Element, type: 'mousemove' | 'pointermo
 }
 
 const worldCameraSettled = (): void => {
-  if (observedMap !== null && activeAllianceSurface() === null)
+  if (observedMap !== null && currentSurface().kind === 'world')
     refreshPaintTarget(observedMap.getCanvas(), 'mousemove')
 }
 

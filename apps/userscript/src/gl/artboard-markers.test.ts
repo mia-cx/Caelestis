@@ -1,6 +1,6 @@
 import { TRANSPARENT_INDEX as T } from '@caelestis/shared'
 import { expect, it } from 'vitest'
-import { NO_NATIVE_DRAFT } from '../native-pixels.js'
+import { UNPAINTED } from '../native-pixels.js'
 import { cutPixels } from '../templates/sparse-pixels.js'
 import { artboardColourProgress } from './artboard-markers.js'
 
@@ -26,9 +26,9 @@ it('reuses alliance progress until the native pixels or the template placement c
         y: 0,
         width: 3,
         height: 1,
-        pixels: new Uint8Array([2, NO_NATIVE_DRAFT, NO_NATIVE_DRAFT]),
+        pixels: new Uint8Array([2, UNPAINTED, UNPAINTED]),
         present: new Uint8Array([0, 0, 1]),
-        emptyIndex: NO_NATIVE_DRAFT,
+        emptyIndex: UNPAINTED,
       },
     ],
     revision: 1,

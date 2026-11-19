@@ -1,4 +1,4 @@
-import { activeAllianceSurface, onActiveAllianceSurfaceChange } from '../alliance-surface.js'
+import { currentSurface, onActiveAllianceSurfaceChange } from '../alliance-surface.js'
 import { warn } from '../debug.js'
 import { refreshPersonalTemplates, restoreLocalTemplates } from './local-store.js'
 import { installNativeAllianceTemplates } from './native-alliance.js'
@@ -23,7 +23,7 @@ export const installPersonalTemplates = async (): Promise<void> => {
       let requested = false
       let found = false
       const discover = (): void => {
-        if (found || activeAllianceSurface() === null) return
+        if (found || currentSurface().kind === 'world') return
         if (discovering) {
           requested = true
           return

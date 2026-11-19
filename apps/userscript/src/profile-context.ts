@@ -1,4 +1,4 @@
-import { activeAllianceSurface } from './alliance-surface.js'
+import { currentSurface } from './alliance-surface.js'
 import { userscriptVersion } from './client-metrics.js'
 import { getMap } from './map-handle.js'
 import { presenceView } from './presence-client.js'
@@ -37,7 +37,7 @@ export const readProfileContext = () => {
       visibility: globalThis.document?.visibilityState ?? null,
     },
     camera: center ? { longitude: center.lng, latitude: center.lat, zoom: map?.getZoom() } : null,
-    surface: activeAllianceSurface()?.surface.kind ?? 'world',
+    surface: currentSurface().kind,
     templates: {
       loaded: templates.length,
       enabled: templates.filter((template) => template.visible).length,

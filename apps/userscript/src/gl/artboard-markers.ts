@@ -1,9 +1,6 @@
 import { TRANSPARENT_INDEX } from '@caelestis/shared'
-import {
-  type NativePixelRect,
-  type NativePixelSnapshot,
-  nativePixelWindow,
-} from '../native-pixels.js'
+import { intersectRects, type PixelRect } from '../geometry.js'
+import { type NativePixelSnapshot, nativePixelWindow } from '../native-pixels.js'
 import type { Appearance } from '../templates/appearance.js'
 import type { PlacedPixels, PlacedTemplate } from '../templates/local-store.js'
 import { packMismatchMark } from '../templates/mismatch-marks.js'
@@ -247,14 +244,6 @@ interface MarkerIndexEntry {
 const hiddenKeyFor = (appearance: Appearance): string =>
   [...appearance.hiddenColours].sort((left, right) => left - right).join(',')
 
-const overlaps = (left: NativePixelRect, right: NativePixelRect): NativePixelRect | null => {
-  const x = Math.max(left.x, right.x)
-  const y = Math.max(left.y, right.y)
-  const farX = Math.min(left.x + left.width, right.x + right.width)
-  const farY = Math.min(left.y + left.height, right.y + right.height)
-  return farX <= x || farY <= y ? null : { x, y, width: farX - x, height: farY - y }
-}
-
 const selectedBatches = (entry: MarkerIndexEntry, wanted: number) => {
   let batches = entry.selected.get(wanted)
   if (batches === undefined) {
@@ -352,7 +341,7 @@ export class ArtboardMarkerIndex {
     entry: MarkerIndexEntry,
     template: PlacedPixels,
     pixels: NativePixelSnapshot,
-    dirty: NativePixelRect,
+    dirty: PixelRect,
   ): void {
     const templateRect = {
       x: template.originX,
@@ -360,7 +349,7 @@ export class ArtboardMarkerIndex {
       width: template.width,
       height: template.height,
     }
-    const overlap = overlaps(dirty, templateRect)
+    const overlap = intersectRects(dirty, templateRect)
     if (overlap === null) return
     const actual = nativePixelWindow(pixels, overlap)
     const wantedHere = pixelRect(
@@ -405,7 +394,7 @@ export class ArtboardMarkerIndex {
     template: PlacedPixels,
     pixels: NativePixelSnapshot,
     appearance: Appearance,
-    dirty: readonly NativePixelRect[] | null,
+    dirty: readonly PixelRect[] | null,
   ): ArtboardMarkerWork {
     this.compared = 0
     if (this.entry === null || !this.matchesPixels(this.entry, template, appearance)) {

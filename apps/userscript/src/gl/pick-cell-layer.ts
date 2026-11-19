@@ -1,6 +1,7 @@
 import { canvasPixelToLatLng, PALETTE_RGB } from '@caelestis/shared'
-import { log, warn } from '../debug.js'
-import { getMap } from '../map-handle.js'
+import { log } from '../debug.js'
+import { getMap, type MapLike } from '../map-handle.js'
+import { LAYER_IDS } from './layer-stack.js'
 
 /**
  * A solid template cell for Wplace's own picker to read, which trips no flag.
@@ -14,8 +15,6 @@ import { getMap } from '../map-handle.js'
  * template cell to its exact palette colour, so the frame Wplace reads holds the template colour.
  */
 
-export const PICK_CELL_LAYER_ID = 'caelestis-pick-cell'
-
 /**
  * How long the cell stays after the button comes up. Wplace's picker tool reads on the map's
  * `click`, after release, so the cell holds while the button is down and this covers the render
@@ -23,23 +22,10 @@ export const PICK_CELL_LAYER_ID = 'caelestis-pick-cell'
  */
 const SHOWN_AFTER_RELEASE_MS = 500
 
-interface ProjectingMap {
-  getCanvas(): HTMLCanvasElement
-  getCenter(): { lng: number }
-  project(lngLat: [number, number]): { x: number; y: number }
-  triggerRepaint?(): void
-  addLayer?(layer: unknown, before?: string): void
-  getLayer?(id: string): unknown
-  moveLayer?(id: string, before?: string): void
-  style?: { _order?: string[] }
-}
-
 let shown: { readonly x: number; readonly y: number; readonly rgb: readonly number[] } | null = null
 /** Whether the current cell has been drawn yet, so the debug log notes its first frame only. */
 let drawn = false
 let hide: ReturnType<typeof setTimeout> | undefined
-
-const projectingMap = (): ProjectingMap | null => getMap() as ProjectingMap | null
 
 const hideAfterRelease = (): void => {
   window.removeEventListener('pointerup', hideAfterRelease, true)
@@ -47,7 +33,7 @@ const hideAfterRelease = (): void => {
   clearTimeout(hide)
   hide = setTimeout(() => {
     shown = null
-    projectingMap()?.triggerRepaint?.()
+    getMap()?.triggerRepaint()
   }, SHOWN_AFTER_RELEASE_MS)
 }
 
@@ -64,7 +50,7 @@ export const showPickCell = (x: number, y: number, index: number): void => {
   clearTimeout(hide)
   window.addEventListener('pointerup', hideAfterRelease, true)
   window.addEventListener('pointercancel', hideAfterRelease, true)
-  projectingMap()?.triggerRepaint?.()
+  getMap()?.triggerRepaint()
 }
 
 /**
@@ -72,7 +58,7 @@ export const showPickCell = (x: number, y: number, index: number): void => {
  * It bounds all four projected corners, so a rotated or pitched map still covers the whole cell.
  */
 const cellRect = (
-  map: ProjectingMap,
+  map: MapLike,
   x: number,
   y: number,
 ): readonly [number, number, number, number] | null => {
@@ -100,13 +86,13 @@ const cellRect = (
 }
 
 export const pickCellLayer = {
-  id: PICK_CELL_LAYER_ID,
+  id: LAYER_IDS.pickCell,
   type: 'custom' as const,
   renderingMode: '2d' as const,
 
   render(gl: WebGL2RenderingContext): void {
     if (shown === null) return
-    const map = projectingMap()
+    const map = getMap()
     if (map === null) return
     const rect = cellRect(map, shown.x, shown.y)
     if (rect === null) return
@@ -121,24 +107,4 @@ export const pickCellLayer = {
     drawn = true
     log('draw', 'pick cell drawn', { rect })
   },
-}
-
-/** Add the layer on top of Wplace's style, and move it back on top after a style change. */
-export const installPickCellLayer = (): boolean => {
-  const map = projectingMap()
-  if (map?.addLayer === undefined) return false
-  try {
-    if (map.getLayer?.(PICK_CELL_LAYER_ID) === undefined) {
-      map.addLayer(pickCellLayer)
-      log('install', `${PICK_CELL_LAYER_ID} inserted on top`)
-      return true
-    }
-    const order = map.style?._order
-    if (order !== undefined && order.at(-1) !== PICK_CELL_LAYER_ID)
-      map.moveLayer?.(PICK_CELL_LAYER_ID)
-    return true
-  } catch (error) {
-    warn('install', `could not add ${PICK_CELL_LAYER_ID}`, String(error))
-    return false
-  }
 }

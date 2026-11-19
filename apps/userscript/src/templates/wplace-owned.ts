@@ -1,5 +1,7 @@
+import { BACKEND_ORIGIN } from '../wplace-raster.js'
+
 /** Native alliance records stay owned by Wplace. Extra Caelestis records never enter its capped API. */
-export const NATIVE_ALLIANCE_OWNER = 'https://backend.wplace.live'
+export const NATIVE_ALLIANCE_OWNER = BACKEND_ORIGIN
 /** Wplace's official event overlays, such as the Seven Seals fragments. */
 export const OFFICIAL_OVERLAY_OWNER = 'https://wplace.live'
 

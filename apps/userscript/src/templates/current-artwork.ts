@@ -7,15 +7,15 @@ import {
   WORLD_TEMPLATE_SURFACE,
   WPLACE_PALETTE,
 } from '@caelestis/shared'
-import { allianceBounds } from '../alliance-coordinates.js'
 import { activeAllianceSurface } from '../alliance-surface.js'
 import { readArtboardPixels, refreshArtboardPixels } from '../gl/artboard-pixels.js'
 import {
   type NativePixelSnapshot,
   type NativePixelWindow,
   nativePixelWindow,
+  UNPAINTED,
 } from '../native-pixels.js'
-import { loadCommittedTilePixels, UNPAINTED } from '../tile-transform.js'
+import { loadCommittedTilePixels } from '../tile-pixels.js'
 import { type PlacedTemplate, templatePixels } from './local-store.js'
 
 /**
@@ -76,7 +76,7 @@ export const captureCurrentArtwork = async (placed: PlacedTemplate): Promise<Uin
   const surface = template.surface ?? WORLD_TEMPLATE_SURFACE
   if (surface.kind !== 'world') {
     const active = activeAllianceSurface()
-    const bounds = active === null ? null : allianceBounds(active)
+    const bounds = active?.bounds ?? null
     if (active === null || bounds === null || !sameTemplateSurface(surface, active.surface)) {
       throw new Error('Open this template’s alliance canvas before updating it.')
     }

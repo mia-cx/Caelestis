@@ -150,7 +150,12 @@ const setup = async () => {
   vi.stubGlobal('navigator', { deviceMemory: 8 })
   vi.stubGlobal('OffscreenCanvas', OffscreenCanvasStub)
   vi.resetModules()
-  const tileTransform = await import('../src/tile-transform.js')
+  const tileTransform = {
+    ...(await import('../src/tile-transform.js')),
+    ...(await import('../src/tile-pixels.js')),
+    ...(await import('../src/draft-pixels.js')),
+    ...(await import('../src/paint-requests.js')),
+  }
   const store = await import('../src/templates/local-store.js')
   const { pixelAccounting } = await import('../src/templates/mismatch.js')
   const { MarkerRenderer } = await import('../src/gl/marker-renderer.js')
@@ -181,7 +186,7 @@ const setup = async () => {
       }
     },
   } as unknown as Window & typeof globalThis
-  tileTransform.install(realm, () => null)
+  tileTransform.install(realm)
   tileTransform.captureTilePixels(true)
   stopCapture = () => tileTransform.captureTilePixels(false)
   const tileResponse = await realm.fetch(

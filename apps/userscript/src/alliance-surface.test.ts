@@ -6,12 +6,18 @@ import {
   onActiveAllianceSurfaceChange,
   resetAllianceSurfaceObserver,
 } from './alliance-surface.js'
+import type { InstalledValueHook } from './page-hooks.js'
+import { installPageRequestObserver } from './page-requests.js'
 
 const BACKEND = 'https://backend.wplace.live'
 const DRAFT = `${BACKEND}/alliance/assets/drafts/5/canvas`
 
+let requests: InstalledValueHook | null = null
+
 afterEach(() => {
   resetAllianceSurfaceObserver()
+  requests?.restore()
+  requests = null
   document.body.replaceChildren()
 })
 
@@ -22,6 +28,7 @@ const openBannerEditor = () => {
     const body = path === '/alliance' ? { id: 7 } : { draftId: 5, assetType: 'banner' }
     return new Response(JSON.stringify(body))
   }) as typeof fetch
+  requests = installPageRequestObserver(window)
   document.body.innerHTML = `
     <dialog open>
       <div role="application" aria-label="Alliance asset canvas">
