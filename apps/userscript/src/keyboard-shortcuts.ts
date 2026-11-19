@@ -15,6 +15,7 @@ import { handleTemplateStudioIntent, isTemplateStudioOpen } from './application/
 import { isClaimModeActive } from './claim-editor.js'
 import { cycleFocusedColour, navigateFocusedSelectedColour } from './colour-navigation.js'
 import { getMap } from './map-handle.js'
+import { redraw } from './map-view.js'
 import { setOverlayPeekActive } from './overlay-peek.js'
 import {
   getState,
@@ -135,7 +136,6 @@ interface ShortcutHandler {
  * keyup, blur, disposal, or a hidden tab rather than touching any persisted visibility switch.
  */
 export const installKeyboardShortcuts = (
-  redraw: () => void,
   platform: ShortcutPlatform = currentShortcutPlatform(),
 ): (() => void) => {
   let peeking = false

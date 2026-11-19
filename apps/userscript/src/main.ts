@@ -142,7 +142,7 @@ export const installFeatures = (): void => {
   step('paint target guard', installPaintTargetGuard)
   step('colour picker', installColourPicker)
   step('shift paint', installShiftPaint)
-  step('keyboard shortcuts', () => installKeyboardShortcuts(redraw))
+  step('keyboard shortcuts', () => installKeyboardShortcuts())
   // A completed scan changes marker buffers and progress only. Progress has its own DOM listeners;
   // rerunning every screen-space overlay control here duplicates the MapLibre frame requested next.
   step('mismatch repaint', () => pixelAccounting.onChange(requestMapFrame))

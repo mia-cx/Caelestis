@@ -57,7 +57,7 @@ const recordClicks = (html: string): string[] => {
       ),
     )
   uninstall?.()
-  uninstall = installKeyboardShortcuts(() => {}, 'windows-linux')
+  uninstall = installKeyboardShortcuts('windows-linux')
   return clicked
 }
 
