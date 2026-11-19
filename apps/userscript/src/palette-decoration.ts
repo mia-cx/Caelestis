@@ -10,9 +10,9 @@ import {
   navigateFocusedColour,
   paintPaletteProgress,
 } from './palette-navigation.js'
+import { onServerStatusChange } from './server-status.js'
 import { onStateChange } from './settings.js'
 import { activeShortcutBindings, currentShortcutPlatform } from './shortcuts.js'
-import { onServerStatusChange } from './telemetry.js'
 import { installDraftProjection } from './templates/draft-projection.js'
 import { onLocalChange } from './templates/local-store.js'
 import { pixelAccounting } from './templates/mismatch.js'

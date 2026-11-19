@@ -7,10 +7,11 @@ import {
   renderedParent,
   serverSnapshotError,
 } from '../application/tree-server-state.js'
+import { serverAlarmFor, serverAlarmKindFor } from '../server-alarms.js'
 import type { ServerTemplate } from '../server-manifest.js'
 import { manifestRows as rowsForSurface } from '../server-manifests.js'
+import { serverProgressFor } from '../server-status.js'
 import { isScopeVisible, type ServerConnection, setScopeVisible } from '../settings.js'
-import { serverAlarmFor, serverAlarmKindFor, serverProgressFor } from '../telemetry.js'
 import { isTemplateVisible, setLocalVisible } from '../templates/local-store.js'
 import { nodeChainVisible } from '../templates/server-nodes.js'
 import {

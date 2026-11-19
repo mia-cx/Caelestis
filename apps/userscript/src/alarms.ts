@@ -1,7 +1,7 @@
 import type { Alarm } from '@caelestis/shared'
+import { activeServerAlarms, onServerAlarmChange } from './server-alarms.js'
 import { getState } from './settings.js'
 import { storedValue, storeValue } from './stored-values.js'
-import { activeServerAlarms, onServerAlarmChange } from './telemetry.js'
 import { showAmbientToast } from './ui/notification-host.js'
 import { isWorldTemplatePresented, onWorldTemplateTreeVisible } from './ui/panel.js'
 import { setAlarmBadge } from './ui/rail.js'

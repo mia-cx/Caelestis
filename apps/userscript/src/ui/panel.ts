@@ -38,6 +38,7 @@ import { onArtboardPixelsChange, onHeadquartersTilesChange } from '../gl/artboar
 import { onViewChange, redraw, viewportCentre } from '../map-view.js'
 import { onPresenceChange } from '../presence-client.js'
 import { measureProfile, recordProfileCounter } from '../profile.js'
+import { onServerAlarmChange } from '../server-alarms.js'
 import {
   installServerConnectionRetry,
   refreshStoredServers,
@@ -47,6 +48,7 @@ import {
   admittedManifest as admittedServerContentsFor,
   primeFromCache,
 } from '../server-manifests.js'
+import { onServerStatusChange } from '../server-status.js'
 import {
   getState,
   onStateChange,
@@ -55,7 +57,6 @@ import {
   setState,
 } from '../settings.js'
 import { onStoredValueChange } from '../stored-values.js'
-import { onServerAlarmChange, onServerStatusChange } from '../telemetry.js'
 import { onLocalChange } from '../templates/local-store.js'
 import { pixelAccounting } from '../templates/mismatch.js'
 import { onOfficialOverlaysChange } from '../templates/official-overlays.js'

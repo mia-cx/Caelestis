@@ -4,8 +4,8 @@ import {
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import type { ServerTemplate } from '../server-manifest.js'
+import { serverColourProgressFor, serverProgressFor } from '../server-status.js'
 import { getState, type ServerConnection } from '../settings.js'
-import { serverColourProgressFor, serverProgressFor } from '../telemetry.js'
 import { artboardProgressCounts } from '../templates/artboard-accounting.js'
 import { isServerTemplate, localTemplates, type PlacedTemplate } from '../templates/local-store.js'
 import { pixelAccounting } from '../templates/mismatch.js'

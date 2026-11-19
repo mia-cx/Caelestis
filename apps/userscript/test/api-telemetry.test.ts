@@ -281,8 +281,9 @@ describe('userscript telemetry HTTP boundary', () => {
     })
 
     sync.requestServerSync('connect', 'telemetry-status', server)
+    const { serverProgressFor } = await import('../src/server-status.js')
     await vi.waitFor(() =>
-      expect(telemetry.serverProgressFor(server, { id: uploaded.id, totalPixels: 1 })).toEqual({
+      expect(serverProgressFor(server, { id: uploaded.id, totalPixels: 1 })).toEqual({
         completed: 1,
         mismatched: 0,
         unpainted: 0,
