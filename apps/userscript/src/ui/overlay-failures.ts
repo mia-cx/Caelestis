@@ -1,3 +1,12 @@
+/**
+ * What a refused write is recorded against.
+ *
+ * Granular on purpose. One `appearance` bucket lets a successful colour change clear the banner for
+ * a shape change refused moments earlier, leaving the overlay without the shape and without a word
+ * about it, so an appearance write is keyed by the properties it actually patched. `move` is
+ * cleared whenever no placement is running, so a message *about* there being no placement needs a
+ * key of its own.
+ */
 export type OverlayFailureKey =
   | 'delete'
   | 'visible'
@@ -9,6 +18,11 @@ export type OverlayFailureKey =
   | 'move-stopped'
   | `appearance:${string}`
 
+/**
+ * A function of the name rather than a string: a message built when the click happened names the
+ * template as it was then, and a rename landing before the refusal puts the old name in a banner
+ * under the new heading.
+ */
 type Message = (name: string) => string
 
 interface Refusal {

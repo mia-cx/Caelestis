@@ -112,8 +112,12 @@ export const appearanceEditorModel = ({
   }
 }
 
+/** How a refusal names an appearance property: its slider's label, or the key without one. */
+export const appearanceLabel = (key: keyof Appearance): string =>
+  APPEARANCE_CONTROLS.find((control) => control.key === key)?.label.toLowerCase() ?? key
+
 /** One change to save: what it touches, how a refusal names it, and the patch over stored values. */
-interface AppearanceChange {
+export interface AppearanceChange {
   readonly properties: readonly string[]
   readonly label: string
   readonly patch: AppearanceUpdater
@@ -155,12 +159,7 @@ export const handleAppearanceIntent = (
       store.preview(intent.key, intent.value)
       break
     case 'commit-number':
-      store.commitPreview(
-        intent.key,
-        intent.value,
-        APPEARANCE_CONTROLS.find((control) => control.key === intent.key)?.label.toLowerCase() ??
-          intent.key,
-      )
+      store.commitPreview(intent.key, intent.value, appearanceLabel(intent.key))
       break
     case 'commit-colour':
       store.commitPreview(intent.key, intent.value, intent.key)
