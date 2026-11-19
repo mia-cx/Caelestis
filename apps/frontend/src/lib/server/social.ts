@@ -8,6 +8,7 @@ import {
 } from '@caelestis/social'
 import type { ObjectInfo, ObjectStorage } from '@caelestis/storage'
 import { READ_PROXY } from '#lib/deployment.js'
+import { pageTitle } from '#lib/server-info.js'
 import { discordComponentEmbed } from './discord-embed.js'
 
 interface SocialContext {
@@ -77,7 +78,7 @@ const pageMetadata = async (
     siteName: string
     url: string
   } = {
-    title: siteName === 'Caelestis' ? siteName : `${siteName} · Caelestis`,
+    title: pageTitle(server?.name),
     description: server?.description ?? DEFAULT_SOCIAL_DESCRIPTION,
     siteName,
     url: new URL(url.pathname, url.origin).href,
@@ -99,7 +100,7 @@ const pageMetadata = async (
   if (kind === 'folder') {
     const folder = manifest?.nodes.find((node) => node.id === id)
     if (folder !== undefined) {
-      metadata.title = `${folder.name} · ${siteName}`
+      metadata.title = pageTitle(server?.name, folder.name)
       metadata.description =
         folder.description || `Follow the Wplace templates and painting progress in ${folder.name}.`
     }
@@ -107,7 +108,7 @@ const pageMetadata = async (
   if (kind !== 'artwork') return metadata
   const template = manifest?.templates.find((entry) => entry.id === id && entry.published)
   if (template === undefined || manifest === null) return metadata
-  metadata.title = `${template.name} · ${siteName}`
+  metadata.title = pageTitle(server?.name, template.name)
   const status = statuses.find((entry) => entry.templateId === template.id)
   const progress =
     status === undefined || status.total === 0

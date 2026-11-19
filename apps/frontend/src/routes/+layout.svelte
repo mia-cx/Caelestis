@@ -17,6 +17,7 @@ import {
 } from '#lib/api/client.js'
 import ConnectDialog from '#lib/components/ConnectDialog.svelte'
 import { STORAGE_KEYS } from '#lib/deployment.js'
+import { pageTitle } from '#lib/server-info.js'
 import SocialMetadata from '#lib/components/SocialMetadata.svelte'
 import { provideApp } from '#lib/state/app.svelte.js'
 import '../app.css'
@@ -79,7 +80,7 @@ const toggleTheme = (): void => {
 {/if}
 
 <svelte:head>
-  <title>{app.server === null || app.server.name === 'Caelestis' ? 'Caelestis' : `${app.server.name} · Caelestis`}</title>
+  <title>{pageTitle(app.server?.name)}</title>
 </svelte:head>
 
 <div class="flex min-h-dvh flex-col">
