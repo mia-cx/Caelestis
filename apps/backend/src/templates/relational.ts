@@ -41,6 +41,11 @@ const parseStoredRecipe = (versionId: string, value: string | null): TemplateRec
   return recipe
 }
 
+/**
+ * Every write here that follows a read check can lose a race to a concurrent delete, which the
+ * database reports as a foreign-key violation. Each translates it to the typed error the check
+ * would have thrown, so the race answers what the check would rather than a 500.
+ */
 export class RelationalTemplateStore extends RelationalStore implements TemplateStore {
   async createTemplate(version: TemplateVersionRecord): Promise<void> {
     assertValidTemplateVersion(version)
@@ -68,9 +73,6 @@ export class RelationalTemplateStore extends RelationalStore implements Template
     try {
       await this.database.batch([template, ...this.#versionStatements(version)])
     } catch (error) {
-      // The node check above is a separate read, so a concurrent delete can remove the node between
-      // the two and the foreign key rejects this insert. Same outcome as the check finding it
-      // missing, so it gets the same error rather than escaping as a 500.
       if (violates(error, 'foreign-key')) {
         throw new NodeNotFoundError(`node does not exist: ${version.nodeId}`)
       }
@@ -112,7 +114,6 @@ export class RelationalTemplateStore extends RelationalStore implements Template
     try {
       await this.database.batch(this.#versionStatements(version))
     } catch (error) {
-      // The template can be deleted between the read above and this batch.
       if (violates(error, 'foreign-key')) {
         throw new TemplateNotFoundError(`template does not exist: ${version.templateId}`)
       }
@@ -139,9 +140,6 @@ export class RelationalTemplateStore extends RelationalStore implements Template
         sourceHash: version.recipe?.source.sha256 ?? null,
         recipeJson: version.recipe === undefined ? null : templateRecipeJson(version.recipe),
       }),
-      // Tiles go in as multi-row inserts, not one statement each: D1 allows 50 queries per Worker
-      // invocation on the free plan, which a 48-chunk template (a 48,000x1 upload) would exceed.
-      // Chunked by bound parameters: four columns each, kept under the 100-parameter ceiling.
       ...chunkRows(
         version.chunks.map((chunk) => ({
           versionId: version.versionId,
@@ -332,9 +330,6 @@ export class RelationalTemplateStore extends RelationalStore implements Template
         .where(predicate)
       return changedRows(result) > 0
     } catch (error) {
-      // The destination was read above, and another administrator can delete it between that read
-      // and this write. Translated like the other races in this file, so it answers a typed error
-      // rather than a 500.
       if (violates(error, 'foreign-key')) {
         throw new NodeNotFoundError(`node does not exist: ${patch.nodeId ?? ''}`)
       }

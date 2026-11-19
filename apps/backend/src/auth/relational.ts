@@ -13,8 +13,6 @@ const toAccessToken = (row: typeof accessTokens.$inferSelect): AccessToken => ({
 
 export class RelationalAccessTokenStore extends RelationalStore implements AccessTokenStore {
   async insertAccessToken(token: AccessToken): Promise<void> {
-    // No onConflict clause: the primary key must reject a duplicate hash rather than overwrite it,
-    // which would silently transfer one holder's credential to another.
     await this.database.insert(accessTokens).values({
       tokenHash: token.tokenHash,
       label: token.label,
@@ -57,8 +55,6 @@ export class RelationalAccessTokenStore extends RelationalStore implements Acces
   }
 
   async revokeAccessToken(tokenHash: string): Promise<void> {
-    // Nothing references this table — the reporter and author digests are shape-checked, not
-    // foreign keys — so the reports this credential wrote survive it (see `revokeAccessToken`).
     await this.database.delete(accessTokens).where(eq(accessTokens.tokenHash, tokenHash))
   }
 }

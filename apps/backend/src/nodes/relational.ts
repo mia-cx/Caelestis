@@ -302,9 +302,7 @@ export class RelationalNodeStore extends RelationalStore implements NodeStore {
     try {
       await this.database.delete(nodes).where(eq(nodes.id, nodeId))
     } catch (error) {
-      // The guards are reads, so a child or template can be attached after they come back empty and
-      // before this runs. The foreign key is the authority either way; translate it rather than
-      // letting the race be the one path that answers 500 instead of 409.
+      // A child or template attached since the guard reads is the guards finding one.
       if (violates(error, 'foreign-key')) {
         throw new NodeNotEmptyError('node has children or templates')
       }
