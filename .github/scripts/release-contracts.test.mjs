@@ -635,9 +635,16 @@ test('the release PR closes exactly the issues its pull requests ship, once per 
     ['Ships [#835](https://github.com/mia-cx/Caelestis/issues/835)', [835]],
     ['ships https://github.com/mia-cx/Caelestis/issues/835 and Ships #12', [835, 12]],
     ['Closes #835\nPart of [#685](https://github.com/mia-cx/Caelestis/issues/685)', []],
+    // Another repository's issue number would close the wrong local issue.
+    [
+      'Ships https://github.com/another/project/issues/7\nShips [#8](https://github.com/x/y/issues/8)',
+      [],
+    ],
     [null, []],
   ]
-  for (const [body, issues] of cases) assert.deepEqual(shippedIssues(body), issues, String(body))
+  for (const [body, issues] of cases) {
+    assert.deepEqual(shippedIssues(body, 'mia-cx/Caelestis'), issues, String(body))
+  }
 
   const action = '# Releases\n## @caelestis/userscript@1.1.0\n'
   const once = releaseBody(action, [12, 835])
@@ -670,13 +677,22 @@ if (args[0] === 'pr' && args[1] === 'view') {
     )
     execFileSync(
       process.execPath,
-      [fileURLToPath(new URL('./release-issues.mjs', import.meta.url)), '123', 'owner/project'],
+      [
+        fileURLToPath(new URL('./release-issues.mjs', import.meta.url)),
+        'close',
+        '123',
+        'owner/project',
+        '12 835',
+      ],
       {
         cwd: directory,
         env: { ...process.env, PATH: `${directory}:${process.env.PATH}` },
       },
     )
-    assert.equal(readFileSync(capturedBody, 'utf8'), '# Releases\n')
+    assert.match(
+      readFileSync(capturedBody, 'utf8'),
+      /^# Releases\n[\s\S]*\nCloses #12\nCloses #835\n$/,
+    )
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }
