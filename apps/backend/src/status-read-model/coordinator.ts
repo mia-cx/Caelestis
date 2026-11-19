@@ -821,7 +821,8 @@ export class StatusCoordinator<Client> implements StatusShard {
 
   /** Admit one live-sync connection within the season's capacity and its credential's rights. */
   async connect(connection: StatusLiveConnection): Promise<LiveAdmission> {
-    const { season, scope, tokenHash, clientHash, anonymous, revocable, protocol } = connection
+    const { stateVector, ...held } = connection
+    const { scope, tokenHash, clientHash, anonymous, revocable, protocol } = held
     const status = this.readModels.status
     let capacityExceeded = false
     const admitted = await this.liveSessions.attach(
@@ -851,20 +852,7 @@ export class StatusCoordinator<Client> implements StatusShard {
         return token !== null && (scope === 'public' || token.scope === 'admin')
       },
       () =>
-        this.objectState.connect({
-          season,
-          scope,
-          credentialScope: connection.credentialScope,
-          tokenHash,
-          clientHash,
-          anonymous,
-          revocable,
-          lastRevision: connection.lastRevision,
-          revoked: false,
-          metricClient: connection.metricClient,
-          metricClientVersion: connection.metricClientVersion,
-          protocol,
-        } satisfies LiveSubscriberAttachment),
+        this.objectState.connect({ ...held, revoked: false } satisfies LiveSubscriberAttachment),
     )
     if (capacityExceeded) {
       const response = new Response('Live subscriber limit reached', {
@@ -883,7 +871,7 @@ export class StatusCoordinator<Client> implements StatusShard {
       ),
       cacheOutcome,
     })
-    if (connection.stateVector) return upgrade('none')
+    if (stateVector) return upgrade('none')
     try {
       const read = await status.reconcileSnapshot(scope)
       this.send(

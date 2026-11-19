@@ -2,26 +2,18 @@ import {
   type PainterIdentity,
   parseTemplateSurfaceKey,
   parseWholeNumber,
-  type Scope,
   type TemplateSurface,
   templateSurfaceKey,
 } from '@caelestis/shared'
+import type { LiveCredential } from '../live/session.js'
 import { type IngestTimingSnapshot, IngestTimings } from '../metrics/ingest-timing.js'
 import { NotFoundError } from '../runtime/errors.js'
 
-/** Authenticated metadata passed from the HTTP boundary to a presence transport. */
-export interface PresenceConnection {
+/** An authenticated presence connection: who paints, and on which surface. */
+export interface PresenceConnection extends LiveCredential {
   readonly publisherId?: string
-  readonly season: number
   readonly surface: TemplateSurface
   readonly painter: PainterIdentity
-  readonly credentialScope: Scope
-  readonly tokenHash: string
-  readonly clientHash: string
-  readonly anonymous: boolean
-  readonly revocable: boolean
-  readonly metricClient: string
-  readonly metricClientVersion: string
 }
 
 /** The presence rooms, one per season and drawing surface, as the app reaches them. */
