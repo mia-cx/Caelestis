@@ -10,7 +10,7 @@ import {
 import { expect, it } from 'vitest'
 import { createBackendRuntime, makeBackendContext } from '../src/runtime/backend-runtime.js'
 import { DirectStatusReadModel } from '../src/status-read-model/port.js'
-import { evaluateAlarmSnapshot } from '../src/telemetry/alarm-policy.js'
+import { evaluateAlarmSnapshot } from '../src/telemetry/alarms/policy.js'
 import { readMismatchMask } from '../src/telemetry/classification.js'
 import { fetchCanvasTiles } from '../src/telemetry/fetcher.js'
 import { uploadTile } from '../src/telemetry/ingest.js'

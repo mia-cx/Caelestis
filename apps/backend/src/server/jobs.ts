@@ -1,4 +1,4 @@
-import { ALARM_SCAN_INTERVAL_SECONDS } from '../telemetry/alarm-policy.js'
+import { ALARM_SCAN_INTERVAL_SECONDS } from '../telemetry/alarms/policy.js'
 import { type FetcherStores, fetchCanvasTiles } from '../telemetry/fetcher.js'
 import { runTileBlobGc } from '../telemetry/tile-blobs.js'
 import type { ServerConfig } from './config.js'

@@ -1,6 +1,6 @@
 import { type Millis, seconds } from '@caelestis/shared'
 import type { SqlStore } from './ports/index.js'
-import { ALARM_FOLLOW_UP_RETRY_MILLISECONDS } from './telemetry/alarm-policy.js'
+import { ALARM_FOLLOW_UP_RETRY_MILLISECONDS } from './telemetry/alarms/policy.js'
 import { type FetcherStores, fetchAlarmFollowUps } from './telemetry/fetcher.js'
 
 export const ALARM_BATCH_DELAY_MILLISECONDS = 1_000

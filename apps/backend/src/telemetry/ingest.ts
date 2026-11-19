@@ -6,7 +6,6 @@ import {
   sha256Hex,
   type TileCoord,
   tileKey,
-  uuidV7,
 } from '@caelestis/shared'
 import { Effect, Result } from 'effect'
 import { type IngestCommand, type IngestStage, ingestTimings } from '../metrics/ingest-timing.js'
@@ -27,6 +26,7 @@ import {
   type StatusReadModelPort,
 } from '../status-read-model/port.js'
 import type { TileGenerationCacheRead } from '../status-read-model/tile-generation-cache.js'
+import { evaluateAlarms } from './alarms/evaluate.js'
 import type { AlarmStore } from './alarms/store.js'
 import type { TileBlobStore } from './blobs/store.js'
 import {
@@ -319,11 +319,11 @@ const recordObservation = async (
   const revision = committed.revision
   await timed('alarms', async () => {
     if (authoritative || revision === null || alarmChanges.length === 0) return
-    let alarmChanged = false
-    try {
+    await evaluateAlarms(ports, async (evaluate) => {
       for (const change of alarmChanges) {
         const { previous, current, previousTemplateCorrect, previousTemplateObservedAt } = change
-        const evaluation = await ports.sql.evaluateTemplateAlarm(
+        await evaluate(
+          metadata.season,
           {
             templateId: current.templateId,
             versionId: current.versionId,
@@ -333,17 +333,9 @@ const recordObservation = async (
             observationRevision: revision,
           },
           { kind: 'observation', previousCorrect: previousTemplateCorrect },
-          uuidV7(),
         )
-        alarmChanged ||= evaluation.alarmChanged
       }
-    } finally {
-      // Progress that moves no alarm, such as painting toward a new high-water mark, owes
-      // subscribers nothing. A changed alarm also covers every follow-up probe it scheduled.
-      // Each evaluation commits on its own, so a later failure still owes the earlier changes.
-      if (alarmChanged)
-        await bestEffort(() => ports.statusReadModel.notifyAlarmChange(metadata.season))
-    }
+    })
   })
   for (const { target, classification } of classified) {
     sinks.artifacts.add(classificationKey(target, metadata.hash), classification.mask)

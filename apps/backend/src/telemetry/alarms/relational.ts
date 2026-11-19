@@ -1,4 +1,4 @@
-import { type Alarm, type Millis, millis, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
+import { type Alarm, type Millis, millis, uuidV7, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { and, asc, eq, isNotNull, lte, sql } from 'drizzle-orm'
 import { changedRows } from '../../adapters/relational-database.js'
 import { RelationalStore } from '../../adapters/relational-store.js'
@@ -13,10 +13,11 @@ import {
   ALARM_FOLLOW_UP_DELAY_MILLISECONDS,
   type AlarmEvaluationPhase,
   evaluateAlarmSnapshot,
+  followUpApplies,
   sameAlarm,
   type TemplateAlarmSnapshot,
   type TemplateAlarmState,
-} from '../alarm-policy.js'
+} from './policy.js'
 import type {
   AlarmEvaluation,
   AlarmProbe,
@@ -60,7 +61,7 @@ const storedAlarmState = (row: typeof templateAlarmStates.$inferSelect): Templat
 }
 
 export class RelationalAlarmStore extends RelationalStore implements AlarmStore {
-  async listAlarmTiles(season: number): Promise<readonly AlarmTileRecord[]> {
+  async listAlarmTiles(season: number, templateId?: string): Promise<readonly AlarmTileRecord[]> {
     return this.database
       .select({
         templateId: templates.id,
@@ -89,11 +90,15 @@ export class RelationalAlarmStore extends RelationalStore implements AlarmStore 
         ),
       )
       .where(
-        and(eq(templates.season, season), eq(templates.surfaceKind, WORLD_TEMPLATE_SURFACE.kind)),
+        and(
+          eq(templates.season, season),
+          eq(templates.surfaceKind, WORLD_TEMPLATE_SURFACE.kind),
+          templateId === undefined ? undefined : eq(templates.id, templateId),
+        ),
       )
   }
 
-  async readAlarmStatusSnapshot(season: number): Promise<AlarmStatusSnapshot> {
+  async readAlarmStatusSnapshot(season: number, templateId?: string): Promise<AlarmStatusSnapshot> {
     const [revisionResult, statusResult] = await this.client.batch([
       this.client
         .prepare(
@@ -108,14 +113,14 @@ export class RelationalAlarmStore extends RelationalStore implements AlarmStore 
         INNER JOIN template_versions AS version ON version.id = template.current_version_id
         INNER JOIN template_alarm_tile_statuses AS status
           ON status.template_id = template.id AND status.version_id = version.id
-        WHERE template.season = ?
+        WHERE template.season = ?${templateId === undefined ? '' : ' AND template.id = ?'}
         GROUP BY template.id, version.id, version.total_pixels
         HAVING sum(status.correct) = (
           SELECT sum(current.correct) FROM template_tile_statuses AS current
           WHERE current.template_id = template.id AND current.version_id = version.id
         )
         ORDER BY template.id`)
-        .bind(season),
+        .bind(...(templateId === undefined ? [season] : [season, templateId])),
     ])
     const row = revisionResult?.results[0] as { revision: number }
     const statuses = statusResult?.results as Array<{
@@ -142,7 +147,6 @@ export class RelationalAlarmStore extends RelationalStore implements AlarmStore 
   async evaluateTemplateAlarm(
     snapshot: TemplateAlarmSnapshot,
     phase: AlarmEvaluationPhase,
-    alarmId: string,
   ): Promise<AlarmEvaluation> {
     for (let attempt = 0; attempt < 8; attempt++) {
       const previousRow = await this.database
@@ -152,35 +156,21 @@ export class RelationalAlarmStore extends RelationalStore implements AlarmStore 
         .limit(1)
         .then((rows) => rows[0])
       const previousState = previousRow === undefined ? null : storedAlarmState(previousRow)
-      if (
+      const staleFollowUp =
         phase.kind === 'follow-up' &&
         (previousRow === undefined ||
-          previousState === null ||
-          previousState.versionId !== snapshot.versionId ||
-          previousState.alarm?.id !== phase.alarmId ||
+          !followUpApplies(previousState, snapshot, phase.alarmId) ||
           previousRow.probeDueAtMs !== phase.dueAt ||
           previousRow.probePixelsLost !== phase.pixelsLost)
-      ) {
-        return {
-          ...evaluateAlarmSnapshot(previousState, snapshot, phase, () => alarmId),
-          alarmChanged: false,
-        }
-      }
-      if (
+      const staleEvidence =
         previousRow !== undefined &&
         (snapshot.observedAt < previousRow.evaluatedAtMs ||
           (snapshot.observationRevision !== undefined &&
             (snapshot.observationRevision < previousRow.observationRevision ||
               (phase.kind === 'observation' &&
                 snapshot.observationRevision === previousRow.observationRevision))))
-      ) {
-        return {
-          state: previousState as TemplateAlarmState,
-          scheduleFollowUp: false,
-          alarmChanged: false,
-        }
-      }
-      const result = evaluateAlarmSnapshot(previousState, snapshot, phase, () => alarmId)
+      if (staleFollowUp || staleEvidence) return { alarmChanged: false, scheduleFollowUp: false }
+      const result = evaluateAlarmSnapshot(previousState, snapshot, phase, uuidV7)
       const alarm = result.state.alarm
       const preserveProbe =
         phase.kind === 'observation' &&
@@ -232,7 +222,10 @@ export class RelationalAlarmStore extends RelationalStore implements AlarmStore 
                 ),
               )
       if (changedRows(write) > 0)
-        return { ...result, alarmChanged: !sameAlarm(previousState?.alarm ?? null, alarm) }
+        return {
+          alarmChanged: !sameAlarm(previousState?.alarm ?? null, alarm),
+          scheduleFollowUp: result.scheduleFollowUp,
+        }
     }
     throw new Error(`alarm state stayed contended for template ${snapshot.templateId}`)
   }

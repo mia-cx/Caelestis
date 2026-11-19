@@ -1,19 +1,17 @@
 import type { Alarm, Millis, TemplateStatus } from '@caelestis/shared'
 import type { ManifestTileRecord } from '../../templates/store.js'
-import type {
-  AlarmEvaluationPhase,
-  AlarmPolicyResult,
-  TemplateAlarmSnapshot,
-} from '../alarm-policy.js'
+import type { AlarmEvaluationPhase, TemplateAlarmSnapshot } from './policy.js'
 
 export interface AlarmStatusSnapshot {
   readonly revision: number
   readonly templates: readonly TemplateStatus[]
 }
 
-export interface AlarmEvaluation extends AlarmPolicyResult {
+export interface AlarmEvaluation {
   /** Whether this evaluation persisted a different caller-visible alarm, which subscribers need. */
   readonly alarmChanged: boolean
+  /** Whether it scheduled a follow-up probe. */
+  readonly scheduleFollowUp: boolean
 }
 
 /** A durable delayed recheck claimed by the alarm-watcher Durable Object. */
@@ -31,22 +29,27 @@ export interface AlarmTileRecord extends ManifestTileRecord {
   readonly observedAt: Millis | null
 }
 
-/** Server-owned regression alarms: their evidence, their episodes, and their delayed probes. */
 export interface AlarmStore {
-  /** Current template tiles ordered by callers for bounded, freshness-aware alarm scans. */
-  listAlarmTiles(season: number): Promise<readonly AlarmTileRecord[]>
+  /**
+   * Current template tiles, of one template when named, ordered by callers for bounded,
+   * freshness-aware alarm scans.
+   */
+  listAlarmTiles(season: number, templateId?: string): Promise<readonly AlarmTileRecord[]>
 
   /**
-   * Read authoritative counts and their observation fence in one transaction.
-   * Omit templates whose current correct count differs, so the fence cannot suppress live evidence.
+   * Read authoritative counts, of one template when named, and their observation fence in one
+   * transaction. Omit templates whose current correct count differs, so the fence cannot suppress
+   * live evidence.
    */
-  readAlarmStatusSnapshot(season: number): Promise<AlarmStatusSnapshot>
+  readAlarmStatusSnapshot(season: number, templateId?: string): Promise<AlarmStatusSnapshot>
 
-  /** Atomically evaluate and persist one template snapshot. */
+  /**
+   * Atomically evaluate and persist one template snapshot. A follow-up applies only to the exact
+   * probe generation still stored for the current episode.
+   */
   evaluateTemplateAlarm(
     snapshot: TemplateAlarmSnapshot,
     phase: AlarmEvaluationPhase,
-    alarmId: string,
   ): Promise<AlarmEvaluation>
 
   readActiveAlarms(season: number, includeUnpublished: boolean): Promise<readonly Alarm[]>
