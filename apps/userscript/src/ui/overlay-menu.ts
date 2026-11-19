@@ -1,12 +1,10 @@
 import {
   sameTemplateSurface,
-  TRANSPARENT_INDEX,
   templateSurfaceKey,
   WORLD_TEMPLATE_SURFACE,
   WPLACE_PALETTE,
 } from '@caelestis/shared'
 import type {
-  AppearanceEditorIntent,
   AppearanceEditorModel,
   CaelestisOverlayControls,
   CaelestisRailControl,
@@ -52,9 +50,6 @@ import {
   type Appearance,
   type AppearanceGroup,
   DEFAULT_APPEARANCE,
-  GROUP_FIELDS,
-  PIXEL_STYLE_PRESETS,
-  pixelStylePresetOf,
 } from '../templates/appearance.js'
 import { clearAppearancePreview, setAppearancePreview } from '../templates/appearance-preview.js'
 import { hiddenColoursFor } from '../templates/colour-filter.js'
@@ -85,8 +80,11 @@ import {
   movingId,
   placementSeq,
 } from '../templates/move.js'
-import { isPaintOpen } from '../wplace-paint.js'
-import { activeColourPreset, type ColourPresetId, hiddenForPreset } from './colours.js'
+import {
+  type AppearanceStore,
+  appearanceEditorModel,
+  handleAppearanceIntent,
+} from './appearance.js'
 import { CLEAR_OF_RAIL, EDGE, GAP, RAIL_BUTTON } from './metrics.js'
 import { PANEL_ID, requestConfirmation } from './notification-host.js'
 import {
@@ -964,59 +962,18 @@ const commitAppearance = (
 }
 
 const overlayAppearanceModel = (template: PlacedTemplate): AppearanceEditorModel => {
-  const appearance = draftedAppearanceFor(template.id)
+  const surface = template.surface ?? WORLD_TEMPLATE_SURFACE
   const disabled = isDoomed(template.id)
-  const hidden = new Set(
-    hiddenColoursFor(appearanceFor(template.id), template.surface ?? WORLD_TEMPLATE_SURFACE),
-  )
-  const activePixelPreset = pixelStylePresetOf(appearance)
-  const activePreset = activeColourPreset(appearance.hiddenColours)
   return {
-    values: appearance,
-    sliders: APPEARANCE_CONTROLS.map((control) => ({
-      key: control.key,
-      label: control.label,
-      value: appearance[control.key],
-      defaultValue: getSurfaceAppearance(template.surface ?? WORLD_TEMPLATE_SURFACE)[control.key],
-      min: control.min,
-      max: control.max,
-      step: control.step,
-      format:
-        control.key === 'rotation'
-          ? 'degrees'
-          : control.key === 'contrastOutlineSize'
-            ? 'decimal-pixels'
-            : 'percent',
-      ...(disabled || (control.key === 'contrastOutlineSize' && !appearance.contrastOutline)
-        ? { disabled: true }
-        : {}),
-    })),
-    pixelPresets: PIXEL_STYLE_PRESETS.map((preset) => ({
-      id: preset.id,
-      label: preset.label,
-      active: preset.id === activePixelPreset,
-    })),
-    colourPresets: (
-      [
-        ['all', 'All'],
-        ['free', 'Free'],
-        ['premium', 'Premium'],
-        ['owned', 'Owned'],
-      ] as const
-    ).map(([id, label]) => ({ id, label, active: id === activePreset })),
-    palette: WPLACE_PALETTE.filter((colour) => colour.index !== TRANSPARENT_INDEX).map(
-      (colour) => ({
-        index: colour.index,
-        name: colour.name,
-        hex: colour.hex,
-        kind: colour.kind,
-        visible: !hidden.has(colour.index),
-      }),
-    ),
+    ...appearanceEditorModel({
+      values: draftedAppearanceFor(template.id),
+      defaults: getSurfaceAppearance(surface),
+      hidden: new Set(hiddenColoursFor(appearanceFor(template.id), surface)),
+      disabled,
+    }),
     onlySelectedColour: false,
     showOnlySelectedColour: false,
     showMarkers: true,
-    paintOpen: isPaintOpen(),
     groups: {
       pixels: { owned: ownsGroup(template, 'pixels') },
       markers: { owned: ownsGroup(template, 'markers') },
@@ -1056,117 +1013,58 @@ const overlayModel = (template: PlacedTemplate): OverlayControlsModel => {
   }
 }
 
-const handleOverlayAppearance = (
-  id: string,
-  intent: AppearanceEditorIntent,
-  rerender: () => void,
-): void => {
-  switch (intent.type) {
-    case 'layout':
-      // A group accordion is animating: re-measuring now would cache a mid-animation height, so
-      // uncap the menu and let the box follow its content until the settle event re-measures.
-      if (intent.settled === true) invalidateMenuMeasurement()
-      else menuBox.height = window.innerHeight
-      rerender()
-      break
-    case 'preview-number':
-      setDraft(id, intent.key, intent.value)
-      setAppearancePreview(id, intent.key, intent.value)
-      rerender()
-      break
-    case 'preview-colour':
-      setDraft(id, intent.key, intent.value)
-      setAppearancePreview(id, intent.key, intent.value)
-      rerender()
-      break
-    case 'commit-number': {
-      clearDraft(id, intent.key)
-      const value = intent.value
-      const label =
-        APPEARANCE_CONTROLS.find((control) => control.key === intent.key)?.label.toLowerCase() ??
-        intent.key
-      commitAppearance(
-        id,
-        [intent.key],
-        label,
-        () => ({ [intent.key]: value }),
-        rerender,
-        undefined,
-        () => clearAppearancePreview(id, intent.key, value),
+/** One template's own appearance as a store: drafts while dragging, queued writes after. */
+const overlayAppearanceStore = (id: string, rerender: () => void): AppearanceStore => ({
+  layout: (settled) => {
+    // A group accordion is animating: re-measuring now would cache a mid-animation height, so
+    // uncap the menu and let the box follow its content until the settle event re-measures.
+    if (settled) invalidateMenuMeasurement()
+    else menuBox.height = window.innerHeight
+    rerender()
+  },
+  preview: (key, value) => {
+    setDraft(id, key, value)
+    setAppearancePreview(id, key, value)
+    rerender()
+  },
+  commitPreview: (key, value, label) => {
+    clearDraft(id, key)
+    commitAppearance(
+      id,
+      [key],
+      label,
+      () => ({ [key]: value }),
+      rerender,
+      undefined,
+      () => clearAppearancePreview(id, key, value),
+    )
+  },
+  commit: ({ properties, label, patch, satisfied }) =>
+    commitAppearance(id, properties, label, patch, rerender, satisfied),
+  toggleColour: (index, visible) => {
+    const wantHidden = !visible
+    commitAppearance(
+      id,
+      [`hiddenColours:${index}`],
+      `the ${WPLACE_PALETTE[index]?.name ?? 'selected'} colour filter`,
+      (base) => {
+        const next = new Set(base.hiddenColours)
+        if (wantHidden) next.add(index)
+        else next.delete(index)
+        return { hiddenColours: [...next] }
+      },
+      rerender,
+      () => storedAppearance(id).hiddenColours.includes(index) === wantHidden,
+    )
+  },
+  groupOwned: (group, owned) => {
+    void setOwnsGroup(id, group, owned)
+      .catch((error: unknown) =>
+        warn('install', `could not change ${group} ownership`, String(error)),
       )
-      break
-    }
-    case 'commit-colour': {
-      clearDraft(id, intent.key)
-      const value = intent.value
-      commitAppearance(
-        id,
-        [intent.key],
-        intent.key,
-        () => ({ [intent.key]: value }),
-        rerender,
-        undefined,
-        () => clearAppearancePreview(id, intent.key, value),
-      )
-      break
-    }
-    case 'set-boolean':
-    case 'set-colour':
-      commitAppearance(
-        id,
-        [intent.key],
-        intent.key,
-        () => ({ [intent.key]: intent.value }),
-        rerender,
-      )
-      break
-    case 'pixel-preset': {
-      const preset = PIXEL_STYLE_PRESETS.find((candidate) => candidate.id === intent.id)
-      if (preset !== undefined)
-        commitAppearance(id, GROUP_FIELDS.pixels, 'pixel style', () => preset.values, rerender)
-      break
-    }
-    case 'colour-preset':
-      if (['all', 'free', 'premium', 'owned'].includes(intent.id)) {
-        const hiddenColours = hiddenForPreset(intent.id as ColourPresetId)
-        commitAppearance(
-          id,
-          ['hiddenColours'],
-          'colour preset',
-          () => ({ hiddenColours }),
-          rerender,
-        )
-      }
-      break
-    case 'toggle-colour': {
-      const wantHidden = !intent.visible
-      commitAppearance(
-        id,
-        [`hiddenColours:${intent.index}`],
-        `the ${WPLACE_PALETTE[intent.index]?.name ?? 'selected'} colour filter`,
-        (base) => {
-          const next = new Set(base.hiddenColours)
-          if (wantHidden) next.add(intent.index)
-          else next.delete(intent.index)
-          return { hiddenColours: [...next] }
-        },
-        rerender,
-        () => storedAppearance(id).hiddenColours.includes(intent.index) === wantHidden,
-      )
-      break
-    }
-    case 'set-group-owned':
-      void setOwnsGroup(id, intent.group, intent.owned)
-        .catch((error: unknown) =>
-          warn('install', `could not change ${intent.group} ownership`, String(error)),
-        )
-        .finally(rerender)
-      break
-    case 'only-selected-colour':
-    case 'marker-budget':
-      break
-  }
-}
+      .finally(rerender)
+  },
+})
 
 /** Store a server draft's new canvas origin as a new immutable pixel version. */
 const moveServerDraft = async (id: string, originX: number, originY: number): Promise<boolean> => {
@@ -1583,7 +1481,7 @@ const buildSvelteMenu = (template: PlacedTemplate, rerender: () => void): BuiltO
         rerender()
         break
       case 'appearance':
-        handleOverlayAppearance(id, intent.intent, rerender)
+        handleAppearanceIntent(overlayAppearanceStore(id, rerender), intent.intent)
         break
     }
   })

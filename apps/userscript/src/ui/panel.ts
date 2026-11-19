@@ -2,13 +2,9 @@ import {
   assignShortcutBinding,
   sameTemplateSurface,
   type TemplateSurface,
-  TRANSPARENT_INDEX,
   WORLD_TEMPLATE_SURFACE,
-  WPLACE_PALETTE,
 } from '@caelestis/shared'
 import type {
-  AppearanceEditorIntent,
-  AppearanceEditorModel,
   CaelestisPanel,
   CaelestisRailControl,
   PanelIntent,
@@ -71,7 +67,6 @@ import { onArtboardPixelsChange, onHeadquartersTilesChange } from '../gl/artboar
 import { applyGlobalSettingsIntent, globalSettingsModel } from '../global-settings.js'
 import { consumeInvite } from '../invite.js'
 import { onViewChange, redraw, viewportCentre } from '../map-view.js'
-import { MARKER_BUDGET_OPTIONS } from '../marker-budget.js'
 import { runningBuild } from '../page-claim.js'
 import { onPresenceChange } from '../presence-client.js'
 import {
@@ -98,7 +93,6 @@ import {
   MAX_CONNECTED_SERVERS,
   onlySelectedColourFor,
   onStateChange,
-  previewSurfaceAppearance,
   type ServerConnection,
   type State,
   setOnlySelectedColourFor,
@@ -108,13 +102,6 @@ import {
 import { activeShortcutBindings, currentShortcutPlatform, shortcutHint } from '../shortcuts.js'
 import { onStoredValueChange } from '../stored-values.js'
 import { onServerAlarmChange, onServerStatusChange } from '../telemetry.js'
-import {
-  APPEARANCE_CONTROLS,
-  DEFAULT_APPEARANCE,
-  PIXEL_STYLE_PRESETS,
-  pixelStylePresetOf,
-} from '../templates/appearance.js'
-import { hiddenColoursFor } from '../templates/colour-filter.js'
 import { onLocalChange } from '../templates/local-store.js'
 import { pixelAccounting } from '../templates/mismatch.js'
 import { focusedTemplate } from '../templates/nearest.js'
@@ -123,11 +110,15 @@ import { ensureLocalTags } from '../templates/tags.js'
 import { reloadTiles } from '../tile-pixels.js'
 import { serverTemplateTreeKey } from '../tree-keys.js'
 import { backendVersionOutdated } from '../userscript-update.js'
-import { ownedColours, refreshAccount } from '../wplace-account.js'
-import { isPaintOpen, onPaintSelectionChange, selectedColour } from '../wplace-paint.js'
+import { refreshAccount } from '../wplace-account.js'
+import { isPaintOpen, onPaintSelectionChange } from '../wplace-paint.js'
 import { onWplacePatchChange } from '../wplace-switches.js'
+import {
+  handleAppearanceIntent,
+  surfaceAppearanceModel,
+  surfaceAppearanceStore,
+} from './appearance.js'
 import { positionChargeForecast } from './charge-forecast.js'
-import { activeColourPreset, type ColourPresetId, hiddenForPreset } from './colours.js'
 import { setTemplateDisplayMode } from './display-mode.js'
 import { frameQueue } from './frame-queue.js'
 import { CLEAR_OF_RAIL, EDGE, GAP, RAIL_BUTTON } from './metrics.js'
@@ -937,137 +928,6 @@ const handleSettingsIntent = (intent: SettingsIntent): void => {
   }
 }
 
-const appearanceModel = (): AppearanceEditorModel => {
-  const state = getState()
-  const values = getSurfaceAppearance(panelSurface)
-  const effectiveHidden = new Set(hiddenColoursFor(values, panelSurface))
-  const activePixelPreset = pixelStylePresetOf(values)
-  const activePreset = activeColourPreset(values.hiddenColours)
-  const selected = selectedColour()
-  const selectedColourName = selected === null ? undefined : WPLACE_PALETTE[selected]?.name
-  return {
-    values,
-    sliders: APPEARANCE_CONTROLS.map((control) => ({
-      key: control.key,
-      label: control.label,
-      value: values[control.key],
-      defaultValue: DEFAULT_APPEARANCE[control.key],
-      min: control.min,
-      max: control.max,
-      step: control.step,
-      format:
-        control.key === 'rotation'
-          ? 'degrees'
-          : control.key === 'contrastOutlineSize'
-            ? 'decimal-pixels'
-            : 'percent',
-      ...(control.key === 'contrastOutlineSize' && !values.contrastOutline
-        ? { disabled: true }
-        : {}),
-    })),
-    pixelPresets: PIXEL_STYLE_PRESETS.map((preset) => ({
-      id: preset.id,
-      label: preset.label,
-      active: preset.id === activePixelPreset,
-    })),
-    colourPresets: (
-      [
-        ['all', 'All'],
-        ['free', 'Free'],
-        ['premium', 'Premium'],
-        ['owned', 'Owned'],
-      ] as const
-    ).map(([id, label]) => ({
-      id,
-      label,
-      active: id === activePreset,
-      ...(id === 'owned' && ownedColours() === null ? { disabled: true } : {}),
-    })),
-    palette: WPLACE_PALETTE.filter((colour) => colour.index !== TRANSPARENT_INDEX).map(
-      (colour) => ({
-        index: colour.index,
-        name: colour.name,
-        hex: colour.hex,
-        kind: colour.kind,
-        visible: !effectiveHidden.has(colour.index),
-      }),
-    ),
-    onlySelectedColour: onlySelectedColourFor(panelSurface),
-    showOnlySelectedColour: true,
-    showMarkers: true,
-    paintOpen: isPaintOpen(),
-    ...(selectedColourName === undefined ? {} : { selectedColourName }),
-    markerBudget: state.markerBudget,
-    markerBudgetOptions: MARKER_BUDGET_OPTIONS,
-  }
-}
-
-const commitPanelAppearance = (appearance: typeof DEFAULT_APPEARANCE): void => {
-  if (panelSurface.kind === 'world') setState({ appearance })
-  else setSurfaceAppearance(panelSurface, appearance)
-}
-
-const handleAppearanceIntent = (intent: AppearanceEditorIntent): void => {
-  const values = getSurfaceAppearance(panelSurface)
-  switch (intent.type) {
-    case 'layout':
-      break
-    case 'preview-number':
-    case 'preview-colour':
-      previewSurfaceAppearance(panelSurface, { ...values, [intent.key]: intent.value })
-      redraw()
-      break
-    // A committed change notifies state listeners, which redraw; a preview notifies nobody.
-    case 'commit-number':
-    case 'commit-colour':
-    case 'set-boolean':
-    case 'set-colour':
-      commitPanelAppearance({ ...values, [intent.key]: intent.value })
-      break
-    case 'pixel-preset': {
-      const preset = PIXEL_STYLE_PRESETS.find((candidate) => candidate.id === intent.id)
-      if (preset === undefined) break
-      commitPanelAppearance({ ...values, ...preset.values })
-      break
-    }
-    case 'colour-preset':
-      if (!['all', 'free', 'premium', 'owned'].includes(intent.id)) break
-      if (panelSurface.kind === 'world') {
-        setState({ hiddenColours: hiddenForPreset(intent.id as ColourPresetId) })
-      } else {
-        commitPanelAppearance({
-          ...values,
-          hiddenColours: hiddenForPreset(intent.id as ColourPresetId),
-        })
-      }
-      break
-    case 'toggle-colour': {
-      const base =
-        onlySelectedColourFor(panelSurface) && isPaintOpen()
-          ? hiddenColoursFor(values, panelSurface)
-          : values.hiddenColours
-      const hidden = new Set(base)
-      if (intent.visible) hidden.delete(intent.index)
-      else hidden.add(intent.index)
-      if (panelSurface.kind === 'world') {
-        setState({ hiddenColours: [...hidden], onlySelectedColour: false })
-      } else {
-        commitPanelAppearance({ ...values, hiddenColours: [...hidden] })
-        setOnlySelectedColourFor(panelSurface, false)
-      }
-      break
-    }
-    case 'only-selected-colour':
-      setOnlySelectedColourFor(panelSurface, intent.value)
-      break
-    case 'marker-budget':
-      if (MARKER_BUDGET_OPTIONS.some((value) => value === intent.value)) {
-        setState({ markerBudget: intent.value })
-      }
-      break
-  }
-}
-
 const treeCallbacks = (): TreeCallbacks => ({
   onAddServer: () => {
     if (panelSurface.kind === 'world') showView('settings')
@@ -1108,7 +968,7 @@ const panelModel = (width = panelWidthForViewport(getState().panelWidth)): Panel
   ...(currentView() === 'tree' && activeTreeAdapter !== null && activeTreeClaims !== null
     ? claimTreeModels(activeTreeAdapter, activeTreeClaims)
     : {}),
-  ...(currentView() === 'appearance' ? { appearance: appearanceModel() } : {}),
+  ...(currentView() === 'appearance' ? { appearance: surfaceAppearanceModel(panelSurface) } : {}),
   ...(currentView() === 'settings' && panelSurface.kind === 'world'
     ? { settings: settingsModel() }
     : {}),
@@ -1309,7 +1169,7 @@ const buildSveltePanel = (): CaelestisPanel => {
         }
         break
       case 'appearance':
-        handleAppearanceIntent(intent.intent)
+        handleAppearanceIntent(surfaceAppearanceStore(panelSurface), intent.intent)
         break
       case 'settings':
         if (panelSurface.kind === 'world') handleSettingsIntent(intent.intent)
