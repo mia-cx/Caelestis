@@ -18,6 +18,7 @@ import {
   regionDocumentPixels,
   regionPixelComponents,
   regionShapePixels,
+  parseTemplateSurfaceKey,
   templateSurfaceKey,
   type WorkItem,
 } from '../index.js'
@@ -124,6 +125,16 @@ describe('coordination and geometry contracts', () => {
       tags: [id],
     })
     expect(templateSurfaceKey({ kind: 'world', allianceId: null })).toBe('world')
+  })
+
+  it('parses exactly the surface keys templateSurfaceKey writes', () => {
+    for (const surface of [
+      { kind: 'world', allianceId: null },
+      { kind: 'alliance-banner', allianceId: 42 },
+    ] as const)
+      expect(parseTemplateSurfaceKey(templateSurfaceKey(surface))).toEqual(surface)
+    for (const key of ['world:1', 'alliance-banner', 'alliance-banner:0', 'alliance-banner:042', 'moon:1'])
+      expect(parseTemplateSurfaceKey(key)).toBeNull()
   })
 
   it('retains a recorded physical shortcut across keyboard layouts and releases its key', () => {

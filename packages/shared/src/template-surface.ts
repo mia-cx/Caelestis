@@ -52,3 +52,10 @@ export const sameTemplateSurface = (left: TemplateSurface, right: TemplateSurfac
 
 export const templateSurfaceKey = (surface: TemplateSurface): string =>
   surface.kind === 'world' ? 'world' : `${surface.kind}:${surface.allianceId}`
+
+/** The surface a `templateSurfaceKey` names, or null when the key is not one it produces. */
+export const parseTemplateSurfaceKey = (key: string): TemplateSurface | null => {
+  const [kind, allianceId] = key.split(':')
+  const surface = templateSurface(kind, allianceId === undefined ? null : Number(allianceId))
+  return surface !== null && templateSurfaceKey(surface) === key ? surface : null
+}
