@@ -16,5 +16,7 @@ export interface BackfillModel {
 }
 
 export type BackfillIntent =
-  | { readonly type: 'close' | 'closed' | 'reload' | 'start' | 'cancel' }
+  | { readonly type: 'close' }
+  | { readonly type: 'closed' }
+  | { readonly type: 'reload' | 'start' | 'cancel' }
   | { readonly type: 'select'; readonly snapshotId: number }

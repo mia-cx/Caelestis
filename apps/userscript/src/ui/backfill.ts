@@ -1,5 +1,4 @@
 import type { BackfillPreview, BackfillProgress, FolderBackfillPreview } from '@caelestis/shared'
-import type { BackfillModel } from '@caelestis/ui/elements'
 import {
   activeServerToken,
   hasServerAdminToken,
@@ -9,10 +8,8 @@ import {
 } from '../state.js'
 import { templateAsPng, templateById } from '../templates/local-store.js'
 import { serverTemplateKey } from '../templates/server-sync.js'
-import { applyWplaceTheme } from './theme.js'
+import { openModalHost } from './modal-host.js'
 import type { TreeTarget } from './tree.js'
-
-let closeBackfill: (() => void) | undefined
 
 /**
  * Open an admin form whose background import outlives this userscript tab, for one server
@@ -34,41 +31,10 @@ export const openBackfill = (target: TreeTarget): void => {
     (target.surface?.kind ?? 'world') !== 'world'
   )
     return
-  closeBackfill?.()
-  const element = document.createElement('caelestis-backfill')
-  let focused = document.activeElement
-  while (focused?.shadowRoot?.activeElement) focused = focused.shadowRoot.activeElement
-  const focusRoot = focused?.getRootNode()
-  const rowSelector = `[data-caelestis-tree-key="${CSS.escape(target.key)}"]`
-  const treeRoot =
-    focusRoot instanceof ShadowRoot
-      ? focusRoot
-      : document.querySelector('caelestis-panel')?.shadowRoot
-  const restoreFocus =
-    treeRoot?.querySelector<HTMLElement>(rowSelector) ??
-    (focused instanceof HTMLElement ? focused : null)
   const controller = new AbortController()
   let timer: ReturnType<typeof setTimeout> | undefined
-  let closed = false
   let imageUrl: string | null = null
   let preview: BackfillPreview | FolderBackfillPreview | null = null
-  let model: BackfillModel = {
-    open: true,
-    name: target.name,
-    templates: templateId === undefined ? 0 : null,
-    previewUrl: null,
-    preview: null,
-    job: null,
-    selectedSnapshot: null,
-    loading: true,
-    busy: false,
-    error: null,
-  }
-  const update = (patch: Partial<BackfillModel>): void => {
-    if (closed) return
-    model = { ...model, ...patch }
-    element.model = model
-  }
   const request = async <T>(action: string, body?: object): Promise<T> => {
     if (!isCurrentServerConnection(server) || !hasServerAdminToken(server))
       throw new Error('Server connection changed. Close and reopen backfill.')
@@ -104,51 +70,43 @@ export const openBackfill = (target: TreeTarget): void => {
     error instanceof Error ? error.message : String(error)
   const poll = (): void => {
     clearTimeout(timer)
-    if (closed || model.job?.status !== 'running') return
+    if (dialog.closed || dialog.model.job?.status !== 'running') return
     timer = setTimeout(() => {
       void request<BackfillProgress | null>('job')
         .then((job) => {
-          update({ job })
+          dialog.update({ job })
           poll()
         })
         .catch((error: unknown) =>
-          update({ error: `${errorText(error)} Reload to check the job.` }),
+          dialog.update({ error: `${errorText(error)} Reload to check the job.` }),
         )
     }, 2_000)
   }
   const reload = async (): Promise<void> => {
-    update({ loading: true, error: null })
+    dialog.update({ loading: true, error: null })
     const [jobResult, previewResult] = await Promise.allSettled([
       request<BackfillProgress | null>('job'),
       request<BackfillPreview | FolderBackfillPreview>('preview'),
     ])
-    if (jobResult.status === 'fulfilled') update({ job: jobResult.value })
+    if (jobResult.status === 'fulfilled') dialog.update({ job: jobResult.value })
     if (previewResult.status === 'fulfilled') {
       preview = previewResult.value
       const selected =
-        preview.snapshots.find((snapshot) => snapshot.id === model.selectedSnapshot) ??
-        preview.snapshots.find((snapshot) => snapshot.at === model.job?.from) ??
+        preview.snapshots.find((snapshot) => snapshot.id === dialog.model.selectedSnapshot) ??
+        preview.snapshots.find((snapshot) => snapshot.at === dialog.model.job?.from) ??
         preview.snapshots[0]
-      update({
+      dialog.update({
         preview,
         selectedSnapshot: selected?.id ?? null,
         ...('bases' in preview ? { templates: preview.bases.length } : {}),
       })
-    } else update({ error: errorText(previewResult.reason) })
-    if (jobResult.status === 'rejected') update({ error: errorText(jobResult.reason) })
-    update({ loading: false })
+    } else dialog.update({ error: errorText(previewResult.reason) })
+    if (jobResult.status === 'rejected') dialog.update({ error: errorText(jobResult.reason) })
+    dialog.update({ loading: false })
     poll()
   }
-  const close = (): void => {
-    if (closed) return
-    update({ open: false })
-    closed = true
-    clearTimeout(timer)
-    controller.abort()
-    if (closeBackfill === close) closeBackfill = undefined
-  }
-  closeBackfill = close
   const mutate = async (action: 'start' | 'cancel'): Promise<void> => {
+    const { model } = dialog
     if (
       model.busy ||
       (action === 'start' &&
@@ -158,7 +116,7 @@ export const openBackfill = (target: TreeTarget): void => {
           model.job?.status === 'running'))
     )
       return
-    update({ busy: true, error: null })
+    dialog.update({ busy: true, error: null })
     clearTimeout(timer)
     try {
       const snapshotId = model.selectedSnapshot
@@ -169,43 +127,56 @@ export const openBackfill = (target: TreeTarget): void => {
           : 'bases' in preview
             ? { versionIds: preview.bases.map((basis) => basis.versionId), snapshotId }
             : { versionId: preview.basis.versionId, snapshotId }
-      update({ job: await request<BackfillProgress | null>(action, body) })
+      dialog.update({ job: await request<BackfillProgress | null>(action, body) })
     } catch (error) {
-      update({ error: `${errorText(error)} Reload to check whether the request completed.` })
+      dialog.update({
+        error: `${errorText(error)} Reload to check whether the request completed.`,
+      })
     } finally {
-      update({ busy: false })
+      dialog.update({ busy: false })
       poll()
     }
   }
-  element.model = model
-  applyWplaceTheme(element)
-  element.addEventListener('caelestis-backfill-intent', (event) => {
-    const intent = event.detail
-    if (intent.type === 'closed') {
-      element.remove()
-      if (imageUrl !== null) URL.revokeObjectURL(imageUrl)
-      if (restoreFocus?.isConnected) restoreFocus.focus()
-      return
-    }
-    if (closed) return
-    if (intent.type === 'close') close()
-    else if (intent.type === 'select') update({ selectedSnapshot: intent.snapshotId })
-    else if (intent.type === 'reload') {
-      if (!model.busy && !model.loading) void reload()
-    } else void mutate(intent.type)
-  })
-  document.body.appendChild(element)
+  const dialog = openModalHost(
+    'caelestis-backfill',
+    {
+      name: target.name,
+      templates: templateId === undefined ? 0 : null,
+      previewUrl: null,
+      preview: null,
+      job: null,
+      selectedSnapshot: null,
+      loading: true,
+      busy: false,
+      error: null,
+    },
+    {
+      onIntent: (intent) => {
+        if (intent.type === 'select') dialog.update({ selectedSnapshot: intent.snapshotId })
+        else if (intent.type === 'reload') {
+          if (!dialog.model.busy && !dialog.model.loading) void reload()
+        } else void mutate(intent.type)
+      },
+      onClose: () => {
+        clearTimeout(timer)
+        controller.abort()
+      },
+      onClosed: () => {
+        if (imageUrl !== null) URL.revokeObjectURL(imageUrl)
+      },
+    },
+  )
   const template =
     templateId === undefined ? undefined : templateById(serverTemplateKey(server.url, templateId))
   if (template !== undefined)
     void templateAsPng(template)
       .then((blob) => {
-        if (closed || blob === null) return
+        if (dialog.closed || blob === null) return
         imageUrl = URL.createObjectURL(blob)
-        update({ previewUrl: imageUrl })
+        dialog.update({ previewUrl: imageUrl })
       })
       .catch((error: unknown) =>
-        update({ error: `Artwork preview unavailable: ${errorText(error)}` }),
+        dialog.update({ error: `Artwork preview unavailable: ${errorText(error)}` }),
       )
   void reload()
 }
