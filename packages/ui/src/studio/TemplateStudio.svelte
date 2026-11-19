@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte'
+  import { MediaQuery } from 'svelte/reactivity'
   import Button from '../foundations/Button.svelte'
   import Icon from '../foundations/Icon.svelte'
   import MenuStyles from '../foundations/MenuStyles.svelte'
@@ -17,8 +18,10 @@
     panelsIn,
     type StudioDrop,
     selectPanel,
+    TITLE_BAR,
     togglePanel,
   } from './layout.js'
+  import { MAP_CLEARANCE_STYLE, NARROW_QUERY, PHONE_QUERY } from './map-clearance.js'
   import { STUDIO_WINDOWS, type StudioFrame, type StudioLayout, type StudioNode, type StudioRect, type StudioWindowId, type TemplateStudioIntent, type TemplateStudioModel } from './model.js'
   import ImagePicker from './ImagePicker.svelte'
   import StudioStyles from './StudioStyles.svelte'
@@ -164,17 +167,10 @@
   const followed = (index: number) =>
     drag?.started === true && drag.what.kind === 'frame' && drag.what.frame === index ? drag : null
 
-  /* Too narrow for both columns side by side (two 18rem windows clear of Wplace's controls): one
-     sheet along the bottom shows a window at a time; tapping its tab again folds the sheet away to
-     uncover the map. */
-  const PHONE = '(max-width: 43rem)'
-  let phone = $state(typeof matchMedia === 'function' && matchMedia(PHONE).matches)
-  $effect(() => {
-    const query = matchMedia(PHONE)
-    const update = (): void => { phone = query.matches }
-    query.addEventListener('change', update)
-    return () => query.removeEventListener('change', update)
-  })
+  const narrowQuery = new MediaQuery(NARROW_QUERY)
+  /* On a phone, tapping the sheet's tab again folds it away to uncover the map. */
+  const phoneQuery = new MediaQuery(PHONE_QUERY)
+  const phone = $derived(phoneQuery.current)
   const uid = $props.id()
   let sheet = $state<StudioWindowId | null>('dimensions')
   const pickSheet = (id: StudioWindowId): void => { sheet = sheet === id ? null : id }
@@ -349,7 +345,15 @@
   </div>
 {/snippet}
 
-<div class="studio" bind:this={root} aria-label="Template studio" style:--bar-height={barHeight > 0 ? `${barHeight}px` : undefined}>
+<div
+  class="studio"
+  class:narrow={narrowQuery.current}
+  bind:this={root}
+  aria-label="Template studio"
+  style={MAP_CLEARANCE_STYLE}
+  style:--title-bar="{TITLE_BAR}px"
+  style:--bar-height={barHeight > 0 ? `${barHeight}px` : undefined}
+>
   <div class="bar main caelestis-surface" role="toolbar" aria-label={replacing ? 'Replace template' : 'New template'} bind:offsetHeight={barHeight}>
     <input
       class="name caelestis-field"
@@ -516,9 +520,7 @@
     --studio-inset: 12px;
     /* Just below the bar, however many rows it wraps to. */
     --studio-top: calc(2 * var(--studio-inset) + var(--bar-height, 3rem));
-    /* Clear of Wplace's buttons along the bottom. Windows start clear of its other controls too
-       (`EDGE_PLACES`). */
-    --studio-bottom: 76px;
+    --studio-bottom: var(--map-bottom);
     --studio-window-width: min(18rem, calc(100vw - 2 * var(--studio-inset)));
     position: fixed;
     inset: 0;
@@ -683,7 +685,7 @@
      height down to those controls, scrolling as one when its panels need more. */
   .float {
     --float-inset: max(0px, min(var(--float-x), calc(100vw - var(--float-across, 1) * var(--studio-window-width))));
-    --float-top: min(var(--float-y), calc(100dvh - var(--studio-bottom) - 2.5rem));
+    --float-top: min(var(--float-y), calc(100dvh - var(--studio-bottom) - var(--title-bar)));
     position: absolute;
     inset-block-start: var(--float-top);
     display: flex;
@@ -710,28 +712,24 @@
     font: 600 0.8125rem/1.25 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
     pointer-events: none;
   }
-  @media (max-width: 52rem) {
-    /* Between Wplace's zoom buttons and its account button, as claim mode's bar sits. */
-    .bar { inset-inline: 3.5rem 7rem; inline-size: auto; max-inline-size: none; flex-wrap: wrap; row-gap: 0.375rem; }
-    .bar > :is(.group, .windows, .actions) { padding-inline-start: 0; border: 0; }
-    /* Three rows: the name and Save; the tools and Cancel; then the readout. */
-    .main .actions { display: contents; }
-    .main .name { order: 1; flex: 1 1 0; }
-    .main .actions > :global(button:last-child) { order: 2; }
-    .main .break { order: 3; flex-basis: 100%; }
-    .main .tools { order: 4; }
-    .main .group { order: 5; }
-    .main .actions > :global(button:first-child) { order: 6; margin-inline-start: auto; }
-    .main .status { order: 7; flex-basis: 100%; }
-    /* Below the bar, which wraps across the whole width here, and still clear of the bottom. */
-    .float { --float-top: clamp(var(--studio-top), var(--float-y), calc(100dvh - var(--studio-bottom) - 2.5rem)); }
-  }
+  .narrow .bar { inset-inline: var(--map-barStart) var(--map-barEnd); inline-size: auto; max-inline-size: none; flex-wrap: wrap; row-gap: 0.375rem; }
+  .narrow .bar > :is(.group, .windows, .actions) { padding-inline-start: 0; border: 0; }
+  /* Three rows: the name and Save; the tools and Cancel; then the readout. */
+  .narrow .main .actions { display: contents; }
+  .narrow .main .name { order: 1; flex: 1 1 0; }
+  .narrow .main .actions > :global(button:last-child) { order: 2; }
+  .narrow .main .break { order: 3; flex-basis: 100%; }
+  .narrow .main .tools { order: 4; }
+  .narrow .main .group { order: 5; }
+  .narrow .main .actions > :global(button:first-child) { order: 6; margin-inline-start: auto; }
+  .narrow .main .status { order: 7; flex-basis: 100%; }
+  /* Below the bar, which wraps across the whole width here, and still clear of the bottom. */
+  .narrow .float { --float-top: clamp(var(--studio-top), var(--float-y), calc(100dvh - var(--studio-bottom) - var(--title-bar))); }
   .break { display: none; }
-  @media (max-width: 52rem) { .break { display: block; } }
-  /* Clear of Wplace's bottom controls, as claim mode's phone card is. */
+  .narrow .break { display: block; }
   .sheet {
     position: absolute;
-    inset: auto max(8px, env(safe-area-inset-right)) calc(4.25rem + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+    inset: auto max(8px, env(safe-area-inset-right)) calc(var(--map-sheetBottom) + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
     display: flex;
     flex-direction: column;
     max-block-size: 50dvh;
