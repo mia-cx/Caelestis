@@ -1,6 +1,5 @@
-import type { AlarmKind } from '@caelestis/shared'
+import type { AlarmKind, Progress } from '@caelestis/shared'
 import type { IconName } from '../foundations/icons.svelte.js'
-import type { ProgressModel } from '../progress/model.js'
 
 export type TreeIcon = Extract<
   IconName,
@@ -31,7 +30,7 @@ export type TreeIcon = Extract<
   | 'tune'
 >
 
-export interface TreeColourProgressModel extends ProgressModel {
+export interface TreeColourProgressModel extends Progress {
   readonly index: number
   readonly name: string
   readonly hex: string
@@ -86,7 +85,7 @@ export interface TreeRowModel {
     readonly alarmKind?: AlarmKind | undefined
     readonly pixelsLost?: number | undefined
   }
-  readonly progress?: ProgressModel
+  readonly progress?: Progress
   readonly colourProgress?: readonly TreeColourProgressModel[]
   readonly leadingActions?: readonly TreeActionModel[]
   readonly actions?: readonly TreeActionModel[]

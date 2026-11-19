@@ -1,22 +1,21 @@
 <script lang="ts">
-  import { formatCount, formatExactCount, formatPixels, type TemplateColourStatus, WPLACE_PALETTE } from '@caelestis/shared'
+  // Aliased: this component's own name is ColourProgress.
+  import { type ColourProgress as ColourRow, formatCount, formatExactCount, formatPixels, WPLACE_PALETTE } from '@caelestis/shared'
   import { type ColourProgressSort, compareColours } from './colour-sorts.js'
 
   /** One row per palette colour in `colours`, ordered by `sort`; the host renders the sort control. */
   let { colours, sort = 'index' }: {
-    colours: readonly TemplateColourStatus[]
+    colours: readonly ColourRow[]
     sort?: ColourProgressSort
   } = $props()
 
   const rows = $derived(
     colours
+      .toSorted(compareColours(sort))
       .flatMap((colour) => {
         const palette = WPLACE_PALETTE[colour.index]
-        return palette === undefined
-          ? []
-          : [{ colour, palette, index: colour.index, completed: colour.correct, mismatched: colour.wrong, unpainted: colour.blank, total: colour.total }]
-      })
-      .sort(compareColours(sort)),
+        return palette === undefined ? [] : [{ colour, palette, completed: colour.completed, total: colour.total }]
+      }),
   )
 </script>
 

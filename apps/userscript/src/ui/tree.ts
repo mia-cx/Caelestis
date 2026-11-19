@@ -1,5 +1,6 @@
 import {
   type AlarmKind,
+  type Progress,
   sameTemplateSurface,
   type TemplateSurface,
   templateFilterCount,
@@ -8,7 +9,6 @@ import {
   WPLACE_PALETTE,
 } from '@caelestis/shared'
 import type {
-  ProgressModel,
   TemplateClaimsModel,
   TemplateTreeIntent,
   TemplateTreeModel,
@@ -1495,7 +1495,7 @@ export interface TemplateTreeAdapter {
   readonly refreshProgress: () => boolean
 }
 
-const sameCounts = (a: ProgressModel | undefined, b: ProgressModel | undefined): boolean =>
+const sameCounts = (a: Progress | undefined, b: Progress | undefined): boolean =>
   a === b ||
   (a !== undefined &&
     b !== undefined &&

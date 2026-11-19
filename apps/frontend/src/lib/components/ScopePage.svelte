@@ -38,15 +38,6 @@
     season: () => app.manifest?.season,
     canvas: () => app.canvas,
   })
-  // The colour rows take the server's status vocabulary.
-  const statusColours = (colours: readonly Colours[]) =>
-    colours.map(({ index, completed, mismatched, unpainted, total }) => ({
-      index,
-      correct: completed,
-      wrong: mismatched,
-      blank: unpainted,
-      total,
-    }))
 </script>
 
 <svelte:head>
@@ -103,7 +94,7 @@
     {#if scope.colours !== undefined}
       <section class="pixel-card bg-base-100 p-4">
         <h2 class="mb-3 font-semibold">Progress by colour</h2>
-        <ColourProgress colours={statusColours(scope.colours)} />
+        <ColourProgress colours={scope.colours} />
       </section>
     {/if}
 

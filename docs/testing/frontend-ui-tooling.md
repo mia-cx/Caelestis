@@ -61,10 +61,6 @@ separate [Chromium boundary checks](browser-evidence.md); there are no CSS-class
 | `apps/frontend/src/lib/components/stats/PainterPicker.svelte` | Integration | Mounted page/component interactions and displayed state; actual canvas/layout/timelapse behavior belongs to separate browser validation. |
 | `apps/frontend/src/lib/components/stats/ProgressPaceChart.svelte` | Integration | Mounted page/component interactions and displayed state; actual canvas/layout/timelapse behavior belongs to separate browser validation. |
 | `apps/frontend/src/lib/components/stats/progress-pace.ts` | Integration | Mounted page/component interactions and displayed state; actual canvas/layout/timelapse behavior belongs to separate browser validation. |
-| `apps/frontend/src/lib/components/ui/select/index.ts` | Declarative | Type declarations and export wiring; package check/build resolves consumers. No standalone execution assertions. |
-| `apps/frontend/src/lib/components/ui/select/select-content.svelte` | Declarative | Vendored presentation wrappers; check/build and consuming component interactions. Do not retest the upstream library. |
-| `apps/frontend/src/lib/components/ui/select/select-item.svelte` | Declarative | Vendored presentation wrappers; check/build and consuming component interactions. Do not retest the upstream library. |
-| `apps/frontend/src/lib/components/ui/select/select-trigger.svelte` | Declarative | Vendored presentation wrappers; check/build and consuming component interactions. Do not retest the upstream library. |
 | `packages/social/src/osm-geometry.ts` | Unit | Production-derived history/pace/tree/render contracts; real raster encode/decode for image boundaries, no algorithm-mirroring assertions. |
 | `apps/frontend/src/lib/persisted.svelte.ts` | Integration | Real API client and reactive state: bootstrap, latest load wins, auth refusal, socket reconciliation/reconnect/stop, persisted preference recovery. |
 | `apps/frontend/src/lib/components/stats/progress-history.ts` | Unit | Production-derived history/pace/tree/render contracts; real raster encode/decode for image boundaries, no algorithm-mirroring assertions. |
@@ -82,7 +78,6 @@ separate [Chromium boundary checks](browser-evidence.md); there are no CSS-class
 | `apps/frontend/src/lib/state/app.svelte.ts` | Integration | Real API client and reactive state: bootstrap, latest load wins, auth refusal, socket reconciliation/reconnect/stop, persisted preference recovery. |
 | `apps/frontend/src/routes/+layout.server.ts` | Integration | SSR/proxy/storage boundary: public metadata, publication checks, conditional reads, credential stripping, partial recovery and portable environment wiring. |
 | `apps/frontend/src/routes/+layout.svelte` | Integration | Mounted page/component interactions and displayed state; actual canvas/layout/timelapse behavior belongs to separate browser validation. |
-| `apps/frontend/src/routes/+layout.ts` | Integration | SSR/proxy/storage boundary: public metadata, publication checks, conditional reads, credential stripping, partial recovery and portable environment wiring. |
 | `apps/frontend/src/routes/+page.svelte` | Integration | Mounted page/component interactions and displayed state; actual canvas/layout/timelapse behavior belongs to separate browser validation. |
 | `apps/frontend/src/routes/api/[...path]/+server.ts` | Integration | HTTP credential boundary, configured/selected server isolation, version fallback, retry refusal, blob lifetime, live protocol negotiation. |
 | `apps/frontend/src/routes/folder/[id]/+page.svelte` | Integration | Mounted page/component interactions and displayed state; actual canvas/layout/timelapse behavior belongs to separate browser validation. |
@@ -111,7 +106,6 @@ separate [Chromium boundary checks](browser-evidence.md); there are no CSS-class
 | `packages/ui/src/foundations/SettingRow.svelte` | Integration | Labels and control semantics exercised through composed UI interactions; icons/styles require no standalone assertions. |
 | `packages/ui/src/foundations/SliderRow.svelte` | Integration | Labels and control semantics exercised through composed UI interactions; icons/styles require no standalone assertions. |
 | `packages/ui/src/foundations/Toggle.svelte` | Integration | Labels and control semantics exercised through composed UI interactions; icons/styles require no standalone assertions. |
-| `packages/ui/src/foundations/icons.ts` | Integration | Labels and control semantics exercised through composed UI interactions; icons/styles require no standalone assertions. |
 | `packages/ui/src/index.ts` | Declarative | Type declarations and export wiring; package check/build resolves consumers. No standalone execution assertions. |
 | `packages/ui/src/notifications/Notifications.svelte` | Integration | Mounted component emits public intents and exposes accessible controls for its model; pending/refusal and cleanup where applicable. |
 | `packages/ui/src/overlay/OverlayControls.svelte` | Integration | Mounted component emits public intents and exposes accessible controls for its model; pending/refusal and cleanup where applicable. |
@@ -135,7 +129,6 @@ separate [Chromium boundary checks](browser-evidence.md); there are no CSS-class
 | `packages/ui/src/tree/TemplatePreview.svelte` | Integration | Mounted component emits public intents and exposes accessible controls for its model; pending/refusal and cleanup where applicable. |
 | `packages/ui/src/tree/TemplateTree.svelte` | Integration | Mounted component emits public intents and exposes accessible controls for its model; pending/refusal and cleanup where applicable. |
 | `packages/ui/src/tree/preview-pixels.ts` | Unit | Bounded preview preserves palette colours, transparency and nearest source pixels. |
-| `packages/ui/src/types.ts` | Declarative | Type declarations and export wiring; package check/build resolves consumers. No standalone execution assertions. |
 | `packages/ui/src/panel/PanelDrawers.svelte` | Integration | Mounted component emits public intents and exposes accessible controls for its model; pending/refusal and cleanup where applicable. |
 | `scripts/benchmark-social-gifs.mjs` | Integration (extended) | Explicit development/deployment/benchmark command; verified with isolated runtime/stack acceptance when relevant. No source-text assertions or live infrastructure in default suite. |
 | `scripts/benchmark-wplace-collaboration.mjs` | Integration (extended) | Explicit development/deployment/benchmark command; verified with isolated runtime/stack acceptance when relevant. No source-text assertions or live infrastructure in default suite. |

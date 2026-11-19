@@ -1,36 +1,26 @@
 <script lang="ts">
-import type { TemplateColourStatus } from '@caelestis/shared'
+import type { ColourProgress as Colour } from '@caelestis/shared'
 import { COLOUR_PROGRESS_SORTS, ColourProgress, type ColourProgressSort } from '@caelestis/ui'
-import * as Select from '#lib/components/ui/select/index.js'
+import Select from '#lib/components/Select.svelte'
+import { STORAGE_KEYS } from '#lib/deployment.js'
 import { persisted } from '#lib/persisted.svelte.js'
 
-let { colours }: { colours: readonly TemplateColourStatus[] } = $props()
-const storedSort = persisted<ColourProgressSort>('caelestis:colour-sort', 'index')
-const allowed = new Set<string>(COLOUR_PROGRESS_SORTS.map((option) => option.key))
-const isSort = (value: string): value is ColourProgressSort => allowed.has(value)
-const sort = $derived(isSort(storedSort.value) ? storedSort.value : 'index')
-const label = $derived(
-  COLOUR_PROGRESS_SORTS.find((option) => option.key === sort)?.label ?? 'palette index',
+let { colours }: { colours: readonly Colour[] } = $props()
+const storedSort = persisted<ColourProgressSort>(STORAGE_KEYS.colourSort, 'index')
+// A sort stored by an older release may no longer exist.
+const sort = $derived(
+  COLOUR_PROGRESS_SORTS.some((option) => option.key === storedSort.value) ? storedSort.value : 'index',
 )
 </script>
 
 <div class="toolbar">
-  <!-- The site's own picker, so the open list is page content and takes the page's font. -->
   <span id="colour-sort-label">Sort by</span>
-  <Select.Root
-    type="single"
+  <Select
     value={sort}
-    onValueChange={(value) => {
-      if (isSort(value)) storedSort.value = value
-    }}
-  >
-    <Select.Trigger size="sm" aria-labelledby="colour-sort-label">{label}</Select.Trigger>
-    <Select.Content>
-      {#each COLOUR_PROGRESS_SORTS as option (option.key)}
-        <Select.Item value={option.key} label={option.label} />
-      {/each}
-    </Select.Content>
-  </Select.Root>
+    options={COLOUR_PROGRESS_SORTS}
+    onValueChange={(key) => (storedSort.value = key)}
+    labelledby="colour-sort-label"
+  />
 </div>
 <ColourProgress {colours} {sort} />
 

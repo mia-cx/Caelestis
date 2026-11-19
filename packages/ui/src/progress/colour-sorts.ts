@@ -1,5 +1,4 @@
-import { WPLACE_PALETTE } from '@caelestis/shared'
-import type { ProgressModel } from './model.js'
+import { type ColourProgress, WPLACE_PALETTE } from '@caelestis/shared'
 
 /** The orderings a colour progress list offers, in menu order, for any host that renders the picker. */
 export const COLOUR_PROGRESS_SORTS = [
@@ -18,13 +17,7 @@ export const COLOUR_PROGRESS_SORTS = [
 
 export type ColourProgressSort = (typeof COLOUR_PROGRESS_SORTS)[number]['key']
 
-/** The counts a colour row sorts by, for one palette index. */
-export type SortableColour = Pick<
-  ProgressModel,
-  'completed' | 'mismatched' | 'unpainted' | 'total'
-> & {
-  readonly index: number
-}
+type SortableColour = Omit<ColourProgress, 'known'>
 
 const done = (colour: SortableColour): number =>
   colour.total === 0 ? 0 : colour.completed / colour.total

@@ -1,15 +1,14 @@
 <script lang="ts">
   import MenuStyles from '../foundations/MenuStyles.svelte'
-  import { formatCount, formatPixels } from '@caelestis/shared'
+  import { formatCount, formatPixels, type Progress } from '@caelestis/shared'
   import Button from '../foundations/Button.svelte'
   import Icon from '../foundations/Icon.svelte'
   import ProgressMeter from '../progress/ProgressMeter.svelte'
-  import type { ProgressModel } from '../progress/model.js'
   import type { TreeColourProgressModel } from './model.js'
 
   let { name, progress, colours = [], onClose }: {
     name: string
-    progress: ProgressModel
+    progress: Progress
     colours?: readonly TreeColourProgressModel[] | undefined
     onClose: () => void
   } = $props()

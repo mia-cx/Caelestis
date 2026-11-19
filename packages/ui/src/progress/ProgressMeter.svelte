@@ -1,8 +1,8 @@
 <script lang="ts">
-  import type { ProgressModel } from './model.js'
+  import type { Progress } from '@caelestis/shared'
 
   let { progress, size = 'md', griefWatch = false, completedColour }: {
-    progress: ProgressModel
+    progress: Progress
     size?: 'sm' | 'md'
     griefWatch?: boolean
     completedColour?: string

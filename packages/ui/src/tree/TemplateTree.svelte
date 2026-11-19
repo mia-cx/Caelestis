@@ -1,6 +1,6 @@
 <script lang="ts">
   import MenuStyles from '../foundations/MenuStyles.svelte'
-  import { formatCount, formatPixels } from '@caelestis/shared'
+  import { formatCount, formatPixels, type Progress } from '@caelestis/shared'
   import Button from '../foundations/Button.svelte'
   import SortMenu from './SortMenu.svelte'
   import TemplatePreview from './TemplatePreview.svelte'
@@ -25,7 +25,6 @@
     TreeEntryModel,
     TreeRowModel,
   } from './model.js'
-  import type { ProgressModel } from '../progress/model.js'
 
   let { model, allowGrid = false, toolbar = true, onIntent }: { model: TemplateTreeModel; allowGrid?: boolean; toolbar?: boolean; onIntent?: (intent: TemplateTreeIntent) => void } = $props()
   let query = $state('')
@@ -382,8 +381,8 @@
     const rounded = Math.round(Math.min(1, Math.max(0, value / total)) * 100)
     return value < total ? Math.min(99, rounded) : rounded
   }
-  const percent = (progress: ProgressModel): number => wholePercent(progress.completed, progress.total)
-  const scannedPercent = (progress: ProgressModel): number => wholePercent(progress.known, progress.total)
+  const percent = (progress: Progress): number => wholePercent(progress.completed, progress.total)
+  const scannedPercent = (progress: Progress): number => wholePercent(progress.known, progress.total)
   const branchIndent = 18
   const leafHeadingIndent = 20
 
