@@ -44,16 +44,15 @@ import { Schema } from 'effect'
 
 const MAX_IDENTIFIER_LENGTH = 64
 /**
- * A materialized path is a handful of group names joined by slashes, not prose. Reusing the
- * description bound made MAX_MANIFEST_NODES paths worth ~442 MB — 22x the ceiling MAX_MANIFEST_CHUNKS
- * is sized to, on an array the decoder refines only after building it. That is the same "one shared
- * round number" mistake the array caps above already had to unlearn.
+ * A materialized path is a handful of group names joined by slashes, not prose. At the description
+ * bound, MAX_MANIFEST_NODES paths would be worth ~442 MB — 22x the ceiling MAX_MANIFEST_CHUNKS is
+ * sized to, on an array the decoder refines only after building it.
  */
 const MAX_PATH_LENGTH = 256
 /**
- * Array caps sized from what each field actually bounds. A single shared round number was wrong
- * three separate ways: it made a >1,000-tile manifest impossible to encode, capped a paint payload
- * at a tenth of a real charge drain, and rejected an ordinary 40x30-tile template.
+ * Array caps sized from what each field actually bounds. One shared round number cannot fit them
+ * all: a manifest may span more than 1,000 tiles, a paint payload carries a whole charge drain, and
+ * an ordinary template covers 40x30 tiles.
  */
 const MAX_MANIFEST_TILES = WORLD_TILES * WORLD_TILES
 const MAX_TEMPLATE_CHUNKS = MAX_MANIFEST_TILES
@@ -67,12 +66,12 @@ export const MAX_MANIFEST_NODES = 100_000
  *
  * Sized to a payload that can actually be processed rather than to the canvas. Each chunk record is
  * a tile key and a 64-character hash, so 200,000 of them is already ~20 MB of JSON — past what a
- * manifest response should be, and far short of the 4,194,304 the per-template cap allowed.
+ * manifest response should be, and far short of the 4,194,304 the per-template cap allows.
  */
 export const MAX_MANIFEST_CHUNKS = 200_000
 export const MAX_MANIFEST_TEMPLATES = 100_000
-// 09-recon-palette has not recovered Wplace's complete index order yet. Keep this permissive until
-// that ticket establishes the real upper bound instead of deriving it from the incomplete palette.
+// Wplace's complete palette index order is not known, so this stays permissive rather than being
+// derived from the incomplete palette.
 const MAX_PALETTE_INDEX = 65_535
 
 // Wide enough for every v1 timestamp while still making seconds and milliseconds disjoint.
