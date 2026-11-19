@@ -335,9 +335,7 @@ export class RelationalTemplateStore extends RelationalStore implements Template
   }
 
   async deleteTemplate(templateId: string, expected: TemplateDeletePrecondition): Promise<boolean> {
-    // Order matters and the batch is what makes it safe. `templates.current_version_id` points at a
-    // version and every version points back at the template, so the pointer has to be dropped before
-    // the rows it refers to. Tiles go first because they reference a version.
+    // Statement order matters, for the reason `deleteNodeCascade` gives.
     const claimedTemplate = and(eq(templates.id, templateId), isNull(templates.currentVersionId))
     const claimedTemplateIds = this.database
       .select({ id: templates.id })
@@ -373,7 +371,6 @@ export class RelationalTemplateStore extends RelationalStore implements Template
     const results = await this.database.batch(
       statements as [(typeof statements)[number], ...Array<(typeof statements)[number]>],
     )
-    // Chunk blobs stay: they are content-addressed and shared. See `deleteTemplate` on the port.
     return changedRows(results.at(-1)) > 0
   }
 
@@ -452,8 +449,7 @@ export class RelationalTemplateStore extends RelationalStore implements Template
     // Chunked like `readBuckets` for the same bound-parameter budget; membership is per-id, so
     // concatenating chunk results loses nothing.
     const published = new Set<string>()
-    for (let offset = 0; offset < distinct.length; offset += IDS_PER_STATEMENT) {
-      const chunk = distinct.slice(offset, offset + IDS_PER_STATEMENT)
+    for (const chunk of chunkRows(distinct, IDS_PER_STATEMENT)) {
       const rows = await this.database
         .select({ id: templates.id })
         .from(templates)

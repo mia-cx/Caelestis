@@ -38,7 +38,6 @@ export const createNodeRoutes = (runtime: BackendRuntime) => {
     const body = await jsonObject(c)
     if (body === null) return c.json({ error: 'invalid body' }, 400)
     const { season, surfaceKind, allianceId, parentId, name, description } = body
-    // Wplace's first canvas is season 0; later seasons count up from there.
     const parsedSeason = wholeNumber(season)
     if (parsedSeason === null) {
       return c.json({ error: 'season must be a non-negative integer' }, 400)

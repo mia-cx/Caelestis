@@ -48,7 +48,7 @@ export const createNode = (input: {
       description: input.description ?? null,
       createdAt: millis(Date.now()),
     }
-    // A taken path on create has always answered 400, unlike a rename into one (409).
+    // A taken path on create is bad input (400); a rename into one is a conflict (409).
     const inserted = yield* fromPort('insertNode', () => sql.insertNode(node), {
       conflict: 'invalid',
     })
