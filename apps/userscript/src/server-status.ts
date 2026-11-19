@@ -22,6 +22,7 @@ import {
   registerServerSyncResource,
   type ServerSyncResult,
   serverSyncRevision,
+  WORLD_SCOPE,
 } from './server-sync-coordinator.js'
 import type { ServerConnection } from './settings.js'
 import { type StatusSnapshot, statusDeltaFrom, statusSnapshotFrom } from './telemetry-wire.js'
@@ -130,7 +131,7 @@ export const applyStatusDelta = (
 ): ReturnType<typeof applyServerSyncDelta> =>
   applyServerSyncDelta(
     server,
-    'world',
+    WORLD_SCOPE,
     'telemetry-status',
     String(delta.baseRevision),
     String(delta.revision),
@@ -176,7 +177,7 @@ const applyStatusSnapshot = (
   const revision = snapshot.revision === undefined ? undefined : String(snapshot.revision)
   return applyServerSyncSnapshot(
     server,
-    'world',
+    WORLD_SCOPE,
     'telemetry-status',
     startedRevision,
     { status: changed ? 'changed' : 'unchanged', ...(revision === undefined ? {} : { revision }) },
@@ -202,7 +203,7 @@ const refreshStatus = async (
     serverConnectionIdentity(server),
     `${server.season}\u0000world\u0000status`,
     async () => {
-      const startedRevision = serverSyncRevision(server, 'world', 'telemetry-status')
+      const startedRevision = serverSyncRevision(server, WORLD_SCOPE, 'telemetry-status')
       const answer = await serverRequest(server, '/telemetry/status', {
         query: { season: server.season },
         limits: 'background',
@@ -227,7 +228,7 @@ export const installServerStatus = (): void => {
   registerServerSyncResource({
     id: 'telemetry-status',
     live: true,
-    scope: () => 'world',
+    scope: () => WORLD_SCOPE,
     refresh: refreshStatus,
     applyLiveEvent: (server, event) => {
       if (event.type === 'status-snapshot') {
@@ -236,7 +237,7 @@ export const installServerStatus = (): void => {
           snapshot !== null &&
           applyStatusSnapshot(
             server,
-            serverSyncRevision(server, 'world', 'telemetry-status'),
+            serverSyncRevision(server, WORLD_SCOPE, 'telemetry-status'),
             snapshot,
           ) === 'applied'
         )

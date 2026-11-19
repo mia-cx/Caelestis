@@ -16,6 +16,7 @@ import {
   applyServerSyncRevision,
   registerServerSyncResource,
   type ServerSyncResult,
+  WORLD_SCOPE,
 } from './server-sync-coordinator.js'
 import { isScopeVisible, onStateChange, type ServerConnection } from './settings.js'
 import { alarmsSnapshotFrom } from './telemetry-wire.js'
@@ -174,7 +175,7 @@ export const installServerAlarms = (): void => {
     id: 'telemetry-alarms',
     live: true,
     // Alarms are read against coverage, so there is nothing to read before the first manifest.
-    scope: (server) => (manifestCoverage(server) !== null ? 'world' : null),
+    scope: (server) => (manifestCoverage(server) !== null ? WORLD_SCOPE : null),
     refresh: refreshAlarms,
     applyLiveEvent: (server, event) => {
       if (event.type !== 'alarms-snapshot') return false
@@ -182,7 +183,7 @@ export const installServerAlarms = (): void => {
       const read = alarmsSnapshotFrom(event.alarms, true)
       if (coverage === null || read?.version === undefined) return false
       applyAlarms(server, coverage, read.alarms)
-      applyServerSyncRevision(server, 'world', 'telemetry-alarms', read.version)
+      applyServerSyncRevision(server, WORLD_SCOPE, 'telemetry-alarms', read.version)
       return true
     },
   })

@@ -15,7 +15,6 @@ import { count, warn } from '../debug.js'
 import { PerServerMap } from '../per-server-map.js'
 import {
   type ConnectedServer,
-  connectedServers,
   isConnected,
   isCurrentServerConnection,
   onServerRemoved,
@@ -32,8 +31,8 @@ import {
 import { invalidateServerMismatches } from '../server-mismatch.js'
 import { deleteCachedServerMismatches } from '../server-mismatch-cache.js'
 import { serverRequest } from '../server-request.js'
-import { applyServerSyncRevision, registerServerSyncResource } from '../server-sync-coordinator.js'
-import { onStateChange, type ServerConnection } from '../settings.js'
+import { registerServerSyncResource, WORLD_SCOPE } from '../server-sync-coordinator.js'
+import type { ServerConnection } from '../settings.js'
 import { serverTemplateIdPrefix, serverTemplateKey } from '../tree-keys.js'
 import { ByteCache } from './byte-cache.js'
 import { localTemplates, type ServerCopy } from './catalog.js'
@@ -598,7 +597,7 @@ export const installServerSync = (): void => {
     id: 'world-manifest',
     live: true,
     reconcileOnManifestEvent: true,
-    scope: () => 'world',
+    scope: () => WORLD_SCOPE,
     refresh: async (server, reason, transport) => {
       const contents = await readManifest(server, { reason, transport })
       if (contents === null) return { status: 'failed' }
@@ -607,22 +606,13 @@ export const installServerSync = (): void => {
         : { status: 'unchanged', revision: contents.revision }
     },
     applyLiveEvent: async (server, event) => {
-      if (event.type !== 'manifest-snapshot' || event.scope !== 'world') return false
+      if (event.type !== 'manifest-snapshot' || event.scope !== WORLD_SCOPE) return false
       if (applyLiveManifest(server, WORLD_TEMPLATE_SURFACE, event.manifest) === null) return false
       await serverTemplatesSettled(server, WORLD_TEMPLATE_SURFACE)
       return true
     },
-  })
-  /**
-   * A newly connected server starts from the manifest its probe already downloaded. Its revision
-   * is applied before the live socket opens, so the socket's state vector names the version this
-   * client holds and the server does not send the same manifest again.
-   */
-  onStateChange(() => {
-    for (const server of connectedServers()) {
-      const contents = adoptProbedManifest(server)
-      if (contents?.revision !== undefined && isCurrentServerConnection(server))
-        applyServerSyncRevision(server, 'world', 'world-manifest', contents.revision)
-    }
+    // A newly connected server starts from the manifest its probe already downloaded, so the live
+    // socket's state vector names that version and the server does not send it again.
+    adopt: (server) => adoptProbedManifest(server)?.revision,
   })
 }

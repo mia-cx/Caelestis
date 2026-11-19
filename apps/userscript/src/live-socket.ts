@@ -58,11 +58,7 @@ export interface LiveSyncHost {
   /** The status revision to resume from, sent when the socket opens. */
   readonly statusRevision: (server: ConnectedServer) => string | undefined
   /** Apply one sync event; false when it could not be applied. */
-  readonly apply: (
-    server: ConnectedServer,
-    event: LiveSyncEvent,
-    protocol: LiveProtocol,
-  ) => boolean | Promise<boolean>
+  readonly apply: (server: ConnectedServer, event: LiveSyncEvent) => boolean | Promise<boolean>
   /** Read live resources now: all of them, or only `resource`. */
   readonly requestReads: (
     server: ConnectedServer,
@@ -164,9 +160,9 @@ export const serverLiveSyncHealthy = (server: ConnectedServer): boolean => {
 export const serverLiveSyncVersion = (server: ConnectedServer): 1 | 2 | undefined =>
   liveProtocol(server)?.version
 
-const activeDocument = (): boolean =>
-  (typeof document === 'undefined' || document.visibilityState !== 'hidden') &&
-  (typeof navigator === 'undefined' || navigator.onLine !== false)
+/** Whether the tab is visible and online, the only time server work is worth doing. */
+export const activeDocument = (): boolean =>
+  document.visibilityState !== 'hidden' && navigator.onLine !== false
 
 const clearTimer = (timer: ReturnType<typeof setTimeout> | null): null => {
   if (timer !== null) clearTimeout(timer)
@@ -321,7 +317,7 @@ const receive = async (connection: LiveConnection, raw: unknown): Promise<void> 
       }
       break
   }
-  if (await (host?.apply(server, event, protocol) ?? true)) return
+  if (await (host?.apply(server, event) ?? true)) return
   if (event.type === 'status-delta')
     protocol.desync(connection, CLOSE_INTERNAL_ERROR, 'status revision gap')
   else connection.socket?.close(CLOSE_INTERNAL_ERROR, 'invalid live snapshot')

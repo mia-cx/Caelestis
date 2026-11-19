@@ -5,6 +5,7 @@ import {
   type ReconciliationReason,
   type SyncTransport,
   templateSurfaceKey,
+  WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { mapLimit } from './concurrency.js'
 import { warn } from './debug.js'
@@ -14,6 +15,7 @@ import {
   type LiveSyncEvent,
 } from './live-events.js'
 import {
+  activeDocument,
   attachLiveSyncHost,
   liveCapable,
   liveProtocol,
@@ -69,6 +71,24 @@ export interface ServerSyncResource {
     server: ConnectedServer,
     event: LiveResourceEvent,
   ) => boolean | Promise<boolean>
+  /**
+   * The revision this client already holds for a connection, such as one its probe downloaded.
+   * Asked on every state change, before the connection's live socket opens.
+   */
+  readonly adopt?: (server: ConnectedServer) => string | undefined
+}
+
+/** The scope of every world-surface resource. */
+export const WORLD_SCOPE = templateSurfaceKey(WORLD_TEMPLATE_SURFACE)
+
+/** Record each revision a resource reports this client already holds for `server`. */
+const adoptHeldRevisions = (server: ConnectedServer): void => {
+  for (const resource of resources.values()) {
+    const revision = resource.adopt?.(server)
+    const scope = revision === undefined ? null : resource.scope(server)
+    if (revision !== undefined && scope !== null && isCurrentServerConnection(server))
+      applyServerSyncRevision(server, scope, resource.id, revision)
+  }
 }
 
 interface Schedule {
@@ -92,10 +112,6 @@ let installed = false
 let timer: ReturnType<typeof setTimeout> | null = null
 let sweepRun: Promise<void> | null = null
 let requestedResources: Map<ServerSyncResourceId, PendingResourceRequest> | null = new Map()
-
-const activeDocument = (): boolean =>
-  (typeof document === 'undefined' || document.visibilityState !== 'hidden') &&
-  (typeof navigator === 'undefined' || navigator.onLine !== false)
 
 const scheduleKey = (server: ConnectedServer, scope: string, resource: string): string =>
   `${server.url}\u0000${server.season}\u0000${scope}\u0000${resource}`
@@ -439,7 +455,7 @@ export const applyServerSyncDelta = (
 
 /** The versions this client holds, which a live socket sends when it opens. */
 const stateVector = (server: ConnectedServer) => ({
-  revision: revisionNumber(server, 'world', 'telemetry-status'),
+  revision: revisionNumber(server, WORLD_SCOPE, 'telemetry-status'),
   projections: [...resources.values()]
     .flatMap((resource): LiveProjectionState[] => {
       if (resource.live !== true || !isLiveProjectionResource(resource.id)) return []
@@ -461,7 +477,7 @@ const correctState = (
   server: ConnectedServer,
   event: Extract<LiveSyncEvent, { readonly type: 'state-correction' }>,
 ): void => {
-  const currentRevision = revisionNumber(server, 'world', 'telemetry-status')
+  const currentRevision = revisionNumber(server, WORLD_SCOPE, 'telemetry-status')
   if (
     currentRevision === null ||
     currentRevision < event.revision ||
@@ -505,7 +521,7 @@ const applyLiveEvent = async (server: ConnectedServer, event: LiveSyncEvent): Pr
       return true
     case 'ready':
     case 'status-reconcile':
-      requestLiveRevision(server, 'world', 'telemetry-status', event.revision)
+      requestLiveRevision(server, WORLD_SCOPE, 'telemetry-status', event.revision)
       return true
     default:
       return (await resources.get(resourceFor(event))?.applyLiveEvent?.(server, event)) ?? false
@@ -536,7 +552,7 @@ export const installServerSyncCoordinator = (): void => {
   installed = true
   attachLiveSyncHost({
     stateVector,
-    statusRevision: (server) => serverSyncRevision(server, 'world', 'telemetry-status'),
+    statusRevision: (server) => serverSyncRevision(server, WORLD_SCOPE, 'telemetry-status'),
     apply: applyLiveEvent,
     requestReads: (server, reason, resource) =>
       resource === undefined
@@ -548,6 +564,8 @@ export const installServerSyncCoordinator = (): void => {
   let previousConnections = connectedServers()
   onStateChange(() => {
     const next = connectedServers()
+    // Before any socket opens, so its state vector names what this client already holds.
+    for (const server of next) adoptHeldRevisions(server)
     const changed =
       next.length !== previousConnections.length ||
       next.some((server) => {
@@ -562,16 +580,13 @@ export const installServerSyncCoordinator = (): void => {
       requestAvailableServerSync('state-change')
     }
   })
-  if (typeof document !== 'undefined')
-    document.addEventListener('visibilitychange', () => recover('focus'))
-  if (typeof window !== 'undefined') {
-    window.addEventListener('focus', () => recover('focus'))
-    window.addEventListener('online', () => recover('online'))
-    window.addEventListener('offline', () => {
-      clearTimer()
-      suspendLiveConnections()
-    })
-  }
+  document.addEventListener('visibilitychange', () => recover('focus'))
+  window.addEventListener('focus', () => recover('focus'))
+  window.addEventListener('online', () => recover('online'))
+  window.addEventListener('offline', () => {
+    clearTimer()
+    suspendLiveConnections()
+  })
   reconcileLiveConnections(connectedServers())
   requestAvailableServerSync('connect')
 }
