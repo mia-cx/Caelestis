@@ -79,7 +79,8 @@
   }
 
   const place = (): void => {
-    if (anchor === undefined || popover === undefined) return
+    // Unmounting resets bound elements to null, and `show` resumes after a tick.
+    if (!anchor || !popover) return
     const at = anchor.getBoundingClientRect()
     const size = popover.getBoundingClientRect()
     const edge = 8
