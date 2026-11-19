@@ -234,7 +234,7 @@ jobs:
           pnpm --filter @caelestis/backend --filter @caelestis/storage exec bun --bun node_modules/vitest/vitest.mjs run --maxWorkers=1 --testTimeout=30000 --hookTimeout=30000
           node scripts/test-services.mjs --bun
           pnpm test:runtime
-          CAELESTIS_PERFORMANCE=1 pnpm --filter @caelestis/backend exec bun --bun node_modules/vitest/vitest.mjs run src/telemetry/classify-chunk.test.ts
+          CAELESTIS_PERFORMANCE=1 pnpm --filter @caelestis/backend exec bun --bun node_modules/vitest/vitest.mjs run src/telemetry/classification.test.ts
           pnpm --filter @caelestis/social exec bun --bun node_modules/vitest/vitest.mjs run
       # Deploy reuses only these pure checks; its build and remote migration checks still run.
       - name: Check release code
