@@ -1,11 +1,7 @@
 import { millis } from '@caelestis/shared'
 import { Effect } from 'effect'
 import { SqlStoreService, StatusReadModelService } from '../runtime/backend-runtime.js'
-import {
-  BackendStorageError,
-  ResourceConflictError,
-  ResourceNotFoundError,
-} from '../runtime/errors.js'
+import { ConflictError, NotFoundError, StorageError, storage } from '../runtime/errors.js'
 import { publishManifestChange } from '../status-read-model/port.js'
 import { TagConflictError, type TagMutation } from './store.js'
 
@@ -18,19 +14,16 @@ export const readTags = (templateId?: string, folderId?: string) =>
         const tags = await sql.listTags()
         if (folderId !== undefined) {
           if ((await sql.readNode(folderId)) === null)
-            throw new ResourceNotFoundError({ message: 'Folder no longer exists.' })
+            throw new NotFoundError({ message: 'Folder no longer exists.' })
           return { tags, selected: await sql.listNodeTagIds(folderId) }
         }
         if (templateId === undefined) return { tags, selected: [] as string[] }
         const template = await sql.readTemplate(templateId)
-        if (template === null)
-          throw new ResourceNotFoundError({ message: 'Template no longer exists.' })
+        if (template === null) throw new NotFoundError({ message: 'Template no longer exists.' })
         return { tags, selected: await sql.listTemplateTagIds(templateId) }
       },
       catch: (cause) =>
-        cause instanceof ResourceNotFoundError
-          ? cause
-          : new BackendStorageError({ operation: 'readTags', cause }),
+        cause instanceof NotFoundError ? cause : new StorageError({ operation: 'readTags', cause }),
     })
   })
 
@@ -39,20 +32,17 @@ export const mutateTag = (mutation: TagMutation, currentSeason: number) =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
     const readModel = yield* StatusReadModelService
-    const scopes = yield* Effect.tryPromise({
-      try: () => sql.listTagScopes(),
-      catch: (cause) => new BackendStorageError({ operation: 'listTagScopes', cause }),
-    })
+    const scopes = yield* storage('listTagScopes', () => sql.listTagScopes())
     const changed = yield* Effect.tryPromise({
       try: () => sql.mutateTag(mutation, millis(Date.now())),
       catch: (cause) =>
         cause instanceof TagConflictError
-          ? new ResourceConflictError({ message: cause.message })
-          : new BackendStorageError({ operation: 'mutateTag', cause }),
+          ? new ConflictError({ message: cause.message })
+          : new StorageError({ operation: 'mutateTag', cause }),
     })
     if (!changed)
       return yield* Effect.fail(
-        new ResourceNotFoundError({ message: 'Tag, template, or folder no longer exists.' }),
+        new NotFoundError({ message: 'Tag, template, or folder no longer exists.' }),
       )
     yield* Effect.promise(() =>
       Promise.all(

@@ -2,7 +2,7 @@ import type { Manifest, ServerInfo, TemplateSurface } from '@caelestis/shared'
 import { Effect } from 'effect'
 import { resolveServerInfoEffect } from '../routes/server.js'
 import { type SqlStoreService, StatusReadModelService } from '../runtime/backend-runtime.js'
-import { BackendStorageError, type SqlStoreReadError } from '../runtime/errors.js'
+import { type StorageError, storage } from '../runtime/errors.js'
 import { assembleManifestEffect } from './assemble.js'
 import type { ManifestProjectionRead } from './read-model.js'
 
@@ -16,7 +16,7 @@ export interface ReadManifestInput {
 /** Resolve mutable server metadata and assemble the matching visibility-scoped manifest. */
 export const readManifest = (
   input: ReadManifestInput,
-): Effect.Effect<Manifest, SqlStoreReadError | BackendStorageError, SqlStoreService> =>
+): Effect.Effect<Manifest, StorageError | StorageError, SqlStoreService> =>
   Effect.gen(function* () {
     const server = yield* resolveServerInfoEffect(input.server)
     return yield* assembleManifestEffect({
@@ -34,24 +34,22 @@ export const readManifestProjection = (
   },
 ): Effect.Effect<
   ManifestProjectionRead,
-  SqlStoreReadError | BackendStorageError,
+  StorageError | StorageError,
   SqlStoreService | StatusReadModelService
 > =>
   Effect.gen(function* () {
     const readModel = yield* StatusReadModelService
     const cachedRead = readModel.readManifestProjection?.bind(readModel)
     if (input.cacheable && cachedRead !== undefined) {
-      return yield* Effect.tryPromise({
-        try: () =>
-          cachedRead({
-            server: input.server,
-            season: input.season,
-            surface: input.surface,
-            scope: input.includeUnpublished ? 'admin' : 'public',
-            ifNoneMatch: input.ifNoneMatch,
-          }),
-        catch: (cause) => new BackendStorageError({ operation: 'readManifestProjection', cause }),
-      })
+      return yield* storage('readManifestProjection', () =>
+        cachedRead({
+          server: input.server,
+          season: input.season,
+          surface: input.surface,
+          scope: input.includeUnpublished ? 'admin' : 'public',
+          ifNoneMatch: input.ifNoneMatch,
+        }),
+      )
     }
     const manifest = yield* readManifest(input)
     const etag = `"${manifest.version}"`

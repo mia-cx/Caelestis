@@ -9,7 +9,7 @@ import {
 import { Effect } from 'effect'
 import type { SqlStore } from '../ports/index.js'
 import { SqlStoreService } from '../runtime/backend-runtime.js'
-import { BackendStorageError } from '../runtime/errors.js'
+import { type StorageError, storage } from '../runtime/errors.js'
 
 export interface AssembleManifestOptions {
   readonly server: ServerInfo
@@ -225,11 +225,8 @@ export const assembleManifest = (
 /** Assemble one manifest from the SQL service supplied by the prepared backend runtime. */
 export const assembleManifestEffect = (
   options: AssembleManifestOptions,
-): Effect.Effect<Manifest, BackendStorageError, SqlStoreService> =>
+): Effect.Effect<Manifest, StorageError, SqlStoreService> =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
-    return yield* Effect.tryPromise({
-      try: () => assembleManifestWithSql(sql, options),
-      catch: (cause) => new BackendStorageError({ operation: 'assembleManifest', cause }),
-    })
+    return yield* storage('assembleManifest', () => assembleManifestWithSql(sql, options))
   })

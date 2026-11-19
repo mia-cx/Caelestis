@@ -37,7 +37,7 @@ import {
   SqlStoreService,
   StatusReadModelService,
 } from '../runtime/backend-runtime.js'
-import { TelemetryStorageError, TelemetryValidationError } from '../runtime/errors.js'
+import { StorageError, storage, ValidationError } from '../runtime/errors.js'
 import type {
   StatusProjectionChange,
   StatusProjectionMutation,
@@ -890,25 +890,19 @@ const recordPaintPromise = async (
   return application.applied ? 'recorded' : 'duplicate'
 }
 
-const storage = <A>(operation: string, run: () => Promise<A>) =>
-  Effect.tryPromise({
-    try: run,
-    catch: (cause) => new TelemetryStorageError({ operation, cause }),
-  })
-
 const upload = <A>(run: () => Promise<A>) =>
   Effect.tryPromise({
     try: run,
     catch: (cause) =>
       cause instanceof RangeError
-        ? new TelemetryValidationError({ message: cause.message })
-        : new TelemetryStorageError({ operation: 'uploadTile', cause }),
+        ? new ValidationError({ message: cause.message })
+        : new StorageError({ operation: 'uploadTile', cause }),
   })
 
 /** Read one server-owned classification mask from the latest accepted canvas observation. */
 export const readMismatchMask = (
   query: MismatchMaskQuery,
-): Effect.Effect<MismatchMaskRead, TelemetryStorageError, BlobStoreService | SqlStoreService> =>
+): Effect.Effect<MismatchMaskRead, StorageError, BlobStoreService | SqlStoreService> =>
   Effect.gen(function* () {
     const blobs = yield* BlobStoreService
     const sql = yield* SqlStoreService
@@ -925,7 +919,7 @@ export const refreshAuthoritativeTile = (
   } = {},
 ): Effect.Effect<
   StatusProjectionChange | null,
-  TelemetryStorageError,
+  StorageError,
   BlobStoreService | SqlStoreService | StatusReadModelService
 > =>
   Effect.gen(function* () {
@@ -948,7 +942,7 @@ export const offerTile = (
   metadata: TileMetadata,
 ): Effect.Effect<
   'ignored' | 'wanted' | 'recorded',
-  TelemetryStorageError,
+  StorageError,
   BlobStoreService | SqlStoreService | StatusReadModelService
 > =>
   Effect.gen(function* () {
@@ -969,7 +963,7 @@ export const offerTiles = (
   offers: readonly { readonly key: string; readonly metadata: TileMetadata }[],
 ): Effect.Effect<
   readonly string[],
-  TelemetryStorageError,
+  StorageError,
   BlobStoreService | SqlStoreService | StatusReadModelService
 > => Effect.map(offerTilesWithOutcome(offers), (result) => result.wanted)
 
@@ -990,7 +984,7 @@ export const offerTilesWithOutcome = (
   offers: readonly { readonly key: string; readonly metadata: TileMetadata }[],
 ): Effect.Effect<
   TileOfferResult,
-  TelemetryStorageError,
+  StorageError,
   BlobStoreService | SqlStoreService | StatusReadModelService
 > =>
   Effect.gen(function* () {
@@ -1051,12 +1045,10 @@ export const offerTilesWithOutcome = (
           // release below must see every commit so none misses projection repair or artifacts.
           // Once any offer has failed, offers still queued do not start; offers already in
           // flight finish so the batch keeps the previous fail-fast shape without losing commits.
-          let firstFailure: TelemetryStorageError | undefined
+          let firstFailure: StorageError | undefined
           const settled = yield* Effect.forEach(
             offers,
-            (
-              offer,
-            ): Effect.Effect<Result.Result<OfferTileOutcome | 'cached', TelemetryStorageError>> => {
+            (offer): Effect.Effect<Result.Result<OfferTileOutcome | 'cached', StorageError>> => {
               if (firstFailure !== undefined) return Effect.succeed(Result.fail(firstFailure))
               if (cached.has(offer.key)) return Effect.succeed(Result.succeed('cached' as const))
               const coverageToken = coverageTokens.get(
@@ -1143,7 +1135,7 @@ export const uploadTile = (
   } = {},
 ): Effect.Effect<
   StatusProjectionChange | null,
-  TelemetryStorageError | TelemetryValidationError,
+  StorageError | ValidationError,
   BlobStoreService | SqlStoreService | StatusReadModelService
 > =>
   Effect.gen(function* () {
@@ -1162,7 +1154,7 @@ export const recordPaint = (
   includeUnpublished: boolean,
 ): Effect.Effect<
   'duplicate' | 'partial' | 'recorded',
-  TelemetryStorageError,
+  StorageError,
   BlobStoreService | CounterStoreService | SqlStoreService | StatusReadModelService
 > =>
   Effect.gen(function* () {

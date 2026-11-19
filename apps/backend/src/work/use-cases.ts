@@ -14,19 +14,15 @@ import type { Caller } from '../auth/middleware.js'
 import type { SqlStore } from '../ports/index.js'
 import { SqlStoreService, StatusReadModelService } from '../runtime/backend-runtime.js'
 import {
-  BackendStorageError,
   ForbiddenError,
-  RequestValidationError,
-  ResourceNotFoundError,
+  NotFoundError,
+  StorageError,
+  storage,
+  ValidationError,
 } from '../runtime/errors.js'
 import { publishManifestChange } from '../status-read-model/port.js'
 
-const storage = <A>(run: () => Promise<A>) =>
-  Effect.tryPromise({
-    try: run,
-    catch: (cause) => new BackendStorageError({ operation: 'coordination', cause }),
-  })
-const invalid = (message: string) => Effect.fail(new RequestValidationError({ message }))
+const invalid = (message: string) => Effect.fail(new ValidationError({ message }))
 
 const activityAction = (action: WorkMutation['action']): WorkAction => {
   switch (action) {
@@ -49,7 +45,7 @@ const activityAction = (action: WorkMutation['action']): WorkAction => {
  * still describe it.
  */
 const visibleWork = (sql: SqlStore, season: number, surface: TemplateSurface) =>
-  storage(async () => {
+  storage('coordination', async () => {
     const published = new Set(
       (await sql.listManifestTemplates({ season, surface }, false)).map((template) => template.id),
     )
@@ -70,7 +66,7 @@ export const listWork = (
     // Read past pages that are entirely hidden rather than ending early or naming a hidden id.
     let cursor = after
     while (true) {
-      const page = yield* storage(() => sql.work.list(season, surface, cursor))
+      const page = yield* storage('coordination', () => sql.work.list(season, surface, cursor))
       const items = page.filter(visible)
       if (page.length < MAX_WORK_ITEMS) return { items, nextCursor: null }
       const last = items.at(-1)
@@ -83,15 +79,15 @@ export const listWork = (
 export const workHistory = (id: string, before: number, includeUnpublished: boolean) =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
-    const item = yield* storage(() => sql.work.read(id))
+    const item = yield* storage('coordination', () => sql.work.read(id))
     const visible = includeUnpublished
       ? () => true
       : item === null
         ? () => false
         : yield* visibleWork(sql, item.season, item.surface)
     if (item === null || !visible(item))
-      return yield* Effect.fail(new ResourceNotFoundError({ message: 'Work item not found' }))
-    const activity = yield* storage(() => sql.work.history(id, before))
+      return yield* Effect.fail(new NotFoundError({ message: 'Work item not found' }))
+    const activity = yield* storage('coordination', () => sql.work.history(id, before))
     return activity.filter((entry) => visible(entry.item))
   })
 
@@ -113,9 +109,9 @@ export const mutateWork = (
       mutation.action === 'assign-template' ||
       mutation.action === 'unassign-template'
     if (caller.scope === 'read' || (planning && caller.scope !== 'admin')) {
-      return yield* Effect.fail(new ForbiddenError({ message: 'forbidden' }))
+      return yield* Effect.fail(new ForbiddenError())
     }
-    const held = yield* storage(() => sql.work.read(id))
+    const held = yield* storage('coordination', () => sql.work.read(id))
     const templateClaim =
       mutation.action === 'claim-template' ||
       mutation.action === 'release-template' ||
@@ -128,10 +124,12 @@ export const mutateWork = (
         ? mutation.claimant
         : mutation.actor
     if (mutation.action !== 'create' && !templateClaim && held === null)
-      return yield* Effect.fail(new ResourceNotFoundError({ message: 'Work item not found' }))
+      return yield* Effect.fail(new NotFoundError({ message: 'Work item not found' }))
     if (held !== null && (held.season !== season || !sameTemplateSurface(held.surface, surface)))
       return yield* invalid('Work belongs to a different drawing scope')
-    const template = templateClaim ? yield* storage(() => sql.readTemplate(id)) : null
+    const template = templateClaim
+      ? yield* storage('coordination', () => sql.readTemplate(id))
+      : null
     if (templateClaim) {
       if (
         template === null ||
@@ -173,13 +171,13 @@ export const mutateWork = (
     if (fields == null) return yield* invalid('Work fields are required')
     if (fields.blockerIds.includes(id)) return yield* invalid('Work cannot block itself')
     if (fields.nodeId !== null && fields.nodeId !== held?.nodeId) {
-      const node = yield* storage(() => sql.readNode(fields.nodeId as string))
+      const node = yield* storage('coordination', () => sql.readNode(fields.nodeId as string))
       if (node === null || node.season !== season || !sameTemplateSurface(node.surface, surface))
         return yield* invalid('Folder is missing or belongs to a different drawing scope')
     }
     for (const templateId of fields.templateIds) {
       if (held?.templateIds.includes(templateId)) continue
-      const template = yield* storage(() => sql.readTemplate(templateId))
+      const template = yield* storage('coordination', () => sql.readTemplate(templateId))
       if (
         template === null ||
         template.season !== season ||
@@ -190,7 +188,7 @@ export const mutateWork = (
         return yield* invalid('Publish the template before linking shared work')
     }
     for (const blockerId of fields.blockerIds) {
-      const blocker = yield* storage(() => sql.work.read(blockerId))
+      const blocker = yield* storage('coordination', () => sql.work.read(blockerId))
       if (
         blocker === null ||
         blocker.season !== season ||
@@ -219,7 +217,7 @@ export const mutateWork = (
     }
     if (mutation.action === 'release') {
       if (claimant?.wplaceUserId !== mutation.actor.wplaceUserId)
-        return yield* Effect.fail(new ForbiddenError({ message: 'forbidden' }))
+        return yield* Effect.fail(new ForbiddenError())
       claimant = null
     }
     if (mutation.action === 'assign') claimant = mutation.claimant ?? null
@@ -242,7 +240,7 @@ export const mutateWork = (
       createdAt: held?.createdAt ?? now,
       updatedAt: Math.max(held?.updatedAt ?? now, now),
     }
-    const saved = yield* storage(() =>
+    const saved = yield* storage('coordination', () =>
       sql.work.save(
         item,
         mutation.expectedRevision,
@@ -256,6 +254,10 @@ export const mutateWork = (
       ),
     )
     // A write that lost its revision race changed nothing; the write that won publishes its own.
-    if (saved) yield* storage(() => publishManifestChange(live, season, surface, false))
-    return { conflict: !saved, item: saved ? item : yield* storage(() => sql.work.read(id)) }
+    if (saved)
+      yield* storage('coordination', () => publishManifestChange(live, season, surface, false))
+    return {
+      conflict: !saved,
+      item: saved ? item : yield* storage('coordination', () => sql.work.read(id)),
+    }
   })

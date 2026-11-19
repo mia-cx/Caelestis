@@ -23,7 +23,7 @@ import {
   SqlStoreService,
   StatusReadModelService,
 } from '../runtime/backend-runtime.js'
-import { BackendStorageError, SqlStoreReadError } from '../runtime/errors.js'
+import { type StorageError, storage } from '../runtime/errors.js'
 import { runBackendHttp } from '../runtime/hono.js'
 import { mergeServerInfo, serverAssetInfo } from '../server-info.js'
 import { publishManifestChange } from '../status-read-model/port.js'
@@ -34,10 +34,7 @@ const assetKind = (kind: string): ServerAssetKind | null =>
 
 const readServerSettings = Effect.gen(function* () {
   const sql = yield* SqlStoreService
-  return yield* Effect.tryPromise({
-    try: () => sql.readServerSettings(),
-    catch: (cause) => new SqlStoreReadError({ operation: 'readServerSettings', cause }),
-  })
+  return yield* storage('readServerSettings', () => sql.readServerSettings())
 })
 
 /**
@@ -49,7 +46,7 @@ const readServerSettings = Effect.gen(function* () {
  */
 export const resolveServerInfoEffect = (
   base: ServerInfo,
-): Effect.Effect<ServerInfo, SqlStoreReadError, SqlStoreService> =>
+): Effect.Effect<ServerInfo, StorageError, SqlStoreService> =>
   Effect.gen(function* () {
     const settings = yield* readServerSettings
     return mergeServerInfo(base, settings)
@@ -58,13 +55,10 @@ export const resolveServerInfoEffect = (
 /** Persist a partial operator override without changing omitted fields. */
 export const writeServerSettings = (
   settings: Parameters<SqlStore['writeServerSettings']>[0],
-): Effect.Effect<void, BackendStorageError, SqlStoreService> =>
+): Effect.Effect<void, StorageError, SqlStoreService> =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
-    yield* Effect.tryPromise({
-      try: () => sql.writeServerSettings(settings),
-      catch: (cause) => new BackendStorageError({ operation: 'writeServerSettings', cause }),
-    })
+    yield* storage('writeServerSettings', () => sql.writeServerSettings(settings))
   })
 
 /**
@@ -84,19 +78,13 @@ const replaceServerAsset = (
   Effect.gen(function* () {
     const blobs = yield* BlobStoreService
     const deleteBlob = (key: string) =>
-      Effect.tryPromise({
-        try: () => blobs.delete('branding', [key]),
-        catch: (cause) => new BackendStorageError({ operation: 'deleteServerAsset', cause }),
-      })
+      storage('deleteServerAsset', () => blobs.delete('branding', [key]))
     const previous = (yield* readServerSettings)[kind]
     // Re-uploading identical bytes overwrites the object the settings already reference; that one
     // must survive a failed write.
     const storedFresh = record !== null && bytes !== null && previous?.blobKey !== record.blobKey
     if (record !== null && bytes !== null) {
-      yield* Effect.tryPromise({
-        try: () => blobs.put('branding', record.blobKey, bytes),
-        catch: (cause) => new BackendStorageError({ operation: 'putServerAsset', cause }),
-      })
+      yield* storage('putServerAsset', () => blobs.put('branding', record.blobKey, bytes))
     }
     yield* writeServerSettingsAndPublish({ [kind]: record }, season).pipe(
       Effect.tapError(() =>
@@ -117,7 +105,7 @@ const replaceServerAsset = (
 const writeServerSettingsAndPublish = (
   settings: Parameters<typeof writeServerSettings>[0],
   season: number,
-): Effect.Effect<void, BackendStorageError, SqlStoreService | StatusReadModelService> =>
+): Effect.Effect<void, StorageError, SqlStoreService | StatusReadModelService> =>
   Effect.gen(function* () {
     yield* writeServerSettings(settings)
     const statusReadModel = yield* StatusReadModelService
@@ -140,10 +128,7 @@ export const createServerRoutes = (runtime: BackendRuntime, base: ServerInfo) =>
         const record = (yield* readServerSettings)[kind]
         if (record === null) return null
         const blobs = yield* BlobStoreService
-        const bytes = yield* Effect.tryPromise({
-          try: () => blobs.get('branding', record.blobKey),
-          catch: (cause) => new BackendStorageError({ operation: 'getServerAsset', cause }),
-        })
+        const bytes = yield* storage('getServerAsset', () => blobs.get('branding', record.blobKey))
         return bytes === null ? null : { bytes, ...serverAssetInfo(record) }
       }),
       (asset) => {

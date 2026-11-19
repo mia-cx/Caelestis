@@ -3,35 +3,11 @@ import type { Context } from 'hono'
 import type { BackendRuntime, BackendServices } from './backend-runtime.js'
 import type { BackendHttpError } from './errors.js'
 
+/** Answer a typed failure with its status. Storage causes are logged and never sent. */
 const mapBackendHttpError = (context: Context, error: BackendHttpError): Response => {
-  switch (error._tag) {
-    case 'SqlStoreReadError':
-    case 'TelemetryStorageError':
-    case 'BackendStorageError':
-      // Hono's default error handler logged the rejected store call before returning this response.
-      // Keep that signal while the failure moves into Effect's typed channel.
-      console.error(error.cause)
-      return context.text('Internal Server Error', 500)
-    case 'TelemetryValidationError':
-    case 'RequestValidationError':
-      return context.json({ error: error.message }, 400)
-    case 'ResourceNotFoundError':
-      return context.json({ error: error.message }, 404)
-    case 'ResourceConflictError':
-      return context.json({ error: error.message }, 409)
-    case 'ResourceGoneError':
-      return context.json({ error: error.message }, 410)
-    case 'PreconditionRequiredError':
-      return context.json({ error: error.message }, 428)
-    case 'UnauthorizedError':
-      return context.json({ error: 'unauthorized' }, 401)
-    case 'ForbiddenError':
-      return context.json({ error: 'forbidden' }, 403)
-    default: {
-      const exhaustive: never = error
-      return exhaustive
-    }
-  }
+  if (error._tag !== 'StorageError') return context.json({ error: error.message }, error.status)
+  console.error(error.cause)
+  return context.text('Internal Server Error', error.status)
 }
 
 /** Run one Effect use case at the Hono boundary while leaving defects to Hono's error handler. */

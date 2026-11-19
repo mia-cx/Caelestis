@@ -16,19 +16,14 @@ import { MAX_READ_BUCKETS_TEMPLATE_IDS, type SqlStore } from '../ports/index.js'
 import { presenceRectWithinSurface } from '../presence/geometry.js'
 import { PresenceService, SqlStoreService } from '../runtime/backend-runtime.js'
 import {
-  BackendStorageError,
+  ConflictError,
   ForbiddenError,
-  RequestValidationError,
-  ResourceConflictError,
-  ResourceGoneError,
-  ResourceNotFoundError,
+  GoneError,
+  NotFoundError,
+  StorageError,
+  storage,
+  ValidationError,
 } from '../runtime/errors.js'
-
-const storage = <A>(run: () => Promise<A>) =>
-  Effect.tryPromise({
-    try: run,
-    catch: (cause) => new BackendStorageError({ operation: 'regions', cause }),
-  })
 
 /**
  * Clear template hints that name a template the public manifest does not carry. Every reader,
@@ -60,11 +55,11 @@ export const listRegions = (
 ) =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
-    const regions = (yield* storage(async () =>
+    const regions = (yield* storage('regions', async () =>
       withPublishedHints(sql, await sql.regions.listRegions(season, surface, templateId)),
     )).filter((region) => templateId === undefined || region.templateId === templateId)
     if (owner === undefined) return { regions }
-    const owners = yield* storage(() => sql.regions.regionOwners(season, surface))
+    const owners = yield* storage('regions', () => sql.regions.regionOwners(season, surface))
     const ownedRegionIds = owners
       .filter(
         ({ tokenHash, actorId }) =>
@@ -83,31 +78,28 @@ export const putRegion = (
   caller: Caller,
 ) =>
   Effect.gen(function* () {
-    if (caller.scope === 'read')
-      return yield* Effect.fail(new ForbiddenError({ message: 'forbidden' }))
+    if (caller.scope === 'read') return yield* Effect.fail(new ForbiddenError())
     const sql = yield* SqlStoreService
     const live = yield* PresenceService
     if (!isRegionDocument(request.document))
-      return yield* Effect.fail(new RequestValidationError({ message: 'Invalid region document' }))
+      return yield* Effect.fail(new ValidationError({ message: 'Invalid region document' }))
     const rect = regionDocumentBounds(request.document)
     if (rect === null)
       return yield* Effect.fail(
-        new RequestValidationError({ message: 'Region document must contain an added shape' }),
+        new ValidationError({ message: 'Region document must contain an added shape' }),
       )
     if (!presenceRectWithinSurface(rect, surface))
       return yield* Effect.fail(
-        new RequestValidationError({ message: 'Region is outside the drawing surface' }),
+        new ValidationError({ message: 'Region is outside the drawing surface' }),
       )
     if (rect.w * rect.h > MAX_PRESENCE_REGION_PIXELS)
-      return yield* Effect.fail(
-        new RequestValidationError({ message: 'Region area exceeds limit' }),
-      )
+      return yield* Effect.fail(new ValidationError({ message: 'Region area exceeds limit' }))
     const pixels = regionDocumentPixels(request.document)
     if (pixels === null || pixels.count === 0)
-      return yield* Effect.fail(new RequestValidationError({ message: 'Region claims no pixels' }))
+      return yield* Effect.fail(new ValidationError({ message: 'Region claims no pixels' }))
     const templateId = request.templateId ?? null
     if (typeof templateId === 'string') {
-      const template = yield* storage(() => sql.readTemplate(templateId))
+      const template = yield* storage('regions', () => sql.readTemplate(templateId))
       // One message for all three, so the answer never says that a draft exists.
       if (
         template === null ||
@@ -116,12 +108,12 @@ export const putRegion = (
         !sameTemplateSurface(template.surface, surface)
       )
         return yield* Effect.fail(
-          new RequestValidationError({
+          new ValidationError({
             message: 'Template is missing, unpublished, or belongs to another drawing surface',
           }),
         )
     }
-    let region = yield* storage(() => sql.regions.readRegion(id))
+    let region = yield* storage('regions', () => sql.regions.readRegion(id))
     let inserted = false
     if (region === null) {
       const created: RegionClaim = {
@@ -136,20 +128,20 @@ export const putRegion = (
         createdAt: Date.now(),
         expiresAt: Date.now() + REGION_CLAIM_TTL_MS,
       }
-      inserted = yield* storage(() => sql.regions.createRegion(created, caller.tokenHash))
-      region = inserted ? created : yield* storage(() => sql.regions.readRegion(id))
+      inserted = yield* storage('regions', () =>
+        sql.regions.createRegion(created, caller.tokenHash),
+      )
+      region = inserted ? created : yield* storage('regions', () => sql.regions.readRegion(id))
     }
     if (region === null) {
-      if (yield* storage(() => sql.regions.isRegionDeleted(id)))
-        return yield* Effect.fail(new ResourceGoneError({ message: 'Region was deleted' }))
-      return yield* Effect.fail(
-        new ResourceConflictError({ message: 'Region changed during save' }),
-      )
+      if (yield* storage('regions', () => sql.regions.isRegionDeleted(id)))
+        return yield* Effect.fail(new GoneError({ message: 'Region was deleted' }))
+      return yield* Effect.fail(new ConflictError({ message: 'Region changed during save' }))
     }
     if (region.season !== season || !sameTemplateSurface(region.surface, surface))
-      return yield* Effect.fail(new ResourceConflictError({ message: 'Region is already claimed' }))
+      return yield* Effect.fail(new ConflictError({ message: 'Region is already claimed' }))
     if (!inserted)
-      region = yield* storage(() =>
+      region = yield* storage('regions', () =>
         sql.regions.updateRegion(id, request.document, request.label, templateId, {
           tokenHash: caller.tokenHash,
           actorId: request.actor.wplaceUserId,
@@ -157,11 +149,11 @@ export const putRegion = (
         }),
       )
     if (region === null) {
-      if (yield* storage(() => sql.regions.isRegionDeleted(id)))
-        return yield* Effect.fail(new ResourceGoneError({ message: 'Region was deleted' }))
-      return yield* Effect.fail(new ForbiddenError({ message: 'forbidden' }))
+      if (yield* storage('regions', () => sql.regions.isRegionDeleted(id)))
+        return yield* Effect.fail(new GoneError({ message: 'Region was deleted' }))
+      return yield* Effect.fail(new ForbiddenError())
     }
-    yield* storage(() => live.publishRegions(season, surface))
+    yield* storage('regions', () => live.publishRegions(season, surface))
     return region
   })
 
@@ -173,14 +165,13 @@ export const deleteRegion = (
   withdraw = false,
 ) =>
   Effect.gen(function* () {
-    if (caller.scope === 'read')
-      return yield* Effect.fail(new ForbiddenError({ message: 'forbidden' }))
+    if (caller.scope === 'read') return yield* Effect.fail(new ForbiddenError())
     const sql = yield* SqlStoreService
     const live = yield* PresenceService
-    const region = yield* storage(() => sql.regions.readRegion(id))
+    const region = yield* storage('regions', () => sql.regions.readRegion(id))
     if (region === null)
-      return yield* Effect.fail(new ResourceNotFoundError({ message: 'Region not found' }))
-    const deleted = yield* storage(() =>
+      return yield* Effect.fail(new NotFoundError({ message: 'Region not found' }))
+    const deleted = yield* storage('regions', () =>
       sql.regions.deleteRegion(
         id,
         {
@@ -191,7 +182,7 @@ export const deleteRegion = (
         withdraw,
       ),
     )
-    if (!deleted) return yield* Effect.fail(new ForbiddenError({ message: 'forbidden' }))
-    yield* storage(() => live.publishRegions(region.season, region.surface))
+    if (!deleted) return yield* Effect.fail(new ForbiddenError())
+    yield* storage('regions', () => live.publishRegions(region.season, region.surface))
     return { ok: true }
   })

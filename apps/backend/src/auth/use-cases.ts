@@ -3,15 +3,9 @@ import { millis } from '@caelestis/shared'
 import { Effect } from 'effect'
 import type { AccessToken, AccessTokenQuery } from '../ports/index.js'
 import { SqlStoreService, StatusReadModelService } from '../runtime/backend-runtime.js'
-import { BackendStorageError } from '../runtime/errors.js'
+import { type StorageError, storage } from '../runtime/errors.js'
 import { closeLiveCredential } from '../status-read-model/port.js'
 import { hashToken, mintToken } from './tokens.js'
-
-const storage = <A>(operation: string, run: () => Promise<A>) =>
-  Effect.tryPromise({
-    try: run,
-    catch: (cause) => new BackendStorageError({ operation, cause }),
-  })
 
 export const mintAccessToken = (input: {
   readonly label: string
@@ -19,7 +13,7 @@ export const mintAccessToken = (input: {
   readonly createdWithToken: string
 }): Effect.Effect<
   { readonly token: string; readonly record: AccessToken },
-  BackendStorageError,
+  StorageError,
   SqlStoreService
 > =>
   Effect.gen(function* () {
@@ -39,7 +33,7 @@ export const mintAccessToken = (input: {
 
 export const listAccessTokens = (
   query: AccessTokenQuery,
-): Effect.Effect<readonly AccessToken[], BackendStorageError, SqlStoreService> =>
+): Effect.Effect<readonly AccessToken[], StorageError, SqlStoreService> =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
     return yield* storage('listAccessTokens', () => sql.listAccessTokens(query))
@@ -47,7 +41,7 @@ export const listAccessTokens = (
 
 export const revokeAccessToken = (
   tokenHash: string,
-): Effect.Effect<void, BackendStorageError, SqlStoreService> =>
+): Effect.Effect<void, StorageError, SqlStoreService> =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
     yield* storage('revokeAccessToken', () => sql.revokeAccessToken(tokenHash))
@@ -56,7 +50,7 @@ export const revokeAccessToken = (
 export const revokeAccessTokenAndLiveSessions = (
   tokenHash: string,
   season: number,
-): Effect.Effect<void, BackendStorageError, SqlStoreService | StatusReadModelService> =>
+): Effect.Effect<void, StorageError, SqlStoreService | StatusReadModelService> =>
   Effect.gen(function* () {
     yield* revokeAccessToken(tokenHash)
     const statusReadModel = yield* StatusReadModelService

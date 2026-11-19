@@ -3,7 +3,7 @@ import { Effect } from 'effect'
 import type { MiddlewareHandler } from 'hono'
 import type { AccessToken } from '../ports/index.js'
 import { type BackendRuntime, SqlStoreService } from '../runtime/backend-runtime.js'
-import { BackendStorageError, ForbiddenError, UnauthorizedError } from '../runtime/errors.js'
+import { ForbiddenError, type StorageError, storage, UnauthorizedError } from '../runtime/errors.js'
 import { runBackendMiddleware } from '../runtime/hono.js'
 import { hashToken } from './tokens.js'
 
@@ -112,18 +112,14 @@ export const authenticateRequest = (
   authorization: string | undefined,
   config: AuthOptions,
   required: Scope,
-): Effect.Effect<
-  Caller,
-  UnauthorizedError | ForbiddenError | BackendStorageError,
-  SqlStoreService
-> =>
+): Effect.Effect<Caller, UnauthorizedError | ForbiddenError | StorageError, SqlStoreService> =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
     const presented = bearerToken(authorization)
     const anonymousRead = required === 'read' && config.openAccess === true
     if (presented === null) {
       if (!anonymousRead) {
-        return yield* Effect.fail(new UnauthorizedError({ message: 'unauthorized' }))
+        return yield* Effect.fail(new UnauthorizedError())
       }
       return { scope: 'read', token: null, tokenHash: OPEN_ACCESS_HASH }
     }
@@ -133,26 +129,17 @@ export const authenticateRequest = (
       config.bootstrapAdminToken.length > 0 &&
       equalsConstantTime(presented, config.bootstrapAdminToken)
     ) {
-      const tokenHash = yield* Effect.tryPromise({
-        try: () => hashToken(presented),
-        catch: (cause) => new BackendStorageError({ operation: 'hashToken', cause }),
-      })
+      const tokenHash = yield* storage('hashToken', () => hashToken(presented))
       return { scope: 'admin', token: null, tokenHash }
     }
 
-    const tokenHash = yield* Effect.tryPromise({
-      try: () => hashToken(presented),
-      catch: (cause) => new BackendStorageError({ operation: 'hashToken', cause }),
-    })
-    const token = yield* Effect.tryPromise({
-      try: () => sql.readAccessToken(tokenHash),
-      catch: (cause) => new BackendStorageError({ operation: 'readAccessToken', cause }),
-    })
+    const tokenHash = yield* storage('hashToken', () => hashToken(presented))
+    const token = yield* storage('readAccessToken', () => sql.readAccessToken(tokenHash))
     if (token === null) {
-      return yield* Effect.fail(new UnauthorizedError({ message: 'unauthorized' }))
+      return yield* Effect.fail(new UnauthorizedError())
     }
     if (!satisfiesScope(token.scope, required)) {
-      return yield* Effect.fail(new ForbiddenError({ message: 'forbidden' }))
+      return yield* Effect.fail(new ForbiddenError())
     }
     return { scope: token.scope, token, tokenHash: token.tokenHash }
   })

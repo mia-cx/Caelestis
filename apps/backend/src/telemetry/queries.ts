@@ -26,8 +26,7 @@ import { readManifestProjection } from '../manifest/use-cases.js'
 import { recordCacheOutcome } from '../metrics/request-metrics.js'
 import { LADDER_RESOLUTIONS, type SqlStore, TILE_HISTORY_RESOLUTIONS } from '../ports/index.js'
 import { SqlStoreService, StatusReadModelService } from '../runtime/backend-runtime.js'
-import type { BackendStorageError } from '../runtime/errors.js'
-import { SqlStoreReadError } from '../runtime/errors.js'
+import { StorageError } from '../runtime/errors.js'
 
 interface HistoryTier {
   readonly resolution: number
@@ -179,13 +178,13 @@ const mergeTileHistory = (
 const sqlRead = <A>(operation: string, read: () => Promise<A>) =>
   Effect.tryPromise({
     try: read,
-    catch: (cause) => new SqlStoreReadError({ operation, cause }),
+    catch: (cause) => new StorageError({ operation, cause }),
   })
 
 export const readAlarms = (
   season: number,
   includeUnpublished: boolean,
-): Effect.Effect<AlarmsResponse, SqlStoreReadError, SqlStoreService> =>
+): Effect.Effect<AlarmsResponse, StorageError, SqlStoreService> =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
     const alarms = yield* sqlRead('readActiveAlarms', () =>
@@ -207,7 +206,7 @@ export const readStatus = (
   season: number,
   includeUnpublished: boolean,
   cacheable: boolean,
-): Effect.Effect<StatusRead, SqlStoreReadError, SqlStoreService | StatusReadModelService> =>
+): Effect.Effect<StatusRead, StorageError, SqlStoreService | StatusReadModelService> =>
   Effect.gen(function* () {
     if (!cacheable) {
       const sql = yield* SqlStoreService
@@ -231,7 +230,7 @@ export const readHistory = (input: {
   readonly legacyResolution?: number | undefined
   readonly maxResolution?: number | undefined
   readonly includeUnpublished: boolean
-}): Effect.Effect<HistoryResponse, SqlStoreReadError, SqlStoreService> =>
+}): Effect.Effect<HistoryResponse, StorageError, SqlStoreService> =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
     const maxResolution = input.maxResolution
@@ -343,7 +342,7 @@ export const readPainterHistory = (input: {
   readonly range: HistoryRange
   readonly maxResolution?: number | undefined
   readonly includeUnpublished: boolean
-}): Effect.Effect<PainterHistoryResponse, SqlStoreReadError, SqlStoreService> =>
+}): Effect.Effect<PainterHistoryResponse, StorageError, SqlStoreService> =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
     const maxResolution = input.maxResolution
@@ -404,7 +403,7 @@ export const readPainterTotals = (input: {
   readonly range: HistoryRange
   readonly limit: number
   readonly includeUnpublished: boolean
-}): Effect.Effect<PainterTotalsResponse, SqlStoreReadError, SqlStoreService> =>
+}): Effect.Effect<PainterTotalsResponse, StorageError, SqlStoreService> =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
     const visibleIds = input.includeUnpublished
@@ -436,7 +435,7 @@ export const readContributions = (input: {
   readonly templateIds: readonly string[]
   readonly range: HistoryRange
   readonly includeUnpublished: boolean
-}): Effect.Effect<ContributionsResponse, SqlStoreReadError, SqlStoreService> =>
+}): Effect.Effect<ContributionsResponse, StorageError, SqlStoreService> =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
     // The store already reduces reporter rows per painter-day. Returning those rows directly avoids
@@ -458,7 +457,7 @@ export const readLeaderboard = (input: {
   readonly to?: Seconds | undefined
   readonly limit: number
   readonly includeUnpublished: boolean
-}): Effect.Effect<LeaderboardResponse, SqlStoreReadError, SqlStoreService> =>
+}): Effect.Effect<LeaderboardResponse, StorageError, SqlStoreService> =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
     // MAX-then-SUM: the store reduces each painter-day across reporters before it sums days.
@@ -493,7 +492,7 @@ const publishedCanvasTiles = async (sql: SqlStore, season: number): Promise<Set<
 export const readCanvas = (
   season: number,
   includeUnpublished: boolean,
-): Effect.Effect<CanvasTilesResponse, SqlStoreReadError, SqlStoreService> =>
+): Effect.Effect<CanvasTilesResponse, StorageError, SqlStoreService> =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
     const [latest, visible] = yield* sqlRead('listLatestTiles', () =>
@@ -544,11 +543,7 @@ const currentSeasonTileVisible = (
   server: ServerInfo,
   season: number,
   tile: TileKey,
-): Effect.Effect<
-  boolean,
-  SqlStoreReadError | BackendStorageError,
-  SqlStoreService | StatusReadModelService
-> =>
+): Effect.Effect<boolean, StorageError | StorageError, SqlStoreService | StatusReadModelService> =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
     const held = currentSeasonTiles?.season === season ? currentSeasonTiles : null
@@ -607,7 +602,7 @@ export const readTileHistory = (input: {
   readonly server?: ServerInfo | undefined
 }): Effect.Effect<
   TileHistoryResponse,
-  SqlStoreReadError | BackendStorageError,
+  StorageError | StorageError,
   SqlStoreService | StatusReadModelService
 > =>
   Effect.gen(function* () {

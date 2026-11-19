@@ -1,72 +1,66 @@
-import { Data } from 'effect'
+import { Data, Effect } from 'effect'
 
-/** A rejected SQL read that the HTTP edge must not expose to callers. */
-export class SqlStoreReadError extends Data.TaggedError('SqlStoreReadError')<{
+/**
+ * A store or other dependency rejected an otherwise valid operation. The HTTP edge logs the cause
+ * and answers a bare 500, so internals never reach the caller.
+ */
+export class StorageError extends Data.TaggedError('StorageError')<{
   readonly operation: string
   readonly cause: unknown
-}> {}
+}> {
+  readonly status = 500
+}
 
-/** A telemetry dependency rejected an otherwise valid operation. */
-export class TelemetryStorageError extends Data.TaggedError('TelemetryStorageError')<{
-  readonly operation: string
-  readonly cause: unknown
-}> {}
+/** Run one dependency call, turning a rejection into a `StorageError` that names the operation. */
+export const storage = <A>(
+  operation: string,
+  run: () => Promise<A>,
+): Effect.Effect<A, StorageError> =>
+  Effect.tryPromise({ try: run, catch: (cause) => new StorageError({ operation, cause }) })
 
-/** Telemetry input passed HTTP parsing but failed domain validation. */
-export class TelemetryValidationError extends Data.TaggedError('TelemetryValidationError')<{
+export class ValidationError extends Data.TaggedError('ValidationError')<{
   readonly message: string
-}> {}
+}> {
+  readonly status = 400
+}
 
-/** A non-telemetry dependency rejected an otherwise valid backend operation. */
-export class BackendStorageError extends Data.TaggedError('BackendStorageError')<{
-  readonly operation: string
-  readonly cause: unknown
-}> {}
-
-/** Parsed input failed a migrated use case's domain validation. */
-export class RequestValidationError extends Data.TaggedError('RequestValidationError')<{
+export class NotFoundError extends Data.TaggedError('NotFoundError')<{
   readonly message: string
-}> {}
+}> {
+  readonly status = 404
+}
 
-/** A migrated use case could not find the requested resource. */
-export class ResourceNotFoundError extends Data.TaggedError('ResourceNotFoundError')<{
+/** A write lost an optimistic concurrency race. */
+export class ConflictError extends Data.TaggedError('ConflictError')<{
   readonly message: string
-}> {}
-
-/** A migrated write lost an optimistic concurrency race. */
-export class ResourceConflictError extends Data.TaggedError('ResourceConflictError')<{
-  readonly message: string
-}> {}
+}> {
+  readonly status = 409
+}
 
 /** A permanently deleted identity cannot be recreated by a stale writer. */
-export class ResourceGoneError extends Data.TaggedError('ResourceGoneError')<{
+export class GoneError extends Data.TaggedError('GoneError')<{
   readonly message: string
-}> {}
+}> {
+  readonly status = 410
+}
 
-/** A destructive write omitted the revision precondition required to make it safe. */
-export class PreconditionRequiredError extends Data.TaggedError('PreconditionRequiredError')<{
-  readonly message: string
-}> {}
-
-/** Authentication failed without revealing whether a credential exists or was revoked. */
-export class UnauthorizedError extends Data.TaggedError('UnauthorizedError')<{
-  readonly message: 'unauthorized'
-}> {}
+/** Authentication failed. The body never reveals whether a credential exists or was revoked. */
+export class UnauthorizedError extends Data.TaggedError('UnauthorizedError') {
+  readonly status = 401
+  override readonly message = 'unauthorized'
+}
 
 /** The authenticated caller does not hold the required scope. */
-export class ForbiddenError extends Data.TaggedError('ForbiddenError')<{
-  readonly message: 'forbidden'
-}> {}
+export class ForbiddenError extends Data.TaggedError('ForbiddenError') {
+  readonly status = 403
+  override readonly message = 'forbidden'
+}
 
 export type BackendHttpError =
-  | SqlStoreReadError
-  | TelemetryStorageError
-  | TelemetryValidationError
-  | BackendStorageError
-  | RequestValidationError
-  | ResourceNotFoundError
-  | ResourceConflictError
-  | ResourceGoneError
-  | PreconditionRequiredError
+  | StorageError
+  | ValidationError
+  | NotFoundError
+  | ConflictError
+  | GoneError
   | UnauthorizedError
   | ForbiddenError

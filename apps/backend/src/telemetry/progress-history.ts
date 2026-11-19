@@ -8,7 +8,7 @@ import {
 import { Effect } from 'effect'
 import type { MeasuredTileFrame, TemplateVersionRecord } from '../ports/sql-store.js'
 import { BlobStoreService, SqlStoreService } from '../runtime/backend-runtime.js'
-import { SqlStoreReadError, TelemetryStorageError } from '../runtime/errors.js'
+import { StorageError, storage } from '../runtime/errors.js'
 import { readHistoricalTileMeasurement } from './ingest.js'
 import { type HistoryRange, selectTileHistoryResolution } from './queries.js'
 
@@ -25,7 +25,7 @@ export const readProgressHistory = (
   initialAt?: Seconds,
 ): Effect.Effect<
   ProgressHistoryResponse,
-  SqlStoreReadError | TelemetryStorageError,
+  StorageError | StorageError,
   SqlStoreService | BlobStoreService
 > =>
   Effect.gen(function* () {
@@ -33,26 +33,23 @@ export const readProgressHistory = (
     if (version.surface.kind !== 'world')
       return { versionId: version.versionId, resolution, samples: [] }
     const changes = new Map<number, Map<string, MeasuredTileFrame>>()
-    const frames = yield* Effect.tryPromise({
-      try: () =>
-        sql.readTemplateProgressFrames(
-          version.versionId,
-          range.fromSeconds,
-          range.toSeconds,
-          resolution,
-          lifetime,
-        ),
-      catch: (cause) => new SqlStoreReadError({ operation: 'readTemplateProgressFrames', cause }),
-    })
+    const frames = yield* storage('readTemplateProgressFrames', () =>
+      sql.readTemplateProgressFrames(
+        version.versionId,
+        range.fromSeconds,
+        range.toSeconds,
+        resolution,
+        lifetime,
+      ),
+    )
     // Canvas observations survive artwork updates. Reclassify the last known frame on each
     // tile against the new artwork instead of waiting for every tile to be reported again.
     const initial =
       initialAt === undefined
         ? []
-        : yield* Effect.tryPromise({
-            try: () => sql.readTemplateProgressAt(version.versionId, initialAt),
-            catch: (cause) => new SqlStoreReadError({ operation: 'readTemplateProgressAt', cause }),
-          })
+        : yield* storage('readTemplateProgressAt', () =>
+            sql.readTemplateProgressAt(version.versionId, initialAt),
+          )
     const blobs = yield* BlobStoreService
     const chunks = new Map(version.chunks.map((chunk) => [tileOf(chunk.tileX, chunk.tileY), chunk]))
     const classified = new Map<MeasuredTileFrame, MeasuredTileFrame>()
@@ -86,8 +83,7 @@ export const readProgressHistory = (
               wrong: measurement.wrong,
             })
           },
-          catch: (cause) =>
-            new TelemetryStorageError({ operation: 'classifyProgressHistory', cause }),
+          catch: (cause) => new StorageError({ operation: 'classifyProgressHistory', cause }),
         })
       },
       { concurrency: CLASSIFY_CONCURRENCY, discard: true },
@@ -142,16 +138,15 @@ export const readTemplateProgressHistory = (
   range: HistoryRange,
 ): Effect.Effect<
   TemplateProgressHistoryResponse,
-  SqlStoreReadError | TelemetryStorageError,
+  StorageError | StorageError,
   SqlStoreService | BlobStoreService
 > =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
     const resolution = selectTileHistoryResolution(range)
-    const versions = yield* Effect.tryPromise({
-      try: () => sql.listTemplateVersions(templateId),
-      catch: (cause) => new SqlStoreReadError({ operation: 'listTemplateVersions', cause }),
-    })
+    const versions = yield* storage('listTemplateVersions', () =>
+      sql.listTemplateVersions(templateId),
+    )
     const samples: ProgressSample[] = []
     for (const [index, revision] of versions.entries()) {
       const start = Math.max(range.fromSeconds, Math.floor(revision.createdAt / 1_000))
@@ -167,10 +162,9 @@ export const readTemplateProgressHistory = (
         next === undefined ? Infinity : Math.floor(next.createdAt / 1_000),
       )
       if (start >= end) continue
-      const version = yield* Effect.tryPromise({
-        try: () => sql.readTemplateVersion(revision.versionId),
-        catch: (cause) => new SqlStoreReadError({ operation: 'readTemplateVersion', cause }),
-      })
+      const version = yield* storage('readTemplateVersion', () =>
+        sql.readTemplateVersion(revision.versionId),
+      )
       if (version === null || version.surface.kind !== 'world') continue
       const from = resolution === 0 ? start : Math.floor(start / resolution) * resolution
       const history = yield* readProgressHistory(
