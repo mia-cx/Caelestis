@@ -1,4 +1,5 @@
 import { isPackedBits, packBits, unpackBits } from './bitmask.js'
+import { isSafeInteger } from './guards.js'
 import { type PresenceRect, rectIntersection } from './presence.js'
 
 /**
@@ -139,9 +140,6 @@ export interface RegionShapePixels {
   readonly count: number
 }
 
-const int = (value: unknown): value is number =>
-  typeof value === 'number' && Number.isSafeInteger(value)
-
 const coordinate = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= MAX_COORDINATE
 
@@ -152,10 +150,10 @@ const isPoint = (value: unknown): value is Point =>
   coordinate((value as Point).y)
 
 const validBox = (shape: Record<string, unknown>): boolean =>
-  int(shape.x) &&
-  int(shape.y) &&
-  int(shape.w) &&
-  int(shape.h) &&
+  isSafeInteger(shape.x) &&
+  isSafeInteger(shape.y) &&
+  isSafeInteger(shape.w) &&
+  isSafeInteger(shape.h) &&
   shape.x >= 0 &&
   shape.y >= 0 &&
   shape.w >= 1 &&
@@ -164,12 +162,13 @@ const validBox = (shape: Record<string, unknown>): boolean =>
   shape.h <= MAX_REGION_SHAPE_EXTENT
 
 const validRadius = (value: unknown): value is number =>
-  int(value) && value >= 1 && value <= MAX_REGION_SHAPE_EXTENT / 2
+  isSafeInteger(value) && value >= 1 && value <= MAX_REGION_SHAPE_EXTENT / 2
 
-const validRotation = (value: unknown): value is number => int(value) && value >= 0 && value < 360
+const validRotation = (value: unknown): value is number =>
+  isSafeInteger(value) && value >= 0 && value < 360
 
 const validCorners = (value: unknown): value is number =>
-  int(value) && value >= MIN_REGION_SHAPE_CORNERS && value <= MAX_REGION_SHAPE_CORNERS
+  isSafeInteger(value) && value >= MIN_REGION_SHAPE_CORNERS && value <= MAX_REGION_SHAPE_CORNERS
 
 /**
  * A path, handles included, fits a box no wider or taller than a shape may be. Without this a
@@ -217,8 +216,8 @@ export const isRegionShape = (value: unknown): value is RegionShape => {
       )
     case 'polygon':
       return (
-        int(shape.cx) &&
-        int(shape.cy) &&
+        isSafeInteger(shape.cx) &&
+        isSafeInteger(shape.cy) &&
         shape.cx >= 0 &&
         shape.cy >= 0 &&
         validRadius(shape.r) &&
@@ -227,12 +226,12 @@ export const isRegionShape = (value: unknown): value is RegionShape => {
       )
     case 'star':
       return (
-        int(shape.cx) &&
-        int(shape.cy) &&
+        isSafeInteger(shape.cx) &&
+        isSafeInteger(shape.cy) &&
         shape.cx >= 0 &&
         shape.cy >= 0 &&
         validRadius(shape.r) &&
-        int(shape.inner) &&
+        isSafeInteger(shape.inner) &&
         shape.inner >= 1 &&
         shape.inner < Number(shape.r) &&
         validCorners(shape.points) &&

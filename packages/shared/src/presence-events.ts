@@ -1,3 +1,4 @@
+import { isSafeInteger } from './guards.js'
 import {
   isPresenceDraft,
   isPresenceRect,
@@ -21,9 +22,6 @@ const MAX_REGION_ID = 64
 const MAX_TEMPLATE_ID = 128
 const MAX_LABEL = 64
 
-const safeInt = (value: unknown): value is number =>
-  typeof value === 'number' && Number.isSafeInteger(value)
-
 export const isPresencePeer = (value: unknown): value is PresencePeer => {
   if (typeof value !== 'object' || value === null) return false
   const peer = value as PresencePeer
@@ -44,11 +42,11 @@ export const isRegionClaim = (value: unknown): value is RegionClaim => {
   if (typeof value !== 'object' || value === null) return false
   const region = value as RegionClaim
   return (
-    safeInt(region.season) &&
+    isSafeInteger(region.season) &&
     region.season >= 0 &&
     region.surface != null &&
     templateSurface(region.surface.kind, region.surface.allianceId) !== null &&
-    (region.expiresAt === undefined || safeInt(region.expiresAt)) &&
+    (region.expiresAt === undefined || isSafeInteger(region.expiresAt)) &&
     typeof region.id === 'string' &&
     region.id.length <= MAX_REGION_ID &&
     (region.templateId === null ||
@@ -58,7 +56,7 @@ export const isRegionClaim = (value: unknown): value is RegionClaim => {
     isPresenceRect(region.rect) &&
     typeof region.label === 'string' &&
     region.label.length <= MAX_LABEL &&
-    safeInt(region.createdAt)
+    isSafeInteger(region.createdAt)
   )
 }
 
@@ -78,7 +76,7 @@ export const decodePresenceServerEvent = (
     case 'presence-ready':
       if (
         typeof event.sessionId !== 'string' ||
-        !safeInt(event.online) ||
+        !isSafeInteger(event.online) ||
         !Array.isArray(event.peers) ||
         !Array.isArray(event.regions)
       )
@@ -93,7 +91,11 @@ export const decodePresenceServerEvent = (
         canWrite: event.canWrite === true,
       }
     case 'presence-delta':
-      if (!safeInt(event.online) || !Array.isArray(event.upsert) || !Array.isArray(event.remove))
+      if (
+        !isSafeInteger(event.online) ||
+        !Array.isArray(event.upsert) ||
+        !Array.isArray(event.remove)
+      )
         return null
       return {
         type: 'presence-delta',
@@ -109,7 +111,7 @@ export const decodePresenceServerEvent = (
         ownedRegionIds: strings(event.ownedRegionIds),
       }
     case 'claims-renewed':
-      if (!safeInt(event.expiresAt)) return null
+      if (!isSafeInteger(event.expiresAt)) return null
       return { type: 'claims-renewed', expiresAt: event.expiresAt, ids: strings(event.ids) }
     default:
       return 'unknown'
