@@ -54,7 +54,11 @@ In **Colours**, toggle palette swatches to show or hide those colours in the ove
 2. Check the remaining count in the palette. Middle-click a swatch to visit remaining pixels of that colour.
 3. Hold Shift while painting to restrict the brush to unfinished pixels that need that colour. With Shift+Space, the brush waits where it would cross a skipped pixel.
 
+![Wplace's picker used on a template strawberry, with the template's orange selected in the palette.](images/painting/native-colour-pick.png)
+
 After the camera moves, move the mouse to update the paint target before using Space. The countdown above Wplace's paint button shows when your charges will be full.
+
+![Full in 41:39:54 shown above Wplace's Paint button.](images/painting/charge-countdown.png)
 
 The middle-click navigation order is in **Settings → Painting**. It searches the template under the viewport centre, or the nearest template if the centre is empty.
 
