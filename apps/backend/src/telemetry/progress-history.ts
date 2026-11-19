@@ -4,6 +4,7 @@ import {
   type Seconds,
   seconds,
   type TemplateProgressHistoryResponse,
+  tileKey,
 } from '@caelestis/shared'
 import { Effect } from 'effect'
 import type { BlobStore } from '../ports/index.js'
@@ -31,7 +32,6 @@ const readHistoricalTileMeasurement = async (
 
 /** Unmeasured frames classified at once: each holds a decoded 1000×1000 canvas while it runs. */
 const CLASSIFY_CONCURRENCY = 8
-const tileOf = (x: number, y: number): string => `${x}/${y}`
 
 /** Replay retained canvas images, caching missing classifications against their historical artwork. */
 export const readProgressHistory = (
@@ -64,12 +64,14 @@ export const readProgressHistory = (
             sql.readTemplateProgressAt(version.versionId, initialAt),
           )
     const blobs = yield* BlobStoreService
-    const chunks = new Map(version.chunks.map((chunk) => [tileOf(chunk.tileX, chunk.tileY), chunk]))
+    const chunks = new Map(
+      version.chunks.map((chunk) => [tileKey({ x: chunk.tileX, y: chunk.tileY }), chunk]),
+    )
     const classified = new Map<MeasuredTileFrame, MeasuredTileFrame>()
     yield* Effect.forEach(
       [...initial, ...frames],
       (frame) => {
-        const chunk = chunks.get(tileOf(frame.tileX, frame.tileY))
+        const chunk = chunks.get(tileKey({ x: frame.tileX, y: frame.tileY }))
         if (chunk === undefined || (frame.correct !== null && frame.wrong !== null))
           return Effect.void
         const target = {
@@ -106,7 +108,7 @@ export const readProgressHistory = (
       const at = Math.min(frame.bucketStart + resolution, (lifetime?.toSeconds ?? Infinity) - 1)
       if (at >= range.toSeconds) continue
       const entries = changes.get(at) ?? new Map<string, MeasuredTileFrame>()
-      entries.set(tileOf(frame.tileX, frame.tileY), frame)
+      entries.set(tileKey({ x: frame.tileX, y: frame.tileY }), frame)
       changes.set(at, entries)
     }
     // Running totals over the latest frame per tile, so each sample costs only its own changes.
@@ -127,7 +129,7 @@ export const readProgressHistory = (
       if (frame.correct === null || frame.wrong === null) unmeasured++
     }
     for (const frame of initial)
-      hold(tileOf(frame.tileX, frame.tileY), classified.get(frame) ?? frame)
+      hold(tileKey({ x: frame.tileX, y: frame.tileY }), classified.get(frame) ?? frame)
     if (initialAt !== undefined && !changes.has(initialAt)) changes.set(initialAt, new Map())
     const samples: ProgressSample[] = []
     for (const [at, entries] of [...changes].sort(([a], [b]) => a - b)) {
