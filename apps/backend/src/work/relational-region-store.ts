@@ -8,11 +8,11 @@ import {
   type TemplateSurface,
   templateSurface,
 } from '@caelestis/shared'
-import { and, asc, eq, isNotNull, isNull, lte, ne, or, sql } from 'drizzle-orm'
+import { and, asc, eq, getTableColumns, isNotNull, isNull, lte, ne, or, sql } from 'drizzle-orm'
 import { changedRows, relationalDatabase } from '../adapters/relational-database.js'
 import type { SqlConnection } from '../adapters/sql-connection.js'
 import { sqlDialect } from '../adapters/sql-dialect.js'
-import { workRegionDeletions, workRegions } from '../db/schema.js'
+import { templates, workRegionDeletions, workRegions } from '../db/schema.js'
 import type { RegionOwner, RegionRenewal, RegionStore, RegionWriter } from './region-store.js'
 
 const ownedBy = (writer: RegionWriter) =>
@@ -139,8 +139,17 @@ export class RelationalRegionStore implements RegionStore {
     templateId?: string,
   ): Promise<readonly RegionClaim[]> {
     await this.expireRegions(Date.now())
+    const hintPublished = sql`exists (
+      select 1 from ${templates}
+      where ${templates.id} = ${workRegions.templateId} and ${templates.publishedAt} is not null
+    )`
     const rows = await this.db
-      .select()
+      .select({
+        ...getTableColumns(workRegions),
+        templateId: sql<
+          string | null
+        >`case when ${hintPublished} then ${workRegions.templateId} end`,
+      })
       .from(workRegions)
       .where(
         and(
@@ -149,7 +158,9 @@ export class RelationalRegionStore implements RegionStore {
           surface.allianceId === null
             ? isNull(workRegions.allianceId)
             : eq(workRegions.allianceId, surface.allianceId),
-          templateId === undefined ? undefined : eq(workRegions.templateId, templateId),
+          templateId === undefined
+            ? undefined
+            : and(eq(workRegions.templateId, templateId), hintPublished),
           eq(workRegions.state, 'active'),
         ),
       )
