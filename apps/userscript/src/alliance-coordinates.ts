@@ -1,10 +1,16 @@
-import { templateSurfaceBounds } from '@caelestis/shared'
 import type { ActiveAllianceSurface } from './alliance-surface.js'
+import type { Placement } from './geometry.js'
 
-export const allianceBounds = (active: ActiveAllianceSurface) =>
-  active.surface.kind === 'alliance-headquarters'
-    ? active.bounds
-    : templateSurfaceBounds(active.surface)
+/** Where the open artboard sits on its surface's canvas; null while an HQ's bounds are unknown. */
+export const artboardGeometry = ({ bounds }: ActiveAllianceSurface): Placement | null =>
+  bounds === null
+    ? null
+    : {
+        originX: bounds.minX,
+        originY: bounds.minY,
+        width: bounds.maxX - bounds.minX,
+        height: bounds.maxY - bounds.minY,
+      }
 
 /**
  * Convert a pointer in the active transformed frame to its exact alliance canvas coordinate, as
@@ -16,7 +22,7 @@ export const alliancePointAt = (
   clientX: number,
   clientY: number,
 ): { x: number; y: number } | null => {
-  const bounds = allianceBounds(active)
+  const { bounds } = active
   const rect = active.frame.getBoundingClientRect()
   const border = getComputedStyle(active.stage)
   const left = rect.left - (Number.parseFloat(border.borderLeftWidth) || 0)

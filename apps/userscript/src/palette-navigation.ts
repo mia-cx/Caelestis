@@ -5,7 +5,7 @@ import {
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { readActiveArtboard } from './active-artboard.js'
-import { allianceBounds, alliancePointAt } from './alliance-coordinates.js'
+import { alliancePointAt } from './alliance-coordinates.js'
 import { navigateAllianceArtboardTo } from './alliance-navigation.js'
 import { type ActiveAllianceSurface, activeAllianceSurface } from './alliance-surface.js'
 import { warn } from './debug.js'
@@ -143,7 +143,7 @@ export const navigateFocusedColour = async (index: number, cycle = false): Promi
   const surface = template.surface ?? WORLD_TEMPLATE_SURFACE
   if (surface.kind === 'world') return navigateWorld(template, index, cycle)
   const active = editorShowing(surface)
-  return active !== null && allianceBounds(active) !== null
+  return active !== null && active.bounds !== null
     ? navigateArtboard(active, template, index, cycle)
     : false
 }

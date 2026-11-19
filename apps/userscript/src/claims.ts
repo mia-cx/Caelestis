@@ -11,7 +11,7 @@ import {
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import type { ClaimTool } from '@caelestis/ui/elements'
-import { activeAllianceSurface } from './alliance-surface.js'
+import { currentSurface } from './alliance-surface.js'
 import {
   type ClaimEditorHost,
   claimEditorTool,
@@ -50,7 +50,7 @@ const unavailable = (reason: string): ClaimAvailability => ({ ready: false, reas
  */
 export const claimAvailability = (): ClaimAvailability => {
   const view = presenceView()
-  if (activeAllianceSurface() !== null)
+  if (currentSurface().kind !== 'world')
     return unavailable('Claims live on the world canvas. Leave the alliance artboard to claim.')
   if (view.me === null) return unavailable('Sign in to Wplace to claim regions.')
   const servers = presenceServers()

@@ -18,7 +18,7 @@ import type {
   TreeOperationModel,
 } from '@caelestis/ui/elements'
 import { refreshAllianceManifest } from '../alliance-server-sync.js'
-import { activeAllianceSurface, allianceSurfaceCentre } from '../alliance-surface.js'
+import { allianceSurfaceCentre, currentSurface } from '../alliance-surface.js'
 import { startCaptureMode } from '../claim-editor.js'
 import { warn } from '../debug.js'
 import { createLocalFolder, localFolderChainVisible, removeLocalFolder } from '../local-folders.js'
@@ -1728,7 +1728,7 @@ export const captureTemplate = (target: TreeTarget, rerender: () => void): void 
     toast(notice, 'warning')
     return
   }
-  if (activeAllianceSurface() !== null) {
+  if (currentSurface().kind !== 'world') {
     toast('Capture works on the world canvas. Leave the alliance canvas first.', 'warning')
     return
   }

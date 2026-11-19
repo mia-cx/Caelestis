@@ -1,4 +1,5 @@
-import { type TemplateSurface, templateSurfaceBounds } from '@caelestis/shared'
+import type { TemplateSurface } from '@caelestis/shared'
+import { artboardGeometry } from '../alliance-coordinates.js'
 import {
   type ActiveAllianceSurface,
   activeAllianceSurface,
@@ -102,20 +103,6 @@ export const reconcileAllianceControlsForViewport = (
   }
   render()
   return true
-}
-
-export const artboardGeometry = (active: ActiveAllianceSurface): Placement | null => {
-  const bounds =
-    active.surface.kind === 'alliance-headquarters'
-      ? active.bounds
-      : templateSurfaceBounds(active.surface)
-  if (bounds === null) return null
-  return {
-    originX: bounds.minX,
-    originY: bounds.minY,
-    width: bounds.maxX - bounds.minX,
-    height: bounds.maxY - bounds.minY,
-  }
 }
 
 /** Signed HQ placement becomes frame-local only at this final projection boundary. */

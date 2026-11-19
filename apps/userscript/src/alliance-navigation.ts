@@ -1,4 +1,3 @@
-import { allianceBounds } from './alliance-coordinates.js'
 import type { ActiveAllianceSurface } from './alliance-surface.js'
 import { markPaintTargetStale, refreshPaintTarget } from './paint-target-guard.js'
 
@@ -17,7 +16,7 @@ export const navigateAllianceArtboardTo = (
   active: ActiveAllianceSurface,
   target: { readonly x: number; readonly y: number },
 ): boolean => {
-  const bounds = allianceBounds(active)
+  const { bounds } = active
   if (bounds === null) return false
   const stage = active.stage.getBoundingClientRect()
   const frame = active.frame.getBoundingClientRect()

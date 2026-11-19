@@ -4,6 +4,7 @@ import {
   sameTemplateSurface,
   type TemplateSurface,
   templateSurfaceBounds,
+  WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { observePageRequests, type RequestObservation, type RequestRoute } from './page-requests.js'
 import { pageWindow } from './page-world.js'
@@ -26,7 +27,10 @@ export interface ActiveAllianceSurface {
   readonly frame: HTMLElement
   /** Present when the request observer saw Wplace's disposable picture/banner draft id. */
   readonly draftId: number | null
-  /** Signed, half-open HQ bounds when Wplace has supplied them. */
+  /**
+   * The artboard's signed, half-open bounds: an HQ's as Wplace supplied them, null until it has;
+   * a picture's or banner's fixed size.
+   */
   readonly bounds: PixelBounds | null
 }
 
@@ -77,8 +81,11 @@ const nonNegativeInteger = (value: unknown): number | null => {
   return parsed !== null && parsed >= 0 ? parsed : null
 }
 
+/** Every HQ lies within the largest one Wplace allows. */
+const HQ_LIMITS = templateSurfaceBounds({ kind: 'alliance-headquarters', allianceId: 0 })
+
 const parseHqBounds = (value: unknown): PixelBounds | null => {
-  if (!isRecord(value)) return null
+  if (!isRecord(value) || HQ_LIMITS === null) return null
   const minX = integer(value.minX)
   const minY = integer(value.minY)
   const inclusiveMaxX = integer(value.maxX)
@@ -88,10 +95,10 @@ const parseHqBounds = (value: unknown): PixelBounds | null => {
     minY === null ||
     inclusiveMaxX === null ||
     inclusiveMaxY === null ||
-    minX < -1_000 ||
-    minY < -1_000 ||
-    inclusiveMaxX >= 1_000 ||
-    inclusiveMaxY >= 1_000 ||
+    minX < HQ_LIMITS.minX ||
+    minY < HQ_LIMITS.minY ||
+    inclusiveMaxX >= HQ_LIMITS.maxX ||
+    inclusiveMaxY >= HQ_LIMITS.maxY ||
     minX > inclusiveMaxX ||
     minY > inclusiveMaxY
   ) {
@@ -120,12 +127,18 @@ const sameActive = (left: ActiveAllianceSurface | null, right: ActiveAllianceSur
     left.draftId === right.draftId &&
     sameBounds(left.bounds, right.bounds))
 
+const ASSET_KINDS = ['alliance-picture', 'alliance-banner'] as const
+
+/** The asset whose fixed size Wplace's native artboard canvas has, if any. */
 const assetKindFromCanvas = (frame: HTMLElement): AllianceTemplateSurfaceKind | null => {
   for (const child of frame.children) {
     if (child.tagName !== 'CANVAS') continue
     const canvas = child as HTMLCanvasElement
-    if (canvas.width === 64 && canvas.height === 64) return 'alliance-picture'
-    if (canvas.width === 384 && canvas.height === 128) return 'alliance-banner'
+    const kind = ASSET_KINDS.find((candidate) => {
+      const bounds = templateSurfaceBounds({ kind: candidate, allianceId: 0 })
+      return bounds?.maxX === canvas.width && bounds.maxY === canvas.height
+    })
+    if (kind !== undefined) return kind
   }
   return null
 }
@@ -183,12 +196,13 @@ const reconcile = (): void => {
         publish(null)
         return
       }
+      const surface = { kind, allianceId: memberAllianceId }
       publish({
-        surface: { kind, allianceId: memberAllianceId },
+        surface,
         stage: assetStage,
         frame,
         draftId: draft?.kind === kind ? draft.id : null,
-        bounds: null,
+        bounds: templateSurfaceBounds(surface),
       })
       return
     }
@@ -413,7 +427,11 @@ export const installAllianceSurfaceObserver = (): void => {
   queueReconcile()
 }
 
+/** The open alliance editor's artboard, with the DOM it is drawn into; null on the world map. */
 export const activeAllianceSurface = (): ActiveAllianceSurface | null => active
+
+/** The surface the painter is looking at: the open alliance artboard, or else the world map. */
+export const currentSurface = (): TemplateSurface => active?.surface ?? WORLD_TEMPLATE_SURFACE
 
 /**
  * The middle of an alliance surface, where a new template lands: of the open editor's bounds when

@@ -2,7 +2,7 @@ import { TILE_SIZE } from '@caelestis/shared'
 import { registerCaelestisUi } from '@caelestis/ui/elements'
 import { installAlarmNotifications } from './alarms.js'
 import { installAllianceServerSync } from './alliance-server-sync.js'
-import { activeAllianceSurface, installAllianceSurfaceObserver } from './alliance-surface.js'
+import { currentSurface, installAllianceSurfaceObserver } from './alliance-surface.js'
 import { installClaims } from './claims.js'
 import { installDebugApi, loadDebugSetting, warn } from './debug.js'
 import { clearDraftPixels, reconcileDrafts, syncDraftCanvases } from './draft-pixels.js'
@@ -153,7 +153,7 @@ export const installFeatures = (): void => {
   step('overlay layer', attachOverlayLayer)
   step('alliance overlay layer', installAllianceOverlayLayer)
   onMapFrame((frame) => {
-    if (activeAllianceSurface() === null) renderOverlayControls(repaint, frame.canvas)
+    if (currentSurface().kind === 'world') renderOverlayControls(repaint, frame.canvas)
   }, 'Overlay controls')
   step('map view', installMapView)
   onLocalChange(redraw)
@@ -190,7 +190,7 @@ let lastTreeFocusCentre: { readonly x: number; readonly y: number } | null | und
 
 /** The panel's focused row follows the view; on the world map, only when its centre moves. */
 const refreshTreeFocus = (): void => {
-  if (activeAllianceSurface() === null) {
+  if (currentSurface().kind === 'world') {
     const centre = viewportCentre()
     if (
       lastTreeFocusCentre !== undefined &&
@@ -215,7 +215,7 @@ const installPresenceFeatures = (): void => {
   onMapFrame(observePresenceFrame, 'Presence viewport')
   onViewChange(syncStudioFrame, 'Template studio handles')
   onMapFrame((frame) => {
-    if (activeAllianceSurface() === null) renderPresenceLabels(frame, screenProjection())
+    if (currentSurface().kind === 'world') renderPresenceLabels(frame, screenProjection())
   }, 'Presence labels')
 }
 

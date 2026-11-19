@@ -1,6 +1,6 @@
 import { encodeIndexedPng, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { allianceManifestFor, refreshAllianceManifest } from '../alliance-server-sync.js'
-import { activeAllianceSurface } from '../alliance-surface.js'
+import { currentSurface } from '../alliance-surface.js'
 import { startCaptureMode } from '../claim-editor.js'
 import {
   admittedServerContentsFor,
@@ -153,7 +153,7 @@ export const requestTemplateArtworkUpdate = (id: string, rerender: () => void): 
  * confirmation names how many pixels change; declining keeps the selection for another try.
  */
 export const requestTemplateAreaUpdate = (id: string, rerender: () => void): void => {
-  if (activeAllianceSurface() !== null) {
+  if (currentSurface().kind !== 'world') {
     toast('Area updates work on the world canvas. Leave the alliance canvas first.', 'warning')
     return
   }
