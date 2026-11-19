@@ -1,6 +1,6 @@
 import { TILE_SIZE, type TileCoord } from '@caelestis/shared'
 import { count, logRender, warn } from './debug.js'
-import { notifyEach } from './listeners.js'
+import { notifyListeners } from './listeners.js'
 import { type InstalledValueHook, installValueHook } from './page-hooks.js'
 import { observePageRequests, type RequestRoute } from './page-requests.js'
 import { isPageInstance } from './page-world.js'
@@ -127,11 +127,7 @@ const notifyFetchedTile = (tile: TileCoord, bytes: Uint8Array): void => {
   if (listeners.length === 0) return
   const held = bytes.slice()
   const observedAt = Math.floor(Date.now() / 1_000)
-  notifyEach(
-    listeners,
-    (listener) => listener(tile, held, observedAt),
-    'telemetry:tile-listener-failed',
-  )
+  notifyListeners(listeners, 'fetched tile listener failed', tile, held, observedAt)
 }
 
 /**

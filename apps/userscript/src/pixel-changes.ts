@@ -1,6 +1,6 @@
 import { TILE_SIZE, type TileCoord } from '@caelestis/shared'
 import { count } from './debug.js'
-import { notifyEach } from './listeners.js'
+import { notifyListeners } from './listeners.js'
 
 /** Where a change of a world tile's captured pixels came from. */
 export type PixelChangeSource = 'draft' | 'server' | 'accepted' | 'observed'
@@ -38,7 +38,7 @@ export const notifyPixelBatch = (
   if (triples.length === 0) return
   count(`pixels:${source} notification batches`)
   count(`pixels:${source} notified pixels`, triples.length / 3)
-  notifyEach(listeners, (listener) => listener(tile, triples, source), 'pixels:listener-failed')
+  notifyListeners(listeners, 'pixel change listener failed', tile, triples, source)
 }
 
 /**

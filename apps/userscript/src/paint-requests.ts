@@ -1,7 +1,7 @@
 import { isRecord } from '@caelestis/shared'
 import { count } from './debug.js'
 import { flushDraftWrites } from './draft-pixels.js'
-import { notifyEach } from './listeners.js'
+import { notifyListeners } from './listeners.js'
 import { observePageRequests, type RequestRoute } from './page-requests.js'
 import { isPageInstance } from './page-world.js'
 import { nextPixelObservation } from './pixel-observation.js'
@@ -96,11 +96,7 @@ const paintRoute: RequestRoute = (request) => {
   const submission: PaintSubmission = { identity: {} }
   beginSubmission(submission.identity)
   flushDraftWrites()
-  notifyEach(
-    paintSubmissionListeners,
-    (listener) => listener(submission),
-    'paint:submission-listener-failed',
-  )
+  notifyListeners(paintSubmissionListeners, 'paint submission listener failed', submission)
   const body = submitted.json().catch(() => null)
   const finish = (): void => finishSubmission(submission.identity)
   return {
@@ -120,11 +116,7 @@ const paintRoute: RequestRoute = (request) => {
             const paint = observedPaintFrom(sent, reply, submission)
             if (paint === null) return
             retainAcceptedPaint(submission.identity, paint.tiles, paint.painted, accepted)
-            notifyEach(
-              acceptedPaintListeners,
-              (listener) => listener(paint),
-              'telemetry:paint-listener-failed',
-            )
+            notifyListeners(acceptedPaintListeners, 'accepted paint listener failed', paint)
           } finally {
             finish()
           }

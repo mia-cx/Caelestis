@@ -1,5 +1,5 @@
 import { log, warn } from './debug.js'
-import { notifyEach } from './listeners.js'
+import { notifyListeners } from './listeners.js'
 import { pageWindow } from './page-world.js'
 
 /**
@@ -158,7 +158,7 @@ const announceWhenReady = (map: MapLike): void => {
       attached = map
       watchDetach(map)
     }
-    notifyEach(attachListeners, (listener) => listener(map), 'map:attach listener failed')
+    notifyListeners(attachListeners, 'map attach listener failed', map)
   }
   map.on('style.load', announce)
   if (map.style?._loaded === true) announce()

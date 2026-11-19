@@ -1,6 +1,6 @@
 import { parseTileKey, TILE_SIZE, type TileCoord, tileKey, WPLACE_PALETTE } from '@caelestis/shared'
 import { count, log, warn } from './debug.js'
-import { notifyEach } from './listeners.js'
+import { notifyListeners } from './listeners.js'
 import { applyPixels, notifyPixelBatch } from './pixel-changes.js'
 import { nextPixelObservation, recordPixelObservation } from './pixel-observation.js'
 import { measureProfile } from './profile.js'
@@ -274,7 +274,7 @@ const trimTilePixels = (): void => {
     observedTileOrder.delete(key)
     const evicted = parseTileKey(key)
     if (evicted !== null) {
-      for (const listener of tilePixelEvictionListeners) listener(evicted)
+      notifyListeners(tilePixelEvictionListeners, 'tile eviction listener failed', evicted)
     }
     // An evicted tile is fetchable again when it next enters the viewport.
     chased.delete(key)
@@ -289,7 +289,7 @@ const rememberTilePixels = (key: string, pixels: Uint8Array): void => {
   wakeTileLoaders()
   const available = parseTileKey(key)
   if (available !== null) {
-    for (const listener of tilePixelAvailabilityListeners) listener(available)
+    notifyListeners(tilePixelAvailabilityListeners, 'tile availability listener failed', available)
   }
   trimTilePixels()
 }
@@ -324,12 +324,13 @@ const tileLoadListeners = new Set<() => void>()
 /** Wake explicit readers when a URL, captured tile, or fetch slot becomes available. */
 const wakeTileLoaders = (): void => {
   for (const resolve of tileLoadWaiters) resolve()
-  notifyEach(tileLoadListeners, (listener) => listener(), 'pixels:load listener failed')
+  notifyListeners(tileLoadListeners, 'tile load listener failed')
 }
 
 /** Observe when a refused or deferred tile read may now succeed: a URL, tile or fetch slot freed. */
-export const onTileLoadsChange = (listener: () => void): void => {
+export const onTileLoadsChange = (listener: () => void): (() => void) => {
   tileLoadListeners.add(listener)
+  return () => tileLoadListeners.delete(listener)
 }
 
 const rememberTileUrl = (url: string, tile: TileCoord): void => {

@@ -5,7 +5,7 @@ import {
   tileKey,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
-import { notifyEach } from '../listeners.js'
+import { notifyListeners } from '../listeners.js'
 import { getState, type State } from '../settings.js'
 import {
   displayTemplates,
@@ -54,13 +54,9 @@ export const forgetProgressPixels = (templateId: string): void => {
 
 const captureScopeListeners = new Set<() => void>()
 
-/** Tell capture its scope grew. One throwing listener must not stop the others. */
+/** Tell capture its scope grew. */
 export const announceCaptureScope = (): void =>
-  notifyEach(
-    captureScopeListeners,
-    (listener) => listener(),
-    'mismatch:capture-scope-listener-failed',
-  )
+  notifyListeners(captureScopeListeners, 'capture scope listener failed')
 
 /** Notified synchronously when progress adds a tile to what capture wants. */
 export const onCaptureScopeChange = (listener: () => void): (() => void) => {

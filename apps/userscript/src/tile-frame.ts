@@ -1,7 +1,7 @@
 import type { TileCoord } from '@caelestis/shared'
 import type { TileFrame, TileQuad } from './coordinates.js'
 import { count, isEnabled, logRender } from './debug.js'
-import { notifyEach } from './listeners.js'
+import { notifyListeners } from './listeners.js'
 import { getMap } from './map-handle.js'
 import { PIXEL_ART_LAYER } from './wplace-raster.js'
 
@@ -198,7 +198,7 @@ export const underlayQuads = (): readonly TileQuad[] => {
 const emit = (quads: readonly TileQuad[]): void => {
   if (mapCanvas === null) return
   const frame: TileFrame = { canvas: mapCanvas, quads }
-  notifyEach(listeners, (listener) => listener(frame), 'frame:listener-failed')
+  notifyListeners(listeners, 'tile frame listener failed', frame)
 }
 
 const flush = (): void => {
