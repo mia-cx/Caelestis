@@ -19,8 +19,8 @@ import {
   type PainterHistorySource,
   rollingIntervalPace,
   rollingPaceSeries,
-  type TimeWindow,
 } from './progress-pace.js'
+import type { TimeWindow } from './time-window.svelte.js'
 
 type PaceWindow = (typeof PACE_WINDOWS)[number]
 

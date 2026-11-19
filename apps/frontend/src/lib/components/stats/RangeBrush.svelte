@@ -5,14 +5,9 @@
    * one. The grips are sliders, so the keyboard does the same.
    */
   import { formatTime } from '#lib/time-format.js'
-  import {
-    DRAG_THRESHOLD_PX,
-    followPointer,
-    type PaceRatePoint,
-    snapTime,
-    windowKeyStep,
-  } from './progress-pace.js'
-  import type { ChartWindow } from './time-window.svelte.js'
+  import { DRAG_THRESHOLD_PX, followPointer } from './pointer-drag.js'
+  import { type PaceRatePoint, snapTime } from './progress-pace.js'
+  import { type ChartWindow, windowKeyStep } from './time-window.svelte.js'
 
   let {
     timeWindow,

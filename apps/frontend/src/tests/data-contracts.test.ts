@@ -16,7 +16,8 @@ import {
   combineProgressSamples,
   mergeObservedProgress,
 } from '../lib/components/stats/progress-history'
-import { clampWindow, clipSeries, rollingIntervalPace } from '../lib/components/stats/progress-pace'
+import { clipSeries, rollingIntervalPace } from '../lib/components/stats/progress-pace'
+import { clampWindow } from '../lib/components/stats/time-window.svelte'
 import { template } from './fixtures'
 
 const sample = (at: number, correct: number | null) => ({

@@ -29,25 +29,22 @@
   import { painterColour, painterLabel } from './painter-identity.js'
   import PainterPicker from './PainterPicker.svelte'
   import type { ObservedProgressSample } from './progress-history.js'
+  import { DRAG_THRESHOLD_PX, followPointer } from './pointer-drag.js'
   import {
     axisScale,
-    clampWindow,
     clipSeries,
-    DRAG_THRESHOLD_PX,
-    followPointer,
     lerpRate,
     nearestSorted,
     type PaceRatePoint,
     type PainterHistorySource,
     paceAt,
     snapTime,
-    type TimeWindow,
     timeTickStep,
   } from './progress-pace.js'
   import RangeBrush from './RangeBrush.svelte'
   import RangePresets from './RangePresets.svelte'
   import { DAY_SECONDS } from './stats-scope.svelte.js'
-  import { ChartWindow } from './time-window.svelte.js'
+  import { ChartWindow, type TimeWindow } from './time-window.svelte.js'
 
   let {
     samples,
@@ -489,17 +486,10 @@
         plotDrag = null
         scrubbing = false
         if (drag !== null) {
-          timeWindow.select(
-            clampWindow(
-              {
-                from: snapTime(Math.min(drag.from, drag.to), resolution, from, to),
-                to: snapTime(Math.max(drag.from, drag.to), resolution, from, to),
-              },
-              from,
-              to,
-              timeWindow.minSelection,
-            ),
-          )
+          timeWindow.select({
+            from: snapTime(Math.min(drag.from, drag.to), resolution, from, to),
+            to: snapTime(Math.max(drag.from, drag.to), resolution, from, to),
+          })
         }
         if (cancelled) return
         const bounds = plot.getBoundingClientRect()
