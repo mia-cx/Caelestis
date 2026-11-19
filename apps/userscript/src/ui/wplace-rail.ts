@@ -1,4 +1,5 @@
 import { frameQueue } from '../frame-queue.js'
+import { notifyListeners } from '../listeners.js'
 import { isCaelestis, isWplaceMutation } from '../wplace-dom.js'
 import { RAIL_BUTTON } from './metrics.js'
 
@@ -23,9 +24,9 @@ let railStale = true
 /** The Wplace button the rail was found from; its parent is the rail wherever it moves. */
 let anchor: Element | null = null
 
-const notifyLayout = frameQueue(() => {
-  for (const listener of layoutListeners) listener()
-})
+const notifyLayout = frameQueue(() =>
+  notifyListeners(layoutListeners, 'Wplace layout listener failed'),
+)
 
 /** One observer for the whole page, installed the first time anything asks about Wplace's layout. */
 const watchWplaceLayout = (): boolean => {

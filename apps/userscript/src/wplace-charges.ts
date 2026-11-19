@@ -1,4 +1,5 @@
 import { isRecord } from '@caelestis/shared'
+import { notifyListeners } from './listeners.js'
 
 /**
  * The signed-in painter's pixel charges, and when they will be full.
@@ -30,15 +31,7 @@ type ChargeListener = () => void
 let snapshot: ChargeSnapshot | null = null
 const listeners = new Set<ChargeListener>()
 
-const notify = (): void => {
-  for (const listener of listeners) {
-    try {
-      listener()
-    } catch {
-      // One listener's failure is not another's problem.
-    }
-  }
-}
+const notify = (): void => notifyListeners(listeners, 'charge listener failed')
 
 const projectedCount = (state: ChargeSnapshot, now: number): number =>
   Math.min(state.max, state.count + Math.max(0, now - state.at) / state.cooldownMs)

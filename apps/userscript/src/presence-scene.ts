@@ -5,6 +5,7 @@ import type {
   RegionShapePixels,
 } from '@caelestis/shared'
 import { claimEditorEditingIds, claimEditorPixels } from './claim-editor.js'
+import { notifyListeners } from './listeners.js'
 import { claimsVisible, type DisplayClaim, displayClaims } from './presence-claims.js'
 import { type PresenceView, presenceQuickClaims, presenceView } from './presence-client.js'
 import { quickClaimPreview } from './quick-claims.js'
@@ -192,7 +193,7 @@ export const hoveredSceneItems = (): ReadonlySet<SceneItemId> => hovered
 export const setHoveredSceneItems = (ids: ReadonlySet<SceneItemId>): void => {
   if (ids.size === hovered.size && [...ids].every((id) => hovered.has(id))) return
   hovered = new Set(ids)
-  for (const listener of hoverListeners) listener()
+  notifyListeners(hoverListeners, 'presence hover listener failed')
 }
 
 export const onSceneHoverChange = (listener: () => void): void => {

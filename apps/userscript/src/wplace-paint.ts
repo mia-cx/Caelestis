@@ -2,6 +2,7 @@ import { TRANSPARENT_INDEX } from '@caelestis/shared'
 import { activeAllianceDialog } from './alliance-editor-dom.js'
 import { log } from './debug.js'
 import { frameQueue } from './frame-queue.js'
+import { notifyListeners } from './listeners.js'
 import { simulatedInputAllowed } from './simulated-input.js'
 import {
   paintDrawer,
@@ -124,10 +125,10 @@ const read = (): void => {
   swatches = next
   open = nextOpen
   selected = nextSelected
-  if (remounted) for (const listener of swatchListeners) listener()
+  if (remounted) notifyListeners(swatchListeners, 'paint swatch listener failed')
   if (!changed) return
   log('paint selection changed', { open, selected })
-  for (const listener of selectionListeners) listener()
+  notifyListeners(selectionListeners, 'paint selection listener failed')
 }
 
 /**

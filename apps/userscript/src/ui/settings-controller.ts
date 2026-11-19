@@ -6,6 +6,7 @@ import { expectedBackendVersion, userscriptVersion } from '../client-metrics.js'
 import { log } from '../debug.js'
 import { applyGlobalSettingsIntent, globalSettingsModel } from '../global-settings.js'
 import { consumeInvite } from '../invite.js'
+import { notifyListeners } from '../listeners.js'
 import { redraw } from '../map-view.js'
 import { runningBuild } from '../page-claim.js'
 import { isProfileEnabled, profileReport, profileSnapshot, resetProfile } from '../profile.js'
@@ -190,9 +191,7 @@ export const settingsModel = (): SettingsModel => {
 const listeners = new Set<() => void>()
 
 /** Ask the settings view, if it is showing, to redraw from `settingsModel`. */
-const refreshSettings = (): void => {
-  for (const listener of listeners) listener()
-}
+const refreshSettings = (): void => notifyListeners(listeners, 'settings view listener failed')
 
 /** Follow changes the settings view shows that only this controller knows about. */
 export const onSettingsViewChange = (listener: () => void): void => {

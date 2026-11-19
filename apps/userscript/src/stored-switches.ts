@@ -1,4 +1,5 @@
-import { count } from './debug.js'
+import { warn } from './debug.js'
+import { notifyListeners } from './listeners.js'
 import { onStoredValueChange, storedValue, storeValue } from './stored-values.js'
 
 /** How one switch set is written to its stored value, which older builds also read. */
@@ -26,7 +27,8 @@ export const storedSwitches = <Id extends string>(
   const read = (): Record<Id, boolean> => {
     try {
       return { ...defaults, ...codec.parse(JSON.parse(storedValue(key) ?? 'null')) }
-    } catch {
+    } catch (error) {
+      warn(`${key}: unreadable switches, using defaults`, String(error))
       return { ...defaults }
     }
   }
@@ -34,15 +36,8 @@ export const storedSwitches = <Id extends string>(
     cached ??= read()
     return cached
   }
-  const announce = (id: Id, on: boolean): void => {
-    for (const listener of listeners) {
-      try {
-        listener(id, on)
-      } catch {
-        count(`${key}:listener failed`)
-      }
-    }
-  }
+  const announce = (id: Id, on: boolean): void =>
+    notifyListeners(listeners, `${key} listener failed`, id, on)
 
   onStoredValueChange((changed) => {
     if (changed !== key) return
@@ -60,8 +55,9 @@ export const storedSwitches = <Id extends string>(
       switches[id] = on
       try {
         storeValue(key, JSON.stringify(codec.serialise(switches)))
-      } catch {
+      } catch (error) {
         // The switch still applies for this session.
+        warn(`${key}: could not store switches`, String(error))
       }
       announce(id, on)
     },

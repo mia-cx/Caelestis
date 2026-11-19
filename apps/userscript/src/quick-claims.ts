@@ -7,6 +7,7 @@ import {
   worldPixel,
 } from '@caelestis/shared'
 import { log } from './debug.js'
+import { notifyListeners } from './listeners.js'
 import { CLICK_SLOP_PX, swallowNextClick } from './map-pointer.js'
 import { pickerPointAt } from './paint-cell.js'
 import { presenceQuickClaims, setPresenceQuickClaims } from './presence-client.js'
@@ -69,9 +70,7 @@ interface Drag {
 let drag: Drag | null = null
 const listeners: (() => void)[] = []
 
-const changed = (): void => {
-  for (const listener of listeners) listener()
-}
+const changed = (): void => notifyListeners(listeners, 'quick claim listener failed')
 
 /** Runs when the rectangle being dragged changes, so the map can redraw it. */
 export const onQuickClaimPreviewChange = (listener: () => void): void => {

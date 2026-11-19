@@ -30,6 +30,7 @@ import { activeAllianceDialog } from '../alliance-editor-dom.js'
 import { allianceSurfaceCentre, onActiveAllianceSurfaceChange } from '../alliance-surface.js'
 import { warn } from '../debug.js'
 import { errorText } from '../error-text.js'
+import { notifyListeners } from '../listeners.js'
 import { getMap } from '../map-handle.js'
 import { viewportCentre } from '../map-view.js'
 import { getState, setState } from '../settings.js'
@@ -1269,7 +1270,7 @@ export const closeTemplateStudio = (): void => {
   window.removeEventListener('paste', onPaste, true)
   releaseHost?.()
   releaseHost = null
-  for (const listener of studioListeners) listener(false)
+  notifyListeners(studioListeners, 'template studio listener failed', false)
   const leaving = element
   element = null
   if (leaving === null) return
@@ -1331,7 +1332,7 @@ export const openTemplateStudio = (
     origin = next.origin
     setOutput({ width: next.width, height: next.height })
   }
-  for (const listener of studioListeners) listener(true)
+  notifyListeners(studioListeners, 'template studio listener failed', true)
   mount()
   render()
   window.addEventListener('paste', onPaste, true)
