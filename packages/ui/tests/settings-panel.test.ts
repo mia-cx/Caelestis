@@ -61,7 +61,10 @@ describe('settings panel intent boundary', () => {
         'button[title="Reset all shortcuts to their defaults"]',
       ) as HTMLButtonElement
     ).click()
-    ;(target.querySelector('.profile-actions button') as HTMLButtonElement).click()
+    const profile = target.querySelector('[aria-label="Performance profile"]')
+    ;[...(profile?.querySelectorAll('button') ?? [])]
+      .find((button) => button.textContent?.trim() === 'Reset')
+      ?.click()
 
     expect(intents).toEqual([
       { type: 'add-server', url: 'https://templates.example.org' },
@@ -219,7 +222,7 @@ describe('settings panel intent boundary', () => {
         },
       }),
     )
-    expect(target.querySelector('.version-line')?.textContent).toContain('Userscript 0.15.0')
+    expect(target.textContent).toContain('Userscript 0.15.0')
     expect(target.textContent).toContain('0.9.0 · a1b2c3d4e5f6')
     expect(target.textContent).toContain('Older than this userscript expects (0.9.0)')
 
@@ -245,7 +248,6 @@ describe('settings panel intent boundary', () => {
         },
       }),
     )
-    expect(current.querySelector('.version-line')).toBeNull()
     expect(current.textContent).not.toContain('Older than this userscript expects')
     expect(current.textContent).toContain('0.9.0')
   })

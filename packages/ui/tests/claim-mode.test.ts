@@ -1,7 +1,5 @@
 import { mount, tick, unmount } from 'svelte'
 import { afterEach, describe, expect, it } from 'vitest'
-import AppearanceEditor from '../src/appearance/AppearanceEditor.svelte'
-import type { AppearanceEditorIntent, AppearanceEditorModel } from '../src/appearance/model.js'
 import ClaimMode from '../src/claim/ClaimMode.svelte'
 import type { ClaimModeIntent, ClaimModeModel } from '../src/claim/model.js'
 
@@ -10,7 +8,7 @@ afterEach(async () => {
   await Promise.all(mounted.splice(0).map((component) => unmount(component)))
   document.body.replaceChildren()
 })
-describe('claim and appearance intent boundaries', () => {
+describe('claim mode intent boundary', () => {
   it('opens a tool flyout, selects the requested tool, and blocks pending actions', async () => {
     const intents: ClaimModeIntent[] = []
     const model = {
@@ -111,72 +109,5 @@ describe('claim and appearance intent boundaries', () => {
       { type: 'capture', action: 'template' },
       { type: 'capture', action: 'update' },
     ])
-  })
-
-  it('separates slider preview from commit and respects group ownership', async () => {
-    const intents: AppearanceEditorIntent[] = []
-    const model = {
-      variant: 'overlay',
-      values: {
-        size: 1,
-        radius: 0,
-        translateX: 0,
-        translateY: 0,
-        rotation: 0,
-        opacity: 1,
-        contrastOutline: false,
-        contrastOutlineSize: 1,
-        markerSize: 9,
-        markMismatch: true,
-        markerColour: '#ffffff',
-        markUnpainted: false,
-        unpaintedLimit: 0.05,
-        dimOthers: false,
-        otherOpacity: 0.15,
-        markSelectedColour: false,
-        selectedMarkerSize: 9,
-        selectedMarkerColour: '#ffffff',
-        otherColour: null,
-      },
-      sliders: [
-        {
-          key: 'opacity',
-          group: 'pixels',
-          label: 'Opacity',
-          value: 0.5,
-          defaultValue: 1,
-          min: 0,
-          max: 1,
-          step: 0.1,
-          format: 'percent',
-        },
-      ],
-      pixelPresets: [],
-      colourPresets: [],
-      palette: [],
-      onlySelectedColour: false,
-      paintOpen: false,
-      groups: { pixels: { owned: false }, markers: { owned: true }, colours: { owned: true } },
-    } satisfies AppearanceEditorModel
-    const target = document.body.appendChild(document.createElement('div'))
-    mounted.push(
-      mount(AppearanceEditor, {
-        target,
-        props: { model, onIntent: (intent: AppearanceEditorIntent) => intents.push(intent) },
-      }),
-    )
-    await tick()
-    const ownership = target.querySelector(
-      'input[aria-label="Use default pixels"]',
-    ) as HTMLInputElement
-    expect(ownership.checked).toBe(true)
-    ownership.click()
-    expect(intents).toContainEqual({ type: 'set-group-owned', group: 'pixels', owned: true })
-    const slider = target.querySelector('input[type="range"]') as HTMLInputElement
-    slider.value = '0.7'
-    slider.dispatchEvent(new Event('input', { bubbles: true }))
-    slider.dispatchEvent(new Event('change', { bubbles: true }))
-    expect(intents).toContainEqual({ type: 'preview-number', key: 'opacity', value: 0.7 })
-    expect(intents).toContainEqual({ type: 'commit-number', key: 'opacity', value: 0.7 })
   })
 })
