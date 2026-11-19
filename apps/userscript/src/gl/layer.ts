@@ -20,7 +20,7 @@ import { noteTemplatesInView } from '../templates/residency.js'
 import { currentQuads, isDrawingTiles, underlayQuads } from '../tile-frame.js'
 import { prefersReducedMotion } from './appearance-transition.js'
 import { LAYER_IDS } from './layer-stack.js'
-import { movingOverlayTapCap } from './minify-quality.js'
+import { minifyTapCap, SETTLED_TAP_CAP } from './minify-quality.js'
 import { worldRenderScene } from './render-scene.js'
 import { writeQuad } from './renderer-core.js'
 import {
@@ -29,7 +29,7 @@ import {
   TemplateGpuStore,
   type TemplateGpuTile,
 } from './template-gpu-store.js'
-import { SETTLED_TAP_CAP, TemplatePass, type TemplatePlacement } from './template-pass.js'
+import { TemplatePass, type TemplatePlacement } from './template-pass.js'
 
 /**
  * The overlay, drawn inside Wplace's own canvas.
@@ -319,10 +319,8 @@ const drawOverlay = (gl: WebGL2RenderingContext, pass: TemplatePass, store: Temp
     if (scene.animating || !peek.done) requestMapFrame()
     return
   }
-  // During a drag, distributed samples retain anti-moire coverage while leaving enough GPU budget
-  // for Wplace to move its own raster tiles. The first settled frame returns to the full grid.
   const moving = getMap()?.isMoving() === true
-  const minifyTapCap = moving ? movingOverlayTapCap(visible.length) : SETTLED_TAP_CAP
+  const tapCap = minifyTapCap(moving, visible.length)
   let result = { drawIntersections: 0, uploadedPixels: 0, uploaded: false }
   try {
     result = pass.draw(visible, {
@@ -331,7 +329,7 @@ const drawOverlay = (gl: WebGL2RenderingContext, pass: TemplatePass, store: Temp
       uploadAllowance: TEMPLATE_UPLOAD_PIXELS_PER_FRAME,
       generation: renderGeneration,
       peekOpacity: peek.opacity,
-      minifyTapCap,
+      minifyTapCap: tapCap,
     })
   } finally {
     if (profiling) {
@@ -343,11 +341,11 @@ const drawOverlay = (gl: WebGL2RenderingContext, pass: TemplatePass, store: Temp
       recordProfileWorkload('Overlay visible templates', visible.length)
       recordProfileWorkload('Overlay draw intersections', result.drawIntersections)
       recordProfileWorkload('Overlay uploaded index pixels', result.uploadedPixels)
-      recordProfileWorkload('Overlay minify tap cap', minifyTapCap)
+      recordProfileWorkload('Overlay minify tap cap', tapCap)
       recordProfileWorkload('Overlay moving', moving ? 1 : 0)
       if (moving) {
         recordProfileWorkload('Overlay moving draw intersections', result.drawIntersections)
-        recordProfileWorkload('Overlay moving minify tap cap', minifyTapCap)
+        recordProfileWorkload('Overlay moving minify tap cap', tapCap)
       }
     }
     // An upload also needs the next frame for the outline, which ran earlier in this one, to catch

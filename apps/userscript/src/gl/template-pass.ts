@@ -59,9 +59,6 @@ export interface TemplatePassResult {
   readonly pending: boolean
 }
 
-/** The settled renderer samples a 4x4 grid per output fragment at far zoom. */
-export const SETTLED_TAP_CAP = 4
-
 /** The outline's halo, in cells: it may reach one cell past a chunk's open edges. */
 const OUTLINE_MARGIN = 1
 

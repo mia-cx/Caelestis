@@ -48,7 +48,7 @@ import type { MarkerBatch } from './marker-batching.js'
 import { visibleListPoints, visibleSourceRect } from './marker-density.js'
 import { budgetMarkers, markerStyles } from './marker-frame.js'
 import { MarkerRenderer, type MarkerStyle } from './marker-renderer.js'
-import { movingOverlayTapCap } from './minify-quality.js'
+import { minifyTapCap } from './minify-quality.js'
 import { RenderScene, type SceneTemplate } from './render-scene.js'
 import { writeQuad } from './renderer-core.js'
 import {
@@ -58,7 +58,6 @@ import {
   type TemplateGpuTile,
 } from './template-gpu-store.js'
 import {
-  SETTLED_TAP_CAP,
   TemplatePass,
   type TemplatePassFrame,
   type TemplatePassKind,
@@ -798,12 +797,12 @@ class ArtboardRenderer {
       (layer) => visibleArtboardMarkerPoints(layer.batch, this.geometry, viewport),
       getState().markerBudget,
     )
-    const minifyTapCap = moving ? movingOverlayTapCap(templates.length) : SETTLED_TAP_CAP
+    const tapCap = minifyTapCap(moving, templates.length)
     const outlineAllowance = Math.floor(TEMPLATE_UPLOAD_PIXELS_PER_FRAME / 2)
     const frame = {
       generation: this.renderGeneration,
       peekOpacity: peek.opacity,
-      minifyTapCap,
+      minifyTapCap: tapCap,
     }
     const outlineResult = this.outline.render(templates, ids, this.geometry, viewport, {
       ...frame,
@@ -828,7 +827,7 @@ class ArtboardRenderer {
         'Alliance overlay uploaded index pixels',
         outlineResult.uploadedPixels + overlayResult.uploadedPixels,
       )
-      recordProfileWorkload('Alliance overlay minify tap cap', minifyTapCap)
+      recordProfileWorkload('Alliance overlay minify tap cap', tapCap)
       recordProfileWorkload('Alliance overlay moving', moving ? 1 : 0)
       recordProfileWorkload('Alliance marker source batches', markerLayers.length)
       recordProfileWorkload(
