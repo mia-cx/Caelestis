@@ -49,7 +49,7 @@ import {
 import { serverEndpoint } from './server-url.js'
 import { type ConnectedServer, getState, onStateChange } from './settings.js'
 import { ClientStatusProjection } from './status-client-projection.js'
-import type { TemplateColourProgress, TemplateProgress } from './templates/mismatch.js'
+import type { TemplateColourProgress, TemplateProgress } from './templates/progress-types.js'
 import { TileOfferAcknowledgements } from './tile-offer-acknowledgements.js'
 import { type AcceptedPaint, onAcceptedPaint, onFetchedTile } from './tile-transform.js'
 import { accountIdentity, accountIdentityKnownUnavailable, loadAccount } from './wplace-account.js'

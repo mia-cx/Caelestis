@@ -2,7 +2,7 @@ import type {
   TemplateColourProgress,
   TemplateColourProgressDelta,
   TemplateProgress,
-} from '../templates/mismatch.js'
+} from '../templates/progress-types.js'
 
 export const emptyProgress = (total: number): TemplateProgress => ({
   completed: 0,

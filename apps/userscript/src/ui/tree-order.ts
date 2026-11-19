@@ -1,6 +1,6 @@
 import type { TemplateSortOrder } from '@caelestis/shared'
 import { getState, setState } from '../settings.js'
-import type { TemplateProgress } from '../templates/mismatch.js'
+import type { TemplateProgress } from '../templates/progress-types.js'
 import { completionRatio } from './progress.js'
 
 export const MAX_RENDERED_ROWS = 2_000

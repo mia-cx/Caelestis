@@ -31,16 +31,16 @@ import {
   templateById,
   templateChunks,
 } from './templates/local-store.js'
-import {
-  type ColourNavigationTarget,
-  type ColourTargetKind,
-  pixelAccounting,
-  type TemplateColourProgress,
-  type TemplateColourProgressDelta,
-  type TemplateDraftPixelDelta,
-} from './templates/mismatch.js'
+import { pixelAccounting } from './templates/mismatch.js'
 import { navigateTo } from './templates/navigate.js'
 import { focusedTemplate } from './templates/nearest.js'
+import type {
+  ColourNavigationTarget,
+  ColourTargetKind,
+  TemplateColourProgress,
+  TemplateColourProgressDelta,
+  TemplateDraftPixelDelta,
+} from './templates/progress-types.js'
 import { measuresLocally } from './templates/wplace-owned.js'
 import {
   onAcceptedPaint,

@@ -1,6 +1,6 @@
 import type { TreeIcon, TreeRowModel } from '@caelestis/ui/elements'
 import { getState } from '../settings.js'
-import type { TemplateColourProgress, TemplateProgress } from '../templates/mismatch.js'
+import type { TemplateColourProgress, TemplateProgress } from '../templates/progress-types.js'
 
 export interface SiblingLevel {
   readonly visible: readonly string[]

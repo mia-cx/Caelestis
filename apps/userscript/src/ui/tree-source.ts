@@ -6,11 +6,8 @@ import {
   templateFilterCount,
 } from '@caelestis/shared'
 import type { TreeIcon, TreeRowModel } from '@caelestis/ui/elements'
-import {
-  pixelAccounting,
-  type TemplateColourProgress,
-  type TemplateProgress,
-} from '../templates/mismatch.js'
+import { pixelAccounting } from '../templates/mismatch.js'
+import type { TemplateColourProgress, TemplateProgress } from '../templates/progress-types.js'
 import { sumColourProgress, sumProgress } from './progress.js'
 import type { RowAction } from './tree-state.js'
 

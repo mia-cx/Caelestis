@@ -68,11 +68,7 @@ import {
   setTemplateFolder,
   type TemplateArtwork,
 } from '../templates/local-store.js'
-import {
-  pixelAccounting,
-  type TemplateColourProgress,
-  type TemplateProgress,
-} from '../templates/mismatch.js'
+import { pixelAccounting } from '../templates/mismatch.js'
 import { copyWplaceTemplate, NATIVE_ALLIANCE_TREE_KEY } from '../templates/native-alliance.js'
 import { centreOf, navigateTo } from '../templates/navigate.js'
 import {
@@ -80,6 +76,7 @@ import {
   officialEvent,
   officialProgress,
 } from '../templates/official-overlays.js'
+import type { TemplateColourProgress, TemplateProgress } from '../templates/progress-types.js'
 import { nodeChainVisible, nodeScopeKey } from '../templates/server-nodes.js'
 import { localFolderTags, localTagCatalog, localTemplateTags } from '../templates/tags.js'
 import { loadTemplateThumbnail, templateThumbnail } from '../templates/thumbnail.js'

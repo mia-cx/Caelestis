@@ -1,6 +1,6 @@
 import { expect, it, vi } from 'vitest'
+import { captureScopeTiles } from '../src/templates/capture-scope.js'
 import * as store from '../src/templates/local-store.js'
-import { captureScopeTiles } from '../src/templates/mismatch.js'
 
 vi.mock('../src/map-view.js', () => ({ repaint: () => {}, viewportCentre: () => null }))
 
