@@ -82,6 +82,8 @@ export const pickerPointAt = (
   if (target.closest(MAP_SURFACE) === null) return null
   // Rendered tile bounds can be rounded by half a screen pixel. Use the same projection as
   // Wplace's paint listener so a boundary never picks the next row or column prematurely.
+  // Unlike `mapPointAt`, this unprojects off the rendered tiles too: zoomed out past Wplace's
+  // pixel tiles there are none, and picking must still find a cell there.
   const map = getMap()
   const point =
     map === null
