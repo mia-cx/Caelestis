@@ -69,20 +69,11 @@
     )
   }
 
-  let presentQueued = false
-  const images = new FrameImages(() => schedulePresent())
-
   const present = (): void => {
-    const canvas = visible
-    if (canvas === null || viewWidth === 0) return
-    const ctx = canvas.getContext('2d')
+    if (viewWidth === 0) return
+    const ctx = visible?.getContext('2d') ?? null
     if (ctx === null) return
-    const dpr = window.devicePixelRatio || 1
-    const scale = zoom * dpr
-    ctx.setTransform(1, 0, 0, 1, 0, 0)
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
-    ctx.setTransform(scale, 0, 0, scale, -originX * scale, -originY * scale)
-
+    const scale = zoom * (window.devicePixelRatio || 1)
     images.draw(ctx, {
       layout,
       view: { x: originX, y: originY, width: viewWidth / zoom, height: viewHeight / zoom },
@@ -94,16 +85,7 @@
     })
   }
 
-  // A microtask, not requestAnimationFrame: rAF never fires in an occluded tab, so a zoom or a
-  // scrub done while the window is covered would silently draw nothing.
-  const schedulePresent = (): void => {
-    if (presentQueued) return
-    presentQueued = true
-    queueMicrotask(() => {
-      presentQueued = false
-      present()
-    })
-  }
+  const images = new FrameImages(present)
 
   // Size the visible canvas to the container at device resolution; first fit once measured.
   $effect(() => {
@@ -120,7 +102,7 @@
         fitted = true
         fitToSurroundings()
       }
-      schedulePresent()
+      images.invalidate()
     })
     observer.observe(element)
     return () => observer.disconnect()
@@ -133,7 +115,7 @@
     void overlayAlpha
     void hashFor
     void layout
-    schedulePresent()
+    images.invalidate()
   })
 
   // A route that swaps its templates (a folder link to a subfolder) reuses this viewer, so reframe.

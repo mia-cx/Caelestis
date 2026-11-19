@@ -50,13 +50,9 @@ const scale = $derived(
     : Math.min(1, 2 ** Math.ceil(Math.log2((shownHeight * devicePixelRatio) / rect.height))),
 )
 
-let drawQueued = false
 const draw = (): void => {
   const ctx = canvasElement?.getContext('2d') ?? null
   if (ctx === null) return
-  ctx.setTransform(1, 0, 0, 1, 0, 0)
-  ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height)
-  ctx.setTransform(scale, 0, 0, scale, -rect.x * scale, -rect.y * scale)
   images.draw(ctx, {
     layout,
     view: rect,
@@ -67,14 +63,7 @@ const draw = (): void => {
     overlayAlpha: 1,
   })
 }
-const images = new FrameImages(() => {
-  if (drawQueued) return
-  drawQueued = true
-  queueMicrotask(() => {
-    drawQueued = false
-    draw()
-  })
-})
+const images = new FrameImages(draw)
 
 $effect(draw)
 </script>

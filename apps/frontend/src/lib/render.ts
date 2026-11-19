@@ -285,9 +285,10 @@ export const timelapseLayout = (templates: readonly Template[]): TimelapseLayout
 }
 
 /**
- * The decoded images one drawing uses. A drawing asks for each image synchronously; one that is not
- * decoded yet starts loading and `onLoad` asks for the next drawing. Each drawing keeps only the
- * images it used, so panning and scrubbing release what scrolled away.
+ * The decoded images one drawing uses, and when to draw again. A drawing asks for each image
+ * synchronously; one that is not decoded yet starts loading and asks for the next drawing once it
+ * is. Each drawing keeps only the images it used, so panning and scrubbing release what scrolled
+ * away.
  */
 export class FrameImages {
   #held = new Map<string, HTMLImageElement>()
@@ -296,10 +297,26 @@ export class FrameImages {
   /** Last decoded observation per tile, independent of the frame being drawn. */
   readonly #presented = new Map<TileKey, HTMLImageElement>()
 
-  readonly #onLoad: () => void
+  readonly #redraw: () => void
+  #queued = false
 
-  constructor(onLoad: () => void) {
-    this.#onLoad = onLoad
+  /** `redraw` draws the host's current view; it runs at most once per `invalidate` burst. */
+  constructor(redraw: () => void) {
+    this.#redraw = redraw
+  }
+
+  /**
+   * Ask for a drawing. Requests before it runs share one. A microtask, not requestAnimationFrame:
+   * rAF never fires in an occluded tab, so a zoom or a scrub done while the window is covered
+   * would silently draw nothing.
+   */
+  invalidate(): void {
+    if (this.#queued) return
+    this.#queued = true
+    queueMicrotask(() => {
+      this.#queued = false
+      this.#redraw()
+    })
   }
 
   #get(key: string, load: () => Promise<HTMLImageElement>): HTMLImageElement | null {
@@ -313,7 +330,7 @@ export class FrameImages {
       load()
         .then((image) => {
           this.#held.set(key, image)
-          this.#onLoad()
+          this.invalidate()
         })
         // A failed image stays undrawn: the basemap or the last observation shows through.
         .catch(() => {})
@@ -323,7 +340,7 @@ export class FrameImages {
   }
 
   /**
-   * Draw a layout into `view` (world pixels) on a context already transformed to world pixels.
+   * Replace the canvas with a layout's `view` (world pixels), its origin at the canvas origin.
    * `scale` is device pixels per world pixel; `basemapZoom` the slippy zoom for the map beneath.
    */
   draw(
@@ -344,6 +361,9 @@ export class FrameImages {
       readonly overlayAlpha: number
     },
   ): void {
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height)
+    ctx.setTransform(scale, 0, 0, scale, -view.x * scale, -view.y * scale)
     this.#drawn = new Map()
     const span = osmSpan(basemapZoom)
     const worldTiles = 2 ** basemapZoom
