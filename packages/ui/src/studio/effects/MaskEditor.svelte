@@ -6,7 +6,7 @@
   import CurveListEditor from './CurveListEditor.svelte'
   import { neutralGrid } from './grid.js'
   import { fullMaskCurve, MASK_PRESETS, presetIndex, presetValues, setPreset } from './mask.js'
-  import Segmented from './Segmented.svelte'
+  import Segmented from '../Segmented.svelte'
   import { hueAxis } from './tone.js'
 
   /**

@@ -6,7 +6,7 @@
   import CurvesEditor from './CurvesEditor.svelte'
   import { NUMBER_FIELDS } from './fields.js'
   import NumberFieldsEditor from './NumberFieldsEditor.svelte'
-  import Segmented from './Segmented.svelte'
+  import Segmented from '../Segmented.svelte'
 
   /**
    * Ditherette web's Palette fit: a look, a strength, and the space it analyses in. Its curves

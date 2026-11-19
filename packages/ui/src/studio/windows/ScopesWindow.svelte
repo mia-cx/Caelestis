@@ -3,7 +3,6 @@
   import MenuStyles from '../../foundations/MenuStyles.svelte'
   import { selectFace } from '../../foundations/select-face.js'
   import { SCOPE_MODELS, type ScopeModel, vectorPlane } from '../colour.js'
-  import Segmented from '../effects/Segmented.svelte'
   import type { TemplateStudioIntent, TemplateStudioModel } from '../model.js'
   import Chromaticity from '../scopes/Chromaticity.svelte'
   import Histogram from '../scopes/Histogram.svelte'

@@ -2,7 +2,7 @@
   import type { EffectChannel, LevelsEffect } from '../ditherette.js'
   import RangeField from '../RangeField.svelte'
   import { BYTE } from './graph.js'
-  import Segmented from './Segmented.svelte'
+  import Segmented from '../Segmented.svelte'
 
   let { step, onChange }: { step: LevelsEffect; onChange: (step: LevelsEffect) => void } = $props()
 

@@ -5,7 +5,7 @@
   import CurveGraph from './CurveGraph.svelte'
   import CurveListEditor from './CurveListEditor.svelte'
   import { neutralGrid } from './grid.js'
-  import Segmented from './Segmented.svelte'
+  import Segmented from '../Segmented.svelte'
   import { hueAxis } from './tone.js'
 
   /** Ditherette web's Curves editor: several curves, each reading one or two channels. */

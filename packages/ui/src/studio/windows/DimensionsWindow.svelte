@@ -3,7 +3,8 @@
   import MenuStyles from '../../foundations/MenuStyles.svelte'
   import { selectFace } from '../../foundations/select-face.js'
   import type { TemplateStudioIntent, TemplateStudioModel } from '../model.js'
-  import { ANCHORS, RESIZE_MODES, type ResizeAnchor, type ResizeId } from '../options.js'
+  import { commitOnEnter } from '../commit-on-enter.js'
+  import { ANCHOR_COLUMNS, ANCHORS, RESIZE_MODES, type ResizeAnchor, type ResizeId } from '../options.js'
   import MoreOptions from '../MoreOptions.svelte'
   import RangeField from '../RangeField.svelte'
   import SwitchRow from '../SwitchRow.svelte'
@@ -28,15 +29,11 @@
   /** Before its image, a new template has no size or place to show. A replacement has both. */
   const unsized = $derived(model.source === null && !output.locked)
 
-  const commitOnEnter = (event: KeyboardEvent): void => {
-    if (event.key === 'Enter') (event.currentTarget as HTMLInputElement).blur()
-  }
   const whole = (value: string, fallback: number): number => {
     const parsed = Math.round(Number(value))
     return Number.isFinite(parsed) ? parsed : fallback
   }
 
-  /** Anchors are row-major: arrows move by one across and three down. */
   const STEPS: Partial<Record<string, readonly [number, number]>> = {
     ArrowLeft: [-1, 0],
     ArrowRight: [1, 0],
@@ -48,9 +45,10 @@
     const step = STEPS[event.key]
     if (step === undefined) return
     event.preventDefault()
-    const column = Math.min(2, Math.max(0, (index % 3) + step[0]))
-    const row = Math.min(2, Math.max(0, Math.floor(index / 3) + step[1]))
-    const next = row * 3 + column
+    const last = ANCHOR_COLUMNS - 1
+    const column = Math.min(last, Math.max(0, (index % ANCHOR_COLUMNS) + step[0]))
+    const row = Math.min(last, Math.max(0, Math.floor(index / ANCHOR_COLUMNS) + step[1]))
+    const next = row * ANCHOR_COLUMNS + column
     onIntent({ type: 'anchor', anchor: ANCHORS[next]?.id ?? 'center' })
     anchors?.querySelectorAll<HTMLElement>('[role="radio"]')[next]?.focus()
   }
@@ -86,7 +84,7 @@
         step="1"
         value={unsized ? '' : output[side]}
         {disabled}
-        onkeydown={commitOnEnter}
+        {@attach commitOnEnter}
         onchange={(event) => onIntent({ type: 'size', side, pixels: whole(event.currentTarget.value, output[side]) })}
       />
       <span class="unit">px</span>
@@ -161,7 +159,7 @@
         inputmode="numeric"
         value={unsized ? '' : model.origin[axis]}
         disabled={model.pending || unsized}
-        onkeydown={commitOnEnter}
+        {@attach commitOnEnter}
         onchange={(event) =>
           onIntent({ type: 'origin', ...model.origin, [axis]: whole(event.currentTarget.value, model.origin[axis]) })}
       />

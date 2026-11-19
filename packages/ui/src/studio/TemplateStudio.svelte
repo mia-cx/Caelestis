@@ -2,6 +2,7 @@
   import Button from '../foundations/Button.svelte'
   import Icon from '../foundations/Icon.svelte'
   import MenuStyles from '../foundations/MenuStyles.svelte'
+  import { commitOnEnter } from './commit-on-enter.js'
   import {
     type Box,
     collapsePanel,
@@ -435,7 +436,7 @@
               min={field === 'width' || field === 'height' ? 1 : 0}
               value={draft[field]}
               disabled={field === 'height' && model.output.locked}
-              onkeydown={(event) => { if (event.key === 'Enter') event.currentTarget.blur() }}
+              {@attach commitOnEnter}
               onchange={(event) => {
                 setCropField(field, event.currentTarget.valueAsNumber)
                 event.currentTarget.value = String(model.cropping?.draft[field] ?? draft[field])

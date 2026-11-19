@@ -1,5 +1,6 @@
 <script lang="ts">
   import SliderStyles from '../foundations/SliderStyles.svelte'
+  import { commitOnEnter } from './commit-on-enter.js'
 
   /**
    * A labelled slider with a number field beside it, as Ditherette web pairs them. The slider
@@ -79,9 +80,7 @@
         step="any"
         value={round(value)}
         {disabled}
-        onkeydown={(event) => {
-          if (event.key === 'Enter') event.currentTarget.blur()
-        }}
+        {@attach commitOnEnter}
         onchange={(event) => {
           commit(event.currentTarget.valueAsNumber)
           event.currentTarget.value = String(round(value))
