@@ -98,8 +98,12 @@ interface Branch {
  * to move it would be a second copy of something already in memory. Missing means "not yet", and
  * the move is refused rather than half-made.
  */
-const drawnFor = (serverUrl: string, template: ServerTemplate): PlacedTemplate | undefined => {
-  const drawn = templateById(serverTemplateKey(serverUrl, template.id))
+const drawnFor = (
+  serverUrl: string,
+  template: ServerTemplate,
+  surface: TemplateSurface,
+): PlacedTemplate | undefined => {
+  const drawn = templateById(serverTemplateKey(serverUrl, template.id, surface))
   return drawn?.serverVersion === template.version ? drawn : undefined
 }
 
@@ -159,7 +163,7 @@ const serverBranch = async (
   const templates: CarriedTemplate[] = []
   for (const node of within) {
     for (const published of templatesByNode.get(node.id) ?? []) {
-      const drawn = drawnFor(server.url, published)
+      const drawn = drawnFor(server.url, published, surface)
       if (drawn === undefined) return null
       templates.push({
         folderId: node.id,

@@ -1,4 +1,4 @@
-import { decodePng, decodeWplaceIndexedPng } from '@caelestis/shared'
+import { decodePng, decodeWplaceIndexedPng, type TemplateSurface } from '@caelestis/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { moveServerTemplateToServer } from '../src/application/transfer.js'
 import { transplant } from '../src/application/transplant.js'
@@ -59,12 +59,18 @@ const fullManifest = (owner: ServerConnection) => ({
 
 /** The source row the tree last drew; a test replaces it to simulate another admin's edit. */
 const sourceRow = vi.hoisted(() => ({ edited: null as object | null }))
+/** The alliance manifest the alliance sync last admitted; null until a test admits one. */
+const allianceManifest = vi.hoisted(() => ({ admitted: null as object | null }))
 
 // Refreshing the tree after each write is the panel's business. Admission still reads the
 // destination over the network.
 vi.mock('../src/application/tree-server-state.js', async (original) => ({
   ...(await original<typeof import('../src/application/tree-server-state.js')>()),
   serverTemplateAt: () => sourceRow.edited ?? published,
+}))
+vi.mock('../src/alliance-server-sync.js', async (original) => ({
+  ...(await original<typeof import('../src/alliance-server-sync.js')>()),
+  allianceManifestFor: () => allianceManifest.admitted,
 }))
 vi.mock('../src/application/tree-server.js', async (original) => ({
   ...(await original<typeof import('../src/application/tree-server.js')>()),
@@ -73,6 +79,7 @@ vi.mock('../src/application/tree-server.js', async (original) => ({
 
 afterEach(() => {
   sourceRow.edited = null
+  allianceManifest.admitted = null
   vi.unstubAllGlobals()
 })
 
@@ -195,6 +202,62 @@ describe('cross-server template transplant', () => {
     })
     expect(templateById(sourceTemplate.id)).toBeUndefined()
     expect(getState().localFolders.some((folder) => folder.id === sourceFolder.id)).toBe(false)
+  })
+
+  it('moves a server folder on an alliance surface using its drawn alliance copies', async () => {
+    const surface: TemplateSurface = { kind: 'alliance-picture', allianceId: 42 }
+    const source = server('https://alliance-source.test', '018f1b8c-7f4e-7a8c-8a01-123456789abc')
+    upsertServer(source)
+    const currentSource = getState().servers.find((item) => item.url === source.url)!
+    const folder = {
+      id: '018f1b8c-7f4e-7a8c-8234-323456789abc',
+      parentId: null,
+      path: '/Banner art',
+      name: 'Banner art',
+      createdAt: stamp,
+    }
+    const row = { ...published, nodeId: folder.id }
+    allianceManifest.admitted = { nodes: [folder], templates: [row] }
+    const drawn = await addLocalTemplate(
+      {
+        id: serverTemplateKey(source.url, row.id, surface),
+        name: row.name,
+        source: 'wplace',
+        originX: 10,
+        originY: 20,
+        width: 2,
+        height: 2,
+        indices: new Uint8Array([1, 2, 3, 4]),
+        moved: 0,
+        opaque: 4,
+      },
+      surface,
+      true,
+    )
+    Object.assign(templateById(drawn.id)!, { serverVersion: row.version })
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input))
+      if (url.pathname.endsWith('/admin/nodes') && url.searchParams.get('allianceId') === '42')
+        return Response.json({ nodes: [folder] })
+      if (init?.method === 'DELETE') return Response.json({})
+      throw new Error(`unexpected request: ${init?.method ?? 'GET'} ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    window.fetch = fetchMock as typeof window.fetch
+
+    const result = await transplant(
+      { kind: 'server', server: currentSource, nodeId: folder.id },
+      { kind: 'local', folderId: null },
+      () => {},
+      surface,
+    )
+
+    expect(result).toMatchObject({
+      ok: true,
+      message: 'Moved “Banner art” — 1 folder, 1 template.',
+    })
+    const moved = getState().localFolders.find((local) => local.id === result.destinationId)
+    expect(moved).toMatchObject({ name: folder.name, surface })
   })
 
   it('uses real persisted pixels, admits a canonical manifest, then deletes the source', async () => {
