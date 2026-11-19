@@ -18,8 +18,8 @@ import { RelationalTileStore } from '../telemetry/tiles/relational.js'
 import type { TileStore } from '../telemetry/tiles/store.js'
 import { RelationalTemplateStore } from '../templates/relational.js'
 import type { TemplateStore } from '../templates/store.js'
+import { RelationalWorkStore } from '../work/relational.js'
 import { RelationalRegionStore } from '../work/relational-region-store.js'
-import { RelationalWorkStore } from '../work/relational-store.js'
 import type { SqlConnection } from './sql-connection.js'
 
 /** The feature store classes `relationalSqlStore` builds; a test replaces one with a subclass. */
