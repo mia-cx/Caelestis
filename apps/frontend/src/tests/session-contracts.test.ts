@@ -6,6 +6,7 @@ import {
   getServer,
   probeAdminScope,
   readServerUrl,
+  readToken,
   usesServerReadProxy,
   writeConnection,
 } from '../lib/api/client'
@@ -156,11 +157,18 @@ describe('frontend session through the backend HTTP boundary', () => {
   })
 })
 
-it('treats a stored server URL with credentials as no choice, so the default server applies', () => {
+it('treats a stored server URL with credentials as no choice, so the default server applies anonymously', () => {
   // Older connect dialogs stored such values; the current rules refuse them.
-  const fallback = { server: readServerUrl(), proxy: usesServerReadProxy() }
+  const connection = () => ({
+    server: readServerUrl(),
+    token: readToken(),
+    proxy: usesServerReadProxy(),
+  })
+  const fallback = connection()
   localStorage.setItem(STORAGE_KEYS.server, 'https://user:pw@other.example')
-  expect({ server: readServerUrl(), proxy: usesServerReadProxy() }).toEqual(fallback)
+  expect(connection()).toEqual(fallback)
+  localStorage.setItem(STORAGE_KEYS.token, 'other-server-token')
+  expect(connection()).toEqual(fallback)
 })
 
 it('preferences recover from corrupt storage and retain session values when persistence fails', () => {

@@ -45,26 +45,28 @@ const configuredServer =
 export const serverUrlIsConfigured = configuredServer !== null
 
 /**
- * The server the user chose, or null when none is stored. A stored value that no longer resolves
- * (an older dialog accepted URLs with credentials) counts as none, so the dialog can replace it.
+ * The stored server choice (null for none) and the token that belongs to it. A stored server that
+ * no longer resolves (an older dialog accepted URLs with credentials) counts as none, so the dialog
+ * can replace it, and its token goes with it: the default server never receives that credential.
  */
-const storedServerUrl = (): string | null => {
-  const stored = localStorage.getItem(SERVER_KEY)
-  if (stored === null || stored.length === 0) return null
+const storedConnection = (): { readonly server: string | null; readonly token: string | null } => {
+  const token = localStorage.getItem(TOKEN_KEY)
+  const stored = serverUrlIsConfigured ? null : localStorage.getItem(SERVER_KEY)
+  if (stored === null || stored.length === 0) return { server: null, token }
   try {
-    return resolveServerUrl(stored)
+    return { server: resolveServerUrl(stored), token }
   } catch {
-    return null
+    return { server: null, token: null }
   }
 }
 
 /** The deployment's configured base URL as given, else the stored or default server's. */
 export const readServerUrl = (): string =>
   configuredServer ??
-  storedServerUrl() ??
+  storedConnection().server ??
   resolveServerUrl(import.meta.env.DEV ? DEV_SERVER : window.location.origin)
 
-export const readToken = (): string | null => localStorage.getItem(TOKEN_KEY)
+export const readToken = (): string | null => storedConnection().token
 
 /**
  * Where the browser loads an operator's logo or preview from: the read proxy on the server render
@@ -81,7 +83,7 @@ export const serverAssetUrl = (kind: ServerAssetKind, asset: ServerAsset): strin
 export const usesServerReadProxy = (): boolean => {
   if (readToken() !== null) return false
   if (serverUrlIsConfigured) return true
-  const stored = storedServerUrl()
+  const stored = storedConnection().server
   return stored === null || stored === resolveServerUrl(window.location.origin)
 }
 
