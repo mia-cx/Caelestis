@@ -7,14 +7,17 @@ import {
   sameRect,
   TILE_SIZE,
 } from '@caelestis/shared'
-import { claimEditorEditingIds, claimEditorPixels } from '../claim-editor.js'
 import type { TileQuad } from '../coordinates.js'
 import { log, warn } from '../debug.js'
 import { getMap } from '../map-handle.js'
-import { claimsVisible, displayClaims } from '../presence-claims.js'
-import { presenceView } from '../presence-client.js'
 import { presenceRgb } from '../presence-colour.js'
-import { hoveredPresenceItems } from '../presence-hover.js'
+import {
+  hoveredSceneItems,
+  presenceScene,
+  type SceneItemId,
+  type SceneKind,
+  setSceneMotion,
+} from '../presence-scene.js'
 import {
   clearGpuProfile,
   measureProfile,
@@ -23,10 +26,7 @@ import {
   recordProfileWorkload,
   registerProfileMemorySource,
 } from '../profile.js'
-import { QUICK_CLAIM_PREVIEW_KEY, quickClaimItems } from '../quick-claims.js'
-import { getState } from '../settings.js'
 import { currentQuads, isDrawingTiles } from '../tile-transform.js'
-import { isPaintOpen } from '../wplace-paint.js'
 import { ramps } from './fade.js'
 import { linkTemplateProgram, writeClipCorner } from './renderer-core.js'
 
@@ -55,7 +55,6 @@ export const PRESENCE_LAYER_ID = 'caelestis-presence'
 const PIXEL_ART_LAYER = 'pixel-art-layer'
 const MARKER_LAYER_ID = 'caelestis-markers'
 const CROSSHAIR_LAYER = 'pixel-hover'
-const TOOL_KEY = 'tool'
 /** Mask texel level for an inside pixel; outside stays zero. */
 const MASK_INSIDE = 255
 
@@ -127,8 +126,6 @@ void main() {
 }
 `
 
-type Kind = 'viewport' | 'painting' | 'draft' | 'region' | 'quick' | 'tool'
-
 interface Style {
   readonly fill: number
   readonly border: number
@@ -145,7 +142,7 @@ interface Style {
   readonly patternAlpha: number
 }
 
-const STYLES: Record<Kind, Style> = {
+const STYLES: Record<SceneKind, Style> = {
   viewport: {
     fill: 0.1,
     border: 0.9,
@@ -204,14 +201,16 @@ const STYLES: Record<Kind, Style> = {
 }
 
 interface Item {
-  readonly key: string
-  readonly kind: Kind
+  readonly key: SceneItemId
+  readonly kind: SceneKind
   readonly rect: PresenceRect
   readonly colour: readonly [number, number, number]
   /** A draft's base64 bitmask, or a claim's pixels; either becomes a nearest-sampled texture. */
   readonly mask: string | RegionShapePixels | null
   /** Your own claim: its fill steps aside while the pointer is inside it, so you can paint. */
   readonly mine?: boolean
+  /** Follows a gesture: drawn this frame, without the fade, so it keeps up with the pointer. */
+  readonly follows?: boolean
 }
 
 interface MaskTexture {
@@ -255,68 +254,21 @@ const shapeTexels = ({
   return { rect, texels }
 }
 
-/** What the presence view and the claim editor say should be on screen, keyed for fading. */
-const currentItems = (): Item[] => {
-  const view = presenceView()
-  const flags = getState()
-  const items: Item[] = []
-  for (const peer of flags.showPresence && flags.showPresenceViewports ? view.peers : []) {
-    const colour = presenceRgb(peer.painter.wplaceUserId)
-    if (peer.viewport !== null) {
-      items.push({
-        key: `peer:${peer.sessionId}:viewport`,
-        kind: peer.draft === null ? 'viewport' : 'painting',
-        rect: peer.viewport,
-        colour,
-        mask: null,
-      })
-    }
-    if (peer.draft?.mask !== undefined) {
-      items.push({
-        key: `peer:${peer.sessionId}:draft`,
-        kind: 'draft',
-        rect: peer.draft.rect,
-        colour,
-        mask: peer.draft.mask,
-      })
-    }
-  }
-  // Keep complete display unions, including offscreen members, but skip hidden preparation.
-  const claims = claimsVisible(flags, isPaintOpen())
-    ? displayClaims(view.regions, claimEditorEditingIds())
-    : []
-  for (const claim of claims) {
-    const region = claim.regions[0]
-    items.push({
-      key: `region:${claim.id}`,
-      kind: 'region',
-      rect: claim.pixels.rect,
-      colour: presenceRgb(region.claimant.wplaceUserId),
-      mask: claim.pixels,
-      mine: view.me !== null && region.claimant.wplaceUserId === view.me.wplaceUserId,
-    })
-  }
-  for (const quick of quickClaimItems(view)) {
-    items.push({
-      key: quick.key,
-      kind: 'quick',
-      rect: quick.rect,
-      colour: quick.painter === null ? [1, 1, 1] : presenceRgb(quick.painter.wplaceUserId),
-      mask: null,
-      mine: quick.mine,
-    })
-  }
-  for (const [index, pixels] of (claimEditorPixels()?.parts ?? []).entries()) {
-    items.push({
-      key: `${TOOL_KEY}:${index}`,
-      kind: 'tool',
-      rect: pixels.rect,
-      colour: view.me === null ? [1, 1, 1] : presenceRgb(view.me.wplaceUserId),
-      mask: pixels,
-    })
-  }
-  return items
-}
+const WHITE = [1, 1, 1] as const
+
+/** The scene as drawable items. A draft too large to carry its mask is only its viewport here. */
+const currentItems = (): Item[] =>
+  presenceScene()
+    .filter((item) => item.kind !== 'draft' || item.mask !== null)
+    .map((item) => ({
+      key: item.id,
+      kind: item.kind,
+      rect: item.rect,
+      colour: item.painter === null ? WHITE : presenceRgb(item.painter.wplaceUserId),
+      mask: item.mask,
+      mine: item.mine,
+      follows: item.follows,
+    }))
 
 const tileRect = (tile: TileQuad): PresenceRect => ({
   x: tile.tile.x * TILE_SIZE,
@@ -335,17 +287,18 @@ class PresenceLayer {
   private vao: WebGLVertexArrayObject | null = null
   private readonly uniforms = new Map<string, WebGLUniformLocation | null>()
   private readonly masks = new Map<string, MaskTexture>()
-  private readonly retained = new Map<string, Item>()
+  private readonly retained = new Map<SceneItemId, Item>()
   private readonly fades = ramps()
   /** How far each of your own claims has stepped aside under the pointer, 0 to 1. */
   private readonly hovers = ramps()
-  private readonly motions = new Map<string, Motion>()
+  private readonly motions = new Map<SceneItemId, Motion>()
   private readonly corners = new Float32Array(4 * 6)
 
   constructor() {
     registerProfileMemorySource('Presence GPU masks', () =>
       [...this.masks.values()].reduce((bytes, mask) => bytes + mask.width * mask.height, 0),
     )
+    setSceneMotion((id) => this.displayedRect(id))
   }
 
   /**
@@ -373,8 +326,8 @@ class PresenceLayer {
     return { rect: t >= 1 ? motion.to : lerpRect(motion.from, motion.to, t), moving: t < 1 }
   }
 
-  /** The rect a keyed item is drawn at right now, for name tags that follow the motion. */
-  displayedRect(key: string): PresenceRect | null {
+  /** The rect an item is drawn at right now, for name tags that follow the motion. */
+  displayedRect(key: SceneItemId): PresenceRect | null {
     const item = this.retained.get(key)
     if (item === undefined) return null
     return this.displayRect(item, performance.now()).rect
@@ -562,22 +515,21 @@ class PresenceLayer {
     const { program, vao, quad } = this
     if (program === null || vao === null || quad === null) return
     const now = performance.now()
-    // The editor's own claim shows even with other painters hidden; it is the user's own work.
     const items = currentItems()
-    const hovered = hoveredPresenceItems()
+    const hovered = hoveredSceneItems()
     recordProfileWorkload('Presence overlay items', items.length)
-    const keys = new Set<string>()
+    const keys = new Set<SceneItemId>()
     for (const item of items) {
       keys.add(item.key)
       this.retained.set(item.key, item)
     }
     // Everything drawn is what is present or still fading out. Ramps start from zero, so a new
-    // item arrives over the shared fade rather than appearing. The editor's claim skips the ramp:
-    // a shape being dragged has to follow the pointer this frame.
+    // item arrives over the shared fade rather than appearing. What follows a gesture skips the
+    // ramp: a shape being dragged has to follow the pointer this frame.
     let animating = false
     const drawn: { item: Item; fade: number }[] = []
     for (const [key, item] of this.retained) {
-      if (item.kind === 'tool' || key === QUICK_CLAIM_PREVIEW_KEY) {
+      if (item.follows === true) {
         if (keys.has(key)) drawn.push({ item, fade: 1 })
         else this.retained.delete(key)
         continue
@@ -653,10 +605,6 @@ class PresenceLayer {
 }
 
 export const presenceLayer = new PresenceLayer()
-
-/** Where a peer's viewport or draft is drawn right now, mid-glide included. */
-export const displayedPresenceRect = (key: string): PresenceRect | null =>
-  presenceLayer.displayedRect(key)
 
 /** Ask MapLibre for a frame after presence data changed while the map is idle. */
 export const repaintPresence = (): void => {

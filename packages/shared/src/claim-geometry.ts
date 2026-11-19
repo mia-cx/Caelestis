@@ -43,6 +43,10 @@ const lerp = (a: Point, b: Point, t: number): Point => ({
 const clampInt = (value: number, min: number, max: number): number =>
   Math.min(max, Math.max(min, Math.round(value)))
 
+/** Whether a point lies inside a rect, its left and top edges included. */
+export const rectContains = (rect: PresenceRect, point: Point): boolean =>
+  point.x >= rect.x && point.y >= rect.y && point.x < rect.x + rect.w && point.y < rect.y + rect.h
+
 /** The whole world pixel a fractional canvas coordinate falls in, kept on the canvas. */
 export const worldPixel = (value: number): number =>
   Math.min(WORLD_PIXELS - 1, Math.max(0, Math.floor(value)))

@@ -48,9 +48,13 @@ export const isMapPress = (target: EventTarget | null): boolean =>
 /**
  * Eat the click that follows a gesture we consumed, so Wplace never treats it as a pixel
  * selection. Only a click `owns` accepts is eaten: when touch emits none, the user's next
- * toolbar action must still land.
+ * toolbar action must still land. A release's own click arrives before the next task, so a
+ * gesture that is sure of its click can expire the swallow at once (`expiresAfter` 0).
  */
-export const swallowNextClick = (owns: (target: EventTarget | null) => boolean): void => {
+export const swallowNextClick = (
+  owns: (target: EventTarget | null) => boolean,
+  expiresAfter = SWALLOW_CLICK_MS,
+): void => {
   const types = ['click', 'auxclick'] as const
   const stop = (): void => {
     for (const type of types) window.removeEventListener(type, swallow, true)
@@ -62,7 +66,7 @@ export const swallowNextClick = (owns: (target: EventTarget | null) => boolean):
     event.preventDefault()
     event.stopImmediatePropagation()
   }
-  const timer = setTimeout(stop, SWALLOW_CLICK_MS)
+  const timer = setTimeout(stop, expiresAfter)
   for (const type of types) window.addEventListener(type, swallow, true)
 }
 

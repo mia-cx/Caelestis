@@ -29,9 +29,9 @@ import {
 import { installPaintTargetGuard, syncPaintTargetMap } from './paint-target-guard.js'
 import { installPaintPaletteProgress, refreshPaintPaletteFocus } from './palette-decoration.js'
 import { installPresence, onPresenceChange } from './presence-client.js'
-import { onPresenceHoverChange } from './presence-hover.js'
 import { renderPresenceLabels } from './presence-labels.js'
 import { observePresenceFrame } from './presence-local.js'
+import { onSceneHoverChange } from './presence-scene.js'
 import { installProfile, recordProfileAction, registerProfileContextSource } from './profile.js'
 import { readProfileContext } from './profile-context.js'
 import { installQuickClaims, onQuickClaimPreviewChange } from './quick-claims.js'
@@ -217,7 +217,7 @@ const installPresenceFeatures = (): void => {
   // MapLibre coalesces message bursts into one frame, which also refreshes the screen controls.
   onPresenceChange(repaintPresence)
   onClaimEditorChange(repaintPresence)
-  onPresenceHoverChange(repaintPresence)
+  onSceneHoverChange(repaintPresence)
   onQuickClaimPreviewChange(repaintPresence)
   installQuickClaims()
   installClaimToolHost()

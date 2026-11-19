@@ -6,8 +6,7 @@ import {
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { beforeAll, beforeEach, expect, it, vi } from 'vitest'
-import type { PresenceView } from './presence-client.js'
-import { installQuickClaims, quickClaimItems, quickClaimRect } from './quick-claims.js'
+import { installQuickClaims, quickClaimRect } from './quick-claims.js'
 
 const harness = vi.hoisted(() => ({
   open: true,
@@ -209,33 +208,6 @@ it('snaps each corner to the whole pixel under it and keeps the rectangle on the
     w: 2,
     h: 4,
   })
-})
-
-it("draws your quick claims while painting and others' only where claims show", () => {
-  const me = { wplaceUserId: 1, displayName: 'Mia' }
-  const peer = { wplaceUserId: 2, displayName: 'Other painter' }
-  const view: PresenceView = {
-    peers: [
-      {
-        sessionId: 'peer',
-        painter: peer,
-        viewport: null,
-        draft: null,
-        quickClaims: [{ x: 5, y: 5, w: 5, h: 5 }],
-      },
-    ],
-    regions: [],
-    online: 1,
-    connected: true,
-    me,
-  }
-  drag([0, 0], [3, 3])
-  expect(quickClaimItems(view).map(({ key, mine }) => [key, mine])).toEqual([
-    ['quick:me:0', true],
-    ['quick:peer:0', false],
-  ])
-  harness.showPresenceClaims = false
-  expect(quickClaimItems(view).map(({ key }) => key)).toEqual(['quick:me:0'])
 })
 
 it('ends quick claims when sharing stops and claims nothing while it is off', () => {
