@@ -20,10 +20,15 @@
   import { type PaceSelection, paceWindowUsable } from '#lib/components/stats/pace-selection.svelte.js'
   import PainterPicker from '#lib/components/stats/PainterPicker.svelte'
   import PacePicker from '#lib/components/stats/PacePicker.svelte'
+  import RangePresets from './RangePresets.svelte'
+  import { ChartWindow } from './time-window.svelte.js'
   import {
-    availableRangePresets,
     axisScale,
     clampWindow,
+    DRAG_THRESHOLD_PX,
+    interpolateValue,
+    paceAt,
+    lerpRate,
     clipSeries,
     nearestSorted,
     PACE_WINDOWS,
@@ -129,40 +134,10 @@
       painterHistories.some((source) => source.history.buckets.length > 0),
   )
 
-  // ── Time window ──────────────────────────────────────────────────────────────────────────────
-  // `null` shows the whole fetched range. Presets stay attached to a moving live edge, while
-  // pointer and keyboard selections keep their absolute timestamps across a re-fetch.
-  let selection = $state<TimeWindow | null>(null)
-  let relativePreset = $state<number | null>(null)
-  const span = $derived(to - from)
-  const MIN_SELECTION = $derived(Math.min(span, resolution * 6))
-  const view = $derived.by<TimeWindow>(() => {
-    if (relativePreset !== null) {
-      return clampWindow({ from: to - relativePreset, to }, from, to, MIN_SELECTION)
-    }
-    return selection === null ? { from, to } : clampWindow(selection, from, to, MIN_SELECTION)
-  })
-  const zoomed = $derived(view.from > from || view.to < to)
-  const resetWindow = (): void => {
-    relativePreset = null
-    selection = null
-  }
-  const selectWindow = (window: TimeWindow): void => {
-    relativePreset = null
-    selection = window
-  }
-  const selectPreset = (seconds: number): void => {
-    relativePreset = seconds
-    selection = null
-  }
+  const timeWindow = new ChartWindow(() => ({ from, to, resolution }))
+  const view = $derived(timeWindow.view)
+  const span = $derived(timeWindow.span)
 
-  const presets = $derived(availableRangePresets(span, MIN_SELECTION))
-  const presetActive = (seconds: number): boolean => relativePreset === seconds
-
-  const lerpRate = (a: PaceRatePoint, b: PaceRatePoint, fraction: number): PaceRatePoint => ({
-    t: a.t + (b.t - a.t) * fraction,
-    v: a.v + (b.v - a.v) * fraction,
-  })
 
 
   const observedPaces = $derived(observedProgressIntervals(samples))
@@ -432,7 +407,6 @@
   /** The time under a pointer, given the plot's left edge and displayed domain. */
   const timeIn = (range: TimeWindow, clientX: number, left: number): number =>
     range.from + ((clientX - left - pad.left) / plotWidth) * (range.to - range.from)
-  const timeAt = (clientX: number, left: number): number => timeIn(shownView, clientX, left)
 
   const linePath = (series: readonly { t: number; v: number }[]): string =>
     series
@@ -492,24 +466,6 @@
     archive: boolean
   }
 
-  const interpolateValue = <T extends { t: number }>(
-    series: readonly T[],
-    t: number,
-    value: (point: T) => number,
-    clamp = false,
-  ): number | null => {
-    let previous: T | undefined
-    for (const point of series) {
-      if (point.t === t) return value(point)
-      if (point.t > t) {
-        if (previous === undefined) return clamp ? value(point) : null
-        const fraction = (t - previous.t) / (point.t - previous.t)
-        return value(previous) + (value(point) - value(previous)) * fraction
-      }
-      previous = point
-    }
-    return previous === undefined || !clamp ? null : value(previous)
-  }
 
   let hover = $state<HoverPoint | null>(null)
   /** What the keyboard walk just landed on, for assistive technology. Pointer hovers stay quiet. */
@@ -538,10 +494,8 @@
 
 
   const hoverPointer = (clientX: number, left: number): void =>
-    hoverAt(nearestSorted(hoverSnapTimes, timeAt(clientX, left)))
+    hoverAt(nearestSorted(hoverSnapTimes, timeIn(shownView, clientX, left)))
 
-  const hoverPace = (series: readonly { t: number; v: number }[], t: number): number | null =>
-    interpolateValue(series, t, (point) => point.v)
 
   /** Each painter appears once, with their available rolling windows in chart order. */
   const hoverPaceRows = $derived.by(() => {
@@ -558,7 +512,7 @@
       colour: string,
       series: readonly PaceRatePoint[],
     ): void => {
-      const value = hoverPace(series, t)
+      const value = paceAt(series, t)
       if (value === null) return
       const row = rows.get(id) ?? { name, rates: [] }
       row.rates.push({ window, value, colour })
@@ -681,11 +635,11 @@
 
   const hoverSummary = (point: HoverPoint): string => {
     const paces = activePaces.flatMap((pace) => {
-      const value = hoverPace(pace.series, point.t)
+      const value = paceAt(pace.series, point.t)
       return value === null ? [] : [`${pace.key} pace ${formatCount(value)} px/h`]
     })
     const painterPaces = activePainterLines.flatMap((line) => {
-      const value = hoverPace(line.series, point.t)
+      const value = paceAt(line.series, point.t)
       return value === null
         ? []
         : [
@@ -722,7 +676,7 @@
         break
       case 'Escape':
         if (hover !== null) hover = null
-        else if (zoomed) resetWindow()
+        else if (timeWindow.zoomed) timeWindow.reset()
         else return
         event.preventDefault()
         return
@@ -783,7 +737,7 @@
       plotDrag = null
       scrubbing = false
       if (drag !== null) {
-        selectWindow(
+        timeWindow.select(
           clampWindow(
             {
               from: snapTime(Math.min(drag.from, drag.to), resolution, from, to),
@@ -791,7 +745,7 @@
             },
             from,
             to,
-            MIN_SELECTION,
+            timeWindow.minSelection,
           ),
         )
       }
@@ -809,7 +763,7 @@
         if (move.pointerId !== event.pointerId) return
         const left = plot.getBoundingClientRect().left
         const current = clampView(timeIn(dragView, move.clientX, left))
-        if (!moved && Math.abs(move.clientX - startX) > 4) moved = true
+        if (!moved && Math.abs(move.clientX - startX) > DRAG_THRESHOLD_PX) moved = true
         if (moved && scrub && seek !== undefined) {
           scrubbing = true
           seek(current)
@@ -916,22 +870,22 @@
     const move = (moveEvent: PointerEvent): void => {
       if (moveEvent.pointerId !== event.pointerId) return
       const current = brushTime(moveEvent.clientX, strip.getBoundingClientRect().left)
-      if (!moved && Math.abs(moveEvent.clientX - startX) > 4) moved = true
+      if (!moved && Math.abs(moveEvent.clientX - startX) > DRAG_THRESHOLD_PX) moved = true
       switch (kind) {
         case 'head':
-          selectWindow({ from: Math.min(current, view.to - MIN_SELECTION), to: view.to })
+          timeWindow.select({ from: Math.min(current, view.to - timeWindow.minSelection), to: view.to })
           break
         case 'tail':
-          selectWindow({ from: view.from, to: Math.max(current, view.from + MIN_SELECTION) })
+          timeWindow.select({ from: view.from, to: Math.max(current, view.from + timeWindow.minSelection) })
           break
         case 'move': {
           const size = start.to - start.from
           const next = Math.min(to - size, Math.max(from, current - grabOffset))
-          selectWindow({ from: next, to: next + size })
+          timeWindow.select({ from: next, to: next + size })
           break
         }
         case 'new':
-          if (moved) selectWindow({ from: Math.min(t, current), to: Math.max(t, current) })
+          if (moved) timeWindow.select({ from: Math.min(t, current), to: Math.max(t, current) })
           break
       }
     }
@@ -965,93 +919,41 @@
         delta = keyStep * 10
         break
       case 'Home':
-        selectWindow(
+        timeWindow.select(
           edge === 'head'
             ? { from, to: view.to }
-            : { from: view.from, to: view.from + MIN_SELECTION },
+            : { from: view.from, to: view.from + timeWindow.minSelection },
         )
         break
       case 'End':
-        selectWindow(
+        timeWindow.select(
           edge === 'head'
-            ? { from: view.to - MIN_SELECTION, to: view.to }
+            ? { from: view.to - timeWindow.minSelection, to: view.to }
             : { from: view.from, to },
         )
         break
       case 'Escape':
-        resetWindow()
+        timeWindow.reset()
         break
       default:
         return
     }
     event.preventDefault()
     if (delta === null) return
-    selectWindow(
+    timeWindow.select(
       edge === 'head'
-        ? { from: Math.min(view.to - MIN_SELECTION, Math.max(from, view.from + delta)), to: view.to }
+        ? { from: Math.min(view.to - timeWindow.minSelection, Math.max(from, view.from + delta)), to: view.to }
         : {
             from: view.from,
-            to: Math.max(view.from + MIN_SELECTION, Math.min(to, view.to + delta)),
+            to: Math.max(view.from + timeWindow.minSelection, Math.min(to, view.to + delta)),
           },
     )
   }
 
   const grips = $derived<readonly { edge: Edge; t: number; min: number; max: number }[]>([
-    { edge: 'head', t: view.from, min: from, max: view.to - MIN_SELECTION },
-    { edge: 'tail', t: view.to, min: view.from + MIN_SELECTION, max: to },
+    { edge: 'head', t: view.from, min: from, max: view.to - timeWindow.minSelection },
+    { edge: 'tail', t: view.to, min: view.from + timeWindow.minSelection, max: to },
   ])
-
-  // ── Range presets as a segmented control ────────────────────────────────────────────────────
-  // JS measures the active button and writes its offset and width
-  // onto the pill; CSS owns the tween. The first paint and every re-measure snap without a
-  // transition, and a window that matches no preset hides the pill instead of parking it.
-  let tabsBar = $state<HTMLDivElement | null>(null)
-  let tabsPill = $state<HTMLSpanElement | null>(null)
-  const activePreset = $derived(
-    zoomed ? (presets.find((preset) => presetActive(preset.seconds))?.key ?? null) : 'all',
-  )
-  let pillKey: string | null | undefined
-
-  const movePill = (pill: HTMLElement, tab: HTMLElement, animate: boolean): void => {
-    if (!animate) {
-      const previous = pill.style.transition
-      pill.style.transition = 'none'
-      pill.style.transform = `translateX(${tab.offsetLeft}px)`
-      pill.style.width = `${tab.offsetWidth}px`
-      void pill.offsetWidth
-      pill.style.transition = previous
-    } else {
-      pill.style.transform = `translateX(${tab.offsetLeft}px)`
-      pill.style.width = `${tab.offsetWidth}px`
-    }
-  }
-
-  $effect(() => {
-    const bar = tabsBar
-    const pill = tabsPill
-    const key = activePreset
-    if (bar === null || pill === null) return
-    const button =
-      key === null ? null : bar.querySelector<HTMLElement>(`[data-range-preset="${key}"]`)
-    const animate = pillKey !== undefined && pillKey !== null && pillKey !== key
-    pillKey = key
-    if (button !== null) movePill(pill, button, animate)
-  })
-
-  $effect(() => {
-    const bar = tabsBar
-    const pill = tabsPill
-    if (bar === null || pill === null || typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(() => {
-      const button =
-        activePreset === null
-          ? null
-          : bar.querySelector<HTMLElement>(`[data-range-preset="${activePreset}"]`)
-      if (button !== null) movePill(pill, button, false)
-    })
-    observer.observe(bar)
-    return () => observer.disconnect()
-  })
 
   const chartLabel = $derived(
     `Cumulative pixels painted and rolling pace from ${formatTime(view.from)} to ${formatTime(view.to)}${
@@ -1107,37 +1009,12 @@
     {#if hasActivity}
       <div class="ms-auto flex items-center gap-2">
         <span class="text-base-content/65">range</span>
-        <div
-          class="t-tabs"
-          role="group"
-          aria-label="time range"
-          data-empty={activePreset === null ? '' : undefined}
-          bind:this={tabsBar}
-        >
-          <span class="t-tabs-pill" aria-hidden="true" bind:this={tabsPill}></span>
-          {#each presets as preset (preset.key)}
-            <button
-              type="button"
-              class="t-tab tabular-nums"
-              aria-pressed={activePreset === preset.key}
-              data-range-preset={preset.key}
-              title="Show {preset.label}"
-              onclick={() => selectPreset(preset.seconds)}
-            >
-              {preset.key}
-            </button>
-          {/each}
-          <button
-            type="button"
-            class="t-tab"
-            aria-pressed={activePreset === 'all'}
-            data-range-preset="all"
-            title="Show the whole history"
-            onclick={resetWindow}
-          >
-            all
-          </button>
-        </div>
+        <RangePresets
+          presets={timeWindow.presets}
+          active={timeWindow.activePreset}
+          onPreset={timeWindow.preset}
+          onAll={timeWindow.reset}
+        />
       </div>
     {/if}
   </div>
@@ -1176,7 +1053,7 @@
           }
         }}
         onpointerdown={onPlotPointerDown}
-        ondblclick={resetWindow}
+        ondblclick={timeWindow.reset}
         onkeydown={onPlotKey}
       >
         {#each leftScale.ticks as tick (tick)}
@@ -1383,7 +1260,7 @@
               stroke-width="1.5"
             />{/if}
             {#each activePaces as pace (pace.id)}
-              {@const value = hoverPace(pace.series, hover.t)}
+              {@const value = paceAt(pace.series, hover.t)}
               {#if value !== null}
                 <circle
                   cx={x(hover.t)}
@@ -1396,7 +1273,7 @@
               {/if}
             {/each}
             {#each activePainterLines as line (`${line.painter.wplaceUserId}:${line.window}`)}
-              {@const value = hoverPace(line.series, hover.t)}
+              {@const value = paceAt(line.series, hover.t)}
               {#if value !== null}
                 <circle
                   cx={x(hover.t)}
@@ -1444,7 +1321,7 @@
               <span>{hover.cumMismatched?.toLocaleString() ?? 'No coverage'}</span>
             </span>
           </div>
-          {#if archiveSamples.length > 0 && activePaces.some((pace) => hover !== null && archiveCountsFor(pace.seconds) && hover.t - pace.seconds < (points[0]?.t ?? Infinity) && hoverPace(pace.series, hover.t) !== null)}
+          {#if archiveSamples.length > 0 && activePaces.some((pace) => hover !== null && archiveCountsFor(pace.seconds) && hover.t - pace.seconds < (points[0]?.t ?? Infinity) && paceAt(pace.series, hover.t) !== null)}
             <p class="mt-2 text-base-content/60">Includes imported net progress.</p>
           {/if}
           {#if hoverPaceRows.length > 0}
@@ -1486,7 +1363,7 @@
       aria-label="time window"
       title="Drag to choose the time window. Double-click to show everything."
       onpointerdown={onBrushPointerDown}
-      ondblclick={resetWindow}
+      ondblclick={timeWindow.reset}
     >
       <svg {width} height={BRUSH_HEIGHT} shape-rendering="crispEdges" class="block" aria-hidden="true">
         <rect
@@ -1525,7 +1402,7 @@
           />
         {/if}
       </svg>
-      {#if zoomed}
+      {#if timeWindow.zoomed}
         <span
           data-brush-move
           class="absolute inset-y-0 z-20 cursor-grab"
@@ -1569,3 +1446,25 @@
     </div>
   {/if}
 </div>
+
+<style>
+  /*
+   * Progress chart load motion. The series and the brush's minimap wipe in from the left when the
+   * chart mounts, so the history arrives as one stroke of time rather than a fade. The clip is
+   * released once the wipe has run; the negative insets keep stroke caps and the live marker's halo
+   * out of the clip while it is active. Pace lines switched on later only fade, so the wipe stays a
+   * once-per-load moment, and the global reduced-motion rule in app.css turns it into a cut.
+   */
+  .chart-reveal {
+    clip-path: none;
+    animation: chart-reveal 600ms ease-out;
+  }
+  @keyframes chart-reveal {
+    from {
+      clip-path: inset(-12px 100% -12px -12px);
+    }
+    to {
+      clip-path: inset(-12px -12px -12px -12px);
+    }
+  }
+</style>

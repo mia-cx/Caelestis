@@ -269,3 +269,38 @@ export const availableRangePresets = (span: number, minimum: number): RangePrese
 /** One arrow-key nudge: about a hundredth of the history, never finer than a bucket. */
 export const windowKeyStep = (span: number, resolution: number): number =>
   Math.max(resolution, Math.ceil(span / 100 / resolution) * resolution)
+
+/** Pointer travel, in CSS pixels, past which a press on the plot or the brush becomes a drag. */
+export const DRAG_THRESHOLD_PX = 4
+
+export const lerpRate = (a: PaceRatePoint, b: PaceRatePoint, fraction: number): PaceRatePoint => ({
+  t: a.t + (b.t - a.t) * fraction,
+  v: a.v + (b.v - a.v) * fraction,
+})
+
+/**
+ * A series' value at `t`, interpolated between its neighbours. Outside the series it is null, or
+ * the nearest end's value with `clamp`.
+ */
+export const interpolateValue = <T extends { readonly t: number }>(
+  series: readonly T[],
+  t: number,
+  value: (point: T) => number,
+  clamp = false,
+): number | null => {
+  let previous: T | undefined
+  for (const point of series) {
+    if (point.t === t) return value(point)
+    if (point.t > t) {
+      if (previous === undefined) return clamp ? value(point) : null
+      const fraction = (t - previous.t) / (point.t - previous.t)
+      return value(previous) + (value(point) - value(previous)) * fraction
+    }
+    previous = point
+  }
+  return previous === undefined || !clamp ? null : value(previous)
+}
+
+/** A rate series' value at `t`, or null outside it. */
+export const paceAt = (series: readonly PaceRatePoint[], t: number): number | null =>
+  interpolateValue(series, t, (point) => point.v)
