@@ -6,13 +6,8 @@ import {
 } from '@caelestis/shared'
 import { activeAllianceSurface, allianceSurfaceBounds } from '../alliance-surface.js'
 import { log, warn } from '../debug.js'
-import {
-  canvasPixelAt,
-  cssPixelsPerCanvasPixel,
-  isMapInteractionTarget,
-  repaint,
-  screenPointFor,
-} from '../map-view.js'
+import { isMapPress, swallowNextClick } from '../map-pointer.js'
+import { canvasPixelAt, cssPixelsPerCanvasPixel, repaint, screenPointFor } from '../map-view.js'
 import {
   clearLocalPreview,
   isDeletingLocal,
@@ -270,7 +265,8 @@ const isPlacementInteractionTarget = (
   surface: TemplateSurface,
   target: EventTarget | null,
 ): boolean => {
-  if (surface.kind === 'world') return !isPageControl(target) && isMapInteractionTarget(target)
+  // Placement also leaves editable text, links and our own panels to the page, on either surface.
+  if (surface.kind === 'world') return isMapPress(target) && !isDirectControl(target)
   if (isDirectControl(target) || target === null) return false
   const active = matchingAllianceSurface(surface)
   if (active === null) return false
@@ -378,7 +374,10 @@ const onPointerUp = (event: PointerEvent): void => {
     setCursor(isOverTemplate(event.clientX, event.clientY) ? 'grab' : '')
     event.preventDefault()
     event.stopPropagation()
-    swallowNextClick()
+    const surface = sessionTemplate()?.surface ?? WORLD_TEMPLATE_SURFACE
+    swallowNextClick((target) =>
+      surface.kind === 'world' ? !isPageControl(target) : !isDirectControl(target),
+    )
   }
   if (suppressMiddleAuxClickFor === event.pointerId) {
     const pointerId = event.pointerId
@@ -386,22 +385,6 @@ const onPointerUp = (event: PointerEvent): void => {
       if (suppressMiddleAuxClickFor === pointerId) suppressMiddleAuxClickFor = null
     }, 0)
   }
-}
-
-const swallowNextClick = (): void => {
-  const clickTarget = window
-  const template = sessionTemplate()
-  const surface = template?.surface ?? WORLD_TEMPLATE_SURFACE
-  const swallow = (event: Event): void => {
-    clickTarget.removeEventListener('click', swallow, true)
-    clearTimeout(timer)
-    if (surface.kind === 'world' ? isPageControl(event.target) : isDirectControl(event.target))
-      return
-    event.preventDefault()
-    event.stopPropagation()
-  }
-  const timer = setTimeout(() => clickTarget.removeEventListener('click', swallow, true), 400)
-  clickTarget.addEventListener('click', swallow, true)
 }
 
 const onPointerCancel = (event: PointerEvent): void => {
