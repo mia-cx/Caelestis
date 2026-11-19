@@ -1,6 +1,7 @@
 import {
   defaultTemplateSort,
   EMPTY_TEMPLATE_FILTERS,
+  isSimulatedInput,
   isTemplateSortField,
   isWorkIdentity,
   normaliseShortcutOverrides,
@@ -13,6 +14,8 @@ import {
   SERVER_ASSET_MAX_BYTES,
   type ServerAssetKind,
   type ShortcutOverrides,
+  SIMULATED_INPUT_FLAGS,
+  type SimulatedInput,
   type SimulatedInputSwitches,
   type SyncTransport,
   type TemplateFilters,
@@ -387,15 +390,49 @@ const storedSwitches = (): Partial<Record<keyof GlobalSettings, boolean>> => {
   return switches
 }
 
-const storeSwitches = (patch: Partial<State>): void => {
+/** Each Dangerous settings switch, also under its own key for the same reason. */
+const SIMULATED_INPUT_PREFIX = `${SWITCH_PREFIX}simulatedInput.`
+const SIMULATED_INPUTS = Object.keys(SIMULATED_INPUT_FLAGS).filter(isSimulatedInput)
+
+/** The Dangerous settings switches: each one's own key wins over its copy in `recorded`. */
+const simulatedInputFrom = (recorded: unknown): SimulatedInputSwitches => {
+  const switches: Partial<Record<SimulatedInput, true>> = { ...normaliseSimulatedInput(recorded) }
+  for (const id of SIMULATED_INPUTS) {
+    let value: string | null = null
+    try {
+      value = storedValue(`${SIMULATED_INPUT_PREFIX}${id}`)
+    } catch {
+      // The record's copy stands in.
+    }
+    if (value === 'true') switches[id] = true
+    else if (value === 'false') delete switches[id]
+  }
+  return switches
+}
+
+const storeSwitch = (key: string, value: boolean): void => {
+  try {
+    storeValue(key, String(value))
+  } catch (error) {
+    warn('install', `could not persist ${key}`, String(error))
+  }
+}
+
+/**
+ * Store each switch `patch` sets under its own key. Of the Dangerous settings, only those that
+ * differ from `previous` are stored, so a copy of the others another context has since changed is
+ * never written back.
+ */
+const storeSwitches = (patch: Partial<State>, previous: SimulatedInputSwitches = {}): void => {
   for (const name of GLOBAL_SETTINGS) {
     const value = patch[name]
-    if (value === undefined) continue
-    try {
-      storeValue(`${SWITCH_PREFIX}${name}`, String(value))
-    } catch (error) {
-      warn('install', `could not persist ${name}`, String(error))
-    }
+    if (value !== undefined) storeSwitch(`${SWITCH_PREFIX}${name}`, value)
+  }
+  const next = patch.simulatedInput
+  if (next === undefined) return
+  for (const id of SIMULATED_INPUTS) {
+    const on = next[id] === true
+    if (on !== (previous[id] === true)) storeSwitch(`${SIMULATED_INPUT_PREFIX}${id}`, on)
   }
 }
 
@@ -438,18 +475,36 @@ export const storedGlobalSettings = (): GlobalSettings =>
 export const storeGlobalSetting = (key: keyof GlobalSettings, value: boolean): void =>
   storeSwitches({ [key]: value })
 
+/** The Dangerous settings switches as stored right now. */
+export const storedSimulatedInput = (): SimulatedInputSwitches =>
+  simulatedInputFrom(storedRecord().simulatedInput)
+
+/** Switch one Dangerous setting in storage; the toolbar popup's write. */
+export const storeSimulatedInput = (id: SimulatedInput, value: boolean): void =>
+  storeSwitch(`${SIMULATED_INPUT_PREFIX}${id}`, value)
+
+/** The shortcut keys as stored, which the toolbar popup's hints name. */
+export const storedShortcutOverrides = (): ShortcutOverrides =>
+  normaliseShortcutOverrides(storedRecord().shortcutOverrides)
+
+const sameSwitches = (a: SimulatedInputSwitches, b: SimulatedInputSwitches): boolean =>
+  Object.keys(a).length === Object.keys(b).length &&
+  Object.keys(a).every((id) => b[id as SimulatedInput] === true)
+
 // A global setting changed in the toolbar popup or another tab applies here without a reload. Only
 // those switches are adopted: the rest of this tab's state, such as its live server connections,
 // stays its own.
 onStoredValueChange((key) => {
   if (key !== STORAGE_KEY && !key.startsWith(SWITCH_PREFIX)) return
   const next = storedGlobalSettings()
+  const simulatedInput = storedSimulatedInput()
   const current: GlobalSettings = state
   if (
+    sameSwitches(simulatedInput, state.simulatedInput) &&
     Object.entries(next).every(([name, value]) => current[name as keyof GlobalSettings] === value)
   )
     return
-  state = { ...state, ...next }
+  state = { ...state, ...next, simulatedInput }
   notifyStateListeners()
 })
 
@@ -457,7 +512,11 @@ export const loadState = (): State => {
   const storedRaw = readRaw()
   if (storedRaw === null) {
     // No record yet, but the switches may already be set, from the extension's popup.
-    state = { ...state, ...globalSettingsFrom(storedSwitches()) }
+    state = {
+      ...state,
+      ...globalSettingsFrom(storedSwitches()),
+      simulatedInput: simulatedInputFrom(undefined),
+    }
     return state
   }
   try {
@@ -693,7 +752,7 @@ export const loadState = (): State => {
         stored.colourNavigationOrder === 'mismatched-first'
           ? 'mismatched-first'
           : 'unpainted-first',
-      simulatedInput: normaliseSimulatedInput(stored.simulatedInput),
+      simulatedInput: simulatedInputFrom(stored.simulatedInput),
       markerBudget: normaliseMarkerBudget(stored.markerBudget),
       localFolders,
       localClaims: Array.isArray(stored.localClaims)
@@ -847,9 +906,10 @@ export const setSurfaceAppearance = (
 export const setState = (patch: Partial<State>): State => {
   if (patch.appearance !== undefined) globalAppearancePreview = null
   if (patch.allianceSurfaceAppearances !== undefined) allianceAppearancePreviews.clear()
+  const previous = state.simulatedInput
   state = { ...state, ...patch }
   writeRaw(JSON.stringify(state))
-  storeSwitches(patch)
+  storeSwitches(patch, previous)
   notifyStateListeners()
   return state
 }
@@ -858,7 +918,7 @@ export const setState = (patch: Partial<State>): State => {
 export const commitState = (patch: Partial<State>): boolean => {
   const next = { ...state, ...patch }
   if (!writeRaw(JSON.stringify(next))) return false
-  storeSwitches(patch)
+  storeSwitches(patch, state.simulatedInput)
   state = next
   notifyStateListeners()
   return true
