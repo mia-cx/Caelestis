@@ -565,28 +565,6 @@ const syncServerTemplates = (
   void serverTemplatesSettled(server, surface)
 }
 
-// Every admitted manifest reaches the canvas, whichever read, poll or event brought it in.
-onManifestChange((server, surface, change) => {
-  if (change.status === 'admitted')
-    syncServerTemplates(server, change.contents.templates, change.current, surface)
-})
-
-// A disconnected server's downloads land stale rather than drawing an overlay with no server row
-// left to control it, and the overlays it already drew go with it. The chunk caches are
-// content-addressed and cannot tell whose bytes are whose; the manifest entries are the last thing
-// that knows, so they hand their hashes over on the way out.
-onServerRemoved(async (serverUrl) => {
-  pendingServerSyncs.forget(serverUrl)
-  serverSyncRuns.forget(serverUrl)
-  inFlight.forget(serverUrl)
-  for (const { template } of latest.forget(serverUrl).values())
-    for (const chunk of template.chunks) {
-      chunkCache.delete(chunk.hash)
-      decodedChunks.delete(chunk.hash)
-    }
-  await forgetTemplateCopies((copy) => copy.origin === 'server' && copy.server.url === serverUrl)
-})
-
 /**
  * Keep every connected server's world templates on the canvas.
  *
@@ -596,6 +574,27 @@ onServerRemoved(async (serverUrl) => {
  */
 export const installServerSync = (): void => {
   setServerPixelSource(downloadAgain)
+  // Every admitted manifest reaches the canvas, whichever read, poll or event brought it in.
+  onManifestChange((server, surface, change) => {
+    if (change.status === 'admitted')
+      syncServerTemplates(server, change.contents.templates, change.current, surface)
+  })
+
+  // A disconnected server's downloads land stale rather than drawing an overlay with no server row
+  // left to control it, and the overlays it already drew go with it. The chunk caches are
+  // content-addressed and cannot tell whose bytes are whose; the manifest entries are the last thing
+  // that knows, so they hand their hashes over on the way out.
+  onServerRemoved(async (serverUrl) => {
+    pendingServerSyncs.forget(serverUrl)
+    serverSyncRuns.forget(serverUrl)
+    inFlight.forget(serverUrl)
+    for (const { template } of latest.forget(serverUrl).values())
+      for (const chunk of template.chunks) {
+        chunkCache.delete(chunk.hash)
+        decodedChunks.delete(chunk.hash)
+      }
+    await forgetTemplateCopies((copy) => copy.origin === 'server' && copy.server.url === serverUrl)
+  })
   registerServerSyncResource({
     id: 'world-manifest',
     live: true,
