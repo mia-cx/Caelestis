@@ -6,7 +6,7 @@ import { activeAllianceSurface, installAllianceSurfaceObserver } from './allianc
 import { installClaims } from './claims.js'
 import { installDebugApi, loadDebugSetting, warn } from './debug.js'
 import { clearDraftPixels, reconcileDrafts, syncDraftCanvases } from './draft-pixels.js'
-import { installAllianceOverlayLayer, repaintAllianceOverlayLayer } from './gl/artboard-layer.js'
+import { installAllianceOverlayLayer } from './gl/artboard-layer.js'
 import { onMapThemeChange } from './gl/contrast-outline.js'
 import { outlineLayer, overlayLayer } from './gl/layer.js'
 import { installLayerStack } from './gl/layer-stack.js'
@@ -17,9 +17,7 @@ import { installKeyboardShortcuts } from './keyboard-shortcuts.js'
 import { getMap, installMapCapture, onMapAttached, type PatchableMap } from './map-handle.js'
 import {
   installMapView,
-  notifyArtboardViewChange,
   onMapFrame,
-  onRedraw,
   onViewChange,
   redraw,
   repaint,
@@ -46,7 +44,7 @@ import { installOfficialEvents, syncOfficialOverlays } from './templates/officia
 import { installPersonalTemplates } from './templates/personal-sync.js'
 import { installServerSync } from './templates/server-sync.js'
 import { syncStudioFrame } from './templates/studio-frame.js'
-import { captureTilePixels } from './tile-pixels.js'
+import { installTilePixelCapture } from './tile-capture-scope.js'
 import { install as installTileCapture } from './tile-transform.js'
 import { installChargeForecast } from './ui/charge-forecast.js'
 import { renderOverlayControls } from './ui/overlay-menu.js'
@@ -63,7 +61,7 @@ import { installColourPicker } from './wplace-picker.js'
 import { installWplaceSettings } from './wplace-settings.js'
 import { installWplaceStateCapture } from './wplace-state.js'
 import { onWplacePatchChange } from './wplace-switches.js'
-import { installServiceWorkerTap, watchCaptureScope } from './wplace-tile-refresh.js'
+import { installServiceWorkerTap } from './wplace-tile-refresh.js'
 
 /** Run one independent piece of start-up without letting its failure cancel the rest. */
 const step = (what: string, run: () => void): void => {
@@ -153,8 +151,7 @@ export const installFeatures = (): void => {
   step('presence', installPresenceFeatures)
   step('tile pixel capture', installTilePixelCapture)
   step('overlay layer', attachOverlayLayer)
-  step('alliance overlay layer', () => installAllianceOverlayLayer(notifyArtboardViewChange))
-  onRedraw(repaintAllianceOverlayLayer)
+  step('alliance overlay layer', installAllianceOverlayLayer)
   onMapFrame((frame) => {
     if (activeAllianceSurface() === null) renderOverlayControls(repaint, frame.canvas)
   }, 'Overlay controls')
@@ -220,43 +217,6 @@ const installPresenceFeatures = (): void => {
   onMapFrame((frame) => {
     if (activeAllianceSurface() === null) renderPresenceLabels(frame, screenProjection())
   }, 'Presence labels')
-}
-
-/**
- * Start capturing before the first frame, not on it.
- *
- * A tile can only be caught as it is decoded, and the tiles filling the viewport on a page load
- * are decoded during the load — before any layer of ours has drawn. Deciding whether to capture at
- * draw time meant missing every one of them, and each then waited on wplace re-fetching it, which
- * is why a tile panned to answered in under a second while the ones already on screen took ten.
- */
-const installTilePixelCapture = (): void => {
-  // The pipette fallback reads the exact pixel-art tile, so Paint itself is a pixel consumer even
-  // when mismatch markers are off. Starting at drawer-open gives visible tiles time to populate
-  // before the one-shot picker click; a miss is also chased on demand by `placedIndexAt`.
-  const interest = (tile: { readonly x: number; readonly y: number }): boolean =>
-    isPaintOpen() || pixelAccounting.wantsTilePixels(tile)
-  const captureScope = watchCaptureScope()
-  const sync = (): void => {
-    // The scope holds a tile exactly when `wantsTilePixels()` would answer yes, and unlike it,
-    // costs nothing on a frame where nothing changed.
-    const scope = pixelAccounting.captureScopeTiles()
-    captureTilePixels(scope.size > 0 || isPaintOpen(), interest)
-    // Pixels kept while capture was off may be stale, and tiles are no longer re-downloaded on a
-    // timer to correct them. When capture starts caring about a tile, re-read it.
-    captureScope(isPaintOpen(), scope)
-  }
-  sync()
-  onStateChange(sync)
-  onLocalChange(sync)
-  // Hidden-template progress widens the scope without a frame, and its idle scan can run first.
-  pixelAccounting.onCaptureScopeChange(sync)
-  onPaintSelectionChange(sync)
-  // And on every frame that carries tiles. The four above are the events that *should* cover it,
-  // and between them they missed the only one that mattered: at start-up nothing is restored yet,
-  // so the first call answers "nothing wants this" and the restore that follows does not
-  // necessarily announce itself. Asking again per frame costs a comparison and cannot be wrong.
-  onMapFrame(sync, 'Tile pixel capture state')
 }
 
 /** Keep our GL layers, and the features bound to the map, on whichever map Wplace shows. */

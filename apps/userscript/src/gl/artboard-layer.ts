@@ -8,6 +8,7 @@ import {
 import { type CanvasDraw, onCanvasWrite } from '../canvas-write.js'
 import { warn } from '../debug.js'
 import type { PixelRect, Placement } from '../geometry.js'
+import { notifyArtboardViewChange, onRedraw } from '../map-view.js'
 import { onOverlayPeekChange, overlayPeekFade } from '../overlay-peek.js'
 import {
   isProfileEnabled,
@@ -16,19 +17,17 @@ import {
   recordProfileWorkload,
   registerProfileMemorySource,
 } from '../profile.js'
-import { getState, onlySelectedColourFor, onStateChange } from '../settings.js'
+import { getState, onlySelectedColourFor } from '../settings.js'
 import { isPlain, toRgbUnit } from '../templates/appearance.js'
 import {
   displayTemplatesForSurface,
   isTemplateDraft,
   noteTemplatesInView,
-  onLocalChange,
-  onLocalPreviewChange,
 } from '../templates/local-store.js'
 import { fixedMarkList, type MarkList, markSeed } from '../templates/mark-list.js'
 import { abortMoveOutsideSurface } from '../templates/move.js'
 import { detachOverlayControls, renderAllianceOverlayControls } from '../ui/overlay-menu.js'
-import { isPaintOpen, onPaintSelectionChange, selectedColour } from '../wplace-paint.js'
+import { isPaintOpen, selectedColour } from '../wplace-paint.js'
 import { prefersReducedMotion } from './appearance-transition.js'
 import {
   type ArtboardMarkerBatch,
@@ -1048,7 +1047,6 @@ class ArtboardRenderer {
 }
 
 let renderer: ArtboardRenderer | null = null
-let viewportChangeListener: () => void = () => {}
 
 export const allianceOverlayGpuMemoryBytes = (): number => renderer?.memoryBytes() ?? 0
 
@@ -1060,16 +1058,18 @@ const reconcileRenderer = (): void => {
   if (active === null) return
   const geometry = artboardGeometry(active)
   if (geometry === null || geometry.width <= 0 || geometry.height <= 0) return
-  renderer = ArtboardRenderer.create(active, geometry, viewportChangeListener)
+  renderer = ArtboardRenderer.create(active, geometry, notifyArtboardViewChange)
   renderer?.requestRender()
   void refreshArtboardPixels(active, geometry)
 }
 
-export const repaintAllianceOverlayLayer = (): void => renderer?.requestRender()
+const repaintAllianceOverlayLayer = (): void => renderer?.requestRender()
 
-/** Attach viewport-resolution WebGL passes inside whichever Wplace alliance artboard is open. */
-export const installAllianceOverlayLayer = (onViewportChange: () => void = () => {}): void => {
-  viewportChangeListener = onViewportChange
+/**
+ * Attach viewport-resolution WebGL passes inside whichever Wplace alliance artboard is open. They
+ * repaint on every `redraw`, and report their pans as view changes.
+ */
+export const installAllianceOverlayLayer = (): void => {
   registerProfileMemorySource('Alliance overlay GPU buffers', allianceOverlayGpuMemoryBytes)
   onActiveAllianceSurfaceChange(reconcileRenderer)
   onHeadquartersRevisionChange((allianceId) => {
@@ -1084,11 +1084,9 @@ export const installAllianceOverlayLayer = (onViewportChange: () => void = () =>
       if (geometry !== null) void refreshArtboardPixels(active, geometry)
     })
   })
-  onLocalChange(repaintAllianceOverlayLayer)
-  onLocalPreviewChange(repaintAllianceOverlayLayer)
+  onRedraw(repaintAllianceOverlayLayer)
+  // Peek fades without a redraw: it touches no state the world map's frame reads.
   onOverlayPeekChange(repaintAllianceOverlayLayer)
-  onStateChange(repaintAllianceOverlayLayer)
-  onPaintSelectionChange(() => renderer?.requestRender())
   onArtboardPixelsChange(() => renderer?.nativePixelsChanged())
   onCanvasWrite((canvas, dirty, draw) => renderer?.nativeCanvasWritten(canvas, dirty, draw))
   reconcileRenderer()
