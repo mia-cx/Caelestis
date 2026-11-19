@@ -45,13 +45,3 @@ export const sumColourProgress = (
   }
   return [...totals.values()].sort((left, right) => left.index - right.index)
 }
-
-export const freshestProgress = (
-  server: TemplateProgress,
-  _local: TemplateProgress,
-): TemplateProgress => server
-
-export const freshestColourProgress = (
-  server: readonly TemplateColourProgress[],
-  _local: readonly TemplateColourProgress[],
-): readonly TemplateColourProgress[] => server

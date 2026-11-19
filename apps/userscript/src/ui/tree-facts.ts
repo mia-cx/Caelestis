@@ -11,13 +11,7 @@ import {
 } from '../templates/catalog.js'
 import { pixelAccounting } from '../templates/mismatch.js'
 import type { TemplateColourProgress, TemplateProgress } from '../templates/progress-types.js'
-import {
-  emptyProgress,
-  freshestColourProgress,
-  freshestProgress,
-  sumColourProgress,
-  sumProgress,
-} from './progress.js'
+import { emptyProgress, sumColourProgress, sumProgress } from './progress.js'
 import { type TreeFacts, templateTreeKeyFor } from './tree-context.js'
 
 /**
@@ -61,7 +55,10 @@ export const treeFacts = (
   }
 }
 
-/** A server template's progress: the server's counts, or the drawn copy's when it is fresher. */
+/**
+ * A server template's progress. On the world the server's counts win even over a drawn copy; on
+ * an alliance surface only the drawn copy counts.
+ */
 export const serverTemplateProgress = (
   facts: TreeFacts,
   surface: TemplateSurface,
@@ -73,13 +70,7 @@ export const serverTemplateProgress = (
   if (drawn === undefined) return baseline
   if (surface.kind !== 'world') return facts.progress(drawn)
   const serverColours = serverColourProgressFor(server, template)
-  if (serverColours !== null) {
-    return (
-      sumProgress(freshestColourProgress(serverColours, pixelAccounting.read(drawn).colours)) ??
-      baseline
-    )
-  }
-  return freshestProgress(baseline, pixelAccounting.read(drawn).progress)
+  return serverColours === null ? baseline : (sumProgress(serverColours) ?? baseline)
 }
 
 /** A server template's per-colour progress, or undefined when nobody has counted it. */
@@ -91,11 +82,7 @@ export const serverTemplateColourProgress = (
 ): readonly TemplateColourProgress[] | undefined => {
   const drawn = facts.drawnServerTemplate(server, template.id)
   if (surface.kind !== 'world') return drawn === undefined ? undefined : facts.colourProgress(drawn)
-  const serverProgress = serverColourProgressFor(server, template)
-  if (serverProgress === null) return undefined
-  return drawn === undefined
-    ? serverProgress
-    : freshestColourProgress(serverProgress, pixelAccounting.read(drawn).colours)
+  return serverColourProgressFor(server, template) ?? undefined
 }
 
 /** Per-colour totals for a rollup, only when they account for every pixel of `overall`. */
