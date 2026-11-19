@@ -83,7 +83,6 @@ export const nodeTemplateContractExpected = {
   cycleError: 'InvalidNodeParentError',
   pathConflictError: 'NodePathConflictError',
   subtree: { nodes: 2, templates: 1 },
-  cascade: { nodes: 2, templates: 1 },
   cascadeTemplateRemoved: true,
   crossSeasonError: 'InvalidNodeParentError',
   rootPlacement: { updated: true, nodeId: null, name: 'Renamed' },
@@ -139,14 +138,13 @@ export const runNodeTemplateContract = async (sql: SqlStore) => {
   })
 
   const subtree = await sql.countNodeSubtree(ids.root)
-  const cascade = await sql.deleteNodeCascade(ids.root, subtree)
+  await sql.deleteNodeCascade(ids.root, subtree)
 
   return {
     childPath,
     cycleError,
     pathConflictError,
     subtree,
-    cascade,
     cascadeTemplateRemoved: (await sql.readTemplate(ids.cascadeTemplate)) === null,
     crossSeasonError,
     rootPlacement: {

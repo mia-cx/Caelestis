@@ -120,7 +120,7 @@ export interface NodeStore {
   deleteNode(nodeId: string): Promise<void>
 
   /** Throws `NodeSubtreeChangedError` unless the subtree still holds exactly `expected`. */
-  deleteNodeCascade(nodeId: string, expected: NodeDeletion): Promise<NodeDeletion>
+  deleteNodeCascade(nodeId: string, expected: NodeDeletion): Promise<void>
 
   /** How much a cascading delete would remove, without removing it. */
   countNodeSubtree(nodeId: string): Promise<NodeDeletion>

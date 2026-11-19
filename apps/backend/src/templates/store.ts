@@ -67,7 +67,7 @@ export interface TemplateRecord {
   readonly published: boolean
   /** Frozen timelapses are exempt from decay through their freeze instant. */
   readonly timelapseFrozen: boolean
-  readonly timelapseFrozenAt?: Millis | null
+  readonly timelapseFrozenAt: Millis | null
   readonly finished: boolean
   readonly finishedAt: Millis | null
   readonly createdAt: Millis
@@ -297,9 +297,9 @@ export interface TemplateStore {
   readTemplate(templateId: string): Promise<TemplateRecord | null>
 
   /**
-   * Rename a template, move it to another node, or both. Returns false when the id does not exist,
-   * or when a guarded move loses a race with another move or delete. A caller that distinguishes
-   * those outcomes must re-read the row.
+   * Apply `patch` to a template. Returns false when the id does not exist, when a guarded move
+   * loses a race with another move or delete, or when a thaw that does not also reopen the
+   * template finds it finished. A caller that distinguishes those outcomes must re-read the row.
    *
    * A template is a leaf with no materialized path, so moving one is a single column. Throws
    * `NodeNotFoundError` when the destination node does not exist, so a typo cannot orphan a

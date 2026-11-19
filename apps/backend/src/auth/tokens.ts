@@ -13,9 +13,6 @@ const ALPHABET = 'ABCDEFGHJKMNPQRSTVWXYZ0123456789'
 const TOKEN_BYTES = 16
 const BITS_PER_CHARACTER = 5
 
-/** 128 bits at 5 bits per character, rounded up. */
-export const TOKEN_LENGTH = Math.ceil((TOKEN_BYTES * 8) / BITS_PER_CHARACTER)
-
 /**
  * A fresh token. 128 bits from the platform CSPRNG.
  *

@@ -31,7 +31,7 @@ import {
 import { assertUnchanged, readMigrations } from './migrations.js'
 
 /** Translate parameter markers while preserving quoted strings and identifiers verbatim. */
-export const postgresParameters = (query: string): string => {
+const postgresParameters = (query: string): string => {
   let ordinal = 0
   return query.replace(/'(?:''|[^'])*'|"(?:""|[^"])*"|\?\d*/g, (token) => {
     if (!token.startsWith('?')) return token

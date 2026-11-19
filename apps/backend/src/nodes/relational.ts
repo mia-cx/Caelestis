@@ -328,7 +328,7 @@ export class RelationalNodeStore extends RelationalStore implements NodeStore {
     return { nodes: nodeRows[0]?.count ?? 0, templates: templateRows[0]?.count ?? 0 }
   }
 
-  async deleteNodeCascade(nodeId: string, expected: NodeDeletion): Promise<NodeDeletion> {
+  async deleteNodeCascade(nodeId: string, expected: NodeDeletion): Promise<void> {
     const node = await this.readNode(nodeId)
     if (node === null) throw new NodeNotFoundError(`node does not exist: ${nodeId}`)
     // Every statement reads the root path inside the same transaction. Carrying `node.path` from the
@@ -396,7 +396,5 @@ export class RelationalNodeStore extends RelationalStore implements NodeStore {
       }
       throw new NodeSubtreeChangedError('node subtree changed after it was counted')
     }
-
-    return expected
   }
 }

@@ -128,10 +128,8 @@ export const deleteNodeCascade = (
     if (node === null) {
       return yield* Effect.fail(new NotFoundError({ message: 'not found' }))
     }
-    const deleted = yield* fromPort('deleteNodeCascade', () =>
-      sql.deleteNodeCascade(nodeId, expected),
-    )
-    if (deleted.templates > 0) {
+    yield* fromPort('deleteNodeCascade', () => sql.deleteNodeCascade(nodeId, expected))
+    if (expected.templates > 0) {
       yield* Effect.promise(() =>
         bestEffort(() => statusReadModel.applyCommittedChange(node.season)),
       )
@@ -139,7 +137,7 @@ export const deleteNodeCascade = (
     yield* Effect.promise(() =>
       bestEffort(() => statusReadModel.notifyManifestChange(node.season, node.surface)),
     )
-    return deleted
+    return expected
   })
 
 export const deleteEmptyNode = (
