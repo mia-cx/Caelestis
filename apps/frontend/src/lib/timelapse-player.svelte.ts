@@ -1,10 +1,15 @@
-import { parseTileKey, type Template, type TileKey } from '@caelestis/shared'
+import {
+  type CanvasTileSummary,
+  parseTileKey,
+  type Template,
+  type TileKey,
+} from '@caelestis/shared'
 import { mergeArchiveFrames, type PlaybackFrame } from '@caelestis/social'
 import { untrack } from 'svelte'
 import { getArchiveHistory, getTileHistory } from '#lib/api/client.js'
-import { persisted } from '#lib/persisted.svelte.js'
+import { STORAGE_KEYS } from '#lib/deployment.js'
+import { Persisted } from '#lib/persisted.svelte.js'
 import { type TimelapseLayout, timelapseLayout } from '#lib/render.js'
-import { useApp } from '#lib/state/app.svelte.js'
 import { frameAt, playbackSpeed, TimelapseClock, transportScale } from '#lib/timelapse.js'
 
 const timelineOf = (map: ReadonlyMap<TileKey, readonly PlaybackFrame[]>): number[] => {
@@ -15,6 +20,16 @@ const timelineOf = (map: ReadonlyMap<TileKey, readonly PlaybackFrame[]>): number
   return [...starts].sort((a, b) => a - b)
 }
 
+/** What a timelapse plays, read through getters so it follows the page's reactive state. */
+export interface TimelapseSource {
+  /** Every new list loads the timelapse again, so pass a new one only when the scope changes. */
+  readonly templates: () => readonly Template[]
+  /** Undefined until the manifest is known; nothing loads before then. */
+  readonly season: () => number | undefined
+  /** The latest observed canvas, shown at the live end. */
+  readonly canvas: () => ReadonlyMap<TileKey, CanvasTileSummary>
+}
+
 /**
  * One timelapse over a set of templates on a shared world canvas. Each tile loads the history its
  * capturing templates recorded, between the earliest start and latest finish among them.
@@ -23,8 +38,7 @@ const timelineOf = (map: ReadonlyMap<TileKey, readonly PlaybackFrame[]>): number
  * it through `seekTo` and `beginScrub`.
  */
 export class TimelapsePlayer {
-  readonly #templates: () => readonly Template[]
-  readonly #app = useApp()
+  readonly #source: TimelapseSource
 
   frames = $state<ReadonlyMap<TileKey, readonly PlaybackFrame[]> | null>(null)
   archiveError = $state<string | null>(null)
@@ -34,23 +48,10 @@ export class TimelapsePlayer {
   playhead = $state(0)
   playing = $state(false)
 
-  // Statuses rebuild the template list often. Reload only when what was recorded can differ.
-  readonly #scope = $derived(
-    this.templates
-      .map((template) => `${template.id}:${template.version}:${template.finishedAt}`)
-      .join(' '),
-  )
-  readonly #season = $derived(this.#app.manifest?.season)
-  readonly layout: TimelapseLayout = $derived.by(() => {
-    void this.#scope
-    return untrack(() => timelapseLayout(this.templates))
-  })
+  readonly layout: TimelapseLayout = $derived(timelapseLayout(this.templates))
 
   readonly timeline = $derived(this.frames === null ? [] : timelineOf(this.frames))
   readonly #playback = $derived(new TimelapseClock(this.timeline, this.historyEnd))
-  // The slider walks a bounded step domain: stepping through recorded seconds made bits-ui build a
-  // list of every second in the range on each playhead move, which stalled playback and exhausted
-  // memory on phones.
   readonly transport = $derived(
     transportScale(this.timeline[0] ?? this.historyEnd, this.historyEnd),
   )
@@ -64,7 +65,7 @@ export class TimelapsePlayer {
   readonly hashFor = $derived.by(() => {
     const map = this.frames
     const t = this.scrubTime
-    const canvas = this.#app.canvas
+    const canvas = this.#source.canvas()
     if (t == null || map === null) {
       return (key: TileKey) => canvas.get(key)?.hash
     }
@@ -81,17 +82,17 @@ export class TimelapsePlayer {
   })
 
   /** Playback rate: 1× is one recorded hour per 350 ms, independent of snapshot density. */
-  readonly #storedSpeed = persisted<number>('caelestis:timelapse-speed', 1)
+  readonly #storedSpeed = new Persisted<number>(STORAGE_KEYS.timelapseSpeed, 1)
   readonly speed = $derived(playbackSpeed(this.#storedSpeed.value) ?? 1)
   /** Recorded seconds that playback covers, from the first snapshot to the live end. */
   readonly span = $derived(this.historyEnd - (this.timeline[0] ?? this.historyEnd))
 
-  constructor(templates: () => readonly Template[]) {
-    this.#templates = templates
+  constructor(source: TimelapseSource) {
+    this.#source = source
 
     $effect(() => {
       const layout = this.layout
-      const season = this.#season
+      const season = this.#source.season()
       if (season === undefined) return
       return untrack(() => this.#load(layout, season))
     })
@@ -110,7 +111,7 @@ export class TimelapsePlayer {
   }
 
   get templates(): readonly Template[] {
-    return this.#templates()
+    return this.#source.templates()
   }
 
   /** Keep a valid speed; invalid input leaves the current speed in place. */

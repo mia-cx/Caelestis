@@ -4,19 +4,17 @@
   import MenuStyles from '../foundations/MenuStyles.svelte'
   import PixelStyles from '../foundations/PixelStyles.svelte'
   import GlobalSettings from '../settings/GlobalSettings.svelte'
-  import type { ExtensionSettingsModel, GlobalSettingsIntent } from '../types.js'
+  import type { ExtensionSettingsModel } from '../settings/model.js'
+  import { intentEmitter } from './registry.js'
 
   /** The extension's toolbar popup: the settings that apply to every Wplace tab. */
   let { model }: { model?: ExtensionSettingsModel } = $props()
-  const element: HTMLElement = $host()
-  const emit = (detail: GlobalSettingsIntent): void => {
-    element.dispatchEvent(new CustomEvent('caelestis-extension-settings-intent', { detail, bubbles: true, composed: true }))
-  }
+  const emit = intentEmitter($host(), 'caelestis-extension-settings')
 </script>
 
 <MenuStyles />
 
-{#if model !== undefined}
+{#if model}
   <div class="settings">
     <p class="version">Extension {model.version}</p>
     {#each ['notifications', 'contribution', 'painters', 'wplace-performance', 'diagnostics', 'accessibility', 'dangerous'] as const as section}
@@ -29,6 +27,6 @@
 
 <style>
   :host { display: block; }
-  .settings { padding-block-end: 0.75rem; color: var(--caelestis-text); font: 400 0.875rem/1.35 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); }
+  .settings { padding-block-end: 0.75rem; color: var(--caelestis-text); font: 400 0.875rem/1.35 var(--caelestis-font); }
   .version { margin: 0.6rem var(--caelestis-content-inset, 1rem) 0; color: var(--caelestis-muted-text); font-size: 0.72rem; }
 </style>

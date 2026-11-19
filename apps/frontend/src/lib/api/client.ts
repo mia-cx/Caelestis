@@ -1,16 +1,19 @@
 import {
   type AlarmsResponse,
+  API_VERSION_PATH,
   type ArchiveHistory,
   type CanvasTilesResponse,
   type ContributionsResponse,
   type HistoryResponse,
+  isTransientStatus,
   type LeaderboardResponse,
-  LIVE_PROTOCOL_V1,
   LIVE_PROTOCOL_V2,
+  liveCredentialProtocol,
   type Manifest,
   type PainterHistoryResponse,
   type PainterTotalsResponse,
   type ProgressHistoryResponse,
+  resolveServerUrl,
   type ServerAsset,
   type ServerAssetKind,
   type ServerInfo,
@@ -18,77 +21,84 @@ import {
   serverAssetPath,
   type TemplateProgressHistoryResponse,
   type TileHistoryResponse,
+  tileImagePath,
   uuidV7,
 } from '@caelestis/shared'
+import { LIVE_PATH, READ_PROXY, STORAGE_KEYS } from '../deployment.js'
 import { sanitizeServerInfo } from '../server-info.js'
 import { frontendClientAccept } from './client-metrics.js'
-import { isServerUrlConfigured, resolveSelectedServerUrl, resolveServerUrl } from './server-url.js'
 
+const { server: SERVER_KEY, token: TOKEN_KEY, liveClientId: LIVE_CLIENT_ID_KEY } = STORAGE_KEYS
+type ApiVersionPath = typeof API_VERSION_PATH | ''
+/** Servers whose `/server` answered only at the unversioned root (see `getServer`). */
+const legacyServers = new Set<string>()
+const apiVersionPath = (): ApiVersionPath =>
+  typeof window !== 'undefined' && legacyServers.has(readServerUrl()) ? '' : API_VERSION_PATH
+const DEV_SERVER = 'http://127.0.0.1:8787'
 /**
  * A configured server is fixed for the deployment. Without one, the selected server and access
  * token live in localStorage.
  */
-const SERVER_KEY = 'caelestis:server'
-const TOKEN_KEY = 'caelestis:token'
-const LIVE_CLIENT_ID_KEY = 'caelestis:live-client-id'
-const API_VERSION_PATH = '/v1'
-type ApiVersionPath = typeof API_VERSION_PATH | ''
-let apiVersionPath: ApiVersionPath = API_VERSION_PATH
-const configuredServer = import.meta.env.VITE_CAELESTIS_SERVER as string | undefined
+const configuredServer =
+  (import.meta.env.VITE_CAELESTIS_SERVER as string | undefined)?.replace(/\/+$/, '') || null
 
-export const serverUrlIsConfigured = isServerUrlConfigured(configuredServer)
+export const serverUrlIsConfigured = configuredServer !== null
 
+/**
+ * The stored server choice (null for none) and the token that belongs to it. A stored server that
+ * no longer resolves (an older dialog accepted URLs with credentials) counts as none, so the dialog
+ * can replace it, and its token goes with it: the default server never receives that credential.
+ */
+const storedConnection = (): { readonly server: string | null; readonly token: string | null } => {
+  const token = localStorage.getItem(TOKEN_KEY)
+  const stored = serverUrlIsConfigured ? null : localStorage.getItem(SERVER_KEY)
+  if (stored === null || stored.length === 0) return { server: null, token }
+  try {
+    return { server: resolveServerUrl(stored), token }
+  } catch {
+    return { server: null, token: null }
+  }
+}
+
+/** The deployment's configured base URL as given, else the stored or default server's. */
 export const readServerUrl = (): string =>
-  resolveServerUrl(
-    configuredServer,
-    localStorage.getItem(SERVER_KEY),
-    import.meta.env.DEV,
-    window.location.origin,
-  )
+  configuredServer ??
+  storedConnection().server ??
+  resolveServerUrl(import.meta.env.DEV ? DEV_SERVER : window.location.origin)
 
-export const readToken = (): string | null => localStorage.getItem(TOKEN_KEY)
+export const readToken = (): string | null => storedConnection().token
 
 /**
  * Where the browser loads an operator's logo or preview from: the read proxy on the server render
  * and for the configured server, the chosen server's own origin otherwise.
  */
 export const serverAssetUrl = (kind: ServerAssetKind, asset: ServerAsset): string => {
-  const path = `${apiVersionPath}${serverAssetPath(kind, asset)}`
+  const path = `${apiVersionPath()}${serverAssetPath(kind, asset)}`
   return typeof window === 'undefined' || usesServerReadProxy()
-    ? `/api${path}`
+    ? `${READ_PROXY}${path}`
     : `${readServerUrl()}${path}`
 }
 
 /** Use the SSR Worker credential only for its configured/default server and never for user choices. */
-export const usesServerReadProxy = (): boolean =>
-  readToken() === null &&
-  (serverUrlIsConfigured ||
-    localStorage.getItem(SERVER_KEY) === null ||
-    readServerUrl() === `${window.location.origin.replace(/\/+$/, '')}/backend`)
-
-export const writeConnection = (url: string, token: string | null): void => {
-  if (!serverUrlIsConfigured) localStorage.setItem(SERVER_KEY, resolveSelectedServerUrl(url))
-  if (token === null || token.length === 0) localStorage.removeItem(TOKEN_KEY)
-  else localStorage.setItem(TOKEN_KEY, token)
+export const usesServerReadProxy = (): boolean => {
+  if (readToken() !== null) return false
+  if (serverUrlIsConfigured) return true
+  const stored = storedConnection().server
+  return stored === null || stored === resolveServerUrl(window.location.origin)
 }
 
-const liveCredentialProtocol = (token: string): string => {
-  const bytes = new TextEncoder().encode(token)
-  let binary = ''
-  for (const byte of bytes) binary += String.fromCharCode(byte)
-  return `caelestis.auth.b64.${btoa(binary)
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '')}`
+/** Throws a TypeError for a server URL that is not HTTP(S) or carries credentials. */
+export const writeConnection = (url: string, token: string | null): void => {
+  if (!serverUrlIsConfigured) localStorage.setItem(SERVER_KEY, resolveServerUrl(url))
+  if (token === null || token.length === 0) localStorage.removeItem(TOKEN_KEY)
+  else localStorage.setItem(TOKEN_KEY, token)
 }
 
 /** Open live reads through the Worker when it owns the credential. */
 export const openLiveSocket = (season: number, admin: boolean): WebSocket => {
   const proxy = usesServerReadProxy()
   const endpoint = new URL(
-    proxy
-      ? `/api${apiVersionPath}/telemetry/live`
-      : `${readServerUrl()}${apiVersionPath}/telemetry/live`,
+    `${proxy ? READ_PROXY : readServerUrl()}${apiVersionPath()}${LIVE_PATH}`,
     window.location.href,
   )
   endpoint.protocol = endpoint.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -96,7 +106,7 @@ export const openLiveSocket = (season: number, admin: boolean): WebSocket => {
   endpoint.searchParams.set('scope', admin ? 'admin' : 'public')
   endpoint.searchParams.set('client', 'frontend')
   endpoint.searchParams.set('stateVector', '1')
-  const protocols = [LIVE_PROTOCOL_V2, LIVE_PROTOCOL_V1]
+  const protocols = [LIVE_PROTOCOL_V2]
   const token = readToken()
   if (!proxy && token !== null) protocols.push(liveCredentialProtocol(token))
   if (!proxy && token === null) {
@@ -122,9 +132,6 @@ export class ApiError extends Error {
 const retryableMethod = (method: string | undefined): boolean =>
   method === undefined || method.toUpperCase() === 'GET' || method.toUpperCase() === 'HEAD'
 
-const transientStatus = (status: number): boolean =>
-  status === 408 || status === 429 || status >= 500
-
 /** One transient edge/backend failure must not strand the app until the user reloads it. */
 const fetchWithTransientRetry = async (url: string, init: RequestInit): Promise<Response> => {
   let first: Response
@@ -134,14 +141,14 @@ const fetchWithTransientRetry = async (url: string, init: RequestInit): Promise<
     if (!retryableMethod(init.method)) throw error
     return fetch(url, init)
   }
-  if (!retryableMethod(init.method) || !transientStatus(first.status)) return first
+  if (!retryableMethod(init.method) || !isTransientStatus(first.status)) return first
   return fetch(url, init)
 }
 
 const request = async (
   path: string,
   init?: RequestInit,
-  versionPath: ApiVersionPath = apiVersionPath,
+  versionPath: ApiVersionPath = apiVersionPath(),
 ): Promise<Response> => {
   const token = readToken()
   const proxy = usesServerReadProxy()
@@ -158,7 +165,7 @@ const request = async (
     reconciles ? frontendClientAccept('recovery', 'connect') : frontendClientAccept(),
   )
   if (token !== null) headers.set('authorization', `Bearer ${token}`)
-  const endpoint = proxy ? `/api${versionPath}${path}` : `${readServerUrl()}${versionPath}${path}`
+  const endpoint = `${proxy ? READ_PROXY : readServerUrl()}${versionPath}${path}`
   const response = await fetchWithTransientRetry(endpoint, { ...init, headers })
   if (!response.ok) {
     let message = response.statusText
@@ -176,15 +183,20 @@ const request = async (
 const json = async <T>(path: string, versionPath?: ApiVersionPath): Promise<T> =>
   (await request(path, undefined, versionPath)).json() as Promise<T>
 
+/**
+ * Read the connected server and learn its API path: servers that predate the versioned API answer
+ * 404 there, and every later request to them uses the unversioned root.
+ */
 export const getServer = async (): Promise<ServerInfo> => {
-  apiVersionPath = API_VERSION_PATH
+  const url = readServerUrl()
+  legacyServers.delete(url)
   try {
     return sanitizeServerInfo(await json('/server', API_VERSION_PATH))
   } catch (error) {
     if (!(error instanceof ApiError) || error.status !== 404) throw error
   }
   const server = await json<ServerInfo>('/server', '')
-  apiVersionPath = ''
+  legacyServers.add(url)
   return sanitizeServerInfo(server)
 }
 
@@ -304,41 +316,16 @@ export const getTileHistory = (
   json(`/telemetry/tiles/${x}/${y}/history?season=${season}&from=${from}&to=${to}`)
 
 /**
- * Authenticated image loading.
- *
- * `/chunks` and `/tiles` require a bearer token, which an `<img src>` cannot carry. Fetch each image
- * as a blob and return an object URL. Content hashes make cache invalidation unnecessary.
+ * `/chunks` and `/tiles` require a bearer token, which an `<img src>` cannot carry, so an image is
+ * fetched as a blob behind an object URL. The caller owns the URL; `render.ts` caches the decoded
+ * image and revokes it.
  */
-const blobCache = new Map<string, Promise<string>>()
-const BLOB_CACHE_LIMIT = 512
-
-export const loadImageUrl = (path: string): Promise<string> => {
-  const cached = blobCache.get(path)
-  if (cached !== undefined) return cached
-  const url = request(path)
-    .then(async (response) => URL.createObjectURL(await response.blob()))
-    .catch((error) => {
-      blobCache.delete(path)
-      throw error
-    })
-  if (blobCache.size >= BLOB_CACHE_LIMIT) {
-    const oldest = blobCache.keys().next().value
-    if (oldest !== undefined) {
-      blobCache.get(oldest)?.then(URL.revokeObjectURL, () => {})
-      blobCache.delete(oldest)
-    }
-  }
-  blobCache.set(path, url)
-  return url
-}
+const loadImageUrl = async (path: string): Promise<string> =>
+  URL.createObjectURL(await (await request(path)).blob())
 
 export const chunkImageUrl = (hash: string): Promise<string> => loadImageUrl(`/chunks/${hash}`)
 export const tileImageUrl = (hash: string): Promise<string> =>
-  loadImageUrl(
-    hash.startsWith('archive:')
-      ? `/archive/tiles/${hash.slice('archive:'.length)}`
-      : `/tiles/${hash}`,
-  )
+  loadImageUrl(`/${tileImagePath(hash)}`)
 
 /** Read sparse observations, treating older backends without this route as no archive. */
 export const getArchiveHistory = async (

@@ -1,9 +1,11 @@
 import {
   isUuidV7,
   isWorkIdentity,
+  LIVE_AUTH_PREFIX,
   LIVE_PROTOCOL_V1,
   LIVE_PROTOCOL_V2,
   PRESENCE_PROTOCOL_V1,
+  parseLiveCredentialProtocol,
   parseWholeNumber,
 } from '@caelestis/shared'
 import { Effect, Context as Services } from 'effect'
@@ -25,21 +27,6 @@ import { runBackendHttp } from '../runtime/hono.js'
 import { parseSurface } from './params.js'
 
 const LIVE_PROTOCOLS = [LIVE_PROTOCOL_V2, LIVE_PROTOCOL_V1] as const
-/** Browsers cannot set headers on a websocket, so clients carry a bearer token as a subprotocol. */
-const LIVE_AUTH_PREFIX = 'caelestis.auth.b64.'
-
-const decodeLiveCredential = (encoded: string): string | null => {
-  if (!/^[A-Za-z0-9_-]+$/.test(encoded)) return null
-  try {
-    const base64 = encoded.replace(/-/g, '+').replace(/_/g, '/')
-    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=')
-    const bytes = Uint8Array.from(atob(padded), (character) => character.charCodeAt(0))
-    const token = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes)
-    return token.length === 0 ? null : token
-  } catch {
-    return null
-  }
-}
 
 /** The protocol a websocket asked for and the credential it carries, or null when malformed. */
 const liveAuthorization = (
@@ -62,7 +49,7 @@ const liveAuthorization = (
       ? { protocol }
       : { authorization: authorizationHeader, protocol }
   }
-  const token = decodeLiveCredential(credential.slice(LIVE_AUTH_PREFIX.length))
+  const token = parseLiveCredentialProtocol(credential)
   return token === null ? null : { authorization: `Bearer ${token}`, protocol }
 }
 

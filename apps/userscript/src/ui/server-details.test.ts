@@ -8,7 +8,6 @@ const asset = { etag: 'a'.repeat(64), contentType: 'image/png' as const }
 
 const servers = vi.hoisted(() => ({ list: [] as ConnectedServer[] }))
 
-vi.mock('@caelestis/ui/elements', () => ({ SERVER_DETAILS_TAG: 'caelestis-server-details' }))
 vi.mock('../state.js', () => ({
   getState: () => ({ servers: servers.list }),
   isCurrentServerConnection: () => true,
@@ -54,23 +53,17 @@ afterEach(() => {
   document.body.replaceChildren()
 })
 
-it('closes natively and rejects further work while retaining the editor host for its exit', () => {
-  vi.useFakeTimers()
+it('closes and rejects further work, keeping the editor until its exit ends', () => {
   const connected = server({ id: SERVER_ID, name: 'Allies', auth: 'none' })
   servers.list = [connected]
   openServerDetails(connected, vi.fn())
   const shell = editor()
-  const dialog = shell.attachShadow({ mode: 'open' }).appendChild(document.createElement('dialog'))
-  dialog.style.setProperty('--modal-close-dur', '150ms')
-  dialog.showModal()
   intend({ type: 'close' })
-  expect(dialog.open).toBe(false)
-  expect(shell.isConnected).toBe(true)
+  expect(shell.model.open).toBe(false)
   intend({ type: 'save', fields: { ...shell.model, name: 'Changed' } })
   expect(updateServerDetails).not.toHaveBeenCalled()
-  vi.advanceTimersByTime(149)
   expect(shell.isConnected).toBe(true)
-  vi.advanceTimersByTime(1)
+  intend({ type: 'closed' })
   expect(shell.isConnected).toBe(false)
 })
 
@@ -130,7 +123,8 @@ it('seeds the form from public server info and patches only what changed', async
   })
   await vi.waitFor(() => expect(updateServerDetails).toHaveBeenCalledTimes(1))
   expect(updateServerDetails).toHaveBeenLastCalledWith(expect.anything(), { description: 'New' })
-  await vi.waitFor(() => expect(document.querySelector('caelestis-server-details')).toBeNull())
+  await vi.waitFor(() => expect(editor().model.open).toBe(false))
+  intend({ type: 'closed' })
   servers.list = [connected]
   openServerDetails(connected, rerender)
 
@@ -149,7 +143,7 @@ it('seeds the form from public server info and patches only what changed', async
 
   // A saved edit closes it.
   intend({ type: 'save', fields })
-  await vi.waitFor(() => expect(document.querySelector('caelestis-server-details')).toBeNull())
+  await vi.waitFor(() => expect(editor().model.open).toBe(false))
   expect(updateServerDetails).toHaveBeenLastCalledWith(connected, {
     description: null,
     discordInviteUrl: 'https://discord.gg/abc',
@@ -180,7 +174,4 @@ it('uploads and clears assets, and shows a server refusal', async () => {
   intend({ type: 'clear-asset', kind: 'preview' })
   await vi.waitFor(() => expect(editor().model.error).toBe('admin access required'))
   expect(editor().model.busy).toBe(false)
-
-  intend({ type: 'close' })
-  expect(document.querySelector('caelestis-server-details')).toBeNull()
 })

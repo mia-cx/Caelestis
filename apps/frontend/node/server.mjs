@@ -1,5 +1,10 @@
 import { createServer, request as httpRequest } from 'node:http'
 import { request as httpsRequest } from 'node:https'
+import { API_VERSION_PATH, BACKEND_MOUNT, filterLiveProtocols } from '@caelestis/shared'
+import { LIVE_PATH, READ_PROXY } from '../src/lib/deployment.ts'
+
+/** The one read-proxy route the Node server forwards; SvelteKit's own `/api` route serves the rest. */
+const PUBLIC_LIVE = `${READ_PROXY}${API_VERSION_PATH}${LIVE_PATH}`
 
 /** adapter-node reads the request protocol from the header named by `PROTOCOL_HEADER`. */
 export const ORIGIN_PROTOCOL_HEADER = 'x-caelestis-origin-protocol'
@@ -26,18 +31,14 @@ export const createFrontendServer = (handler, { backend, readToken, objects, ori
     return url
   }
   const proxy = (request, response, head) => {
-    const publicRead = request.url.split('?')[0] === '/api/v1/telemetry/live'
-    const url = target(request.url.slice(publicRead ? '/api'.length : '/backend'.length))
+    const publicRead = request.url.split('?')[0] === PUBLIC_LIVE
+    const url = target(request.url.slice((publicRead ? READ_PROXY : BACKEND_MOUNT).length))
     const headers = { ...request.headers, host: url.host }
     delete headers.cookie
     if (publicRead) {
       headers.authorization = `Bearer ${readToken}`
       // The public read route must never forward a browser-supplied credential protocol.
-      headers['sec-websocket-protocol'] = (headers['sec-websocket-protocol'] ?? '')
-        .split(',')
-        .map((value) => value.trim())
-        .filter((value) => ['caelestis.live.v1', 'caelestis.live.v2'].includes(value))
-        .join(', ')
+      headers['sec-websocket-protocol'] = filterLiveProtocols(headers['sec-websocket-protocol'])
     }
     const upstream = transport(url, { method: request.method, headers })
     const failed = () => {
@@ -97,7 +98,7 @@ export const createFrontendServer = (handler, { backend, readToken, objects, ori
       return
     }
     if (pathname === '/health/ready') {
-      void fetch(target('/v1/manifest'), {
+      void fetch(target(`${API_VERSION_PATH}/manifest`), {
         headers: { authorization: `Bearer ${readToken}` },
         signal: AbortSignal.timeout(4000),
       })
@@ -108,7 +109,7 @@ export const createFrontendServer = (handler, { backend, readToken, objects, ori
         .catch(() => response.writeHead(503).end())
       return
     }
-    if (pathname === '/backend' || pathname.startsWith('/backend/')) {
+    if (pathname === BACKEND_MOUNT || pathname.startsWith(`${BACKEND_MOUNT}/`)) {
       proxy(request, response)
       return
     }
@@ -137,7 +138,7 @@ export const createFrontendServer = (handler, { backend, readToken, objects, ori
   })
   server.on('upgrade', (request, socket, head) => {
     const pathname = request.url.split('?')[0]
-    if (stopping || !(pathname.startsWith('/backend/') || pathname === '/api/v1/telemetry/live')) {
+    if (stopping || !(pathname.startsWith(`${BACKEND_MOUNT}/`) || pathname === PUBLIC_LIVE)) {
       socket.end('HTTP/1.1 404 Not Found\r\nConnection: close\r\nContent-Length: 0\r\n\r\n')
       return
     }

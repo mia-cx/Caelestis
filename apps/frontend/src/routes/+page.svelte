@@ -2,7 +2,6 @@
 import FolderSection from '#lib/components/FolderSection.svelte'
 import HomeCopy from '#lib/components/HomeCopy.svelte'
 import TemplateCard from '#lib/components/TemplateCard.svelte'
-import { Skeleton } from '#lib/components/ui/skeleton/index.js'
 import { useApp } from '#lib/state/app.svelte.js'
 
 const app = useApp()
@@ -21,10 +20,9 @@ const sustainedAlarms = $derived(
     <button class="btn btn-sm" onclick={() => app.load()}>Retry</button>
   </div>
 {:else if tree === null}
-  <!-- The real layout minus the data: folder sections. -->
   <div class="flex flex-col gap-4">
-    <Skeleton class="h-40 w-full rounded-2xl" />
-    <Skeleton class="h-40 w-full rounded-2xl" />
+    <div class="skeleton h-40 w-full rounded-2xl"></div>
+    <div class="skeleton h-40 w-full rounded-2xl"></div>
   </div>
 {:else}
   <div class="flex flex-col gap-4">
@@ -45,7 +43,7 @@ const sustainedAlarms = $derived(
       </div>
     {/if}
     {#each tree.folders as folder (folder.node.id)}
-      <FolderSection {folder} canvas={app.canvas} />
+      <FolderSection {folder} />
     {/each}
 
     {#if tree.templates.length > 0}
@@ -53,7 +51,7 @@ const sustainedAlarms = $derived(
         <h2 class="px-1 pb-3 font-semibold">Ungrouped templates</h2>
         <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {#each tree.templates as entry (entry.template.id)}
-            <TemplateCard {entry} canvas={app.canvas} />
+            <TemplateCard {entry} />
           {/each}
         </div>
       </section>

@@ -5,11 +5,15 @@ import {
   getManifest,
   getServer,
   probeAdminScope,
+  readServerUrl,
+  readToken,
+  usesServerReadProxy,
   writeConnection,
 } from '../lib/api/client'
-import { persisted } from '../lib/persisted.svelte'
+import { STORAGE_KEYS } from '../lib/deployment'
+import { Persisted } from '../lib/persisted.svelte'
 import { AppState } from '../lib/state/app.svelte'
-import { adminToken, authorized, createTestBackend } from './backend'
+import { adminToken, authorized, createTestBackend, frontendFetch } from './backend'
 
 const empty = {
   server: null,
@@ -42,19 +46,7 @@ afterEach(() => {
 const connect = async () => {
   const backend = await createTestBackend({ openAccess: true })
   const requests: Request[] = []
-  vi.stubGlobal(
-    'fetch',
-    vi.fn<typeof fetch>(async (input, init) => {
-      const url = new URL(
-        input instanceof Request ? input.url : String(input),
-        'https://frontend.test',
-      )
-      const path = url.pathname.replace(/^\/(?:api|backend)(?=\/)/, '')
-      const request = new Request(`https://backend.test${path}${url.search}`, init)
-      requests.push(request)
-      return backend.app.fetch(request)
-    }),
-  )
+  vi.stubGlobal('fetch', vi.fn(frontendFetch(backend.app, requests)))
   return { ...backend, requests }
 }
 
@@ -86,15 +78,7 @@ describe('frontend session through the backend HTTP boundary', () => {
   it('a protected server rejects stale credentials and the client opens authentication state', async () => {
     const backend = await createTestBackend()
     writeConnection('https://backend.test', 'revoked-token')
-    vi.stubGlobal(
-      'fetch',
-      vi.fn<typeof fetch>(async (input, init) => {
-        const url = new URL(String(input))
-        return backend.app.fetch(
-          new Request(`https://backend.test${url.pathname.replace('/backend', '')}`, init),
-        )
-      }),
-    )
+    vi.stubGlobal('fetch', vi.fn(frontendFetch(backend.app)))
     const state = makeState()
     await state.load()
     expect(state.authRequired).toBe(true)
@@ -173,12 +157,26 @@ describe('frontend session through the backend HTTP boundary', () => {
   })
 })
 
+it('treats a stored server URL with credentials as no choice, so the default server applies anonymously', () => {
+  // Older connect dialogs stored such values; the current rules refuse them.
+  const connection = () => ({
+    server: readServerUrl(),
+    token: readToken(),
+    proxy: usesServerReadProxy(),
+  })
+  const fallback = connection()
+  localStorage.setItem(STORAGE_KEYS.server, 'https://user:pw@other.example')
+  expect(connection()).toEqual(fallback)
+  localStorage.setItem(STORAGE_KEYS.token, 'other-server-token')
+  expect(connection()).toEqual(fallback)
+})
+
 it('preferences recover from corrupt storage and retain session values when persistence fails', () => {
   localStorage.setItem('preference', '{broken')
-  const preference = persisted('preference', 0.5)
+  const preference = new Persisted('preference', 0.5)
   expect(preference.value).toBe(0.5)
   preference.value = 0.8
-  expect(persisted('preference', 0.5).value).toBe(0.8)
+  expect(new Persisted('preference', 0.5).value).toBe(0.8)
   vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
     throw new Error('storage unavailable')
   })

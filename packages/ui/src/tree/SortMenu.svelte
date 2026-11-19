@@ -2,14 +2,13 @@
   import MenuStyles from '../foundations/MenuStyles.svelte'
   import { defaultTemplateSort, isTemplateSortField, TEMPLATE_SORTS, type TemplateSortField, type TemplateSortOrder } from '@caelestis/shared'
   import Icon from '../foundations/Icon.svelte'
+  import { anchorPopover } from '../foundations/popover.js'
 
   let { sort, onSort }: { sort: TemplateSortOrder; onSort: (sort: TemplateSortOrder) => void } = $props()
   let trigger: HTMLButtonElement
   let menu: HTMLDivElement
   let open = $state(false)
   const menuId = $props.id()
-  let left = $state(0)
-  let top = $state(0)
   const fields = Object.keys(TEMPLATE_SORTS).filter(isTemplateSortField)
   const selectedLabel = $derived(`${TEMPLATE_SORTS[sort.field].label}${sort.field === 'custom' ? '' : `, ${sort.direction === 'asc' ? 'ascending' : 'descending'}`}`)
   const label = $derived(`Sort templates: ${selectedLabel}`)
@@ -19,10 +18,8 @@
     if (restoreFocus) trigger.focus()
   }
   const show = (last = false): void => {
-    const rect = trigger.getBoundingClientRect()
     menu.showPopover()
-    left = Math.max(8, Math.min(rect.right - menu.offsetWidth, window.innerWidth - menu.offsetWidth - 8))
-    top = Math.max(8, Math.min(rect.bottom + 8, window.innerHeight - menu.offsetHeight - 8))
+    anchorPopover(menu, { anchor: () => trigger.getBoundingClientRect(), align: 'end', gap: 8 })
     const buttons = menu.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')
     const selected = menu.querySelector<HTMLButtonElement>('[role="menuitemradio"][aria-checked="true"]')
     ;(last ? buttons[buttons.length - 1] : selected ?? buttons[0])?.focus()
@@ -61,12 +58,10 @@
 
 <MenuStyles />
 
-<svelte:window onresize={() => close()} />
-
-<button bind:this={trigger} class="sort-trigger caelestis-bevel" type="button" popovertarget={menuId} aria-label={label} title={label} aria-haspopup="menu" aria-expanded={open} onclick={(event) => { event.preventDefault(); open ? close(true) : show() }} onkeydown={triggerKeydown}>
+<button bind:this={trigger} class="sort-trigger caelestis-field-look caelestis-bevel" type="button" popovertarget={menuId} aria-label={label} title={label} aria-haspopup="menu" aria-expanded={open} onclick={(event) => { event.preventDefault(); open ? close(true) : show() }} onkeydown={triggerKeydown}>
   <Icon name="sort" />
 </button>
-<div bind:this={menu} id={menuId} class="sort-menu caelestis-menu" popover="auto" role="menu" aria-label="Sort templates" tabindex="-1" style:left={`${left}px`} style:top={`${top}px`} onbeforetoggle={(event) => open = event.newState === 'open'} onkeydown={menuKeydown}>
+<div bind:this={menu} id={menuId} class="sort-menu caelestis-menu caelestis-dropdown" popover="auto" role="menu" aria-label="Sort templates" tabindex="-1" onbeforetoggle={(event) => open = event.newState === 'open'} onkeydown={menuKeydown}>
   {#each fields as field}
     <button class="caelestis-menu-item" type="button" tabindex="-1" role="menuitemradio" aria-checked={sort.field === field} aria-label={sort.field === field ? selectedLabel : TEMPLATE_SORTS[field].label} title={sort.field === field && field !== 'custom' ? 'Click again to reverse order' : undefined} onclick={() => choose(field)}>
       <span class="check" style:rotate={field === 'custom' ? undefined : sort.direction === 'asc' ? '90deg' : '-90deg'}>{#if sort.field === field}<Icon name={field === 'custom' ? 'check' : 'arrowBack'} />{/if}</span>
@@ -76,40 +71,8 @@
 </div>
 
 <style>
-  .sort-trigger { display: grid; place-items: center; flex: 0 0 2rem; inline-size: 2rem; block-size: 2rem; padding: 0; border: var(--border, 1px) solid color-mix(in oklab, var(--caelestis-text) 20%, transparent); border-radius: 0.5rem; background: var(--caelestis-surface); color: inherit; box-shadow: 0 1px color-mix(in oklab, var(--caelestis-text) 10%, transparent) inset; cursor: pointer; }
-  .sort-menu {
-    --dropdown-open-dur: var(--caelestis-duration-fast);
-    --dropdown-close-dur: var(--caelestis-duration-quick);
-    --dropdown-pre-scale: var(--caelestis-scale-medium);
-    --dropdown-closing-scale: var(--caelestis-scale-tiny);
-    --dropdown-ease: var(--caelestis-ease-smooth-out);
-    position: fixed; inset: auto; margin: 0; z-index: 60; inline-size: 11rem; max-inline-size: calc(100vw - 1rem); max-block-size: calc(100vh - 1rem); overflow: auto; flex-direction: column;
-    transform-origin: top right;
-    transform: scale(var(--dropdown-pre-scale));
-    opacity: 0;
-    pointer-events: none;
-    transition:
-      transform var(--dropdown-close-dur) var(--dropdown-ease),
-      opacity   var(--dropdown-close-dur) var(--dropdown-ease),
-      overlay   var(--dropdown-close-dur) var(--dropdown-ease) allow-discrete,
-      display   var(--dropdown-close-dur) var(--dropdown-ease) allow-discrete;
-    will-change: transform, opacity;
-  }
-  .sort-menu:popover-open {
-    display: flex;
-    transform: scale(1);
-    opacity: 1;
-    pointer-events: auto;
-    transition:
-      transform var(--dropdown-open-dur) var(--dropdown-ease),
-      opacity   var(--dropdown-open-dur) var(--dropdown-ease),
-      overlay   var(--dropdown-open-dur) var(--dropdown-ease) allow-discrete,
-      display   var(--dropdown-open-dur) var(--dropdown-ease) allow-discrete;
-    @starting-style { transform: scale(var(--dropdown-pre-scale)); opacity: 0; }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .sort-menu { transition: none !important; }
-  }
+  .sort-trigger { display: grid; place-items: center; flex: 0 0 2rem; inline-size: 2rem; block-size: 2rem; padding: 0; color: inherit; cursor: pointer; }
+  .sort-menu { inline-size: 11rem; }
   .sort-menu button { inline-size: 100%; }
   .sort-trigger:hover { background: var(--caelestis-raised-surface); }
   .check { display: flex; flex: 0 0 1rem; inline-size: 1rem; }

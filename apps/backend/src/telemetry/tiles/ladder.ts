@@ -1,14 +1,9 @@
 import { type Seconds, seconds, type TileCoord, type TileHistoryFrame } from '@caelestis/shared'
-import type { DecayEdge } from '../decay.js'
 
 /** Bucket widths `tile_history` folds to. 0 is raw. */
 export const TILE_HISTORY_RESOLUTIONS: readonly number[] = [0, 3_600, 21_600, 86_400]
 
-export const TILE_HISTORY_DECAY_EDGES: readonly DecayEdge[] = [
-  { source: 0, target: 3_600, retainSeconds: 86_400 },
-  { source: 3_600, target: 21_600, retainSeconds: 7 * 86_400 },
-  { source: 21_600, target: 86_400, retainSeconds: 30 * 86_400 },
-]
+export { TILE_HISTORY_DECAY_EDGES } from '@caelestis/shared'
 
 /** One physical reporter row carried between tile-history tiers. */
 export interface TileHistoryReporterRow {

@@ -1,0 +1,109 @@
+// @vitest-environment happy-dom
+
+import type { Progress } from '@caelestis/shared'
+import { millis, seconds, type Template } from '@caelestis/shared'
+import { flushSync, mount, unmount } from 'svelte'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import type { AppState } from '#lib/state/app.svelte.js'
+import { appState, template } from '../../../tests/fixtures'
+
+const client = vi.hoisted(() => ({
+  getArchiveHistory: vi.fn(),
+  getContributions: vi.fn(),
+  getHistory: vi.fn(),
+  getTemplateProgressHistory: vi.fn(),
+  getLeaderboard: vi.fn(),
+  getPainterHistory: vi.fn(),
+  getPainterTotals: vi.fn(),
+}))
+vi.mock('#lib/api/client.js', () => client)
+const fixture = vi.hoisted(() => ({ app: null as unknown as AppState }))
+vi.mock('#lib/state/app.svelte.js', async (original) => ({
+  ...(await original<typeof import('#lib/state/app.svelte.js')>()),
+  useApp: () => fixture.app,
+}))
+vi.mock('./ProgressPaceChart.svelte', () => ({ default: () => undefined, CHART_HEIGHT: 240 }))
+
+import StatsPanel from './StatsPanel.svelte'
+
+const start = 1_800_000_000
+const progress: Progress = { completed: 1, mismatched: 0, unpainted: 3, known: 4, total: 4 }
+const live = (id: string): Template =>
+  template({ id, createdAt: millis(start * 1_000), version: `${id}-v1` })
+const subscribeDashboard = vi.fn<AppState['subscribeDashboard']>()
+
+let mounted: ReturnType<typeof mount> | null = null
+
+beforeEach(() => {
+  vi.useFakeTimers()
+  vi.setSystemTime((start + 7_200) * 1_000)
+  localStorage.clear()
+  client.getArchiveHistory
+    .mockReset()
+    .mockResolvedValue({ source: 'eralyon', basis: null, samples: [], frames: [] })
+  client.getTemplateProgressHistory.mockReset().mockResolvedValue({ samples: [] })
+  client.getHistory.mockReset().mockResolvedValue({
+    buckets: [
+      {
+        templateId: 'a',
+        resolution: 60,
+        bucketStart: seconds(start + 7_140),
+        placed: 3,
+        correct: 3,
+        repairs: 0,
+      },
+    ],
+  })
+  client.getPainterTotals.mockReset().mockResolvedValue({ painters: [] })
+  fixture.app = appState()
+  // Streamed dashboards are the path these tests pin; the subscription itself is AppState's.
+  fixture.app.live = true
+  subscribeDashboard.mockReset().mockReturnValue(() => undefined)
+  fixture.app.subscribeDashboard = subscribeDashboard
+})
+
+afterEach(() => {
+  if (mounted !== null) unmount(mounted)
+  mounted = null
+  vi.useRealTimers()
+})
+
+const render = (templates: readonly Template[]) => {
+  const props = $state({ templates, progress })
+  mounted = mount(StatsPanel, { target: document.body, props })
+  return props
+}
+
+it('reads no history again when a live status changes the progress', async () => {
+  const props = render([live('a'), live('b')])
+  await vi.advanceTimersByTimeAsync(0)
+  const reads = [
+    client.getHistory,
+    client.getArchiveHistory,
+    client.getTemplateProgressHistory,
+    client.getPainterTotals,
+  ]
+  const before = reads.map((read) => read.mock.calls.length)
+
+  props.progress = { ...progress, completed: 2 }
+  flushSync()
+  await vi.advanceTimersByTimeAsync(0)
+
+  expect(reads.map((read) => read.mock.calls.length)).toEqual(before)
+  expect(subscribeDashboard).toHaveBeenCalledTimes(1)
+})
+
+it('asks only for the newest buckets on each chart tick', async () => {
+  render([live('a')])
+  await vi.advanceTimersByTimeAsync(0)
+  const [, lifetimeFrom] = client.getHistory.mock.calls[0] ?? []
+
+  await vi.advanceTimersByTimeAsync(15_000)
+
+  const [, from, , options] = client.getHistory.mock.calls.at(-1) ?? []
+  // A tail read: past the lifetime start, yet early enough to reread the newest bucket held.
+  expect(from).toBeGreaterThan(lifetimeFrom)
+  expect(from).toBeLessThanOrEqual(start + 7_140)
+  // On the full read's 60 s grid.
+  expect(options).toEqual({ maxResolution: 60 })
+})

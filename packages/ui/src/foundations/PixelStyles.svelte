@@ -1,9 +1,18 @@
 <!--
   Wplace's pixel chrome for the shared roles, gated on the `data-caelestis-style` attribute the
-  host paints. Every rule lives behind `:host([data-caelestis-style='pixel'])`, so classic
-  surfaces and the frontend (which never sets the attribute) are untouched.
+  host paints. Every chrome rule lives behind `:host([data-caelestis-style='pixel'])`, so classic
+  surfaces and the frontend (which never sets the attribute) are untouched. Every element renders
+  this, and the frontend never does, so it also carries the theme defaults and the border-box reset.
 -->
+<script lang="ts">
+  import ThemeDefaults from './ThemeDefaults.svelte'
+</script>
+
+<ThemeDefaults />
+
 <style>
+  :global(:host *) { box-sizing: border-box; }
+
   /* Notched frame: a 2px ink border drawn as four edge gradients, corners left open. */
   :global(:host([data-caelestis-style='pixel']) :is(.caelestis-surface, .caelestis-panel-surface, .caelestis-menu)),
   :global(:host([data-caelestis-style='pixel']) select.caelestis-select::picker(select)) {

@@ -1,5 +1,5 @@
-import type { Effect } from 'ditherette'
-import { EFFECTS, type EffectKind, MAX_EFFECT_LAYERS } from './catalog.js'
+import { type Effect, MAX_EFFECT_LAYERS } from '../ditherette.js'
+import { EFFECTS, type EffectKind } from './catalog.js'
 
 /** One named instance in the effect pipeline. The name only labels it; `step` is what runs. */
 export interface EffectLayer {

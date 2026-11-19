@@ -4,6 +4,7 @@ import {
   type Template,
   TILE_SIZE,
   type TileHistoryResponse,
+  tileImagePath,
   timelapseCaptureRect,
   WORLD_PIXELS,
 } from '@caelestis/shared'
@@ -210,13 +211,6 @@ export const renderTemplateHistory = async (
     canvas,
     readMapTile,
     historyEnd: to,
-    readTile: async (hash) =>
-      new Uint8Array(
-        await (
-          await read(
-            hash.startsWith('archive:') ? `archive/tiles/${hash.slice(8)}` : `tiles/${hash}`,
-          )
-        ).arrayBuffer(),
-      ),
+    readTile: async (hash) => new Uint8Array(await (await read(tileImagePath(hash))).arrayBuffer()),
   })
 }

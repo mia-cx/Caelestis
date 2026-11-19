@@ -1,3 +1,4 @@
+import { MAP_CLEARANCE } from './map-clearance.js'
 import {
   STUDIO_WINDOWS,
   type StudioLayout,
@@ -6,8 +7,10 @@ import {
   type StudioWindowId,
 } from './model.js'
 
-/** A window keeps at least this much of itself, its title bar, above the screen's bottom. */
-export const KEEP_ON_SCREEN = 72
+/** A window's title bar, which stays on screen above Wplace's bottom controls. */
+export const TITLE_BAR = 40
+/** The studio's bar at its usual height, with its inset above and below. */
+const BAR_CLEARANCE = 72
 
 type Side = StudioPlace['edge']
 type Tabs = Extract<StudioNode, { kind: 'tabs' }>
@@ -31,13 +34,10 @@ export interface Box {
   readonly height: number
 }
 
-/**
- * Where a window starts at each edge: below the studio's bar, clear of Wplace's zoom buttons on
- * the left and its rail on the right.
- */
+/** Where a window starts at each edge: below the studio's bar, clear of Wplace's controls. */
 export const EDGE_PLACES: Readonly<Record<Side, StudioPlace>> = {
-  start: { edge: 'start', x: 48, y: 72 },
-  end: { edge: 'end', x: 56, y: 72 },
+  start: { edge: 'start', x: MAP_CLEARANCE.start, y: BAR_CLEARANCE },
+  end: { edge: 'end', x: MAP_CLEARANCE.end, y: BAR_CLEARANCE },
 }
 
 const single = (id: StudioWindowId): Tabs => ({
@@ -103,7 +103,19 @@ export const panelsAcross = (node: StudioNode): number => {
 export const isOpen = (layout: StudioLayout, id: StudioWindowId): boolean =>
   layout.frames.some((frame) => panelsIn(frame.root).includes(id))
 
-/** A window at `box`, measured from its nearer edge so it keeps its place when the screen resizes. */
+const showsIn = (node: StudioNode, id: StudioWindowId): boolean =>
+  node.kind === 'tabs'
+    ? node.active === id && !node.collapsed
+    : node.children.some((child) => showsIn(child, id))
+
+/** Whether `id` is on screen: in front of its tabs, which are not folded away. */
+export const isShown = (layout: StudioLayout, id: StudioWindowId): boolean =>
+  layout.frames.some((frame) => showsIn(frame.root, id))
+
+/**
+ * A window at `box`, measured from its nearer edge so it keeps its place when the screen resizes.
+ * It saves no lower than the studio draws it: its title bar above Wplace's bottom controls.
+ */
 export const floatPlace = (
   box: Box,
   viewport: { readonly width: number; readonly height: number },
@@ -112,7 +124,10 @@ export const floatPlace = (
   return {
     edge,
     x: Math.max(0, edge === 'start' ? box.x : viewport.width - box.x - box.width),
-    y: Math.min(Math.max(0, box.y), Math.max(0, viewport.height - KEEP_ON_SCREEN)),
+    y: Math.min(
+      Math.max(0, box.y),
+      Math.max(0, viewport.height - MAP_CLEARANCE.bottom - TITLE_BAR),
+    ),
   }
 }
 

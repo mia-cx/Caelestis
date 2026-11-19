@@ -1,23 +1,24 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
   import Button from '../foundations/Button.svelte'
   import Icon from '../foundations/Icon.svelte'
+  import Modal from '../foundations/Modal.svelte'
   import type { BackfillIntent, BackfillModel } from './model.js'
 
-  let { model, onIntent }: { model: BackfillModel; onIntent: (intent: BackfillIntent) => void } = $props()
-  let dialog: HTMLDialogElement
-  onMount(() => { dialog.showModal() })
+  let { model, onIntent }: { model: BackfillModel; onIntent?: (intent: BackfillIntent) => void } = $props()
+  /** A wait between archive snapshots long enough to tell the admin about. */
+  const ARCHIVE_GAP_SECONDS = 36 * 3_600
+  const emit = (intent: BackfillIntent): void => onIntent?.(intent)
   const running = $derived(model.job?.status === 'running')
   const selected = $derived(model.preview?.snapshots.filter((snapshot) => model.selectedSnapshot !== null && snapshot.id >= model.selectedSnapshot) ?? [])
-  const gaps = $derived(selected.filter((snapshot, index) => index > 0 && snapshot.at - (selected[index - 1]?.at ?? snapshot.at) > 36 * 3_600).length)
+  const gaps = $derived(selected.filter((snapshot, index) => index > 0 && snapshot.at - (selected[index - 1]?.at ?? snapshot.at) > ARCHIVE_GAP_SECONDS).length)
   const date = (at: number): string => new Date(at * 1_000).toISOString().slice(0, 16).replace('T', ' ') + ' UTC'
-  const cancel = (): void => onIntent({ type: running ? 'cancel' : 'close' })
+  const cancel = (): void => emit({ type: running ? 'cancel' : 'close' })
 </script>
 
-<dialog bind:this={dialog} class="caelestis-panel-surface" aria-labelledby="backfill-title" oncancel={(event) => { event.preventDefault(); onIntent({ type: 'close' }) }}>
+<Modal open={model.open} labelledby="backfill-title" width="32rem" lightDismiss={false} onClose={() => emit({ type: 'close' })} onClosed={() => emit({ type: 'closed' })}>
   <header>
     <h2 id="backfill-title">{model.templates === null ? 'Backfill template tiles and progress data' : 'Backfill folder tiles and progress data'}</h2>
-    <Button label="Close backfill" kind="ghost" size="small" iconOnly onclick={() => onIntent({ type: 'close' })}><Icon name="close" /></Button>
+    <Button label="Close backfill" kind="ghost" size="small" iconOnly onclick={() => emit({ type: 'close' })}><Icon name="close" /></Button>
   </header>
   <div class="body">
     <div class="template">
@@ -28,7 +29,7 @@
     {#if model.preview}
       <label for="backfill-from">Backfill from</label>
       <select id="backfill-from" class="caelestis-field" value={model.selectedSnapshot ?? ''} disabled={model.busy || running || model.loading}
-        onchange={(event) => onIntent({ type: 'select', snapshotId: Number(event.currentTarget.value) })}>
+        onchange={(event) => emit({ type: 'select', snapshotId: Number(event.currentTarget.value) })}>
         {#each model.preview.snapshots as snapshot (snapshot.id)}<option value={snapshot.id}>{date(snapshot.at)}</option>{/each}
       </select>
       <div class="coverage">
@@ -54,48 +55,15 @@
     {#if model.error}<p class="error" role="alert">{model.error}</p>{/if}
   </div>
   <footer>
-    {#if model.error}<Button label="Reload" kind="ghost" disabled={model.loading || model.busy} onclick={() => onIntent({ type: 'reload' })} />{/if}
+    {#if model.error}<Button label="Reload" kind="ghost" disabled={model.loading || model.busy} onclick={() => emit({ type: 'reload' })} />{/if}
     <Button label={model.job && !running ? 'Close' : 'Cancel'} disabled={model.busy} onclick={cancel} />
     {#if !running}<Button label={model.job?.status === 'failed' || model.job?.status === 'cancelled' ? 'Retry backfill' : 'Backfill'} kind="primary"
-      disabled={model.busy || model.loading || selected.length === 0} onclick={() => onIntent({ type: 'start' })} />{/if}
+      disabled={model.busy || model.loading || selected.length === 0} onclick={() => emit({ type: 'start' })} />{/if}
   </footer>
-</dialog>
+</Modal>
 
 <style>
-  dialog {
-    --modal-open-dur: var(--caelestis-duration-fast);
-    --modal-close-dur: var(--caelestis-duration-quick);
-    --modal-scale: var(--caelestis-scale-large);
-    --modal-scale-close: var(--caelestis-scale-large);
-    --modal-ease: var(--caelestis-ease-smooth-out);
-    box-sizing: border-box; inline-size: min(32rem, calc(100vw - 2rem)); max-block-size: calc(100dvh - 2rem); padding: 0; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-box-radius, var(--caelestis-radius, 1rem)); background: var(--caelestis-surface, white); color: var(--caelestis-text, #222); box-shadow: var(--caelestis-shadow); font: 0.875rem/1.45 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
-    transform-origin: center;
-    transform: scale(var(--modal-scale));
-    opacity: 0;
-    pointer-events: none;
-    transition:
-      transform var(--modal-close-dur) var(--modal-ease),
-      opacity   var(--modal-close-dur) var(--modal-ease),
-      overlay   var(--modal-close-dur) var(--modal-ease) allow-discrete,
-      display   var(--modal-close-dur) var(--modal-ease) allow-discrete;
-    will-change: transform, opacity;
-  }
-  dialog[open] {
-    transform: scale(1);
-    opacity: 1;
-    pointer-events: auto;
-    transition:
-      transform var(--modal-open-dur) var(--modal-ease),
-      opacity   var(--modal-open-dur) var(--modal-ease),
-      overlay   var(--modal-open-dur) var(--modal-ease) allow-discrete,
-      display   var(--modal-open-dur) var(--modal-ease) allow-discrete;
-    @starting-style { transform: scale(var(--modal-scale)); opacity: 0; }
-  }
-  dialog::backdrop { background: #0008; opacity: 0; transition: opacity var(--modal-close-dur) var(--modal-ease), overlay var(--modal-close-dur) var(--modal-ease) allow-discrete, display var(--modal-close-dur) var(--modal-ease) allow-discrete; }
-  dialog[open]::backdrop { opacity: 1; transition-duration: var(--modal-open-dur); @starting-style { opacity: 0; } }
-  @media (prefers-reduced-motion: reduce) {
-    dialog, dialog::backdrop { transition: none !important; }
-  }
+  header, .body, footer { line-height: 1.45; }
   header, footer { display: flex; align-items: center; gap: 0.75rem; padding: 1rem; }
   header { align-items: start; border-block-end: 1px solid var(--caelestis-border); }
   h2 { margin: 0; flex: 1; font-size: 1.15rem; line-height: 1.3; }
@@ -105,12 +73,12 @@
   .template strong { overflow-wrap: anywhere; }
   img { inline-size: 4rem; block-size: 4rem; object-fit: contain; image-rendering: pixelated; background: var(--caelestis-raised-surface); border-radius: var(--caelestis-radius); }
   label { display: block; font-weight: 600; margin-block-end: 0.375rem; }
-  select { box-sizing: border-box; inline-size: 100%; min-block-size: 2.5rem; padding: 0.5rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, 0.5rem); background: var(--caelestis-raised-surface, #eee); color: inherit; font: inherit; }
+  select { box-sizing: border-box; inline-size: 100%; min-block-size: 2.5rem; padding: 0.5rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius); background: var(--caelestis-raised-surface); color: inherit; font: inherit; }
   select:focus-visible { outline: 2px solid var(--caelestis-focus); outline-offset: 2px; }
   p { margin: 0.5rem 0; }
-  .coverage, .note { color: var(--caelestis-muted-text, #666); }
+  .coverage, .note { color: var(--caelestis-muted-text); }
   .note { margin-block-start: 1rem; }
   .job { margin-block-start: 1rem; padding-block-start: 0.5rem; border-block-start: 1px solid var(--caelestis-border); font-variant-numeric: tabular-nums; }
   progress { inline-size: 100%; accent-color: var(--caelestis-primary); }
-  .error { color: var(--caelestis-danger, #b22); overflow-wrap: anywhere; }
+  .error { color: var(--caelestis-danger); overflow-wrap: anywhere; }
 </style>

@@ -4,7 +4,7 @@
   import Toggle from '../foundations/Toggle.svelte'
   import { SIMULATED_INPUT_FLAGS, shortcutLabel } from '@caelestis/shared'
   import { SIMULATED_INPUT } from '../simulated-input.js'
-  import type { GlobalSettingsIntent, GlobalSettingsModel, SettingsBooleanKey } from '../types.js'
+  import type { GlobalSettingsIntent, GlobalSettingsModel, SettingsBooleanKey } from './model.js'
 
   /**
    * One section of the settings that apply to every Wplace tab. The panel's Settings view places

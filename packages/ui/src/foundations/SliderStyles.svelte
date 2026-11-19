@@ -10,16 +10,16 @@
     block-size: 1rem;
     overflow: hidden;
     border: 0;
-    border-radius: var(--caelestis-radius, calc(0.7rem + 1px));
+    border-radius: var(--caelestis-radius);
     background: transparent;
-    color: var(--caelestis-primary, var(--color-primary, oklch(0.58 0.17 252)));
+    color: var(--caelestis-primary);
     cursor: pointer;
     vertical-align: middle;
   }
   :global(.caelestis-slider::-webkit-slider-runnable-track) {
     inline-size: 100%;
     block-size: 0.5rem;
-    border-radius: var(--caelestis-radius, calc(0.7rem + 1px));
+    border-radius: var(--caelestis-radius);
     background: linear-gradient(to right, currentColor var(--fill), color-mix(in oklab, currentColor 10%, transparent) var(--fill));
   }
   :global(.caelestis-slider::-webkit-slider-thumb) {
@@ -29,14 +29,14 @@
     inline-size: 1rem;
     block-size: 1rem;
     border: 0.25rem solid currentColor;
-    border-radius: var(--caelestis-radius, calc(0.7rem + 1px));
-    background: var(--caelestis-surface, var(--color-base-100, white));
+    border-radius: var(--caelestis-radius);
+    background: var(--caelestis-surface);
     transform: translateY(-50%);
   }
   :global(.caelestis-slider::-moz-range-track) {
     inline-size: 100%;
     block-size: 0.5rem;
-    border-radius: var(--caelestis-radius, calc(0.7rem + 1px));
+    border-radius: var(--caelestis-radius);
     background: color-mix(in oklab, currentColor 10%, transparent);
   }
   :global(.caelestis-slider::-moz-range-progress) { block-size: 0.5rem; background: currentColor; }
@@ -44,10 +44,10 @@
     inline-size: 0.5rem;
     block-size: 0.5rem;
     border: 0.25rem solid currentColor;
-    border-radius: var(--caelestis-radius, calc(0.7rem + 1px));
-    background: var(--caelestis-surface, var(--color-base-100, white));
+    border-radius: var(--caelestis-radius);
+    background: var(--caelestis-surface);
   }
-  :global(.caelestis-slider:focus-visible) { outline: 2px solid var(--caelestis-focus, currentColor); outline-offset: 2px; }
+  :global(.caelestis-slider:focus-visible) { outline: 2px solid var(--caelestis-focus); outline-offset: 2px; }
 
   :global(:host([data-caelestis-style='pixel']) .caelestis-slider) { border-radius: 0; background: none; overflow: visible; }
   /* Each engine drops a whole rule over a pseudo-element it does not know, so they stay apart. */

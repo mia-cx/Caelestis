@@ -31,6 +31,7 @@ import {
   presenceView,
 } from '../presence-client.js'
 import { presenceCss } from '../presence-colour.js'
+import { shortcutHint } from '../shortcut-bindings.js'
 import { activeServerToken, type ConnectedServer } from '../state.js'
 import { isServerTemplate, localTemplates, type PlacedTemplate } from '../templates/local-store.js'
 import { navigateTo } from '../templates/navigate.js'
@@ -226,6 +227,7 @@ export const presenceSummaryModel = (): PresenceSummaryModel | undefined => {
     players: painterRows(view),
     claims: claimRows(view),
     canClaim: me !== null && view.connected && !isClaimModeActive(),
+    claimShortcut: shortcutHint('claim-mode'),
     ...(pending ? { pending: true } : {}),
     ...(message === undefined ? {} : { message }),
   }

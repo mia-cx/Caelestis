@@ -13,9 +13,7 @@ export class Persisted<T> {
     try {
       const raw = localStorage.getItem(key)
       if (raw !== null) held = JSON.parse(raw) as T
-    } catch {
-      // Fall back to the initial value.
-    }
+    } catch {}
     this.#value = held
   }
 
@@ -32,5 +30,3 @@ export class Persisted<T> {
     }
   }
 }
-
-export const persisted = <T>(key: string, initial: T): Persisted<T> => new Persisted(key, initial)

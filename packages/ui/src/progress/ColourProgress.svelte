@@ -1,81 +1,48 @@
 <script lang="ts">
-  import MenuStyles from '../foundations/MenuStyles.svelte'
-  import { formatCount, formatExactCount, formatPixels, type TemplateColourStatus, WPLACE_PALETTE } from '@caelestis/shared'
-  import type { Snippet } from 'svelte'
-  import type { ColourProgressSort } from '../types.js'
-  import { COLOUR_PROGRESS_SORTS as sorts } from './colour-sorts.js'
+  // Aliased: this component's own name is ColourProgress.
+  import { type ColourProgress as ColourRow, formatCount, formatExactCount, formatPixels, WPLACE_PALETTE } from '@caelestis/shared'
+  import { type ColourProgressSort, compareColours } from './colour-sorts.js'
 
-  let { colours, sort = 'index', onSortChange, sortControl }: {
-    colours: readonly TemplateColourStatus[]
+  /** One row per palette colour in `colours`, ordered by `sort`; the host renders the sort control. */
+  let { colours, sort = 'index' }: {
+    colours: readonly ColourRow[]
     sort?: ColourProgressSort
-    onSortChange?: (sort: ColourProgressSort) => void
-    /** A host's own picker in place of the native select, which no stylesheet can reach. */
-    sortControl?: Snippet
   } = $props()
 
-
-  const rows = $derived.by(() => {
-    const resolved = colours.flatMap((colour) => {
-      const palette = WPLACE_PALETTE[colour.index]
-      return palette === undefined
-        ? []
-        : [{
-            colour,
-            palette,
-            done: colour.total === 0 ? 0 : colour.correct / colour.total,
-            remaining: colour.total - colour.correct,
-          }]
-    })
-    const byIndex = (a: (typeof resolved)[number], b: (typeof resolved)[number]) =>
-      a.colour.index - b.colour.index
-    switch (sort) {
-      case 'progress': return resolved.sort((a, b) => b.done - a.done || byIndex(a, b))
-      case 'progress-asc': return resolved.sort((a, b) => a.done - b.done || byIndex(a, b))
-      case 'remaining': return resolved.sort((a, b) => b.remaining - a.remaining || byIndex(a, b))
-      case 'remaining-asc': return resolved.sort((a, b) => a.remaining - b.remaining || byIndex(a, b))
-      case 'total': return resolved.sort((a, b) => b.colour.total - a.colour.total || byIndex(a, b))
-      case 'free': return resolved.sort((a, b) => Number(a.palette.kind !== 'free') - Number(b.palette.kind !== 'free') || byIndex(a, b))
-      case 'premium': return resolved.sort((a, b) => Number(a.palette.kind !== 'premium') - Number(b.palette.kind !== 'premium') || byIndex(a, b))
-      default: return resolved.sort(byIndex)
-    }
-  })
+  const rows = $derived(
+    colours
+      .toSorted(compareColours(sort))
+      .flatMap((colour) => {
+        const palette = WPLACE_PALETTE[colour.index]
+        return palette === undefined ? [] : [{ colour, palette, completed: colour.completed, total: colour.total }]
+      }),
+  )
 </script>
 
-<MenuStyles />
-
-<div class="toolbar">
-  {#if sortControl}
-    {@render sortControl()}
-  {:else}
-    <label for="caelestis-colour-sort">Sort by</label>
-    <select class="caelestis-select" id="caelestis-colour-sort" value={sort} onchange={(event) => onSortChange?.(event.currentTarget.value as ColourProgressSort)}>
-      {#each sorts as option (option.key)}<option value={option.key}>{option.label}</option>{/each}
-    </select>
-  {/if}
-</div>
-<ul>
-  {#each rows as { colour, palette, done } (colour.index)}
-    <li title={`${palette.name}: ${formatExactCount(colour.correct)} of ${formatPixels(colour.total)} complete`} aria-label={`${palette.name}: ${formatExactCount(colour.correct)} of ${formatPixels(colour.total)} complete`}>
+<div class="colours"><ul>
+  {#each rows as { colour, palette, completed, total } (colour.index)}
+    {@const done = total === 0 ? 0 : completed / total}
+    <li title={`${palette.name}: ${formatExactCount(completed)} of ${formatPixels(total)} complete`} aria-label={`${palette.name}: ${formatExactCount(completed)} of ${formatPixels(total)} complete`}>
       <span class="index">{colour.index}</span>
       <span class="swatch" style:background={palette.hex} title={`${palette.name} (${palette.kind})`}></span>
       <span class="name" title={palette.name}>{palette.name}</span>
       <span class="track"><span style:width={`${done * 100}%`} style:background={palette.hex}></span></span>
-      <span class="count">{formatCount(colour.correct)}/{formatCount(colour.total)}</span>
+      <span class="count">{formatCount(completed)}/{formatCount(total)}</span>
       <span class="percent">{(done * 100).toFixed(1)}%</span>
     </li>
   {/each}
-</ul>
+</ul></div>
 
 <style>
-  .toolbar { display: flex; align-items: center; justify-content: flex-end; gap: 0.5rem; margin-block-end: 0.5rem; color: var(--caelestis-muted-text); font-family: inherit; font-size: inherit; line-height: 1.2; }
-  select { inline-size: 11rem; }
+  /* The rows fit the space they are given: a phone, a sidebar, or a narrow pane. */
+  .colours { container-type: inline-size; min-inline-size: 0; }
   ul { display: flex; flex-direction: column; gap: 0.375rem; margin: 0; padding: 0; list-style: none; }
   li { display: grid; grid-template-columns: 1.5rem 1rem minmax(5rem, 9rem) minmax(4rem, 1fr) 8.5rem; align-items: center; gap: 0.5rem; color: var(--caelestis-text); font-family: inherit; font-size: inherit; line-height: 1.2; }
   .index, .count, .percent { color: var(--caelestis-muted-text); text-align: end; font-size: inherit; font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .swatch { inline-size: 1rem; block-size: 1rem; border: 1px solid color-mix(in oklch, var(--caelestis-text) 20%, transparent); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); }
+  .swatch { inline-size: 1rem; block-size: 1rem; border: 1px solid color-mix(in oklch, var(--caelestis-text) 20%, transparent); border-radius: var(--caelestis-radius); }
   .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .track { block-size: 0.375rem; overflow: hidden; border-radius: var(--caelestis-radius, 999px); background: var(--caelestis-raised-surface); }
+  .track { block-size: 0.375rem; overflow: hidden; border-radius: var(--caelestis-radius); background: var(--caelestis-raised-surface); }
   .track > span { display: block; block-size: 100%; border-radius: inherit; }
   .percent { display: none; }
-  @media (max-width: 40rem) { li { grid-template-columns: 1.5rem 1rem minmax(3rem, 1fr) 5.5rem; } .name, .count { display: none; } .percent { display: block; } }
+  @container (max-width: 30rem) { li { grid-template-columns: 1rem minmax(3rem, 5rem) minmax(3rem, 1fr) 3.5rem; } .index, .count { display: none; } .percent { display: block; } }
 </style>

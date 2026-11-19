@@ -3,8 +3,9 @@
   import { EMPTY_TEMPLATE_FILTERS, TEMPLATE_FILTER_OPTIONS, templateFilterCount, type TemplateFilterCategory, type TemplateFilters } from '@caelestis/shared'
   import Icon from '../foundations/Icon.svelte'
   import Checkbox from '../foundations/Checkbox.svelte'
+  import { anchorPopover } from '../foundations/popover.js'
   import TagFilter from './TagFilter.svelte'
-  import type { TemplateTreeModel } from '../types.js'
+  import type { TemplateTreeModel } from './model.js'
 
   let { filters, serverFiltersAvailable = false, tagOptions = [], onFilter }: {
     filters: TemplateFilters
@@ -18,8 +19,6 @@
   let trigger: HTMLButtonElement
   let menu: HTMLDivElement
   let open = $state(false)
-  let left = $state(0)
-  let top = $state(0)
   const count = $derived(templateFilterCount(filters))
   const label = $derived(`Filter templates${count === 0 ? '' : `: ${count} selected`}`)
 
@@ -28,12 +27,8 @@
     if (restoreFocus) trigger.focus()
   }
   const show = (): void => {
-    const rect = trigger.getBoundingClientRect()
-    menu.style.maxBlockSize = 'calc(100vh - 1rem)'
     menu.showPopover()
-    left = Math.max(8, Math.min(rect.right - menu.offsetWidth, window.innerWidth - menu.offsetWidth - 8))
-    top = Math.max(8, Math.min(rect.bottom + 8, window.innerHeight - menu.offsetHeight - 8))
-    menu.style.maxBlockSize = `calc(100vh - ${top + 8}px)`
+    anchorPopover(menu, { anchor: () => trigger.getBoundingClientRect(), align: 'end', gap: 8 })
     menu.querySelector<HTMLInputElement>('input[type="checkbox"]')?.focus()
   }
   const toggle = <Category extends TemplateFilterCategory>(category: Category, choice: keyof (typeof TEMPLATE_FILTER_OPTIONS)[Category]): void => {
@@ -56,13 +51,11 @@
 
 <MenuStyles />
 
-<svelte:window onresize={() => close()} />
-
-<button bind:this={trigger} class="filter-trigger caelestis-bevel" class:active={count > 0} type="button" popovertarget={menuId} aria-label={label} title={label} aria-haspopup="dialog" aria-expanded={open} onclick={(event) => { event.preventDefault(); open ? close(true) : show() }} onkeydown={(event) => { if (event.key === 'ArrowDown') { event.preventDefault(); show() } }}>
+<button bind:this={trigger} class="filter-trigger caelestis-field-look caelestis-bevel" class:active={count > 0} type="button" popovertarget={menuId} aria-label={label} title={label} aria-haspopup="dialog" aria-expanded={open} onclick={(event) => { event.preventDefault(); open ? close(true) : show() }} onkeydown={(event) => { if (event.key === 'ArrowDown') { event.preventDefault(); show() } }}>
   <Icon name="filter" />
   {#if count > 0}<span class="badge caelestis-badge" aria-hidden="true">{count}</span>{/if}
 </button>
-<div bind:this={menu} id={menuId} class="filter-menu caelestis-menu" popover="auto" role="dialog" aria-label="Filter templates" tabindex="-1" style:left={`${left}px`} style:top={`${top}px`} onbeforetoggle={(event) => open = event.newState === 'open'} onkeydown={keydown} onfocusout={(event) => { if (event.relatedTarget instanceof Node && event.relatedTarget !== trigger && !menu.contains(event.relatedTarget)) close() }}>
+<div bind:this={menu} id={menuId} class="filter-menu caelestis-menu caelestis-dropdown" popover="auto" role="dialog" aria-label="Filter templates" tabindex="-1" onbeforetoggle={(event) => open = event.newState === 'open'} onkeydown={keydown} onfocusout={(event) => { if (event.relatedTarget instanceof Node && event.relatedTarget !== trigger && !menu.contains(event.relatedTarget)) close() }}>
   <div class="heading">
     <span class="title">Filters</span>
     <button class="clear" type="button" aria-label="Clear filters" disabled={count === 0} onclick={clear}>Clear</button>
@@ -91,17 +84,16 @@
    * `dropdown-content menu`, legends are `menu-title` rows, and each choice is a menu item carrying a
    * `checkbox checkbox-sm checkbox-primary`.
    */
-  .filter-trigger { position: relative; display: grid; place-items: center; flex: 0 0 2rem; inline-size: 2rem; block-size: 2rem; padding: 0; border: var(--border, 1px) solid color-mix(in oklab, var(--caelestis-text) 20%, transparent); border-radius: 0.5rem; background: var(--caelestis-surface); color: inherit; box-shadow: 0 1px color-mix(in oklab, var(--caelestis-text) 10%, transparent) inset; cursor: pointer; transition: color 200ms, background-color 200ms, border-color 200ms; }
+  .filter-trigger { position: relative; display: grid; place-items: center; flex: 0 0 2rem; inline-size: 2rem; block-size: 2rem; padding: 0; color: inherit; cursor: pointer; transition: color 200ms, background-color 200ms, border-color 200ms; }
   .filter-trigger:hover { background: var(--caelestis-raised-surface); }
   .filter-trigger.active { border-color: color-mix(in oklab, var(--caelestis-primary) 10%, var(--caelestis-surface)); background: color-mix(in oklab, var(--caelestis-primary) 8%, var(--caelestis-surface)); color: var(--caelestis-primary); box-shadow: none; }
   .filter-trigger.active:hover { background: color-mix(in oklab, var(--caelestis-primary) 16%, var(--caelestis-surface)); }
   .filter-trigger:focus-visible { outline: 2px solid var(--caelestis-focus); outline-offset: 2px; }
-  .badge { position: absolute; inset-block-start: 0; inset-inline-end: 0; display: inline-flex; align-items: center; justify-content: center; block-size: 1rem; min-inline-size: 1rem; padding-inline: calc(0.5rem - var(--border, 1px)); border: var(--border, 1px) solid var(--caelestis-primary); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-primary); color: var(--color-primary-content, white); box-shadow: 0 0 0 2px var(--caelestis-surface); font: 600 0.625rem/1 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); translate: 40% -40%; pointer-events: none; }
-  .filter-menu { position: fixed; inset: auto; margin: 0; z-index: 60; inline-size: 15rem; max-inline-size: calc(100vw - 1rem); max-block-size: calc(100vh - 1rem); overflow: auto; flex-direction: column; }
-  .filter-menu:popover-open { display: flex; }
+  .badge { position: absolute; inset-block-start: 0; inset-inline-end: 0; display: inline-flex; align-items: center; justify-content: center; block-size: 1rem; min-inline-size: 1rem; padding-inline: calc(0.5rem - var(--caelestis-border-width)); border: var(--caelestis-border-width) solid var(--caelestis-primary); border-radius: var(--caelestis-radius); background: var(--caelestis-primary); color: var(--caelestis-primary-content); box-shadow: 0 0 0 2px var(--caelestis-surface); font: 600 0.625rem/1 var(--caelestis-font); translate: 40% -40%; pointer-events: none; }
+  .filter-menu { inline-size: 15rem; }
   .heading { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.25rem 0.25rem 0.5rem 0.75rem; border-block-end: 1px solid color-mix(in oklab, var(--caelestis-text) 10%, transparent); }
   .title { font-weight: 600; }
-  .clear { display: inline-flex; align-items: center; block-size: 1.5rem; padding-inline: 0.5rem; border: var(--border, 1px) solid transparent; border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: transparent; color: var(--caelestis-primary); font: 600 0.6875rem/1 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); cursor: pointer; transition: background-color 200ms, color 200ms; }
+  .clear { display: inline-flex; align-items: center; block-size: 1.5rem; padding-inline: 0.5rem; border: var(--caelestis-border-width) solid transparent; border-radius: var(--caelestis-radius); background: transparent; color: var(--caelestis-primary); font: 600 0.6875rem/1 var(--caelestis-font); cursor: pointer; transition: background-color 200ms, color 200ms; }
   .clear:hover:not(:disabled) { background: color-mix(in oklab, var(--caelestis-primary) 12%, transparent); }
   .clear:disabled { color: var(--caelestis-muted-text); opacity: 0.5; cursor: not-allowed; }
   .clear:focus-visible { outline: 2px solid var(--caelestis-focus); outline-offset: 2px; }

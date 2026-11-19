@@ -1,4 +1,5 @@
 import { type Manifest, millis, type ServerInfo, type Template } from '@caelestis/shared'
+import { type AppBootstrap, AppState } from '#lib/state/app.svelte.js'
 
 export const server: ServerInfo = {
   id: '01980000-0000-7000-8000-000000000001',
@@ -32,3 +33,18 @@ export const manifest = (changes: Partial<Manifest> = {}): Manifest => ({
   tiles: ['0/0'],
   ...changes,
 })
+
+/** A real session over a fixed bootstrap, so pages read the same derived state they do in use. */
+export const appState = (changes: Partial<AppBootstrap> = {}): AppState =>
+  new AppState({
+    server,
+    manifest: manifest(),
+    statuses: [],
+    statusRevision: null,
+    alarms: [],
+    alarmsVersion: null,
+    canvas: [],
+    needsRecovery: false,
+    error: null,
+    ...changes,
+  })

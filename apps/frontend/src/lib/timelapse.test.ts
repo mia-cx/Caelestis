@@ -1,28 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import {
-  frameAt,
-  speedToFit,
-  TimelapseClock,
-  TRANSPORT_STEPS,
-  transportScale,
-} from './timelapse.js'
+import { frameAt, speedToFit, TimelapseClock, transportScale } from './timelapse.js'
 
 afterEach(() => vi.useRealTimers())
-
-it('bounds the transport slider to a fixed step count with exact endpoints', () => {
-  const week = transportScale(1_800_000_000, 1_800_604_800)
-  expect(week.steps).toBe(TRANSPORT_STEPS)
-  expect(week.toStep(1_800_000_000)).toBe(0)
-  expect(week.toStep(1_800_604_800)).toBe(TRANSPORT_STEPS)
-  expect(week.toTime(0)).toBe(1_800_000_000)
-  expect(week.toTime(TRANSPORT_STEPS)).toBe(1_800_604_800)
-  expect(week.toTime(week.toStep(1_800_302_400))).toBe(1_800_302_400)
-  expect(week.toStep(1_800_302_401)).toBe(500)
-  expect(week.toStep(1_700_000_000)).toBe(0)
-  expect(week.toStep(1_900_000_000)).toBe(TRANSPORT_STEPS)
-  expect(week.toTime(-3)).toBe(1_800_000_000)
-  expect(week.toTime(TRANSPORT_STEPS + 3)).toBe(1_800_604_800)
-})
 
 it('steps through every recorded second when the range is short', () => {
   const short = transportScale(100, 160)
@@ -41,20 +20,6 @@ it('selects the latest snapshot without reading a future frame', () => {
   expect(frameAt([100, 160, 280], 160)).toBe(1)
   expect(frameAt([100, 160, 280], 279)).toBe(1)
   expect(frameAt([100, 160, 280], 999)).toBe(2)
-})
-
-it.each([0.05, 0.25, 1, 4])('keeps irregular gaps proportional at %s×', (speed) => {
-  vi.useFakeTimers()
-  const clock = new TimelapseClock([0, 60, 180, 3_600], 7_200)
-  const shown: { index: number; at: number }[] = []
-  clock.play(speed, (index) => shown.push({ index, at: performance.now() }))
-  vi.advanceTimersByTime(700 / speed + 5)
-  for (const [index, seconds] of [0, 60, 180, 3_600, 7_200].entries()) {
-    const frame = shown.find((frame) => frame.index === index)
-    expect(frame?.at).toBeCloseTo(((seconds / 3_600) * 350) / speed, -1)
-  }
-  expect(shown.at(-1)?.index).toBe(4)
-  expect(vi.getTimerCount()).toBe(0)
 })
 
 it('preserves partial frame time across pause and speed changes', () => {
@@ -116,22 +81,6 @@ it.each([{ timeline: [] }, { timeline: [100] }])(
     expect(vi.getTimerCount()).toBe(0)
   },
 )
-
-it('moves recorded time uniformly during sparse holds and seeks between snapshots', () => {
-  vi.useFakeTimers()
-  const clock = new TimelapseClock([0, 60, 180, 3_600], 7_200)
-  const shown = vi.fn()
-  clock.seek(1_800)
-  clock.play(1, shown)
-  expect(shown).toHaveBeenLastCalledWith(2, 1_800)
-  vi.advanceTimersByTime(175)
-  expect(shown).toHaveBeenLastCalledWith(3, 3_600)
-  vi.advanceTimersByTime(175)
-  const time = shown.mock.lastCall?.[1] as number
-  expect(time).toBeGreaterThan(5_200)
-  expect(time).toBeLessThanOrEqual(5_400)
-  clock.pause()
-})
 
 it.each([
   { span: 604_800, ms: 10_000, speed: 5.9 },

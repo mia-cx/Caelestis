@@ -1,9 +1,9 @@
 <script lang="ts">
   import { Icon, TemplateState } from '@caelestis/ui'
   import TemplateViewer from '#lib/components/TemplateViewer.svelte'
-  import { Skeleton } from '#lib/components/ui/skeleton/index.js'
-  import { Slider } from '#lib/components/ui/slider/index.js'
-  import { persisted } from '#lib/persisted.svelte.js'
+  import { Persisted } from '#lib/persisted.svelte.js'
+  import { STORAGE_KEYS } from '#lib/deployment.js'
+  import { formatTime } from '#lib/time-format.js'
   import { MIN_SPEED, speedToFit } from '#lib/timelapse.js'
   import type { TimelapsePlayer } from '#lib/timelapse-player.svelte.js'
 
@@ -18,7 +18,7 @@
   const uid = $props.id()
 
   // The canvas as it is comes first; the template art is opt-in via the slider.
-  const storedOverlay = persisted<number>('caelestis:overlay-alpha', 0)
+  const storedOverlay = new Persisted<number>(STORAGE_KEYS.overlayAlpha, 0)
   const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
 
   const finished = $derived(player.templates.every((template) => template.finished))
@@ -46,14 +46,6 @@
   })
   const formatSpeed = (speed: number): string =>
     `${(speed < 1e15 ? compact : scientific).format(speed)}×`
-
-  const formatFrame = (t: number): string =>
-    new Date(t * 1000).toLocaleString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
 </script>
 
 {#if player.archiveError}<p class="text-sm text-error" role="alert">{player.archiveError}</p>{/if}
@@ -69,14 +61,15 @@
 
   <div class="flex flex-wrap items-center gap-x-4 gap-y-2 border-t-[1.5px] border-base-300 px-4 py-3">
     <span class="shrink-0 text-sm text-base-content/70">Template overlay</span>
-    <Slider
-      type="single"
+    <input
+      type="range"
       min={0}
       max={1}
       step={0.05}
       value={overlayAlpha}
-      onValueChange={(value: number) => (storedOverlay.value = value)}
-      class="max-w-44 flex-1"
+      oninput={(event) => (storedOverlay.value = event.currentTarget.valueAsNumber)}
+      class="slider max-w-44 flex-1"
+      style:--fill="{overlayAlpha * 100}%"
       aria-label="template overlay opacity"
     />
     <span class="w-9 text-end text-xs tabular-nums text-base-content/50">
@@ -86,7 +79,7 @@
 
   <div class="flex flex-wrap items-center gap-x-3 gap-y-2 border-t-[1.5px] border-base-300 px-4 py-3">
     {#if player.frames === null}
-      <Skeleton class="h-6 w-full" />
+      <div class="skeleton h-6 w-full"></div>
     {:else if player.timeline.length === 0}
       <span class="text-sm text-base-content/50">
         No tile snapshots yet. New snapshots appear after the next six-hour canvas scan.
@@ -154,23 +147,25 @@
           {/if}
         </div>
       </div>
-      <Slider
-        type="single"
+      <input
+        type="range"
         min={0}
         max={player.transport.steps}
         step={1}
         value={player.transport.toStep(player.playhead)}
-        onValueChange={(step: number) => player.seekTo(player.transport.toTime(step))}
-        class="min-w-40 flex-1"
+        oninput={(event) =>
+          player.seekTo(player.transport.toTime(event.currentTarget.valueAsNumber))}
+        class="slider min-w-40 flex-1"
+        style:--fill="{(player.transport.toStep(player.playhead) / player.transport.steps) * 100}%"
         aria-label="timelapse position"
-        aria-valuetext={formatFrame(player.playhead)}
+        aria-valuetext={formatTime(player.playhead)}
         data-playhead={player.playhead}
       />
       <span class="w-32 shrink-0 text-end text-xs tabular-nums text-base-content/70">
         {#if player.live}
           <span class="badge badge-success badge-xs align-middle">{finished ? 'current' : 'live'}</span>
         {:else if player.scrubTime != null}
-          {formatFrame(player.playhead)}
+          {formatTime(player.playhead)}
         {/if}
       </span>
     {/if}
@@ -181,3 +176,50 @@
     </div>
   {/if}
 </section>
+
+<style>
+  /*
+   * A thin track filled to --fill with a small outlined thumb, both with the pixel corners every
+   * rounded-full shape takes. Chromium has no fill pseudo-element, so the fill is a gradient.
+   */
+  .slider {
+    --track: 0.375rem;
+    --thumb: 0.75rem;
+    appearance: none;
+    block-size: var(--thumb);
+    background: transparent;
+  }
+  .slider:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+  /* Chromium draws the thumb inside the track, so clipping the track would hide the thumb. */
+  .slider::-webkit-slider-runnable-track {
+    block-size: var(--track);
+    background: linear-gradient(to right, var(--color-primary) var(--fill), var(--color-base-300) var(--fill));
+  }
+  .slider::-moz-range-track {
+    block-size: var(--track);
+    background: linear-gradient(to right, var(--color-primary) var(--fill), var(--color-base-300) var(--fill));
+    clip-path: var(--pixel-corners-xs);
+  }
+  .slider::-webkit-slider-thumb {
+    appearance: none;
+    box-sizing: border-box;
+    inline-size: var(--thumb);
+    block-size: var(--thumb);
+    margin-block-start: calc((var(--track) - var(--thumb)) / 2);
+    border: 1px solid var(--color-primary);
+    background: white;
+    clip-path: var(--pixel-corners-xs);
+  }
+  .slider::-moz-range-thumb {
+    box-sizing: border-box;
+    inline-size: var(--thumb);
+    block-size: var(--thumb);
+    border: 1px solid var(--color-primary);
+    border-radius: 0;
+    background: white;
+    clip-path: var(--pixel-corners-xs);
+  }
+</style>

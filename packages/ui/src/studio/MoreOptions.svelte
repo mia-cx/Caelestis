@@ -32,13 +32,13 @@
     margin-inline-start: -0.25rem;
     padding: 0 0.375rem;
     border: 0;
-    border-radius: var(--caelestis-radius, 0.4rem);
+    border-radius: var(--caelestis-radius);
     background: none;
     color: var(--caelestis-muted-text);
     font: inherit;
     cursor: pointer;
   }
   .more:hover { color: var(--caelestis-text); }
-  .more:focus-visible { outline: 2px solid var(--caelestis-focus, currentColor); outline-offset: 0; }
+  .more:focus-visible { outline: 2px solid var(--caelestis-focus); outline-offset: 0; }
   .options { display: flex; flex-direction: column; gap: 0.5rem; }
 </style>

@@ -1,4 +1,4 @@
-import type { Manifest } from '@caelestis/shared'
+import { API_VERSION_PATH, type Manifest } from '@caelestis/shared'
 import { DEFAULT_SOCIAL_IMAGE, socialImageKey } from '@caelestis/social'
 import type { ObjectInfo } from '@caelestis/storage'
 import { readBackendJson } from '#lib/server/backend.js'
@@ -17,7 +17,7 @@ const headersFor = (image: ObjectInfo) => ({
 const serve: RequestHandler = async (event) => {
   try {
     // Check publication on every request, including old links after deletion or unpublication.
-    const manifest = await readBackendJson<Manifest>(event, '/v1/manifest')
+    const manifest = await readBackendJson<Manifest>(event, `${API_VERSION_PATH}/manifest`)
     const template = manifest.templates.find(
       (entry) => entry.id === event.params.id && entry.published,
     )

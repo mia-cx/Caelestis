@@ -102,12 +102,11 @@ export interface TemplateStudioModel {
     | { readonly kind: 'create'; readonly destination: string }
     | { readonly kind: 'replace'; readonly template: string }
   readonly name: string
-  /** The decoded image, with an object URL the Source window draws. Null until one loads. */
+  /** The decoded image's name and size. Null until one loads. */
   readonly source: {
     readonly name: string
     readonly width: number
     readonly height: number
-    readonly url: string
   } | null
   readonly loadingSource: boolean
   /** The part of the source the template uses, in source pixels. */
@@ -202,7 +201,10 @@ export type TemplateStudioIntent =
   /** Resolve a palette-fit layer's curves into its step, so they can be edited. */
   | { readonly type: 'analyse-fit'; readonly layer: string }
   | { readonly type: 'scope-stages'; readonly stages: readonly ScopeStage[] }
-  /** The Scopes window came on or off screen, as a window or a phone sheet; it samples while on. */
+  /**
+   * The Scopes panel came on or off screen, in front of its window's tabs or as the phone sheet.
+   * The host samples while it is on.
+   */
   | { readonly type: 'scopes-shown'; readonly shown: boolean }
   | { readonly type: 'origin'; readonly x: number; readonly y: number }
   | { readonly type: 'centre' }

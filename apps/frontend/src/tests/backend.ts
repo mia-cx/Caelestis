@@ -1,40 +1,12 @@
-import { type Millis, millis } from '@caelestis/shared'
-import { createApp } from '../../../backend/dist/app.js'
-import { hashToken } from '../../../backend/dist/auth/tokens.js'
-import type { BackfillClients } from '../../../backend/dist/backfill/port.js'
-import { openMemoryStores } from '../../../backend/dist/node/memory-stores.js'
-import { makeBackendContext } from '../../../backend/dist/runtime/backend-runtime.js'
+import {
+  createTestBackend as createBackend,
+  type TestBackendOptions,
+} from '@caelestis/backend/testing'
 
 export const adminToken = 'FRONTEND-CONTRACT-ADMIN'
 
-/** Exercise the built backend package without importing its compiler environment into SvelteKit. */
-export const createTestBackend = async (
-  options: { openAccess?: boolean; clock?: () => Millis; backfillClients?: BackfillClients } = {},
-) => {
-  const { clock, openAccess, backfillClients } = options
-  const stores = await openMemoryStores({ clock })
-  const { sql, blobs, counters } = stores
-  const tokenHash = await hashToken(adminToken)
-  await sql.insertAccessToken({
-    tokenHash,
-    label: 'Contract admin',
-    scope: 'admin',
-    createdWithToken: tokenHash,
-    createdAt: millis(1),
-  })
-  const app = createApp(
-    makeBackendContext(blobs, sql, counters, undefined, { backfill: backfillClients }),
-    {
-      server: {
-        id: '00000000-0000-7000-8000-000000000000',
-        name: 'Test server',
-        auth: openAccess === true ? 'none' : 'access_token',
-      },
-      currentSeason: 3,
-    },
-  )
-  return { ...stores, app }
-}
+export const createTestBackend = (options: TestBackendOptions = {}) =>
+  createBackend({ tokens: { [adminToken]: 'admin' }, ...options })
 
 export const authorized = (path: string, init: RequestInit = {}) => {
   const headers = new Headers(init.headers)

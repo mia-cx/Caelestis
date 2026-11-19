@@ -46,15 +46,16 @@
     position: relative;
     display: inline-flex;
     align-items: center;
+    box-sizing: content-box;
     padding: 0 0.75rem;
     min-block-size: 2rem;
     border: 1px solid var(--caelestis-border);
-    border-radius: var(--caelestis-radius, 0.5rem);
-    background: var(--caelestis-raised-surface, #eee);
+    border-radius: var(--caelestis-radius);
+    background: var(--caelestis-raised-surface);
     font-weight: 600;
     cursor: pointer;
   }
-  .file:focus-within { outline: 2px solid var(--caelestis-focus, currentColor); outline-offset: 2px; }
+  .file:focus-within { outline: 2px solid var(--caelestis-focus); outline-offset: 2px; }
   .file input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
   .url { display: grid; gap: 0.25rem; }
   .url-row { display: flex; gap: 0.35rem; }

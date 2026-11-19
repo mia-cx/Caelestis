@@ -3,11 +3,9 @@
  * and the rule for when a window has folded. `db/schema.ts` renders its resolution CHECKs from the
  * ladders, so a ladder change shows up as a schema diff.
  */
-export interface DecayEdge {
-  readonly source: number
-  readonly target: number
-  readonly retainSeconds: number
-}
+import type { DecayEdge } from '@caelestis/shared'
+
+export type { DecayEdge }
 
 /** Target groups processed per tier and write touch. Backlogs drain over later saves. */
 export const DECAY_FOLD_GROUP_LIMIT = 20

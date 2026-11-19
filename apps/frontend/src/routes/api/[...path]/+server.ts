@@ -1,3 +1,4 @@
+import { filterLiveProtocols } from '@caelestis/shared'
 import { fetchBackend } from '#lib/server/backend.js'
 import type { RequestHandler } from './$types'
 
@@ -10,11 +11,14 @@ const proxyRead: RequestHandler = async (event) => {
     'accept',
     'if-none-match',
     'range',
-    ...(upgrade ? ['upgrade', 'connection', 'sec-websocket-protocol'] : []),
+    ...(upgrade ? ['upgrade', 'connection'] : []),
   ]) {
     const value = event.request.headers.get(name)
     if (value !== null) headers.set(name, value)
   }
+  // The deployment authenticates this read, so a browser-supplied credential protocol must not ride along.
+  const protocols = filterLiveProtocols(event.request.headers.get('sec-websocket-protocol'))
+  if (upgrade && protocols.length > 0) headers.set('sec-websocket-protocol', protocols)
   try {
     const response = await fetchBackend(event, `${path}${event.url.search}`, {
       method: event.request.method,

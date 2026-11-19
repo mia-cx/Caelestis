@@ -6,6 +6,8 @@
  * structure on the way out (frontend), so admin text never reaches a page as markup.
  */
 
+import type { ServerInfo } from './manifest.js'
+
 export const MAX_HOME_COPY_LENGTH = 4_000
 export const MAX_HOME_COPY_LINKS = 20
 export const MAX_LOGO_TEXT_LENGTH = 64
@@ -250,4 +252,36 @@ export const parseHomeCopy = (value: unknown): HomeCopyResult => {
 export const normaliseHomeCopy = (value: string): string | null => {
   const copy = value.normalize('NFC').replace(/\r\n?/g, '\n').trim()
   return copy.length === 0 ? null : copy
+}
+
+/** The presentation fields of a server's `/server` answer. */
+export type ServerPresentation = Pick<
+  ServerInfo,
+  'discordInviteUrl' | 'homeCopy' | 'logoText' | 'logoImage' | 'previewImage'
+>
+
+/**
+ * Keep only the presentation a client may act on. A server's answer is untrusted input: the invite
+ * becomes an `href`, the assets become URLs, the copy becomes markup. Each field is re-checked with
+ * the rules the backend applies, and a field that fails is dropped rather than making the whole
+ * server unusable.
+ */
+export const parseServerPresentation = (
+  value: {
+    readonly [key in keyof ServerPresentation]?: unknown
+  },
+): ServerPresentation => {
+  const discordInviteUrl = parseDiscordInviteUrl(value.discordInviteUrl)
+  const homeCopy =
+    typeof value.homeCopy === 'string' && parseHomeCopy(value.homeCopy).ok ? value.homeCopy : null
+  const logo = logoText(value.logoText)
+  const logoImage = parseServerAsset(value.logoImage)
+  const previewImage = parseServerAsset(value.previewImage)
+  return {
+    ...(discordInviteUrl === null ? {} : { discordInviteUrl }),
+    ...(homeCopy === null ? {} : { homeCopy }),
+    ...(logo === null ? {} : { logoText: logo }),
+    ...(logoImage === null ? {} : { logoImage }),
+    ...(previewImage === null ? {} : { previewImage }),
+  }
 }

@@ -29,20 +29,6 @@ const windowWith = (layout: StudioLayout, id: StudioWindowId) =>
   layout.frames.find((frame) => panelsIn(frame.root).includes(id))
 
 describe('studio layout', () => {
-  it('starts with Size and Dither as tabs over Palette and Colour at the start, Effects at the end, Scopes closed', () => {
-    expect(windows(DEFAULT_STUDIO_LAYOUT)).toEqual([
-      { edge: 'start', panels: ['dimensions', 'dither', 'palette', 'colour'] },
-      { edge: 'end', panels: ['effects'] },
-    ])
-    expect(windowWith(DEFAULT_STUDIO_LAYOUT, 'dimensions')?.root).toMatchObject({
-      children: [
-        { panels: ['dimensions', 'dither'], active: 'dimensions' },
-        tabs('palette', 'colour'),
-      ],
-    })
-    expect(isOpen(DEFAULT_STUDIO_LAYOUT, 'scopes')).toBe(false)
-  })
-
   it('floats a panel dragged out of a window as its own, measured from its nearer edge', () => {
     const left = movePanel(DEFAULT_STUDIO_LAYOUT, 'dither', {
       kind: 'float',

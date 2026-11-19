@@ -1,20 +1,13 @@
+import { decodeSrgb, encodeSrgb } from '../colour.js'
 import type {
   BrightnessContrastEffect,
   ExposureEffect,
   HueSaturationEffect,
   LevelsEffect,
-} from 'ditherette'
+} from '../ditherette.js'
 
 /** Maps one encoded sRGB channel value from 0 through 1, as an effect's spec defines it. */
 export type ToneMap = (value: number) => number
-
-/** Where a curve changes nothing: a remap's diagonal, an adjustment's midline, or a mask's top. */
-export type Neutral = 'diagonal' | 'flat' | 'full'
-
-const decode = (value: number) =>
-  value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
-const encode = (value: number) =>
-  value <= 0.0031308 ? value * 12.92 : 1.055 * value ** (1 / 2.4) - 0.055
 
 export function levelsTone({ input, gamma, output }: LevelsEffect): ToneMap {
   return (value) => {
@@ -31,7 +24,7 @@ export function brightnessContrastTone({
 }
 
 export function exposureTone({ stops }: ExposureEffect): ToneMap {
-  return (value) => encode(decode(value) * 2 ** stops)
+  return (value) => encodeSrgb(decodeSrgb(value) * 2 ** stops)
 }
 
 /** An SVG path through `map` on a `size`-unit square, with output clipped to the square. */

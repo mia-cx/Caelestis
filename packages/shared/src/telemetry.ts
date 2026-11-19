@@ -101,6 +101,17 @@ export const MAX_LIVE_TEMPLATE_IDS = 90
 export const LIVE_PROTOCOL_V1 = 'caelestis.live.v1'
 export const LIVE_PROTOCOL_V2 = 'caelestis.live.v2'
 
+/**
+ * Only the live protocols of a `Sec-WebSocket-Protocol` offer. A proxy that authenticates on the
+ * browser's behalf uses it so a browser-supplied credential protocol never reaches the backend.
+ */
+export const filterLiveProtocols = (header: string | null | undefined): string =>
+  (header ?? '')
+    .split(',')
+    .map((protocol) => protocol.trim())
+    .filter((protocol) => protocol === LIVE_PROTOCOL_V1 || protocol === LIVE_PROTOCOL_V2)
+    .join(', ')
+
 export type LiveProjectionResource = 'world-manifest' | 'alliance-manifest' | 'telemetry-alarms'
 
 /** One client-held projection version. Null means this connection needs a complete snapshot. */

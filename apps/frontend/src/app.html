@@ -7,8 +7,8 @@
       // Applied before first paint so a stored theme choice never flashes the other theme.
       // No stored choice means no data-theme attribute, which lets daisyui's prefersdark rule
       // follow the OS setting.
-      const theme = localStorage.getItem('caelestis:theme')
-      if (theme === 'caelestis' || theme === 'caelestis-dark') {
+      const theme = localStorage.getItem('%caelestis.theme-key%')
+      if (theme === '%caelestis.theme-light%' || theme === '%caelestis.theme-dark%') {
         document.documentElement.dataset.theme = theme
       }
     </script>
