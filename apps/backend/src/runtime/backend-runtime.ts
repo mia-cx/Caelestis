@@ -76,16 +76,14 @@ export interface BackendRuntime {
   ) => Promise<A | B>
 }
 
-export const createBackendRuntime = (context: BackendContext): BackendRuntime => {
-  return {
-    context,
-    run: (effect) => Effect.runPromise(Effect.provideContext(effect, context)),
-    runHandled: (effect, onError) =>
-      Effect.runPromise(
-        Effect.provideContext(
-          Effect.catch(effect, (error) => Effect.succeed(onError(error))),
-          context,
-        ),
+export const createBackendRuntime = (context: BackendContext): BackendRuntime => ({
+  context,
+  run: (effect) => Effect.runPromise(Effect.provideContext(effect, context)),
+  runHandled: (effect, onError) =>
+    Effect.runPromise(
+      Effect.provideContext(
+        Effect.catch(effect, (error) => Effect.succeed(onError(error))),
+        context,
       ),
-  }
-}
+    ),
+})

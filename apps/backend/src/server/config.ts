@@ -48,14 +48,6 @@ export interface ServerConfig {
 
 const DEFAULT_SERVER_NAME = 'Caelestis'
 
-/**
- * Parse every setting both hosts share, once, before storage opens or traffic arrives.
- *
- * An empty value means unset: the shipped self-hosted example sets `SERVER_DESCRIPTION = ""`.
- * Anything else that would fail the wire schema later, such as a typo in `SEASON` or an
- * over-long name, is refused here, so the operator hears about it at startup instead of from a
- * client that cannot decode the manifest.
- */
 /** A whole-number environment variable, or `fallback` when it is unset or empty. */
 export const wholeNumberVariable = (
   env: Readonly<Record<string, string | undefined>>,
@@ -70,6 +62,14 @@ export const wholeNumberVariable = (
   return parsed
 }
 
+/**
+ * Parse every setting both hosts share, once, before storage opens or traffic arrives.
+ *
+ * An empty value means unset: the shipped self-hosted example sets `SERVER_DESCRIPTION = ""`.
+ * Anything else that would fail the wire schema later, such as a typo in `SEASON` or an
+ * over-long name, is refused here, so the operator hears about it at startup instead of from a
+ * client that cannot decode the manifest.
+ */
 export const parseServerConfig = (env: ServerEnvironment, release: Release = {}): ServerConfig => {
   const read = (name: keyof ServerEnvironment): string | undefined => env[name] || undefined
   const refuse = (name: keyof ServerEnvironment, rule: string): never => {
