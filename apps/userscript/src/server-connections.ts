@@ -1,13 +1,14 @@
 import { mapLimit } from './concurrency.js'
 import { log, warn } from './debug.js'
 import { notifyListeners } from './listeners.js'
+import { withManifestReadSlot } from './manifest-order.js'
 import {
   parseServerInfo,
   parseServerManifest,
   type ServerInfo,
   type ServerManifest,
 } from './server-manifest.js'
-import { sendServerRequest, withManifestReadSlot } from './server-transport.js'
+import { sendServerRequest } from './server-transport.js'
 import { canonicalServerUrl, endpointUrl, type ServerApiVersion } from './server-url.js'
 import {
   forgetServer,
@@ -444,18 +445,14 @@ export const probeServer = async (
     // nothing about a code. Without this second call any non-empty string would read as "connected"
     // and every later request would fail with 401.
     const fetchManifest = (credential: string | null) =>
-      withManifestReadSlot(
-        signal,
-        () => true,
-        async (sequence) => ({
-          ...(await sendServerRequest(
-            endpointUrl(base, '/manifest', apiVersion),
-            { headers: bearer(credential), signal },
-            { limits: 'tree', read: 'json' },
-          )),
-          sequence,
-        }),
-      )
+      withManifestReadSlot(signal, async (sequence) => ({
+        ...(await sendServerRequest(
+          endpointUrl(base, '/manifest', apiVersion),
+          { headers: bearer(credential), signal },
+          { limits: 'tree', read: 'json' },
+        )),
+        sequence,
+      }))
     let effectiveToken = token
     let {
       response: authed,

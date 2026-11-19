@@ -6,6 +6,7 @@ import {
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { warn } from './debug.js'
+import { withManifestReadSlot } from './manifest-order.js'
 import { PerServerMap } from './per-server-map.js'
 import { cacheServer, forgetServer, loadServerCache } from './server-cache.js'
 import {
@@ -31,7 +32,6 @@ import {
 } from './server-manifest.js'
 import { coalesceServerRead } from './server-read-coalescer.js'
 import { serverRequest } from './server-request.js'
-import { withManifestReadSlot } from './server-transport.js'
 import { getState, type ServerConnection } from './settings.js'
 import { serverIdentity } from './tree-keys.js'
 
@@ -397,7 +397,6 @@ export const readManifest = async (
       async (): Promise<ServerContents | null> => {
         const { response, body, sequence } = await withManifestReadSlot(
           serverConnectionSignal(server),
-          () => isCurrentServerConnection(server),
           async (sequence) => ({
             ...(await serverRequest(server, '/manifest', {
               query:
@@ -413,6 +412,7 @@ export const readManifest = async (
             })),
             sequence,
           }),
+          () => isCurrentServerConnection(server),
         )
         if (response.status === 401 || response.status === 403)
           noteAuthFailure(server, response.status)

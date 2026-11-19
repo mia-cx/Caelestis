@@ -1,5 +1,4 @@
 import { userscriptClientHeaders } from './client-metrics.js'
-import { Semaphore } from './concurrency.js'
 import { discardResponseBody, readBoundedJsonResponse } from './response.js'
 
 /**
@@ -166,27 +165,3 @@ export const sendServerRequest = <Read extends ServerRead>(
     return result
   })
 }
-
-let manifestSequence = 0
-const manifestReads = new Semaphore(4)
-
-/**
- * Hold one of four manifest read slots for `read`, numbering each read that starts. Numbers are
- * process-wide and increasing, so a response can be ordered against writes made before it.
- */
-export const withManifestReadSlot = async <Result>(
-  signal: AbortSignal,
-  /** Checked once admitted: the caller's connection may have been replaced while it waited. */
-  canStart: () => boolean,
-  read: (sequence: number) => Promise<Result>,
-): Promise<Result> => {
-  const result = await manifestReads.run(signal, async () => {
-    if (!canStart()) throw new Error('manifest read superseded before it started')
-    return { value: await read(++manifestSequence) }
-  })
-  if (result === undefined) throw new Error('manifest read cancelled')
-  return result.value
-}
-
-/** The number the most recent manifest read started with. */
-export const serverManifestSequence = (): number => manifestSequence

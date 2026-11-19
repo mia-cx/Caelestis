@@ -8,6 +8,7 @@ import {
   templateRecipeJson,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
+import { serverManifestSequence } from './manifest-order.js'
 import {
   isCurrentServerConnection,
   noteAuthFailure,
@@ -24,7 +25,7 @@ import {
 } from './server-manifest.js'
 import { admittedManifest, onManifestChange, readManifest } from './server-manifests.js'
 import { type ServerRequestOptions, serverRequest } from './server-request.js'
-import { type ServerLimits, serverManifestSequence } from './server-transport.js'
+import type { ServerLimits } from './server-transport.js'
 import type { ServerConnection } from './settings.js'
 import type { TemplateAuthoring } from './templates/authoring.js'
 
