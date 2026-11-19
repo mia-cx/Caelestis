@@ -19,17 +19,13 @@ for (const claims of [37, 512]) {
     for (const variant of pair % 2 ? ['candidate', 'baseline'] : ['baseline', 'candidate']) {
       const root = resolve(variant === 'baseline' ? baseline : candidate)
       const load = (file) => import(pathToFileURL(`${root}/${file}`).href)
-      const [
-        { PresenceCoordinator },
-        { sqliteConnection },
-        relational,
-        { IngestTimings },
-      ] = await Promise.all([
-        load('presence/coordinator.js'),
-        load('node/database.js'),
-        load('adapters/relational-sql-store.js'),
-        load('telemetry/ingest-timing.js'),
-      ])
+      const [{ PresenceCoordinator }, { sqliteConnection }, relational, { IngestTimings }] =
+        await Promise.all([
+          load('presence/coordinator.js'),
+          load('node/database.js'),
+          load('adapters/relational-sql-store.js'),
+          load('telemetry/ingest-timing.js'),
+        ])
       const database = sqliteConnection(':memory:')
       try {
         database.migrate(resolve('apps/backend/migrations'))
