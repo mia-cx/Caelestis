@@ -1,29 +1,52 @@
 import {
+  anchorsOf,
+  boxShape,
+  claimDocumentPixels,
+  claimDocuments,
+  claimDocumentsLimitError,
+  claimSet,
+  cornerAnchor,
+  documentLimitError,
+  eraseFromRaster,
   flattenPath,
+  inLasso,
+  inMarquee,
+  insertAnchor,
+  isSmooth,
   MAX_PATH_NODES,
-  MAX_RASTER_BITS,
-  MAX_REGION_DOCUMENT_PIXELS,
-  MAX_REGION_DOCUMENT_WORK,
-  MAX_REGION_ITEMS,
   MAX_REGION_SHAPE_CORNERS,
-  MAX_REGION_SHAPE_EXTENT,
   MAX_STROKE_WIDTH,
   MIN_REGION_SHAPE_CORNERS,
+  mergeRasters,
+  moveNode,
+  nearestOnPath,
+  orientToContinue,
+  type PathHit,
   type PathNode,
+  type PathShape,
+  PixelSet,
   type Point,
   type PresenceRect,
   type RegionDocument,
   type RegionItem,
   type RegionShape,
   type RegionShapePixels,
-  rasterShapeFrom,
+  rasterTouches,
   regionDocumentBounds,
-  regionDocumentWork,
   regionShapeBounds,
   regionShapeCentre,
   regionShapeContainsPixel,
   regionShapeOutline,
-  regionShapePixels,
+  removeAnchor,
+  rotateShape,
+  roundShape,
+  rubberBand,
+  scaleBoxCorners,
+  scaleShape,
+  selectionError,
+  smoothAnchor,
+  starInner,
+  toPath,
   translateRegionShape,
   WORLD_PIXELS,
 } from '@caelestis/shared'
@@ -37,24 +60,6 @@ import {
   type ClaimToolGroupId,
 } from '@caelestis/ui/elements'
 import { cancelSurfaceClose, closeSurface, openSurface } from '@caelestis/ui/motion'
-import {
-  claimDocumentError,
-  claimDocumentPixels,
-  claimDocuments,
-  claimDocumentsLimitError,
-} from './claim-document.js'
-import {
-  cornerAnchor,
-  insertAnchor,
-  isSmooth,
-  nearestOnPath,
-  orientToContinue,
-  type PathHit,
-  removeAnchor,
-  rubberBand,
-  smoothAnchor,
-} from './claim-path.js'
-import { eraseFromRaster, mergeRasters, PixelSet, rasterTouches } from './claim-raster.js'
 import type { ClaimSaveResult } from './claim-routing.js'
 import { splitItem, strokeArea } from './claim-split.js'
 import { registerDebugEntry } from './console-api.js'
@@ -98,8 +103,6 @@ const ROTATE_ZONE_CSS = 28
 const ROTATE_STEM_CSS = 26
 /** Illustrator's Shift while rotating: whole turns of this many degrees. */
 const ROTATE_SNAP_DEGREES = 15
-/** The bezier control distance that makes four cubic segments a near-perfect ellipse. */
-const ELLIPSE_KAPPA = 0.5522847498
 const ROTATE_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20"><path d="M10 3a7 7 0 1 1-6.3 4" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round"/><path d="M10 3a7 7 0 1 1-6.3 4" fill="none" stroke="#000" stroke-width="1.5" stroke-linecap="round"/><path d="M3 2v5.5h5.5" fill="none" stroke="#fff" stroke-width="3.5" stroke-linejoin="round"/><path d="M3 2v5.5h5.5" fill="none" stroke="#000" stroke-width="1.5" stroke-linejoin="round"/></svg>',
 )}") 10 10, alias`
@@ -327,9 +330,6 @@ const clampInt = (value: number, min: number, max: number): number =>
 
 const pixel = (value: number): number => Math.min(WORLD_PIXELS - 1, Math.max(0, Math.floor(value)))
 
-const degrees = (dx: number, dy: number): number =>
-  ((Math.round((Math.atan2(dy, dx) * 180) / Math.PI) % 360) + 360) % 360
-
 const nextItemId = (): string => `i${Date.now().toString(36)}${(itemSeq++).toString(36)}`
 
 const bump = (): void => {
@@ -404,14 +404,8 @@ const previewItem = (): RegionItem | null => {
  * Whether a document is past the shape limits: per claim in claim mode, where each touching group
  * saves as its own claim, and for the whole selection in capture mode, which rasterises as one.
  */
-const limitError = (document: RegionDocument): string | null => {
-  if (captureHost === null) return claimDocumentsLimitError(claimDocuments(document))
-  if (document.items.length > MAX_REGION_ITEMS)
-    return `A selection holds at most ${MAX_REGION_ITEMS} shapes.`
-  if (regionDocumentWork(document) > MAX_REGION_DOCUMENT_WORK)
-    return 'This selection is too complex to draw; shrink or remove some shapes.'
-  return null
-}
+const limitError = (document: RegionDocument): string | null =>
+  documentLimitError(document, captureHost === null ? 'claim' : 'selection')
 
 const workingDocument = (): RegionDocument => {
   const preview = previewItem()
@@ -420,57 +414,24 @@ const workingDocument = (): RegionDocument => {
 
 /**
  * The claim as pixels, including whatever is mid-gesture: one bounded raster per independent
- * group of touching shapes, so empty space between distant shapes is never rasterised. Cached
- * per change.
+ * group of touching shapes, so empty space between distant shapes is never rasterised. A capture
+ * selection rasterises as one. Cached per change.
  */
 export const claimEditorPixels = (): ClaimEditorPixels | null => {
   if (!active) return null
-  if (pixelCache?.version !== version && captureHost !== null) {
-    const document = workingDocument()
-    const rect = regionDocumentBounds(document)
-    const error =
-      limitError(document) ??
-      (rect !== null && rect.w * rect.h > MAX_REGION_DOCUMENT_PIXELS
-        ? 'This selection spans too much of the canvas. Select a smaller area.'
-        : null)
-    const selection = error === null ? claimDocumentPixels(document) : null
-    const parts = selection === null || selection.count === 0 ? [] : [selection]
-    pixelCache = {
-      version,
-      document,
-      documents: [],
-      error:
-        error ??
-        (document.items.length > 0 && parts.length === 0
-          ? 'This selection contains no pixels. Adjust or remove its subtracting shapes.'
-          : null),
-      pixels: rect === null ? null : { rect, parts, count: selection?.count ?? 0 },
-    }
-  }
   if (pixelCache?.version !== version) {
     const document = workingDocument()
-    const grouped = claimDocuments(document)
-    const limitError = claimDocumentsLimitError(grouped)
-    const documents =
-      limitError === null
-        ? grouped.filter((part) => claimDocumentPixels(part)?.count !== 0)
-        : grouped
+    const { documents, error } =
+      captureHost === null
+        ? claimSet(document)
+        : { documents: [document], error: selectionError(document) }
     const parts =
-      limitError === null
+      error === null || captureHost === null
         ? documents.flatMap((part) => {
             const pixels = claimDocumentPixels(part)
-            return pixels === null ? [] : [pixels]
+            return pixels === null || pixels.count === 0 ? [] : [pixels]
           })
         : []
-    const error =
-      limitError ??
-      (document.items.length === 0
-        ? null
-        : grouped.length === 0
-          ? 'Add a shape before saving this claim.'
-          : documents.length === 0
-            ? 'This claim contains no pixels. Adjust or remove its subtracting shapes.'
-            : (documents.map(claimDocumentError).find((error) => error !== null) ?? null))
     const rect = regionDocumentBounds(document)
     pixelCache = {
       version,
@@ -480,11 +441,7 @@ export const claimEditorPixels = (): ClaimEditorPixels | null => {
       pixels:
         rect === null
           ? null
-          : {
-              rect,
-              parts,
-              count: parts.reduce((count, part) => count + part.count, 0),
-            },
+          : { rect, parts, count: parts.reduce((count, part) => count + part.count, 0) },
     }
   }
   return pixelCache.pixels
@@ -537,62 +494,6 @@ const select = (ids: readonly string[]): void => {
   selectedIds = [...new Set(ids)]
 }
 
-/** Whether a shape is inside a marquee: its bounding box touches the box, as in Illustrator. */
-const inMarquee = (
-  shape: RegionShape,
-  box: { x0: number; y0: number; x1: number; y1: number },
-): boolean => {
-  const bounds = regionShapeBounds(shape)
-  const left = Math.min(box.x0, box.x1)
-  const right = Math.max(box.x0, box.x1)
-  const top = Math.min(box.y0, box.y1)
-  const bottom = Math.max(box.y0, box.y1)
-  return (
-    bounds.x <= right &&
-    bounds.x + bounds.w >= left &&
-    bounds.y <= bottom &&
-    bounds.y + bounds.h >= top
-  )
-}
-
-const insidePolygon = (ring: readonly Point[], x: number, y: number): boolean => {
-  let inside = false
-  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const a = ring[i] as Point
-    const b = ring[j] as Point
-    if (a.y > y !== b.y > y && x < ((b.x - a.x) * (y - a.y)) / (b.y - a.y) + a.x) inside = !inside
-  }
-  return inside
-}
-
-const orient = (a: Point, b: Point, c: Point): number =>
-  (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
-
-const segmentsCross = (a: Point, b: Point, c: Point, d: Point): boolean =>
-  orient(a, b, c) * orient(a, b, d) < 0 && orient(c, d, a) * orient(c, d, b) < 0
-
-/**
- * Whether a shape is caught by a lasso: a point of its outline lies inside the loop, the loop
- * lies inside the shape, or an outline edge crosses the loop. The last case is what catches a
- * narrow loop drawn across the middle of an edge.
- */
-const inLasso = (shape: RegionShape, ring: readonly Point[]): boolean => {
-  if (ring.length < 3) return false
-  const outline = regionShapeOutline(shape)
-  if (outline.some((point) => insidePolygon(ring, point.x, point.y))) return true
-  const closed = shape.kind !== 'path' || shape.closed
-  if (closed && ring.some((point) => insidePolygon(outline, point.x, point.y))) return true
-  const edges = closed ? outline.length : outline.length - 1
-  for (let i = 0; i < edges; i++) {
-    const a = outline[i] as Point
-    const b = outline[(i + 1) % outline.length] as Point
-    for (let j = 0; j < ring.length; j++) {
-      if (segmentsCross(a, b, ring[j] as Point, ring[(j + 1) % ring.length] as Point)) return true
-    }
-  }
-  return false
-}
-
 const replaceItem = (id: string, shape: RegionShape): void => {
   items = items.map((item) => (item.id === id ? { ...item, shape } : item))
   touch()
@@ -610,65 +511,15 @@ const addItem = (shape: RegionShape): void => {
   touch()
 }
 
-/** A box from two pixels, inclusive of both, capped at the largest allowed side. */
-const box = (
-  kind: 'rectangle' | 'ellipse',
-  ax: number,
-  ay: number,
-  bx: number,
-  by: number,
-): RegionShape => {
-  // The moving corner is capped relative to the anchor, so a box dragged too far still
-  // contains the pixel the gesture started on.
-  const reach = MAX_REGION_SHAPE_EXTENT - 1
-  const cx = Math.max(ax - reach, Math.min(ax + reach, bx))
-  const cy = Math.max(ay - reach, Math.min(ay + reach, by))
-  return {
-    kind,
-    x: Math.min(ax, cx),
-    y: Math.min(ay, cy),
-    w: Math.abs(cx - ax) + 1,
-    h: Math.abs(cy - ay) + 1,
-  }
-}
-
-const round = (
-  kind: 'polygon' | 'star',
-  cx: number,
-  cy: number,
-  x: number,
-  y: number,
-  base?: RegionShape,
-): RegionShape => {
-  const dx = x - cx
-  const dy = y - cy
-  // A star's inner radius must sit strictly inside its outer one, so a star is never smaller
-  // than two pixels; a polygon can be one.
-  const r = clampInt(Math.hypot(dx, dy), kind === 'star' ? 2 : 1, MAX_REGION_SHAPE_EXTENT / 2)
-  const rotation = degrees(dx, dy)
-  if (kind === 'polygon')
-    return { kind, cx, cy, r, sides: base?.kind === 'polygon' ? base.sides : sides, rotation }
-  const ratio = base?.kind === 'star' ? base.inner / base.r : inner / 100
-  return {
-    kind,
-    cx,
-    cy,
-    r,
-    inner: clampInt(r * ratio, 1, Math.max(1, r - 1)),
-    points: base?.kind === 'star' ? base.points : points,
-    rotation,
-  }
-}
-
 /** Build the shape-tool shape from the press pixel and the pointer pixel. */
 const shapeFrom = (originX: number, originY: number, x: number, y: number): RegionShape | null => {
   switch (tool) {
     case 'rectangle':
     case 'ellipse':
-      return box(tool, originX, originY, x, y)
+      return boxShape(tool, { x: originX, y: originY }, { x, y })
     case 'polygon':
     case 'star':
-      return round(tool, originX, originY, x, y)
+      return roundShape(tool, { x: originX, y: originY }, { x, y }, { sides, points, inner })
     default:
       return null
   }
@@ -965,160 +816,6 @@ const startDrag = (
   }
 }
 
-type PathShape = Extract<RegionShape, { kind: 'path' }>
-
-/**
- * A parametric shape as a closed path with the same pixels, so its anchors can be edited one by
- * one: corners for a rectangle, polygon, or star; four smooth anchors with bezier handles for an
- * ellipse. This is what Illustrator does too: a rectangle is a path with four anchors.
- */
-const toPath = (shape: RegionShape): PathShape => {
-  if (shape.kind === 'path') return shape
-  if (shape.kind === 'ellipse') {
-    const cx = shape.x + shape.w / 2
-    const cy = shape.y + shape.h / 2
-    const rx = shape.w / 2
-    const ry = shape.h / 2
-    const kx = rx * ELLIPSE_KAPPA
-    const ky = ry * ELLIPSE_KAPPA
-    return {
-      kind: 'path',
-      closed: true,
-      width: 0,
-      nodes: [
-        { x: cx, y: cy - ry, in: { x: cx - kx, y: cy - ry }, out: { x: cx + kx, y: cy - ry } },
-        { x: cx + rx, y: cy, in: { x: cx + rx, y: cy - ky }, out: { x: cx + rx, y: cy + ky } },
-        { x: cx, y: cy + ry, in: { x: cx + kx, y: cy + ry }, out: { x: cx - kx, y: cy + ry } },
-        { x: cx - rx, y: cy, in: { x: cx - rx, y: cy + ky }, out: { x: cx - rx, y: cy - ky } },
-      ],
-    }
-  }
-  return {
-    kind: 'path',
-    closed: true,
-    width: 0,
-    nodes: regionShapeOutline(shape).map((point) => ({ x: point.x, y: point.y })),
-  }
-}
-
-/** The anchors the direct-selection tool shows for a shape, in canvas coordinates. */
-const anchorsOf = (shape: RegionShape): readonly Point[] =>
-  shape.kind === 'path' ? shape.nodes : toPath(shape).nodes
-
-const rotatePoint = (point: Point, centre: Point, radians: number): Point => {
-  const cos = Math.cos(radians)
-  const sin = Math.sin(radians)
-  const dx = point.x - centre.x
-  const dy = point.y - centre.y
-  return { x: centre.x + dx * cos - dy * sin, y: centre.y + dx * sin + dy * cos }
-}
-
-const rotatePath = (path: PathShape, centre: Point, radians: number): PathShape => ({
-  ...path,
-  nodes: path.nodes.map((node) => ({
-    ...rotatePoint(node, centre, radians),
-    ...(node.in === undefined ? {} : { in: rotatePoint(node.in, centre, radians) }),
-    ...(node.out === undefined ? {} : { out: rotatePoint(node.out, centre, radians) }),
-  })),
-})
-
-/**
- * A shape turned by `radians` about its centre. Polygons and stars turn in place, in whole
- * degrees; anything else becomes a path first, since a rectangle or ellipse has no angle.
- */
-const rotateShape = (shape: RegionShape, centre: Point, radians: number): RegionShape => {
-  if (shape.kind === 'polygon' || shape.kind === 'star') {
-    const turned = Math.round((radians * 180) / Math.PI)
-    return { ...shape, rotation: (((shape.rotation + turned) % 360) + 360) % 360 }
-  }
-  return rotatePath(toPath(shape), centre, radians)
-}
-
-/** The box the selection tool's scale handles sit on: the geometry itself, no stroke padding. */
-const scaleBox = (shape: RegionShape): { x0: number; y0: number; x1: number; y1: number } => {
-  if (shape.kind === 'path') {
-    let x0 = Number.POSITIVE_INFINITY
-    let y0 = Number.POSITIVE_INFINITY
-    let x1 = Number.NEGATIVE_INFINITY
-    let y1 = Number.NEGATIVE_INFINITY
-    for (const node of shape.nodes) {
-      for (const point of [node, node.in, node.out]) {
-        if (point === undefined) continue
-        x0 = Math.min(x0, point.x)
-        y0 = Math.min(y0, point.y)
-        x1 = Math.max(x1, point.x)
-        y1 = Math.max(y1, point.y)
-      }
-    }
-    return { x0, y0, x1, y1 }
-  }
-  const bounds = regionShapeBounds(shape)
-  return { x0: bounds.x, y0: bounds.y, x1: bounds.x + bounds.w, y1: bounds.y + bounds.h }
-}
-
-const scaleBoxCorners = (shape: RegionShape): Point[] => {
-  const { x0, y0, x1, y1 } = scaleBox(shape)
-  return [
-    { x: x0, y: y0 },
-    { x: x1, y: y0 },
-    { x: x1, y: y1 },
-    { x: x0, y: y1 },
-  ]
-}
-
-/**
- * A shape scaled about a fixed point, Illustrator's bounding-box handles. Paths scale their
- * anchors and handles; a raster is resampled nearest-neighbour into its new box, so its pixels
- * stay crisp. Anything else has its own handles and never gets here.
- */
-const scaleShape = (
-  shape: RegionShape,
-  anchor: Point,
-  sx: number,
-  sy: number,
-): RegionShape | null => {
-  if (shape.kind === 'path') {
-    const move = (point: Point): Point => ({
-      x: anchor.x + (point.x - anchor.x) * sx,
-      y: anchor.y + (point.y - anchor.y) * sy,
-    })
-    return {
-      ...shape,
-      nodes: shape.nodes.map((node) => ({
-        ...move(node),
-        ...(node.in === undefined ? {} : { in: move(node.in) }),
-        ...(node.out === undefined ? {} : { out: move(node.out) }),
-      })),
-    }
-  }
-  if (shape.kind !== 'pixels') return null
-  const source = regionShapePixels(shape)
-  const left = anchor.x + (shape.x - anchor.x) * sx
-  const right = anchor.x + (shape.x + shape.w - anchor.x) * sx
-  const top = anchor.y + (shape.y - anchor.y) * sy
-  const bottom = anchor.y + (shape.y + shape.h - anchor.y) * sy
-  const x = Math.max(0, Math.round(Math.min(left, right)))
-  const y = Math.max(0, Math.round(Math.min(top, bottom)))
-  const w = Math.max(1, Math.round(Math.abs(right - left)))
-  const h = Math.max(1, Math.round(Math.abs(bottom - top)))
-  if (w * h > MAX_RASTER_BITS) return null
-  const mask = new Uint8Array(w * h)
-  let count = 0
-  for (let row = 0; row < h; row++) {
-    const sy0 = Math.min(shape.h - 1, Math.floor(((row + 0.5) / h) * shape.h))
-    const srcRow = sy < 0 ? shape.h - 1 - sy0 : sy0
-    for (let column = 0; column < w; column++) {
-      const sx0 = Math.min(shape.w - 1, Math.floor(((column + 0.5) / w) * shape.w))
-      const srcColumn = sx < 0 ? shape.w - 1 - sx0 : sx0
-      if (source.mask[srcRow * shape.w + srcColumn] === 1) {
-        mask[row * w + column] = 1
-        count++
-      }
-    }
-  }
-  return rasterShapeFrom({ rect: { x, y, w, h }, mask, count })
-}
-
 /** The bounding-box corners of a shape, projected to client pixels. */
 const cornersOnScreen = (
   shape: RegionShape,
@@ -1363,40 +1060,6 @@ const onPointerDown = (event: PointerEvent): void => {
   }
 }
 
-const moveNode = (
-  shape: Extract<RegionShape, { kind: 'path' }>,
-  index: number,
-  part: Drag['part'],
-  x: number,
-  y: number,
-  base: Extract<RegionShape, { kind: 'path' }>,
-): RegionShape => {
-  const nodes = shape.nodes.map((node, at) => {
-    if (at !== index) return node
-    const original = base.nodes[index] as PathNode
-    if (part === 'anchor') {
-      const dx = x - original.x
-      const dy = y - original.y
-      return {
-        x,
-        y,
-        ...(original.in === undefined
-          ? {}
-          : { in: { x: original.in.x + dx, y: original.in.y + dy } }),
-        ...(original.out === undefined
-          ? {}
-          : { out: { x: original.out.x + dx, y: original.out.y + dy } }),
-      }
-    }
-    // Dragging one handle mirrors the other, Illustrator's smooth anchor.
-    const mirror = { x: 2 * node.x - x, y: 2 * node.y - y }
-    return part === 'in'
-      ? { ...node, in: { x, y }, out: mirror }
-      : { ...node, out: { x, y }, in: mirror }
-  })
-  return { ...shape, nodes }
-}
-
 const onPointerMove = (event: PointerEvent): void => {
   if (!active || host === null) return
   if (drag === null) {
@@ -1473,20 +1136,31 @@ const onPointerMove = (event: PointerEvent): void => {
     case 'corner': {
       if (base === null || (base.shape.kind !== 'rectangle' && base.shape.kind !== 'ellipse'))
         return
-      replaceItem(base.id, box(base.shape.kind, drag.originX, drag.originY, px, py))
+      replaceItem(
+        base.id,
+        boxShape(base.shape.kind, { x: drag.originX, y: drag.originY }, { x: px, y: py }),
+      )
       break
     }
     case 'outer': {
       if (base === null || (base.shape.kind !== 'polygon' && base.shape.kind !== 'star')) return
-      replaceItem(base.id, round(base.shape.kind, drag.originX, drag.originY, px, py, base.shape))
+      replaceItem(
+        base.id,
+        roundShape(
+          base.shape.kind,
+          { x: drag.originX, y: drag.originY },
+          { x: px, y: py },
+          { sides, points, inner },
+          base.shape,
+        ),
+      )
       break
     }
     case 'inner': {
       if (base?.shape.kind !== 'star') return
-      const innerRadius = clampInt(
+      const innerRadius = starInner(
+        base.shape.r,
         Math.hypot(px - base.shape.cx, py - base.shape.cy),
-        1,
-        Math.max(1, base.shape.r - 1),
       )
       inner = Math.round((innerRadius / base.shape.r) * 100)
       replaceItem(base.id, { ...base.shape, inner: innerRadius })
@@ -1496,14 +1170,11 @@ const onPointerMove = (event: PointerEvent): void => {
       if (base?.shape.kind !== 'path') return
       const current = selectedItem()
       if (current?.shape.kind !== 'path') return
-      replaceItem(
-        base.id,
-        moveNode(current.shape, drag.index, drag.part, point.x, point.y, base.shape),
-      )
+      replaceItem(base.id, moveNode(current.shape, drag.index, drag.part, point, base.shape))
       break
     }
     case 'scale': {
-      if (base === null) return
+      if (base === null || (base.shape.kind !== 'path' && base.shape.kind !== 'pixels')) return
       const anchor = { x: drag.originX, y: drag.originY }
       const from = scaleBoxCorners(base.shape)[drag.index] as Point
       const spanX = from.x - anchor.x
@@ -1561,10 +1232,9 @@ const onPointerMove = (event: PointerEvent): void => {
     }
     case 'anchor-convert': {
       if (base === null || !drag.moved) return
-      const converted: RegionItem = { ...base, shape: toPath(base.shape) }
-      const path = converted.shape as PathShape
-      drag = { ...drag, kind: 'node', base: converted }
-      replaceItem(base.id, moveNode(path, drag.index, 'anchor', point.x, point.y, path))
+      const path = toPath(base.shape)
+      drag = { ...drag, kind: 'node', base: { ...base, shape: path } }
+      replaceItem(base.id, moveNode(path, drag.index, 'anchor', point, path))
       break
     }
     case 'anchor-pull': {
@@ -1988,7 +1658,7 @@ export const handleClaimModeIntent = (intent: ClaimModeIntent): void => {
         if (intent.option === 'inner' && shape.kind === 'star')
           replaceItem(selected.id, {
             ...shape,
-            inner: clampInt((shape.r * inner) / 100, 1, Math.max(1, shape.r - 1)),
+            inner: starInner(shape.r, (shape.r * inner) / 100),
           })
         if (intent.option === 'width' && shape.kind === 'path' && (shape.closed || width > 0))
           replaceItem(selected.id, { ...shape, width })

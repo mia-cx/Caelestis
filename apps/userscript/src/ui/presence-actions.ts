@@ -1,4 +1,6 @@
 import {
+  claimDocumentPixels,
+  claimDocuments,
   type PresencePeer,
   type PresenceRect,
   type RegionClaim,
@@ -15,7 +17,6 @@ import type {
   PainterRowModel,
   PresenceSummaryModel,
 } from '@caelestis/ui/elements'
-import { claimDocumentPixels, claimDocuments } from '../claim-document.js'
 import {
   type ClaimEditorHost,
   installClaimEditor,

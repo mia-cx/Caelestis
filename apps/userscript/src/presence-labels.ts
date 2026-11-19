@@ -1,10 +1,10 @@
 import {
+  claimDocumentPixels,
   type PresenceRect,
   type RegionPixelComponents,
   type RegionShapePixels,
   regionPixelComponents,
 } from '@caelestis/shared'
-import { claimDocumentPixels } from './claim-document.js'
 import { claimEditorEditingIds } from './claim-editor.js'
 import type { ScreenProjection, TileFrame } from './coordinates.js'
 import { displayedPresenceRect } from './gl/presence-layer.js'

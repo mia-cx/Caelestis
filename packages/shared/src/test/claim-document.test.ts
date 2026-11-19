@@ -1,4 +1,8 @@
+import { describe, expect, it } from 'vitest'
 import {
+  claimDocumentPixels,
+  claimDocuments,
+  claimDocumentsLimitError,
   isRegionDocument,
   packBits,
   type RegionDocument,
@@ -6,14 +10,8 @@ import {
   type RegionShape,
   regionDocumentContainsPixel,
   regionDocumentPixels,
-} from '@caelestis/shared'
-import { describe, expect, it } from 'vitest'
-import {
-  claimDocumentPixels,
-  claimDocuments,
-  claimDocumentsLimitError,
   regionShapesTouch,
-} from './claim-document.js'
+} from '../index.js'
 
 const rectangle = (x: number, y: number, w: number, h: number): RegionShape => ({
   kind: 'rectangle',

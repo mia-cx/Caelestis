@@ -87,6 +87,11 @@ export type RegionShape =
 
 export type RegionShapeKind = RegionShape['kind']
 
+/** The pencil's raster: whole pixels in a bitmask over its box. */
+export type RasterShape = Extract<RegionShape, { kind: 'pixels' }>
+
+export type PathShape = Extract<RegionShape, { kind: 'path' }>
+
 /** One entry of a document: a shape that adds to or cuts out of the claim. */
 export interface RegionItem {
   readonly id: string
@@ -307,24 +312,41 @@ const cubicAt = (a: number, b: number, c: number, d: number, t: number): number 
   return u * u * u * a + 3 * u * u * t * b + 3 * u * t * t * c + t * t * t * d
 }
 
-/**
- * A path as a polyline, beziers subdivided finely enough that no chord strays more than a pixel
- * from the curve at any reasonable size.
- */
+/** A point along a cubic bezier; the one evaluator the rasteriser and the editor share. */
+export const cubicPoint = (p0: Point, p1: Point, p2: Point, p3: Point, t: number): Point => ({
+  x: cubicAt(p0.x, p1.x, p2.x, p3.x, t),
+  y: cubicAt(p0.y, p1.y, p2.y, p3.y, t),
+})
+
+/** Where on the segment `a` to `b` the closest point to `point` lies, from 0 at `a` to 1 at `b`. */
+export const segmentParameter = (point: Point, a: Point, b: Point): number => {
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  const length = dx * dx + dy * dy
+  return length === 0
+    ? 0
+    : Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / length))
+}
+
+/** Even-odd membership of a point in a ring, by crossing number. */
+export const insideRing = (ring: readonly Point[], x: number, y: number): boolean => {
+  let inside = false
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const a = ring[i] as Point
+    const b = ring[j] as Point
+    if (a.y > y !== b.y > y && x < ((b.x - a.x) * (y - a.y)) / (b.y - a.y) + a.x) inside = !inside
+  }
+  return inside
+}
+
 /**
  * Distance of a point from the chord segment `a` to `b`, not the line through them: a handle
  * lying on the line but beyond an endpoint bends the curve out past that endpoint just as much
  * as one off to the side, and must count for as much.
  */
 const distanceToChord = (point: Point, a: Point, b: Point): number => {
-  const dx = b.x - a.x
-  const dy = b.y - a.y
-  const length = dx * dx + dy * dy
-  const t =
-    length === 0
-      ? 0
-      : Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / length))
-  return Math.hypot(a.x + t * dx - point.x, a.y + t * dy - point.y)
+  const t = segmentParameter(point, a, b)
+  return Math.hypot(a.x + t * (b.x - a.x) - point.x, a.y + t * (b.y - a.y) - point.y)
 }
 
 /**
@@ -366,13 +388,7 @@ export const flattenPath = (nodes: readonly PathNode[], closed: boolean): readon
     const c1 = from.out ?? { x: from.x, y: from.y }
     const c2 = to.in ?? { x: to.x, y: to.y }
     const steps = flattenSteps(from, c1, c2, to)
-    for (let step = 1; step < steps; step++) {
-      const t = step / steps
-      out.push({
-        x: cubicAt(from.x, c1.x, c2.x, to.x, t),
-        y: cubicAt(from.y, c1.y, c2.y, to.y, t),
-      })
-    }
+    for (let step = 1; step < steps; step++) out.push(cubicPoint(from, c1, c2, to, step / steps))
   }
   if (!closed) {
     const last = nodes[nodes.length - 1]
@@ -472,7 +488,7 @@ export const regionShapeBounds = (shape: RegionShape): PresenceRect => {
   return boundsOf(regionShapeOutline(shape))
 }
 
-const unionRect = (a: PresenceRect, b: PresenceRect): PresenceRect => {
+export const unionRect = (a: PresenceRect, b: PresenceRect): PresenceRect => {
   const x = Math.min(a.x, b.x)
   const y = Math.min(a.y, b.y)
   return {
@@ -687,7 +703,7 @@ export const regionShapePixels = (shape: RegionShape): RegionShapePixels =>
  * A raster shape from a pixel set, trimmed to the box its set pixels occupy. Null when nothing is
  * set or the trimmed box is larger than a raster may be.
  */
-export const rasterShapeFrom = (pixels: RegionShapePixels): RegionShape | null => {
+export const rasterShapeFrom = (pixels: RegionShapePixels): RasterShape | null => {
   const { rect, mask } = pixels
   let left = rect.w
   let top = rect.h

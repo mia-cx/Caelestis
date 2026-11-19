@@ -1,4 +1,7 @@
 import {
+  claimDocumentError,
+  claimDocumentPixels,
+  claimDocumentsLimitError,
   isRegionDocument,
   type PresenceRect,
   REGION_CLAIM_TTL_MS,
@@ -13,11 +16,6 @@ import {
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { onServerSnapshot, rowsForSurface } from './application/tree-server-state.js'
-import {
-  claimDocumentError,
-  claimDocumentPixels,
-  claimDocumentsLimitError,
-} from './claim-document.js'
 import { warn } from './debug.js'
 import {
   claimRegion,
