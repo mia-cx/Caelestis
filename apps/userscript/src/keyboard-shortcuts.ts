@@ -131,6 +131,12 @@ export const installKeyboardShortcuts = (
     if (simulatedInputAllowed('cycle-colour')) cycleFocusedColour(direction)
     return true
   }
+  /** The template studio's edits take undo and redo while it is open; the paint draft's otherwise. */
+  const history = (type: 'undo' | 'redo', paint: () => boolean) => (): boolean => {
+    if (!isTemplateStudioOpen()) return paint()
+    handleTemplateStudioIntent({ type })
+    return true
+  }
 
   const handlers: Readonly<Record<ShortcutId, ShortcutHandler>> = {
     'cycle-colour-previous': { run: cycle(-1) },
@@ -151,8 +157,8 @@ export const installKeyboardShortcuts = (
         return true
       },
     },
-    'undo-paint': { run: undoPaintDraft, withoutSurface: true },
-    'redo-paint': { run: redoPaintDraft, withoutSurface: true },
+    'undo-paint': { run: history('undo', undoPaintDraft), withoutSurface: true },
+    'redo-paint': { run: history('redo', redoPaintDraft), withoutSurface: true },
     'toggle-panel': {
       run: () => {
         togglePanel()
@@ -246,13 +252,6 @@ export const installKeyboardShortcuts = (
     if (shortcut === null) return
     const alliance = activeAllianceSurface()
     const inAllianceEditor = activeAllianceEditorStage() !== null
-
-    // The template studio's edits take undo and redo while it is open.
-    if (isTemplateStudioOpen() && (shortcut === 'undo-paint' || shortcut === 'redo-paint')) {
-      claimShortcut(event, inAllianceEditor)
-      handleTemplateStudioIntent({ type: shortcut === 'undo-paint' ? 'undo' : 'redo' })
-      return
-    }
 
     // An asset editor intentionally has no resolved surface while Wplace's draft metadata is
     // pending or invalid.
