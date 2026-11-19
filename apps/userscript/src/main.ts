@@ -44,7 +44,11 @@ import { syncStudioFrame } from './templates/studio-frame.js'
 import { installTilePixelCapture } from './tile-capture-scope.js'
 import { install as installTileCapture } from './tile-transform.js'
 import { installChargeForecast } from './ui/charge-forecast.js'
-import { renderOverlayControls } from './ui/overlay-menu.js'
+import {
+  detachOverlayControls,
+  renderAllianceOverlayControls,
+  renderOverlayControls,
+} from './ui/overlay-menu.js'
 import { installPanel } from './ui/panel.js'
 import { openInviteFromLocation } from './ui/settings-controller.js'
 import { installUserscriptUpdateCheck } from './userscript-update.js'
@@ -146,7 +150,13 @@ export const installFeatures = (): void => {
   step('presence', installPresenceFeatures)
   step('tile pixel capture', installTilePixelCapture)
   step('overlay layer', attachOverlayLayer)
-  step('alliance overlay layer', installAllianceOverlayLayer)
+  step('alliance overlay layer', () =>
+    installAllianceOverlayLayer((view) =>
+      view === null
+        ? detachOverlayControls()
+        : renderAllianceOverlayControls(view.rerender, view.active, view.geometry, view.canvas),
+    ),
+  )
   onMapFrame((frame) => {
     if (currentSurface().kind === 'world') renderOverlayControls(frame.canvas)
   }, 'Overlay controls')

@@ -23,7 +23,6 @@ import { displayTemplatesForSurface, isTemplateDraft } from '../templates/catalo
 import { fixedMarkList, type MarkList, markSeed } from '../templates/mark-list.js'
 import { abortMoveOutsideSurface } from '../templates/move.js'
 import { noteTemplatesInView } from '../templates/residency.js'
-import { detachOverlayControls, renderAllianceOverlayControls } from '../ui/overlay-menu.js'
 import { selectedColour } from '../wplace-paint.js'
 import {
   type ArtboardMarkerBatch,
@@ -92,17 +91,12 @@ const artboardViewportKey = (viewport: ArtboardViewport): string =>
     viewport.frameHeight,
   ].join(':')
 
-/** Keep fixed template controls in lockstep with whether the artboard has usable geometry. */
-const reconcileAllianceControlsForViewport = (
-  viewport: ArtboardViewport | null,
-  render: () => void,
-): viewport is ArtboardViewport => {
-  if (viewport === null) {
-    detachOverlayControls()
-    return false
-  }
-  render()
-  return true
+/** What the artboard's screen-space controls are drawn against while it has usable geometry. */
+export interface ArtboardView {
+  readonly active: ActiveAllianceSurface
+  readonly geometry: Placement
+  readonly canvas: HTMLCanvasElement
+  readonly rerender: () => void
 }
 
 /** Signed HQ placement becomes frame-local only at this final projection boundary. */
@@ -503,6 +497,7 @@ class ArtboardRenderer {
     private readonly overlay: ArtboardTemplates,
     private readonly markers: ArtboardMarkers,
     private readonly onViewportChange: () => void,
+    private readonly onView: (view: ArtboardView | null) => void,
   ) {
     this.observer = new MutationObserver(() => this.requestRender())
     this.observer.observe(active.frame, { attributes: true, attributeFilter: ['class', 'style'] })
@@ -518,6 +513,7 @@ class ArtboardRenderer {
     active: ActiveAllianceSurface,
     geometry: Placement,
     onViewportChange: () => void,
+    onView: (view: ArtboardView | null) => void,
   ): ArtboardRenderer | null {
     const outline = ArtboardTemplates.create(active.frame.ownerDocument, 'outline')
     const overlay = ArtboardTemplates.create(active.frame.ownerDocument, 'overlay')
@@ -542,6 +538,7 @@ class ArtboardRenderer {
       overlay,
       markers,
       onViewportChange,
+      onView,
     )
   }
 
@@ -646,19 +643,17 @@ class ArtboardRenderer {
   private draw(): void {
     const viewport = this.syncViewport()
     const moving = this.viewportIsMoving(viewport)
-    if (
-      !reconcileAllianceControlsForViewport(viewport, () =>
-        renderAllianceOverlayControls(
-          () => this.requestRender(),
-          this.active,
-          this.geometry,
-          this.overlay.surface.element,
-        ),
-      )
-    ) {
+    if (viewport === null) {
+      this.onView(null)
       noteTemplatesInView(this.surface, new Set())
       return
     }
+    this.onView({
+      active: this.active,
+      geometry: this.geometry,
+      canvas: this.overlay.surface.element,
+      rerender: () => this.requestRender(),
+    })
     const all = displayTemplatesForSurface(this.surface)
     this.renderGeneration++
     const ids = new Set(all.map(({ id }) => id))
@@ -856,7 +851,7 @@ class ArtboardRenderer {
     this.observer.disconnect()
     this.resizeObserver?.disconnect()
     this.stopDraftMarks()
-    detachOverlayControls()
+    this.onView(null)
     this.outline.dispose()
     this.overlay.dispose()
     this.markers.dispose()
@@ -864,6 +859,7 @@ class ArtboardRenderer {
 }
 
 let renderer: ArtboardRenderer | null = null
+let onView: (view: ArtboardView | null) => void = () => {}
 
 export const allianceOverlayGpuMemoryBytes = (): number => renderer?.memoryBytes() ?? 0
 
@@ -875,7 +871,7 @@ const reconcileRenderer = (): void => {
   if (active === null) return
   const geometry = artboardGeometry(active)
   if (geometry === null || geometry.width <= 0 || geometry.height <= 0) return
-  renderer = ArtboardRenderer.create(active, geometry, notifyArtboardViewChange)
+  renderer = ArtboardRenderer.create(active, geometry, notifyArtboardViewChange, onView)
   renderer?.requestRender()
   void refreshArtboardPixels(active, geometry)
 }
@@ -884,9 +880,13 @@ const repaintAllianceOverlayLayer = (): void => renderer?.requestRender()
 
 /**
  * Attach viewport-resolution WebGL passes inside whichever Wplace alliance artboard is open. They
- * repaint on every `redraw`, and report their pans as view changes.
+ * repaint on every `redraw`, and report their pans as view changes. `showControls` hears each
+ * frame's view, or null while the artboard has no usable geometry.
  */
-export const installAllianceOverlayLayer = (): void => {
+export const installAllianceOverlayLayer = (
+  showControls: (view: ArtboardView | null) => void,
+): void => {
+  onView = showControls
   registerProfileMemorySource('Alliance overlay GPU buffers', allianceOverlayGpuMemoryBytes)
   onActiveAllianceSurfaceChange(reconcileRenderer)
   onHeadquartersRevisionChange((allianceId) => {
