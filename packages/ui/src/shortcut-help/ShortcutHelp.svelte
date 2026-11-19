@@ -425,6 +425,14 @@
 
           <aside bind:this={callout} id="caelestis-keymap-callout" class="caelestis-keymap-callout" aria-live="polite">
             <p class="caelestis-keymap-callout-hint">Hover, focus or tap a highlighted key.</p>
+            <!-- Every description sits invisibly in the same cell, so the callout keeps the height of
+                 the longest one and the keyboard never shifts out from under the pointer. -->
+            {#each sets as set (set.id)}
+              <div class="caelestis-keymap-callout-sizer" aria-hidden="true">
+                <strong>{set.title}</strong>
+                <p>{set.description}</p>
+              </div>
+            {/each}
             <div class="caelestis-keymap-callout-detail">
               {#if activeSet !== undefined}
                 <strong>{activeSet.title}</strong>
@@ -496,11 +504,12 @@
   .caelestis-keymap[data-active-set] .caelestis-keymap-key { opacity: 0.14; }
   .caelestis-keymap[data-active-set] .caelestis-keymap-key[data-active] { opacity: 1; transform: translateY(-2px); }
   .caelestis-keymap-callout { position: relative; z-index: 2; display: grid; min-block-size: 5.5rem; align-items: start; margin: 0; padding-block-start: 1.25rem; border-block-start: 1px solid var(--caelestis-border); text-align: center; }
-  .caelestis-keymap-callout-hint, .caelestis-keymap-callout-detail { grid-area: 1 / 1; margin: 0; }
+  .caelestis-keymap-callout-hint, .caelestis-keymap-callout-detail, .caelestis-keymap-callout-sizer { grid-area: 1 / 1; margin: 0; }
+  .caelestis-keymap-callout-sizer { visibility: hidden; }
   .caelestis-keymap-callout-hint { color: var(--caelestis-muted-text); font-size: 0.8125rem; line-height: 1.25rem; opacity: 1; transition: opacity var(--tt-out-dur) ease-out; }
   .caelestis-keymap-callout-detail { opacity: 0; transform: scale(var(--tt-scale)); transform-origin: 50% 0; text-align: center; transition: opacity var(--tt-out-dur) ease-out, transform var(--tt-out-dur) ease-out; }
-  .caelestis-keymap-callout-detail strong { display: block; font-size: 0.875rem; line-height: 1.25rem; }
-  .caelestis-keymap-callout-detail p { margin: 0.375rem 0 0; color: var(--caelestis-muted-text); font-size: 0.8125rem; line-height: 1.25rem; }
+  .caelestis-keymap-callout-detail strong, .caelestis-keymap-callout-sizer strong { display: block; font-size: 0.875rem; line-height: 1.25rem; }
+  .caelestis-keymap-callout-detail p, .caelestis-keymap-callout-sizer p { margin: 0.375rem 0 0; color: var(--caelestis-muted-text); font-size: 0.8125rem; line-height: 1.25rem; }
   .caelestis-keymap[data-active-set] .caelestis-keymap-callout-hint { opacity: 0; }
   .caelestis-keymap[data-active-set] .caelestis-keymap-callout-detail { opacity: 1; transform: scale(1); transition-duration: var(--tt-in-dur); transition-delay: var(--tt-delay); }
   .caelestis-keymap-connectors { position: absolute; z-index: 1; inset: 0; inline-size: 100%; block-size: 100%; color: var(--caelestis-primary); opacity: 0; pointer-events: none; transition: opacity var(--tt-out-dur) ease-out; }
