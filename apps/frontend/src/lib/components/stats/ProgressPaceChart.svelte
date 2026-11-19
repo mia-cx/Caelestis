@@ -841,9 +841,6 @@
 
     <RangeBrush
       {timeWindow}
-      {from}
-      {to}
-      {resolution}
       {width}
       plotLeft={pad.left}
       {plotWidth}

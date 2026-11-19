@@ -11,9 +11,6 @@
 
   let {
     timeWindow,
-    from,
-    to,
-    resolution,
     width,
     plotLeft,
     plotWidth,
@@ -22,9 +19,6 @@
     dragging = $bindable(false),
   }: {
     timeWindow: ChartWindow
-    from: number
-    to: number
-    resolution: number
     width: number
     /** Where the chart's plot starts and how wide it is, so the strip lines up under it. */
     plotLeft: number
@@ -43,6 +37,7 @@
   const TARGET_SIZE = 44
   const GRIP_TARGET_SIZE = TARGET_SIZE * 1.5
 
+  const { from, to, resolution } = $derived(timeWindow.range)
   const view = $derived(timeWindow.view)
   const span = $derived(timeWindow.span)
   const minSelection = $derived(timeWindow.minSelection)

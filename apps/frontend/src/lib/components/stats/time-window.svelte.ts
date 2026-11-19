@@ -34,6 +34,11 @@ export const windowKeyStep = (span: number, resolution: number): number =>
 
 const MIN_SELECTION_BUCKETS = 6
 
+/** The whole fetched range and its bucket width. */
+interface ChartRange extends TimeWindow {
+  readonly resolution: number
+}
+
 /**
  * Which part of the chart's range is shown. `null` shows the whole fetched range. Presets stay
  * attached to a moving live edge, while pointer and keyboard selections keep their absolute
@@ -42,31 +47,29 @@ const MIN_SELECTION_BUCKETS = 6
 export class ChartWindow {
   #selection = $state<TimeWindow | null>(null)
   #preset = $state<number | null>(null)
-  readonly #range: () => { readonly from: number; readonly to: number; readonly resolution: number }
+  readonly #range: () => ChartRange
 
-  constructor(
-    range: () => { readonly from: number; readonly to: number; readonly resolution: number },
-  ) {
+  constructor(range: () => ChartRange) {
     this.#range = range
   }
 
-  get #bounds() {
+  get range(): ChartRange {
     return this.#range()
   }
 
-  readonly span = $derived(this.#bounds.to - this.#bounds.from)
+  readonly span = $derived(this.range.to - this.range.from)
   readonly minSelection = $derived(
-    Math.min(this.span, this.#bounds.resolution * MIN_SELECTION_BUCKETS),
+    Math.min(this.span, this.range.resolution * MIN_SELECTION_BUCKETS),
   )
   readonly view: TimeWindow = $derived.by(() => {
-    const { from, to } = this.#bounds
+    const { from, to } = this.range
     if (this.#preset !== null)
       return clampWindow({ from: to - this.#preset, to }, from, to, this.minSelection)
     return this.#selection === null
       ? { from, to }
       : clampWindow(this.#selection, from, to, this.minSelection)
   })
-  readonly zoomed = $derived(this.view.from > this.#bounds.from || this.view.to < this.#bounds.to)
+  readonly zoomed = $derived(this.view.from > this.range.from || this.view.to < this.range.to)
   /** Only presets narrower than the whole history and wide enough to show detail. */
   readonly presets = $derived(
     RANGE_PRESETS.filter(
