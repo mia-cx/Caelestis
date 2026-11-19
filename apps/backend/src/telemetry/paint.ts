@@ -1,6 +1,7 @@
 import {
   millis,
   type PaintEvent,
+  paletteIndexFromWplace,
   type Seconds,
   seconds,
   TILE_SIZE,
@@ -24,9 +25,6 @@ import type { ContributionDelta, HistoryStore } from './history/store.js'
 import type { TileStore } from './tiles/store.js'
 
 const SECONDS_PER_DAY = 86_400
-
-const ourPaletteIndex = (wplaceIndex: number): number =>
-  wplaceIndex === 0 ? TRANSPARENT_INDEX : wplaceIndex - 1
 
 const dayOf = (timestamp: Seconds): Seconds =>
   seconds(Math.floor(timestamp / SECONDS_PER_DAY) * SECONDS_PER_DAY)
@@ -86,7 +84,7 @@ const recordPaintPromise = async (
           continue
         const wanted = indices[(y - rect.top) * rect.width + (x - rect.left)] ?? TRANSPARENT_INDEX
         if (wanted === TRANSPARENT_INDEX) continue
-        const painted = ourPaletteIndex(paintedTile.pixels.colors[index] ?? 0)
+        const painted = paletteIndexFromWplace(paintedTile.pixels.colors[index] ?? 0)
         total.placed++
         if (painted !== wanted) continue
         total.correct++
