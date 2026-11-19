@@ -39,7 +39,7 @@ import {
   refreshAccessTokens,
   revokeServerAccessToken,
 } from '../application/access-tokens.js'
-import { cancelDestinationAdmissions } from '../application/transplant.js'
+import { cancelDestinationAdmissions } from '../application/transfer.js'
 import {
   cancelTreeActionSetup,
   captureTemplate,

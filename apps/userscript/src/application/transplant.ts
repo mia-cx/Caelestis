@@ -6,16 +6,14 @@ import {
   removeLocalFolders,
 } from '../local-folders.js'
 import {
-  admittedServerContentsFor,
   createNode,
   deleteNode as deleteNodeOnServer,
   deleteTemplate as deleteTemplateOnServer,
-  listServerContents,
   listServerNodes,
   patchTemplate,
   uploadTemplate,
 } from '../server-api.js'
-import { isCurrentServerConnection } from '../server-connections.js'
+import type { ServerTemplate } from '../server-cache.js'
 import type { TreeNode } from '../server-manifest.js'
 import { type ConnectedServer, getState, type LocalFolder, MAX_LOCAL_FOLDERS } from '../settings.js'
 import { newTemplateId } from '../templates/import.js'
@@ -31,9 +29,22 @@ import {
   templateAsPng,
   templateById,
 } from '../templates/local-store.js'
-import { movingId } from '../templates/move.js'
 import { serverTemplateKey } from '../tree-keys.js'
+import { plural } from './plural.js'
 import { transferAuthoring } from './template-authoring.js'
+import { templateBusy } from './template-busy.js'
+import {
+  type DestinationAdmission,
+  destinationIsAdmitted,
+  errorText,
+  refuse,
+  refused,
+  type TransferResult,
+  type TransferSteps,
+  transferThenRemove,
+} from './transfer.js'
+import { refreshEditedSurface } from './tree-server.js'
+import { templatesForServer } from './tree-server-state.js'
 
 /**
  * Moving a whole branch of the tree somewhere else — to another server, or into Local.
@@ -42,11 +53,6 @@ import { transferAuthoring } from './template-authoring.js'
  * everything hanging off it, the two sides describe that structure differently (a server has nodes
  * addressed by materialized path, Local has folders addressed by parent), and the pixels have to be
  * re-uploaded because content addressing is per server.
- *
- * **Copy everything, verify, then remove.** The source is only touched once the destination holds
- * the whole branch. A move that fails half way leaves the original intact and a partial copy at the
- * destination, which is recoverable by hand; the reverse — a deleted original and a partial copy —
- * is not.
  */
 
 /** Where a branch is going. */
@@ -59,112 +65,13 @@ export type Source =
   | { readonly kind: 'server'; readonly server: ConnectedServer; readonly nodeId: string }
   | { readonly kind: 'local'; readonly folderId: string }
 
-interface DestinationAdmission {
-  readonly nodes: readonly TreeNode[]
-  readonly templates: ReadonlyArray<{
-    readonly id: string
-    readonly nodeId: string | null
-    readonly name: string
-    readonly version: string
-    readonly published: boolean
-  }>
-}
-
-const destinationAdmissionControllers = new Map<string, Set<AbortController>>()
-
-export const cancelDestinationAdmissions = (serverUrl: string): void => {
-  const controllers = destinationAdmissionControllers.get(serverUrl)
-  if (controllers === undefined) return
-  for (const controller of controllers) controller.abort(new Error('destination disconnected'))
-  destinationAdmissionControllers.delete(serverUrl)
-}
-
-const destinationIsAdmitted = async (
-  server: ConnectedServer,
-  expected: DestinationAdmission,
-  surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
-  currentTemplate?: CurrentServerTemplate,
-): Promise<boolean> => {
-  const controller = new AbortController()
-  const controllers = destinationAdmissionControllers.get(server.url) ?? new Set<AbortController>()
-  controllers.add(controller)
-  destinationAdmissionControllers.set(server.url, controllers)
-  try {
-    if (surface.kind !== 'world') {
-      const listed = await listServerNodes(server, controller.signal, surface)
-      if (listed.status !== 'ok') return false
-      const nodes = new Map(listed.nodes.map((node) => [node.id, node]))
-      for (const expectedNode of expected.nodes) {
-        const node = nodes.get(expectedNode.id)
-        if (
-          node === undefined ||
-          node.parentId !== expectedNode.parentId ||
-          node.path !== expectedNode.path ||
-          node.name !== expectedNode.name ||
-          node.description !== expectedNode.description ||
-          node.createdAt !== expectedNode.createdAt
-        )
-          return false
-      }
-      if (currentTemplate === undefined) return expected.templates.length === 0
-      for (const expectedTemplate of expected.templates) {
-        const template = currentTemplate(server, expectedTemplate.id)
-        if (
-          template === null ||
-          template.nodeId !== expectedTemplate.nodeId ||
-          template.name !== expectedTemplate.name ||
-          template.version !== expectedTemplate.version ||
-          template.published !== expectedTemplate.published
-        )
-          return false
-      }
-      return true
-    }
-    if ((await listServerContents(server, controller.signal)) === null) return false
-    const admitted = admittedServerContentsFor(server)
-    if (admitted === null) return false
-    const nodes = new Map(admitted.nodes.map((node) => [node.id, node]))
-    for (const expectedNode of expected.nodes) {
-      const node = nodes.get(expectedNode.id)
-      if (
-        node === undefined ||
-        node.parentId !== expectedNode.parentId ||
-        node.path !== expectedNode.path ||
-        node.name !== expectedNode.name ||
-        node.description !== expectedNode.description ||
-        node.createdAt !== expectedNode.createdAt
-      )
-        return false
-    }
-    const templates = new Map(admitted.templates.map((template) => [template.id, template]))
-    for (const expectedTemplate of expected.templates) {
-      const template = templates.get(expectedTemplate.id)
-      if (
-        template === undefined ||
-        template.nodeId !== expectedTemplate.nodeId ||
-        template.name !== expectedTemplate.name ||
-        template.version !== expectedTemplate.version ||
-        template.published !== expectedTemplate.published
-      )
-        return false
-    }
-    return true
-  } finally {
-    controllers.delete(controller)
-    if (controllers.size === 0 && destinationAdmissionControllers.get(server.url) === controllers) {
-      destinationAdmissionControllers.delete(server.url)
-    }
-  }
-}
-
-export interface TransplantResult {
-  readonly ok: boolean
-  readonly message: string
-  /** Folders and templates that reached the destination, whether or not the whole move finished. */
-  readonly nodes: number
-  readonly templates: number
-  /** The root folder's new identity, available only after the whole move succeeds. */
-  readonly destinationRootId?: string
+/** One template inside a branch, and the folder directly holding it. */
+interface CarriedTemplate {
+  readonly folderId: string
+  readonly template: PlacedTemplate
+  readonly sourceId: string
+  /** The server row it was read from. Null for a Local source, whose record is its own revision. */
+  readonly revision: ServerTemplate | null
 }
 
 /** One branch, flattened: each folder with the templates directly inside it. */
@@ -177,31 +84,7 @@ interface Branch {
     name: string
     description?: string
   }>
-  readonly templates: ReadonlyArray<{
-    folderId: string
-    template: PlacedTemplate
-    sourceId: string
-    sourceRevision: {
-      readonly version: string
-      readonly name: string
-      readonly published: boolean
-      readonly updatedAt: number
-    } | null
-  }>
-}
-
-interface PublishedTemplate {
-  readonly id: string
-  readonly name: string
-  readonly version: string
-  readonly published?: boolean
-  readonly updatedAt?: number
-}
-
-interface LocatedPublishedTemplate extends PublishedTemplate {
-  readonly nodeId: string | null
-  readonly published: boolean
-  readonly updatedAt: number
+  readonly templates: readonly CarriedTemplate[]
 }
 
 /**
@@ -211,381 +94,16 @@ interface LocatedPublishedTemplate extends PublishedTemplate {
  * to move it would be a second copy of something already in memory. Missing means "not yet", and
  * the move is refused rather than half-made.
  */
-const drawnFor = (
-  serverUrl: string,
-  template: { id: string; version: string },
-): PlacedTemplate | undefined => {
+const drawnFor = (serverUrl: string, template: ServerTemplate): PlacedTemplate | undefined => {
   const drawn = templateById(serverTemplateKey(serverUrl, template.id))
   return drawn?.serverVersion === template.version ? drawn : undefined
-}
-
-export interface TemplateTransferResult {
-  readonly ok: boolean
-  readonly message: string
-  readonly tone: 'success' | 'warning' | 'error'
-  /** Present once a destination copy exists, even if source cleanup was refused. */
-  readonly destinationId?: string
-}
-
-export type LocalTemplateCopyResult =
-  | { readonly ok: true; readonly id: string; readonly version: string }
-  | {
-      readonly ok: false
-      readonly message: string
-      readonly ambiguous?: true
-      readonly cancelled?: true
-      readonly missing?: true
-      readonly retryable?: true
-    }
-
-type CurrentServerTemplate = (
-  server: ConnectedServer,
-  templateId: string,
-) => LocatedPublishedTemplate | null
-
-type ReconcileServer = (server: ConnectedServer) => Promise<void>
-
-/** Encode and upload one Local template while its placement and destination stay current. */
-export const copyLocalTemplateToServer = async (
-  template: PlacedTemplate,
-  destination: ConnectedServer,
-  nodeId: string | null,
-  reconcileServer: ReconcileServer,
-  options: {
-    readonly beforeUpload?: (png: Blob) => boolean
-  },
-): Promise<LocalTemplateCopyResult> => {
-  const png = await templateAsPng(template)
-  if (png === null) return { ok: false, message: 'Could not encode that template.' }
-  const carried = await transferAuthoring(template)
-  if ('message' in carried) return { ok: false, message: carried.message }
-  if (!isCurrentTemplate(template) || movingId() === template.id) {
-    return {
-      ok: false,
-      message: `“${template.name}” changed while it was being encoded — try again.`,
-      retryable: true,
-    }
-  }
-  if (options.beforeUpload?.(png) === false) {
-    return { ok: false, message: '', cancelled: true }
-  }
-  if (!isCurrentServerConnection(destination)) {
-    return {
-      ok: false,
-      message: 'That destination server was disconnected or replaced.',
-    }
-  }
-  const uploaded = await uploadTemplate(destination, {
-    nodeId,
-    name: template.name,
-    originX: template.originX,
-    originY: template.originY,
-    png,
-    surface: template.surface ?? WORLD_TEMPLATE_SURFACE,
-    authoring: carried.authoring,
-  })
-  // The write result is useful immediately. Reconciliation still belongs to this transaction, but
-  // a slow manifest must not keep a completed upload looking stuck behind its 120-second timeout.
-  void reconcileServer(destination)
-  return uploaded
-}
-
-/** Resolve the installed Local snapshot at the start of each user-visible copy attempt. */
-export const copyCurrentLocalTemplateToServer = async (
-  templateId: string,
-  templateName: string,
-  destination: ConnectedServer,
-  nodeId: string | null,
-  reconcileServer: ReconcileServer,
-  options: {
-    readonly beforeUpload?: (png: Blob) => boolean
-  },
-): Promise<LocalTemplateCopyResult> => {
-  const template = templateById(templateId)
-  if (template === undefined) {
-    return { ok: false, message: `“${templateName}” is no longer here.`, missing: true }
-  }
-  return copyLocalTemplateToServer(template, destination, nodeId, reconcileServer, options)
-}
-
-const sameServerTemplateRevision = (
-  left: LocatedPublishedTemplate,
-  right: LocatedPublishedTemplate,
-): boolean =>
-  left.id === right.id &&
-  left.nodeId === right.nodeId &&
-  left.name === right.name &&
-  left.version === right.version &&
-  left.published === right.published &&
-  left.updatedAt === right.updatedAt
-
-/** Copy one server template into Local, verify its source revision, then remove the source. */
-export const moveServerTemplateToLocal = async (
-  source: ConnectedServer,
-  published: LocatedPublishedTemplate,
-  drawn: PlacedTemplate,
-  folderId: string | null,
-  currentServerTemplate: CurrentServerTemplate,
-  reconcileServer: ReconcileServer,
-): Promise<TemplateTransferResult> => {
-  if (!isCurrentServerConnection(source)) {
-    return {
-      ok: false,
-      tone: 'warning',
-      message: 'That server connection changed before the move began.',
-    }
-  }
-  const current = currentServerTemplate(source, published.id)
-  if (current === null || drawn.serverVersion !== current.version) {
-    return {
-      ok: false,
-      tone: 'warning',
-      message: 'That template has not finished loading its current version yet.',
-    }
-  }
-  const carried = await transferAuthoring(drawn)
-  if ('message' in carried) return { ok: false, tone: 'error', message: carried.message }
-  let copied: PlacedTemplate
-  try {
-    copied = await copyAsLocalTemplate(drawn, newTemplateId(), carried.authoring)
-  } catch (error) {
-    return {
-      ok: false,
-      tone: 'error',
-      message: `Could not copy “${current.name}” into Local: ${error instanceof Error ? error.message : String(error)}`,
-    }
-  }
-  if (!(await setTemplateFolder(copied.id, folderId))) {
-    return {
-      ok: false,
-      tone: 'error',
-      message: 'Copied into Local, but could not put it in that folder.',
-    }
-  }
-  const releaseCopied = leaseLocalTemplate(copied.id)
-  if (releaseCopied === null) {
-    return {
-      ok: false,
-      tone: 'error',
-      message: 'Copied into Local, but could not keep the new copy for the move.',
-    }
-  }
-  try {
-    const latest = currentServerTemplate(source, published.id)
-    if (latest === null || !sameServerTemplateRevision(current, latest)) {
-      return {
-        ok: false,
-        tone: 'warning',
-        destinationId: copied.id,
-        message: 'Copied into Local, but the source changed and was kept.',
-      }
-    }
-    if (!isCurrentServerConnection(source)) {
-      return {
-        ok: false,
-        tone: 'warning',
-        destinationId: copied.id,
-        message: 'Copied into Local, but the source connection changed and was kept.',
-      }
-    }
-    const removed = await deleteTemplateOnServer(source, published.id, {
-      version: current.version,
-      updatedAt: current.updatedAt,
-    })
-    void reconcileServer(source)
-    return removed.ok
-      ? {
-          ok: true,
-          tone: 'success',
-          destinationId: copied.id,
-          message: `Moved “${published.name}” into Local.`,
-        }
-      : {
-          ok: false,
-          tone: 'error',
-          destinationId: copied.id,
-          message: `Copied into Local, but ${removed.message}`,
-        }
-  } finally {
-    releaseCopied()
-  }
-}
-
-/** Copy one server template across servers, verify admission, then remove its source revision. */
-export const moveServerTemplateToServer = async (
-  source: ConnectedServer,
-  destination: ConnectedServer,
-  nodeId: string | null,
-  published: LocatedPublishedTemplate,
-  drawn: PlacedTemplate,
-  currentServerTemplate: CurrentServerTemplate,
-  reconcileServer: ReconcileServer,
-): Promise<TemplateTransferResult> => {
-  const sourceName = source.info?.name ?? source.url
-  const destinationName = destination.info?.name ?? destination.url
-  const partial = (
-    message: string,
-    tone: TemplateTransferResult['tone'],
-    destinationId: string,
-  ): TemplateTransferResult => ({ ok: false, tone, destinationId, message })
-  if (!isCurrentServerConnection(source) || !isCurrentServerConnection(destination)) {
-    return {
-      ok: false,
-      tone: 'warning',
-      message: 'A server connection changed before the move began.',
-    }
-  }
-  const current = currentServerTemplate(source, published.id)
-  if (current === null || drawn.serverVersion !== current.version) {
-    return {
-      ok: false,
-      tone: 'warning',
-      message: 'That template has not finished loading yet — try again in a moment.',
-    }
-  }
-  const png = await templateAsPng(drawn)
-  if (png === null) return { ok: false, tone: 'error', message: 'Could not encode that template.' }
-  const carried = await transferAuthoring(drawn)
-  if ('message' in carried) return { ok: false, tone: 'error', message: carried.message }
-  const ready = currentServerTemplate(source, published.id)
-  if (ready === null || !sameServerTemplateRevision(current, ready)) {
-    return {
-      ok: false,
-      tone: 'warning',
-      message: 'That template changed while it was being prepared.',
-    }
-  }
-  if (!isCurrentServerConnection(source) || !isCurrentServerConnection(destination)) {
-    return {
-      ok: false,
-      tone: 'warning',
-      message: 'A server connection changed while the template was being prepared.',
-    }
-  }
-  const uploaded = await uploadTemplate(destination, {
-    nodeId,
-    name: ready.name,
-    originX: drawn.originX,
-    originY: drawn.originY,
-    png,
-    surface: drawn.surface ?? WORLD_TEMPLATE_SURFACE,
-    authoring: carried.authoring,
-  })
-  if (!uploaded.ok) {
-    void reconcileServer(destination)
-    return { ok: false, tone: 'error', message: uploaded.message }
-  }
-  const copied = uploaded.id
-  if (!isCurrentServerConnection(source) || !isCurrentServerConnection(destination)) {
-    void reconcileServer(destination)
-    return partial(
-      `Copied to ${destinationName}, but a server connection changed and the source was kept.`,
-      'warning',
-      copied,
-    )
-  }
-  const beforePublish = currentServerTemplate(source, published.id)
-  if (beforePublish === null || !sameServerTemplateRevision(ready, beforePublish)) {
-    void reconcileServer(destination)
-    return partial(
-      `Copied to ${destinationName} as a draft, but the source changed and was kept.`,
-      'warning',
-      copied,
-    )
-  }
-  if (beforePublish.published) {
-    const publishedAtDestination = await patchTemplate(destination, copied, { published: true })
-    if (!publishedAtDestination.ok) {
-      void reconcileServer(destination)
-      return partial(
-        `Copied to ${destinationName} as a draft, but could not publish it; the source was kept.`,
-        'error',
-        copied,
-      )
-    }
-  }
-  if (!isCurrentServerConnection(source) || !isCurrentServerConnection(destination)) {
-    void reconcileServer(destination)
-    return partial(
-      `Copied to ${destinationName}, but a server connection changed and the source was kept.`,
-      'warning',
-      copied,
-    )
-  }
-  const surface = drawn.surface ?? WORLD_TEMPLATE_SURFACE
-  if (surface.kind !== 'world') await reconcileServer(destination)
-  if (
-    !(await destinationIsAdmitted(
-      destination,
-      {
-        nodes: [],
-        templates: [
-          {
-            id: copied,
-            nodeId,
-            name: ready.name,
-            version: uploaded.version,
-            published: beforePublish.published,
-          },
-        ],
-      },
-      surface,
-      currentServerTemplate,
-    ))
-  ) {
-    void reconcileServer(destination)
-    return partial(
-      `Copied to ${destinationName}, but its destination could not be admitted; the source was kept.`,
-      'warning',
-      copied,
-    )
-  }
-  if (!isCurrentServerConnection(source) || !isCurrentServerConnection(destination)) {
-    return partial(
-      `Copied to ${destinationName}, but a server connection changed and the source was kept.`,
-      'warning',
-      copied,
-    )
-  }
-  const latest = currentServerTemplate(source, published.id)
-  if (latest === null || !sameServerTemplateRevision(beforePublish, latest)) {
-    void reconcileServer(destination)
-    return partial(
-      `Copied to ${destinationName}, but the source changed and was kept.`,
-      'warning',
-      copied,
-    )
-  }
-  const removed = await deleteTemplateOnServer(source, published.id, {
-    version: beforePublish.version,
-    updatedAt: beforePublish.updatedAt,
-  })
-  void Promise.all([reconcileServer(source), reconcileServer(destination)])
-  return removed.ok
-    ? {
-        ok: true,
-        tone: 'success',
-        destinationId: copied,
-        message: `Moved “${published.name}” to ${destinationName}.`,
-      }
-    : partial(
-        `Copied to ${destinationName}, but could not remove it from ${sourceName}.`,
-        'error',
-        copied,
-      )
-}
-
-interface BranchReadFailure {
-  readonly error: string
 }
 
 const serverBranch = async (
   server: ConnectedServer,
   rootId: string,
-  templatesOf: (nodeId: string) => readonly PublishedTemplate[],
-  templatesForServer?: () => readonly LocatedPublishedTemplate[],
-  surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
-): Promise<Branch | BranchReadFailure | null> => {
+  surface: TemplateSurface,
+): Promise<Branch | { readonly error: string } | null> => {
   const listed = await listServerNodes(server, undefined, surface)
   if (listed.status !== 'ok') {
     return {
@@ -627,37 +145,23 @@ const serverBranch = async (
     ...(node.description === undefined ? {} : { description: node.description }),
   }))
 
-  let templatesByNode: ReadonlyMap<string, readonly PublishedTemplate[]> | null = null
-  if (templatesForServer !== undefined) {
-    const grouped = new Map<string, PublishedTemplate[]>()
-    for (const template of templatesForServer()) {
-      if (template.nodeId === null) continue
-      const siblings = grouped.get(template.nodeId) ?? []
-      siblings.push(template)
-      grouped.set(template.nodeId, siblings)
-    }
-    templatesByNode = grouped
+  const templatesByNode = new Map<string, ServerTemplate[]>()
+  for (const template of templatesForServer(server.url, surface)) {
+    if (template.nodeId === null) continue
+    const siblings = templatesByNode.get(template.nodeId) ?? []
+    siblings.push(template)
+    templatesByNode.set(template.nodeId, siblings)
   }
-  const templates: Array<Branch['templates'][number]> = []
+  const templates: CarriedTemplate[] = []
   for (const node of within) {
-    const publishedInNode =
-      templatesByNode === null ? templatesOf(node.id) : (templatesByNode.get(node.id) ?? [])
-    for (const published of publishedInNode) {
+    for (const published of templatesByNode.get(node.id) ?? []) {
       const drawn = drawnFor(server.url, published)
       if (drawn === undefined) return null
       templates.push({
         folderId: node.id,
         template: drawn,
         sourceId: published.id,
-        sourceRevision:
-          typeof published.published === 'boolean' && typeof published.updatedAt === 'number'
-            ? {
-                version: published.version,
-                name: published.name,
-                published: published.published,
-                updatedAt: published.updatedAt,
-              }
-            : null,
+        revision: published,
       })
     }
   }
@@ -693,14 +197,11 @@ const localBranch = (rootId: string): Branch | null => {
       sourceParentId: folder.parentId,
       name: folder.name,
     }))
-  const templates = localTemplates()
-    .filter((template) => template.folderId !== null && within.has(template.folderId))
-    .map((template) => ({
-      folderId: template.folderId as string,
-      template,
-      sourceId: template.id,
-      sourceRevision: null,
-    }))
+  const templates = localTemplates().flatMap((template) =>
+    template.folderId !== null && within.has(template.folderId)
+      ? [{ folderId: template.folderId, template, sourceId: template.id, revision: null }]
+      : [],
+  )
   return { name: root.name, folders, templates }
 }
 
@@ -729,107 +230,62 @@ const inCreationOrder = (branch: Branch): Branch['folders'] => {
   return out
 }
 
-/**
- * Copy a branch to its destination, then take it off the source.
- *
- * Returns what happened rather than throwing, because every failure here is one a person needs told
- * in a sentence: a server refused a name, a template has not finished loading, a token turned out not
- * to be admin after all.
- */
-const transplantWhileDestinationHeld = async (
+/** What the branch's copy made at the destination. */
+interface CopiedBranch extends DestinationAdmission {
+  /** The root folder's identity at the destination. */
+  readonly id: string
+  readonly folders: number
+  readonly copiedTemplates: number
+}
+
+/** Read `source` as a branch, then copy it to `destination` and take it off the source. */
+const transferBranch = async (
   source: Source,
   destination: Destination,
-  templatesOf: (server: ConnectedServer, nodeId: string) => readonly PublishedTemplate[],
-  templatesForServer:
-    | ((server: ConnectedServer) => readonly LocatedPublishedTemplate[])
-    | undefined,
-  destinationLeases: Array<() => void>,
-  destinationTemplateLeases: Array<() => void>,
-  reconcileServer: ReconcileServer | undefined,
   surface: TemplateSurface,
-): Promise<TransplantResult> => {
+  rerender: () => void,
+): Promise<TransferResult> => {
   const branch =
     source.kind === 'local'
       ? localBranch(source.folderId)
-      : await serverBranch(
-          source.server,
-          source.nodeId,
-          (nodeId) => templatesOf(source.server, nodeId),
-          templatesForServer === undefined ? undefined : () => templatesForServer(source.server),
-          surface,
-        )
-  if (branch !== null && 'error' in branch) {
-    return { ok: false, nodes: 0, templates: 0, message: branch.error }
-  }
+      : await serverBranch(source.server, source.nodeId, surface)
+  if (branch !== null && 'error' in branch) return refused(branch.error)
   if (branch === null) {
-    return {
-      ok: false,
-      nodes: 0,
-      templates: 0,
-      message:
-        'Some templates in that folder have not finished loading yet — try again in a moment.',
-    }
+    return refused(
+      'Some templates in that folder have not finished loading yet — try again in a moment.',
+    )
   }
   if (destination.kind === 'local') {
     const described = branch.folders.find((folder) => folder.description !== undefined)
     if (described !== undefined) {
-      return {
-        ok: false,
-        nodes: 0,
-        templates: 0,
-        message: `“${described.name}” has a server description that Local folders cannot preserve.`,
-      }
+      return refused(
+        `“${described.name}” has a server description that Local folders cannot preserve.`,
+      )
     }
     const wrapped = branch.templates.find(({ template }) => !canCopyAsLocalTemplate(template))
     if (wrapped !== undefined) {
-      return {
-        ok: false,
-        nodes: 0,
-        templates: 0,
-        message: `“${wrapped.template.name}” wraps across the world edge and cannot be moved into Local yet.`,
-      }
+      return refused(
+        `“${wrapped.template.name}” wraps across the world edge and cannot be moved into Local yet.`,
+      )
     }
   }
 
-  /** Source folder id to the id it now has at the destination. */
-  const mapped = new Map<string, string>()
-  let nodes = 0
-  let templates = 0
-  const createdNodes: TreeNode[] = []
-  const uploadedTemplates: DestinationAdmission['templates'][number][] = []
-
-  const connectionsAreCurrent = (): boolean =>
-    (source.kind === 'local' || isCurrentServerConnection(source.server)) &&
-    (destination.kind === 'local' || isCurrentServerConnection(destination.server))
-  const connectionChanged = (): TransplantResult => ({
-    ok: false,
-    nodes,
-    templates,
-    message: 'A server connection changed during the move, so it stopped before the next write.',
-  })
-  let indexedServerTemplates: readonly LocatedPublishedTemplate[] | null = null
-  let serverTemplateById = new Map<string, LocatedPublishedTemplate>()
-  const currentServerTemplate = (id: string): LocatedPublishedTemplate | undefined => {
-    if (source.kind === 'local' || templatesForServer === undefined) return undefined
-    const current = templatesForServer(source.server)
+  let indexedServerTemplates: readonly ServerTemplate[] | null = null
+  let serverTemplateById = new Map<string, ServerTemplate>()
+  const currentServerTemplate = (server: ConnectedServer, id: string) => {
+    const current = templatesForServer(server.url, surface)
     if (current !== indexedServerTemplates) {
       indexedServerTemplates = current
       serverTemplateById = new Map(current.map((template) => [template.id, template]))
     }
     return serverTemplateById.get(id)
   }
-  const sourceTemplateIsCurrent = (carried: Branch['templates'][number]): boolean => {
+  const sourceTemplateIsCurrent = (carried: CarriedTemplate): boolean => {
     if (source.kind === 'local') {
-      return isCurrentTemplate(carried.template) && movingId() !== carried.template.id
+      return isCurrentTemplate(carried.template) && !templateBusy(carried.template.id, 'placing')
     }
-    if (templatesForServer === undefined) {
-      return templatesOf(source.server, carried.folderId).some(
-        (candidate) =>
-          candidate.id === carried.sourceId && candidate.version === carried.template.serverVersion,
-      )
-    }
-    const current = currentServerTemplate(carried.sourceId)
-    const revision = carried.sourceRevision
+    const current = currentServerTemplate(source.server, carried.sourceId)
+    const revision = carried.revision
     return (
       current !== undefined &&
       current.nodeId === carried.folderId &&
@@ -840,12 +296,8 @@ const transplantWhileDestinationHeld = async (
           current.updatedAt === revision.updatedAt))
     )
   }
-  const sourceTemplateChanged = (carried: Branch['templates'][number]): TransplantResult => ({
-    ok: false,
-    nodes,
-    templates,
-    message: `The source version of “${carried.template.name}” changed, so the move stopped before the next write.`,
-  })
+  const templateChanged = (carried: CarriedTemplate): string =>
+    `The source version of “${carried.template.name}” changed, so the move stopped before the next write.`
   const sourceFolderIds = new Set(branch.folders.map((folder) => folder.id))
   const sourceTemplateIds = new Set(branch.templates.map((carried) => carried.sourceId))
   let checkedLocalFolders: readonly LocalFolder[] | null = null
@@ -885,296 +337,225 @@ const transplantWhileDestinationHeld = async (
       )
     )
   }
-  const sourceBranchChanged = (): TransplantResult => ({
-    ok: false,
-    nodes,
-    templates,
-    message: `The source branch “${branch.name}” changed, so the move stopped before the next write.`,
-  })
 
-  // Local folders are built in memory and written once. `setState` serialises the whole state, so
-  // one write per folder costs the square of the branch: a server branch of any real size locked
-  // the tab up before any of it appeared.
-  const madeLocally: LocalFolder[] = []
+  const branchChanged = `The source branch “${branch.name}” changed, so the move stopped before the next write.`
+  const connectionChanged =
+    'A server connection changed during the move, so it stopped before the next write.'
+  /** Every stop here is an error: a branch move that stops part way needs tidying by hand. */
+  const stopUnless = (
+    { checkpoint }: TransferSteps,
+    stops: { readonly source?: string; readonly connection?: string },
+  ) => checkpoint(stops, 'error')
 
-  // A Local destination is built synchronously below. Nothing can change the server source during
-  // that batch, so one check protects the whole loop without rescanning a large manifest per folder.
-  if (destination.kind === 'local' && !sourceBranchIsCurrent()) return sourceBranchChanged()
-  for (const folder of inCreationOrder(branch)) {
-    if (destination.kind === 'server' && !sourceBranchIsCurrent()) return sourceBranchChanged()
-    const parent =
-      folder.parentId === null
-        ? destination.kind === 'server'
-          ? destination.nodeId
-          : destination.folderId
-        : (mapped.get(folder.parentId) ?? null)
+  return await transferThenRemove<CopiedBranch>({
+    connections: [source, destination].flatMap((end) =>
+      end.kind === 'server' ? [end.server] : [],
+    ),
+    sourceIsCurrent: sourceBranchIsCurrent,
+    copy: async (steps) => {
+      /** Source folder id to the id it now has at the destination. */
+      const mapped = new Map<string, string>()
+      let folders = 0
+      let copiedTemplates = 0
+      const nodes: TreeNode[] = []
+      const templates: DestinationAdmission['templates'][number][] = []
 
-    if (destination.kind === 'server') {
-      if (!connectionsAreCurrent()) return connectionChanged()
-      const created = await createNode(
-        destination.server,
-        folder.name,
-        parent,
-        folder.description,
-        surface,
-      )
-      if (!created.ok) return { ok: false, nodes, templates, message: created.message }
-      if (!sourceBranchIsCurrent()) return sourceBranchChanged()
-      mapped.set(folder.id, created.node.id)
-      createdNodes.push(created.node)
-    } else {
-      const id = nextLocalFolderId()
-      madeLocally.push({ id, parentId: parent, name: folder.name, visible: true, surface })
-      mapped.set(folder.id, id)
-    }
-    nodes++
-  }
+      // Local folders are built in memory and written once. `setState` serialises the whole state,
+      // so one write per folder costs the square of the branch: a server branch of any real size
+      // locked the tab up before any of it appeared.
+      const madeLocally: LocalFolder[] = []
 
-  if (!addLocalFolders(madeLocally)) {
-    return {
-      ok: false,
-      nodes: 0,
-      templates: 0,
-      message: `That branch has more folders than Local can hold (${MAX_LOCAL_FOLDERS}).`,
-    }
-  }
-  // `addLocalFolders` notifies the tree, which makes this new skeleton visible while templates are
-  // copied one at a time. Pin every new folder synchronously before the first await, so deleting a
-  // row mid-copy cannot invalidate a later assignment. No user event can run between the batch and
-  // these leases.
-  for (const folder of madeLocally) {
-    const release = leaseLocalFolder(folder.id)
-    if (release === null) {
-      return {
-        ok: false,
-        nodes,
-        templates: 0,
-        message: `The new Local folder “${folder.name}” could not be kept for the move.`,
-      }
-    }
-    destinationLeases.push(release)
-  }
-
-  for (const carried of branch.templates) {
-    const target = mapped.get(carried.folderId)
-    if (target === undefined) continue
-    if (!sourceBranchIsCurrent()) return sourceBranchChanged()
-    if (destination.kind === 'server') {
-      if (!connectionsAreCurrent()) return connectionChanged()
-      const png = await templateAsPng(carried.template)
-      if (png === null) {
-        return {
-          ok: false,
-          nodes,
-          templates,
-          message: `Could not encode “${carried.template.name}”.`,
+      // A Local destination is built synchronously below. Nothing can change the server source
+      // during that batch, so one check protects the whole loop without rescanning a large manifest
+      // per folder.
+      if (destination.kind === 'local') stopUnless(steps, { source: branchChanged })
+      for (const folder of inCreationOrder(branch)) {
+        const parent =
+          folder.parentId === null
+            ? destination.kind === 'server'
+              ? destination.nodeId
+              : destination.folderId
+            : (mapped.get(folder.parentId) ?? null)
+        if (destination.kind === 'server') {
+          stopUnless(steps, { source: branchChanged, connection: connectionChanged })
+          const created = await createNode(
+            destination.server,
+            folder.name,
+            parent,
+            folder.description,
+            surface,
+          )
+          if (!created.ok) throw refuse(created.message)
+          stopUnless(steps, { source: branchChanged })
+          mapped.set(folder.id, created.node.id)
+          nodes.push(created.node)
+        } else {
+          const id = nextLocalFolderId()
+          madeLocally.push({ id, parentId: parent, name: folder.name, visible: true, surface })
+          mapped.set(folder.id, id)
         }
+        folders++
       }
-      const authoring = await transferAuthoring(carried.template)
-      if ('message' in authoring) return { ok: false, nodes, templates, message: authoring.message }
-      if (!isCurrentTemplate(carried.template) || movingId() === carried.template.id) {
-        return {
-          ok: false,
-          nodes,
-          templates,
-          message: `“${carried.template.name}” changed while it was being copied.`,
+
+      if (!addLocalFolders(madeLocally)) {
+        throw refuse(`That branch has more folders than Local can hold (${MAX_LOCAL_FOLDERS}).`)
+      }
+      // `addLocalFolders` notifies the tree, which makes this new skeleton visible while templates
+      // are copied one at a time. Pin every new folder synchronously before the first await, so
+      // deleting a row mid-copy cannot invalidate a later assignment. No user event can run between
+      // the batch and these leases.
+      for (const folder of madeLocally) {
+        const release = leaseLocalFolder(folder.id)
+        if (release === null) {
+          throw refuse(`The new Local folder “${folder.name}” could not be kept for the move.`)
         }
+        steps.hold(release)
       }
-      if (!sourceTemplateIsCurrent(carried)) return sourceTemplateChanged(carried)
-      if (!connectionsAreCurrent()) return connectionChanged()
-      const uploadedName = carried.sourceRevision?.name ?? carried.template.name
-      const uploaded = await uploadTemplate(destination.server, {
-        nodeId: target,
-        name: uploadedName,
-        originX: carried.template.originX,
-        originY: carried.template.originY,
-        png,
-        surface: carried.template.surface ?? WORLD_TEMPLATE_SURFACE,
-        authoring: authoring.authoring,
-      })
-      if (!uploaded.ok) return { ok: false, nodes, templates, message: uploaded.message }
-      if (carried.sourceRevision?.published === true) {
-        if (!sourceBranchIsCurrent()) return sourceBranchChanged()
-        if (!connectionsAreCurrent()) return connectionChanged()
-        const published = await patchTemplate(destination.server, uploaded.id, { published: true })
-        if (!published.ok) {
-          return {
-            ok: false,
-            nodes,
-            templates,
-            message: `Copied “${carried.template.name}” as a draft, but could not publish it at the destination.`,
+
+      for (const carried of branch.templates) {
+        const target = mapped.get(carried.folderId)
+        if (target === undefined) continue
+        const { template } = carried
+        if (destination.kind === 'server') {
+          stopUnless(steps, { source: branchChanged, connection: connectionChanged })
+          const png = await templateAsPng(template)
+          if (png === null) throw refuse(`Could not encode “${template.name}”.`)
+          const authoring = await transferAuthoring(template)
+          if ('message' in authoring) throw refuse(authoring.message)
+          if (!isCurrentTemplate(template) || templateBusy(template.id, 'placing')) {
+            throw refuse(`“${template.name}” changed while it was being copied.`)
+          }
+          if (!sourceTemplateIsCurrent(carried)) throw refuse(templateChanged(carried))
+          stopUnless(steps, { connection: connectionChanged })
+          const name = carried.revision?.name ?? template.name
+          const uploaded = await uploadTemplate(destination.server, {
+            nodeId: target,
+            name,
+            originX: template.originX,
+            originY: template.originY,
+            png,
+            surface: template.surface ?? WORLD_TEMPLATE_SURFACE,
+            authoring: authoring.authoring,
+          })
+          if (!uploaded.ok) throw refuse(uploaded.message)
+          const published = carried.revision?.published === true
+          if (published) {
+            stopUnless(steps, { source: branchChanged, connection: connectionChanged })
+            const patched = await patchTemplate(destination.server, uploaded.id, {
+              published: true,
+            })
+            if (!patched.ok) {
+              throw refuse(
+                `Copied “${template.name}” as a draft, but could not publish it at the destination.`,
+              )
+            }
+          }
+          templates.push({
+            id: uploaded.id,
+            nodeId: target,
+            name,
+            version: uploaded.version,
+            published,
+          })
+        } else {
+          stopUnless(steps, { source: branchChanged })
+          const authoring = await transferAuthoring(template)
+          if ('message' in authoring) throw refuse(authoring.message)
+          let copied: PlacedTemplate
+          try {
+            copied = await copyAsLocalTemplate(template, newTemplateId(), authoring.authoring)
+          } catch (error) {
+            throw refuse(`Could not copy “${template.name}” into Local: ${errorText(error)}`)
+          }
+          const release = leaseLocalTemplate(copied.id)
+          if (release === null) {
+            throw refuse(`Copied “${template.name}”, but could not keep the new Local copy.`)
+          }
+          steps.hold(release)
+          if (!(await setTemplateFolder(copied.id, target))) {
+            throw refuse(`Copied “${template.name}”, but could not put it in its Local folder.`)
           }
         }
+        // The source can advance while the destination write itself awaits. Stop before beginning
+        // the next template rather than discovering the changed earlier row only during cleanup.
+        stopUnless(steps, { source: branchChanged })
+        copiedTemplates++
       }
-      uploadedTemplates.push({
-        id: uploaded.id,
-        nodeId: target,
-        name: uploadedName,
-        version: uploaded.version,
-        published: carried.sourceRevision?.published === true,
-      })
-    } else {
-      const authoring = await transferAuthoring(carried.template)
-      if ('message' in authoring) return { ok: false, nodes, templates, message: authoring.message }
-      let copied: PlacedTemplate
-      try {
-        copied = await copyAsLocalTemplate(carried.template, newTemplateId(), authoring.authoring)
-      } catch (error) {
-        return {
-          ok: false,
-          nodes,
-          templates,
-          message: `Could not copy “${carried.template.name}” into Local: ${error instanceof Error ? error.message : String(error)}`,
-        }
-      }
-      const releaseCopied = leaseLocalTemplate(copied.id)
-      if (releaseCopied === null) {
-        return {
-          ok: false,
-          nodes,
-          templates,
-          message: `Copied “${carried.template.name}”, but could not keep the new Local copy.`,
-        }
-      }
-      destinationTemplateLeases.push(releaseCopied)
-      if (!(await setTemplateFolder(copied.id, target))) {
-        return {
-          ok: false,
-          nodes,
-          templates,
-          message: `Copied “${carried.template.name}”, but could not put it in its Local folder.`,
-        }
-      }
-    }
-    // The source can advance while the destination write itself awaits. Stop before beginning the
-    // next template rather than discovering the changed earlier row only during final cleanup.
-    if (!sourceBranchIsCurrent()) return sourceBranchChanged()
-    templates++
-  }
 
-  if (destination.kind === 'server') {
-    if (!connectionsAreCurrent()) return connectionChanged()
-    await reconcileServer?.(destination.server)
-    const admitted = await destinationIsAdmitted(
-      destination.server,
-      {
-        nodes: createdNodes,
-        templates: uploadedTemplates,
-      },
-      surface,
-      templatesForServer === undefined
-        ? undefined
-        : (server, templateId) =>
-            templatesForServer(server).find((template) => template.id === templateId) ?? null,
-    )
-    if (!admitted) {
-      return {
-        ok: false,
-        nodes,
-        templates,
-        message:
+      const id = mapped.get(source.kind === 'local' ? source.folderId : source.nodeId)
+      if (id === undefined) throw refuse('The moved folder has no destination identity.')
+      return { id, nodes, templates, folders, copiedTemplates }
+    },
+    verifySource: async (copied, steps) => {
+      if (destination.kind !== 'server') return
+      stopUnless(steps, { connection: connectionChanged })
+      await refreshEditedSurface(destination.server, surface, rerender)
+      if (!(await destinationIsAdmitted(destination.server, copied, surface))) {
+        throw refuse(
           'Copied the branch, but its destination could not be admitted, so the source was kept.',
+        )
       }
-    }
-    if (!sourceBranchIsCurrent()) return sourceBranchChanged()
-    if (!connectionsAreCurrent()) return connectionChanged()
-  }
-
-  // Everything arrived. Only now is the source touched.
-  if (source.kind === 'server') {
-    for (const carried of branch.templates) {
-      if (!connectionsAreCurrent()) return connectionChanged()
-      if (!sourceTemplateIsCurrent(carried)) return sourceTemplateChanged(carried)
-      const revision = carried.sourceRevision
-      if (revision === null) return sourceTemplateChanged(carried)
-      const removed = await deleteTemplateOnServer(source.server, carried.sourceId, {
-        version: revision.version,
-        updatedAt: revision.updatedAt,
-      })
-      if (!removed.ok) {
-        return {
-          ok: false,
-          nodes,
-          templates,
-          message: `Copied, but could not remove “${carried.template.name}” from the source.`,
+      stopUnless(steps, { source: branchChanged, connection: connectionChanged })
+    },
+    removeSource: async (copied, steps) => {
+      if (source.kind === 'server') {
+        for (const carried of branch.templates) {
+          stopUnless(steps, { connection: connectionChanged })
+          if (!sourceTemplateIsCurrent(carried)) throw refuse(templateChanged(carried))
+          const revision = carried.revision
+          if (revision === null) throw refuse(templateChanged(carried))
+          const removed = await deleteTemplateOnServer(source.server, carried.sourceId, {
+            version: revision.version,
+            updatedAt: revision.updatedAt,
+          })
+          if (!removed.ok) {
+            throw refuse(`Copied, but could not remove “${carried.template.name}” from the source.`)
+          }
+        }
+        // Deepest first, because a server refuses to delete a node that still holds anything.
+        for (const folder of [...inCreationOrder(branch)].reverse()) {
+          stopUnless(steps, { connection: connectionChanged })
+          const removed = await deleteNodeOnServer(source.server, folder.id)
+          if (!removed.ok) {
+            throw refuse(
+              `Moved the templates, but could not remove source folder “${folder.name}”: ${removed.message}`,
+            )
+          }
+        }
+      } else {
+        stopUnless(steps, { connection: connectionChanged })
+        const foldersChanged = `Copied, but Local source folder “${branch.name}” changed and was kept.`
+        if (!sourceFoldersAreCurrent()) throw refuse(foldersChanged)
+        for (const carried of branch.templates) {
+          if (!sourceFoldersAreCurrent()) throw refuse(foldersChanged)
+          if (!sourceTemplateIsCurrent(carried)) {
+            throw refuse(
+              `Copied, but “${carried.template.name}” changed at the source and was kept.`,
+            )
+          }
+          if (!(await removeLocalTemplate(carried.sourceId))) {
+            throw refuse(`Copied, but could not remove “${carried.template.name}” from Local.`)
+          }
+        }
+        if (!sourceFoldersAreCurrent()) throw refuse(foldersChanged)
+        if (
+          localTemplates().some(
+            (template) => template.folderId !== null && sourceFolderIds.has(template.folderId),
+          )
+        ) {
+          throw refuse(
+            `Moved the original templates, but Local source folder “${branch.name}” received new content and was kept.`,
+          )
+        }
+        if (!removeLocalFolders(sourceFolderIds)) {
+          throw refuse(
+            `Moved the templates, but could not remove Local source folder “${branch.name}”.`,
+          )
         }
       }
-    }
-    // Deepest first, because a server refuses to delete a node that still holds anything.
-    for (const folder of [...inCreationOrder(branch)].reverse()) {
-      if (!connectionsAreCurrent()) return connectionChanged()
-      const removed = await deleteNodeOnServer(source.server, folder.id)
-      if (!removed.ok) {
-        return {
-          ok: false,
-          nodes,
-          templates,
-          message: `Moved the templates, but could not remove source folder “${folder.name}”: ${removed.message}`,
-        }
-      }
-    }
-  } else {
-    if (!connectionsAreCurrent()) return connectionChanged()
-    const sourceFoldersChanged = (): TransplantResult => ({
-      ok: false,
-      nodes,
-      templates,
-      message: `Copied, but Local source folder “${branch.name}” changed and was kept.`,
-    })
-    if (!sourceFoldersAreCurrent()) return sourceFoldersChanged()
-    for (const carried of branch.templates) {
-      if (!sourceFoldersAreCurrent()) return sourceFoldersChanged()
-      if (!sourceTemplateIsCurrent(carried)) {
-        return {
-          ok: false,
-          nodes,
-          templates,
-          message: `Copied, but “${carried.template.name}” changed at the source and was kept.`,
-        }
-      }
-      if (!(await removeLocalTemplate(carried.sourceId))) {
-        return {
-          ok: false,
-          nodes,
-          templates,
-          message: `Copied, but could not remove “${carried.template.name}” from Local.`,
-        }
-      }
-    }
-    if (!sourceFoldersAreCurrent()) return sourceFoldersChanged()
-    if (
-      localTemplates().some(
-        (template) => template.folderId !== null && sourceFolderIds.has(template.folderId),
-      )
-    ) {
-      return {
-        ok: false,
-        nodes,
-        templates,
-        message: `Moved the original templates, but Local source folder “${branch.name}” received new content and was kept.`,
-      }
-    }
-    if (!removeLocalFolders(sourceFolderIds)) {
-      return {
-        ok: false,
-        nodes,
-        templates,
-        message: `Moved the templates, but could not remove Local source folder “${branch.name}”.`,
-      }
-    }
-  }
-
-  const destinationRootId = mapped.get(source.kind === 'local' ? source.folderId : source.nodeId)
-  if (destinationRootId === undefined) {
-    return { ok: false, nodes, templates, message: 'The moved folder has no destination identity.' }
-  }
-  return {
-    ok: true,
-    nodes,
-    templates,
-    destinationRootId,
-    message: `Moved “${branch.name}” — ${nodes} folder${nodes === 1 ? '' : 's'}, ${templates} template${templates === 1 ? '' : 's'}.`,
-  }
+      return `Moved “${branch.name}” — ${plural(copied.folders, 'folder')}, ${plural(copied.copiedTemplates, 'template')}.`
+    },
+  })
 }
 
 const activeSources = new Set<string>()
@@ -1184,65 +565,37 @@ const sourceKey = (source: Source): string =>
     ? `local:${source.folderId}`
     : `server:${source.server.url}:${source.nodeId}`
 
-/** Keep a Local destination present from the source read through the final source deletion. */
+/**
+ * Move a whole branch: copy it to `destination`, verify, then take it off `source`.
+ *
+ * A Local destination folder is kept present from the source read through the final source
+ * deletion.
+ */
 export const transplant = async (
   source: Source,
   destination: Destination,
-  templatesOf: (server: ConnectedServer, nodeId: string) => readonly PublishedTemplate[],
-  templatesForServer?: (server: ConnectedServer) => readonly LocatedPublishedTemplate[],
-  reconcileServer?: ReconcileServer,
+  rerender: () => void,
   surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
-): Promise<TransplantResult> => {
-  const activeSource = sourceKey(source)
-  if (activeSources.has(activeSource)) {
-    return {
-      ok: false,
-      nodes: 0,
-      templates: 0,
-      message: 'That folder is already being moved.',
-    }
-  }
-  activeSources.add(activeSource)
+): Promise<TransferResult> => {
+  const key = sourceKey(source)
+  if (activeSources.has(key)) return refused('That folder is already being moved.')
   const releaseDestination =
     destination.kind === 'local' && destination.folderId !== null
       ? leaseLocalFolder(destination.folderId)
-      : null
-  if (
-    destination.kind === 'local' &&
-    destination.folderId !== null &&
-    releaseDestination === null
-  ) {
-    activeSources.delete(activeSource)
-    return {
-      ok: false,
-      nodes: 0,
-      templates: 0,
-      message: 'The destination Local folder no longer exists.',
-    }
-  }
-  const destinationLeases = releaseDestination === null ? [] : [releaseDestination]
-  const destinationTemplateLeases: Array<() => void> = []
+      : undefined
+  if (releaseDestination === null) return refused('The destination Local folder no longer exists.')
+  activeSources.add(key)
   try {
-    const result = await transplantWhileDestinationHeld(
-      source,
-      destination,
-      templatesOf,
-      templatesForServer,
-      destinationLeases,
-      destinationTemplateLeases,
-      reconcileServer,
-      surface,
+    const result = await transferBranch(source, destination, surface, rerender)
+    const servers = new Map<string, ConnectedServer>()
+    if (source.kind === 'server') servers.set(source.server.url, source.server)
+    if (destination.kind === 'server') servers.set(destination.server.url, destination.server)
+    void Promise.all(
+      [...servers.values()].map((server) => refreshEditedSurface(server, surface, rerender)),
     )
-    if (reconcileServer !== undefined) {
-      const servers = new Map<string, ConnectedServer>()
-      if (source.kind === 'server') servers.set(source.server.url, source.server)
-      if (destination.kind === 'server') servers.set(destination.server.url, destination.server)
-      void Promise.all([...servers.values()].map(reconcileServer))
-    }
     return result
   } finally {
-    for (const release of destinationTemplateLeases.reverse()) release()
-    for (const release of destinationLeases.reverse()) release()
-    activeSources.delete(activeSource)
+    releaseDestination?.()
+    activeSources.delete(key)
   }
 }

@@ -1,6 +1,7 @@
 import { decodePng, decodeWplaceIndexedPng } from '@caelestis/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { moveServerTemplateToServer, transplant } from '../src/application/transplant.js'
+import { moveServerTemplateToServer } from '../src/application/transfer.js'
+import { transplant } from '../src/application/transplant.js'
 import '../src/application/tree-server-state.js'
 import { createLocalFolder } from '../src/local-folders.js'
 import { admittedServerContentsFor } from '../src/server-api.js'
@@ -55,6 +56,17 @@ const fullManifest = (owner: ConnectedServer) => ({
     },
   ],
 })
+
+// The source row is what the tree last drew, and refreshing the tree after each write is the
+// panel's business. Admission still reads the destination over the network.
+vi.mock('../src/application/tree-server-state.js', async (original) => ({
+  ...(await original<typeof import('../src/application/tree-server-state.js')>()),
+  serverTemplateAt: () => published,
+}))
+vi.mock('../src/application/tree-server.js', async (original) => ({
+  ...(await original<typeof import('../src/application/tree-server.js')>()),
+  refreshEditedSurface: async () => {},
+}))
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -152,11 +164,11 @@ describe('cross-server template transplant', () => {
     const result = await transplant(
       { kind: 'local', folderId: sourceFolder.id },
       { kind: 'server', server: currentDestination, nodeId: null },
-      () => [],
+      () => {},
     )
 
-    if (!result.ok || result.destinationRootId === undefined) throw new Error(result.message)
-    expect(result).toMatchObject({ ok: true, nodes: 1, templates: 1 })
+    if (!result.ok || result.destinationId === undefined) throw new Error(result.message)
+    expect(result.message).toBe('Moved “Local collection” — 1 folder, 1 template.')
     if (upload === undefined) throw new Error('template upload was not captured')
     expect(await decodeWplaceIndexedPng(upload)).toEqual({
       width: 2,
@@ -167,10 +179,10 @@ describe('cross-server template transplant', () => {
     const admitted = admittedServerContentsFor(currentDestination)
     if (admitted === null) throw new Error('destination manifest was not admitted')
     expect(admitted).toMatchObject({
-      nodes: [expect.objectContaining({ id: result.destinationRootId, name: sourceFolder.name })],
+      nodes: [expect.objectContaining({ id: result.destinationId, name: sourceFolder.name })],
       templates: [
         expect.objectContaining({
-          nodeId: result.destinationRootId,
+          nodeId: result.destinationId,
           name: sourceTemplate.name,
         }),
       ],
@@ -238,8 +250,7 @@ describe('cross-server template transplant', () => {
       null,
       published,
       serverDrawn,
-      () => published,
-      async () => {},
+      () => {},
     )
     expect(result).toMatchObject({ ok: true, destinationId: ids.destination })
     expect(await decodeWplaceIndexedPng(upload!)).toEqual({
@@ -308,8 +319,7 @@ describe('cross-server template transplant', () => {
       null,
       published,
       serverDrawn,
-      () => published,
-      async () => {},
+      () => {},
     )
     expect(result).toMatchObject({ ok: false, destinationId: ids.destination })
     expect(templateById(drawn.id)).toBeDefined()

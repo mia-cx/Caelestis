@@ -100,23 +100,23 @@ import { openTemplateStudio } from './template-studio.js'
 import {
   copyCurrentLocalTemplateToServer,
   copyLocalTemplateToServer,
-  type Destination,
   moveServerTemplateToLocal,
   moveServerTemplateToServer,
-  type Source,
-  transplant,
-} from './transplant.js'
+} from './transfer.js'
+import { type Destination, type Source, transplant } from './transplant.js'
 import { goToLocalTemplate, goToServerTemplate } from './tree-navigation.js'
+import {
+  refreshCurrentNodes,
+  refreshEditedSurface,
+  retryOptimisticMutation,
+  serverNodesFailure,
+} from './tree-server.js'
 import {
   findServerNode,
   findServerTemplate,
   optimisticallyPlaceServerRow,
-  refreshServerSnapshot,
   rowsForSurface,
-  type ServerSnapshotResult,
   serverTemplateAt,
-  templatesForServer,
-  templatesOfNode,
 } from './tree-server-state.js'
 import {
   requestTemplateAreaUpdate,
@@ -239,28 +239,6 @@ export const handleTreeActionPresentationIntent = (intent: TemplateTreeIntent): 
     return true
   }
   return false
-}
-
-type RetriableMutationResult =
-  | { readonly ok: true }
-  | {
-      readonly ok: false
-      readonly message: string
-      readonly retryable?: true
-      readonly stop?: true
-    }
-
-const retryOptimisticMutation = async (
-  mutate: () => Promise<RetriableMutationResult>,
-): Promise<RetriableMutationResult> => {
-  const delays = [120, 300] as const
-  let result = await mutate()
-  for (const delay of delays) {
-    if (result.ok || result.retryable !== true) return result
-    await new Promise((resolve) => setTimeout(resolve, delay))
-    result = await mutate()
-  }
-  return result
 }
 
 /**
@@ -665,21 +643,13 @@ export const moveBranch = async (
       : { kind: 'server', server: sourceServer, nodeId: sourceId }
 
   toast('Moving…')
-  const result = await transplant(
-    source,
-    destination,
-    (server, nodeId) => templatesOfNode(server.url, nodeId, surface),
-    (server) => templatesForServer(server.url, surface),
-    (server) => refreshEditedSurface(server, surface, rerender),
-    surface,
-  )
-  if (result.ok) toast(result.message)
-  else toast(result.message, 'error')
+  const result = await transplant(source, destination, rerender, surface)
+  toast(result.message, result.tone)
   rerender()
-  if (!result.ok || result.destinationRootId === undefined) return null
+  if (!result.ok || result.destinationId === undefined) return null
   return destination.kind === 'server'
-    ? nodeTreeKey(destination.server, result.destinationRootId)
-    : localFolderKey(result.destinationRootId)
+    ? nodeTreeKey(destination.server, result.destinationId)
+    : localFolderKey(result.destinationId)
 }
 
 /**
@@ -718,15 +688,8 @@ export const copyServerTemplateToLocal = async (
   })
   if (!confirmed) return null
 
-  const result = await moveServerTemplateToLocal(
-    source,
-    found.template,
-    drawn,
-    folderId,
-    (server, id) => serverTemplateAt(server.url, id, surface),
-    (server) => refreshEditedSurface(server, surface, rerender),
-  )
-  toast(result.message, result.tone === 'success' ? undefined : result.tone)
+  const result = await moveServerTemplateToLocal(source, found.template, drawn, folderId, rerender)
+  toast(result.message, result.tone)
   rerender()
   return result.destinationId === undefined ? null : localTemplateKey(result.destinationId)
 }
@@ -774,13 +737,7 @@ export const dropOnServerNode = async (
       toast(`Finish placing “${local.name}” before copying it.`, 'warning')
       return null
     }
-    const result = await copyLocalTemplateToServer(
-      local,
-      server,
-      nodeId,
-      (connected) => refreshEditedSurface(connected, surface, rerender),
-      {},
-    )
+    const result = await copyLocalTemplateToServer(local, server, nodeId, rerender)
     if (result.ok) toast(`Uploaded “${local.name}” to ${server.info?.name ?? server.url}.`)
     else toast(result.message, result.retryable === true ? 'warning' : 'error')
     return result.ok ? serverTemplateTreeKey(server, result.id) : null
@@ -835,10 +792,9 @@ export const dropOnServerNode = async (
     nodeId,
     found.template,
     drawn,
-    (connected, id) => serverTemplateAt(connected.url, id, surface),
-    (connected) => refreshEditedSurface(connected, surface, rerender),
+    rerender,
   )
-  toast(result.message, result.tone === 'success' ? undefined : result.tone)
+  toast(result.message, result.tone)
   return result.destinationId === undefined
     ? null
     : serverTemplateTreeKey(server, result.destinationId)
@@ -1526,19 +1482,6 @@ export const openContextMenu = (
 const importCentre = (surface: TemplateSurface): { x: number; y: number } =>
   surface.kind === 'world' ? (viewportCentre() ?? { x: 0, y: 0 }) : allianceSurfaceCentre(surface)
 
-const refreshEditedSurface = async (
-  server: ConnectedServer,
-  surface: TemplateSurface,
-  rerender: () => void,
-): Promise<void> => {
-  if (surface.kind === 'world') {
-    await refreshCurrentNodes(server, rerender, true)
-    return
-  }
-  await refreshAllianceManifest(server, surface)
-  rerender()
-}
-
 export const importTemplate = async (
   target: TreeTarget,
   rerender: () => void,
@@ -1942,8 +1885,7 @@ export const copyToServer = async (
             template.name,
             server,
             nodeId,
-            (connected) =>
-              refreshEditedSurface(connected, template.surface ?? WORLD_TEMPLATE_SURFACE, rerender),
+            rerender,
             {
               beforeUpload: (png) => {
                 if (cancelled || operation?.model.id !== id) return false
@@ -2052,28 +1994,6 @@ export const createFolder = async (
 }
 
 const MAX_DESTINATIONS = 2_000
-
-const serverNodesFailure = (result: Exclude<ServerNodesResult, { status: 'ok' }>): string =>
-  result.status === 'unreachable'
-    ? 'Could not ask that server for its current folders.'
-    : 'Cannot use those folders while connected server data exceeds the client safety limits.'
-
-/** Refresh with the connection that is configured now, never credentials captured before an await. */
-const refreshCurrentNodes = async (
-  server: ConnectedServer,
-  rerender: () => void,
-  force = false,
-): Promise<ServerSnapshotResult | null> => {
-  let current = getState().servers.find((candidate) => candidate.url === server.url)
-  if (current === undefined) return null
-  let result = await refreshServerSnapshot(current, rerender, force)
-  while (result.status === 'superseded') {
-    current = getState().servers.find((candidate) => candidate.url === server.url)
-    if (current === undefined) return null
-    result = await refreshServerSnapshot(current, rerender)
-  }
-  return result
-}
 
 export const cancelTreeActionSetup = (reason: Error): void => {
   copySetupController?.abort(reason)

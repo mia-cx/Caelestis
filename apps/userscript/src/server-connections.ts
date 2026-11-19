@@ -86,6 +86,13 @@ export const activeServerToken = (server: ConnectedServer): string | null =>
 export const bearer = (token: string | null): Record<string, string> =>
   token === null ? {} : { authorization: `Bearer ${token}` }
 
+/** The configured connection for `url`, if there is one. */
+export const serverByUrl = (url: string): ConnectedServer | undefined =>
+  getState().servers.find((candidate) => candidate.url === url)
+
+/** What a sentence calls a server: the name it reports, or its URL until it has reported one. */
+export const serverLabel = (server: ConnectedServer): string => server.info?.name ?? server.url
+
 /** Whether this connection has a usable token whose admin scope the server has verified. */
 export const hasServerAdminToken = (server: ConnectedServer): boolean =>
   server.status === 'connected' && server.isAdmin && Boolean(activeServerToken(server))

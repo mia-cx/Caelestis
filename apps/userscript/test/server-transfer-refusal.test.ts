@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { copyLocalTemplateToServer } from '../src/application/transplant.js'
+import { copyLocalTemplateToServer } from '../src/application/transfer.js'
 import { upsertServer } from '../src/server-connections.js'
 import { getState } from '../src/settings.js'
 import { addLocalTemplate, templateById } from '../src/templates/local-store.js'
@@ -44,7 +44,7 @@ describe('server transfer cancellation', () => {
       local,
       getState().servers.at(-1)!,
       null,
-      async () => {},
+      () => {},
       {
         beforeUpload: () => {
           upsertServer({ ...destination, token: 'replacement' })
