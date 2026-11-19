@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { copyLocalTemplateToServer } from '../src/application/transplant.js'
-import { getState, upsertServer } from '../src/state.js'
+import { upsertServer } from '../src/server-connections.js'
+import { getState } from '../src/settings.js'
 import { addLocalTemplate, templateById } from '../src/templates/local-store.js'
 
 const serverId = '018f1b8c-7f4e-7a8c-8a01-123456789abc'

@@ -1,5 +1,5 @@
 import { type TemplateSurface, templateSurfaceKey, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
-import { isScopeVisible } from '../state.js'
+import { isScopeVisible } from '../settings.js'
 
 /**
  * Which folder each of a server's templates sits under, and what sits above that.

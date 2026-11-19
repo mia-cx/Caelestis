@@ -17,17 +17,17 @@ import { log, warn } from '../debug.js'
 import { leaseLocalFolder, localFolderChainVisible } from '../local-folders.js'
 import { pageWindow } from '../page-world.js'
 import { registerProfileMemorySource } from '../profile.js'
+import { isCurrentServerConnection } from '../server-connections.js'
 import {
   type ConnectedServer,
   getState,
   getSurfaceAppearance,
-  isCurrentServerConnection,
   isScopeVisible,
   type LocalFolder,
   serverTemplatePreference,
   setScopeVisible,
   setServerTemplatePreference,
-} from '../state.js'
+} from '../settings.js'
 import {
   APPEARANCE_GROUPS,
   type Appearance,

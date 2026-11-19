@@ -20,9 +20,10 @@ import {
   readArtboardPixels,
 } from './gl/artboard-pixels.js'
 import { getMap } from './map-handle.js'
+import { serverConnectionIdentity } from './server-connections.js'
+import { type ConnectedServer, getState, onStateChange } from './settings.js'
 import { activeShortcutBindings } from './shortcut-bindings.js'
 import { currentShortcutPlatform } from './shortcuts.js'
-import { type ConnectedServer, getState, onStateChange, serverConnectionIdentity } from './state.js'
 import { onServerStatusChange, serverColourProgressFor } from './telemetry.js'
 import {
   onLocalChange,

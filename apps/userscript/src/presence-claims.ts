@@ -8,7 +8,7 @@ import {
 } from '@caelestis/shared'
 import { claimDocumentPixels } from './claim-document.js'
 import { registerProfileMemorySource } from './profile.js'
-import type { State } from './state.js'
+import type { State } from './settings.js'
 
 export interface DisplayClaim {
   readonly id: string

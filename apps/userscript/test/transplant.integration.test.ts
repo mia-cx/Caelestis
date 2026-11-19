@@ -3,12 +3,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { moveServerTemplateToServer, transplant } from '../src/application/transplant.js'
 import '../src/application/tree-server-state.js'
 import { createLocalFolder } from '../src/local-folders.js'
-import {
-  admittedServerContentsFor,
-  type ConnectedServer,
-  getState,
-  upsertServer,
-} from '../src/state.js'
+import { admittedServerContentsFor } from '../src/server-api.js'
+import { upsertServer } from '../src/server-connections.js'
+import { type ConnectedServer, getState } from '../src/settings.js'
 import { addLocalTemplate, setTemplateFolder, templateById } from '../src/templates/local-store.js'
 import { serverTemplateKey } from '../src/templates/server-sync.js'
 import { adminToken, createTestBackend } from './backend.js'

@@ -20,7 +20,14 @@ import {
 import { userscriptClientHeaders } from './client-metrics.js'
 import { count, warn } from './debug.js'
 import { readBoundedJsonResponse } from './response.js'
+import { onServerContents, type ServerContents } from './server-api.js'
 import type { ServerTemplate } from './server-cache.js'
+import {
+  activeServerToken,
+  isCurrentServerConnection,
+  serverConnectionIdentity,
+  serverConnectionSignal,
+} from './server-connections.js'
 import { MAX_MANIFEST_TEMPLATES } from './server-manifest.js'
 import { invalidateServerMismatches, invalidateServerMismatchTiles } from './server-mismatch.js'
 import { coalesceServerRead } from './server-read-coalescer.js'
@@ -40,17 +47,7 @@ import {
   serverSyncRevision,
 } from './server-sync-coordinator.js'
 import { serverEndpoint } from './server-url.js'
-import {
-  activeServerToken,
-  type ConnectedServer,
-  getState,
-  isCurrentServerConnection,
-  onServerContents,
-  onStateChange,
-  type ServerContents,
-  serverConnectionIdentity,
-  serverConnectionSignal,
-} from './state.js'
+import { type ConnectedServer, getState, onStateChange } from './settings.js'
 import { ClientStatusProjection } from './status-client-projection.js'
 import type { TemplateColourProgress, TemplateProgress } from './templates/mismatch.js'
 import { TileOfferAcknowledgements } from './tile-offer-acknowledgements.js'

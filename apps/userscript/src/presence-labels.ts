@@ -20,7 +20,7 @@ import {
   registerProfileMemorySource,
 } from './profile.js'
 import { QUICK_CLAIM_PREVIEW_KEY, quickClaimItems } from './quick-claims.js'
-import { getState } from './state.js'
+import { getState } from './settings.js'
 import { isDrawingTiles } from './tile-transform.js'
 import { isPaintOpen } from './wplace-paint.js'
 

@@ -5,8 +5,8 @@ import {
   hasServerAdminToken,
   isCurrentServerConnection,
   serverConnectionSignal,
-  serverEndpoint,
-} from '../state.js'
+} from '../server-connections.js'
+import { serverEndpoint } from '../server-url.js'
 import { templateAsPng, templateById } from '../templates/local-store.js'
 import { serverTemplateKey } from '../templates/server-sync.js'
 import { closeDialogHost } from './dialog.js'

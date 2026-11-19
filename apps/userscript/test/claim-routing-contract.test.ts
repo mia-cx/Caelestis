@@ -1,6 +1,6 @@
 import type { RegionClaim, RegionDocument } from '@caelestis/shared'
 import { expect, it, vi } from 'vitest'
-import type { ConnectedServer } from '../src/state.js'
+import type { ConnectedServer } from '../src/settings.js'
 
 vi.mock('../src/presence-client.js', () => ({ presenceCanWriteClaims: () => true }))
 

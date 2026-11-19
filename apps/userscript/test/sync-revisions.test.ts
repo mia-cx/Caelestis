@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest'
+import { importStateModules } from './state-modules.js'
 
 afterEach(() => {
   vi.useRealTimers()
@@ -7,7 +8,7 @@ afterEach(() => {
 
 it('keeps a newer delta when an older snapshot arrives and rejects a retired connection', async () => {
   vi.useFakeTimers()
-  const state = await import('../src/state.js')
+  const state = await importStateModules()
   const sync = await import('../src/server-sync-coordinator.js')
   const server = {
     url: 'https://revision.test',

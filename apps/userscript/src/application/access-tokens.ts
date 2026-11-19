@@ -3,13 +3,12 @@ import { encodeInvite } from '../invite.js'
 import {
   type AccessToken,
   type AccessTokenPage,
-  type ConnectedServer,
   createAccessToken,
-  isCurrentServerConnection,
   listAccessTokens,
   revokeAccessToken,
-  sameServerConnection,
-} from '../state.js'
+} from '../server-api.js'
+import { isCurrentServerConnection, sameServerConnection } from '../server-connections.js'
+import type { ConnectedServer } from '../settings.js'
 import { confirmDestructive } from '../ui/confirm.js'
 import { showOneTimeSecret } from '../ui/notification-host.js'
 import { toast } from '../ui/toast.js'

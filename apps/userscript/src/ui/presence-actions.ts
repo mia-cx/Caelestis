@@ -31,7 +31,8 @@ import {
   presenceView,
 } from '../presence-client.js'
 import { presenceCss } from '../presence-colour.js'
-import { activeServerToken, type ConnectedServer } from '../state.js'
+import { activeServerToken } from '../server-connections.js'
+import type { ConnectedServer } from '../settings.js'
 import { isServerTemplate, localTemplates, type PlacedTemplate } from '../templates/local-store.js'
 import { navigateTo } from '../templates/navigate.js'
 import { toast } from './toast.js'

@@ -3,7 +3,7 @@ import { userscriptVersion } from './client-metrics.js'
 import { getMap } from './map-handle.js'
 import { presenceView } from './presence-client.js'
 import type { ProfileContext } from './profile.js'
-import { getState } from './state.js'
+import { getState } from './settings.js'
 import { isTemplateVisible, localTemplates } from './templates/local-store.js'
 import { isPaintOpen, selectedColour } from './wplace-paint.js'
 

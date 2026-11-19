@@ -7,7 +7,7 @@ import {
   uuidV7,
 } from '@caelestis/shared'
 import { leaseLocalFolder } from '../local-folders.js'
-import { getState, MAX_LOCAL_FOLDERS } from '../state.js'
+import { getState, MAX_LOCAL_FOLDERS } from '../settings.js'
 import type { NativeTemplates } from './native-store.js'
 import { reconcileNativeTags } from './native-tags.js'
 import type { StoredTemplate } from './persist.js'

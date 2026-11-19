@@ -5,12 +5,8 @@ import {
 } from '@caelestis/ui/elements'
 import { refreshAllianceManifest } from '../alliance-server-sync.js'
 import { refreshServerSnapshot } from '../application/tree-server-state.js'
-import {
-  isCurrentServerConnection,
-  listServerTags,
-  mutateServerTag,
-  onServerContents,
-} from '../state.js'
+import { listServerTags, mutateServerTag, onServerContents } from '../server-api.js'
+import { isCurrentServerConnection } from '../server-connections.js'
 import { mutateLocalTag, onLocalTags, readLocalTags } from '../templates/tags.js'
 import { closeDialogHost } from './dialog.js'
 import { applyWplaceTheme } from './theme.js'

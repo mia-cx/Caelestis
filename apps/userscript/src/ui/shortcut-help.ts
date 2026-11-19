@@ -3,9 +3,9 @@ import {
   SHORTCUT_HELP_TAG,
   type ShortcutHelpIntent,
 } from '@caelestis/ui/elements'
+import { getState } from '../settings.js'
 import { activeShortcutBindings } from '../shortcut-bindings.js'
 import { currentShortcutPlatform, type ShortcutPlatform } from '../shortcuts.js'
-import { getState } from '../state.js'
 import { closeDialogHost } from './dialog.js'
 import { applyWplaceTheme } from './theme.js'
 

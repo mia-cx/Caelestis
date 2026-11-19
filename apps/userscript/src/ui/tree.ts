@@ -41,17 +41,19 @@ import {
   setLocalFolderVisible,
 } from '../local-folders.js'
 import { measureProfileDetail } from '../profile.js'
+import {
+  patchTemplate,
+  renameNode as renameNodeOnServer,
+  renameServer as renameServerOnServer,
+} from '../server-api.js'
 import type { ServerTemplate } from '../server-cache.js'
 import {
   type ConnectedServer,
   getState,
   isScopeVisible,
-  patchTemplate,
-  renameNode as renameNodeOnServer,
-  renameServer as renameServerOnServer,
   setScopeVisible,
   setState,
-} from '../state.js'
+} from '../settings.js'
 import {
   serverAlarmFor,
   serverAlarmKindFor,

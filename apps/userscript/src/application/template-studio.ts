@@ -34,7 +34,7 @@ import {
 import { warn } from '../debug.js'
 import { getMap } from '../map-handle.js'
 import { viewportCentre } from '../map-view.js'
-import { getState, setState } from '../state.js'
+import { getState, setState } from '../settings.js'
 import type { DitheretteEngine } from '../templates/ditherette.js'
 import {
   decodeToRgba,

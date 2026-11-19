@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { importStateModules } from './state-modules.js'
 
 const serverId = '018f1b8c-7f4e-7a8c-8a01-123456789abc'
 
 const loadState = async () => {
   vi.resetModules()
-  return await import('../src/state.js')
+  return await importStateModules()
 }
 
 afterEach(() => vi.restoreAllMocks())

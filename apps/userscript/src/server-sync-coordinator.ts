@@ -27,14 +27,9 @@ import {
   recordProfileMessage,
   recordProfileWorkload,
 } from './profile.js'
+import { isCurrentServerConnection, serverConnectionIdentity } from './server-connections.js'
 import { canonicalServerUrl, serverEndpoint } from './server-url.js'
-import {
-  type ConnectedServer,
-  getState,
-  isCurrentServerConnection,
-  onStateChange,
-  serverConnectionIdentity,
-} from './state.js'
+import { type ConnectedServer, getState, onStateChange } from './settings.js'
 
 const INITIAL_POLL_MS = 60_000
 const MAX_UNCHANGED_POLL_MS = 5 * 60_000

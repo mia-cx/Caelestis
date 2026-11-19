@@ -2,16 +2,18 @@ import { encodeIndexedPng, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { allianceManifestFor, refreshAllianceManifest } from '../alliance-server-sync.js'
 import { activeAllianceSurface } from '../alliance-surface.js'
 import { startCaptureMode } from '../claim-editor.js'
-import { invalidateServerReads } from '../server-read-coalescer.js'
 import {
   admittedServerContentsFor,
-  getState,
+  listServerContents,
+  uploadTemplateVersion,
+} from '../server-api.js'
+import {
   hasServerAdminToken,
   isCurrentServerConnection,
-  listServerContents,
   serverConnectionIdentity,
-  uploadTemplateVersion,
-} from '../state.js'
+} from '../server-connections.js'
+import { invalidateServerReads } from '../server-read-coalescer.js'
+import { getState } from '../settings.js'
 import { captureCurrentArtwork, captureTemplateArea } from '../templates/current-artwork.js'
 import {
   isCurrentTemplate,

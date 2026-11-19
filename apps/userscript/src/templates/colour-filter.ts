@@ -1,5 +1,5 @@
 import { type TemplateSurface, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
-import { getState, onlySelectedColourFor } from '../state.js'
+import { getState, onlySelectedColourFor } from '../settings.js'
 import { isPaintOpen, selectedColour } from '../wplace-paint.js'
 import { type Appearance, drawableIndices } from './appearance.js'
 

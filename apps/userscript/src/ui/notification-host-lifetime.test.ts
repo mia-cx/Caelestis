@@ -1,7 +1,7 @@
 import { type NotificationsModel, registerCaelestisUi } from '@caelestis/ui/elements'
 import { afterEach, expect, it, vi } from 'vitest'
 
-vi.mock('../state.js', () => ({ getState: () => ({}) }))
+vi.mock('../settings.js', () => ({ getState: () => ({}) }))
 vi.mock('./theme.js', () => ({ applyWplaceTheme: () => {} }))
 
 import { requestConfirmation, showOneTimeSecret } from './notification-host.js'

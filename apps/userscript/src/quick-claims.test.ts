@@ -18,7 +18,7 @@ const harness = vi.hoisted(() => ({
   sharePresence: true,
   stateListeners: [] as ((state: { sharePresence: boolean }) => void)[],
 }))
-vi.mock('./state.js', () => ({
+vi.mock('./settings.js', () => ({
   getState: () => ({
     sharePresence: harness.sharePresence,
     showPresence: true,

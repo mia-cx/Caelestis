@@ -34,17 +34,15 @@ import {
   recordProfileMessage,
   recordProfileWorkload,
 } from './profile.js'
+import {
+  activeServerToken,
+  isCurrentServerConnection,
+  serverConnectionIdentity,
+} from './server-connections.js'
 import { liveClientId, liveCredentialProtocol } from './server-sync-coordinator.js'
 import { requestServerMutation, requestServerTree } from './server-transport.js'
 import { serverEndpoint } from './server-url.js'
-import {
-  activeServerToken,
-  type ConnectedServer,
-  getState,
-  isCurrentServerConnection,
-  onStateChange,
-  serverConnectionIdentity,
-} from './state.js'
+import { type ConnectedServer, getState, onStateChange } from './settings.js'
 import { draftedPixelOffsets, draftedTiles } from './tile-transform.js'
 import { accountIdentity, loadAccount } from './wplace-account.js'
 

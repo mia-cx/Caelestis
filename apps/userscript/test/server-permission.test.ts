@@ -27,7 +27,7 @@ it('retries rejected credentials anonymously and keeps admin controls unavailabl
     if (path === '/backend/v1/admin/nodes') return new Response(null, { status: 403 })
     throw new Error(`Unexpected request ${path}`)
   })
-  const { probeServer } = await import('../src/state.js')
+  const { probeServer } = await import('../src/server-connections.js')
   const server = await probeServer('https://open.test', 'stale')
   expect(server.error).toBeUndefined()
   expect(server).toMatchObject({

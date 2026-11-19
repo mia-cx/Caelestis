@@ -1,7 +1,8 @@
 import { MAX_TEMPLATE_SOURCE_BYTES, parseTemplateRecipe, sha256Hex } from '@caelestis/shared'
 import { userscriptClientHeaders } from '../client-metrics.js'
+import { activeServerToken } from '../server-connections.js'
 import { serverEndpoint } from '../server-url.js'
-import { activeServerToken, type ConnectedServer, getState } from '../state.js'
+import { type ConnectedServer, getState } from '../settings.js'
 import { currentAuthoring, type TemplateAuthoring } from '../templates/authoring.js'
 import { isServerTemplate, type PlacedTemplate, templatePixels } from '../templates/local-store.js'
 

@@ -1,5 +1,5 @@
 import type { TreeIcon, TreeRowModel } from '@caelestis/ui/elements'
-import { getState } from '../state.js'
+import { getState } from '../settings.js'
 import type { TemplateColourProgress, TemplateProgress } from '../templates/mismatch.js'
 
 export interface SiblingLevel {

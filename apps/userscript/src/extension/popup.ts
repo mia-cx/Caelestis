@@ -7,7 +7,7 @@ import {
 import { userscriptVersion } from '../client-metrics.js'
 import { setEnabled as setDebugLogging, storedDebugLogging } from '../debug.js'
 import { storedProfiling, storeProfiling } from '../profile.js'
-import { storedGlobalSettings, storeGlobalSetting } from '../state.js'
+import { storedGlobalSettings, storeGlobalSetting } from '../settings.js'
 import { onStoredValueChange, useStoredValues } from '../stored-values.js'
 import { applyWplaceTheme } from '../ui/theme.js'
 import { isWplacePatch, setWplacePatchEnabled, wplacePatchSettings } from '../wplace-patches.js'

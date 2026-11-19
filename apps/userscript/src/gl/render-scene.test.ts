@@ -1,6 +1,6 @@
 import { WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { afterEach, expect, it } from 'vitest'
-import { setState } from '../state.js'
+import { setState } from '../settings.js'
 import { clearAppearancePreview, setAppearancePreview } from '../templates/appearance-preview.js'
 import type { PlacedTemplate } from '../templates/local-store.js'
 import { cutPixels } from '../templates/sparse-pixels.js'

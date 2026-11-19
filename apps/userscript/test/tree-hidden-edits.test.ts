@@ -1,7 +1,7 @@
 import { WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createLocalFolder, setLocalFolderVisible } from '../src/local-folders.js'
-import { type ConnectedServer, setScopeVisible } from '../src/state.js'
+import { type ConnectedServer, setScopeVisible } from '../src/settings.js'
 import * as store from '../src/templates/local-store.js'
 import { abort, movingId } from '../src/templates/move.js'
 import { serverTemplateKey } from '../src/templates/server-sync.js'

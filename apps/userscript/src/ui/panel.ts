@@ -86,34 +86,34 @@ import {
   resetProfile,
   setProfileEnabled,
 } from '../profile.js'
+import { admittedServerContentsFor, forgetAdmittedServerContents } from '../server-api.js'
 import { forgetServer } from '../server-cache.js'
-import { activeShortcutBindings, shortcutHint } from '../shortcut-bindings.js'
-import { currentShortcutPlatform } from '../shortcuts.js'
 import {
-  admittedServerContentsFor,
-  type ConnectedServer,
   cancelServerProbe,
-  canonicalServerUrl,
-  forgetAdmittedServerContents,
+  installServerConnectionRetry,
+  isCurrentServerConnection,
+  probeServer,
+  refreshStoredServers,
+  removeServer,
+  upsertServer,
+} from '../server-connections.js'
+import { canonicalServerUrl } from '../server-url.js'
+import {
+  type ConnectedServer,
   forgetScopes,
   getState,
   getSurfaceAppearance,
-  installServerConnectionRetry,
-  isCurrentServerConnection,
-  loadState,
   MAX_CONNECTED_SERVERS,
   onlySelectedColourFor,
   onStateChange,
   previewSurfaceAppearance,
-  probeServer,
-  refreshStoredServers,
-  removeServer,
   type State,
   setOnlySelectedColourFor,
   setState,
   setSurfaceAppearance,
-  upsertServer,
-} from '../state.js'
+} from '../settings.js'
+import { activeShortcutBindings, shortcutHint } from '../shortcut-bindings.js'
+import { currentShortcutPlatform } from '../shortcuts.js'
 import { onStoredValueChange } from '../stored-values.js'
 import { onServerAlarmChange, onServerStatusChange } from '../telemetry.js'
 import {
@@ -1091,24 +1091,17 @@ const handleAppearanceIntent = (intent: AppearanceEditorIntent): void => {
       previewSurfaceAppearance(panelSurface, { ...values, [intent.key]: intent.value })
       redraw()
       break
+    // A committed change notifies state listeners, which redraw; a preview notifies nobody.
     case 'commit-number':
     case 'commit-colour':
-      commitPanelAppearance({ ...values, [intent.key]: intent.value })
-      redraw()
-      break
     case 'set-boolean':
-      commitPanelAppearance({ ...values, [intent.key]: intent.value })
-      redraw()
-      break
     case 'set-colour':
       commitPanelAppearance({ ...values, [intent.key]: intent.value })
-      redraw()
       break
     case 'pixel-preset': {
       const preset = PIXEL_STYLE_PRESETS.find((candidate) => candidate.id === intent.id)
       if (preset === undefined) break
       commitPanelAppearance({ ...values, ...preset.values })
-      redraw()
       break
     }
     case 'colour-preset':
@@ -1121,7 +1114,6 @@ const handleAppearanceIntent = (intent: AppearanceEditorIntent): void => {
           hiddenColours: hiddenForPreset(intent.id as ColourPresetId),
         })
       }
-      redraw()
       break
     case 'toggle-colour': {
       const base =
@@ -1137,12 +1129,10 @@ const handleAppearanceIntent = (intent: AppearanceEditorIntent): void => {
         commitPanelAppearance({ ...values, hiddenColours: [...hidden] })
         setOnlySelectedColourFor(panelSurface, false)
       }
-      redraw()
       break
     }
     case 'only-selected-colour':
       setOnlySelectedColourFor(panelSurface, intent.value)
-      redraw()
       break
     case 'marker-budget':
       if (MARKER_BUDGET_OPTIONS.some((value) => value === intent.value)) {
@@ -1877,7 +1867,6 @@ export const installPanel = (): void => {
   void ensureLocalTags()
     .then(refreshView)
     .catch(() => toast('Could not load local tags. Reload the page to try again.', 'error'))
-  loadState()
   panelSessions.select('world')
   panelHost = document.body
   void refreshStoredServers(refreshView)

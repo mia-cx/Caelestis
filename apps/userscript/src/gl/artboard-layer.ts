@@ -15,7 +15,7 @@ import {
   recordProfileWorkload,
   registerProfileMemorySource,
 } from '../profile.js'
-import { getState, onlySelectedColourFor, onStateChange } from '../state.js'
+import { getState, onlySelectedColourFor, onStateChange } from '../settings.js'
 import { isPlain, toRgbUnit } from '../templates/appearance.js'
 import {
   displayTemplatesForSurface,

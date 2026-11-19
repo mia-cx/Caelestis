@@ -1,5 +1,5 @@
 import type { TemplateSortOrder } from '@caelestis/shared'
-import { getState, setState } from '../state.js'
+import { getState, setState } from '../settings.js'
 import type { TemplateProgress } from '../templates/mismatch.js'
 import { completionRatio } from './progress.js'
 

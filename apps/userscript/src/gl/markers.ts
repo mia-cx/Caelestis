@@ -10,7 +10,7 @@ import {
   recordProfileWorkload,
   registerProfileMemorySource,
 } from '../profile.js'
-import { getState } from '../state.js'
+import { getState } from '../settings.js'
 import { toRgbUnit } from '../templates/appearance.js'
 import {
   displayTemplates,

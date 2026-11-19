@@ -9,7 +9,7 @@ import {
   isScopeVisible,
   type LocalFolder,
   MAX_LOCAL_FOLDERS,
-} from './state.js'
+} from './settings.js'
 
 const folderId = (): string =>
   `lf-${Math.random().toString(36).slice(2, 10)}-${getState().localFolders.length}`

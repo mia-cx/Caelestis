@@ -1,5 +1,6 @@
 import { LIVE_PROTOCOL_V1, LIVE_PROTOCOL_V2 } from '@caelestis/shared'
 import { afterEach, expect, it, vi } from 'vitest'
+import { importStateModules } from './state-modules.js'
 
 const SERVER_ID = '018f4f2a-1234-7abc-8def-0123456789ab'
 const MANIFEST_VERSION = 'a'.repeat(64)
@@ -68,7 +69,7 @@ it('resumes live sync without accepting retired frames and reconciles a divergen
   vi.useFakeTimers()
   vi.stubGlobal('WebSocket', FakeWebSocket)
 
-  const state = await import('../src/state.js')
+  const state = await importStateModules()
   const sync = await import('../src/server-sync-coordinator.js')
   const server = {
     url: 'https://live.test',

@@ -6,6 +6,7 @@ import {
   type PresenceRect,
 } from '@caelestis/shared'
 import { afterEach, expect, it, vi } from 'vitest'
+import { importStateModules } from './state-modules.js'
 
 const SERVER_ID = '018f4f2a-1234-7abc-8def-0123456789ab'
 const painter = { wplaceUserId: 42, displayName: 'Mia' }
@@ -88,7 +89,7 @@ const connect = async () => {
     'fetch',
     vi.fn(async () => Response.json({ regions: [] })),
   )
-  const state = await import('../src/state.js')
+  const state = await importStateModules()
   const presence = await import('../src/presence-client.js')
   const server = {
     url: 'https://presence.test',

@@ -30,7 +30,8 @@ import {
   releaseRegion,
 } from './presence-client.js'
 import type { ServerTemplate } from './server-cache.js'
-import { type ConnectedServer, onStateChange, serverConnectionIdentity } from './state.js'
+import { serverConnectionIdentity } from './server-connections.js'
+import { type ConnectedServer, onStateChange } from './settings.js'
 import { storedValue, storeValue, syncStoredValues } from './stored-values.js'
 import { accountIdentity } from './wplace-account.js'
 

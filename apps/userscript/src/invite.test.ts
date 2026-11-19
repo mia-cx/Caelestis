@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { consumeInvite, encodeInvite, type InviteDeps, readInvite } from './invite.js'
-import { type ConnectedServer, MAX_CONNECTED_SERVERS } from './state.js'
+import { type ConnectedServer, MAX_CONNECTED_SERVERS } from './settings.js'
 
 const base64url = (bytes: number[]): string =>
   btoa(String.fromCharCode(...bytes))

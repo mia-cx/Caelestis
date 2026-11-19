@@ -23,29 +23,30 @@ import { startCaptureMode } from '../claim-editor.js'
 import { warn } from '../debug.js'
 import { createLocalFolder, localFolderChainVisible, removeLocalFolder } from '../local-folders.js'
 import { viewportCentre } from '../map-view.js'
-import type { ServerTemplate } from '../server-cache.js'
-import { requestServerSync } from '../server-sync-coordinator.js'
 import {
-  type ConnectedServer,
   countNodeSubtree,
   createNode,
   deleteNode as deleteNodeOnServer,
   deleteTemplate as deleteTemplateOnServer,
   dismissTemplateAlarm,
-  getState,
-  hasServerAdminToken,
-  isCurrentServerConnection,
-  isScopeVisible,
-  type LocalFolder,
   listServerNodes,
-  MAX_LOCAL_FOLDERS,
   moveNode as moveNodeOnServer,
   patchTemplate,
-  removeTreeStateKeys,
   type ServerNodesResult,
-  setState,
   uploadTemplateVersion,
-} from '../state.js'
+} from '../server-api.js'
+import type { ServerTemplate } from '../server-cache.js'
+import { hasServerAdminToken, isCurrentServerConnection } from '../server-connections.js'
+import { requestServerSync } from '../server-sync-coordinator.js'
+import {
+  type ConnectedServer,
+  getState,
+  isScopeVisible,
+  type LocalFolder,
+  MAX_LOCAL_FOLDERS,
+  removeTreeStateKeys,
+  setState,
+} from '../settings.js'
 import { serverAlarmFor } from '../telemetry.js'
 import { captureSelectedArtwork } from '../templates/current-artwork.js'
 import { type ImportedTemplate, importFile } from '../templates/import.js'

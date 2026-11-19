@@ -12,17 +12,15 @@ import {
 import type { TemplateClaimsModel, TemplateTreeModel } from '@caelestis/ui/elements'
 import { allianceManifestFor } from '../alliance-server-sync.js'
 import { rowsForSurface, serverTemplateTreeKey } from '../application/tree-server-state.js'
-import { requestServerTree } from '../server-transport.js'
+import { admittedServerContentsFor } from '../server-api.js'
 import {
   activeServerToken,
-  admittedServerContentsFor,
-  type ConnectedServer,
-  commitState,
-  getState,
   isCurrentServerConnection,
   serverConnectionSignal,
-  serverEndpoint,
-} from '../state.js'
+} from '../server-connections.js'
+import { requestServerTree } from '../server-transport.js'
+import { serverEndpoint } from '../server-url.js'
+import { type ConnectedServer, commitState, getState } from '../settings.js'
 import { isServerTemplate, localTemplates } from '../templates/local-store.js'
 import { accountIdentity, loadAccount } from '../wplace-account.js'
 import { toast } from './toast.js'

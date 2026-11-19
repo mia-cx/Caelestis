@@ -1,25 +1,23 @@
 import { type TemplateSurface, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { allianceManifestFor } from '../alliance-server-sync.js'
 import { recordProfileCounter } from '../profile.js'
+import {
+  admitServerContents,
+  admittedServerContentsFor,
+  isLatestServerContents,
+  listServerContents,
+  onServerContents,
+  type ServerContents,
+} from '../server-api.js'
 import { cacheServer, loadServerCache, type ServerTemplate } from '../server-cache.js'
+import { isCurrentServerConnection } from '../server-connections.js'
 import {
   MAX_MANIFEST_CHUNKS,
   MAX_MANIFEST_TEMPLATES,
   MAX_TREE_NODES,
   type TreeNode,
 } from '../server-manifest.js'
-import {
-  admitServerContents,
-  admittedServerContentsFor,
-  type ConnectedServer,
-  getState,
-  isCurrentServerConnection,
-  isLatestServerContents,
-  listServerContents,
-  onServerContents,
-  type ServerContents,
-  takeProbedNodes,
-} from '../state.js'
+import { type ConnectedServer, getState } from '../settings.js'
 import { rememberNodes } from '../templates/server-nodes.js'
 import { rejectServerContentsForSync, syncServerTemplates } from '../templates/server-sync.js'
 
@@ -403,9 +401,6 @@ const rememberServerContents = (
   const { nodes, templates } = contents
   const identity = serverIdentity(server)
   if (identity === null) return { ok: false, message: 'The server identity is unavailable.' }
-  // The public manifest is now the authoritative snapshot. Retaining the connect-time copy lets a
-  // later admin-only consumer resurrect older folders after this refresh has already succeeded.
-  takeProbedNodes(server)
   let retainedNodes = 0
   let retainedTemplates = 0
   let retainedChunks = 0

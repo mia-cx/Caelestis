@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { forgetServerRows, primeFromCache, rowsFor } from '../src/application/tree-server-state.js'
 import { cacheServer, forgetServer } from '../src/server-cache.js'
-import { type ConnectedServer, setState } from '../src/state.js'
+import { type ConnectedServer, setState } from '../src/settings.js'
 
 const URL = 'https://prime.example'
 

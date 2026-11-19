@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { installKeyboardShortcuts } from '../src/keyboard-shortcuts.js'
-import { setState } from '../src/state.js'
+import { setState } from '../src/settings.js'
 
 // Wplace's paint drawer: history controls, two world swatches, and its Paint button.
 const DRAWER = `
@@ -102,12 +102,12 @@ describe('shortcuts that click Wplace controls', () => {
 
   it('keep each switch across a reload, and start with none', async () => {
     vi.resetModules()
-    const fresh = await import('../src/state.js')
+    const fresh = await import('../src/settings.js')
     expect(fresh.loadState().simulatedInput).toEqual({})
     fresh.setState({ simulatedInput: { 'paint-commit': true } })
 
     vi.resetModules()
-    const reloaded = await import('../src/state.js')
+    const reloaded = await import('../src/settings.js')
     expect(reloaded.loadState().simulatedInput).toEqual({ 'paint-commit': true })
   })
 })

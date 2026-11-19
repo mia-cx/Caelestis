@@ -8,7 +8,7 @@ import type {
   ToastKind,
   ToastModel,
 } from '@caelestis/ui/elements'
-import { getState } from '../state.js'
+import { getState } from '../settings.js'
 import { CLEAR_OF_RAIL, EDGE, GAP } from './metrics.js'
 import { applyWplaceTheme } from './theme.js'
 

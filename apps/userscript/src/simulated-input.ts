@@ -1,5 +1,5 @@
 import type { SimulatedInput } from '@caelestis/shared'
-import { getState } from './state.js'
+import { getState } from './settings.js'
 
 /**
  * Whether a simulated-input feature may run.

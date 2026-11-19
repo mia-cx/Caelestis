@@ -4,7 +4,7 @@ import {
   TRANSPARENT_INDEX,
   WPLACE_PALETTE,
 } from '@caelestis/shared'
-import { getState, getSurfaceAppearance, type State } from '../state.js'
+import { getState, getSurfaceAppearance, type State } from '../settings.js'
 import { type Appearance, isColourHidden } from '../templates/appearance.js'
 import {
   appearancePreviewRevision,

@@ -2,6 +2,7 @@ import { decodeMismatchMask, type MismatchMask, TILE_SIZE, type TileCoord } from
 import { userscriptClientHeaders } from './client-metrics.js'
 import { nextPixelObservation, recordPixelObservation } from './pixel-observation.js'
 import { registerProfileMemorySource } from './profile.js'
+import { activeServerToken, isCurrentServerConnection } from './server-connections.js'
 import {
   deleteCachedServerMismatch,
   deleteCachedServerMismatches,
@@ -9,12 +10,7 @@ import {
   writeCachedServerMismatch,
 } from './server-mismatch-cache.js'
 import { serverEndpoint } from './server-url.js'
-import {
-  activeServerToken,
-  type ConnectedServer,
-  getState,
-  isCurrentServerConnection,
-} from './state.js'
+import { type ConnectedServer, getState } from './settings.js'
 
 const REQUEST_TIMEOUT_MS = 15_000
 const RETRY_AFTER_MS = 5_000

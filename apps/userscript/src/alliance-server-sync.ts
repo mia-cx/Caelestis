@@ -9,6 +9,13 @@ import { activeAllianceSurface, onActiveAllianceSurfaceChange } from './alliance
 import { userscriptClientHeaders } from './client-metrics.js'
 import { registerDebugEntry } from './console-api.js'
 import { count } from './debug.js'
+import {
+  activeServerToken,
+  isCurrentServerConnection,
+  sameServerConnection,
+  serverConnectionIdentity,
+  serverConnectionSignal,
+} from './server-connections.js'
 import type { ServerManifest } from './server-manifest.js'
 import { parseServerManifest } from './server-manifest.js'
 import { coalesceServerRead } from './server-read-coalescer.js'
@@ -18,17 +25,7 @@ import {
   type ServerSyncResult,
 } from './server-sync-coordinator.js'
 import { serverEndpoint } from './server-url.js'
-import {
-  activeServerToken,
-  type ConnectedServer,
-  getState,
-  isCurrentServerConnection,
-  onStateChange,
-  type State,
-  sameServerConnection,
-  serverConnectionIdentity,
-  serverConnectionSignal,
-} from './state.js'
+import { type ConnectedServer, getState, onStateChange, type State } from './settings.js'
 import { forgetServerSurfaceTemplates } from './templates/local-store.js'
 import { forgetSurfaceNodes, rememberNodes } from './templates/server-nodes.js'
 import { syncServerTemplates } from './templates/server-sync.js'

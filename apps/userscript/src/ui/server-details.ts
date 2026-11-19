@@ -6,15 +6,14 @@ import {
   type ServerDetailsModel,
 } from '@caelestis/ui/elements'
 import {
-  type ConnectedServer,
   deleteServerAsset,
-  getState,
-  isCurrentServerConnection,
   type ServerDetailsPatch,
-  serverEndpoint,
   updateServerDetails,
   uploadServerAsset,
-} from '../state.js'
+} from '../server-api.js'
+import { isCurrentServerConnection } from '../server-connections.js'
+import { serverEndpoint } from '../server-url.js'
+import { type ConnectedServer, getState } from '../settings.js'
 import { closeDialogHost } from './dialog.js'
 import { applyWplaceTheme } from './theme.js'
 

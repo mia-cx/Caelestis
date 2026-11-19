@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createLocalFolder, setLocalFolderVisible } from '../src/local-folders.js'
-import { setScopeVisible } from '../src/state.js'
+import { setScopeVisible } from '../src/settings.js'
 import * as store from '../src/templates/local-store.js'
 import { toast } from '../src/ui/toast.js'
 import { type TreeCallbacks, type TreeTarget, templateTreeAdapter } from '../src/ui/tree.js'

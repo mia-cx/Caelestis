@@ -13,23 +13,20 @@ import {
 } from '@caelestis/shared'
 import { userscriptClientHeaders } from '../client-metrics.js'
 import { count, warn } from '../debug.js'
+import {
+  adoptProbedServerContents,
+  applyLiveServerManifest,
+  isLatestServerContents,
+  listServerContents,
+  type ServerContents,
+} from '../server-api.js'
 import type { ServerTemplate } from '../server-cache.js'
+import { activeServerToken, isCurrentServerConnection } from '../server-connections.js'
 import { invalidateServerMismatches } from '../server-mismatch.js'
 import { deleteCachedServerMismatches } from '../server-mismatch-cache.js'
 import { applyServerSyncRevision, registerServerSyncResource } from '../server-sync-coordinator.js'
 import { serverEndpoint } from '../server-url.js'
-import {
-  activeServerToken,
-  adoptProbedServerContents,
-  applyLiveServerManifest,
-  type ConnectedServer,
-  getState,
-  isCurrentServerConnection,
-  isLatestServerContents,
-  listServerContents,
-  onStateChange,
-  type ServerContents,
-} from '../state.js'
+import { type ConnectedServer, getState, onStateChange } from '../settings.js'
 import { ByteCache } from './byte-cache.js'
 import {
   forgetServerTemplate,

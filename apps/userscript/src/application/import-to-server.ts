@@ -1,6 +1,7 @@
 import { type TemplateSurface, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
-import type { ConnectedServer } from '../state.js'
-import { isCurrentServerConnection, uploadTemplate } from '../state.js'
+import { uploadTemplate } from '../server-api.js'
+import { isCurrentServerConnection } from '../server-connections.js'
+import type { ConnectedServer } from '../settings.js'
 import type { ImportedTemplate } from '../templates/import.js'
 import {
   addLocalTemplate,

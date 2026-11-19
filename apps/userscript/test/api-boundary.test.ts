@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { TemplateAuthoring } from '../src/templates/authoring.js'
 import { adminToken, backendFetch, createTestBackend, readToken } from './backend.js'
 import { installBitmapDecoder } from './image-decoder.js'
+import { importStateModules } from './state-modules.js'
 
 const origin = 'https://userscript-api-boundary.test'
 
@@ -21,7 +22,7 @@ const installBackend = async (options?: Parameters<typeof createTestBackend>[0])
 }
 
 const connect = async (token = adminToken) => {
-  const state = await import('../src/state.js')
+  const state = await importStateModules()
   const probed = await state.probeServer(origin, token)
   expect(probed.status).toBe('connected')
   state.upsertServer(probed)
@@ -534,7 +535,7 @@ describe('userscript to backend API boundary', () => {
     'rejects an invalid invite despite anonymous access (already connected: %s)',
     async (alreadyConnected) => {
       await installBackend({ openAccess: true })
-      const state = await import('../src/state.js')
+      const state = await importStateModules()
       if (alreadyConnected) await connect()
       const servers = state.getState().servers
       const saved = localStorage.getItem('caelestis.state.v2')
@@ -859,7 +860,7 @@ describe('server data reuse', () => {
 
     // A fresh page: sync installs first, then the stored server is probed and connected.
     vi.resetModules()
-    const state = await import('../src/state.js')
+    const state = await importStateModules()
     await import('../src/application/tree-server-state.js')
     const store = await import('../src/templates/local-store.js')
     const serverSync = await import('../src/templates/server-sync.js')
@@ -894,7 +895,7 @@ describe('server data reuse', () => {
     })
     vi.stubGlobal('fetch', fetch)
     window.fetch = fetch
-    const state = await import('../src/state.js')
+    const state = await importStateModules()
     await import('../src/application/tree-server-state.js')
     const serverSync = await import('../src/templates/server-sync.js')
     const coordinator = await import('../src/server-sync-coordinator.js')

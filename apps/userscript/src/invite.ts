@@ -1,5 +1,5 @@
 import { canonicalServerUrl } from './server-url.js'
-import { type ConnectedServer, MAX_CONNECTED_SERVERS } from './state.js'
+import { type ConnectedServer, MAX_CONNECTED_SERVERS } from './settings.js'
 
 export interface Invite {
   readonly serverUrl: string

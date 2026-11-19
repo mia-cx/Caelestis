@@ -1,5 +1,5 @@
 import { userscriptVersion } from './client-metrics.js'
-import { getState } from './state.js'
+import { getState } from './settings.js'
 import { showAmbientToast } from './ui/notification-host.js'
 
 export const USERSCRIPT_INSTALLER_URL =

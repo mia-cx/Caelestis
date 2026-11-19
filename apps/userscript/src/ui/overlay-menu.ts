@@ -31,20 +31,21 @@ import {
 import type { ScreenProjection } from '../coordinates.js'
 import { log, warn } from '../debug.js'
 import { screenProjection } from '../map-view.js'
-import { shortcutHint } from '../shortcut-bindings.js'
 import {
-  activeServerToken,
   admittedServerContentsFor,
-  type ConnectedServer,
   deleteTemplate as deleteTemplateOnServer,
-  getState,
-  getSurfaceAppearance,
-  hasServerAdminToken,
   listServerContents,
   patchTemplate,
-  removeTreeStateKeys,
   uploadTemplateVersion,
-} from '../state.js'
+} from '../server-api.js'
+import { activeServerToken, hasServerAdminToken } from '../server-connections.js'
+import {
+  type ConnectedServer,
+  getState,
+  getSurfaceAppearance,
+  removeTreeStateKeys,
+} from '../settings.js'
+import { shortcutHint } from '../shortcut-bindings.js'
 import {
   APPEARANCE_CONTROLS,
   type Appearance,

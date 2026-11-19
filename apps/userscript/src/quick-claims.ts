@@ -12,7 +12,7 @@ import {
   presenceQuickClaims,
   setPresenceQuickClaims,
 } from './presence-client.js'
-import { getState, onStateChange } from './state.js'
+import { getState, onStateChange } from './settings.js'
 import { showToast } from './ui/notification-host.js'
 import { isPaintOpen, onPaintSelectionChange } from './wplace-paint.js'
 import { pickerPointAt } from './wplace-picker.js'

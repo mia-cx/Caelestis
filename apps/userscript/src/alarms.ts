@@ -1,5 +1,5 @@
 import type { Alarm } from '@caelestis/shared'
-import { getState } from './state.js'
+import { getState } from './settings.js'
 import { storedValue, storeValue } from './stored-values.js'
 import { activeServerAlarms, onServerAlarmChange } from './telemetry.js'
 import { showAmbientToast } from './ui/notification-host.js'

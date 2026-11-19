@@ -5,22 +5,19 @@ import {
   nextLocalFolderId,
   removeLocalFolders,
 } from '../local-folders.js'
-import type { TreeNode } from '../server-manifest.js'
 import {
   admittedServerContentsFor,
-  type ConnectedServer,
   createNode,
   deleteNode as deleteNodeOnServer,
   deleteTemplate as deleteTemplateOnServer,
-  getState,
-  isCurrentServerConnection,
-  type LocalFolder,
   listServerContents,
   listServerNodes,
-  MAX_LOCAL_FOLDERS,
   patchTemplate,
   uploadTemplate,
-} from '../state.js'
+} from '../server-api.js'
+import { isCurrentServerConnection } from '../server-connections.js'
+import type { TreeNode } from '../server-manifest.js'
+import { type ConnectedServer, getState, type LocalFolder, MAX_LOCAL_FOLDERS } from '../settings.js'
 import {
   canCopyAsLocalTemplate,
   copyAsLocalTemplate,

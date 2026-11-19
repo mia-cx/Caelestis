@@ -23,7 +23,7 @@ import {
   endServerMismatchFrame,
   onServerMismatchesChanged,
 } from '../server-mismatch.js'
-import { getState, type State } from '../state.js'
+import { getState, type State } from '../settings.js'
 import {
   comparisonDraftPixelAt,
   comparisonDraftPixels,

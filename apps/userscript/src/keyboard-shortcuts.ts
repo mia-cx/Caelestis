@@ -5,9 +5,6 @@ import { isClaimModeActive } from './claim-editor.js'
 import { getMap } from './map-handle.js'
 import { setOverlayPeekActive } from './overlay-peek.js'
 import { cycleFocusedColour, navigateFocusedSelectedColour } from './paint-palette.js'
-import { activeShortcutBindings } from './shortcut-bindings.js'
-import { currentShortcutPlatform, type ShortcutPlatform, shortcutFor } from './shortcuts.js'
-import { simulatedInputAllowed } from './simulated-input.js'
 import {
   getState,
   getSurfaceAppearance,
@@ -15,7 +12,10 @@ import {
   setOnlySelectedColourFor,
   setState,
   setSurfaceAppearance,
-} from './state.js'
+} from './settings.js'
+import { activeShortcutBindings } from './shortcut-bindings.js'
+import { currentShortcutPlatform, type ShortcutPlatform, shortcutFor } from './shortcuts.js'
+import { simulatedInputAllowed } from './simulated-input.js'
 import {
   ownsGroup,
   setAppearance,

@@ -5,8 +5,8 @@ import {
   type ShortcutOverrides,
   shortcutLabel,
 } from '@caelestis/shared'
+import { getState } from './settings.js'
 import { currentShortcutPlatform, type ShortcutPlatform } from './shortcuts.js'
-import { getState } from './state.js'
 
 let resolvedFor: ShortcutOverrides | undefined
 let resolved: ShortcutBindings = resolveShortcutBindings()

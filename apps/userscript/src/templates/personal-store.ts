@@ -1,6 +1,6 @@
 import { WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { warn } from '../debug.js'
-import { getSurfaceAppearance } from '../state.js'
+import { getSurfaceAppearance } from '../settings.js'
 import { APPEARANCE_GROUPS } from './appearance.js'
 import {
   NativeConflict,

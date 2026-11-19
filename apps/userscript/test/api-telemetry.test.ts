@@ -9,6 +9,7 @@ import {
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { serverEndpoint } from '../src/server-url.js'
 import { adminToken, backendFetch, createTestBackend, readToken, reportToken } from './backend.js'
+import { importStateModules } from './state-modules.js'
 
 const origin = 'https://userscript-telemetry-boundary.test'
 const painter: PainterIdentity = { wplaceUserId: 42, displayName: 'Mia' }
@@ -101,7 +102,7 @@ const artwork = async (): Promise<Blob> => {
 }
 
 afterEach(async () => {
-  const state = await import('../src/state.js')
+  const state = await importStateModules()
   for (const url of configuredServers) state.removeServer(url)
   configuredServers.clear()
   vi.clearAllTimers()
@@ -153,7 +154,7 @@ describe('userscript telemetry HTTP boundary', () => {
   it('writes, reads, refuses an unauthorized release, and removes a region through the presence HTTP client', async () => {
     await installBackend()
     vi.stubGlobal('WebSocket', IdleWebSocket)
-    const state = await import('../src/state.js')
+    const state = await importStateModules()
     const presence = await import('../src/presence-client.js')
     const probed = await state.probeServer(origin, reportToken)
     if (probed.info === null) throw new Error('test backend did not return server metadata')
@@ -210,7 +211,7 @@ describe('userscript telemetry HTTP boundary', () => {
       paintReplies: [],
     }
     const fetch = await installBackend(wplace)
-    const state = await import('../src/state.js')
+    const state = await importStateModules()
     const probed = await state.probeServer(origin, adminToken)
     if (probed.status !== 'connected') throw new Error('admin probe did not connect')
     state.upsertServer(probed)
@@ -308,7 +309,7 @@ describe('server mismatch masks', () => {
       paintReplies: [],
     }
     const fetch = await installBackend(wplace)
-    const state = await import('../src/state.js')
+    const state = await importStateModules()
     const probed = await state.probeServer(origin, adminToken)
     if (probed.status !== 'connected') throw new Error('admin probe did not connect')
     state.upsertServer(probed)
