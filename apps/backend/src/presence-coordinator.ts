@@ -1,6 +1,5 @@
 import {
   decodePresenceDraftMask,
-  isWorkIdentity,
   MAX_PRESENCE_MASK_BITS,
   MAX_PRESENCE_MESSAGE_CODE_UNITS,
   MAX_PRESENCE_MESSAGES_PER_SECOND,
@@ -16,7 +15,6 @@ import {
   type PresenceRect,
   type PresenceServerEvent,
   padRect,
-  parseWholeNumber,
   quantiseRect,
   REGION_CLAIM_TTL_MS,
   type RegionClaim,
@@ -24,17 +22,14 @@ import {
   rectsIntersect,
   sameRect,
   type TemplateSurface,
-  templateSurface,
 } from '@caelestis/shared'
 import { PresenceClientEvent } from '@caelestis/wire-schema'
 import { Schema } from 'effect'
-import { normalizeMetricClientIdentity } from './metrics/request-metrics.js'
+import { createLiveSessionFence, type LiveHost, type LiveSocket } from './live/session.js'
 import type { SqlStore } from './ports/index.js'
 import { presenceRectWithinSurface } from './presence/geometry.js'
 import { PeerGrid } from './presence/peer-grid.js'
 import type { PresenceConnection } from './presence/port.js'
-import type { LiveHost, LiveSocket } from './status-coordinator.js'
-import { createLiveSessionFence } from './status-coordinator.js'
 import {
   type IngestTimingSnapshot,
   type IngestTimings,
@@ -409,54 +404,10 @@ export class PresenceCoordinator<Client> {
     }
   }
 
-  async fetch(request: Request): Promise<Response> {
-    if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket')
-      return new Response('WebSocket upgrade required', { status: 426 })
-    const headers = request.headers
-    const season = parseWholeNumber(headers.get('x-caelestis-season'))
-    const alliance = headers.get('x-caelestis-alliance-id')
-    const surface = templateSurface(
-      headers.get('x-caelestis-surface-kind'),
-      alliance === null ? null : parseWholeNumber(alliance),
-    )
-    let displayName: string
-    try {
-      displayName = decodeURIComponent(headers.get('x-caelestis-painter-name') ?? '')
-    } catch {
-      return new Response('Invalid painter name', { status: 400 })
-    }
-    const painter = {
-      wplaceUserId: parseWholeNumber(headers.get('x-caelestis-painter-id')),
-      displayName,
-    }
-    const tokenHash = headers.get('x-caelestis-token-hash')
-    const clientHash = headers.get('x-caelestis-client-hash')
-    const publisherId = headers.get('x-caelestis-publisher-id')
-    const credentialScope = headers.get('x-caelestis-credential-scope')
-    const anonymous = headers.get('x-caelestis-anonymous')
-    const revocable = headers.get('x-caelestis-revocable')
-    if (
-      season === null ||
-      surface === null ||
-      (alliance !== null && parseWholeNumber(alliance) === null) ||
-      !isWorkIdentity(painter) ||
-      tokenHash === null ||
-      !/^[0-9a-f]{64}$/.test(tokenHash) ||
-      clientHash === null ||
-      !/^[0-9a-f]{64}$/.test(clientHash) ||
-      (publisherId !== null &&
-        !/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
-          publisherId,
-        )) ||
-      (credentialScope !== 'read' && credentialScope !== 'report' && credentialScope !== 'admin') ||
-      (anonymous !== '0' && anonymous !== '1') ||
-      (revocable !== '0' && revocable !== '1')
-    )
-      return new Response('Invalid presence connection', { status: 400 })
-    const metric = normalizeMetricClientIdentity(
-      headers.get('x-caelestis-metric-client') ?? 'unknown',
-      headers.get('x-caelestis-metric-client-version') ?? 'unknown',
-    )
+  /** Admit one presence connection within the room's capacity and its credential's rights. */
+  async connect(connection: PresenceConnection): Promise<Response> {
+    const { season, surface, painter, tokenHash, clientHash, credentialScope, anonymous } =
+      connection
     let capacity = false
     let regions: readonly RegionClaim[] = []
     const pair = await this.sessions.attach(
@@ -467,11 +418,11 @@ export class PresenceCoordinator<Client> {
           open.filter(({ held }) => held.clientHash === clientHash).length >=
             MAX_PRESENCE_SUBSCRIBERS_PER_CLIENT
         if (capacity) return false
-        if (revocable === '1') {
+        if (connection.revocable) {
           const token = await this.sql.readAccessToken(tokenHash)
           if (token === null || token.scope !== credentialScope) return false
         }
-        if (anonymous === '0')
+        if (!anonymous)
           await this.sql.regions.renewRegions(
             [{ tokenHash, actorId: painter.wplaceUserId }],
             Date.now(),
@@ -495,12 +446,12 @@ export class PresenceCoordinator<Client> {
           painter,
           tokenHash,
           clientHash,
-          ...(publisherId === null ? {} : { publisherId }),
+          ...(connection.publisherId === undefined ? {} : { publisherId: connection.publisherId }),
           credentialScope,
-          anonymous: anonymous === '1',
-          revocable: revocable === '1',
-          metricClient: metric.client,
-          metricClientVersion: metric.clientVersion,
+          anonymous,
+          revocable: connection.revocable,
+          metricClient: connection.metricClient,
+          metricClientVersion: connection.metricClientVersion,
           viewport: null,
           draftRect: null,
           draftPixels: 0,
@@ -521,7 +472,7 @@ export class PresenceCoordinator<Client> {
             peers: [],
             regions,
             ownedRegionIds: await this.ownedRegionIds(attachment),
-            canWrite: credentialScope !== 'read' && anonymous === '0',
+            canWrite: credentialScope !== 'read' && !anonymous,
           },
         )
         this.dirty.add(sessionId)
@@ -536,15 +487,11 @@ export class PresenceCoordinator<Client> {
         headers: { 'Retry-After': '30' },
       })
     if (pair === null) return new Response('Credential revoked', { status: 401 })
-    const responseHeaders = new Headers()
-    if (
-      headers
-        .get('sec-websocket-protocol')
-        ?.split(',')
-        .some((protocol) => protocol.trim() === PRESENCE_PROTOCOL_V1)
+    // The HTTP boundary admits only clients that offered this protocol.
+    return this.state.upgradeResponse(
+      pair.client,
+      new Headers({ 'sec-websocket-protocol': PRESENCE_PROTOCOL_V1 }),
     )
-      responseHeaders.set('sec-websocket-protocol', PRESENCE_PROTOCOL_V1)
-    return this.state.upgradeResponse(pair.client, responseHeaders)
   }
 
   webSocketMessage(socket: LiveSocket, message: string | ArrayBuffer): void {

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { ConnectionConfig } from 'mariadb'
 import type { PoolConfig } from 'pg'
-import { MAX_LIVE_SUBSCRIBERS } from '../status-coordinator.js'
+import { MAX_LIVE_SUBSCRIBERS } from '../live/session.js'
 
 type Environment = Readonly<Record<string, string | undefined>>
 const integer = (env: Environment, name: string, fallback: number): number => {

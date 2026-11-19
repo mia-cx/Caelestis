@@ -1,6 +1,7 @@
-import type { Scope, ServerInfo } from '@caelestis/shared'
+import type { ServerInfo } from '@caelestis/shared'
 import { Hono } from 'hono'
 import type { AuthOptions } from '../auth/middleware.js'
+import type { StatusLiveConnection } from '../live/session.js'
 import type { ConnectPresence, PresenceOnline } from '../presence/port.js'
 import type { BackendRuntime } from '../runtime/backend-runtime.js'
 import { createTelemetryLiveRoutes } from './telemetry-live.js'
@@ -15,19 +16,7 @@ export interface TelemetryRouteOptions {
   readonly presenceOnline?: PresenceOnline
   readonly connectStatusLive?: (
     request: Request,
-    connection: {
-      readonly season: number
-      readonly scope: 'public' | 'admin'
-      readonly credentialScope: Scope
-      readonly tokenHash: string
-      readonly clientHash: string
-      readonly anonymous: boolean
-      readonly revocable: boolean
-      readonly lastRevision: number | null
-      readonly metricClient: string
-      readonly metricClientVersion: string
-      readonly protocol: 1 | 2
-    },
+    connection: StatusLiveConnection,
   ) => Promise<Response>
 }
 

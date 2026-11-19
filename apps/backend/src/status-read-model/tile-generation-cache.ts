@@ -202,13 +202,5 @@ export const createTileGenerationCache = (
       entries.clear()
       pendingCommits.clear()
     },
-
-    invalidate(): void {
-      coverageToken = createCoverageToken()
-      entries.clear()
-      pendingCommits.clear()
-    },
   }
 }
-
-export type TileGenerationCache = ReturnType<typeof createTileGenerationCache>

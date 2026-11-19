@@ -1,11 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { WebSocketServer } from 'ws'
 import type { CoordinatorStorage } from '../coordination/database.js'
-import {
-  type LiveHost,
-  type LiveSocket,
-  MAX_LIVE_CLIENT_BINARY_BYTES,
-} from '../status-coordinator.js'
+import { type LiveHost, type LiveSocket, MAX_LIVE_CLIENT_BINARY_BYTES } from '../live/session.js'
 import { type IngestCommand, ingestTimings } from '../telemetry/ingest-timing.js'
 
 export const MAX_BUFFERED_BYTES = 8 * 1024 * 1024

@@ -1,16 +1,20 @@
 import { DurableObject } from 'cloudflare:workers'
 import { templateSurfaceKey } from '@caelestis/shared'
 import { DurableObjectCounterStore } from './adapters/cloudflare/do-counter-store.js'
+import { receiveStatusLive } from './adapters/cloudflare/live-connect.js'
 import { R2BlobStore } from './adapters/cloudflare/r2-blob-store.js'
 import { RelationalSqlStore } from './adapters/relational-sql-store.js'
-import { instrumentD1 } from './metrics/request-metrics.js'
+import { instrumentD1, measureD1Usage } from './metrics/request-metrics.js'
 import { StatusCoordinator } from './status-coordinator.js'
 
-export * from './status-coordinator.js'
+type Coordinator = StatusCoordinator<WebSocket>
 
-/** Cloudflare lifecycle and socket binding for the shared live coordinator. */
+/**
+ * Cloudflare lifecycle and socket binding for one season's coordinator. The four reads a Worker
+ * request waits on return the D1 work they did, so the Worker's request metric can count it.
+ */
 export class StatusReadModelObject extends DurableObject<Env> {
-  private readonly coordinator: StatusCoordinator<WebSocket>
+  private readonly coordinator: Coordinator
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'))
@@ -44,86 +48,52 @@ export class StatusReadModelObject extends DurableObject<Env> {
       env.REQUEST_METRICS,
     )
   }
-  applyCommittedChange(...args: Parameters<StatusCoordinator<WebSocket>['applyCommittedChange']>) {
-    return this.coordinator.applyCommittedChange(...args)
+  applyCommittedChange(...args: Parameters<Coordinator['applyCommittedChange']>) {
+    return measureD1Usage(() => this.coordinator.applyCommittedChange(...args))
   }
-  applyCommittedChangeMeasured(
-    ...args: Parameters<StatusCoordinator<WebSocket>['applyCommittedChangeMeasured']>
-  ) {
-    return this.coordinator.applyCommittedChangeMeasured(...args)
+  reconcileSnapshot(...args: Parameters<Coordinator['reconcileSnapshot']>) {
+    return measureD1Usage(() => this.coordinator.reconcileSnapshot(...args))
   }
-  reconcileSnapshot(...args: Parameters<StatusCoordinator<WebSocket>['reconcileSnapshot']>) {
-    return this.coordinator.reconcileSnapshot(...args)
+  readManifestProjection(...args: Parameters<Coordinator['readManifestProjection']>) {
+    return measureD1Usage(() => this.coordinator.readManifestProjection(...args))
   }
-  reconcileSnapshotMeasured(
-    ...args: Parameters<StatusCoordinator<WebSocket>['reconcileSnapshotMeasured']>
-  ) {
-    return this.coordinator.reconcileSnapshotMeasured(...args)
+  resolveCurrentTileOffers(...args: Parameters<Coordinator['resolveCurrentTileOffers']>) {
+    return measureD1Usage(() => this.coordinator.resolveCurrentTileOffers(...args))
   }
-  readManifestProjection(
-    ...args: Parameters<StatusCoordinator<WebSocket>['readManifestProjection']>
-  ) {
-    return this.coordinator.readManifestProjection(...args)
-  }
-  readManifestProjectionMeasured(
-    ...args: Parameters<StatusCoordinator<WebSocket>['readManifestProjectionMeasured']>
-  ) {
-    return this.coordinator.readManifestProjectionMeasured(...args)
-  }
-  notifyManifestChange(...args: Parameters<StatusCoordinator<WebSocket>['notifyManifestChange']>) {
+  notifyManifestChange(...args: Parameters<Coordinator['notifyManifestChange']>) {
     return this.coordinator.notifyManifestChange(...args)
   }
-  resolveCurrentTileOffers(
-    ...args: Parameters<StatusCoordinator<WebSocket>['resolveCurrentTileOffers']>
-  ) {
-    return this.coordinator.resolveCurrentTileOffers(...args)
-  }
-  resolveCurrentTileOffersMeasured(
-    ...args: Parameters<StatusCoordinator<WebSocket>['resolveCurrentTileOffersMeasured']>
-  ) {
-    return this.coordinator.resolveCurrentTileOffersMeasured(...args)
-  }
-  prepareTileGenerationCommit(
-    ...args: Parameters<StatusCoordinator<WebSocket>['prepareTileGenerationCommit']>
-  ) {
+  prepareTileGenerationCommit(...args: Parameters<Coordinator['prepareTileGenerationCommit']>) {
     return this.coordinator.prepareTileGenerationCommit(...args)
   }
-  applyCommittedTileGeneration(
-    ...args: Parameters<StatusCoordinator<WebSocket>['applyCommittedTileGeneration']>
-  ) {
+  applyCommittedTileGeneration(...args: Parameters<Coordinator['applyCommittedTileGeneration']>) {
     return this.coordinator.applyCommittedTileGeneration(...args)
   }
-  finishTileGenerationCommit(
-    ...args: Parameters<StatusCoordinator<WebSocket>['finishTileGenerationCommit']>
-  ) {
+  finishTileGenerationCommit(...args: Parameters<Coordinator['finishTileGenerationCommit']>) {
     return this.coordinator.finishTileGenerationCommit(...args)
   }
-  readIngestTimings(...args: Parameters<StatusCoordinator<WebSocket>['readIngestTimings']>) {
+  readIngestTimings(...args: Parameters<Coordinator['readIngestTimings']>) {
     return this.coordinator.readIngestTimings(...args)
   }
-  notifyAlarmChange(...args: Parameters<StatusCoordinator<WebSocket>['notifyAlarmChange']>) {
+  notifyAlarmChange(...args: Parameters<Coordinator['notifyAlarmChange']>) {
     return this.coordinator.notifyAlarmChange(...args)
   }
-  notifyDashboardChange(
-    ...args: Parameters<StatusCoordinator<WebSocket>['notifyDashboardChange']>
-  ) {
+  notifyDashboardChange(...args: Parameters<Coordinator['notifyDashboardChange']>) {
     return this.coordinator.notifyDashboardChange(...args)
   }
-  closeCredential(...args: Parameters<StatusCoordinator<WebSocket>['closeCredential']>) {
+  closeCredential(...args: Parameters<Coordinator['closeCredential']>) {
     return this.coordinator.closeCredential(...args)
   }
-  registerPresenceSurface(
-    ...args: Parameters<StatusCoordinator<WebSocket>['registerPresenceSurface']>
-  ) {
+  registerPresenceSurface(...args: Parameters<Coordinator['registerPresenceSurface']>) {
     return this.coordinator.registerPresenceSurface(...args)
   }
-  override fetch(...args: Parameters<StatusCoordinator<WebSocket>['fetch']>) {
-    return this.coordinator.fetch(...args)
+  override fetch(request: Request) {
+    return receiveStatusLive(request, (connection) => this.coordinator.connect(connection))
   }
-  override webSocketMessage(...args: Parameters<StatusCoordinator<WebSocket>['webSocketMessage']>) {
+  override webSocketMessage(...args: Parameters<Coordinator['webSocketMessage']>) {
     return this.coordinator.webSocketMessage(...args)
   }
-  override webSocketClose(...args: Parameters<StatusCoordinator<WebSocket>['webSocketClose']>) {
+  override webSocketClose(...args: Parameters<Coordinator['webSocketClose']>) {
     return this.coordinator.webSocketClose(...args)
   }
 }

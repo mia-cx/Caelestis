@@ -28,7 +28,6 @@ import { TemplateBackfill } from '../backfill/import.js'
 import { localBackfillClient } from '../backfill/port.js'
 import { DurableScheduler } from '../coordination/scheduler.js'
 import { TelemetryCoordinator } from '../coordination/telemetry.js'
-import { presenceRequest } from '../presence/port.js'
 import { PresenceCoordinator } from '../presence-coordinator.js'
 import { createBackendRuntime, makeBackendContext } from '../runtime/backend-runtime.js'
 import { StatusCoordinator } from '../status-coordinator.js'
@@ -161,7 +160,7 @@ export const openNodeRuntime = async (
       rooms.set(key, { season, coordinator, host })
       return coordinator
     }
-    const status = new CoordinatedStatusReadModel((season) => {
+    const statusShard = (season: number) => {
       const existing = seasons.get(season)
       if (existing) return existing.coordinator
       const host: NodeLiveHost = new NodeLiveHost(state(`season:${season}`), () => coordinator)
@@ -185,7 +184,8 @@ export const openNodeRuntime = async (
       )
       seasons.set(season, { coordinator, host })
       return coordinator
-    }, scheduleAlarms)
+    }
+    const status = new CoordinatedStatusReadModel(statusShard, scheduleAlarms)
     const stores = { sql, blobs, counters, statusReadModel: status }
     const context = makeBackendContext(blobs, sql, counters, status, {
       publishRegions: (season, surface) =>
@@ -256,18 +256,17 @@ export const openNodeRuntime = async (
       serverDescription: config.serverDescription,
       version: backendVersion,
       build: backendBuild,
-      connectStatusLive: (request, connection) => status.connectLive(request, connection),
+      connectStatusLive: async (_request, connection) =>
+        (await statusShard(connection.season).connect(connection)).response,
       presenceOnline: (season, surface) => presenceRoom(season, surface).online(),
-      connectPresence: async (request, connection) => {
+      connectPresence: async (_request, connection) => {
         if (connection.revocable)
           await status.registerPresenceSurface(
             connection.season,
             connection.tokenHash,
             connection.surface,
           )
-        return presenceRoom(connection.season, connection.surface).fetch(
-          presenceRequest(request, connection),
-        )
+        return presenceRoom(connection.season, connection.surface).connect(connection)
       },
       backfillClients: (id) => {
         const held = importer(id)

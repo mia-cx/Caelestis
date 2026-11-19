@@ -23,7 +23,7 @@ import {
   StatusReadModelService,
 } from '../runtime/backend-runtime.js'
 import { type StorageError, storage } from '../runtime/errors.js'
-import { publishDashboardChange } from '../status-read-model/port.js'
+import { bestEffort } from '../status-read-model/port.js'
 import { readDecodedCanvas, readTargetChunk } from './classification.js'
 import { ingestTimings } from './ingest-timing.js'
 
@@ -159,7 +159,9 @@ export const recordPaint = (
       recordPaintPromise({ blobs, counters, sql }, event, reporterTokenHash, includeUnpublished),
     )
     if (result === 'recorded') {
-      yield* Effect.promise(() => publishDashboardChange(statusReadModel, event.season))
+      yield* Effect.promise(() =>
+        bestEffort(() => statusReadModel.notifyDashboardChange(event.season)),
+      )
     }
     return result
   })

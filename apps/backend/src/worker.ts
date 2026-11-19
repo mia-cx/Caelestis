@@ -3,12 +3,12 @@ import { type ReadApi, refreshSocialImages, storedMapTiles } from '@caelestis/so
 import { R2ObjectStorage } from '@caelestis/storage/r2'
 import { DurableObjectCounterStore } from './adapters/cloudflare/do-counter-store.js'
 import { DurableObjectStatusReadModel } from './adapters/cloudflare/do-status-read-model.js'
+import { forwardPresence } from './adapters/cloudflare/live-connect.js'
 import { R2BlobStore } from './adapters/cloudflare/r2-blob-store.js'
 import { RelationalSqlStore } from './adapters/relational-sql-store.js'
 import { type App, createApp } from './app.js'
 import { IN_PROCESS_READ } from './auth/middleware.js'
 import { deploymentVersion, instrumentD1, measureRequest } from './metrics/request-metrics.js'
-import { presenceRequest } from './presence/port.js'
 import { makeBackendContext } from './runtime/backend-runtime.js'
 import { derivedArtifactWriter } from './telemetry/derived-artifact-writer.js'
 import { fetchCanvasTiles } from './telemetry/fetcher.js'
@@ -140,8 +140,10 @@ const appFor = (env: Env): App => {
           connection.tokenHash,
           surface,
         )
-      return env.PRESENCE.getByName(`${season}:${templateSurfaceKey(surface)}`).fetch(
-        presenceRequest(request, connection),
+      return forwardPresence(
+        env.PRESENCE.getByName(`${season}:${templateSurfaceKey(surface)}`),
+        request,
+        connection,
       )
     },
   })

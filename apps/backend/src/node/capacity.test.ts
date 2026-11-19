@@ -1,6 +1,6 @@
 import { MAX_PRESENCE_SUBSCRIBERS } from '@caelestis/shared'
 import { describe, expect, it } from 'vitest'
-import { type LiveSocket, MAX_LIVE_SUBSCRIBERS } from '../status-coordinator.js'
+import { type LiveSocket, MAX_LIVE_SUBSCRIBERS } from '../live/session.js'
 import {
   AdmissionCounters,
   admissionChannel,

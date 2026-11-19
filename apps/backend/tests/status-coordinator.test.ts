@@ -8,7 +8,8 @@ import {
 import { expect, it, vi } from 'vitest'
 import { coordinatorDatabase } from '../src/adapters/node/coordinator-database.js'
 import { SqlCoordinatorStorage } from '../src/adapters/node/coordinator-storage.js'
-import { type LiveHost, type LiveSocket, StatusCoordinator } from '../src/status-coordinator.js'
+import type { LiveHost, LiveSocket } from '../src/live/session.js'
+import { StatusCoordinator } from '../src/status-coordinator.js'
 import { authorized, createTestBackend } from './support/backend.js'
 
 const SEASON = 3

@@ -26,14 +26,11 @@ import type {
   StatusProjectionMutation,
 } from '../status-read-model/model.js'
 import {
-  finishTileGenerationCommit,
-  prepareTileGenerationCommit,
-  publishAlarmChange,
-  repairCommittedStatusProjection,
-  repairCommittedTileGeneration,
-  resolveCurrentTileOffers,
+  bestEffort,
+  type StatusProjectionPort,
   type StatusReadModelPort,
 } from '../status-read-model/port.js'
+import type { TileGenerationCacheRead } from '../status-read-model/tile-generation-cache.js'
 import { classificationKey, classifyTarget, decodeCanvasBytes } from './classification.js'
 import {
   createDerivedArtifactWriteBatch,
@@ -85,7 +82,7 @@ export interface ProjectionSink {
 }
 
 /** Coalesce one job's committed observations into at most one projection RPC per season. */
-const createProjectionSink = (readModel: StatusReadModelPort): ProjectionSink => {
+const createProjectionSink = (readModel: StatusProjectionPort): ProjectionSink => {
   const pending = new Map<number, StatusProjectionMutation[]>()
   return {
     add: (season, mutation) => {
@@ -109,7 +106,7 @@ const createProjectionSink = (readModel: StatusReadModelPort): ProjectionSink =>
 }
 
 const applyMutations = (
-  readModel: StatusReadModelPort,
+  readModel: StatusProjectionPort,
   season: number,
   mutations: readonly StatusProjectionMutation[],
 ): Promise<StatusProjectionChange | null> => {
@@ -119,21 +116,23 @@ const applyMutations = (
   const contiguous = mutations.every(
     (mutation, index) => index === 0 || mutation.baseRevision === mutations[index - 1]?.revision,
   )
-  return repairCommittedStatusProjection(readModel, season, {
-    baseRevision: first.baseRevision,
-    revision: last.revision,
-    ...(contiguous
-      ? {
-          invalidatedTiles: [
-            ...new Set(mutations.flatMap((mutation) => mutation.invalidatedTiles ?? [])),
-          ],
-          publicInvalidatedTiles: [
-            ...new Set(mutations.flatMap((mutation) => mutation.publicInvalidatedTiles ?? [])),
-          ],
-          changes: mutations.flatMap((mutation) => mutation.changes),
-        }
-      : { forceReconcile: true, changes: [] }),
-  })
+  return bestEffort(() =>
+    readModel.applyCommittedChange(season, {
+      baseRevision: first.baseRevision,
+      revision: last.revision,
+      ...(contiguous
+        ? {
+            invalidatedTiles: [
+              ...new Set(mutations.flatMap((mutation) => mutation.invalidatedTiles ?? [])),
+            ],
+            publicInvalidatedTiles: [
+              ...new Set(mutations.flatMap((mutation) => mutation.publicInvalidatedTiles ?? [])),
+            ],
+            changes: mutations.flatMap((mutation) => mutation.changes),
+          }
+        : { forceReconcile: true, changes: [] }),
+    }),
+  )
 }
 
 /** What one ingest job holds back until all of its observations have committed. */
@@ -143,7 +142,7 @@ export interface IngestSinks {
 }
 
 export const createIngestSinks = (
-  ports: { readonly blobs: BlobStore; readonly statusReadModel: StatusReadModelPort },
+  ports: { readonly blobs: BlobStore; readonly statusReadModel: StatusProjectionPort },
   writer: DerivedArtifactWriter = derivedArtifactWriter,
 ): IngestSinks => ({
   projection: createProjectionSink(ports.statusReadModel),
@@ -166,7 +165,6 @@ type ObservationSource =
   | {
       readonly kind: 'reporter'
       readonly command: Extract<IngestCommand, 'upload' | 'offer'>
-      readonly coverageToken?: string | undefined
     }
   | { readonly kind: 'mirror'; readonly recordHistory?: boolean }
 
@@ -199,9 +197,13 @@ const recordObservation = async (
   const timed = <Value>(stage: IngestStage, run: () => Promise<Value>) =>
     ingestTimings.timed(command, stage, run)
   const canvas = await timed('decode', () => decodeCanvasBytes(metadata.hash, bytes))
-  const preparedCoverageToken = await timed('prepare', () =>
-    prepareTileGenerationCommit(ports.statusReadModel, metadata.season, metadata.tile),
+  const prepared = await timed('prepare', () =>
+    ports.statusReadModel.prepareTileGenerationCommit(metadata.season, metadata.tile),
   )
+  const finishPrepared = () =>
+    bestEffort(() =>
+      ports.statusReadModel.finishTileGenerationCommit(metadata.season, metadata.tile, prepared),
+    )
   const observedAtMs = millis(metadata.observedAt * 1_000)
   const { targets, classified, committed } = await (async () => {
     try {
@@ -263,44 +265,28 @@ const recordObservation = async (
       }
       return { targets, classified, committed }
     } catch (error) {
-      if (preparedCoverageToken !== null) {
-        await finishTileGenerationCommit(
-          ports.statusReadModel,
-          metadata.season,
-          metadata.tile,
-          preparedCoverageToken,
-        )
-      }
+      await finishPrepared()
       throw error
     }
   })()
   const visibleToPublic = targets.some((target) => target.published)
   await timed('projection', async () => {
-    // The server recomputed coverage after prepare. A client token only supports adapters that do
-    // not implement prepare; it cannot invalidate the fresher server-owned result.
-    const repairCoverageToken =
-      preparedCoverageToken?.coverageToken ??
-      (source.kind === 'reporter' ? source.coverageToken : undefined)
-    if (committed.current !== null && repairCoverageToken !== undefined) {
-      await repairCommittedTileGeneration(ports.statusReadModel, metadata.season, {
+    if (committed.current === null) {
+      await finishPrepared()
+      return
+    }
+    // Cache repair never changes the authoritative D1 commit before it. When it fails, the
+    // prepared commit still has to leave the fence an earlier winner may be waiting behind.
+    try {
+      await ports.statusReadModel.applyCommittedTileGeneration(metadata.season, {
         ...committed.current,
-        coverageToken: repairCoverageToken,
-        ...(preparedCoverageToken === null
-          ? {}
-          : {
-              commitToken: preparedCoverageToken.commitToken,
-              commitExpiresAt: preparedCoverageToken.commitExpiresAt,
-            }),
+        ...prepared,
         visibleToPublic,
         visibleToAdmin: targets.length > 0,
       })
-    } else if (preparedCoverageToken !== null) {
-      await finishTileGenerationCommit(
-        ports.statusReadModel,
-        metadata.season,
-        metadata.tile,
-        preparedCoverageToken,
-      )
+    } catch (error) {
+      console.error(error)
+      await finishPrepared()
     }
   })
   if (committed.revision !== null) {
@@ -352,7 +338,8 @@ const recordObservation = async (
       // Progress that moves no alarm, such as painting toward a new high-water mark, owes
       // subscribers nothing. A changed alarm also covers every follow-up probe it scheduled.
       // Each evaluation commits on its own, so a later failure still owes the earlier changes.
-      if (alarmChanged) await publishAlarmChange(ports.statusReadModel, metadata.season)
+      if (alarmChanged)
+        await bestEffort(() => ports.statusReadModel.notifyAlarmChange(metadata.season))
     }
   })
   for (const { target, classification } of classified) {
@@ -405,7 +392,6 @@ const uploadTilePromise = async (
   ports: IngestStores,
   claimed: TileMetadata,
   bytes: Uint8Array,
-  coverageToken: string | undefined,
 ): Promise<StatusProjectionChange | null> => {
   const metadata = { ...claimed, observedAt: clampObservedAt(claimed.observedAt) }
   await checkTileBytes(bytes, metadata.hash)
@@ -416,13 +402,7 @@ const uploadTilePromise = async (
   const sinks = createIngestSinks(ports)
   let changes: ReadonlyMap<number, StatusProjectionChange> = new Map()
   try {
-    await storeAndRecord(
-      ports,
-      metadata,
-      bytes,
-      { kind: 'reporter', command: 'upload', coverageToken },
-      sinks,
-    )
+    await storeAndRecord(ports, metadata, bytes, { kind: 'reporter', command: 'upload' }, sinks)
   } finally {
     // A commit followed by a failure still owes its projection.
     changes = await flushIngestSinks(sinks)
@@ -492,10 +472,9 @@ type IngestServices = BlobStoreService | SqlStoreService | StatusReadModelServic
 export const uploadTile = (
   metadata: TileMetadata,
   bytes: Uint8Array,
-  coverageToken?: string,
 ): Effect.Effect<StatusProjectionChange | null, StorageError | ValidationError, IngestServices> =>
   Effect.flatMap(ingestStores, (ports) =>
-    ingest('uploadTile', () => uploadTilePromise(ports, metadata, bytes, coverageToken)),
+    ingest('uploadTile', () => uploadTilePromise(ports, metadata, bytes)),
   )
 
 /**
@@ -543,11 +522,16 @@ export interface TileOfferResult {
 
 type OfferOutcome = 'cached' | 'ignored' | 'wanted' | 'recorded'
 
+/** The tile cache only saves D1 work; when it cannot answer, every offer is resolved in D1. */
+const CACHE_UNANSWERED: Pick<
+  TileGenerationCacheRead,
+  'acknowledgedDeliveryIds' | 'cacheOutcome' | 'coverageToken'
+> = { acknowledgedDeliveryIds: [], cacheOutcome: 'miss', coverageToken: null }
+
 /** Record an offer at once when the content-addressed bytes already exist. */
 const offerTilePromise = async (
   ports: IngestStores,
   metadata: TileMetadata,
-  coverageToken: string | undefined,
   sinks: IngestSinks,
 ): Promise<OfferOutcome> => {
   const targets = await ingestTimings.timed('offer', 'targets', () =>
@@ -563,7 +547,7 @@ const offerTilePromise = async (
     metadata,
     held.bytes,
     held.reservation.id,
-    { kind: 'reporter', command: 'offer', coverageToken },
+    { kind: 'reporter', command: 'offer' },
     sinks,
   )
   return 'recorded'
@@ -601,18 +585,19 @@ export const offerTiles = (
     const current =
       offers.length === 0
         ? null
-        : yield* storage('resolveCurrentTileOffers', () =>
-            resolveCurrentTileOffers(
-              ports.statusReadModel,
-              batch.season,
-              batch.includeUnpublished ? 'admin' : 'public',
-              offers.map(({ key, metadata }) => ({
-                deliveryId: key,
-                tile: metadata.tile,
-                hash: metadata.hash,
-              })),
+        : ((yield* Effect.promise(() =>
+            bestEffort(() =>
+              ports.statusReadModel.resolveCurrentTileOffers(
+                batch.season,
+                batch.includeUnpublished ? 'admin' : 'public',
+                offers.map(({ key, metadata }) => ({
+                  deliveryId: key,
+                  tile: metadata.tile,
+                  hash: metadata.hash,
+                })),
+              ),
             ),
-          )
+          )) ?? CACHE_UNANSWERED)
     const cached = new Set(current?.acknowledgedDeliveryIds)
     const coverageToken = current?.coverageToken ?? undefined
     const sinks = createIngestSinks(ports)
@@ -627,9 +612,7 @@ export const offerTiles = (
         if (firstFailure !== undefined) return Effect.succeed(Result.fail(firstFailure))
         if (cached.has(key)) return Effect.succeed(Result.succeed('cached'))
         return Effect.map(
-          Effect.result(
-            storage('offerTile', () => offerTilePromise(ports, metadata, coverageToken, sinks)),
-          ),
+          Effect.result(storage('offerTile', () => offerTilePromise(ports, metadata, sinks))),
           (result) => {
             if (Result.isFailure(result)) firstFailure ??= result.failure
             return result

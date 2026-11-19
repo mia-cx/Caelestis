@@ -1,60 +1,57 @@
-import type {
-  ContributionsResponse,
-  LeaderboardResponse,
-  LiveDashboardSubscription,
-  LiveProjectionState,
-  LiveSyncClientEvent,
-  LiveSyncServerEvent,
-  LiveTileUpload,
-  Manifest,
-  ServerInfo,
-  StatusDelta,
-  TemplateStatus,
-  TemplateSurface,
-} from '@caelestis/shared'
 import {
+  type ContributionsResponse,
   decodeLiveTileUpload,
   encodeLiveServerEvent,
   exceedsUtf8Bytes,
   frameLiveServerEvent,
+  type LeaderboardResponse,
+  type LiveDashboardSubscription,
   LivePaintAssembler,
   LivePaintAssemblyError,
-  MAX_LIVE_BINARY_HEADER_BYTES,
-  MAX_LIVE_BINARY_PAYLOAD_BYTES,
+  type LiveProjectionState,
+  type LiveSyncClientEvent,
+  type LiveSyncServerEvent,
+  type LiveTileUpload,
   MAX_LIVE_MESSAGE_BYTES,
+  parseTemplateSurfaceKey,
   parseTileKey,
-  type Scope,
-  satisfiesScope,
+  type ServerInfo,
+  type StatusDelta,
   seconds,
   sha256Hex,
+  type TemplateSurface,
   type TileCoord,
-  templateSurface,
   templateSurfaceKey,
-  WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import {
   LiveSyncClientEvent as LiveSyncClientEventSchema,
   LiveTileUpload as LiveTileUploadSchema,
   PaintEvent as PaintEventSchema,
 } from '@caelestis/wire-schema'
-import { Schema } from 'effect'
-import type { CoordinatorStorage } from './coordination/database.js'
+import { Effect, Schema } from 'effect'
+import {
+  mayReport,
+  paintResult,
+  parseOfferBatch,
+  tileOfferResult,
+  tileUploadResult,
+} from './live/replies.js'
+import {
+  createLiveSessionFence,
+  type LiveHost,
+  type LiveSocket,
+  type LiveSubscriberAttachment,
+  MAX_LIVE_ANONYMOUS_SUBSCRIBERS,
+  MAX_LIVE_CLIENT_BINARY_BYTES,
+  MAX_LIVE_CLIENT_MESSAGE_CODE_UNITS,
+  MAX_LIVE_SUBSCRIBERS,
+  MAX_LIVE_SUBSCRIBERS_PER_CLIENT,
+  type StatusLiveConnection,
+  subscriberOf,
+} from './live/session.js'
 import { createChunkedManifestPersistence } from './manifest/persistence.js'
-import {
-  createSeasonManifestReadModel,
-  type ManifestProjectionInput,
-  type ManifestProjectionRead,
-  type SeasonManifestReadModel,
-} from './manifest/read-model.js'
-import { assembleManifestProjection } from './manifest/source.js'
-import {
-  type CacheOutcome,
-  type D1Usage,
-  type MeasuredD1Operation,
-  measureD1Usage,
-  normalizeMetricClientIdentity,
-  recordLiveTileOfferCacheMetric,
-} from './metrics/request-metrics.js'
+import type { ManifestProjectionInput, ManifestProjectionRead } from './manifest/read-model.js'
+import { type CacheOutcome, recordLiveTileOfferCacheMetric } from './metrics/request-metrics.js'
 import type { BlobStore, CounterStore, SqlStore } from './ports/index.js'
 import {
   type BackendRuntime,
@@ -62,113 +59,39 @@ import {
   makeBackendContext,
 } from './runtime/backend-runtime.js'
 import { ValidationError } from './runtime/errors.js'
-import {
-  LIVE_CACHE_OUTCOME_HEADER,
-  LIVE_D1_USAGE_HEADER,
-} from './status-read-model/live-measurement.js'
-import {
-  createSeasonStatusReadModel,
-  type SeasonStatusReadModel,
-  type StatusProjectionChange,
-  type StatusProjectionMutation,
-  type StatusSnapshotRead,
-  type StatusVisibilityScope,
+import type {
+  StatusProjectionChange,
+  StatusProjectionMutation,
+  StatusSnapshotRead,
+  StatusVisibilityScope,
 } from './status-read-model/model.js'
 import { createKeyedStatusPersistence } from './status-read-model/persistence.js'
 import type { StatusReadModelPort } from './status-read-model/port.js'
-import {
-  type CommittedTileGeneration,
-  createTileGenerationCache,
-  type PreparedTileGenerationCommit,
-  type TileGenerationCacheRead,
-  type TileGenerationOffer,
+import { createSeasonReadModels, type SeasonReadModels } from './status-read-model/season.js'
+import type {
+  CommittedTileGeneration,
+  PreparedTileGenerationCommit,
+  TileGenerationCacheRead,
+  TileGenerationOffer,
 } from './status-read-model/tile-generation-cache.js'
 import { MAX_CANVAS_TILE_BYTES, offerTiles, uploadTile } from './telemetry/ingest.js'
 import { type IngestTimingSnapshot, ingestTimings } from './telemetry/ingest-timing.js'
 import { recordPaint } from './telemetry/paint.js'
 import { readAlarms, readContributions, readLeaderboard } from './telemetry/queries.js'
 
-export interface LiveSocket {
-  readonly readyState?: number
-  send(message: string | ArrayBuffer | ArrayBufferView): void
-  close(code?: number, reason?: string): void
-  serializeAttachment(attachment: unknown): void
-  deserializeAttachment(): unknown
-}
-
-/** Runtime supplies socket attachment and HTTP upgrade mechanics. */
-export interface LiveHost<Client> {
-  readonly storage: CoordinatorStorage
-  getWebSockets(tag: string): readonly LiveSocket[]
-  connect(attachment: unknown): { client: Client; server: LiveSocket }
-  upgradeResponse(client: Client, headers: Headers): Response | Promise<Response>
-}
-
 const MAX_DELTA_MESSAGE_BYTES = 32 * 1024
-export const MAX_LIVE_SUBSCRIBERS = 256
-export const MAX_LIVE_ANONYMOUS_SUBSCRIBERS = 128
-export const MAX_LIVE_SUBSCRIBERS_PER_CLIENT = 16
-export const MAX_LIVE_CLIENT_MESSAGE_CODE_UNITS = 64 * 1024
-export const MAX_LIVE_CLIENT_BINARY_BYTES =
-  4 + MAX_LIVE_BINARY_HEADER_BYTES + MAX_LIVE_BINARY_PAYLOAD_BYTES
 const MAX_DASHBOARD_SUBSCRIPTIONS = 4
 
-interface LiveSubscriberAttachment {
-  readonly season: number
-  readonly scope: StatusVisibilityScope
-  readonly credentialScope?: Scope
-  readonly tokenHash: string
-  readonly clientHash?: string
-  readonly anonymous?: boolean
-  readonly revocable: boolean
-  readonly lastRevision: number | null
-  readonly stateVectorReceived?: boolean
-  readonly revoked?: boolean
-  readonly metricClient?: string
-  readonly metricClientVersion?: string
-  readonly protocol: 1 | 2
-  readonly projections?: readonly LiveProjectionState[]
-  readonly dashboardSubscriptions?: readonly LiveDashboardSubscription[]
+/** A live connection's answer, and how the status projection served its first read. */
+export interface LiveAdmission {
+  readonly response: Response
+  readonly cacheOutcome: CacheOutcome
 }
 
-export interface LiveSessionFence {
-  readonly attach: <A>(revalidate: () => Promise<boolean>, attach: () => A) => Promise<A | null>
-  readonly revoke: (close: () => void | Promise<void>) => Promise<void>
-}
-
-/** Serialize the second credential check, socket attachment, and revocation close scan. */
-export const createLiveSessionFence = (): LiveSessionFence => {
-  let tail = Promise.resolve()
-  const exclusive = <A>(operation: () => Promise<A>): Promise<A> => {
-    const running = tail.then(operation, operation)
-    tail = running.then(
-      () => undefined,
-      () => undefined,
-    )
-    return running
-  }
-  return {
-    attach: (revalidate, attach) => exclusive(async () => ((await revalidate()) ? attach() : null)),
-    revoke: (close) => exclusive(async () => close()),
-  }
-}
-
-const tileCoverageToken = (coverageRevision: number): string => `manifest:${coverageRevision}`
-
-const liveMeasurementHeaders = (
-  usage: D1Usage,
-  cacheOutcome?: Exclude<CacheOutcome, 'none'>,
-): Headers => {
-  const headers = new Headers({
-    [LIVE_D1_USAGE_HEADER]: [
-      usage.rowsRead,
-      usage.rowsWritten,
-      usage.measuredQueries,
-      usage.unmeasuredQueries,
-    ].join(','),
-  })
-  if (cacheOutcome !== undefined) headers.set(LIVE_CACHE_OUTCOME_HEADER, cacheOutcome)
-  return headers
+/** A subscriber's socket with its attachment, read once for the operation at hand. */
+interface Subscriber {
+  readonly socket: LiveSocket
+  readonly attachment: LiveSubscriberAttachment
 }
 
 const tryEncode = (event: LiveSyncServerEvent): readonly string[] | null => {
@@ -192,23 +115,22 @@ const onePerKey = <A>() => {
   }
 }
 
-const validSeason = (season: number): void => {
-  if (!Number.isSafeInteger(season) || season < 0)
-    throw new RangeError('season must be non-negative')
+/** The surface a manifest projection names, or null for alarms or a resource its scope contradicts. */
+const manifestSurface = (projection: LiveProjectionState): TemplateSurface | null => {
+  if (projection.resource === 'telemetry-alarms') return null
+  const surface = parseTemplateSurfaceKey(projection.scope)
+  return surface !== null &&
+    (projection.resource === 'world-manifest') === (surface.kind === 'world')
+    ? surface
+    : null
 }
 
-/** Shared live protocol, projection persistence, and notification coordinator. */
+/** Live sync for one season: its read models, its subscribers, and the commands they send. */
 export class StatusCoordinator<Client> {
-  private bound: { readonly season: number; readonly model: SeasonStatusReadModel } | null = null
-  private manifestBound: {
-    readonly season: number
-    readonly model: SeasonManifestReadModel
-  } | null = null
   private boundSeason: number | null = null
+  private readModels: SeasonReadModels | null = null
   private readonly liveSessions = createLiveSessionFence()
   private readonly paints = new LivePaintAssembler()
-  private readonly tileGenerations = createTileGenerationCache()
-  private tileGenerationCoverageRevision = 0
   /** Dashboard changes notified so far; a refresh repeats until it has served the latest. */
   private dashboardChanges = 0
   private dashboardRefreshing = false
@@ -231,13 +153,16 @@ export class StatusCoordinator<Client> {
     private readonly limits: { readonly liveSubscribers?: number } = {},
   ) {}
 
+  /** Live commands run here, so the read model they write through is this coordinator. */
   private backendRuntime(): BackendRuntime {
     if (this.runtime !== null) return this.runtime
     const liveReadModel: StatusReadModelPort = {
       applyCommittedChange: (season, mutation) => this.applyCommittedChange(season, mutation),
       reconcileSnapshot: (season, scope) => this.reconcileSnapshot(season, scope),
       readManifestProjection: (input) => this.readManifestProjection(input),
-      resolveCurrentTileOffers: async (season, scope, offers) =>
+      notifyManifestChange: (season, surface, affectsTileCoverage) =>
+        this.notifyManifestChange(season, surface, affectsTileCoverage),
+      resolveCurrentTileOffers: (season, scope, offers) =>
         this.resolveCurrentTileOffers(season, scope, offers),
       prepareTileGenerationCommit: (season, tile) => this.prepareTileGenerationCommit(season, tile),
       applyCommittedTileGeneration: (season, generation) =>
@@ -255,6 +180,8 @@ export class StatusCoordinator<Client> {
         )
         if (errors.length > 0) throw new AggregateError(errors, 'Alarm notification failed')
       },
+      closeCredential: (season, tokenHash) => this.closeCredential(season, tokenHash),
+      readIngestTimings: (_season, reset) => this.readIngestTimings(reset),
     }
     this.runtime = createBackendRuntime(
       makeBackendContext(this.blobs, this.sql, this.counters(), liveReadModel),
@@ -262,70 +189,22 @@ export class StatusCoordinator<Client> {
     return this.runtime
   }
 
-  private model(season: number): SeasonStatusReadModel {
-    this.bindSeason(season)
-    if (this.bound !== null) {
-      if (this.bound.season !== season)
-        throw new Error('Durable Object is already bound to a season')
-      return this.bound.model
-    }
-    const created = createSeasonStatusReadModel({
-      season,
-      source: {
-        read: (requestedSeason, scope) =>
-          this.sql.readTemplateStatuses(requestedSeason, scope === 'admin'),
-      },
-      persistence: createKeyedStatusPersistence(this.objectState.storage, season),
-      revisions: {
-        current: (requestedSeason) => this.sql.readStatusProjectionRevision(requestedSeason),
-        commit: (
-          requestedSeason,
-          expectedRevision,
-          retainRevision,
-          publicFingerprint,
-          adminFingerprint,
-        ) =>
-          this.sql.commitStatusProjectionRevision(
-            requestedSeason,
-            expectedRevision,
-            retainRevision,
-            publicFingerprint,
-            adminFingerprint,
-          ),
-      },
-    })
-    this.bound = { season, model: created }
-    return created
-  }
-
-  private bindSeason(season: number): void {
-    validSeason(season)
-    if (this.boundSeason !== null && this.boundSeason !== season) {
+  /** This coordinator's read models; the first season asked for binds it for good. */
+  private season(season: number): SeasonReadModels {
+    if (!Number.isSafeInteger(season) || season < 0)
+      throw new RangeError('season must be non-negative')
+    if (this.boundSeason !== null && this.boundSeason !== season)
       throw new Error('Durable Object is already bound to a season')
-    }
     this.boundSeason = season
-  }
-
-  private manifestModel(season: number): SeasonManifestReadModel {
-    this.bindSeason(season)
-    if (this.manifestBound !== null) return this.manifestBound.model
-    const model = createSeasonManifestReadModel({
+    this.readModels ??= createSeasonReadModels({
       season,
-      source: (input) => assembleManifestProjection(this.sql, input),
-      persistence: createChunkedManifestPersistence(this.objectState.storage, season),
+      sql: this.sql,
+      persistence: {
+        status: createKeyedStatusPersistence(this.objectState.storage, season),
+        manifest: createChunkedManifestPersistence(this.objectState.storage, season),
+      },
     })
-    this.manifestBound = { season, model }
-    return model
-  }
-
-  private synchronizeTileGenerationCoverage(revision: number): void {
-    if (revision <= this.tileGenerationCoverageRevision) return
-    this.tileGenerationCoverageRevision = revision
-    this.tileGenerations.synchronizeCoverageToken(tileCoverageToken(revision))
-  }
-
-  private async loadTileGenerationCoverage(season: number): Promise<void> {
-    this.synchronizeTileGenerationCoverage(await this.manifestModel(season).coverageRevision())
+    return this.readModels
   }
 
   private send(socket: LiveSocket, event: LiveSyncServerEvent): void {
@@ -347,11 +226,11 @@ export class StatusCoordinator<Client> {
     }
   }
 
-  /** Encode once and deliver the same messages to every socket. */
-  private broadcast(sockets: readonly LiveSocket[], event: LiveSyncServerEvent): void {
-    if (sockets.length === 0) return
+  /** Encode once and deliver the same messages to every subscriber. */
+  private broadcast(subscribers: readonly Subscriber[], event: LiveSyncServerEvent): void {
+    if (subscribers.length === 0) return
     const messages = tryEncode(event)
-    for (const socket of sockets) this.sendEncoded(socket, messages)
+    for (const { socket } of subscribers) this.sendEncoded(socket, messages)
   }
 
   private configuredServer(): ServerInfo {
@@ -363,15 +242,6 @@ export class StatusCoordinator<Client> {
       presence: 1,
       livePaintParts: 1,
     }
-  }
-
-  private projectionSurface(projection: LiveProjectionState): TemplateSurface | null {
-    if (projection.resource === 'telemetry-alarms') return null
-    if (projection.scope === 'world') return WORLD_TEMPLATE_SURFACE
-    const match = /^(alliance-headquarters|alliance-picture|alliance-banner):([1-9]\d*)$/.exec(
-      projection.scope,
-    )
-    return match === null ? null : templateSurface(match[1], Number(match[2]))
   }
 
   /** The snapshot one projection subscriber is owed, or null when it has none. */
@@ -386,14 +256,9 @@ export class StatusCoordinator<Client> {
       )
       return { type: 'alarms-snapshot', alarms }
     }
-    const surface = this.projectionSurface(projection)
-    if (
-      surface === null ||
-      (projection.resource === 'world-manifest') !== (surface.kind === 'world')
-    ) {
-      return null
-    }
-    const read = await this.manifestModel(attachment.season).read({
+    const surface = manifestSurface(projection)
+    if (surface === null) return null
+    const read = await this.season(attachment.season).readManifest({
       server: this.configuredServer(),
       season: attachment.season,
       surface,
@@ -428,13 +293,9 @@ export class StatusCoordinator<Client> {
       const alarms = await this.sql.readActiveAlarms(season, scope === 'admin')
       return sha256Hex(new TextEncoder().encode(JSON.stringify(alarms)))
     }
-    const surface = this.projectionSurface(projection)
-    if (
-      surface === null ||
-      (projection.resource === 'world-manifest') !== (surface.kind === 'world')
-    )
-      return null
-    return this.manifestModel(season).knownVersion(scope, surface)
+    const surface = manifestSurface(projection)
+    if (surface === null) return null
+    return this.season(season).knownManifestVersion(scope, surface)
   }
 
   private async reconcileLiveState(
@@ -442,7 +303,7 @@ export class StatusCoordinator<Client> {
     attachment: LiveSubscriberAttachment,
     event: Extract<LiveSyncClientEvent, { readonly type: 'state-vector' }>,
   ): Promise<void> {
-    const read = await this.model(attachment.season).reconcileSnapshot(attachment.scope)
+    const read = await this.season(attachment.season).status.reconcileSnapshot(attachment.scope)
     const authoritative = await Promise.all(
       event.projections.map(async (projection) => ({
         ...projection,
@@ -477,42 +338,45 @@ export class StatusCoordinator<Client> {
     })
   }
 
-  private subscribers(scope?: StatusVisibilityScope): readonly LiveSocket[] {
-    return this.objectState.getWebSockets('status').filter((socket) => {
-      const attachment = socket.deserializeAttachment() as LiveSubscriberAttachment | null
-      return (
-        typeof attachment === 'object' &&
-        attachment !== null &&
+  /** Open, unrevoked subscribers of this season, optionally of one visibility scope. */
+  private subscribers(scope?: StatusVisibilityScope): readonly Subscriber[] {
+    return this.objectState.getWebSockets('status').flatMap((socket) => {
+      const attachment = subscriberOf(socket)
+      return attachment !== null &&
         attachment.season === this.boundSeason &&
-        (attachment.scope === 'public' || attachment.scope === 'admin') &&
-        /^[0-9a-f]{64}$/.test(attachment.tokenHash) &&
-        typeof attachment.revocable === 'boolean' &&
         attachment.revoked !== true &&
         (scope === undefined || attachment.scope === scope)
-      )
+        ? [{ socket, attachment }]
+        : []
     })
   }
 
+  /** Subscribers that speak protocol 2, the only ones owed snapshots. */
+  private snapshotSubscribers(): readonly Subscriber[] {
+    return this.subscribers().filter(({ attachment }) => attachment.protocol === 2)
+  }
+
   private broadcastStatus(scope: StatusVisibilityScope, delta: StatusDelta): void {
-    const sockets = this.subscribers(scope)
-    if (sockets.length === 0) return
+    const subscribers = this.subscribers(scope)
+    if (subscribers.length === 0) return
     // Serialize once to measure the delta, then frame that same text for every subscriber.
     const encoded = JSON.stringify({ type: 'status-delta', delta } satisfies LiveSyncServerEvent)
     if (exceedsUtf8Bytes(encoded, MAX_DELTA_MESSAGE_BYTES)) {
-      this.broadcast(sockets, { type: 'status-reconcile', revision: delta.revision })
+      this.broadcast(subscribers, { type: 'status-reconcile', revision: delta.revision })
       return
     }
     const messages = frameLiveServerEvent(encoded)
-    for (const socket of sockets) this.sendEncoded(socket, messages)
+    for (const { socket } of subscribers) this.sendEncoded(socket, messages)
   }
 
   async applyCommittedChange(
     season: number,
     mutation?: StatusProjectionMutation,
   ): Promise<StatusProjectionChange | null> {
-    const change = await this.model(season).applyCommittedChange(mutation)
+    const status = this.season(season).status
+    const change = await status.applyCommittedChange(mutation)
     if (change === null) {
-      const snapshot = await this.model(season).reconcileSnapshot('public')
+      const snapshot = await status.reconcileSnapshot('public')
       this.broadcast(this.subscribers(), {
         type: 'status-reconcile',
         revision: snapshot.snapshot.revision,
@@ -524,38 +388,15 @@ export class StatusCoordinator<Client> {
     return change
   }
 
-  applyCommittedChangeMeasured(
-    season: number,
-    mutation?: StatusProjectionMutation,
-  ): Promise<MeasuredD1Operation<StatusProjectionChange | null>> {
-    return measureD1Usage(() => this.applyCommittedChange(season, mutation))
-  }
-
   reconcileSnapshot(season: number, scope: StatusVisibilityScope): Promise<StatusSnapshotRead> {
     if (scope !== 'public' && scope !== 'admin') throw new RangeError('invalid visibility scope')
-    return this.model(season).reconcileSnapshot(scope)
-  }
-
-  reconcileSnapshotMeasured(
-    season: number,
-    scope: StatusVisibilityScope,
-  ): Promise<MeasuredD1Operation<StatusSnapshotRead>> {
-    return measureD1Usage(() => this.reconcileSnapshot(season, scope))
+    return this.season(season).status.reconcileSnapshot(scope)
   }
 
   async readManifestProjection(input: ManifestProjectionInput): Promise<ManifestProjectionRead> {
-    const projection = await this.manifestModel(input.season).read(input)
-    if (projection.revisionChanged) {
-      this.synchronizeTileGenerationCoverage(projection.coverageRevision)
-      this.broadcastManifest(projection.revision)
-    }
+    const projection = await this.season(input.season).readManifest(input)
+    if (projection.revisionChanged) this.broadcastManifest(projection.revision)
     return projection
-  }
-
-  readManifestProjectionMeasured(
-    input: ManifestProjectionInput,
-  ): Promise<MeasuredD1Operation<ManifestProjectionRead>> {
-    return measureD1Usage(() => this.readManifestProjection(input))
   }
 
   private broadcastManifest(revision: number, surface?: TemplateSurface): void {
@@ -580,16 +421,12 @@ export class StatusCoordinator<Client> {
         },
       )
     await Promise.all(
-      this.subscribers().map(async (socket) => {
-        const attachment = socket.deserializeAttachment() as LiveSubscriberAttachment | null
-        if (attachment?.protocol !== 2) return
+      this.snapshotSubscribers().map(async ({ socket, attachment }) => {
         for (const projection of attachment.projections ?? []) {
-          const requested = this.projectionSurface(projection)
+          const requested = manifestSurface(projection)
           if (
-            projection.resource === 'telemetry-alarms' ||
             requested === null ||
-            (surface !== undefined &&
-              (requested.kind !== surface.kind || requested.allianceId !== surface.allianceId))
+            (surface !== undefined && templateSurfaceKey(requested) !== templateSurfaceKey(surface))
           ) {
             continue
           }
@@ -605,10 +442,7 @@ export class StatusCoordinator<Client> {
     surface?: TemplateSurface,
     affectsTileCoverage = true,
   ): Promise<void> {
-    this.bindSeason(season)
-    if (affectsTileCoverage) this.tileGenerations.invalidate()
-    const revision = await this.manifestModel(season).invalidate(surface, affectsTileCoverage)
-    await this.loadTileGenerationCoverage(season)
+    const revision = await this.season(season).invalidateManifest(surface, affectsTileCoverage)
     this.broadcastManifest(revision, surface)
     await Promise.all([
       this.broadcastManifestSnapshots(surface),
@@ -620,53 +454,31 @@ export class StatusCoordinator<Client> {
     ])
   }
 
-  resolveCurrentTileOffers(
+  async resolveCurrentTileOffers(
     season: number,
     scope: StatusVisibilityScope,
     offers: readonly TileGenerationOffer[],
-  ): TileGenerationCacheRead {
-    this.bindSeason(season)
-    return this.tileGenerations.resolve(scope, offers)
+  ): Promise<TileGenerationCacheRead> {
+    return this.season(season).resolveTileOffers(scope, offers)
   }
 
-  resolveCurrentTileOffersMeasured(
-    season: number,
-    scope: StatusVisibilityScope,
-    offers: readonly TileGenerationOffer[],
-  ): Promise<MeasuredD1Operation<TileGenerationCacheRead>> {
-    return measureD1Usage(() =>
-      Promise.resolve(this.resolveCurrentTileOffers(season, scope, offers)),
-    )
-  }
-
-  async prepareTileGenerationCommit(
+  prepareTileGenerationCommit(
     season: number,
     tile: TileCoord,
   ): Promise<PreparedTileGenerationCommit> {
-    this.bindSeason(season)
-    await this.loadTileGenerationCoverage(season)
-    return this.tileGenerations.prepare(tile)
+    return this.season(season).prepareTileCommit(tile)
   }
 
-  async applyCommittedTileGeneration(
-    season: number,
-    generation: CommittedTileGeneration,
-  ): Promise<void> {
-    this.bindSeason(season)
-    if (generation.commitToken !== undefined) {
-      await this.loadTileGenerationCoverage(season)
-    }
-    this.tileGenerations.apply(generation)
+  applyCommittedTileGeneration(season: number, generation: CommittedTileGeneration): Promise<void> {
+    return this.season(season).applyTileGeneration(generation)
   }
 
-  async finishTileGenerationCommit(
+  finishTileGenerationCommit(
     season: number,
     tile: TileCoord,
     commit: PreparedTileGenerationCommit,
   ): Promise<void> {
-    this.bindSeason(season)
-    await this.loadTileGenerationCoverage(season)
-    this.tileGenerations.finish(tile, commit)
+    return this.season(season).finishTileCommit(tile, commit)
   }
 
   /** Stage timings for the live commands this coordinator handled since the last reset. */
@@ -677,16 +489,12 @@ export class StatusCoordinator<Client> {
   }
 
   async notifyAlarmChange(season: number): Promise<void> {
-    this.bindSeason(season)
+    this.season(season)
     this.broadcast(this.subscribers(), { type: 'alarms-reconcile' })
     await this.broadcastAlarmSnapshots()
   }
 
   private async broadcastAlarmSnapshots(): Promise<void> {
-    const subscribers = this.subscribers().flatMap((socket) => {
-      const attachment = socket.deserializeAttachment() as LiveSubscriberAttachment | null
-      return attachment?.protocol === 2 ? [{ socket, attachment }] : []
-    })
     // One read and one encoding per season and scope, not one per subscriber. With hundreds of
     // sockets, one alarm change used to fire hundreds of identical queries at the pool at once
     // and starved every live command behind them.
@@ -699,7 +507,7 @@ export class StatusCoordinator<Client> {
         }),
       )
     await Promise.all(
-      subscribers.map(async ({ socket, attachment }) => {
+      this.snapshotSubscribers().map(async ({ socket, attachment }) => {
         this.sendEncoded(socket, await snapshotFor(attachment))
       }),
     )
@@ -750,26 +558,15 @@ export class StatusCoordinator<Client> {
     }
   }
 
-  private async sendDashboardSnapshot(
-    socket: LiveSocket,
-    attachment: LiveSubscriberAttachment,
-    subscription: LiveDashboardSubscription,
-  ): Promise<void> {
-    const event = await this.dashboardReads()(attachment, subscription)
-    if (event !== null) this.send(socket, event)
-  }
-
   private async broadcastDashboardSnapshots(): Promise<void> {
     const snapshot = this.dashboardReads()
     await Promise.all(
-      this.subscribers().flatMap((socket) => {
-        const attachment = socket.deserializeAttachment() as LiveSubscriberAttachment | null
-        if (attachment?.protocol !== 2) return []
-        return (attachment.dashboardSubscriptions ?? []).map(async (subscription) => {
+      this.snapshotSubscribers().flatMap(({ socket, attachment }) =>
+        (attachment.dashboardSubscriptions ?? []).map(async (subscription) => {
           const event = await snapshot(attachment, subscription)
           if (event !== null) this.send(socket, event)
-        })
-      }),
+        }),
+      ),
     )
   }
 
@@ -779,7 +576,7 @@ export class StatusCoordinator<Client> {
    * starts after they landed.
    */
   async notifyDashboardChange(season: number): Promise<void> {
-    this.bindSeason(season)
+    this.season(season)
     this.dashboardChanges++
     if (this.dashboardRefreshing) return
     this.dashboardRefreshing = true
@@ -805,14 +602,12 @@ export class StatusCoordinator<Client> {
     }
   }
 
-  private canReport(attachment: LiveSubscriberAttachment | null, season: number): boolean {
-    return (
-      attachment !== null &&
-      attachment.protocol === 2 &&
-      attachment.season === season &&
-      attachment.credentialScope !== undefined &&
-      satisfiesScope(attachment.credentialScope, 'report')
-    )
+  /** Paint, offer and upload commands need protocol 2 and a credential that may report. */
+  private canReport(
+    attachment: LiveSubscriberAttachment | null,
+    season: number,
+  ): attachment is LiveSubscriberAttachment {
+    return attachment?.protocol === 2 && mayReport(attachment, season)
   }
 
   private async handlePaintReport(
@@ -820,36 +615,19 @@ export class StatusCoordinator<Client> {
     attachment: LiveSubscriberAttachment | null,
     event: Extract<LiveSyncClientEvent, { readonly type: 'paint-report' }>,
   ): Promise<void> {
-    if (!this.canReport(attachment, event.event.season)) {
-      this.send(socket, {
-        type: 'paint-result',
-        requestId: event.requestId,
-        eventId: event.event.eventId,
-        result: 'duplicate',
-        error: 'forbidden',
-      })
-      return
-    }
+    const reply = (outcome: Parameters<typeof paintResult>[2]) =>
+      this.send(socket, paintResult(event.requestId, event.event.eventId, outcome))
+    if (!this.canReport(attachment, event.event.season)) return reply('forbidden')
     try {
-      const result = await ingestTimings.timed('paint', 'total', () =>
-        this.backendRuntime().run(
-          recordPaint(event.event, attachment?.tokenHash ?? '', attachment?.scope === 'admin'),
+      reply(
+        await ingestTimings.timed('paint', 'total', () =>
+          this.backendRuntime().run(
+            recordPaint(event.event, attachment.tokenHash, attachment.scope === 'admin'),
+          ),
         ),
       )
-      this.send(socket, {
-        type: 'paint-result',
-        requestId: event.requestId,
-        eventId: event.event.eventId,
-        result,
-      })
     } catch {
-      this.send(socket, {
-        type: 'paint-result',
-        requestId: event.requestId,
-        eventId: event.event.eventId,
-        result: 'duplicate',
-        error: 'unavailable',
-      })
+      reply('unavailable')
     }
   }
 
@@ -860,13 +638,7 @@ export class StatusCoordinator<Client> {
   ): Promise<void> {
     const reject = (error: 'forbidden' | 'invalid' | 'unavailable') => {
       this.paints.discard(socket)
-      this.send(socket, {
-        type: 'paint-result',
-        requestId: part.requestId,
-        eventId: part.eventId,
-        result: 'duplicate',
-        error,
-      })
+      this.send(socket, paintResult(part.requestId, part.eventId, error))
     }
     if (!this.canReport(attachment, part.season)) return reject('forbidden')
     let encoded: string | null
@@ -910,31 +682,10 @@ export class StatusCoordinator<Client> {
     attachment: LiveSubscriberAttachment | null,
     event: Extract<LiveSyncClientEvent, { readonly type: 'tile-offer' }>,
   ): Promise<void> {
-    const unresolved = event.batch.offers.map((offer) => offer.deliveryId)
-    const empty = { acknowledgedDeliveryIds: [], wanted: [], rejectedDeliveryIds: [] }
-    if (!this.canReport(attachment, event.batch.season)) {
-      this.send(socket, {
-        type: 'tile-offer-result',
-        requestId: event.requestId,
-        response: empty,
-        error: 'forbidden',
-      })
-      return
-    }
-    const parsed = event.batch.offers.map((offer) => ({ offer, tile: parseTileKey(offer.tile) }))
-    if (
-      new Set(unresolved).size !== unresolved.length ||
-      new Set(event.batch.offers.map((offer) => offer.tile)).size !== event.batch.offers.length ||
-      parsed.some(({ tile }) => tile === null)
-    ) {
-      this.send(socket, {
-        type: 'tile-offer-result',
-        requestId: event.requestId,
-        response: empty,
-        error: 'invalid',
-      })
-      return
-    }
+    const reply = (outcome: Parameters<typeof tileOfferResult>[1]) =>
+      this.send(socket, tileOfferResult(event.requestId, outcome))
+    if (!this.canReport(attachment, event.batch.season)) return reply('forbidden')
+    if (parseOfferBatch(event.batch) === null) return reply('invalid')
     try {
       const result = await ingestTimings.timed('offer', 'total', () =>
         this.backendRuntime().run(
@@ -943,45 +694,71 @@ export class StatusCoordinator<Client> {
             reporter: {
               wplaceUserId: event.batch.wplaceUserId,
               displayName: event.batch.displayName,
-              tokenHash: attachment?.tokenHash ?? '',
+              tokenHash: attachment.tokenHash,
             },
-            includeUnpublished: attachment?.scope === 'admin',
+            includeUnpublished: attachment.scope === 'admin',
             offers: event.batch.offers,
           }),
         ),
       )
-      const byTile = new Map<string, string>(
+      const deliveryOf = new Map<string, string>(
         event.batch.offers.map((offer) => [offer.tile, offer.deliveryId]),
       )
+      const deliveries = (tiles: readonly string[]) =>
+        tiles.flatMap((tile) => {
+          const deliveryId = deliveryOf.get(tile)
+          return deliveryId === undefined ? [] : [deliveryId]
+        })
       const { coverageToken } = result
-      this.send(socket, {
-        type: 'tile-offer-result',
-        requestId: event.requestId,
-        response: {
-          acknowledgedDeliveryIds: result.acknowledged.flatMap((tile) => {
-            const deliveryId = byTile.get(tile)
-            return deliveryId === undefined ? [] : [deliveryId]
-          }),
-          wanted: result.wanted.flatMap((tile) => {
-            const deliveryId = byTile.get(tile)
-            return deliveryId === undefined
-              ? []
-              : [{ deliveryId, ...(coverageToken === undefined ? {} : { coverageToken }) }]
-          }),
-          rejectedDeliveryIds: result.rejected.flatMap((tile) => {
-            const deliveryId = byTile.get(tile)
-            return deliveryId === undefined ? [] : [deliveryId]
-          }),
-        },
+      reply({
+        acknowledgedDeliveryIds: deliveries(result.acknowledged),
+        wanted: deliveries(result.wanted).map((deliveryId) =>
+          coverageToken === undefined ? { deliveryId } : { deliveryId, coverageToken },
+        ),
+        rejectedDeliveryIds: deliveries(result.rejected),
       })
     } catch {
-      this.send(socket, {
-        type: 'tile-offer-result',
-        requestId: event.requestId,
-        response: empty,
-        error: 'unavailable',
-      })
+      reply('unavailable')
     }
+  }
+
+  private async handleTileOfferCache(
+    socket: LiveSocket,
+    attachment: LiveSubscriberAttachment | null,
+    event: Extract<LiveSyncClientEvent, { readonly type: 'tile-offer-cache' }>,
+    startedAt: number,
+  ): Promise<void> {
+    const unresolvedDeliveryIds = event.batch.offers.map((offer) => offer.deliveryId)
+    const refuse = (error: 'forbidden' | 'invalid') =>
+      this.send(socket, {
+        type: 'tile-offer-cache-result',
+        requestId: event.requestId,
+        response: { acknowledgedDeliveryIds: [], unresolvedDeliveryIds, error },
+      })
+    // Unlike the commands that write, a cache read is open to protocol 1 reporters too.
+    if (!mayReport(attachment, event.batch.season)) return refuse('forbidden')
+    const parsed = parseOfferBatch(event.batch)
+    if (parsed === null) return refuse('invalid')
+    const response = this.season(event.batch.season).resolveTileOffers(
+      attachment.scope,
+      parsed.map(({ offer, tile }) => ({ deliveryId: offer.deliveryId, tile, hash: offer.sha256 })),
+    )
+    recordLiveTileOfferCacheMetric(this.requestMetrics, {
+      client: attachment.metricClient ?? 'unknown',
+      clientVersion: attachment.metricClientVersion ?? 'unknown',
+      cacheOutcome: response.cacheOutcome,
+      requested: event.batch.offers.length,
+      acknowledged: response.acknowledgedDeliveryIds.length,
+      durationMs: performance.now() - startedAt,
+    })
+    this.send(socket, {
+      type: 'tile-offer-cache-result',
+      requestId: event.requestId,
+      response: {
+        acknowledgedDeliveryIds: response.acknowledgedDeliveryIds,
+        unresolvedDeliveryIds: response.unresolvedDeliveryIds,
+      },
+    })
   }
 
   private async handleTileUpload(
@@ -1002,61 +779,34 @@ export class StatusCoordinator<Client> {
       socket.close(1003, 'invalid live tile upload')
       return
     }
-    if (!this.canReport(attachment, metadata.season)) {
-      this.send(socket, {
-        type: 'tile-upload-result',
-        requestId: metadata.requestId,
-        deliveryId: metadata.deliveryId,
-        accepted: false,
-        error: 'forbidden',
-      })
-      return
-    }
+    const reply = (error?: Parameters<typeof tileUploadResult>[2]) =>
+      this.send(socket, tileUploadResult(metadata.requestId, metadata.deliveryId, error))
+    if (!this.canReport(attachment, metadata.season)) return reply('forbidden')
     const tile = parseTileKey(metadata.tile)
-    if (tile === null || frame.payload.byteLength > MAX_CANVAS_TILE_BYTES) {
-      this.send(socket, {
-        type: 'tile-upload-result',
-        requestId: metadata.requestId,
-        deliveryId: metadata.deliveryId,
-        accepted: false,
-        error: 'invalid',
-      })
-      return
-    }
+    if (tile === null || frame.payload.byteLength > MAX_CANVAS_TILE_BYTES) return reply('invalid')
     try {
-      const refused = await ingestTimings.timed('upload', 'total', () =>
-        this.backendRuntime().runHandled(
-          uploadTile(
-            {
-              wplaceUserId: metadata.wplaceUserId,
-              displayName: metadata.displayName,
-              tokenHash: attachment?.tokenHash ?? '',
-              season: metadata.season,
-              tile,
-              hash: metadata.sha256,
-              observedAt: seconds(metadata.ts),
-              includeUnpublished: attachment?.scope === 'admin',
-            },
-            frame.payload,
-            metadata.coverageToken,
+      const upload = uploadTile(
+        {
+          wplaceUserId: metadata.wplaceUserId,
+          displayName: metadata.displayName,
+          tokenHash: attachment.tokenHash,
+          season: metadata.season,
+          tile,
+          hash: metadata.sha256,
+          observedAt: seconds(metadata.ts),
+          includeUnpublished: attachment.scope === 'admin',
+        },
+        frame.payload,
+      )
+      reply(
+        await ingestTimings.timed('upload', 'total', () =>
+          this.backendRuntime().runHandled(Effect.as(upload, undefined), (error) =>
+            error instanceof ValidationError ? 'invalid' : 'unavailable',
           ),
-          (error) => (error instanceof ValidationError ? 'invalid' : 'unavailable'),
         ),
       )
-      this.send(socket, {
-        type: 'tile-upload-result',
-        requestId: metadata.requestId,
-        deliveryId: metadata.deliveryId,
-        ...(typeof refused === 'string' ? { accepted: false, error: refused } : { accepted: true }),
-      })
     } catch {
-      this.send(socket, {
-        type: 'tile-upload-result',
-        requestId: metadata.requestId,
-        deliveryId: metadata.deliveryId,
-        accepted: false,
-        error: 'unavailable',
-      })
+      reply('unavailable')
     }
   }
 
@@ -1073,10 +823,10 @@ export class StatusCoordinator<Client> {
       socket.close(1008, 'too many dashboard subscriptions')
       return
     }
-    const next = [...retained, event.subscription]
-    const updated = { ...attachment, dashboardSubscriptions: next }
+    const updated = { ...attachment, dashboardSubscriptions: [...retained, event.subscription] }
     socket.serializeAttachment(updated satisfies LiveSubscriberAttachment)
-    await this.sendDashboardSnapshot(socket, updated, event.subscription)
+    const snapshot = await this.dashboardReads()(updated, event.subscription)
+    if (snapshot !== null) this.send(socket, snapshot)
   }
 
   /** Persist routing before presence attachment so revocation also reaches hibernating rooms. */
@@ -1085,18 +835,17 @@ export class StatusCoordinator<Client> {
     tokenHash: string,
     surface: TemplateSurface,
   ): Promise<void> {
-    this.model(season)
+    this.season(season)
     const key = `presence:${tokenHash}:${templateSurfaceKey(surface)}`
     if ((await this.objectState.storage.get(key)) === undefined)
       await this.objectState.storage.put(key, surface)
   }
 
   async closeCredential(season: number, tokenHash: string): Promise<void> {
-    this.model(season)
+    this.season(season)
     await this.liveSessions.revoke(() => {
-      for (const socket of this.subscribers()) {
-        const attachment = socket.deserializeAttachment() as LiveSubscriberAttachment | null
-        if (attachment?.tokenHash !== tokenHash || attachment.revoked === true) continue
+      for (const { socket, attachment } of this.subscribers()) {
+        if (attachment.tokenHash !== tokenHash) continue
         socket.serializeAttachment({
           ...attachment,
           revoked: true,
@@ -1113,143 +862,89 @@ export class StatusCoordinator<Client> {
     }
   }
 
-  async fetch(request: Request): Promise<Response> {
-    if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') {
-      return new Response('WebSocket upgrade required', { status: 426 })
-    }
-    const seasonHeader = request.headers.get('x-caelestis-season')
-    if (seasonHeader === null || !/^(?:0|[1-9]\d*)$/.test(seasonHeader)) {
-      return new Response('Invalid season', { status: 400 })
-    }
-    const season = Number(seasonHeader)
-    const scope = request.headers.get('x-caelestis-scope')
-    const credentialScope = request.headers.get('x-caelestis-credential-scope')
-    const tokenHash = request.headers.get('x-caelestis-token-hash')
-    const clientHash = request.headers.get('x-caelestis-client-hash')
-    const anonymousHeader = request.headers.get('x-caelestis-anonymous')
-    const revocableHeader = request.headers.get('x-caelestis-revocable')
-    const protocolHeader = request.headers.get('x-caelestis-live-protocol')
-    const protocol =
-      protocolHeader === null || protocolHeader === '1' ? 1 : protocolHeader === '2' ? 2 : null
-    const revisionHeader = request.headers.get('x-caelestis-revision')
-    const lastRevision = revisionHeader === null ? null : Number(revisionHeader)
-    const stateVector = new URL(request.url).searchParams.get('stateVector') === '1'
-    if (!Number.isSafeInteger(season)) return new Response('Invalid season', { status: 400 })
-    if (scope !== 'public' && scope !== 'admin')
-      return new Response('Invalid scope', { status: 400 })
-    if (tokenHash === null || !/^[0-9a-f]{64}$/.test(tokenHash)) {
-      return new Response('Invalid credential identity', { status: 400 })
-    }
-    if (clientHash === null || !/^[0-9a-f]{64}$/.test(clientHash)) {
-      return new Response('Invalid client identity', { status: 400 })
-    }
-    if (anonymousHeader !== '0' && anonymousHeader !== '1') {
-      return new Response('Invalid client kind', { status: 400 })
-    }
-    const anonymous = anonymousHeader === '1'
-    if (credentialScope !== 'read' && credentialScope !== 'report' && credentialScope !== 'admin')
-      return new Response('Invalid credential scope', { status: 400 })
-    if (revocableHeader !== '0' && revocableHeader !== '1') {
-      return new Response('Invalid credential kind', { status: 400 })
-    }
-    if (protocol === null) return new Response('Invalid live protocol', { status: 400 })
-    const revocable = revocableHeader === '1'
-    const metricClient = normalizeMetricClientIdentity(
-      request.headers.get('x-caelestis-metric-client') ?? 'unknown',
-      request.headers.get('x-caelestis-metric-client-version') ?? 'unknown',
-    )
-    if (lastRevision !== null && (!Number.isSafeInteger(lastRevision) || lastRevision < 0)) {
-      return new Response('Invalid revision', { status: 400 })
-    }
-    const measured = await measureD1Usage(async () => {
-      let capacityExceeded = false
-      const response = await this.liveSessions.attach(
-        async () => {
-          const sockets = this.objectState.getWebSockets('status')
-          if (sockets.length >= (this.limits.liveSubscribers ?? MAX_LIVE_SUBSCRIBERS)) {
-            capacityExceeded = true
-            return false
-          }
-          let anonymousConnections = 0
-          let clientConnections = 0
-          for (const socket of sockets) {
-            const attachment = socket.deserializeAttachment() as LiveSubscriberAttachment | null
-            if (attachment?.revoked === true) continue
-            if (attachment?.anonymous === true) anonymousConnections += 1
-            if (attachment?.clientHash === clientHash) clientConnections += 1
-          }
-          if (anonymous && anonymousConnections >= MAX_LIVE_ANONYMOUS_SUBSCRIBERS) {
-            capacityExceeded = true
-            return false
-          }
-          if (clientConnections >= MAX_LIVE_SUBSCRIBERS_PER_CLIENT) {
-            capacityExceeded = true
-            return false
-          }
-          if (!revocable) return true
-          const token = await this.sql.readAccessToken(tokenHash)
-          return token !== null && (scope === 'public' || token.scope === 'admin')
-        },
-        () => {
-          return this.objectState.connect({
-            season,
-            scope,
-            credentialScope,
-            tokenHash,
-            clientHash,
-            anonymous,
-            revocable,
-            lastRevision,
-            revoked: false,
-            metricClient: metricClient.client,
-            metricClientVersion: metricClient.clientVersion,
-            protocol,
-          } satisfies LiveSubscriberAttachment)
-        },
-      )
-      if (capacityExceeded) return { kind: 'capacity' as const }
-      if (response === null) return { kind: 'revoked' as const }
-      try {
-        if (stateVector) {
-          return {
-            kind: 'connected' as const,
-            ...response,
-            cacheOutcome: undefined,
-          }
+  /** Admit one live-sync connection within the season's capacity and its credential's rights. */
+  async connect(connection: StatusLiveConnection): Promise<LiveAdmission> {
+    const { season, scope, tokenHash, clientHash, anonymous, revocable, protocol } = connection
+    const status = this.season(season).status
+    let capacityExceeded = false
+    const admitted = await this.liveSessions.attach(
+      async () => {
+        const sockets = this.objectState.getWebSockets('status')
+        if (sockets.length >= (this.limits.liveSubscribers ?? MAX_LIVE_SUBSCRIBERS)) {
+          capacityExceeded = true
+          return false
         }
-        const read = await this.model(season).reconcileSnapshot(scope)
-        this.send(
-          response.server,
-          lastRevision === read.snapshot.revision
-            ? { type: 'ready', revision: read.snapshot.revision }
-            : { type: 'status-reconcile', revision: read.snapshot.revision },
-        )
-        return { kind: 'connected' as const, ...response, cacheOutcome: read.cacheOutcome }
-      } catch (error) {
-        response.server.close(1011, 'status reconciliation failed')
-        throw error
-      }
-    })
-    if (!measured.success) throw measured.error
-    if (measured.value.kind === 'capacity') {
-      const headers = liveMeasurementHeaders(measured.usage)
-      headers.set('Retry-After', '30')
-      return new Response('Live subscriber limit reached', { status: 503, headers })
-    }
-    if (measured.value.kind === 'revoked') {
-      return new Response('Credential revoked', {
-        status: 401,
-        headers: liveMeasurementHeaders(measured.usage),
+        let anonymousConnections = 0
+        let clientConnections = 0
+        for (const socket of sockets) {
+          const attachment = subscriberOf(socket)
+          if (attachment === null || attachment.revoked === true) continue
+          if (attachment.anonymous === true) anonymousConnections += 1
+          if (attachment.clientHash === clientHash) clientConnections += 1
+        }
+        if (
+          (anonymous && anonymousConnections >= MAX_LIVE_ANONYMOUS_SUBSCRIBERS) ||
+          clientConnections >= MAX_LIVE_SUBSCRIBERS_PER_CLIENT
+        ) {
+          capacityExceeded = true
+          return false
+        }
+        if (!revocable) return true
+        const token = await this.sql.readAccessToken(tokenHash)
+        return token !== null && (scope === 'public' || token.scope === 'admin')
+      },
+      () =>
+        this.objectState.connect({
+          season,
+          scope,
+          credentialScope: connection.credentialScope,
+          tokenHash,
+          clientHash,
+          anonymous,
+          revocable,
+          lastRevision: connection.lastRevision,
+          revoked: false,
+          metricClient: connection.metricClient,
+          metricClientVersion: connection.metricClientVersion,
+          protocol,
+        } satisfies LiveSubscriberAttachment),
+    )
+    if (capacityExceeded) {
+      const response = new Response('Live subscriber limit reached', {
+        status: 503,
+        headers: { 'Retry-After': '30' },
       })
+      return { response, cacheOutcome: 'none' }
     }
-    const headers = liveMeasurementHeaders(measured.usage, measured.value.cacheOutcome)
-    headers.set('sec-websocket-protocol', `caelestis.live.v${protocol}`)
-    return this.objectState.upgradeResponse(measured.value.client, headers)
+    if (admitted === null) {
+      return { response: new Response('Credential revoked', { status: 401 }), cacheOutcome: 'none' }
+    }
+    const upgrade = async (cacheOutcome: CacheOutcome): Promise<LiveAdmission> => ({
+      response: await this.objectState.upgradeResponse(
+        admitted.client,
+        new Headers({ 'sec-websocket-protocol': `caelestis.live.v${protocol}` }),
+      ),
+      cacheOutcome,
+    })
+    if (connection.stateVector) return upgrade('none')
+    try {
+      const read = await status.reconcileSnapshot(scope)
+      this.send(
+        admitted.server,
+        connection.lastRevision === read.snapshot.revision
+          ? { type: 'ready', revision: read.snapshot.revision }
+          : { type: 'status-reconcile', revision: read.snapshot.revision },
+      )
+      return upgrade(read.cacheOutcome)
+    } catch (error) {
+      admitted.server.close(1011, 'status reconciliation failed')
+      throw error
+    }
   }
 
   async webSocketMessage(socket: LiveSocket, message: string | ArrayBuffer): Promise<void> {
     const startedAt = performance.now()
-    const attachment = socket.deserializeAttachment() as LiveSubscriberAttachment | null
+    const attachment = subscriberOf(socket)
     if (attachment?.revoked === true) {
       this.paints.discard(socket)
       socket.close(1008, 'credential revoked')
@@ -1300,122 +995,46 @@ export class StatusCoordinator<Client> {
           typeof raw.eventId === 'string' &&
           raw.eventId.length <= 64
         )
-          this.send(socket, {
-            type: 'paint-result',
-            requestId: raw.requestId,
-            eventId: raw.eventId,
-            result: 'duplicate',
-            error: 'invalid',
-          })
+          this.send(socket, paintResult(raw.requestId, raw.eventId, 'invalid'))
       }
       return
     }
-    if (event.type === 'paint-part') {
-      await this.handlePaintPart(socket, attachment, event)
-      return
-    }
-    if (event.type === 'state-vector') {
-      if (
-        attachment === null ||
-        !Number.isSafeInteger(attachment.season) ||
-        attachment.season < 0 ||
-        (attachment.scope !== 'public' && attachment.scope !== 'admin')
-      ) {
-        socket.close(1008, 'invalid live state scope')
+    switch (event.type) {
+      case 'paint-part':
+        return this.handlePaintPart(socket, attachment, event)
+      case 'paint-report':
+        return this.handlePaintReport(socket, attachment, event)
+      case 'tile-offer':
+        return this.handleTileOffer(socket, attachment, event)
+      case 'tile-offer-cache':
+        return this.handleTileOfferCache(socket, attachment, event, startedAt)
+      case 'dashboard-subscribe':
+        return this.handleDashboardSubscription(socket, attachment, event)
+      case 'dashboard-unsubscribe':
+        if (attachment?.protocol !== 2) return
+        socket.serializeAttachment({
+          ...attachment,
+          dashboardSubscriptions: (attachment.dashboardSubscriptions ?? []).filter(
+            (subscription) => subscription.subscriptionId !== event.subscriptionId,
+          ),
+        } satisfies LiveSubscriberAttachment)
+        return
+      case 'state-vector': {
+        if (attachment === null) {
+          socket.close(1008, 'invalid live state scope')
+          return
+        }
+        if (attachment.stateVectorReceived === true) {
+          socket.close(1008, 'state vector already received')
+          return
+        }
+        const updated = { ...attachment, stateVectorReceived: true, projections: event.projections }
+        socket.serializeAttachment(updated satisfies LiveSubscriberAttachment)
+        this.season(attachment.season)
+        await this.reconcileLiveState(socket, updated, event)
         return
       }
-      if (attachment.stateVectorReceived === true) {
-        socket.close(1008, 'state vector already received')
-        return
-      }
-      const updated = {
-        ...attachment,
-        stateVectorReceived: true,
-        projections: event.projections,
-      }
-      socket.serializeAttachment(updated satisfies LiveSubscriberAttachment)
-      this.bindSeason(attachment.season)
-      await this.reconcileLiveState(socket, updated, event)
-      return
     }
-    if (event.type === 'paint-report') {
-      await this.handlePaintReport(socket, attachment, event)
-      return
-    }
-    if (event.type === 'tile-offer') {
-      await this.handleTileOffer(socket, attachment, event)
-      return
-    }
-    if (event.type === 'dashboard-subscribe') {
-      await this.handleDashboardSubscription(socket, attachment, event)
-      return
-    }
-    if (event.type === 'dashboard-unsubscribe') {
-      if (attachment?.protocol !== 2) return
-      socket.serializeAttachment({
-        ...attachment,
-        dashboardSubscriptions: (attachment.dashboardSubscriptions ?? []).filter(
-          (subscription) => subscription.subscriptionId !== event.subscriptionId,
-        ),
-      } satisfies LiveSubscriberAttachment)
-      return
-    }
-    if (event.type !== 'tile-offer-cache') return
-    const unresolvedDeliveryIds = event.batch.offers.map((offer) => offer.deliveryId)
-    if (
-      attachment === null ||
-      attachment.season !== event.batch.season ||
-      attachment.credentialScope === undefined ||
-      !satisfiesScope(attachment.credentialScope, 'report')
-    ) {
-      this.send(socket, {
-        type: 'tile-offer-cache-result',
-        requestId: event.requestId,
-        response: { acknowledgedDeliveryIds: [], unresolvedDeliveryIds, error: 'forbidden' },
-      })
-      return
-    }
-    const uniqueDeliveries = new Set(unresolvedDeliveryIds)
-    const uniqueTiles = new Set(event.batch.offers.map((offer) => offer.tile))
-    const parsed = event.batch.offers.map((offer) => ({ offer, tile: parseTileKey(offer.tile) }))
-    if (
-      uniqueDeliveries.size !== event.batch.offers.length ||
-      uniqueTiles.size !== event.batch.offers.length ||
-      parsed.some(({ tile }) => tile === null)
-    ) {
-      this.send(socket, {
-        type: 'tile-offer-cache-result',
-        requestId: event.requestId,
-        response: { acknowledgedDeliveryIds: [], unresolvedDeliveryIds, error: 'invalid' },
-      })
-      return
-    }
-    const response = this.resolveCurrentTileOffers(
-      event.batch.season,
-      attachment.scope,
-      parsed.map(({ offer, tile }) => ({
-        deliveryId: offer.deliveryId,
-        // The null case returned above.
-        tile: tile ?? { x: -1, y: -1 },
-        hash: offer.sha256,
-      })),
-    )
-    recordLiveTileOfferCacheMetric(this.requestMetrics, {
-      client: attachment.metricClient ?? 'unknown',
-      clientVersion: attachment.metricClientVersion ?? 'unknown',
-      cacheOutcome: response.cacheOutcome,
-      requested: event.batch.offers.length,
-      acknowledged: response.acknowledgedDeliveryIds.length,
-      durationMs: performance.now() - startedAt,
-    })
-    this.send(socket, {
-      type: 'tile-offer-cache-result',
-      requestId: event.requestId,
-      response: {
-        acknowledgedDeliveryIds: response.acknowledgedDeliveryIds,
-        unresolvedDeliveryIds: response.unresolvedDeliveryIds,
-      },
-    })
   }
 
   webSocketClose(socket: LiveSocket, code: number, reason: string, wasClean: boolean): void {

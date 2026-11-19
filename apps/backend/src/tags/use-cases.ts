@@ -2,7 +2,7 @@ import { millis } from '@caelestis/shared'
 import { Effect } from 'effect'
 import { SqlStoreService, StatusReadModelService } from '../runtime/backend-runtime.js'
 import { fromPort, NotFoundError, storage } from '../runtime/errors.js'
-import { publishManifestChange } from '../status-read-model/port.js'
+import { bestEffort } from '../status-read-model/port.js'
 import type { TagMutation } from './store.js'
 
 /** The reusable catalog and, optionally, one template's or folder's assignments. */
@@ -41,7 +41,7 @@ export const mutateTag = (mutation: TagMutation, currentSeason: number) =>
     yield* Effect.promise(() =>
       Promise.all(
         [...new Set([currentSeason, ...scopes.map(({ season }) => season)])].map((season) =>
-          publishManifestChange(readModel, season, undefined, false),
+          bestEffort(() => readModel.notifyManifestChange(season, undefined, false)),
         ),
       ),
     )

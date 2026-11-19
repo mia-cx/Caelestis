@@ -198,6 +198,7 @@ export const createTelemetryLiveRoutes = (
         metricClient: metricClient.client,
         metricClientVersion: metricClient.clientVersion,
         protocol,
+        stateVector: c.req.query('stateVector') === '1',
       })
     }),
   )

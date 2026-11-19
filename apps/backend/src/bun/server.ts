@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { type ServerWebSocket, serve } from 'bun'
+import { MAX_LIVE_CLIENT_BINARY_BYTES } from '../live/session.js'
 import type { NodeConfig } from '../node/config.js'
 import { createBackendHttp, type PortableRuntime } from '../node/http.js'
 import {
@@ -8,7 +9,6 @@ import {
   liveRequestContext,
   MAX_BUFFERED_BYTES,
 } from '../node/live.js'
-import { MAX_LIVE_CLIENT_BINARY_BYTES } from '../status-coordinator.js'
 
 type UpgradeData = {
   accept: NonNullable<LiveUpgradeContext['accept']>

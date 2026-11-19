@@ -11,10 +11,7 @@ import {
   storage,
   ValidationError,
 } from '../runtime/errors.js'
-import {
-  publishManifestChange,
-  repairCommittedStatusProjection,
-} from '../status-read-model/port.js'
+import { bestEffort } from '../status-read-model/port.js'
 
 type NodeError = ValidationError | NotFoundError | ConflictError | GoneError | StorageError
 
@@ -78,7 +75,7 @@ export const createNode = (input: {
     })
     // A folder alone covers no tiles and owns no alarms.
     yield* Effect.promise(() =>
-      publishManifestChange(statusReadModel, input.season, input.surface, false),
+      bestEffort(() => statusReadModel.notifyManifestChange(input.season, input.surface, false)),
     )
     return publicNode(inserted)
   })
@@ -143,7 +140,9 @@ export const patchNode = (input: {
     }
     yield* Effect.promise(() =>
       // Renaming or moving a folder leaves its templates' tiles and alarms alone.
-      publishManifestChange(statusReadModel, updated.season, updated.surface, false),
+      bestEffort(() =>
+        statusReadModel.notifyManifestChange(updated.season, updated.surface, false),
+      ),
     )
     return publicNode(updated)
   })
@@ -175,9 +174,13 @@ export const deleteNodeCascade = (
       sql.deleteNodeCascade(nodeId, expected),
     )
     if (deleted.templates > 0) {
-      yield* Effect.promise(() => repairCommittedStatusProjection(statusReadModel, node.season))
+      yield* Effect.promise(() =>
+        bestEffort(() => statusReadModel.applyCommittedChange(node.season)),
+      )
     }
-    yield* Effect.promise(() => publishManifestChange(statusReadModel, node.season, node.surface))
+    yield* Effect.promise(() =>
+      bestEffort(() => statusReadModel.notifyManifestChange(node.season, node.surface)),
+    )
     return deleted
   })
 
@@ -194,6 +197,6 @@ export const deleteEmptyNode = (
     yield* fromPort('deleteNode', () => sql.deleteNode(nodeId))
     // Only an empty folder reaches here.
     yield* Effect.promise(() =>
-      publishManifestChange(statusReadModel, node.season, node.surface, false),
+      bestEffort(() => statusReadModel.notifyManifestChange(node.season, node.surface, false)),
     )
   })

@@ -87,7 +87,8 @@ describe('public server branding', () => {
     expect(changed.server).toEqual(expected)
     expect(changed.version).not.toBe(before.version)
     expect(notify).toHaveBeenCalledTimes(3)
-    expect(notify).toHaveBeenLastCalledWith(0, undefined, true)
+    // A server change invalidates every surface, and with it the tile coverage.
+    expect(notify).toHaveBeenLastCalledWith(0)
     expect(
       (await patch({ description: null, discordInviteUrl: null, homeCopy: null, logoText: null }))
         .status,

@@ -1,4 +1,4 @@
-import type { Scope, ServerInfo } from '@caelestis/shared'
+import type { ServerInfo } from '@caelestis/shared'
 import { isUuidV7, MAX_DESCRIPTION_LENGTH, MAX_NAME_LENGTH } from '@caelestis/shared'
 import { Context as Services } from 'effect'
 import { Hono } from 'hono'
@@ -6,6 +6,7 @@ import { cors } from 'hono/cors'
 import type { ArchiveHost } from './archive/port.js'
 import { requireScopeEffect } from './auth/middleware.js'
 import type { BackfillClients } from './backfill/port.js'
+import type { StatusLiveConnection } from './live/session.js'
 import type { ConnectPresence, PresenceOnline } from './presence/port.js'
 import { archiveHold, createArchiveAdminRoutes } from './routes/archive.js'
 import { createBackfillAdminRoutes, createCanvasHistoryRoutes } from './routes/backfill.js'
@@ -58,22 +59,7 @@ export interface AppOptions {
   readonly openAccess?: boolean | undefined
   readonly currentSeason?: number | undefined
   readonly connectStatusLive?:
-    | ((
-        request: Request,
-        connection: {
-          readonly season: number
-          readonly scope: 'public' | 'admin'
-          readonly credentialScope: Scope
-          readonly tokenHash: string
-          readonly clientHash: string
-          readonly anonymous: boolean
-          readonly revocable: boolean
-          readonly lastRevision: number | null
-          readonly metricClient: string
-          readonly metricClientVersion: string
-          readonly protocol: 1 | 2
-        },
-      ) => Promise<Response>)
+    | ((request: Request, connection: StatusLiveConnection) => Promise<Response>)
     | undefined
 }
 

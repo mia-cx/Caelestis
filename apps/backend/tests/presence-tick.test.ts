@@ -2,9 +2,9 @@ import { type PresenceServerEvent, WORLD_TEMPLATE_SURFACE } from '@caelestis/sha
 import { expect, it } from 'vitest'
 import { coordinatorDatabase } from '../src/adapters/node/coordinator-database.js'
 import { SqlCoordinatorStorage } from '../src/adapters/node/coordinator-storage.js'
+import type { LiveSocket } from '../src/live/session.js'
 import { openMemoryDatabase } from '../src/node/memory-stores.js'
 import { PresenceCoordinator, type PresenceHost } from '../src/presence-coordinator.js'
-import type { LiveSocket } from '../src/status-coordinator.js'
 
 class Socket implements LiveSocket {
   readyState = 1

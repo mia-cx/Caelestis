@@ -1,4 +1,5 @@
 import { DurableObject } from 'cloudflare:workers'
+import { receivePresence } from './adapters/cloudflare/live-connect.js'
 import { RelationalSqlStore } from './adapters/relational-sql-store.js'
 import { instrumentD1 } from './metrics/request-metrics.js'
 import { PresenceCoordinator } from './presence-coordinator.js'
@@ -28,8 +29,8 @@ export class PresenceObject extends DurableObject<Env> {
       new IngestTimings(),
     )
   }
-  override fetch(...args: Parameters<PresenceCoordinator<WebSocket>['fetch']>) {
-    return this.coordinator.fetch(...args)
+  override fetch(request: Request) {
+    return receivePresence(request, (connection) => this.coordinator.connect(connection))
   }
   override alarm() {
     return this.coordinator.alarm()

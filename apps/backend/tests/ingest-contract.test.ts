@@ -164,7 +164,7 @@ it('wakes alarm subscribers only when an observation changes an alarm', async ()
   ).toBe(201)
   let alarmNotifications = 0
   const readModel = new (class extends DirectStatusReadModel {
-    async notifyAlarmChange(): Promise<void> {
+    override async notifyAlarmChange(): Promise<void> {
       alarmNotifications++
     }
   })(sql)
@@ -213,7 +213,7 @@ it('wakes alarm subscribers from a tile scan only when it changes an alarm', asy
   ).toBe(201)
   let alarmNotifications = 0
   const statusReadModel = new (class extends DirectStatusReadModel {
-    async notifyAlarmChange(): Promise<void> {
+    override async notifyAlarmChange(): Promise<void> {
       alarmNotifications++
     }
   })(sql)
@@ -256,7 +256,7 @@ it('wakes alarm subscribers for changes committed before a later alarm evaluatio
   }
   let alarmNotifications = 0
   const statusReadModel = new (class extends DirectStatusReadModel {
-    async notifyAlarmChange(): Promise<void> {
+    override async notifyAlarmChange(): Promise<void> {
       alarmNotifications++
     }
   })(sql)

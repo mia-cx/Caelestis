@@ -1,15 +1,6 @@
-import type { Scope, TemplateSurface, TileCoord } from '@caelestis/shared'
+import type { TemplateSurface, TileCoord } from '@caelestis/shared'
 import type { ManifestProjectionInput, ManifestProjectionRead } from '../manifest/read-model.js'
-import {
-  type MeasuredD1Operation,
-  mergeD1Usage,
-  recordCacheOutcome,
-} from '../metrics/request-metrics.js'
 import type { StatusCoordinator } from '../status-coordinator.js'
-import {
-  LIVE_CACHE_OUTCOME_HEADER,
-  LIVE_D1_USAGE_HEADER,
-} from '../status-read-model/live-measurement.js'
 import type {
   StatusProjectionChange,
   StatusProjectionMutation,
@@ -25,78 +16,49 @@ import type {
 } from '../status-read-model/tile-generation-cache.js'
 import type { IngestTimingSnapshot } from '../telemetry/ingest-timing.js'
 
-const measuredValue = <A>(measured: MeasuredD1Operation<A>): A => {
-  mergeD1Usage(measured.usage)
-  if (!measured.success) throw measured.error
-  return measured.value
-}
+/** One season's coordinator, in process or behind a Durable Object stub. */
+export type StatusShard = Pick<
+  StatusCoordinator<unknown>,
+  | 'applyCommittedChange'
+  | 'reconcileSnapshot'
+  | 'readManifestProjection'
+  | 'notifyManifestChange'
+  | 'resolveCurrentTileOffers'
+  | 'prepareTileGenerationCommit'
+  | 'applyCommittedTileGeneration'
+  | 'finishTileGenerationCommit'
+  | 'notifyAlarmChange'
+  | 'notifyDashboardChange'
+  | 'closeCredential'
+  | 'readIngestTimings'
+  | 'registerPresenceSurface'
+>
 
-const mergeLiveMeasurement = (response: Response): Response => {
-  const usage = response.headers.get(LIVE_D1_USAGE_HEADER)?.split(',').map(Number)
-  if (usage?.length === 4 && usage.every((value) => Number.isFinite(value) && value >= 0)) {
-    mergeD1Usage({
-      rowsRead: usage[0] ?? 0,
-      rowsWritten: usage[1] ?? 0,
-      measuredQueries: usage[2] ?? 0,
-      unmeasuredQueries: usage[3] ?? 0,
-    })
-  }
-  const cacheOutcome = response.headers.get(LIVE_CACHE_OUTCOME_HEADER)
-  if (cacheOutcome === 'hit' || cacheOutcome === 'miss' || cacheOutcome === 'stale') {
-    recordCacheOutcome(cacheOutcome)
-  }
-  const headers = new Headers(response.headers)
-  headers.delete(LIVE_D1_USAGE_HEADER)
-  headers.delete(LIVE_CACHE_OUTCOME_HEADER)
-  return new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers,
-    webSocket: response.webSocket,
-  })
-}
-
+/** The read model of a host that runs one status coordinator per season. */
 export class CoordinatedStatusReadModel implements StatusReadModelPort {
-  registerPresenceSurface(season: number, tokenHash: string, surface: TemplateSurface) {
-    return this.shard(season).registerPresenceSurface(season, tokenHash, surface)
-  }
   constructor(
-    private readonly resolve: (
-      season: number,
-    ) => Omit<
-      StatusCoordinator<unknown>,
-      'webSocketMessage' | 'webSocketClose' | 'resolveCurrentTileOffers'
-    >,
+    private readonly shard: (season: number) => StatusShard,
+    /** Absent only for the alarm watcher, which is what scheduling alarms wakes. */
     private readonly scheduleAlarms?: () => Promise<void>,
   ) {}
 
-  private shard(season: number) {
-    return this.resolve(season)
+  registerPresenceSurface(season: number, tokenHash: string, surface: TemplateSurface) {
+    return this.shard(season).registerPresenceSurface(season, tokenHash, surface)
   }
 
-  async applyCommittedChange(
+  applyCommittedChange(
     season: number,
     mutation?: StatusProjectionMutation,
   ): Promise<StatusProjectionChange | null> {
-    const shard = this.shard(season)
-    const measured =
-      mutation === undefined
-        ? await shard.applyCommittedChangeMeasured(season)
-        : await shard.applyCommittedChangeMeasured(season, mutation)
-    return measuredValue(measured)
+    return this.shard(season).applyCommittedChange(season, mutation)
   }
 
-  async reconcileSnapshot(
-    season: number,
-    scope: StatusVisibilityScope,
-  ): Promise<StatusSnapshotRead> {
-    const measured = await this.shard(season).reconcileSnapshotMeasured(season, scope)
-    return measuredValue(measured)
+  reconcileSnapshot(season: number, scope: StatusVisibilityScope): Promise<StatusSnapshotRead> {
+    return this.shard(season).reconcileSnapshot(season, scope)
   }
 
-  async readManifestProjection(input: ManifestProjectionInput): Promise<ManifestProjectionRead> {
-    const measured = await this.shard(input.season).readManifestProjectionMeasured(input)
-    return measuredValue(measured)
+  readManifestProjection(input: ManifestProjectionInput): Promise<ManifestProjectionRead> {
+    return this.shard(input.season).readManifestProjection(input)
   }
 
   notifyManifestChange(
@@ -116,6 +78,7 @@ export class CoordinatedStatusReadModel implements StatusReadModelPort {
     return this.shard(season).notifyDashboardChange(season)
   }
 
+  /** Each season's coordinator holds its own sessions, so revocation visits all of them. */
   async closeCredential(currentSeason: number, tokenHash: string): Promise<void> {
     await Promise.all(
       Array.from({ length: currentSeason + 1 }, (_, season) =>
@@ -124,14 +87,12 @@ export class CoordinatedStatusReadModel implements StatusReadModelPort {
     )
   }
 
-  async resolveCurrentTileOffers(
+  resolveCurrentTileOffers(
     season: number,
     scope: StatusVisibilityScope,
     offers: readonly TileGenerationOffer[],
   ): Promise<TileGenerationCacheRead> {
-    return measuredValue(
-      await this.shard(season).resolveCurrentTileOffersMeasured(season, scope, offers),
-    )
+    return this.shard(season).resolveCurrentTileOffers(season, scope, offers)
   }
 
   prepareTileGenerationCommit(
@@ -139,10 +100,6 @@ export class CoordinatedStatusReadModel implements StatusReadModelPort {
     tile: TileCoord,
   ): Promise<PreparedTileGenerationCommit> {
     return this.shard(season).prepareTileGenerationCommit(season, tile)
-  }
-
-  async readIngestTimings(season: number, reset: boolean): Promise<IngestTimingSnapshot> {
-    return this.shard(season).readIngestTimings(reset)
   }
 
   applyCommittedTileGeneration(season: number, generation: CommittedTileGeneration): Promise<void> {
@@ -157,38 +114,7 @@ export class CoordinatedStatusReadModel implements StatusReadModelPort {
     return this.shard(season).finishTileGenerationCommit(season, tile, commit)
   }
 
-  async connectLive(
-    request: Request,
-    connection: {
-      readonly season: number
-      readonly scope: StatusVisibilityScope
-      readonly credentialScope: Scope
-      readonly tokenHash: string
-      readonly clientHash: string
-      readonly anonymous: boolean
-      readonly revocable: boolean
-      readonly lastRevision: number | null
-      readonly metricClient: string
-      readonly metricClientVersion: string
-      readonly protocol: 1 | 2
-    },
-  ): Promise<Response> {
-    const headers = new Headers(request.headers)
-    headers.delete('authorization')
-    headers.set('sec-websocket-protocol', `caelestis.live.v${connection.protocol}`)
-    headers.set('x-caelestis-live-protocol', String(connection.protocol))
-    headers.set('x-caelestis-season', String(connection.season))
-    headers.set('x-caelestis-scope', connection.scope)
-    headers.set('x-caelestis-credential-scope', connection.credentialScope)
-    headers.set('x-caelestis-token-hash', connection.tokenHash)
-    headers.set('x-caelestis-client-hash', connection.clientHash)
-    headers.set('x-caelestis-anonymous', connection.anonymous ? '1' : '0')
-    headers.set('x-caelestis-revocable', connection.revocable ? '1' : '0')
-    headers.set('x-caelestis-metric-client', connection.metricClient)
-    headers.set('x-caelestis-metric-client-version', connection.metricClientVersion)
-    if (connection.lastRevision === null) headers.delete('x-caelestis-revision')
-    else headers.set('x-caelestis-revision', String(connection.lastRevision))
-    const response = await this.shard(connection.season).fetch(new Request(request, { headers }))
-    return mergeLiveMeasurement(response)
+  readIngestTimings(season: number, reset: boolean): Promise<IngestTimingSnapshot> {
+    return this.shard(season).readIngestTimings(reset)
   }
 }

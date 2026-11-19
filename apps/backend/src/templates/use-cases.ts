@@ -21,11 +21,7 @@ import {
   storage,
   ValidationError,
 } from '../runtime/errors.js'
-import {
-  publishAlarmChange,
-  publishManifestChange,
-  repairCommittedStatusProjection,
-} from '../status-read-model/port.js'
+import { bestEffort } from '../status-read-model/port.js'
 import { readTileBlob } from '../telemetry/tile-blobs.js'
 import { storeTemplate, type TemplateAuthoringInput } from './store.js'
 
@@ -81,7 +77,9 @@ const afterTemplateChange = (
   Effect.gen(function* () {
     const statusReadModel = yield* StatusReadModelService
     if (change === 'pixels' || change === 'publication')
-      yield* Effect.promise(() => repairCommittedStatusProjection(statusReadModel, template.season))
+      yield* Effect.promise(() =>
+        bestEffort(() => statusReadModel.applyCommittedChange(template.season)),
+      )
     if (change === 'publication') {
       // Presence carries region hints only for published templates; a failed send never undoes
       // the change it follows.
@@ -91,11 +89,12 @@ const afterTemplateChange = (
       )
     }
     yield* Effect.promise(() =>
-      publishManifestChange(
-        statusReadModel,
-        template.season,
-        template.surface,
-        change !== 'metadata',
+      bestEffort(() =>
+        statusReadModel.notifyManifestChange(
+          template.season,
+          template.surface,
+          change !== 'metadata',
+        ),
       ),
     )
   })
@@ -113,7 +112,7 @@ export const dismissTemplateAlarm = (templateId: string, alarmId: string) =>
         new ConflictError({ message: 'That grief alert has changed; refresh and try again.' }),
       )
     const readModel = yield* StatusReadModelService
-    yield* Effect.promise(() => publishAlarmChange(readModel, template.season))
+    yield* Effect.promise(() => bestEffort(() => readModel.notifyAlarmChange(template.season)))
     return { ok: true as const }
   })
 

@@ -31,8 +31,6 @@ import type { TelemetryRouteOptions } from './telemetry.js'
 /** A reply carries its status delta only while it stays small; a client reconciles otherwise. */
 const MAX_MUTATION_STATUS_BYTES = 32 * 1024
 const MAX_TILE_OFFER_BODY_BYTES = 64 * 1024
-/** Coverage tokens are `crypto.randomUUID()` values, not UUIDv7 identifiers. */
-const COVERAGE_TOKEN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 
 /** The caller's view of a projection change, when it is small enough to send inline. */
 const mutationStatus = (
@@ -156,7 +154,6 @@ export const createTelemetryReportRoutes = (
     const observedAt = parseWholeNumber(c.req.header('x-caelestis-observed-at'))
     const wplaceUserId = parseWholeNumber(c.req.header('x-caelestis-wplace-user-id'))
     const displayName = decodedHeader(c.req.header('x-caelestis-display-name'))
-    const rawCoverageToken = c.req.header('x-caelestis-tile-coverage-token')
     if (
       x === null ||
       y === null ||
@@ -193,10 +190,6 @@ export const createTelemetryReportRoutes = (
           includeUnpublished: caller.scope === 'admin',
         },
         bytes,
-        // A malformed token is ignored: the server's own coverage read is authoritative anyway.
-        rawCoverageToken !== undefined && COVERAGE_TOKEN.test(rawCoverageToken)
-          ? rawCoverageToken
-          : undefined,
       ),
       (projection) => {
         const status = mutationStatus(c, projection)

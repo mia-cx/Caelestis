@@ -9,8 +9,7 @@ import {
 } from '../runtime/backend-runtime.js'
 import { NotFoundError, type StorageError, storage } from '../runtime/errors.js'
 import { mergeServerInfo, serverAssetInfo } from '../server-info.js'
-import { publishManifestChange } from '../status-read-model/port.js'
-import { ingestTimings } from '../telemetry/ingest-timing.js'
+import { bestEffort } from '../status-read-model/port.js'
 
 const readServerSettings: Effect.Effect<ServerSettings, StorageError, SqlStoreService> = Effect.gen(
   function* () {
@@ -40,7 +39,7 @@ export const writeServerSettings = (
     const sql = yield* SqlStoreService
     yield* storage('writeServerSettings', () => sql.writeServerSettings(settings))
     const statusReadModel = yield* StatusReadModelService
-    yield* Effect.promise(() => publishManifestChange(statusReadModel, season))
+    yield* Effect.promise(() => bestEffort(() => statusReadModel.notifyManifestChange(season)))
   })
 
 /** A branding asset's bytes and public identity. */
@@ -95,19 +94,13 @@ export const replaceServerAsset = (
   })
 
 /**
- * Where live uploads, offers, and paints spend their time since the last reset. Live commands
- * run in the current season's coordinator, which on Cloudflare is a Durable Object rather than
- * this Worker, so ask the read model when it can reach that context.
+ * Where live uploads, offers, and paints spend their time since the last reset, as recorded by
+ * the read model where the current season's live commands run.
  */
 export const readIngestTimings = (season: number, reset: boolean) =>
   Effect.gen(function* () {
     const statusReadModel = yield* StatusReadModelService
-    const readCoordinator = statusReadModel.readIngestTimings?.bind(statusReadModel)
-    const snapshot =
-      readCoordinator === undefined
-        ? ingestTimings.snapshot()
-        : yield* Effect.promise(() => readCoordinator(season, reset))
-    if (reset && readCoordinator === undefined) ingestTimings.reset()
+    const snapshot = yield* Effect.promise(() => statusReadModel.readIngestTimings(season, reset))
     const presence = yield* PresenceService
     const readRoom = presence.readIngestTimings?.bind(presence)
     if (readRoom === undefined) return snapshot

@@ -14,7 +14,7 @@ import type { Caller } from '../auth/middleware.js'
 import type { SqlStore } from '../ports/index.js'
 import { SqlStoreService, StatusReadModelService } from '../runtime/backend-runtime.js'
 import { ForbiddenError, NotFoundError, storage, ValidationError } from '../runtime/errors.js'
-import { publishManifestChange } from '../status-read-model/port.js'
+import { bestEffort } from '../status-read-model/port.js'
 
 const invalid = (message: string) => Effect.fail(new ValidationError({ message }))
 
@@ -249,7 +249,9 @@ export const mutateWork = (
     )
     // A write that lost its revision race changed nothing; the write that won publishes its own.
     if (saved)
-      yield* storage('coordination', () => publishManifestChange(live, season, surface, false))
+      yield* storage('coordination', () =>
+        bestEffort(() => live.notifyManifestChange(season, surface, false)),
+      )
     return {
       conflict: !saved,
       item: saved ? item : yield* storage('coordination', () => sql.work.read(id)),

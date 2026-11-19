@@ -1,6 +1,6 @@
 import { monitorEventLoopDelay } from 'node:perf_hooks'
 import { isSha256Hex, MAX_PRESENCE_SUBSCRIBERS } from '@caelestis/shared'
-import { type LiveSocket, MAX_LIVE_SUBSCRIBERS } from '../status-coordinator.js'
+import { type LiveSocket, MAX_LIVE_SUBSCRIBERS } from '../live/session.js'
 
 export type AdmissionChannel = 'live-sync' | 'presence'
 export const ADMISSION_CHANNELS: readonly AdmissionChannel[] = ['live-sync', 'presence']

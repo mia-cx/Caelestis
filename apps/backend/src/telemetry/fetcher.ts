@@ -17,8 +17,8 @@ import {
   makeBackendContext,
 } from '../runtime/backend-runtime.js'
 import {
+  bestEffort,
   DirectStatusReadModel,
-  publishAlarmChange,
   type StatusReadModelPort,
 } from '../status-read-model/port.js'
 import {
@@ -336,7 +336,7 @@ export const fetchCanvasTiles = async (
   } finally {
     // A scan that moves no alarm owes subscribers nothing; a changed alarm covers its follow-up.
     // Each evaluation commits on its own, so a later failure still owes the earlier changes.
-    if (alarmChanged) await publishAlarmChange(run.statusReadModel, season)
+    if (alarmChanged) await bestEffort(() => run.statusReadModel.notifyAlarmChange(season))
   }
 
   return {
@@ -477,7 +477,8 @@ export const fetchAlarmFollowUps = async (
       await finishRun(run)
     } finally {
       // Each evaluation commits on its own, so a later failure still owes the earlier changes.
-      for (const season of changedSeasons) await publishAlarmChange(run.statusReadModel, season)
+      for (const season of changedSeasons)
+        await bestEffort(() => run.statusReadModel.notifyAlarmChange(season))
     }
   }
 
