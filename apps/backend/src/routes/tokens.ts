@@ -9,7 +9,8 @@ import type { BackendRuntime } from '../runtime/backend-runtime.js'
 import { runBackendHttp } from '../runtime/hono.js'
 
 const MAX_LABEL_LENGTH = 128
-const BOOTSTRAP_HASH = 'bootstrap'
+/** The path segment a client names the bootstrap entry by; it has no stored digest. */
+const BOOTSTRAP_KEY = 'bootstrap'
 
 const isScope = (value: unknown): value is Scope =>
   typeof value === 'string' && (SCOPES as readonly string[]).includes(value)
@@ -34,16 +35,10 @@ export const createTokenRoutes = (
     }
     if (!isScope(scope)) return c.json({ error: `scope must be one of ${SCOPES.join(', ')}` }, 400)
 
-    const caller = c.get('caller')
     return runBackendHttp(
       c,
       runtime,
-      mintAccessToken({
-        label,
-        scope,
-        // The bootstrap operator has no row of its own, so it is named rather than referenced.
-        createdWithToken: caller.token?.tokenHash ?? BOOTSTRAP_HASH,
-      }),
+      mintAccessToken({ label, scope, createdWithToken: c.get('caller').tokenHash }),
       (minted) => c.json(minted, 201),
     )
   })
@@ -60,7 +55,7 @@ export const createTokenRoutes = (
   routes.delete('/:tokenHash', async (c) => {
     const tokenHash = c.req.param('tokenHash')
     // The bootstrap credential lives in the deployment environment, not in this store.
-    if (tokenHash === BOOTSTRAP_HASH) {
+    if (tokenHash === BOOTSTRAP_KEY) {
       return c.json({ error: 'the bootstrap token is set in the environment; unset it there' }, 400)
     }
     // 204 whether or not the row was there, so a retry after a lost response still succeeds and

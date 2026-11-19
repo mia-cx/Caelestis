@@ -1,6 +1,7 @@
 import { encodeIndexedPng, millis, seconds, sha256Hex, TRANSPARENT_INDEX } from '@caelestis/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { relationalSqlStore } from '../src/adapters/relational-sql-store.js'
+import { hashToken } from '../src/auth/tokens.js'
 import { seedTileObservation } from '../src/node/memory-stores.js'
 import { RelationalServerSettingsStore } from '../src/server/relational.js'
 import { DirectStatusReadModel } from '../src/status-read-model/port.js'
@@ -466,6 +467,13 @@ describe('backend API trust boundary', () => {
     const listed = await request(backend, '/admin/tokens', 'GET', 'bootstrap-secret')
     const body = (await listed.json()) as { tokens: Record<string, unknown>[] }
     expect(body.tokens).toContainEqual(expect.objectContaining({ bootstrap: true, scope: 'admin' }))
+    // Authorship names the bootstrap credential by its digest, like every other author column.
+    expect(body.tokens).toContainEqual(
+      expect.objectContaining({
+        tokenHash: reader.tokenHash,
+        createdWithToken: await hashToken('bootstrap-secret'),
+      }),
+    )
     expect(body.tokens.every((token) => !('token' in token))).toBe(true)
     for (let retry = 0; retry < 2; retry++)
       expect(
