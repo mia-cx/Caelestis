@@ -1,10 +1,10 @@
 import { DurableObject } from 'cloudflare:workers'
 import { millis } from '@caelestis/shared'
 import { Effect } from 'effect'
-import { D1SqlStore } from './adapters/cloudflare/d1-sql-store.js'
 import { DurableObjectCounterStore } from './adapters/cloudflare/do-counter-store.js'
 import { DurableObjectStatusReadModel } from './adapters/cloudflare/do-status-read-model.js'
 import { R2BlobStore } from './adapters/cloudflare/r2-blob-store.js'
+import { RelationalSqlStore } from './adapters/relational-sql-store.js'
 import { runAlarmWatcherCycle } from './alarm-watcher-cycle.js'
 import {
   type BackendRuntime,
@@ -22,7 +22,7 @@ export class AlarmWatcher extends DurableObject<Env> {
     this.runtime = createBackendRuntime(
       makeBackendContext(
         new R2BlobStore(env.BLOBS),
-        new D1SqlStore(env.DB),
+        new RelationalSqlStore(env.DB),
         new DurableObjectCounterStore(env.TELEMETRY),
         new DurableObjectStatusReadModel(env.STATUS_READ_MODEL),
       ),

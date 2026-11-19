@@ -1,5 +1,5 @@
 import { millis } from '@caelestis/shared'
-import { D1SqlStore } from '../../src/adapters/cloudflare/d1-sql-store.js'
+import { RelationalSqlStore } from '../../src/adapters/relational-sql-store.js'
 import {
   runLeaderboardContract,
   runNodeTemplateContract,
@@ -18,7 +18,7 @@ export default {
         if (statement.trim()) await env.DB.prepare(statement).run()
       return new Response(null, { status: 204 })
     }
-    const sql = new D1SqlStore(env.DB)
+    const sql = new RelationalSqlStore(env.DB)
     const createdAt = millis(100)
     for (const tokenHash of ['b'.repeat(64), 'a'.repeat(64)])
       await sql.insertAccessToken({
