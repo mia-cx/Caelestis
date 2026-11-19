@@ -29,7 +29,8 @@ issues that pending Changesets ship and lists them as `Closes #N` in the release
 Merging the release closes them.
 
 The docs site in `apps/docs` is unversioned too. Docs changes need no changeset; each release
-deploys the docs from its merge commit, so they describe the deployed apps.
+deploys the docs from its merge commit, so they describe the deployed apps. Every push to `main`
+deploys `main`'s docs to https://staging.docs.caelest.is, which search engines skip.
 
 ## Publish
 
