@@ -6,7 +6,7 @@
   import ModalStyles from '../foundations/ModalStyles.svelte'
   import AppearanceEditor from '../appearance/AppearanceEditor.svelte'
   import TemplateTree from '../tree/TemplateTree.svelte'
-  import WorkSummary from '../work/WorkSummary.svelte'
+  import PanelDrawers from './PanelDrawers.svelte'
   import SettingsPanel from '../settings/SettingsPanel.svelte'
   import type { TemplateTreeIntent } from '../tree/model.js'
   import type { PanelIntent, PanelModel, PanelView } from './model.js'
@@ -84,6 +84,13 @@
         : undefined
     if (poppedOut && action?.returnToCanvas === true) void dock()
     emit({ type: work ? 'work-tree' : 'tree', intent })
+  }
+
+  const drawerIntent = (intent: PanelIntent): void => {
+    if (intent.type === 'work-tree') return treeIntent(intent.intent, true)
+    // Claiming and flying act on the map, so the popout returns to the sidebar first.
+    if (poppedOut && (intent.type === 'region-claim' || intent.type === 'presence-fly' || intent.type === 'claim-fly')) void dock()
+    emit(intent)
   }
 
   $effect(() => { width = model.width })
@@ -197,7 +204,7 @@
         {#if view === 'tree' && model.tree !== undefined}
           <TemplateTree model={model.tree} allowGrid={poppedOut} onIntent={treeIntent} />
           {#if model.work !== undefined}
-            <WorkSummary model={model.work} showOtherClaims={model.showOtherClaims ?? false} onshowothers={(showOtherClaims) => emit({ type: 'work-visibility', showOtherClaims })} onIntent={(intent) => treeIntent(intent, true)} onretry={() => emit({ type: 'work-retry' })} onclaimregion={() => { if (poppedOut) void dock(); emit({ type: 'region-claim' }) }} onflyto={(key) => { if (poppedOut) void dock(); emit({ type: 'presence-fly', key }) }} onflytoclaim={(key) => { if (poppedOut) void dock(); emit({ type: 'claim-fly', key }) }} onclearclaim={(key) => emit({ type: 'claim-clear', key })} />
+            <PanelDrawers model={model.work} showOtherClaims={model.showOtherClaims ?? false} onIntent={drawerIntent} />
           {/if}
         {:else if view === 'appearance' && model.appearance !== undefined}
           <AppearanceEditor model={model.appearance} onIntent={(intent) => emit({ type: 'appearance', intent })} />

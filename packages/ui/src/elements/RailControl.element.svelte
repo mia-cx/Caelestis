@@ -1,4 +1,4 @@
-<svelte:options customElement={{ shadow: 'open', props: { model: { type: 'Object' } } }} />
+<svelte:options customElement={{ shadow: { mode: 'open', delegatesFocus: true }, props: { model: { type: 'Object' } } }} />
 
 <script lang="ts">
   import RailControl from '../rail/RailControl.svelte'

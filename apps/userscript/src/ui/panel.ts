@@ -469,14 +469,16 @@ const onlyExpansionChanged = (previous: State, next: State): boolean =>
     (key) => key === 'collapsed' || previous[key] === next[key],
   )
 
+/** Whether a colour picker in the panel's appearance view is open, as the view last reported. */
+let colourPickerOpen = false
+
 /** `refreshView` for a change the claimed list cannot see, so its cached build survives. */
 const redrawView = (): void => {
   if (!panelOpen()) return
   const root = document.getElementById(currentPanelId())
   if (root === null) return
   const held =
-    (root.shadowRoot?.querySelector('[data-caelestis-colour-picker]:popover-open') ?? null) !==
-      null ||
+    colourPickerOpen ||
     isTreeDragActive() ||
     heldPanelPointers.size > 0 ||
     (root.contains(document.activeElement) && document.activeElement instanceof HTMLInputElement)
@@ -1066,6 +1068,9 @@ const commitPanelAppearance = (appearance: typeof DEFAULT_APPEARANCE): void => {
 const handleAppearanceIntent = (intent: AppearanceEditorIntent): void => {
   const values = getSurfaceAppearance(panelSurface)
   switch (intent.type) {
+    case 'picker':
+      colourPickerOpen = intent.open
+      break
     case 'layout':
       break
     case 'preview-number':

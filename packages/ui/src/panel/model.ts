@@ -12,15 +12,19 @@ export interface PanelModel {
   readonly minWidth: number
   readonly maxWidth: number
   readonly tree?: TemplateTreeModel
-  readonly work?: {
-    readonly tree: TemplateTreeModel
-    readonly error: string
-    readonly canShowOthers: boolean
-    readonly presence?: PresenceSummaryModel
-  }
+  readonly work?: PanelDrawersModel
   readonly showOtherClaims?: boolean
   readonly appearance?: AppearanceEditorModel
   readonly settings?: SettingsModel
+}
+
+/** The drawers under the template tree: Favourites, and Painters while presence is connected. */
+export interface PanelDrawersModel {
+  /** The favourite templates, as a toolbar-less tree. */
+  readonly tree: TemplateTreeModel
+  readonly error: string
+  readonly canShowOthers: boolean
+  readonly presence?: PresenceSummaryModel
 }
 
 /** One painter near the viewport, as the Painters drawer lists them. */
@@ -64,6 +68,8 @@ export interface PresenceSummaryModel {
   readonly claims?: readonly ClaimRowModel[]
   /** Whether the claim tool can start: signed in, connected, and not already open. */
   readonly canClaim: boolean
+  /** The claim tool's bound key as a title suffix, such as " (M)"; empty when unbound. */
+  readonly claimShortcut: string
   readonly pending?: boolean
   readonly message?: string
 }

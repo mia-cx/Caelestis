@@ -226,7 +226,7 @@ separate [Chromium boundary checks](browser-evidence.md); there are no CSS-class
 | `packages/ui/src/tree/TemplateTree.svelte` | Integration | Mounted component emits public intents and exposes accessible controls for its model; pending/refusal and cleanup where applicable. |
 | `packages/ui/src/tree/preview-pixels.ts` | Unit | Bounded preview preserves palette colours, transparency and nearest source pixels. |
 | `packages/ui/src/types.ts` | Declarative | Type declarations and export wiring; package check/build resolves consumers. No standalone execution assertions. |
-| `packages/ui/src/work/WorkSummary.svelte` | Integration | Mounted component emits public intents and exposes accessible controls for its model; pending/refusal and cleanup where applicable. |
+| `packages/ui/src/panel/PanelDrawers.svelte` | Integration | Mounted component emits public intents and exposes accessible controls for its model; pending/refusal and cleanup where applicable. |
 | `scripts/benchmark-social-gifs.mjs` | Integration (extended) | Explicit development/deployment/benchmark command; verified with isolated runtime/stack acceptance when relevant. No source-text assertions or live infrastructure in default suite. |
 | `scripts/benchmark-wplace-collaboration.mjs` | Integration (extended) | Explicit development/deployment/benchmark command; verified with isolated runtime/stack acceptance when relevant. No source-text assertions or live infrastructure in default suite. |
 | `scripts/dev-tunnel.mjs` | Integration (extended) | Explicit development/deployment/benchmark command; verified with isolated runtime/stack acceptance when relevant. No source-text assertions or live infrastructure in default suite. |

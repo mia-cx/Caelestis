@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import AppearanceEditor from '../appearance/AppearanceEditor.svelte'
   import Button from '../foundations/Button.svelte'
   import Icon from '../foundations/Icon.svelte'
@@ -8,6 +9,15 @@
 
   let { model, onIntent }: { model: OverlayControlsModel; onIntent?: (intent: OverlayControlsIntent) => void } = $props()
   const emit = (intent: OverlayControlsIntent): void => onIntent?.(intent)
+  let root: HTMLElement
+  const controlKey = (target: EventTarget | null): string | null =>
+    target instanceof HTMLElement ? (target.closest<HTMLElement>('[data-caelestis-control]')?.dataset.caelestisControl ?? null) : null
+
+  onMount(() => {
+    if (model.focus === undefined) return
+    const wanted = [...root.querySelectorAll<HTMLElement>('[data-caelestis-control]')]
+    ;(wanted.find((control) => control.dataset.caelestisControl === model.focus) ?? wanted.find((control) => control.dataset.caelestisControl === 'close'))?.focus()
+  })
   const onAppearance = (intent: AppearanceEditorIntent): void => emit({ type: 'appearance', intent })
 
   const onKeydown = (event: KeyboardEvent): void => {
@@ -17,7 +27,7 @@
   }
 </script>
 
-<div class="dialog caelestis-panel-surface" role="dialog" aria-label={`${model.name} display options`} tabindex="-1" onkeydown={onKeydown}>
+<div bind:this={root} class="dialog caelestis-panel-surface" role="dialog" aria-label={`${model.name} display options`} tabindex="-1" onkeydown={onKeydown} onfocusin={(event) => emit({ type: 'focus', control: controlKey(event.target) })}>
   <header>
     <div class="title">
       <strong title={model.name}>{model.name}</strong>

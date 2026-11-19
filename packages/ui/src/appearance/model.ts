@@ -100,6 +100,8 @@ export interface AppearanceEditorModel {
 
 export type AppearanceEditorIntent =
   | { readonly type: 'layout'; readonly settled?: boolean }
+  /** A colour picker opened or closed; hosts hold rebuilds while one is open. */
+  | { readonly type: 'picker'; readonly open: boolean }
   | {
       readonly type: 'preview-number'
       readonly key: AppearanceNumberKey

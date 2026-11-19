@@ -35,7 +35,7 @@
 </script>
 
 <script lang="ts">
-  import { tick } from 'svelte'
+  import { onDestroy, tick } from 'svelte'
   import { commitOnGestureEnd } from '../foundations/gesture.js'
 
   interface Props {
@@ -44,9 +44,11 @@
     disabled?: boolean
     onPreview?: (value: string) => void
     onCommit?: (value: string) => void
+    /** The picker opened or closed, including closing because the input unmounted. */
+    onOpenChange?: (open: boolean) => void
   }
 
-  let { label, value, disabled = false, onPreview, onCommit }: Props = $props()
+  let { label, value, disabled = false, onPreview, onCommit, onOpenChange }: Props = $props()
   let open = $state(false)
   let anchor = $state<HTMLButtonElement>()
   let popover = $state<HTMLDivElement>()
@@ -98,6 +100,7 @@
     hex = value
     pending = null
     open = true
+    onOpenChange?.(true)
     await tick()
     popover?.showPopover?.()
     place()
@@ -109,8 +112,11 @@
     commit()
     popover?.hidePopover?.()
     open = false
+    onOpenChange?.(false)
     if (restoreFocus) anchor?.focus()
   }
+
+  onDestroy(() => { if (open) onOpenChange?.(false) })
 
   const fromPoint = (event: PointerEvent): void => {
     if (square === undefined) return
@@ -173,7 +179,7 @@
 
   <!-- Mounted permanently: a manual popover's exit transition only runs while the node exists, so
        the top layer owns its lifetime and `hidePopover()` animates the close itself. -->
-  <div bind:this={popover} class="picker caelestis-cp caelestis-surface" data-caelestis-colour-picker popover="manual" role="dialog" aria-label={label} tabindex="-1" onpointerdown={(event) => event.stopPropagation()}>
+  <div bind:this={popover} class="picker caelestis-cp caelestis-surface" popover="manual" role="dialog" aria-label={label} tabindex="-1" onpointerdown={(event) => event.stopPropagation()}>
     <div
       bind:this={square}
       class="sv caelestis-cp-sv"

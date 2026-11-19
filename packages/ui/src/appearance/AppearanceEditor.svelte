@@ -27,6 +27,7 @@
       case 'decimal-pixels': return (value) => `${Number(value.toFixed(2))}px`
     }
   }
+  const pickerChange = (open: boolean): void => emit({ type: 'picker', open })
   const sliderInput = (key: AppearanceNumberKey, value: number): void =>
     emit({ type: 'preview-number', key, value })
   const sliderCommit = (key: AppearanceNumberKey, value: number): void =>
@@ -117,7 +118,7 @@
       {@render nestedSlider('markerSize', 1)}
       <SettingRow label="Colour" {compact} depth={1}>
         {#snippet children()}
-          <ColourInput label="Marker colour" value={model.values.markerColour} disabled={!model.values.markMismatch} onPreview={(value) => emit({ type: 'preview-colour', key: 'markerColour', value })} onCommit={(value) => emit({ type: 'commit-colour', key: 'markerColour', value })} />
+          <ColourInput label="Marker colour" value={model.values.markerColour} disabled={!model.values.markMismatch} onPreview={(value) => emit({ type: 'preview-colour', key: 'markerColour', value })} onCommit={(value) => emit({ type: 'commit-colour', key: 'markerColour', value })} onOpenChange={pickerChange} />
         {/snippet}
       </SettingRow>
       <SettingRow label="Include unpainted pixels" {compact} depth={1}>
@@ -136,7 +137,7 @@
         <SettingRow label="Marked in" {compact} depth={2}>
           {#snippet children()}
             <div class="same-colour">
-              <ColourInput label="Colour for other colours" value={model.values.otherColour ?? model.values.markerColour} disabled={!model.values.markMismatch || !model.values.dimOthers} onPreview={(value) => emit({ type: 'preview-colour', key: 'otherColour', value })} onCommit={(value) => emit({ type: 'commit-colour', key: 'otherColour', value })} />
+              <ColourInput label="Colour for other colours" value={model.values.otherColour ?? model.values.markerColour} disabled={!model.values.markMismatch || !model.values.dimOthers} onPreview={(value) => emit({ type: 'preview-colour', key: 'otherColour', value })} onCommit={(value) => emit({ type: 'commit-colour', key: 'otherColour', value })} onOpenChange={pickerChange} />
               <button class="choice caelestis-bevel" type="button" class:active={model.values.otherColour === null} aria-pressed={model.values.otherColour === null} disabled={!model.values.markMismatch || !model.values.dimOthers} onclick={() => emit({ type: 'set-colour', key: 'otherColour', value: null })}>Same</button>
             </div>
           {/snippet}
@@ -153,7 +154,7 @@
       {@render nestedSlider('selectedMarkerSize', 1)}
       <SettingRow label="Colour" {compact} depth={1}>
         {#snippet children()}
-          <ColourInput label="Selected colour marker colour" value={model.values.selectedMarkerColour} disabled={!model.values.markSelectedColour} onPreview={(value) => emit({ type: 'preview-colour', key: 'selectedMarkerColour', value })} onCommit={(value) => emit({ type: 'commit-colour', key: 'selectedMarkerColour', value })} />
+          <ColourInput label="Selected colour marker colour" value={model.values.selectedMarkerColour} disabled={!model.values.markSelectedColour} onPreview={(value) => emit({ type: 'preview-colour', key: 'selectedMarkerColour', value })} onCommit={(value) => emit({ type: 'commit-colour', key: 'selectedMarkerColour', value })} onOpenChange={pickerChange} />
         {/snippet}
       </SettingRow>
     </div>
