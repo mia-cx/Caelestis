@@ -8,9 +8,6 @@ import {
   RESOLUTION_SECONDS,
 } from './counter-store.js'
 
-/** Ordinary client clock skew allowed on either edge of the accepted event-time window. */
-export const EVENT_TIME_SKEW_SECONDS = GRACE_SECONDS
-
 const isNonNegativeSafeInteger = (value: unknown): value is number =>
   Number.isSafeInteger(value) && (value as number) >= 0
 
@@ -62,6 +59,6 @@ export const isValidCounterDelta = (delta: unknown, nowSeconds: Seconds): delta 
   const bucketStart = seconds(Math.floor(occurredAt / RESOLUTION_SECONDS) * RESOLUTION_SECONDS)
   // Derived from the store's own window, never restated — see EXPIRES_AFTER_SECONDS.
   const bucketExpiresAt = bucketStart + EXPIRES_AFTER_SECONDS
-  const latestAccepted = nowSeconds + EVENT_TIME_SKEW_SECONDS
+  const latestAccepted = nowSeconds + GRACE_SECONDS
   return occurredAt <= latestAccepted && bucketExpiresAt > nowSeconds
 }

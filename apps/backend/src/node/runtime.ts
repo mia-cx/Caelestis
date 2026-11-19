@@ -9,6 +9,7 @@ import { MariaConnection } from '../adapters/node/mariadb-connection.js'
 import { PostgresConnection } from '../adapters/node/postgres-connection.js'
 import type { SqliteConnection } from '../adapters/node/sqlite-connection.js'
 import { claimSqliteOwnership } from '../adapters/node/sqlite-ownership.js'
+import { relationalSqlStore } from '../adapters/relational-sql-store.js'
 import { runAlarmWatcherCycle, scheduleAlarmWakeup } from '../alarm-watcher-cycle.js'
 import { closeProcessWrites } from '../archive/fence.js'
 import { readArchiveOperation } from '../archive/operation-row.js'
@@ -22,7 +23,7 @@ import { serialQueue } from '../runtime/serial-queue.js'
 import { type BackfillHandle, openBackfill } from '../server/backfill.js'
 import { composeBackend } from '../server/compose.js'
 import { JOB_NAMES, JOBS, type JobName } from '../server/jobs.js'
-import { portableStores, sqlStore } from '../server/stores.js'
+import { portableStores } from '../server/stores.js'
 import { serverInfo } from '../server-info.js'
 import { StatusCoordinator } from '../status-coordinator.js'
 import { derivedArtifactWriter } from '../telemetry/derived-artifact-writer.js'
@@ -93,7 +94,7 @@ const provisionReadToken = async (
     const tokenHash = await hashToken(readToken)
     const generated = readToken
     await connection.transaction(async (transaction) => {
-      await sqlStore(transaction).insertAccessToken({
+      await relationalSqlStore(transaction).insertAccessToken({
         tokenHash,
         label: 'Built-in frontend',
         scope: 'read',

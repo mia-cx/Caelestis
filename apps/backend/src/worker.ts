@@ -26,7 +26,6 @@ const QUEUE_BATCH_LIMIT = 100
 
 const backends = new WeakMap<Env, Backend>()
 
-/** The composed backend for this Worker environment, built on its first request or cron. */
 const backendFor = (env: Env): Backend => {
   const held = backends.get(env)
   if (held !== undefined) return held
@@ -91,8 +90,7 @@ const enqueueSocialRefresh = async (env: Env): Promise<void> => {
 }
 
 export default {
-  // Workers always pass the execution context; unit tests call fetch without one.
-  async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const mountedRequest = requestAtBasePath(request, cloudflareConfig(env).basePath, env.ROOT_HOST)
     if (mountedRequest === null) {
       return measureRequest(
@@ -113,7 +111,7 @@ export default {
     } finally {
       // Derived mismatch artifacts queued by this request finish after the reply; the Worker
       // must keep the isolate alive for them, or they only become later cache misses.
-      ctx?.waitUntil(derivedArtifactWriter.drain())
+      ctx.waitUntil(derivedArtifactWriter.drain())
     }
   },
 

@@ -3,7 +3,7 @@ import type { SqlStore } from './ports/index.js'
 import { ALARM_FOLLOW_UP_RETRY_MILLISECONDS } from './telemetry/alarm-policy.js'
 import { type FetcherStores, fetchAlarmFollowUps } from './telemetry/fetcher.js'
 
-export const ALARM_BATCH_DELAY_MILLISECONDS = 1_000
+const ALARM_BATCH_DELAY_MILLISECONDS = 1_000
 
 /** The alarm wakeup: a Durable Object's own alarm, or Node's durable `alarms` actor. */
 interface AlarmWakeup {

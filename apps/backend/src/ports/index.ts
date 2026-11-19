@@ -2,7 +2,6 @@ export type { BlobListPage, BlobNamespace, BlobStore } from './blob-store.js'
 export {
   addCounters,
   canAccumulateCounters,
-  EVENT_TIME_SKEW_SECONDS,
   isValidCounterDelta,
 } from './counter-delta.js'
 export {

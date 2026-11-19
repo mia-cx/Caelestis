@@ -56,4 +56,12 @@ describe('job table', () => {
   it.each(WRANGLER_FILES)('%s triggers exactly the crons the job table names', (file) => {
     expect(new Set(crons(file))).toEqual(new Set(JOB_NAMES.map((name) => JOBS[name].cron)))
   })
+
+  it.each(JOB_NAMES)('runs %s on Node as often as its Worker cron fires', (name) => {
+    const [minute, hour, ...daily] = JOBS[name].cron.split(' ')
+    expect(minute).toMatch(/^\d+$/)
+    expect(daily).toEqual(['*', '*', '*'])
+    const hours = hour?.startsWith('*/') ? Number(hour.slice(2)) : 24
+    expect(JOBS[name].every).toBe(hours * 60 * 60 * 1_000)
+  })
 })
