@@ -27,6 +27,6 @@
 
 <style>
   :host { display: block; }
-  .settings { padding-block-end: 0.75rem; color: var(--caelestis-text); font: 400 0.875rem/1.35 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); }
+  .settings { padding-block-end: 0.75rem; color: var(--caelestis-text); font: 400 0.875rem/1.35 var(--caelestis-font); }
   .version { margin: 0.6rem var(--caelestis-content-inset, 1rem) 0; color: var(--caelestis-muted-text); font-size: 0.72rem; }
 </style>

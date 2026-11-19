@@ -78,12 +78,11 @@ describe('notification and panel interactions', () => {
     ;(
       target.querySelector('button[aria-label="Dismiss notification"]') as HTMLButtonElement
     ).click()
-    Array.from(target.querySelectorAll('button'))
-      .find((button) => button.textContent?.trim() === 'Delete')!
-      .click()
-    Array.from(target.querySelectorAll('button'))
-      .find((button) => button.textContent?.trim() === 'Delete')!
-      .click()
+    const confirm = Array.from(target.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === 'Delete',
+    )
+    confirm?.click()
+    confirm?.click()
     expect(intents).toEqual([
       { type: 'dismiss-toast', id: 'toast' },
       { type: 'resolve-confirm', id: 'confirm', value: true },

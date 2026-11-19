@@ -231,7 +231,7 @@
   </div>
 
 <style>
-  .swatch, .preview { display: block; inline-size: 1.75rem; block-size: 1.75rem; flex: 0 0 auto; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); }
+  .swatch, .preview { display: block; inline-size: 1.75rem; block-size: 1.75rem; flex: 0 0 auto; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius); }
   .swatch { padding: 0; cursor: pointer; }
   .swatch:disabled { cursor: not-allowed; opacity: 0.45; }
   .picker {
@@ -240,7 +240,7 @@
     --dropdown-pre-scale: var(--caelestis-scale-medium);
     --dropdown-closing-scale: var(--caelestis-scale-tiny);
     --dropdown-ease: var(--caelestis-ease-smooth-out);
-    position: fixed; inset: auto; z-index: 50; inline-size: min(15rem, calc(100vw - 1rem)); margin: 0; padding: 1rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-surface); color: var(--caelestis-text); box-shadow: var(--caelestis-popover-shadow, 0 1px 2px rgb(0 0 0 / 0.12), 0 10px 24px -6px rgb(0 0 0 / 0.28));
+    position: fixed; inset: auto; z-index: 50; inline-size: min(15rem, calc(100vw - 1rem)); margin: 0; padding: 1rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius); background: var(--caelestis-surface); color: var(--caelestis-text); box-shadow: var(--caelestis-popover-shadow, 0 1px 2px rgb(0 0 0 / 0.12), 0 10px 24px -6px rgb(0 0 0 / 0.28));
     /* The picker opens above the swatch it edits. */
     transform-origin: bottom center;
     transform: scale(var(--dropdown-pre-scale));
@@ -267,10 +267,10 @@
   @media (prefers-reduced-motion: reduce) {
     .picker { transition: none !important; }
   }
-  .sv { position: relative; inline-size: 100%; aspect-ratio: 1.35; overflow: hidden; border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); cursor: crosshair; touch-action: none; }
+  .sv { position: relative; inline-size: 100%; aspect-ratio: 1.35; overflow: hidden; border-radius: var(--caelestis-radius); cursor: crosshair; touch-action: none; }
   .handle { position: absolute; inline-size: 0.8rem; block-size: 0.8rem; border: 2px solid white; border-radius: 50%; box-shadow: 0 0 0 1px black; transform: translate(-50%, -50%); pointer-events: none; }
   .hue { inline-size: 100%; margin-block: 0.65rem 0.35rem; accent-color: var(--caelestis-primary); }
   .bottom { display: flex; align-items: center; gap: 0.5rem; }
-  .hex { min-inline-size: 0; flex: 1; block-size: 2rem; padding-inline: 0.5rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-raised-surface); color: inherit; font: 500 0.8rem var(--caelestis-mono-font, ui-monospace, monospace); }
+  .hex { min-inline-size: 0; flex: 1; block-size: 2rem; padding-inline: 0.5rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius); background: var(--caelestis-raised-surface); color: inherit; font: 500 0.8rem var(--caelestis-mono-font); }
   .swatch:focus-visible, .sv:focus-visible, .hue:focus-visible, .hex:focus-visible { outline: 3px solid color-mix(in oklch, var(--caelestis-focus) 55%, transparent); outline-offset: 2px; }
 </style>

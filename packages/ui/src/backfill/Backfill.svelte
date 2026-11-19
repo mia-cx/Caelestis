@@ -69,7 +69,7 @@
   .template strong { overflow-wrap: anywhere; }
   img { inline-size: 4rem; block-size: 4rem; object-fit: contain; image-rendering: pixelated; background: var(--caelestis-raised-surface); border-radius: var(--caelestis-radius); }
   label { display: block; font-weight: 600; margin-block-end: 0.375rem; }
-  select { box-sizing: border-box; inline-size: 100%; min-block-size: 2.5rem; padding: 0.5rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, 0.5rem); background: var(--caelestis-raised-surface, #eee); color: inherit; font: inherit; }
+  select { box-sizing: border-box; inline-size: 100%; min-block-size: 2.5rem; padding: 0.5rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius); background: var(--caelestis-raised-surface, #eee); color: inherit; font: inherit; }
   select:focus-visible { outline: 2px solid var(--caelestis-focus); outline-offset: 2px; }
   p { margin: 0.5rem 0; }
   .coverage, .note { color: var(--caelestis-muted-text, #666); }

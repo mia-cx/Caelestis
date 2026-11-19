@@ -199,7 +199,7 @@
     inline-size: var(--caelestis-toasts-inline-size, min(24rem, calc(100vw - 4.25rem)));
     max-block-size: calc(100dvh - 1rem);
     color: var(--caelestis-text, oklch(0.26 0.025 264));
-    font: 500 0.8125rem/1.35 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
+    font: 500 0.8125rem/1.35 var(--caelestis-font);
     pointer-events: none;
   }
 
@@ -213,7 +213,7 @@
     gap: 0.5rem;
     padding: 0.25rem 0.25rem 0.25rem 0.75rem;
     border: 1px solid var(--caelestis-border, oklch(0.78 0.025 264 / 0.7));
-    border-radius: var(--caelestis-radius, calc(0.7rem + 1px));
+    border-radius: var(--caelestis-radius);
     background: var(--caelestis-surface, white);
     box-shadow: var(--caelestis-popover-shadow, 0 1px 2px rgb(0 0 0 / 0.12), 0 10px 24px -6px rgb(0 0 0 / 0.28));
     color: var(--caelestis-muted-text, color-mix(in oklab, currentColor 68%, transparent));
@@ -227,7 +227,7 @@
     inset: 0;
     z-index: calc(0 - var(--depth));
     border: 1px solid var(--caelestis-border, oklch(0.78 0.025 264 / 0.7));
-    border-radius: var(--caelestis-radius, calc(0.7rem + 1px));
+    border-radius: var(--caelestis-radius);
     background: var(--caelestis-surface, white);
     box-shadow: var(--caelestis-popover-shadow, 0 1px 2px rgb(0 0 0 / 0.12), 0 10px 24px -6px rgb(0 0 0 / 0.28));
     translate: 0 calc(var(--depth) * -0.5rem);
@@ -251,7 +251,7 @@
     padding: 0.25rem 0.25rem 0.25rem 0.75rem;
     /* Mixed in oklab: wplace's white is oklch(100% 0 0), whose hue 0 would otherwise turn every tint pink. */
     border: 1px solid color-mix(in oklab, var(--kind) 40%, var(--caelestis-border, oklch(0.78 0.025 264 / 0.7)));
-    border-radius: var(--caelestis-radius, calc(0.7rem + 1px));
+    border-radius: var(--caelestis-radius);
     background: color-mix(in oklab, var(--kind) 8%, var(--caelestis-surface, white));
     box-shadow: var(--caelestis-popover-shadow, 0 1px 2px rgb(0 0 0 / 0.12), 0 10px 24px -6px rgb(0 0 0 / 0.28));
   }
@@ -272,7 +272,7 @@
     min-block-size: 2rem;
     padding-inline: 0.625rem;
     border: 1px solid var(--caelestis-border, oklch(0.78 0.025 264 / 0.7));
-    border-radius: var(--caelestis-radius, calc(0.7rem + 1px));
+    border-radius: var(--caelestis-radius);
     background: var(--caelestis-raised-surface, color-mix(in oklab, var(--caelestis-surface, white) 92%, black));
     color: inherit;
     font-weight: 600;

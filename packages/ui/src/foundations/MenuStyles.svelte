@@ -1,8 +1,8 @@
 <!-- Shared by native selects and custom menus, including inside userscript shadow roots. -->
 <style>
   :global(.caelestis-select), :global(.caelestis-menu) {
-    --menu-radius: var(--caelestis-radius, 0.5rem);
-    --menu-item-radius: var(--caelestis-radius, 0.25rem);
+    --menu-radius: var(--caelestis-radius);
+    --menu-item-radius: var(--caelestis-radius);
     --menu-padding: 0.25rem;
     --menu-surface: var(--caelestis-surface, var(--color-base-100, white));
     --menu-text: var(--caelestis-text, var(--color-base-content, #202c40));
@@ -11,7 +11,7 @@
     box-sizing: border-box;
     color: var(--menu-text);
     /* A host on its own type sets --menu-font; the userscript keeps the system face over Wplace. */
-    font: var(--menu-font, 400 0.875rem/1.35 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif));
+    font: var(--menu-font, 400 0.875rem/1.35 var(--caelestis-font));
   }
   :global(select.caelestis-select) {
     appearance: none;

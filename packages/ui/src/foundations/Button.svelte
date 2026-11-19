@@ -79,7 +79,7 @@
     min-block-size: 0;
     padding-inline: var(--button-padding);
     border: var(--border, 1px) solid color-mix(in oklab, var(--button-colour), #000 calc(var(--depth, 1) * 5%));
-    border-radius: var(--caelestis-radius, calc(0.7rem + 1px));
+    border-radius: var(--caelestis-radius);
     outline-color: var(--button-colour);
     background: var(--button-colour);
     color: var(--button-foreground);
@@ -87,7 +87,7 @@
       0 0.5px 0 0.5px oklch(100% 0 0 / calc(var(--depth, 1) * 6%)) inset,
       0 3px 2px -2px color-mix(in oklab, var(--button-colour) calc(var(--depth, 1) * 30%), transparent),
       0 4px 3px -2px color-mix(in oklab, var(--button-colour) calc(var(--depth, 1) * 30%), transparent);
-    font: 600 var(--button-font-size)/1 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
+    font: 600 var(--button-font-size)/1 var(--caelestis-font);
     cursor: pointer;
     touch-action: manipulation;
     user-select: none;
@@ -95,7 +95,7 @@
 
   button.compact { --button-size: 1.5rem; --button-padding: 0.5rem; --button-font-size: 0.6875rem; }
   button.small { --button-size: 2rem; --button-padding: 0.75rem; --button-font-size: 0.75rem; }
-  button.icon-only { inline-size: var(--button-size); padding-inline: 0; border-radius: var(--caelestis-pill-radius, 999px); }
+  button.icon-only { inline-size: var(--button-size); padding-inline: 0; border-radius: var(--caelestis-pill-radius); }
   button.primary { --button-colour: var(--caelestis-primary, var(--color-primary, oklch(0.58 0.17 252))); --button-foreground: var(--color-primary-content, white); }
   button.success { --button-colour: var(--caelestis-success); --button-foreground: var(--color-success-content, white); }
   button.warning { --button-colour: var(--caelestis-warning); --button-foreground: var(--color-warning-content, black); }

@@ -227,18 +227,18 @@
     --modal-open-dur: var(--caelestis-duration-medium);
     --modal-close-dur: var(--caelestis-duration-fast);
     --modal-scale: none;
-    position: fixed; inset: 0; inline-size: 96vw; block-size: 96dvh; max-inline-size: none; max-block-size: none; margin: auto; padding: 0; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); overflow: visible; color: inherit; background: transparent;
+    position: fixed; inset: 0; inline-size: 96vw; block-size: 96dvh; max-inline-size: none; max-block-size: none; margin: auto; padding: 0; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius); overflow: visible; color: inherit; background: transparent;
   }
-  dialog .panel { border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); }
+  dialog .panel { border-radius: var(--caelestis-radius); }
   .panel { container: panel / inline-size; }
-  .panel { --caelestis-content-inset: 1rem; position: relative; display: flex; flex-direction: column; min-block-size: 0; block-size: 100%; overflow: hidden; border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-surface, oklch(0.97 0.01 264)); color: var(--caelestis-text, oklch(0.26 0.025 264)); box-shadow: var(--caelestis-shadow, 0 24px 80px rgb(0 0 0 / 0.35)); }
+  .panel { --caelestis-content-inset: 1rem; position: relative; display: flex; flex-direction: column; min-block-size: 0; block-size: 100%; overflow: hidden; border-radius: var(--caelestis-radius); background: var(--caelestis-surface, oklch(0.97 0.01 264)); color: var(--caelestis-text, oklch(0.26 0.025 264)); box-shadow: var(--caelestis-shadow, 0 24px 80px rgb(0 0 0 / 0.35)); }
   header { display: flex; flex: 0 0 auto; align-items: center; gap: 0.5rem; padding: 1rem 1.5rem; border-block-end: 1px solid var(--caelestis-border, oklch(0.78 0.025 264 / 0.7)); }
-  h2 { flex: 1; margin: 0; font: 600 0.875rem/1.25 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); }
+  h2 { flex: 1; margin: 0; font: 600 0.875rem/1.25 var(--caelestis-font); }
   .body { display: grid; flex: 1; min-block-size: 0; }
   /* Outgoing and incoming pages share one grid cell so the swap never shifts layout. */
   .page { grid-area: 1 / 1; display: flex; flex-direction: column; min-block-size: 0; min-inline-size: 0; }
   .resize { position: absolute; inset-block: 0; inset-inline-start: 0; z-index: 1; inline-size: 6px; cursor: ew-resize; }
-  .resize:hover::after, .resize.resizing::after, .resize:focus-visible::after { content: ''; position: absolute; inset: 0 2px 0 1px; border-radius: var(--caelestis-pill-radius, 999px); background: var(--caelestis-primary, currentColor); opacity: 0.5; }
+  .resize:hover::after, .resize.resizing::after, .resize:focus-visible::after { content: ''; position: absolute; inset: 0 2px 0 1px; border-radius: var(--caelestis-pill-radius); background: var(--caelestis-primary, currentColor); opacity: 0.5; }
   .resize:focus-visible { outline: none; }
   @container panel (max-width: 24rem) {
     header { gap: 0.25rem; padding-inline: 0.75rem; }
