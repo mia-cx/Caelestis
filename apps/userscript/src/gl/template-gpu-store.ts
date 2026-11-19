@@ -283,7 +283,6 @@ export class TemplateGpuStore {
     let left = Math.max(0, Math.floor(allowance))
     let uploadedPixels = 0
     while (left > 0 && upload.queue.length > 0) {
-      // The first visible chunk, else the next in plan order.
       const at = Math.max(
         0,
         upload.queue.findIndex((tile) => overlaps(tile, visible)),

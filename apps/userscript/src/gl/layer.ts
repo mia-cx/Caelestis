@@ -38,9 +38,8 @@ import { SETTLED_TAP_CAP, TemplatePass, type TemplatePlacement } from './templat
  * marker lives in. Being *in* their layer stack is what puts our templates under their crosshair and
  * under any pixels waiting to be placed, rather than on a canvas stacked over the lot.
  *
- * It also removes an entire class of bug rather than fixing it. Every seam, drift and half-pixel
- * fringe came from rasterising into our own screen-space canvas and then trying to make that grid
- * agree with theirs. Here there is one grid, and we do not re-derive it.
+ * It also means one pixel grid. An overlay rasterised into its own screen-space canvas has to make
+ * its grid agree with theirs, and every seam, drift and half-pixel fringe comes from that.
  *
  * **Positions come from their tiles, not from a projection of our own.** One quad per Wplace tile a
  * template covers, placed on the on-screen rect that tile was actually drawn at this frame. Nothing
@@ -363,7 +362,6 @@ export const overlayLayer = {
   renderingMode: '2d' as const,
 
   onAdd(_map: unknown, gl: WebGL2RenderingContext): void {
-    // Handles from a replaced context belong to it; forget them and rebuild for this one.
     owner = gl
     gpu = new TemplateGpuStore(gl)
     renderGeneration = 0
@@ -373,7 +371,6 @@ export const overlayLayer = {
 
   onRemove(_map: unknown, gl: WebGL2RenderingContext): void {
     if (owner !== gl) return
-    // Nothing is drawn any more, so nothing stays pinned in memory for this layer.
     noteTemplatesInView(WORLD_TEMPLATE_SURFACE, NOTHING_IN_VIEW)
     clearGpuProfile(gl)
     owner = null

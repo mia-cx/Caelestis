@@ -8,10 +8,7 @@
  * and short enough that it never becomes a wait.
  *
  * Its own module because several layers ramp and none should import another. The overlay drives
- * the template ramps; the markers only read them — and having the markers reach into the overlay
- * for that, while the overlay reached into the markers for its layer object, was a circular import.
- * The bundler resolves one side of a cycle to a half-initialised module, so `markerLayer` could be
- * `undefined` at the moment the installer touched it.
+ * the template ramps; the markers only read them.
  */
 
 /** How long anything takes to arrive or leave. */
@@ -33,12 +30,9 @@ export const FADE_EASING = `cubic-bezier(${CONTROL.join(', ')})`
 export const FADE_TRANSITION = `opacity ${FADE_MS}ms ${FADE_EASING}`
 
 /**
- * That bezier, evaluated.
- *
- * A CSS cubic bezier is a curve in two dimensions with its ends pinned to (0,0) and (1,1), so
- * getting `y` for a given time means first solving `x(t) = time` for the parameter. Bisection rather
- * than Newton's method: the curve is monotonic in x by construction, twenty halvings put the answer
- * within a millionth, and this runs a few dozen times a frame at most.
+ * That bezier, evaluated. A CSS cubic bezier is a curve in two dimensions with its ends pinned to
+ * (0,0) and (1,1), so getting `y` for a given time means first solving `x(t) = time` for the
+ * parameter.
  */
 const bezier = (a: number, b: number, at: number): number => {
   const curve = (t: number, p1: number, p2: number): number => {
@@ -105,8 +99,6 @@ export const ramps = ({ startAt = 'zero' }: { startAt?: 'zero' | 'target' } = {}
       }
       const value = at(existing, now)
       if (existing.to !== target) {
-        // Turned around mid-ramp. Starting the new one from the value on screen is what stops a
-        // half-faded template snapping to full before it fades back out.
         fades.set(id, { from: value, to: target, since: now })
         return { value, done: false }
       }

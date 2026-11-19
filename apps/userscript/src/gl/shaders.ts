@@ -15,12 +15,10 @@ export const TEXTURE_HALO = 2
  * **Colour is a lookup, not a bitmap.** A template is uploaded once as one byte per pixel — the
  * palette index wplace itself uses — and the fragment shader reads the colour out of a 64-entry
  * table. Hiding a colour is then a 256-byte table upload rather than rebuilding a million-pixel
- * image, which is what made the CPU version cost a re-bake per toggle.
+ * image.
  *
  * **Shape is computed, not sampled.** The stamp is a rounded box evaluated as a signed distance in
  * cell space, so it is exact at any zoom and anti-aliases itself from the screen-space derivative.
- * The version this replaces expanded every source pixel into a 3x3 block and drew inside it, which
- * fixed the shape's resolution to the pixel grid and made "33% size" one device pixel.
  */
 
 /**

@@ -327,7 +327,6 @@ class ArtboardCanvas {
     return gl === null ? null : new ArtboardCanvas(element, gl)
   }
 
-  /** Clear the whole buffer of what the last frame drew. */
   clear(): void {
     const { gl, element } = this
     gl.disable(gl.SCISSOR_TEST)
@@ -672,7 +671,6 @@ class ArtboardRenderer {
     const templates = templateScene.templates.filter(
       ({ fade, palette }) => fade > 0 && palette !== null,
     )
-    // Only templates overlapping the frame count as in view, matching what the passes draw.
     const inFrame = templates.filter(({ template }) =>
       overlapsArtboardFrame(template, this.geometry, viewport),
     )
@@ -846,7 +844,6 @@ class ArtboardRenderer {
         selectedLayers.length + mismatchLayers.length - markerLayers.length,
       )
     }
-    // Draw the chunks finished so far, and upload the rest on the next frame.
     if (outlineResult.pending || overlayResult.pending || moving || !peek.done) animating = true
     if (animating) this.requestRender()
   }

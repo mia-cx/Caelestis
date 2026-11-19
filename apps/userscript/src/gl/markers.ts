@@ -84,11 +84,9 @@ let nextRetry = 0
 let retryTimer: ReturnType<typeof setTimeout> | null = null
 
 /**
- * Ask for another frame once the heartbeat allows it, from a timer.
- *
- * Asking only from inside a frame relied on some other frame arriving after the heartbeat was due.
- * Wplace's map used to render continuously, so one always did. Now an idle map renders nothing, and
- * a scan deferred behind a failed or queued tile chase would wait for the next unrelated movement.
+ * Ask for another frame once the heartbeat allows it, from a timer: an idle Wplace map renders
+ * nothing, so a scan deferred behind a failed or queued tile chase would otherwise wait for the next
+ * unrelated movement.
  */
 const retryDeferredScan = (now: number): void => {
   if (retryTimer !== null) return
@@ -113,16 +111,6 @@ const drawVisible = (
     holdTilePixels([])
     return
   }
-  /**
-   * Everything whose markers are still worth anything, which is not the same as everything that
-   * asked for them.
-   *
-   * Switching markers off used to remove the template from this list, and every crosshair on it
-   * vanished between two frames. On dense artwork that is indistinguishable from the overlay
-   * breaking: a few thousand marks disappear at once and nothing says whether they were fixed,
-   * filtered, or lost. So the switch is a destination — the marks keep being drawn at falling
-   * opacity until the ramp runs out, and only then does the template drop off this list.
-   */
   const now = performance.now()
   const selected = selectedColour() ?? -1
   const sceneTemplates = worldRenderScene.advanceTemplates(
@@ -140,6 +128,10 @@ const drawVisible = (
     now,
   )
   const animating = sceneTemplates.animating || sceneMarkers.animating || !peek.done
+  // Everything whose markers are still worth drawing, which is not everything that asked for them.
+  // Switching markers off is a destination: the marks keep drawing at falling opacity until the ramp
+  // runs out. On dense artwork, thousands of marks vanishing between two frames would look like the
+  // overlay breaking, with nothing saying whether they were fixed, filtered, or lost.
   const wanted: {
     template: PlacedTemplate
     appearance: (typeof sceneTemplates.templates)[number]['appearance']
