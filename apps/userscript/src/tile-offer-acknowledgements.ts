@@ -1,23 +1,26 @@
 export type TileOfferDecision = 'fresh' | 'retry' | 'pending' | 'avoid'
 
-interface TileOfferReceipt {
-  readonly state: 'in-flight' | 'retryable' | 'acknowledged' | 'rejected'
-  readonly expiresAt: number
-  readonly coverageGeneration?: number
-}
+/** How long a receipt answers for an observation before it may be offered again. */
+const RECEIPT_TTL_MS = 5 * 60_000
+const MAX_SERVERS = 32
+const MAX_RECEIPTS_PER_SERVER = 4_096
+
+type TileOfferReceipt =
+  /** Offered and unanswered; expires so a thrown or abandoned request cannot block forever. */
+  | {
+      readonly state: 'in-flight'
+      readonly expiresAt: number
+      readonly coverageGeneration: number
+    }
+  | { readonly state: 'acknowledged' | 'rejected'; readonly expiresAt: number }
+  /** Failed in a way worth repeating: the next observation is offered again. */
+  | { readonly state: 'retryable' }
 
 interface ServerAcknowledgements {
   readonly owner: object
   readonly season: number
   readonly receipts: Map<string, TileOfferReceipt>
   coverageGeneration: number
-}
-
-export interface TileOfferAcknowledgementsOptions {
-  readonly ttlMs: number
-  readonly maxServers: number
-  readonly maxReceiptsPerServer: number
-  readonly now?: () => number
 }
 
 /**
@@ -29,16 +32,10 @@ export interface TileOfferAcknowledgementsOptions {
  */
 export class TileOfferAcknowledgements {
   readonly #servers = new Map<string, ServerAcknowledgements>()
-  readonly #ttlMs: number
-  readonly #maxServers: number
-  readonly #maxReceiptsPerServer: number
   readonly #now: () => number
 
-  constructor(options: TileOfferAcknowledgementsOptions) {
-    this.#ttlMs = options.ttlMs
-    this.#maxServers = options.maxServers
-    this.#maxReceiptsPerServer = options.maxReceiptsPerServer
-    this.#now = options.now ?? Date.now
+  constructor(now: () => number = Date.now) {
+    this.#now = now
   }
 
   decision(
@@ -51,11 +48,9 @@ export class TileOfferAcknowledgements {
     const receipt = server.receipts.get(observation)
     if (receipt === undefined) return 'fresh'
     server.receipts.delete(observation)
-    if (receipt.expiresAt > this.#now()) {
-      server.receipts.set(observation, receipt)
-      return receipt.state === 'acknowledged' || receipt.state === 'rejected' ? 'avoid' : 'pending'
-    }
-    return 'retry'
+    if (receipt.state === 'retryable' || receipt.expiresAt <= this.#now()) return 'retry'
+    server.receipts.set(observation, receipt)
+    return receipt.state === 'in-flight' ? 'pending' : 'avoid'
   }
 
   started(serverUrl: string, owner: object, season: number, observation: string): void {
@@ -63,18 +58,14 @@ export class TileOfferAcknowledgements {
     this.#remember(server, observation, {
       state: 'in-flight',
       coverageGeneration: server.coverageGeneration,
-      // A thrown or abandoned request cannot suppress observations forever.
-      expiresAt: this.#now() + this.#ttlMs,
+      expiresAt: this.#now() + RECEIPT_TTL_MS,
     })
   }
 
   retryable(serverUrl: string, owner: object, season: number, observation: string): void {
     const server = this.#settlementServer(serverUrl, owner, season)
     if (server === null) return
-    this.#remember(server, observation, {
-      state: 'retryable',
-      expiresAt: 0,
-    })
+    this.#remember(server, observation, { state: 'retryable' })
   }
 
   acknowledged(serverUrl: string, owner: object, season: number, observation: string): void {
@@ -82,7 +73,7 @@ export class TileOfferAcknowledgements {
     if (server === null) return
     this.#remember(server, observation, {
       state: 'acknowledged',
-      expiresAt: this.#now() + this.#ttlMs,
+      expiresAt: this.#now() + RECEIPT_TTL_MS,
     })
   }
 
@@ -94,12 +85,12 @@ export class TileOfferAcknowledgements {
       pending?.state === 'in-flight' &&
       pending.coverageGeneration !== server.coverageGeneration
     ) {
-      this.#remember(server, observation, { state: 'retryable', expiresAt: 0 })
+      this.#remember(server, observation, { state: 'retryable' })
       return false
     }
     this.#remember(server, observation, {
       state: 'rejected',
-      expiresAt: this.#now() + this.#ttlMs,
+      expiresAt: this.#now() + RECEIPT_TTL_MS,
     })
     return true
   }
@@ -115,7 +106,7 @@ export class TileOfferAcknowledgements {
 
   #remember(server: ServerAcknowledgements, observation: string, receipt: TileOfferReceipt): void {
     server.receipts.delete(observation)
-    while (server.receipts.size >= this.#maxReceiptsPerServer) {
+    while (server.receipts.size >= MAX_RECEIPTS_PER_SERVER) {
       const oldest = server.receipts.keys().next()
       if (oldest.done) break
       server.receipts.delete(oldest.value)
@@ -144,7 +135,7 @@ export class TileOfferAcknowledgements {
       return existing
     }
     this.#servers.delete(serverUrl)
-    while (this.#servers.size >= this.#maxServers) {
+    while (this.#servers.size >= MAX_SERVERS) {
       const oldest = this.#servers.keys().next()
       if (oldest.done) break
       this.#servers.delete(oldest.value)

@@ -1,62 +1,85 @@
 import type { StatusDelta, TemplateStatus } from '@caelestis/shared'
+import type { ServerConnection } from './settings.js'
 
-interface StatusServer {
-  readonly url: string
+const sameStatus = (left: TemplateStatus | undefined, right: TemplateStatus): boolean =>
+  left !== undefined &&
+  left.templateId === right.templateId &&
+  left.correct === right.correct &&
+  left.wrong === right.wrong &&
+  left.blank === right.blank &&
+  left.total === right.total &&
+  left.observedAt === right.observedAt &&
+  (left.colours === undefined
+    ? right.colours === undefined
+    : right.colours !== undefined &&
+      left.colours.length === right.colours.length &&
+      left.colours.every((colour, index) => {
+        const other = right.colours?.[index]
+        return (
+          other !== undefined &&
+          colour.index === other.index &&
+          colour.correct === other.correct &&
+          colour.wrong === other.wrong &&
+          colour.blank === other.blank &&
+          colour.total === other.total
+        )
+      }))
+
+interface ServerStatuses {
+  /** The connection the values were read through; a reconnect starts from a fresh snapshot. */
+  server: ServerConnection
+  readonly values: Map<string, TemplateStatus>
 }
 
-interface StatusEntry<Server> {
-  readonly server: Server
-  readonly value: TemplateStatus
-}
+/** One browser client's materialized status values per server, independent of transport. */
+export class ClientStatusProjection {
+  readonly #servers = new Map<string, ServerStatuses>()
 
-const keyFor = (serverUrl: string, templateId: string): string => `${serverUrl}\u0000${templateId}`
-
-/** One browser client's materialized status values, independent from transport and rendering. */
-export class ClientStatusProjection<Server extends StatusServer> {
-  private readonly entries = new Map<string, StatusEntry<Server>>()
-
-  entry(serverUrl: string, templateId: string): StatusEntry<Server> | undefined {
-    return this.entries.get(keyFor(serverUrl, templateId))
+  entry(
+    serverUrl: string,
+    templateId: string,
+  ): { readonly server: ServerConnection; readonly value: TemplateStatus } | undefined {
+    const held = this.#servers.get(serverUrl)
+    const value = held?.values.get(templateId)
+    return held === undefined || value === undefined ? undefined : { server: held.server, value }
   }
 
+  /** Whether `next` would change what is held for this server. */
   differs(serverUrl: string, next: readonly TemplateStatus[]): boolean {
-    const present = new Set(next.map((status) => keyFor(serverUrl, status.templateId)))
+    const held = this.#servers.get(serverUrl)?.values ?? new Map<string, TemplateStatus>()
     return (
-      next.some(
-        (status) =>
-          JSON.stringify(this.entry(serverUrl, status.templateId)?.value) !==
-          JSON.stringify(status),
-      ) ||
-      [...this.entries.keys()].some(
-        (key) => key.startsWith(`${serverUrl}\u0000`) && !present.has(key),
-      )
+      held.size !== next.length ||
+      next.some((status) => !sameStatus(held.get(status.templateId), status))
     )
   }
 
-  replace(server: Server, next: readonly TemplateStatus[]): void {
-    const prefix = `${server.url}\u0000`
-    const present = new Set<string>()
-    for (const status of next) {
-      const key = keyFor(server.url, status.templateId)
-      present.add(key)
-      this.entries.set(key, { server, value: status })
-    }
-    for (const key of this.entries.keys()) {
-      if (key.startsWith(prefix) && !present.has(key)) this.entries.delete(key)
-    }
+  replace(server: ServerConnection, next: readonly TemplateStatus[]): void {
+    this.#servers.set(server.url, {
+      server,
+      values: new Map(next.map((status) => [status.templateId, status])),
+    })
   }
 
-  applyDelta(server: Server, delta: StatusDelta): boolean {
+  /** Apply replacements and removals; whether anything changed. */
+  applyDelta(server: ServerConnection, delta: StatusDelta): boolean {
+    let held = this.#servers.get(server.url)
+    if (held === undefined) {
+      held = { server, values: new Map() }
+      this.#servers.set(server.url, held)
+    }
+    held.server = server
     let changed = false
     for (const status of delta.templates) {
-      const key = keyFor(server.url, status.templateId)
-      if (JSON.stringify(this.entries.get(key)?.value) === JSON.stringify(status)) continue
-      this.entries.set(key, { server, value: status })
+      if (sameStatus(held.values.get(status.templateId), status)) continue
+      held.values.set(status.templateId, status)
       changed = true
     }
-    for (const templateId of delta.removedTemplateIds) {
-      changed = this.entries.delete(keyFor(server.url, templateId)) || changed
-    }
+    for (const templateId of delta.removedTemplateIds)
+      changed = held.values.delete(templateId) || changed
     return changed
+  }
+
+  forget(serverUrl: string): void {
+    this.#servers.delete(serverUrl)
   }
 }

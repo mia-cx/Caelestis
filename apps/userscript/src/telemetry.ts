@@ -31,6 +31,7 @@ import {
   connectedServers,
   isConnected,
   isCurrentServerConnection,
+  onServerRemoved,
   serverConnectionIdentity,
 } from './server-connections.js'
 import { invalidateServerMismatches, invalidateServerMismatchTiles } from './server-mismatch.js'
@@ -74,8 +75,6 @@ const MAX_UNSETTLED_OFFERS_PER_SERVER = MAX_RECENT_TILES + MAX_TILE_OFFERS
 const MAX_RETAINED_TILE_BYTES = MAX_RECENT_TILE_BYTES
 const MAX_RECENT_PAINTS = 64
 const MAX_DEDUPE_VALUES = 4_096
-const TILE_OFFER_ACKNOWLEDGEMENT_TTL_MS = 5 * 60_000
-const MAX_TILE_OFFER_SERVERS = 32
 
 interface OfferedTile extends TileOffer {
   readonly deliveryId: string
@@ -129,7 +128,7 @@ const retainedTileBlobs = new Map<string, RetainedTileBlob>()
 const attemptedTileOffers = new Set<string>()
 /** Servers whose next offer flush is a retry after a failure. */
 const retryingOffers = new Set<string>()
-const statuses = new ClientStatusProjection<ConnectedServer>()
+const statuses = new ClientStatusProjection()
 const alarms = new Map<
   string,
   {
@@ -144,10 +143,15 @@ const recentTiles = new Map<string, OfferedTile>()
 const recentPaints: ObservedPaint[] = []
 let recentTileBytes = 0
 let retainedTileBytes = 0
-const tileOfferAcknowledgements = new TileOfferAcknowledgements({
-  ttlMs: TILE_OFFER_ACKNOWLEDGEMENT_TTL_MS,
-  maxServers: MAX_TILE_OFFER_SERVERS,
-  maxReceiptsPerServer: MAX_DEDUPE_VALUES,
+const tileOfferAcknowledgements = new TileOfferAcknowledgements()
+
+// What a disconnected server reported goes with it; offers and receipts are fenced by the
+// connection lifetime and cleared when the state no longer lists the server.
+onServerRemoved((serverUrl) => {
+  statuses.forget(serverUrl)
+  coverage.delete(serverUrl)
+  reportedPaints.delete(serverUrl)
+  for (const [key, held] of [...alarms]) if (held.server.url === serverUrl) alarms.delete(key)
 })
 
 const tileOfferMetric = (
