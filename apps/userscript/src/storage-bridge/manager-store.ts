@@ -18,29 +18,18 @@ export const managerStore = (): StringStore => {
   }
   return {
     async load() {
-      try {
-        const values: Record<string, string> = {}
-        for (const key of managerValues.keys()) {
-          const value = managerValues.get(key)
-          if (value !== null) values[key] = value
-          watch(key)
-        }
-        return values
-      } catch (error) {
-        console.warn('[caelestis] could not load stored values', error)
-        return null
+      const values: Record<string, string> = {}
+      for (const key of managerValues.keys()) {
+        const value = managerValues.get(key)
+        if (value !== null) values[key] = value
+        watch(key)
       }
+      return values
     },
     async write(key, value) {
-      try {
-        if (value === null) managerValues.delete(key)
-        else managerValues.set(key, value)
-        watch(key)
-        return true
-      } catch (error) {
-        console.warn(`[caelestis] could not store ${key}`, error)
-        return false
-      }
+      if (value === null) managerValues.delete(key)
+      else managerValues.set(key, value)
+      watch(key)
     },
     onChange(listener) {
       changed = listener

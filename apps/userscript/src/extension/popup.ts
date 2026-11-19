@@ -29,7 +29,10 @@ const start = async (): Promise<void> => {
   const values = new Map(Object.entries(await loadStoredStrings()))
   onStoredStringsChange(
     useStoredValues(values, {
-      persist: (key, value) => void writeStoredString(key, value),
+      persist: (key, value) =>
+        void writeStoredString(key, value).catch((error: unknown) =>
+          console.warn(`[caelestis] could not store ${key}`, error),
+        ),
       fetch: loadStoredStrings,
     }),
   )

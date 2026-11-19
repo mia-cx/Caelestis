@@ -4,10 +4,10 @@ import type { BridgeMessage, PageMessage } from './protocol.js'
 
 /** Where a build keeps its stored strings, seen from its storage world. */
 export interface StringStore {
-  /** Every stored string, or `null` when storage could not be read. */
-  load(): Promise<Record<string, string> | null>
-  /** Store `value` under `key`, or delete it for `null`. Resolves `false` when that failed. */
-  write(key: string, value: string | null): Promise<boolean>
+  /** Every stored string. Rejects when storage could not be read. */
+  load(): Promise<Record<string, string>>
+  /** Store `value` under `key`, or delete it for `null`. Rejects when that failed. */
+  write(key: string, value: string | null): Promise<void>
   /** Run `listener` with each change made in another context, `null` for a delete. */
   onChange?(listener: (changes: Record<string, string | null>) => void): void
   /**
@@ -24,7 +24,14 @@ export interface StringStore {
  * handoff before any page listener sees it. Returns a function that stops waiting for the handoff.
  */
 export const serveStorageBridge = (build: Build, store: StringStore): (() => void) => {
-  const loaded = store.load()
+  // Storage failures end here: an unreadable store serves defaults, and a failed write makes the
+  // next sync answer `null`.
+  const load = (): Promise<Record<string, string> | null> =>
+    store.load().catch((error: unknown) => {
+      console.warn('[caelestis] could not load stored values', error)
+      return null
+    })
+  const loaded = load()
   const onHandoff = (event: MessageEvent): void => {
     // Violentmonkey hands granted scripts a proxy for `window`; the event carries the page's own.
     if (
@@ -47,7 +54,10 @@ export const serveStorageBridge = (build: Build, store: StringStore): (() => voi
       const message = JSON.parse(String(data)) as PageMessage
       queue = queue.then(async () => {
         if (message.type === 'write') {
-          if (!(await store.write(message.key, message.value))) writeFailed = true
+          await store.write(message.key, message.value).catch((error: unknown) => {
+            console.warn(`[caelestis] could not store ${message.key}`, error)
+            writeFailed = true
+          })
           return
         }
         if (message.type === 'watch') {
@@ -55,7 +65,7 @@ export const serveStorageBridge = (build: Build, store: StringStore): (() => voi
           if (value !== null) send({ type: 'watched', key: message.key, value })
           return
         }
-        const values = writeFailed ? null : await store.load()
+        const values = writeFailed ? null : await load()
         writeFailed = false
         send({ type: 'synced', id: message.id, values })
       })
