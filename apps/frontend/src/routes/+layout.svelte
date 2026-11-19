@@ -16,6 +16,7 @@ import {
   usesServerReadProxy,
 } from '#lib/api/client.js'
 import ConnectDialog from '#lib/components/ConnectDialog.svelte'
+import { STORAGE_KEYS } from '#lib/deployment.js'
 import SocialMetadata from '#lib/components/SocialMetadata.svelte'
 import { provideApp } from '#lib/state/app.svelte.js'
 import '../app.css'
@@ -69,7 +70,7 @@ const toggleTheme = (): void => {
     (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'caelestis-dark' : 'caelestis')
   const next = current === 'caelestis-dark' ? 'caelestis' : 'caelestis-dark'
   document.documentElement.dataset.theme = next
-  localStorage.setItem('caelestis:theme', next)
+  localStorage.setItem(STORAGE_KEYS.theme, next)
 }
 </script>
 

@@ -2,6 +2,7 @@ import { parseTileKey, type Template, type TileKey } from '@caelestis/shared'
 import { mergeArchiveFrames, type PlaybackFrame } from '@caelestis/social'
 import { untrack } from 'svelte'
 import { getArchiveHistory, getTileHistory } from '#lib/api/client.js'
+import { STORAGE_KEYS } from '#lib/deployment.js'
 import { persisted } from '#lib/persisted.svelte.js'
 import { type TimelapseLayout, timelapseLayout } from '#lib/render.js'
 import { useApp } from '#lib/state/app.svelte.js'
@@ -81,7 +82,7 @@ export class TimelapsePlayer {
   })
 
   /** Playback rate: 1× is one recorded hour per 350 ms, independent of snapshot density. */
-  readonly #storedSpeed = persisted<number>('caelestis:timelapse-speed', 1)
+  readonly #storedSpeed = persisted<number>(STORAGE_KEYS.timelapseSpeed, 1)
   readonly speed = $derived(playbackSpeed(this.#storedSpeed.value) ?? 1)
   /** Recorded seconds that playback covers, from the first snapshot to the live end. */
   readonly span = $derived(this.historyEnd - (this.timeline[0] ?? this.historyEnd))

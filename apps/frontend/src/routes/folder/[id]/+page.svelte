@@ -86,7 +86,7 @@ const ancestors = $derived(
       <StatsPanel
         {templates}
         season={app.manifest.season}
-        liveDashboard={app.liveProtocol === 2}
+        liveDashboard={app.live}
         progress={folder.progress}
         subscribeDashboard={app.subscribeDashboard}
         playhead={player.live ? null : player.playhead}

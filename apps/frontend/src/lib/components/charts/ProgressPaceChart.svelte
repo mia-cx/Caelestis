@@ -13,6 +13,7 @@
   import { Tween } from 'svelte/motion'
   import { fade, type TransitionConfig } from 'svelte/transition'
   import { type Persisted, persisted } from '#lib/persisted.svelte.js'
+  import { STORAGE_KEYS } from '#lib/deployment.js'
   import {
     type PainterOption,
     painterColour,
@@ -56,7 +57,7 @@
     onTogglePainter = () => {},
     onSetAllPainters = () => {},
     painterHistories = [],
-    windows = persisted<string[]>('caelestis:pace-windows', ['1h', '6h']),
+    windows = persisted<string[]>(STORAGE_KEYS.paceWindows, ['1h', '6h']),
     playhead = null,
     onSeek,
     onScrubStart,
@@ -213,7 +214,7 @@
 
   // Everyone's rolling pace lines are one more entry in the pace picker, pinned at the top, so a
   // reader can leave painters alone on the axis or bring the whole template back.
-  const storedAllUsers = persisted<boolean>('caelestis:pace-all-users', true)
+  const storedAllUsers = persisted<boolean>(STORAGE_KEYS.paceAllUsers, true)
   const allUsersShown = $derived(storedAllUsers.value !== false)
   const enabledPaces = $derived(
     allUsersShown

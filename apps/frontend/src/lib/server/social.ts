@@ -1,5 +1,5 @@
 import type { Manifest, ServerInfo, Template, TemplateStatus } from '@caelestis/shared'
-import { serverAssetPath } from '@caelestis/shared'
+import { API_VERSION_PATH, serverAssetPath } from '@caelestis/shared'
 import {
   DEFAULT_SOCIAL_IMAGE,
   SOCIAL_IMAGE_HEIGHT,
@@ -7,6 +7,7 @@ import {
   socialImageKey,
 } from '@caelestis/social'
 import type { ObjectInfo, ObjectStorage } from '@caelestis/storage'
+import { READ_PROXY } from '#lib/deployment.js'
 import { discordComponentEmbed } from './discord-embed.js'
 
 interface SocialContext {
@@ -33,7 +34,10 @@ export interface SocialImage {
 const configuredPreview = (url: URL, server: ServerInfo | null): SocialImage | null => {
   if (server?.previewImage === undefined) return null
   return {
-    image: new URL(`/api/v1${serverAssetPath('preview', server.previewImage)}`, url.origin).href,
+    image: new URL(
+      `${READ_PROXY}${API_VERSION_PATH}${serverAssetPath('preview', server.previewImage)}`,
+      url.origin,
+    ).href,
     imageType: server.previewImage.contentType,
     // Dimensions are not known without decoding the upload. Crawlers accept their absence.
     imageWidth: null,

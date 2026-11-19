@@ -4,6 +4,7 @@
   import { Skeleton } from '#lib/components/ui/skeleton/index.js'
   import { Slider } from '#lib/components/ui/slider/index.js'
   import { persisted } from '#lib/persisted.svelte.js'
+  import { STORAGE_KEYS } from '#lib/deployment.js'
   import { MIN_SPEED, speedToFit } from '#lib/timelapse.js'
   import type { TimelapsePlayer } from '#lib/timelapse-player.svelte.js'
 
@@ -18,7 +19,7 @@
   const uid = $props.id()
 
   // The canvas as it is comes first; the template art is opt-in via the slider.
-  const storedOverlay = persisted<number>('caelestis:overlay-alpha', 0)
+  const storedOverlay = persisted<number>(STORAGE_KEYS.overlayAlpha, 0)
   const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
 
   const finished = $derived(player.templates.every((template) => template.finished))

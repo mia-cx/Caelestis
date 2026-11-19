@@ -97,7 +97,7 @@
     <StatsPanel
       templates={[template]}
       season={app.manifest?.season ?? 0}
-      liveDashboard={app.liveProtocol === 2}
+      liveDashboard={app.live}
       {progress}
       subscribeDashboard={app.subscribeDashboard}
       playhead={player.live ? null : player.playhead}

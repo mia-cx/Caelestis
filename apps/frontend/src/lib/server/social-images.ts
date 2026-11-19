@@ -1,4 +1,4 @@
-import type { Template } from '@caelestis/shared'
+import { API_VERSION_PATH, type Template } from '@caelestis/shared'
 import { renderTimelapse, socialImageKey, storedMapTiles } from '@caelestis/social'
 import type { RequestEvent } from '@sveltejs/kit'
 import { fetchBackend } from './backend.js'
@@ -11,7 +11,7 @@ export const ensureSocialImage = async (event: ImageEvent, season: number, templ
   if (images === undefined) return null
   const key = socialImageKey(season, template)
   const read = async (path: string) => {
-    const response = await fetchBackend(event, `/v1/${path}`, {
+    const response = await fetchBackend(event, `${API_VERSION_PATH}/${path}`, {
       signal: AbortSignal.timeout(20_000),
     })
     if (!response.ok) throw new Error(`${path}: HTTP ${response.status}`)

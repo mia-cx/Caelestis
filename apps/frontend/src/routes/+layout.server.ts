@@ -1,9 +1,10 @@
-import type {
-  AlarmsResponse,
-  CanvasTilesResponse,
-  Manifest,
-  ServerInfo,
-  StatusResponse,
+import {
+  type AlarmsResponse,
+  API_VERSION_PATH,
+  type CanvasTilesResponse,
+  type Manifest,
+  type ServerInfo,
+  type StatusResponse,
 } from '@caelestis/shared'
 import { readBackendJson } from '#lib/server/backend.js'
 import { socialMetadata } from '#lib/server/social.js'
@@ -52,16 +53,22 @@ export const load: LayoutServerLoad = async (event) => {
   }
   try {
     const [serverInfo, manifest] = await Promise.all([
-      readBackendJson<ServerInfo>(backend, '/v1/server'),
-      readBackendJson<Manifest>(backend, '/v1/manifest'),
+      readBackendJson<ServerInfo>(backend, `${API_VERSION_PATH}/server`),
+      readBackendJson<Manifest>(backend, `${API_VERSION_PATH}/manifest`),
     ])
     const server = sanitizeServerInfo(serverInfo)
     const [status, alarms, canvas] = await Promise.allSettled([
-      readBackendJson<StatusResponse>(backend, `/v1/telemetry/status?season=${manifest.season}`),
-      readBackendJson<AlarmsResponse>(backend, `/v1/telemetry/alarms?season=${manifest.season}`),
+      readBackendJson<StatusResponse>(
+        backend,
+        `${API_VERSION_PATH}/telemetry/status?season=${manifest.season}`,
+      ),
+      readBackendJson<AlarmsResponse>(
+        backend,
+        `${API_VERSION_PATH}/telemetry/alarms?season=${manifest.season}`,
+      ),
       readBackendJson<CanvasTilesResponse>(
         backend,
-        `/v1/telemetry/canvas?season=${manifest.season}`,
+        `${API_VERSION_PATH}/telemetry/canvas?season=${manifest.season}`,
       ),
     ])
     const bootstrap: AppBootstrap = {

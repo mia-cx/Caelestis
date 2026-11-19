@@ -41,6 +41,7 @@
   import { Skeleton } from '#lib/components/ui/skeleton/index.js'
   import * as Select from '#lib/components/ui/select/index.js'
 import { persisted } from '#lib/persisted.svelte.js'
+import { STORAGE_KEYS } from '#lib/deployment.js'
   import { type HeldHistory, refreshHistory } from '#lib/history-tail.js'
   import { untrack } from 'svelte'
   import type { Progress } from '@caelestis/shared'
@@ -209,7 +210,7 @@ import { persisted } from '#lib/persisted.svelte.js'
   )
   let leaderboard = $state<readonly LeaderboardEntry[] | null>(null)
   /** The rolling pace windows the chart draws; shared so painter lines are fetched for the same. */
-  const storedWindows = persisted<string[]>('caelestis:pace-windows', ['1h', '6h'])
+  const storedWindows = persisted<string[]>(STORAGE_KEYS.paceWindows, ['1h', '6h'])
   /** Who painted in the scope, leading first: the picker's list and the source of the default set. */
   let painters = $state<readonly PainterTotal[]>([])
   // The leading painters draw by default. The picker records an override per painter, so the
@@ -419,7 +420,7 @@ import { persisted } from '#lib/persisted.svelte.js'
     { key: '1y', seconds: 365 * DAY_SECONDS, label: 'last year' },
     { key: 'all', seconds: null, label: 'all' },
   ] as const
-  const storedEstimatePeriod = persisted<string>('caelestis:estimate-period', '7d')
+  const storedEstimatePeriod = persisted<string>(STORAGE_KEYS.estimatePeriod, '7d')
   const estimatePeriod = $derived(estimatePeriods.find((period) => period.key === storedEstimatePeriod.value) ?? estimatePeriods[2])
   const pace = $derived.by(() => {
     if (archives === null || progressSamples === null) return null

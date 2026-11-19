@@ -7,7 +7,6 @@ import {
   type HistoryResponse,
   isTransientStatus,
   type LeaderboardResponse,
-  LIVE_PROTOCOL_V1,
   LIVE_PROTOCOL_V2,
   liveCredentialProtocol,
   type Manifest,
@@ -25,6 +24,7 @@ import {
   tileImagePath,
   uuidV7,
 } from '@caelestis/shared'
+import { LIVE_PATH, READ_PROXY, STORAGE_KEYS } from '../deployment.js'
 import { sanitizeServerInfo } from '../server-info.js'
 import { frontendClientAccept } from './client-metrics.js'
 
@@ -32,11 +32,12 @@ import { frontendClientAccept } from './client-metrics.js'
  * A configured server is fixed for the deployment. Without one, the selected server and access
  * token live in localStorage.
  */
-const SERVER_KEY = 'caelestis:server'
-const TOKEN_KEY = 'caelestis:token'
-const LIVE_CLIENT_ID_KEY = 'caelestis:live-client-id'
+const { server: SERVER_KEY, token: TOKEN_KEY, liveClientId: LIVE_CLIENT_ID_KEY } = STORAGE_KEYS
 type ApiVersionPath = typeof API_VERSION_PATH | ''
-let apiVersionPath: ApiVersionPath = API_VERSION_PATH
+/** Servers whose `/server` answered only at the unversioned root (see `getServer`). */
+const legacyServers = new Set<string>()
+const apiVersionPath = (): ApiVersionPath =>
+  typeof window !== 'undefined' && legacyServers.has(readServerUrl()) ? '' : API_VERSION_PATH
 const DEV_SERVER = 'http://127.0.0.1:8787'
 const configuredServer =
   (import.meta.env.VITE_CAELESTIS_SERVER as string | undefined)?.replace(/\/+$/, '') || null
@@ -63,9 +64,9 @@ export const readToken = (): string | null => localStorage.getItem(TOKEN_KEY)
  * and for the configured server, the chosen server's own origin otherwise.
  */
 export const serverAssetUrl = (kind: ServerAssetKind, asset: ServerAsset): string => {
-  const path = `${apiVersionPath}${serverAssetPath(kind, asset)}`
+  const path = `${apiVersionPath()}${serverAssetPath(kind, asset)}`
   return typeof window === 'undefined' || usesServerReadProxy()
-    ? `/api${path}`
+    ? `${READ_PROXY}${path}`
     : `${readServerUrl()}${path}`
 }
 
@@ -87,9 +88,7 @@ export const writeConnection = (url: string, token: string | null): void => {
 export const openLiveSocket = (season: number, admin: boolean): WebSocket => {
   const proxy = usesServerReadProxy()
   const endpoint = new URL(
-    proxy
-      ? `/api${apiVersionPath}/telemetry/live`
-      : `${readServerUrl()}${apiVersionPath}/telemetry/live`,
+    `${proxy ? READ_PROXY : readServerUrl()}${apiVersionPath()}${LIVE_PATH}`,
     window.location.href,
   )
   endpoint.protocol = endpoint.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -97,7 +96,7 @@ export const openLiveSocket = (season: number, admin: boolean): WebSocket => {
   endpoint.searchParams.set('scope', admin ? 'admin' : 'public')
   endpoint.searchParams.set('client', 'frontend')
   endpoint.searchParams.set('stateVector', '1')
-  const protocols = [LIVE_PROTOCOL_V2, LIVE_PROTOCOL_V1]
+  const protocols = [LIVE_PROTOCOL_V2]
   const token = readToken()
   if (!proxy && token !== null) protocols.push(liveCredentialProtocol(token))
   if (!proxy && token === null) {
@@ -139,7 +138,7 @@ const fetchWithTransientRetry = async (url: string, init: RequestInit): Promise<
 const request = async (
   path: string,
   init?: RequestInit,
-  versionPath: ApiVersionPath = apiVersionPath,
+  versionPath: ApiVersionPath = apiVersionPath(),
 ): Promise<Response> => {
   const token = readToken()
   const proxy = usesServerReadProxy()
@@ -156,7 +155,7 @@ const request = async (
     reconciles ? frontendClientAccept('recovery', 'connect') : frontendClientAccept(),
   )
   if (token !== null) headers.set('authorization', `Bearer ${token}`)
-  const endpoint = proxy ? `/api${versionPath}${path}` : `${readServerUrl()}${versionPath}${path}`
+  const endpoint = `${proxy ? READ_PROXY : readServerUrl()}${versionPath}${path}`
   const response = await fetchWithTransientRetry(endpoint, { ...init, headers })
   if (!response.ok) {
     let message = response.statusText
@@ -174,15 +173,20 @@ const request = async (
 const json = async <T>(path: string, versionPath?: ApiVersionPath): Promise<T> =>
   (await request(path, undefined, versionPath)).json() as Promise<T>
 
+/**
+ * Read the connected server and learn its API path: servers that predate the versioned API answer
+ * 404 there, and every later request to them uses the unversioned root.
+ */
 export const getServer = async (): Promise<ServerInfo> => {
-  apiVersionPath = API_VERSION_PATH
+  const url = readServerUrl()
+  legacyServers.delete(url)
   try {
     return sanitizeServerInfo(await json('/server', API_VERSION_PATH))
   } catch (error) {
     if (!(error instanceof ApiError) || error.status !== 404) throw error
   }
   const server = await json<ServerInfo>('/server', '')
-  apiVersionPath = ''
+  legacyServers.add(url)
   return sanitizeServerInfo(server)
 }
 

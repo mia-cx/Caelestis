@@ -5,13 +5,17 @@
  * on the new host, which stores them and continues to the same path. The credential travels in a
  * POST body to our own origin, never in a URL. Every other old-host request gets a plain 308.
  */
-export const DASHBOARD_ORIGIN = 'https://caelest.is'
-export const FORMER_DASHBOARD_ORIGIN = 'https://caelestis.mia.cx'
+import {
+  DASHBOARD_ORIGIN,
+  FORMER_DASHBOARD_ORIGIN,
+  STORAGE_KEYS,
+  STORAGE_PREFIX,
+} from '#lib/deployment.js'
+
 export const MOVE_PATH = '/moved'
 
-const STORAGE_PREFIX = 'caelestis:'
 /** The server and its token belong together: a token must never reach a server it wasn't made for. */
-const CONNECTION_KEYS = ['caelestis:server', 'caelestis:token']
+const CONNECTION_KEYS = [STORAGE_KEYS.server, STORAGE_KEYS.token]
 
 /** JSON that cannot close the inline `<script>` it is placed in. */
 const scriptJson = (value: unknown): string => JSON.stringify(value).replace(/</g, '\\u003c')

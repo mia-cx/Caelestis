@@ -6,6 +6,7 @@ import {
   resolveServerUrl,
   tileImagePath,
 } from './client-contract.js'
+import { filterLiveProtocols } from './telemetry.js'
 
 describe('server URLs', () => {
   it.each([
@@ -45,4 +46,12 @@ describe('live credentials', () => {
 it('serves archived and live tile captures from their own routes', () => {
   expect(tileImagePath(archiveTileHash('abc'))).toBe('archive/tiles/abc')
   expect(tileImagePath('abc')).toBe('tiles/abc')
+})
+
+it('lets a read proxy forward only the live protocols of an offer', () => {
+  expect(
+    filterLiveProtocols(
+      `caelestis.live.v2, ${liveCredentialProtocol('browser-token')}, caelestis.live.v1, other`,
+    ),
+  ).toBe('caelestis.live.v2, caelestis.live.v1')
 })

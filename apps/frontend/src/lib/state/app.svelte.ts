@@ -11,7 +11,6 @@ import type {
 } from '@caelestis/shared'
 import {
   buildTree,
-  LIVE_PROTOCOL_V1,
   LIVE_PROTOCOL_V2,
   LiveSnapshotAssembler,
   type TemplateTree,
@@ -71,7 +70,8 @@ export class AppState {
   /** A 401 or 403 opens the connect dialog. */
   authRequired = $state(false)
   error = $state<string | null>(null)
-  liveProtocol = $state<1 | 2 | null>(null)
+  /** This connection negotiated the live protocol, so dashboard reads subscribe instead of polling. */
+  live = $state(false)
 
   tree = $derived.by<TemplateTree | null>(() =>
     this.manifest === null ? null : buildTree(this.manifest, this.statuses, this.alarms),
@@ -188,7 +188,7 @@ export class AppState {
     this.sendDashboardSubscription(subscriptionId)
     return () => {
       this.dashboardSubscriptions.delete(subscriptionId)
-      if (this.liveProtocol === 2 && this.liveSocket?.readyState === WebSocket.OPEN)
+      if (this.live && this.liveSocket?.readyState === WebSocket.OPEN)
         this.liveSocket.send(JSON.stringify({ type: 'dashboard-unsubscribe', subscriptionId }))
     }
   }
@@ -197,7 +197,7 @@ export class AppState {
     const socket = this.liveSocket
     this.liveSocket = null
     this.liveSnapshots.clear()
-    this.liveProtocol = null
+    this.live = false
     if (socket !== null && socket.readyState < WebSocket.CLOSING) socket.close(1000, 'retired')
   }
 
@@ -224,13 +224,11 @@ export class AppState {
     socket.addEventListener('open', () => {
       if (this.liveSocket !== socket || this.manifest === null) return
       this.liveAttempts = 0
-      this.liveProtocol =
-        socket.protocol === LIVE_PROTOCOL_V2 ? 2 : socket.protocol === LIVE_PROTOCOL_V1 ? 1 : null
-      if (this.liveProtocol === null) {
+      if (socket.protocol !== LIVE_PROTOCOL_V2) {
         socket.close(1002, 'live protocol not negotiated')
         return
       }
-      if (this.liveProtocol === 1) return
+      this.live = true
       socket.send(
         JSON.stringify({
           type: 'state-vector',
@@ -254,8 +252,7 @@ export class AppState {
         this.sendDashboardSubscription(subscriptionId)
     })
     socket.addEventListener('message', (message) => {
-      if (this.liveSocket !== socket || this.liveProtocol !== 2 || typeof message.data !== 'string')
-        return
+      if (this.liveSocket !== socket || !this.live || typeof message.data !== 'string') return
       try {
         const event = this.liveSnapshots.push(JSON.parse(message.data))
         if (event !== null) this.applyLiveEvent(event)
@@ -273,11 +270,7 @@ export class AppState {
 
   private sendDashboardSubscription(subscriptionId: string): void {
     const subscription = this.dashboardSubscriptions.get(subscriptionId)
-    if (
-      subscription === undefined ||
-      this.liveProtocol !== 2 ||
-      this.liveSocket?.readyState !== WebSocket.OPEN
-    )
+    if (subscription === undefined || !this.live || this.liveSocket?.readyState !== WebSocket.OPEN)
       return
     this.liveSocket.send(
       JSON.stringify({
