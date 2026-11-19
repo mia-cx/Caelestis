@@ -19,10 +19,10 @@ import {
   type TemplateRecipe,
   type TemplateSurface,
   TRANSPARENT_INDEX,
+  templateSizeChange,
   tileKey,
   timelapseCaptureTileCount,
   uuidV7,
-  WORLD_PIXELS,
 } from '@caelestis/shared'
 import type { BlobStore, SqlStore, TemplateVersionRecord } from '../ports/index.js'
 import {
@@ -217,16 +217,9 @@ export const storeTemplate = async (
           `current version does not exist: ${existing.currentVersionId}`,
         )
       }
-      const span = (min: number, max: number) =>
-        input.surface.kind === 'world' && max < min ? WORLD_PIXELS - min + max : max - min
-      const wasWidth = span(current.bbox.minX, current.bbox.maxX)
-      const wasHeight = current.bbox.maxY - current.bbox.minY
-      const nowWidth = span(sliced.bbox.minX, sliced.bbox.maxX)
-      const nowHeight = sliced.bbox.maxY - sliced.bbox.minY
-      if (wasWidth !== nowWidth || wasHeight !== nowHeight) {
-        throw new TemplateIdentityError(
-          `template ${input.templateId} is ${wasWidth}x${wasHeight}, not ${nowWidth}x${nowHeight}`,
-        )
+      const resized = templateSizeChange(input.surface, current.bbox, sliced.bbox)
+      if (resized !== null) {
+        throw new TemplateIdentityError(`template ${input.templateId} ${resized}`)
       }
     }
   }

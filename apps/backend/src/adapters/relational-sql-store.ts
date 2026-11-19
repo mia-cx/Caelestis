@@ -15,9 +15,9 @@ import {
   type TileHistoryFrame,
   tagNameKey,
   templateRecipeJson,
+  templateSizeChange,
   templateSurface,
   timelapseCaptureIncludesTile,
-  WORLD_PIXELS,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import {
@@ -964,17 +964,21 @@ export class RelationalSqlStore implements SqlStore {
           `template ${version.templateId} belongs to ${existing.surfaceKind}, not ${version.surface.kind}`,
         )
       }
-      if (existing.minX !== null && existing.maxX !== null) {
-        const span = (min: number, max: number) =>
-          version.surface.kind !== 'world' || max >= min ? max - min : WORLD_PIXELS - min + max
-        const wasWidth = span(existing.minX, existing.maxX)
-        const wasHeight = (existing.maxY ?? 0) - (existing.minY ?? 0)
-        const nowWidth = span(version.bbox.minX, version.bbox.maxX)
-        const nowHeight = version.bbox.maxY - version.bbox.minY
-        if (wasWidth !== nowWidth || wasHeight !== nowHeight) {
-          throw new TemplateIdentityError(
-            `template ${version.templateId} is ${wasWidth}x${wasHeight}, not ${nowWidth}x${nowHeight}`,
-          )
+      if (
+        existing.minX !== null &&
+        existing.minY !== null &&
+        existing.maxX !== null &&
+        existing.maxY !== null
+      ) {
+        const previous = {
+          minX: existing.minX,
+          minY: existing.minY,
+          maxX: existing.maxX,
+          maxY: existing.maxY,
+        }
+        const resized = templateSizeChange(version.surface, previous, version.bbox)
+        if (resized !== null) {
+          throw new TemplateIdentityError(`template ${version.templateId} ${resized}`)
         }
       }
     }
