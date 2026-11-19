@@ -22,6 +22,7 @@ const timelineOf = (map: ReadonlyMap<TileKey, readonly PlaybackFrame[]>): number
 
 /** What a timelapse plays, read through getters so it follows the page's reactive state. */
 export interface TimelapseSource {
+  /** Every new list loads the timelapse again, so pass a new one only when the scope changes. */
   readonly templates: () => readonly Template[]
   /** Undefined until the manifest is known; nothing loads before then. */
   readonly season: () => number | undefined
@@ -47,16 +48,7 @@ export class TimelapsePlayer {
   playhead = $state(0)
   playing = $state(false)
 
-  // Statuses rebuild the template list often. Reload only when what was recorded can differ.
-  readonly #scope = $derived(
-    this.templates
-      .map((template) => `${template.id}:${template.version}:${template.finishedAt}`)
-      .join(' '),
-  )
-  readonly layout: TimelapseLayout = $derived.by(() => {
-    void this.#scope
-    return untrack(() => timelapseLayout(this.templates))
-  })
+  readonly layout: TimelapseLayout = $derived(timelapseLayout(this.templates))
 
   readonly timeline = $derived(this.frames === null ? [] : timelineOf(this.frames))
   readonly #playback = $derived(new TimelapseClock(this.timeline, this.historyEnd))

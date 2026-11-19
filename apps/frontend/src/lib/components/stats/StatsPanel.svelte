@@ -24,6 +24,7 @@
     onSeek,
     onScrubStart,
   }: {
+    /** Every new list reads history again, so pass a new one only when the scope changes. */
     templates: readonly Template[]
     /** The scope's current counts: the chart's right edge and the pixels still to paint. */
     progress: Progress

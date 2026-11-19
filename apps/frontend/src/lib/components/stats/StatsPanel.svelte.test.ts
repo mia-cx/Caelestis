@@ -74,7 +74,7 @@ const render = (templates: readonly Template[]) => {
   return props
 }
 
-it('reads no history again when a live status rebuilds the same templates', async () => {
+it('reads no history again when a live status changes the progress', async () => {
   const props = render([live('a'), live('b')])
   await vi.advanceTimersByTimeAsync(0)
   const reads = [
@@ -85,8 +85,6 @@ it('reads no history again when a live status rebuilds the same templates', asyn
   ]
   const before = reads.map((read) => read.mock.calls.length)
 
-  // A status delta rebuilds the tree: new arrays and progress around the same templates.
-  props.templates = [...props.templates]
   props.progress = { ...progress, completed: 2 }
   flushSync()
   await vi.advanceTimersByTimeAsync(0)

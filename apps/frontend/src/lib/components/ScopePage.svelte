@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { ColourProgress as Colours, Node, Progress, Template } from '@caelestis/shared'
   import { ProgressMeter } from '@caelestis/ui'
-  import type { Snippet } from 'svelte'
+  import { type Snippet, untrack } from 'svelte'
   import ColourProgress from '#lib/components/ColourProgress.svelte'
   import StatsPanel from '#lib/components/stats/StatsPanel.svelte'
   import TimelapsePanel from '#lib/components/TimelapsePanel.svelte'
@@ -32,7 +32,20 @@
   } = $props()
 
   const app = useApp()
-  const templates = $derived(scope?.templates ?? [])
+  // Live statuses rebuild the scope's template list on every delta. The timelapse and the stats
+  // get a new list, and read history again, only when a field they read can differ.
+  const templatesKey = $derived(
+    (scope?.templates ?? [])
+      .map(
+        (template) =>
+          `${template.id}:${template.version}:${template.createdAt}:${template.finishedAt}:${template.finished}:${template.timelapseFrozen}`,
+      )
+      .join(' '),
+  )
+  const templates = $derived.by(() => {
+    void templatesKey
+    return untrack(() => scope?.templates ?? [])
+  })
   const player = new TimelapsePlayer({
     templates: () => templates,
     season: () => app.manifest?.season,

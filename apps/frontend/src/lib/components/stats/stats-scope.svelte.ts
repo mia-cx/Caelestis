@@ -1,5 +1,4 @@
 import type { Template } from '@caelestis/shared'
-import { untrack } from 'svelte'
 
 export const DAY_SECONDS = 86_400
 const TICK_MS = 15_000
@@ -38,24 +37,10 @@ export class StatsScope {
     this.#read = templates
   }
 
-  get #all(): readonly Template[] {
+  get templates(): readonly Template[] {
     return this.#read()
   }
 
-  // Live statuses rebuild a folder's template list on every delta. Read history again only when
-  // what the server would answer can differ.
-  readonly #key = $derived(
-    this.#all
-      .map(
-        (template) =>
-          `${template.id}:${template.version}:${template.createdAt}:${template.finishedAt}`,
-      )
-      .join(' '),
-  )
-  readonly templates: readonly Template[] = $derived.by(() => {
-    void this.#key
-    return untrack(() => this.#all)
-  })
   readonly templateIds = $derived(this.templates.map((template) => template.id))
   /** A day boundary, so every retained tier can return the bucket holding the first creation. */
   readonly from = $derived(

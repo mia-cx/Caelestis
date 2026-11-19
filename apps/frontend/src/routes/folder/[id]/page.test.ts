@@ -1,5 +1,13 @@
 // @vitest-environment happy-dom
-import { millis, type Node, planTimelapseTiles, seconds, tileKey } from '@caelestis/shared'
+import {
+  millis,
+  type Node,
+  planTimelapseTiles,
+  seconds,
+  type Template,
+  type TemplateStatus,
+  tileKey,
+} from '@caelestis/shared'
 import { flushSync, mount, unmount } from 'svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { AppState } from '#lib/state/app.svelte.js'
@@ -9,7 +17,7 @@ const fixture = vi.hoisted(() => ({
   app: null as unknown as AppState,
   history: vi.fn(),
   archive: vi.fn(),
-  stats: null as null | { onSeek?: (time: number) => void },
+  stats: null as null | { onSeek?: (time: number) => void; templates?: readonly Template[] },
 }))
 vi.mock('$app/state', () => ({ page: { params: { id: 'route' } } }))
 vi.mock('#lib/state/app.svelte.js', async (original) => ({
@@ -22,7 +30,7 @@ vi.mock('#lib/api/client.js', () => ({
 }))
 // A Svelte 5 component is a function of its anchor and props; these only keep the props.
 vi.mock('#lib/components/stats/StatsPanel.svelte', () => ({
-  default: (_anchor: unknown, props: { onSeek?: (time: number) => void }) => {
+  default: (_anchor: unknown, props: NonNullable<typeof fixture.stats>) => {
     fixture.stats = props
   },
 }))
@@ -104,4 +112,22 @@ it('plays every nested published template from its own capture tiles only', asyn
   fixture.stats?.onSeek?.(start + 3_600)
   flushSync()
   expect(position()).toBe(3_600)
+})
+
+it('reads no history again when a live status rebuilds the folder', async () => {
+  mounted = mount(Page, { target: document.body })
+  flushSync()
+  await vi.advanceTimersByTimeAsync(0)
+  const reads = fixture.history.mock.calls.length
+  const statsTemplates = fixture.stats?.templates
+
+  fixture.app.statuses = new Map([
+    [top.id, { templateId: top.id, correct: 2, wrong: 0, blank: 2, total: 4 } as TemplateStatus],
+  ])
+  flushSync()
+  await vi.advanceTimersByTimeAsync(0)
+
+  expect(fixture.history.mock.calls.length).toBe(reads)
+  // The stats panel reads history again for every new list it gets.
+  expect(fixture.stats?.templates).toBe(statsTemplates)
 })
