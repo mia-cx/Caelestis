@@ -25,9 +25,6 @@ import { holdUpdating, templateBusy } from './template-busy.js'
 
 const confirming = new Set<string>()
 
-/** Whether either template menu is already capturing or saving this template. */
-export const isUpdatingTemplateArtwork = (id: string): boolean => templateBusy(id, 'updating')
-
 /**
  * Save captured art as a new target version without submitting paint events. `capture` reads the
  * new target from committed art, or resolves to null to abandon the update. False when abandoned.
