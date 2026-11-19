@@ -163,3 +163,16 @@ export const releaseMapCapture = (): void => {
   removeTraps()
   captured = null
 }
+
+/** The slice of MapLibre's `Map` the Wplace performance patches use. */
+export interface PatchableMap {
+  getCanvas?(): { readonly isConnected: boolean }
+  getSource?(id: string): unknown
+  refreshTiles?(id: string, tiles?: readonly { x: number; y: number; z: number }[]): unknown
+  moveLayer?(id: string, before?: string): unknown
+  on?(type: string, listener: (event: { sourceId?: string }) => void): unknown
+  style?: {
+    _order?: readonly string[]
+    tileManagers?: Record<string, unknown>
+  }
+}

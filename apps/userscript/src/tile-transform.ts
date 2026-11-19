@@ -25,7 +25,6 @@ import {
   type TileReading,
 } from './tile-reader.js'
 import { forgetCharges, observeCharges } from './wplace-charges.js'
-import { isWplacePatchEnabled } from './wplace-patches.js'
 import {
   captureFetchUrlGetters,
   isGetFetch,
@@ -34,6 +33,7 @@ import {
   urlForFetchInput,
   wplaceRasterRole,
 } from './wplace-raster.js'
+import { isWplacePatchEnabled } from './wplace-switches.js'
 import { reloadVisibleWplaceTiles } from './wplace-tile-refresh.js'
 
 /**

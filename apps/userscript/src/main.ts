@@ -13,7 +13,7 @@ import { keepMarkersAboveDrafts } from './gl/markers.js'
 import { installPickCellLayer } from './gl/pick-cell-layer.js'
 import { installPresenceLayer, repaintPresence } from './gl/presence-layer.js'
 import { installKeyboardShortcuts } from './keyboard-shortcuts.js'
-import { getMap, installMapCapture, releaseMapCapture } from './map-handle.js'
+import { getMap, installMapCapture, type PatchableMap, releaseMapCapture } from './map-handle.js'
 import {
   installMapView,
   notifyArtboardViewChange,
@@ -61,10 +61,11 @@ import { installWplaceCursors } from './wplace-cursors.js'
 import { installWplaceFont } from './wplace-font.js'
 import { installWplaceMessages } from './wplace-messages.js'
 import { isPaintOpen, onPaintSelectionChange, watchPaintSelection } from './wplace-paint.js'
-import { applyWplacePatches, onWplacePatchChange, type PatchableMap } from './wplace-patches.js'
+import { applyWplacePatches } from './wplace-patches.js'
 import { installColourPicker } from './wplace-picker.js'
 import { installWplaceSettings } from './wplace-settings.js'
 import { installWplaceStateCapture } from './wplace-state.js'
+import { onWplacePatchChange } from './wplace-switches.js'
 import { installServiceWorkerTap, watchCaptureScope } from './wplace-tile-refresh.js'
 
 /** Run one independent piece of start-up without letting its failure cancel the rest. */

@@ -11,8 +11,12 @@ import {
   storedGlobalSettings,
   storeGlobalSetting,
 } from './settings.js'
-import { isWplacePatch, setWplacePatchEnabled, wplacePatchSettings } from './wplace-patches.js'
-import { setWplaceOption } from './wplace-settings.js'
+import {
+  isWplacePatch,
+  setWplaceOption,
+  setWplacePatchEnabled,
+  wplacePatchSettings,
+} from './wplace-switches.js'
 
 /**
  * The settings that apply to every Wplace tab, shared by the panel's Settings view and the

@@ -1,7 +1,8 @@
 import { type TileKey, tileKey as worldTileKey } from '@caelestis/shared'
 import { count, log } from './debug.js'
+import type { PatchableMap } from './map-handle.js'
 import { pageWindow } from './page-world.js'
-import { isWplacePatchEnabled, type PatchableMap } from './wplace-patches.js'
+import { isWplacePatchEnabled } from './wplace-switches.js'
 
 const SOURCE = 'pixel-art-layer'
 const FULL_REFRESH_INTERVAL = 10

@@ -8,7 +8,7 @@ import { userscriptVersion } from '../client-metrics.js'
 import { applyGlobalSettingsIntent, globalSettingsModel } from '../global-settings.js'
 import { onStoredValueChange, useStoredValues } from '../stored-values.js'
 import { applyWplaceTheme } from '../ui/theme.js'
-import { wplaceOptions } from '../wplace-settings.js'
+import { wplaceOptions } from '../wplace-switches.js'
 import { loadStoredStrings, onStoredStringsChange, writeStoredString } from './storage.js'
 
 /**

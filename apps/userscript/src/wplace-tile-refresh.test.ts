@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { resetWplacePatches, setWplacePatchEnabled } from './wplace-patches.js'
+import { resetWplaceSwitches, setWplacePatchEnabled } from './wplace-switches.js'
 import {
   installServiceWorkerTap,
   patchTileRefresh,
@@ -97,7 +97,7 @@ const settle = async () => {
 
 afterEach(() => {
   vi.useRealTimers()
-  resetWplacePatches()
+  resetWplaceSwitches()
 })
 
 describe('periodic tile refresh', () => {

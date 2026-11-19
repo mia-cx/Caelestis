@@ -16,56 +16,15 @@
  */
 
 import { log } from './debug.js'
-import { onStoredValueChange, storedValue, storeValue } from './stored-values.js'
 import { CURSORS_ATTRIBUTE } from './wplace-cursors.js'
 import { FALSETYPE_ATTRIBUTE } from './wplace-font.js'
+import { onWplaceOptionChange, setWplaceOption, wplaceOptions } from './wplace-switches.js'
 
-const STORAGE_KEY = 'caelestis.wplace-options.v1'
 const PANEL_ID = 'settings-panel-accessibility'
 const ROW_MARKER = 'data-caelestis-option'
 
-/** Caelestis's Accessibility switches, also shown in the extension's toolbar popup. */
-export interface WplaceOptions {
-  falseType: boolean
-  cursors: boolean
-}
-
-type Prefs = WplaceOptions
-
-const DEFAULTS: Prefs = { falseType: true, cursors: true }
-
-/** The stored Accessibility switches. */
-export const wplaceOptions = (): WplaceOptions => {
-  try {
-    const parsed: unknown = JSON.parse(storedValue(STORAGE_KEY) ?? '{}')
-    if (typeof parsed !== 'object' || parsed === null) return { ...DEFAULTS }
-    const merged = { ...DEFAULTS }
-    for (const key of Object.keys(merged) as (keyof Prefs)[]) {
-      const value = (parsed as Record<string, unknown>)[key]
-      if (typeof value === 'boolean') merged[key] = value
-    }
-    return merged
-  } catch {
-    return { ...DEFAULTS }
-  }
-}
-
-const writePrefs = (prefs: Prefs): void => {
-  try {
-    storeValue(STORAGE_KEY, JSON.stringify(prefs))
-  } catch {
-    // The switch still applies for this session.
-  }
-}
-
-/** Change one Accessibility switch in storage; open tabs apply it from there. */
-export const setWplaceOption = (key: keyof WplaceOptions, value: boolean): void => {
-  writePrefs({ ...wplaceOptions(), [key]: value })
-}
-
 interface Row {
-  /** Prefs key this row reads and writes. */
-  readonly key: keyof Prefs
+  readonly key: keyof ReturnType<typeof wplaceOptions>
   readonly label: string
   /** Which of the panel's Wplace toggle rows ours is inserted after. */
   readonly after: 'first' | 'last'
@@ -102,11 +61,10 @@ const ROWS: readonly Row[] = [
  * removes our rows and attributes, for tests.
  */
 export const installWplaceSettings = (): (() => void) => {
-  const prefs = wplaceOptions()
-
   const applyAttributes = (): void => {
     const root = document.documentElement
     if (root === null) return
+    const prefs = wplaceOptions()
     for (const row of ROWS) {
       if (prefs[row.key]) root.removeAttribute(row.attribute)
       else root.setAttribute(row.attribute, 'off')
@@ -129,6 +87,7 @@ export const installWplaceSettings = (): (() => void) => {
     )
     if (wplaceRows.length < 2) return
 
+    const prefs = wplaceOptions()
     for (const def of ROWS) {
       const anchor = def.after === 'first' ? wplaceRows[0] : wplaceRows.at(-1)
       if (anchor === undefined) continue
@@ -150,8 +109,7 @@ export const installWplaceSettings = (): (() => void) => {
         const input = row.querySelector('input[type="checkbox"]')
         if (!(input instanceof HTMLInputElement)) continue
         input.addEventListener('change', () => {
-          prefs[def.key] = input.checked
-          writePrefs(prefs)
+          setWplaceOption(def.key, input.checked)
           applyAttributes()
           syncRows()
           log('install', `${def.label} ${input.checked ? 'on' : 'off'}`)
@@ -170,10 +128,8 @@ export const installWplaceSettings = (): (() => void) => {
   applyAttributes()
   syncRows()
 
-  // Switched in the extension's toolbar popup or another tab.
-  const stopWatching = onStoredValueChange((key) => {
-    if (key !== STORAGE_KEY) return
-    Object.assign(prefs, wplaceOptions())
+  // Switched here, in the extension's toolbar popup, or in another tab.
+  const stopWatching = onWplaceOptionChange(() => {
     applyAttributes()
     syncRows()
   })

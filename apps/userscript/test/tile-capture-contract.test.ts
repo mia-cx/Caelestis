@@ -111,8 +111,8 @@ const setup = async () => {
   vi.stubGlobal('navigator', { deviceMemory: 1 })
   vi.resetModules()
   const tileTransform = await import('../src/tile-transform.js')
-  const { resetWplacePatches, setWplacePatchEnabled } = await import('../src/wplace-patches.js')
-  resetWplacePatches()
+  const { resetWplaceSwitches, setWplacePatchEnabled } = await import('../src/wplace-switches.js')
+  resetWplaceSwitches()
 
   const readback = vi.fn(rgbaOf)
   vi.stubGlobal('OffscreenCanvas', canvasReadingBackWith(readback))
