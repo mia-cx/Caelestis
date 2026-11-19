@@ -43,6 +43,14 @@ export class DurableScheduler {
     this.now = databaseNow(database.dialect)
   }
 
+  /** How many wakeups are stored, due or not. */
+  async pending(): Promise<number> {
+    const { count } = await this.database.one<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM runtime_alarms',
+    )
+    return Number(count)
+  }
+
   /** `now` decides which alarms are due; lease expiry always follows the database clock. */
   async tick(now = Date.now()): Promise<void> {
     await Promise.all(await this.scan(now))

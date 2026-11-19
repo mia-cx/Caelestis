@@ -119,3 +119,10 @@ export const parseServerConfig = (env: ServerEnvironment, release: Release = {})
     build: buildId(release.build),
   }
 }
+
+/** `request` as the app sees it: its path without the `mount` it starts with. */
+export const unmounted = (request: Request, mount: string): Request => {
+  const url = new URL(request.url)
+  url.pathname = url.pathname.slice(mount.length) || '/'
+  return new Request(url.href, request)
+}

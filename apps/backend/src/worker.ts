@@ -11,6 +11,7 @@ import { durableLiveSync, durableStatusShards } from './adapters/cloudflare/do-s
 import { IN_PROCESS_READ } from './auth/middleware.js'
 import { measureRequest } from './metrics/request-metrics.js'
 import { type Backend, composeBackend } from './server/compose.js'
+import { unmounted } from './server/config.js'
 import { type JobName, jobsAt } from './server/jobs.js'
 import { publishSocialImages } from './server/social.js'
 import { derivedArtifactWriter } from './telemetry/derived-artifact-writer.js'
@@ -61,8 +62,7 @@ const requestAtBasePath = (
   if (url.pathname !== basePath && !url.pathname.startsWith(`${basePath}/`)) {
     return url.hostname === rootHost ? request : null
   }
-  url.pathname = url.pathname.slice(basePath.length) || '/'
-  return new Request(url.href, request)
+  return unmounted(request, basePath)
 }
 
 /** Read this deployment's own API in-process: no network hop and no stored token. */
