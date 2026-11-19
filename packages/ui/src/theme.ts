@@ -20,6 +20,8 @@ export interface CaelestisThemeTokens {
   readonly dangerContent: string
   readonly radius: string
   readonly pillRadius: string
+  /** Outline width of buttons, toggles, checkboxes and fields; Wplace sets it through `--border`. */
+  readonly borderWidth: string
   readonly font: string
   readonly monoFont: string
   readonly touchTarget: string
@@ -74,6 +76,7 @@ const PROPERTIES: Record<CaelestisThemeToken, `--caelestis-${string}`> = {
   dangerContent: '--caelestis-danger-content',
   radius: '--caelestis-radius',
   pillRadius: '--caelestis-pill-radius',
+  borderWidth: '--caelestis-border-width',
   font: '--caelestis-font',
   monoFont: '--caelestis-mono-font',
   touchTarget: '--caelestis-touch-target',

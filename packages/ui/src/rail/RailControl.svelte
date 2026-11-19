@@ -35,7 +35,7 @@
     inline-size: var(--caelestis-touch-target);
     block-size: var(--caelestis-touch-target);
     padding: 0;
-    border: 1px solid color-mix(in oklab, var(--button-colour), #000 5%);
+    border: var(--caelestis-border-width) solid color-mix(in oklab, var(--button-colour), #000 5%);
     border-radius: var(--caelestis-pill-radius);
     outline-color: var(--button-colour);
     background: var(--button-colour);

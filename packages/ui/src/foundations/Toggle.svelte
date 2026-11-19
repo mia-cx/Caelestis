@@ -30,7 +30,7 @@
     --toggle-colour: color-mix(in oklab, var(--caelestis-text) 50%, transparent);
     /* The thumb's resting offset is the column it jumps to; --toggle-travel is that column's width. */
     --toggle-dur: var(--caelestis-duration-fast);
-    --toggle-travel: calc(var(--toggle-size) - (1px + var(--toggle-padding)) * 2);
+    --toggle-travel: calc(var(--toggle-size) - (var(--caelestis-border-width) + var(--toggle-padding)) * 2);
     --toggle-ov1: 1px;
     --toggle-ov2: 0px;
     --toggle-ease: var(--caelestis-ease-bounce);
@@ -40,11 +40,11 @@
     flex-shrink: 0;
     grid-template-columns: 0fr 1fr 1fr;
     place-content: center;
-    inline-size: calc((var(--toggle-size) * 2) - (1px + var(--toggle-padding)) * 2);
+    inline-size: calc((var(--toggle-size) * 2) - (var(--caelestis-border-width) + var(--toggle-padding)) * 2);
     block-size: var(--toggle-size);
     margin: 0;
     padding: var(--toggle-padding);
-    border: 1px solid currentColor;
+    border: var(--caelestis-border-width) solid currentColor;
     border-radius: var(--caelestis-radius);
     background: transparent;
     color: var(--toggle-colour);

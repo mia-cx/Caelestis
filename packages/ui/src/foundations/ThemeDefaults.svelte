@@ -5,7 +5,7 @@
   per Wplace style, the frontend sets its own radius). The motion scale is the transitions.dev
   one, prefixed so Tailwind's own --ease-* never shadows it.
 
-  Defaulted here: geometry (radii, touch target), fonts, motion, and the classic shadows.
+  Defaulted here: geometry (radii, border width, touch target), fonts, motion, and the classic shadows.
   Every host sets the colour tokens of `CaelestisThemeTokens` itself; none has a default.
 
   Optional hooks a host may set, each read with its own fallback by one component:
@@ -16,6 +16,7 @@
   :global(:where(:root, :host)) {
     --caelestis-radius: calc(0.7rem + 1px);
     --caelestis-pill-radius: 999px;
+    --caelestis-border-width: 1px;
     --caelestis-font: ui-sans-serif, system-ui, sans-serif;
     --caelestis-mono-font: ui-monospace, monospace;
     --caelestis-touch-target: 2.5rem;

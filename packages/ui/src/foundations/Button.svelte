@@ -76,7 +76,7 @@
     block-size: var(--button-size);
     min-block-size: 0;
     padding-inline: var(--button-padding);
-    border: 1px solid color-mix(in oklab, var(--button-colour), #000 5%);
+    border: var(--caelestis-border-width) solid color-mix(in oklab, var(--button-colour), #000 5%);
     border-radius: var(--caelestis-radius);
     outline-color: var(--button-colour);
     background: var(--button-colour);

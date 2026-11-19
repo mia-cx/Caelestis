@@ -7,6 +7,7 @@ export type CaelestisStyle = 'pixel' | 'classic'
 const MUTED_TEXT = 'color-mix(in oklch, var(--color-base-content, currentColor) 62%, transparent)'
 
 const SHARED = {
+  borderWidth: 'var(--border, 1px)',
   surface: 'var(--color-base-100, oklch(0.27 0.025 264))',
   raisedSurface: 'var(--color-base-200, oklch(0.32 0.025 264))',
   text: 'var(--color-base-content, oklch(0.91 0.015 264))',

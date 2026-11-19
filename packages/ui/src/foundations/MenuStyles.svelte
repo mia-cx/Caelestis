@@ -142,7 +142,7 @@
 
   /* The field look: a search box and the square triggers that sit beside it. */
   :global(.caelestis-field-look) {
-    border: 1px solid color-mix(in oklab, var(--caelestis-text) 20%, transparent);
+    border: var(--caelestis-border-width) solid color-mix(in oklab, var(--caelestis-text) 20%, transparent);
     border-radius: var(--caelestis-radius);
     background: var(--caelestis-surface);
     box-shadow: 0 1px color-mix(in oklab, var(--caelestis-text) 10%, transparent) inset;

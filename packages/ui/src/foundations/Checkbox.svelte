@@ -23,7 +23,7 @@
     height: var(--size);
     margin: 0;
     padding: 0.1875rem;
-    border: 1px solid var(--input-color);
+    border: var(--caelestis-border-width) solid var(--input-color);
     border-radius: var(--caelestis-radius);
     background-color: transparent;
     color: var(--caelestis-primary-content);
