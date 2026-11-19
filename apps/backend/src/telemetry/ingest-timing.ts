@@ -161,6 +161,13 @@ export class IngestTimings {
     this.counts.clear()
     this.since = Date.now()
   }
+
+  /** The timings so far, starting a new collection period when `reset` asks for one. */
+  read(reset: boolean): IngestTimingSnapshot {
+    const snapshot = this.snapshot()
+    if (reset) this.reset()
+    return snapshot
+  }
 }
 
 /** Module scope, because concurrent requests in one Worker isolate share nothing else. */

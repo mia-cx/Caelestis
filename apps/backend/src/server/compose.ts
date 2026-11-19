@@ -1,8 +1,4 @@
 import type { ObjectStorage } from '@caelestis/storage'
-import {
-  CoordinatedStatusReadModel,
-  type StatusShard,
-} from '../adapters/coordinated-status-read-model.js'
 import type { SqlConnection } from '../adapters/sql-connection.js'
 import { createApp } from '../app.js'
 import type { CounterArchive } from '../archive/port.js'
@@ -10,6 +6,7 @@ import type { LiveSyncPort } from '../live/port.js'
 import type { CounterStore } from '../ports/index.js'
 import type { PresencePort, PresenceRooms } from '../presence/port.js'
 import { makeBackendContext } from '../runtime/backend-runtime.js'
+import { CoordinatedStatusReadModel, type StatusShard } from '../status-read-model/shard.js'
 import type { BackfillHandle } from './backfill.js'
 import type { ServerConfig } from './config.js'
 import { serverInfo } from './info.js'
@@ -36,25 +33,17 @@ export interface HostBindings {
   readonly scheduleAlarms: () => Promise<void>
 }
 
-/** Build the context, app, and periodic jobs over one host's bindings. */
 export const composeBackend = (host: HostBindings, config: ServerConfig) => {
   const { counters, presenceRoom, backfill, scheduleAlarms } = host
-  const statusReadModel = new CoordinatedStatusReadModel(host.statusShard, scheduleAlarms)
+  const statusReadModel = new CoordinatedStatusReadModel(host.statusShard)
   const stores = { ...host.stores, counters, statusReadModel }
   const presence: PresencePort = {
-    publishRegions: (season, surface) =>
-      presenceRoom(season, surface).publishRegions(season, surface),
+    publishRegions: (season, surface) => presenceRoom(season, surface).publishRegions(),
     readIngestTimings: async (season, surface, reset) =>
       presenceRoom(season, surface).readIngestTimings(reset),
     online: (season, surface) => presenceRoom(season, surface).online(),
-    connect: async (request, connection) => {
-      const { season, tokenHash, surface } = connection
-      // The season's status shard routes revocation to rooms. It must know this room before the
-      // room admits the socket, or revoking the credential would miss a hibernating room.
-      if (connection.revocable)
-        await statusReadModel.registerPresenceSurface(season, tokenHash, surface)
-      return presenceRoom(season, surface).connect(request, connection)
-    },
+    connect: (request, connection) =>
+      presenceRoom(connection.season, connection.surface).connect(connection, request),
   }
   const context = makeBackendContext(stores.blobs, stores.sql, counters, statusReadModel, {
     presence,
@@ -71,7 +60,12 @@ export const composeBackend = (host: HostBindings, config: ServerConfig) => {
       counters,
       backfill,
       serverId: host.serverId,
-      activated: scheduleAlarms,
+      // Restored manifests replace whatever was cached while the server was empty; live clients
+      // reconnect into the restored revisions, which continue from the source's.
+      activated: async () => {
+        await scheduleAlarms()
+        await statusReadModel.notifyManifestChange(config.season)
+      },
       settleMilliseconds: config.archiveSettleMilliseconds,
     },
   })

@@ -4,7 +4,7 @@ import { type PresenceRooms, presenceRoomName } from '../../presence/port.js'
 import { parseServerConfig, type ServerConfig } from '../../server/config.js'
 import { bundledRelease } from '../../server/release.js'
 import { portableStores } from '../../server/stores.js'
-import { CoordinatedStatusReadModel } from '../coordinated-status-read-model.js'
+import { CoordinatedStatusReadModel } from '../../status-read-model/shard.js'
 import { DurableObjectCounterStore } from './do-counter-store.js'
 import { durableStatusShards } from './do-status-read-model.js'
 import { forwardPresence } from './live-connect.js'
@@ -47,10 +47,10 @@ export const durablePresenceRooms =
   (season, surface) => {
     const room = env.PRESENCE.getByName(presenceRoomName(season, surface))
     return {
-      publishRegions: (...args) => room.publishRegions(...args),
+      publishRegions: () => room.publishRegions(),
       readIngestTimings: (reset) => room.readIngestTimings(reset),
       online: () => room.online(),
       closeCredential: (tokenHash) => room.closeCredential(tokenHash),
-      connect: (request, connection) => forwardPresence(room, request, connection),
+      connect: (connection, request) => forwardPresence(room, request, connection),
     }
   }

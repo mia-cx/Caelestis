@@ -21,21 +21,16 @@ import {
   rectCentreDistance,
   rectsIntersect,
   sameRect,
-  type TemplateSurface,
 } from '@caelestis/shared'
 import { PresenceClientEvent } from '@caelestis/wire-schema'
 import { Schema } from 'effect'
 import type { AccessTokenStore } from '../auth/store.js'
 import { createLiveSessionFence, type LiveHost, type LiveSocket } from '../live/session.js'
-import {
-  type IngestTimingSnapshot,
-  type IngestTimings,
-  ingestTimings,
-} from '../telemetry/ingest-timing.js'
+import type { IngestTimingSnapshot, IngestTimings } from '../telemetry/ingest-timing.js'
 import { ownedRegionIds, type RegionOwner, type RegionStore } from '../work/region-store.js'
 import { presenceRectWithinSurface } from './geometry.js'
 import { PeerGrid } from './peer-grid.js'
-import type { PresenceConnection } from './port.js'
+import type { PresenceConnection, PresenceRoomId } from './port.js'
 
 interface Attachment extends PresenceConnection {
   readonly sessionId: string
@@ -51,6 +46,45 @@ interface Attachment extends PresenceConnection {
   readonly renewedAt?: number
 }
 
+/**
+ * The socket's presence attachment, or null when it holds none. A hibernated socket can outlive
+ * the deploy that attached it, so the fields every tick relies on are checked, not assumed.
+ */
+const attachmentOf = (socket: LiveSocket): Attachment | null => {
+  const attachment: unknown = socket.deserializeAttachment()
+  if (typeof attachment !== 'object' || attachment === null) return null
+  const held = attachment as Partial<Record<keyof Attachment, unknown>>
+  const painter = held.painter
+  const rectOrNull = (value: unknown) => value === null || typeof value === 'object'
+  return typeof held.sessionId === 'string' &&
+    typeof held.tokenHash === 'string' &&
+    typeof held.credentialScope === 'string' &&
+    typeof held.anonymous === 'boolean' &&
+    typeof held.lastSeenAt === 'number' &&
+    typeof held.draftPixels === 'number' &&
+    rectOrNull(held.viewport) &&
+    rectOrNull(held.draftRect) &&
+    typeof painter === 'object' &&
+    painter !== null &&
+    'wplaceUserId' in painter &&
+    typeof painter.wplaceUserId === 'number'
+    ? (attachment as Attachment)
+    : null
+}
+
+/** What this process remembers about one session. Hibernation forgets it; recovery rebuilds it. */
+interface SessionState {
+  mask?: string | undefined
+  /** When its recent messages arrived, for the per-second limit. */
+  rate: number[]
+  /** The peers it was last sent, or undefined until it is owed a ready event. */
+  sent?: Set<string>
+  /** The online count it was last sent. */
+  onlineSent?: number
+  /** The region version and owned ids it was last sent. */
+  claimsSent?: { readonly version: number; readonly owned: string }
+}
+
 /** An open socket with the attachment read once for the operation at hand. */
 interface LiveSession {
   readonly socket: LiveSocket
@@ -58,9 +92,8 @@ interface LiveSession {
 }
 
 const CLAIM_RENEW_INTERVAL_MS = 60 * 60 * 1_000
-interface RegionExpiry {
-  readonly season: number
-  readonly surface: TemplateSurface
+/** The earliest claim expiry. The room's identity is stored beside it but read from the room. */
+interface RegionExpiry extends PresenceRoomId {
   readonly at: number | null
 }
 
@@ -89,39 +122,43 @@ export interface PresenceHost<Client> extends LiveHost<Client> {
   waitUntil(work: Promise<unknown>): void
 }
 
+/** One presence room: the sessions of one season and drawing surface. */
 export class PresenceCoordinator<Client> {
   private readonly sessions = createLiveSessionFence()
-  private readonly masks = new Map<string, string>()
-  private readonly rates = new Map<string, number[]>()
-  private readonly sent = new Map<string, Set<string>>()
-  private readonly onlineSent = new Map<string, number>()
+  private readonly local = new Map<string, SessionState>()
+  /** Sessions whose peer state changed since the last tick, including ones that left. */
   private readonly dirty = new Set<string>()
   private regionSnapshot: string | null = null
   private regionVersion = 0
-  private readonly claimsSent = new Map<
-    string,
-    { readonly version: number; readonly owned: string }
-  >()
   private timer: ReturnType<typeof setTimeout> | null = null
   private stopped = false
 
   constructor(
     private readonly state: PresenceHost<Client>,
+    private readonly room: PresenceRoomId,
     private readonly sql: AccessTokenStore & { readonly regions: RegionStore },
-    private readonly timings: IngestTimings = ingestTimings,
+    /** This room's own collector, as a Durable Object's isolate gives each room. */
+    private readonly timings: IngestTimings,
+    /**
+     * Record that this room may hold sessions of a credential, so revoking it reaches the room even
+     * while it hibernates.
+     */
+    private readonly routeRevocation: (tokenHash: string) => Promise<void>,
   ) {}
 
-  /** Read this room's diagnostic clock; portable hosts may share a process-wide collector. */
   readIngestTimings(reset: boolean): IngestTimingSnapshot {
-    const snapshot = this.timings.snapshot()
-    if (reset) this.timings.reset()
-    return snapshot
+    return this.timings.read(reset)
   }
 
-  private attachment(socket: LiveSocket): Attachment {
-    return socket.deserializeAttachment() as Attachment
+  private localState(sessionId: string): SessionState {
+    let held = this.local.get(sessionId)
+    if (held === undefined) {
+      held = { rate: [] }
+      this.local.set(sessionId, held)
+    }
+    return held
   }
-  /** Stop the transient delivery timer when a host shuts down. */
+
   stop(): void {
     this.stopped = true
     if (this.timer !== null) clearTimeout(this.timer)
@@ -133,14 +170,14 @@ export class PresenceCoordinator<Client> {
     const open: LiveSession[] = []
     for (const socket of this.state.getWebSockets('presence')) {
       if (socket.readyState !== 1) continue
-      const held = this.attachment(socket)
-      if (!held.closed) open.push({ socket, held })
+      const held = attachmentOf(socket)
+      if (held !== null && !held.closed) open.push({ socket, held })
     }
     return open
   }
 
   private peer(attachment: Attachment): PresencePeer {
-    const mask = this.masks.get(attachment.sessionId)
+    const mask = this.local.get(attachment.sessionId)?.mask
     return {
       sessionId: attachment.sessionId,
       ...(attachment.publisherId === undefined ? {} : { publisherId: attachment.publisherId }),
@@ -254,8 +291,7 @@ export class PresenceCoordinator<Client> {
   /** Expire idle sessions after hibernation and schedule the next stale sweep. */
   async alarm(): Promise<void> {
     const expiry = await this.state.storage.get<RegionExpiry>('region-expiry')
-    if (expiry?.at != null && expiry.at <= Date.now())
-      await this.publishRegions(expiry.season, expiry.surface)
+    if (expiry?.at != null && expiry.at <= Date.now()) await this.publishRegions()
     await this.tick()
   }
 
@@ -271,15 +307,13 @@ export class PresenceCoordinator<Client> {
             this.close(session.socket, 1000, 'presence stale')
           else open.push(session)
         }
-        // One room per season and surface: every session shares the first one's.
-        const room = open[0]?.held
-        const recovering = open.some(({ held }) => !this.sent.has(held.sessionId))
-        const regions =
-          room === undefined || !recovering
-            ? []
-            : await this.timings.timed('claims', 'list', () =>
-                this.sql.regions.listRegions(room.season, room.surface),
-              )
+        const sent = (sessionId: string) => this.local.get(sessionId)?.sent
+        const recovering = open.some(({ held }) => sent(held.sessionId) === undefined)
+        const regions = !recovering
+          ? []
+          : await this.timings.timed('claims', 'list', () =>
+              this.sql.regions.listRegions(this.room.season, this.room.surface),
+            )
         // A valid heartbeat/update has kept these sessions alive. Ownership always uses both keys,
         // including for administrators; connecting must never renew another painter's claims.
         const due = new Set(
@@ -300,8 +334,8 @@ export class PresenceCoordinator<Client> {
           )
           for (const { socket } of due) {
             // Updates may have landed during the reads above; stamp the attachment as it is now.
-            const held = this.attachment(socket)
-            if (held.closed) continue
+            const held = attachmentOf(socket)
+            if (held === null || held.closed) continue
             socket.serializeAttachment({ ...held, renewedAt: now } satisfies Attachment)
             renewed.push({ socket, held })
           }
@@ -310,11 +344,10 @@ export class PresenceCoordinator<Client> {
         // fence. Do not retain it across ticks, where a credential transfer or expiry could
         // invalidate it.
         const owners =
-          room !== undefined &&
-          (renewed.length > 0 ||
-            open.some(({ held }) => !held.anonymous && !this.sent.has(held.sessionId)))
+          renewed.length > 0 ||
+          open.some(({ held }) => !held.anonymous && sent(held.sessionId) === undefined)
             ? await this.timings.timed('claims', 'owners', () =>
-                this.sql.regions.regionOwners(room.season, room.surface),
+                this.sql.regions.regionOwners(this.room.season, this.room.surface),
               )
             : undefined
         for (const session of renewed) {
@@ -336,23 +369,19 @@ export class PresenceCoordinator<Client> {
         let peers: PeerGrid | undefined
         for (const session of open) {
           const subscriber = session.held
-          const previous = this.sent.get(subscriber.sessionId)
+          const local = this.localState(subscriber.sessionId)
+          const previous = local.sent
           // Heartbeats only refresh liveness. Recovery, membership changes and dirty peer state
           // still recompute every recipient so moving viewports can discover previously unseen peers.
-          if (
-            previous !== undefined &&
-            dirty.size === 0 &&
-            this.onlineSent.get(subscriber.sessionId) === online
-          )
-            continue
+          if (previous !== undefined && dirty.size === 0 && local.onlineSent === online) continue
           peers ??= new PeerGrid(open.map(({ held }) => this.peer(held)))
           const started = performance.now()
           const relevant = this.relevant(subscriber, peers)
           this.timings.record('presence', 'select', performance.now() - started)
           const next = new Set(relevant.map((peer) => peer.sessionId))
-          this.sent.set(subscriber.sessionId, next)
+          local.sent = next
           if (previous === undefined) {
-            this.onlineSent.set(subscriber.sessionId, online)
+            local.onlineSent = online
             this.send(session, {
               type: 'presence-ready',
               sessionId: subscriber.sessionId,
@@ -368,8 +397,8 @@ export class PresenceCoordinator<Client> {
             (peer) => dirty.has(peer.sessionId) || !previous.has(peer.sessionId),
           )
           const remove = [...previous].filter((id) => !next.has(id))
-          const onlineChanged = this.onlineSent.get(subscriber.sessionId) !== online
-          this.onlineSent.set(subscriber.sessionId, online)
+          const onlineChanged = local.onlineSent !== online
+          local.onlineSent = online
           if (upsert.length || remove.length || onlineChanged)
             this.send(session, { type: 'presence-delta', online, upsert, remove })
         }
@@ -379,15 +408,11 @@ export class PresenceCoordinator<Client> {
   }
 
   private drop(socket: LiveSocket): void {
-    const attachment = this.attachment(socket)
+    const attachment = attachmentOf(socket)
+    if (attachment === null) return
     socket.serializeAttachment({ ...attachment, closed: true } satisfies Attachment)
-    const id = attachment.sessionId
-    this.masks.delete(id)
-    this.rates.delete(id)
-    this.sent.delete(id)
-    this.onlineSent.delete(id)
-    this.claimsSent.delete(id)
-    this.dirty.add(id)
+    this.local.delete(attachment.sessionId)
+    this.dirty.add(attachment.sessionId)
     this.armTick()
   }
 
@@ -415,6 +440,8 @@ export class PresenceCoordinator<Client> {
             MAX_PRESENCE_SUBSCRIBERS_PER_CLIENT
         if (capacity) return false
         if (connection.revocable) {
+          // Before the credential check, so a revocation that lands after it finds this room.
+          await this.routeRevocation(tokenHash)
           const token = await this.sql.readAccessToken(tokenHash)
           if (token === null || token.scope !== credentialScope) return false
         }
@@ -425,7 +452,7 @@ export class PresenceCoordinator<Client> {
           )
         // Share the fence with region publication so ready cannot arrive after a newer regions event.
         regions = await this.sql.regions.listRegions(season, surface)
-        await this.rememberRegionExpiry(season, surface, regions)
+        await this.rememberRegionExpiry(regions)
         return true
       },
       async () => {
@@ -454,8 +481,9 @@ export class PresenceCoordinator<Client> {
         const pair = this.state.connect(attachment)
         const open = this.sessionsOpen()
         // A new session has no viewport, so it sees no peers until its first update.
-        this.sent.set(sessionId, new Set())
-        this.onlineSent.set(sessionId, open.length)
+        const local = this.localState(sessionId)
+        local.sent = new Set()
+        local.onlineSent = open.length
         this.send(
           { socket: pair.server, held: attachment },
           {
@@ -488,12 +516,17 @@ export class PresenceCoordinator<Client> {
   }
 
   webSocketMessage(socket: LiveSocket, message: string | ArrayBuffer): void {
-    const attachment = this.attachment(socket)
+    const attachment = attachmentOf(socket)
+    if (attachment === null) {
+      this.close(socket, 1011, 'presence session lost')
+      return
+    }
     if (attachment.closed) return
     const now = Date.now()
-    const rate = (this.rates.get(attachment.sessionId) ?? []).filter((at) => now - at < 1_000)
+    const local = this.localState(attachment.sessionId)
+    const rate = local.rate.filter((at) => now - at < 1_000)
     rate.push(now)
-    this.rates.set(attachment.sessionId, rate)
+    local.rate = rate
     if (rate.length > MAX_PRESENCE_MESSAGES_PER_SECOND) {
       this.close(socket, 1008, 'presence rate limit')
       return
@@ -524,6 +557,7 @@ export class PresenceCoordinator<Client> {
     if (attachment.credentialScope === 'read') return
     // Anonymous sessions are read scope, so the early return above keeps their quick claims out.
     const quickClaims = event.quickClaims
+    const { surface } = this.room
     const viewport =
       event.viewport === undefined
         ? attachment.viewport
@@ -537,17 +571,14 @@ export class PresenceCoordinator<Client> {
           ? null
           : quantisedDraft(event.draft)
     if (
-      (event.viewport != null && !presenceRectWithinSurface(event.viewport, attachment.surface)) ||
-      (event.draft != null && !presenceRectWithinSurface(event.draft.rect, attachment.surface)) ||
-      (viewport !== null && !presenceRectWithinSurface(viewport, attachment.surface)) ||
-      (draft != null && !presenceRectWithinSurface(draft.rect, attachment.surface)) ||
-      quickClaims?.some((rect) => !presenceRectWithinSurface(rect, attachment.surface))
+      (event.viewport != null && !presenceRectWithinSurface(event.viewport, surface)) ||
+      (event.draft != null && !presenceRectWithinSurface(event.draft.rect, surface)) ||
+      (viewport !== null && !presenceRectWithinSurface(viewport, surface)) ||
+      (draft != null && !presenceRectWithinSurface(draft.rect, surface)) ||
+      quickClaims?.some((rect) => !presenceRectWithinSurface(rect, surface))
     )
       return
-    if (draft !== undefined) {
-      if (draft?.mask === undefined) this.masks.delete(attachment.sessionId)
-      else this.masks.set(attachment.sessionId, draft.mask)
-    }
+    if (draft !== undefined) local.mask = draft?.mask
     socket.serializeAttachment({
       ...attachment,
       viewport,
@@ -575,7 +606,8 @@ export class PresenceCoordinator<Client> {
   }
 
   /** Reload committed claims and deliver the surface's authoritative region list. */
-  async publishRegions(season: number, surface: TemplateSurface): Promise<void> {
+  async publishRegions(): Promise<void> {
+    const { season, surface } = this.room
     const queued = performance.now()
     await this.sessions.revoke(async () =>
       this.timings.timed('claims', 'total', async () => {
@@ -583,7 +615,7 @@ export class PresenceCoordinator<Client> {
         const regions = await this.timings.timed('claims', 'list', () =>
           this.sql.regions.listRegions(season, surface),
         )
-        await this.rememberRegionExpiry(season, surface, regions)
+        await this.rememberRegionExpiry(regions)
         const owners = await this.timings.timed('claims', 'owners', () =>
           this.sql.regions.regionOwners(season, surface),
         )
@@ -624,12 +656,13 @@ export class PresenceCoordinator<Client> {
               ? []
               : (grouped.get(attachment.tokenHash)?.get(attachment.painter.wplaceUserId) ?? []),
           )
-          const previous = this.claimsSent.get(attachment.sessionId)
+          const local = this.localState(attachment.sessionId)
+          const previous = local.claimsSent
           this.timings.record('claims', 'serialize', performance.now() - started)
           // Ownership can change without changing public geometry. Compare both, inside the
           // revocation fence, and forget delivery state on disconnect or hibernation recovery.
           if (previous?.version === this.regionVersion && previous.owned === owned) continue
-          this.claimsSent.set(attachment.sessionId, { version: this.regionVersion, owned })
+          local.claimsSent = { version: this.regionVersion, owned }
           this.sendEncoded(session.socket, `${prefix}${owned}}`)
         }
         await this.armAlarm(open)
@@ -645,7 +678,7 @@ export class PresenceCoordinator<Client> {
     const owners =
       recoveredOwners ??
       (await this.timings.timed('claims', 'owners', () =>
-        this.sql.regions.regionOwners(attachment.season, attachment.surface),
+        this.sql.regions.regionOwners(this.room.season, this.room.surface),
       ))
     return ownedRegionIds(owners, {
       tokenHash: attachment.tokenHash,
@@ -653,18 +686,13 @@ export class PresenceCoordinator<Client> {
     })
   }
 
-  private async rememberRegionExpiry(
-    season: number,
-    surface: TemplateSurface,
-    regions: readonly RegionClaim[],
-  ): Promise<void> {
+  private async rememberRegionExpiry(regions: readonly RegionClaim[]): Promise<void> {
     // A loop rather than a spread: the region list is unbounded and V8 caps call arguments.
     let at = Number.POSITIVE_INFINITY
     for (const region of regions)
       if (region.expiresAt !== undefined && region.expiresAt < at) at = region.expiresAt
     await this.state.storage.put('region-expiry', {
-      season,
-      surface,
+      ...this.room,
       at: Number.isFinite(at) ? at : null,
     } satisfies RegionExpiry)
   }

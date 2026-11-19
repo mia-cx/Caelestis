@@ -70,8 +70,8 @@ import type {
   StatusVisibilityScope,
 } from './model.js'
 import { createKeyedStatusPersistence } from './persistence.js'
-import type { StatusReadModelPort } from './port.js'
 import { createSeasonReadModels, type SeasonReadModels } from './season.js'
+import { CoordinatedStatusReadModel, type StatusShard } from './shard.js'
 import type {
   CommittedTileGeneration,
   PreparedTileGenerationCommit,
@@ -126,9 +126,8 @@ const manifestSurface = (projection: LiveProjectionState): TemplateSurface | nul
 }
 
 /** Live sync for one season: its read models, its subscribers, and the commands they send. */
-export class StatusCoordinator<Client> {
-  private boundSeason: number | null = null
-  private readModels: SeasonReadModels | null = null
+export class StatusCoordinator<Client> implements StatusShard {
+  private readonly readModels: SeasonReadModels
   private readonly liveSessions = createLiveSessionFence()
   private readonly paints = new LivePaintAssembler()
   /** Dashboard changes notified so far; a refresh repeats until it has served the latest. */
@@ -138,74 +137,49 @@ export class StatusCoordinator<Client> {
 
   constructor(
     private readonly objectState: LiveHost<Client>,
+    /** The season this coordinator serves; its host addresses it by `statusShardName(season)`. */
+    private readonly season: number,
     private readonly sql: SqlStore,
     private readonly blobs: BlobStore,
     private readonly counters: () => CounterStore,
     /** The deployment's identity, as `serverInfo` builds it for every manifest. */
     private readonly server: ServerInfo,
+    /** Reconcile the alarm watcher's wakeup with the earliest durable probe. */
     private readonly scheduleAlarms: () => Promise<void>,
-    private readonly closePresence: (
-      season: number,
-      tokenHash: string,
-      surface: TemplateSurface,
-    ) => Promise<void>,
+    /** Close a credential's sessions in this season's presence room for `surface`. */
+    private readonly closePresence: (tokenHash: string, surface: TemplateSurface) => Promise<void>,
     private readonly requestMetrics?: Pick<AnalyticsEngineDataset, 'writeDataPoint'>,
     /** Deployment overrides; the defaults are the production limits. */
     private readonly limits: { readonly liveSubscribers?: number } = {},
-  ) {}
-
-  /** Live commands run here, so the read model they write through is this coordinator. */
-  private backendRuntime(): BackendRuntime {
-    if (this.runtime !== null) return this.runtime
-    const liveReadModel: StatusReadModelPort = {
-      applyCommittedChange: (season, mutation) => this.applyCommittedChange(season, mutation),
-      reconcileSnapshot: (season, scope) => this.reconcileSnapshot(season, scope),
-      readManifestProjection: (input) => this.readManifestProjection(input),
-      notifyManifestChange: (season, surface, affectsTileCoverage) =>
-        this.notifyManifestChange(season, surface, affectsTileCoverage),
-      resolveCurrentTileOffers: (season, scope, offers) =>
-        this.resolveCurrentTileOffers(season, scope, offers),
-      prepareTileGenerationCommit: (season, tile) => this.prepareTileGenerationCommit(season, tile),
-      applyCommittedTileGeneration: (season, generation) =>
-        this.applyCommittedTileGeneration(season, generation),
-      finishTileGenerationCommit: (season, tile, commit) =>
-        this.finishTileGenerationCommit(season, tile, commit),
-      notifyDashboardChange: (season) => this.notifyDashboardChange(season),
-      notifyAlarmChange: async (season) => {
-        const results = await Promise.allSettled([
-          this.scheduleAlarms(),
-          this.notifyAlarmChange(season),
-        ])
-        const errors = results.flatMap((result) =>
-          result.status === 'rejected' ? [result.reason] : [],
-        )
-        if (errors.length > 0) throw new AggregateError(errors, 'Alarm notification failed')
-      },
-      closeCredential: (season, tokenHash) => this.closeCredential(season, tokenHash),
-      readIngestTimings: (_season, reset) => this.readIngestTimings(reset),
-    }
-    this.runtime = createBackendRuntime(
-      makeBackendContext(this.blobs, this.sql, this.counters(), liveReadModel),
-    )
-    return this.runtime
-  }
-
-  /** This coordinator's read models; the first season asked for binds it for good. */
-  private season(season: number): SeasonReadModels {
-    if (!Number.isSafeInteger(season) || season < 0)
-      throw new RangeError('season must be non-negative')
-    if (this.boundSeason !== null && this.boundSeason !== season)
-      throw new Error('Durable Object is already bound to a season')
-    this.boundSeason = season
-    this.readModels ??= createSeasonReadModels({
+  ) {
+    this.readModels = createSeasonReadModels({
       season,
-      sql: this.sql,
+      sql,
       persistence: {
-        status: createKeyedStatusPersistence(this.objectState.storage, season),
-        manifest: createChunkedManifestPersistence(this.objectState.storage, season),
+        status: createKeyedStatusPersistence(objectState.storage, season),
+        manifest: createChunkedManifestPersistence(objectState.storage, season),
       },
     })
-    return this.readModels
+  }
+
+  /**
+   * Live commands run here and write only this season, so the read model they write through is
+   * this coordinator.
+   */
+  private backendRuntime(): BackendRuntime {
+    this.runtime ??= createBackendRuntime(
+      makeBackendContext(
+        this.blobs,
+        this.sql,
+        this.counters(),
+        new CoordinatedStatusReadModel((season) => {
+          if (season !== this.season)
+            throw new RangeError(`season ${season} is served by another coordinator`)
+          return this
+        }),
+      ),
+    )
+    return this.runtime
   }
 
   private send(socket: LiveSocket, event: LiveSyncServerEvent): void {
@@ -248,7 +222,7 @@ export class StatusCoordinator<Client> {
     }
     const surface = manifestSurface(projection)
     if (surface === null) return null
-    const read = await this.season(attachment.season).readManifest({
+    const read = await this.readModels.readManifest({
       server: this.server,
       season: attachment.season,
       surface,
@@ -285,7 +259,7 @@ export class StatusCoordinator<Client> {
     }
     const surface = manifestSurface(projection)
     if (surface === null) return null
-    return this.season(season).knownManifestVersion(scope, surface)
+    return this.readModels.knownManifestVersion(scope, surface)
   }
 
   private async reconcileLiveState(
@@ -293,7 +267,7 @@ export class StatusCoordinator<Client> {
     attachment: LiveSubscriberAttachment,
     event: Extract<LiveSyncClientEvent, { readonly type: 'state-vector' }>,
   ): Promise<void> {
-    const read = await this.season(attachment.season).status.reconcileSnapshot(attachment.scope)
+    const read = await this.readModels.status.reconcileSnapshot(attachment.scope)
     const authoritative = await Promise.all(
       event.projections.map(async (projection) => ({
         ...projection,
@@ -333,7 +307,7 @@ export class StatusCoordinator<Client> {
     return this.objectState.getWebSockets('status').flatMap((socket) => {
       const attachment = subscriberOf(socket)
       return attachment !== null &&
-        attachment.season === this.boundSeason &&
+        attachment.season === this.season &&
         attachment.revoked !== true &&
         (scope === undefined || attachment.scope === scope)
         ? [{ socket, attachment }]
@@ -360,10 +334,9 @@ export class StatusCoordinator<Client> {
   }
 
   async applyCommittedChange(
-    season: number,
     mutation?: StatusProjectionMutation,
   ): Promise<StatusProjectionChange | null> {
-    const status = this.season(season).status
+    const status = this.readModels.status
     const change = await status.applyCommittedChange(mutation)
     if (change === null) {
       const snapshot = await status.reconcileSnapshot('public')
@@ -378,13 +351,13 @@ export class StatusCoordinator<Client> {
     return change
   }
 
-  reconcileSnapshot(season: number, scope: StatusVisibilityScope): Promise<StatusSnapshotRead> {
+  reconcileSnapshot(scope: StatusVisibilityScope): Promise<StatusSnapshotRead> {
     if (scope !== 'public' && scope !== 'admin') throw new RangeError('invalid visibility scope')
-    return this.season(season).status.reconcileSnapshot(scope)
+    return this.readModels.status.reconcileSnapshot(scope)
   }
 
   async readManifestProjection(input: ManifestProjectionInput): Promise<ManifestProjectionRead> {
-    const projection = await this.season(input.season).readManifest(input)
+    const projection = await this.readModels.readManifest(input)
     if (projection.revisionChanged) this.broadcastManifest(projection.revision)
     return projection
   }
@@ -427,12 +400,8 @@ export class StatusCoordinator<Client> {
     )
   }
 
-  async notifyManifestChange(
-    season: number,
-    surface?: TemplateSurface,
-    affectsTileCoverage = true,
-  ): Promise<void> {
-    const revision = await this.season(season).invalidateManifest(surface, affectsTileCoverage)
+  async notifyManifestChange(surface?: TemplateSurface, affectsTileCoverage = true): Promise<void> {
+    const revision = await this.readModels.invalidateManifest(surface, affectsTileCoverage)
     this.broadcastManifest(revision, surface)
     await Promise.all([
       this.broadcastManifestSnapshots(surface),
@@ -445,43 +414,45 @@ export class StatusCoordinator<Client> {
   }
 
   async resolveCurrentTileOffers(
-    season: number,
     scope: StatusVisibilityScope,
     offers: readonly TileGenerationOffer[],
   ): Promise<TileGenerationCacheRead> {
-    return this.season(season).resolveTileOffers(scope, offers)
+    return this.readModels.resolveTileOffers(scope, offers)
   }
 
-  prepareTileGenerationCommit(
-    season: number,
-    tile: TileCoord,
-  ): Promise<PreparedTileGenerationCommit> {
-    return this.season(season).prepareTileCommit(tile)
+  prepareTileGenerationCommit(tile: TileCoord): Promise<PreparedTileGenerationCommit> {
+    return this.readModels.prepareTileCommit(tile)
   }
 
-  applyCommittedTileGeneration(season: number, generation: CommittedTileGeneration): Promise<void> {
-    return this.season(season).applyTileGeneration(generation)
+  applyCommittedTileGeneration(generation: CommittedTileGeneration): Promise<void> {
+    return this.readModels.applyTileGeneration(generation)
   }
 
-  finishTileGenerationCommit(
-    season: number,
-    tile: TileCoord,
-    commit: PreparedTileGenerationCommit,
-  ): Promise<void> {
-    return this.season(season).finishTileCommit(tile, commit)
+  finishTileGenerationCommit(tile: TileCoord, commit: PreparedTileGenerationCommit): Promise<void> {
+    return this.readModels.finishTileCommit(tile, commit)
   }
 
   /** Stage timings for the live commands this coordinator handled since the last reset. */
   async readIngestTimings(reset: boolean): Promise<IngestTimingSnapshot> {
-    const snapshot = ingestTimings.snapshot()
-    if (reset) ingestTimings.reset()
-    return snapshot
+    return ingestTimings.read(reset)
   }
 
-  async notifyAlarmChange(season: number): Promise<void> {
-    this.season(season)
-    this.broadcast(this.subscribers(), { type: 'alarms-reconcile' })
-    await this.broadcastAlarmSnapshots()
+  /**
+   * Wake the alarm watcher for any new probe, and tell subscribers their alarms changed. Each runs
+   * even when the other fails.
+   */
+  async notifyAlarmChange(): Promise<void> {
+    const results = await Promise.allSettled([
+      this.scheduleAlarms(),
+      (async () => {
+        this.broadcast(this.subscribers(), { type: 'alarms-reconcile' })
+        await this.broadcastAlarmSnapshots()
+      })(),
+    ])
+    const errors = results.flatMap((result) =>
+      result.status === 'rejected' ? [result.reason] : [],
+    )
+    if (errors.length > 0) throw new AggregateError(errors, 'Alarm notification failed')
   }
 
   private async broadcastAlarmSnapshots(): Promise<void> {
@@ -564,8 +535,7 @@ export class StatusCoordinator<Client> {
    * before its subscribers are. Changes that arrive during a refresh share one more refresh, which
    * starts after they landed.
    */
-  async notifyDashboardChange(season: number): Promise<void> {
-    this.season(season)
+  async notifyDashboardChange(): Promise<void> {
     this.dashboardChanges++
     if (this.dashboardRefreshing) return
     this.dashboardRefreshing = true
@@ -728,7 +698,7 @@ export class StatusCoordinator<Client> {
     if (!mayReport(attachment, event.batch.season)) return refuse('forbidden')
     const parsed = parseOfferBatch(event.batch)
     if (parsed === null) return refuse('invalid')
-    const response = this.season(event.batch.season).resolveTileOffers(
+    const response = this.readModels.resolveTileOffers(
       attachment.scope,
       parsed.map(({ offer, tile }) => ({ deliveryId: offer.deliveryId, tile, hash: offer.sha256 })),
     )
@@ -819,19 +789,13 @@ export class StatusCoordinator<Client> {
   }
 
   /** Persist routing before presence attachment so revocation also reaches hibernating rooms. */
-  async registerPresenceSurface(
-    season: number,
-    tokenHash: string,
-    surface: TemplateSurface,
-  ): Promise<void> {
-    this.season(season)
+  async registerPresenceSurface(tokenHash: string, surface: TemplateSurface): Promise<void> {
     const key = `presence:${tokenHash}:${templateSurfaceKey(surface)}`
     if ((await this.objectState.storage.get(key)) === undefined)
       await this.objectState.storage.put(key, surface)
   }
 
-  async closeCredential(season: number, tokenHash: string): Promise<void> {
-    this.season(season)
+  async closeCredential(tokenHash: string): Promise<void> {
     await this.liveSessions.revoke(() => {
       for (const { socket, attachment } of this.subscribers()) {
         if (attachment.tokenHash !== tokenHash) continue
@@ -846,7 +810,7 @@ export class StatusCoordinator<Client> {
       prefix: `presence:${tokenHash}:`,
     })
     for (const [key, surface] of rooms) {
-      await this.closePresence(season, tokenHash, surface)
+      await this.closePresence(tokenHash, surface)
       await this.objectState.storage.delete(key)
     }
   }
@@ -854,7 +818,7 @@ export class StatusCoordinator<Client> {
   /** Admit one live-sync connection within the season's capacity and its credential's rights. */
   async connect(connection: StatusLiveConnection): Promise<LiveAdmission> {
     const { season, scope, tokenHash, clientHash, anonymous, revocable, protocol } = connection
-    const status = this.season(season).status
+    const status = this.readModels.status
     let capacityExceeded = false
     const admitted = await this.liveSessions.attach(
       async () => {
@@ -1019,7 +983,6 @@ export class StatusCoordinator<Client> {
         }
         const updated = { ...attachment, stateVectorReceived: true, projections: event.projections }
         socket.serializeAttachment(updated satisfies LiveSubscriberAttachment)
-        this.season(attachment.season)
         await this.reconcileLiveState(socket, updated, event)
         return
       }

@@ -71,6 +71,7 @@ const liveCoordinator = async () => {
   }
   const coordinator = new StatusCoordinator(
     host,
+    SEASON,
     store.sql,
     store.blobs,
     () => store.counters,
@@ -102,7 +103,7 @@ it('sends alarm snapshots only for template changes, never for metadata-only man
   const { coordinator, subscribe } = await liveCoordinator()
   const sockets = subscribe(3)
 
-  await coordinator.notifyManifestChange(SEASON, WORLD_TEMPLATE_SURFACE, false)
+  await coordinator.notifyManifestChange(WORLD_TEMPLATE_SURFACE, false)
   for (const socket of sockets) {
     expect(socket.events('manifest-reconcile')).toHaveLength(1)
     expect(socket.events('manifest-snapshot')).toHaveLength(1)
@@ -111,7 +112,7 @@ it('sends alarm snapshots only for template changes, never for metadata-only man
   // Every subscriber in one audience receives the same bytes.
   expect(new Set(sockets.map((socket) => socket.sent.join('\n'))).size).toBe(1)
 
-  await coordinator.notifyManifestChange(SEASON, WORLD_TEMPLATE_SURFACE)
+  await coordinator.notifyManifestChange(WORLD_TEMPLATE_SURFACE)
   for (const socket of sockets) expect(socket.events('alarms-snapshot')).toHaveLength(1)
 })
 
@@ -137,7 +138,7 @@ it('acknowledges dashboard changes before refreshing and serves a burst with one
   }
   const beforeBurst = reads()
 
-  await Promise.all(Array.from({ length: 5 }, () => coordinator.notifyDashboardChange(SEASON)))
+  await Promise.all(Array.from({ length: 5 }, () => coordinator.notifyDashboardChange()))
   // Nothing has read yet: the paint that notified is acknowledged before its refresh starts.
   expect(reads()).toBe(beforeBurst)
   for (const socket of sockets) expect(socket.events('dashboard-snapshot')).toHaveLength(1)
@@ -150,7 +151,7 @@ it('acknowledges dashboard changes before refreshing and serves a burst with one
 
   // A later change still reaches every subscriber, and costs as much as the whole burst did.
   const beforeSingle = reads()
-  await coordinator.notifyDashboardChange(SEASON)
+  await coordinator.notifyDashboardChange()
   await vi.waitFor(() => {
     for (const socket of sockets) expect(socket.events('dashboard-snapshot')).toHaveLength(3)
   })

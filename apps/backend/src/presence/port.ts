@@ -42,13 +42,20 @@ export interface PresencePort {
   connect(request: Request, connection: PresenceConnection): Promise<Response>
 }
 
+/** A room's identity: the season and drawing surface it serves. */
+export interface PresenceRoomId {
+  readonly season: number
+  readonly surface: TemplateSurface
+}
+
 /** One room, in process or behind a Durable Object stub. */
 export interface PresenceRoom {
-  publishRegions(season: number, surface: TemplateSurface): Promise<void>
+  publishRegions(): Promise<void>
   readIngestTimings(reset: boolean): IngestTimingSnapshot | Promise<IngestTimingSnapshot>
   online(): Promise<number>
   closeCredential(tokenHash: string): Promise<void>
-  connect(request: Request, connection: PresenceConnection): Promise<Response>
+  /** `request` is what a Durable Object hop forwards; an in-process room needs only the connection. */
+  connect(connection: PresenceConnection, request: Request): Promise<Response>
 }
 
 export type PresenceRooms = (season: number, surface: TemplateSurface) => PresenceRoom
@@ -68,9 +75,7 @@ export const presenceRoomName = (season: number, surface: TemplateSurface): stri
   `${season}:${templateSurfaceKey(surface)}`
 
 /** The season and surface a room name was built from, or null when it names no room. */
-export const parsePresenceRoomName = (
-  name: string,
-): { readonly season: number; readonly surface: TemplateSurface } | null => {
+export const parsePresenceRoomName = (name: string): PresenceRoomId | null => {
   const separator = name.indexOf(':')
   const season = parseWholeNumber(name.slice(0, separator))
   const surface = parseTemplateSurfaceKey(name.slice(separator + 1))
