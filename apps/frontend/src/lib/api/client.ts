@@ -28,10 +28,6 @@ import { LIVE_PATH, READ_PROXY, STORAGE_KEYS } from '../deployment.js'
 import { sanitizeServerInfo } from '../server-info.js'
 import { frontendClientAccept } from './client-metrics.js'
 
-/**
- * A configured server is fixed for the deployment. Without one, the selected server and access
- * token live in localStorage.
- */
 const { server: SERVER_KEY, token: TOKEN_KEY, liveClientId: LIVE_CLIENT_ID_KEY } = STORAGE_KEYS
 type ApiVersionPath = typeof API_VERSION_PATH | ''
 /** Servers whose `/server` answered only at the unversioned root (see `getServer`). */
@@ -39,6 +35,10 @@ const legacyServers = new Set<string>()
 const apiVersionPath = (): ApiVersionPath =>
   typeof window !== 'undefined' && legacyServers.has(readServerUrl()) ? '' : API_VERSION_PATH
 const DEV_SERVER = 'http://127.0.0.1:8787'
+/**
+ * A configured server is fixed for the deployment. Without one, the selected server and access
+ * token live in localStorage.
+ */
 const configuredServer =
   (import.meta.env.VITE_CAELESTIS_SERVER as string | undefined)?.replace(/\/+$/, '') || null
 

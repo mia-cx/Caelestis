@@ -11,13 +11,11 @@ export const COUNTER_GRACE_SECONDS: Seconds = seconds(30)
 export const COUNTER_RETENTION_SECONDS: Seconds = seconds(3_600)
 
 /**
- * Derived windows, exported so every implementation and the validator share one definition.
- *
- * These were previously recomputed in three places and agreed only by coincidence. Expiry is the
- * sole authority on how late a delta may be, so if the validator's notion of "expired" drifts from
- * the store's by even a second, it accepts a bucket whose retained row has already been pruned — and
- * the promotion join then writes only the late portion, which D1's replace semantics turn into a
- * silent undercount. Derive, never restate.
+ * Derived windows, exported so every implementation and the validator share one definition: derive,
+ * never restate. Expiry is the sole authority on how late a delta may be, so if the validator's
+ * notion of "expired" drifts from the store's by even a second, it accepts a bucket whose retained
+ * row has already been pruned — and the promotion join then writes only the late portion, which
+ * D1's replace semantics turn into a silent undercount.
  *
  * The store's own pruning defends the same boundary from the other side: a retained row outlives its
  * expiry for as long as pending or flush-batch state still references it, so an in-flight rewrite

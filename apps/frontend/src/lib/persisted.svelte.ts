@@ -13,9 +13,7 @@ export class Persisted<T> {
     try {
       const raw = localStorage.getItem(key)
       if (raw !== null) held = JSON.parse(raw) as T
-    } catch {
-      // A corrupt or unreadable entry keeps the initial value.
-    }
+    } catch {}
     this.#value = held
   }
 
