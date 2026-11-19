@@ -19,7 +19,7 @@ type Coordinator = StatusCoordinator<WebSocket>
 
 /** One season's status coordinator, named `statusShardName(season)`. */
 export class StatusReadModelObject extends forwardingObject<Coordinator>()(
-  STATUS_SHARD_METHODS,
+  [...STATUS_SHARD_METHODS, 'webSocketMessage', 'webSocketClose'],
   MEASURED_STATUS_METHODS,
 ) {
   protected readonly target: Coordinator
@@ -48,11 +48,5 @@ export class StatusReadModelObject extends forwardingObject<Coordinator>()(
   }
   override fetch(request: Request) {
     return receiveStatusLive(request, (connection) => this.target.connect(connection))
-  }
-  override webSocketMessage(...args: Parameters<Coordinator['webSocketMessage']>) {
-    return this.target.webSocketMessage(...args)
-  }
-  override webSocketClose(...args: Parameters<Coordinator['webSocketClose']>) {
-    return this.target.webSocketClose(...args)
   }
 }

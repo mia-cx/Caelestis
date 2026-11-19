@@ -3,9 +3,10 @@ import { durableCoordinatorDatabase } from './adapters/cloudflare/coordinator-da
 import { forwardingObject } from './adapters/cloudflare/forwarding-object.js'
 import { TELEMETRY_SHARD_METHODS, TelemetryCoordinator } from './coordination/telemetry.js'
 
-export class TelemetryShard extends forwardingObject<TelemetryCoordinator>()(
-  TELEMETRY_SHARD_METHODS,
-) {
+export class TelemetryShard extends forwardingObject<TelemetryCoordinator>()([
+  ...TELEMETRY_SHARD_METHODS,
+  'alarm',
+]) {
   protected readonly target: TelemetryCoordinator
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
@@ -15,8 +16,5 @@ export class TelemetryShard extends forwardingObject<TelemetryCoordinator>()(
       cloudflareBindings(env).stores.sql,
     )
     void ctx.blockConcurrencyWhile(() => this.target.initialize())
-  }
-  override alarm() {
-    return this.target.alarm()
   }
 }

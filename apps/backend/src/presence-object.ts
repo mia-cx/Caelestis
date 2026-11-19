@@ -14,6 +14,10 @@ export class PresenceObject extends forwardingObject<Coordinator>()([
   'readIngestTimings',
   'publishRegions',
   'closeCredential',
+  'alarm',
+  'webSocketMessage',
+  'webSocketClose',
+  'webSocketError',
 ]) {
   protected readonly target: Coordinator
   constructor(ctx: DurableObjectState, env: Env) {
@@ -31,17 +35,5 @@ export class PresenceObject extends forwardingObject<Coordinator>()([
   }
   override fetch(request: Request) {
     return receivePresence(request, (connection) => this.target.connect(connection))
-  }
-  override alarm() {
-    return this.target.alarm()
-  }
-  override webSocketMessage(...args: Parameters<Coordinator['webSocketMessage']>) {
-    return this.target.webSocketMessage(...args)
-  }
-  override webSocketClose(...args: Parameters<Coordinator['webSocketClose']>) {
-    return this.target.webSocketClose(...args)
-  }
-  override webSocketError(...args: Parameters<Coordinator['webSocketError']>) {
-    return this.target.webSocketError(...args)
   }
 }

@@ -86,6 +86,8 @@ export const openCloudflare = async (
   }
   return {
     fetch,
+    /** Miniflare's own fetch, which keeps a WebSocket upgrade's socket. */
+    dispatchFetch: runtime.dispatchFetch.bind(runtime),
     api: 'https://cloudflare.test/v1',
     database,
     dispose: () => runtime.dispose(),
