@@ -14,8 +14,8 @@ let {
 
 const DAY = 86_400
 const MIN_CELL = 10
-/** Weekday label column, reserved before the grid. */
 const LABEL = 24
+const EMPTY_CELL = 'color-mix(in oklab, var(--color-base-content) 8%, transparent)'
 
 let width = $state(0)
 
@@ -42,6 +42,7 @@ const byDay = $derived.by(() => {
   for (const day of days) totals.set(day.day, (totals.get(day.day) ?? 0) + day.placed)
   return totals
 })
+const reported = $derived(new Set<number>(days.map((entry) => entry.day)))
 
 const shown = $derived(layout.shown)
 
@@ -88,19 +89,17 @@ const weekdays = ['Mon', '', 'Wed', '', 'Fri', '', '']
 
 const max = $derived(Math.max(1, ...grid.flatMap((column) => column.map((cell) => cell.placed ?? 0))))
 
-// Split the observed range into five levels. Keep zero at the base colour.
 const level = (placed: number): string => {
-  if (placed === 0) return 'color-mix(in oklab, var(--color-base-content) 8%, transparent)'
+  if (placed === 0) return EMPTY_CELL
   const step = Math.min(5, Math.max(1, Math.ceil((placed / max) * 5)))
   return `var(--heat-${step})`
 }
 
 const label = (day: number, placed: number): string =>
-  `${new Date(day * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' })}: ${placed.toLocaleString()} ${imported.has(day) && !days.some((entry) => entry.day === day) ? 'net correct pixels (imported)' : 'pixels'}`
+  `${new Date(day * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' })}: ${placed.toLocaleString()} ${imported.has(day) && !reported.has(day) ? 'net correct pixels (imported)' : 'pixels'}`
 </script>
 
 <div bind:clientWidth={width} class="flex flex-col gap-1 text-[12px] leading-none text-base-content/50">
-  <!-- One grid for axes and cells: the label column is fixed, the week columns share the rest. -->
   <div
     class="grid w-full"
     style:grid-template-columns="{LABEL}px repeat({shown}, minmax(0, 1fr))"
@@ -133,7 +132,7 @@ const label = (day: number, placed: number): string =>
   </div>
   <div class="flex items-center gap-1 self-end pt-1">
     less
-    <span class="size-2.5 rounded-xs" style:background="color-mix(in oklab, var(--color-base-content) 8%, transparent)"></span>
+    <span class="size-2.5 rounded-xs" style:background={EMPTY_CELL}></span>
     {#each [1, 2, 3, 4, 5] as step (step)}
       <span class="size-2.5 rounded-xs" style:background="var(--heat-{step})"></span>
     {/each}
