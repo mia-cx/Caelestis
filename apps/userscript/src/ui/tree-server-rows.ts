@@ -216,7 +216,7 @@ const serverSource = (
         progress,
         progressReader: () => serverTemplateProgress(facts, surface, server, template),
         lifecycle: {
-          finished: template.finished === true,
+          finished: template.finished,
           frozen: template.timelapseFrozen === true,
           griefed: alarm?.kind === 'sustained-griefing',
           ...(alarm === null ? {} : { alarmKind: alarm.kind, pixelsLost: alarm.pixelsLost }),
@@ -232,7 +232,7 @@ const serverSource = (
                 nodeChainVisible(server.url, template.nodeId, surface)
               : isTemplateVisible(drawn),
           lifecycle: {
-            finished: template.finished === true,
+            finished: template.finished,
             frozen: template.timelapseFrozen === true,
           },
           ...(alarmKind === undefined ? {} : { alarm: alarmKind }),

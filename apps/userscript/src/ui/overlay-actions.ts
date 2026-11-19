@@ -120,7 +120,7 @@ const serverLifecycleFor = (
   const remote = server === undefined ? undefined : remoteRowFor(template, server)
   return remote === undefined
     ? null
-    : { finished: remote.finished === true, frozen: remote.timelapseFrozen === true }
+    : { finished: remote.finished, frozen: remote.timelapseFrozen === true }
 }
 
 const currentServerActionTargetFor = (id: string): ServerActionTarget | null => {

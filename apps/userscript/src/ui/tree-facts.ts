@@ -65,7 +65,7 @@ export const serverTemplateProgress = (
   server: ServerConnection,
   template: ServerTemplate,
 ): TemplateProgress => {
-  const baseline = serverProgressFor(server, template) ?? emptyProgress(template.totalPixels ?? 0)
+  const baseline = serverProgressFor(server, template) ?? emptyProgress(template.totalPixels)
   const drawn = facts.drawnServerTemplate(server, template.id)
   if (drawn === undefined) return baseline
   if (surface.kind !== 'world') return facts.progress(drawn)

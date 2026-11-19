@@ -89,7 +89,7 @@ const statusFor = (
     held !== undefined && isCurrentServerConnection(held.server)
       ? held.values.get(template.id)
       : undefined
-  return status === undefined || status.total !== (template.totalPixels ?? 0) ? null : status
+  return status === undefined || status.total !== template.totalPixels ? null : status
 }
 
 export const serverProgressFor = (

@@ -73,7 +73,13 @@ const cachedTemplatesFrom = (value: unknown): readonly ServerTemplate[] | undefi
       )
     )
       return undefined
-    templates.push({ ...(candidate as ServerTemplate), surface })
+    // Entries saved before manifests carried these fields read as untallied and unfinished.
+    templates.push({
+      ...(candidate as ServerTemplate),
+      totalPixels: candidate.totalPixels ?? 0,
+      finished: candidate.finished ?? false,
+      surface,
+    })
   }
   return templates
 }

@@ -91,11 +91,10 @@ export interface ServerTemplate {
   readonly nodeId: string | null
   readonly name: string
   readonly version: string
-  /** Added to manifests with progress bars; absent only in an older persisted cache entry. */
-  readonly totalPixels?: number
+  /** Zero only for an older persisted cache entry, written before manifests carried it. */
+  readonly totalPixels: number
   readonly published: boolean
-  /** Absent only in a cache written before template lifecycle state shipped. */
-  readonly finished?: boolean
+  readonly finished: boolean
   readonly finishedAt?: number | null
   readonly timelapseFrozen?: boolean
   readonly updatedAt: number

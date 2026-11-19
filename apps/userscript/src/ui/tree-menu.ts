@@ -190,7 +190,7 @@ export const openContextMenu = (
     folderTemplates !== null && canBackfill(target)
       ? { icon: 'download', label: 'Backfill history', run: () => openBackfill(target) }
       : null
-  const finished = lifecycle?.finished === true
+  const finished = lifecycle?.finished ?? false
   const frozen = lifecycle?.timelapseFrozen === true
   const markAs: MenuEntry = {
     icon: 'taskAlt',
