@@ -1,6 +1,7 @@
 import { sameTemplateSurface, TILE_SIZE, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import type { TileQuad } from '../coordinates.js'
 import { count, warn } from '../debug.js'
+import { registerDraftCanvas, retainDraftCanvases } from '../draft-pixels.js'
 import { getMap } from '../map-handle.js'
 import { overlayPeekFade } from '../overlay-peek.js'
 import {
@@ -21,13 +22,8 @@ import type { MarkList } from '../templates/mark-list.js'
 import { pixelAccounting } from '../templates/mismatch.js'
 import { horizontalSpans } from '../templates/placement.js'
 import { measuresLocally } from '../templates/wplace-owned.js'
-import {
-  currentQuads,
-  holdTilePixels,
-  isDrawingTiles,
-  registerDraftCanvas,
-  retainDraftCanvases,
-} from '../tile-transform.js'
+import { currentQuads, isDrawingTiles } from '../tile-frame.js'
+import { holdTilePixels } from '../tile-pixels.js'
 import { isPaintOpen, selectedColour } from '../wplace-paint.js'
 import { prefersReducedMotion } from './appearance-transition.js'
 import { batchMarkerWork } from './marker-batching.js'

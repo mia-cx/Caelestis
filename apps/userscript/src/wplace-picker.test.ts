@@ -30,7 +30,7 @@ vi.mock('./alliance-surface.js', () => ({
   activeAllianceEditorStage: () => page.alliance?.stage ?? null,
 }))
 vi.mock('./gl/artboard-pixels.js', () => ({ readArtboardPixels: () => page.artboard }))
-vi.mock('./tile-transform.js', () => ({ ensureTilePixels: () => false }))
+vi.mock('./tile-pixels.js', () => ({ ensureTilePixels: () => false }))
 vi.mock('./world-native-pixels.js', () => ({
   worldNativePixels: () => ({ committed: [], draft: [] }),
 }))

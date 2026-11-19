@@ -21,7 +21,7 @@ import {
   type PlacedTemplate,
 } from '../templates/local-store.js'
 import { type HorizontalSpan, horizontalSpans } from '../templates/placement.js'
-import { currentQuads, isDrawingTiles, underlayQuads } from '../tile-transform.js'
+import { currentQuads, isDrawingTiles, underlayQuads } from '../tile-frame.js'
 import { prefersReducedMotion } from './appearance-transition.js'
 import { isDarkMapTheme } from './contrast-outline.js'
 import { markerLayer } from './markers.js'

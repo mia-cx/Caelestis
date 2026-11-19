@@ -11,7 +11,14 @@ import {
   WORLD_PIXELS,
 } from '@caelestis/shared'
 import { count } from '../debug.js'
+import {
+  comparisonDraftPixelAt,
+  comparisonDraftPixels,
+  draftedPixelOffsets,
+  draftPixels,
+} from '../draft-pixels.js'
 import { UNPAINTED } from '../native-pixels.js'
+import { onTilePixels } from '../pixel-changes.js'
 import { pixelObservationOf } from '../pixel-observation.js'
 import { measureProfile, registerProfileMemorySource } from '../profile.js'
 import {
@@ -21,16 +28,11 @@ import {
   onServerMismatchesChanged,
 } from '../server-mismatch.js'
 import {
-  comparisonDraftPixelAt,
-  comparisonDraftPixels,
-  draftedPixelOffsets,
-  draftPixels,
   ensureTilePixels,
-  onTilePixels,
   onTilePixelsAvailable,
   onTilePixelsEvicted,
   tilePixels,
-} from '../tile-transform.js'
+} from '../tile-pixels.js'
 import {
   announceCaptureScope,
   captureScopeTiles,

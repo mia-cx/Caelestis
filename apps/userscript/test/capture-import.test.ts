@@ -7,7 +7,7 @@ import { type ConnectedServer, setScopeVisible } from '../src/settings.js'
 import type { ImportedTemplate } from '../src/templates/import.js'
 import * as store from '../src/templates/local-store.js'
 import { abort, commit, isMoving, movingId, reserveMove } from '../src/templates/move.js'
-import { loadCommittedTilePixels } from '../src/tile-transform.js'
+import { loadCommittedTilePixels } from '../src/tile-pixels.js'
 import type { TreeTarget } from '../src/ui/tree.js'
 
 const editor = vi.hoisted(() => ({ host: null as ClaimCaptureHost | null }))
@@ -19,8 +19,8 @@ vi.mock('../src/claim-editor.js', () => ({
   },
 }))
 vi.mock('../src/map-view.js', () => ({ repaint: () => {} }))
-vi.mock('../src/tile-transform.js', async (original) => ({
-  ...(await original<typeof import('../src/tile-transform.js')>()),
+vi.mock('../src/tile-pixels.js', async (original) => ({
+  ...(await original<typeof import('../src/tile-pixels.js')>()),
   loadCommittedTilePixels: vi.fn(),
 }))
 

@@ -1,6 +1,8 @@
 import { PALETTE_SIZE, parseTileKey, TILE_SIZE, type TileCoord } from '@caelestis/shared'
 import { count } from '../debug.js'
-import { comparisonDraftPixels, loadTilePixels, tilePixels, UNPAINTED } from '../tile-transform.js'
+import { comparisonDraftPixels } from '../draft-pixels.js'
+import { UNPAINTED } from '../native-pixels.js'
+import { loadTilePixels, tilePixels } from '../tile-pixels.js'
 import { worldTemplates } from './capture-scope.js'
 import {
   isTemplateVisible,

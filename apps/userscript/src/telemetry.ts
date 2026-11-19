@@ -19,6 +19,7 @@ import {
 } from '@caelestis/shared'
 import { userscriptClientHeaders } from './client-metrics.js'
 import { count, warn } from './debug.js'
+import { type AcceptedPaint, onAcceptedPaint } from './paint-requests.js'
 import { readBoundedJsonResponse } from './response.js'
 import { onServerContents, type ServerContents } from './server-api.js'
 import type { ServerTemplate } from './server-cache.js'
@@ -50,8 +51,8 @@ import { serverEndpoint } from './server-url.js'
 import { type ConnectedServer, getState, onStateChange } from './settings.js'
 import { ClientStatusProjection } from './status-client-projection.js'
 import type { TemplateColourProgress, TemplateProgress } from './templates/progress-types.js'
+import { onFetchedTile } from './tile-attribution.js'
 import { TileOfferAcknowledgements } from './tile-offer-acknowledgements.js'
-import { type AcceptedPaint, onAcceptedPaint, onFetchedTile } from './tile-transform.js'
 import { accountIdentity, accountIdentityKnownUnavailable, loadAccount } from './wplace-account.js'
 
 const OFFER_DELAY_MS = 250

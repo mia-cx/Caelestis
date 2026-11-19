@@ -12,7 +12,7 @@ import {
 import { warn } from './debug.js'
 import { getMap } from './map-handle.js'
 import { measureProfile } from './profile.js'
-import { onTileFrame } from './tile-transform.js'
+import { onTileFrame } from './tile-frame.js'
 
 /**
  * The map view: the last frame Wplace drew, what follows it, and the questions asked of it.
@@ -102,8 +102,7 @@ export const repaint = (): void => {
 
 /** Ask MapLibre to repaint custom GL layers without rerunning screen-space controls immediately. */
 export const requestMapFrame = (): void => {
-  const map = getMap() as { triggerRepaint?: () => void } | null
-  map?.triggerRepaint?.()
+  getMap()?.triggerRepaint()
 }
 
 /** Redraw everything after a change of ours: the frame followers, the GL layers, and the artboard. */

@@ -5,6 +5,7 @@ import { installAllianceServerSync } from './alliance-server-sync.js'
 import { activeAllianceSurface, installAllianceSurfaceObserver } from './alliance-surface.js'
 import { installClaims } from './claims.js'
 import { installDebugApi, loadDebugSetting, warn } from './debug.js'
+import { clearDraftPixels, reconcileDrafts } from './draft-pixels.js'
 import { installAllianceOverlayLayer, repaintAllianceOverlayLayer } from './gl/artboard-layer.js'
 import { onMapThemeChange } from './gl/contrast-outline.js'
 import { installOverlayLayer } from './gl/layer.js'
@@ -44,17 +45,14 @@ import { installOfficialEvents, syncOfficialOverlays } from './templates/officia
 import { installPersonalTemplates } from './templates/personal-sync.js'
 import { installServerSync } from './templates/server-sync.js'
 import { syncStudioFrame } from './templates/studio-frame.js'
-import {
-  captureTilePixels,
-  clearDraftPixels,
-  install as installTileCapture,
-  reconcileDrafts,
-} from './tile-transform.js'
+import { captureTilePixels } from './tile-pixels.js'
+import { install as installTileCapture } from './tile-transform.js'
 import { installChargeForecast } from './ui/charge-forecast.js'
 import { renderOverlayControls } from './ui/overlay-menu.js'
 import { installPanel, openInviteFromLocation, refreshTemplateTreeFocus } from './ui/panel.js'
 import { installUserscriptUpdateCheck } from './userscript-update.js'
 import { loadAccount } from './wplace-account.js'
+import { observeAccountCharges } from './wplace-charges.js'
 import { installWplaceCursors } from './wplace-cursors.js'
 import { installWplaceFont } from './wplace-font.js'
 import { installWplaceMessages } from './wplace-modules.js'
@@ -105,8 +103,10 @@ export const installPageHooks = (): void => {
   step('wplace state capture', installWplaceStateCapture)
   step('Wplace messages', () => void installWplaceMessages())
   step('map capture', installMapCapture)
-  step('alliance surface observer', installAllianceSurfaceObserver)
   step('tile capture', installTileCapture)
+  // After the request observer, so its startup read of the alliance is observed too.
+  step('alliance surface observer', installAllianceSurfaceObserver)
+  step('account charges', observeAccountCharges)
 }
 
 /**

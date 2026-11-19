@@ -29,7 +29,7 @@ import {
 import { isMoving } from './templates/move.js'
 import { sourceXAt } from './templates/placement.js'
 import { pixelAt } from './templates/sparse-pixels.js'
-import { ensureTilePixels } from './tile-transform.js'
+import { ensureTilePixels } from './tile-pixels.js'
 import { worldNativePixels } from './world-native-pixels.js'
 import { activeNativeTool, MAP_SURFACE, OPEN_DIALOG } from './wplace-dom.js'
 import { findWplaceLabelled } from './wplace-messages.js'

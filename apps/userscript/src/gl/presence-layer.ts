@@ -26,7 +26,7 @@ import {
   recordProfileWorkload,
   registerProfileMemorySource,
 } from '../profile.js'
-import { currentQuads, isDrawingTiles } from '../tile-transform.js'
+import { currentQuads, isDrawingTiles } from '../tile-frame.js'
 import { ramps } from './fade.js'
 import { linkTemplateProgram, writeClipCorner } from './renderer-core.js'
 

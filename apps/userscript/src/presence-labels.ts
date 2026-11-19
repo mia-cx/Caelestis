@@ -27,7 +27,7 @@ import {
   registerProfileMemorySource,
 } from './profile.js'
 import { getState } from './settings.js'
-import { isDrawingTiles } from './tile-transform.js'
+import { isDrawingTiles } from './tile-frame.js'
 import { MAP_CANVAS } from './wplace-dom.js'
 
 /**

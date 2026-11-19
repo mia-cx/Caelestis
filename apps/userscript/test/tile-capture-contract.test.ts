@@ -111,7 +111,13 @@ const inProcessWorker = (served: (url: string) => Response) => {
 const setup = async () => {
   vi.stubGlobal('navigator', { deviceMemory: 1 })
   vi.resetModules()
-  const tileTransform = await import('../src/tile-transform.js')
+  const tileTransform = {
+    ...(await import('../src/tile-transform.js')),
+    ...(await import('../src/tile-pixels.js')),
+    ...(await import('../src/draft-pixels.js')),
+    ...(await import('../src/pixel-changes.js')),
+    ...(await import('../src/paint-requests.js')),
+  }
   const { resetWplaceSwitches, setWplacePatchEnabled } = await import('../src/wplace-switches.js')
   resetWplaceSwitches()
 
@@ -142,7 +148,7 @@ const setup = async () => {
       }
     },
   } as unknown as Window & typeof globalThis
-  tileTransform.install(realm, () => null)
+  tileTransform.install(realm)
   tileTransform.captureTilePixels(true)
   stopCapture = () => tileTransform.captureTilePixels(false)
 

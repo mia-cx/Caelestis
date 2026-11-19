@@ -1,13 +1,9 @@
+import { onAcceptedPaint, onPaintSubmission, type PaintSubmission } from '../paint-requests.js'
+import { onTilePixels } from '../pixel-changes.js'
 import { serverConnectionIdentity } from '../server-connections.js'
 import { type ConnectedServer, getState } from '../settings.js'
 import { serverColourProgressFor } from '../telemetry.js'
-import {
-  onAcceptedPaint,
-  onPaintSubmission,
-  onTilePixels,
-  onTilePixelsEvicted,
-  type PaintSubmission,
-} from '../tile-transform.js'
+import { onTilePixelsEvicted } from '../tile-pixels.js'
 import { applyColourProgressDelta } from '../ui/progress.js'
 import { type PlacedTemplate, templateById } from './local-store.js'
 import { pixelAccounting } from './mismatch.js'

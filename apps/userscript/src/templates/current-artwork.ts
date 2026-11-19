@@ -16,7 +16,7 @@ import {
   nativePixelWindow,
   UNPAINTED,
 } from '../native-pixels.js'
-import { loadCommittedTilePixels } from '../tile-transform.js'
+import { loadCommittedTilePixels } from '../tile-pixels.js'
 import { type PlacedTemplate, templatePixels } from './local-store.js'
 
 /**

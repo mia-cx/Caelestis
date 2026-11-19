@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AcceptedPaint } from '../tile-transform.js'
+import type { AcceptedPaint } from '../paint-requests.js'
 import { chargeForecast, observeCharges, resetCharges } from '../wplace-charges.js'
 import {
   installChargeForecast,
@@ -9,7 +9,7 @@ import {
 } from './charge-forecast.js'
 
 const acceptedPaintListeners: Array<(paint: AcceptedPaint) => void> = []
-vi.mock('../tile-transform.js', () => ({
+vi.mock('../paint-requests.js', () => ({
   onAcceptedPaint: (listener: (paint: AcceptedPaint) => void) => {
     acceptedPaintListeners.push(listener)
     return () => {}

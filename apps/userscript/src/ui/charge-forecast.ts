@@ -1,4 +1,4 @@
-import { onAcceptedPaint } from '../tile-transform.js'
+import { onAcceptedPaint } from '../paint-requests.js'
 import {
   chargeForecast,
   formatCountdown,

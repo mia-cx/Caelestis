@@ -1,6 +1,7 @@
 import { TILE_SIZE, type TileCoord } from '@caelestis/shared'
+import { draftPixels } from './draft-pixels.js'
 import { type NativePixelSnapshot, UNPAINTED } from './native-pixels.js'
-import { draftPixels, tilePixels } from './tile-transform.js'
+import { tilePixels } from './tile-pixels.js'
 
 /** Adapt one captured world tile and its sparse native draft to the shared native-pixel contract. */
 export const worldNativePixels = (tile: TileCoord): NativePixelSnapshot => {
