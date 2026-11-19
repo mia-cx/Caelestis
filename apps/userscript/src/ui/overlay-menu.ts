@@ -99,13 +99,7 @@ const NATURAL_WIDTH = 'min(19.5rem, calc(100vw - 1rem))'
 const ANCHOR_OFFSET = 6
 /** The left inset of map controls, inside the map or the artboard stage. */
 const LEFT_INSET = 4
-/**
- * Our controls' identity attribute.
- *
- * Deliberately not `data-caelestis-key`, which the tree uses for its row keys.
- * Nothing collides while every lookup is scoped to the menu, but one unscoped query would be enough
- * to focus a panel row instead of a control.
- */
+/** Our controls' identity attribute. */
 const CONTROL = 'caelestisControl'
 
 /**
