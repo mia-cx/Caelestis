@@ -19,7 +19,6 @@
     onHover,
   }: {
     options: readonly PainterTotal[]
-    /** Painters currently drawn. */
     selected: ReadonlySet<number>
     onToggle: (wplaceUserId: number) => void
     onSetAll: (shown: boolean) => void

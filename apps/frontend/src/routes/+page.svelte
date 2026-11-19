@@ -20,7 +20,6 @@ const sustainedAlarms = $derived(
     <button class="btn btn-sm" onclick={() => app.load()}>Retry</button>
   </div>
 {:else if tree === null}
-  <!-- The real layout minus the data: folder sections. -->
   <div class="flex flex-col gap-4">
     <div class="skeleton h-40 w-full rounded-2xl"></div>
     <div class="skeleton h-40 w-full rounded-2xl"></div>

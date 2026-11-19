@@ -96,7 +96,6 @@ export const rollingIntervalPace = (
   return series.length === 0 ? [] : [series]
 }
 
-/** Convert complete placement buckets into intervals without changing their time boundaries. */
 const paceIntervals = (points: readonly PacePoint[], resolution: number): PaceInterval[] =>
   points.map((point, index) => ({
     from: point.t,
@@ -136,8 +135,6 @@ export const timeTickStep = (span: number, plotWidth: number): number => {
   const year = TIME_TICK_STEPS[TIME_TICK_STEPS.length - 1]
   return Math.ceil(minimumStep / year) * year
 }
-
-// ── Axis and window helpers ────────────────────────────────────────────────────────────────────
 
 interface AxisScale {
   /** The top of the axis: the smallest tick multiple that contains every value. */
@@ -305,27 +302,23 @@ export const lerpRate = (a: PaceRatePoint, b: PaceRatePoint, fraction: number): 
   v: a.v + (b.v - a.v) * fraction,
 })
 
-/**
- * A series' value at `t`, interpolated between its neighbours. Outside the series it is null, or
- * the nearest end's value with `clamp`.
- */
+/** A series' value at `t`, interpolated between its neighbours; null outside the series. */
 export const interpolateValue = <T extends { readonly t: number }>(
   series: readonly T[],
   t: number,
   value: (point: T) => number,
-  clamp = false,
 ): number | null => {
   let previous: T | undefined
   for (const point of series) {
     if (point.t === t) return value(point)
     if (point.t > t) {
-      if (previous === undefined) return clamp ? value(point) : null
+      if (previous === undefined) return null
       const fraction = (t - previous.t) / (point.t - previous.t)
       return value(previous) + (value(point) - value(previous)) * fraction
     }
     previous = point
   }
-  return previous === undefined || !clamp ? null : value(previous)
+  return null
 }
 
 /** A rate series' value at `t`, or null outside it. */

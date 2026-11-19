@@ -25,7 +25,7 @@
     onScrubStart,
   }: {
     templates: readonly Template[]
-    /** Current canvas status for the chart, latest net progress interval, and remaining pixels. */
+    /** The scope's current counts: the chart's right edge and the pixels still to paint. */
     progress: Progress
     /** The page's timelapse position, when it has one, for the chart to draw as a playhead. */
     playhead?: number | null

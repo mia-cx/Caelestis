@@ -49,7 +49,6 @@ onMount(() => {
   return () => app.stopLive()
 })
 
-// An auth failure opens the connect dialog. A valid token fixes it.
 $effect(() => {
   if (app.authRequired) connectOpen = true
 })

@@ -1,6 +1,5 @@
 import { availableRangePresets, clampWindow, type TimeWindow } from './progress-pace.js'
 
-/** The fewest buckets a selection may span. */
 const MIN_SELECTION_BUCKETS = 6
 
 /**
