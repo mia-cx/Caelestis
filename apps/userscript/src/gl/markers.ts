@@ -24,7 +24,7 @@ import { horizontalSpans } from '../templates/placement.js'
 import { measuresLocally } from '../templates/wplace-owned.js'
 import { currentQuads, isDrawingTiles } from '../tile-frame.js'
 import { holdTilePixels } from '../tile-pixels.js'
-import { isPaintOpen, selectedColour } from '../wplace-paint.js'
+import { selectedColour } from '../wplace-paint.js'
 import { prefersReducedMotion } from './appearance-transition.js'
 import { LAYER_IDS } from './layer-stack.js'
 import { batchMarkerWork } from './marker-batching.js'
@@ -135,7 +135,7 @@ const drawVisible = (
    * opacity until the ramp runs out, and only then does the template drop off this list.
    */
   const now = performance.now()
-  const selected = isPaintOpen() ? (selectedColour() ?? -1) : -1
+  const selected = selectedColour() ?? -1
   const sceneTemplates = worldRenderScene.advanceTemplates(
     displayTemplates().filter((candidate) =>
       sameTemplateSurface(candidate.surface ?? WORLD_TEMPLATE_SURFACE, WORLD_TEMPLATE_SURFACE),
@@ -218,7 +218,7 @@ const drawVisible = (
   const moving = getMap()?.isMoving() === true
   const renderBudget = markerBudget
   const profiling = isProfileEnabled()
-  const mismatchSelection = onlySelectedColour && isPaintOpen() ? selected : -1
+  const mismatchSelection = onlySelectedColour ? selected : -1
   for (const { template, appearance, mismatchFade, selectedFades } of wanted) {
     const accounting = pixelAccounting.read(template)
     const mismatchStyle: MarkerStyle = {

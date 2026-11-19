@@ -14,7 +14,7 @@ import {
 import { hiddenColoursFor } from '../templates/colour-filter.js'
 import { appearanceOf, isTemplateVisible, type PlacedTemplate } from '../templates/local-store.js'
 import { serverNodesRevision } from '../templates/server-nodes.js'
-import { isPaintOpen, selectedColour } from '../wplace-paint.js'
+import { selectedColour } from '../wplace-paint.js'
 import { appearanceTransitionSet } from './appearance-transition.js'
 import { ramps } from './fade.js'
 
@@ -84,7 +84,7 @@ interface SceneInputs {
   readonly inherited: Appearance
   readonly previews: number
   readonly nodes: number
-  readonly paintOpen: boolean
+  /** Null while the paint drawer is closed. */
   readonly paintColour: number | null
 }
 
@@ -93,7 +93,6 @@ const sceneInputs = (surface: TemplateSurface): SceneInputs => ({
   inherited: getSurfaceAppearance(surface),
   previews: appearancePreviewRevision(),
   nodes: serverNodesRevision(),
-  paintOpen: isPaintOpen(),
   paintColour: selectedColour(),
 })
 
@@ -102,7 +101,6 @@ const sameInputs = (left: SceneInputs, right: SceneInputs): boolean =>
   left.inherited === right.inherited &&
   left.previews === right.previews &&
   left.nodes === right.nodes &&
-  left.paintOpen === right.paintOpen &&
   left.paintColour === right.paintColour
 
 /**

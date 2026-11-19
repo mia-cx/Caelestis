@@ -10,10 +10,11 @@ import { observePageRequests, type RequestObservation, type RequestRoute } from 
 import { pageWindow } from './page-world.js'
 import { frameQueue } from './ui/frame-queue.js'
 import { isWplaceMutation } from './ui/wplace-rail.js'
+import { OPEN_DIALOG } from './wplace-dom.js'
 import { findWplaceLabelled } from './wplace-messages.js'
 import { BACKEND_ORIGIN } from './wplace-raster.js'
 
-const EDITOR_STAGE = 'dialog[open] [role="application"]'
+const EDITOR_STAGE = `${OPEN_DIALOG} [role="application"]`
 /** The open alliance editor whose stage carries Wplace's `label`, in the reader's language. */
 const stage = (label: 'alliance_hq_canvas' | 'alliance_asset_canvas'): HTMLElement | null =>
   findWplaceLabelled<HTMLElement>(pageWindow().document, EDITOR_STAGE, label)

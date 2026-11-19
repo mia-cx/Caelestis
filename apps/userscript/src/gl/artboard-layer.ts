@@ -28,7 +28,7 @@ import {
 import { fixedMarkList, type MarkList, markSeed } from '../templates/mark-list.js'
 import { abortMoveOutsideSurface } from '../templates/move.js'
 import { detachOverlayControls, renderAllianceOverlayControls } from '../ui/overlay-menu.js'
-import { isPaintOpen, selectedColour } from '../wplace-paint.js'
+import { selectedColour } from '../wplace-paint.js'
 import { prefersReducedMotion } from './appearance-transition.js'
 import {
   type ArtboardMarkerBatch,
@@ -793,7 +793,7 @@ class ArtboardRenderer {
     )
     noteTemplatesInView(this.surface, new Set(inFrame.map(({ template }) => template.id)))
     let animating = templateScene.animating
-    const selected = isPaintOpen() ? selectedColour() : null
+    const selected = selectedColour()
     const markerScene = this.scene.advanceMarkers(templateScene.templates, selected, now)
     if (markerScene.animating) animating = true
     let comparedMarkerPixels = 0

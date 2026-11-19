@@ -19,6 +19,7 @@ import {
   scheduleFrame,
   setFrameCanvas,
 } from './tile-frame.js'
+import { MAP_CANVAS } from './wplace-dom.js'
 import { wplaceRasterRole } from './wplace-raster.js'
 
 /**
@@ -38,7 +39,7 @@ type CanvasSource = CanvasImageSource & { width: number; height: number }
 
 const looksLikeMapCanvas = (canvas: HTMLCanvasElement | null): boolean => {
   try {
-    return canvas?.classList.contains('maplibregl-canvas') === true
+    return canvas?.matches(MAP_CANVAS) === true
   } catch {
     // A hostile canvas shim must not change a successful native getContext call.
     return false
