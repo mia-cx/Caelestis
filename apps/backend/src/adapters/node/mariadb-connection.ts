@@ -6,8 +6,10 @@ import {
   type ConnectionConfig,
   createConnection,
   type RowsWithMeta,
+  SqlError,
   type UpsertResult,
 } from 'mariadb'
+import { type ConstraintKind, ConstraintViolation } from '../constraint-violation.js'
 import type {
   SqlConnection,
   SqlResult,
@@ -15,6 +17,26 @@ import type {
   TransactionalSqlConnection,
 } from '../sql-connection.js'
 import { mariaSql } from './mariadb-sql.js'
+
+/**
+ * Server error codes for the constraints the stores distinguish, and where each message names the
+ * constraint: "for key 'tags_name_key_unique'", "CONSTRAINT `nodes_path_check` failed".
+ */
+const CONSTRAINT_ERRORS: Readonly<Record<string, readonly [ConstraintKind, RegExp]>> = {
+  ER_DUP_ENTRY: ['unique', /for key '(?:[^'.]+\.)?([^']+)'/],
+  ER_NO_REFERENCED_ROW_2: ['foreign-key', /CONSTRAINT `([^`]+)`/],
+  ER_ROW_IS_REFERENCED_2: ['foreign-key', /CONSTRAINT `([^`]+)`/],
+  ER_CONSTRAINT_FAILED: ['check', /CONSTRAINT `([^`]+)`/],
+}
+
+const mariaConstraintViolation = (error: unknown): ConstraintViolation | null => {
+  if (!(error instanceof SqlError) || error.code === null) return null
+  const known = CONSTRAINT_ERRORS[error.code]
+  if (known === undefined) return null
+  const [kind, name] = known
+  const constraint = name.exec(error.sqlMessage ?? error.message)?.[1] ?? null
+  return new ConstraintViolation(kind, constraint, { cause: error })
+}
 
 class Statement implements SqlStatement {
   constructor(
@@ -49,7 +71,9 @@ class Statement implements SqlStatement {
         changes: /^INSERT\b/i.test(query) ? result.length : 0,
       }
     } catch (cause) {
-      throw new Error(`MariaDB query failed: ${query}`, { cause })
+      throw (
+        mariaConstraintViolation(cause) ?? new Error(`MariaDB query failed: ${query}`, { cause })
+      )
     }
   }
   private using<T>(operation: (client: Connection) => Promise<T>) {

@@ -138,6 +138,7 @@ import {
 } from '../telemetry/alarm-policy.js'
 import { RelationalRegionStore } from '../work/relational-region-store.js'
 import { RelationalWorkStore } from '../work/relational-store.js'
+import { violates } from './constraint-violation.js'
 import { changedRows, relationalDatabase } from './relational-database.js'
 import type { SqlConnection, SqlStatement } from './sql-connection.js'
 import { sqlDialect } from './sql-dialect.js'
@@ -250,76 +251,18 @@ const chunkRows = <T>(rows: readonly T[], size: number): T[][] => {
 }
 
 /**
- * Whether `text` appears anywhere in an error's chain.
- *
- * Drizzle wraps every failure in a `DrizzleQueryError` whose own message is `Failed query: insert
- * into "nodes" ...` — the driver's text, including `UNIQUE constraint failed`, is on `cause`. So a
- * check against `error.message` never matched, a duplicate group name escaped as an unhandled error,
- * and an ordinary admin action answered 500 where the route means 400.
- *
- * Walks the chain rather than reading `cause` once: D1 adds its own `D1_ERROR:` wrapper on top of
- * drizzle's, and neither depth is something to hard-code. Bounded anyway, because `cause` is an
- * ordinary property and nothing stops a chain from pointing back at itself.
- *
- * The `UNIQUE` translation is covered by a test. The two `FOREIGN KEY` ones guard races between a
- * guard read and the write that follows it, which a single-threaded test cannot open — they are here
- * because the constraint, not the read, is the authority, and losing that race should give the same
- * answer as failing the check.
+ * The path index per schema: SQLite and PostgreSQL split world and alliance paths, MariaDB keys
+ * both on one generated column. Only this index makes a path conflict; an id collision on the
+ * primary key stays untyped, so the caller is not sent after the wrong recovery.
  */
-const MAX_CAUSE_DEPTH = 5
-
-const mentions = (error: unknown, text: string): boolean => {
-  let current: unknown = error
-  for (let depth = 0; depth < MAX_CAUSE_DEPTH && current instanceof Error; depth += 1) {
-    if (current.message.includes(text)) return true
-    if ('code' in current) {
-      if (
-        ['ER_ROW_IS_REFERENCED_2', 'ER_NO_REFERENCED_ROW_2'].includes(String(current.code)) &&
-        text === 'FOREIGN KEY constraint failed'
-      )
-        return true
-      if (current.code === 'ER_DUP_ENTRY') {
-        if (
-          text.includes('nodes_world_path_idx') &&
-          current.message.includes('nodes_surface_path_idx')
-        )
-          return true
-        if (
-          text === 'UNIQUE constraint failed: tags.' &&
-          current.message.includes('tags_name_key_unique')
-        )
-          return true
-      }
-      if (
-        current.code === 'ER_CONSTRAINT_FAILED' &&
-        text.startsWith('CHECK constraint failed: ') &&
-        current.message.includes(text.slice('CHECK constraint failed: '.length))
-      )
-        return true
-      if (current.code === '23503' && text === 'FOREIGN KEY constraint failed') return true
-      if (
-        (current.code === '23505' || current.code === '23514') &&
-        'constraint' in current &&
-        typeof current.constraint === 'string' &&
-        text.includes(current.constraint)
-      )
-        return true
-      if (
-        current.code === '23505' &&
-        'table' in current &&
-        current.table === 'tags' &&
-        text === 'UNIQUE constraint failed: tags.'
-      )
-        return true
-    }
-    current = current.cause
-  }
-  return false
-}
-
-const mentionsNodePathConflict = (error: unknown): boolean =>
-  mentions(error, "UNIQUE constraint failed: index 'nodes_world_path_idx'") ||
-  mentions(error, "UNIQUE constraint failed: index 'nodes_alliance_surface_path_idx'")
+const NODE_PATH_UNIQUE = [
+  'nodes_world_path_idx',
+  'nodes_alliance_surface_path_idx',
+  'nodes_surface_path_idx',
+]
+/** SQLite reports this plain unique index by its column; the portable schemas by its name. */
+const TAG_NAME_UNIQUE = ['tags.name_key', 'tags_name_key_unique']
+const NODE_PATH_CHECK = ['nodes_path_check']
 
 const fromRow = (row: typeof telemetryBuckets.$inferSelect): TelemetryBucket => ({
   templateId: row.templateId,
@@ -510,7 +453,7 @@ export class RelationalSqlStore implements SqlStore {
       const results = await this.client.batch([updateRevisions, write])
       return (results[1]?.meta.changes ?? 0) > 0
     } catch (error) {
-      if (mentions(error, 'UNIQUE constraint failed: tags.'))
+      if (violates(error, 'unique', TAG_NAME_UNIQUE))
         throw new TagConflictError('A tag with that name already exists.')
       throw error
     }
@@ -561,19 +504,19 @@ export class RelationalSqlStore implements SqlStore {
       // The named index, not the bare string: `nodes` has two unique constraints, and reporting a
       // primary-key collision as a path conflict sends the caller after the wrong recovery, so an id
       // collision stays untyped.
-      if (mentionsNodePathConflict(error)) {
+      if (violates(error, 'unique', NODE_PATH_UNIQUE)) {
         throw new NodePathConflictError(`node path is already taken in season ${node.season}`)
       }
       // The parent check above is a separate read, so a concurrent delete can remove the parent
       // between the two and the foreign key rejects this insert. Same outcome as the check finding
       // it missing, so it gets the same error rather than escaping as a 500.
-      if (mentions(error, 'FOREIGN KEY constraint failed')) {
+      if (violates(error, 'foreign-key')) {
         throw new InvalidNodeParentError('parent node does not exist')
       }
       // The route bounds the path it derived, but the prefix written here comes from the parent row,
       // which a rename may have lengthened since. The CHECK is the authority; losing to it answers
       // the same 400 as failing the route's own check rather than a 500.
-      if (mentions(error, 'CHECK constraint failed: nodes_path_check')) {
+      if (violates(error, 'check', NODE_PATH_CHECK)) {
         throw new NodePathTooLongError(`node path is longer than ${MAX_NODE_PATH_LENGTH}`)
       }
       throw error
@@ -669,13 +612,13 @@ export class RelationalSqlStore implements SqlStore {
     try {
       await this.database.batch([statements[0], statements[1]])
     } catch (error) {
-      if (mentionsNodePathConflict(error)) {
+      if (violates(error, 'unique', NODE_PATH_UNIQUE)) {
         throw new NodePathConflictError(`node path is already taken in season ${node.season}`)
       }
       // The guard above reads a snapshot, so a child inserted between it and this batch can be
       // lengthened past the bound by a rename that was measured without it. The CHECK is the
       // authority; losing to it answers the same 400 as failing the guard rather than a 500.
-      if (mentions(error, 'CHECK constraint failed: nodes_path_check')) {
+      if (violates(error, 'check', NODE_PATH_CHECK)) {
         throw new NodePathTooLongError(
           `rename would derive a path longer than ${MAX_NODE_PATH_LENGTH}`,
         )
@@ -788,10 +731,10 @@ export class RelationalSqlStore implements SqlStore {
     try {
       await this.database.batch([statements[0], statements[1]])
     } catch (error) {
-      if (mentionsNodePathConflict(error)) {
+      if (violates(error, 'unique', NODE_PATH_UNIQUE)) {
         throw new NodePathConflictError(`node path is already taken in season ${node.season}`)
       }
-      if (mentions(error, 'CHECK constraint failed: nodes_path_check')) {
+      if (violates(error, 'check', NODE_PATH_CHECK)) {
         throw new NodePathTooLongError(
           `move would derive a path longer than ${MAX_NODE_PATH_LENGTH}`,
         )
@@ -827,7 +770,7 @@ export class RelationalSqlStore implements SqlStore {
       // The guards are reads, so a child or template can be attached after they come back empty and
       // before this runs. The foreign key is the authority either way; translate it rather than
       // letting the race be the one path that answers 500 instead of 409.
-      if (mentions(error, 'FOREIGN KEY constraint failed')) {
+      if (violates(error, 'foreign-key')) {
         throw new NodeNotEmptyError('node has children or templates')
       }
       throw error
@@ -1052,7 +995,7 @@ export class RelationalSqlStore implements SqlStore {
       // the two — allowed, since no template row referenced it yet — and the foreign key rejects
       // this insert. Same outcome as the check finding it missing, so it gets the same error rather
       // than escaping as a 500. Same rule as `insertNode` and `deleteNode`.
-      if (mentions(error, 'FOREIGN KEY constraint failed')) {
+      if (violates(error, 'foreign-key')) {
         if (options.requireExisting === true) {
           throw new TemplateNotFoundError(`template does not exist: ${version.templateId}`)
         }
@@ -1297,7 +1240,7 @@ export class RelationalSqlStore implements SqlStore {
       // The destination was read above, and another administrator can delete it between that read
       // and this write. Translated like the other two races in this file, so the one path that
       // could still answer 500 instead of a typed error no longer can.
-      if (mentions(error, 'FOREIGN KEY constraint failed')) {
+      if (violates(error, 'foreign-key')) {
         throw new NodeNotFoundError(`node does not exist: ${patch.nodeId ?? ''}`)
       }
       throw error

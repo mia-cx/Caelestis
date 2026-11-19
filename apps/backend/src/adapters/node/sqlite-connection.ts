@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { sqliteConstraintViolation } from '../constraint-violation.js'
 import type { SqliteDatabase, SqliteValue } from '../database-driver.js'
 import type {
   SqlConnection,
@@ -23,6 +24,15 @@ const binding = (value: unknown): SqliteValue => {
   throw new TypeError('Unsupported SQL binding')
 }
 
+/** Run one driver call, throwing SQLite's constraint failures as typed violations. */
+const typedConstraints = <T>(run: () => T): T => {
+  try {
+    return run()
+  } catch (error) {
+    throw sqliteConstraintViolation(error) ?? error
+  }
+}
+
 class Statement implements SqlStatement {
   constructor(
     readonly owner: SqliteConnection,
@@ -36,12 +46,17 @@ class Statement implements SqlStatement {
   }
 
   execute<T>(): SqlResult<T> {
-    const statement = this.owner.sqlite.prepare(this.query)
-    if (statement.columns().length > 0) {
-      const results = statement.all(...this.values) as T[]
-      return { results, meta: { changes: /\breturning\b/i.test(this.query) ? results.length : 0 } }
-    }
-    return { results: [], meta: { changes: Number(statement.run(...this.values).changes) } }
+    return typedConstraints(() => {
+      const statement = this.owner.sqlite.prepare(this.query)
+      if (statement.columns().length > 0) {
+        const results = statement.all(...this.values) as T[]
+        return {
+          results,
+          meta: { changes: /\breturning\b/i.test(this.query) ? results.length : 0 },
+        }
+      }
+      return { results: [], meta: { changes: Number(statement.run(...this.values).changes) } }
+    })
   }
 
   async run<T>(): Promise<SqlResult<T>> {
@@ -54,9 +69,11 @@ class Statement implements SqlStatement {
     return (await this.run<T>()).results[0] ?? null
   }
   async raw<T>(): Promise<T[]> {
-    return this.owner.exclusive(() => {
-      return this.owner.sqlite.prepare(this.query).raw(...this.values) as T[]
-    }, this.direct)
+    return this.owner.exclusive(
+      () =>
+        typedConstraints(() => this.owner.sqlite.prepare(this.query).raw(...this.values) as T[]),
+      this.direct,
+    )
   }
 }
 
