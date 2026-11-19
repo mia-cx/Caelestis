@@ -4,7 +4,6 @@ import {
   templateSurfaceKey,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
-import { registerDebugEntry } from '../console-api.js'
 import { notifyListeners } from '../listeners.js'
 import { localFolderChainVisible } from '../local-folders.js'
 import { isCurrentServerConnection } from '../server-connections.js'
@@ -576,21 +575,6 @@ export const isTemplateVisible = (template: PlacedTemplate): boolean => {
 const copyChainVisible = (ownerUrl: string, template: TemplateCopy): boolean =>
   isScopeVisible(serverScopeKey(ownerUrl)) &&
   nodeChainVisible(ownerUrl, template.nodeId, template.surface)
-
-/** Each template's own switch beside the renderer's effective visibility decision. */
-registerDebugEntry('templates', () =>
-  localTemplates().map((template) => ({
-    id: template.id,
-    name: template.name,
-    visible: template.visible,
-    drawing: isTemplateVisible(template),
-    origin: template.origin,
-    folderId: template.origin === 'local' ? template.folderId : null,
-    server: template.origin === 'server' ? template.server.url : null,
-    serverTemplateId: template.origin === 'server' ? template.serverTemplateId : null,
-    opaque: template.opaque,
-  })),
-)
 
 /**
  * How this template is actually drawn: its own appearance, or the global default it inherits.

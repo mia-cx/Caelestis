@@ -1,6 +1,13 @@
-import { count } from './debug.js'
+import { registerDebugEntry } from './console-api.js'
+import { count, log } from './debug.js'
 import { getMap, onMapAttached, type PatchableMap } from './map-handle.js'
-import { isWplacePatchEnabled, onWplacePatchChange } from './wplace-switches.js'
+import {
+  isWplacePatchEnabled,
+  onWplacePatchChange,
+  setWplacePatchEnabled,
+  type WplacePatch,
+  wplacePatchSettings,
+} from './wplace-switches.js'
 import { patchTileRefresh } from './wplace-tile-refresh.js'
 
 /**
@@ -193,6 +200,13 @@ export const applyWplacePatches = (map: PatchableMap | null): void => {
 
 /** Keep the patches on whichever map Wplace shows, and in step with their switches. */
 export const installWplacePatches = (): void => {
+  onWplacePatchChange((patch, enabled) => log(`Wplace patch ${patch} ${enabled ? 'on' : 'off'}`))
+  /** Caelestis's performance patches for Wplace's own client, each with its own switch. */
+  registerDebugEntry('wplacePatches', {
+    list: () => wplacePatchSettings(),
+    enable: (patch: WplacePatch) => setWplacePatchEnabled(patch, true),
+    disable: (patch: WplacePatch) => setWplacePatchEnabled(patch, false),
+  })
   onMapAttached(applyWplacePatches)
   onWplacePatchChange(() => applyWplacePatches(getMap()))
 }

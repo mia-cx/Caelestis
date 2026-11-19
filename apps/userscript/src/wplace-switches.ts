@@ -1,6 +1,4 @@
 import { isRecord } from '@caelestis/shared'
-import { registerDebugEntry } from './console-api.js'
-import { log } from './debug.js'
 import { storedSwitches } from './stored-switches.js'
 
 /**
@@ -60,8 +58,6 @@ const patches = storedSwitches(
   },
 )
 
-patches.onChange((patch, enabled) => log(`Wplace patch ${patch} ${enabled ? 'on' : 'off'}`))
-
 export const isWplacePatchEnabled = (patch: WplacePatch): boolean => patches.isOn(patch)
 
 export const setWplacePatchEnabled = (patch: WplacePatch, enabled: boolean): void =>
@@ -77,13 +73,6 @@ export const wplacePatchSettings = (): {
   readonly hint: string
   readonly enabled: boolean
 }[] => PATCH_IDS.map((id) => ({ id, ...WPLACE_PATCHES[id], enabled: patches.isOn(id) }))
-
-/** Caelestis's performance patches for Wplace's own client, each with its own switch. */
-registerDebugEntry('wplacePatches', {
-  list: () => wplacePatchSettings(),
-  enable: (patch: WplacePatch) => setWplacePatchEnabled(patch, true),
-  disable: (patch: WplacePatch) => setWplacePatchEnabled(patch, false),
-})
 
 /** Caelestis's Accessibility switches. Both start on. */
 const OPTION_DEFAULTS = { falseType: true, cursors: true }

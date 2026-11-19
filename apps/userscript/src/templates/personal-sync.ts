@@ -1,6 +1,8 @@
 import { currentSurface, onActiveAllianceSurfaceChange } from '../alliance-surface.js'
+import { registerDebugEntry } from '../console-api.js'
 import { warn } from '../debug.js'
 import { registerProfileMemorySource } from '../profile.js'
+import { isTemplateVisible, localTemplates } from './catalog.js'
 import { installNativeAllianceTemplates } from './native-alliance.js'
 import { connectNativeTemplates } from './native-store.js'
 import { connectPersonalStore, synchronizePersonalTemplates } from './personal-store.js'
@@ -14,6 +16,20 @@ export const installPersonalTemplates = async (): Promise<void> => {
   if (installed) return
   installed = true
   registerProfileMemorySource('Template pixels', templateIndexMemoryBytes)
+  /** Each template's own switch beside the renderer's effective visibility decision. */
+  registerDebugEntry('templates', () =>
+    localTemplates().map((template) => ({
+      id: template.id,
+      name: template.name,
+      visible: template.visible,
+      drawing: isTemplateVisible(template),
+      origin: template.origin,
+      folderId: template.origin === 'local' ? template.folderId : null,
+      server: template.origin === 'server' ? template.server.url : null,
+      serverTemplateId: template.origin === 'server' ? template.serverTemplateId : null,
+      opaque: template.opaque,
+    })),
+  )
   // Establish the durable-row admission barrier synchronously, before server sync can claim its budget.
   const restored = restoreLocalTemplates()
   try {
