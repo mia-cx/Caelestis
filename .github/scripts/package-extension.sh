@@ -40,9 +40,13 @@ readme="# Build the Caelestis extension
 This is the Caelestis source at commit $revision, which built caelestis-extension.zip v$version.
 apps/userscript/build-revision.json records that commit for the build.
 
-With Node.js $node_version and pnpm $pnpm_version, run from this folder:
+The build runs on any operating system with Node.js. Releases build on Ubuntu (GitHub Actions ubuntu-latest).
 
-    pnpm install --frozen-lockfile && pnpm --filter @caelestis/userscript... build
+1. Install Node.js $node_version from https://nodejs.org/, or run: nvm install $node_version
+2. Install pnpm $pnpm_version: npm install -g pnpm@$pnpm_version
+3. From this folder, run:
+
+       pnpm install --frozen-lockfile && pnpm --filter @caelestis/userscript... build
 
 The extension is in apps/userscript/dist/extension/, with the same files as caelestis-extension.zip.
 "
