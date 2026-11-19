@@ -5,9 +5,8 @@ import {
   TILE_SIZE,
   type TileCoord,
 } from '@caelestis/shared'
-import type { TileFrame } from './coordinates.js'
+import { type TileFrame, viewportRectIn } from './coordinates.js'
 import { draftedPixelOffsets, draftedTiles } from './draft-pixels.js'
-import { viewportRectIn } from './map-pointer.js'
 import { presenceServers, setPresenceDraft, setPresenceViewport } from './presence-client.js'
 import { measureProfileDetail, recordProfileWorkload } from './profile.js'
 

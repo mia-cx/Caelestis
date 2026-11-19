@@ -10,8 +10,13 @@ import {
   unionRect,
 } from '@caelestis/shared'
 import { CLAIM_OVERLAY_ID } from './claim-overlay.js'
-import type { ScreenProjection, TileFrame } from './coordinates.js'
-import { type DeviceBox, framePixelAt, rectOnScreen } from './map-pointer.js'
+import {
+  type DeviceBox,
+  framePixelAt,
+  rectOnScreen,
+  type ScreenProjection,
+  type TileFrame,
+} from './coordinates.js'
 import { presenceCss } from './presence-colour.js'
 import {
   displayedRect,
