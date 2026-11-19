@@ -463,6 +463,10 @@ export class RelationalNodeStore extends RelationalStore implements NodeStore {
         .delete(contributions)
         .where(inArray(contributions.templateId, subtreeTemplateIds)),
       this.database.delete(templates).where(inArray(templates.id, subtreeTemplateIds)),
+      // InnoDB checks `parent_id` row by row while one DELETE runs, so it can refuse a parent whose
+      // child is still waiting in the same statement. Detaching the subtree first leaves nothing to
+      // check; the subtree is matched by path, not by parent.
+      this.database.update(nodes).set({ parentId: null }).where(subtree),
       this.database.delete(nodes).where(subtree),
     ] as const
     const results = await this.database.batch(statements)

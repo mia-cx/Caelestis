@@ -5,13 +5,13 @@ import { coordinatorDatabase } from '../../src/adapters/node/coordinator-databas
 import { MariaConnection } from '../../src/adapters/node/mariadb-connection.js'
 import { PostgresConnection } from '../../src/adapters/node/postgres-connection.js'
 import { relationalSqlStore } from '../../src/adapters/relational-sql-store.js'
-import { InvalidNodeParentError } from '../../src/nodes/store.js'
 import { schedulerContract } from '../support/scheduler-contract.js'
 import {
-  contractRecipe,
   leaderboardContractExpected,
+  nodeTemplateContractExpected,
   regionRenewalContractExpected,
   runLeaderboardContract,
+  runNodeTemplateContract,
   runRegionRenewalContract,
 } from '../support/sql-contract.js'
 
@@ -130,58 +130,7 @@ describe('external relational adapter contract', () => {
       'd'.repeat(64),
     ])
 
-    const root = '01890f3e-7b2c-7abc-8def-012345678901'
-    const child = '01890f3e-7b2c-7abc-8def-012345678902'
-    const otherSeason = '01890f3e-7b2c-7abc-8def-012345678903'
-    const node = (id: string, parentId: string | null, slug: string, season = 1) => ({
-      id,
-      parentId,
-      slug,
-      season,
-      surface: WORLD_TEMPLATE_SURFACE,
-      name: slug,
-      description: null,
-      createdAt,
-    })
-    await sql.insertNode(node(root, null, 'root'))
-    await sql.insertNode(node(child, root, 'child'))
-    await sql.insertNode(node(otherSeason, null, 'other', 2))
-    await sql.renameNode(root, 'Renamed', 'renamed')
-    expect((await sql.readNode(child))?.path).toBe('/renamed/child')
-    await expect(sql.moveNode(root, child)).rejects.toBeInstanceOf(InvalidNodeParentError)
-
-    await sql.createTemplate({
-      templateId: '01890f3e-7b2c-7abc-8def-012345678904',
-      versionId: '01890f3e-7b2c-7abc-8def-012345678905',
-      surface: WORLD_TEMPLATE_SURFACE,
-      season: 1,
-      nodeId: root,
-      name: 'Template',
-      createdWithToken: 'c'.repeat(64),
-      createdByUserId: null,
-      createdAt,
-      bbox: { minX: 0, minY: 0, maxX: 1, maxY: 1 },
-      totalPixels: 1,
-      chunks: [{ tileX: 0, tileY: 0, hash: 'a'.repeat(64) }],
-      recipe: contractRecipe,
-    })
-    expect((await sql.readTemplateVersion('01890f3e-7b2c-7abc-8def-012345678905'))?.recipe).toEqual(
-      contractRecipe,
-    )
-    await expect(
-      sql.updateTemplate(
-        '01890f3e-7b2c-7abc-8def-012345678904',
-        { nodeId: otherSeason },
-        millis(Date.now() + 1),
-      ),
-    ).rejects.toBeInstanceOf(InvalidNodeParentError)
-    expect(
-      await sql.updateTemplate(
-        '01890f3e-7b2c-7abc-8def-012345678904',
-        { nodeId: null },
-        millis(Date.now() + 2),
-      ),
-    ).toBe(true)
+    expect(await runNodeTemplateContract(sql)).toEqual(nodeTemplateContractExpected)
 
     const now = Date.now()
     const document = {
