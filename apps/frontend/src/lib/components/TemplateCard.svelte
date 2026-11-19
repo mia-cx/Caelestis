@@ -1,16 +1,9 @@
 <script lang="ts">
-import { formatCount, formatPixels, type CanvasTileSummary, type TileKey } from '@caelestis/shared'
+import { formatCount, formatPixels, type TreeTemplate } from '@caelestis/shared'
 import { ProgressMeter, TemplateState } from '@caelestis/ui'
 import TemplateCanvas from '#lib/components/TemplateCanvas.svelte'
-import type { TreeTemplate } from '@caelestis/shared'
 
-let {
-  entry,
-  canvas,
-}: {
-  entry: TreeTemplate
-  canvas: ReadonlyMap<TileKey, CanvasTileSummary>
-} = $props()
+let { entry }: { entry: TreeTemplate } = $props()
 
 const { template } = $derived(entry)
 </script>
@@ -20,7 +13,7 @@ const { template } = $derived(entry)
   class="group flex flex-col overflow-hidden pixel-card bg-base-100 focus-visible:outline-2 focus-visible:outline-primary"
 >
   <div class="flex h-44 justify-center overflow-hidden border-b-[1.5px] border-base-300">
-    <TemplateCanvas {template} {canvas} class="h-44 w-auto" />
+    <TemplateCanvas {template} class="h-44 w-auto" />
   </div>
   <div class="flex flex-col gap-2 p-3">
     <div class="flex items-baseline justify-between gap-2">

@@ -106,14 +106,14 @@ const ancestors = $derived(
         <h2 class="px-1 pb-3 font-semibold">Templates</h2>
         <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {#each folder.templates as entry (entry.template.id)}
-            <TemplateCard {entry} canvas={app.canvas} />
+            <TemplateCard {entry} />
           {/each}
         </div>
       </section>
     {/if}
 
     {#each folder.folders as child (child.node.id)}
-      <FolderSection folder={child} canvas={app.canvas} depth={1} />
+      <FolderSection folder={child} depth={1} />
     {/each}
   </div>
 {/if}

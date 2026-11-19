@@ -44,7 +44,7 @@ const sustainedAlarms = $derived(
       </div>
     {/if}
     {#each tree.folders as folder (folder.node.id)}
-      <FolderSection {folder} canvas={app.canvas} />
+      <FolderSection {folder} />
     {/each}
 
     {#if tree.templates.length > 0}
@@ -52,7 +52,7 @@ const sustainedAlarms = $derived(
         <h2 class="px-1 pb-3 font-semibold">Ungrouped templates</h2>
         <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {#each tree.templates as entry (entry.template.id)}
-            <TemplateCard {entry} canvas={app.canvas} />
+            <TemplateCard {entry} />
           {/each}
         </div>
       </section>

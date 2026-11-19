@@ -1,17 +1,9 @@
 <script lang="ts">
-  import { TILE_SIZE, type TileKey } from '@caelestis/shared'
+  import type { TileKey } from '@caelestis/shared'
+  import { osmZoomFor } from '@caelestis/social'
   import { Icon } from '@caelestis/ui'
   import { untrack } from 'svelte'
-  import {
-    type CanvasRect,
-    chunkImage,
-    osmImage,
-    osmSpan,
-    osmTileDrawRect,
-    osmZoomFor,
-    type TimelapseLayout,
-    tileImage,
-  } from '#lib/render.js'
+  import { type CanvasRect, FrameImages, type TimelapseLayout } from '#lib/render.js'
 
   let {
     layout,
@@ -32,7 +24,6 @@
 
   const world = $derived(layout.bounds)
   const art = $derived(layout.art)
-  const chunks = $derived(layout.chunks)
 
   let container = $state<HTMLDivElement | null>(null)
   let visible = $state<HTMLCanvasElement | null>(null)
@@ -78,41 +69,8 @@
     )
   }
 
-  /**
-   * Draw only images inside the viewport. Draw the basemap first, then canvas tiles and template
-   * art. Redraw when an image loads instead of allocating a world-sized buffer.
-   */
-  /**
-   * Decoded images by cache key. Each frame keeps only the images it drew, so panning and
-   * scrubbing release what scrolled away instead of holding every image they passed.
-   */
-  let ready = new Map<string, HTMLImageElement>()
-  /** The images the frame being drawn has used so far. */
-  let drawn = new Map<string, HTMLImageElement>()
-  const pending = new Set<string>()
-  /** Last successfully decoded canvas observation per tile, independent of the selected frame. */
-  const presentedTiles = new Map<TileKey, HTMLImageElement>()
-
-  const ensure = (key: string, load: () => Promise<HTMLImageElement>): HTMLImageElement | null => {
-    const held = ready.get(key)
-    if (held !== undefined) {
-      drawn.set(key, held)
-      return held
-    }
-    if (!pending.has(key)) {
-      pending.add(key)
-      load()
-        .then((image) => {
-          ready.set(key, image)
-          schedulePresent()
-        })
-        .catch(() => {})
-        .finally(() => pending.delete(key))
-    }
-    return null
-  }
-
   let presentQueued = false
+  const images = new FrameImages(() => schedulePresent())
 
   const present = (): void => {
     const canvas = visible
@@ -121,78 +79,19 @@
     if (ctx === null) return
     const dpr = window.devicePixelRatio || 1
     const scale = zoom * dpr
-    drawn = new Map()
     ctx.setTransform(1, 0, 0, 1, 0, 0)
     ctx.clearRect(0, 0, canvas.width, canvas.height)
     ctx.setTransform(scale, 0, 0, scale, -originX * scale, -originY * scale)
 
-    const visibleRect = {
-      x: originX,
-      y: originY,
-      width: viewWidth / zoom,
-      height: viewHeight / zoom,
-    }
-
-    // Draw the basemap across the viewport, including areas beyond the mirrored canvas.
-    // No detail floor: a folder spread across the world needs the coarsest levels to stay cheap.
-    const z = osmZoomFor(scale, 0)
-    const span = osmSpan(z)
-    ctx.imageSmoothingEnabled = true
-    ctx.imageSmoothingQuality = 'high'
-    const firstOsmX = Math.floor(visibleRect.x / span)
-    const lastOsmX = Math.floor((visibleRect.x + visibleRect.width) / span)
-    const firstOsmY = Math.max(0, Math.floor(visibleRect.y / span))
-    const lastOsmY = Math.min(2 ** z - 1, Math.floor((visibleRect.y + visibleRect.height) / span))
-    for (let ty = firstOsmY; ty <= lastOsmY; ty++) {
-      for (let tx = firstOsmX; tx <= lastOsmX; tx++) {
-        const wrappedX = ((tx % 2 ** z) + 2 ** z) % 2 ** z
-        const image = ensure(`osm:${z}/${wrappedX}/${ty}`, () => osmImage(z, wrappedX, ty))
-        if (image !== null) {
-          const destination = osmTileDrawRect(tx, ty, span, scale)
-          ctx.drawImage(
-            image,
-            destination.x,
-            destination.y,
-            destination.width,
-            destination.height,
-          )
-        }
-      }
-    }
-
-    // wplace's own answer to moiré, measured off its GL calls: LINEAR below 1:1, NEAREST above.
-    ctx.imageSmoothingEnabled = scale < 1
-
-    for (const tile of layout.tiles) {
-      if (
-        tile.x + TILE_SIZE < visibleRect.x ||
-        tile.x > visibleRect.x + visibleRect.width ||
-        tile.y + TILE_SIZE < visibleRect.y ||
-        tile.y > visibleRect.y + visibleRect.height
-      )
-        continue
-      const hash = hashFor(tile.key)
-      const loaded = hash === undefined ? null : ensure(`tile:${hash}`, () => tileImage(hash))
-      if (hash !== undefined && loaded !== null) {
-        presentedTiles.set(tile.key, loaded)
-      }
-      // A requested frame becomes visible only after it decoded. Pending, missing, and failed blobs
-      // keep the last valid observation instead of exposing the basemap as a false blank. An
-      // undefined hash means the selected time predates this tile's first observation, so a live or
-      // later image must not leak backwards into that historical frame.
-      const image = hash === undefined ? null : (loaded ?? presentedTiles.get(tile.key) ?? null)
-      if (image !== null) ctx.drawImage(image, tile.x, tile.y)
-    }
-
-    if (overlayAlpha > 0) {
-      ctx.globalAlpha = overlayAlpha
-      for (const chunk of chunks) {
-        const image = ensure(`chunk:${chunk.hash}`, () => chunkImage(chunk.hash))
-        if (image !== null) ctx.drawImage(image, chunk.x, chunk.y)
-      }
-      ctx.globalAlpha = 1
-    }
-    ready = drawn
+    images.draw(ctx, {
+      layout,
+      view: { x: originX, y: originY, width: viewWidth / zoom, height: viewHeight / zoom },
+      scale,
+      // No detail floor: a folder spread across the world needs the coarsest levels to stay cheap.
+      basemapZoom: osmZoomFor(scale, 0),
+      hashFor,
+      overlayAlpha,
+    })
   }
 
   // A microtask, not requestAnimationFrame: rAF never fires in an occluded tab, so a zoom or a

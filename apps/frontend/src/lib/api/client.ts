@@ -306,33 +306,12 @@ export const getTileHistory = (
   json(`/telemetry/tiles/${x}/${y}/history?season=${season}&from=${from}&to=${to}`)
 
 /**
- * Authenticated image loading.
- *
- * `/chunks` and `/tiles` require a bearer token, which an `<img src>` cannot carry. Fetch each image
- * as a blob and return an object URL. Content hashes make cache invalidation unnecessary.
+ * `/chunks` and `/tiles` require a bearer token, which an `<img src>` cannot carry, so an image is
+ * fetched as a blob behind an object URL. The caller owns the URL; `render.ts` caches the decoded
+ * image and revokes it.
  */
-const blobCache = new Map<string, Promise<string>>()
-const BLOB_CACHE_LIMIT = 512
-
-export const loadImageUrl = (path: string): Promise<string> => {
-  const cached = blobCache.get(path)
-  if (cached !== undefined) return cached
-  const url = request(path)
-    .then(async (response) => URL.createObjectURL(await response.blob()))
-    .catch((error) => {
-      blobCache.delete(path)
-      throw error
-    })
-  if (blobCache.size >= BLOB_CACHE_LIMIT) {
-    const oldest = blobCache.keys().next().value
-    if (oldest !== undefined) {
-      blobCache.get(oldest)?.then(URL.revokeObjectURL, () => {})
-      blobCache.delete(oldest)
-    }
-  }
-  blobCache.set(path, url)
-  return url
-}
+const loadImageUrl = async (path: string): Promise<string> =>
+  URL.createObjectURL(await (await request(path)).blob())
 
 export const chunkImageUrl = (hash: string): Promise<string> => loadImageUrl(`/chunks/${hash}`)
 export const tileImageUrl = (hash: string): Promise<string> =>

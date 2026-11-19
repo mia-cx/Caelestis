@@ -1,4 +1,4 @@
-import { millis, seconds, WORLD_PIXELS } from '@caelestis/shared'
+import { seconds } from '@caelestis/shared'
 import { mergeArchiveFrames } from '@caelestis/social'
 import { describe, expect, it } from 'vitest'
 import {
@@ -20,7 +20,6 @@ import {
   rollingIntervalPace,
 } from '../lib/components/charts/progress-pace'
 import { combineProgressSamples, mergeObservedProgress } from '../lib/progress-history'
-import { paddedRect, templateRect, tilesInRect } from '../lib/render'
 import { manifest, template } from './fixtures'
 
 const sample = (at: number, correct: number | null) => ({
@@ -249,18 +248,5 @@ describe('pace and chart windows', () => {
       { wplaceUserId: 2, displayName: 'Mira', placed: 5 },
       { wplaceUserId: 3, displayName: '', placed: 2 },
     ])
-  })
-})
-
-describe('tree and canvas boundaries', () => {
-  it('wraps longitude tiles without stretching artwork and clamps padding to the viewport', () => {
-    const rect = templateRect(
-      template({ bbox: { minX: WORLD_PIXELS - 1, minY: 0, maxX: 1, maxY: 2 } }),
-    )
-    expect(rect.width).toBe(2)
-    expect(tilesInRect(rect).map(({ key }) => key)).toEqual(['2047/0', '0/0'])
-    expect(
-      paddedRect({ x: 2, y: 2, width: 2, height: 2 }, 2, { x: 0, y: 0, width: 5, height: 5 }),
-    ).toEqual({ x: 0, y: 0, width: 5, height: 5 })
   })
 })

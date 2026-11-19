@@ -7,9 +7,8 @@ import {
   timelapseCaptureRect,
   WORLD_PIXELS,
 } from '@caelestis/shared'
+import { osmSpan } from '@caelestis/social'
 import { chunkImageUrl, tileImageUrl } from '#lib/api/client.js'
-
-export { OSM_TILE_SIZE, osmSpan, osmZoomFor } from '@caelestis/social'
 
 /**
  * A template's bounding box as a drawable rectangle.
@@ -22,45 +21,6 @@ export interface CanvasRect {
   readonly y: number
   readonly width: number
   readonly height: number
-}
-
-/**
- * Return every whole tile touched by the template. The viewer uses these tiles as its boundary.
- */
-export const tileUnionRect = (template: Template): CanvasRect => {
-  let minTX = Number.POSITIVE_INFINITY
-  let minTY = Number.POSITIVE_INFINITY
-  let maxTX = Number.NEGATIVE_INFINITY
-  let maxTY = Number.NEGATIVE_INFINITY
-  for (const chunk of template.chunks) {
-    const coord = parseTileKey(chunk.tile)
-    if (coord === null) continue
-    minTX = Math.min(minTX, coord.x)
-    minTY = Math.min(minTY, coord.y)
-    maxTX = Math.max(maxTX, coord.x)
-    maxTY = Math.max(maxTY, coord.y)
-  }
-  if (!Number.isFinite(minTX)) return templateRect(template)
-  return {
-    x: minTX * TILE_SIZE,
-    y: minTY * TILE_SIZE,
-    width: (maxTX - minTX + 1) * TILE_SIZE,
-    height: (maxTY - minTY + 1) * TILE_SIZE,
-  }
-}
-
-/** The bbox padded by `margin` × its own size on each side, clamped to `bounds`. */
-export const paddedRect = (inner: CanvasRect, margin: number, bounds: CanvasRect): CanvasRect => {
-  const padX = Math.round(inner.width * margin)
-  const padY = Math.round(inner.height * margin)
-  const x = Math.max(bounds.x, inner.x - padX)
-  const y = Math.max(bounds.y, inner.y - padY)
-  return {
-    x,
-    y,
-    width: Math.min(bounds.x + bounds.width, inner.x + inner.width + padX) - x,
-    height: Math.min(bounds.y + bounds.height, inner.y + inner.height + padY) - y,
-  }
 }
 
 export const templateRect = (template: Template): CanvasRect => {
@@ -102,7 +62,7 @@ export const tilesInRect = (rect: CanvasRect): TilePlacement[] => {
 }
 
 /** Decoded pixels the image cache keeps before it drops the least recently used images. */
-export const IMAGE_CACHE_PIXELS = 32 * 1024 * 1024
+const IMAGE_CACHE_PIXELS = 32 * 1024 * 1024
 
 interface CachedImage {
   readonly image: Promise<HTMLImageElement>
@@ -130,15 +90,22 @@ const loadImage = (url: Promise<string>, cors = false): Promise<HTMLImageElement
         const image = new Image()
         // CORS-clean, so drawing a basemap tile never taints the canvas.
         if (cors) image.crossOrigin = 'anonymous'
-        image.onload = () => resolve(image)
-        image.onerror = () => reject(new Error(`image failed to load: ${src}`))
+        image.onload = () => {
+          // The decoded image stays drawable; only the blob behind an authenticated read is freed.
+          if (src.startsWith('blob:')) URL.revokeObjectURL(src)
+          resolve(image)
+        }
+        image.onerror = () => {
+          if (src.startsWith('blob:')) URL.revokeObjectURL(src)
+          reject(new Error(`image failed to load: ${src}`))
+        }
         image.src = src
       }),
   )
 
 /**
- * Load an image once and share it while it stays among the most recently used. Callers that keep
- * drawing an image hold their own reference, so eviction only costs a later reload.
+ * Load an image once and share it while it stays among the most recently used. `FrameImages` holds
+ * what a drawing keeps using, so eviction only costs a later reload.
  */
 const cachedImage = (
   cacheKey: string,
@@ -172,14 +139,14 @@ const cachedImage = (
   return entry.image
 }
 
-export const tileImage = (hash: string): Promise<HTMLImageElement> =>
+const tileImage = (hash: string): Promise<HTMLImageElement> =>
   cachedImage(`tile:${hash}`, () => tileImageUrl(hash))
 
 export const chunkImage = (hash: string): Promise<HTMLImageElement> =>
   cachedImage(`chunk:${hash}`, () => chunkImageUrl(hash))
 
 /** Destination rectangle for one slippy-map tile in canvas-pixel coordinates. */
-export const osmTileDrawRect = (
+const osmTileDrawRect = (
   tileX: number,
   tileY: number,
   span: number,
@@ -194,7 +161,7 @@ export const osmTileDrawRect = (
   height: span + 1 / Math.max(Number.EPSILON, deviceScale),
 })
 
-export const osmImage = (z: number, x: number, y: number): Promise<HTMLImageElement> =>
+const osmImage = (z: number, x: number, y: number): Promise<HTMLImageElement> =>
   cachedImage(
     `osm:${z}/${x}/${y}`,
     () => Promise.resolve(`https://tile.openstreetmap.org/${z}/${x}/${y}.png`),
@@ -318,55 +285,114 @@ export const timelapseLayout = (templates: readonly Template[]): TimelapseLayout
 }
 
 /**
- * Draw the observed canvas under a rect: each tile the server holds is painted where it belongs,
- * unobserved tiles stay transparent so the checkerboard beneath shows "never scanned" honestly.
- * Images arrive asynchronously; `onDirty` fires after each landing so the caller can composite.
+ * The decoded images one drawing uses. A drawing asks for each image synchronously; one that is not
+ * decoded yet starts loading and `onLoad` asks for the next drawing. Each drawing keeps only the
+ * images it used, so panning and scrubbing release what scrolled away.
  */
-export const drawCanvasTiles = (
-  ctx: CanvasRenderingContext2D,
-  rect: CanvasRect,
-  hashFor: (key: TileKey) => string | undefined,
-  signal: AbortSignal,
-  onDirty: () => void,
-): void => {
-  for (const placement of tilesInRect(rect)) {
-    const hash = hashFor(placement.key)
-    if (hash === undefined) continue
-    tileImage(hash)
-      .then((image) => {
-        if (signal.aborted) return
-        ctx.drawImage(image, placement.drawX, placement.drawY)
-        onDirty()
-      })
-      .catch(() => {})
-  }
-}
+export class FrameImages {
+  #held = new Map<string, HTMLImageElement>()
+  #drawn = new Map<string, HTMLImageElement>()
+  readonly #pending = new Set<string>()
+  /** Last decoded observation per tile, independent of the frame being drawn. */
+  readonly #presented = new Map<TileKey, HTMLImageElement>()
 
-/** Draw a template's chunks over a rect at the given opacity. */
-export const drawTemplateChunks = (
-  ctx: CanvasRenderingContext2D,
-  rect: CanvasRect,
-  template: Template,
-  alpha: number,
-  signal: AbortSignal,
-  onDirty: () => void,
-): void => {
-  for (const chunk of template.chunks) {
-    const coord = parseTileKey(chunk.tile)
-    if (coord === null) continue
-    // A chunk is the intersection of its bounding box and tile. Its top-left uses the later start
-    // on each axis. The rectangle only translates it.
-    const drawX = Math.max(coord.x * TILE_SIZE, template.bbox.minX) - rect.x
-    const drawY = Math.max(coord.y * TILE_SIZE, template.bbox.minY) - rect.y
-    chunkImage(chunk.hash)
-      .then((image) => {
-        if (signal.aborted) return
-        ctx.save()
-        ctx.globalAlpha = alpha
-        ctx.drawImage(image, drawX, drawY)
-        ctx.restore()
-        onDirty()
-      })
-      .catch(() => {})
+  readonly #onLoad: () => void
+
+  constructor(onLoad: () => void) {
+    this.#onLoad = onLoad
+  }
+
+  #get(key: string, load: () => Promise<HTMLImageElement>): HTMLImageElement | null {
+    const held = this.#held.get(key)
+    if (held !== undefined) {
+      this.#drawn.set(key, held)
+      return held
+    }
+    if (!this.#pending.has(key)) {
+      this.#pending.add(key)
+      load()
+        .then((image) => {
+          this.#held.set(key, image)
+          this.#onLoad()
+        })
+        // A failed image stays undrawn: the basemap or the last observation shows through.
+        .catch(() => {})
+        .finally(() => this.#pending.delete(key))
+    }
+    return null
+  }
+
+  /**
+   * Draw a layout into `view` (world pixels) on a context already transformed to world pixels.
+   * `scale` is device pixels per world pixel; `basemapZoom` the slippy zoom for the map beneath.
+   */
+  draw(
+    ctx: CanvasRenderingContext2D,
+    {
+      layout,
+      view,
+      scale,
+      basemapZoom,
+      hashFor,
+      overlayAlpha,
+    }: {
+      readonly layout: TimelapseLayout
+      readonly view: CanvasRect
+      readonly scale: number
+      readonly basemapZoom: number
+      readonly hashFor: (key: TileKey) => string | undefined
+      readonly overlayAlpha: number
+    },
+  ): void {
+    this.#drawn = new Map()
+    const span = osmSpan(basemapZoom)
+    const worldTiles = 2 ** basemapZoom
+    ctx.imageSmoothingEnabled = true
+    ctx.imageSmoothingQuality = 'high'
+    const lastOsmY = Math.min(worldTiles - 1, Math.floor((view.y + view.height) / span))
+    for (let ty = Math.max(0, Math.floor(view.y / span)); ty <= lastOsmY; ty++) {
+      for (
+        let tx = Math.floor(view.x / span);
+        tx <= Math.floor((view.x + view.width) / span);
+        tx++
+      ) {
+        const x = ((tx % worldTiles) + worldTiles) % worldTiles
+        const image = this.#get(`osm:${basemapZoom}/${x}/${ty}`, () => osmImage(basemapZoom, x, ty))
+        if (image === null) continue
+        const tile = osmTileDrawRect(tx, ty, span, scale)
+        ctx.drawImage(image, tile.x, tile.y, tile.width, tile.height)
+      }
+    }
+
+    // wplace's own answer to moiré, measured off its GL calls: LINEAR below 1:1, NEAREST above.
+    ctx.imageSmoothingEnabled = scale < 1
+    for (const tile of layout.tiles) {
+      if (
+        tile.x + TILE_SIZE < view.x ||
+        tile.x > view.x + view.width ||
+        tile.y + TILE_SIZE < view.y ||
+        tile.y > view.y + view.height
+      )
+        continue
+      const hash = hashFor(tile.key)
+      if (hash === undefined) continue
+      const loaded = this.#get(`tile:${hash}`, () => tileImage(hash))
+      if (loaded !== null) this.#presented.set(tile.key, loaded)
+      // A requested frame shows only once decoded. Pending, missing and failed images keep the last
+      // valid observation instead of exposing the basemap as a false blank. An undefined hash means
+      // the selected time predates this tile's first observation, so nothing later leaks back.
+      const image = loaded ?? this.#presented.get(tile.key)
+      if (image !== undefined) ctx.drawImage(image, tile.x, tile.y)
+    }
+
+    if (overlayAlpha > 0) {
+      ctx.globalAlpha = overlayAlpha
+      for (const chunk of layout.chunks) {
+        const image = this.#get(`chunk:${chunk.hash}`, () => chunkImage(chunk.hash))
+        if (image !== null) ctx.drawImage(image, chunk.x, chunk.y)
+      }
+      ctx.globalAlpha = 1
+    }
+    this.#held = this.#drawn
   }
 }
