@@ -5,15 +5,16 @@ import { installAllianceServerSync } from './alliance-server-sync.js'
 import { activeAllianceSurface, installAllianceSurfaceObserver } from './alliance-surface.js'
 import { installClaims } from './claims.js'
 import { installDebugApi, loadDebugSetting, warn } from './debug.js'
-import { clearDraftPixels, reconcileDrafts } from './draft-pixels.js'
+import { clearDraftPixels, reconcileDrafts, syncDraftCanvases } from './draft-pixels.js'
 import { installAllianceOverlayLayer, repaintAllianceOverlayLayer } from './gl/artboard-layer.js'
 import { onMapThemeChange } from './gl/contrast-outline.js'
-import { installOverlayLayer } from './gl/layer.js'
-import { keepMarkersAboveDrafts } from './gl/markers.js'
-import { installPickCellLayer } from './gl/pick-cell-layer.js'
-import { installPresenceLayer, repaintPresence } from './gl/presence-layer.js'
+import { outlineLayer, overlayLayer } from './gl/layer.js'
+import { installLayerStack } from './gl/layer-stack.js'
+import { markerLayer } from './gl/markers.js'
+import { pickCellLayer } from './gl/pick-cell-layer.js'
+import { presenceLayer, repaintPresence } from './gl/presence-layer.js'
 import { installKeyboardShortcuts } from './keyboard-shortcuts.js'
-import { getMap, installMapCapture, type PatchableMap, releaseMapCapture } from './map-handle.js'
+import { getMap, installMapCapture, onMapAttached, type PatchableMap } from './map-handle.js'
 import {
   installMapView,
   notifyArtboardViewChange,
@@ -144,9 +145,8 @@ export const installFeatures = (): void => {
   // A completed scan changes marker buffers and progress only. Progress has its own DOM listeners;
   // rerunning every screen-space overlay control here duplicates the MapLibre frame requested next.
   step('mismatch repaint', () => pixelAccounting.onChange(requestMapFrame))
-  // wplace add a layer per tile being painted, above anything of ours added earlier, so a placed
-  // pixel would otherwise cover the marker it just cleared.
-  step('marker order', () => onMapFrame(keepMarkersAboveDrafts, 'Keep marker layer above drafts'))
+  // Wplace adds a layer per tile being painted; its canvas is where unsubmitted pixels are drawn.
+  step('draft canvases', () => onMapFrame(syncDraftCanvases, 'Name draft canvases'))
   // Drafting Transparent writes nothing a canvas hook can see, so the only place it shows up is
   // wplace's crosshairs. Throttled inside; with nothing drafted there is nothing to read.
   step('drafted pixels', () => onMapFrame(reconcileDrafts, 'Reconcile drafted pixels'))
@@ -259,29 +259,21 @@ const installTilePixelCapture = (): void => {
   onMapFrame(sync, 'Tile pixel capture state')
 }
 
-/** Keep the GL layer attached across delayed map creation, style reloads, and SPA map replacement. */
+/** Keep our GL layers, and the features bound to the map, on whichever map Wplace shows. */
 const attachOverlayLayer = (): void => {
-  const attach = (): void => {
-    const map = getMap()
-    if (map !== null) {
-      try {
-        if (!map.getCanvas().isConnected) releaseMapCapture()
-      } catch {
-        // A torn-down MapLibre map can throw from its own accessors.
-        releaseMapCapture()
-      }
-    }
-    if (getMap() === null) installMapCapture()
-    installOverlayLayer()
-    installPresenceLayer()
-    installPickCellLayer()
-    syncPaintTargetMap(getMap())
-    syncOfficialOverlays(getMap())
-    applyWplacePatches(getMap() as PatchableMap | null)
-  }
+  installLayerStack({
+    outline: outlineLayer,
+    overlay: overlayLayer,
+    markers: markerLayer,
+    presence: presenceLayer,
+    pickCell: pickCellLayer,
+  })
+  onMapAttached((map) => {
+    syncPaintTargetMap(map)
+    syncOfficialOverlays(map)
+    applyWplacePatches(map as PatchableMap)
+  })
   onWplacePatchChange(() => applyWplacePatches(getMap() as PatchableMap | null))
-  attach()
-  setInterval(attach, 1_000)
 }
 
 /** Runs now, or at `DOMContentLoaded` in registration order while the page is still loading. */

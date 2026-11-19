@@ -1,8 +1,8 @@
 import { sameTemplateSurface, TILE_SIZE, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import type { TileQuad } from '../coordinates.js'
 import { count, warn } from '../debug.js'
-import { registerDraftCanvas, retainDraftCanvases } from '../draft-pixels.js'
 import { getMap } from '../map-handle.js'
+import { requestMapFrame } from '../map-view.js'
 import { overlayPeekFade } from '../overlay-peek.js'
 import {
   isProfileEnabled,
@@ -26,6 +26,7 @@ import { currentQuads, isDrawingTiles } from '../tile-frame.js'
 import { holdTilePixels } from '../tile-pixels.js'
 import { isPaintOpen, selectedColour } from '../wplace-paint.js'
 import { prefersReducedMotion } from './appearance-transition.js'
+import { LAYER_IDS } from './layer-stack.js'
 import { batchMarkerWork } from './marker-batching.js'
 import {
   markerDensityMemoryBytes,
@@ -36,17 +37,15 @@ import {
 import { MarkerRenderer, type MarkerStyle } from './marker-renderer.js'
 import { worldRenderScene } from './render-scene.js'
 
-export { deviceScale, MarkerRenderer, type MarkerStyle } from './marker-renderer.js'
-
 let worldMarkerRenderer: MarkerRenderer | null = null
 
-export const markerGpuMemoryBytes = (): number => worldMarkerRenderer?.memoryBytes() ?? 0
+const markerGpuMemoryBytes = (): number => worldMarkerRenderer?.memoryBytes() ?? 0
 registerProfileMemorySource('Marker density buffers', markerDensityMemoryBytes)
 registerProfileMemorySource('Marker GPU buffers', markerGpuMemoryBytes)
-export const initMarkers = (gl: WebGL2RenderingContext): void => {
+const initMarkers = (gl: WebGL2RenderingContext): void => {
   worldMarkerRenderer = new MarkerRenderer(gl)
 }
-export const releaseMarkers = (gl: WebGL2RenderingContext): void => {
+const releaseMarkers = (gl: WebGL2RenderingContext): void => {
   if (worldMarkerRenderer?.gl !== gl) return
   worldMarkerRenderer.dispose()
   worldMarkerRenderer = null
@@ -59,7 +58,7 @@ export const releaseMarkers = (gl: WebGL2RenderingContext): void => {
  * tile's own on-screen rect, the same rect the overlay itself is drawn on, so markers inherit
  * whatever MapLibre did to place that tile rather than being projected separately.
  */
-export const drawMarkers = (
+const drawMarkers = (
   gl: WebGL2RenderingContext,
   tile: TileQuad,
   pixels: readonly MarkList[],
@@ -82,85 +81,6 @@ export const drawMarkers = (
     fade,
     sampleRate,
   )
-}
-
-export const MARKER_LAYER_ID = 'caelestis-markers'
-
-/** Their crosshair. It stays on top; the markers go directly below it. */
-const CROSSHAIR_LAYER = 'pixel-hover'
-
-/** A tile being painted gets its own layer, named for the tile. */
-const DRAFT_LAYER = /^paint-preview-/
-
-interface Ordered {
-  /** MapLibre's own draw order. Custom layers are in it; `getStyle` leaves them out. */
-  style?: { _order?: string[] }
-  getLayer?: (id: string) => unknown
-  getSource?: (id: string) => { getCanvas?: () => HTMLCanvasElement } | undefined
-  moveLayer?: (id: string, before?: string) => void
-}
-
-/** Their id ends with the tile: `paint-preview-0.9268…-325,1783`. */
-const DRAFT_TILE = /-(\d+),(\d+)$/
-
-/**
- * Keep the markers above wplace's draft layers.
- *
- * They add one per tile being painted, inserted wherever MapLibre puts it, which lands above a layer
- * of ours added earlier — so the pixel just placed covers the marker it was meant to clear, and the
- * only way to see the marker go is to zoom out until the placed pixel is too small to hide it.
- *
- * Checked from the frame hook rather than from `styledata`. Moving a layer *fires* `styledata`, so
- * listening to it to decide whether to move is a loop that provokes itself — and if wplace re-insert
- * a draft above ours, the two take turns for as long as the tab lasts. A poll cannot do that, and
- * reading `_order` is an array scan. Register canvases on every frame so the first native writes
- * become available immediately, including when Paint closes and reopens between frames.
- */
-export const keepMarkersAboveDrafts = (): void => {
-  const map = getMap() as Ordered | null
-  const order = map?.style?._order
-  if (map === null || order === undefined) {
-    count('paint:no layer order to read')
-    return
-  }
-  count('paint:checked the layer order')
-
-  const markers = order.indexOf(MARKER_LAYER_ID)
-  let lastDraft = -1
-  const canvases = new Set<object>()
-  for (let i = 0; i < order.length; i++) {
-    const id = order[i] as string
-    if (!DRAFT_LAYER.test(id)) continue
-    lastDraft = i
-    /**
-     * Tell the pixel capture which tile this canvas is, while we are already looking at the style.
-     *
-     * wplace name the layer and its image source for the tile, and the source hands back the canvas
-     * a placed-but-unsubmitted pixel is drawn into. Working it out from where the texture landed
-     * instead does not work: those quads measure 0.125x and 0.063x of a tile, so they are not draft
-     * layers at all, and the writes went to whichever tile the geometry matched — every patched
-     * pixel came out "became wrong" and none came out "fixed".
-     */
-    count('paint:saw a draft layer')
-    const match = DRAFT_TILE.exec(id)
-    if (match === null) {
-      count('paint:draft layer id had no tile in it')
-      continue
-    }
-    const canvas = map.getSource?.(id)?.getCanvas?.()
-    if (canvas === undefined) {
-      count('paint:draft source gave no canvas')
-      continue
-    }
-    canvases.add(canvas)
-    registerDraftCanvas(canvas, { x: Number(match[1]), y: Number(match[2]) })
-  }
-  retainDraftCanvases(canvases)
-  if (markers < 0 || lastDraft < 0 || markers > lastDraft) return
-
-  const crosshair = map.getLayer?.(CROSSHAIR_LAYER) === undefined ? undefined : CROSSHAIR_LAYER
-  map.moveLayer?.(MARKER_LAYER_ID, crosshair)
-  count('marker:moved above the draft layers')
 }
 
 /**
@@ -187,8 +107,7 @@ const retryDeferredScan = (now: number): void => {
     () => {
       retryTimer = null
       nextRetry = performance.now() + RETRY_MS
-      const map = getMap() as { triggerRepaint?: () => void } | null
-      map?.triggerRepaint?.()
+      requestMapFrame()
       count('marker:asked for another frame')
     },
     Math.max(0, nextRetry - now),
@@ -253,10 +172,7 @@ const drawVisible = (
       wanted.push({ template, appearance, mismatchFade, selectedFades })
     }
   }
-  if (animating) {
-    const map = getMap() as { triggerRepaint?: () => void } | null
-    map?.triggerRepaint?.()
-  }
+  if (animating) requestMapFrame()
   if (wanted.length > 0) count('marker:layer rendered')
   // Only the tiles a template covers. Asking about a tile is not free — one whose pixels have not
   // been captured triggers a fetch and a 1000x1000 `getImageData`.
@@ -299,7 +215,7 @@ const drawVisible = (
     }
   }
   const { markerBudget, onlySelectedColour } = getState()
-  const moving = (getMap() as { isMoving?: () => boolean } | null)?.isMoving?.() === true
+  const moving = getMap()?.isMoving() === true
   const renderBudget = markerBudget
   const profiling = isProfileEnabled()
   const mismatchSelection = onlySelectedColour && isPaintOpen() ? selected : -1
@@ -451,7 +367,7 @@ const drawAll = (
  * sit beneath the pixel it describes. One layer could not be both.
  */
 export const markerLayer = {
-  id: MARKER_LAYER_ID,
+  id: LAYER_IDS.markers,
   type: 'custom' as const,
   renderingMode: '2d' as const,
 

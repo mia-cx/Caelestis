@@ -7,6 +7,7 @@ import {
 } from '@caelestis/shared'
 import { count, warn } from './debug.js'
 import type { PixelRect } from './geometry.js'
+import { getMap } from './map-handle.js'
 import { UNPAINTED } from './native-pixels.js'
 import { applyPixels, invalidateOnTilePixels, notifyPixelBatch } from './pixel-changes.js'
 import { measureProfile } from './profile.js'
@@ -22,6 +23,7 @@ import {
   pendingAcceptedPixelAt,
   reusableCaptureContext,
 } from './tile-pixels.js'
+import { isDraftLayer } from './wplace-raster.js'
 
 /**
  * The draft layer, per tile: what has been placed but not submitted.
@@ -276,12 +278,58 @@ const retireDraftCanvas = (canvas: object, tile: TileCoord): void => {
 }
 
 /** Discard draft sources removed from Wplace's style, independently of its drawer animation. */
-export const retainDraftCanvases = (canvases: ReadonlySet<object>): void => {
+const retainDraftCanvases = (canvases: ReadonlySet<object>): void => {
   for (const canvas of paintCanvasOfTile.values()) {
     if (canvases.has(canvas)) continue
     const tile = tileOfPaintCanvas.get(canvas)
     if (tile !== undefined) retireDraftCanvas(canvas, tile)
   }
+}
+
+/** A draft layer's id ends with its tile: `paint-preview-0.9268…-325,1783`. */
+const DRAFT_TILE = /-(\d+),(\d+)$/
+
+/** The canvas behind a MapLibre canvas or image source, if it is one. */
+const sourceCanvas = (source: unknown): object | undefined => {
+  const getCanvas = (source as { getCanvas?: unknown } | undefined)?.getCanvas
+  return typeof getCanvas === 'function'
+    ? (getCanvas.call(source) as object | undefined)
+    : undefined
+}
+
+/**
+ * Name each draft canvas by the tile its style layer is for, and retire those whose layer is gone.
+ *
+ * Wplace name the layer and its image source for the tile, and the source hands back the canvas a
+ * placed-but-unsubmitted pixel is drawn into. Working it out from where the texture landed instead
+ * does not work: those quads measure 0.125x and 0.063x of a tile. Run on every frame, so the first
+ * native writes are attributed at once, including when Paint closes and reopens between frames.
+ */
+export const syncDraftCanvases = (): void => {
+  const map = getMap()
+  const order = map?.style?._order
+  if (map === null || order === undefined) {
+    count('paint:no layer order to read')
+    return
+  }
+  const canvases = new Set<object>()
+  for (const id of order) {
+    if (!isDraftLayer(id)) continue
+    count('paint:saw a draft layer')
+    const match = DRAFT_TILE.exec(id)
+    if (match === null) {
+      count('paint:draft layer id had no tile in it')
+      continue
+    }
+    const canvas = sourceCanvas(map.getSource(id))
+    if (canvas === undefined) {
+      count('paint:draft source gave no canvas')
+      continue
+    }
+    canvases.add(canvas)
+    registerDraftCanvas(canvas, { x: Number(match[1]), y: Number(match[2]) })
+  }
+  retainDraftCanvases(canvases)
 }
 
 /**

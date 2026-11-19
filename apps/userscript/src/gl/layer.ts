@@ -4,7 +4,7 @@ import type { TileQuad } from '../coordinates.js'
 import { log, warn } from '../debug.js'
 import type { PixelRect } from '../geometry.js'
 import { getMap } from '../map-handle.js'
-import { redraw } from '../map-view.js'
+import { redraw, requestMapFrame } from '../map-view.js'
 import { overlayPeekFade } from '../overlay-peek.js'
 import {
   clearGpuProfile,
@@ -24,7 +24,7 @@ import { type HorizontalSpan, horizontalSpans } from '../templates/placement.js'
 import { currentQuads, isDrawingTiles, underlayQuads } from '../tile-frame.js'
 import { prefersReducedMotion } from './appearance-transition.js'
 import { isDarkMapTheme } from './contrast-outline.js'
-import { markerLayer } from './markers.js'
+import { LAYER_IDS } from './layer-stack.js'
 import { movingOverlayTapCap } from './minify-quality.js'
 import { type SceneTemplate, worldRenderScene } from './render-scene.js'
 import { linkTemplateProgram, writeClipCorner } from './renderer-core.js'
@@ -59,14 +59,6 @@ import {
  */
 
 const NOTHING_IN_VIEW: ReadonlySet<string> = new Set()
-const LAYER_ID = 'caelestis-overlay'
-const OUTLINE_LAYER_ID = 'caelestis-outline'
-const PIXEL_ART_LAYER = 'pixel-art-layer'
-/** Their marker layer. Ours goes immediately before it. */
-const BEFORE_LAYER = 'pixel-hover'
-const DRAFT_LAYER_ID = /^paint-preview-/
-
-export const OVERLAY_UPLOAD_PIXELS_PER_FRAME = TEMPLATE_UPLOAD_PIXELS_PER_FRAME
 
 /** Four vertices of clip xyzw + uv, rewritten per template per frame. */
 const corners = new Float32Array(4 * 6)
@@ -116,10 +108,7 @@ export const overlayGpuMemoryBytes = (): number => {
   return (quad === null ? 0 : corners.byteLength) + (gpu?.memoryBytes() ?? 0)
 }
 
-/** Upload chunks are ephemeral; no full-template CPU staging copy is retained. */
-export const overlayStagingMemoryBytes = (): number => 0
 registerProfileMemorySource('Overlay GPU buffers', overlayGpuMemoryBytes)
-registerProfileMemorySource('Overlay index staging', overlayStagingMemoryBytes)
 /** Shift every template by fractional canvas pixels for alignment diagnostics. */
 registerDebugEntry('nudge', (x = 0, y = 0) => {
   const applied = setNudge(x, y)
@@ -261,7 +250,7 @@ export const visitIntersections = (
 }
 
 export const overlayLayer = {
-  id: LAYER_ID,
+  id: LAYER_IDS.overlay,
   type: 'custom' as const,
   renderingMode: '2d' as const,
 
@@ -394,9 +383,7 @@ export const overlayLayer = {
      * loop below and a filter fading with nothing else moving would otherwise stop after one frame.
      */
     const askForAnotherFrame = (): void => {
-      if (!animating) return
-      const map = getMap() as { triggerRepaint?: () => void } | null
-      map?.triggerRepaint?.()
+      if (animating) requestMapFrame()
     }
     // A newly visible template begins at zero. It therefore has no drawable entry on its first
     // frame, but the unfinished fade still needs another frame or it remains transparent forever.
@@ -427,10 +414,10 @@ export const overlayLayer = {
     // distributed samples retain anti-moire coverage while leaving enough GPU budget for Wplace to
     // move its own raster tiles; template-dense views use a smaller cap. The first settled frame
     // returns to the exact full grid.
-    const moving = (getMap() as { isMoving?: () => boolean } | null)?.isMoving?.() === true
+    const moving = getMap()?.isMoving() === true
     const minifyTapCap = moving ? movingOverlayTapCap(visible.length) : 4
     gl.uniform1i(uniform(gl, 'u_maxMinifyTaps'), minifyTapCap)
-    let uploadPixelsLeft = OVERLAY_UPLOAD_PIXELS_PER_FRAME
+    let uploadPixelsLeft = TEMPLATE_UPLOAD_PIXELS_PER_FRAME
     let uploadedIndexPixels = 0
     let drawIntersections = 0
     let uploadsLeft = visible.filter(({ rendered }) => !store.hasCurrent(rendered.template)).length
@@ -537,7 +524,7 @@ const outlineUniform = (gl: WebGL2RenderingContext, name: string): WebGLUniformL
  * scan and sparse index-texture rewrites.
  */
 export const outlineLayer = {
-  id: OUTLINE_LAYER_ID,
+  id: LAYER_IDS.outline,
   type: 'custom' as const,
   renderingMode: '2d' as const,
 
@@ -595,7 +582,6 @@ export const outlineLayer = {
     const now = performance.now()
     const peek = overlayPeekFade(now)
     if ((peek.opacity <= 0 && peek.done) || !isDrawingTiles()) return
-    const map = getMap() as { triggerRepaint?: () => void } | null
     const scene = worldRenderScene.advanceTemplates(
       displayTemplatesForSurface(WORLD_TEMPLATE_SURFACE),
       WORLD_TEMPLATE_SURFACE,
@@ -613,7 +599,7 @@ export const outlineLayer = {
         recordProfileWorkload('Outline visible templates', 0)
         recordProfileWorkload('Outline draw intersections', 0)
       }
-      if (scene.animating || !peek.done) map?.triggerRepaint?.()
+      if (scene.animating || !peek.done) requestMapFrame()
       return
     }
     // MapLibre exposes the same current tile matrices its raster layer will upload later in this
@@ -630,7 +616,7 @@ export const outlineLayer = {
       lastOutlineQuadKey = quadKey
       // Wplace records the settled quads later in this frame. One follow-up repaint lets the next
       // outline pass consume those exact positions without creating a continuous render loop.
-      map?.triggerRepaint?.()
+      requestMapFrame()
     }
 
     gl.useProgram(outlineProgram)
@@ -699,98 +685,6 @@ export const outlineLayer = {
       recordProfileWorkload('Outline visible templates', visibleTemplates)
       recordProfileWorkload('Outline draw intersections', drawIntersections)
     }
-    if (scene.animating || !peek.done) map?.triggerRepaint?.()
+    if (scene.animating || !peek.done) requestMapFrame()
   },
-}
-
-/**
- * Put the layer in wplace's style, and keep it there.
- *
- * `beforeId` is their marker layer. If it ever disappears the call would throw, so an unknown id
- * falls back to adding on top — which is only what the old DOM canvas did anyway, and is better
- * than no overlay at all.
- */
-export const installOverlayLayer = (): boolean => {
-  const map = getMap() as {
-    addLayer?: (layer: unknown, before?: string) => void
-    getLayer?: (id: string) => unknown
-    moveLayer?: (id: string, before?: string) => void
-    style?: { _order?: string[] }
-  } | null
-  if (map?.addLayer === undefined) return false
-
-  /**
-   * Each layer decides for itself whether it is already there, and nothing runs outside the `try`.
-   *
-   * Both matter because the caller retries on a false. A single answer for two layers meant a first
-   * attempt that added one and threw on the other would re-add the first on every retry and never
-   * add the second — and a throw from *outside* the try escapes into `setInterval`, where it repeats
-   * every 250ms with nothing catching it.
-   */
-  const add = (
-    layer: { readonly id: string },
-    what: string,
-    requestedBefore: string = BEFORE_LAYER,
-    requireAnchor = false,
-  ): boolean => {
-    try {
-      if (map.getLayer?.(layer.id) !== undefined) return true
-      const before = map.getLayer?.(requestedBefore) === undefined ? undefined : requestedBefore
-      if (requireAnchor && before === undefined) return false
-      map.addLayer?.(layer, before)
-      log('install', `${what} inserted${before === undefined ? ' on top' : ` before ${before}`}`)
-      return true
-    } catch (error) {
-      warn('install', `could not add the ${what}`, String(error))
-      return false
-    }
-  }
-
-  const outline = add(outlineLayer, 'outline layer', PIXEL_ART_LAYER, true)
-  // The markers go in second so they land above the overlay: same anchor, later insertion.
-  const overlay = add(overlayLayer, 'overlay layer')
-  const markers = add(markerLayer, 'marker layer')
-  /**
-   * A Wplace theme change swaps the basemap style. MapLibre preserves custom layers across that
-   * diff, but preserves their old numeric position too. The two basemaps have different layer
-   * counts, so ours can land below `pixel-art-layer`: callbacks still run, but before the tile quads
-   * they need have been recorded. Existing is therefore not enough; the order is part of attachment.
-   */
-  const order = map.style?._order
-  if (outline && overlay && markers && order !== undefined && map.moveLayer !== undefined) {
-    const tile = order.indexOf(PIXEL_ART_LAYER)
-    const outlineAt = order.indexOf(outlineLayer.id)
-    const overlayAt = order.indexOf(overlayLayer.id)
-    const markersAt = order.indexOf(markerLayer.id)
-    const crosshair = order.indexOf(BEFORE_LAYER)
-    const surroundsTiles = tile < 0 || (outlineAt < tile && tile < overlayAt)
-    const correctlyOrdered =
-      outlineAt >= 0 &&
-      overlayAt >= 0 &&
-      markersAt > overlayAt &&
-      (crosshair < 0 || markersAt < crosshair) &&
-      surroundsTiles
-    if (!correctlyOrdered) {
-      try {
-        const firstDraft = order.find(
-          (id, index) =>
-            DRAFT_LAYER_ID.test(id) &&
-            (tile < 0 || index > tile) &&
-            (crosshair < 0 || index < crosshair),
-        )
-        const markersFollowTiles = tile < 0 || markersAt > tile
-        const overlayAnchor =
-          firstDraft ??
-          (markersFollowTiles ? markerLayer.id : crosshair < 0 ? undefined : BEFORE_LAYER)
-        map.moveLayer(outlineLayer.id, tile < 0 ? undefined : PIXEL_ART_LAYER)
-        map.moveLayer(overlayLayer.id, overlayAnchor)
-        map.moveLayer(markerLayer.id, crosshair < 0 ? undefined : BEFORE_LAYER)
-        log('install', 'restored overlay order after a style change')
-      } catch (error) {
-        warn('install', 'could not restore the overlay layer order', String(error))
-        return false
-      }
-    }
-  }
-  return outline && overlay && markers
 }
