@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
-import { LIVE_CAPABILITIES } from '../../src/server-info.js'
+import { LIVE_CAPABILITIES } from '../../src/live/session.js'
 import { ARCHIVE_ADMIN } from '../support/archive.js'
 import { bundleWorker, openCloudflare } from '../support/cloudflare.js'
 

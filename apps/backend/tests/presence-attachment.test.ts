@@ -5,7 +5,7 @@ import { coordinatorDatabase } from '../src/adapters/node/coordinator-database.j
 import { SqlCoordinatorStorage } from '../src/adapters/node/coordinator-storage.js'
 import { liveRequestContext, NodeLiveHost } from '../src/node/live.js'
 import { openMemoryDatabase } from '../src/node/memory-stores.js'
-import { PresenceCoordinator } from '../src/presence-coordinator.js'
+import { PresenceCoordinator } from '../src/presence/coordinator.js'
 
 it('keeps a fully populated maximum-claim attachment below 2,048 bytes', async () => {
   const store = openMemoryDatabase()

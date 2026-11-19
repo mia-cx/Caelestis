@@ -8,8 +8,8 @@ import {
 import { receiveStatusLive } from './adapters/cloudflare/live-connect.js'
 import { durableLiveHost } from './adapters/cloudflare/live-host.js'
 import { measureD1Usage } from './metrics/request-metrics.js'
-import { serverInfo } from './server-info.js'
-import { StatusCoordinator } from './status-coordinator.js'
+import { serverInfo } from './server/info.js'
+import { StatusCoordinator } from './status-read-model/coordinator.js'
 
 type Coordinator = StatusCoordinator<WebSocket>
 

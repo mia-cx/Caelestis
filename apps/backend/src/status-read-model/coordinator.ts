@@ -35,7 +35,7 @@ import {
   parseOfferBatch,
   tileOfferResult,
   tileUploadResult,
-} from './live/replies.js'
+} from '../live/replies.js'
 import {
   createLiveSessionFence,
   type LiveHost,
@@ -48,36 +48,36 @@ import {
   MAX_LIVE_SUBSCRIBERS_PER_CLIENT,
   type StatusLiveConnection,
   subscriberOf,
-} from './live/session.js'
-import { createChunkedManifestPersistence } from './manifest/persistence.js'
-import type { ManifestProjectionInput, ManifestProjectionRead } from './manifest/read-model.js'
-import { type CacheOutcome, recordLiveTileOfferCacheMetric } from './metrics/request-metrics.js'
-import type { BlobStore, CounterStore, SqlStore } from './ports/index.js'
+} from '../live/session.js'
+import { createChunkedManifestPersistence } from '../manifest/persistence.js'
+import type { ManifestProjectionInput, ManifestProjectionRead } from '../manifest/read-model.js'
+import { type CacheOutcome, recordLiveTileOfferCacheMetric } from '../metrics/request-metrics.js'
+import type { BlobStore, CounterStore, SqlStore } from '../ports/index.js'
 import {
   type BackendRuntime,
   createBackendRuntime,
   makeBackendContext,
-} from './runtime/backend-runtime.js'
-import { ValidationError } from './runtime/errors.js'
+} from '../runtime/backend-runtime.js'
+import { ValidationError } from '../runtime/errors.js'
+import { MAX_CANVAS_TILE_BYTES, offerTiles, uploadTile } from '../telemetry/ingest.js'
+import { type IngestTimingSnapshot, ingestTimings } from '../telemetry/ingest-timing.js'
+import { recordPaint } from '../telemetry/paint.js'
+import { readAlarms, readContributions, readLeaderboard } from '../telemetry/queries.js'
 import type {
   StatusProjectionChange,
   StatusProjectionMutation,
   StatusSnapshotRead,
   StatusVisibilityScope,
-} from './status-read-model/model.js'
-import { createKeyedStatusPersistence } from './status-read-model/persistence.js'
-import type { StatusReadModelPort } from './status-read-model/port.js'
-import { createSeasonReadModels, type SeasonReadModels } from './status-read-model/season.js'
+} from './model.js'
+import { createKeyedStatusPersistence } from './persistence.js'
+import type { StatusReadModelPort } from './port.js'
+import { createSeasonReadModels, type SeasonReadModels } from './season.js'
 import type {
   CommittedTileGeneration,
   PreparedTileGenerationCommit,
   TileGenerationCacheRead,
   TileGenerationOffer,
-} from './status-read-model/tile-generation-cache.js'
-import { MAX_CANVAS_TILE_BYTES, offerTiles, uploadTile } from './telemetry/ingest.js'
-import { type IngestTimingSnapshot, ingestTimings } from './telemetry/ingest-timing.js'
-import { recordPaint } from './telemetry/paint.js'
-import { readAlarms, readContributions, readLeaderboard } from './telemetry/queries.js'
+} from './tile-generation-cache.js'
 
 const MAX_DELTA_MESSAGE_BYTES = 32 * 1024
 const MAX_DASHBOARD_SUBSCRIPTIONS = 4

@@ -1,4 +1,4 @@
-import type { CoordinatorDatabase } from './database.js'
+import type { CoordinatorDatabase } from '../../coordination/database.js'
 
 const RETRY_DELAY_MS = 1000
 const POLL_INTERVAL_MS = 250

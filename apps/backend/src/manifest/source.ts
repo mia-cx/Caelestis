@@ -1,6 +1,6 @@
 import type { Manifest } from '@caelestis/shared'
+import { mergeServerInfo } from '../server/info.js'
 import type { ServerSettingsStore } from '../server/store.js'
-import { mergeServerInfo } from '../server-info.js'
 import { assembleManifest, type ManifestStores } from './assemble.js'
 import type { ManifestProjectionInput } from './read-model.js'
 

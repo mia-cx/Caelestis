@@ -1,6 +1,6 @@
 import type { TemplateSurface, TileCoord } from '@caelestis/shared'
 import type { ManifestProjectionInput, ManifestProjectionRead } from '../manifest/read-model.js'
-import type { StatusCoordinator } from '../status-coordinator.js'
+import type { StatusCoordinator } from '../status-read-model/coordinator.js'
 import type {
   StatusProjectionChange,
   StatusProjectionMutation,

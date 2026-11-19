@@ -8,7 +8,7 @@ const backend = pathToFileURL(
   `${process.env.BENCH_BACKEND_DIRECTORY ?? resolve('apps/backend/dist')}/`,
 )
 const [configModule, runtimeModule, serverModule, statusModule] = await Promise.all(
-  ['node/config.js', 'node/runtime.js', 'node/server.js', 'status-coordinator.js'].map(
+  ['node/config.js', 'node/runtime.js', 'node/server.js', 'live/session.js'].map(
     (file) => import(new URL(file, backend)),
   ),
 )

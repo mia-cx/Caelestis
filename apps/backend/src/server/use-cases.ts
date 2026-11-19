@@ -7,8 +7,8 @@ import {
   StatusReadModelService,
 } from '../runtime/backend-runtime.js'
 import { NotFoundError, type StorageError, storage } from '../runtime/errors.js'
-import { mergeServerInfo, serverAssetInfo } from '../server-info.js'
 import { bestEffort } from '../status-read-model/port.js'
+import { mergeServerInfo, serverAssetInfo } from './info.js'
 import type { ServerAssetRecord, ServerSettings, ServerSettingsPatch } from './store.js'
 
 const readServerSettings: Effect.Effect<ServerSettings, StorageError, SqlStoreService> = Effect.gen(

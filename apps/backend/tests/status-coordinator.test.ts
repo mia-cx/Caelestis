@@ -10,7 +10,7 @@ import { coordinatorDatabase } from '../src/adapters/node/coordinator-database.j
 import { SqlCoordinatorStorage } from '../src/adapters/node/coordinator-storage.js'
 import { relationalSqlStore } from '../src/adapters/relational-sql-store.js'
 import type { LiveHost, LiveSocket } from '../src/live/session.js'
-import { StatusCoordinator } from '../src/status-coordinator.js'
+import { StatusCoordinator } from '../src/status-read-model/coordinator.js'
 import { authorized, countCalls, createTestBackend } from './support/backend.js'
 
 const SEASON = 3
