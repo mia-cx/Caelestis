@@ -902,10 +902,6 @@ export class StatusCoordinator<Client> implements StatusShard {
       socket.close(1008, 'credential revoked')
       return
     }
-    if (typeof message === 'string' && message === 'ping') {
-      socket.send('pong')
-      return
-    }
     if (message instanceof ArrayBuffer) {
       if (message.byteLength > MAX_LIVE_CLIENT_BINARY_BYTES) {
         socket.close(1009, 'live message too large')

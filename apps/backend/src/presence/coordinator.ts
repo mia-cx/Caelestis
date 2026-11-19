@@ -529,10 +529,6 @@ export class PresenceCoordinator<Client> {
       this.close(socket, 1009, 'presence message too large')
       return
     }
-    if (message === 'ping') {
-      socket.send('pong')
-      return
-    }
     let event: Schema.Schema.Type<typeof PresenceClientEvent>
     try {
       event = Schema.decodeUnknownSync(PresenceClientEvent)(JSON.parse(message))
