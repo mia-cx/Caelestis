@@ -26,8 +26,8 @@ import {
   screenProjection,
   viewportCentre,
 } from './map-view.js'
-import { installPaintTargetGuard, syncPaintTargetMap } from './paint-cursor.js'
 import { installPaintPaletteProgress, refreshPaintPaletteFocus } from './paint-palette.js'
+import { installPaintTargetGuard, syncPaintTargetMap } from './paint-target-guard.js'
 import { installPresence, observePresenceFrame, onPresenceChange } from './presence-client.js'
 import { onPresenceHoverChange } from './presence-hover.js'
 import { renderPresenceLabels } from './presence-labels.js'
@@ -37,6 +37,7 @@ import { installQuickClaims, onQuickClaimPreviewChange } from './quick-claims.js
 import { installServerSyncCoordinator } from './server-sync-coordinator.js'
 import { loadState, onStateChange } from './settings.js'
 import { installShiftPaint } from './shift-paint.js'
+import { installHeldKeyTracker } from './simulated-input.js'
 import { installTelemetry } from './telemetry.js'
 import { onLocalChange, onLocalPreviewChange } from './templates/local-store.js'
 import { pixelAccounting } from './templates/mismatch.js'
@@ -136,6 +137,7 @@ export const installFeatures = (): void => {
   onMapFrame(refreshPaintPaletteFocus, 'Paint palette focus')
   onViewChange(refreshTreeFocus, 'Template tree focus')
   // Middle-click picking, answered from the template when the template is what you can see.
+  step('held keys', installHeldKeyTracker)
   step('paint target guard', installPaintTargetGuard)
   step('colour picker', installColourPicker)
   step('shift paint', installShiftPaint)

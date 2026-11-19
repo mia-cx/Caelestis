@@ -3,13 +3,12 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { ActiveAllianceSurface } from './alliance-surface.js'
 import type { MapLike } from './map-handle.js'
 import {
-  forwardPaintKey,
   installPaintTargetGuard,
-  isForwardedPaintMove,
   markPaintTargetStale,
   refreshPaintTarget,
   syncPaintTargetMap,
-} from './paint-cursor.js'
+} from './paint-target-guard.js'
+import { forwardPaintKey, installHeldKeyTracker, isForwardedEvent } from './simulated-input.js'
 
 const harness = vi.hoisted(() => ({
   open: true,
@@ -75,7 +74,7 @@ beforeEach(() => {
   settledListeners = new Set()
   document.body.append(canvas)
   document.elementFromPoint = () => canvas
-  teardown = [installPaintTargetGuard()]
+  teardown = [installHeldKeyTracker(), installPaintTargetGuard()]
   syncPaintTargetMap(map)
   listen(document, 'keydown')
   listen(window, 'mousemove')
@@ -171,7 +170,7 @@ it('puts the paint target under the still mouse after a flight only with its own
   }
   const forwarded: boolean[] = []
   const record = (event: Event): void => {
-    forwarded.push(isForwardedPaintMove(event))
+    forwarded.push(isForwardedEvent(event))
   }
   window.addEventListener('mousemove', record)
   teardown.push(() => window.removeEventListener('mousemove', record))

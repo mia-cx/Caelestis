@@ -3,6 +3,7 @@ import { PALETTE_RGB, TRANSPARENT_INDEX, WORLD_TEMPLATE_SURFACE } from '@caelest
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ActiveAllianceSurface } from './alliance-surface.js'
 import { installShiftPaint } from './shift-paint.js'
+import { installHeldKeyTracker } from './simulated-input.js'
 
 // Palette index 12 is both the selected swatch (`color-13`) and the template colour.
 const harness = vi.hoisted(() => ({
@@ -150,6 +151,7 @@ beforeEach(() => {
   simulated = []
   for (const type of ['keydown', 'keyup', 'mousemove', 'pointermove', 'pointerdown', 'click'])
     window.addEventListener(type, (event) => real.has(event) || simulated.push(event), true)
+  teardown.push(installHeldKeyTracker())
   installShiftPaint()
 
   // Wplace's world map: a hold paints its last position, and accepts auto-repeat; held moves paint

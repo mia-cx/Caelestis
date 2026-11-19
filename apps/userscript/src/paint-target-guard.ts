@@ -1,69 +1,26 @@
 import { activeAllianceSurface } from './alliance-surface.js'
 import type { MapLike } from './map-handle.js'
-import { simulatedInputAllowed } from './simulated-input.js'
+import {
+  forwardPaintMove,
+  heldKeys,
+  isForwardedEvent,
+  simulatedInputAllowed,
+} from './simulated-input.js'
 import { typingInTextField } from './wplace-dom.js'
 import { isPaintOpen } from './wplace-paint.js'
 
-const forwardedMoves = new WeakSet<Event>()
-const forwardedKeys = new WeakSet<Event>()
-
-/** Whether a Space transition belongs to filtered painting rather than the physical keyboard. */
-export const isForwardedPaintKey = (event: Event): boolean => forwardedKeys.has(event)
-
-/** Pause or resume native Space painting without changing our physical-key tracking. */
-export const forwardPaintKey = (type: 'keydown' | 'keyup'): void => {
-  const event = new KeyboardEvent(type, { code: 'Space', key: ' ', bubbles: true })
-  forwardedKeys.add(event)
-  document.dispatchEvent(event)
-}
-
-/** Whether this is movement forwarded by Caelestis rather than a compatibility mouse event. */
-export const isForwardedPaintMove = (event: Event): boolean => forwardedMoves.has(event)
-
-/** Feed native movement with exact pointer coordinates without starting a gesture. */
-export const forwardPaintMove = (
-  target: Element,
-  position: PointerEvent,
-  type: 'mousemove' | 'pointermove' = 'mousemove',
-  client: { clientX: number; clientY: number } = position,
-): void => {
-  const init: PointerEventInit = {
-    bubbles: true,
-    cancelable: true,
-    composed: true,
-    clientX: client.clientX,
-    clientY: client.clientY,
-    buttons: position.buttons,
-    altKey: position.altKey,
-    ctrlKey: position.ctrlKey,
-    metaKey: position.metaKey,
-    shiftKey: position.shiftKey,
-    pointerId: position.pointerId,
-    pointerType: position.pointerType,
-    isPrimary: position.isPrimary,
-    button: -1,
-  }
-  // MouseEvent truncates fractional coordinates in Chromium, moving a boundary pick into the
-  // previous paint cell. PointerEvent extends MouseEvent and preserves coordinates for either type.
-  const event = new PointerEvent(type, init)
-  forwardedMoves.add(event)
-  target.dispatchEvent(event)
-}
-
 /** The camera moved since Wplace last received a mouse move, so its paint target is stale. */
 let stale = false
-/** Wplace received a Space press and no release since, so it paints along every move. */
+/**
+ * Wplace received a Space press and no release since, so it paints along every move. Shift-paint's
+ * forwarded releases clear this while the key stays down, so the refresh reads `heldKeys` instead.
+ */
 let holding = false
 /** Space was held while the camera moved, so moves wait until it is released. */
 let movesBlocked = false
 let observedMap: MapLike | null = null
 /** The painter's last real mouse position over this window. */
 let mouse: PointerEvent | null = null
-/**
- * The painter is physically holding Space. Shift-paint's forwarded releases clear `holding` while
- * the key stays down, so the refresh checks this instead.
- */
-let spaceHeld = false
 
 /**
  * Mark Wplace's paint target stale after the camera moved under a still mouse: a flight, a keyboard
@@ -90,11 +47,12 @@ const worldCameraMoved = ({ originalEvent }: { readonly originalEvent?: Event })
 /**
  * Move Wplace's paint target to where the still mouse now points by forwarding a move. On the world
  * map Wplace flags it as UntrustedPointer, so it waits for the `cursor-refresh` switch there; on an
- * alliance canvas the move is a `pointermove` on its frame, which nothing checks. While Space is held through
- * the camera move nothing is forwarded, so a held gesture never paints where the camera landed.
+ * alliance canvas the move is a `pointermove` on its frame, which nothing checks. While Space is
+ * held through the camera move nothing is forwarded, so a held gesture never paints where the
+ * camera landed.
  */
 export const refreshPaintTarget = (root: Element, type: 'mousemove' | 'pointermove'): void => {
-  if (!simulatedInputAllowed('cursor-refresh') || spaceHeld) return
+  if (!simulatedInputAllowed('cursor-refresh') || heldKeys().space) return
   if (mouse === null || !isPaintOpen() || !root.isConnected) return
   const target = document.elementFromPoint(mouse.clientX, mouse.clientY)
   if (target === null || !root.contains(target)) return
@@ -127,7 +85,6 @@ export const syncPaintTargetMap = (map: MapLike | null): void => {
  */
 export const installPaintTargetGuard = (): (() => void) => {
   const keydown = (event: KeyboardEvent): void => {
-    if (event.code === 'Space' && !isForwardedPaintKey(event)) spaceHeld = true
     if (event.code !== 'Space' || !isPaintOpen()) return
     if (typingInTextField(event)) return
     if (!stale) {
@@ -142,20 +99,17 @@ export const installPaintTargetGuard = (): (() => void) => {
     movesBlocked = false
   }
   const remember = (event: PointerEvent): void => {
-    if (event.pointerType === 'mouse' && !isForwardedPaintMove(event)) mouse = event
+    if (event.pointerType === 'mouse' && !isForwardedEvent(event)) mouse = event
   }
   const leave = (event: PointerEvent): void => {
     if (event.relatedTarget === null) mouse = null
   }
   const keyup = (event: KeyboardEvent): void => {
-    if (event.code !== 'Space') return
-    if (!isForwardedPaintKey(event)) spaceHeld = false
-    release()
+    if (event.code === 'Space') release()
   }
   const blur = (): void => {
     release()
     mouse = null
-    spaceHeld = false
   }
   const visibility = (): void => {
     if (document.hidden) blur()

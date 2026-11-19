@@ -7,8 +7,8 @@ import {
 import { expect, it, vi } from 'vitest'
 import type { ActiveAllianceSurface } from './alliance-surface.js'
 import type { NativePixelSnapshot } from './native-pixels.js'
-import { isForwardedPaintMove } from './paint-cursor.js'
 import { setState } from './settings.js'
+import { installHeldKeyTracker, isForwardedEvent } from './simulated-input.js'
 import { addLocalTemplate, removeLocalTemplate } from './templates/local-store.js'
 import { isPaintOpen, watchPaintSelection } from './wplace-paint.js'
 import { installColourPicker, overlayIndexAt } from './wplace-picker.js'
@@ -77,6 +77,7 @@ const installPicker = (simulatedInput: SimulatedInputSwitches = EVERY_PICK): (()
     },
   )
   watchPaintSelection()
+  removeListeners.push(installHeldKeyTracker())
   installColourPicker()
   return () => {
     for (const remove of removeListeners) remove()
@@ -369,7 +370,7 @@ it('keeps picking while the middle button drags only with its own switch on', as
   // The mouse moves Wplace's world painting follows, real or forwarded by the picker.
   const moves: string[] = []
   const recordMove = (event: MouseEvent): void => {
-    moves.push(`${isForwardedPaintMove(event) ? 'forwarded' : 'real'}:${event.clientX}`)
+    moves.push(`${isForwardedEvent(event) ? 'forwarded' : 'real'}:${event.clientX}`)
   }
   // Middle button down over White, dragged across to Black, released.
   // Like Chromium, send compatibility mouse events only while the pointerdown was not cancelled.

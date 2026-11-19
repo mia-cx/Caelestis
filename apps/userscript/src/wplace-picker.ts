@@ -3,7 +3,6 @@ import {
   type TemplateSurface,
   TILE_SIZE,
   TRANSPARENT_INDEX,
-  WORLD_PIXELS,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { allianceBounds, alliancePointAt } from './alliance-coordinates.js'
@@ -14,8 +13,13 @@ import { showPickCell } from './gl/pick-cell-layer.js'
 import { getMap } from './map-handle.js'
 import { canvasPixelAt } from './map-view.js'
 import { nativePixelAt } from './native-pixels.js'
-import { forwardPaintMove, isForwardedPaintKey, isForwardedPaintMove } from './paint-cursor.js'
-import { simulatedInputAllowed } from './simulated-input.js'
+import {
+  forwardPaintMove,
+  heldKeys,
+  isForwardedEvent,
+  moveSamples,
+  simulatedInputAllowed,
+} from './simulated-input.js'
 import { claimedHiddenFor } from './templates/colour-filter.js'
 import {
   appearanceOf,
@@ -201,27 +205,6 @@ export const installColourPicker = (): void => {
   }
   let middlePick: MiddlePick | null = null
   let pendingMiddleClick: MiddlePick | null = null
-  let spaceHeld = false
-  window.addEventListener(
-    'keydown',
-    (event) => {
-      if (isForwardedPaintKey(event)) return
-      if (event.code === 'Space') spaceHeld = true
-    },
-    { capture: true },
-  )
-  window.addEventListener(
-    'keyup',
-    (event) => {
-      if (isForwardedPaintKey(event)) return
-      if (event.code === 'Space') spaceHeld = false
-    },
-    { capture: true },
-  )
-  window.addEventListener('blur', () => {
-    spaceHeld = false
-  })
-
   const endMiddlePick = (released = false): void => {
     const pick = middlePick
     if (pick === null) return
@@ -401,7 +384,7 @@ export const installColourPicker = (): void => {
   window.addEventListener(
     'pointermove',
     (event) => {
-      if (isForwardedPaintMove(event)) return
+      if (isForwardedEvent(event)) return
       const pick = middlePick
       if (pick === null || pick.pointerId !== event.pointerId) return
       if ((event.buttons & MIDDLE_BUTTON_MASK) === 0 || !isPaintOpen() || isMoving()) {
@@ -422,22 +405,14 @@ export const installColourPicker = (): void => {
       const movement = point.alliance === null ? 'mousemove' : 'pointermove'
       const from = pick.lastPosition
       pick.lastPosition = { clientX: event.clientX, clientY: event.clientY }
-      const start = pickerPointAt(target, from.clientX, from.clientY)
-      let steps = 1
-      if (spaceHeld && start !== null) {
-        const dx = Math.abs(point.x - start.x)
-        const width = point.alliance === null ? Math.min(dx, WORLD_PIXELS - dx) : dx
-        // Native painting fills between events. Sample at most one logical pixel apart so fast
-        // movement cannot fill an unsampled colour run with the previous run's colour.
-        steps = Math.max(1, Math.ceil(Math.max(width, Math.abs(point.y - start.y))))
-      }
-      for (let step = 1; step <= steps; step++) {
-        const client = {
-          clientX: from.clientX + ((event.clientX - from.clientX) * step) / steps,
-          clientY: from.clientY + ((event.clientY - from.clientY) * step) / steps,
-        }
+      // Only a held Space paints between events, so only then does every crossed cell need a pick.
+      const start = heldKeys().space ? pickerPointAt(target, from.clientX, from.clientY) : null
+      const samples = moveSamples(from, event, start, point)
+      for (const [step, client] of samples.entries()) {
         const sample =
-          step === steps ? point : pickerPointAt(target, client.clientX, client.clientY)
+          step === samples.length - 1
+            ? point
+            : pickerPointAt(target, client.clientX, client.clientY)
         if (sample === null) continue
         // Advance with the old colour before changing the swatch: native lines include their
         // previous pixel. Then repaint only the new endpoint with its newly picked colour.
@@ -471,7 +446,7 @@ export const installColourPicker = (): void => {
     window.addEventListener(
       type,
       (event) => {
-        if (isForwardedPaintMove(event)) return
+        if (isForwardedEvent(event)) return
         const claimed =
           type === 'mousemove'
             ? middlePick?.drags === true
