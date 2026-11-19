@@ -121,6 +121,11 @@ interface LiveConnection {
   attempts: number
   healthy: boolean
   reconciled: boolean
+  /**
+   * The bootstrap HTTP reads already ran since the last socket opened. Upgrades a proxy keeps
+   * refusing must not repeat them on every reconnect; the regular cadence covers the rest.
+   */
+  fallbackRead: boolean
   stateRequestId: string | null
   manifestRevision: number | null
   readonly snapshots: LiveSnapshotAssembler
@@ -243,6 +248,7 @@ const scheduleReconnect = (connection: LiveConnection): void => {
 
 const completeReconciliation = (connection: LiveConnection): void => {
   connection.reconciled = true
+  connection.fallbackRead = false
   connection.bootstrapFallbackTimer = clearTimer(connection.bootstrapFallbackTimer)
   host?.reconciled(connection.server)
 }
@@ -253,9 +259,15 @@ const armBootstrapFallback = (connection: LiveConnection): void => {
   if (delay === null) return
   connection.bootstrapFallbackTimer = setTimeout(() => {
     connection.bootstrapFallbackTimer = null
-    if (!isCurrentServerConnection(connection.server) || connection.reconciled) return
+    if (
+      !isCurrentServerConnection(connection.server) ||
+      connection.reconciled ||
+      connection.fallbackRead
+    )
+      return
     connection.stateRequestId = null
     completeReconciliation(connection)
+    connection.fallbackRead = true
     host?.requestReads(connection.server, 'reconnect')
   }, delay)
 }
@@ -392,6 +404,7 @@ const open = (connection: LiveConnection): void => {
     }
     connection.healthy = true
     connection.reconciled = false
+    connection.fallbackRead = false
     armHeartbeat(connection)
     const requestId = uuidV7()
     connection.stateRequestId = requestId
@@ -458,6 +471,7 @@ export const reconcileLiveConnections = (servers: readonly ConnectedServer[]): v
         attempts: 0,
         healthy: false,
         reconciled: false,
+        fallbackRead: false,
         stateRequestId: null,
         manifestRevision: null,
         snapshots: new LiveSnapshotAssembler(),
