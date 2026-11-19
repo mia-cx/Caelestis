@@ -1,8 +1,6 @@
 <script lang="ts">
   import { Icon, TemplateState } from '@caelestis/ui'
   import TemplateViewer from '#lib/components/TemplateViewer.svelte'
-  import { Skeleton } from '#lib/components/ui/skeleton/index.js'
-  import { Slider } from '#lib/components/ui/slider/index.js'
   import { persisted } from '#lib/persisted.svelte.js'
   import { STORAGE_KEYS } from '#lib/deployment.js'
   import { MIN_SPEED, speedToFit } from '#lib/timelapse.js'
@@ -70,14 +68,14 @@
 
   <div class="flex flex-wrap items-center gap-x-4 gap-y-2 border-t-[1.5px] border-base-300 px-4 py-3">
     <span class="shrink-0 text-sm text-base-content/70">Template overlay</span>
-    <Slider
-      type="single"
+    <input
+      type="range"
       min={0}
       max={1}
       step={0.05}
       value={overlayAlpha}
-      onValueChange={(value: number) => (storedOverlay.value = value)}
-      class="max-w-44 flex-1"
+      oninput={(event) => (storedOverlay.value = event.currentTarget.valueAsNumber)}
+      class="range range-xs range-primary max-w-44 flex-1"
       aria-label="template overlay opacity"
     />
     <span class="w-9 text-end text-xs tabular-nums text-base-content/50">
@@ -87,7 +85,7 @@
 
   <div class="flex flex-wrap items-center gap-x-3 gap-y-2 border-t-[1.5px] border-base-300 px-4 py-3">
     {#if player.frames === null}
-      <Skeleton class="h-6 w-full" />
+      <div class="skeleton h-6 w-full"></div>
     {:else if player.timeline.length === 0}
       <span class="text-sm text-base-content/50">
         No tile snapshots yet. New snapshots appear after the next six-hour canvas scan.
@@ -155,14 +153,15 @@
           {/if}
         </div>
       </div>
-      <Slider
-        type="single"
+      <input
+        type="range"
         min={0}
         max={player.transport.steps}
         step={1}
         value={player.transport.toStep(player.playhead)}
-        onValueChange={(step: number) => player.seekTo(player.transport.toTime(step))}
-        class="min-w-40 flex-1"
+        oninput={(event) =>
+          player.seekTo(player.transport.toTime(event.currentTarget.valueAsNumber))}
+        class="range range-xs range-primary min-w-40 flex-1"
         aria-label="timelapse position"
         aria-valuetext={formatFrame(player.playhead)}
         data-playhead={player.playhead}

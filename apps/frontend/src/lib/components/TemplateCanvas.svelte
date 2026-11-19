@@ -13,7 +13,6 @@ import {
   osmTileDrawRect,
   osmZoomFor,
 } from '#lib/render.js'
-import { cn } from '#lib/utils.js'
 
 let {
   template,
@@ -134,7 +133,7 @@ $effect(() => {
 <div
   bind:this={container}
   bind:clientHeight={shownHeight}
-  class={cn('relative overflow-hidden bg-base-200', className)}
+  class={['relative overflow-hidden bg-base-200', className]}
   style:aspect-ratio="{rect.width} / {rect.height}"
 >
   {#if seen && scale > 0}

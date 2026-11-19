@@ -12,7 +12,6 @@
     type TimelapseLayout,
     tileImage,
   } from '#lib/render.js'
-  import { cn } from '#lib/utils.js'
 
   let {
     layout,
@@ -312,7 +311,7 @@
 
 <div
   bind:this={container}
-  class={cn('relative touch-none overflow-hidden bg-base-200 select-none', className)}
+  class={['relative touch-none overflow-hidden bg-base-200 select-none', className]}
   role="application"
   aria-label="pannable view of {label} on the canvas"
   onwheel={onWheel}

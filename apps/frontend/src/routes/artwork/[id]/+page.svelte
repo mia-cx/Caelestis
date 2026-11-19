@@ -5,7 +5,6 @@
   import ColourProgress from '#lib/components/ColourProgress.svelte'
   import StatsPanel from '#lib/components/StatsPanel.svelte'
   import TimelapsePanel from '#lib/components/TimelapsePanel.svelte'
-  import { Skeleton } from '#lib/components/ui/skeleton/index.js'
   import { useApp } from '#lib/state/app.svelte.js'
   import { TimelapsePlayer } from '#lib/timelapse-player.svelte.js'
 
@@ -43,8 +42,8 @@
 
 {#if app.manifest === null}
   <div class="flex flex-col gap-4">
-    <Skeleton class="h-8 w-64" />
-    <Skeleton class="h-80 w-full rounded-2xl" />
+    <div class="skeleton h-8 w-64"></div>
+    <div class="skeleton h-80 w-full rounded-2xl"></div>
   </div>
 {:else if template === null || progress === null}
   <div class="rounded-2xl border-[1.5px] border-dashed border-base-300 p-10 text-center text-base-content/60">

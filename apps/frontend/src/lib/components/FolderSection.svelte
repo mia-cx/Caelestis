@@ -3,7 +3,7 @@ import type { CanvasTileSummary, TileKey } from '@caelestis/shared'
 import { Icon, ProgressMeter } from '@caelestis/ui'
 import FolderSection from '#lib/components/FolderSection.svelte'
 import TemplateCard from '#lib/components/TemplateCard.svelte'
-import * as Collapsible from '#lib/components/ui/collapsible/index.js'
+import { Collapsible } from 'bits-ui'
 import type { TreeFolder } from '@caelestis/shared'
 
 let {

@@ -1,6 +1,5 @@
 <script lang="ts">
 import type { LeaderboardEntry } from '@caelestis/shared'
-import * as Table from '#lib/components/ui/table/index.js'
 
 let { entries }: { entries: readonly LeaderboardEntry[] } = $props()
 
@@ -26,34 +25,36 @@ const relativeDay = (day: number): string => {
     No contributions yet. Paint activity appears here when userscript reporting is on.
   </div>
 {:else}
-  <Table.Root>
-    <Table.Header>
-      <Table.Row>
-        <Table.Head class="w-10">#</Table.Head>
-        <Table.Head>Painter</Table.Head>
-        <Table.Head class="text-right">Correct</Table.Head>
-        <Table.Head class="text-right">Placed</Table.Head>
-        <Table.Head class="text-right">Repairs</Table.Head>
-        <Table.Head class="text-right max-sm:hidden">Active days</Table.Head>
-        <Table.Head class="text-right max-sm:hidden">Last seen</Table.Head>
-      </Table.Row>
-    </Table.Header>
-    <Table.Body>
+  <div class="overflow-x-auto">
+  <table class="table text-sm whitespace-nowrap [&_td]:p-2 [&_th]:h-10 [&_th]:px-2 [&_th]:font-medium [&_th]:text-base-content">
+    <thead>
+      <tr>
+        <th class="w-10">#</th>
+        <th>Painter</th>
+        <th class="text-right">Correct</th>
+        <th class="text-right">Placed</th>
+        <th class="text-right">Repairs</th>
+        <th class="text-right max-sm:hidden">Active days</th>
+        <th class="text-right max-sm:hidden">Last seen</th>
+      </tr>
+    </thead>
+    <tbody>
       {#each entries as entry, index (entry.wplaceUserId)}
         {@const rank = index + 1}
-        <Table.Row>
-          <Table.Cell class="text-xs {medal(rank) ?? 'text-base-content/50'}">{rank}</Table.Cell>
-          <Table.Cell>
+        <tr>
+          <td class="text-xs {medal(rank) ?? 'text-base-content/50'}">{rank}</td>
+          <td>
             <span class="font-medium">{entry.displayName || `user ${entry.wplaceUserId}`}</span>
             <span class="ml-1.5 text-xs text-base-content/40 tabular-nums">#{entry.wplaceUserId}</span>
-          </Table.Cell>
-          <Table.Cell class="text-right font-semibold tabular-nums">{entry.correct.toLocaleString()}</Table.Cell>
-          <Table.Cell class="text-right tabular-nums text-base-content/70">{entry.placed.toLocaleString()}</Table.Cell>
-          <Table.Cell class="text-right tabular-nums text-base-content/70">{entry.repairs.toLocaleString()}</Table.Cell>
-          <Table.Cell class="text-right tabular-nums text-base-content/70 max-sm:hidden">{entry.activeDays}</Table.Cell>
-          <Table.Cell class="text-right text-base-content/70 max-sm:hidden">{relativeDay(entry.lastDay)}</Table.Cell>
-        </Table.Row>
+          </td>
+          <td class="text-right font-semibold tabular-nums">{entry.correct.toLocaleString()}</td>
+          <td class="text-right tabular-nums text-base-content/70">{entry.placed.toLocaleString()}</td>
+          <td class="text-right tabular-nums text-base-content/70">{entry.repairs.toLocaleString()}</td>
+          <td class="text-right tabular-nums text-base-content/70 max-sm:hidden">{entry.activeDays}</td>
+          <td class="text-right text-base-content/70 max-sm:hidden">{relativeDay(entry.lastDay)}</td>
+        </tr>
       {/each}
-    </Table.Body>
-  </Table.Root>
+    </tbody>
+  </table>
+  </div>
 {/if}

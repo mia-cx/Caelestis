@@ -12,8 +12,8 @@ export const frameAt = (timeline: readonly number[], time: number): number => {
 
 /**
  * Slider positions across the recorded range. A pointer cannot place a thumb more precisely than
- * this, and bits-ui materialises every step between min and max on each value change, so the
- * transport must never step through recorded seconds directly.
+ * this, and an arrow key must move the playhead visibly, so the transport never steps through
+ * recorded seconds directly.
  */
 export const TRANSPORT_STEPS = 1_000
 

@@ -49,9 +49,6 @@ export class TimelapsePlayer {
 
   readonly timeline = $derived(this.frames === null ? [] : timelineOf(this.frames))
   readonly #playback = $derived(new TimelapseClock(this.timeline, this.historyEnd))
-  // The slider walks a bounded step domain: stepping through recorded seconds made bits-ui build a
-  // list of every second in the range on each playhead move, which stalled playback and exhausted
-  // memory on phones.
   readonly transport = $derived(
     transportScale(this.timeline[0] ?? this.historyEnd, this.historyEnd),
   )

@@ -19,12 +19,9 @@ vi.mock('#lib/api/client.js', () => ({
   getTileHistory: fixture.history,
   getArchiveHistory: fixture.archive,
 }))
-vi.mock('#lib/components/StatsPanel.svelte', async () => ({
-  default: (await import('#lib/components/ui/skeleton/index.js')).Skeleton,
-}))
-vi.mock('#lib/components/TemplateViewer.svelte', async () => ({
-  default: (await import('#lib/components/ui/skeleton/index.js')).Skeleton,
-}))
+// A Svelte 5 component is a function of its anchor and props; these render nothing.
+vi.mock('#lib/components/StatsPanel.svelte', () => ({ default: () => undefined }))
+vi.mock('#lib/components/TemplateViewer.svelte', () => ({ default: () => undefined }))
 
 import Page from './+page.svelte'
 
@@ -131,34 +128,34 @@ it('retimes the current hold when a speed preset changes and persists the choice
   expect(localStorage.getItem('caelestis:timelapse-speed')).toBe('1')
 })
 
+const transport = () =>
+  document.querySelector<HTMLInputElement>('input[aria-label="timelapse position"]')
+const moveTransport = (step: number) => {
+  const input = transport()
+  if (input === null) throw new Error('no transport slider')
+  input.value = String(step)
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+  flushSync()
+}
+
 it('bounds the transport slider steps across a week of history and still seeks its ends', async () => {
   vi.setSystemTime((start + 604_800) * 1_000)
   await show()
-  const thumb = document.querySelector<HTMLElement>(
-    '[aria-label="timelapse position"] [role="slider"]',
-  )
-  expect(thumb?.getAttribute('aria-valuemax')).toBe('1000')
+  expect(transport()?.max).toBe('1000')
   expect(position()).toBe(604_800)
-  thumb?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))
-  flushSync()
+  moveTransport(0)
   expect(position()).toBe(0)
-  thumb?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
-  flushSync()
+  moveTransport(1)
   expect(position()).toBe(605)
-  thumb?.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }))
-  flushSync()
+  moveTransport(1_000)
   expect(position()).toBe(604_800)
   expect(document.body.textContent).toContain('live')
 })
 
-it('seeks with the keyboard and pauses active playback', async () => {
+it('seeks from the slider and pauses active playback', async () => {
   await show()
   click('play timelapse')
-  const slider = document.querySelector<HTMLElement>(
-    '[aria-label="timelapse position"] [role="slider"]',
-  )
-  slider?.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }))
-  flushSync()
+  moveTransport(Number(transport()?.max))
   expect(position()).toBe(7_200)
   expect(document.querySelector('[aria-label="play timelapse"]')).not.toBeNull()
   await advance(1_000)

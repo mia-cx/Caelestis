@@ -6,7 +6,6 @@ import FolderSection from '#lib/components/FolderSection.svelte'
 import StatsPanel from '#lib/components/StatsPanel.svelte'
 import TemplateCard from '#lib/components/TemplateCard.svelte'
 import TimelapsePanel from '#lib/components/TimelapsePanel.svelte'
-import { Skeleton } from '#lib/components/ui/skeleton/index.js'
 import { useApp } from '#lib/state/app.svelte.js'
 import { TimelapsePlayer } from '#lib/timelapse-player.svelte.js'
 import { type ColourProgress as Colours, folderPath, folderTemplates } from '@caelestis/shared'
@@ -42,8 +41,8 @@ const ancestors = $derived(
 
 {#if app.tree === null}
   <div class="flex flex-col gap-4">
-    <Skeleton class="h-8 w-64" />
-    <Skeleton class="h-60 w-full rounded-2xl" />
+    <div class="skeleton h-8 w-64"></div>
+    <div class="skeleton h-60 w-full rounded-2xl"></div>
   </div>
 {:else if folder === null}
   <div class="rounded-2xl border-[1.5px] border-dashed border-base-300 p-10 text-center text-base-content/60">

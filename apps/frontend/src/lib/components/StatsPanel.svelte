@@ -38,8 +38,7 @@
     type PainterHistorySource,
   } from '#lib/components/charts/progress-pace.js'
   import Leaderboard from '#lib/components/Leaderboard.svelte'
-  import { Skeleton } from '#lib/components/ui/skeleton/index.js'
-  import * as Select from '#lib/components/ui/select/index.js'
+  import Select from '#lib/components/Select.svelte'
 import { persisted } from '#lib/persisted.svelte.js'
 import { STORAGE_KEYS } from '#lib/deployment.js'
   import { type HeldHistory, refreshHistory } from '#lib/history-tail.js'
@@ -458,14 +457,12 @@ import { STORAGE_KEYS } from '#lib/deployment.js'
         </span>
         <span class="inline-flex items-center gap-2">
           <span id="estimate-period-label">based on</span>
-          <Select.Root type="single" value={estimatePeriod.key} onValueChange={(value) => { storedEstimatePeriod.value = value }}>
-            <Select.Trigger size="sm" aria-labelledby="estimate-period-label">{estimatePeriod.label}</Select.Trigger>
-            <Select.Content>
-              {#each estimatePeriods as period (period.key)}
-                <Select.Item value={period.key} label={period.label} />
-              {/each}
-            </Select.Content>
-          </Select.Root>
+          <Select
+            value={estimatePeriod.key}
+            options={estimatePeriods}
+            onValueChange={(key) => { storedEstimatePeriod.value = key }}
+            labelledby="estimate-period-label"
+          />
         </span>
       </div>
     </div>
@@ -474,7 +471,7 @@ import { STORAGE_KEYS } from '#lib/deployment.js'
         Could not load pace history.
       </div>
     {:else if history === null || archives === null || progressSamples === null}
-      <Skeleton class="h-[240px] w-full" />
+      <div class="skeleton h-[240px] w-full"></div>
     {:else}
       <ProgressPaceChart
         {archiveSamples}
@@ -506,7 +503,7 @@ import { STORAGE_KEYS } from '#lib/deployment.js'
   <section class="pixel-card bg-base-100 p-4">
     <h2 class="mb-3 font-semibold">Leaderboard</h2>
     {#if leaderboard === null}
-      <Skeleton class="h-40 w-full" />
+      <div class="skeleton h-40 w-full"></div>
     {:else}
       <Leaderboard entries={leaderboard} />
     {/if}
@@ -527,7 +524,7 @@ import { STORAGE_KEYS } from '#lib/deployment.js'
       {/if}
     </div>
     {#if shownContributions === null}
-      <Skeleton class="h-28 w-full" />
+      <div class="skeleton h-28 w-full"></div>
     {:else}
       <ContributionHeatmap
         days={shownContributions}

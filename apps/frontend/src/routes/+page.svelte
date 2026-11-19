@@ -2,7 +2,6 @@
 import FolderSection from '#lib/components/FolderSection.svelte'
 import HomeCopy from '#lib/components/HomeCopy.svelte'
 import TemplateCard from '#lib/components/TemplateCard.svelte'
-import { Skeleton } from '#lib/components/ui/skeleton/index.js'
 import { useApp } from '#lib/state/app.svelte.js'
 
 const app = useApp()
@@ -23,8 +22,8 @@ const sustainedAlarms = $derived(
 {:else if tree === null}
   <!-- The real layout minus the data: folder sections. -->
   <div class="flex flex-col gap-4">
-    <Skeleton class="h-40 w-full rounded-2xl" />
-    <Skeleton class="h-40 w-full rounded-2xl" />
+    <div class="skeleton h-40 w-full rounded-2xl"></div>
+    <div class="skeleton h-40 w-full rounded-2xl"></div>
   </div>
 {:else}
   <div class="flex flex-col gap-4">
