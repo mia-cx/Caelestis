@@ -1,4 +1,4 @@
-import { type TemplateSurface, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
+import type { TemplateSurface } from '@caelestis/shared'
 import { errorText } from '../error-text.js'
 import {
   deleteTemplate as deleteTemplateOnServer,
@@ -258,7 +258,7 @@ export const copyLocalTemplateToServer = async (
       message: 'That destination server was disconnected or replaced.',
     }
   }
-  const surface = template.surface ?? WORLD_TEMPLATE_SURFACE
+  const surface = template.surface
   const uploaded = await uploadTemplate(destination, {
     nodeId,
     name: template.name,
@@ -305,7 +305,7 @@ const sameRevision = (first: ServerTemplate, latest: ServerTemplate | null): boo
  * the drawn copy, so a row that has moved on has nothing current to move yet.
  */
 const sourceRow = (server: ServerConnection, drawn: PlacedTemplate, id: string) => {
-  const row = serverTemplateAt(server.url, id, drawn.surface ?? WORLD_TEMPLATE_SURFACE)
+  const row = serverTemplateAt(server.url, id, drawn.surface)
   return row !== null && drawn.origin === 'server' && drawn.version === row.version ? row : null
 }
 
@@ -317,7 +317,7 @@ export const moveServerTemplateToLocal = async (
   folderId: string | null,
   rerender: () => void,
 ): Promise<TransferResult> => {
-  const surface = drawn.surface ?? WORLD_TEMPLATE_SURFACE
+  const surface = drawn.surface
   if (!isCurrentServerConnection(source)) {
     return refused('That server connection changed before the move began.', 'warning')
   }
@@ -374,7 +374,7 @@ export const moveServerTemplateToServer = async (
   drawn: PlacedTemplate,
   rerender: () => void,
 ): Promise<TransferResult> => {
-  const surface = drawn.surface ?? WORLD_TEMPLATE_SURFACE
+  const surface = drawn.surface
   const destinationName = serverLabel(destination)
   const reconcile = (server: ServerConnection) => refreshEditedSurface(server, surface, rerender)
   if (!isCurrentServerConnection(source) || !isCurrentServerConnection(destination)) {

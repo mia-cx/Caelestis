@@ -10,6 +10,7 @@ const shown: PlacedTemplate = {
   origin: 'local',
   id: 'settled',
   name: 'Settled',
+  surface: WORLD_TEMPLATE_SURFACE,
   source: 'image',
   originX: 0,
   originY: 0,

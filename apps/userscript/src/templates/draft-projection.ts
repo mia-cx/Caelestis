@@ -1,4 +1,3 @@
-import { WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { onAcceptedPaint, onPaintSubmission, type PaintSubmission } from '../paint-requests.js'
 import { onTilePixels } from '../pixel-changes.js'
 import { serverConnectionIdentity } from '../server-connections.js'
@@ -256,8 +255,7 @@ export const projectedColourProgress = (
 ): readonly TemplateColourProgress[] => {
   if (template === null) return []
   const accounting = pixelAccounting.read(template)
-  if (template.origin !== 'server' || (template.surface ?? WORLD_TEMPLATE_SURFACE).kind !== 'world')
-    return accounting.colours
+  if (template.origin !== 'server' || template.surface.kind !== 'world') return accounting.colours
   const server = servers.get(template.server.url)
   if (server === undefined) return []
   // The drawn template already proves the manifest identity and exact pixel total. Depending on the

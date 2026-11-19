@@ -4,7 +4,6 @@ import {
   TILE_SIZE,
   TRANSPARENT_INDEX,
   WORLD_PIXELS,
-  WORLD_TEMPLATE_SURFACE,
   WPLACE_PALETTE,
 } from '@caelestis/shared'
 import { activeAllianceSurface } from '../alliance-surface.js'
@@ -74,7 +73,7 @@ export const compositeCommittedArtwork = (
 /** Capture complete committed art at the saved placement, including world tile crossings and east-edge wrapping. */
 export const captureCurrentArtwork = async (placed: PlacedTemplate): Promise<Uint8Array> => {
   const template = { ...placed, indices: await templatePixels(placed) }
-  const surface = template.surface ?? WORLD_TEMPLATE_SURFACE
+  const surface = template.surface
   if (surface.kind !== 'world') {
     const active = activeAllianceSurface()
     const bounds = active?.bounds ?? null

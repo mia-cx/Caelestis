@@ -1055,9 +1055,7 @@ const renderControls = (
     controlSurface = key
   }
   const catalog = localTemplates()
-  const templates = catalog.filter((template) =>
-    sameTemplateSurface(template.surface ?? WORLD_TEMPLATE_SURFACE, surface),
-  )
+  const templates = catalog.filter((template) => sameTemplateSurface(template.surface, surface))
   withFrameTemplates(templates, () =>
     renderFrame(
       rerender,

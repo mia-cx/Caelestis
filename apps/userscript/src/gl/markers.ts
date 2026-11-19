@@ -1,4 +1,4 @@
-import { sameTemplateSurface, TILE_SIZE, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
+import { TILE_SIZE, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import type { TileQuad } from '../coordinates.js'
 import { count, warn } from '../debug.js'
 import { getMap } from '../map-handle.js'
@@ -12,7 +12,11 @@ import {
   registerProfileMemorySource,
 } from '../profile.js'
 import { getState } from '../settings.js'
-import { displayTemplates, isTemplateVisible, type PlacedTemplate } from '../templates/catalog.js'
+import {
+  displayTemplatesForSurface,
+  isTemplateVisible,
+  type PlacedTemplate,
+} from '../templates/catalog.js'
 import type { MarkList } from '../templates/mark-list.js'
 import { pixelAccounting } from '../templates/mismatch.js'
 import { horizontalSpans } from '../templates/placement.js'
@@ -113,9 +117,7 @@ const drawVisible = (
   const now = performance.now()
   const selected = selectedColour() ?? -1
   const sceneTemplates = worldRenderScene.advanceTemplates(
-    displayTemplates().filter((candidate) =>
-      sameTemplateSurface(candidate.surface ?? WORLD_TEMPLATE_SURFACE, WORLD_TEMPLATE_SURFACE),
-    ),
+    displayTemplatesForSurface(WORLD_TEMPLATE_SURFACE),
     WORLD_TEMPLATE_SURFACE,
     now,
     tiles,

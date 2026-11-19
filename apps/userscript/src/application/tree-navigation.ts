@@ -32,7 +32,7 @@ export const goToLocalTemplate = (templateId: string): void => {
   const template = templateById(templateId)
   if (template === undefined) return
   const preview = previewOriginFor(templateId)
-  const surface = template.surface ?? WORLD_TEMPLATE_SURFACE
+  const surface = template.surface
   if (surface.kind !== 'world') {
     const active = activeAllianceSurface()
     if (active === null || !sameTemplateSurface(active.surface, surface)) return

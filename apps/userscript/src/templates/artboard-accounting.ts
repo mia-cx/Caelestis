@@ -1,10 +1,4 @@
-import {
-  BLANK,
-  MATCH,
-  PALETTE_SIZE,
-  TRANSPARENT_INDEX,
-  WORLD_TEMPLATE_SURFACE,
-} from '@caelestis/shared'
+import { BLANK, MATCH, PALETTE_SIZE, TRANSPARENT_INDEX } from '@caelestis/shared'
 import { artboardPixelsFor } from '../active-artboard.js'
 import type { ArtboardPixels } from '../gl/artboard-pixels.js'
 import { type NativePixelSnapshot, nativePixelWindow } from '../native-pixels.js'
@@ -84,10 +78,7 @@ const lastCounts = new WeakMap<TemplateArtwork, ProgressCounts>()
 export const artboardProgressCounts = (template: PlacedTemplate): ProgressCounts | undefined => {
   const pixels = template.artwork.pixels
   if (pixels === null) return lastCounts.get(template.artwork)
-  const counts = artboardCounts(
-    { ...template, pixels },
-    artboardPixelsFor(template.surface ?? WORLD_TEMPLATE_SURFACE),
-  )
+  const counts = artboardCounts({ ...template, pixels }, artboardPixelsFor(template.surface))
   lastCounts.set(template.artwork, counts)
   return counts
 }

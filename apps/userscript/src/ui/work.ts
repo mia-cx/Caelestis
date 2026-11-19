@@ -134,11 +134,7 @@ export const workSectionModel = (surface: TemplateSurface, changed: () => void) 
     }
   }
   for (const template of localTemplates()) {
-    if (
-      template.origin !== 'local' ||
-      !sameTemplateSurface(template.surface ?? WORLD_TEMPLATE_SURFACE, surface)
-    )
-      continue
+    if (template.origin !== 'local' || !sameTemplateSurface(template.surface, surface)) continue
     const people = getState()
       .localClaims.filter((claim) => claim.templateId === template.id)
       .map((claim) => claim.claimant)

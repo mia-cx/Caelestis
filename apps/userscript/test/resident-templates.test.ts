@@ -1,4 +1,4 @@
-import { TRANSPARENT_INDEX } from '@caelestis/shared'
+import { TRANSPARENT_INDEX, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { describe, expect, it, vi } from 'vitest'
 import type { ServerConnection } from '../src/settings.js'
 import { PIXEL_CHUNK_SIZE } from '../src/templates/sparse-pixels.js'
@@ -6,6 +6,7 @@ import { PIXEL_CHUNK_SIZE } from '../src/templates/sparse-pixels.js'
 /** A server copy's fields, from a server this test never connects. */
 const copyOf = (url: string) => ({
   origin: 'server' as const,
+  surface: WORLD_TEMPLATE_SURFACE,
   server: {
     url,
     isAdmin: false,

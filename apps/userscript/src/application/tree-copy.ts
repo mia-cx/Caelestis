@@ -1,4 +1,3 @@
-import { WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { runWhileBusy } from '../concurrency.js'
 import { listServerNodes, type ServerNodesResult } from '../server-api.js'
 import { serverLabel } from '../server-connections.js'
@@ -39,7 +38,7 @@ export const copyToServer = async (
 ): Promise<void> => {
   const template = templateById(templateId)
   if (template === undefined) return
-  const surface = template.surface ?? WORLD_TEMPLATE_SURFACE
+  const surface = template.surface
   if (copySetupRunning) return
   const targets = getState().servers.filter(
     (server) => server.isAdmin && (onlyServerUrl === undefined || server.url === onlyServerUrl),

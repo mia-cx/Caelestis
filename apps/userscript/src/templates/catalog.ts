@@ -54,8 +54,8 @@ export interface TemplateArtwork {
 /** What every catalog entry has, wherever it came from. */
 interface PlacedBase extends TemplateRecord {
   readonly artwork: TemplateArtwork
-  /** Drawing surface this placement belongs to. Legacy browser-owned templates are world-scoped. */
-  readonly surface?: TemplateSurface
+  /** Drawing surface this placement belongs to. */
+  readonly surface: TemplateSurface
   /** Painted world-tile keys (`x/y`) that bound mismatch and navigation work. */
   readonly tiles: ReadonlySet<string>
   readonly visible: boolean
@@ -517,9 +517,7 @@ export const displayTemplatesForSurface = (surface: TemplateSurface): readonly P
   const key = templateSurfaceKey(surface)
   const held = surfaceSlices.bySurface.get(key)
   if (held !== undefined) return held
-  const slice = all.filter((template) =>
-    sameTemplateSurface(template.surface ?? WORLD_TEMPLATE_SURFACE, surface),
-  )
+  const slice = all.filter((template) => sameTemplateSurface(template.surface, surface))
   surfaceSlices.bySurface.set(key, slice)
   return slice
 }
@@ -578,7 +576,7 @@ export const isTemplateVisible = (template: PlacedTemplate): boolean => {
 /** A copy answers to its owner's switch and the owner's folders above it, not to Local's. */
 const copyChainVisible = (ownerUrl: string, template: TemplateCopy): boolean =>
   isScopeVisible(serverScopeKey(ownerUrl)) &&
-  nodeChainVisible(ownerUrl, template.nodeId, template.surface ?? WORLD_TEMPLATE_SURFACE)
+  nodeChainVisible(ownerUrl, template.nodeId, template.surface)
 
 /** Each template's own switch beside the renderer's effective visibility decision. */
 registerDebugEntry('templates', () =>
@@ -603,7 +601,7 @@ registerDebugEntry('templates', () =>
  * both, and taking a group over copies the filter the template is actually showing.
  */
 export const appearanceOf = (template: PlacedTemplate): Appearance => {
-  const global = getSurfaceAppearance(template.surface ?? WORLD_TEMPLATE_SURFACE)
+  const global = getSurfaceAppearance(template.surface)
   const own = template.appearance
   const native = template.origin === 'local' ? template.native : undefined
   const nativeOpacity =

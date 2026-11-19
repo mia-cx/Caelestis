@@ -26,8 +26,7 @@ import { type TemplateTileKey, templatePrefix, templateTileKey, tileOf } from '.
 
 // The editor's draft changes with every setting and has no progress worth scanning.
 export const isWorldTemplate = (template: PlacedTemplate): boolean =>
-  !isTemplateDraft(template) &&
-  sameTemplateSurface(template.surface ?? WORLD_TEMPLATE_SURFACE, WORLD_TEMPLATE_SURFACE)
+  !isTemplateDraft(template) && sameTemplateSurface(template.surface, WORLD_TEMPLATE_SURFACE)
 
 export const worldTemplates = (): readonly PlacedTemplate[] =>
   displayTemplates().filter(isWorldTemplate)

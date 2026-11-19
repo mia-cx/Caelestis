@@ -10,7 +10,6 @@ import {
   type TileCoord,
   TRANSPARENT_INDEX,
   WORLD_PIXELS,
-  WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { count } from '../debug.js'
 import {
@@ -715,9 +714,7 @@ const worldCounts = (template: PlacedTemplate): ProgressCounts | undefined => {
  * a world template sums its scanned tiles, an alliance template counts the open editor's native art.
  */
 const countsFor = (template: PlacedTemplate): ProgressCounts | undefined =>
-  (template.surface ?? WORLD_TEMPLATE_SURFACE).kind === 'world'
-    ? worldCounts(template)
-    : artboardProgressCounts(template)
+  template.surface.kind === 'world' ? worldCounts(template) : artboardProgressCounts(template)
 
 /** What an answer is read from: a server's classification mask, or the tile's canvas pixels. */
 interface TileSource {

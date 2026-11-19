@@ -168,10 +168,7 @@ const unchangedArtworkTiles = async (
     if (
       winner.originX === existing.originX &&
       winner.originY === existing.originY &&
-      sameTemplateSurface(
-        winner.surface ?? WORLD_TEMPLATE_SURFACE,
-        existing.surface ?? WORLD_TEMPLATE_SURFACE,
-      )
+      sameTemplateSurface(winner.surface ?? WORLD_TEMPLATE_SURFACE, existing.surface)
     )
       return existing.tiles
     const pixels = existing.artwork.pixels
@@ -495,7 +492,7 @@ export const refreshPersonalTemplates = async (): Promise<void> => {
   )
   for (const template of [...catalogEntries()]) {
     if (template.origin !== 'local' || isPendingImage(template)) continue
-    if ((template.surface ?? WORLD_TEMPLATE_SURFACE).kind !== 'world') continue
+    if (template.surface.kind !== 'world') continue
     if (revisions.get(template.id) === template.revision) continue
     await writeInOrder(template.id, async () => await reconcileConflict(template.id))
   }

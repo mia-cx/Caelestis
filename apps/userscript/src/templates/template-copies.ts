@@ -1,8 +1,4 @@
-import {
-  sameTemplateSurface,
-  type TemplateSurface,
-  WORLD_TEMPLATE_SURFACE,
-} from '@caelestis/shared'
+import { sameTemplateSurface, type TemplateSurface } from '@caelestis/shared'
 import { isScopeVisible, type ServerConnection, serverTemplatePreference } from '../settings.js'
 import {
   catalogEntries,
@@ -153,7 +149,7 @@ export const putTemplateCopy = async (
     installEntry({
       ...copy,
       artwork: newArtwork(resident ? pixels : null, area),
-      surface: record.surface ?? WORLD_TEMPLATE_SURFACE,
+      surface: record.surface,
       tiles,
       // Whether someone else's template is on *your* canvas is your decision and nobody else's, so
       // it is read back from this browser's own record rather than defaulted.
@@ -240,7 +236,7 @@ export const forgetServerSurfaceTemplates = async (
       (template) =>
         template.origin === 'server' &&
         template.server.url === serverUrl &&
-        sameTemplateSurface(template.surface ?? WORLD_TEMPLATE_SURFACE, surface),
+        sameTemplateSurface(template.surface, surface),
     )
     .map(({ id }) => id)
   await Promise.all(ids.map(async (id) => await forgetTemplateCopy(id)))

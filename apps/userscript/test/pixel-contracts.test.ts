@@ -58,6 +58,7 @@ const template = (overrides: Partial<LocalTemplate> = {}): LocalTemplate => ({
   width: 3,
   height: 1,
   artwork: { pixels: cutPixels(3, 1, new Uint8Array([5, 6, 7])) },
+  surface: WORLD_TEMPLATE_SURFACE,
   moved: 0,
   opaque: 3,
   tiles: new Set(),

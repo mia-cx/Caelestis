@@ -1,4 +1,9 @@
-import { decodePng, decodeWplaceIndexedPng, type TemplateSurface } from '@caelestis/shared'
+import {
+  decodePng,
+  decodeWplaceIndexedPng,
+  type TemplateSurface,
+  WORLD_TEMPLATE_SURFACE,
+} from '@caelestis/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { moveServerTemplateToServer } from '../src/application/transfer.js'
 import { transplant } from '../src/application/transplant.js'
@@ -48,7 +53,7 @@ const drawServerCopy = async (
     indices: new Uint8Array([1, 2, 3, 4]),
     moved: 0,
     opaque: 4,
-    ...(surface === undefined ? {} : { surface }),
+    surface: surface ?? WORLD_TEMPLATE_SURFACE,
     origin: 'server',
     server: owner,
     serverTemplateId: templateId,

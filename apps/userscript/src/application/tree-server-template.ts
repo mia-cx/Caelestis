@@ -3,7 +3,6 @@ import {
   sameTemplateSurface,
   templatesInFolderSubtree,
   WORLD_PIXELS,
-  WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { refreshAllianceManifest } from '../alliance-server-sync.js'
 import { runWhileBusy } from '../concurrency.js'
@@ -137,7 +136,7 @@ export const replaceServerArtwork = async (
           height: current.bbox.maxY - current.bbox.minY,
         }
   const localSources = localTemplates().filter((candidate) =>
-    sameTemplateSurface(candidate.surface ?? WORLD_TEMPLATE_SURFACE, surface),
+    sameTemplateSurface(candidate.surface, surface),
   )
   const sources =
     wanted === null

@@ -1,4 +1,4 @@
-import { isRecord, latLngToCanvasPixel } from '@caelestis/shared'
+import { isRecord, latLngToCanvasPixel, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { warn } from '../debug.js'
 import { serverTemplateKey } from '../tree-keys.js'
 import { findWplaceModules } from '../wplace-modules.js'
@@ -268,6 +268,7 @@ const mirror = async (map: OverlayMap, layerId: string, index: number): Promise<
       height: pixels.height,
       ...art,
       moved: 0,
+      surface: WORLD_TEMPLATE_SURFACE,
       origin: 'wplace',
       owner: 'event',
       nodeId: fragment?.group.id ?? null,

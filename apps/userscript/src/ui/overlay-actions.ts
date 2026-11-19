@@ -1,4 +1,3 @@
-import { WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import type { OverlayControlsModel, RailControlModel } from '@caelestis/ui/elements'
 import { refreshAllianceManifest } from '../alliance-server-sync.js'
 import { transferAuthoring } from '../application/template-authoring.js'
@@ -139,7 +138,7 @@ const refreshServerTemplateSurface = async (
   server: ServerConnection,
   template: PlacedTemplate,
 ): Promise<void> => {
-  const surface = template.surface ?? WORLD_TEMPLATE_SURFACE
+  const surface = template.surface
   if (surface.kind === 'world') await readManifest(server)
   else await refreshAllianceManifest(server, surface)
 }
@@ -642,7 +641,7 @@ export const overlayActions = (template: PlacedTemplate, host: MenuHost): Overla
 /** The menu's own content: its heading, artwork update, lifecycle, refusals and appearance. */
 export const overlayModel = (template: PlacedTemplate): OverlayControlsModel => {
   const { id } = template
-  const surface = template.surface ?? WORLD_TEMPLATE_SURFACE
+  const surface = template.surface
   const deleting = isDeleting(id)
   const lifecycle = serverLifecycleFor(template)
   return {
@@ -714,9 +713,7 @@ export const menuSignature = (template: PlacedTemplate): string => {
     appearance.size,
     appearance.opacity,
     [...appearance.hiddenColours].sort((a, b) => a - b).join('.'),
-    [...hiddenColoursFor(appearance, template.surface ?? WORLD_TEMPLATE_SURFACE)]
-      .sort((a, b) => a - b)
-      .join('.'),
+    [...hiddenColoursFor(appearance, template.surface)].sort((a, b) => a - b).join('.'),
     appearance.markMismatch,
     appearance.markUnpainted,
     appearance.unpaintedLimit,

@@ -446,7 +446,7 @@ const transferBranch = async (
             originX: template.originX,
             originY: template.originY,
             png,
-            surface: template.surface ?? WORLD_TEMPLATE_SURFACE,
+            surface: template.surface,
             authoring: authoring.authoring,
           })
           if (!uploaded.ok) throw refuse(uploaded.message)

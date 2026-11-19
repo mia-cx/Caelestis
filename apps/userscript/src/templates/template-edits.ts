@@ -215,7 +215,7 @@ export const copyAsLocalTemplate = async (
     ...(authoring === null ? {} : { authoring }),
   }
   if (template.origin !== 'local') {
-    const surface = template.surface ?? WORLD_TEMPLATE_SURFACE
+    const surface = template.surface
     validatePlacement({ ...imported, surface })
     if (
       id.length === 0 ||
@@ -271,7 +271,7 @@ export const copyAsLocalTemplate = async (
 
   const copied = await addLocalTemplate(
     { ...imported, indices: joinPixels(pixels) },
-    template.surface ?? WORLD_TEMPLATE_SURFACE,
+    template.surface,
   )
   if (await markPlaced(copied.id)) {
     return templateById(copied.id) ?? copied
@@ -486,10 +486,7 @@ export const setTemplateFolder = async (id: string, folderId: string | null): Pr
         const folder = getState().localFolders.find((candidate) => candidate.id === folderId)
         if (
           folder === undefined ||
-          !sameTemplateSurface(
-            existing.surface ?? WORLD_TEMPLATE_SURFACE,
-            folder.surface ?? WORLD_TEMPLATE_SURFACE,
-          )
+          !sameTemplateSurface(existing.surface, folder.surface ?? WORLD_TEMPLATE_SURFACE)
         ) {
           return null
         }
@@ -525,10 +522,7 @@ export const setTemplatesFolder = async (
           folder === undefined ||
           present.some(
             (template) =>
-              !sameTemplateSurface(
-                template.surface ?? WORLD_TEMPLATE_SURFACE,
-                folder.surface ?? WORLD_TEMPLATE_SURFACE,
-              ),
+              !sameTemplateSurface(template.surface, folder.surface ?? WORLD_TEMPLATE_SURFACE),
           )
         ) {
           return false

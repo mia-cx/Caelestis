@@ -1,8 +1,4 @@
-import {
-  sameTemplateSurface,
-  type TemplateSurface,
-  WORLD_TEMPLATE_SURFACE,
-} from '@caelestis/shared'
+import { sameTemplateSurface, type TemplateSurface } from '@caelestis/shared'
 import type { ServerTemplate } from '../server-manifest.js'
 import { serverColourProgressFor, serverProgressFor } from '../server-status.js'
 import { getState, type ServerConnection } from '../settings.js'
@@ -29,8 +25,7 @@ import { type TreeFacts, templateTreeKeyFor } from './tree-context.js'
  * read. The tree shows such a row as empty rather than as `opaque` pixels unknown.
  */
 const neverCounted = (template: PlacedTemplate): boolean =>
-  (template.surface ?? WORLD_TEMPLATE_SURFACE).kind !== 'world' &&
-  artboardProgressCounts(template) === undefined
+  template.surface.kind !== 'world' && artboardProgressCounts(template) === undefined
 
 /**
  * Read the templates a build lists, and how far along each is, once for the whole build.
@@ -44,7 +39,7 @@ export const treeFacts = (
   const drawn = localTemplates().filter(
     (template) =>
       (template.origin !== 'local' || template.staged === undefined) &&
-      sameTemplateSurface(template.surface ?? WORLD_TEMPLATE_SURFACE, surface) &&
+      sameTemplateSurface(template.surface, surface) &&
       (templateKeys === undefined || templateKeys.has(templateTreeKeyFor(template, servers) ?? '')),
   )
   const drawnByServer = new Map<string, Map<string, ServerCopy>>()

@@ -1,9 +1,4 @@
-import {
-  latLngToCanvasPixel,
-  sameTemplateSurface,
-  type TemplateSurface,
-  WORLD_TEMPLATE_SURFACE,
-} from '@caelestis/shared'
+import { latLngToCanvasPixel, sameTemplateSurface, type TemplateSurface } from '@caelestis/shared'
 import { readActiveArtboard } from './active-artboard.js'
 import { alliancePointAt } from './alliance-coordinates.js'
 import { navigateAllianceArtboardTo } from './alliance-navigation.js'
@@ -132,7 +127,7 @@ const navigateWorld = async (
 export const navigateFocusedColour = async (index: number, cycle = false): Promise<boolean> => {
   const template = focusedTemplate()
   if (template === null) return false
-  const surface = template.surface ?? WORLD_TEMPLATE_SURFACE
+  const surface = template.surface
   if (surface.kind === 'world') return navigateWorld(template, index, cycle)
   const active = editorShowing(surface)
   return active !== null && active.bounds !== null

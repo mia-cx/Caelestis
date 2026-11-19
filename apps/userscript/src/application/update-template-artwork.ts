@@ -1,4 +1,4 @@
-import { encodeIndexedPng, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
+import { encodeIndexedPng } from '@caelestis/shared'
 import { refreshAllianceManifest } from '../alliance-server-sync.js'
 import { currentSurface } from '../alliance-surface.js'
 import { startCaptureMode } from '../claim-editor.js'
@@ -35,7 +35,7 @@ const updateArtwork = async (
     const template = templateById(id)
     if (template === undefined)
       throw new Error('This template has not finished loading. Try again in a moment.')
-    const surface = template.surface ?? WORLD_TEMPLATE_SURFACE
+    const surface = template.surface
     const server =
       template.origin === 'server'
         ? getState().servers.find((candidate) => candidate.url === template.server.url)

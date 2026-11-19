@@ -101,7 +101,7 @@ const templateNear = (rect: PresenceRect | null): PlacedTemplate | null => {
   for (const template of localTemplates()) {
     if (
       template.origin !== 'server' ||
-      !sameTemplateSurface(template.surface ?? WORLD_TEMPLATE_SURFACE, WORLD_TEMPLATE_SURFACE)
+      !sameTemplateSurface(template.surface, WORLD_TEMPLATE_SURFACE)
     )
       continue
     const overlap = rectIntersection(rect, templateRect(template))

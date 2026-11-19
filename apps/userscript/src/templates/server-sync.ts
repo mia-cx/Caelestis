@@ -375,7 +375,7 @@ const syncServerTemplatesOnce = async (
   for (const held of heldById.values()) {
     if (!current()) return
     if (held.server.url !== server.url) continue
-    if (!sameTemplateSurface(held.surface ?? WORLD_TEMPLATE_SURFACE, surface)) continue
+    if (!sameTemplateSurface(held.surface, surface)) continue
     if (!wanted.has(held.id)) await forgetTemplateCopy(held.id)
   }
   if (!current()) return

@@ -134,7 +134,7 @@ const isOverTemplate = (clientX: number, clientY: number): boolean => {
   if (session === null) return false
   const template = sessionTemplate()
   if (template === undefined) return false
-  const surface = template.surface ?? WORLD_TEMPLATE_SURFACE
+  const surface = template.surface
   const point = placementPointAt(surface, clientX, clientY)
   if (point === null) return false
   if (surface.kind !== 'world') {
@@ -295,7 +295,7 @@ const onPointerDown = (event: PointerEvent): void => {
   if (session.dragging !== null) return
   const template = sessionTemplate()
   if (template === undefined) return
-  const surface = template.surface ?? WORLD_TEMPLATE_SURFACE
+  const surface = template.surface
   if (!isPlacementInteractionTarget(surface, event.target)) return
   suppressMiddleAuxClickFor = null
   // Middle click: jump, do not drag. A long move should not require dragging the whole way.
@@ -520,7 +520,7 @@ export const beginDraftPlacement = (
   placements += 1
   session = {
     id: draft.id,
-    surface: draft.surface ?? WORLD_TEMPLATE_SURFACE,
+    surface: draft.surface,
     onDraftMove: onMove,
     x: draft.originX,
     y: draft.originY,
@@ -569,7 +569,7 @@ const begin = (
   placements += 1
   const nextSession: MoveSession = {
     id,
-    surface: template.surface ?? WORLD_TEMPLATE_SURFACE,
+    surface: template.surface,
     ...(persistRemote === undefined ? {} : { persistRemote }),
     x: restoredOrigin?.x ?? template.originX,
     y: restoredOrigin?.y ?? template.originY,
