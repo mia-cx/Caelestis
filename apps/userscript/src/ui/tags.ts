@@ -88,7 +88,7 @@ export const openTagManager = (target: TreeTarget, rerender: () => void): void =
   const refreshTemplates = async (): Promise<void> => {
     if (server === null) return
     checkConnection()
-    if (target.surface?.kind !== undefined && target.surface.kind !== 'world') {
+    if (target.surface.kind !== 'world') {
       const result = await refreshAllianceManifest(server, target.surface)
       if (result.status === 'failed' || result.status === 'skipped')
         throw new Error('The alliance template list could not refresh. Reload tags to retry.')
