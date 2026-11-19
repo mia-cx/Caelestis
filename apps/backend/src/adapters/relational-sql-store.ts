@@ -255,8 +255,7 @@ const chunkRows = <T>(rows: readonly T[], size: number): T[][] => {
  * Drizzle wraps every failure in a `DrizzleQueryError` whose own message is `Failed query: insert
  * into "nodes" ...` — the driver's text, including `UNIQUE constraint failed`, is on `cause`. So a
  * check against `error.message` never matched, a duplicate group name escaped as an unhandled error,
- * and an ordinary admin action answered 500 where the route means 400. The memory store threw the
- * right error, so every test agreed with the route and only production disagreed.
+ * and an ordinary admin action answered 500 where the route means 400.
  *
  * Walks the chain rather than reading `cause` once: D1 adds its own `D1_ERROR:` wrapper on top of
  * drizzle's, and neither depth is something to hard-code. Bounded anyway, because `cause` is an
@@ -535,9 +534,8 @@ export class RelationalSqlStore implements SqlStore {
     // a prefix its parent no longer has — a hierarchy the wire refuses, written by two requests that
     // both succeeded. Only the last segment is the caller's to choose. Same rule as `renameNode`.
     const segment = node.path.slice(node.path.lastIndexOf('/') + 1)
-    // Bounded here as well as by the CHECK, because the memory store bounds it here and the two are
-    // meant to answer alike. The CHECK stays the backstop for the window between this read and the
-    // write, in which a rename can lengthen the prefix underneath us.
+    // Bounded here for a typed error; the CHECK stays the backstop for the window between this read
+    // and the write, in which a rename can lengthen the prefix underneath us.
     if (`${parentPath}/${segment}`.length > MAX_NODE_PATH_LENGTH) {
       throw new NodePathTooLongError(`node path is longer than ${MAX_NODE_PATH_LENGTH}`)
     }
@@ -561,8 +559,8 @@ export class RelationalSqlStore implements SqlStore {
       })
     } catch (error) {
       // The named index, not the bare string: `nodes` has two unique constraints, and reporting a
-      // primary-key collision as a path conflict sends the caller after the wrong recovery — and
-      // gave a different answer than the memory store, which leaves an id collision untyped.
+      // primary-key collision as a path conflict sends the caller after the wrong recovery, so an id
+      // collision stays untyped.
       if (mentionsNodePathConflict(error)) {
         throw new NodePathConflictError(`node path is already taken in season ${node.season}`)
       }

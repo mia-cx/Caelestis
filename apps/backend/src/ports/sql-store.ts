@@ -50,16 +50,15 @@ export interface TelemetryBucket {
 
 /**
  * Template ids per query. D1 accepts at most 100 bound parameters, ten times tighter than the SQLite
- * default; 90 leaves room for the three non-id bindings in the WHERE clause and a little slack. The
- * test fake is `node:sqlite`, whose limit is 32_766, so no test can observe the real ceiling —
+ * default; 90 leaves room for the three non-id bindings in the WHERE clause and a little slack.
+ * Tests run on `node:sqlite`, whose limit is 32_766, so no test can observe the real ceiling —
  * `readBuckets issues one statement per parameter chunk` counts statements instead.
  */
 export const READ_BUCKETS_CHUNK_SIZE = 90
 /**
  * Distinct template ids one `readBuckets` call may ask for, derived from the chunk size rather than
  * restating it: D1 allows 50 queries per Worker invocation on the free plan, and 40 of these chunks
- * leaves headroom. The bound lives on the port because the memory store is the oracle the
- * differential tests measure against — a limit only one adapter enforces is one the oracle denies.
+ * leaves headroom. The bound lives on the port so every adapter refuses the same request.
  */
 const READ_BUCKETS_CHUNK_BUDGET = 40
 export const MAX_READ_BUCKETS_TEMPLATE_IDS = READ_BUCKETS_CHUNK_SIZE * READ_BUCKETS_CHUNK_BUDGET
@@ -90,19 +89,12 @@ export const TELEMETRY_DECAY_EDGES: readonly DecayEdge[] = [
 export const DECAY_FOLD_GROUP_LIMIT = 20
 
 /**
- * The domain `telemetry_buckets` will actually store, stated where both adapters can honour it.
+ * The domain `telemetry_buckets` will actually store: an aligned, non-negative `bucketStart`, a
+ * ladder `resolution`, and integer counters with `repairs <= correct <= placed`.
  *
- * D1 enforces all of this in SQL and the memory store enforced none of it, so the oracle the
- * differential tests measure against accepted five classes of row D1 rejects — a misaligned or
- * negative `bucketStart`, an off-ladder `resolution`, a fractional counter, and counters out of
- * `repairs <= correct <= placed` order. Same defect the read cap had, on the write path, and the
- * consequence is worse than a surprise in production: `TelemetryShard.alarm` catches the rejection
- * and re-arms without clearing `flush_batch`, so one poison row is re-sent every alarm forever and
- * the shard stops flushing entirely while `readPending` keeps counting the stuck batch.
- *
- * Today's only writer floors to 60 and always sends `resolution: 60`, so nothing currently produces
- * one. The ladder-fold writer that fills tiers 300 through 21600 is exactly where a misfloored start
- * would appear.
+ * The CHECKs enforce the same, but checking first turns a poison row into a synchronous error that
+ * names the column. That matters on the flush path: `TelemetryShard.alarm` catches the rejection and
+ * re-arms without clearing `flush_batch`, so one poison row would be re-sent every alarm forever.
  */
 const invalidBucket = (bucket: TelemetryBucket): string | null => {
   const { resolution, bucketStart, placed, correct, repairs } = bucket
@@ -265,11 +257,9 @@ export interface ContributionQuery {
 }
 
 /**
- * The domain `readContributions` accepts, stated where both adapters can honour it.
- *
- * The id cap is D1's bound-parameter budget wearing a port-level name, exactly as `readBuckets`
- * documents — and the "name a season or some templates" rule is here rather than in a route so the
- * memory oracle refuses the unbounded scan production would.
+ * The domain `readContributions` accepts. The id cap is D1's bound-parameter budget wearing a
+ * port-level name, exactly as `readBuckets` documents, and naming neither a season nor templates
+ * would be an unbounded scan.
  */
 export const assertValidContributionQuery = (query: ContributionQuery): void => {
   if (query.season === undefined && query.templateIds === undefined) {
@@ -281,7 +271,7 @@ export const assertValidContributionQuery = (query: ContributionQuery): void => 
   }
 }
 
-/** The id-cap for `filterPublishedTemplateIds`, stated where both adapters can honour it. */
+/** The id-cap for `filterPublishedTemplateIds`: the same D1 bound-parameter budget. */
 export const assertValidPublishedFilter = (ids: readonly string[]): void => {
   const distinct = new Set(ids).size
   if (distinct > MAX_READ_BUCKETS_TEMPLATE_IDS) {
@@ -420,14 +410,8 @@ export const foldTileFrames = (
 }
 
 /**
- * The domain the `templates`, `template_versions` and `version_tiles` CHECKs enforce, stated where
- * both adapters can honour it.
- *
- * The memory store validated duplicate versions and tiles and nothing else, so it accepted rows D1
- * refuses — `createdWithToken: 'bootstrap'`, a negative author account, a tile off the canvas, a
- * short hash, an inverted bounding box. That is the third time an adapter has been wider than the
- * database it stands in for, and the route tests run against this one: the malformed-attribution
- * bug the last commits fixed would have stayed green here.
+ * The domain the `templates`, `template_versions` and `version_tiles` CHECKs enforce, checked first
+ * so a malformed version fails with a named reason instead of a constraint error.
  */
 export const assertValidTemplateVersion = (version: TemplateVersionRecord): void => {
   const fail = (reason: string): never => {
