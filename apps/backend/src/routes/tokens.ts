@@ -1,5 +1,6 @@
 import { SCOPES, type Scope } from '@caelestis/shared'
 import { Hono } from 'hono'
+import { MAX_LABEL_LENGTH } from '../auth/store.js'
 import {
   listAccessTokens,
   mintAccessToken,
@@ -9,7 +10,6 @@ import type { BackendRuntime } from '../runtime/backend-runtime.js'
 import { runBackendHttp } from '../runtime/hono.js'
 import { jsonObject } from './params.js'
 
-const MAX_LABEL_LENGTH = 128
 /** The path segment a client names the bootstrap entry by; it has no stored digest. */
 const BOOTSTRAP_KEY = 'bootstrap'
 
@@ -31,7 +31,7 @@ export const createTokenRoutes = (
     if (body === null) return c.json({ error: 'invalid body' }, 400)
     const { label, scope } = body
     if (typeof label !== 'string' || label.length === 0 || label.length > MAX_LABEL_LENGTH) {
-      return c.json({ error: 'label must be 1..128 characters' }, 400)
+      return c.json({ error: `label must be 1..${MAX_LABEL_LENGTH} characters` }, 400)
     }
     if (!isScope(scope)) return c.json({ error: `scope must be one of ${SCOPES.join(', ')}` }, 400)
 

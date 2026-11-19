@@ -28,6 +28,7 @@ export interface ArchiveClient {
   readonly log?: (message: string) => void
 }
 
+/** Bytes the CLI batches into one append, well inside the route's `MAX_RESTORE_MIB`. */
 const BATCH_BYTES = 8 * 1024 * 1024
 const ATTEMPTS = 5
 

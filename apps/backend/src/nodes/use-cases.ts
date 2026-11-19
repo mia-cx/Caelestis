@@ -48,7 +48,7 @@ export const createNode = (input: {
       description: input.description ?? null,
       createdAt: millis(Date.now()),
     }
-    // A taken path on create has always answered 400, unlike a rename into one (409).
+    // A taken path on create is bad input (400); a rename into one is a conflict (409).
     const inserted = yield* fromPort('insertNode', () => sql.insertNode(node), {
       conflict: 'invalid',
     })
@@ -128,10 +128,8 @@ export const deleteNodeCascade = (
     if (node === null) {
       return yield* Effect.fail(new NotFoundError({ message: 'not found' }))
     }
-    const deleted = yield* fromPort('deleteNodeCascade', () =>
-      sql.deleteNodeCascade(nodeId, expected),
-    )
-    if (deleted.templates > 0) {
+    yield* fromPort('deleteNodeCascade', () => sql.deleteNodeCascade(nodeId, expected))
+    if (expected.templates > 0) {
       yield* Effect.promise(() =>
         bestEffort(() => statusReadModel.applyCommittedChange(node.season)),
       )
@@ -139,7 +137,7 @@ export const deleteNodeCascade = (
     yield* Effect.promise(() =>
       bestEffort(() => statusReadModel.notifyManifestChange(node.season, node.surface)),
     )
-    return deleted
+    return expected
   })
 
 export const deleteEmptyNode = (

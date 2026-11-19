@@ -15,20 +15,13 @@ import {
   WORLD_PIXELS,
   WORLD_TILES,
 } from '@caelestis/shared'
+import type { DrawingScope } from '../db/scope.js'
 import { PortError } from '../runtime/errors.js'
 
-/** Exact drawing surface selected by one manifest request. */
-export interface TemplateManifestScope {
-  readonly season: number
-  readonly surface: TemplateSurface
-}
-
+/** One immutable set of a template's pixels, sliced for `surface`. */
 export interface TemplateVersionRecord {
   readonly templateId: string
   readonly surface: TemplateSurface
-  readonly season: number
-  readonly nodeId: string | null
-  readonly name: string
   readonly versionId: string
   /**
    * Who uploaded this — the digest of the access token used, and the wplace `/me` id of the account
@@ -56,6 +49,13 @@ export interface TemplateVersionRecord {
   readonly recipe?: TemplateRecipe
 }
 
+/** A template to create, with its first version. */
+export interface NewTemplateRecord extends TemplateVersionRecord {
+  readonly season: number
+  readonly nodeId: string | null
+  readonly name: string
+}
+
 /** A template's own row: what it is called and where it sits, with no pixels attached. */
 export interface TemplateRecord {
   readonly id: string
@@ -67,7 +67,7 @@ export interface TemplateRecord {
   readonly published: boolean
   /** Frozen timelapses are exempt from decay through their freeze instant. */
   readonly timelapseFrozen: boolean
-  readonly timelapseFrozenAt?: Millis | null
+  readonly timelapseFrozenAt: Millis | null
   readonly finished: boolean
   readonly finishedAt: Millis | null
   readonly createdAt: Millis
@@ -172,9 +172,6 @@ export const assertValidTemplateVersion = (version: TemplateVersionRecord): void
   const fail = (reason: string): never => {
     throw new Error(`template version ${version.versionId} rejected: ${reason}`)
   }
-  if (!Number.isSafeInteger(version.season) || version.season < 0) {
-    fail(`season ${version.season} is not a non-negative integer`)
-  }
   if (templateSurface(version.surface.kind, version.surface.allianceId) === null) {
     fail(`surface ${version.surface.kind}/${version.surface.allianceId} is invalid`)
   }
@@ -266,19 +263,20 @@ export const assertValidTemplateVersion = (version: TemplateVersionRecord): void
 export interface TemplateStore {
   /**
    * Create a template with its first version, tile index, and current-version pointer, atomically.
-   * Throws `NodeNotFoundError` or `InvalidNodeParentError` when `version.nodeId` names a node that
+   * Throws `NodeNotFoundError` or `InvalidNodeParentError` when `template.nodeId` names a node that
    * is missing or on another season or surface.
    */
-  createTemplate(version: TemplateVersionRecord): Promise<void>
+  createTemplate(template: NewTemplateRecord): Promise<void>
 
   /**
-   * Make `version` the current version of its existing template, atomically. Throws
-   * `TemplateNotFoundError` when the template is gone and `TemplateIdentityError` when the version
-   * is on another surface or of other dimensions than the one it replaces.
+   * Make `version` the current version of its existing template, atomically. The template keeps
+   * its name, folder, season and publication. Throws `TemplateNotFoundError` when the template is
+   * gone and `TemplateIdentityError` when the version is on another surface or of other dimensions
+   * than the one it replaces.
    */
   addTemplateVersion(version: TemplateVersionRecord): Promise<void>
 
-  /** A version with its template metadata and complete tile index, or null if absent. */
+  /** A version with its complete tile index, or null if absent. */
   readTemplateVersion(versionId: string): Promise<TemplateVersionRecord | null>
 
   /**
@@ -299,9 +297,9 @@ export interface TemplateStore {
   readTemplate(templateId: string): Promise<TemplateRecord | null>
 
   /**
-   * Rename a template, move it to another node, or both. Returns false when the id does not exist,
-   * or when a guarded move loses a race with another move or delete. A caller that distinguishes
-   * those outcomes must re-read the row.
+   * Apply `patch` to a template. Returns false when the id does not exist, when a guarded move
+   * loses a race with another move or delete, or when a thaw that does not also reopen the
+   * template finds it finished. A caller that distinguishes those outcomes must re-read the row.
    *
    * A template is a leaf with no materialized path, so moving one is a single column. Throws
    * `NodeNotFoundError` when the destination node does not exist, so a typo cannot orphan a
@@ -320,12 +318,12 @@ export interface TemplateStore {
   deleteTemplate(templateId: string, expected: TemplateDeletePrecondition): Promise<boolean>
 
   listManifestTemplates(
-    scope: TemplateManifestScope,
+    scope: DrawingScope,
     includeUnpublished: boolean,
   ): Promise<readonly ManifestTemplateRecord[]>
 
   listManifestTiles(
-    scope: TemplateManifestScope,
+    scope: DrawingScope,
     includeUnpublished: boolean,
   ): Promise<readonly ManifestTileRecord[]>
 

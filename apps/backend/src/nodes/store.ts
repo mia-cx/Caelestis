@@ -1,4 +1,5 @@
 import { type Millis, sameTemplateSurface, type TemplateSurface } from '@caelestis/shared'
+import type { DrawingScope } from '../db/scope.js'
 import { PortError } from '../runtime/errors.js'
 
 export interface NodeRecord {
@@ -29,20 +30,17 @@ export interface NodeDeletion {
   readonly templates: number
 }
 
-/**
- * The longest a node path may be, mirroring `nodes_path_check` and the wire's `NodePath`.
- *
- * Checked by the store rather than the route because a rename is what can exceed it without anyone
- * naming an over-long string: renaming an ancestor lengthens every path beneath it, so the request
- * that breaks the bound is one whose own path is comfortably inside it.
- */
-export const MAX_NODE_PATH_LENGTH = 256
-
 export class NodePathConflictError extends PortError {
   override readonly name = 'NodePathConflictError'
   readonly kind = 'conflict'
 }
 
+/**
+ * A path past `MAX_NODE_PATH_LENGTH`. The store checks rather than the route because a rename is
+ * what can exceed it without anyone naming an over-long string: renaming an ancestor lengthens
+ * every path beneath it, so the request that breaks the bound is one whose own path is comfortably
+ * inside it.
+ */
 export class NodePathTooLongError extends PortError {
   override readonly name = 'NodePathTooLongError'
   readonly kind = 'invalid'
@@ -58,19 +56,10 @@ export class NodeNotFoundError extends PortError {
   readonly kind = 'not-found'
 }
 
-/** Where a node, template, region, or work item lives: one season of one drawing surface. */
-export interface Scope {
-  readonly season: number
-  readonly surface: TemplateSurface
-}
-
-export const sameScope = (left: Scope, right: Scope): boolean =>
-  left.season === right.season && sameTemplateSurface(left.surface, right.surface)
-
 /** Refuse `node` as the parent of `child` unless it lives in the child's own scope. */
 export const assertSameScope = (
-  node: Scope,
-  child: Scope,
+  node: DrawingScope,
+  child: DrawingScope,
   role: 'parent node' | 'destination node',
 ): void => {
   if (node.season !== child.season)
@@ -131,7 +120,7 @@ export interface NodeStore {
   deleteNode(nodeId: string): Promise<void>
 
   /** Throws `NodeSubtreeChangedError` unless the subtree still holds exactly `expected`. */
-  deleteNodeCascade(nodeId: string, expected: NodeDeletion): Promise<NodeDeletion>
+  deleteNodeCascade(nodeId: string, expected: NodeDeletion): Promise<void>
 
   /** How much a cascading delete would remove, without removing it. */
   countNodeSubtree(nodeId: string): Promise<NodeDeletion>

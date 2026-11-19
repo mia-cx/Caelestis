@@ -118,14 +118,6 @@ export const withArchiveLease = async <T>(
   }
 }
 
-const HOLDING: ReadonlySet<ArchivePhase> = new Set([
-  'freezing',
-  'frozen',
-  'preparing',
-  'ready',
-  'discarding',
-])
-
 /**
  * Stop every writer for `operation`, then prove it still holds the server. A freeze is a side
  * effect that cannot join the row's compare-and-set, so it is checked afterwards and undone when
@@ -136,7 +128,8 @@ export const holdFor = async (host: ArchiveHost, operation: ArchiveOperationRow)
   await host.counters.freeze(operation.operationId)
   const current = await readArchiveOperation(host.connection)
   const ours = current?.operationId === operation.operationId
-  if (ours && current !== null && HOLDING.has(phaseOf(current))) return
+  // Every phase but `releasing` holds the server.
+  if (ours && current !== null && phaseOf(current) !== 'releasing') return
   // The operation no longer holds the server, so nobody needs its holds any more.
   await host.counters.thaw(operation.operationId)
   // A release of this operation still in progress reopens writes itself, after its delete.

@@ -67,5 +67,5 @@ export interface RegionStore {
     writer: RegionWriter,
   ): Promise<RegionClaim | null>
   /** Clear by painter or admin; reversible replica withdrawal additionally requires the owning token. */
-  deleteRegion(id: string, writer: RegionWriter, withdraw?: boolean): Promise<boolean>
+  deleteRegion(id: string, writer: RegionWriter, withdraw: boolean): Promise<boolean>
 }

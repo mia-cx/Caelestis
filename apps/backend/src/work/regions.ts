@@ -7,11 +7,12 @@ import {
   type RegionClaimRequest,
   regionDocumentBounds,
   regionDocumentPixels,
+  satisfiesScope,
   type TemplateSurface,
 } from '@caelestis/shared'
 import { Effect } from 'effect'
 import type { Caller } from '../auth/middleware.js'
-import { sameScope } from '../nodes/store.js'
+import { sameScope } from '../db/scope.js'
 import { presenceRectWithinSurface } from '../presence/geometry.js'
 import { PresenceService, SqlStoreService } from '../runtime/backend-runtime.js'
 import {
@@ -43,11 +44,14 @@ export const listRegions = (
         tokenHash: owner.caller.tokenHash,
         actorId: owner.actorId,
       }),
-      canWrite: owner.caller.scope !== 'read',
+      canWrite: satisfiesScope(owner.caller.scope, 'report'),
     }
   })
 
-/** Create a credential-owned claim, or update its content and template hint as owner or admin. */
+/**
+ * Create a credential-owned claim, or update its content and template hint as owner or admin.
+ * The route admits report-scope callers only.
+ */
 export const putRegion = (
   id: string,
   season: number,
@@ -56,7 +60,6 @@ export const putRegion = (
   caller: Caller,
 ) =>
   Effect.gen(function* () {
-    if (caller.scope === 'read') return yield* Effect.fail(new ForbiddenError())
     const sql = yield* SqlStoreService
     const live = yield* PresenceService
     if (!isRegionDocument(request.document))
@@ -130,15 +133,18 @@ export const putRegion = (
     return region
   })
 
-/** Clear a painter's claim with any write credential; replica withdrawal still requires ownership. */
+/**
+ * Withdraw this server's replica of a claim, which only its owner may do, or with `withdraw`
+ * false clear the claim for good with any write credential. The route admits report-scope callers
+ * only.
+ */
 export const deleteRegion = (
   id: string,
   actor: PainterIdentity,
   caller: Caller,
-  withdraw = false,
+  withdraw: boolean,
 ) =>
   Effect.gen(function* () {
-    if (caller.scope === 'read') return yield* Effect.fail(new ForbiddenError())
     const sql = yield* SqlStoreService
     const live = yield* PresenceService
     const region = yield* storage('regions', () => sql.regions.readRegion(id))

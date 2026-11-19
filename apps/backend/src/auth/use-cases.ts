@@ -6,17 +6,11 @@ import { type StorageError, storage, ValidationError } from '../runtime/errors.j
 import type { AccessToken } from './store.js'
 import { hashToken, mintToken } from './tokens.js'
 
-/** Even 128 control characters per label remain below the userscript's 64 KiB JSON cap. */
+/**
+ * A page of labels at `MAX_LABEL_LENGTH` control characters each stays below the userscript's
+ * 64 KiB JSON cap.
+ */
 const TOKEN_PAGE_SIZE = 50
-
-/** Everything about a token except the secret, which is not stored and cannot be shown again. */
-const publicView = (token: AccessToken) => ({
-  tokenHash: token.tokenHash,
-  label: token.label,
-  scope: token.scope,
-  createdWithToken: token.createdWithToken,
-  createdAt: token.createdAt,
-})
 
 /** Mint a token. The response is the only time its plaintext exists outside the caller's hands. */
 export const mintAccessToken = (input: {
@@ -36,7 +30,7 @@ export const mintAccessToken = (input: {
       createdAt: millis(Date.now()),
     }
     yield* storage('insertAccessToken', () => sql.insertAccessToken(record))
-    return { token, ...publicView(record) }
+    return { token, ...record }
   })
 
 /** `createdAt:tokenHash` of the last token on the previous page. */
@@ -64,7 +58,7 @@ export const listAccessTokens = (cursor: string | undefined, bootstrapConfigured
         limit: TOKEN_PAGE_SIZE + 1,
       }),
     )
-    const page = stored.slice(0, TOKEN_PAGE_SIZE).map(publicView)
+    const page = stored.slice(0, TOKEN_PAGE_SIZE)
     const last = page.at(-1)
     const nextCursor =
       stored.length > TOKEN_PAGE_SIZE && last !== undefined

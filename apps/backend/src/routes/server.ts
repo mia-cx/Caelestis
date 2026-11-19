@@ -1,6 +1,7 @@
 import {
   logoText,
   MAX_DESCRIPTION_LENGTH,
+  MAX_LOGO_TEXT_LENGTH,
   normaliseHomeCopy,
   parseDiscordInviteUrl,
   parseHomeCopy,
@@ -101,7 +102,10 @@ export const createServerAdminRoutes = (runtime: BackendRuntime, currentSeason: 
         description.trim().length === 0 ||
         description.length > MAX_DESCRIPTION_LENGTH)
     ) {
-      return c.json({ error: 'description must be 1..4096 characters, or null' }, 400)
+      return c.json(
+        { error: `description must be 1..${MAX_DESCRIPTION_LENGTH} characters, or null` },
+        400,
+      )
     }
     const invite = parseDiscordInviteUrl(discordInviteUrl)
     if (discordInviteUrl !== undefined && discordInviteUrl !== null && invite === null) {
@@ -114,7 +118,10 @@ export const createServerAdminRoutes = (runtime: BackendRuntime, currentSeason: 
     }
     const text = logoText(rawLogoText)
     if (rawLogoText !== undefined && rawLogoText !== null && text === null) {
-      return c.json({ error: 'logoText must be 1..64 characters, or null' }, 400)
+      return c.json(
+        { error: `logoText must be 1..${MAX_LOGO_TEXT_LENGTH} characters, or null` },
+        400,
+      )
     }
     const empty = emptyPatch({
       name,
@@ -130,12 +137,11 @@ export const createServerAdminRoutes = (runtime: BackendRuntime, currentSeason: 
       runtime,
       writeServerSettings(
         {
-          ...(name === undefined ? {} : { name: (name as string).trim() }),
-          ...(description === undefined
-            ? {}
-            : { description: description === null ? null : (description as string) }),
+          ...(name === undefined ? {} : { name: name.trim() }),
+          ...(description === undefined ? {} : { description }),
           ...(discordInviteUrl === undefined ? {} : { discordInviteUrl: invite }),
-          ...(homeCopy === undefined ? {} : { homeCopy: copy as string | null }),
+          // Anything but text or null was refused above.
+          ...(homeCopy === undefined ? {} : { homeCopy: typeof copy === 'string' ? copy : null }),
           ...(rawLogoText === undefined ? {} : { logoText: text }),
         },
         currentSeason,

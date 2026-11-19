@@ -1,3 +1,4 @@
+import { causes } from '../runtime/errors.js'
 import type { ARCHIVE_LEASE_BUSY } from './wire.js'
 
 /** How long a client refused by an archive hold waits before it retries. */
@@ -45,4 +46,4 @@ type ArchiveErrorName = ArchiveOperationActiveError['name'] | StaleArchiveOperat
  * own properties, and because stores wrap what the fence throws.
  */
 export const isArchiveError = (error: unknown, name: ArchiveErrorName): boolean =>
-  error instanceof Error && (error.name === name || isArchiveError(error.cause, name))
+  causes(error).some((cause) => cause.name === name)

@@ -91,9 +91,9 @@ export const readArchiveOperation = async (
 }
 
 /** How long one archive request may hold the lease before another may take it over. */
-export const ARCHIVE_LEASE_TTL_MILLISECONDS = 120_000
+const ARCHIVE_LEASE_TTL_MILLISECONDS = 120_000
 /** A call stops writing to outside stores this long before its lease would expire. */
-export const ARCHIVE_LEASE_MARGIN_MILLISECONDS = 15_000
+const ARCHIVE_LEASE_MARGIN_MILLISECONDS = 15_000
 
 /**
  * The lease one archive request holds. `fence` goes up on every take-over, so a stalled caller's

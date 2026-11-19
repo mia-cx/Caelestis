@@ -1,16 +1,7 @@
-import {
-  MAX_TEMPLATE_TAGS,
-  type Millis,
-  type TemplateSurface,
-  type TemplateTag,
-  tagNameKey,
-  templateSurface,
-  WORLD_TEMPLATE_SURFACE,
-} from '@caelestis/shared'
+import { MAX_TEMPLATE_TAGS, type Millis, type TemplateTag, tagNameKey } from '@caelestis/shared'
 import { violates } from '../adapters/constraint-violation.js'
 import { RelationalStore } from '../adapters/relational-store.js'
-import { scopeBindings, scopeCondition } from '../db/scope.js'
-import type { TemplateManifestScope } from '../templates/store.js'
+import { type DrawingScope, scopeBindings, scopeCondition } from '../db/scope.js'
 import { TagConflictError, type TagMutation, type TagStore } from './store.js'
 
 /** SQLite reports this plain unique index by its column; the portable schemas by its name. */
@@ -32,7 +23,7 @@ export class RelationalTagStore extends RelationalStore implements TagStore {
     return result.results.map(({ id }) => id)
   }
 
-  async listManifestTags(scope: TemplateManifestScope, includeUnpublished: boolean) {
+  async listManifestTags(scope: DrawingScope, includeUnpublished: boolean) {
     const result = await this.client
       .prepare(`SELECT tt.template_id AS "templateId", tags.id, tags.name
       FROM template_tags tt JOIN tags ON tags.id = tt.tag_id JOIN templates t ON t.id = tt.template_id
@@ -51,7 +42,7 @@ export class RelationalTagStore extends RelationalStore implements TagStore {
     return result.results.map(({ id }) => id)
   }
 
-  async listManifestNodeTags(scope: TemplateManifestScope) {
+  async listManifestNodeTags(scope: DrawingScope) {
     const result = await this.client
       .prepare(`SELECT nt.node_id AS "nodeId", tags.id, tags.name
       FROM node_tags nt JOIN tags ON tags.id = nt.tag_id JOIN nodes n ON n.id = nt.node_id
@@ -61,22 +52,16 @@ export class RelationalTagStore extends RelationalStore implements TagStore {
     return result.results.map(({ nodeId, id, name }) => ({ nodeId, tag: { id, name } }))
   }
 
-  async listTagScopes(): Promise<readonly TemplateManifestScope[]> {
+  async listTagSeasons(): Promise<readonly number[]> {
     const result = await this.client
-      .prepare(
-        'SELECT season, surface_kind AS kind, alliance_id AS "allianceId" FROM templates UNION SELECT season, surface_kind AS kind, alliance_id AS "allianceId" FROM nodes',
-      )
-      .all<{ season: number; kind: TemplateSurface['kind']; allianceId: number | null }>()
-    return result.results.map((row) => ({
-      season: row.season,
-      surface: templateSurface(row.kind, row.allianceId) ?? WORLD_TEMPLATE_SURFACE,
-    }))
+      .prepare('SELECT season FROM templates UNION SELECT season FROM nodes')
+      .all<{ season: number }>()
+    return result.results.map(({ season }) => season)
   }
 
   async mutateTag(mutation: TagMutation, now: Millis): Promise<boolean> {
     const prepare = (query: string, ...values: (string | number | null)[]) =>
       this.client.prepare(query).bind(...values)
-    // A tag change alters the manifest, so it moves each affected template's revision forward.
     const bumpRevisions = `UPDATE templates SET updated_at_ms = ${this.syntax.greatest}(updated_at_ms + 1, ?) WHERE`
     try {
       if (mutation.type === 'assign-folder') {

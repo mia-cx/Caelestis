@@ -17,7 +17,7 @@ import {
   VERSION_TILE_ROWS_PER_INSERT,
 } from '../db/d1-limits.js'
 import { contributions, templates, templateVersions, versionTiles } from '../db/schema.js'
-import { scopeWhere, surfaceOf } from '../db/scope.js'
+import { type DrawingScope, scopeWhere, surfaceOf } from '../db/scope.js'
 import { selectNode } from '../nodes/relational.js'
 import { assertSameScope, NodeNotFoundError } from '../nodes/store.js'
 import {
@@ -25,8 +25,8 @@ import {
   assertValidTemplateVersion,
   type ManifestTemplateRecord,
   type ManifestTileRecord,
+  type NewTemplateRecord,
   type TemplateDeletePrecondition,
-  type TemplateManifestScope,
   TemplateNotFoundError,
   type TemplatePatch,
   type TemplateRecord,
@@ -47,34 +47,38 @@ const parseStoredRecipe = (versionId: string, value: string | null): TemplateRec
  * would have thrown, so the race answers what the check would rather than a 500.
  */
 export class RelationalTemplateStore extends RelationalStore implements TemplateStore {
-  async createTemplate(version: TemplateVersionRecord): Promise<void> {
-    assertValidTemplateVersion(version)
-    if (version.nodeId !== null) {
-      const destination = await selectNode(this.database, version.nodeId)
+  async createTemplate(template: NewTemplateRecord): Promise<void> {
+    if (!Number.isSafeInteger(template.season) || template.season < 0)
+      throw new Error(
+        `template version ${template.versionId} rejected: season ${template.season} is not a non-negative integer`,
+      )
+    assertValidTemplateVersion(template)
+    if (template.nodeId !== null) {
+      const destination = await selectNode(this.database, template.nodeId)
       if (destination === null) {
-        throw new NodeNotFoundError(`node does not exist: ${version.nodeId}`)
+        throw new NodeNotFoundError(`node does not exist: ${template.nodeId}`)
       }
-      assertSameScope(destination, version, 'destination node')
+      assertSameScope(destination, template, 'destination node')
     }
-    const template = this.database.insert(templates).values({
-      id: version.templateId,
-      season: version.season,
-      surfaceKind: version.surface.kind,
-      allianceId: version.surface.allianceId,
-      nodeId: version.nodeId,
-      name: version.name,
+    const row = this.database.insert(templates).values({
+      id: template.templateId,
+      season: template.season,
+      surfaceKind: template.surface.kind,
+      allianceId: template.surface.allianceId,
+      nodeId: template.nodeId,
+      name: template.name,
       currentVersionId: null,
       publishedAt: null,
-      createdWithToken: version.createdWithToken,
-      createdByUserId: version.createdByUserId,
-      createdAtMs: version.createdAt,
-      updatedAtMs: version.createdAt,
+      createdWithToken: template.createdWithToken,
+      createdByUserId: template.createdByUserId,
+      createdAtMs: template.createdAt,
+      updatedAtMs: template.createdAt,
     })
     try {
-      await this.database.batch([template, ...this.#versionStatements(version)])
+      await this.database.batch([row, ...this.#versionStatements(template)])
     } catch (error) {
       if (violates(error, 'foreign-key')) {
-        throw new NodeNotFoundError(`node does not exist: ${version.nodeId}`)
+        throw new NodeNotFoundError(`node does not exist: ${template.nodeId}`)
       }
       throw error
     }
@@ -82,8 +86,7 @@ export class RelationalTemplateStore extends RelationalStore implements Template
 
   async addTemplateVersion(version: TemplateVersionRecord): Promise<void> {
     assertValidTemplateVersion(version)
-    // A version replaces content in place, so it has to keep the same surface and dimensions. Name
-    // and parent are live template metadata and may legitimately change while pixels are encoded.
+    // A version replaces content in place, so it has to keep the same surface and dimensions.
     const [existing] = await this.database
       .select({
         surfaceKind: templates.surfaceKind,
@@ -190,9 +193,6 @@ export class RelationalTemplateStore extends RelationalStore implements Template
         templateId: templates.id,
         surfaceKind: templates.surfaceKind,
         allianceId: templates.allianceId,
-        season: templates.season,
-        nodeId: templates.nodeId,
-        name: templates.name,
         versionId: templateVersions.id,
         createdWithToken: templateVersions.createdWithToken,
         createdByUserId: templateVersions.createdByUserId,
@@ -224,9 +224,6 @@ export class RelationalTemplateStore extends RelationalStore implements Template
     return {
       templateId: row.templateId,
       surface,
-      season: row.season,
-      nodeId: row.nodeId,
-      name: row.name,
       versionId: row.versionId,
       createdByUserId: row.createdByUserId,
       createdWithToken: row.createdWithToken,
@@ -338,9 +335,7 @@ export class RelationalTemplateStore extends RelationalStore implements Template
   }
 
   async deleteTemplate(templateId: string, expected: TemplateDeletePrecondition): Promise<boolean> {
-    // Order matters and the batch is what makes it safe. `templates.current_version_id` points at a
-    // version and every version points back at the template, so the pointer has to be dropped before
-    // the rows it refers to. Tiles go first because they reference a version.
+    // Statement order matters, for the reason `deleteNodeCascade` gives.
     const claimedTemplate = and(eq(templates.id, templateId), isNull(templates.currentVersionId))
     const claimedTemplateIds = this.database
       .select({ id: templates.id })
@@ -376,12 +371,11 @@ export class RelationalTemplateStore extends RelationalStore implements Template
     const results = await this.database.batch(
       statements as [(typeof statements)[number], ...Array<(typeof statements)[number]>],
     )
-    // Chunk blobs stay: they are content-addressed and shared. See `deleteTemplate` on the port.
     return changedRows(results.at(-1)) > 0
   }
 
   async listManifestTemplates(
-    scope: TemplateManifestScope,
+    scope: DrawingScope,
     includeUnpublished: boolean,
   ): Promise<readonly ManifestTemplateRecord[]> {
     const scoped = scopeWhere(templates, scope.season, scope.surface)
@@ -423,7 +417,7 @@ export class RelationalTemplateStore extends RelationalStore implements Template
   }
 
   async listManifestTiles(
-    scope: TemplateManifestScope,
+    scope: DrawingScope,
     includeUnpublished: boolean,
   ): Promise<readonly ManifestTileRecord[]> {
     const scoped = scopeWhere(templates, scope.season, scope.surface)
@@ -455,8 +449,7 @@ export class RelationalTemplateStore extends RelationalStore implements Template
     // Chunked like `readBuckets` for the same bound-parameter budget; membership is per-id, so
     // concatenating chunk results loses nothing.
     const published = new Set<string>()
-    for (let offset = 0; offset < distinct.length; offset += IDS_PER_STATEMENT) {
-      const chunk = distinct.slice(offset, offset + IDS_PER_STATEMENT)
+    for (const chunk of chunkRows(distinct, IDS_PER_STATEMENT)) {
       const rows = await this.database
         .select({ id: templates.id })
         .from(templates)

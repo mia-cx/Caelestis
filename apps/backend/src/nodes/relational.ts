@@ -1,4 +1,8 @@
-import { type TemplateSurface, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
+import {
+  MAX_NODE_PATH_LENGTH,
+  type TemplateSurface,
+  WORLD_TEMPLATE_SURFACE,
+} from '@caelestis/shared'
 import { and, asc, eq, inArray, or, type SQL, sql } from 'drizzle-orm'
 import { violates } from '../adapters/constraint-violation.js'
 import { changedRows, type relationalDatabase } from '../adapters/relational-database.js'
@@ -8,7 +12,6 @@ import { scopeWhere, surfaceOf } from '../db/scope.js'
 import {
   assertSameScope,
   InvalidNodeParentError,
-  MAX_NODE_PATH_LENGTH,
   type NewNode,
   type NodeDeletion,
   NodeNotEmptyError,
@@ -325,7 +328,7 @@ export class RelationalNodeStore extends RelationalStore implements NodeStore {
     return { nodes: nodeRows[0]?.count ?? 0, templates: templateRows[0]?.count ?? 0 }
   }
 
-  async deleteNodeCascade(nodeId: string, expected: NodeDeletion): Promise<NodeDeletion> {
+  async deleteNodeCascade(nodeId: string, expected: NodeDeletion): Promise<void> {
     const node = await this.readNode(nodeId)
     if (node === null) throw new NodeNotFoundError(`node does not exist: ${nodeId}`)
     // Every statement reads the root path inside the same transaction. Carrying `node.path` from the
@@ -393,7 +396,5 @@ export class RelationalNodeStore extends RelationalStore implements NodeStore {
       }
       throw new NodeSubtreeChangedError('node subtree changed after it was counted')
     }
-
-    return expected
   }
 }

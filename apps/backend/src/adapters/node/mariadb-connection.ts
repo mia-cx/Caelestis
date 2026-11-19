@@ -6,6 +6,7 @@ import {
   SqlError,
   type UpsertResult,
 } from 'mariadb'
+import { causes } from '../../runtime/errors.js'
 import { serialQueue } from '../../runtime/serial-queue.js'
 import { type ConstraintKind, ConstraintViolation } from '../constraint-violation.js'
 import { SET_PREVIOUS_CHANGES } from '../previous-changes.js'
@@ -45,8 +46,10 @@ const mariaConstraintViolation = (error: unknown): ConstraintViolation | null =>
 }
 
 /** Lock wait timeout and deadlock: the batch did not commit and can run again. */
-const RETRYABLE_ERRNOS = [1205, 1213]
-const BATCH_ATTEMPTS = 5
+const RETRYABLE_ERRNOS: readonly unknown[] = [1205, 1213]
+const retryable = (error: unknown): boolean =>
+  causes(error).some((cause) => 'errno' in cause && RETRYABLE_ERRNOS.includes(cause.errno))
+const TRANSACTION_ATTEMPTS = 5
 
 /** One non-reconnecting session owns the runtime, serializes transactions, and holds GET_LOCK. */
 export class MariaConnection implements TransactionalSqlConnection, StatementDriver<Connection> {
@@ -131,24 +134,20 @@ export class MariaConnection implements TransactionalSqlConnection, StatementDri
   prepare(query: string): SqlStatement {
     return new DriverStatement(this, query)
   }
-  async batch<T>(statements: SqlStatement[]): Promise<SqlResult<T>[]> {
+  batch<T>(statements: SqlStatement[]): Promise<SqlResult<T>[]> {
+    return this.transaction((connection) => connection.batch<T>(statements))
+  }
+  /** One serializable transaction, run again on deadlock or lock timeout; it must be re-runnable. */
+  async transaction<T>(operation: (connection: SqlConnection) => Promise<T>): Promise<T> {
     for (let attempt = 1; ; attempt++) {
       try {
-        return await this.transaction((connection) => connection.batch<T>(statements))
+        return await this.attempt(operation)
       } catch (error) {
-        let cause = error
-        while (cause instanceof Error && cause.cause) cause = cause.cause
-        if (
-          attempt >= BATCH_ATTEMPTS ||
-          !(cause instanceof Error) ||
-          !('errno' in cause) ||
-          !RETRYABLE_ERRNOS.includes(Number(cause.errno))
-        )
-          throw error
+        if (attempt >= TRANSACTION_ATTEMPTS || !retryable(error)) throw error
       }
     }
   }
-  transaction<T>(operation: (connection: SqlConnection) => Promise<T>): Promise<T> {
+  private attempt<T>(operation: (connection: SqlConnection) => Promise<T>): Promise<T> {
     return this.withClient(async (client) => {
       await client.query('SET TRANSACTION ISOLATION LEVEL SERIALIZABLE')
       await client.beginTransaction()

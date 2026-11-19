@@ -10,11 +10,9 @@ import {
   beginRestore,
   discardRestore,
 } from '../archive/restore.js'
-import { ARCHIVE_NEXT_HEADER } from '../archive/wire.js'
+import { ARCHIVE_NEXT_HEADER, MAX_RESTORE_MIB } from '../archive/wire.js'
 import { errorResponse } from '../runtime/hono.js'
 import { readBoundedText } from './body.js'
-
-const MAX_RESTORE_BYTES = 64 * 1024 * 1024
 
 /**
  * While an archive operation holds the server, answer 503 to every request this guards. An
@@ -69,8 +67,9 @@ export const createArchiveAdminRoutes = (host: ArchiveHost | undefined) => {
     const position = Number(c.req.query('position'))
     if (!Number.isSafeInteger(position) || position < 1)
       return c.json({ error: 'Give the position of the first record you are sending.' }, 400)
-    const text = await readBoundedText(c.req.raw, MAX_RESTORE_BYTES)
-    if (text === null) return c.json({ error: 'Send at most 64 MiB of records per request.' }, 413)
+    const text = await readBoundedText(c.req.raw, MAX_RESTORE_MIB * 1024 * 1024)
+    if (text === null)
+      return c.json({ error: `Send at most ${MAX_RESTORE_MIB} MiB of records per request.` }, 413)
     const lines = text.split('\n').filter((line) => line.length > 0)
     return c.json(await appendRestore(host, position, lines))
   })

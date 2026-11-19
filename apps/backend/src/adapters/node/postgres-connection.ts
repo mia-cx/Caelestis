@@ -1,6 +1,18 @@
 import { randomUUID } from 'node:crypto'
+import { getTableName } from 'drizzle-orm'
 import { DatabaseError, Pool, type PoolClient, type PoolConfig, types } from 'pg'
-import { ingestTimings } from '../../metrics/ingest-timing.js'
+import {
+  canvasTiles,
+  statusReadModelRevisions,
+  templateAlarmTileStatuses,
+  templateTileMeasurements,
+  templateTileStatuses,
+  tileBlobObjects,
+  tileBlobReservations,
+  tileHistory,
+} from '../../db/schema.js'
+import { type IngestCommand, ingestTimings } from '../../metrics/ingest-timing.js'
+import { causes } from '../../runtime/errors.js'
 import { type SerialQueue, serialQueue } from '../../runtime/serial-queue.js'
 import { type ConstraintKind, ConstraintViolation } from '../constraint-violation.js'
 import { SET_PREVIOUS_CHANGES } from '../previous-changes.js'
@@ -19,7 +31,7 @@ import {
 import { assertUnchanged, readMigrations } from './migrations.js'
 
 /** Translate parameter markers while preserving quoted strings and identifiers verbatim. */
-export const postgresParameters = (query: string): string => {
+const postgresParameters = (query: string): string => {
   let ordinal = 0
   return query.replace(/'(?:''|[^'])*'|"(?:""|[^"])*"|\?\d*/g, (token) => {
     if (!token.startsWith('?')) return token
@@ -45,27 +57,42 @@ const TRANSACTION_ATTEMPTS = 10
  * a commit both read and write the reservation and object tables, so letting them overlap turns
  * every warmup burst into a retry storm.
  */
-const TILE_LANE_TABLES =
-  /\b(canvas_tiles|status_read_model_revisions|template_alarm_tile_statuses|template_tile_measurements|template_tile_statuses|tile_blob_objects|tile_blob_reservations|tile_history)\b/
-const laneFor = (statements: readonly SqlStatement[]): string | undefined =>
+const TILE_LANE_TABLES = new RegExp(
+  `\\b(${[
+    canvasTiles,
+    statusReadModelRevisions,
+    templateAlarmTileStatuses,
+    templateTileMeasurements,
+    templateTileStatuses,
+    tileBlobObjects,
+    tileBlobReservations,
+    tileHistory,
+  ]
+    .map(getTableName)
+    .join('|')})\\b`,
+)
+/** Each lane is timed under its own command. */
+type Lane = Extract<IngestCommand, 'tileLane' | 'coordinatorLane'>
+const laneFor = (statements: readonly SqlStatement[]): Lane | undefined =>
   statements.some(
     (statement) => statement instanceof DriverStatement && TILE_LANE_TABLES.test(statement.query),
   )
-    ? 'tiles'
+    ? 'tileLane'
     : undefined
 const RETRY_LOG_LIMIT = 20
-const retryable = (error: unknown): boolean => {
-  if (!(error instanceof Error)) return false
-  if ('code' in error && (error.code === '40001' || error.code === '40P01')) return true
-  return error.cause === undefined ? false : retryable(error.cause)
-}
+/** Serialization failure and deadlock: the transaction rolled back and can run again. */
+const RETRYABLE_CODES: readonly unknown[] = ['40001', '40P01']
+const retryable = (error: unknown): boolean =>
+  causes(error).some((cause) => 'code' in cause && RETRYABLE_CODES.includes(cause.code))
 /** The failing statement and the database's reason, for the first few retries in a log. */
-const describeAbort = (error: unknown): string => {
-  if (!(error instanceof Error)) return String(error)
-  const detail = error.cause instanceof Error ? describeAbort(error.cause) : ''
-  const reason = 'detail' in error && typeof error.detail === 'string' ? ` (${error.detail})` : ''
-  return `${error.message.replace(/\s+/g, ' ').slice(0, 300)}${reason}${detail ? `: ${detail}` : ''}`
-}
+const describeAbort = (error: unknown): string =>
+  causes(error)
+    .map((cause) => {
+      const reason =
+        'detail' in cause && typeof cause.detail === 'string' ? ` (${cause.detail})` : ''
+      return `${cause.message.replace(/\s+/g, ' ').slice(0, 300)}${reason}`
+    })
+    .join(': ')
 
 /** SQLSTATE class 23 codes for the constraints the stores distinguish. */
 const CONSTRAINT_CODES: Readonly<Record<string, ConstraintKind>> = {
@@ -105,7 +132,7 @@ export class PostgresConnection implements TransactionalSqlConnection, Statement
   private ownerFailure: Error | undefined
   private lostOwnership: ((error: Error) => void) | undefined
   private readonly fenced = new WeakSet<PoolClient>()
-  private readonly lanes = new Map<string, SerialQueue>()
+  private readonly lanes = new Map<Lane, SerialQueue>()
   private retriesLogged = 0
   private closing = false
   private ended: Promise<void> | undefined
@@ -298,16 +325,15 @@ export class PostgresConnection implements TransactionalSqlConnection, Statement
    * their own tables, queue in another. Everything else, such as painters and telemetry, runs
    * concurrently and the rare conflict is retried.
    */
-  private inLane<T>(lane: string | undefined, run: () => Promise<T>): Promise<T> {
+  private inLane<T>(lane: Lane | undefined, run: () => Promise<T>): Promise<T> {
     if (lane === undefined) return run()
     const requestedAt = performance.now()
     const turn = () => {
-      const command = lane === 'tiles' ? 'tileLane' : 'coordinatorLane'
       const wait = performance.now() - requestedAt
       // Queue delay counts toward the `sql` aggregate and the lane's own `queue` stage.
       ingestTimings.record('sql', 'transaction', wait)
-      ingestTimings.record(command, 'queue', wait)
-      return ingestTimings.timed(command, 'total', run)
+      ingestTimings.record(lane, 'queue', wait)
+      return ingestTimings.timed(lane, 'total', run)
     }
     let queue = this.lanes.get(lane)
     if (queue === undefined) {
@@ -331,7 +357,7 @@ export class PostgresConnection implements TransactionalSqlConnection, Statement
    * transaction alongside.
    */
   async transaction<T>(operation: (connection: SqlConnection) => Promise<T>): Promise<T> {
-    return this.inLane('coordinator', () =>
+    return this.inLane('coordinatorLane', () =>
       this.retrying(() => this.serializableTransaction(operation)),
     )
   }

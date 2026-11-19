@@ -1,5 +1,6 @@
 import { join } from 'node:path'
 import { millis, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
+import { createConnection } from 'mariadb'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { coordinatorDatabase } from '../../src/adapters/node/coordinator-database.js'
 import { MariaConnection } from '../../src/adapters/node/mariadb-connection.js'
@@ -88,6 +89,56 @@ afterAll(async () => {
 })
 
 describe('external relational adapter contract', () => {
+  it.runIf(maria !== undefined)(
+    'runs a MariaDB callback transaction again after it loses a deadlock',
+    async () => {
+      if (!(connection instanceof MariaConnection))
+        throw new Error('Integration fixture did not open MariaDB')
+      await connection.prepare('CREATE TABLE deadlock_probe (id INT PRIMARY KEY, v INT)').run()
+      await connection.prepare('CREATE TABLE deadlock_weight (id INT PRIMARY KEY, v INT)').run()
+      await connection.batch([
+        connection.prepare('INSERT INTO deadlock_probe VALUES (1, 0), (2, 0)'),
+        connection.prepare(
+          `INSERT INTO deadlock_weight VALUES ${Array.from({ length: 50 }, (_, id) => `(${id}, 0)`).join(', ')}`,
+        ),
+      ])
+      // A second session holds row 1, and outweighs the transaction under test with many changed
+      // rows, so InnoDB picks the transaction under test as the deadlock victim.
+      const rival = await createConnection({ ...connection.config, database: databaseName })
+      await rival.beginTransaction()
+      await rival.query('UPDATE deadlock_probe SET v = v + 1 WHERE id = 1')
+      await rival.query('UPDATE deadlock_weight SET v = v + 1')
+      let rivalDone: Promise<void> | undefined
+      let attempts = 0
+      await connection.transaction(async (sql) => {
+        attempts += 1
+        await sql.prepare('UPDATE deadlock_probe SET v = v + 10 WHERE id = 2').run()
+        if (attempts === 1) {
+          // The rival waits on this transaction for row 2, and commits once it gets it.
+          rivalDone = rival
+            .query('UPDATE deadlock_probe SET v = v + 1 WHERE id = 2')
+            .then(() => rival.commit())
+          const rivalWaiting = sql.prepare(
+            "SELECT COUNT(*) AS waiting FROM information_schema.innodb_trx WHERE trx_state = 'LOCK WAIT'",
+          )
+          for (;;) if ((await rivalWaiting.first<{ waiting: number }>())?.waiting === 1) break
+        }
+        // Closes the cycle on the first attempt: this waits on the rival for row 1.
+        await sql.prepare('UPDATE deadlock_probe SET v = v + 10 WHERE id = 1').run()
+      })
+      await rivalDone
+      await rival.end()
+      expect(attempts).toBe(2)
+      expect(
+        await connection.prepare('SELECT id, v FROM deadlock_probe ORDER BY id').all(),
+      ).toMatchObject({
+        results: [
+          { id: 1, v: 11 },
+          { id: 2, v: 11 },
+        ],
+      })
+    },
+  )
   it('fences concurrent durable jobs on the selected database', async () => {
     if (connection === undefined) throw new Error('Integration fixture did not open a database')
     await schedulerContract(coordinatorDatabase(connection))
