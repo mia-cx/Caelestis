@@ -5,7 +5,7 @@ import {
 } from '@caelestis/ui/elements'
 import { refreshAllianceManifest } from '../alliance-server-sync.js'
 import { refreshServerSnapshot } from '../application/tree-server-state.js'
-import { errorText } from '../error-text.js'
+import { errorText, networkFailureText } from '../error-text.js'
 import { listServerTags, mutateServerTag } from '../server-api.js'
 import { isCurrentServerConnection } from '../server-connections.js'
 import { onManifestChange } from '../server-manifests.js'
@@ -77,14 +77,8 @@ export const openTagManager = (target: TreeTarget, rerender: () => void): void =
     if (!result.ok) throw new Error(result.message)
     update({ tags: result.tags, selected: result.selected, ready: true })
   }
-  const failure = (error: unknown): string => {
-    if (server !== null && navigator.onLine === false)
-      return 'You are offline. Reconnect and reload tags.'
-    const message = errorText(error)
-    return /failed to fetch|network|timed out/i.test(message)
-      ? 'Could not reach the server. Check your connection and reload tags.'
-      : message
-  }
+  const failure = (error: unknown): string =>
+    server === null ? errorText(error) : networkFailureText(error, 'reload tags')
   const refreshTemplates = async (): Promise<void> => {
     if (server === null) return
     checkConnection()
