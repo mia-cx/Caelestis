@@ -1,4 +1,3 @@
-import { zstdCompressSync } from 'node:zlib'
 import {
   type ArchiveSnapshot,
   decodeWplaceIndexedPng,
@@ -19,34 +18,12 @@ import {
   type BackfillStorage,
   TemplateBackfill,
 } from '../src/backfill/import.js'
+import { archiveWeek } from './support/eralyon.js'
 
 const templateId = '01890f3e-7b2c-7abc-8def-012345678901'
 const versionId = '01890f3e-7b2c-7abc-8def-012345678902'
 const chunkHash = 'a'.repeat(64)
 const snapshot = { id: 1, at: 100 } satisfies ArchiveSnapshot
-
-/** An Eralyon week file: dated zstd images, the first a base and the rest sparse diffs. */
-const archiveWeek = (revisions: readonly (readonly [date: number, image: Uint8Array])[]) => {
-  const parts = revisions.flatMap(([date, pixels]) => {
-    const image = new Uint8Array(8 + TILE_SIZE * TILE_SIZE)
-    const view = new DataView(image.buffer)
-    view.setUint32(0, TILE_SIZE, true)
-    view.setUint32(4, TILE_SIZE, true)
-    image.set(pixels, 8)
-    const compressed = new Uint8Array(zstdCompressSync(image))
-    const header = new Uint8Array(8)
-    new DataView(header.buffer).setUint32(0, date, true)
-    new DataView(header.buffer).setUint32(4, compressed.length, true)
-    return [header, compressed]
-  })
-  const bytes = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0))
-  let offset = 0
-  for (const part of parts) {
-    bytes.set(part, offset)
-    offset += part.length
-  }
-  return bytes
-}
 
 class MemoryBackfillStorage implements BackfillStorage {
   readonly alarms: number[] = []
@@ -362,6 +339,124 @@ describe('template backfill contract', () => {
     })
     expect(await importer.history(versionId)).toMatchObject({
       samples: [{ snapshotId: snapshot.id, correct: null, mismatched: null }],
+    })
+  })
+})
+
+describe('folder backfill contract', () => {
+  it('reads each archive tile once for a folder and stops each template at its own native history', async () => {
+    const sql = new MemorySqlStore()
+    const blobs = new MemoryBlobStore()
+    const nodeId = '01890f3e-7b2c-7abc-8def-0123456789a0'
+    await sql.insertNode({
+      id: nodeId,
+      surface: WORLD_TEMPLATE_SURFACE,
+      season: 0,
+      parentId: null,
+      path: '/murals',
+      name: 'Murals',
+      description: null,
+      createdAt: millis(1),
+    })
+    // Neighbouring one-pixel templates on adjacent tiles: archive colour 1 matches the first,
+    // colour 2 the second.
+    const templates = [
+      { x: 0, colour: 1, suffix: '1' },
+      { x: 1_000, colour: 2, suffix: '2' },
+    ] as const
+    for (const { x, colour, suffix } of templates) {
+      const hash = suffix.repeat(64)
+      await blobs.put('chunks', hash, await encodeIndexedPng(1, 1, new Uint8Array([colour])))
+      await sql.insertTemplateVersion({
+        templateId: `01890f3e-7b2c-7abc-8def-01234567890${suffix}`,
+        versionId: `01890f3e-7b2c-7abc-8def-01234567891${suffix}`,
+        surface: WORLD_TEMPLATE_SURFACE,
+        season: 0,
+        nodeId,
+        name: `Mural ${suffix}`,
+        createdWithToken: 'b'.repeat(64),
+        createdByUserId: null,
+        createdAt: millis(1),
+        bbox: { minX: x, minY: 0, maxX: x + 1, maxY: 1 },
+        totalPixels: 1,
+        chunks: [{ tileX: x / TILE_SIZE, tileY: 0, hash }],
+      })
+    }
+    // The first template's native history starts at the second snapshot.
+    await sql.recordTileObservation(
+      {
+        season: 0,
+        tile: { x: 0, y: 0 },
+        hash: 'c'.repeat(64),
+        observedAt: millis(150_000),
+        reportedAt: seconds(150),
+        reportedWithToken: 'd'.repeat(64),
+        reportedByUserId: 42,
+      },
+      [],
+      true,
+    )
+    const reads: string[] = []
+    const archive: ArchiveSource = {
+      snapshots: async () => [snapshot, { id: 2, at: 150 }],
+      tile: async (id, tile) => {
+        reads.push(`${id}:${tile.x}/${tile.y}`)
+        return new Uint8Array(1_000_000).fill(id)
+      },
+    }
+    // Every import object is real; a folder's reaches each template's through its sink.
+    const objects = new Map<string, TemplateBackfill>()
+    const object = (name: string): TemplateBackfill => {
+      const existing = objects.get(name)
+      if (existing !== undefined) return existing
+      const created = new TemplateBackfill(
+        new MemoryBackfillStorage(),
+        sql,
+        blobs,
+        archive,
+        () => 200_000,
+        (id) => ({
+          get: (key) => object(id).readState(key),
+          put: (entries) => object(id).importState(entries),
+        }),
+      )
+      objects.set(name, created)
+      return created
+    }
+    const folder = object(`folder:${nodeId}`)
+
+    const preview = await folder.previewFolder(nodeId)
+    expect(preview.bases.map((basis) => basis.name).sort()).toEqual(['Mural 1', 'Mural 2'])
+    const job = await folder.startFolder(
+      nodeId,
+      preview.bases.map((basis) => basis.versionId),
+      snapshot.id,
+    )
+    for (let step = 0; step < job.total && (await folder.folderJob())?.status === 'running'; step++)
+      await folder.step()
+
+    const done = await folder.folderJob()
+    expect(done).toMatchObject({ status: 'completed', failed: 0, to: 150 })
+    expect((done?.imported ?? 0) + (done?.skipped ?? 0)).toBe(done?.total)
+    expect(new Set(reads).size).toBe(reads.length)
+    // The second snapshot reads only the tiles of the template still importing.
+    expect(reads.filter((read) => read.startsWith('1:'))).toHaveLength(preview.tileCount)
+    expect(reads.filter((read) => read.startsWith('2:')).length).toBeLessThan(preview.tileCount)
+    const [first, second] = templates.map((template) =>
+      object(`01890f3e-7b2c-7abc-8def-01234567890${template.suffix}`).history(
+        `01890f3e-7b2c-7abc-8def-01234567891${template.suffix}`,
+      ),
+    )
+    expect(await first).toMatchObject({
+      basis: { name: 'Mural 1' },
+      samples: [{ snapshotId: 1, correct: 1, mismatched: 0 }],
+    })
+    expect(await second).toMatchObject({
+      basis: { name: 'Mural 2' },
+      samples: [
+        { snapshotId: 1, correct: 0, mismatched: 1 },
+        { snapshotId: 2, correct: 1, mismatched: 0 },
+      ],
     })
   })
 })

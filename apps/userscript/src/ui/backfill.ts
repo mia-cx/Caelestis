@@ -1,4 +1,4 @@
-import type { BackfillJob, BackfillPreview } from '@caelestis/shared'
+import type { BackfillPreview, BackfillProgress, FolderBackfillPreview } from '@caelestis/shared'
 import { BACKFILL_TAG, type BackfillIntent, type BackfillModel } from '@caelestis/ui/elements'
 import {
   activeServerToken,
@@ -15,12 +15,21 @@ import type { TreeTarget } from './tree.js'
 
 let closeBackfill: (() => void) | undefined
 
-/** Open an admin form whose background import outlives this userscript tab. */
-export const openTemplateBackfill = (target: TreeTarget): void => {
-  const { server, templateId } = target
+/**
+ * Open an admin form whose background import outlives this userscript tab, for one server
+ * template or every template below a server folder.
+ */
+export const openBackfill = (target: TreeTarget): void => {
+  const { server, templateId, nodeId } = target
+  const path =
+    templateId !== undefined
+      ? `/admin/backfill/${templateId}`
+      : nodeId !== null
+        ? `/admin/backfill/folders/${nodeId}`
+        : null
   if (
     server === null ||
-    templateId === undefined ||
+    path === null ||
     !hasServerAdminToken(server) ||
     server.season !== 0 ||
     (target.surface?.kind ?? 'world') !== 'world'
@@ -43,8 +52,10 @@ export const openTemplateBackfill = (target: TreeTarget): void => {
   let timer: ReturnType<typeof setTimeout> | undefined
   let closed = false
   let imageUrl: string | null = null
+  let preview: BackfillPreview | FolderBackfillPreview | null = null
   let model: BackfillModel = {
     name: target.name,
+    templates: templateId === undefined ? 0 : null,
     previewUrl: null,
     preview: null,
     job: null,
@@ -62,22 +73,19 @@ export const openTemplateBackfill = (target: TreeTarget): void => {
     if (!isCurrentServerConnection(server) || !hasServerAdminToken(server))
       throw new Error('Server connection changed. Close and reopen backfill.')
     const token = activeServerToken(server)
-    const response = await fetch(
-      serverEndpoint(server.url, `/admin/backfill/${templateId}/${action}`),
-      {
-        method: body === undefined ? 'GET' : 'POST',
-        headers: {
-          authorization: `Bearer ${token}`,
-          ...(body === undefined ? {} : { 'content-type': 'application/json' }),
-        },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-        signal: AbortSignal.any([
-          controller.signal,
-          serverConnectionSignal(server),
-          AbortSignal.timeout(30_000),
-        ]),
+    const response = await fetch(serverEndpoint(server.url, `${path}/${action}`), {
+      method: body === undefined ? 'GET' : 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        ...(body === undefined ? {} : { 'content-type': 'application/json' }),
       },
-    )
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      signal: AbortSignal.any([
+        controller.signal,
+        serverConnectionSignal(server),
+        AbortSignal.timeout(30_000),
+      ]),
+    })
     const value: unknown = await response.json()
     if (!response.ok)
       throw new Error(
@@ -98,7 +106,7 @@ export const openTemplateBackfill = (target: TreeTarget): void => {
     clearTimeout(timer)
     if (closed || model.job?.status !== 'running') return
     timer = setTimeout(() => {
-      void request<BackfillJob | null>('job')
+      void request<BackfillProgress | null>('job')
         .then((job) => {
           update({ job })
           poll()
@@ -111,17 +119,21 @@ export const openTemplateBackfill = (target: TreeTarget): void => {
   const reload = async (): Promise<void> => {
     update({ loading: true, error: null })
     const [jobResult, previewResult] = await Promise.allSettled([
-      request<BackfillJob | null>('job'),
-      request<BackfillPreview>('preview'),
+      request<BackfillProgress | null>('job'),
+      request<BackfillPreview | FolderBackfillPreview>('preview'),
     ])
     if (jobResult.status === 'fulfilled') update({ job: jobResult.value })
     if (previewResult.status === 'fulfilled') {
-      const preview = previewResult.value
+      preview = previewResult.value
       const selected =
         preview.snapshots.find((snapshot) => snapshot.id === model.selectedSnapshot) ??
         preview.snapshots.find((snapshot) => snapshot.at === model.job?.from) ??
         preview.snapshots[0]
-      update({ preview, selectedSnapshot: selected?.id ?? null })
+      update({
+        preview,
+        selectedSnapshot: selected?.id ?? null,
+        ...('bases' in preview ? { templates: preview.bases.length } : {}),
+      })
     } else update({ error: errorText(previewResult.reason) })
     if (jobResult.status === 'rejected') update({ error: errorText(jobResult.reason) })
     update({ loading: false })
@@ -143,7 +155,7 @@ export const openTemplateBackfill = (target: TreeTarget): void => {
       model.busy ||
       (action === 'start' &&
         (model.loading ||
-          model.preview === null ||
+          preview === null ||
           model.selectedSnapshot === null ||
           model.job?.status === 'running'))
     )
@@ -151,11 +163,15 @@ export const openTemplateBackfill = (target: TreeTarget): void => {
     update({ busy: true, error: null })
     clearTimeout(timer)
     try {
+      const snapshotId = model.selectedSnapshot
+      // The artwork the form showed, so the server can refuse a start against changed templates.
       const body =
-        action === 'start'
-          ? { versionId: model.preview?.basis.versionId, snapshotId: model.selectedSnapshot }
-          : {}
-      update({ job: await request<BackfillJob | null>(action, body) })
+        action !== 'start' || preview === null
+          ? {}
+          : 'bases' in preview
+            ? { versionIds: preview.bases.map((basis) => basis.versionId), snapshotId }
+            : { versionId: preview.basis.versionId, snapshotId }
+      update({ job: await request<BackfillProgress | null>(action, body) })
     } catch (error) {
       update({ error: `${errorText(error)} Reload to check whether the request completed.` })
     } finally {
@@ -175,7 +191,8 @@ export const openTemplateBackfill = (target: TreeTarget): void => {
     } else void mutate(intent.type)
   })
   document.body.appendChild(element)
-  const template = templateById(serverTemplateKey(server.url, templateId))
+  const template =
+    templateId === undefined ? undefined : templateById(serverTemplateKey(server.url, templateId))
   if (template !== undefined)
     void templateAsPng(template)
       .then((blob) => {

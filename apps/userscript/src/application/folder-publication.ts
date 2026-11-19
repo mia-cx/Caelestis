@@ -1,30 +1,4 @@
 import type { ServerTemplate } from '../server-cache.js'
-import type { TreeNode } from '../server-manifest.js'
-
-/** Every template directly or indirectly contained by one server folder. */
-export const templatesInFolderSubtree = (
-  nodes: readonly TreeNode[],
-  templates: readonly ServerTemplate[],
-  rootId: string,
-): readonly ServerTemplate[] => {
-  const children = new Map<string, string[]>()
-  for (const node of nodes) {
-    if (node.parentId === null) continue
-    const siblings = children.get(node.parentId) ?? []
-    siblings.push(node.id)
-    children.set(node.parentId, siblings)
-  }
-
-  const within = new Set<string>()
-  const stack = [rootId]
-  while (stack.length > 0) {
-    const id = stack.pop()
-    if (id === undefined || within.has(id)) continue
-    within.add(id)
-    for (const child of children.get(id) ?? []) stack.push(child)
-  }
-  return templates.filter((template) => template.nodeId !== null && within.has(template.nodeId))
-}
 
 export interface FolderPublicationFailure {
   readonly template: ServerTemplate

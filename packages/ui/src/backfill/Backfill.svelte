@@ -16,7 +16,7 @@
 
 <dialog bind:this={dialog} class="caelestis-panel-surface" aria-labelledby="backfill-title" oncancel={(event) => { event.preventDefault(); onIntent({ type: 'close' }) }}>
   <header>
-    <h2 id="backfill-title">Backfill template tiles and progress data</h2>
+    <h2 id="backfill-title">{model.templates === null ? 'Backfill template tiles and progress data' : 'Backfill folder tiles and progress data'}</h2>
     <Button label="Close backfill" kind="ghost" size="small" iconOnly onclick={() => onIntent({ type: 'close' })}><Icon name="close" /></Button>
   </header>
   <div class="body">
@@ -33,11 +33,11 @@
       </select>
       <div class="coverage">
         {#if selected.length > 0}
-          <p>{selected.length.toLocaleString()} available {selected.length === 1 ? 'snapshot' : 'snapshots'} · {model.preview.tileCount} {model.preview.tileCount === 1 ? 'tile' : 'tiles'} per snapshot</p>
+          <p>{#if model.templates !== null}{model.templates.toLocaleString()} {model.templates === 1 ? 'template' : 'templates'} · {/if}{selected.length.toLocaleString()} available {selected.length === 1 ? 'snapshot' : 'snapshots'} · {model.preview.tileCount} {model.preview.tileCount === 1 ? 'tile' : 'tiles'} per snapshot</p>
           <p>Through {date(selected.at(-1)?.at ?? model.preview.end)}</p>
           {#if gaps > 0}<p>{gaps} {gaps === 1 ? 'gap longer' : 'gaps longer'} than 36 hours in the archive.</p>{/if}
           <p>Tile coverage is checked during import. Existing observations are preserved.</p>
-        {:else}<p>No snapshots are available before this template's history cutoff.</p>{/if}
+        {:else}<p>No snapshots are available before {model.templates === null ? "this template's" : "these templates'"} history cutoff.</p>{/if}
       </div>
       <p class="note">Compares Eralyon snapshots with the current artwork and position. Pace shows net progress between snapshots, without painter data.</p>
     {/if}

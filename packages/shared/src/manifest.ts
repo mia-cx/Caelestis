@@ -127,3 +127,28 @@ export interface Chunk {
   /** sha256 of the stored indexed PNG; also its storage key. */
   readonly hash: string
 }
+
+/** Every template directly or indirectly contained by one folder. */
+export const templatesInFolderSubtree = <T extends { readonly nodeId: string | null }>(
+  nodes: readonly { readonly id: string; readonly parentId: string | null }[],
+  templates: readonly T[],
+  rootId: string,
+): readonly T[] => {
+  const children = new Map<string, string[]>()
+  for (const node of nodes) {
+    if (node.parentId === null) continue
+    const siblings = children.get(node.parentId) ?? []
+    siblings.push(node.id)
+    children.set(node.parentId, siblings)
+  }
+
+  const within = new Set<string>()
+  const stack = [rootId]
+  while (stack.length > 0) {
+    const id = stack.pop()
+    if (id === undefined || within.has(id)) continue
+    within.add(id)
+    for (const child of children.get(id) ?? []) stack.push(child)
+  }
+  return templates.filter((template) => template.nodeId !== null && within.has(template.nodeId))
+}

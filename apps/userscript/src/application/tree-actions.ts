@@ -5,6 +5,7 @@ import {
   type TemplateSurface,
   TILE_SIZE,
   TRANSPARENT_INDEX,
+  templatesInFolderSubtree,
   uuidV7,
   WORLD_PIXELS,
   WORLD_TEMPLATE_SURFACE,
@@ -73,17 +74,13 @@ import { centreOf, navigateTo } from '../templates/navigate.js'
 import { nodeChainVisible, serverNodeParents } from '../templates/server-nodes.js'
 import { serverTemplateKey } from '../templates/server-sync.js'
 import { exportFilename, templateAsWplace } from '../templates/wplace-export.js'
-import { openTemplateBackfill } from '../ui/backfill.js'
+import { openBackfill } from '../ui/backfill.js'
 import { confirmDestructive } from '../ui/confirm.js'
 import { toast } from '../ui/toast.js'
 import type { TreeTarget } from '../ui/tree.js'
 import { startRenaming } from '../ui/tree-state.js'
 import { canClaimTemplate, claimTemplate, hasOwnTemplateClaim } from '../ui/work.js'
-import {
-  claimFolderPublication,
-  setFolderTemplatesPublished,
-  templatesInFolderSubtree,
-} from './folder-publication.js'
+import { claimFolderPublication, setFolderTemplatesPublished } from './folder-publication.js'
 import { importTemplatesToServer } from './import-to-server.js'
 import { runWhileBusy } from './operation-lock.js'
 import { serverDestinations } from './server-destinations.js'
@@ -1303,6 +1300,10 @@ export const openContextMenu = (
             label: 'Publish folder',
             run: () => void setServerFolderPublished(target, true, rerender),
           }
+  const folderBackfill: MenuEntry | null =
+    folderTemplates !== null && surfaceOf(target).kind === 'world' && target.server?.season === 0
+      ? { icon: 'download', label: 'Backfill history', run: () => openBackfill(target) }
+      : null
   const finished = lifecycle?.finished === true
   const frozen = lifecycle?.timelapseFrozen === true
   const markAs: MenuEntry = {
@@ -1372,7 +1373,7 @@ export const openContextMenu = (
                 ? {
                     icon: 'download',
                     label: 'Backfill history',
-                    run: () => openTemplateBackfill(target),
+                    run: () => openBackfill(target),
                   }
                 : null,
             ],
@@ -1409,6 +1410,7 @@ export const openContextMenu = (
                 : null,
             ],
             publish: [folderPublication],
+            artwork: [folderBackfill],
             edit: [rename],
             danger: [remove],
           }

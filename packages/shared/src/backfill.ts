@@ -21,9 +21,9 @@ export interface BackfillBasis {
   }[]
 }
 
-export interface BackfillJob {
+/** An import's progress, counted in archive tile reads: one per snapshot and tile. */
+export interface BackfillProgress {
   readonly id: string
-  readonly basis: BackfillBasis
   readonly from: number
   readonly to: number
   readonly status: 'running' | 'cancelled' | 'completed' | 'failed'
@@ -35,12 +35,31 @@ export interface BackfillJob {
   readonly error: string | null
 }
 
-export interface BackfillPreview {
+export interface BackfillJob extends BackfillProgress {
   readonly basis: BackfillBasis
+}
+
+/** One import for every template below a folder, reading each shared archive tile once. */
+export interface FolderBackfillJob extends BackfillProgress {
+  readonly templateIds: readonly string[]
+}
+
+/** What the backfill form offers: snapshots before the history cutoff and the tiles each reads. */
+export interface BackfillCoverage {
   readonly snapshots: readonly ArchiveSnapshot[]
   readonly end: number
   readonly tileCount: number
+}
+
+export interface BackfillPreview extends BackfillCoverage {
+  readonly basis: BackfillBasis
   readonly job: BackfillJob | null
+}
+
+/** A folder's coverage spans its templates: snapshots up to the latest cutoff, tiles combined. */
+export interface FolderBackfillPreview extends BackfillCoverage {
+  readonly bases: readonly BackfillBasis[]
+  readonly job: FolderBackfillJob | null
 }
 
 /** A complete-template observation, or an explicit gap when any required tile is absent. */

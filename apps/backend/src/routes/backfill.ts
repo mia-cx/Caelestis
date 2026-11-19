@@ -1,7 +1,7 @@
 import { Context as Services } from 'effect'
 import { type Context, Hono } from 'hono'
 import { type AuthOptions, requireScopeEffect } from '../auth/middleware.js'
-import type { BackfillClients, BackfillReply } from '../backfill/port.js'
+import { type BackfillClients, type BackfillReply, folderBackfillName } from '../backfill/port.js'
 import { mergeD1Usage } from '../metrics/request-metrics.js'
 import {
   type BackendRuntime,
@@ -15,7 +15,7 @@ const respond = <T>(c: Context, result: BackfillReply<T>): Response => {
   return result.ok ? Response.json(result.value) : c.json({ error: result.error }, result.status)
 }
 
-/** Admin-only preview/start/status/cancel for one selected server template. */
+/** Admin-only preview/start/status/cancel for one server template, or every one below a folder. */
 export const createBackfillAdminRoutes = (
   runtime: BackendRuntime,
   auth: AuthOptions,
@@ -23,6 +23,44 @@ export const createBackfillAdminRoutes = (
 ) => {
   const routes = new Hono()
   routes.use('/*', requireScopeEffect(runtime, auth, 'admin'))
+  const clientFor = (id: string) => {
+    if (clients === undefined) throw new Error('Backfill is unavailable')
+    return clients(id)
+  }
+  // Registered before the template routes, whose `:templateId` would otherwise claim `folders`.
+  routes.use('/folders/:nodeId/*', async (c, next) => {
+    if (!UUID.test(c.req.param('nodeId') ?? '')) return c.json({ error: 'Invalid folder ID.' }, 400)
+    if (clients === undefined)
+      return c.json({ error: 'This server does not support backfill yet.' }, 503)
+    await next()
+  })
+  const folderClient = (c: Context) => clientFor(folderBackfillName(c.req.param('nodeId') ?? ''))
+  routes.get('/folders/:nodeId/preview', async (c) =>
+    respond(c, await folderClient(c).previewFolder(c.req.param('nodeId'))),
+  )
+  routes.get('/folders/:nodeId/job', async (c) => respond(c, await folderClient(c).folderJob()))
+  routes.post('/folders/:nodeId/start', async (c) => {
+    const body: unknown = await c.req.json().catch(() => null)
+    if (
+      body === null ||
+      typeof body !== 'object' ||
+      !('versionIds' in body) ||
+      !('snapshotId' in body) ||
+      !Array.isArray(body.versionIds) ||
+      !body.versionIds.every((id) => typeof id === 'string' && UUID.test(id)) ||
+      typeof body.snapshotId !== 'number' ||
+      !Number.isSafeInteger(body.snapshotId) ||
+      body.snapshotId < 0
+    )
+      return c.json({ error: 'Choose an available snapshot for the folder.' }, 400)
+    return respond(
+      c,
+      await folderClient(c).startFolder(c.req.param('nodeId'), body.versionIds, body.snapshotId),
+    )
+  })
+  routes.post('/folders/:nodeId/cancel', async (c) =>
+    respond(c, await folderClient(c).cancelFolder()),
+  )
   routes.use('/:templateId/*', async (c, next) => {
     if (!UUID.test(c.req.param('templateId') ?? ''))
       return c.json({ error: 'Invalid template ID.' }, 400)
@@ -30,10 +68,6 @@ export const createBackfillAdminRoutes = (
       return c.json({ error: 'This server does not support backfill yet.' }, 503)
     await next()
   })
-  const clientFor = (id: string) => {
-    if (clients === undefined) throw new Error('Backfill is unavailable')
-    return clients(id)
-  }
   routes.get('/:templateId/preview', async (c) =>
     respond(c, await clientFor(c.req.param('templateId')).preview(c.req.param('templateId'))),
   )

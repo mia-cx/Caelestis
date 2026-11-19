@@ -6,13 +6,17 @@ import {
   type BackfillBasis,
   type BackfillJob,
   type BackfillPreview,
+  type BackfillProgress,
   decodeWplaceIndexedPng,
   encodeIndexedPng,
+  type FolderBackfillJob,
+  type FolderBackfillPreview,
   planTimelapseTiles,
   sha256Hex,
   TILE_SIZE,
   type TileCoord,
   TRANSPARENT_INDEX,
+  templatesInFolderSubtree,
   uuidV7,
 } from '@caelestis/shared'
 import type { BlobStore, SqlStore, TemplateRecord } from '../ports/index.js'
@@ -33,6 +37,15 @@ export interface BackfillStorage {
  */
 export type BackfillStatePage = readonly (readonly [string, unknown])[]
 
+/**
+ * One template's backfill state, where its basis, tile observations and samples live and its
+ * history is read from. A template job writes its own; a folder job reaches each template's.
+ */
+export interface BackfillSink {
+  get<T>(key: string): Promise<T | undefined>
+  put(entries: BackfillStatePage): Promise<void>
+}
+
 export interface ArchiveSource {
   snapshots(): Promise<readonly ArchiveSnapshot[]>
   tile(snapshotId: number, tile: TileCoord): Promise<Uint8Array | null>
@@ -42,6 +55,7 @@ export interface ArchiveSource {
 interface StoredPlan {
   readonly jobId: string
   readonly snapshots: readonly ArchiveSnapshot[]
+  /** Every tile any of the job's templates covers; each is read once per snapshot. */
   readonly tiles: readonly TileCoord[]
   /**
    * Steps walk each archive week tile by tile, so one tile's decoded week serves all of its
@@ -49,21 +63,40 @@ interface StoredPlan {
    * snapshot, as their step counts were recorded.
    */
   readonly weekly?: true
+  /** The templates the job scores. Absent on template plans from before folder imports. */
+  readonly bases?: readonly BackfillBasis[]
 }
 
-/**
- * Progress, rewritten every step. The counters hold one entry per snapshot of the current week;
- * jobs started before `plan` existed carry their plan inline and a single snapshot's counters.
- */
-interface StoredJob extends Partial<Omit<StoredPlan, 'jobId' | 'weekly'>> {
-  readonly summary: BackfillJob
-  readonly correct: number | readonly number[]
-  readonly mismatched: number | readonly number[]
-  readonly incomplete: boolean | readonly boolean[]
+/** One template's counters for a run of snapshots, one entry per snapshot. */
+interface Run {
+  /** Index of the run's first snapshot in the plan, so counters never leak into the next run. */
+  readonly first: number
+  readonly correct: number[]
+  readonly mismatched: number[]
+  readonly incomplete: boolean[]
+}
+
+/** Progress, rewritten every step. */
+interface StoredJob extends Partial<Omit<StoredPlan, 'jobId' | 'weekly' | 'bases'>> {
+  readonly summary: BackfillJob | FolderBackfillJob
+  /** Counters by template version. */
+  readonly runs?: Readonly<Record<string, Run>>
+  /** The latest snapshot any template was scored at, which a finished job reports as `to`. */
+  readonly reached?: number | null
+  /**
+   * One template's counters, as jobs stored them before folder imports: one entry per snapshot of
+   * the current run, or a single snapshot's before runs existed. They carry their plan inline too.
+   */
+  readonly correct?: number | readonly number[]
+  readonly mismatched?: number | readonly number[]
+  readonly incomplete?: boolean | readonly boolean[]
 }
 
 /** Snapshots Eralyon stores in one file per tile: the IDs are hours, and a file holds a week. */
 const HOURS_PER_ARCHIVE_WEEK = 168
+
+/** Tile reads no template needs any more, passed over in one wakeup before it yields. */
+const MAX_SKIPS_PER_STEP = 1_000
 
 /** Where a step falls: snapshots step in runs, each run visiting every tile in turn. */
 const position = (plan: StoredPlan, completed: number) => {
@@ -88,8 +121,6 @@ const position = (plan: StoredPlan, completed: number) => {
         snapshot: plan.snapshots[first + (within % length)],
         tile: plan.tiles[Math.floor(within / length)],
         starts: within === 0,
-        /** Every tile has now seen this snapshot, so its sample is complete. */
-        samples: Math.floor(within / length) === tiles - 1,
       }
     offset += length * tiles
     first += length
@@ -120,9 +151,15 @@ export class BackfillError extends Error {
 
 type DecodedChunk = Awaited<ReturnType<typeof decodeWplaceIndexedPng>>
 
+/** A template's import basis and the last second its archive history may cover. */
+interface Candidate {
+  readonly basis: BackfillBasis
+  readonly end: number
+}
+
 const suffix = (id: number): string => String(id).padStart(10, '0')
-const tilePrefix = (version: string, tile: TileCoord): string =>
-  `tile:${version}:${tile.x}/${tile.y}:`
+const tileKey = (tile: TileCoord): string => `${tile.x}/${tile.y}`
+const tilePrefix = (version: string, tile: TileCoord): string => `tile:${version}:${tileKey(tile)}:`
 const cutoff = (template: TemplateRecord, now: number): number =>
   Math.floor(
     Math.min(
@@ -131,14 +168,49 @@ const cutoff = (template: TemplateRecord, now: number): number =>
       template.timelapseFrozen ? (template.timelapseFrozenAt ?? template.updatedAt) : now,
     ) / 1_000,
   )
+const historyEnd = (template: TemplateRecord, firstLive: number | null, now: number): number =>
+  Math.min(cutoff(template, now), firstLive === null ? Infinity : firstLive - 1)
+
+/** A new job's counters, with every tile of every chosen snapshot still ahead. */
+const progress = (
+  snapshots: readonly ArchiveSnapshot[],
+  tiles: readonly TileCoord[],
+): BackfillProgress => ({
+  id: uuidV7(),
+  from: snapshots[0]?.at ?? 0,
+  to: snapshots.at(-1)?.at ?? 0,
+  status: 'running',
+  completed: 0,
+  total: snapshots.length * tiles.length,
+  imported: 0,
+  skipped: 0,
+  failed: 0,
+  error: null,
+})
 
 /** Decoded template chunks kept across steps; a job revisits each of its chunks every snapshot. */
 const MAX_DECODED_CHUNKS = 16
 
-/** Resumable import with one tile per alarm. Callers serialize start, cancel and step. */
+/**
+ * Resumable import with one archive tile read per alarm, scored against every template of the
+ * job that covers the tile. A template object imports that template alone; a folder object
+ * imports every template below the folder and writes each one's results to its own object.
+ * Callers serialize start, cancel and step.
+ */
 export class TemplateBackfill {
   private plan: StoredPlan | null = null
+  private layout: {
+    readonly jobId: string
+    readonly covers: ReadonlyMap<string, ReadonlySet<string>>
+    readonly last: ReadonlyMap<string, string>
+  } | null = null
   private readonly chunks = new Map<string, Promise<DecodedChunk>>()
+  private readonly local: BackfillSink = {
+    get: (key) => this.storage.get(key),
+    put: async (entries) => {
+      for (const [key, value] of entries) await this.storage.put(key, value)
+    },
+  }
 
   constructor(
     private readonly storage: BackfillStorage,
@@ -146,9 +218,11 @@ export class TemplateBackfill {
     private readonly blobs: BlobStore,
     private readonly archive: ArchiveSource,
     private readonly now: () => number = Date.now,
+    /** Each template's own state, for folder imports. */
+    private readonly templates?: (templateId: string) => BackfillSink,
   ) {}
 
-  private async basis(templateId: string): Promise<{ basis: BackfillBasis; end: number }> {
+  private async basis(templateId: string): Promise<Candidate> {
     const template = await this.sql.readTemplate(templateId)
     if (template === null) throw new BackfillError('Template no longer exists.', 404)
     if (template.surface.kind !== 'world' || template.season !== 0)
@@ -169,8 +243,34 @@ export class TemplateBackfill {
         total: version.totalPixels,
         chunks: version.chunks,
       },
-      end: Math.min(cutoff(template, this.now()), firstLive === null ? Infinity : firstLive - 1),
+      end: historyEnd(template, firstLive, this.now()),
     }
+  }
+
+  /** Every template below a folder that has artwork to compare against. */
+  private async folder(nodeId: string): Promise<readonly Candidate[]> {
+    const node = await this.sql.readNode(nodeId)
+    if (node === null) throw new BackfillError('Folder no longer exists.', 404)
+    if (node.surface.kind !== 'world' || node.season !== 0)
+      throw new BackfillError('Eralyon backfill supports season 0 world folders only.')
+    const scope = { season: node.season, surface: node.surface }
+    const [nodes, templates] = await Promise.all([
+      this.sql.listNodes(scope.season, scope.surface),
+      this.sql.listManifestTemplates(scope, true),
+    ])
+    const candidates = await Promise.all(
+      templatesInFolderSubtree(nodes, templates, nodeId).map((template) =>
+        this.basis(template.id).catch((error: unknown) => {
+          // A template without artwork has nothing to compare; the rest still import.
+          if (error instanceof BackfillError) return null
+          throw error
+        }),
+      ),
+    )
+    const found = candidates.filter((candidate) => candidate !== null)
+    if (found.length === 0)
+      throw new BackfillError('This folder has no templates to backfill.', 409)
+    return found
   }
 
   /** The running job's plan, read once per job rather than rewritten with every step. */
@@ -180,6 +280,29 @@ export class TemplateBackfill {
       return { jobId, snapshots: held.snapshots, tiles: held.tiles }
     if (this.plan?.jobId !== jobId) this.plan = (await this.storage.get<StoredPlan>('plan')) ?? null
     return this.plan?.jobId === jobId ? this.plan : null
+  }
+
+  /** Which plan tiles each template covers, and the tile that completes its snapshot samples. */
+  private layoutOf(plan: StoredPlan, bases: readonly BackfillBasis[]) {
+    if (this.layout?.jobId === plan.jobId) return this.layout
+    const covers = new Map(
+      bases.map((basis) => [
+        basis.versionId,
+        new Set(planTimelapseTiles([basis.bbox]).map(tileKey)),
+      ]),
+    )
+    const last = new Map<string, string>()
+    for (const tile of plan.tiles)
+      for (const [version, tiles] of covers)
+        if (tiles.has(tileKey(tile))) last.set(version, tileKey(tile))
+    this.layout = { jobId: plan.jobId, covers, last }
+    return this.layout
+  }
+
+  private sinkFor(summary: StoredJob['summary']): (templateId: string) => BackfillSink {
+    if ('basis' in summary) return () => this.local
+    if (this.templates === undefined) throw new Error('Folder backfill needs template state.')
+    return this.templates
   }
 
   private decodedChunk(hash: string): Promise<DecodedChunk> {
@@ -196,8 +319,44 @@ export class TemplateBackfill {
     return decoded
   }
 
+  /** Compare one archived tile with the template's artwork on it. */
+  private async score(basis: BackfillBasis, tile: TileCoord, pixels: Uint8Array) {
+    let correct = 0,
+      mismatched = 0
+    const chunk = basis.chunks.find((entry) => entry.tileX === tile.x && entry.tileY === tile.y)
+    if (chunk === undefined) return { correct, mismatched }
+    const target = await this.decodedChunk(chunk.hash)
+    const { bbox } = basis
+    const wraps = bbox.minX > bbox.maxX
+    const tileLeft = tile.x * TILE_SIZE
+    const highSpan = tileLeft + TILE_SIZE > bbox.minX
+    const left = wraps && !highSpan ? 0 : Math.max(0, bbox.minX - tileLeft)
+    const right = wraps && highSpan ? TILE_SIZE : Math.min(TILE_SIZE, bbox.maxX - tileLeft)
+    const top = Math.max(0, bbox.minY - tile.y * TILE_SIZE)
+    const bottom = Math.min(TILE_SIZE, bbox.maxY - tile.y * TILE_SIZE)
+    if (target === null || target.width !== right - left || target.height !== bottom - top)
+      throw new Error('Template chunk is unavailable or invalid.')
+    for (let i = 0; i < target.indices.length; i++) {
+      const colour = target.indices[i]
+      if (colour === TRANSPARENT_INDEX) continue
+      const actual =
+        pixels[(top + Math.floor(i / target.width)) * TILE_SIZE + left + (i % target.width)]
+      if (colour === actual) correct++
+      else if (actual !== TRANSPARENT_INDEX) mismatched++
+    }
+    return { correct, mismatched }
+  }
+
+  /** This template object's own import, or null. */
   async job(): Promise<BackfillJob | null> {
-    return (await this.storage.get<StoredJob>('job'))?.summary ?? null
+    const summary = (await this.storage.get<StoredJob>('job'))?.summary
+    return summary !== undefined && 'basis' in summary ? summary : null
+  }
+
+  /** This folder object's import, or null. */
+  async folderJob(): Promise<FolderBackfillJob | null> {
+    const summary = (await this.storage.get<StoredJob>('job'))?.summary
+    return summary !== undefined && 'templateIds' in summary ? summary : null
   }
 
   async preview(templateId: string): Promise<BackfillPreview> {
@@ -210,6 +369,43 @@ export class TemplateBackfill {
       tileCount: planTimelapseTiles([basis.bbox]).length,
       job: await this.job(),
     }
+  }
+
+  /** Snapshots run to the latest cutoff of any template below the folder. */
+  async previewFolder(nodeId: string): Promise<FolderBackfillPreview> {
+    const candidates = await this.folder(nodeId)
+    const end = Math.max(...candidates.map((candidate) => candidate.end))
+    return {
+      bases: candidates.map((candidate) => candidate.basis),
+      snapshots: (await this.archive.snapshots()).filter((snapshot) => snapshot.at <= end),
+      end,
+      tileCount: planTimelapseTiles(candidates.map((candidate) => candidate.basis.bbox)).length,
+      job: await this.folderJob(),
+    }
+  }
+
+  /** Record the bases and plan, then the running job that names them. */
+  private async begin<J extends BackfillJob | FolderBackfillJob>(
+    summary: J,
+    bases: readonly BackfillBasis[],
+    snapshots: readonly ArchiveSnapshot[],
+    tiles: readonly TileCoord[],
+  ): Promise<J> {
+    const sink = this.sinkFor(summary)
+    for (const basis of bases)
+      await sink(basis.templateId).put([[`basis:${basis.versionId}`, basis]])
+    // A failed schedule must not leave the form observing an unstartable running job.
+    await this.storage.setAlarm(this.now() + 100)
+    // The plan lands first, so a stored running job always finds the plan it names.
+    await this.storage.put<StoredPlan>('plan', {
+      jobId: summary.id,
+      snapshots,
+      tiles,
+      weekly: true,
+      bases,
+    })
+    await this.storage.put<StoredJob>('job', { summary, runs: {}, reached: null })
+    return summary
   }
 
   async start(templateId: string, versionId: string, fromSnapshot: number): Promise<BackfillJob> {
@@ -225,36 +421,47 @@ export class TemplateBackfill {
       throw new BackfillError('Choose an available snapshot.')
     const snapshots = preview.snapshots.filter((snapshot) => snapshot.id >= fromSnapshot)
     const tiles = planTimelapseTiles([preview.basis.bbox])
-    const summary: BackfillJob = {
-      id: uuidV7(),
-      basis: preview.basis,
-      from: snapshots[0]?.at ?? 0,
-      to: snapshots.at(-1)?.at ?? 0,
-      status: 'running',
-      completed: 0,
-      total: snapshots.length * tiles.length,
-      imported: 0,
-      skipped: 0,
-      failed: 0,
-      error: null,
+    const summary = { ...progress(snapshots, tiles), basis: preview.basis }
+    return this.begin(summary, [preview.basis], snapshots, tiles)
+  }
+
+  /**
+   * Import every template below a folder from one snapshot on. `versionIds` is the artwork the
+   * form showed, so a template added, removed or redrawn since then asks for a fresh look.
+   */
+  async startFolder(
+    nodeId: string,
+    versionIds: readonly string[],
+    fromSnapshot: number,
+  ): Promise<FolderBackfillJob> {
+    const held = await this.folderJob()
+    if (held?.status === 'running') {
+      await this.storage.setAlarm(this.now() + 100)
+      return held
     }
-    await this.storage.put(`basis:${versionId}`, preview.basis)
-    // A failed schedule must not leave the form observing an unstartable running job.
-    await this.storage.setAlarm(this.now() + 100)
-    // The plan lands first, so a stored running job always finds the plan it names.
-    await this.storage.put<StoredPlan>('plan', {
-      jobId: summary.id,
-      snapshots,
-      tiles,
-      weekly: true,
-    })
-    await this.storage.put<StoredJob>('job', {
-      summary,
-      correct: [],
-      mismatched: [],
-      incomplete: [],
-    })
-    return summary
+    const candidates = await this.folder(nodeId)
+    const shown = new Set(versionIds)
+    if (
+      shown.size !== candidates.length ||
+      candidates.some((candidate) => !shown.has(candidate.basis.versionId))
+    )
+      throw new BackfillError('Folder contents or artwork changed. Reopen the backfill form.', 409)
+    const end = Math.max(...candidates.map((candidate) => candidate.end))
+    const snapshots = (await this.archive.snapshots()).filter(
+      (snapshot) => snapshot.at <= end && snapshot.id >= fromSnapshot,
+    )
+    const from = snapshots[0]
+    if (from?.id !== fromSnapshot) throw new BackfillError('Choose an available snapshot.')
+    // Templates whose native history already starts by then have nothing to import.
+    const bases = candidates
+      .filter((candidate) => candidate.end >= from.at)
+      .map((candidate) => candidate.basis)
+    const tiles = planTimelapseTiles(bases.map((basis) => basis.bbox))
+    const summary = {
+      ...progress(snapshots, tiles),
+      templateIds: bases.map((basis) => basis.templateId),
+    }
+    return this.begin(summary, bases, snapshots, tiles)
   }
 
   /** Keys sort the same way on every adapter, so `startAfter` resumes a page exactly. */
@@ -266,6 +473,11 @@ export class TemplateBackfill {
         limit,
       })),
     ]
+  }
+
+  /** One key of this object's state, for a folder import deciding whether a tile is done. */
+  async readState<T>(key: string): Promise<T | undefined> {
+    return this.storage.get<T>(key)
   }
 
   /** Restore archived state verbatim and wake a running job, which waits out the restore. */
@@ -284,12 +496,22 @@ export class TemplateBackfill {
     return true
   }
 
-  async cancel(): Promise<BackfillJob | null> {
+  private async stop(): Promise<StoredJob['summary'] | null> {
     const held = await this.storage.get<StoredJob>('job')
     if (held === undefined || held.summary.status !== 'running') return held?.summary ?? null
-    const summary: BackfillJob = { ...held.summary, status: 'cancelled' }
-    await this.storage.put('job', { ...held, summary })
+    const summary = { ...held.summary, status: 'cancelled' as const }
+    await this.storage.put<StoredJob>('job', { ...held, summary })
     return summary
+  }
+
+  async cancel(): Promise<BackfillJob | null> {
+    const summary = await this.stop()
+    return summary !== null && 'basis' in summary ? summary : null
+  }
+
+  async cancelFolder(): Promise<FolderBackfillJob | null> {
+    const summary = await this.stop()
+    return summary !== null && 'templateIds' in summary ? summary : null
   }
 
   async history(versionId: string, tile?: TileCoord): Promise<ArchiveHistory> {
@@ -320,11 +542,14 @@ export class TemplateBackfill {
     }
   }
 
-  /** Persist the observation before advancing, making retried alarm deliveries idempotent. */
+  /**
+   * Read one archive tile and score it against every template still importing there, passing
+   * over reads no template needs. Observations persist before progress advances, making retried
+   * alarm deliveries idempotent.
+   */
   async step(): Promise<void> {
     const held = await this.storage.get<StoredJob>('job')
     if (held === undefined || held.summary.status !== 'running') return
-    const { summary } = held
     // Rearm before external storage reads too, so a transient D1 failure cannot strand the job.
     await this.storage.setAlarm(this.now() + 60_000)
     // An archive operation is exporting or restoring this state; resume once it ends. The read is
@@ -332,148 +557,171 @@ export class TemplateBackfill {
     if (await this.sql.archiveOperationActive({ fresh: true })) return
     const plan = await this.readPlan(held)
     if (plan === null) return
-    const { snapshots } = plan
-    const template = await this.sql.readTemplate(summary.basis.templateId)
-    if (template === null) {
-      await this.cancel()
-      return
-    }
-    const step = position(plan, summary.completed)
-    const snapshot = step?.snapshot
-    const tile = step?.tile
-    if (step === null || snapshot === undefined || tile === undefined) return
-    const firstLive = await this.sql.readFirstTemplateObservation(summary.basis.versionId)
-    if (firstLive !== null && snapshot.at >= firstLive) {
-      // Native history now starts within this run. Its earlier snapshots still need the tiles
-      // after this one, so skip only this tile's later snapshots, and stop once none remain.
-      const resume = summary.completed + step.length - step.index
-      if (step.index > 0 && resume < summary.total) {
-        await this.storage.put<StoredJob>('job', {
-          ...held,
-          // Skipped snapshots count as skipped, so the totals still add up.
-          summary: {
-            ...summary,
-            completed: resume,
-            skipped: summary.skipped + resume - summary.completed,
-          },
-        })
-        await this.storage.setAlarm(this.now() + 100)
-        return
+    const bases = plan.bases ?? ('basis' in held.summary ? [held.summary.basis] : [])
+    const { covers, last } = this.layoutOf(plan, bases)
+    const sink = this.sinkFor(held.summary)
+
+    // Each template's history end, read once per wakeup; null once the template is deleted.
+    const ends = new Map<string, Promise<number | null>>()
+    const endOf = (basis: BackfillBasis): Promise<number | null> => {
+      let end = ends.get(basis.versionId)
+      if (end === undefined) {
+        end = Promise.all([
+          this.sql.readTemplate(basis.templateId),
+          this.sql.readFirstTemplateObservation(basis.versionId),
+        ]).then(([template, firstLive]) =>
+          template === null ? null : historyEnd(template, firstLive, this.now()),
+        )
+        ends.set(basis.versionId, end)
       }
-      // Samples exist for every snapshot all tiles have seen; the job stops here.
-      const sampled = step.first + (step.samples ? step.index : 0)
-      await this.storage.put<StoredJob>('job', {
-        summary: {
-          ...summary,
-          to:
-            snapshots.slice(0, sampled).findLast((entry) => entry.at < firstLive)?.at ??
-            summary.from,
-          total: summary.completed,
-          status: summary.failed > 0 ? 'failed' : 'completed',
-        },
-        correct: held.correct,
-        mismatched: held.mismatched,
-        incomplete: held.incomplete,
-      })
-      return
+      return end
     }
-    if (snapshot.at > cutoff(template, this.now())) {
-      await this.cancel()
-      return
-    }
-    const chunk = summary.basis.chunks.find(
-      (entry) => entry.tileX === tile.x && entry.tileY === tile.y,
-    )
-    const key = `${tilePrefix(summary.basis.versionId, tile)}${suffix(snapshot.id)}`
-    let observation = await this.storage.get<Observation>(key)
-    let imported = 0,
-      skipped = 0,
-      failed = 0
-    let error = summary.error
-    try {
-      if (observation === undefined) {
-        const pixels = await this.archive.tile(snapshot.id, tile)
-        let correct = 0,
-          mismatched = 0
-        let hash: string | null = null
-        if (pixels !== null) {
-          if (chunk !== undefined) {
-            const target = await this.decodedChunk(chunk.hash)
-            const { bbox } = summary.basis
-            const wraps = bbox.minX > bbox.maxX
-            const tileLeft = tile.x * TILE_SIZE
-            const highSpan = tileLeft + TILE_SIZE > bbox.minX
-            const left = wraps && !highSpan ? 0 : Math.max(0, bbox.minX - tileLeft)
-            const right = wraps && highSpan ? TILE_SIZE : Math.min(TILE_SIZE, bbox.maxX - tileLeft)
-            const top = Math.max(0, bbox.minY - tile.y * TILE_SIZE)
-            const bottom = Math.min(TILE_SIZE, bbox.maxY - tile.y * TILE_SIZE)
-            if (target === null || target.width !== right - left || target.height !== bottom - top)
-              throw new Error('Template chunk is unavailable or invalid.')
-            for (let i = 0; i < target.indices.length; i++) {
-              const colour = target.indices[i]
-              if (colour === TRANSPARENT_INDEX) continue
-              const actual =
-                pixels[(top + Math.floor(i / target.width)) * TILE_SIZE + left + (i % target.width)]
-              if (colour === actual) correct++
-              else if (actual !== TRANSPARENT_INDEX) mismatched++
-            }
-          }
-          const png = await encodeIndexedPng(TILE_SIZE, TILE_SIZE, pixels)
-          hash = await sha256Hex(png)
-          await this.blobs.put('archives', hash, png)
+
+    let summary = held.summary
+    let reached = held.reached ?? null
+    const runs: Record<string, Run> = { ...held.runs }
+    const firstStep = position(plan, summary.completed)
+    const only = bases[0]
+    // Counters stored before folder imports belong to the run in progress, if one is.
+    if (held.runs === undefined && only !== undefined && firstStep !== null && !firstStep.starts)
+      runs[only.versionId] = {
+        first: firstStep.first,
+        correct: counters(held.correct ?? 0, firstStep.length, 0),
+        mismatched: counters(held.mismatched ?? 0, firstStep.length, 0),
+        incomplete: counters(held.incomplete ?? false, firstStep.length, false),
+      }
+
+    for (let skips = 0; summary.completed < summary.total && skips < MAX_SKIPS_PER_STEP; skips++) {
+      const step = position(plan, summary.completed)
+      const snapshot = step?.snapshot
+      const tile = step?.tile
+      if (step === null || snapshot === undefined || tile === undefined) return
+      const runOf = (basis: BackfillBasis): Run => {
+        const run = runs[basis.versionId]
+        const fresh = run === undefined || run.first !== step.first
+        const next: Run = {
+          first: step.first,
+          correct: counters(fresh ? [] : run.correct, step.length, 0),
+          mismatched: counters(fresh ? [] : run.mismatched, step.length, 0),
+          incomplete: counters(fresh ? [] : run.incomplete, step.length, false),
         }
-        observation = { at: snapshot.at, snapshotId: snapshot.id, hash, correct, mismatched }
-        await this.storage.put(key, observation)
-        if (hash === null) skipped++
-        else imported++
-      } else skipped++
-    } catch (cause) {
-      failed++
-      error = cause instanceof Error ? cause.message : String(cause)
+        runs[basis.versionId] = next
+        return next
+      }
+
+      const covering = bases.filter((basis) => covers.get(basis.versionId)?.has(tileKey(tile)))
+      const coveringEnds = await Promise.all(covering.map(endOf))
+      const active = covering.filter((_, i) => snapshot.at <= (coveringEnds[i] ?? -Infinity))
+      if (coveringEnds.includes(null)) {
+        const all = await Promise.all(bases.map(endOf))
+        if (all.every((end) => end === null)) {
+          await this.stop()
+          return
+        }
+      }
+      // A template that has stopped importing leaves this snapshot's sample unknown, should its
+      // cutoff move later again before the snapshot's last tile.
+      for (const basis of covering)
+        if (!active.includes(basis)) runOf(basis).incomplete[step.index] = true
+
+      if (active.length === 0) {
+        // Every template here has native history or has stopped: nothing to read.
+        summary = { ...summary, completed: summary.completed + 1, skipped: summary.skipped + 1 }
+        continue
+      }
+
+      const key = (basis: BackfillBasis) =>
+        `${tilePrefix(basis.versionId, tile)}${suffix(snapshot.id)}`
+      const observations = new Map<string, Observation | undefined>()
+      let imported = 0,
+        skipped = 0,
+        failed = 0
+      let error = summary.error
+      try {
+        const stored = await Promise.all(
+          active.map((basis) => sink(basis.templateId).get<Observation>(key(basis))),
+        )
+        for (const [i, basis] of active.entries()) observations.set(basis.versionId, stored[i])
+        const missing = active.filter((basis) => observations.get(basis.versionId) === undefined)
+        if (missing.length === 0) skipped++
+        else {
+          const pixels = await this.archive.tile(snapshot.id, tile)
+          const scores = await Promise.all(
+            missing.map((basis) =>
+              pixels === null ? { correct: 0, mismatched: 0 } : this.score(basis, tile, pixels),
+            ),
+          )
+          let hash: string | null = null
+          if (pixels !== null) {
+            const png = await encodeIndexedPng(TILE_SIZE, TILE_SIZE, pixels)
+            hash = await sha256Hex(png)
+            await this.blobs.put('archives', hash, png)
+          }
+          for (const [i, basis] of missing.entries()) {
+            const observation = {
+              at: snapshot.at,
+              snapshotId: snapshot.id,
+              hash,
+              correct: scores[i]?.correct ?? 0,
+              mismatched: scores[i]?.mismatched ?? 0,
+            }
+            await sink(basis.templateId).put([[key(basis), observation]])
+            observations.set(basis.versionId, observation)
+          }
+          if (hash === null) skipped++
+          else imported++
+        }
+      } catch (cause) {
+        failed++
+        error = cause instanceof Error ? cause.message : String(cause)
+      }
+
+      for (const basis of active) {
+        const observation = observations.get(basis.versionId)
+        const run = runOf(basis)
+        run.correct[step.index] = (run.correct[step.index] ?? 0) + (observation?.correct ?? 0)
+        run.mismatched[step.index] =
+          (run.mismatched[step.index] ?? 0) + (observation?.mismatched ?? 0)
+        const chunk = basis.chunks.some((entry) => entry.tileX === tile.x && entry.tileY === tile.y)
+        run.incomplete[step.index] =
+          run.incomplete[step.index] === true || (chunk && observation?.hash == null)
+        // Every tile of this template has now seen the snapshot, so its sample is complete.
+        if (last.get(basis.versionId) !== tileKey(tile)) continue
+        const unknown = run.incomplete[step.index] === true
+        await sink(basis.templateId).put([
+          [
+            `sample:${basis.versionId}:${suffix(snapshot.id)}`,
+            {
+              at: snapshot.at,
+              snapshotId: snapshot.id,
+              correct: unknown ? null : (run.correct[step.index] ?? 0),
+              mismatched: unknown ? null : (run.mismatched[step.index] ?? 0),
+              total: basis.total,
+            } satisfies ArchiveProgressSample,
+          ],
+        ])
+      }
+      reached = Math.max(reached ?? snapshot.at, snapshot.at)
+      summary = {
+        ...summary,
+        completed: summary.completed + 1,
+        imported: summary.imported + imported,
+        skipped: summary.skipped + skipped,
+        failed: summary.failed + failed,
+        error,
+      }
+      break
     }
-    // A run's first step starts its counters afresh.
-    const correct = counters(step.starts ? [] : held.correct, step.length, 0)
-    const mismatched = counters(step.starts ? [] : held.mismatched, step.length, 0)
-    const incomplete = counters(step.starts ? [] : held.incomplete, step.length, false)
-    correct[step.index] = (correct[step.index] ?? 0) + (observation?.correct ?? 0)
-    mismatched[step.index] = (mismatched[step.index] ?? 0) + (observation?.mismatched ?? 0)
-    incomplete[step.index] =
-      incomplete[step.index] === true || (chunk !== undefined && observation?.hash == null)
-    const completed = summary.completed + 1
-    if (step.samples) {
-      const unknown = incomplete[step.index] === true
-      await this.storage.put<ArchiveProgressSample>(
-        `sample:${summary.basis.versionId}:${suffix(snapshot.id)}`,
-        {
-          at: snapshot.at,
-          snapshotId: snapshot.id,
-          correct: unknown ? null : (correct[step.index] ?? 0),
-          mismatched: unknown ? null : (mismatched[step.index] ?? 0),
-          total: summary.basis.total,
-        },
-      )
-    }
-    const next: BackfillJob = {
-      ...summary,
-      completed,
-      imported: summary.imported + imported,
-      skipped: summary.skipped + skipped,
-      failed: summary.failed + failed,
-      error,
-      status:
-        completed === summary.total
-          ? summary.failed + failed > 0
-            ? 'failed'
-            : 'completed'
-          : 'running',
-    }
+
+    if (summary.completed === summary.total)
+      summary = {
+        ...summary,
+        status: summary.failed > 0 ? 'failed' : 'completed',
+        // Snapshots past every template's native start were passed over, not imported.
+        to: reached ?? summary.from,
+      }
     if (held.snapshots !== undefined) await this.storage.put<StoredPlan>('plan', plan)
-    await this.storage.put<StoredJob>('job', {
-      summary: next,
-      correct,
-      mismatched,
-      incomplete,
-    })
-    if (next.status === 'running') await this.storage.setAlarm(this.now() + 100)
+    await this.storage.put<StoredJob>('job', { summary, runs, reached })
+    if (summary.status === 'running') await this.storage.setAlarm(this.now() + 100)
   }
 }
