@@ -9,7 +9,7 @@ import {
   WPLACE_PALETTE,
 } from '@caelestis/shared'
 import type {
-  TemplateClaimsModel,
+  FavouritesModel,
   TemplateTreeIntent,
   TemplateTreeModel,
   TreeActionModel,
@@ -446,7 +446,7 @@ const buildTree = <Result>(
   surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
   includeCollapsed = false,
   templateKeys?: ReadonlySet<string>,
-  claims?: ReadonlyMap<string, TemplateClaimsModel>,
+  claims?: ReadonlyMap<string, FavouritesModel>,
 ): Result => {
   const claimFacts = (key: string) => {
     const claim = claims?.get(key)
@@ -1566,7 +1566,7 @@ export const templateTreeAdapter = (
   surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
   includeCollapsed = false,
   templateKeys?: ReadonlySet<string>,
-  claims?: ReadonlyMap<string, TemplateClaimsModel>,
+  claims?: ReadonlyMap<string, FavouritesModel>,
 ): TemplateTreeAdapter => {
   const entries: TreeEntryModel[] = []
   const rows = new Map<string, TreeRowOptions>()

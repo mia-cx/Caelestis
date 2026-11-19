@@ -1285,7 +1285,7 @@ const buildSveltePanel = (): PanelHost => {
         retryTemplateClaims(panelSurface, rerenderTree)
         break
       case 'work-tree':
-        if (intent.intent.type === 'template-claim') {
+        if (intent.intent.type === 'favourite') {
           changeTemplateClaim(
             intent.intent.key,
             panelSurface,
@@ -1346,7 +1346,7 @@ const buildSveltePanel = (): PanelHost => {
         }
         break
       case 'tree':
-        if (intent.intent.type === 'template-claim') {
+        if (intent.intent.type === 'favourite') {
           changeTemplateClaim(
             intent.intent.key,
             panelSurface,

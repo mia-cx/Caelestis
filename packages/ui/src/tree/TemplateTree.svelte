@@ -4,7 +4,7 @@
   import Button from '../foundations/Button.svelte'
   import SortMenu from './SortMenu.svelte'
   import TemplatePreview from './TemplatePreview.svelte'
-  import TemplateClaims from './TemplateClaims.svelte'
+  import Favourites from './Favourites.svelte'
   import ProgressDetails from './ProgressDetails.svelte'
   import FilterMenu from './FilterMenu.svelte'
   import Icon from '../foundations/Icon.svelte'
@@ -308,7 +308,7 @@
   const closeProgress = (): void => {
     const entry = progressEntry
     progressKey = null
-    if (entry !== undefined) void focusRowAction(entry.key, `View progress for ${entry.name}`)
+    if (entry !== undefined) void focusRowAction(entry.key, 'view-progress')
   }
   const folderPaths = $derived.by(() => {
     const paths = new Map<string, string>()
@@ -377,13 +377,10 @@
   const branchIndent = 18
   const leafHeadingIndent = 20
 
-  const focusRowAction = async (key: string, label: string): Promise<void> => {
+  type RowAction = 'view-progress' | 'expand-progress' | 'collapse-progress' | 'colour-progress'
+  const focusRowAction = async (key: string, action: RowAction): Promise<void> => {
     await tick()
-    const row = Array.from(
-      treeElement?.querySelectorAll<HTMLElement>('[data-caelestis-tree-key]') ?? [],
-    )
-      .find((candidate) => candidate.dataset.caelestisTreeKey === key)
-    row?.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)?.focus()
+    treeElement?.querySelector<HTMLButtonElement>(`[data-caelestis-tree-key="${CSS.escape(key)}"] [data-action="${action}"]`)?.focus()
   }
 
   const SEARCH_DEBOUNCE_MS = 100
@@ -856,10 +853,10 @@
           <div class="row-heading">
             {#if entry.container}<span class:open={entry.expanded} class="caret" aria-hidden="true"><Icon name="caret" size="0.75rem" /></span>{/if}
             <TemplateLifecycle finished={entry.lifecycle?.finished ?? false} frozen={entry.lifecycle?.frozen ?? false}>
-              {#if entry.claims !== undefined && (entry.claims.people.length > 0 || entry.claims.canAssign)}
-                <TemplateClaims name={entry.name} model={entry.claims} onChange={(release, person) => emit({ type: 'template-claim', key: entry.key, release, ...(person === undefined ? {} : { person }) })}>
+              {#if entry.favourites !== undefined && (entry.favourites.people.length > 0 || entry.favourites.canAssign)}
+                <Favourites name={entry.name} model={entry.favourites} onChange={(release, person) => emit({ type: 'favourite', key: entry.key, release, ...(person === undefined ? {} : { person }) })}>
                   <span class="kind"><Icon name={entry.icon} /></span>
-                </TemplateClaims>
+                </Favourites>
               {:else}
               <span class="kind"><Icon name={entry.icon} /></span>
               {/if}
@@ -891,7 +888,7 @@
                       <Icon name={item.icon} />
                     </button>
                   {/each}
-                  <button class="icon-action" type="button" title={grid ? `View progress for ${entry.name}` : 'Expand progress'} aria-label={grid ? `View progress for ${entry.name}` : 'Expand progress'} aria-expanded={grid ? progressKey === entry.key : undefined} onclick={(event) => { event.stopPropagation(); if (grid) { void showProgress(entry); return }; if (entry.container && !entry.expanded) toggleExpanded(entry.key); disclosures.set(entry.key, 'expanded'); void focusRowAction(entry.key, 'Collapse progress') }}>
+                  <button class="icon-action" type="button" data-action={grid ? 'view-progress' : 'expand-progress'} title={grid ? `View progress for ${entry.name}` : 'Expand progress'} aria-label={grid ? `View progress for ${entry.name}` : 'Expand progress'} aria-expanded={grid ? progressKey === entry.key : undefined} onclick={(event) => { event.stopPropagation(); if (grid) { void showProgress(entry); return }; if (entry.container && !entry.expanded) toggleExpanded(entry.key); disclosures.set(entry.key, 'expanded'); void focusRowAction(entry.key, 'collapse-progress') }}>
                     <Icon name="expandMore" />
                   </button>
                 </span>
@@ -904,7 +901,7 @@
                   </button>
                 {/each}
                 {#if entry.progress !== undefined && disclosure !== undefined}
-                  <button class="icon-action" type="button" title="Collapse progress" aria-label="Collapse progress" onclick={(event) => { event.stopPropagation(); disclosures.delete(entry.key); void focusRowAction(entry.key, 'Expand progress') }}>
+                  <button class="icon-action" type="button" data-action="collapse-progress" title="Collapse progress" aria-label="Collapse progress" onclick={(event) => { event.stopPropagation(); disclosures.delete(entry.key); void focusRowAction(entry.key, 'expand-progress') }}>
                     <Icon name="expandLess" />
                   </button>
                 {/if}
@@ -921,7 +918,7 @@
             </label>
           </div>
           {#if card && entry.progress !== undefined}
-            <button type="button" class="card-progress" aria-label={`View progress for ${entry.name}`} title={`View progress for ${entry.name}`} aria-expanded={progressKey === entry.key} onclick={(event) => { event.stopPropagation(); void showProgress(entry) }}>
+            <button type="button" class="card-progress" data-action="view-progress" aria-label={`View progress for ${entry.name}`} title={`View progress for ${entry.name}`} aria-expanded={progressKey === entry.key} onclick={(event) => { event.stopPropagation(); void showProgress(entry) }}>
               <ProgressMeter progress={entry.progress} size="sm" /><Icon name="caret" size="0.875rem" />
             </button>
           {/if}
@@ -938,7 +935,7 @@
                   </div>
                 </div>
                 {#if entry.colourProgress !== undefined}
-                  <button class="icon-action progress-detail-action" type="button" title={disclosure === 'colours' ? 'Hide colour progress' : 'Show colour progress'} aria-label={disclosure === 'colours' ? 'Hide colour progress' : 'Show colour progress'} onclick={(event) => { event.stopPropagation(); const next = disclosure === 'colours' ? 'expanded' : 'colours'; disclosures.set(entry.key, next); void focusRowAction(entry.key, next === 'colours' ? 'Hide colour progress' : 'Show colour progress') }}>
+                  <button class="icon-action progress-detail-action" type="button" data-action="colour-progress" title={disclosure === 'colours' ? 'Hide colour progress' : 'Show colour progress'} aria-label={disclosure === 'colours' ? 'Hide colour progress' : 'Show colour progress'} onclick={(event) => { event.stopPropagation(); disclosures.set(entry.key, disclosure === 'colours' ? 'expanded' : 'colours'); void focusRowAction(entry.key, 'colour-progress') }}>
                     <Icon name="palette" />
                   </button>
                 {/if}

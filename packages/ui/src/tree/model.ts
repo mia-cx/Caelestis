@@ -52,7 +52,7 @@ export interface TreePreviewArt {
 }
 
 export interface TreeRowModel {
-  readonly claims?: TemplateClaimsModel
+  readonly favourites?: FavouritesModel
   readonly type: 'row'
   readonly key: string
   readonly name: string
@@ -97,8 +97,9 @@ export interface TreeRowModel {
   readonly positionInSet: number
 }
 
-export interface TemplateClaimsModel {
-  /** False until an authoritative claim collection has arrived. */
+/** Who keeps a template among their favourites, and what the current painter may change. */
+export interface FavouritesModel {
+  /** False until an authoritative collection has arrived. */
   readonly known?: boolean
   readonly people: readonly import('@caelestis/shared').PainterIdentity[]
   readonly mine: boolean
@@ -188,7 +189,8 @@ export interface TreeOperationModel {
 
 export type TemplateTreeIntent =
   | {
-      readonly type: 'template-claim'
+      /** Add (`release: false`) or remove a favourite; `person` names someone other than the current painter. */
+      readonly type: 'favourite'
       readonly key: string
       readonly release: boolean
       readonly person?: import('@caelestis/shared').PainterIdentity

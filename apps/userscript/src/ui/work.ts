@@ -9,7 +9,7 @@ import {
   type WorkCollection,
   workClaimants,
 } from '@caelestis/shared'
-import type { TemplateClaimsModel, TemplateTreeModel } from '@caelestis/ui/elements'
+import type { FavouritesModel, TemplateTreeModel } from '@caelestis/ui/elements'
 import { allianceManifestFor } from '../alliance-server-sync.js'
 import { rowsForSurface, serverTemplateTreeKey } from '../application/tree-server-state.js'
 import { requestServerTree } from '../server-transport.js'
@@ -66,7 +66,7 @@ const previewKey = (server: ConnectedServer, surface: TemplateSurface): string =
 
 /** Aggregate template participants across admitted servers and local storage. Live revisions refresh remote claims. */
 export const workSectionModel = (surface: TemplateSurface, changed: () => void) => {
-  const templates = new Map<string, TemplateClaimsModel>()
+  const templates = new Map<string, FavouritesModel>()
   const errors: string[] = []
   const identity = accountIdentity()
   const painterId = identity?.wplaceUserId
@@ -188,7 +188,7 @@ export const withTemplateClaims = (
     return [
       {
         ...entry,
-        claims: participants,
+        favourites: participants,
         ...(showOtherClaims === undefined
           ? {}
           : { depth: 0, branches: [], parentKey: null, draggable: false }),

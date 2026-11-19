@@ -1,10 +1,10 @@
 <script lang="ts">
   import MenuStyles from '../foundations/MenuStyles.svelte'
-  import type { PainterIdentity } from '@caelestis/shared'
+  import { isWorkIdentity, type PainterIdentity } from '@caelestis/shared'
   import type { Snippet } from 'svelte'
   import Button from '../foundations/Button.svelte'
   import Icon from '../foundations/Icon.svelte'
-  import type { TemplateClaimsModel } from './model.js'
+  import type { FavouritesModel } from './model.js'
 
   let {
     model,
@@ -12,7 +12,7 @@
     children,
     onChange,
   }: {
-    model: TemplateClaimsModel
+    model: FavouritesModel
     name: string
     children: Snippet
     onChange: (release: boolean, person?: PainterIdentity) => void
@@ -56,10 +56,13 @@
       window.removeEventListener('scroll', scroll, true)
     }
   })
+  const assignee = $derived.by(() => {
+    const person = { displayName: username.trim(), wplaceUserId: /^\d+$/.test(userId) ? Number(userId) : Number.NaN }
+    return isWorkIdentity(person) ? person : undefined
+  })
   const assign = (): void => {
-    const id = Number(userId)
-    if (!username.trim() || !/^\d+$/.test(userId) || !Number.isSafeInteger(id)) return
-    onChange(false, { displayName: username.trim(), wplaceUserId: id })
+    if (assignee === undefined) return
+    onChange(false, assignee)
     assigning = false
     username = ''
     userId = ''
@@ -159,9 +162,7 @@
           type="submit"
           kind="primary"
           size="compact"
-          disabled={!username.trim() ||
-            !/^\d+$/.test(userId) ||
-            !Number.isSafeInteger(Number(userId))}
+          disabled={assignee === undefined}
         />
       </div>
     </form>
