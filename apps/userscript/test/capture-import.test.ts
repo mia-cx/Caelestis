@@ -24,7 +24,7 @@ vi.mock('../src/tile-transform.js', async (original) => ({
 }))
 
 import { importTemplatesToServer } from '../src/application/import-to-server.js'
-import { captureTemplate } from '../src/application/tree-actions.js'
+import { captureTemplate } from '../src/application/tree-import.js'
 
 const selection = { rect: { x: 0, y: 0, w: 2, h: 1 }, mask: new Uint8Array([1, 1]), count: 2 }
 const local: TreeTarget = { key: 'local', name: 'Local', nodeId: null, server: null }

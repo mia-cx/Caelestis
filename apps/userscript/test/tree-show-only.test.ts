@@ -9,11 +9,11 @@ vi.mock('../src/claim-editor.js', () => ({ startCaptureMode: () => false }))
 vi.mock('../src/map-view.js', () => ({ repaint: () => {}, viewportCentre: () => null }))
 vi.mock('../src/ui/toast.js', () => ({ toast: vi.fn() }))
 
+import { openContextMenu } from '../src/application/tree-menu.js'
 import {
   handleTreeActionPresentationIntent,
-  openContextMenu,
   treeActionPresentation,
-} from '../src/application/tree-actions.js'
+} from '../src/application/tree-presentation.js'
 
 const folder = (name: string, parentId: string | null = null): string => {
   const created = createLocalFolder(parentId, name)
