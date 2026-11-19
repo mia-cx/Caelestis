@@ -64,7 +64,15 @@ const pendingIssues = (repository) => {
   )
   return [...new Set(issues)]
     .filter((issue) => {
-      const found = JSON.parse(gh('api', `repos/${repository}/issues/${issue}`))
+      let found
+      try {
+        found = JSON.parse(gh('api', `repos/${repository}/issues/${issue}`))
+      } catch (error) {
+        // A deleted or transferred issue must not hold back the rest of the release's list.
+        if (!/HTTP (404|410)/.test(String(error.stderr))) throw error
+        console.error(`::warning::Skipping #${issue}: it no longer exists here.`)
+        return false
+      }
       return found.state === 'open' && found.pull_request === undefined
     })
     .sort((a, b) => a - b)
