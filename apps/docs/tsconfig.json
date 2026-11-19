@@ -1,10 +1,14 @@
 {
-  "extends": "./.svelte-kit/tsconfig.json",
+  "extends": "$app/tsconfig",
   "compilerOptions": {
     "allowJs": true,
     "checkJs": true,
     "moduleResolution": "bundler",
     "skipLibCheck": true,
-    "strict": true
-  }
+    "strict": true,
+    // svelte-check --tsgo types .svelte files reached through package.json imports as `any`
+    // (sveltejs/language-tools#3142). The same mapping as a path alias keeps them typed.
+    "paths": { "#lib/*": ["./src/lib/*"] }
+  },
+  "include": ["src", "vite.config.ts", "svartz.config.ts"]
 }

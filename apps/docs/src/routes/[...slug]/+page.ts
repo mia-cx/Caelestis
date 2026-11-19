@@ -1,6 +1,5 @@
-import { hostStylesheets, prepareHostVault, routes } from 'virtual:svartz/host'
+import { assets, base, hostStylesheets, prepareHostVault, routes } from 'virtual:svartz/host'
 import { error, redirect } from '@sveltejs/kit'
-import { assets, base } from '$app/paths'
 import type { EntryGenerator } from './$types'
 
 export const load = async ({ url }) => {

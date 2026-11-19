@@ -10,12 +10,12 @@ allowBuilds:
 minimumReleaseAgeExclude:
   - miniflare@5.20260910.0-alpha
   - wrangler@4.131.0
-  - '@svartz/config@2.1.1'
-  - '@svartz/core@2.1.1'
-  - '@svartz/plugins@2.1.1'
-  - '@svartz/theme-minimal@2.1.1'
-  - '@svartz/theme-wiki@2.1.1'
-  - '@svartz/ui@2.1.1'
-  - '@svartz/vite@2.1.1'
-  - svartz@2.1.1
+  - '@svartz/config@2.1.1 || 2.4.0'
+  - '@svartz/core@2.1.1 || 2.4.0'
+  - '@svartz/plugins@2.1.1 || 2.4.0'
+  - '@svartz/theme-minimal@2.1.1 || 2.4.0'
+  - '@svartz/theme-wiki@2.1.1 || 2.4.0'
+  - '@svartz/ui@2.1.1 || 2.4.0'
+  - '@svartz/vite@2.1.1 || 2.4.0'
+  - svartz@2.1.1 || 2.4.0
   - ditherette@1.0.3
