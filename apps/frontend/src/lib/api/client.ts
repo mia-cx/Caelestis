@@ -44,18 +44,25 @@ const configuredServer =
 
 export const serverUrlIsConfigured = configuredServer !== null
 
-/** The deployment's configured base URL as given, else the stored or default server's. */
-export const readServerUrl = (): string => {
-  if (configuredServer !== null) return configuredServer
+/**
+ * The server the user chose, or null when none is stored. A stored value that no longer resolves
+ * (an older dialog accepted URLs with credentials) counts as none, so the dialog can replace it.
+ */
+const storedServerUrl = (): string | null => {
   const stored = localStorage.getItem(SERVER_KEY)
-  return resolveServerUrl(
-    stored !== null && stored.length > 0
-      ? stored
-      : import.meta.env.DEV
-        ? DEV_SERVER
-        : window.location.origin,
-  )
+  if (stored === null || stored.length === 0) return null
+  try {
+    return resolveServerUrl(stored)
+  } catch {
+    return null
+  }
 }
+
+/** The deployment's configured base URL as given, else the stored or default server's. */
+export const readServerUrl = (): string =>
+  configuredServer ??
+  storedServerUrl() ??
+  resolveServerUrl(import.meta.env.DEV ? DEV_SERVER : window.location.origin)
 
 export const readToken = (): string | null => localStorage.getItem(TOKEN_KEY)
 
@@ -71,11 +78,12 @@ export const serverAssetUrl = (kind: ServerAssetKind, asset: ServerAsset): strin
 }
 
 /** Use the SSR Worker credential only for its configured/default server and never for user choices. */
-export const usesServerReadProxy = (): boolean =>
-  readToken() === null &&
-  (serverUrlIsConfigured ||
-    localStorage.getItem(SERVER_KEY) === null ||
-    readServerUrl() === resolveServerUrl(window.location.origin))
+export const usesServerReadProxy = (): boolean => {
+  if (readToken() !== null) return false
+  if (serverUrlIsConfigured) return true
+  const stored = storedServerUrl()
+  return stored === null || stored === resolveServerUrl(window.location.origin)
+}
 
 /** Throws a TypeError for a server URL that is not HTTP(S) or carries credentials. */
 export const writeConnection = (url: string, token: string | null): void => {

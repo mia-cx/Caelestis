@@ -5,8 +5,11 @@ import {
   getManifest,
   getServer,
   probeAdminScope,
+  readServerUrl,
+  usesServerReadProxy,
   writeConnection,
 } from '../lib/api/client'
+import { STORAGE_KEYS } from '../lib/deployment'
 import { Persisted } from '../lib/persisted.svelte'
 import { AppState } from '../lib/state/app.svelte'
 import { adminToken, authorized, createTestBackend, frontendFetch } from './backend'
@@ -151,6 +154,13 @@ describe('frontend session through the backend HTTP boundary', () => {
     )
     await expect(probeAdminScope(3)).rejects.toMatchObject({ status: 500 })
   })
+})
+
+it('treats a stored server URL with credentials as no choice, so the default server applies', () => {
+  // Older connect dialogs stored such values; the current rules refuse them.
+  const fallback = { server: readServerUrl(), proxy: usesServerReadProxy() }
+  localStorage.setItem(STORAGE_KEYS.server, 'https://user:pw@other.example')
+  expect({ server: readServerUrl(), proxy: usesServerReadProxy() }).toEqual(fallback)
 })
 
 it('preferences recover from corrupt storage and retain session values when persistence fails', () => {
