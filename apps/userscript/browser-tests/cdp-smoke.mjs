@@ -216,6 +216,13 @@ try {
   if (typeof menu?.innerHeight !== 'number')
     throw new Error('open menu contract returned an incomplete result')
 
+  const overlay = await runContract(
+    'runOverlayMenuContracts()',
+    'data:text/html,<!doctype html><title>overlay menu</title>',
+  )
+  if (typeof overlay?.menuHeight !== 'number')
+    throw new Error('overlay menu contract returned an incomplete result')
+
   const production = await runContract('runProductionBrowserBoundaries()')
   if (
     production?.canvasCaptured !== true ||

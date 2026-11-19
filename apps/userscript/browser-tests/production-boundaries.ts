@@ -1,5 +1,6 @@
 import { encodeIndexedPng } from '@caelestis/shared'
 import './open-menu.js'
+import './overlay-menu.js'
 import { clearDraftPixels, draftPixels, registerDraftCanvas } from '../src/draft-pixels.js'
 import {
   forgetInWorker,
