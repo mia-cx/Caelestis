@@ -4,7 +4,8 @@ import {
   TRANSPARENT_INDEX,
   WPLACE_PALETTE,
 } from '@caelestis/shared'
-import { log, warn } from './debug.js'
+import { count, log, warn } from './debug.js'
+import { observePageRequests, type RequestRoute } from './page-requests.js'
 import { discardResponseBody } from './response.js'
 import { forgetCharges, observeCharges } from './wplace-charges.js'
 import { BACKEND_ORIGIN } from './wplace-raster.js'
@@ -89,6 +90,50 @@ const replaceIdentity = (next: PainterIdentity | null): void => {
   identityUnavailable = next === null
 }
 
+const ownedFrom = (mask: unknown): ReadonlySet<number> | null => {
+  if (
+    typeof mask !== 'number' ||
+    !Number.isSafeInteger(mask) ||
+    (mask !== -1 && (mask < 0 || mask > 0xffff_ffff))
+  )
+    return null
+  const set = new Set<number>()
+  // -1 is all bits set, which is how wplace says "everything".
+  premiumIndices().forEach((paletteIndex, bit) => {
+    if (mask === -1 || (mask & (1 << bit)) !== 0) set.add(paletteIndex)
+  })
+  log('owned colours read from /me', { premium: set.size, mask })
+  return set
+}
+
+/**
+ * Take in one `/me` reading, ours or Wplace's own: the body, or null when Wplace refused the
+ * account (signed out) or the body was unreadable.
+ */
+const applyMe = (body: unknown): void => {
+  if (!isRecord(body)) {
+    owned = null
+    replaceIdentity(null)
+    forgetCharges()
+    return
+  }
+  if (!observeCharges(body.charges)) forgetCharges()
+  const { id, name } = body
+  replaceIdentity(
+    Number.isSafeInteger(id) &&
+      Number(id) >= 0 &&
+      typeof name === 'string' &&
+      name.length > 0 &&
+      name.length <= 256
+      ? { wplaceUserId: Number(id), displayName: name }
+      : null,
+  )
+  owned = ownedFrom(body.extraColorsBitmap)
+}
+
+const isSignedOut = (response: Response): boolean =>
+  response.status === 401 || response.status === 403
+
 const fetchAccount = async (): Promise<void> => {
   identityUnavailable = false
   const controller = new AbortController()
@@ -102,50 +147,11 @@ const fetchAccount = async (): Promise<void> => {
       signal: controller.signal,
     })
     if (!response.ok) {
-      if (response.status === 401 || response.status === 403) {
-        owned = null
-        replaceIdentity(null)
-        forgetCharges()
-      }
+      if (isSignedOut(response)) applyMe(null)
       log(`/me said ${response.status}; owned colours unavailable`)
       return
     }
-    const body = await readBoundedJson(response)
-    if (!isRecord(body)) {
-      owned = null
-      replaceIdentity(null)
-      forgetCharges()
-      return
-    }
-    if (!observeCharges(body.charges)) forgetCharges()
-    const id = body.id
-    const name = body.name
-    replaceIdentity(
-      Number.isSafeInteger(id) &&
-        Number(id) >= 0 &&
-        typeof name === 'string' &&
-        name.length > 0 &&
-        name.length <= 256
-        ? { wplaceUserId: Number(id), displayName: name }
-        : null,
-    )
-    const mask = body.extraColorsBitmap
-    if (
-      typeof mask !== 'number' ||
-      !Number.isSafeInteger(mask) ||
-      (mask !== -1 && (mask < 0 || mask > 0xffff_ffff))
-    ) {
-      owned = null
-      return
-    }
-
-    const set = new Set<number>()
-    // -1 is all bits set, which is how wplace says "everything".
-    premiumIndices().forEach((paletteIndex, bit) => {
-      if (mask === -1 || (mask & (1 << bit)) !== 0) set.add(paletteIndex)
-    })
-    owned = set
-    log('owned colours read from /me', { premium: set.size, mask })
+    applyMe(await readBoundedJson(response))
   } catch (error) {
     // Signed out, offline, or blocked. The preset simply stays unavailable.
     warn('could not read /me', String(error))
@@ -162,4 +168,28 @@ export const loadAccount = async (maxAgeMs = 60_000): Promise<void> => {
     loading = null
   })
   return loading
+}
+
+const accountRoute: RequestRoute = (request) => {
+  if (request.url.origin !== BACKEND_ORIGIN || request.url.pathname !== '/me') return undefined
+  if (!request.isGet()) return undefined
+  return {
+    response: (response) => {
+      if (response.ok) {
+        void response
+          .clone()
+          .json()
+          .then(applyMe)
+          .catch(() => count('telemetry:account-response-unreadable'))
+      } else if (isSignedOut(response)) {
+        applyMe(null)
+      }
+      return response
+    },
+  }
+}
+
+/** Follow Wplace's own `/me` reads, which the userscript's fetch never sees. */
+export const observeAccountReads = (): void => {
+  observePageRequests(accountRoute)
 }

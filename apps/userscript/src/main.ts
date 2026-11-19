@@ -49,8 +49,7 @@ import { renderOverlayControls } from './ui/overlay-menu.js'
 import { installPanel } from './ui/panel.js'
 import { openInviteFromLocation } from './ui/settings-controller.js'
 import { installUserscriptUpdateCheck } from './userscript-update.js'
-import { loadAccount } from './wplace-account.js'
-import { observeAccountCharges } from './wplace-charges.js'
+import { loadAccount, observeAccountReads } from './wplace-account.js'
 import { installWplaceCursors } from './wplace-cursors.js'
 import { installWplaceFont } from './wplace-font.js'
 import { installWplaceMessages } from './wplace-modules.js'
@@ -104,7 +103,7 @@ export const installPageHooks = (): void => {
   step('tile capture', installTileCapture)
   // After the request observer, so its startup read of the alliance is observed too.
   step('alliance surface observer', installAllianceSurfaceObserver)
-  step('account charges', observeAccountCharges)
+  step('account reads', observeAccountReads)
 }
 
 /**

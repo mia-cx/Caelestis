@@ -1,7 +1,4 @@
 import { isRecord } from '@caelestis/shared'
-import { count } from './debug.js'
-import { observePageRequests, type RequestRoute } from './page-requests.js'
-import { BACKEND_ORIGIN } from './wplace-raster.js'
 
 /**
  * The signed-in painter's pixel charges, and when they will be full.
@@ -72,33 +69,6 @@ export const forgetCharges = (): void => {
   if (snapshot === null) return
   snapshot = null
   notify()
-}
-
-const accountRoute: RequestRoute = (request) => {
-  if (request.url.origin !== BACKEND_ORIGIN || request.url.pathname !== '/me') return undefined
-  if (!request.isGet()) return undefined
-  return {
-    response: (response) => {
-      if (response.ok) {
-        void response
-          .clone()
-          .json()
-          .then((body: unknown) => {
-            if (isRecord(body)) observeCharges(body.charges)
-          })
-          .catch(() => count('telemetry:account-response-unreadable'))
-      } else if (response.status === 401 || response.status === 403) {
-        // Signed out: the last reading belongs to nobody now.
-        forgetCharges()
-      }
-      return response
-    },
-  }
-}
-
-/** Read the charges from Wplace's own account reads, which the userscript's fetch never sees. */
-export const observeAccountCharges = (): void => {
-  observePageRequests(accountRoute)
 }
 
 /** Accepted paints are stamped in whole seconds, so a paint can look up to this much older than it is. */
