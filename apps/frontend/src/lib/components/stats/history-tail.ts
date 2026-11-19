@@ -21,12 +21,6 @@ export interface HeldHistory<Read extends HistoryRead> {
 }
 
 /**
- * How long after a bucket starts its counters normally keep changing. Writes delayed further, such
- * as a backlog delivered after an outage, wait for the caller's next full read.
- */
-const MUTABLE_SECONDS = COUNTER_EXPIRES_AFTER_SECONDS
-
-/**
  * Bring a held history up to `to`, reading only what changed.
  *
  * A new key, or nothing held yet, reads `[from, to)` in full. Otherwise only the buckets that can
@@ -49,9 +43,11 @@ export const refreshHistory = async <Read extends HistoryRead>(
   if (held === null || resolution === undefined)
     return { key, to, read: await read(from, undefined) }
 
+  // Counters stop changing once they expire. Writes delayed further, such as a backlog delivered
+  // after an outage, wait for the caller's next full read.
   const tailStart = Math.max(
     from,
-    Math.floor((held.to - MUTABLE_SECONDS) / resolution) * resolution,
+    Math.floor((held.to - COUNTER_EXPIRES_AFTER_SECONDS) / resolution) * resolution,
   )
   const tail = await read(tailStart, resolution)
   // The finer tiers have aged past the tail, so the tail would drop buckets the held read has.

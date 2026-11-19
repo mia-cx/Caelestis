@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Icon, TemplateState } from '@caelestis/ui'
   import TemplateViewer from '#lib/components/TemplateViewer.svelte'
-  import { persisted } from '#lib/persisted.svelte.js'
+  import { Persisted } from '#lib/persisted.svelte.js'
   import { STORAGE_KEYS } from '#lib/deployment.js'
   import { formatTime } from '#lib/time-format.js'
   import { MIN_SPEED, speedToFit } from '#lib/timelapse.js'
@@ -18,7 +18,7 @@
   const uid = $props.id()
 
   // The canvas as it is comes first; the template art is opt-in via the slider.
-  const storedOverlay = persisted<number>(STORAGE_KEYS.overlayAlpha, 0)
+  const storedOverlay = new Persisted<number>(STORAGE_KEYS.overlayAlpha, 0)
   const overlayAlpha = $derived(Math.min(1, Math.max(0, storedOverlay.value)))
 
   const finished = $derived(player.templates.every((template) => template.finished))

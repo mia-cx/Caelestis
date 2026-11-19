@@ -2,7 +2,7 @@
   import { DAY_SECONDS, HOUR_SECONDS, type Progress, type Template } from '@caelestis/shared'
   import Select from '#lib/components/Select.svelte'
   import { STORAGE_KEYS } from '#lib/deployment.js'
-  import { persisted } from '#lib/persisted.svelte.js'
+  import { Persisted } from '#lib/persisted.svelte.js'
   import { ActivityReads } from './activity-reads.svelte.js'
   import { archiveContributionDays } from './archive-history.js'
   import { Community } from './community.svelte.js'
@@ -75,7 +75,7 @@
     { key: '1y', seconds: 365 * DAY_SECONDS, label: 'last year' },
     { key: 'all', seconds: null, label: 'all' },
   ] as const
-  const storedEstimatePeriod = persisted<string>(STORAGE_KEYS.estimatePeriod, '7d')
+  const storedEstimatePeriod = new Persisted<string>(STORAGE_KEYS.estimatePeriod, '7d')
   const estimatePeriod = $derived(
     estimatePeriods.find((period) => period.key === storedEstimatePeriod.value) ??
       estimatePeriods[2],

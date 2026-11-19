@@ -3,10 +3,10 @@ import type { ColourProgress as Colour } from '@caelestis/shared'
 import { COLOUR_PROGRESS_SORTS, ColourProgress, type ColourProgressSort } from '@caelestis/ui'
 import Select from '#lib/components/Select.svelte'
 import { STORAGE_KEYS } from '#lib/deployment.js'
-import { persisted } from '#lib/persisted.svelte.js'
+import { Persisted } from '#lib/persisted.svelte.js'
 
 let { colours }: { colours: readonly Colour[] } = $props()
-const storedSort = persisted<ColourProgressSort>(STORAGE_KEYS.colourSort, 'index')
+const storedSort = new Persisted<ColourProgressSort>(STORAGE_KEYS.colourSort, 'index')
 // A sort stored by an older release may no longer exist.
 const sort = $derived(
   COLOUR_PROGRESS_SORTS.some((option) => option.key === storedSort.value) ? storedSort.value : 'index',

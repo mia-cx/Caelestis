@@ -32,5 +32,3 @@ export class Persisted<T> {
     }
   }
 }
-
-export const persisted = <T>(key: string, initial: T): Persisted<T> => new Persisted(key, initial)

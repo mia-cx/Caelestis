@@ -1,6 +1,6 @@
 import type { PainterTotal, WplaceUserId } from '@caelestis/shared'
 import { STORAGE_KEYS } from '#lib/deployment.js'
-import { persisted } from '#lib/persisted.svelte.js'
+import { Persisted } from '#lib/persisted.svelte.js'
 
 /** How many leading painters a fresh chart draws before anyone touches the picker. */
 const DEFAULT_VISIBLE_PAINTERS = 5
@@ -38,8 +38,8 @@ export const selectAllPainters = (
  * Windows and everyone's lines persist; painter choices last for the scope.
  */
 export class PaceSelection {
-  readonly #windows = persisted<string[]>(STORAGE_KEYS.paceWindows, DEFAULT_WINDOWS)
-  readonly #allUsers = persisted<boolean>(STORAGE_KEYS.paceAllUsers, true)
+  readonly #windows = new Persisted<string[]>(STORAGE_KEYS.paceWindows, DEFAULT_WINDOWS)
+  readonly #allUsers = new Persisted<boolean>(STORAGE_KEYS.paceAllUsers, true)
   readonly #painters: () => readonly PainterTotal[]
   // The leading painters draw by default. The picker records an override per painter, so the
   // default set can shift with the data without undoing anyone's choices.

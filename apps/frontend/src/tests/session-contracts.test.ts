@@ -7,7 +7,7 @@ import {
   probeAdminScope,
   writeConnection,
 } from '../lib/api/client'
-import { persisted } from '../lib/persisted.svelte'
+import { Persisted } from '../lib/persisted.svelte'
 import { AppState } from '../lib/state/app.svelte'
 import { adminToken, authorized, createTestBackend, frontendFetch } from './backend'
 
@@ -155,10 +155,10 @@ describe('frontend session through the backend HTTP boundary', () => {
 
 it('preferences recover from corrupt storage and retain session values when persistence fails', () => {
   localStorage.setItem('preference', '{broken')
-  const preference = persisted('preference', 0.5)
+  const preference = new Persisted('preference', 0.5)
   expect(preference.value).toBe(0.5)
   preference.value = 0.8
-  expect(persisted('preference', 0.5).value).toBe(0.8)
+  expect(new Persisted('preference', 0.5).value).toBe(0.8)
   vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
     throw new Error('storage unavailable')
   })
