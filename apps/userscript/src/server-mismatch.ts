@@ -4,6 +4,7 @@ import {
   type MismatchMask,
   type TileCoord,
 } from '@caelestis/shared'
+import { notifyListeners } from './listeners.js'
 import { nextPixelObservation, recordPixelObservation } from './pixel-observation.js'
 import {
   type ConnectedServer,
@@ -93,9 +94,7 @@ const invalidationKeyFor = (serverUrl: string, tile: TileCoord): string =>
 
 const tileName = (tile: TileCoord): string => `${tile.x}/${tile.y}`
 
-const notify = (): void => {
-  for (const listener of listeners) listener()
-}
+const notify = (): void => notifyListeners(listeners, 'server mismatch observer failed')
 
 /**
  * Read one mask, revalidating the copy already held in memory or on disk.

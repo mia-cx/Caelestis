@@ -6,6 +6,7 @@ import {
   tagNameKey,
   uuidV7,
 } from '@caelestis/shared'
+import { notifyListeners } from '../listeners.js'
 import { leaseLocalFolder } from '../local-folders.js'
 import { getState, MAX_LOCAL_FOLDERS } from '../settings.js'
 import { LOCAL_TAGS_STORE, LOCAL_TEMPLATES_STORE, openCaelestisDb } from './caelestis-db.js'
@@ -45,7 +46,7 @@ export const onLocalTags = (listener: () => void): (() => void) => {
 const updateSnapshot = (tags: readonly LocalTag[]): void => {
   const changed = JSON.stringify(snapshot) !== JSON.stringify(tags)
   snapshot = tags
-  if (changed) for (const listener of listeners) listener()
+  if (changed) notifyListeners(listeners, 'tag observer failed')
 }
 
 /** Schedule personal tag mirroring after a durable local edit. */

@@ -1,4 +1,5 @@
 import type { ActiveAllianceSurface } from './alliance-surface.js'
+import { notifyListeners } from './listeners.js'
 
 const MAX_ARTBOARD_SCALE = 64
 const WHEEL_STEP = 100
@@ -62,6 +63,6 @@ export const navigateAllianceArtboardTo = (
   }
   wheel(pivot, zoomInFirst ? -WHEEL_STEP : WHEEL_STEP)
   wheel(centre, zoomInFirst ? WHEEL_STEP : -WHEEL_STEP)
-  for (const listener of navigatedListeners) listener(active)
+  notifyListeners(navigatedListeners, 'alliance navigation observer failed', active)
   return true
 }

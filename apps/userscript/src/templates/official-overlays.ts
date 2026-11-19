@@ -1,5 +1,6 @@
 import { isRecord, latLngToCanvasPixel, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { warn } from '../debug.js'
+import { notifyListeners } from '../listeners.js'
 import { onMapAttached } from '../map-handle.js'
 import { serverTemplateKey } from '../tree-keys.js'
 import { findWplaceModules } from '../wplace-modules.js'
@@ -72,9 +73,7 @@ const templateIdOf = (index: number): string =>
 let event: OfficialEvent | null = null
 let progressStore: ProgressStore | null = null
 const listeners = new Set<() => void>()
-const notify = (): void => {
-  for (const listener of listeners) listener()
-}
+const notify = (): void => notifyListeners(listeners, 'official overlay observer failed')
 
 /** Called when fragments open, progress refreshes, or the event first loads. */
 export const onOfficialOverlaysChange = (listener: () => void): (() => void) => {

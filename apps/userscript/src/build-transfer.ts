@@ -1,4 +1,5 @@
 import { warn } from './debug.js'
+import { notifyListeners } from './listeners.js'
 import { isPageClaimed } from './page-claim.js'
 import { type Build, MEETING_PROPERTY } from './page-markers.js'
 import { pageWindow } from './page-world.js'
@@ -224,7 +225,7 @@ export const linkOtherBuild = (port: MessagePort, running: Build, awaiting: bool
     }
     link = port
     other = reply.build
-    for (const listener of listeners) listener()
+    notifyListeners(listeners, 'build observer failed')
     handOff(running, reply.empty, awaiting).catch((error: unknown) =>
       warn('could not hand settings over', String(error)),
     )

@@ -1,4 +1,5 @@
 import type { PixelRect } from './geometry.js'
+import { notifyListeners } from './listeners.js'
 import { isProfileEnabled, recordProfileCounter } from './profile.js'
 
 /** The image a `drawImage` call copied and the destination rectangle it landed in. */
@@ -41,5 +42,5 @@ export const announceCanvasWrite = (
       Math.max(0, right - left) * Math.max(0, bottom - top),
     )
   }
-  for (const listener of listeners) listener(canvas, dirty, draw)
+  notifyListeners(listeners, 'canvas write observer failed', canvas, dirty, draw)
 }

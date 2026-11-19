@@ -224,7 +224,7 @@ export const onTileRequest = (listener: TileRequestListener): void => {
 const tileRoute: RequestRoute = (request) => {
   const tile = tileFromUrl(request.raw)
   if (tile === null) return undefined
-  for (const listener of tileRequestListeners) listener(tile, request.raw)
+  notifyListeners(tileRequestListeners, 'tile request observer failed', tile, request.raw)
   const normalizeMissing = request.isGet()
   return {
     response: (response) => tagTileResponse(response, tile, request.realm, normalizeMissing),

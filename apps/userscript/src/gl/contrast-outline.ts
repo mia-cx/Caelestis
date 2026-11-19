@@ -6,6 +6,8 @@
  * only when the root's attributes or the system colour scheme change, never inside a render.
  */
 
+import { notifyListeners } from '../listeners.js'
+
 const listeners = new Set<() => void>()
 let dark: boolean | null = null
 
@@ -20,7 +22,7 @@ const refresh = (): void => {
   const next = read(document.documentElement)
   if (next === dark) return
   dark = next
-  for (const listener of listeners) listener()
+  notifyListeners(listeners, 'map theme observer failed')
 }
 
 const watch = (): void => {

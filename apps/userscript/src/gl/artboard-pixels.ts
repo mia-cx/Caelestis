@@ -2,6 +2,7 @@ import { TRANSPARENT_INDEX } from '@caelestis/shared'
 import type { ActiveAllianceSurface } from '../alliance-surface.js'
 import type { CanvasDraw } from '../canvas-write.js'
 import type { PixelRect, Placement } from '../geometry.js'
+import { notifyListeners } from '../listeners.js'
 import {
   type NativePixelRegion,
   type NativePixelSnapshot,
@@ -629,9 +630,7 @@ const settleHidden = (tiles: ReadonlyMap<string, HeadquartersTile>): void => {
 
 const tileListeners = new Set<() => void>()
 
-const announceTiles = (): void => {
-  for (const listener of tileListeners) listener()
-}
+const announceTiles = (): void => notifyListeners(tileListeners, 'artboard tile observer failed')
 
 /**
  * Notify when Wplace's HQ tiles change what the artboard holds: a tile drawn with new pixels, or a
@@ -833,7 +832,7 @@ const isDraftMark = (node: Node): boolean =>
 export const watchArtboardDraftMarks = (active: ActiveAllianceSurface): (() => void) => {
   const observer = new MutationObserver((records) => {
     if (!records.some((record) => [...record.removedNodes].some(isDraftMark))) return
-    for (const listener of draftMarkListeners) listener()
+    notifyListeners(draftMarkListeners, 'artboard draft mark observer failed')
   })
   observer.observe(active.stage, { childList: true, subtree: true })
   return () => observer.disconnect()
