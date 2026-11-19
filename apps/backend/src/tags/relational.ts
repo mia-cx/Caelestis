@@ -1,4 +1,5 @@
 import {
+  MAX_TEMPLATE_TAGS,
   type Millis,
   type TemplateSurface,
   type TemplateTag,
@@ -75,6 +76,8 @@ export class RelationalTagStore extends RelationalStore implements TagStore {
   async mutateTag(mutation: TagMutation, now: Millis): Promise<boolean> {
     const prepare = (query: string, ...values: (string | number | null)[]) =>
       this.client.prepare(query).bind(...values)
+    // A tag change alters the manifest, so it moves each affected template's revision forward.
+    const bumpRevisions = `UPDATE templates SET updated_at_ms = ${this.syntax.greatest}(updated_at_ms + 1, ?) WHERE`
     try {
       if (mutation.type === 'assign-folder') {
         const guard =
@@ -100,12 +103,13 @@ export class RelationalTagStore extends RelationalStore implements TagStore {
       }
       if (mutation.type === 'create') {
         const result = await prepare(
-          'INSERT INTO tags (id, name, name_key) SELECT ?, ?, ? WHERE (SELECT count(*) FROM tags) < 256',
+          `INSERT INTO tags (id, name, name_key) SELECT ?, ?, ? WHERE (SELECT count(*) FROM tags) < ${MAX_TEMPLATE_TAGS}`,
           mutation.id,
           mutation.name,
           tagNameKey(mutation.name),
         ).run()
-        if (result.meta.changes === 0) throw new TagConflictError('The 256-tag limit was reached.')
+        if (result.meta.changes === 0)
+          throw new TagConflictError(`The ${MAX_TEMPLATE_TAGS}-tag limit was reached.`)
         return true
       }
       if (mutation.type === 'assign') {
@@ -127,7 +131,7 @@ export class RelationalTagStore extends RelationalStore implements TagStore {
         const results = await this.client.batch([
           write,
           prepare(
-            `UPDATE templates SET updated_at_ms = ${this.syntax.greatest}(updated_at_ms + 1, ?) WHERE id = ? AND ${guard}`,
+            `${bumpRevisions} id = ? AND ${guard}`,
             now,
             mutation.templateId,
             mutation.id,
@@ -137,7 +141,7 @@ export class RelationalTagStore extends RelationalStore implements TagStore {
         return (results[1]?.meta.changes ?? 0) > 0
       }
       const updateRevisions = prepare(
-        `UPDATE templates SET updated_at_ms = ${this.syntax.greatest}(updated_at_ms + 1, ?) WHERE id IN (SELECT template_id FROM template_tags WHERE tag_id = ?)`,
+        `${bumpRevisions} id IN (SELECT template_id FROM template_tags WHERE tag_id = ?)`,
         now,
         mutation.id,
       )
