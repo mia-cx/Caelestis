@@ -4,6 +4,7 @@ import { activeAllianceSurface } from './alliance-surface.js'
 import { onCanvasWrite } from './canvas-write.js'
 import { registerDebugEntry } from './console-api.js'
 import { count } from './debug.js'
+import { frameQueue } from './frame-queue.js'
 import { onArtboardPixelsChange, onHeadquartersTilesChange } from './gl/artboard-pixels.js'
 import {
   colourKindOrder,
@@ -101,19 +102,15 @@ const render = (): void => {
   }
 }
 
-let queued = false
 let focusedTemplateId: string | null = null
 
+// A hidden debug tab suspends animation frames entirely, but Wplace can still mount the drawer
+// through automation or restored state. A zero-delay task keeps updates batched without making
+// palette decoration depend on the map actively painting frames.
+const queueTask = frameQueue(render, (callback) => setTimeout(callback, 0))
+
 const queueRender = (): void => {
-  if (!isPaintOpen() || queued) return
-  queued = true
-  // A hidden debug tab suspends animation frames entirely, but Wplace can still mount the drawer
-  // through automation or restored state. A zero-delay task keeps updates batched without making
-  // palette decoration depend on the map actively painting frames.
-  setTimeout(() => {
-    queued = false
-    render()
-  }, 0)
+  if (isPaintOpen()) queueTask()
 }
 
 /** Refresh the counters only when panning or zooming changes which template owns them. */

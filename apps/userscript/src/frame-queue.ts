@@ -1,7 +1,10 @@
-/** Coalesce arbitrary notifications into at most one callback per animation frame. */
+/**
+ * Coalesce arbitrary notifications into at most one `run` per scheduled callback: an animation
+ * frame by default, or whatever `request` schedules.
+ */
 export const frameQueue = (
   run: () => void,
-  request: (callback: FrameRequestCallback) => number = requestAnimationFrame,
+  request: (callback: () => void) => void = requestAnimationFrame,
 ): (() => void) => {
   let queued = false
   return () => {

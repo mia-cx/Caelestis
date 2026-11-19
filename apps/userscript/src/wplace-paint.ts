@@ -1,6 +1,7 @@
 import { TRANSPARENT_INDEX } from '@caelestis/shared'
 import { activeAllianceEditorStage } from './alliance-editor-dom.js'
 import { log } from './debug.js'
+import { frameQueue } from './frame-queue.js'
 import { simulatedInputAllowed } from './simulated-input.js'
 import {
   OPEN_DIALOG,
@@ -140,18 +141,10 @@ const read = (): void => {
  * A hidden tab suspends animation frames, but Wplace can still mount the drawer there through
  * automation or restored state, so a hidden tab reads on the next task instead.
  */
-let queued = false
-
-const queueRead = (): void => {
-  if (queued) return
-  queued = true
-  const run = (): void => {
-    queued = false
-    read()
-  }
-  if (document.hidden) setTimeout(run, 0)
-  else requestAnimationFrame(run)
-}
+const queueRead = frameQueue(read, (callback) => {
+  if (document.hidden) setTimeout(callback, 0)
+  else requestAnimationFrame(callback)
+})
 
 /**
  * Start watching. Observes the document node itself, which exists at `document-start` before
