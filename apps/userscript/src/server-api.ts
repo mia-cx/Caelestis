@@ -391,9 +391,9 @@ export type ServerNodesResult =
 /**
  * The admitted folders, with network failure kept distinct from a successful unsafe snapshot.
  *
- * Empty is a real server answer. A failed fetch used to answer with an empty list, so Move claimed
- * the server had one folder, Copy said to create one first, and folder naming picked a name as
- * though nothing was there. Aggregate refusal is different again: the server answered, but using
+ * Empty is a real server answer. Answering a failed fetch with an empty list would make Move claim
+ * the server had one folder, Copy say to create one first, and folder naming pick a name as though
+ * nothing was there. Aggregate refusal is different again: the server answered, but using
  * rows the tree and canvas refused would let admin actions commit against state the UI cannot show.
  */
 export const listServerNodes = async (
@@ -716,8 +716,8 @@ export const uploadTemplateVersion = async (
     if (response.ok) {
       const versionId = isRecord(body) ? body.versionId : undefined
       // A 2xx with no usable id is not a success we can report: the server never confirmed what it
-      // stored. `uploadTemplate` rejects the same shape, and Replace announcing "done" on it told
-      // the user their artwork had been replaced on no evidence at all.
+      // stored. `uploadTemplate` rejects the same shape, and announcing "done" on it would tell the
+      // user their artwork had been replaced on no evidence at all.
       return typeof versionId === 'string' && UUID_V7.test(versionId)
         ? { ok: true, versionId }
         : markUploadAmbiguous(

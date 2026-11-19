@@ -42,8 +42,8 @@ import { remapPaletteColours, remapStoredAppearance } from './templates/palette-
  *
  * **Access tokens are a known weak point.** `localStorage` on wplace.live is readable by wplace's
  * own scripts and by every other userscript on the page. The other two are not, which is the whole
- * reason the metadata block asks for `GM_setValue`. Treat the fallback as a development convenience and not as
- * somewhere a real alliance token belongs — see the note in `handoff-userscript-browser.md`.
+ * reason the metadata block asks for `GM_setValue`. Treat the fallback as a development convenience
+ * and not as somewhere a real alliance token belongs.
  */
 
 const STORAGE_KEY = 'caelestis.state.v2'

@@ -69,9 +69,9 @@ export const loadDebugSetting = (): void => {
 /**
  * How many distinct counter keys to keep.
  *
- * Counters run even with debugging off, and callers write tile coordinates into their messages — so
- * keying on the message meant panning across a map added a permanent entry per tile. The ring bounds
- * the log; nothing bounded this.
+ * Counters run even with debugging off, and callers write tile coordinates into their messages, so
+ * without a cap panning across a map would add a permanent entry per tile. The ring bounds the log;
+ * this bounds the counters.
  */
 const MAX_COUNTERS = 200
 
@@ -184,9 +184,9 @@ export const logRender = (stage: RenderStage, message: string, data?: unknown): 
 /** Always reaches the console, debug on or off: something that should not have happened. */
 export const warn = (message: string, data?: unknown): void => {
   try {
-    // Same stable key as `log`. Keyed on the raw message, the two hottest warnings carry tile
-    // coordinates and filled the 200-key table with single-use entries — after which every genuinely
-    // new counter was refused, and `dump()` stopped showing the ones worth reading.
+    // Same stable key as `log`. Keyed on the raw message, the two hottest warnings, which carry
+    // tile coordinates, would fill the 200-key table with single-use entries — after which every
+    // genuinely new counter would be refused, and `dump()` would stop showing the ones worth reading.
     const boundedMessage = truncate(message, MAX_MESSAGE_LENGTH)
     const boundedData = snapshot(data)
     count(counterKey('app', boundedMessage))

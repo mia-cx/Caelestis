@@ -396,15 +396,6 @@ export const installMapContextObserver = (
         },
       }.deleteTexture
 
-      /**
-       * Both upload paths have to be watched, and missing one is not a gap in coverage but a source
-       * of wrong answers.
-       *
-       * MapLibre pools textures: a *new* tile goes in with `texImage2D`, but a tile it already has a
-       * texture for is refreshed in place with `texSubImage2D`. Wplace serves tiles `no-store` and
-       * re-fetches them, so this happens constantly during ordinary use. Watching only `texImage2D`
-       * meant the texture kept whatever tile it was first given while the GPU held a different one.
-       */
       const isPageCanvasSource = (source: unknown): source is CanvasSource => {
         if (typeof source !== 'object' || source === null) return false
         const constructors = realm as unknown as Record<string, unknown>
@@ -471,6 +462,12 @@ export const installMapContextObserver = (
         }
       }
 
+      // Both upload paths have to be watched, and missing one is not a gap in coverage but a source
+      // of wrong answers. MapLibre pools textures: a *new* tile goes in with `texImage2D`, but a
+      // tile it already has a texture for is refreshed in place with `texSubImage2D`. Wplace serves
+      // tiles `no-store` and re-fetches them, so this happens constantly during ordinary use.
+      // Watching only `texImage2D` would leave the texture attributed to whatever tile it was first
+      // given while the GPU held a different one.
       const nativeTexSubImage2D = gl.texSubImage2D
       hookedGl.texSubImage2D = {
         // biome-ignore lint/suspicious/noExplicitAny: texSubImage2D has as many overloads as texImage2D

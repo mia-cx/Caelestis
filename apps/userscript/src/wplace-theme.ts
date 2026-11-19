@@ -9,11 +9,8 @@ import { getWplaceState } from './wplace-state.js'
  * Wplace keeps the theme in three places: a `theme` key in localStorage, a `data-theme` attribute
  * on the document element (DaisyUI reads that), and a Svelte state that swaps the map basemap
  * between the `liberty` and `fiord` styles. Only their own setter touches all three, and the only
- * thing that calls it is a pair of buttons inside the settings dialog. The old shortcut looked for
- * those buttons by `aria-label`, and when Wplace moved the label into the button text the key went
- * quietly dead.
- *
- * So this no longer depends on one selector. In order:
+ * thing that calls it is a pair of buttons inside the settings dialog, whose markup Wplace changes
+ * without notice. So this does not depend on one selector. In order:
  *
  * 0. Call their setter. `wplace-state.ts` catches the state object as it is built, and assigning
  *    its `theme` is exactly what their button does. This is the normal path.
@@ -134,7 +131,7 @@ const styleUrlFor = (theme: string): string | null => {
   return last.replace(/\/styles\/[^/?#]+(\/?)$/, `/styles/${wanted}$1`)
 }
 
-/** Steps 3: apply the theme without Wplace's help. */
+/** Step 3: apply the theme without Wplace's help. */
 const applyDirectly = (theme: string): void => {
   root().setAttribute('data-theme', theme)
   try {

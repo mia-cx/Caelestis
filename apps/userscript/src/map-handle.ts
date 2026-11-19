@@ -5,11 +5,11 @@ import { pageWindow } from './page-world.js'
 /**
  * A live reference to Wplace's MapLibre `Map`.
  *
- * It is on no global, on no DOM node and in no module export (`10-recon-map-stack` records the
- * search). What does work: **the Map assigns distinctive private fields to itself while it is being
- * built.** A setter on `Object.prototype` for one of those names sees the assignment, and `this` at
- * that moment *is* the Map. The trap comes off as soon as it succeeds, and goes back on only once
- * the captured map's canvas leaves the document.
+ * It is on no global, on no DOM node and in no module export. What does work: **the Map assigns
+ * distinctive private fields to itself while it is being built.** A setter on `Object.prototype`
+ * for one of those names sees the assignment, and `this` at that moment *is* the Map. The trap comes
+ * off as soon as it succeeds, and goes back on only once the captured map's canvas leaves the
+ * document.
  *
  * This is a deliberate piece of nastiness, so it is fenced in:
  *

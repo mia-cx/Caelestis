@@ -7,9 +7,10 @@ import { buildExactRgbIndex, canvasRgbIndex } from './rgb-index.js'
  * Tile reads, on a thread of their own.
  *
  * Capturing a tile decodes a 1000x1000 PNG, reads its 4 MB back from a canvas, matches a million
- * pixels to the palette, and diffs them against the pixels it replaces. On the page that ran inside
- * Wplace's own `createImageBitmap` promise, so Wplace could not draw a tile until Caelestis had read
- * it. The worker does all of it from the tile's body; the page only applies the pixels that changed.
+ * pixels to the palette, and diffs them against the pixels it replaces. On the page that would run
+ * inside Wplace's own `createImageBitmap` promise, so Wplace could not draw a tile until Caelestis
+ * had read it. The worker does all of it from the tile's body; the page only applies the pixels that
+ * changed.
  *
  * The worker also fetches the tiles capture missed, where no page script can rewrite them. Blue Marble
  * hands Wplace every tile under its templates upscaled 3x, with its template drawn in; a worker's

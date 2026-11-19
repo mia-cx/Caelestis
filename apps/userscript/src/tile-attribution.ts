@@ -28,8 +28,9 @@ interface QueuedTile {
 const tilesByByteLength = new Map<number, QueuedTile[]>()
 
 /**
- * How many unattributed tiles of one size to remember. Unbounded, a long pan filled the queue with
- * tiles attributed by identity and never consumed, and the oldest answered for a different tile.
+ * How many unattributed tiles of one size to remember. Unbounded, a long pan would fill the queue
+ * with tiles attributed by identity and never consumed, and the oldest would answer for a different
+ * tile.
  */
 const MAX_QUEUED_PER_SIZE = 8
 

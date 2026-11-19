@@ -252,8 +252,8 @@ export const onTilePixelsAvailable = (listener: (tile: TileCoord) => void): (() 
  * previous frame's.
  *
  * A view wider than the cache would otherwise evict a tile it was still drawing, and the next frame
- * chased it again, forever. Held tiles may push the cache past its limit, with room for one round of
- * chases beyond them; the excess goes once they leave the frame.
+ * would chase it again, forever. Held tiles may push the cache past its limit, with room for one
+ * round of chases beyond them; the excess goes once they leave the frame.
  */
 export const holdTilePixels = (tiles: Iterable<TileCoord>): void => {
   heldTilePixels = new Set(Array.from(tiles, tileKey))
@@ -786,7 +786,7 @@ export const settledTileCaptures = async (): Promise<void> => {
  *
  * An undersized bitmap is Wplace saying "nothing is painted here": its service worker substitutes a
  * 1x1 transparent PNG for an absent tile, as the tile response tap does for a 404. An empty tile is
- * a real answer and gets recorded as one; declining it left markers over it waiting forever.
+ * a real answer and gets recorded as one; declining it would leave markers over it waiting forever.
  */
 export const captureDecodedTile = (
   tile: TileCoord,

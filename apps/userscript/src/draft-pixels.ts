@@ -410,6 +410,8 @@ const applyWrite = (tile: TileCoord, triples: readonly number[]): boolean => {
     draft = new Uint8Array(TILE_SIZE * TILE_SIZE).fill(UNPAINTED)
   }
   rememberDraft(key, draft)
+  // Wplace updates crosshair occupancy after the canvas write. Reconcile once at the end of that
+  // task so undo cannot momentarily turn a removed opaque draft into a transparent draft.
   let pending = pendingDraftWrites.get(key)
   if (pending === undefined) {
     if (pendingDraftWrites.size === 0) queueMicrotask(flushDraftWrites)
@@ -429,8 +431,6 @@ const applyWrite = (tile: TileCoord, triples: readonly number[]): boolean => {
     changed++
   }
   if (changed > 0) count('pixels:patched a draft write')
-  // Wplace updates crosshair occupancy after the canvas write. Reconcile once at the end of that
-  // task so undo cannot momentarily turn a removed opaque draft into a transparent draft.
   return true
 }
 

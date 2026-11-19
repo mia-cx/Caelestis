@@ -46,7 +46,7 @@ export const notifyPixelBatch = (
  *
  * The array itself is kept. Anything holding an answer derived from this tile keys it on the array's
  * identity, so replacing it says "all of this is stale" — and recomputing a tile because one pixel
- * moved is what made every marker in it disappear and come back.
+ * moved would make every marker in it disappear and come back.
  *
  * `only` limits a full `from` to the offsets already known to differ, such as a tile reader's diff.
  * `moved` sees each offset that changed, with its new index.

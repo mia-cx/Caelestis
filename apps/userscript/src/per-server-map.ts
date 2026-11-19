@@ -34,7 +34,6 @@ export class PerServerMap<Value, Key = string> {
     return (this.#servers.get(serverUrl) ?? new Map<Key, Value>()).entries()
   }
 
-  /** Every server's entries. */
   *all(): IterableIterator<[serverUrl: string, key: Key, value: Value]> {
     for (const [serverUrl, held] of this.#servers)
       for (const [key, value] of held) yield [serverUrl, key, value]

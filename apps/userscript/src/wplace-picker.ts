@@ -40,10 +40,10 @@ import { isPaintOpen, selectPaintColour } from './wplace-paint.js'
  * pixel. The picker therefore resolves the whole logical cell and never tests the rendered stamp.
  *
  * Follow-the-selection is the exception, and it has to be. Under that mode every colour but the one
- * in hand is out of sight, so answering only for what is drawn meant the picker could only ever hand
- * back the colour already selected — it could not be used to *change* colour, which is the whole of
- * what it is for. The mode is a way of looking at one colour at a time, not a claim that the rest of
- * the template is not there, so the pick reads through it.
+ * in hand is out of sight, so answering only for what is drawn would mean the picker could only
+ * ever hand back the colour already selected — it could not be used to *change* colour, which is
+ * the whole of what it is for. The mode is a way of looking at one colour at a time, not a claim
+ * that the rest of the template is not there, so the pick reads through it.
  *
  * Every answer selects its colour by clicking a Wplace swatch. On the world map Wplace flags an
  * untrusted swatch click on the account, so each gesture there has its own simulated-input switch:
@@ -118,8 +118,8 @@ export const installColourPicker = (): void => {
   /**
    * Replace Wplace's left-click pipette before Wplace handles the pointer sequence.
    *
-   * Wplace now ends picker mode during pointer handling, before the later `click` reaches our old
-   * capture listener. Capturing `pointerdown` on `window` preserves the active-tool signal and wins
+   * Wplace ends picker mode during pointer handling, before a `click` listener would see it.
+   * Capturing `pointerdown` on `window` preserves the active-tool signal and wins
    * without patching a Svelte store. The matching click is swallowed below so Wplace cannot run its
    * composited fallback after we have answered from source pixels.
    */

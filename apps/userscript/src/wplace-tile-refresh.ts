@@ -121,8 +121,8 @@ export const installServiceWorkerTap = (realm: Window & typeof globalThis = page
     try {
       const message = args[0] as { type?: unknown; data?: unknown } | null
       // Only a change to what the tiles show is a draft refresh. Wplace also posts
-      // `clearPixelPreview` every few seconds with nothing drafted; counting that as a change turned
-      // every periodic refresh into an empty draft refresh, and tiles stopped updating.
+      // `clearPixelPreview` every few seconds with nothing drafted; counting that as a change would
+      // turn every periodic refresh into an empty draft refresh, and tiles would stop updating.
       if (message?.type === 'previewPixels') {
         state.preview = previewFrom(message.data)
         state.draftPending = !samePreview(state.applied, state.preview)
@@ -295,7 +295,7 @@ const scheduleScopeReload = (): void => {
  * Re-download the visible Wplace tiles that `entered` picks, once.
  *
  * Caelestis keeps captured pixels while capture is off, on the promise that turning it back on
- * re-reads everything visible. Wplace's six-second re-download used to keep that promise; the
+ * re-reads everything visible. Wplace's own six-second re-download keeps that promise; the
  * conditional refresh above does not, so a tile that changed unread would keep its old pixels.
  * Reloading each tile as capture starts caring about it restores it. With the patch off, Wplace
  * reloads everything on its own timer anyway.

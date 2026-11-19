@@ -263,9 +263,9 @@ const probeAdminScope = async (
   signal: AbortSignal,
 ): Promise<boolean> => {
   try {
-    // The status is the whole answer, so the body is thrown away unread. Parsing it measured the
-    // full folder tree against the 64 KB cap meant for a one-line mutation reply, and any server
-    // with a real tree therefore reported that our token could only read it.
+    // The status is the whole answer, so the body is thrown away unread. Parsing it would measure
+    // the full folder tree against the 64 KB cap meant for a one-line mutation reply, and any server
+    // with a real tree would then report that our token could only read it.
     const { response } = await sendServerRequest(
       endpointUrl(base, `/admin/nodes?season=${season}`, apiVersion),
       { headers: bearer(token), signal },
@@ -373,8 +373,8 @@ export const probeServer = async (
     }
 
     // `GET /server` is public and never looks at the Authorization header, so reaching it proves
-    // nothing about a code. Without this second call any non-empty string read as "connected" and
-    // every later request failed with 401 — caught by typing a deliberately wrong code.
+    // nothing about a code. Without this second call any non-empty string would read as "connected"
+    // and every later request would fail with 401.
     const fetchManifest = (credential: string | null) =>
       withManifestReadSlot(
         signal,

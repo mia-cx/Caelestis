@@ -12,8 +12,8 @@ import { watchCaptureScope } from './wplace-tile-refresh.js'
  *
  * Install it before the first frame, not on it. A tile can only be caught as it is decoded, and the
  * tiles filling the viewport on a page load are decoded during the load — before any layer of ours
- * has drawn. Deciding at draw time meant each of them waited about ten seconds for Wplace to fetch
- * it again.
+ * has drawn. Deciding at draw time would leave each of them waiting about ten seconds for Wplace to
+ * fetch it again.
  */
 export const installTilePixelCapture = (): void => {
   // The pipette fallback reads the exact pixel-art tile, so Paint itself is a pixel consumer even

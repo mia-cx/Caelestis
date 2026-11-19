@@ -21,7 +21,7 @@ import { canServeManagerStorage } from './stored-values.js'
  * every template shortcut does nothing. Rather than tell those apart, the manager's copy serves its
  * `GM_*` storage over the storage bridge and puts `caelestis('page')` into the page as a `<script>`,
  * where Caelestis runs as it does in the extension. Where that cannot work, the manager's copy runs
- * Caelestis where it is, as before.
+ * Caelestis in its own world.
  *
  * A userscript that handed over to the extension (see `build-transfer.ts`) puts
  * `caelestis('standby')` into the page instead: that copy never claims the page, and only serves its
