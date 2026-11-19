@@ -24,7 +24,6 @@ declare const chrome: {
 
 const storage = (): StorageArea => chrome.storage.local
 
-/** Every stored string. */
 export const loadStoredStrings = async (): Promise<Record<string, string>> => {
   const values: Record<string, string> = {}
   for (const [key, value] of Object.entries(await storage().get(null))) {

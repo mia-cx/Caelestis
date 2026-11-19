@@ -125,7 +125,7 @@ const sampleExit = async (node: HTMLElement, label: string, exit: 'fade' | 'morp
   return duration
 }
 
-/** Real custom-element, top-layer, focus-scroll and native-dialog contracts for PR580. */
+/** Real custom-element, top-layer, focus-scroll and native-dialog contracts. */
 export const runPanelSurfaceContracts = async () => {
   registerCaelestisUi()
   const host = document.createElement('caelestis-panel')
