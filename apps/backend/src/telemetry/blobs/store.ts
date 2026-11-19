@@ -1,13 +1,7 @@
 import type { Millis } from '@caelestis/shared'
-import type {
-  TemplateTileStatusRecord,
-  TileObservation,
-  TileObservationCommit,
-} from '../tiles/store.js'
 
 export type TileBlobObjectState = 'uploading' | 'active' | 'candidate' | 'deleting' | 'deleted'
 
-/** One physical object carrying the bytes for a public content hash. */
 export interface TileBlobObject {
   /** Key relative to `tiles/`. A suffix makes a restored generation immune to an older delete. */
   readonly blobKey: string
@@ -36,8 +30,8 @@ export interface TileBlobScanState {
 }
 
 /**
- * Tile bytes' lifecycle: ingest reserves and commits an object, garbage collection fences and
- * reclaims one. A commit is also the single write that records the observation it carries.
+ * Tile bytes' lifecycle: ingest reserves an object, `TileStore.commitTileObservation` consumes the
+ * reservation, and garbage collection fences and reclaims one.
  */
 export interface TileBlobStore {
   /** The preferred readable physical object for a hash, if one is registered and unfenced. */
@@ -62,22 +56,6 @@ export interface TileBlobStore {
     now: Millis,
     expiresAt: Millis,
   ): Promise<TileBlobReservation | null>
-
-  /**
-   * Atomically verify the reservation, activate its object, and create both SQL reference kinds.
-   * Null means the reservation expired or a deletion fence won first; no reference was created.
-   */
-  commitTileBlobReservation(
-    reservationId: string,
-    now: Millis,
-    observation: TileObservation,
-    statuses: readonly TemplateTileStatusRecord[],
-    recordHistory?: boolean,
-    /** Server fetches are authoritative even when a client clock put the current row in the future. */
-    forceCurrent?: boolean,
-    /** Whether the committing reporter may still target an unpublished current version. */
-    includeUnpublished?: boolean,
-  ): Promise<TileObservationCommit | null>
 
   releaseTileBlobReservation(reservationId: string): Promise<void>
 

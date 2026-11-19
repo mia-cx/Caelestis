@@ -85,14 +85,16 @@ it.each(['before-put', 'before-commit'])(
         }
         return super.readTileBlob(...args)
       }
-      override async commitTileBlobReservation(
-        ...args: Parameters<RelationalTileBlobStore['commitTileBlobReservation']>
+    }
+    class DelayedCommits extends RelationalTileStore {
+      override async commitTileObservation(
+        ...args: Parameters<RelationalTileStore['commitTileObservation']>
       ) {
         if (phase === 'before-commit' && ++commits === 1) {
           entered.resolve()
           await gate.promise
         }
-        return super.commitTileBlobReservation(...args)
+        return super.commitTileObservation(...args)
       }
     }
     class CountingObjects extends MemoryBlobStore {
@@ -102,7 +104,8 @@ it.each(['before-put', 'before-commit'])(
       }
     }
     const opened = await openMemoryStores({
-      sql: (connection) => relationalSqlStore(connection, { tileBlobs: DelayedStore }),
+      sql: (connection) =>
+        relationalSqlStore(connection, { tileBlobs: DelayedStore, tiles: DelayedCommits }),
     })
     const pending: Promise<unknown>[] = []
     try {

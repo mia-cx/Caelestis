@@ -8,7 +8,11 @@ import { relationalSqlStore } from '../adapters/relational-sql-store.js'
 import { TelemetryCoordinator } from '../coordination/telemetry.js'
 import type { SqlStore } from '../ports/sql-store.js'
 import type { TileBlobStore } from '../telemetry/blobs/store.js'
-import type { TemplateTileStatusRecord, TileObservation } from '../telemetry/tiles/store.js'
+import type {
+  TemplateTileStatusRecord,
+  TileObservation,
+  TileStore,
+} from '../telemetry/tiles/store.js'
 import { sqliteConnection } from './database.js'
 
 /** Builds the relational stores; a test swaps in a feature subclass to inject faults or delays. */
@@ -54,10 +58,9 @@ const SEED_RESERVATION_MILLISECONDS = 60_000
  * kept, as an admin reporter's would be.
  */
 export const seedTileObservation = async (
-  sql: TileBlobStore,
+  sql: TileBlobStore & TileStore,
   observation: TileObservation,
   statuses: readonly TemplateTileStatusRecord[] = [],
-  options: { recordHistory?: boolean; forceCurrent?: boolean } = {},
 ): Promise<void> => {
   const reservationId = uuidV7()
   const now = observation.observedAt
@@ -69,14 +72,14 @@ export const seedTileObservation = async (
     millis(now + SEED_RESERVATION_MILLISECONDS),
   )
   if (reserved === null) throw new Error(`Tile blob ${observation.hash} is being deleted`)
-  const committed = await sql.commitTileBlobReservation(
+  const committed = await sql.commitTileObservation({
     reservationId,
     now,
     observation,
     statuses,
-    options.recordHistory,
-    options.forceCurrent,
-    true,
-  )
+    recordHistory: true,
+    authoritative: false,
+    includeUnpublished: true,
+  })
   if (committed === null) throw new Error(`Tile observation ${observation.hash} did not commit`)
 }

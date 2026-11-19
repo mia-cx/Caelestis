@@ -253,15 +253,15 @@ const recordObservation = async (
         metadata.recordHistory ??
         (targets.length === 0 || targets.some((target) => !target.finished))
       const committed = await timed('commit', () =>
-        ports.sql.commitTileBlobReservation(
+        ports.sql.commitTileObservation({
           reservationId,
-          millis(Date.now()),
+          now: millis(Date.now()),
           observation,
           statuses,
           recordHistory,
           authoritative,
-          metadata.includeUnpublished,
-        ),
+          includeUnpublished: metadata.includeUnpublished,
+        }),
       )
       if (!committed) {
         throw new Error(`tile blob reservation expired before ${metadata.hash} could be recorded`)

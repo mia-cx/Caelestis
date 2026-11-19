@@ -76,6 +76,20 @@ export interface TemplateTileStatusChange {
   readonly previousTemplateObservedAt: Millis
 }
 
+/** One observation to record against the blob reservation that holds its bytes. */
+export interface TileObservationCommitRequest {
+  readonly reservationId: string
+  readonly now: Millis
+  readonly observation: TileObservation
+  readonly statuses: readonly TemplateTileStatusRecord[]
+  /** Whether the observation enters raw tile history. */
+  readonly recordHistory: boolean
+  /** A server fetch outranks a reporter's row even when a client clock put it in the future. */
+  readonly authoritative: boolean
+  /** Whether the committing reporter may still target an unpublished current version. */
+  readonly includeUnpublished: boolean
+}
+
 export interface TileObservationCommit {
   /** Revision advanced in the same transaction as the accepted tile-status rows. */
   readonly revision: number | null
@@ -114,6 +128,14 @@ export interface TileStore {
   readLatestTile(season: number, tile: TileCoord): Promise<LatestTileObservation | null>
 
   /**
+   * Record an observation in one atomic batch: verify its blob reservation and activate the object,
+   * then write raw history, the current canvas generation, template statuses, measurements, alarm
+   * evidence for authoritative fetches, and the projection revision. Null means the reservation
+   * expired or a deletion fence won first; nothing was recorded.
+   */
+  commitTileObservation(commit: TileObservationCommitRequest): Promise<TileObservationCommit | null>
+
+  /**
    * The latest accepted observation of every observed tile in a season, ordered by x then y.
    *
    * Unbounded on purpose: only observed tiles have rows, and reporters plus the scheduled capture
@@ -133,7 +155,6 @@ export interface TileStore {
   readTemplateStatuses(
     season: number,
     includeUnpublished: boolean,
-    options?: { readonly serverOwnedOnly?: boolean },
   ): Promise<readonly TemplateStatus[]>
 
   /** Read the revision that must fence an authoritative projection rebuild. */
