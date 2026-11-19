@@ -1,4 +1,5 @@
 import type { PixelRect } from '../geometry.js'
+import { recordProfileWorkload } from '../profile.js'
 import { isPlain } from '../templates/appearance.js'
 import type { PlacedTemplate } from '../templates/catalog.js'
 import { isDarkMapTheme } from './contrast-outline.js'
@@ -57,6 +58,33 @@ export interface TemplatePassResult {
   readonly uploaded: boolean
   /** Some template still has chunks left to upload. */
   readonly pending: boolean
+}
+
+/**
+ * Record one overlay pass's frame in the profile under `prefix`: what it drew, compared and uploaded.
+ * The world and artboard overlays share these keys so their profiles read side by side.
+ */
+export const recordPassWorkload = (
+  prefix: string,
+  pass: {
+    readonly templates: readonly {
+      readonly template: { readonly width: number; readonly height: number }
+    }[]
+    readonly drawIntersections: number
+    readonly uploadedPixels: number
+    readonly tapCap: number
+    readonly moving: boolean
+  },
+): void => {
+  recordProfileWorkload(
+    `${prefix} visible source pixels`,
+    pass.templates.reduce((total, { template }) => total + template.width * template.height, 0),
+  )
+  recordProfileWorkload(`${prefix} visible templates`, pass.templates.length)
+  recordProfileWorkload(`${prefix} draw intersections`, pass.drawIntersections)
+  recordProfileWorkload(`${prefix} uploaded index pixels`, pass.uploadedPixels)
+  recordProfileWorkload(`${prefix} minify tap cap`, pass.tapCap)
+  recordProfileWorkload(`${prefix} moving`, pass.moving ? 1 : 0)
 }
 
 /** The outline's halo, in cells: it may reach one cell past a chunk's open edges. */

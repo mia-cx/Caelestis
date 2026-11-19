@@ -28,7 +28,7 @@ import {
   TemplateGpuStore,
   type TemplateGpuTile,
 } from './template-gpu-store.js'
-import { TemplatePass, type TemplatePlacement } from './template-pass.js'
+import { recordPassWorkload, TemplatePass, type TemplatePlacement } from './template-pass.js'
 
 /**
  * The overlay, drawn inside Wplace's own canvas.
@@ -330,15 +330,7 @@ const drawOverlay = (gl: WebGL2RenderingContext, pass: TemplatePass, store: Temp
   } finally {
     if (profiling) {
       recordProfileWorkload('Overlay host tiles', tiles.length)
-      recordProfileWorkload(
-        'Overlay visible source pixels',
-        visible.reduce((total, { template }) => total + template.width * template.height, 0),
-      )
-      recordProfileWorkload('Overlay visible templates', visible.length)
-      recordProfileWorkload('Overlay draw intersections', result.drawIntersections)
-      recordProfileWorkload('Overlay uploaded index pixels', result.uploadedPixels)
-      recordProfileWorkload('Overlay minify tap cap', tapCap)
-      recordProfileWorkload('Overlay moving', moving ? 1 : 0)
+      recordPassWorkload('Overlay', { ...result, templates: visible, tapCap, moving })
       if (moving) {
         recordProfileWorkload('Overlay moving draw intersections', result.drawIntersections)
         recordProfileWorkload('Overlay moving minify tap cap', tapCap)

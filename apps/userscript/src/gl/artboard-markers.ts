@@ -304,3 +304,137 @@ export class ArtboardMarkerIndex {
     return this.compared
   }
 }
+
+/** A template whose pixels are in memory, with the appearance its markers follow. */
+export interface ResidentTemplate {
+  readonly template: PlacedPixels & { readonly id: string }
+  readonly appearance: Appearance
+}
+
+/**
+ * How long a moved template rests before its markers are compared at the new place.
+ *
+ * A comparison reads every pixel of the template, far too slow to repeat on each frame of a drag
+ * or a held arrow key.
+ */
+const MARKER_SETTLE_MS = 150
+
+/**
+ * Every artboard template's marker work, kept current against the artboard's native pixels. A
+ * template that moved hides its markers until it rests, then compares once at its new place.
+ */
+export class ArtboardMarkerTracker {
+  private pixelsDirty = true
+  private readonly dirtyRects: PixelRect[] = []
+  private readonly held = new Map<
+    string,
+    {
+      readonly index: ArtboardMarkerIndex
+      readonly work: ArtboardMarkerWork
+      readonly originX: number
+      readonly originY: number
+    }
+  >()
+  /** Where and when each moved template last changed place, until its markers catch up. */
+  private readonly movedAt = new Map<
+    string,
+    { readonly x: number; readonly y: number; readonly at: number }
+  >()
+  /** Moving templates that skipped a native pixel change, so they compare in full once at rest. */
+  private readonly missedPixels = new Set<string>()
+
+  /** The native pixels changed everywhere. */
+  invalidateAll(): void {
+    this.pixelsDirty = true
+    this.dirtyRects.length = 0
+  }
+
+  /** The native pixels changed inside these artboard rects. */
+  invalidate(rects: readonly PixelRect[]): void {
+    this.dirtyRects.push(...rects)
+  }
+
+  /** The marker work for a template as of the last `update`, if it has any. */
+  work(id: string): ArtboardMarkerWork | undefined {
+    return this.held.get(id)?.work
+  }
+
+  /**
+   * Bring every resident template's markers up to date, reading the native pixels only when some
+   * comparison needs them. Returns the templates still settling after a move, whose markers belong
+   * to where they were, and how many pixels were compared.
+   */
+  update(
+    resident: readonly ResidentTemplate[],
+    now: number,
+    readPixels: () => NativePixelSnapshot,
+  ): { readonly placing: ReadonlySet<string>; readonly comparedPixels: number } {
+    const residentIds = new Set(resident.map(({ template }) => template.id))
+    const placing = new Set<string>()
+    for (const { template } of resident) {
+      const held = this.held.get(template.id)
+      if (
+        held === undefined ||
+        (held.originX === template.originX && held.originY === template.originY)
+      ) {
+        this.movedAt.delete(template.id)
+        continue
+      }
+      const last = this.movedAt.get(template.id)
+      if (last === undefined || last.x !== template.originX || last.y !== template.originY) {
+        this.movedAt.set(template.id, { x: template.originX, y: template.originY, at: now })
+        placing.add(template.id)
+      } else if (now - last.at < MARKER_SETTLE_MS) placing.add(template.id)
+    }
+    for (const id of this.movedAt.keys()) if (!residentIds.has(id)) this.movedAt.delete(id)
+    for (const id of this.missedPixels) if (!residentIds.has(id)) this.missedPixels.delete(id)
+    const staleIds = new Set(
+      resident
+        .filter(({ template, appearance }) => {
+          if (placing.has(template.id)) return false
+          if (this.missedPixels.has(template.id)) return true
+          const held = this.held.get(template.id)
+          return held === undefined || !held.index.isCurrent(template, appearance)
+        })
+        .map(({ template }) => template.id),
+    )
+    let comparedPixels = 0
+    if (this.pixelsDirty || this.dirtyRects.length > 0 || staleIds.size > 0) {
+      const regions = readPixels()
+      const pixelsChanged = this.pixelsDirty || this.dirtyRects.length > 0
+      for (const { template, appearance } of resident) {
+        if (placing.has(template.id)) {
+          if (pixelsChanged) this.missedPixels.add(template.id)
+          continue
+        }
+        const held = this.held.get(template.id)
+        const rebuild =
+          this.missedPixels.delete(template.id) ||
+          this.pixelsDirty ||
+          held === undefined ||
+          !held.index.hasCurrentPixels(template, appearance)
+        const intersectsDirty = this.dirtyRects.some(
+          (dirty) =>
+            dirty.x < template.originX + template.width &&
+            dirty.x + dirty.width > template.originX &&
+            dirty.y < template.originY + template.height &&
+            dirty.y + dirty.height > template.originY,
+        )
+        if (!rebuild && !intersectsDirty && !staleIds.has(template.id)) continue
+        const index = held?.index ?? new ArtboardMarkerIndex()
+        const work = index.update(template, regions, appearance, rebuild ? null : this.dirtyRects)
+        comparedPixels += index.comparedPixels()
+        this.held.set(template.id, {
+          index,
+          work,
+          originX: template.originX,
+          originY: template.originY,
+        })
+      }
+      this.pixelsDirty = false
+      this.dirtyRects.length = 0
+    }
+    for (const id of this.held.keys()) if (!residentIds.has(id)) this.held.delete(id)
+    return { placing, comparedPixels }
+  }
+}

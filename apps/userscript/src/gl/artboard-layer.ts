@@ -24,11 +24,7 @@ import { fixedMarkList, type MarkList, markSeed } from '../templates/mark-list.j
 import { abortMoveOutsideSurface } from '../templates/move.js'
 import { noteTemplatesInView } from '../templates/residency.js'
 import { selectedColour } from '../wplace-paint.js'
-import {
-  type ArtboardMarkerBatch,
-  ArtboardMarkerIndex,
-  type ArtboardMarkerWork,
-} from './artboard-markers.js'
+import { type ArtboardMarkerBatch, ArtboardMarkerTracker } from './artboard-markers.js'
 import {
   ARTBOARD_CANVAS_ATTRIBUTES,
   artboardCanvasWriteRect,
@@ -56,20 +52,13 @@ import {
   type TemplateGpuTile,
 } from './template-gpu-store.js'
 import {
+  recordPassWorkload,
   TemplatePass,
   type TemplatePassFrame,
   type TemplatePassKind,
   type TemplatePassResult,
   type TemplatePlacement,
 } from './template-pass.js'
-
-/**
- * How long a moved template rests before its markers are compared at the new place.
- *
- * A comparison reads every pixel of the template, far too slow to repeat on each frame of a drag
- * or a held arrow key.
- */
-const MARKER_SETTLE_MS = 150
 
 interface ArtboardViewport {
   readonly bufferWidth: number
@@ -466,24 +455,7 @@ class ArtboardRenderer {
   private readonly resizeObserver: ResizeObserver | null
   private readonly stopDraftMarks: () => void
   private framePending = false
-  private markerPixelsDirty = true
-  private readonly markerDirtyRects: PixelRect[] = []
-  private readonly markerWork = new Map<
-    string,
-    {
-      readonly index: ArtboardMarkerIndex
-      readonly work: ArtboardMarkerWork
-      readonly originX: number
-      readonly originY: number
-    }
-  >()
-  /** Where and when each moved template last changed place, until its markers catch up. */
-  private readonly movedAt = new Map<
-    string,
-    { readonly x: number; readonly y: number; readonly at: number }
-  >()
-  /** Moving templates that skipped a native pixel change, so they compare in full once at rest. */
-  private readonly missedPixels = new Set<string>()
+  private readonly markerTracker = new ArtboardMarkerTracker()
   private renderGeneration = 0
   private lastViewportKey: string | null | undefined
   private settleFramePending = false
@@ -618,7 +590,7 @@ class ArtboardRenderer {
       )
         return
       const tiles = trackArtboardTiles(this.active, this.geometry, canvas, draw)
-      this.markerDirtyRects.push(...tiles)
+      this.markerTracker.invalidate(tiles)
       // The layer's own write rects are screen pixels; only the tiles it reveals are artboard cells.
       if (isHeadquartersTileLayer(canvas)) {
         if (tiles.length > 0) this.requestRender()
@@ -626,8 +598,8 @@ class ArtboardRenderer {
       }
       patchArtboardPixels(this.active, this.geometry, canvas, dirty)
       const rect = artboardCanvasWriteRect(this.active, this.geometry, canvas, dirty)
-      if (rect === null) this.markerPixelsDirty = true
-      else this.markerDirtyRects.push(rect)
+      if (rect === null) this.markerTracker.invalidateAll()
+      else this.markerTracker.invalidate([rect])
       this.requestRender()
     } catch {
       // Offscreen and foreign-realm canvases cannot belong to this DOM artboard.
@@ -635,8 +607,7 @@ class ArtboardRenderer {
   }
 
   nativePixelsChanged(): void {
-    this.markerPixelsDirty = true
-    this.markerDirtyRects.length = 0
+    this.markerTracker.invalidateAll()
     this.requestRender()
   }
 
@@ -671,7 +642,6 @@ class ArtboardRenderer {
     const selected = selectedColour()
     const markerScene = this.scene.advanceMarkers(templateScene.templates, selected, now)
     if (markerScene.animating) animating = true
-    let comparedMarkerPixels = 0
     // Markers compare pixels, so they cover only templates whose pixels are in memory. The editor's
     // draft changes with every setting and has no progress worth marking, as on the world map.
     const resident = templateScene.templates.flatMap(({ template, appearance }) => {
@@ -680,87 +650,17 @@ class ArtboardRenderer {
         ? []
         : [{ template: { ...template, pixels }, appearance }]
     })
-    const residentIds = new Set(resident.map(({ template }) => template.id))
-    // A template that moved hides its markers until it rests, then compares once at its new place.
-    const placing = new Set<string>()
-    for (const { template } of resident) {
-      const held = this.markerWork.get(template.id)
-      if (
-        held === undefined ||
-        (held.originX === template.originX && held.originY === template.originY)
-      ) {
-        this.movedAt.delete(template.id)
-        continue
-      }
-      const last = this.movedAt.get(template.id)
-      if (last === undefined || last.x !== template.originX || last.y !== template.originY) {
-        this.movedAt.set(template.id, { x: template.originX, y: template.originY, at: now })
-        placing.add(template.id)
-      } else if (now - last.at < MARKER_SETTLE_MS) placing.add(template.id)
-    }
-    for (const id of this.movedAt.keys()) if (!residentIds.has(id)) this.movedAt.delete(id)
-    for (const id of this.missedPixels) if (!residentIds.has(id)) this.missedPixels.delete(id)
-    if (placing.size > 0) animating = true
-    const staleMarkerIds = new Set(
-      resident
-        .filter(({ template, appearance }) => {
-          if (placing.has(template.id)) return false
-          if (this.missedPixels.has(template.id)) return true
-          const held = this.markerWork.get(template.id)
-          return held === undefined || !held.index.isCurrent(template, appearance)
-        })
-        .map(({ template }) => template.id),
+    const { placing, comparedPixels } = this.markerTracker.update(resident, now, () =>
+      readArtboardPixels(this.active, this.geometry),
     )
-    if (this.markerPixelsDirty || this.markerDirtyRects.length > 0 || staleMarkerIds.size > 0) {
-      const regions = readArtboardPixels(this.active, this.geometry)
-      const pixelsChanged = this.markerPixelsDirty || this.markerDirtyRects.length > 0
-      for (const { template, appearance } of resident) {
-        if (placing.has(template.id)) {
-          if (pixelsChanged) this.missedPixels.add(template.id)
-          continue
-        }
-        const held = this.markerWork.get(template.id)
-        const stale = staleMarkerIds.has(template.id)
-        const rebuild =
-          this.missedPixels.delete(template.id) ||
-          this.markerPixelsDirty ||
-          held === undefined ||
-          !held.index.hasCurrentPixels(template, appearance)
-        const intersectsDirty = this.markerDirtyRects.some(
-          (dirty) =>
-            dirty.x < template.originX + template.width &&
-            dirty.x + dirty.width > template.originX &&
-            dirty.y < template.originY + template.height &&
-            dirty.y + dirty.height > template.originY,
-        )
-        if (!rebuild && !intersectsDirty && !stale) continue
-        const index = held?.index ?? new ArtboardMarkerIndex()
-        const work = index.update(
-          template,
-          regions,
-          appearance,
-          rebuild ? null : this.markerDirtyRects,
-        )
-        comparedMarkerPixels += index.comparedPixels()
-        this.markerWork.set(template.id, {
-          index,
-          work,
-          originX: template.originX,
-          originY: template.originY,
-        })
-      }
-      this.markerPixelsDirty = false
-      this.markerDirtyRects.length = 0
-    }
-    for (const id of this.markerWork.keys()) if (!residentIds.has(id)) this.markerWork.delete(id)
+    if (placing.size > 0) animating = true
     const selectedLayers: MarkerLayer[] = []
     const mismatchLayers: MarkerLayer[] = []
     for (const { rendered, mismatchFade, selectedFades } of markerScene.templates) {
       // A moving template's markers belong to where it was, so it shows none until it rests.
       if (rendered.fade <= 0 || placing.has(rendered.template.id)) continue
-      const indexed = this.markerWork.get(rendered.template.id)
-      if (indexed === undefined) continue
-      const { work } = indexed
+      const work = this.markerTracker.work(rendered.template.id)
+      if (work === undefined) continue
       const styles = markerStyles(rendered.appearance, this.surface, selected)
       for (const selectedFade of selectedFades) {
         const selectedWork = work.selected.find(({ index }) => index === selectedFade.index)
@@ -807,21 +707,13 @@ class ArtboardRenderer {
     })
     this.markers.render(markerLayers, this.geometry, viewport, peek.opacity)
     if (isProfileEnabled()) {
-      recordProfileWorkload('Alliance overlay visible templates', templates.length)
-      recordProfileWorkload(
-        'Alliance overlay visible source pixels',
-        templates.reduce((total, { template }) => total + template.width * template.height, 0),
-      )
-      recordProfileWorkload(
-        'Alliance overlay draw intersections',
-        outlineResult.drawIntersections + overlayResult.drawIntersections,
-      )
-      recordProfileWorkload(
-        'Alliance overlay uploaded index pixels',
-        outlineResult.uploadedPixels + overlayResult.uploadedPixels,
-      )
-      recordProfileWorkload('Alliance overlay minify tap cap', tapCap)
-      recordProfileWorkload('Alliance overlay moving', moving ? 1 : 0)
+      recordPassWorkload('Alliance overlay', {
+        templates,
+        drawIntersections: outlineResult.drawIntersections + overlayResult.drawIntersections,
+        uploadedPixels: outlineResult.uploadedPixels + overlayResult.uploadedPixels,
+        tapCap,
+        moving,
+      })
       recordProfileWorkload('Alliance marker source batches', markerLayers.length)
       recordProfileWorkload(
         'Alliance marker source points',
@@ -830,7 +722,7 @@ class ArtboardRenderer {
           0,
         ),
       )
-      recordProfileWorkload('Alliance marker compared pixels', comparedMarkerPixels)
+      recordProfileWorkload('Alliance marker compared pixels', comparedPixels)
       recordProfileWorkload(
         'Alliance marker draw batches saved',
         selectedLayers.length + mismatchLayers.length - markerLayers.length,
