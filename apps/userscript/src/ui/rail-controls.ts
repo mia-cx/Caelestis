@@ -1,4 +1,4 @@
-import type { CaelestisRailControl, RailControlIntent } from '@caelestis/ui/elements'
+import type { CaelestisElement } from '@caelestis/ui/elements'
 import { activeAllianceSurface } from '../alliance-surface.js'
 import { isCaptureModeActive, isClaimModeActive, stopClaimMode } from '../claim-editor.js'
 import { redraw } from '../main.js'
@@ -12,6 +12,8 @@ export const MISMATCH_MODE_ID = 'caelestis-mismatch-mode'
 export const CLAIM_TOOL_ID = 'caelestis-claim-tool-mode'
 export const PRESENCE_MODE_ID = 'caelestis-presence-mode'
 
+type RailControl = CaelestisElement<'caelestis-rail-control'>
+
 /**
  * Keep the rail's stateful buttons current with persisted state: their pressed states and the key
  * hints read from stored bindings. Called once at install; the button factories are also the
@@ -24,7 +26,7 @@ export const installRailStateSync = (): void => {
 }
 
 export const syncPresenceModeState = (): void => {
-  const button = document.getElementById(PRESENCE_MODE_ID) as CaelestisRailControl | null
+  const button = document.getElementById(PRESENCE_MODE_ID) as RailControl | null
   if (button === null) return
   const on = getState().showPresence
   button.model = {
@@ -35,14 +37,14 @@ export const syncPresenceModeState = (): void => {
 }
 
 /** The always-reachable switch for other painters, so it works where there is no keyboard. */
-export const presenceModeButton = (): CaelestisRailControl => {
+export const presenceModeButton = (): RailControl => {
   const existing = document.getElementById(PRESENCE_MODE_ID)
-  if (existing !== null) return existing as CaelestisRailControl
+  if (existing !== null) return existing as RailControl
   const button = document.createElement('caelestis-rail-control')
   button.id = PRESENCE_MODE_ID
   applyWplaceTheme(button)
-  button.addEventListener('caelestis-rail-intent', (event) => {
-    const intent = (event as CustomEvent<RailControlIntent>).detail
+  button.addEventListener('caelestis-rail-control-intent', (event) => {
+    const intent = event.detail
     if (intent.id !== 'presence') return
     setState({ showPresence: !getState().showPresence })
     syncPresenceModeState()
@@ -53,7 +55,7 @@ export const presenceModeButton = (): CaelestisRailControl => {
 }
 
 export const syncClaimToolState = (): void => {
-  const button = document.getElementById(CLAIM_TOOL_ID) as CaelestisRailControl | null
+  const button = document.getElementById(CLAIM_TOOL_ID) as RailControl | null
   if (button === null) return
   const active = isClaimModeActive()
   const capturing = isCaptureModeActive()
@@ -81,14 +83,14 @@ export const syncClaimToolState = (): void => {
 }
 
 /** The always-reachable way into the region claim tool, beside the panel and marker switches. */
-export const claimToolButton = (): CaelestisRailControl => {
+export const claimToolButton = (): RailControl => {
   const existing = document.getElementById(CLAIM_TOOL_ID)
-  if (existing !== null) return existing as CaelestisRailControl
+  if (existing !== null) return existing as RailControl
   const button = document.createElement('caelestis-rail-control')
   button.id = CLAIM_TOOL_ID
   applyWplaceTheme(button)
-  button.addEventListener('caelestis-rail-intent', (event) => {
-    const intent = (event as CustomEvent<RailControlIntent>).detail
+  button.addEventListener('caelestis-rail-control-intent', (event) => {
+    const intent = event.detail
     if (intent.id !== 'claim') return
     if (isClaimModeActive()) stopClaimMode()
     else {
@@ -104,7 +106,7 @@ export const claimToolButton = (): CaelestisRailControl => {
 }
 
 export const syncMismatchModeState = (): void => {
-  const button = document.getElementById(MISMATCH_MODE_ID) as CaelestisRailControl | null
+  const button = document.getElementById(MISMATCH_MODE_ID) as RailControl | null
   if (button === null) return
   const on = getState().appearance.markMismatch
   const label = on ? 'Hide global mismatch markers' : 'Show global mismatch markers'
@@ -112,14 +114,14 @@ export const syncMismatchModeState = (): void => {
 }
 
 /** The always-reachable switch for the global marker default. */
-export const mismatchModeButton = (): CaelestisRailControl => {
+export const mismatchModeButton = (): RailControl => {
   const existing = document.getElementById(MISMATCH_MODE_ID)
-  if (existing !== null) return existing as CaelestisRailControl
+  if (existing !== null) return existing as RailControl
   const button = document.createElement('caelestis-rail-control')
   button.id = MISMATCH_MODE_ID
   applyWplaceTheme(button)
-  button.addEventListener('caelestis-rail-intent', (event) => {
-    const intent = (event as CustomEvent<RailControlIntent>).detail
+  button.addEventListener('caelestis-rail-control-intent', (event) => {
+    const intent = event.detail
     if (intent.id !== 'mismatch') return
     const appearance = getState().appearance
     setState({ appearance: { ...appearance, markMismatch: !appearance.markMismatch } })

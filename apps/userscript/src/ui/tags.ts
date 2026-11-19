@@ -1,8 +1,4 @@
-import {
-  TAG_MANAGER_TAG,
-  type TagManagerIntent,
-  type TagManagerModel,
-} from '@caelestis/ui/elements'
+import type { TagManagerIntent, TagManagerModel } from '@caelestis/ui/elements'
 import { refreshAllianceManifest } from '../alliance-server-sync.js'
 import { refreshServerSnapshot } from '../application/tree-server-state.js'
 import {
@@ -21,7 +17,7 @@ let closeManager: (() => void) | undefined
 /** Open the same tag workflow for browser-owned and server-owned templates or catalogs. */
 export const openTagManager = (target: TreeTarget, rerender: () => void): void => {
   closeManager?.()
-  const manager = document.createElement(TAG_MANAGER_TAG)
+  const manager = document.createElement('caelestis-tag-manager')
   const server = target.server
   const templateId =
     server === null && target.key.startsWith('local:')
@@ -178,7 +174,7 @@ export const openTagManager = (target: TreeTarget, rerender: () => void): void =
   applyWplaceTheme(manager)
   manager.addEventListener('caelestis-tag-manager-intent', (event) => {
     if (closed) return
-    const intent = (event as CustomEvent<TagManagerIntent>).detail
+    const intent = event.detail
     if (intent.type === 'close') {
       close()
       return

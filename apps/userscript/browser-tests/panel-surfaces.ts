@@ -1,8 +1,4 @@
-import {
-  type PanelIntent,
-  registerCaelestisUi,
-  type TemplateTreeModel,
-} from '@caelestis/ui/elements'
+import { registerCaelestisUi, type TemplateTreeModel } from '@caelestis/ui/elements'
 import { surfaceCloseDurationMs } from '@caelestis/ui/motion'
 import { requestConfirmation } from '../src/ui/notification-host.js'
 import { applyWplaceTheme } from '../src/ui/theme.js'
@@ -164,7 +160,7 @@ export const runPanelSurfaceContracts = async () => {
   const actions: string[] = []
   const popouts: boolean[] = []
   host.addEventListener('caelestis-panel-intent', (event) => {
-    const intent = (event as CustomEvent<PanelIntent>).detail
+    const intent = event.detail
     if (intent.type === 'popout') {
       popouts.push(intent.open)
       return

@@ -4,14 +4,12 @@
   import MenuStyles from '../foundations/MenuStyles.svelte'
   import PixelStyles from '../foundations/PixelStyles.svelte'
   import GlobalSettings from '../settings/GlobalSettings.svelte'
-  import type { ExtensionSettingsModel, GlobalSettingsIntent } from '../settings/model.js'
+  import type { ExtensionSettingsModel } from '../settings/model.js'
+  import { intentEmitter } from './registry.js'
 
   /** The extension's toolbar popup: the settings that apply to every Wplace tab. */
   let { model }: { model?: ExtensionSettingsModel } = $props()
-  const element: HTMLElement = $host()
-  const emit = (detail: GlobalSettingsIntent): void => {
-    element.dispatchEvent(new CustomEvent('caelestis-extension-settings-intent', { detail, bubbles: true, composed: true }))
-  }
+  const emit = intentEmitter($host(), 'caelestis-extension-settings')
 </script>
 
 <MenuStyles />

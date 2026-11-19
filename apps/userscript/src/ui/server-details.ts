@@ -1,10 +1,5 @@
 import { type ServerAsset, type ServerAssetKind, serverAssetPath } from '@caelestis/shared'
-import {
-  SERVER_DETAILS_TAG,
-  type ServerDetailsFields,
-  type ServerDetailsIntent,
-  type ServerDetailsModel,
-} from '@caelestis/ui/elements'
+import type { ServerDetailsFields, ServerDetailsModel } from '@caelestis/ui/elements'
 import {
   type ConnectedServer,
   deleteServerAsset,
@@ -61,7 +56,7 @@ const patchBetween = (
 /** Open the public presentation editor for one connected server. Admin only; the tree gates it. */
 export const openServerDetails = (server: ConnectedServer, rerender: () => void): void => {
   closeEditor?.()
-  const editor = document.createElement(SERVER_DETAILS_TAG)
+  const editor = document.createElement('caelestis-server-details')
   const restoreFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
   const current = (): ConnectedServer =>
     getState().servers.find((candidate) => candidate.url === server.url) ?? server
@@ -130,7 +125,7 @@ export const openServerDetails = (server: ConnectedServer, rerender: () => void)
   applyWplaceTheme(editor)
   editor.addEventListener('caelestis-server-details-intent', (event) => {
     if (closed) return
-    const intent = (event as CustomEvent<ServerDetailsIntent>).detail
+    const intent = event.detail
     switch (intent.type) {
       case 'close':
         close()

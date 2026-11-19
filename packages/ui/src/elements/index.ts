@@ -1,15 +1,4 @@
-import type { ClaimModeModel } from '../claim/model.js'
-import type { NotificationsModel } from '../notifications/model.js'
-import type { OverlayControlsModel } from '../overlay/model.js'
-import type { PanelModel } from '../panel/model.js'
-import type { PaletteProgressModel } from '../progress/model.js'
-import type { RailControlModel } from '../rail/model.js'
-import type { ServerDetailsModel } from '../server-details/model.js'
-import type { ExtensionSettingsModel } from '../settings/model.js'
-import type { ShortcutHelpModel } from '../shortcut-help/model.js'
-import type { Box } from '../studio/layout.js'
-import type { TemplateStudioModel } from '../studio/model.js'
-import type { TagManagerModel } from '../tags/model.js'
+import BackfillElement from './Backfill.element.svelte'
 import ClaimModeElement from './ClaimMode.element.svelte'
 import ExtensionSettingsElement from './ExtensionSettings.element.svelte'
 import NotificationsElement from './Notifications.element.svelte'
@@ -17,12 +6,14 @@ import OverlayControlsElement from './OverlayControls.element.svelte'
 import PaletteProgressElement from './PaletteProgress.element.svelte'
 import PanelElement from './Panel.element.svelte'
 import RailControlElement from './RailControl.element.svelte'
+import type { CaelestisElement, CaelestisIntent, CaelestisTag } from './registry.js'
 import ServerDetailsElement from './ServerDetails.element.svelte'
 import ShortcutHelpElement from './ShortcutHelp.element.svelte'
 import TagManagerElement from './TagManager.element.svelte'
 import TemplateStudioElement from './TemplateStudio.element.svelte'
 
 export type * from '../appearance/model.js'
+export type * from '../backfill/model.js'
 export type * from '../claim/model.js'
 // The userscript bundles this entry as a separate module instance, so it needs its own export.
 export { type IconSet, useIconSet } from '../foundations/icons.svelte.js'
@@ -42,122 +33,47 @@ export { ALPHA_MODES, COLOR_SPACES, DITHER_ALGORITHMS, RESIZE_MODES } from '../s
 export type { Samples, ScopeStage } from '../studio/scopes/scopes.js'
 export type * from '../tags/model.js'
 export type * from '../tree/model.js'
-export const TEMPLATE_STUDIO_TAG = 'caelestis-template-studio'
-export type CaelestisTemplateStudio = HTMLElement & {
-  model: TemplateStudioModel
-  /** Where the draft, or the crop being drawn, sits on screen, in CSS pixels. */
-  mapBox: Box | null
+export {
+  type CaelestisElement,
+  type CaelestisElementTable,
+  type CaelestisIntent,
+  type CaelestisTag,
+  intentEvent,
+} from './registry.js'
+
+const ELEMENTS: Readonly<Record<CaelestisTag, { readonly element?: typeof HTMLElement }>> = {
+  'caelestis-backfill': BackfillElement,
+  'caelestis-claim-mode': ClaimModeElement,
+  'caelestis-extension-settings': ExtensionSettingsElement,
+  'caelestis-notifications': NotificationsElement,
+  'caelestis-overlay-controls': OverlayControlsElement,
+  'caelestis-palette-progress': PaletteProgressElement,
+  'caelestis-panel': PanelElement,
+  'caelestis-rail-control': RailControlElement,
+  'caelestis-server-details': ServerDetailsElement,
+  'caelestis-shortcut-help': ShortcutHelpElement,
+  'caelestis-tag-manager': TagManagerElement,
+  'caelestis-template-studio': TemplateStudioElement,
 }
 
-export const NOTIFICATIONS_TAG = 'caelestis-notifications'
-export const OVERLAY_CONTROLS_TAG = 'caelestis-overlay-controls'
-export const PANEL_TAG = 'caelestis-panel'
-export const PALETTE_PROGRESS_TAG = 'caelestis-palette-progress'
-export const RAIL_CONTROL_TAG = 'caelestis-rail-control'
-export const SHORTCUT_HELP_TAG = 'caelestis-shortcut-help'
-export const TAG_MANAGER_TAG = 'caelestis-tag-manager'
-export type CaelestisTagManager = HTMLElement & { model: TagManagerModel }
-export const SERVER_DETAILS_TAG = 'caelestis-server-details'
-export type CaelestisServerDetails = HTMLElement & { model: ServerDetailsModel }
-export const CLAIM_MODE_TAG = 'caelestis-claim-mode'
-export const EXTENSION_SETTINGS_TAG = 'caelestis-extension-settings'
-export type CaelestisExtensionSettings = HTMLElement & { model: ExtensionSettingsModel }
-export type CaelestisClaimMode = HTMLElement & { model: ClaimModeModel }
-
-export type CaelestisNotifications = HTMLElement & {
-  model: NotificationsModel
-}
-
-export type CaelestisOverlayControls = HTMLElement & { model: OverlayControlsModel }
-
-export type CaelestisPanel = HTMLElement & { model: PanelModel }
-export type CaelestisPaletteProgress = HTMLElement & { model: PaletteProgressModel }
-export type CaelestisRailControl = HTMLElement & { model: RailControlModel }
-export type CaelestisShortcutHelp = HTMLElement & { model: ShortcutHelpModel }
-
-type ElementConstructor<T extends HTMLElement> = {
-  new (): T
-  readonly prototype: T
-}
-
-export const CaelestisNotifications =
-  NotificationsElement.element as ElementConstructor<CaelestisNotifications>
-export const CaelestisOverlayControls =
-  OverlayControlsElement.element as ElementConstructor<CaelestisOverlayControls>
-export const CaelestisPanel = PanelElement.element as ElementConstructor<CaelestisPanel>
-export const CaelestisPaletteProgress =
-  PaletteProgressElement.element as ElementConstructor<CaelestisPaletteProgress>
-export const CaelestisRailControl =
-  RailControlElement.element as ElementConstructor<CaelestisRailControl>
-export const CaelestisShortcutHelp =
-  ShortcutHelpElement.element as ElementConstructor<CaelestisShortcutHelp>
-export const CaelestisTagManager =
-  TagManagerElement.element as ElementConstructor<CaelestisTagManager>
-export const CaelestisClaimMode = ClaimModeElement.element as ElementConstructor<CaelestisClaimMode>
-export const CaelestisExtensionSettings =
-  ExtensionSettingsElement.element as ElementConstructor<CaelestisExtensionSettings>
-export const CaelestisServerDetails =
-  ServerDetailsElement.element as ElementConstructor<CaelestisServerDetails>
-export const CaelestisTemplateStudio =
-  TemplateStudioElement.element as ElementConstructor<CaelestisTemplateStudio>
-
-/** Browser-only and idempotent, so both hosts can call it whenever their UI mounts. */
+/** Browser-only and idempotent, so a userscript injected twice can call it again. */
 export const registerCaelestisUi = (): void => {
   if (typeof customElements === 'undefined') return
-  if (customElements.get(BACKFILL_TAG) === undefined)
-    customElements.define(
-      BACKFILL_TAG,
-      BackfillElement.element as ElementConstructor<CaelestisBackfill>,
-    )
-  if (customElements.get(TAG_MANAGER_TAG) === undefined)
-    customElements.define(TAG_MANAGER_TAG, CaelestisTagManager)
-  if (customElements.get(CLAIM_MODE_TAG) === undefined)
-    customElements.define(CLAIM_MODE_TAG, CaelestisClaimMode)
-  if (customElements.get(EXTENSION_SETTINGS_TAG) === undefined)
-    customElements.define(EXTENSION_SETTINGS_TAG, CaelestisExtensionSettings)
-  if (customElements.get(SERVER_DETAILS_TAG) === undefined)
-    customElements.define(SERVER_DETAILS_TAG, CaelestisServerDetails)
-  if (customElements.get(TEMPLATE_STUDIO_TAG) === undefined)
-    customElements.define(TEMPLATE_STUDIO_TAG, CaelestisTemplateStudio)
-  if (customElements.get(NOTIFICATIONS_TAG) === undefined) {
-    customElements.define(NOTIFICATIONS_TAG, CaelestisNotifications)
+  for (const [tag, { element }] of Object.entries(ELEMENTS)) {
+    if (element !== undefined && customElements.get(tag) === undefined) {
+      customElements.define(tag, element)
+    }
   }
-  if (customElements.get(OVERLAY_CONTROLS_TAG) === undefined) {
-    customElements.define(OVERLAY_CONTROLS_TAG, CaelestisOverlayControls)
-  }
-  if (customElements.get(PANEL_TAG) === undefined) {
-    customElements.define(PANEL_TAG, CaelestisPanel)
-  }
-  if (customElements.get(PALETTE_PROGRESS_TAG) === undefined) {
-    customElements.define(PALETTE_PROGRESS_TAG, CaelestisPaletteProgress)
-  }
-  if (customElements.get(RAIL_CONTROL_TAG) === undefined) {
-    customElements.define(RAIL_CONTROL_TAG, CaelestisRailControl)
-  }
-  if (customElements.get(SHORTCUT_HELP_TAG) === undefined) {
-    customElements.define(SHORTCUT_HELP_TAG, CaelestisShortcutHelp)
-  }
+}
+
+type ElementTagMap = { [Tag in CaelestisTag]: CaelestisElement<Tag> }
+type IntentEventMap = {
+  [Tag in CaelestisTag as [CaelestisIntent<Tag>] extends [never]
+    ? never
+    : `${Tag}-intent`]: CustomEvent<CaelestisIntent<Tag>>
 }
 
 declare global {
-  interface HTMLElementTagNameMap {
-    'caelestis-backfill': CaelestisBackfill
-    'caelestis-tag-manager': CaelestisTagManager
-    'caelestis-claim-mode': CaelestisClaimMode
-    'caelestis-extension-settings': CaelestisExtensionSettings
-    'caelestis-server-details': CaelestisServerDetails
-    'caelestis-notifications': CaelestisNotifications
-    'caelestis-overlay-controls': CaelestisOverlayControls
-    'caelestis-panel': CaelestisPanel
-    'caelestis-palette-progress': CaelestisPaletteProgress
-    'caelestis-rail-control': CaelestisRailControl
-    'caelestis-shortcut-help': CaelestisShortcutHelp
-  }
+  interface HTMLElementTagNameMap extends ElementTagMap {}
+  interface HTMLElementEventMap extends IntentEventMap {}
 }
-
-import type { BackfillModel } from '../backfill/model.js'
-import BackfillElement from './Backfill.element.svelte'
-
-export type { BackfillIntent, BackfillModel } from '../backfill/model.js'
-export const BACKFILL_TAG = 'caelestis-backfill'
-export type CaelestisBackfill = HTMLElement & { model: BackfillModel }

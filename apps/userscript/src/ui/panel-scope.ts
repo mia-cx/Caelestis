@@ -117,9 +117,8 @@ export const bindRailActivation = (
   if (options.isolatePointerDown) {
     element.addEventListener('pointerdown', (event) => event.stopPropagation())
   }
-  element.addEventListener('caelestis-rail-intent', (event) => {
-    const detail = (event as CustomEvent<{ readonly id?: string }>).detail
-    if (detail?.id === id) activate()
+  element.addEventListener('caelestis-rail-control-intent', (event) => {
+    if (event.detail.id === id) activate()
   })
   element.addEventListener('click', (event) => {
     if (event.composedPath()[0] === element) activate()

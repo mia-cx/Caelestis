@@ -4,14 +4,12 @@
   import { resolveShortcutBindings } from '@caelestis/shared'
   import PixelStyles from '../foundations/PixelStyles.svelte'
   import ShortcutHelp from '../shortcut-help/ShortcutHelp.svelte'
-  import type { ShortcutHelpIntent, ShortcutHelpModel } from '../shortcut-help/model.js'
+  import type { ShortcutHelpModel } from '../shortcut-help/model.js'
+  import { intentEmitter } from './registry.js'
 
   const DEFAULT_MODEL: ShortcutHelpModel = { platform: 'windows-linux', bindings: resolveShortcutBindings(), simulatedInput: {} }
   let { model = DEFAULT_MODEL }: { model?: ShortcutHelpModel } = $props()
-  const element: HTMLElement = $host()
-  const emit = (detail: ShortcutHelpIntent): void => {
-    element.dispatchEvent(new CustomEvent('caelestis-shortcut-help-intent', { detail, bubbles: true, composed: true }))
-  }
+  const emit = intentEmitter($host(), 'caelestis-shortcut-help')
 </script>
 
 <ShortcutHelp {model} onIntent={emit} />

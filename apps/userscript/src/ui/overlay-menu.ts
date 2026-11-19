@@ -8,11 +8,8 @@ import {
 import type {
   AppearanceEditorIntent,
   AppearanceEditorModel,
-  CaelestisOverlayControls,
-  CaelestisRailControl,
-  OverlayControlsIntent,
+  CaelestisElement,
   OverlayControlsModel,
-  RailControlIntent,
   RailControlModel,
 } from '@caelestis/ui/elements'
 import {
@@ -134,6 +131,7 @@ const MENU_ID = 'caelestis-overlay-menu'
 const BUTTON_PREFIX = 'caelestis-overlay-button-'
 /** Below the panel's z-30: while the drawer is open it is the focused surface and should win. */
 const BUTTON_Z = '28'
+type RailControl = CaelestisElement<'caelestis-rail-control'>
 const MENU_Z = '29'
 /** Match the map rail exactly, so this trigger belongs to the same control family. */
 const MENU_BUTTON_SIZE = RAIL_BUTTON
@@ -411,11 +409,11 @@ const queues = new Map<string, Promise<unknown>>()
  * `getElementById` every frame would let it substitute a convincing fake in the exact spot the
  * user expects a control.
  */
-const buttons = new Map<string, CaelestisRailControl>()
+const buttons = new Map<string, RailControl>()
 
 interface PlacementRail {
-  readonly apply: CaelestisRailControl
-  readonly cancel: CaelestisRailControl
+  readonly apply: RailControl
+  readonly cancel: RailControl
 }
 
 const placementRails = new Map<string, PlacementRail>()
@@ -426,7 +424,7 @@ const overlayRailControl = (
   model: RailControlModel,
   control: string,
   activate: () => void,
-): CaelestisRailControl => {
+): RailControl => {
   const element = document.createElement('caelestis-rail-control')
   element.dataset[CONTROL] = control
   element.model = model
@@ -437,9 +435,8 @@ const overlayRailControl = (
     zIndex: BUTTON_Z,
   })
   applyWplaceTheme(element)
-  element.addEventListener('caelestis-rail-intent', (event) => {
-    const intent = (event as CustomEvent<RailControlIntent>).detail
-    if (intent.id === model.id) activate()
+  element.addEventListener('caelestis-rail-control-intent', (event) => {
+    if (event.detail.id === model.id) activate()
   })
   element.addEventListener('click', (event) => {
     if (event.composedPath()[0] === element) activate()
@@ -1560,7 +1557,7 @@ const buildSvelteMenu = (template: PlacedTemplate, rerender: () => void): BuiltO
     action.setAttribute('data-caelestis-rail-action', '')
     return action
   })
-  const menu = document.createElement('caelestis-overlay-controls') as CaelestisOverlayControls
+  const menu = document.createElement('caelestis-overlay-controls')
   menu.id = MENU_ID
   menu.dataset.caelestisTemplate = template.id
   menu.setAttribute('role', 'dialog')
@@ -1582,8 +1579,8 @@ const buildSvelteMenu = (template: PlacedTemplate, rerender: () => void): BuiltO
     rerender()
     event.preventDefault()
   })
-  menu.addEventListener('caelestis-overlay-intent', (event) => {
-    const intent = (event as CustomEvent<OverlayControlsIntent>).detail
+  menu.addEventListener('caelestis-overlay-controls-intent', (event) => {
+    const intent = event.detail
     switch (intent.type) {
       case 'update-artwork':
         requestTemplateArtworkUpdate(id, rerender)

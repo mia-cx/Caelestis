@@ -3,7 +3,8 @@
 <script lang="ts">
   import OverlayControls from '../overlay/OverlayControls.svelte'
   import PixelStyles from '../foundations/PixelStyles.svelte'
-  import type { OverlayControlsIntent, OverlayControlsModel } from '../overlay/model.js'
+  import type { OverlayControlsModel } from '../overlay/model.js'
+  import { intentEmitter } from './registry.js'
 
   const DEFAULT_MODEL: OverlayControlsModel = {
     name: 'Template',
@@ -14,10 +15,7 @@
     },
   }
   let { model = DEFAULT_MODEL }: { model?: OverlayControlsModel } = $props()
-  const element: HTMLElement = $host()
-  const emit = (detail: OverlayControlsIntent): void => {
-    element.dispatchEvent(new CustomEvent('caelestis-overlay-intent', { detail, bubbles: true, composed: true }))
-  }
+  const emit = intentEmitter($host(), 'caelestis-overlay-controls')
 </script>
 
 <OverlayControls {model} onIntent={emit} />
@@ -26,8 +24,6 @@
 
 <style>
   :host { display: block; max-block-size: inherit; }
-  /* The userscript mounts/removes this host directly, so the transition lives on the host and the
-     JS helper drives it through data-state. */
   :host {
     --dropdown-open-dur: var(--caelestis-duration-fast);
     --dropdown-close-dur: var(--caelestis-duration-quick);

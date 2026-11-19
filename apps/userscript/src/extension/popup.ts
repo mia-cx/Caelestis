@@ -1,5 +1,4 @@
 import {
-  EXTENSION_SETTINGS_TAG,
   type ExtensionSettingsModel,
   type GlobalSettingsIntent,
   registerCaelestisUi,
@@ -60,13 +59,13 @@ const start = async (): Promise<void> => {
     }),
   )
   registerCaelestisUi()
-  const view = document.createElement(EXTENSION_SETTINGS_TAG)
+  const view = document.createElement('caelestis-extension-settings')
   applyWplaceTheme(view)
   const render = (): void => {
     view.model = model()
   }
   view.addEventListener('caelestis-extension-settings-intent', (event) => {
-    apply((event as CustomEvent<GlobalSettingsIntent>).detail)
+    apply(event.detail)
     render()
   })
   onStoredValueChange(render)

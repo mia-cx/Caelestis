@@ -8,7 +8,6 @@ const asset = { etag: 'a'.repeat(64), contentType: 'image/png' as const }
 
 const servers = vi.hoisted(() => ({ list: [] as ConnectedServer[] }))
 
-vi.mock('@caelestis/ui/elements', () => ({ SERVER_DETAILS_TAG: 'caelestis-server-details' }))
 vi.mock('../state.js', () => ({
   getState: () => ({ servers: servers.list }),
   isCurrentServerConnection: () => true,

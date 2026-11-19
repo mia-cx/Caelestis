@@ -2,17 +2,16 @@
 <script lang="ts">
   import ClaimMode from '../claim/ClaimMode.svelte'
   import PixelStyles from '../foundations/PixelStyles.svelte'
-  import type { ClaimModeIntent, ClaimModeModel } from '../claim/model.js'
+  import type { ClaimModeModel } from '../claim/model.js'
+  import { intentEmitter } from './registry.js'
   let { model }: { model: ClaimModeModel } = $props()
-  const element: HTMLElement = $host()
-  const emit = (detail: ClaimModeIntent): void => { element.dispatchEvent(new CustomEvent('caelestis-claim-mode-intent', { detail, bubbles: true, composed: true })) }
+  const emit = intentEmitter($host(), 'caelestis-claim-mode')
 </script>
 <ClaimMode {model} onIntent={emit} />
 <PixelStyles />
 
 <style>
-  /* The userscript mounts/removes this host directly; the JS helper drives it through data-state.
-     The close duration is the children's, so the element outlives its exit transition. */
+  /* The close duration is the children's, so the element outlives its exit transition. */
   :host {
     display: block;
     --caelestis-surface-close-duration: var(--caelestis-duration-fast);
