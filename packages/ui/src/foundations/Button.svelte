@@ -76,15 +76,15 @@
     block-size: var(--button-size);
     min-block-size: 0;
     padding-inline: var(--button-padding);
-    border: var(--caelestis-border-width) solid color-mix(in oklab, var(--button-colour), #000 5%);
+    border: var(--caelestis-border-width) solid color-mix(in oklab, var(--button-colour), #000 calc(var(--caelestis-depth) * 5%));
     border-radius: var(--caelestis-radius);
     outline-color: var(--button-colour);
     background: var(--button-colour);
     color: var(--button-foreground);
     box-shadow:
-      0 0.5px 0 0.5px oklch(100% 0 0 / 6%) inset,
-      0 3px 2px -2px color-mix(in oklab, var(--button-colour) 30%, transparent),
-      0 4px 3px -2px color-mix(in oklab, var(--button-colour) 30%, transparent);
+      0 0.5px 0 0.5px oklch(100% 0 0 / calc(var(--caelestis-depth) * 6%)) inset,
+      0 3px 2px -2px color-mix(in oklab, var(--button-colour) calc(var(--caelestis-depth) * 30%), transparent),
+      0 4px 3px -2px color-mix(in oklab, var(--button-colour) calc(var(--caelestis-depth) * 30%), transparent);
     font: 600 var(--button-font-size)/1 var(--caelestis-font);
     cursor: pointer;
     touch-action: manipulation;

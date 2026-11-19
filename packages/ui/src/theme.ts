@@ -22,6 +22,11 @@ export interface CaelestisThemeTokens {
   readonly pillRadius: string
   /** Outline width of buttons, toggles, checkboxes and fields; Wplace sets it through `--border`. */
   readonly borderWidth: string
+  /**
+   * Strength of the bevel shading on buttons, toggles and checkboxes, from 0 (flat) to 1; Wplace
+   * sets it through `--depth`.
+   */
+  readonly depth: string
   readonly font: string
   readonly monoFont: string
   readonly touchTarget: string
@@ -77,6 +82,7 @@ const PROPERTIES: Record<CaelestisThemeToken, `--caelestis-${string}`> = {
   radius: '--caelestis-radius',
   pillRadius: '--caelestis-pill-radius',
   borderWidth: '--caelestis-border-width',
+  depth: '--caelestis-depth',
   font: '--caelestis-font',
   monoFont: '--caelestis-mono-font',
   touchTarget: '--caelestis-touch-target',

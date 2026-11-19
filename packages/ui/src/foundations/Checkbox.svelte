@@ -27,7 +27,7 @@
     border-radius: var(--caelestis-radius);
     background-color: transparent;
     color: var(--caelestis-primary-content);
-    box-shadow: 0 1px oklch(0% 0 0 / 0.1) inset;
+    box-shadow: 0 1px oklch(0% 0 0 / calc(var(--caelestis-depth) * 0.1)) inset;
     cursor: pointer;
     transition: background-color 200ms, box-shadow 200ms;
   }
@@ -37,7 +37,7 @@
     width: 100%;
     height: 100%;
     background-color: currentColor;
-    box-shadow: 0 3px oklch(100% 0 0 / 0.1) inset;
+    box-shadow: 0 3px oklch(100% 0 0 / calc(var(--caelestis-depth) * 0.1)) inset;
     clip-path: polygon(20% 100%, 20% 80%, 50% 80%, 50% 80%, 70% 80%, 70% 100%);
     opacity: 0;
     rotate: 45deg;
@@ -45,7 +45,7 @@
   }
   .checkbox:checked {
     background-color: var(--input-color);
-    box-shadow: 0 8px 0 -4px oklch(100% 0 0 / 0.1) inset, 0 1px oklch(0% 0 0 / 0.1);
+    box-shadow: 0 8px 0 -4px oklch(100% 0 0 / calc(var(--caelestis-depth) * 0.1)) inset, 0 1px oklch(0% 0 0 / calc(var(--caelestis-depth) * 0.1));
   }
   .checkbox:checked::before { clip-path: polygon(20% 100%, 20% 80%, 50% 80%, 50% 0%, 70% 0%, 70% 100%); opacity: 1; }
   .checkbox:focus-visible { outline: 2px solid var(--input-color); outline-offset: 2px; }

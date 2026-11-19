@@ -48,7 +48,7 @@
     border-radius: var(--caelestis-radius);
     background: transparent;
     color: var(--toggle-colour);
-    box-shadow: 0 1px color-mix(in oklab, currentColor 10%, transparent) inset;
+    box-shadow: 0 1px color-mix(in oklab, currentColor calc(var(--caelestis-depth) * 10%), transparent) inset;
     cursor: pointer;
     transition: color var(--caelestis-duration-fast);
   }
@@ -66,9 +66,9 @@
     translate: 0 0;
     will-change: translate;
     box-shadow:
-      0 -1px oklch(0% 0 0 / 10%) inset,
-      0 8px 0 -4px oklch(100% 0 0 / 10%) inset,
-      0 1px color-mix(in oklab, currentColor 10%, transparent);
+      0 -1px oklch(0% 0 0 / calc(var(--caelestis-depth) * 10%)) inset,
+      0 8px 0 -4px oklch(100% 0 0 / calc(var(--caelestis-depth) * 10%)) inset,
+      0 1px color-mix(in oklab, currentColor calc(var(--caelestis-depth) * 10%), transparent);
   }
 
   input:checked { --toggle-colour: var(--caelestis-primary); grid-template-columns: 1fr 1fr 0fr; background: var(--caelestis-surface); }
