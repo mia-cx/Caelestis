@@ -194,7 +194,7 @@
     border-radius: var(--caelestis-radius);
     padding: 10px 12px;
     font-weight: 600;
-    background: var(--caelestis-raised-surface, transparent);
+    background: var(--caelestis-raised-surface);
   }
   .count {
     color: var(--caelestis-muted-text);
@@ -306,7 +306,7 @@
     background: color-mix(in oklab, currentColor 10%, transparent);
   }
   button:focus-visible {
-    outline: 2px solid var(--caelestis-focus, currentColor);
+    outline: 2px solid var(--caelestis-focus);
     outline-offset: -2px;
   }
   .empty {
@@ -326,7 +326,7 @@
     margin: 0.25rem 0.5rem;
     padding: 0.375rem 0.375rem 0.375rem 0.625rem;
     border-radius: var(--caelestis-radius);
-    background: color-mix(in oklab, var(--caelestis-danger, oklch(0.59 0.2 27)) 10%, transparent);
+    background: color-mix(in oklab, var(--caelestis-danger) 10%, transparent);
     color: var(--caelestis-text);
     font-size: 12px;
     line-height: 1.35;

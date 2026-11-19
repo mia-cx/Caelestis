@@ -140,5 +140,5 @@
 
 <style>
   fieldset { display: contents; }
-  .seed { font: 0.75rem/1.4 var(--caelestis-mono-font, ui-monospace, monospace); }
+  .seed { font: 0.75rem/1.4 var(--caelestis-mono-font); }
 </style>

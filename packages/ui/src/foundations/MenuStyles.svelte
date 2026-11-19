@@ -4,9 +4,9 @@
     --menu-radius: var(--caelestis-radius);
     --menu-item-radius: var(--caelestis-radius);
     --menu-padding: 0.25rem;
-    --menu-surface: var(--caelestis-surface, var(--color-base-100, white));
-    --menu-text: var(--caelestis-text, var(--color-base-content, #202c40));
-    --menu-border: var(--caelestis-border, var(--color-base-300, #d4dbe5));
+    --menu-surface: var(--caelestis-surface);
+    --menu-text: var(--caelestis-text);
+    --menu-border: var(--caelestis-border);
     --menu-hover: color-mix(in oklab, var(--menu-text) 10%, transparent);
     box-sizing: border-box;
     color: var(--menu-text);
@@ -86,8 +86,8 @@
   :global(.caelestis-menu-separator) { flex: 0 0 auto; block-size: 1px; margin: var(--menu-padding) 0.375rem; border: 0; background: var(--menu-border); }
   :global(.caelestis-menu-item:is(:hover, :focus-visible, [data-selected])),
   :global(select.caelestis-select option:is(:hover, :focus-visible)) { background: var(--menu-hover); }
-  :global(.caelestis-menu-item:focus-visible) { outline: 2px solid var(--caelestis-focus, var(--color-primary, currentColor)); outline-offset: -2px; }
-  :global(select.caelestis-select:focus-visible) { outline: 2px solid var(--caelestis-focus, var(--color-primary, currentColor)); outline-offset: 2px; }
+  :global(.caelestis-menu-item:focus-visible) { outline: 2px solid var(--caelestis-focus); outline-offset: -2px; }
+  :global(select.caelestis-select:focus-visible) { outline: 2px solid var(--caelestis-focus); outline-offset: 2px; }
   :global(select.caelestis-select:disabled), :global(.caelestis-menu-item:is(:disabled, [data-disabled])) { opacity: 0.5; cursor: not-allowed; }
 
   /*
@@ -142,7 +142,7 @@
 
   /* The field look: a search box and the square triggers that sit beside it. */
   :global(.caelestis-field-look) {
-    border: var(--border, 1px) solid color-mix(in oklab, var(--caelestis-text) 20%, transparent);
+    border: 1px solid color-mix(in oklab, var(--caelestis-text) 20%, transparent);
     border-radius: var(--caelestis-radius);
     background: var(--caelestis-surface);
     box-shadow: 0 1px color-mix(in oklab, var(--caelestis-text) 10%, transparent) inset;

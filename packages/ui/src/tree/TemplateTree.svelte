@@ -542,8 +542,8 @@
     .tree:not(.preview-grid) .row.entering { min-block-size: 0; block-size: 0; padding-block: 0; margin-block-start: calc(-1 * var(--tree-row-gap)); overflow: hidden; opacity: 0; }
   }
   .progress-pane.overlaid { position: absolute; inset: 0; z-index: 3; border-inline-start: 0; }
-  .tree { --tree-row-gap: 0.125rem; display: flex; flex-direction: column; gap: var(--tree-row-gap); padding-block: 0.5rem; color: var(--caelestis-text); font: 400 0.875rem/1.25 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); }
-  .row { --icon-swap-dur: var(--caelestis-duration-quick); --icon-swap-ease: var(--caelestis-ease-smooth-out); --icon-swap-blur: var(--caelestis-blur-small); position: relative; display: flex; flex-direction: column; justify-content: center; gap: 0.25rem; min-block-size: 2rem; margin-inline: 0.5rem; padding: 0.25rem 0.5rem; border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); outline: none; }
+  .tree { --tree-row-gap: 0.125rem; display: flex; flex-direction: column; gap: var(--tree-row-gap); padding-block: 0.5rem; color: var(--caelestis-text); font: 400 0.875rem/1.25 var(--caelestis-font); }
+  .row { --icon-swap-dur: var(--caelestis-duration-quick); --icon-swap-ease: var(--caelestis-ease-smooth-out); --icon-swap-blur: var(--caelestis-blur-small); position: relative; display: flex; flex-direction: column; justify-content: center; gap: 0.25rem; min-block-size: 2rem; margin-inline: 0.5rem; padding: 0.25rem 0.5rem; border-radius: var(--caelestis-radius); outline: none; }
   .row-heading { display: flex; flex-wrap: nowrap; align-items: center; gap: 0.25rem; min-inline-size: 0; white-space: nowrap; }
   .connector { position: absolute; inset-block: 0; inset-inline-start: 0.45rem; opacity: 0.28; pointer-events: none; }
   .connector-vertical, .connector-current { position: absolute; inset-block-start: 0; border-inline-start: 1px solid currentColor; }
@@ -554,7 +554,7 @@
   .row.tall-heading .connector-elbow { top: 20px; }
   .row:hover, .row:focus-visible { background: var(--caelestis-raised-surface); }
   .row.focused-template { background: color-mix(in oklab, var(--caelestis-primary) 12%, transparent); }
-  .row.focused-template::before { content: ''; position: absolute; inset-block: 0.25rem; inset-inline-start: 0; inline-size: 3px; border-radius: var(--caelestis-pill-radius, 999px); background: var(--caelestis-primary); }
+  .row.focused-template::before { content: ''; position: absolute; inset-block: 0.25rem; inset-inline-start: 0; inline-size: 3px; border-radius: var(--caelestis-pill-radius); background: var(--caelestis-primary); }
   .row.regression-alarm { --row-alarm-color: oklch(from var(--caelestis-warning) l c 55); }
   .row.grief-alarm { --row-alarm-color: var(--caelestis-danger); }
   .row.regression-alarm, .row.grief-alarm { background: color-mix(in oklab, var(--row-alarm-color) 14%, transparent); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--row-alarm-color) 65%, transparent); }
@@ -575,13 +575,13 @@
   .row-tail { display: grid; flex: 0 1 6.5rem; inline-size: 6.5rem; min-inline-size: min-content; align-items: center; }
   .row-tail > * { grid-area: 1 / 1; }
   .row-tail > .actions { justify-self: end; }
-  .icon-action { display: grid; place-items: center; inline-size: 2rem; block-size: 2rem; min-inline-size: 2rem; min-block-size: 2rem; padding: 0; border: 0; border-radius: var(--caelestis-pill-radius, 999px); background: transparent; color: inherit; cursor: pointer; }
+  .icon-action { display: grid; place-items: center; inline-size: 2rem; block-size: 2rem; min-inline-size: 2rem; min-block-size: 2rem; padding: 0; border: 0; border-radius: var(--caelestis-pill-radius); background: transparent; color: inherit; cursor: pointer; }
   .icon-action:hover { background: color-mix(in oklch, currentColor 8%, transparent); }
   .visibility { position: relative; display: grid; flex: 0 0 1.5rem; place-items: center; inline-size: 1.5rem; block-size: 1.5rem; cursor: pointer; }
   .visibility input { position: absolute; inline-size: 1px; block-size: 1px; opacity: 0; pointer-events: none; }
-  .visibility > span { display: grid; place-items: center; inline-size: 1.5rem; block-size: 1.5rem; border: 1px solid color-mix(in oklab, currentColor 44%, transparent); border-radius: var(--caelestis-pill-radius, 999px); }
+  .visibility > span { display: grid; place-items: center; inline-size: 1.5rem; block-size: 1.5rem; border: 1px solid color-mix(in oklab, currentColor 44%, transparent); border-radius: var(--caelestis-pill-radius); }
   .visibility :global(svg) { inline-size: 1rem; block-size: 1rem; fill: currentColor; }
-  .visibility:focus-within { outline: 2px solid var(--caelestis-focus); border-radius: var(--caelestis-pill-radius, 999px); }
+  .visibility:focus-within { outline: 2px solid var(--caelestis-focus); border-radius: var(--caelestis-pill-radius); }
   .progress { inline-size: 100%; min-inline-size: 0; transition: opacity var(--icon-swap-dur) var(--icon-swap-ease), filter var(--icon-swap-dur) var(--icon-swap-ease); }
   .progress-detail { display: flex; min-inline-size: 0; flex-direction: column; gap: 0.25rem; padding: 0.2rem 0 0.35rem; padding-inline-start: var(--progress-detail-offset); color: var(--caelestis-muted-text); font-size: 0.68rem; }
   .progress-disclosure { position: relative; display: flex; min-inline-size: 0; padding-inline-end: 1.625rem; }
@@ -609,7 +609,7 @@
   .standalone.compact { justify-content: flex-start; padding: 0 0.75rem 0.5rem 2.25rem; }
   .standalone.ghost { justify-content: center; padding: 0.5rem 0.75rem 0; }
   .standalone-icon { display: inline-flex; flex: 0 0 auto; opacity: 0.6; }
-  .notice button { border: 0; border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-raised-surface); color: inherit; cursor: pointer; }
+  .notice button { border: 0; border-radius: var(--caelestis-radius); background: var(--caelestis-raised-surface); color: inherit; cursor: pointer; }
   @media (hover: hover) {
     .actions { opacity: 0; filter: blur(var(--icon-swap-blur)); pointer-events: none; }
     .row:hover .actions, .row:focus-within .actions { opacity: 1; filter: blur(0); pointer-events: auto; }
@@ -628,11 +628,11 @@
   .tree.preview-grid { position: relative; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 13rem), 1fr)); align-content: start; align-items: start; gap: 0.5rem; padding: 0.5rem; }
   .preview-grid > :not(.preview-card) { grid-column: 1 / -1; min-inline-size: 0; margin-inline: 0; }
   .preview-grid .folder-heading { border-block-end: 1px solid var(--caelestis-border); border-radius: 0; }
-  .row.preview-card { min-inline-size: 0; margin: 0; padding: 0.5rem; gap: 0.5rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-surface); }
+  .row.preview-card { min-inline-size: 0; margin: 0; padding: 0.5rem; gap: 0.5rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius); background: var(--caelestis-surface); }
   .preview-card.focused-template { border-color: color-mix(in oklab, var(--caelestis-primary) 65%, var(--caelestis-border)); background: color-mix(in oklab, var(--caelestis-primary) 8%, var(--caelestis-surface)); }
   .preview-card.focused-template::before { display: none; }
   .preview-card.regression-alarm, .preview-card.grief-alarm { background: color-mix(in oklab, var(--row-alarm-color) 14%, var(--caelestis-surface)); }
-  .artwork { display: block; inline-size: 100%; padding: 0; border: 0; border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); overflow: hidden; color: inherit; cursor: pointer; }
+  .artwork { display: block; inline-size: 100%; padding: 0; border: 0; border-radius: var(--caelestis-radius); overflow: hidden; color: inherit; cursor: pointer; }
   .artwork:disabled { cursor: default; }
   .artwork:focus-visible { outline: 2px solid var(--caelestis-focus); outline-offset: -2px; }
   .card-caption { display: flex; justify-content: space-between; gap: 0.5rem; color: var(--caelestis-muted-text); font-size: 0.68rem; }
@@ -644,7 +644,7 @@
   .preview-card .rename { inline-size: 100%; }
   .preview-grid .actions { opacity: 1; pointer-events: auto; }
   .preview-card .progress-detail { padding: 0; }
-  .card-progress { display: flex; align-items: center; gap: 0.375rem; inline-size: 100%; min-block-size: 1.5rem; padding: 0; border: 0; border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: transparent; color: inherit; cursor: pointer; }
+  .card-progress { display: flex; align-items: center; gap: 0.375rem; inline-size: 100%; min-block-size: 1.5rem; padding: 0; border: 0; border-radius: var(--caelestis-radius); background: transparent; color: inherit; cursor: pointer; }
   .card-progress:hover { background: var(--caelestis-raised-surface); }
   .card-progress:focus-visible { outline: 2px solid var(--caelestis-focus); outline-offset: 2px; }
   .card-progress :global(.meter-wrap) { flex: 1; }

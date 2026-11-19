@@ -126,8 +126,8 @@
 <style>
   fieldset { display: contents; }
   .layers { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
-  .layers li { display: flex; align-items: center; gap: 0.125rem; border-radius: calc(var(--caelestis-radius, 0.5rem) / 2); }
-  .layers li.selected { background: color-mix(in oklab, var(--caelestis-primary, oklch(0.68 0.15 244)) 16%, transparent); }
+  .layers li { display: flex; align-items: center; gap: 0.125rem; border-radius: calc(var(--caelestis-radius) / 2); }
+  .layers li.selected { background: color-mix(in oklab, var(--caelestis-primary) 16%, transparent); }
   .layers li.off .name { color: var(--caelestis-muted-text); }
   .name {
     flex: 1;
@@ -143,7 +143,7 @@
     white-space: nowrap;
     cursor: pointer;
   }
-  .name:focus-visible { outline: 2px solid var(--caelestis-focus, currentColor); outline-offset: -2px; }
+  .name:focus-visible { outline: 2px solid var(--caelestis-focus); outline-offset: -2px; }
   .editor { display: flex; flex-direction: column; gap: 0.5rem; padding-block-start: 0.5rem; border-block-start: 1px solid var(--caelestis-border); }
   .editor-head { display: flex; align-items: center; gap: 0.25rem; }
   .editor-head input { flex: 1; min-inline-size: 0; }

@@ -34,7 +34,7 @@
     margin-inline: auto;
     aspect-ratio: 1;
     border: 1px solid var(--caelestis-border);
-    background: color-mix(in oklab, var(--caelestis-raised-surface, #eee) 50%, transparent);
+    background: color-mix(in oklab, var(--caelestis-raised-surface) 50%, transparent);
   }
   .grid { stroke: var(--caelestis-border); }
   .neutral { stroke: color-mix(in oklab, currentColor 40%, transparent); stroke-dasharray: 4 4; }

@@ -11,9 +11,13 @@ export interface CaelestisThemeTokens {
   readonly border: string
   readonly focus: string
   readonly primary: string
+  readonly primaryContent: string
   readonly warning: string
+  readonly warningContent: string
   readonly success: string
+  readonly successContent: string
   readonly danger: string
+  readonly dangerContent: string
   readonly radius: string
   readonly pillRadius: string
   readonly font: string
@@ -61,9 +65,13 @@ const PROPERTIES: Record<CaelestisThemeToken, `--caelestis-${string}`> = {
   border: '--caelestis-border',
   focus: '--caelestis-focus',
   primary: '--caelestis-primary',
+  primaryContent: '--caelestis-primary-content',
   warning: '--caelestis-warning',
+  warningContent: '--caelestis-warning-content',
   success: '--caelestis-success',
+  successContent: '--caelestis-success-content',
   danger: '--caelestis-danger',
+  dangerContent: '--caelestis-danger-content',
   radius: '--caelestis-radius',
   pillRadius: '--caelestis-pill-radius',
   font: '--caelestis-font',

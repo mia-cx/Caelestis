@@ -34,5 +34,4 @@ Two constraints are enforced by the implementation:
   in a browser. It checks `customElements.get()` before each definition and is safe when a
   userscript is injected twice.
 
-Host themes cross the Shadow DOM seam through documented `--caelestis-*` custom properties. The
-components also provide usable light and dark defaults.
+Host themes cross the Shadow DOM seam through documented `--caelestis-*` custom properties.

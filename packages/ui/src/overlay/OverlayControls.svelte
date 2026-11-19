@@ -53,7 +53,7 @@
 </div>
 
 <style>
-  .dialog { --caelestis-content-inset: 1rem; display: flex; max-block-size: inherit; flex-direction: column; overflow-y: auto; padding: var(--caelestis-content-inset); border-radius: var(--caelestis-radius); background: var(--caelestis-surface); color: var(--caelestis-text); box-shadow: var(--caelestis-shadow, 0 16px 48px rgb(0 0 0 / 0.3)); font: 400 0.875rem/1.35 var(--caelestis-font); }
+  .dialog { --caelestis-content-inset: 1rem; display: flex; max-block-size: inherit; flex-direction: column; overflow-y: auto; padding: var(--caelestis-content-inset); border-radius: var(--caelestis-radius); background: var(--caelestis-surface); color: var(--caelestis-text); box-shadow: var(--caelestis-shadow); font: 400 0.875rem/1.35 var(--caelestis-font); }
   header { display: flex; flex: 0 0 auto; align-items: center; gap: 0.25rem; }
   .title { display: flex; flex: 1; min-inline-size: 0; align-items: center; gap: 0.25rem; }
   header strong { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; }

@@ -224,12 +224,12 @@
   .compact .sliders, .compact .marker-settings { padding-inline: 0.25rem; }
   .disabled { opacity: 0.45; }
   .presets, .same-colour, .colour-toolbar { display: flex; align-items: center; gap: 0.25rem; }
-  .pixel-preset, .choice { --button-colour: var(--caelestis-raised-surface, var(--color-base-200)); display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; border: var(--border, 1px) solid color-mix(in oklab, var(--button-colour), #000 calc(var(--depth, 1) * 5%)); outline-color: var(--button-colour); background: var(--button-colour); color: var(--caelestis-text); box-shadow: 0 0.5px 0 0.5px oklch(100% 0 0 / calc(var(--depth, 1) * 6%)) inset, 0 3px 2px -2px color-mix(in oklab, var(--button-colour) calc(var(--depth, 1) * 30%), transparent); font: 600 0.75rem/1 var(--caelestis-font); cursor: pointer; }
+  .pixel-preset, .choice { --button-colour: var(--caelestis-raised-surface); display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; border: 1px solid color-mix(in oklab, var(--button-colour), #000 5%); outline-color: var(--button-colour); background: var(--button-colour); color: var(--caelestis-text); box-shadow: 0 0.5px 0 0.5px oklch(100% 0 0 / 6%) inset, 0 3px 2px -2px color-mix(in oklab, var(--button-colour) 30%, transparent); font: 600 0.75rem/1 var(--caelestis-font); cursor: pointer; }
   .pixel-preset { inline-size: 2rem; block-size: 2rem; padding: 0; border-radius: var(--caelestis-pill-radius); }
   .choice { block-size: 1.5rem; padding-inline: 0.5rem; border-radius: var(--caelestis-radius); font-size: 0.6875rem; }
   .only-selected { inline-size: 1.5rem; padding-inline: 0; }
-  .pixel-preset.active { --button-colour: color-mix(in oklab, var(--caelestis-raised-surface, var(--color-base-200)) 95%, #000); box-shadow: none; }
-  .choice.active { --button-colour: var(--caelestis-primary, var(--color-primary)); color: var(--color-primary-content, white); box-shadow: none; }
+  .pixel-preset.active { --button-colour: color-mix(in oklab, var(--caelestis-raised-surface) 95%, #000); box-shadow: none; }
+  .choice.active { --button-colour: var(--caelestis-primary); color: var(--caelestis-primary-content); box-shadow: none; }
   @media (hover: hover) { .pixel-preset:hover, .choice:hover { --button-colour: color-mix(in oklab, var(--button-colour), #000 7%); } }
   .preset-icon { display: block; position: relative; inline-size: 1rem; block-size: 1rem; box-sizing: border-box; overflow: hidden; border: 1.5px solid currentColor; }
   .preset-icon.small::after { content: ''; position: absolute; display: block; inset: 0.21875rem; background: currentColor; }
@@ -245,7 +245,7 @@
   @container (min-width: 71.5rem) { .palette { grid-template-columns: repeat(32, 1fr); } }
   .palette-swatch { position: relative; min-inline-size: 1.5rem; aspect-ratio: 1; padding: 0; border: 1px solid rgb(0 0 0 / 0.25); border-radius: var(--caelestis-pill-radius); outline: 2px solid transparent; outline-offset: 1px; opacity: 0.7; cursor: pointer; transition: opacity 100ms ease-out, outline-color 100ms ease-out; }
   .palette-swatch[data-on='true'] { outline-color: var(--caelestis-text); opacity: 1; }
-  .palette-swatch[data-on='false']::after { content: ''; position: absolute; inset-inline-start: 15%; inset-block-start: calc(50% - 1px); inline-size: 70%; block-size: 2px; border-radius: var(--caelestis-pill-radius); background: currentColor; box-shadow: 0 0 0 1px var(--caelestis-surface, white); transform: rotate(-45deg); pointer-events: none; }
+  .palette-swatch[data-on='false']::after { content: ''; position: absolute; inset-inline-start: 15%; inset-block-start: calc(50% - 1px); inline-size: 70%; block-size: 2px; border-radius: var(--caelestis-pill-radius); background: currentColor; box-shadow: 0 0 0 1px var(--caelestis-surface); transform: rotate(-45deg); pointer-events: none; }
   .swatch-badge { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 80ms ease-out; pointer-events: none; }
   .palette-swatch:hover .swatch-badge, .palette-swatch:focus-visible .swatch-badge { opacity: 1; }
   .swatch-badge > span { display: flex; align-items: center; justify-content: center; inline-size: 72%; block-size: 72%; border-radius: var(--caelestis-pill-radius); box-sizing: border-box; }

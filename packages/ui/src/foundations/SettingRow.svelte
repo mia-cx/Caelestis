@@ -21,9 +21,9 @@
 </div>
 
 <style>
-  .row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-block-size: 3rem; padding: 0.5rem var(--caelestis-content-inset, 1rem); color: var(--caelestis-text, inherit); font: 400 0.875rem/1.25 var(--caelestis-font); }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-block-size: 3rem; padding: 0.5rem var(--caelestis-content-inset, 1rem); color: var(--caelestis-text); font: 400 0.875rem/1.25 var(--caelestis-font); }
   .copy { display: flex; flex: 1; min-inline-size: 0; flex-direction: column; }
-  small { color: var(--caelestis-muted-text, color-mix(in oklch, currentColor 60%, transparent)); font-size: 0.75rem; }
+  small { color: var(--caelestis-muted-text); font-size: 0.75rem; }
   .control { display: flex; flex: 0 0 auto; align-items: center; justify-content: flex-end; }
   .compact { min-block-size: 2rem; padding: 0.25rem; gap: 0.75rem; font-size: 0.75rem; }
   .compact .copy { opacity: 0.8; }
