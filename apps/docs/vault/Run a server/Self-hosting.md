@@ -3,7 +3,7 @@ title: Self-hosting
 order: 1
 ---
 
-Run your own Caelestis server to share templates and progress with a group. The backend stores the data; the frontend serves the dashboard and forwards userscript requests.
+Run your own Caelestis server to share templates and progress with a group. The backend stores the data. The frontend serves the dashboard and forwards client requests.
 
 ## Choose a deployment
 
@@ -13,13 +13,13 @@ Run your own Caelestis server to share templates and progress with a group. The 
 | Docker with PostgreSQL | PostgreSQL container and filesystem objects | [PostgreSQL](Docker-Compose-with-PostgreSQL) |
 | Docker with MariaDB | MariaDB 11.8 container and filesystem objects | [MariaDB](Docker-Compose-with-MariaDB) |
 | Docker with an existing CNPG database | External PostgreSQL primary and filesystem or S3 objects | [CNPG](Docker-Compose-with-CNPG) |
-| Docker with S3 | Any supported database, with MinIO or an external bucket | [S3 storage](S3-object-storage) |
+| Docker with S3 | Any supported database, with RustFS or an external bucket | [S3 storage](S3-object-storage) |
 | Kubernetes | Helm chart with your database and storage | [Kubernetes with Helm](Kubernetes-with-Helm) |
 | Cloudflare | Workers, D1, R2, and Durable Objects | [Deploy on Cloudflare](Deploy-on-Cloudflare) |
 
 For a first local installation, start with Docker's default stack. You can choose another database or object store before creating data.
 
-Changing a storage setting does not move existing data to the new provider.
+Changing a storage setting does not move existing data to another provider.
 
 ## What you need
 
@@ -39,7 +39,13 @@ SQLite needs local or block-backed storage with working POSIX locks. Do not put 
 
 ## After installation
 
-[Connect the userscript](Connect-to-a-server), add artwork, and create report tokens for painters. Keep the bootstrap administrator token private.
+[Connect from Wplace](Connect-to-a-server), add artwork, and create report tokens for painters. Keep the bootstrap administrator token private.
+
+## Set up the dashboard for your group
+
+1. In the Wplace panel, connect as an administrator. On the server row, choose **Edit server details**.
+2. Set **Name**, **Description**, **Home page copy** and **Discord invite**. The invite adds a join button to the dashboard header.
+3. Set **Logo text** or upload a **Logo image**. Use **Link preview image** for the home page's share image. Click **Save details**.
 
 Before upgrading, read [Storage and backups](Storage-and-backups) and [Deployment and upgrades](Deployment-and-upgrades).
 

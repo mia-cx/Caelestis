@@ -2,11 +2,18 @@
 title: Troubleshooting
 ---
 
+Use these checks when a control, connection or progress count looks wrong.
+
 ## The Caelestis button is missing
 
-Check that your userscript manager lists Caelestis and that it is enabled. Reload [Wplace](https://wplace.live) after installing or updating.
+1. Check your browser's extensions for Caelestis. If you use the userscript, check that your manager and its Caelestis script are both enabled.
+2. Reload [Wplace](https://wplace.live) and look for the moon among the map controls.
 
-On Chromium browsers, check whether your manager requires **Allow User Scripts** or extension developer mode. Follow the manager's browser-specific instructions in [Install the userscript](Install-the-userscript).
+On Chromium browsers, check whether your manager requires **Allow user scripts** or extension developer mode. Follow the manager's browser-specific instructions in [Install Caelestis](Install).
+
+## A menu action is missing
+
+Check your Caelestis version in **Settings**. For server actions, expand the connection to see the backend version and check your token scope. Store approval can put the extension and the GitHub userscript on different versions. **Export .png** and the **Dangerous settings** switches require version 1.1.0 or later.
 
 ## A server will not connect
 
@@ -22,9 +29,9 @@ For a remote server, use HTTPS. The proxy must forward WebSocket upgrades. If HT
 
 ## The dashboard says it cannot reach the server
 
-The owner should check the frontend's backend address or Worker binding and `CAELESTIS_READ_TOKEN`. A missing or revoked read token prevents backend reads.
+Click **Retry**. If the dashboard offers a server or token control in the footer, check that connection. For a dashboard using a private backend credential, the owner should check the frontend's backend address or Worker binding and `CAELESTIS_READ_TOKEN`. A missing or revoked read token prevents backend reads.
 
-Docker owners can check:
+On Docker, inspect container health and recent logs.
 
 ~~~sh
 docker compose ps
@@ -36,9 +43,9 @@ Use the stack's normal Compose files and configured host port.
 
 ## Progress looks stale
 
-The server learns about canvas changes through tile observations and painting reports. A change can appear on Wplace before the server records it.
+Click **Reload tiles** in the panel header to refresh the canvas under your templates. The server measures progress from observed tiles. A change can appear on Wplace before the server records it.
 
-For shared work, check **Report my activity** and **Share tiles** in Settings. Also check that your token allows reporting.
+For shared progress, check **Share tiles**. If your contribution is missing, check **Report my activity**. Also check that your token allows reporting.
 
 A coverage gap means some pixels have not been observed. It is not evidence that the artwork is complete.
 
@@ -57,7 +64,7 @@ Read its logs before changing configuration.
 | Error area | Check |
 | --- | --- |
 | Database ownership | Only one active backend uses this database. |
-| PostgreSQL or MariaDB connection | The host is reachable and writable; credentials and TLS settings match. |
+| PostgreSQL or MariaDB connection | The host is reachable and writable. Check the credentials and TLS settings. |
 | PostgreSQL pooling | Use a direct connection or session pooling, not transaction pooling. |
 | SQLite lock or permissions | Storage supports POSIX locks and is writable by UID/GID 1000. |
 | Object storage | The bucket exists and credentials permit the required operations. |
@@ -73,7 +80,7 @@ If migrations changed the database, an older image alone may not recover it. Fol
 
 [Open a bug report](https://github.com/mia-cx/Caelestis/issues/new/choose) with the version, browser, steps, expected result, and actual result.
 
-For userscript problems, enable **Settings → Diagnostics → Debug logging**, reproduce the issue, and collect the relevant console output.
+For problems on Wplace, enable **Settings → Diagnostics → Debug logging**, reproduce the issue, and collect the relevant console output.
 
 ![The Debug logging switch.](images/settings/diagnostics.png)
 

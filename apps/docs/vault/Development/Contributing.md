@@ -2,7 +2,7 @@
 title: Contributing
 ---
 
-For bugs, include steps that reproduce the problem. For a larger feature, open an issue before implementing it so its scope can be discussed.
+Report a bug, propose a feature or test a change in your own checkout. Include steps to reproduce a bug. For a larger feature, agree on the scope in an issue first.
 
 [Choose an issue type](https://github.com/mia-cx/Caelestis/issues/new/choose).
 
@@ -10,7 +10,7 @@ For bugs, include steps that reproduce the problem. For a larger feature, open a
 
 ## Local development
 
-Clone your fork and install the repository's pinned pnpm version. The package declares Node.js 22.19 or newer; portable builds use the version pinned in the Dockerfile.
+Clone your fork. Use Node.js 22.19 or later and the pnpm version in `package.json`.
 
 ~~~sh
 corepack enable
@@ -18,17 +18,17 @@ pnpm install --frozen-lockfile
 pnpm dev
 ~~~
 
-The development tasks start the applications and userscript tooling. For one app:
+To run only the dashboard, select the frontend package.
 
 ~~~sh
 pnpm --filter @caelestis/frontend dev
 ~~~
 
-See [the source README](https://github.com/mia-cx/Caelestis#development) for current development setup and [Self-hosting](Self-hosting) for the portable server.
+See [the contribution guide](https://github.com/mia-cx/Caelestis/blob/main/CONTRIBUTING.md) for current development setup and [Self-hosting](Self-hosting) for the portable server.
 
 ## Checks
 
-Run the focused tests for your change first. Before opening a pull request, run the applicable repository checks:
+Run the focused tests for your change first. Before opening a pull request, run the checks affected by your change.
 
 ~~~sh
 pnpm lint
@@ -41,20 +41,20 @@ For userscript UI changes, test the built script on Wplace. Include screenshots 
 
 ## Release notes
 
-Add one Changeset for each user-visible change:
+Run `pnpm changeset` once for each user-visible change.
 
 ~~~sh
 pnpm changeset
 ~~~
 
-Target the affected deployable apps: userscript, frontend, or backend. Do not target shared, UI, or wire-schema packages.
+Target each affected deployable app. The userscript package also covers the extension. The frontend and backend have their own versions. Do not target shared, UI, or wire-schema packages.
 
 Documentation-only changes do not need a Changeset.
 
 ## Pull requests
 
-Keep the change focused. Explain the problem, the change, and the checks you ran. Link the issue with `Closes #N` when the pull request completes it.
+Keep the change focused. Explain the problem, the change, and the checks you ran. Use `Ships #N` when the pull request adds a Changeset. The release pull request closes the issue. For a completed change without a Changeset, use `Closes #N`.
 
-Use a conventional title, such as `fix(userscript): preserve template placement`. Rebase on current main and allow maintainer edits for a fork.
+Use a conventional title, such as `fix(userscript): preserve template placement`. Rebase on `main`. Allow maintainer edits for a fork and state the PR's [0rwx level](https://0rwx.com).
 
 Follow the [Code of Conduct](https://github.com/mia-cx/Caelestis/blob/main/CODE_OF_CONDUCT.md). Report security problems through the [security policy](https://github.com/mia-cx/Caelestis/security/policy), not a public issue.

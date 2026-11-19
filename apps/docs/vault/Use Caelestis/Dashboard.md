@@ -2,58 +2,53 @@
 title: Dashboard
 ---
 
-The dashboard shows a server's published templates and their recorded progress. It does not show templates stored only in your browser.
+Browse shared artwork and watch its progress without opening Wplace. Visit your group's dashboard or [the official dashboard](https://caelest.is). Opening a saved link on caelestis.mia.cx carries your server, token and view settings to caelest.is. Open `/docs` on any dashboard to reach these guides.
 
-Open the URL your server owner gives you, or visit [the official dashboard](https://caelest.is).
+## Find the artwork
 
-## Browse templates
+1. Open a folder on the home page. Its page combines published artwork from that folder and its subfolders.
+2. Select a template for its dimensions, position, progress and individual history. **View on wplace** opens its location when a world-map link is available.
+3. Share the page address to link directly to the artwork. Discord previews can include a template timelapse or the server's preview image. Cloudflare servers refresh published templates' share GIFs daily.
 
-The home page groups artwork by folder. Click a folder to browse its contents, or a template to open its page.
+![Folders and template cards on the dashboard home page.](images/dashboard/home.png)
 
-![The dashboard home page with folders and template cards.](images/dashboard/home.png)
+![A template page with its map and progress bar.](images/dashboard/template.png)
 
-A template page shows its artwork, dimensions, position, and completion. **View on wplace** opens its location on the map.
+## Compare a timelapse with the target
 
-![A template page with its progress bar, map, and View on wplace link.](images/dashboard/template.png)
+1. Open a template or folder. Zoom into the map and adjust **Template overlay** to compare the target with the recorded tiles.
+2. Press play below the map. Choose a playback speed or drag the timeline to a date. Scrubbing the progress chart moves the map to the same point.
+3. Return to the live end to see the latest observation. A frozen template's timeline ends at its freeze point.
 
-## Compare the artwork with the canvas
-
-Use **Template overlay** below the map to blend the target image with the observed canvas. Zoom or use the fit control to inspect the artwork.
-
-The canvas view reflects tiles the server has observed. It may lag behind a recent change on Wplace.
-
-## Play a timelapse
-
-Click the play button below the map. Use the timeline to choose a point in the recorded history, and the speed control to change playback speed.
-
-The **live** indicator identifies the current end of the timeline. A frozen template's recording ends at its saved freeze point.
-
-![The play button outlined in orange, followed by playback speed, timeline, and live indicator.](images/dashboard/timelapse.png)
+![Playback speed, timeline and live indicator below the map.](images/dashboard/timelapse.png)
 
 ## Read progress and pace
 
-**Progress & pace** combines the correct-pixel and mismatch history with painting-rate lines.
+**Progress & pace** shows how many pixels match the target and how many have the wrong colour. Combined pace uses the change in matching pixels between observations. It includes work by painters who do not use Caelestis. A change to the target artwork can move the progress line without counting as painting.
 
-Use **pace** to choose averaging windows, **who** to choose painters, and **range** to change the time shown. The completion estimate has its own history-window selector.
+| Control | What to look for |
+| --- | --- |
+| **pace** | Choose rolling windows. A short window shows bursts of work. A longer one smooths them out. Choose windows from **30m** to **30d**. The 30-minute line uses the last day's detailed history. |
+| **who** | Select **All users** for combined pace or search for individual painters. Individual lines count reported placements and the painter's Wplace colour. |
+| **range** | Choose how much history to show. Drag the handles below the graph to narrow the dates. Double-click the time window to show everything. |
+| **based on** | Choose the history window for the completion estimate. The default is seven days. |
 
-![The complete Progress & pace chart, including its legend, selectors, range buttons, and timeline.](images/dashboard/pace.png)
+Hover the graph for counts and rates in pixels per hour. Scroll over a tall hover card to read all its rows. A rolling rate can reach zero between observations. A gap in archive coverage means the server lacks a measurement. Dashed sections use [imported snapshots](Progress-and-collaboration#backfill-a-template-or-folder).
 
-An estimate depends on the observed activity in that window. It changes when the painting rate changes.
+![Progress and pace with its window selectors and timeline.](images/dashboard/pace.png)
 
-## Contributions
+## Find remaining colours and contributions
 
-The leaderboard lists recorded painter contributions. The contribution heatmap groups activity by day; hover a day to inspect it.
+**Progress by colour** shows how many pixels match each colour. Use **Sort by** to find the largest remaining jobs.
 
-![The contribution heatmap with months, weekdays, and intensity legend.](images/dashboard/contributions.png)
+![Colour progress with its sort control.](images/dashboard/colour-progress.png)
 
-## Progress by colour
+**Leaderboard** ranks recorded painter contributions. In **Contributions**, use **who** to view one painter or **All users**. Hover a day to see its activity.
 
-The colour list shows completed pixels against each colour's total. Use **Sort by** to find the colours with the most work left, compare completion, or group free and premium colours.
+![The daily contribution heatmap.](images/dashboard/contributions.png)
 
-![The Progress by colour heading, sort control, and colour rows.](images/dashboard/colour-progress.png)
+## Connect the dashboard
 
-## If the page does not load
+A dashboard can use its owner's backend connection. If the footer offers **connect to a server**, enter the **Server URL** and any required **Access token**, then click **Connect**. On a dashboard with a fixed address, **access token** appears when the server requests one.
 
-The dashboard's backend connection is configured by its owner. Visitors do not enter the server's read token into this page.
-
-If you see **Could not reach the template server**, ask the owner to check the backend connection and frontend read token. See [Troubleshooting](Troubleshooting#the-dashboard-says-it-cannot-reach-the-server).
+For a connection error, see [Troubleshooting](Troubleshooting#the-dashboard-says-it-cannot-reach-the-server).

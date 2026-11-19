@@ -2,7 +2,7 @@
 title: Deploy on Cloudflare
 ---
 
-This guide deploys two Workers in your Cloudflare account: the backend and the dashboard. The backend uses D1, R2, and Durable Objects.
+Deploy the backend and dashboard as two Workers in your Cloudflare account. The backend uses D1, R2, and Durable Objects.
 
 Use the self-hosted configuration examples. The normal `wrangler.toml` files contain the project's own deployment settings.
 
@@ -22,7 +22,7 @@ pnpm install --frozen-lockfile
 pnpm build
 ~~~
 
-Run the remaining commands from the repository root. Cloudflare is the default frontend build target; do not set `CAELESTIS_TARGET=node` for this build.
+Run the remaining commands from the repository root. The frontend targets Cloudflare when you leave `CAELESTIS_TARGET` unset.
 
 ## 2. Sign in and create storage
 
@@ -32,7 +32,7 @@ pnpm --dir apps/backend exec wrangler login
 
 Complete the authorization in your browser for the account that will own this server.
 
-Choose your own resource names. The examples below use `my-caelestis`:
+Choose names for your D1 database and R2 bucket. These commands use `my-caelestis` as the prefix.
 
 ~~~sh
 pnpm --dir apps/backend exec wrangler d1 create my-caelestis
@@ -51,7 +51,7 @@ npx --yes uuid@latest v7
 
 Use the generated UUID for `SERVER_ID`.
 
-Edit `apps/backend/wrangler.self-hosted.toml`:
+Set the backend fields in `apps/backend/wrangler.self-hosted.toml`.
 
 | Field | Example or value |
 | --- | --- |
@@ -66,7 +66,7 @@ Edit `apps/backend/wrangler.self-hosted.toml`:
 
 Keep the Durable Object bindings and migration declarations from the example.
 
-Edit `apps/frontend/wrangler.self-hosted.toml`:
+Point `apps/frontend/wrangler.self-hosted.toml` at the same backend and bucket.
 
 | Field | Value |
 | --- | --- |
@@ -78,13 +78,13 @@ Keep `workers_dev = true` to use Cloudflare's generated URLs without a custom do
 
 ## 4. Deploy the backend
 
-Generate and securely save an administrator token:
+Generate an administrator token and save it privately.
 
 ~~~sh
 openssl rand -hex 32
 ~~~
 
-Store it as a Worker secret. Paste it at Wrangler's prompt, not into the configuration file:
+Store the token as a Worker secret by pasting it at Wrangler's prompt.
 
 ~~~sh
 pnpm --dir apps/backend exec wrangler secret put ADMIN_TOKEN --config wrangler.self-hosted.toml
@@ -92,7 +92,7 @@ pnpm --dir apps/backend exec wrangler secret put ADMIN_TOKEN --config wrangler.s
 
 If Wrangler asks to create the Worker, use the name from your self-hosted configuration.
 
-Apply the database migrations, then deploy:
+Apply the D1 migrations before deploying the backend.
 
 ~~~sh
 pnpm --dir apps/backend exec wrangler d1 migrations apply DB --remote --config wrangler.self-hosted.toml
@@ -103,7 +103,7 @@ Save the backend's `workers.dev` URL.
 
 ## 5. Create the dashboard token
 
-In the [userscript](Install-the-userscript), open **Settings** and add the backend's `workers.dev` address.
+In [Caelestis on Wplace](Install), open **Settings** and add the backend's `workers.dev` address.
 
 ![An example backend Worker address beside Add. Use the URL Wrangler printed for your Worker.](images/settings/connection-add-worker-address.png)
 
@@ -111,24 +111,22 @@ Connect with the administrator token you just created. In that server's **Access
 
 ![Token creation with Dashboard entered as the label and Read selected.](images/settings/create-read-token.png)
 
-Copy the new token when it appears. You cannot retrieve its value later.
-
-![The one-time token result and Copy control. The token value is concealed.](images/settings/copy-new-token.png)
+Choose **Copy token** before closing the dialog. Use that value for the frontend secret.
 
 ## 6. Deploy the dashboard
 
-Store the new read token in the frontend Worker:
+Set the frontend Worker's read token and deploy it.
 
 ~~~sh
 pnpm --dir apps/frontend exec wrangler secret put CAELESTIS_READ_TOKEN --config wrangler.self-hosted.toml
 pnpm --dir apps/frontend exec wrangler deploy --config wrangler.self-hosted.toml
 ~~~
 
-Open the frontend URL printed by Wrangler. A new server has no templates yet.
+Open the frontend URL printed by Wrangler. An empty server shows **No templates yet**.
 
 ![The dashboard's initial No templates yet state.](images/dashboard/empty-server.png)
 
-The frontend reads the backend through its Worker service binding. The read token stays on the server; dashboard visitors do not enter it.
+The frontend reads the backend through its Worker service binding. The frontend supplies its private read token when it requests backend data.
 
 ## Connect painters
 

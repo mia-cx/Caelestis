@@ -2,7 +2,7 @@
 title: Container images
 ---
 
-The backend and frontend are separate images. Use the tested pair from the same server release.
+Download the backend and frontend image references from the same server release.
 
 ## Images and architectures
 
@@ -11,11 +11,11 @@ The backend and frontend are separate images. Use the tested pair from the same 
 | Backend | `miacx/caelestis-backend` | `ghcr.io/mia-cx/caelestis-backend` |
 | Frontend | `miacx/caelestis-frontend` | `ghcr.io/mia-cx/caelestis-frontend` |
 
-The release workflow builds `linux/amd64` and `linux/arm64`. Backend artifacts include Node and Bun runtime variants.
+The release workflow builds `linux/amd64` and `linux/arm64`. The paired backend image uses Bun. Choose the release's Node backend image reference if you need Node. Use the same frontend with either runtime.
 
 ## Find a release pair
 
-Open [GitHub releases](https://github.com/mia-cx/Caelestis/releases) and choose a **server release**, not a userscript release.
+Open [GitHub releases](https://github.com/mia-cx/Caelestis/releases) and look for a release titled **Caelestis server** followed by the version pair.
 
 The `*-dockerhub-image.txt` and `*-ghcr-image.txt` assets contain immutable image references. Use both references from one release and registry. If no server release is available, [build with Docker](Run-with-Docker).
 
@@ -23,14 +23,14 @@ Pair tags include both app versions, such as `backend-1.2.3-frontend-4.5.6`. Tha
 
 ## Use the images
 
-Set the references in `.env`:
+Copy both image references into `.env`.
 
 ~~~dotenv
 CAELESTIS_BACKEND_IMAGE=replace-with-the-backend-image-reference
 CAELESTIS_FRONTEND_IMAGE=replace-with-the-frontend-image-reference
 ~~~
 
-With your usual Compose file list, run:
+Pull and start the pair with your usual Compose file list.
 
 ~~~sh
 docker compose pull
@@ -48,7 +48,5 @@ The `--no-build` flag uses the configured images instead of building the checkou
 | Backend persistent directory | `/data` |
 | Shared filesystem objects | `/objects` |
 | Health endpoints | `/health/live` and `/health/ready` |
-
-These are Caelestis images, not LinuxServer.io images. They do not use `PUID` or `PGID` configuration.
 
 Before changing versions, follow [Deployment and upgrades](Deployment-and-upgrades).

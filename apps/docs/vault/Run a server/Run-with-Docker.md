@@ -2,7 +2,7 @@
 title: Run with Docker
 ---
 
-This setup runs the backend and dashboard on one machine. It uses SQLite for records and Docker volumes for artwork and tile history.
+Run the backend and dashboard on one machine. It uses SQLite for records and Docker volumes for artwork and tile history.
 
 The commands below build from source. You do not need a GitHub fork unless you want to keep your own code changes.
 
@@ -10,7 +10,7 @@ The commands below build from source. You do not need a GitHub fork unless you w
 
 Install Git and [Docker with the Compose plugin](https://docs.docker.com/compose/install/). On macOS or Windows, start Docker Desktop before continuing.
 
-Check that both commands work:
+Check that Git and Docker Compose are installed.
 
 ~~~sh
 git --version
@@ -29,16 +29,16 @@ Run the remaining commands from this directory.
 
 ## 2. Configure the server
 
-Open `.env` in a text editor. Set these values:
+Open `.env` and configure the credentials, display name and season.
 
 | Variable | Value |
 | --- | --- |
-| `ADMIN_TOKEN` | A new private token for administrator access. |
+| `ADMIN_TOKEN` | A private token for administrator access. |
 | `CAELESTIS_READ_TOKEN` | A different private token for the dashboard. |
 | `SERVER_NAME` | The name people should see. |
 | `SEASON` | The Wplace season whose canvas you are using. |
 
-Generate each token separately:
+Generate a separate value for each token.
 
 ~~~sh
 openssl rand -hex 32
@@ -56,7 +56,7 @@ docker compose up --build -d --wait
 docker compose ps
 ~~~
 
-Both `backend` and `frontend` should be running and healthy. If either fails, inspect its logs:
+Check that both containers are healthy. Inspect the logs if either fails.
 
 ~~~sh
 docker compose logs --tail=100 backend frontend
@@ -64,13 +64,13 @@ docker compose logs --tail=100 backend frontend
 
 ## 4. Open the dashboard
 
-Open [http://localhost:3000](http://localhost:3000) on the same machine. A new server shows **No templates yet**.
+Open [http://localhost:3000](http://localhost:3000) on the same machine. An empty server shows **No templates yet**.
 
-![A new Caelestis dashboard showing No templates yet.](images/dashboard/empty-server.png)
+![An empty Caelestis dashboard showing No templates yet.](images/dashboard/empty-server.png)
 
-Upload artwork through an administrator connection in the userscript. Published templates then appear on the dashboard.
+Import artwork through an administrator connection in the Wplace panel. Published templates then appear on the dashboard.
 
-## Optional: connect the userscript
+## Connect from Wplace
 
 Open **Settings** in Caelestis on Wplace.
 
@@ -80,7 +80,7 @@ Enter `http://localhost:3000` and click **Add**. For a server on another machine
 
 ![The local server address beside the Add button.](images/settings/connection-add-local-address.png)
 
-Expand the server if needed. Paste a token from this server and click **Connect**. Use your administrator token for setup; create **report** tokens for painters afterward.
+Expand the server if needed. Paste a token from this server and click **Connect**. Use your administrator token for setup. Create **Report** tokens for painters.
 
 ![The token field and Connect button. The masked value is an example.](images/settings/connection-enter-token.png)
 

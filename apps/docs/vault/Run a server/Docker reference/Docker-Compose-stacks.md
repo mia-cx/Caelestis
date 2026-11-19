@@ -2,22 +2,22 @@
 title: Docker Compose stacks
 ---
 
-Every stack starts with `compose.yaml`, which runs the backend and frontend. Additional Compose files replace the database or object-storage settings.
+Choose a database and object store before starting the stack. Start with `compose.yaml` for the backend and frontend. Additional Compose files replace the database or object-storage settings.
 
 ## Stack files
 
-| Database | Filesystem objects | Local MinIO objects |
+| Database | Filesystem objects | Local RustFS objects |
 | --- | --- | --- |
 | SQLite | `compose.yaml` | Base + `deploy/compose/s3.yaml` |
 | PostgreSQL | Base + `deploy/compose/postgres.yaml` | Base + PostgreSQL + S3 files |
 | MariaDB | Base + `deploy/compose/mariadb.yaml` | Base + MariaDB + S3 files |
 | Existing CNPG | Base + `deploy/compose/cnpg.yaml` | Base + CNPG + S3 files |
 
-For an external S3 provider, configure the bucket in `.env` instead of adding the MinIO file.
+For an external S3 provider, configure the bucket in `.env` instead of adding the RustFS file.
 
 ## Set up once
 
-Clone the repository and configure the common environment values as shown in [Run with Docker](Run-with-Docker#1-download-caelestis). Then use the guide for your chosen stack:
+Clone the repository and configure the common environment values as shown in [Run with Docker](Run-with-Docker#1-download-caelestis). Choose the guide for your database or object store.
 
 - [PostgreSQL](Docker-Compose-with-PostgreSQL)
 - [MariaDB](Docker-Compose-with-MariaDB)
@@ -30,7 +30,7 @@ Configure the stack before its first start. Selecting another adapter later does
 
 Every operation must use the same Compose files. Save the list in `.env` to avoid repeating it.
 
-For PostgreSQL and MinIO on Linux or macOS:
+On Linux or macOS, join the PostgreSQL and RustFS paths with colons.
 
 ~~~dotenv
 COMPOSE_FILE=compose.yaml:deploy/compose/postgres.yaml:deploy/compose/s3.yaml
@@ -38,7 +38,7 @@ COMPOSE_FILE=compose.yaml:deploy/compose/postgres.yaml:deploy/compose/s3.yaml
 
 On Windows, use semicolons instead of colons between paths.
 
-Then run:
+Start the stack and inspect its status and logs.
 
 ~~~sh
 docker compose up --build -d --wait
@@ -46,11 +46,15 @@ docker compose ps
 docker compose logs -f
 ~~~
 
-Alternatively, supply the files explicitly each time:
+You can also pass the same files on each command line.
 
 ~~~sh
 docker compose -f compose.yaml -f deploy/compose/postgres.yaml -f deploy/compose/s3.yaml up --build -d --wait
 ~~~
+
+## Test a stack over HTTPS
+
+For a temporary public test address, include `deploy/compose/cloudflared.yaml` in the file list before starting the stack. Read the URL with `docker compose logs cloudflared`. Set `ORIGIN` to that URL in `.env`, then recreate the frontend with `docker compose up -d --force-recreate frontend`. Anyone with the address can reach the dashboard while the tunnel runs.
 
 ## Common operations
 

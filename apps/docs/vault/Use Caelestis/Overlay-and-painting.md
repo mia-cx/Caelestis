@@ -2,11 +2,11 @@
 title: Overlay and painting
 ---
 
-The overlay shows your template over Wplace. Its appearance affects what you see, not the artwork stored in the template.
+Change the overlay to see where each colour belongs. These controls adjust the view and preserve the stored artwork.
 
 ## Change the pixel style
 
-Open **Appearance** in the Caelestis panel header. The pixel presets give you a starting point; the sliders adjust the size, rounding, rotation, position within each cell, and opacity.
+Open **Appearance** in the Caelestis panel header. Choose a pixel preset. Use the sliders to adjust size, rounding, rotation, position within each cell and opacity.
 
 These are the overlay pixels' settings. To move the artwork to another place on the map, use the template's **Move** action.
 
@@ -50,7 +50,11 @@ In **Colours**, toggle palette swatches to show or hide those colours in the ove
 
 ## Find remaining work
 
-Select a colour in Wplace. Caelestis shows remaining work for that colour and can move the map to unfinished pixels.
+1. Open Wplace's paint drawer and select a swatch. You can also use Wplace's picker on a template pixel. Caelestis briefly draws its exact colour under the picker. Wplace selects the swatch itself.
+2. Check the remaining count in the palette. Middle-click a swatch to visit remaining pixels of that colour.
+3. Hold Shift while painting to restrict the brush to unfinished pixels that need that colour. With Shift+Space, the brush waits where it would cross a skipped pixel.
+
+After the camera moves, move the mouse to update the paint target before using Space. The countdown above Wplace's paint button shows when your charges will be full.
 
 The middle-click navigation order is in **Settings → Painting**. It searches the template under the viewport centre, or the nearest template if the centre is empty.
 
@@ -64,7 +68,7 @@ Open **Appearance → Markers**.
 | --- | --- |
 | Mark mismatched pixels | Painted pixels whose colour differs from the template. |
 | Include unpainted pixels | Adds blank pixels to the mismatch markers, below the configured remaining-work threshold. |
-| Mark selected colour pixels | Template pixels asking for the colour selected in Wplace. |
+| Mark selected colour pixels | Unfinished pixels that need the colour selected in Wplace. |
 | Dim other colours | Makes other colours' markers less prominent while following one colour. |
 
 Each marker kind has colour and size controls. Enable the marker kind before adjusting its controls.
@@ -75,7 +79,7 @@ Each marker kind has colour and size controls. Enable the marker kind before adj
 
 ### Markers keep their screen size
 
-Zoom changes the map, not the marker size. These two views show the same marker at different zoom levels.
+Markers keep the same size on screen as you zoom. These two views show the same marker at different zoom levels.
 
 ![Selected-colour marker at a close map zoom.](images/painting/markers-close.png)
 
@@ -87,4 +91,4 @@ Press `Shift+/` to open the keyboard reference. It shows your current bindings f
 
 ![The keyboard reference with the current bindings.](images/settings/shortcut-reference.png)
 
-Change bindings in [Settings and shortcuts](Settings-and-shortcuts#keyboard-shortcuts).
+Change bindings in [Settings and shortcuts](Settings-and-shortcuts#keyboard-shortcuts). The colour cycling keys and keyboard draft submission have separate [Dangerous settings](Settings-and-shortcuts#dangerous-settings).

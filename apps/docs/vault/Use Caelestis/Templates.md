@@ -2,58 +2,61 @@
 title: Templates
 ---
 
-A template is artwork placed at a position on Wplace. Caelestis lists local, server, and native Wplace templates in the panel.
+Import artwork, organise it into folders, or export a copy from the template panel.
 
-## Import a template
+## Import artwork
 
-Hover **Local** and click its import icon, outlined below, or click **Import a template** beneath the list. Choose a PNG, Blue Marble export, or `.wplace` file. Follow [Getting started](Getting-started) for placement.
+1. Open the menu for **Local** or a folder and choose **Import template**. You can also use **Import a template** below the list.
+2. Choose a file. A Blue Marble JSON export or a native `.wplace` file carries its world-map position. An image opens in the [template studio](Template-studio), where you set its position and colours.
+3. For a server destination, connect as an administrator and show the destination folder before importing.
 
-![Import a template in the Local section.](images/getting-started/import-template.png)
+![The import control beside Local.](images/getting-started/import-template.png)
 
-## Open a template's actions
+Templates can contain up to 64 megapixels. Caelestis loads artwork into memory as you view it. The tree keeps its progress and previews while other artwork is out of view.
 
-Hover a row to reveal its buttons. Right-click the row for its actions menu. On touch, use its actions button. The available actions depend on where the template lives and your server permissions.
+## Capture artwork from the world map
 
-![A template row with its hover actions visible.](images/templates/row-actions.png)
+1. Right-click **Local** or a writable folder. Choose **Capture from canvas**.
+2. Use the drawing tools to select the painted area. **Download PNG** saves the selection as an image.
+3. To use the selection on the map, choose **Add as template** and confirm its placement.
 
-![The actions menu for a local template.](images/templates/actions-menu.png)
+## Organise your library
 
-| Action | What it does |
+Hover a row for its controls. Right-click to open its menu, or hold the row on a touchscreen. Arrow keys and Enter also work in the menu.
+
+![A template row with its actions visible.](images/templates/row-actions.png)
+
+- Choose **New folder** to group artwork. Drag a row to move it. Use **Manage tags** to create reusable tags and **Edit tags** to apply them to folders or templates.
+- Search by name. Use the filters for sources, visibility, states, alarms, claims and tags. Sort by remaining work to find unfinished artwork.
+- The eye shows or hides a row. **Show only this** hides the other templates in its folder. Show hidden artwork before changing its position or pixels.
+- **Pop out menu** gives the library more room. Choose **Preview grid view** to expand folder cards and open a template's progress alongside its preview.
+
+![The template filters.](images/templates/filters.png)
+
+![Sort options beside the template search field.](images/templates/sort-and-filter.png)
+
+## Move, replace or export artwork
+
+| Action | When to use it |
 | --- | --- |
-| Go to | Moves the map to the artwork. |
-| Move | Repositions a local template on the map. Confirm or cancel the placement when finished. |
-| Rename | Edits the name in the tree. Press Enter to save or Escape to cancel. |
-| Export .wplace | Downloads a native Wplace template file. |
-| Copy to a server | Copies local artwork to a server where you have administrator access. |
-| Use canvas artwork | Replaces the source image with the committed artwork currently on Wplace. |
-| Delete | Removes the template from its store after confirmation. |
+| **Go to** | Centre the view on the template. |
+| **Move** | Drag a local template to another position. Confirm the placement. |
+| **Copy to a server** | Share a local template with a server you administer. |
+| **Export .png** | Download the template pixels as an image. |
+| **Export .wplace** | Keep the world placement with the artwork. Caelestis also includes the source and processing settings when available. |
+| **Use canvas artwork** | Make the committed canvas pixels the target for the whole template. |
+| **Update an area** | Select part of a world template to update from committed paint. |
 
-For server templates, administrators also get **Move to folder**, **Replace artwork**, publication controls, and **Mark as…**.
+![Confirm and cancel buttons beside artwork during a move.](images/getting-started/placement-controls.png)
 
-Changing the overlay's appearance does not change the source image. **Use canvas artwork** and **Replace artwork** do.
+## Manage shared artwork
 
-## Folders, search, and filters
+Administrators can **Publish** or **Unpublish** a template, or use **Publish folder** and **Unpublish folder** for its contents. Readers see folders containing published artwork. Only administrators can access unpublished artwork and its source. **Move to folder** changes where a server template lives. **Replace artwork** takes artwork from a local template. **Replace from image** opens the studio for a replacement version.
 
-Open a folder's actions menu to create a child folder or import artwork into it. Drag rows to organise the tree.
+Use [Progress and collaboration](Progress-and-collaboration) to mark work finished, freeze its timelapse or import older history.
 
-Search finds templates by name. The filter button beside search narrows the list by source, visibility, state, alarms, claims, or tags.
+## Use Wplace templates and events
 
-![The template filters, with their available choices.](images/templates/filters.png)
+On the world map, Caelestis syncs local templates with Wplace's personal templates. It keeps Caelestis folders, appearance and source images alongside them. Wplace's alliance templates also appear in the library. Use [Alliance canvases](Alliance-canvases) for artwork inside alliance editors.
 
-The sort button changes the order of the list. Use it to find new templates or compare remaining work.
-
-![The sort menu beside the template search field.](images/templates/sort-and-filter.png)
-
-In the panel popout, switch between the tree and a preview grid. The grid shows artwork cards and lets you open a template's progress beside the library.
-
-## Native Wplace templates
-
-Caelestis reads Wplace's personal and alliance templates, including their folders and appearance. These stores remain separate from **Local** and connected servers.
-
-Export with **Export .wplace** when you want to move artwork between Caelestis and Wplace's native tools.
-
-## Shared templates
-
-A server administrator imports and publishes artwork for the group. Unpublished templates are visible to administrators, not ordinary readers.
-
-Use [Progress and collaboration](Progress-and-collaboration) for progress, favourites, and finished or frozen states.
+During Seven Seals, the read-only **Events** folder lists open fragments with Wplace's progress. You can show or hide a fragment, use **Go to**, or choose **Copy to Local** to keep your own copy.
