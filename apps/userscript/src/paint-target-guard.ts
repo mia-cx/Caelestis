@@ -1,3 +1,4 @@
+import { onAllianceArtboardNavigated } from './alliance-navigation.js'
 import { activeAllianceSurface, currentSurface } from './alliance-surface.js'
 import type { MapLike } from './map-handle.js'
 import {
@@ -24,7 +25,7 @@ let mouse: PointerEvent | null = null
 
 /**
  * Mark Wplace's paint target stale after the camera moved under a still mouse: a flight, a keyboard
- * pan, or an HQ jump. Alliance navigation calls this directly; the world map reports its moves.
+ * pan, or an HQ jump. Alliance navigation and the world map report their moves.
  */
 export const markPaintTargetStale = (): void => {
   stale = true
@@ -139,7 +140,12 @@ export const installPaintTargetGuard = (): (() => void) => {
   }
   window.addEventListener('blur', blur)
   document.addEventListener('visibilitychange', visibility)
+  const stopNavigation = onAllianceArtboardNavigated((active) => {
+    markPaintTargetStale()
+    requestAnimationFrame(() => refreshPaintTarget(active.frame, 'pointermove'))
+  })
   return () => {
+    stopNavigation()
     for (const type of pointers) window.removeEventListener(type, remember, true)
     window.removeEventListener('pointerout', leave, true)
     window.removeEventListener('keydown', keydown, true)

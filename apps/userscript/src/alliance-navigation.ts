@@ -1,8 +1,17 @@
 import type { ActiveAllianceSurface } from './alliance-surface.js'
-import { markPaintTargetStale, refreshPaintTarget } from './paint-target-guard.js'
 
 const MAX_ARTBOARD_SCALE = 64
 const WHEEL_STEP = 100
+
+const navigatedListeners = new Set<(active: ActiveAllianceSurface) => void>()
+
+/** Call `listener` after navigation moves an artboard under the still pointer. Returns the unsubscribe. */
+export const onAllianceArtboardNavigated = (
+  listener: (active: ActiveAllianceSurface) => void,
+): (() => void) => {
+  navigatedListeners.add(listener)
+  return () => navigatedListeners.delete(listener)
+}
 
 /**
  * Centre one alliance pixel through Wplace's own artboard transform without changing its zoom.
@@ -53,7 +62,6 @@ export const navigateAllianceArtboardTo = (
   }
   wheel(pivot, zoomInFirst ? -WHEEL_STEP : WHEEL_STEP)
   wheel(centre, zoomInFirst ? WHEEL_STEP : -WHEEL_STEP)
-  markPaintTargetStale()
-  requestAnimationFrame(() => refreshPaintTarget(active.frame, 'pointermove'))
+  for (const listener of navigatedListeners) listener(active)
   return true
 }
