@@ -534,7 +534,9 @@ const storeSwitches = (patch: Partial<State>): void => {
   }
 }
 
-const globalSettingsFrom = (stored: Record<string, unknown>): GlobalSettings => {
+const globalSettingsFrom = (
+  stored: Partial<Record<GlobalSettingName, unknown>>,
+): GlobalSettings => {
   const settings: Partial<Record<GlobalSettingName, boolean>> = {}
   for (const name of GLOBAL_SETTINGS) settings[name] = FIELDS[name].decode(stored[name])
   return settings as GlobalSettings
@@ -595,6 +597,9 @@ const storedRecord = (): Record<string, unknown> => {
 /** The global settings as stored right now, without loading the rest of the state. */
 export const storedGlobalSettings = (): GlobalSettings =>
   globalSettingsFrom({ ...storedRecord(), ...storedSwitches() })
+
+/** This tab's global settings. */
+export const currentGlobalSettings = (): GlobalSettings => globalSettingsFrom(state)
 
 /** Change one global setting in storage; the toolbar popup's write. Open tabs adopt it from there. */
 export const storeGlobalSetting = (key: keyof GlobalSettings, value: boolean): void =>

@@ -70,8 +70,9 @@ import { onCanvasWrite } from '../canvas-write.js'
 import { isClaimModeActive, onClaimEditorChange } from '../claim-editor.js'
 import { claimRouter } from '../claim-routing.js'
 import { expectedBackendVersion, userscriptVersion } from '../client-metrics.js'
-import { isEnabled as isDebugEnabled, log, setEnabled as setDebugEnabled } from '../debug.js'
+import { log } from '../debug.js'
 import { onArtboardPixelsChange, onHeadquartersTilesChange } from '../gl/artboard-pixels.js'
+import { applyGlobalSettingsIntent, globalSettingsModel } from '../global-settings.js'
 import { consumeInvite } from '../invite.js'
 import { redraw } from '../map-view.js'
 import { MARKER_BUDGET_OPTIONS } from '../marker-budget.js'
@@ -84,7 +85,6 @@ import {
   profileSnapshot,
   recordProfileCounter,
   resetProfile,
-  setProfileEnabled,
 } from '../profile.js'
 import { admittedServerContentsFor, forgetAdmittedServerContents } from '../server-api.js'
 import { forgetServer } from '../server-cache.js'
@@ -134,12 +134,7 @@ import { reloadTiles } from '../tile-transform.js'
 import { backendVersionOutdated } from '../userscript-update.js'
 import { ownedColours, refreshAccount } from '../wplace-account.js'
 import { isPaintOpen, onPaintSelectionChange, selectedColour } from '../wplace-paint.js'
-import {
-  isWplacePatch,
-  onWplacePatchChange,
-  setWplacePatchEnabled,
-  wplacePatchSettings,
-} from '../wplace-patches.js'
+import { onWplacePatchChange } from '../wplace-patches.js'
 import { positionChargeForecast } from './charge-forecast.js'
 import { activeColourPreset, type ColourPresetId, hiddenForPreset } from './colours.js'
 import { confirmDestructive } from './confirm.js'
@@ -680,27 +675,15 @@ const settingsModel = (): SettingsModel => {
     ...(addServerMessage === undefined ? {} : { addServerMessage }),
     colourNavigationOrder: state.colourNavigationOrder,
     simulatedInput: state.simulatedInput,
-    reportPaints: state.reportPaints,
-    shareTiles: state.shareTiles,
-    sharePresence: state.sharePresence,
-    showPresence: state.showPresence,
-    showPresenceViewports: state.showPresenceViewports,
-    showPresenceClaims: state.showPresenceClaims,
-    showPresenceClaimsOnlyWhilePainting: state.showPresenceClaimsOnlyWhilePainting,
-    notifyRegressions: state.notifyRegressions,
-    notifyGriefing: state.notifyGriefing,
+    ...globalSettingsModel('tab'),
     // The extension's store updates it, so there is no update notification to switch.
     notifyUpdates: extension ? undefined : state.notifyUpdates,
-    notifyActivity: state.notifyActivity,
     shortcuts: {
       platform: currentShortcutPlatform(),
       bindings: activeShortcutBindings(),
       customised: Object.keys(state.shortcutOverrides).length > 0,
       ...(shortcutChange === undefined ? {} : { lastChange: shortcutChange }),
     },
-    wplacePatches: wplacePatchSettings(),
-    debugLogging: isDebugEnabled(),
-    performanceProfiling: isProfileEnabled(),
     ...(snapshot === null
       ? {}
       : {
@@ -954,9 +937,7 @@ const handleSettingsIntent = (intent: SettingsIntent): void => {
       break
     }
     case 'set-boolean':
-      if (intent.key === 'debugLogging') setDebugEnabled(intent.value)
-      else if (intent.key === 'performanceProfiling') setProfileEnabled(intent.value)
-      else setState({ [intent.key]: intent.value })
+      applyGlobalSettingsIntent(intent, 'tab')
       refreshSettings()
       break
     case 'import-from-other-build':
@@ -964,9 +945,8 @@ const handleSettingsIntent = (intent: SettingsIntent): void => {
       void moveSettings(intent.type)
       break
     case 'set-wplace-patch':
-      // Persists the switch, applies or undoes the patch on the live map, and redraws this view
-      // through the change listener installed with the panel.
-      if (isWplacePatch(intent.id)) setWplacePatchEnabled(intent.id, intent.enabled)
+      // Redraws this view through the change listener installed with the panel.
+      applyGlobalSettingsIntent(intent, 'tab')
       break
     case 'set-shortcut-binding': {
       const { overrides, displaced } = assignShortcutBinding(

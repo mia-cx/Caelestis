@@ -134,6 +134,36 @@ export const storeValue = (key: string, value: string): void => backing.set(key,
 export const deleteStoredValue = (key: string): void => backing.delete(key)
 
 /**
+ * A switch stored as `'1'` while on and absent while off. A storage failure reads as off and drops
+ * the write, so callers keep their in-memory value for the session.
+ */
+export const storedFlag = (key: string) => {
+  const get = (): boolean => {
+    try {
+      return storedValue(key) === '1'
+    } catch {
+      return false
+    }
+  }
+  return {
+    get,
+    set(on: boolean): void {
+      try {
+        if (on) storeValue(key, '1')
+        else deleteStoredValue(key)
+      } catch {
+        // Private browsing and the like.
+      }
+    },
+    /** Run `listener` with the new value whenever it is switched in another context. */
+    onChange: (listener: (on: boolean) => void): (() => void) =>
+      onStoredValueChange((changed) => {
+        if (changed === key) listener(get())
+      }),
+  }
+}
+
+/**
  * Keys that stay with one build. Moving settings between the userscript and the extension carries
  * every other Caelestis value across.
  */

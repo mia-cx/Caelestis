@@ -1,5 +1,5 @@
 import { registerDebugEntry } from './console-api.js'
-import { deleteStoredValue, onStoredValueChange, storedValue, storeValue } from './stored-values.js'
+import { storedFlag } from './stored-values.js'
 
 /** Report metadata the app supplies through `registerProfileContextSource`; stored and printed as is. */
 export type ProfileContext = Readonly<Record<string, unknown>>
@@ -101,7 +101,7 @@ export interface ProfileSnapshot {
   }
 }
 
-const PROFILE_KEY = 'caelestisProfile'
+const profiling = storedFlag('caelestisProfile')
 const RECENT_SAMPLES = 512
 const FRAME_SAMPLES = 600
 const MAX_ACTIONS = 200
@@ -321,21 +321,10 @@ export const isProfileEnabled = (): boolean => enabled
 export const profileWindowId = (): number => windowId
 
 /** The stored Performance profiling setting. */
-export const storedProfiling = (): boolean => {
-  try {
-    return storedValue(PROFILE_KEY) === '1'
-  } catch {
-    return false
-  }
-}
+export const storedProfiling = profiling.get
 
 /** Remember the Performance profiling setting without profiling here; the toolbar popup's write. */
-export const storeProfiling = (on: boolean): void => {
-  try {
-    if (on) storeValue(PROFILE_KEY, '1')
-    else deleteStoredValue(PROFILE_KEY)
-  } catch {}
-}
+export const storeProfiling = profiling.set
 
 const applyProfiling = (on: boolean): void => {
   if (enabled === on) return
@@ -350,16 +339,14 @@ const applyProfiling = (on: boolean): void => {
 
 export const setProfileEnabled = (on: boolean): void => {
   if (enabled === on) return
-  storeProfiling(on)
+  profiling.set(on)
   applyProfiling(on)
 }
 
 export const installProfile = (): void => {
-  applyProfiling(storedProfiling())
+  applyProfiling(profiling.get())
   // Switched in the extension's toolbar popup or another tab.
-  onStoredValueChange((key) => {
-    if (key === PROFILE_KEY) applyProfiling(storedProfiling())
-  })
+  profiling.onChange(applyProfiling)
   /** A live performance snapshot. Enable profiling in Settings first. */
   registerDebugEntry('profile', () => profileSnapshot())
   /** Clear the current sample window without disabling profiling. */

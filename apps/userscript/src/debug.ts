@@ -1,6 +1,7 @@
 import { exposeDebugApi, registerDebugEntry } from './console-api.js'
 import { recordProfileCounter } from './profile.js'
-import { deleteStoredValue, onStoredValueChange, storedValue, storeValue } from './stored-values.js'
+import { storedFlag } from './stored-values.js'
+
 /**
  * Debug instrumentation for the render path.
  *
@@ -33,7 +34,7 @@ interface Entry {
   readonly data?: unknown
 }
 
-const DEBUG_KEY = 'caelestisDebug'
+const debugLogging = storedFlag('caelestisDebug')
 const RING_SIZE = 400
 const MAX_MESSAGE_LENGTH = 512
 const MAX_DATA_STRING_LENGTH = 512
@@ -49,26 +50,15 @@ const counters = new Map<string, number>()
 const lastNoisy = new Map<Category, string>()
 const started = Date.now()
 
-/** The stored Debug logging setting. */
-export const storedDebugLogging = (): boolean => {
-  try {
-    return storedValue(DEBUG_KEY) === '1'
-  } catch {
-    return false
-  }
-}
-
-// Switched in the extension's toolbar popup or another tab: applies here from the next event on.
-onStoredValueChange((key) => {
-  if (key === DEBUG_KEY) enabled = storedDebugLogging()
-})
+/** The stored Debug logging setting, which may differ from this tab's until it reloads. */
+export const storedDebugLogging = debugLogging.get
 
 /**
  * Apply the stored Debug logging setting once stored values have loaded, and say how to change it.
  * `installDebugApi` reads it earlier too, which in the userscript catches the page hooks' own logs.
  */
 export const loadDebugSetting = (): void => {
-  enabled = storedDebugLogging()
+  enabled = debugLogging.get()
   try {
     console.info(
       enabled
@@ -213,16 +203,15 @@ export const isEnabled = (): boolean => enabled
 /** Turn logging on or off and remember it. Shared by `__caelestis.debug()` and the Diagnostics setting. */
 export const setEnabled = (on: boolean): void => {
   enabled = on
-  try {
-    if (on) storeValue(DEBUG_KEY, '1')
-    else deleteStoredValue(DEBUG_KEY)
-  } catch {
-    // Private browsing and the like. The in-memory flag still applies for this session.
-  }
+  debugLogging.set(on)
 }
 
 export const installDebugApi = (): void => {
-  enabled = storedDebugLogging()
+  enabled = debugLogging.get()
+  // Switched in the extension's toolbar popup or another tab: applies here from the next event on.
+  debugLogging.onChange((on) => {
+    enabled = on
+  })
   registerDebugEntry('debug', (on: boolean) => {
     setEnabled(on)
     return `[caelestis] debug ${on ? 'on' : 'off'} — reload to capture startup, __caelestis.dump() to print`

@@ -5,13 +5,10 @@ import {
   registerCaelestisUi,
 } from '@caelestis/ui/elements'
 import { userscriptVersion } from '../client-metrics.js'
-import { setEnabled as setDebugLogging, storedDebugLogging } from '../debug.js'
-import { storedProfiling, storeProfiling } from '../profile.js'
-import { storedGlobalSettings, storeGlobalSetting } from '../settings.js'
+import { applyGlobalSettingsIntent, globalSettingsModel } from '../global-settings.js'
 import { onStoredValueChange, useStoredValues } from '../stored-values.js'
 import { applyWplaceTheme } from '../ui/theme.js'
-import { isWplacePatch, setWplacePatchEnabled, wplacePatchSettings } from '../wplace-patches.js'
-import { setWplaceOption, wplaceOptions } from '../wplace-settings.js'
+import { wplaceOptions } from '../wplace-settings.js'
 import { loadStoredStrings, onStoredStringsChange, writeStoredString } from './storage.js'
 
 /**
@@ -24,31 +21,8 @@ import { loadStoredStrings, onStoredStringsChange, writeStoredString } from './s
 
 const model = (): ExtensionSettingsModel => {
   // The store updates the extension, so there is no update notification to switch.
-  const { notifyUpdates: _, ...settings } = storedGlobalSettings()
-  return {
-    ...settings,
-    version: userscriptVersion,
-    wplacePatches: wplacePatchSettings(),
-    debugLogging: storedDebugLogging(),
-    performanceProfiling: storedProfiling(),
-    accessibility: wplaceOptions(),
-  }
-}
-
-const apply = (intent: GlobalSettingsIntent): void => {
-  switch (intent.type) {
-    case 'set-boolean':
-      if (intent.key === 'debugLogging') setDebugLogging(intent.value)
-      else if (intent.key === 'performanceProfiling') storeProfiling(intent.value)
-      else storeGlobalSetting(intent.key, intent.value)
-      break
-    case 'set-wplace-patch':
-      if (isWplacePatch(intent.id)) setWplacePatchEnabled(intent.id, intent.enabled)
-      break
-    case 'set-accessibility':
-      setWplaceOption(intent.key, intent.value)
-      break
-  }
+  const { notifyUpdates: _, ...settings } = globalSettingsModel('popup')
+  return { ...settings, version: userscriptVersion, accessibility: wplaceOptions() }
 }
 
 const start = async (): Promise<void> => {
@@ -66,7 +40,7 @@ const start = async (): Promise<void> => {
     view.model = model()
   }
   view.addEventListener('caelestis-extension-settings-intent', (event) => {
-    apply((event as CustomEvent<GlobalSettingsIntent>).detail)
+    applyGlobalSettingsIntent((event as CustomEvent<GlobalSettingsIntent>).detail, 'popup')
     render()
   })
   onStoredValueChange(render)
